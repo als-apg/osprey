@@ -2179,7 +2179,13 @@ def run_web(
         app = create_app(
             config_path=config_path, shell_command=shell_command, project_dir=project_dir
         )
-        server = uvicorn.Server(uvicorn.Config(app, host=host, port=port, log_level="info"))
+        # No permessage-deflate on the browser leg: the panel relay forwards frames
+        # it would otherwise inflate and re-deflate, on the operator's own host.
+        server = uvicorn.Server(
+            uvicorn.Config(
+                app, host=host, port=port, log_level="info", ws_per_message_deflate=False
+            )
+        )
         server.run(sockets=[sock])
     finally:
         if owned:

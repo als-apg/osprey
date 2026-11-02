@@ -79,9 +79,9 @@ BR:DIAG:BPM:08:POSITION:Y:
 BR:DIAG:BPM:08:STATUS:VALID:
   nominal: 'TRUE'
 BR:DIAG:DCCT:01:CURRENT:RB:
-  nominal: 500.0
+  nominal: 1.2
   noise:
-    absolute: 5.0
+    absolute: 0.01
 BR:DIAG:DCCT:01:STATUS:VALID:
   nominal: 'TRUE'
 BR:DIAG:TV:01:LAMP:RB:
@@ -3743,129 +3743,129 @@ SR:DIAG:DCCT:01:CURRENT:RB:
 SR:DIAG:DCCT:01:STATUS:VALID:
   nominal: 'TRUE'
 SR:DIAG:GAMMA:01:DOSE_RATE:AVG_1HR:
-  nominal: 100.0
+  nominal: 0.35
   noise:
-    absolute: 1.0
+    absolute: 0.005
 SR:DIAG:GAMMA:01:DOSE_RATE:AVG_1MIN:
-  nominal: 100.0
+  nominal: 0.35
   noise:
-    absolute: 1.0
+    absolute: 0.005
 SR:DIAG:GAMMA:01:DOSE_RATE:INST:
-  nominal: 100.0
+  nominal: 0.35
   noise:
-    absolute: 1.0
+    absolute: 0.005
 SR:DIAG:GAMMA:01:STATUS:ALARM:
   nominal: 'TRUE'
 SR:DIAG:GAMMA:01:STATUS:VALID:
   nominal: 'TRUE'
 SR:DIAG:GAMMA:02:DOSE_RATE:AVG_1HR:
-  nominal: 100.0
+  nominal: 0.08
   noise:
-    absolute: 1.0
+    absolute: 0.005
 SR:DIAG:GAMMA:02:DOSE_RATE:AVG_1MIN:
-  nominal: 100.0
+  nominal: 0.08
   noise:
-    absolute: 1.0
+    absolute: 0.005
 SR:DIAG:GAMMA:02:DOSE_RATE:INST:
-  nominal: 100.0
+  nominal: 0.08
   noise:
-    absolute: 1.0
+    absolute: 0.005
 SR:DIAG:GAMMA:02:STATUS:ALARM:
   nominal: 'TRUE'
 SR:DIAG:GAMMA:02:STATUS:VALID:
   nominal: 'TRUE'
 SR:DIAG:GAMMA:03:DOSE_RATE:AVG_1HR:
-  nominal: 100.0
+  nominal: 0.06
   noise:
-    absolute: 1.0
+    absolute: 0.005
 SR:DIAG:GAMMA:03:DOSE_RATE:AVG_1MIN:
-  nominal: 100.0
+  nominal: 0.06
   noise:
-    absolute: 1.0
+    absolute: 0.005
 SR:DIAG:GAMMA:03:DOSE_RATE:INST:
-  nominal: 100.0
+  nominal: 0.06
   noise:
-    absolute: 1.0
+    absolute: 0.005
 SR:DIAG:GAMMA:03:STATUS:ALARM:
   nominal: 'TRUE'
 SR:DIAG:GAMMA:03:STATUS:VALID:
   nominal: 'TRUE'
 SR:DIAG:GAMMA:04:DOSE_RATE:AVG_1HR:
-  nominal: 100.0
+  nominal: 0.07
   noise:
-    absolute: 1.0
+    absolute: 0.005
 SR:DIAG:GAMMA:04:DOSE_RATE:AVG_1MIN:
-  nominal: 100.0
+  nominal: 0.07
   noise:
-    absolute: 1.0
+    absolute: 0.005
 SR:DIAG:GAMMA:04:DOSE_RATE:INST:
-  nominal: 100.0
+  nominal: 0.07
   noise:
-    absolute: 1.0
+    absolute: 0.005
 SR:DIAG:GAMMA:04:STATUS:ALARM:
   nominal: 'TRUE'
 SR:DIAG:GAMMA:04:STATUS:VALID:
   nominal: 'TRUE'
 SR:DIAG:NEUTRON:01:DOSE_RATE:AVG_1HR:
-  nominal: 100.0
+  nominal: 0.14
   noise:
-    absolute: 1.0
+    absolute: 0.005
 SR:DIAG:NEUTRON:01:DOSE_RATE:AVG_1MIN:
-  nominal: 100.0
+  nominal: 0.14
   noise:
-    absolute: 1.0
+    absolute: 0.005
 SR:DIAG:NEUTRON:01:DOSE_RATE:INST:
-  nominal: 100.0
+  nominal: 0.14
   noise:
-    absolute: 1.0
+    absolute: 0.005
 SR:DIAG:NEUTRON:01:STATUS:ALARM:
   nominal: 'TRUE'
 SR:DIAG:NEUTRON:01:STATUS:VALID:
   nominal: 'TRUE'
 SR:DIAG:NEUTRON:02:DOSE_RATE:AVG_1HR:
-  nominal: 100.0
+  nominal: 0.032
   noise:
-    absolute: 1.0
+    absolute: 0.005
 SR:DIAG:NEUTRON:02:DOSE_RATE:AVG_1MIN:
-  nominal: 100.0
+  nominal: 0.032
   noise:
-    absolute: 1.0
+    absolute: 0.005
 SR:DIAG:NEUTRON:02:DOSE_RATE:INST:
-  nominal: 100.0
+  nominal: 0.032
   noise:
-    absolute: 1.0
+    absolute: 0.005
 SR:DIAG:NEUTRON:02:STATUS:ALARM:
   nominal: 'TRUE'
 SR:DIAG:NEUTRON:02:STATUS:VALID:
   nominal: 'TRUE'
 SR:DIAG:NEUTRON:03:DOSE_RATE:AVG_1HR:
-  nominal: 100.0
+  nominal: 0.024
   noise:
-    absolute: 1.0
+    absolute: 0.005
 SR:DIAG:NEUTRON:03:DOSE_RATE:AVG_1MIN:
-  nominal: 100.0
+  nominal: 0.024
   noise:
-    absolute: 1.0
+    absolute: 0.005
 SR:DIAG:NEUTRON:03:DOSE_RATE:INST:
-  nominal: 100.0
+  nominal: 0.024
   noise:
-    absolute: 1.0
+    absolute: 0.005
 SR:DIAG:NEUTRON:03:STATUS:ALARM:
   nominal: 'TRUE'
 SR:DIAG:NEUTRON:03:STATUS:VALID:
   nominal: 'TRUE'
 SR:DIAG:NEUTRON:04:DOSE_RATE:AVG_1HR:
-  nominal: 100.0
+  nominal: 0.028
   noise:
-    absolute: 1.0
+    absolute: 0.005
 SR:DIAG:NEUTRON:04:DOSE_RATE:AVG_1MIN:
-  nominal: 100.0
+  nominal: 0.028
   noise:
-    absolute: 1.0
+    absolute: 0.005
 SR:DIAG:NEUTRON:04:DOSE_RATE:INST:
-  nominal: 100.0
+  nominal: 0.028
   noise:
-    absolute: 1.0
+    absolute: 0.005
 SR:DIAG:NEUTRON:04:STATUS:ALARM:
   nominal: 'TRUE'
 SR:DIAG:NEUTRON:04:STATUS:VALID:
@@ -9036,9 +9036,9 @@ SR:RF:KLYSTRON:02:VOLTAGE:RB:
 SR:RF:KLYSTRON:02:VOLTAGE:SP:
   nominal: 80.0
 SR:VAC:GAUGE:SR01:PRESSURE:RB:
-  nominal: 5.0e-08
+  nominal: 3.208e-10
   noise:
-    absolute: 1.5e-09
+    absolute: 1.0e-11
   clamp:
   - 0.0
   - null
@@ -9047,9 +9047,9 @@ SR:VAC:GAUGE:SR01:STATUS:ON:
 SR:VAC:GAUGE:SR01:STATUS:VALID:
   nominal: 'TRUE'
 SR:VAC:GAUGE:SR02:PRESSURE:RB:
-  nominal: 5.0e-08
+  nominal: 3.553e-10
   noise:
-    absolute: 1.5e-09
+    absolute: 1.0e-11
   clamp:
   - 0.0
   - null
@@ -9058,9 +9058,9 @@ SR:VAC:GAUGE:SR02:STATUS:ON:
 SR:VAC:GAUGE:SR02:STATUS:VALID:
   nominal: 'TRUE'
 SR:VAC:GAUGE:SR03:PRESSURE:RB:
-  nominal: 5.0e-08
+  nominal: 2.722e-10
   noise:
-    absolute: 1.5e-09
+    absolute: 1.0e-11
   clamp:
   - 0.0
   - null
@@ -9069,9 +9069,9 @@ SR:VAC:GAUGE:SR03:STATUS:ON:
 SR:VAC:GAUGE:SR03:STATUS:VALID:
   nominal: 'TRUE'
 SR:VAC:GAUGE:SR04:PRESSURE:RB:
-  nominal: 5.0e-08
+  nominal: 3.484e-10
   noise:
-    absolute: 1.5e-09
+    absolute: 1.0e-11
   clamp:
   - 0.0
   - null
@@ -9080,9 +9080,9 @@ SR:VAC:GAUGE:SR04:STATUS:ON:
 SR:VAC:GAUGE:SR04:STATUS:VALID:
   nominal: 'TRUE'
 SR:VAC:GAUGE:SR05:PRESSURE:RB:
-  nominal: 5.0e-08
+  nominal: 3.299e-10
   noise:
-    absolute: 1.5e-09
+    absolute: 1.0e-11
   clamp:
   - 0.0
   - null
@@ -9091,9 +9091,9 @@ SR:VAC:GAUGE:SR05:STATUS:ON:
 SR:VAC:GAUGE:SR05:STATUS:VALID:
   nominal: 'TRUE'
 SR:VAC:GAUGE:SR06:PRESSURE:RB:
-  nominal: 5.0e-08
+  nominal: 2.784e-10
   noise:
-    absolute: 1.5e-09
+    absolute: 1.0e-11
   clamp:
   - 0.0
   - null
@@ -9102,9 +9102,9 @@ SR:VAC:GAUGE:SR06:STATUS:ON:
 SR:VAC:GAUGE:SR06:STATUS:VALID:
   nominal: 'TRUE'
 SR:VAC:GAUGE:SR07:PRESSURE:RB:
-  nominal: 5.0e-08
+  nominal: 3.656e-10
   noise:
-    absolute: 1.5e-09
+    absolute: 1.0e-11
   clamp:
   - 0.0
   - null
@@ -9113,9 +9113,9 @@ SR:VAC:GAUGE:SR07:STATUS:ON:
 SR:VAC:GAUGE:SR07:STATUS:VALID:
   nominal: 'TRUE'
 SR:VAC:GAUGE:SR08:PRESSURE:RB:
-  nominal: 5.0e-08
+  nominal: 3.009e-10
   noise:
-    absolute: 1.5e-09
+    absolute: 1.0e-11
   clamp:
   - 0.0
   - null
@@ -9124,9 +9124,9 @@ SR:VAC:GAUGE:SR08:STATUS:ON:
 SR:VAC:GAUGE:SR08:STATUS:VALID:
   nominal: 'TRUE'
 SR:VAC:GAUGE:SR09:PRESSURE:RB:
-  nominal: 5.0e-08
+  nominal: 2.999e-10
   noise:
-    absolute: 1.5e-09
+    absolute: 1.0e-11
   clamp:
   - 0.0
   - null
@@ -9135,9 +9135,9 @@ SR:VAC:GAUGE:SR09:STATUS:ON:
 SR:VAC:GAUGE:SR09:STATUS:VALID:
   nominal: 'TRUE'
 SR:VAC:GAUGE:SR10:PRESSURE:RB:
-  nominal: 5.0e-08
+  nominal: 3.659e-10
   noise:
-    absolute: 1.5e-09
+    absolute: 1.0e-11
   clamp:
   - 0.0
   - null
@@ -9146,9 +9146,9 @@ SR:VAC:GAUGE:SR10:STATUS:ON:
 SR:VAC:GAUGE:SR10:STATUS:VALID:
   nominal: 'TRUE'
 SR:VAC:GAUGE:SR11:PRESSURE:RB:
-  nominal: 5.0e-08
+  nominal: 2.79e-10
   noise:
-    absolute: 1.5e-09
+    absolute: 1.0e-11
   clamp:
   - 0.0
   - null
@@ -9157,9 +9157,9 @@ SR:VAC:GAUGE:SR11:STATUS:ON:
 SR:VAC:GAUGE:SR11:STATUS:VALID:
   nominal: 'TRUE'
 SR:VAC:GAUGE:SR12:PRESSURE:RB:
-  nominal: 5.0e-08
+  nominal: 3.288e-10
   noise:
-    absolute: 1.5e-09
+    absolute: 1.0e-11
   clamp:
   - 0.0
   - null
@@ -9168,11 +9168,11 @@ SR:VAC:GAUGE:SR12:STATUS:ON:
 SR:VAC:GAUGE:SR12:STATUS:VALID:
   nominal: 'TRUE'
 SR:VAC:ION-PUMP:01:CURRENT:RB:
-  nominal: 150.0
+  nominal: 0.959
   noise:
-    absolute: 1.5
+    absolute: 0.01
 SR:VAC:ION-PUMP:01:PRESSURE:RB:
-  nominal: 1.0e-09
+  nominal: 1.199e-09
   noise:
     absolute: 1.0e-11
 SR:VAC:ION-PUMP:01:STATUS:FAULT:
@@ -9180,17 +9180,17 @@ SR:VAC:ION-PUMP:01:STATUS:FAULT:
 SR:VAC:ION-PUMP:01:STATUS:ON:
   nominal: 'TRUE'
 SR:VAC:ION-PUMP:01:VOLTAGE:RB:
-  nominal: 5000.0
+  nominal: 5.0
   noise:
-    absolute: 5.0
+    absolute: 0.005
 SR:VAC:ION-PUMP:01:VOLTAGE:SP:
-  nominal: 5000.0
+  nominal: 5.0
 SR:VAC:ION-PUMP:02:CURRENT:RB:
-  nominal: 150.0
+  nominal: 0.499
   noise:
-    absolute: 1.5
+    absolute: 0.01
 SR:VAC:ION-PUMP:02:PRESSURE:RB:
-  nominal: 1.0e-09
+  nominal: 6.24e-10
   noise:
     absolute: 1.0e-11
 SR:VAC:ION-PUMP:02:STATUS:FAULT:
@@ -9198,17 +9198,17 @@ SR:VAC:ION-PUMP:02:STATUS:FAULT:
 SR:VAC:ION-PUMP:02:STATUS:ON:
   nominal: 'TRUE'
 SR:VAC:ION-PUMP:02:VOLTAGE:RB:
-  nominal: 5000.0
+  nominal: 5.0
   noise:
-    absolute: 5.0
+    absolute: 0.005
 SR:VAC:ION-PUMP:02:VOLTAGE:SP:
-  nominal: 5000.0
+  nominal: 5.0
 SR:VAC:ION-PUMP:03:CURRENT:RB:
-  nominal: 150.0
+  nominal: 0.446
   noise:
-    absolute: 1.5
+    absolute: 0.01
 SR:VAC:ION-PUMP:03:PRESSURE:RB:
-  nominal: 1.0e-09
+  nominal: 5.57e-10
   noise:
     absolute: 1.0e-11
 SR:VAC:ION-PUMP:03:STATUS:FAULT:
@@ -9216,17 +9216,17 @@ SR:VAC:ION-PUMP:03:STATUS:FAULT:
 SR:VAC:ION-PUMP:03:STATUS:ON:
   nominal: 'TRUE'
 SR:VAC:ION-PUMP:03:VOLTAGE:RB:
-  nominal: 5000.0
+  nominal: 5.0
   noise:
-    absolute: 5.0
+    absolute: 0.005
 SR:VAC:ION-PUMP:03:VOLTAGE:SP:
-  nominal: 5000.0
+  nominal: 5.0
 SR:VAC:ION-PUMP:04:CURRENT:RB:
-  nominal: 150.0
+  nominal: 0.559
   noise:
-    absolute: 1.5
+    absolute: 0.01
 SR:VAC:ION-PUMP:04:PRESSURE:RB:
-  nominal: 1.0e-09
+  nominal: 6.99e-10
   noise:
     absolute: 1.0e-11
 SR:VAC:ION-PUMP:04:STATUS:FAULT:
@@ -9234,17 +9234,17 @@ SR:VAC:ION-PUMP:04:STATUS:FAULT:
 SR:VAC:ION-PUMP:04:STATUS:ON:
   nominal: 'TRUE'
 SR:VAC:ION-PUMP:04:VOLTAGE:RB:
-  nominal: 5000.0
+  nominal: 5.0
   noise:
-    absolute: 5.0
+    absolute: 0.005
 SR:VAC:ION-PUMP:04:VOLTAGE:SP:
-  nominal: 5000.0
+  nominal: 5.0
 SR:VAC:ION-PUMP:05:CURRENT:RB:
-  nominal: 150.0
+  nominal: 0.584
   noise:
-    absolute: 1.5
+    absolute: 0.01
 SR:VAC:ION-PUMP:05:PRESSURE:RB:
-  nominal: 1.0e-09
+  nominal: 7.3e-10
   noise:
     absolute: 1.0e-11
 SR:VAC:ION-PUMP:05:STATUS:FAULT:
@@ -9252,17 +9252,17 @@ SR:VAC:ION-PUMP:05:STATUS:FAULT:
 SR:VAC:ION-PUMP:05:STATUS:ON:
   nominal: 'TRUE'
 SR:VAC:ION-PUMP:05:VOLTAGE:RB:
-  nominal: 5000.0
+  nominal: 5.0
   noise:
-    absolute: 5.0
+    absolute: 0.005
 SR:VAC:ION-PUMP:05:VOLTAGE:SP:
-  nominal: 5000.0
+  nominal: 5.0
 SR:VAC:ION-PUMP:06:CURRENT:RB:
-  nominal: 150.0
+  nominal: 0.824
   noise:
-    absolute: 1.5
+    absolute: 0.01
 SR:VAC:ION-PUMP:06:PRESSURE:RB:
-  nominal: 1.0e-09
+  nominal: 1.03e-09
   noise:
     absolute: 1.0e-11
 SR:VAC:ION-PUMP:06:STATUS:FAULT:
@@ -9270,11 +9270,11 @@ SR:VAC:ION-PUMP:06:STATUS:FAULT:
 SR:VAC:ION-PUMP:06:STATUS:ON:
   nominal: 'TRUE'
 SR:VAC:ION-PUMP:06:VOLTAGE:RB:
-  nominal: 5000.0
+  nominal: 5.0
   noise:
-    absolute: 5.0
+    absolute: 0.005
 SR:VAC:ION-PUMP:06:VOLTAGE:SP:
-  nominal: 5000.0
+  nominal: 5.0
 SR:VAC:VALVE:01:CONTROL:CLOSE:
   nominal: 'TRUE'
 SR:VAC:VALVE:01:CONTROL:OPEN:

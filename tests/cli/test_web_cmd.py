@@ -34,7 +34,7 @@ from osprey.cli.web_cmd import (
     web,
 )
 from osprey.port_layout import default_port
-from osprey_connectors_tests._harness._ports import bound_socket
+from osprey_connectors_tests._harness._ports import bound_socket, reserved_port
 from tests.cli._lifecycle_build import stub_build
 from tests.cli._scoped_subprocess import patch_subprocess
 
@@ -2209,3 +2209,64 @@ class TestInheritedSecretIsExplained:
         assert "Open:" not in result.output
         assert "OSPREY_TERMINAL_SECRET" not in result.output
         assert "supplied-by-the-deployment" not in result.output
+
+
+class TestLaunchSitesTurnOffPerMessageDeflate:
+    """Both ways ``osprey web`` starts uvicorn serve WebSockets without deflate.
+
+    The foreground branch reaches uvicorn through ``run_web``; ``--reload``
+    calls it directly with the app factory. Either one left on uvicorn's
+    default would negotiate permessage-deflate with every browser, and the
+    panel relay would then inflate and re-deflate every frame it forwards.
+    """
+
+    @pytest.mark.parametrize("reload", [False, True], ids=["foreground", "reload"])
+    def test_uvicorn_runs_with_deflate_off(self, runner, monkeypatch, deployment, reload):
+        monkeypatch.setattr("osprey.mcp_env.load_dotenv_from_project", lambda **_kw: None)
+        monkeypatch.delenv(DECLARED_BIND_ENV, raising=False)
+        monkeypatch.setattr(
+            "osprey.interfaces.web_terminal.app._open_browser_when_ready",
+            lambda *a, **k: None,
+        )
+        monkeypatch.setattr("osprey.interfaces.web_terminal.app.create_app", lambda **_k: object())
+        import uvicorn
+
+        calls: list[dict] = []
+        # --reload hands uvicorn.run the factory; the foreground serves run_web's
+        # bound socket through uvicorn.Server(uvicorn.Config(...)).
+        monkeypatch.setattr(uvicorn, "run", lambda *a, **k: calls.append(k))
+
+        class _Config:
+            def __init__(self, _app, **kwargs):
+                calls.append(kwargs)
+
+        class _Server:
+            started = True
+
+            def __init__(self, _config):
+                pass
+
+            def run(self, sockets=None):
+                pass
+
+        monkeypatch.setattr(uvicorn, "Config", _Config)
+        monkeypatch.setattr(uvicorn, "Server", _Server)
+        with reserved_port() as port:
+            args = [
+                "--repo",
+                str(deployment),
+                "--port",
+                str(port),
+                "--shell",
+                "true",
+                "--skip-preflight",
+            ]
+            if reload:
+                args.append("--reload")
+
+            result = runner.invoke(web, args, catch_exceptions=False)
+
+        assert result.exit_code == 0
+        assert len(calls) == 1
+        assert calls[0].get("ws_per_message_deflate") is False
+        assert calls[0].get("reload", False) is reload
