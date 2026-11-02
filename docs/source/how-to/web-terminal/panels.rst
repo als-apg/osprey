@@ -238,11 +238,12 @@ element:
 .. code-block:: javascript
 
    window.parent.postMessage(
-     { type: 'osprey-focus-exit', direction: 'forward' },  // or 'backward'
+     { type: 'canopy-host-focus-exit', direction: 'forward' },  // or 'backward'
      window.location.origin,
    );
 
-The terminal focuses the next (or previous) element of its own page, in
+The terminal also reads the older ``osprey-focus-exit`` for one release. It then
+focuses the next (or previous) element of its own page, in
 document order relative to the panel's tile — after ``backward``, that is the
 tile's header. It acts only on a message from its own origin and from the
 frame of a panel it shows.

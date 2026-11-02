@@ -20,11 +20,16 @@ from pathlib import Path
 import pytest
 
 import osprey.interfaces.design_system as design_system_pkg
+from osprey.interfaces.design_system.generator import validate as validate_module
 from osprey.interfaces.design_system.generator.model import (
     AliasStatus,
     ResolvedToken,
     TokenTree,
     load_token_tree,
+)
+from osprey.interfaces.design_system.generator.naming import (
+    FORBIDDEN_PROMOTED_PREFIXES,
+    PROMOTED_PRIMITIVE_GROUPS,
 )
 from osprey.interfaces.design_system.generator.validate import (
     WCAG_GATES,
@@ -39,6 +44,7 @@ from osprey.interfaces.design_system.generator.validate import (
     check_interface_mode_completeness,
     check_namespace_collisions,
     check_promoted_primitive_collisions,
+    check_promoted_primitive_prefixes,
     check_terminal_serialization,
     check_theme_completeness,
     check_theme_metadata,
@@ -821,6 +827,60 @@ def test_check_promoted_primitive_collisions_allows_non_colliding_tokens() -> No
     )
 
     assert check_promoted_primitive_collisions(tree) == []
+
+
+# --- check_promoted_primitive_prefixes ---------------------------------------------
+
+
+@pytest.mark.parametrize("prefix", ["canopy", "cds", "dv", "pydm", "bar"])
+def test_check_promoted_primitive_prefixes_flags_forbidden_prefix(
+    prefix: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Promote a group whose names would land in a foreign namespace.
+    monkeypatch.setattr(
+        validate_module, "PROMOTED_PRIMITIVE_GROUPS", (*PROMOTED_PRIMITIVE_GROUPS, prefix)
+    )
+    path = f"{prefix}.h"
+    tree = _tree(primitives={path: _token(path, "36px", type_="dimension")})
+
+    errors = check_promoted_primitive_prefixes(tree)
+
+    assert len(errors) == 1
+    assert errors[0].rule == ValidationRule.FORBIDDEN_PROMOTED_PREFIX
+    assert f"--{prefix}-h" in errors[0].message
+    assert errors[0].path == path
+
+
+def test_check_promoted_primitive_prefixes_ignores_unpromoted_groups() -> None:
+    # "canopy" is not a promoted group, so it is never emitted and never checked.
+    tree = _tree(primitives={"canopy.h": _token("canopy.h", "36px", type_="dimension")})
+
+    assert check_promoted_primitive_prefixes(tree) == []
+
+
+def test_check_promoted_primitive_prefixes_allows_chrome_group() -> None:
+    tree = _tree(primitives={"chrome.bar-h": _token("chrome.bar-h", "36px", type_="dimension")})
+
+    assert check_promoted_primitive_prefixes(tree) == []
+
+
+def test_promoted_groups_never_start_with_a_forbidden_prefix() -> None:
+    # Guard on the naming authority itself: every promoted group's names are
+    # "--<group>-...", so the group name must not open a forbidden prefix.
+    for group in PROMOTED_PRIMITIVE_GROUPS:
+        name = f"--{group}-x"
+        assert not name.startswith(FORBIDDEN_PROMOTED_PREFIXES), group
+
+
+def test_validate_token_tree_runs_promoted_prefix_check(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        validate_module, "PROMOTED_PRIMITIVE_GROUPS", (*PROMOTED_PRIMITIVE_GROUPS, "dv")
+    )
+    tree = _tree(primitives={"dv.h": _token("dv.h", "36px", type_="dimension")})
+
+    rules = {finding.rule for finding in validate_token_tree(tree)}
+
+    assert ValidationRule.FORBIDDEN_PROMOTED_PREFIX in rules
 
 
 # --- check_wcag_gates --------------------------------------------------------------

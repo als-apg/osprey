@@ -70,7 +70,7 @@ function addPanelIframe(panelId) {
 function deliverContribution(items, source, origin = window.location.origin) {
   window.dispatchEvent(
     new MessageEvent('message', {
-      data: { type: 'osprey-header-contribution', version: 1, items },
+      data: { type: 'canopy-host-header-contribution', version: 1, items },
       origin,
       source,
     })
@@ -118,6 +118,27 @@ describe('receive pipeline', () => {
 
     expect(host.querySelector('.contrib-text')?.textContent).toBe('bl4c_v2');
     expect(host.classList.contains('has-items')).toBe(true);
+  });
+
+  test("reads a viewer's old osprey-header-contribution name for one release", () => {
+    const panelId = freshPanelId();
+    const { contentWindow } = addPanelIframe(panelId);
+    const host = document.createElement('div');
+    registerContribHost(panelId, host);
+
+    window.dispatchEvent(
+      new MessageEvent('message', {
+        data: {
+          type: 'osprey-header-contribution',
+          version: 1,
+          items: [{ kind: 'text', id: 'name', text: 'old' }],
+        },
+        origin: window.location.origin,
+        source: /** @type {any} */ (contentWindow),
+      })
+    );
+
+    expect(host.querySelector('.contrib-text')?.textContent).toBe('old');
   });
 
   test('caches a contribution that arrives before the host registers', () => {
@@ -282,7 +303,7 @@ describe('sanitization', () => {
 });
 
 describe('action round-trip', () => {
-  test('button click posts osprey-header-action to the panel iframe', () => {
+  test('button click posts canopy-host-header-action to the panel iframe', () => {
     const panelId = freshPanelId();
     const { contentWindow } = addPanelIframe(panelId);
     const host = document.createElement('div');
@@ -292,7 +313,7 @@ describe('action round-trip', () => {
     /** @type {HTMLButtonElement} */ (host.querySelector('.contrib-btn')).click();
 
     expect(contentWindow.postMessage).toHaveBeenCalledWith(
-      { type: 'osprey-header-action', id: 'refresh' },
+      { type: 'canopy-host-header-action', id: 'refresh' },
       window.location.origin
     );
   });
@@ -310,7 +331,7 @@ describe('action round-trip', () => {
     /** @type {HTMLButtonElement} */ (host.querySelector('.contrib-nav-link')).click();
 
     expect(contentWindow.postMessage).toHaveBeenCalledWith(
-      { type: 'osprey-header-action', id: 'view', value: 'browse' },
+      { type: 'canopy-host-header-action', id: 'view', value: 'browse' },
       window.location.origin
     );
   });
@@ -528,7 +549,7 @@ describe('overflow ladder', () => {
     // A row dispatches exactly what the unfolded control would have.
     rows[1].dispatchEvent(new Event('click', { bubbles: true }));
     expect(contentWindow.postMessage).toHaveBeenCalledWith(
-      { type: 'osprey-header-action', id: 'view', value: 'edit' },
+      { type: 'canopy-host-header-action', id: 'view', value: 'edit' },
       window.location.origin
     );
     expect(document.querySelector('.contrib-menu-popover')).toBeNull();

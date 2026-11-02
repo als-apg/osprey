@@ -778,7 +778,7 @@ function clearFallbackShown(panelId) {
 
 /**
  * Where a panel sits in the host's TAB ORDER, for a panel that hands keyboard
- * focus back to the host (`osprey-focus-exit`, handled in app.js).
+ * focus back to the host (`canopy-host-focus-exit`, handled in app.js).
  *
  * An overlay iframe lives in the overlay layer, whose place in the document has
  * nothing to do with where its tile is drawn, so the iframe itself cannot say

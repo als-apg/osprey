@@ -21,6 +21,7 @@ from osprey.interfaces.design_system.generator.model import (
     TokenTree,
     load_token_tree,
 )
+from osprey.interfaces.design_system.generator.naming import FORBIDDEN_PROMOTED_PREFIXES
 
 REAL_TOKENS_DIR = Path(design_system_pkg.__file__).parent / "tokens"
 
@@ -218,6 +219,21 @@ def test_scale_primitives_emitted_in_default_block_only() -> None:
     # scales are theme-independent: never re-declared in non-default blocks
     for block in css.split("}")[1:]:
         assert "--space-1:" not in block
+
+
+@pytest.mark.skipif(not REAL_TOKENS_DIR.is_dir(), reason="real tokens/ tree not present yet")
+def test_real_tokens_tree_promoted_names_avoid_foreign_prefixes() -> None:
+    # tokens.css is linked into CANOPY documents too; no root-level promoted
+    # name may sit in a namespace canopy-shell, Carbon, dockview, PyDM or
+    # web_terminal's local --bar-* properties already own.
+    css = emit_css(load_token_tree(REAL_TOKENS_DIR))
+    root_block = css.split("}")[0]
+    names = re.findall(r"(--[a-z0-9-]+):", root_block)
+
+    assert names
+    for name in names:
+        for prefix in FORBIDDEN_PROMOTED_PREFIXES:
+            assert not name.startswith(prefix), f"{name} uses forbidden prefix {prefix}"
 
 
 def test_emit_css_excludes_code_group_entirely() -> None:

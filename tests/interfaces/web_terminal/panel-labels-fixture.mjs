@@ -18,6 +18,7 @@ export const BUILTIN_PANEL_LABELS = Object.freeze({
   'channel-finder': 'CHANNELS',
   lattice: 'LATTICE',
   jupyter: 'JUPYTER',
+  canopy: 'CANOPY',
   okf: 'KNOWLEDGE',
   'system-health': 'SYSTEM',
 });
@@ -37,6 +38,15 @@ export const SIDECAR_PANELS = Object.freeze([
     configEndpoint: '/api/jupyter-server',
     healthEndpoint: '/api/status',
     startEndpoint: '/api/panels/jupyter/start',
+  }),
+  Object.freeze({
+    id: 'canopy',
+    label: 'CANOPY',
+    icon: 'layers',
+    description: 'Machine screens and Trace, which the agent reads and authors',
+    configEndpoint: '/api/panels/canopy/server',
+    healthEndpoint: '/health',
+    startEndpoint: '/api/panels/canopy/start',
   }),
 ]);
 
