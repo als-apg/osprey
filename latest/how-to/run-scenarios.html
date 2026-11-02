@@ -649,7 +649,10 @@ and one position: <code class="docutils literal notranslate"><span class="pre">a
 ramp ends at <code class="docutils literal notranslate"><span class="pre">until_offset</span></code>), <code class="docutils literal notranslate"><span class="pre">at_time</span></code> (a daily <code class="docutils literal notranslate"><span class="pre">HH:MM:SS</span></code> in the
 facility time zone) or <code class="docutils literal notranslate"><span class="pre">at_when</span></code> (<code class="docutils literal notranslate"><span class="pre">{days_ago,</span> <span class="pre">time}</span></code>), which places
 an event at the instant a logbook entry’s <code class="docutils literal notranslate"><span class="pre">when</span></code> names. <code class="docutils literal notranslate"><span class="pre">at_time</span></code>
-and <code class="docutils literal notranslate"><span class="pre">at_when</span></code> take <code class="docutils literal notranslate"><span class="pre">step</span></code> and <code class="docutils literal notranslate"><span class="pre">spike</span></code> only.</p></td>
+and <code class="docutils literal notranslate"><span class="pre">at_when</span></code> take <code class="docutils literal notranslate"><span class="pre">step</span></code> and <code class="docutils literal notranslate"><span class="pre">spike</span></code> only. A <code class="docutils literal notranslate"><span class="pre">step</span></code> on a float
+channel may end with <code class="docutils literal notranslate"><span class="pre">until</span></code>, <code class="docutils literal notranslate"><span class="pre">until_offset</span></code> or <code class="docutils literal notranslate"><span class="pre">until_when</span></code>,
+matching its position and later than it; after the end the channel
+returns to its baseline. A daily <code class="docutils literal notranslate"><span class="pre">at_time</span></code> step does not end.</p></td>
 </tr>
 <tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">logbook</span></code></p></td>
 <td><p>The entries the scenario narrates, each with <code class="docutils literal notranslate"><span class="pre">entry_id</span></code>, <code class="docutils literal notranslate"><span class="pre">when</span></code>

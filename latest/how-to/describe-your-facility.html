@@ -904,6 +904,27 @@ have; or <code class="docutils literal notranslate"><span class="pre">gated</spa
 </ul>
 <p>A <code class="docutils literal notranslate"><span class="pre">pulse</span></code> or <code class="docutils literal notranslate"><span class="pre">gate</span></code> input that names no channel stops the build with
 <code class="docutils literal notranslate"><span class="pre">reference-missing</span></code>.</p>
+<p><code class="docutils literal notranslate"><span class="pre">topoff</span></code> makes a float channel a stored current under top-off: it starts
+each <code class="docutils literal notranslate"><span class="pre">period_s</span></code> at <code class="docutils literal notranslate"><span class="pre">ceiling</span></code> and decays with the lifetime <code class="docutils literal notranslate"><span class="pre">lifetime_h</span></code>
+until the next refill. <code class="docutils literal notranslate"><span class="pre">topoff_lifetime</span></code> makes a channel read that lifetime,
+named by the channel that carries the <code class="docutils literal notranslate"><span class="pre">topoff</span></code> seed, so current and lifetime
+always agree.</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">SR:DIAG:DCCT:01:CURRENT:RB</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">topoff</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">ceiling</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">500.0</span>
+<span class="w">    </span><span class="nt">lifetime_h</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">7.0</span>
+<span class="w">    </span><span class="nt">period_s</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">31.0</span>
+<span class="nt">SR:DIAG:DCCT:01:LIFETIME:RB</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">topoff_lifetime</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">of</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">SR:DIAG:DCCT:01:CURRENT:RB</span>
+</pre></div>
+</div>
+<p>The channel holds the sawtooth’s mean, which is what its limits and the
+archive’s start state see. The build stops with <code class="docutils literal notranslate"><span class="pre">value-invalid</span></code> when
+<code class="docutils literal notranslate"><span class="pre">topoff</span></code> sits on a channel that is not float or <code class="docutils literal notranslate"><span class="pre">lifetime_h</span></code> or
+<code class="docutils literal notranslate"><span class="pre">period_s</span></code> is not above zero, and with <code class="docutils literal notranslate"><span class="pre">seed-invalid</span></code> when <code class="docutils literal notranslate"><span class="pre">topoff</span></code> has
+a <code class="docutils literal notranslate"><span class="pre">nominal</span></code> beside it or <code class="docutils literal notranslate"><span class="pre">topoff_lifetime.of</span></code> names no channel with a
+<code class="docutils literal notranslate"><span class="pre">topoff</span></code> seed. Live reads and the archive show the same sawtooth.</p>
 <p>At run time the <code class="docutils literal notranslate"><span class="pre">gate</span></code> acts on the channel’s held value, after a <code class="docutils literal notranslate"><span class="pre">linear</span></code>
 sum; <code class="docutils literal notranslate"><span class="pre">drift</span></code> and <code class="docutils literal notranslate"><span class="pre">noise</span></code> are added on top and <code class="docutils literal notranslate"><span class="pre">clamp</span></code> applied. A gated
 float reads its value

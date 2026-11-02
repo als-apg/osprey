@@ -710,12 +710,14 @@ chip reads <em>Rehearsal</em>.
 and both containers poll it, so a scenario changes the world rather than one
 lane. There is no scenario that applies to the simulator but not to the stand-in,
 and switching targets does not undo one.</p>
-<p><strong>The archive belongs to the machine.</strong> The recorder records the stand-in when
-one is deployed, so the store’s past and the stand-in’s present describe one
-machine, the way a real machine’s do. While that store is being
-recorded, the <code class="docutils literal notranslate"><span class="pre">live</span></code> target is refused — a real machine’s readings must not
-land in a stand-in’s archive. <a class="reference internal" href="switch-control-target.html"><span class="doc">Switch the Control Target at Run Time</span></a> says how to clear
-that.</p>
+<p><strong>The archive belongs to the machine.</strong> The store this deployment seeds and
+records is the simulator’s, with or without a stand-in: the recorder samples
+the virtual accelerator, and the seeded past is the simulator’s own history.
+The stand-in rehearses the facility’s real machine and is shown that machine’s
+past instead — the <code class="docutils literal notranslate"><span class="pre">epics_archiver</span></code> appliance when the deployment names one,
+and no archive otherwise. Nothing the stand-in reads is ever written into the
+simulator’s store, so no target is gated on the archive.
+<a class="reference internal" href="switch-control-target.html"><span class="doc">Switch the Control Target at Run Time</span></a> has the whole picture.</p>
 </section>
 <section id="two-venues">
 <span id="va-two-venues"></span><h2>Two venues<a class="headerlink" href="#two-venues" title="Link to this heading">#</a></h2>
@@ -759,20 +761,22 @@ deployment with the exact command that flips it back
 Everything that is not a plan — channel reads and writes, the archiver, the
 Channel Finder — works as before. The <code class="docutils literal notranslate"><span class="pre">epics</span></code> block keeps its production
 values throughout.</p>
-<p>The archive follows the flip on its own. The recorder records <strong>only</strong> a machine
-this deployment owns and serves over the network, so with no stand-in deployed
-it stops writing while the simulator runs in process and idles; it re-reads the
-project’s <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> every 30 seconds, so the change takes effect within one
-poll and no restart or rebuild is involved. Nothing is deleted — the history
-already in the store stays readable, it simply stops growing, and it ages out
-under the retention window as usual. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">health</span></code> will report the archive
-as <strong>stale</strong> (a warning, not an error) once the newest sample is older than the
-freshness threshold, which is the honest answer to “is this archive still being
-written”. Flipping back to <code class="docutils literal notranslate"><span class="pre">served</span></code> restarts recording within a poll too.</p>
-<p>A stand-in changes that answer, because the recorder follows the machine rather
-than the <code class="docutils literal notranslate"><span class="pre">control_system</span></code> section: the stand-in keeps running and is still
-the machine this deployment records, so it keeps being recorded while the
-simulator runs in process as well.</p>
+<p>The archive follows the flip on its own. The store is the simulator’s, and the
+recorder samples it only while the <code class="docutils literal notranslate"><span class="pre">va</span></code> target lands on this deployment’s own
+served simulator: loopback, on the port <code class="docutils literal notranslate"><span class="pre">services.virtual_accelerator.port</span></code>
+publishes. The simulator in process serves nothing on the network to sample, so
+the recorder stops writing and idles; pointing the <code class="docutils literal notranslate"><span class="pre">va</span></code> block’s gateways at
+another host, or taking the simulator out of the deployment, idles it the same
+way. It re-reads the project’s <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> every 30 seconds, so a change
+takes effect within one poll and no restart or rebuild is involved. Nothing is
+deleted — the history already in the store stays readable, it simply stops
+growing, and it ages out under the retention window as usual. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">health</span></code>
+will report the archive as <strong>stale</strong> (a warning, not an error) once the newest
+sample is older than the freshness threshold, which is the honest answer to “is
+this archive still being written”. Flipping back to <code class="docutils literal notranslate"><span class="pre">served</span></code> restarts
+recording within a poll too.</p>
+<p>A stand-in beside the simulator changes none of this: it is never what the
+recorder samples.</p>
 <p><code class="docutils literal notranslate"><span class="pre">mock</span></code> is no longer a control-system type. A config or profile that states it
 is refused, and the refusal names the new spelling:</p>
 <div class="highlight-text notranslate"><div class="highlight"><pre><span></span>`mock` is retired: the simulator in process is `control_system.type: virtual_accelerator` with `control_system.connector.virtual_accelerator.serving: in_process` (`osprey set connector=virtual_accelerator config.control_system.connector.virtual_accelerator.serving=in_process`), then rebuild with `osprey build`.
@@ -1051,11 +1055,10 @@ answering, never a value carried forward.</p>
 samples land on the same timestamps and around the same baselines, so where the
 seed ends and recording begins there is noise, not a step an operator would
 rightly chase.</p>
-<p><strong>With a stand-in deployed, this is the stand-in’s archive.</strong> The seeded past is
-the composite’s history over the shared active set, the same samples whichever
-machine the archive belongs to, and the recorder then samples the stand-in, so
-the history read out of the store — including from the simulator target — is
-the stand-in’s. See <a class="reference internal" href="#rehearsing-against-a-live-target">Rehearsing against a live target</a>.</p>
+<p><strong>With a stand-in deployed, this is still the simulator’s archive.</strong> The seeded
+past is the composite’s history over the shared active set and the recorder
+samples the virtual accelerator; the stand-in is shown the facility’s own
+archive instead, and never this store. See <a class="reference internal" href="#rehearsing-against-a-live-target">Rehearsing against a live target</a>.</p>
 <p>Retention is enforced by the store itself: dense samples expire after the hot
 span, the coarse ones after the retention window, so a long-running deployment
 stays bounded rather than growing forever. The collection is zstd-compressed;

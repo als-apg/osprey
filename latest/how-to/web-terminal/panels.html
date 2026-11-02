@@ -593,7 +593,9 @@ section, followed by <strong>+ Add panel</strong>. See <a class="reference inter
 <h2>Dragging sidebar rows<a class="headerlink" href="#dragging-sidebar-rows" title="Link to this heading">#</a></h2>
 <p>Drag a Tools row up or down to change the order. The order is the same for
 everyone on the same terminal, and it stays after a reload. Drag a row onto
-the work pane instead to open the panel as a new tile where you drop it.</p>
+the work pane instead to open the panel as a new tile where you drop it: on a
+tile’s edge, or along an edge of the work pane (see
+<a class="reference internal" href="operate.html#web-terminal-tiles"><span class="std std-ref">Tiles and tabs</span></a>).</p>
 </section>
 <section id="taking-panels-out-of-the-sidebar">
 <h2>Taking panels out of the sidebar<a class="headerlink" href="#taking-panels-out-of-the-sidebar" title="Link to this heading">#</a></h2>
@@ -730,6 +732,23 @@ note under <a class="reference internal" href="#adding-your-own-panel">Adding yo
 callers that way cannot be driven as a panel, themed or not.</p></li>
 </ul>
 </section>
+<section id="handing-keyboard-focus-back">
+<h2>Handing keyboard focus back<a class="headerlink" href="#handing-keyboard-focus-back" title="Link to this heading">#</a></h2>
+<p>A frame cannot move focus in the page around it, so a panel whose own Tab
+order runs out would trap the keyboard inside it. A panel hands focus back by
+posting to its parent when Tab (or Shift+Tab) leaves its last (or first)
+element:</p>
+<div class="highlight-javascript notranslate"><div class="highlight"><pre><span></span><span class="nb">window</span><span class="p">.</span><span class="nx">parent</span><span class="p">.</span><span class="nx">postMessage</span><span class="p">(</span>
+<span class="w">  </span><span class="p">{</span><span class="w"> </span><span class="nx">type</span><span class="o">:</span><span class="w"> </span><span class="s1">&#39;osprey-focus-exit&#39;</span><span class="p">,</span><span class="w"> </span><span class="nx">direction</span><span class="o">:</span><span class="w"> </span><span class="s1">&#39;forward&#39;</span><span class="w"> </span><span class="p">},</span><span class="w">  </span><span class="c1">// or &#39;backward&#39;</span>
+<span class="w">  </span><span class="nb">window</span><span class="p">.</span><span class="nx">location</span><span class="p">.</span><span class="nx">origin</span><span class="p">,</span>
+<span class="p">);</span>
+</pre></div>
+</div>
+<p>The terminal focuses the next (or previous) element of its own page, in
+document order relative to the panel’s tile — after <code class="docutils literal notranslate"><span class="pre">backward</span></code>, that is the
+tile’s header. It acts only on a message from its own origin and from the
+frame of a panel it shows.</p>
+</section>
 <section id="the-bluesky-panel">
 <h2>The Bluesky panel<a class="headerlink" href="#the-bluesky-panel" title="Link to this heading">#</a></h2>
 <p>One tab covers a plan end to end, served by the <code class="docutils literal notranslate"><span class="pre">bluesky-web</span></code> sidecar.
@@ -855,43 +874,68 @@ operator’s.</p></li>
 </section>
 <section id="panel-layouts-presets">
 <h2>Panel layouts (“presets”)<a class="headerlink" href="#panel-layouts-presets" title="Link to this heading">#</a></h2>
-<p>A <strong>layout</strong> is a named set of panels an operator applies in one click — “the
-machine-setup view is these four panels.” Define them under <code class="docutils literal notranslate"><span class="pre">web.presets</span></code>, where
-each key is the menu label and each value is the exact set of panels to show:</p>
+<p>A <strong>layout</strong> is a named arrangement of panels an operator applies in one click
+— “the machine-setup view is these panels, in these tiles.” Define them under
+<code class="docutils literal notranslate"><span class="pre">web.presets</span></code> (<code class="docutils literal notranslate"><span class="pre">panel_presets</span></code> in a build profile), where each key is the
+menu label and each value is the tiles:</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">web</span><span class="p">:</span>
 <span class="w">  </span><span class="nt">presets</span><span class="p">:</span>
-<span class="w">    </span><span class="s">&quot;Machine</span><span class="nv"> </span><span class="s">setup&quot;</span><span class="p p-Indicator">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">channel-finder</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">lattice</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">artifacts</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">okf</span><span class="p p-Indicator">]</span>
-<span class="w">    </span><span class="s">&quot;Logbook</span><span class="nv"> </span><span class="s">review&quot;</span><span class="p p-Indicator">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">ariel</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">artifacts</span><span class="p p-Indicator">]</span>
+<span class="w">    </span><span class="s">&quot;Machine</span><span class="nv"> </span><span class="s">setup&quot;</span><span class="p p-Indicator">:</span>
+<span class="w">      </span><span class="nt">split</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">row</span>
+<span class="w">      </span><span class="nt">items</span><span class="p">:</span>
+<span class="w">        </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">tabs</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">channel-finder</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">lattice</span><span class="p p-Indicator">]</span>
+<span class="w">          </span><span class="nt">showing</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">lattice</span>
+<span class="w">          </span><span class="nt">size</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">2</span>
+<span class="w">        </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">tabs</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">artifacts</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">okf</span><span class="p p-Indicator">]</span>
+<span class="w">    </span><span class="s">&quot;Logbook</span><span class="nv"> </span><span class="s">review&quot;</span><span class="p p-Indicator">:</span>
+<span class="w">      </span><span class="nt">tabs</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">ariel</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">artifacts</span><span class="p p-Indicator">]</span>
 </pre></div>
 </div>
+<p>A tile is <code class="docutils literal notranslate"><span class="pre">tabs</span></code>, its panel ids in bar order, with an optional <code class="docutils literal notranslate"><span class="pre">showing</span></code>
+(the tab in front, by default the first) and <code class="docutils literal notranslate"><span class="pre">size</span></code> (a positive weight
+against its siblings). A split is <code class="docutils literal notranslate"><span class="pre">split:</span> <span class="pre">row</span></code> or <code class="docutils literal notranslate"><span class="pre">split:</span> <span class="pre">column</span></code> with
+<code class="docutils literal notranslate"><span class="pre">items</span></code>, which are tiles or splits. A layout never names the Agent pane. The
+list form <code class="docutils literal notranslate"><span class="pre">&quot;Logbook</span> <span class="pre">review&quot;:</span> <span class="pre">[ariel,</span> <span class="pre">artifacts]</span></code> is not read: the profile
+build refuses it and says what to write instead.</p>
 <p>Each layout appears under a <strong>Layouts</strong> section at the top of the panel <code class="docutils literal notranslate"><span class="pre">+</span></code>
-menu. Picking one is <em>exclusive</em>: its panels open and every other panel closes.
+menu. Picking one replaces the service tiles with the layout’s and leaves the
+Agent pane where it is; every panel not in the layout leaves the sidebar.
 Members must be enabled built-in panels or custom panels you have declared; an
 unknown id is dropped with a warning, and a layout with no valid members is
 skipped. When no <code class="docutils literal notranslate"><span class="pre">web.presets</span></code> are configured — the default — the <code class="docutils literal notranslate"><span class="pre">+</span></code> menu is
 unchanged, so layouts never add clutter to a deployment that has not opted in.</p>
-<p>Layouts are just a shortcut over adding and removing rail entries, so the OSPREY
-agent can reach the same end state either way — but not with the same prompting.
-Applying a layout with <code class="docutils literal notranslate"><span class="pre">arrange_workspace</span></code> does not ask; the
-<code class="docutils literal notranslate"><span class="pre">add_panel_to_rail</span></code> / <code class="docutils literal notranslate"><span class="pre">remove_panel_from_rail</span></code> tools ask the operator to
-approve each call on a stock build.
+<p>The OSPREY agent applies the same layouts with <code class="docutils literal notranslate"><span class="pre">arrange_workspace</span></code>, by name
+and without asking; the <code class="docutils literal notranslate"><span class="pre">add_panel_to_rail</span></code> / <code class="docutils literal notranslate"><span class="pre">remove_panel_from_rail</span></code>
+tools ask the operator to approve each call on a stock build.
 <code class="docutils literal notranslate"><span class="pre">list_panels</span></code> reports the configured layouts so the agent can honor a request
 like “set up for machine setup.”</p>
 </section>
 <section id="panel-tools-the-agent-uses">
 <h2>Panel tools the agent uses<a class="headerlink" href="#panel-tools-the-agent-uses" title="Link to this heading">#</a></h2>
-<p>The panel tools come in two kinds: the ones that say what is on screen, which
-are auto-allowed, and the ones that change rail membership, which ask the
-operator first.</p>
+<p>The agent changes the dock the way you do, with the same rules: every drop you
+can make, it can make. The panel tools come in two kinds: the ones that say
+what is on screen, which are auto-allowed, and the ones that change rail
+membership, which ask the operator first.</p>
 <p>What is on screen:</p>
 <ul class="simple">
-<li><p><code class="docutils literal notranslate"><span class="pre">list_panels</span></code> — the panels this deployment has, which of them are on
-screen, and the configured layouts.</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">open_panel</span></code> — put a panel on screen; it joins the rail if it was off it.</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">close_panel</span></code> — take a panel’s tile off screen, leaving it on the rail.</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">arrange_workspace</span></code> — state a whole layout: exactly these tiles, in this
-order.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">list_panels</span></code> — the panels this deployment has, the dock’s tiles with
+their tabs and the tab in front of each (the terminal included), the panels
+in pop-out windows, and the configured layouts.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">open_panel</span></code> — put a panel on screen by the opening rule: a new tab in
+front of the service tile used last. It joins the rail if it was off it.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">open_panel_set</span></code> — open several panels in one call: as tabs of one tile,
+or side by side.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">arrange_workspace</span></code> — apply a configured layout, or an exact one, in place
+of the service tiles; the terminal keeps its place.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">drop_panel</span></code> — drop a new panel, an open tab or a whole tile on a tile’s
+centre, a tab position or an edge, along a whole side of the dock, or
+between two tiles.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">close_panel_tab</span></code> — close a panel’s tab, leaving it on the rail.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">close_panel_tile</span></code> — close a whole tile with its tabs.</p></li>
 </ul>
+<p>The agent never moves or closes the terminal, and never moves or closes a
+panel you put in a window of its own; <code class="docutils literal notranslate"><span class="pre">open_panel</span></code> brings that window
+forward.</p>
 <p>Rail membership, each one approved by the operator:</p>
 <ul class="simple">
 <li><p><code class="docutils literal notranslate"><span class="pre">add_panel_to_rail</span></code> — make a panel launchable from the rail in one click.</p></li>
@@ -1006,6 +1050,7 @@ shape of it.</p>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#when-a-panel-stops-answering">When a panel stops answering</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#panels-backed-by-a-url">Panels backed by a URL</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#theming-a-url-backed-panel">Theming a URL-backed panel</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#handing-keyboard-focus-back">Handing keyboard focus back</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#the-bluesky-panel">The Bluesky panel</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#channel-suggestions-in-plan-forms">Channel suggestions in plan forms</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#adding-your-own-panel">Adding your own panel</a><ul class="visible nav section-nav flex-column">

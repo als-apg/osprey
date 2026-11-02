@@ -471,83 +471,36 @@
                   
   <section id="dock-engine-contract">
 <span id="reference-dock-engine"></span><h1>Dock Engine Contract<a class="headerlink" href="#dock-engine-contract" title="Link to this heading">#</a></h1>
-<p><code class="docutils literal notranslate"><span class="pre">packages/dock-engine</span></code> is the dock layout engine OSPREY and CANOPY share: the
-layout model and its validation, geometry, drop planning, open/close/reopen
-and hit-testing, as pure functions with no DOM and no runtime dependencies.
-This page says what the package holds, how each consumer obtains it, and
-where it is edited.</p>
-<section id="what-the-package-is">
-<h2>What the package is<a class="headerlink" href="#what-the-package-is" title="Link to this heading">#</a></h2>
+<p>The web terminal’s dock runs CANOPY’s dock engine, which lives in the CANOPY
+screen runtime (<code class="docutils literal notranslate"><span class="pre">packages/dock-engine</span></code>): the layout model and its
+validation, geometry, drop planning, open/close/reopen and hit-testing, as pure
+functions with no DOM and no runtime dependencies. OSPREY does not edit it.</p>
+<section id="what-osprey-holds">
+<h2>What OSPREY holds<a class="headerlink" href="#what-osprey-holds" title="Link to this heading">#</a></h2>
 <ul class="simple">
-<li><p><strong>One case set.</strong> <code class="docutils literal notranslate"><span class="pre">cases/&lt;kind&gt;/&lt;name&gt;.json</span></code>, one directory per kind
-(<code class="docutils literal notranslate"><span class="pre">close</span></code>, <code class="docutils literal notranslate"><span class="pre">drop</span></code>, <code class="docutils literal notranslate"><span class="pre">hit</span></code>, <code class="docutils literal notranslate"><span class="pre">normalize</span></code>, <code class="docutils literal notranslate"><span class="pre">open</span></code>, <code class="docutils literal notranslate"><span class="pre">open-set</span></code>,
-<code class="docutils literal notranslate"><span class="pre">reopen</span></code>, <code class="docutils literal notranslate"><span class="pre">replace-key</span></code>, <code class="docutils literal notranslate"><span class="pre">validate</span></code>). Each case names the rule it pins.
-The cases are the specification; both implementations replay them.</p></li>
-<li><p><strong>One JS engine.</strong> <code class="docutils literal notranslate"><span class="pre">&#64;als-apg/dock-engine</span></code>: <code class="docutils literal notranslate"><span class="pre">dist/dock-engine.mjs</span></code>, one
-dependency-free ES module, types in <code class="docutils literal notranslate"><span class="pre">dist/dock-engine.d.mts</span></code>.
-<code class="docutils literal notranslate"><span class="pre">&#64;als-apg/dock-engine/cases</span></code> is the case runner (<code class="docutils literal notranslate"><span class="pre">loadCases</span></code>,
-<code class="docutils literal notranslate"><span class="pre">runCase</span></code>, <code class="docutils literal notranslate"><span class="pre">checkCase</span></code>, <code class="docutils literal notranslate"><span class="pre">CASES_DIR</span></code>) that replays the cases against any
-implementation of the engine.</p></li>
-<li><p><strong>One Python rule implementation.</strong> The module <code class="docutils literal notranslate"><span class="pre">dock_engine</span></code> (Python
-3.11+, standard library only) implements the layout rules –
-<code class="docutils literal notranslate"><span class="pre">validate_layout</span></code>, <code class="docutils literal notranslate"><span class="pre">layout_refusal</span></code>, <code class="docutils literal notranslate"><span class="pre">normalize_layout</span></code> and the reason
-vocabulary <code class="docutils literal notranslate"><span class="pre">LAYOUT_REASONS</span></code>. The framework wheel ships it from
-<code class="docutils literal notranslate"><span class="pre">packages/dock-engine</span></code>, with the case files and <code class="docutils literal notranslate"><span class="pre">dist/manifest.json</span></code> as
-package data; an import-linter contract keeps it from importing the
-framework back.</p></li>
+<li><p><strong>The built engine.</strong> <code class="docutils literal notranslate"><span class="pre">web_terminal/static/vendor/dock-engine.mjs</span></code> and its
+types <code class="docutils literal notranslate"><span class="pre">dock-engine.d.mts</span></code> are byte copies of the runtime’s <code class="docutils literal notranslate"><span class="pre">dist/</span></code> at one
+commit. <code class="docutils literal notranslate"><span class="pre">vendor_manifest.json</span></code> lists both by that source and no URL, so
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">vendor</span> <span class="pre">fetch</span></code> never fetches them. The terminal serves the engine at
+<code class="docutils literal notranslate"><span class="pre">/static/vendor/dock-engine.mjs</span></code> beside dockview.</p></li>
+<li><p><strong>The server’s layout rules.</strong> <code class="docutils literal notranslate"><span class="pre">osprey.interfaces.web_terminal.dock_layout</span></code>
+implements <code class="docutils literal notranslate"><span class="pre">validate_layout</span></code>, <code class="docutils literal notranslate"><span class="pre">layout_refusal</span></code>, <code class="docutils literal notranslate"><span class="pre">normalize_layout</span></code> and
+the reason vocabulary <code class="docutils literal notranslate"><span class="pre">LAYOUT_REASONS</span></code> in the standard library, so a preset,
+a layout report or an agent operation is refused for the reason the browser
+would give.</p></li>
+<li><p><strong>The engine’s cases.</strong> The runtime’s <code class="docutils literal notranslate"><span class="pre">validate</span></code> and <code class="docutils literal notranslate"><span class="pre">normalize</span></code> cases are
+copied into <code class="docutils literal notranslate"><span class="pre">tests/dock_engine/cases/</span></code>. <code class="docutils literal notranslate"><span class="pre">tests/dock_engine/cases-pin.json</span></code>
+records the runtime commit, path and git blob of each copy and of the bundle.</p></li>
 </ul>
-<p>The Python tests replay the <code class="docutils literal notranslate"><span class="pre">validate</span></code> and <code class="docutils literal notranslate"><span class="pre">normalize</span></code> cases through
-<code class="docutils literal notranslate"><span class="pre">dock_engine</span></code> and check that its reason vocabulary and <code class="docutils literal notranslate"><span class="pre">rules_digest()</span></code>
-match the JS bundle’s manifest, so the two implementations cannot drift
-apart unnoticed.</p>
+<p><code class="docutils literal notranslate"><span class="pre">tests/dock_engine/</span></code> replays the cases through <code class="docutils literal notranslate"><span class="pre">dock_layout</span></code> and fails when
+a copy no longer matches its blob, when a copy is missing or extra, or when the
+manifest’s sha256 names other bytes than the vendored engine.</p>
 </section>
-<section id="how-each-consumer-obtains-it">
-<h2>How each consumer obtains it<a class="headerlink" href="#how-each-consumer-obtains-it" title="Link to this heading">#</a></h2>
-<p>Each consumer is wired in a later stream; none of them copies the source.</p>
-<ul class="simple">
-<li><p><strong>OSPREY</strong> – <code class="docutils literal notranslate"><span class="pre">import</span> <span class="pre">dock_engine</span></code>; the framework wheel carries it. The
-web terminal takes the JS engine as a generated vendor copy of
-<code class="docutils literal notranslate"><span class="pre">dist/dock-engine.mjs</span></code>.</p></li>
-<li><p><strong>CANOPY screen runtime</strong> – a git dependency on <code class="docutils literal notranslate"><span class="pre">&#64;als-apg/dock-engine</span></code>.</p></li>
-<li><p><strong>CANOPY backend</strong> – the same directory installed from git, without the
-framework: <code class="docutils literal notranslate"><span class="pre">osprey-dock-engine</span> <span class="pre">&#64;</span> <span class="pre">git+https://github.com/als-apg/osprey&#64;&lt;ref&gt;#subdirectory=packages/dock-engine</span></code>
-(the directory’s own <code class="docutils literal notranslate"><span class="pre">pyproject.toml</span></code> exists for this install alone). Never
-beside <code class="docutils literal notranslate"><span class="pre">osprey-framework</span></code> in one environment: the two distributions own the
-same <code class="docutils literal notranslate"><span class="pre">dock_engine/</span></code> files, so one overwrites the other and uninstalling
-either removes the module; <code class="docutils literal notranslate"><span class="pre">dock_engine</span></code> warns at import when it finds both.</p></li>
-</ul>
-<p>Nothing is published to a registry: no PyPI project, no npm package. The
-engine is too small for a distribution of its own, and the three consumers
-are paired by <code class="docutils literal notranslate"><span class="pre">rules_digest()</span></code> – the hash over the reason vocabulary, the
-<code class="docutils literal notranslate"><span class="pre">normalize</span></code>/<code class="docutils literal notranslate"><span class="pre">validate</span></code> cases and <code class="docutils literal notranslate"><span class="pre">layout.ts</span></code> – rather than by a version
-floor. Versions follow OSPREY’s <code class="docutils literal notranslate"><span class="pre">v*</span></code> CalVer tags wherever metadata exists
-(the framework wheel, or the git install); <code class="docutils literal notranslate"><span class="pre">0.0.0-dev</span></code> in <code class="docutils literal notranslate"><span class="pre">package.json</span></code>
-marks an untagged checkout.</p>
-</section>
-<section id="the-cutover">
-<h2>The cutover<a class="headerlink" href="#the-cutover" title="Link to this heading">#</a></h2>
-<p>The engine was cut over on 2026-10-24 from the CANOPY screen runtime
-(<code class="docutils literal notranslate"><span class="pre">als-apg/canopy-osprey-mirror-screen-runtime</span></code> at <code class="docutils literal notranslate"><span class="pre">386c66cb</span></code>,
-<code class="docutils literal notranslate"><span class="pre">apps/viewer/src/workspace/dock/model/</span></code>). At the cutover every refusing
-<code class="docutils literal notranslate"><span class="pre">validate</span></code> case gained a <code class="docutils literal notranslate"><span class="pre">where</span></code> field. <code class="docutils literal notranslate"><span class="pre">CUTOVER.json</span></code> records the source
-digest, the blob of each imported file, the 42 exported names and the case
-counts. From the cutover on, the package is the only place the engine changes.</p>
-</section>
-<section id="source-of-truth">
-<h2>Source of truth<a class="headerlink" href="#source-of-truth" title="Link to this heading">#</a></h2>
-<p><code class="docutils literal notranslate"><span class="pre">ts/</span></code> and <code class="docutils literal notranslate"><span class="pre">cases/</span></code> are edited in the package and rebuilt with
-<code class="docutils literal notranslate"><span class="pre">node</span> <span class="pre">packages/dock-engine/scripts/build.mjs</span></code>; <code class="docutils literal notranslate"><span class="pre">dist/</span></code>, vendor copies and
-consumer installs are generated, never edited.</p>
-<p><code class="docutils literal notranslate"><span class="pre">build.mjs</span> <span class="pre">--check</span></code> exits non-zero when <code class="docutils literal notranslate"><span class="pre">dist/</span></code> is stale; the local gate
-and CI run it, together with <code class="docutils literal notranslate"><span class="pre">npm</span> <span class="pre">run</span> <span class="pre">test:dock-engine</span></code> and
-<code class="docutils literal notranslate"><span class="pre">pytest</span> <span class="pre">tests/dock_engine/</span></code>.</p>
-<div class="admonition seealso">
-<p class="admonition-title">See also</p>
-<dl class="simple">
-<dt><a class="reference internal" href="../../contributing/workflow.html"><span class="doc">Git and GitHub Workflow</span></a></dt><dd><p>How workspace packages are versioned and released.</p>
-</dd>
-</dl>
-</div>
+<section id="changing-the-engine">
+<h2>Changing the engine<a class="headerlink" href="#changing-the-engine" title="Link to this heading">#</a></h2>
+<p>A rule changes in the runtime, with its cases. OSPREY then re-copies the bundle
+and the two case directories from one runtime commit, re-pins them, updates the
+two manifest entries, and changes <code class="docutils literal notranslate"><span class="pre">dock_layout</span></code> until the cases pass.</p>
 </section>
 </section>
 
@@ -598,10 +551,8 @@ and CI run it, together with <code class="docutils literal notranslate"><span cl
   </div>
   <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
     <ul class="visible nav section-nav flex-column">
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#what-the-package-is">What the package is</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#how-each-consumer-obtains-it">How each consumer obtains it</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#the-cutover">The cutover</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#source-of-truth">Source of truth</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#what-osprey-holds">What OSPREY holds</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#changing-the-engine">Changing the engine</a></li>
 </ul>
   </nav></div>
 

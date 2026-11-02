@@ -637,9 +637,10 @@ machine until you arm that machine from the chip
 <code class="docutils literal notranslate"><span class="pre">control_target</span></code> if you want to know before you move: every row carries its
 own <code class="docutils literal notranslate"><span class="pre">writes_permitted</span></code>.</p>
 <p>The archive does not follow the switch — archive reads keep the deployment’s one
-configured archiver, and are stamped with the control target and the archiver
-that served them, so which machine a set of history is about is never
-ambiguous.</p>
+configured archiver, answer only for the machines whose past it holds (see
+<a class="reference internal" href="#rehearse-on-a-stand-in-live-machine">Rehearse on a stand-in live machine</a>), and are stamped with the control
+target and the archiver that served them, so which machine a set of history is
+about is never ambiguous.</p>
 </section>
 <section id="rehearse-on-the-virtual-accelerator">
 <h3>Rehearse on the virtual accelerator<a class="headerlink" href="#rehearse-on-the-virtual-accelerator" title="Link to this heading">#</a></h3>
@@ -707,18 +708,15 @@ Nothing infers that: the shipped example value looks like a real hostname, so no
 check could tell an operator’s answer from a placeholder. It is the live
 machine’s gate alone — the stand-in’s equivalent was said in the build profile,
 by the line that stood the stand-in up.</p>
-<p><strong>An archive that is not the stand-in’s</strong> (<code class="docutils literal notranslate"><span class="pre">archive_belongs_to_standin</span></code>).
-A deployment that runs a stand-in <em>and</em> records its own archive store is
-recording the stand-in, so the history in that store is the stand-in’s.
-Selecting the live machine would splice a real machine’s readings onto a
-stand-in’s past in one store, with nothing afterwards able to tell them apart.
-Clear it by stopping one of the two — take <code class="docutils literal notranslate"><span class="pre">archiver_recorder</span></code> out of the
-deployment’s services, or drop <code class="docutils literal notranslate"><span class="pre">virtual_accelerator.live_standin</span></code> from the
-build profile — and rebuild. The archive belongs to the machine it records.</p>
+<p>The archive is not a gate. The deployment’s own store is the virtual
+accelerator’s — the recorder samples the simulator and nothing else — and the
+live machine and its stand-in share the facility’s archiver appliance, so no
+switch can put one machine’s readings into another machine’s past. See
+<a class="reference internal" href="#rehearse-on-a-stand-in-live-machine">Rehearse on a stand-in live machine</a> for whose history each target is shown.</p>
 <p>There is one exemption. A deployment can always come <strong>home</strong> to its own
 baseline — whichever of the three that is — with none of the gates above
-applied: not the acknowledgment, not the archive gate,
-and not the gateway and probe-channel checks either. Stranding a deployment away
+applied: not the acknowledgment, and not the gateway and probe-channel checks
+either. Stranding a deployment away
 from the machine it was built for is the less safe outcome of the two, and a
 baseline whose block is half authored — no gateways yet, the probe channel still
 commented out, a machine reached over something other than Channel Access —
@@ -1047,9 +1045,8 @@ which makes history up at read time. The pairing would put a made-up past
 next to a modelled present with nothing linking them. See “The honesty
 rule” in <a class="reference internal" href="use-virtual-accelerator.html"><span class="doc">Use the Virtual Accelerator</span></a>.</p></td>
 </tr>
-<tr class="row-odd"><td><p><strong>The live machine’s gates</strong></p></td>
-<td><p>The operator acknowledgment, or the archive that belongs to the stand-in.
-Both are the live machine’s alone. See <a class="reference internal" href="#go-live">Go live</a>.</p></td>
+<tr class="row-odd"><td><p><strong>The live machine’s gate</strong></p></td>
+<td><p>The operator acknowledgment, the live machine’s alone. See <a class="reference internal" href="#go-live">Go live</a>.</p></td>
 </tr>
 </tbody>
 </table>
@@ -1195,10 +1192,11 @@ writes <code class="docutils literal notranslate"><span class="pre">control_syst
 <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> the deployment <em>starts</em> on the stand-in — the posture for a
 deployment that is not yet wired to its facility, or whose machine is down.</p>
 <p>Flipping it back is three settings, not one, because the archive goes with the
-machine. The <code class="docutils literal notranslate"><span class="pre">va_archiver:</span></code> block records <em>this</em> deployment’s history from
-the stand-in, and the build refuses to serve that store as the facility’s past
-— so the recorded store is dropped and the archiver pointed at the one that
-records the facility’s machine, in the same step:</p>
+machine. The <code class="docutils literal notranslate"><span class="pre">va_archiver:</span></code> block is the virtual accelerator’s store — the
+simulator’s seeded and recorded history — and the build refuses to serve a
+simulated store as the facility’s past, so the store is dropped and the
+archiver pointed at the one that records the facility’s machine, in the same
+step:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span><span class="nb">set</span><span class="w"> </span><span class="nv">connector</span><span class="o">=</span>epics<span class="w">                      </span><span class="c1"># your control system</span>
 osprey<span class="w"> </span><span class="nb">set</span><span class="w"> </span>config.archiver.type<span class="o">=</span>epics_archiver<span class="w">  </span><span class="c1"># the archiver that records it</span>
 osprey<span class="w"> </span><span class="nb">set</span><span class="w"> </span><span class="nv">va_archiver</span><span class="o">=</span>null
@@ -1220,13 +1218,16 @@ because a write reaches the facility. What the stand-in rehearses is the procedu
 and the stand-in carries no errors of its own. The two machines are told apart
 by a write to the sandbox not showing on the stand-in and by the model RPC
 status naming its instance (<code class="docutils literal notranslate"><span class="pre">virtual_accelerator</span></code> or <code class="docutils literal notranslate"><span class="pre">live_standin</span></code>).</p>
-<p><strong>The archive belongs to the machine.</strong> The history seeded on the first deploy
-is the composite’s history over the shared active set, the same samples
-whichever machine the archive belongs to, and the recorder then records the
-stand-in — so its past and its present describe one machine, the way a real
-machine’s do. That is also why the live machine is gated while both are running:
-see <a class="reference internal" href="#go-live">Go live</a>. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">sim</span> <span class="pre">apply</span></code> reaches both machines: a scenario changes
-the world, not one lane.</p>
+<p><strong>The archive belongs to the machine.</strong> The stand-in rehearses your real
+machine, so the past it is shown is the real machine’s: the
+<code class="docutils literal notranslate"><span class="pre">epics_archiver</span></code> appliance when the deployment names one (a <code class="docutils literal notranslate"><span class="pre">mya_archiver</span></code>
+or <code class="docutils literal notranslate"><span class="pre">doocs_archiver</span></code> block is the facility’s archive in the same way), and no
+archive otherwise — never the simulator’s store. That store stays the virtual
+accelerator’s: the recorder samples the simulator, and the history seeded on
+the first deploy is the simulator’s own. A trend read on the stand-in and one
+read on the live machine therefore come from one archive, the way a rehearsal
+should. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">sim</span> <span class="pre">apply</span></code> reaches both machines: a scenario changes the
+world, not one lane.</p>
 <p>On a laptop the second container is a real cost — a second simulator runs
 for the life of the deployment. Delete the line when the rehearsal is over.</p>
 <div class="admonition seealso">

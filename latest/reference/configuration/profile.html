@@ -572,8 +572,11 @@ setting. Renders <code class="docutils literal notranslate"><span class="pre">we
 <tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">panel_presets</span></code></p></td>
 <td><p>mapping</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">{}</span></code></p></td>
-<td><p>Named web-terminal layouts, as label to list of panel ids. Renders
-<code class="docutils literal notranslate"><span class="pre">web.presets</span></code>.</p></td>
+<td><p>Named web-terminal layouts, as label to dock layout: a tile
+<code class="docutils literal notranslate"><span class="pre">{tabs:</span> <span class="pre">[&lt;panel</span> <span class="pre">id&gt;,</span> <span class="pre">...],</span> <span class="pre">showing?,</span> <span class="pre">size?}</span></code> or a split
+<code class="docutils literal notranslate"><span class="pre">{split:</span> <span class="pre">row|column,</span> <span class="pre">items:</span> <span class="pre">[...]}</span></code>, never naming the terminal. The
+<code class="docutils literal notranslate"><span class="pre">label:</span> <span class="pre">[ids]</span></code> list form fails the build with the layout to write.
+Renders <code class="docutils literal notranslate"><span class="pre">web.presets</span></code>.</p></td>
 </tr>
 <tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">config</span></code></p></td>
 <td><p>mapping</p></td>

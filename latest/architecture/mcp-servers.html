@@ -693,11 +693,20 @@ when it is current for the inputs on screen, else the same errors as <code class
 </ul>
 <p><strong>Panels:</strong></p>
 <ul class="simple">
-<li><p><code class="docutils literal notranslate"><span class="pre">list_panels</span></code> – List the panels available in the Web Terminal (built-in and custom).</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">open_panel</span></code> – Put a panel on screen in front of the operator.</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">close_panel</span></code> – Take a panel’s tile off screen, leaving it on the rail.</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">arrange_workspace</span></code> – State a whole layout: exactly these tiles on screen,
-in this order.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">list_panels</span></code> – List the panels available in the Web Terminal (built-in and
+custom), the dock’s layout (every tile with its tabs and showing tab, the
+terminal included) and its <code class="docutils literal notranslate"><span class="pre">rev</span></code>.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">open_panel</span></code> – Put a panel on screen: a new tab of the service tile used
+last, or focus it where it already is.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">open_panel_set</span></code> – Open several panels in one call, as tabs of one tile or
+side by side.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">arrange_workspace</span></code> – Lay out the service tiles from a configured preset or
+an exact layout; the terminal keeps its place.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">drop_panel</span></code> – Make any drop a person can make (tile centre, tab position,
+edge, a whole side of the dock), plus a drop between two tiles, with a new
+panel, an open tab or a whole tile.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">close_panel_tab</span></code> – Close a panel’s tab, leaving it on the rail.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">close_panel_tile</span></code> – Close a whole tile with its tabs.</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">add_panel_to_rail</span></code> – Make a panel launchable from the rail in one click
 (requires human approval).</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">remove_panel_from_rail</span></code> – Take a panel off the rail (and off screen with it)
@@ -709,10 +718,17 @@ Terminal proxies (requires human approval).</p></li>
 removing an entry costs the operator the ability to launch that panel back, and
 adding or registering one puts a new entry in front of them. The layout tools
 say what is on screen and are auto-allowed, even where a layout implies a rail
-change: <code class="docutils literal notranslate"><span class="pre">open_panel</span></code> adds the rail entry when the panel is off the rail, and
-<code class="docutils literal notranslate"><span class="pre">arrange_workspace</span></code> adds any listed panel that was not on it (with a
-<code class="docutils literal notranslate"><span class="pre">preset</span></code>, it also drops non-members – the same pruning the operator gets by
-clicking that layout).</p>
+change: a panel an agent opens joins the rail once it is on screen, and
+<code class="docutils literal notranslate"><span class="pre">arrange_workspace</span></code> with a <code class="docutils literal notranslate"><span class="pre">preset</span></code> also drops non-members – the same
+pruning the operator gets by clicking that layout.</p>
+<p>Every layout tool is one agent dock operation sent through the op helper
+(<code class="docutils literal notranslate"><span class="pre">panel_op</span></code>): the web terminal relays it to the browser holding the dock and
+answers with the resulting layout and <code class="docutils literal notranslate"><span class="pre">rev</span></code>, or with a named refusal
+(<code class="docutils literal notranslate"><span class="pre">stale_base</span></code>, <code class="docutils literal notranslate"><span class="pre">no_dock_client</span></code>, <code class="docutils literal notranslate"><span class="pre">terminal_not_agent_movable</span></code>, …) that
+changed nothing. The tools that name tile ids (<code class="docutils literal notranslate"><span class="pre">drop_panel</span></code>,
+<code class="docutils literal notranslate"><span class="pre">close_panel_tile</span></code>) take the <code class="docutils literal notranslate"><span class="pre">rev</span></code> of the agent’s last read as
+<code class="docutils literal notranslate"><span class="pre">base_rev</span></code>. The terminal is never an agent drop source or close target, and a
+layout never names it.</p>
 <p><strong>Screen Capture:</strong></p>
 <ul class="simple">
 <li><p><code class="docutils literal notranslate"><span class="pre">screenshot_capture</span></code> – Capture a screenshot (full screen, window, or region).</p></li>
