@@ -30,6 +30,10 @@ preset admits), the keys of the frozen root render are partitioned into:
     render serving web terminals pins, the bundled record archive's compose
     directory, and the render projection — each login's ``kind``, project
     name and project directory, derived from the files in ``tiers/``.
+``A``
+    Keys the projection of a listed application writes: its ``apps.<name>``
+    block, its tool server, its panel, its containers' service blocks, and the
+    tools a dispatch job is denied.
 ``B``
     Keys a profile SECTION other than ``config:`` stands for — the ``bluesky:``
     bridge and its panel, the ``va_archiver:`` store and recorder, the
@@ -57,12 +61,14 @@ from __future__ import annotations
 import json
 import re
 from collections.abc import Iterator, Mapping
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
 import pytest
 import yaml
 
+from osprey.apps.loader import load
 from osprey.cli.build_injectors import graphdb_corpus_fill
 from osprey.cli.build_profile_archiver import _expand_dotted
 from osprey.cli.build_profile_document import _read_profile_document
@@ -72,7 +78,9 @@ from osprey.cli.build_profile_ports import layout_port_fill
 from osprey.cli.build_profile_presets import (
     _layer_presets_dir,
     _load_preset_raw,
+    _presets_dir,
     layer_preset_kind,
+    preset_apps,
 )
 from osprey.cli.derived_keys import is_derived_key
 from osprey.cli.profile_root import ProfileKind
@@ -250,6 +258,29 @@ def _under(key: str, prefixes: Mapping[str, str]) -> bool:
     return any(key == prefix or key.startswith(prefix + ".") for prefix in prefixes)
 
 
+@lru_cache
+def _application_roots(preset: str) -> frozenset[str]:
+    """The config keys the projection of the applications *preset* lists writes under."""
+    listed = preset_apps(preset)
+    if not listed:
+        return frozenset()
+    manifests = load(_presets_dir(), listed)
+    return frozenset(
+        {
+            "dispatch.denied_app_tools",
+            *(f"apps.{m.name}" for m in manifests),
+            *(f"claude_code.servers.{m.name}" for m in manifests),
+            *(f"web.panels.{m.name}" for m in manifests),
+            *(f"services.{container}" for m in manifests for container in m.containers),
+        }
+    )
+
+
+def _is_application_key(key: str, preset: str) -> bool:
+    """Whether the projection of an application *preset* lists writes *key*."""
+    return any(key == root or key.startswith(f"{root}.") for root in _application_roots(preset))
+
+
 def _panel_switches(document: Mapping[str, Any]) -> set[str]:
     """``web.panels.<id>.enabled`` for every panel the preset's ``web_panels:`` selects.
 
@@ -280,8 +311,10 @@ def _carried_block_switches(render: Mapping[str, Any], config: Mapping[str, Any]
     return switches
 
 
-def _partition(render: Mapping[str, Any], document: Mapping[str, Any]) -> dict[str, set[str]]:
-    """Split the render's keys into the eight named sets, in claim order.
+def _partition(
+    render: Mapping[str, Any], document: Mapping[str, Any], preset: str
+) -> dict[str, set[str]]:
+    """Split the render's keys into the nine named sets, in claim order.
 
     Claim order matters only where a key could be read two ways: a port leaf
     of a block-derived service (``services.bluesky.port``) is that block's,
@@ -302,9 +335,12 @@ def _partition(render: Mapping[str, Any], document: Mapping[str, Any]) -> dict[s
         "Corpus": set(),
         "W": set(),
         "C": set(),
+        "A": set(),
     }
     for key in render:
-        if is_derived_key(key):
+        if _is_application_key(key, preset):
+            sets["A"].add(key)
+        elif is_derived_key(key):
             sets["D"].add(key)
         elif key == _PROVIDERS_KEY or key.startswith(_PROVIDERS_KEY + "."):
             sets["P"].add(key)
@@ -331,7 +367,7 @@ def test_root_render_is_partitioned_between_its_sources(
     render = _render(directory)
     document = _preset_document(preset)
     config = _config_leaves(document)
-    sets = _partition(render, document)
+    sets = _partition(render, document, preset)
 
     claimed = set().union(*sets.values())
     unclaimed = sorted(set(render) - claimed)
@@ -391,7 +427,7 @@ def test_ports_are_the_layout_fill_and_nothing_else(
     render = _render(directory)
     document = _preset_document(preset)
     config = _config_leaves(document)
-    ports = _partition(render, document)["Ports"]
+    ports = _partition(render, document, preset)["Ports"]
 
     assert not {key for key in config if _PORT_LEAF.match(key)}
     filled = layout_port_fill(dict(document.get("config") or {}), DEFAULT_PORT_BASE)
@@ -493,7 +529,8 @@ def test_render_stays_inside_the_partition(stem: str, preset: str, directory: st
         key
         for key in render
         if not (
-            is_derived_key(key)
+            _is_application_key(key, preset)
+            or is_derived_key(key)
             or _WRITTEN_BY_BUILD_PATTERN.match(key)
             or key in corpus
             or key == _PROVIDERS_KEY

@@ -43,7 +43,12 @@ from osprey_connectors.errors import BuildProfileError
 
 from .build_profile_load import _PROFILE_SCHEMA_MIN_OSPREY
 from .build_profile_merge import _deep_merge, _resolve_extends, compute_preset_hash
-from .build_profile_presets import PRESET_ONLY_KEYS, _load_preset_raw
+from .build_profile_presets import (
+    PRESET_APPS_KEY,
+    PRESET_ONLY_KEYS,
+    _load_preset_raw,
+    preset_apps,
+)
 from .build_profile_resolve import apply_cli_edits
 from .profile_conventions import BUILD_OUTPUT_DIR, PROFILE_TRIGGERS_FILENAME
 
@@ -1385,6 +1390,18 @@ def materialized_profile(
     return document if isinstance(document, dict) else {}
 
 
+def _with_preset_apps(document: dict[str, Any], preset_name: str) -> dict[str, Any]:
+    """*document* with the applications *preset_name* lists, the one init writes."""
+    listed = preset_apps(preset_name)
+    return {**document, PRESET_APPS_KEY: listed} if listed else document
+
+
+def init_applications(preset_name: str, set_pairs: tuple[str, ...]) -> list[str]:
+    """The applications ``osprey init`` copies: what its emitted profile will list."""
+    edited = apply_cli_edits(_with_preset_apps({}, preset_name), set_pairs)
+    return sorted(edited.get(PRESET_APPS_KEY) or {})
+
+
 def emit_standalone_profile_yaml(
     preset_name: str,
     set_pairs: tuple[str, ...],
@@ -1435,7 +1452,7 @@ def emit_standalone_profile_yaml(
     raw, base_anchor = _load_preset_raw(preset_name)
     chain: list[Path] = []
     resolved = _resolve_extends(raw, base_anchor, chain)
-    resolved = apply_cli_edits(resolved, set_pairs)
+    resolved = apply_cli_edits(_with_preset_apps(resolved, preset_name), set_pairs)
     for layer in extra_layers:
         resolved = _deep_merge(resolved, dict(layer))
     resolved["name"] = profile_name
@@ -1498,10 +1515,13 @@ def emit_standalone_profile_yaml(
 
     # `app_template:` and `facility:` are preset-side only: they name the
     # packaged data tree `osprey init` copies, and are not profile keys (a
-    # profile spelling one is refused). Each comment goes with its key — left
-    # behind, it would read as the introduction to whichever key followed.
+    # profile spelling one is refused). `apps:` is written when this preset lists
+    # it, and goes with the others when only a parent does. Each comment goes with
+    # its key — left behind, it would read as the introduction to whichever key
+    # followed.
     for key in PRESET_ONLY_KEYS:
-        _drop_key_and_pre_comment(doc, key)
+        if key not in resolved:
+            _drop_key_and_pre_comment(doc, key)
 
     # `project_name` sits directly below `name:`, the field it is most easily
     # mistaken for. No preset carries it (the emitter sets it), so the sync

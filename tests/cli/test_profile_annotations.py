@@ -28,6 +28,7 @@ from osprey.cli.build_profile_emit import (
 )
 from osprey.cli.init_cmd import init
 from tests.cli._lifecycle_build import invoke_build, rendered_config
+from tests.fixtures.lifecycle_repo import lay_preset_applications
 
 # The lines the edited-text gates below apply: the block-style snippet
 # inside each annotation, which is the part a facility copies and edits. Keyed
@@ -238,11 +239,13 @@ def _resolve(profile_dir: Path, lines: list[str]) -> BuildProfile:
     """Write *lines* as the profile of a bare directory and resolve them.
 
     ``osprey init`` writes ``data:`` into the profile it materializes and lays
-    the tree down beside it; the emitter alone produces neither, and validation
-    requires both. So the tree is created and the key added here, exactly as
-    the verb would have.
+    the tree and the listed applications down beside it; the emitter alone produces
+    neither, and validation requires both. So they are created and the key added
+    here, exactly as the verb would have.
     """
     (profile_dir / "data").mkdir(exist_ok=True)
+    if not (profile_dir / "apps").exists():
+        lay_preset_applications("control-assistant", profile_dir)
     path = profile_dir / "profile.yml"
     path.write_text("data: data\n" + "\n".join(lines) + "\n")
     return resolve_build_profile(path, None)[0]

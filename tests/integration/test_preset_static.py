@@ -21,7 +21,7 @@ from pathlib import Path
 import pytest
 
 from osprey.cli.build_profile import _load_preset_raw, resolve_build_profile
-from osprey.cli.build_profile_presets import list_tiers
+from osprey.cli.build_profile_presets import list_tiers, preset_apps
 from osprey.cli.templates.artifact_library import validate_artifacts
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -367,3 +367,22 @@ def _flatten(node: object, prefix: str = "") -> list[tuple[str, object]]:
     for key, value in node.items():
         out.extend(_flatten(value, f"{prefix}.{key}" if prefix else str(key)))
     return out
+
+
+def test_every_listed_application_ships_beside_the_preset() -> None:
+    """A preset's ``apps:`` block names only applications the package carries."""
+    apps_dir = PRESETS_DIR / "apps"
+    listed = {name for preset in _all_presets() for name in preset_apps(preset)}
+    assert listed == {"knob-example"}
+    assert {path.name for path in apps_dir.iterdir()} == listed
+    for name in listed:
+        assert (apps_dir / name / "app.yml").is_file()
+        assert (apps_dir / name / "pyproject.toml").is_file()
+
+
+@pytest.mark.parametrize("layer", _all_layers())
+def test_no_login_spells_the_arming_of_an_application(layer: str) -> None:
+    """A login arms an application by its tier; its file spells no arming and no policy."""
+    document = _load_preset_raw(layer)[0]
+    assert not (document.get("apps") or {})
+    assert not [key for key, _ in _flatten(document) if "mcp__knob-example__" in key]

@@ -1,7 +1,8 @@
 """Serve an application's tool server: :func:`serve_tools`.
 
-An application's tool module builds a FastMCP server and hands it here. The
-server runs the way every framework MCP server runs (project ``.env``,
+An application's tool module hands its ``register(server)`` function here; the
+SDK builds the server, named for the application, and the function registers the
+application's tools on it. The server runs the way every framework MCP server runs (project ``.env``,
 logging on stderr, config primed, the audit middleware), with two additions:
 
 * at start-up, every tool the server registers must be declared in the
@@ -119,11 +120,11 @@ class _AppErrors(Middleware):
             raise error from exc
 
 
-_PENDING: list[Callable[[], FastMCP]] = []
+_PENDING: list[Callable[[FastMCP], None]] = []
 
 
 def create_server() -> FastMCP:
-    """Build the application server :func:`serve_tools` was handed.
+    """Build the application server and have the function :func:`serve_tools` was handed fill it.
 
     :func:`~osprey.mcp_server.startup.run_mcp_server` calls this, so an
     application server is built and served in the one sequence that installs
@@ -132,16 +133,17 @@ def create_server() -> FastMCP:
     from osprey.mcp_server import startup
     from osprey_connectors.workspace import load_osprey_config
 
-    build = _PENDING.pop()
+    register = _PENDING.pop()
     app = _app_name()
     startup.prime_config_builder()
-    server = build()
+    server = startup.application_server(app)
+    register(server)
     _refuse_undeclared(server, app, load_osprey_config())
     server.add_middleware(_AppErrors(app))
     return server
 
 
-def serve_tools(build_server: Callable[[], FastMCP]) -> None:
+def serve_tools(register: Callable[[FastMCP], None]) -> None:
     """Build the application's tool server, check it against the rendered config and serve it.
 
     Stable: part of the application SDK's public surface. The server runs as
@@ -151,7 +153,8 @@ def serve_tools(build_server: Callable[[], FastMCP]) -> None:
     config's ``apps.<app>.tools.read`` and ``apps.<app>.approval`` entries.
 
     Args:
-        build_server: Builds the FastMCP server; called once the project
+        register: Registers the application's tools on the server the SDK
+            built for it, named for the application; called once the project
             ``.env`` and the config are loaded, so tool code may read config.
 
     Raises:
@@ -161,7 +164,7 @@ def serve_tools(build_server: Callable[[], FastMCP]) -> None:
     """
     from osprey.mcp_server.startup import run_mcp_server
 
-    _PENDING[:] = [build_server]
+    _PENDING[:] = [register]
     try:
         run_mcp_server(__name__)
     finally:

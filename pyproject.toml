@@ -651,7 +651,12 @@ testpaths = [
 ]
 # The connectors suite's helpers (osprey_connectors_tests) are imported by the
 # framework's own connector tests, which may be collected before that suite is.
-pythonpath = ["packages/osprey-connectors/tests"]
+# The bundled example application is imported by its own tests, as a deployment's
+# image imports it.
+pythonpath = [
+    "packages/osprey-connectors/tests",
+    "src/osprey/profiles/presets/apps/knob-example",
+]
 python_files = [
     "test_*.py",
     "*_test.py"

@@ -43,6 +43,12 @@ def _manifest(name: str) -> str:
     )
 
 
+def _no_applications(repo: Path) -> None:
+    """Take the preset's shipped application out: no ``apps/`` directory, nothing listed."""
+    shutil.rmtree(repo / "apps", ignore_errors=True)
+    _list(repo)
+
+
 def _app(repo: Path) -> Path:
     """One listed application, its manifest valid and nothing else in its directory."""
     app_dir = repo / "apps" / "knob"
@@ -57,6 +63,8 @@ def _app(repo: Path) -> Path:
 def test_with_no_apps_directory_there_is_nothing_to_check(
     runner: CliRunner, lifecycle_repo: Path
 ) -> None:
+    _no_applications(lifecycle_repo)
+
     result = _check(runner, lifecycle_repo)
 
     assert result.exit_code == 0, result.output
@@ -67,6 +75,7 @@ def test_with_no_apps_directory_there_is_nothing_to_check(
 def test_an_unlisted_directory_is_reported_and_left_unchecked(
     runner: CliRunner, lifecycle_repo: Path
 ) -> None:
+    _no_applications(lifecycle_repo)
     unlisted = lifecycle_repo / "apps" / "helper"
     unlisted.mkdir(parents=True)
     (unlisted / "app.yml").write_text("name: [\n", encoding="utf-8")

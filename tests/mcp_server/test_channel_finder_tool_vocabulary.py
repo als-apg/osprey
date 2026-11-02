@@ -67,7 +67,10 @@ MCP_SERVERS: tuple[str, ...] = (
 #: The event dispatcher's tools, registered by ``osprey.dispatch.mcp_tools``.
 DISPATCH = "dispatch"
 
-SOURCES = MCP_SERVERS + (DISPATCH, "ariel_search")
+#: Every application the presets ship; each one's tool server is a source of its own.
+APPLICATIONS: tuple[str, ...] = ("knob-example",)
+
+SOURCES = MCP_SERVERS + (DISPATCH, "ariel_search") + APPLICATIONS
 
 #: The source of a rendered file's text; its name is the path under the render root.
 RENDERED = "rendered"
@@ -105,15 +108,29 @@ def _dispatch_tools() -> dict[str, Any]:
     return tools
 
 
+def _application_modules() -> dict[str, str]:
+    """The tool module of every shipped application, as its manifest names it."""
+    from osprey.apps.loader import load
+    from osprey.cli.build_profile_presets import _presets_dir
+
+    return {manifest.name: manifest.tools.module for manifest in load(_presets_dir(), APPLICATIONS)}
+
+
 @pytest.fixture(scope="module")
 def server_tools() -> dict[str, dict[str, Any]]:
-    """Registered tools per MCP server and the dispatcher, keyed by source and then tool name."""
+    """Registered tools per server the guard reads, keyed by source and then tool name."""
     registered: dict[str, dict[str, Any]] = {}
     for server in MCP_SERVERS:
         tools = _registered_tools(f"osprey.mcp_server.{server}")
         assert tools, f"no tools registered for {server}; the fixture is not registering"
         registered[server] = tools
     registered[DISPATCH] = _dispatch_tools()
+    from osprey.mcp_server.startup import application_server
+
+    for application, module in _application_modules().items():
+        server = application_server(application)
+        importlib.import_module(module).register(server)
+        registered[application] = {t.name: t for t in asyncio.run(server.list_tools())}
     return registered
 
 
@@ -124,11 +141,14 @@ def variant_tools(server_tools) -> dict[str, dict[str, Any]]:
 
 
 def test_every_mcp_server_is_guarded():
-    """A server package the guard does not list would offer unread text.
+    """A server the guard does not list would offer unread text.
 
     The event dispatcher is the one FastMCP server outside ``osprey.mcp_server``;
-    the guard reads it as the ``dispatch`` source. The project templates are
-    scaffolds rendered into user projects, not servers OSPREY runs.
+    the guard reads it as the ``dispatch`` source. A shipped application's tool
+    module registers its tools on the server the SDK builds for it (in
+    ``osprey.mcp_server.startup``); the guard reads it under the application's
+    name. The project templates are scaffolds rendered into user projects, not
+    servers OSPREY runs.
     """
     import osprey
     import osprey.mcp_server
@@ -137,6 +157,13 @@ def test_every_mcp_server_is_guarded():
     assert sorted(path.parent.name for path in root.glob("*/server.py")) == list(MCP_SERVERS)
 
     package = Path(osprey.__path__[0])
+    applications = package / "profiles" / "presets" / "apps"
+    assert sorted(path.parent.name for path in applications.glob("*/app.yml")) == list(APPLICATIONS)
+    tool_modules = [
+        applications / application / Path(*module.split(".")).with_suffix(".py")
+        for application, module in _application_modules().items()
+    ]
+
     outside = sorted(
         path.relative_to(package).as_posix()
         for path in package.rglob("*.py")
@@ -146,6 +173,14 @@ def test_every_mcp_server_is_guarded():
     )
     assert outside == ["dispatch/server.py"]
     assert DISPATCH in SOURCES
+
+    # An application hands its register function to the SDK, whose one start-up path is
+    # the framework's: a module that serves a server itself is refused here.
+    for path in tool_modules:
+        text = path.read_text(encoding="utf-8")
+        assert "serve_tools(" in text
+        for spelling in ("create_server", "run_mcp_server", ".run("):
+            assert spelling not in text, f"{path.name} spells {spelling}"
 
 
 def test_no_variant_still_registers_query_channels(variant_tools):

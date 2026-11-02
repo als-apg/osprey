@@ -30,13 +30,43 @@ approval:
     add_panel_to_rail: always
     archiver_read: skip
     channel_read: skip
-    channel_write: always
     entry_create: always
     entry_publish: always
-    execute: selective
     register_panel: always
     remove_panel_from_rail: always
     setup_patch: always
+apps:
+  knob-example:
+    approval:
+      set_corrector:
+        bind:
+          input_digests: []
+          state_fields:
+          - field: approved_readback
+            key: readback
+        display_lines_key: null
+        errors:
+          refused: The value was not written. Read the channel again and ask for a
+            new approval.
+          unreachable: The knob panel's backend is not answering; check its container
+            with osprey health.
+        panel_id: knob-example
+        prompt: Set {{ state.channel }} to {{ input.value }}, now {{ state.readback
+          }}.
+        require:
+          all_of:
+          - approved_target
+          - approved_readback
+          one_of: []
+        state_path: /api/state
+    tools:
+      errors:
+        refused: The value was not written. Read the channel again and ask for a new
+          approval.
+        unreachable: The knob panel's backend is not answering; check its container
+          with osprey health.
+      read:
+      - read_corrector
 archiver:
   auto_bin_points: 10000
   mongodb_archiver:
@@ -139,6 +169,19 @@ claude_code:
       enabled: true
     health:
       enabled: true
+    knob-example:
+      app: knob-example
+      args:
+      - -m
+      - knob_example.tools
+      command: '{current_python_env}'
+      env:
+        OSPREY_APP_NAME: knob-example
+      permissions:
+        allow:
+        - read_corrector
+      writes:
+      - set_corrector
 cli:
   theme: default
 container_runtime: docker
@@ -178,7 +221,7 @@ control_system:
     probe_interval_s: 30
     probe_timeout_s: 5
   type: virtual_accelerator
-  writes: allowed
+  writes: asked
 deploy:
   fqdn: 127.0.0.1
 deployed_services:
@@ -186,6 +229,7 @@ deployed_services:
 - qmd
 - graphdb
 - archive
+- knob-example
 - event_dispatcher
 - dispatch_worker
 - bluesky
@@ -194,6 +238,9 @@ deployed_services:
 - live_standin
 - mongodb
 - archiver_recorder
+dispatch:
+  denied_app_tools:
+  - mcp__knob-example__set_corrector
 execution:
   execution_method: subprocess
 facility_knowledge:
@@ -327,6 +374,26 @@ services:
     query_max_rows: 200
     query_timeout_s: 15
     ttl_path: ./data/graph/facility.ttl
+  knob-example:
+    app: knob-example
+    audit_identity: knob-example
+    command:
+    - python
+    - -m
+    - knob_example.server
+    config_file: ./services/knob-example/app-config.yml
+    control_identity: false
+    drives_target: true
+    env: []
+    health: /health
+    launch_token_env: KNOB_EXAMPLE_LAUNCH_TOKEN
+    path: ./services/knob-example
+    port: 10900
+    roster_grant:
+      panel_id: knob-example
+      single_user_alias: false
+    state: var/knob-example
+    url: http://127.0.0.1:10900
   live_standin:
     path: ./services/virtual_accelerator
     port: 10090
@@ -386,6 +453,19 @@ web:
       url: http://localhost:10010
     jupyter:
       enabled: true
+    knob-example:
+      agent_routes:
+      - method: GET
+        path: /api/state
+      - method: POST
+        path: /api/write
+      app: knob-example
+      enabled: true
+      health_endpoint: /health
+      label: Knob
+      launch_token_env: KNOB_EXAMPLE_LAUNCH_TOKEN
+      path: /
+      url: http://127.0.0.1:10900
     lattice:
       enabled: true
     okf:

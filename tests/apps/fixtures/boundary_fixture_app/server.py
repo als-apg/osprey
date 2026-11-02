@@ -29,6 +29,6 @@ def door_name() -> str:
     return write_door.__name__
 
 
-def main(build_server: Any) -> None:
+def main(register: Any) -> None:
     """Hand the server to the SDK: the fixture is read, not run."""
-    serve_tools(build_server)
+    serve_tools(register)

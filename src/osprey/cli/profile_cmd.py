@@ -1723,6 +1723,7 @@ def _materialize_profile_directory(
     )
     from .build_profile_emit import (
         emit_standalone_profile_yaml,
+        init_applications,
         triggers_layer,
     )
     from .build_profile_presets import preset_data_bundle
@@ -2021,12 +2022,13 @@ def _materialize_profile_directory(
         # the drift check reads. Unlike the seeds above they are source the repo
         # owns: `apps/` is a materialized entry, so `--force` replaces it and a
         # failed run's `_cleanup` removes it. Byte-code is dropped as for a seed.
-        if resolved.apps:
+        applications = init_applications(normalized_preset, set_pairs)
+        if applications:
             from .build_profile_drift import APP_PROVENANCE_FILENAME, app_provenance_text
             from .build_profile_merge import compute_preset_hash
 
             preset_hash = compute_preset_hash(normalized_preset)
-            for app_name in sorted(resolved.apps):
+            for app_name in applications:
                 app_target = target / APPS_DIRNAME / app_name
                 shutil.copytree(
                     preset_dir / APPS_DIRNAME / app_name,
@@ -2037,7 +2039,7 @@ def _materialize_profile_directory(
                     app_provenance_text(app_target, normalized_preset, preset_hash),
                     encoding="utf-8",
                 )
-            logger.debug("  Applications: %s", ", ".join(f"{name}/" for name in resolved.apps))
+            logger.debug("  Applications: %s", ", ".join(f"{name}/" for name in applications))
 
         # A profile or app that selects the library facility rule by its bare
         # name selects the copy seeded above instead, by its path.

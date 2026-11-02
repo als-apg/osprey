@@ -84,7 +84,7 @@ def _build_exemplar(dest: Path, *, standin: int | None) -> Path:
     The no-stand-in variant is the same repo with the stand-in removed and
     pointed at the facility's own machine, which is exactly the edit the
     profile's own comment describes for a deployment that stands no stand-in
-    up.
+    up, and with the example application unlisted.
 
     Returns:
         The repo root. ``build/`` is under it, and the repo root is also what
@@ -100,6 +100,9 @@ def _build_exemplar(dest: Path, *, standin: int | None) -> Path:
     if standin is None:
         block.pop("live_standin", None)
         profile["config"]["control_system.type"] = "epics"
+        # An application on the bridge needs a name server for the machine, which a
+        # facility names for itself: this deployment has none to give the example.
+        profile.pop("apps", None)
     else:
         block["live_standin"] = standin
         profile["config"]["control_system.type"] = "live_standin"

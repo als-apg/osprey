@@ -21,6 +21,7 @@ import yaml
 from click.testing import CliRunner
 
 from osprey.cli import build_profile_presets
+from osprey.cli.build_profile import resolve_build_profile
 from osprey.cli.build_profile_drift import (
     APP_PROVENANCE_FILENAME,
     app_tree_digest,
@@ -92,6 +93,28 @@ def _files(root: Path) -> dict[str, bytes]:
         for path in sorted(root.rglob("*"))
         if path.is_file()
     }
+
+
+def test_extends_carries_no_application(repo: Path, tmp_path: Path) -> None:
+    """An application is init material: ``extends:`` of its preset runs none of them.
+
+    The profile init writes lists and holds what it runs; a profile that extends
+    the same preset and holds nothing runs nothing, with no refusal.
+    """
+    assert set(yaml.safe_load((repo / "profile.yml").read_text())["apps"]) == {APP}
+
+    extending = tmp_path / "extending" / "profile.yml"
+    _write_yaml(extending, {"name": "Extending", "extends": PRESET, "data": "data"})
+    (extending.parent / "data").mkdir()
+    assert resolve_build_profile(extending, None)[0].apps == {}
+    assert resolve_build_profile(None, PRESET)[0].apps == {}
+
+
+def test_a_login_file_keeps_its_selection(app_preset: Path) -> None:
+    """A login's ``apps:`` says what its card shows; it is not the preset-side key."""
+    selection = {"apps": {APP: {"shown": False}}}
+    _write_yaml(app_preset / "tiers" / "narrow.yml", selection)
+    assert build_profile_presets._load_preset_raw("tiers/narrow")[0] == selection
 
 
 def test_init_copies_the_listed_application_without_byte_code(app_preset: Path, repo: Path) -> None:

@@ -30,12 +30,18 @@ from osprey.cli.build_profile_document import (
 from osprey.cli.init_cmd import init
 from osprey.cli.init_revalidate import RETIRED_PRESETS, _content_hash, _text_hash
 from tests._retired_layout import RETIRED_LAYER_DIRNAME
-from tests.fixtures.lifecycle_repo import exemplar_source_files, expand_sentinels
+from tests.fixtures.lifecycle_repo import (
+    exemplar_source_files,
+    expand_sentinels,
+    profile_without_applications,
+)
 
 FIXTURE = Path(__file__).resolve().parents[1] / "fixtures" / "previous_release_repo"
 
-#: Exemplar files the previous release wrote differently; the fixture holds those.
+#: Exemplar files the previous release wrote differently; the fixture holds those. It held
+#: no application, and revalidating adds none: a deployment holds what it chose to.
 _MIGRATED = (
+    "apps/",
     "profile.yml",
     "tiers/readonly.yml",
     "tiers/readwrite.yml",
@@ -137,7 +143,10 @@ _KEPT_CEILING = ("  control_system.writes: asked\n", "  control_system.writes: a
 
 def revalidated_exemplar() -> dict[str, str]:
     """The new exemplar as the previous release's repo revalidates to it."""
-    files = exemplar_source_files()
+    files = {
+        rel: text for rel, text in exemplar_source_files().items() if not rel.startswith("apps/")
+    }
+    files["profile.yml"] = profile_without_applications(files["profile.yml"])
     asked, allowed = _KEPT_CEILING
     assert files["profile.yml"].count(asked) == 1
     files["profile.yml"] = files["profile.yml"].replace(asked, allowed)

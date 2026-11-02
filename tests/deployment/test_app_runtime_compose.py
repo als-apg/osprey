@@ -16,11 +16,14 @@ What is load-bearing about its shape:
 from __future__ import annotations
 
 import copy
+from pathlib import Path
 from typing import Any
 
+import pytest
 import yaml
 
-from osprey.deployment.compose_generator import _inject_project_metadata
+from osprey.deployment.compose_generator import _inject_project_metadata, service_render_context
+from osprey.deployment.errors import DeploymentPreconditionError
 from osprey.deployment.host_binding import BUNDLED_HOST_BINDINGS
 from tests.deployment.test_compose_generator import _packaged_compose_template
 
@@ -232,6 +235,52 @@ def test_it_renders_with_every_key_it_reads_set() -> None:
     _, svc = _render(row)
 
     assert svc["environment"]["OSPREY_APP_STATE_DIRS"]
+
+
+def test_the_declared_state_survives_the_render_a_build_takes(tmp_path: Path) -> None:
+    """Through ``service_render_context``, the context a build's render takes."""
+    config = {
+        "project_name": "fixture",
+        "services": {KEY: _row(state="var/knob")},
+        "deployed_services": [KEY],
+        "deployment": {},
+        "system": {"timezone": "UTC"},
+    }
+    context = service_render_context(config, "services/app_runtime", str(tmp_path), service_key=KEY)
+    text = _packaged_compose_template(TEMPLATE).render(**_inject_project_metadata(context))
+
+    svc = yaml.safe_load(text)["services"][KEY]
+
+    assert svc["environment"]["OSPREY_APP_STATE_DIRS"] == "/app/fixture/var/knob"
+    assert any(volume.split(":")[1] == "/app/fixture/var/knob" for volume in svc["volumes"])
+
+
+@pytest.mark.slow
+def test_a_bridge_application_without_a_name_server_names_the_profile_keys(
+    built_control_assistant,
+) -> None:
+    """The shipped preset pointed at a Channel Access facility with no gateway address.
+
+    The refusal stands, and its remedy names only keys ``profile.yml`` can
+    spell: the gateway address, the application's projected network axis, or
+    dropping the application. ``services.<key>`` itself is a projected key.
+    """
+    config = yaml.safe_load((built_control_assistant.repo / "build" / "config.yml").read_text())
+    config["control_system"]["type"] = "epics"
+
+    with pytest.raises(DeploymentPreconditionError) as excinfo:
+        _inject_project_metadata(config)
+
+    remedy = excinfo.value.remedy
+    assert "control_system.connector.epics.gateways." in remedy
+    assert "apps.knob-example.services.knob-example.network: host" in remedy
+    assert "apps.knob-example" in remedy.replace(
+        "apps.knob-example.services.knob-example.network", ""
+    )
+    assert "services.knob-example" not in remedy.replace(
+        "apps.knob-example.services.knob-example", ""
+    )
+    assert " on knob-example" not in remedy
 
 
 def test_it_renders_with_none_of_the_keys_it_reads() -> None:

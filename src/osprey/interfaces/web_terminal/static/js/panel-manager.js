@@ -609,6 +609,11 @@ export async function initPanelManager(panelId) {
     // must reach the handler current at frame time.
     reportActivity: (frame) => onAgentActivity(frame),
   });
+
+  // Start-up is over: the rail is rendered and every sidebar control is wired.
+  // The page ships rail rows of its own, so a row on screen does not say this;
+  // anything that drives the hub (a browser test, a docs recording) waits here.
+  document.documentElement.dataset.panelsReady = 'true';
 }
 
 // ---- Panel Queries & Active-Panel State ----

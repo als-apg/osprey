@@ -1,0 +1,33 @@
+# A small complete application: one panel over one channel, one read tool, one write tool.
+name: knob-example
+summary: Shows one corrector setpoint of the control target and sets it on approval.
+containers:
+  knob-example:
+    runtime: osprey
+    command: [python, -m, knob_example.server]
+    health: /health
+    drives_target: true
+    state: var/knob-example
+panel:
+  label: Knob
+  container: knob-example
+  launch_token: true
+  agent_routes:
+    - [GET, /api/state]
+    - [POST, /api/write]
+  roster_grant: {}
+tools:
+  module: knob_example.tools
+  read: [read_corrector]
+  approval:
+    - tool: set_corrector
+      prompt: Set {{ state.channel }} to {{ input.value }}, now {{ state.readback }}.
+      state_path: /api/state
+      bind:
+        state_fields:
+          - {field: approved_readback, key: readback}
+      require:
+        all_of: [approved_target, approved_readback]
+  errors:
+    unreachable: The knob panel's backend is not answering; check its container with osprey health.
+    refused: The value was not written. Read the channel again and ask for a new approval.
