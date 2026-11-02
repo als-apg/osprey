@@ -241,6 +241,21 @@ enums:
       offset_readback:
         description: Measured longitudinal offset (phase) of an insertion device's magnet rows.
         aliases: [offset readback, offset, phase, measured offset, row offset]
+      temperature_limit_readback:
+        description: Temperature above which a device's over-temperature interlock trips.
+        aliases: [temperature limit, trip temperature, over-temperature limit, temperature threshold]
+      blade_position_setpoint:
+        description: Commanded insertion of a scraper blade into the beam aperture.
+        aliases: [blade setpoint, scraper setpoint, set blade position, scraper position setpoint]
+      blade_position_readback:
+        description: Measured insertion of a scraper blade into the beam aperture.
+        aliases: [blade position, scraper position, blade readback, scraper readback]
+      coolant_flow_readback:
+        description: Measured cooling-water flow through a device.
+        aliases: [coolant flow, cooling water flow, water flow, flow readback, flow rate]
+      valve_position_readback:
+        description: Measured opening of a modulating valve, in percent.
+        aliases: [valve position, valve opening, valve percent open, chilled-water valve]
       temperature_readback:
         description: Measured temperature.
         aliases: [temperature, temperature readback, measured temperature, temperature reading]
@@ -302,6 +317,14 @@ enums:
       temperature_setpoint:
         description: Commanded temperature of a regulated loop (e.g. a cooling-water heater).
         aliases: [temperature setpoint, set temperature, commanded temperature, temperature demand]
+      beam_lifetime_readback:
+        description: Measured lifetime readback of the stored beam.
+        aliases: [beam lifetime, lifetime]
+      operation_mode_status:
+        description: >-
+          Current operating mode of the machine (e.g. user operation, machine
+          development, shutdown).
+        aliases: [operation mode, operating mode, machine mode, beam mode, ops mode, machine state]
 
   property_name_enum:
     description: >-

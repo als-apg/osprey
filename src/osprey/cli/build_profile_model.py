@@ -74,7 +74,6 @@ from .build_profile_schema import (
 from .build_profile_va_faults import (
     live_standin_errors,
     pva_port_errors,
-    standin_archive_errors,
     standin_baseline_errors,
 )
 from .derived_keys import derived_key_errors
@@ -2048,14 +2047,10 @@ class BuildProfile:
                     )
                 )
 
-        # The stand-in as a TARGET rather than as a port, so both are asked
-        # whatever the `virtual_accelerator:` block says — a baseline naming
-        # the stand-in is a fault precisely when the block is absent, and the
-        # archive rule is about which machine's past this deployment records.
+        # The stand-in as a TARGET rather than as a port, asked whatever the
+        # `virtual_accelerator:` block says — a baseline naming the stand-in is
+        # a fault precisely when the block is absent.
         errors.extend(standin_baseline_errors(self.config, self.virtual_accelerator))
-        errors.extend(
-            standin_archive_errors(self.config, self.virtual_accelerator, self.va_archiver)
-        )
 
         # Validate bluesky_web configuration
         if self.bluesky_web is not None:

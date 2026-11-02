@@ -211,6 +211,17 @@ def _monitor(staged: Staged) -> Any:
     return (verdict.allowed, verdict.reason), _expected(case)
 
 
+def _control_session(staged: Staged) -> Any:
+    """A long-lived session's execution verdict: the config section, the row's target, the ladder."""
+    case = staged.case
+    if not _ladder_pin_honoured(case) or not _str_target(case):
+        return OUT_OF_DOMAIN
+    from osprey.runtime.session import _verdicts
+
+    _switch, verdict = _verdicts(case.target)
+    return (verdict.allowed, verdict.reason), _expected(case)
+
+
 def _ipc_pool(staged: Staged) -> Any:
     """The connector-host pool's gateway role: allowed only, section passed in."""
     case = staged.case
@@ -714,6 +725,14 @@ SURFACES: tuple[Surface, ...] = (
         stage1=True,
         reports_reason=True,
         project=_monitor,
+    ),
+    Surface(
+        "control-session",
+        "osprey.runtime.session",
+        "write",
+        stage1=True,
+        reports_reason=True,
+        project=_control_session,
     ),
     Surface(
         "ipc-pool-role",

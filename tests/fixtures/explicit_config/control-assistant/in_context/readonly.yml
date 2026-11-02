@@ -243,8 +243,6 @@ scaffold:
   user_owned:
   - rules/facility
 services:
-  archiver_recorder:
-    path: ./services/archiver_recorder
   bluesky:
     port: 10080
   graphdb:

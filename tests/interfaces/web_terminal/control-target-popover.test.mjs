@@ -1716,7 +1716,6 @@ describe('switching', () => {
     const phrases = {
       target_unresolvable: 'unavailable',
       operator_ack_missing: 'needs gateway ack',
-      archive_belongs_to_standin: 'archive conflict',
       invented_history: 'no archive',
       standin_not_deployed: 'stand-in not deployed',
       selected_role_missing: 'no endpoint for role',

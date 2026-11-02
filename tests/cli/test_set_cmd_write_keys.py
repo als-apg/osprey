@@ -558,7 +558,9 @@ def test_a_line_that_breaks_a_root_with_a_block_is_taken_back(runner, tmp_path):
     repo = _silent_root(tmp_path / "repo", "control-assistant", "control_system.writes: never")
     before = _profile_bytes(repo)
 
-    result = _invoke(runner, repo, "config.control_system={writes: never, type: mock}")
+    # A block whose `connector` is a scalar: the preset's dotted keys under it
+    # can no longer be applied, so the render fails.
+    result = _invoke(runner, repo, "config.control_system={writes: never, connector: 5}")
 
     assert result.exit_code != 0
     assert _profile_bytes(repo) == before

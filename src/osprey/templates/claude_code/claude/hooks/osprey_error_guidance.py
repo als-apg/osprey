@@ -194,6 +194,9 @@ ERROR_CLASS_MAP = {
     "browse_only_connector": "Safety",
     "unsupported_connector": "Safety",
     "not_supported": "Safety",
+    # The session's target has no archive here: the deployment's archive holds
+    # other machines' past, and showing it would answer from the wrong machine.
+    "no_archive": "Safety",
     # An interrupted plan is back at the head of the queue; a human decides
     # whether to remove it (approval-gated), never the agent by retrying.
     "interrupted_item_in_queue": "Safety",

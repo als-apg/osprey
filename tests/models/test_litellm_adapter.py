@@ -8,6 +8,7 @@ from pydantic import BaseModel, ValidationError
 
 from osprey.models.providers.base import BaseProvider
 from osprey.models.providers.litellm_adapter import (
+    StructuredReplySchemaEchoError,
     _clean_json_response,
     _execute_ollama_structured_output,
     _handle_structured_output,
@@ -518,6 +519,79 @@ class TestStructuredReplyIsAskedForOnceMore:
         records = [r for r in caplog.records if "asking once more" in r.getMessage()]
         assert len(records) == 1
         assert "ds4" in records[0].getMessage()
+
+
+class _AllOptional(BaseModel):
+    tune: float | None = None
+    circumference: float | None = None
+
+
+class _HasPropertiesField(BaseModel):
+    properties: dict[str, int]
+    title: str | None = None
+
+
+#: An all-optional model's schema, answered by a model that copied its shape:
+#: the values sit under ``properties`` and nothing is at the top level.
+_MIRRORED = (
+    '{"properties": {"tune": 0.22, "circumference": 182.1}, '
+    '"title": "_AllOptional", "type": "object"}'
+)
+
+
+class TestASchemaEchoIsNeverAnEmptyInstance:
+    """A reply shaped like the schema is refused, not validated to all unset."""
+
+    def _call(self, mock_litellm, replies, output_format=_AllOptional):
+        mock_litellm.completion.side_effect = replies
+        return _handle_structured_output(
+            provider="ds4",
+            model_id="deepseek-v4-flash",
+            litellm_model="openai/deepseek-v4-flash",
+            message="extract info",
+            completion_kwargs={"model": "openai/deepseek-v4-flash"},
+            output_format=output_format,
+            is_typed_dict_output=False,
+        )
+
+    @patch("osprey.models.providers.litellm_adapter.litellm")
+    def test_a_mirrored_reply_is_refused_and_asked_again(self, mock_litellm):
+        result = self._call(
+            mock_litellm, [_reply(_MIRRORED), _reply('{"tune": 0.22, "circumference": 182.1}')]
+        )
+        assert result == _AllOptional(tune=0.22, circumference=182.1)
+        assert mock_litellm.completion.call_count == 2
+        first, second = mock_litellm.completion.call_args_list
+        assert first.kwargs == second.kwargs
+
+    @patch("osprey.models.providers.litellm_adapter.litellm")
+    def test_a_repeated_mirror_raises_the_named_error(self, mock_litellm):
+        with pytest.raises(
+            StructuredReplySchemaEchoError, match="^Failed to parse structured output from ds4: "
+        ) as raised:
+            self._call(mock_litellm, [_reply(_MIRRORED), _reply(_MIRRORED)])
+        assert "'properties'" in str(raised.value)
+        assert mock_litellm.completion.call_count == 2
+
+    @patch("osprey.models.providers.litellm_adapter.litellm")
+    def test_a_type_and_title_pair_is_an_echo_too(self, mock_litellm):
+        echo = '{"title": "_AllOptional", "type": "object", "tune": 0.22}'
+        with pytest.raises(StructuredReplySchemaEchoError, match="'title/type'"):
+            self._call(mock_litellm, [_reply(echo), _reply(echo)])
+
+    @patch("osprey.models.providers.litellm_adapter.litellm")
+    def test_a_model_with_a_properties_field_still_validates(self, mock_litellm):
+        reply = '{"properties": {"a": 1}, "title": "x"}'
+        result = self._call(mock_litellm, [_reply(reply)], output_format=_HasPropertiesField)
+        assert result == _HasPropertiesField(properties={"a": 1}, title="x")
+        assert mock_litellm.completion.call_count == 1
+
+    @patch("osprey.models.providers.litellm_adapter.litellm")
+    def test_the_instruction_asks_for_an_instance_naming_the_fields(self, mock_litellm):
+        self._call(mock_litellm, [_reply('{"tune": 0.22}')])
+        sent = mock_litellm.completion.call_args.kwargs["messages"][0]["content"]
+        assert "INSTANCE of the schema below, not the schema itself" in sent
+        assert "(tune, circumference)" in sent
 
 
 class TestExecuteOllamaStructuredOutput:

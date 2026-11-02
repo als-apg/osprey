@@ -1451,17 +1451,12 @@ class TestControlAssistantTiersAndApps:
         top-level ``"services.graphdb.port_host"`` string key beside the map,
         which would satisfy ``config.yml`` as YAML and be read by nobody.
 
-        Most entries are the address a consumer in this container dials.
-        ``archiver_recorder`` is one exception and is asserted here beside
-        them: nothing in a tier dials the recorder, but ``path`` is the host's
-        fact THAT it records, which is what ``archive_belongs_to_standin``
-        reads to refuse the ``live`` target — a gate that has to hold in a
-        multi-user session exactly as it does in a single-user one, and whose
-        host-side spelling (``deployed_services``) is empty in every attached
-        render. The graph store's ``ttl_path`` is the other: not projected but
+        Every entry is the address a consumer in this container dials, with
+        one exception: the graph store's ``ttl_path`` is not projected but
         kept, because it names the corpus in the render's OWN data tree, from
         which the build derives this render's search index (the graphdb
-        contract's ``render_local`` keys).
+        contract's ``render_local`` keys). The archive recorder, which the host
+        deploys, is absent: nothing in a tier dials it and no gate reads it.
         """
         project = _render_dir(built_layered_stack, tier)
         config = yaml.safe_load((project / "config.yml").read_text(encoding="utf-8"))
@@ -1483,8 +1478,8 @@ class TestControlAssistantTiersAndApps:
             "bluesky": {"port": host["services"]["bluesky"]["port"]},
             "virtual_accelerator": {"port": host["services"]["virtual_accelerator"]["port"]},
             "live_standin": {"port": host["services"]["live_standin"]["port"]},
-            "archiver_recorder": {"path": host["services"]["archiver_recorder"]["path"]},
         }
+        assert "archiver_recorder" in host["services"]
         assert config["services"]["qmd"]["port"] == QMD_DEFAULT_PORT
         assert [key for key in config if "." in str(key)] == []
 
