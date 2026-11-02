@@ -5,8 +5,9 @@ modelled reasons — a corrector is stepped, the orbit responds, and the numbers
 tool reads back are answers to what the deployment actually did — and its
 recorder writes that history as it happens. The live stand-in makes the same
 kind of claim from a soft IOC the deployment runs for itself. Neither machine
-existed before this deployment stood it up, so neither has a past anybody
-recorded beyond what its own recorder keeps — they are the
+existed before this deployment stood it up: the simulator's only past is the
+store its recorder keeps, and the stand-in's is the facility's archive it
+rehearses against — they are the
 :data:`~osprey_connectors.types.INVENTED_HISTORY_TYPES`, reached over a
 network, and every question below is asked of that whole set rather than of the
 virtual accelerator alone. The mock archiver answers a history query the other

@@ -738,14 +738,16 @@ name = "The framework reaches the connector packages only through their namespac
 # its modules public: its root is imported by readers that must not load
 # numpy, so the heavy modules are reached by their own names. The package's
 # top-level modules (config, types, posture_store, ...) are each their own
-# public API. The one private top-level module, `_version`, is written by the
-# build and gitignored; it is not listed, because import-linter refuses a
+# public API, except the private ones: `_config_read`, the config readers the
+# stand-in and the simulator share, is listed; `_version` is written by the
+# build and gitignored, and is not listed, because import-linter refuses a
 # listed module that is missing from the graph, as it is on a fresh clone.
 type = "protected"
 protected_modules = [
     "osprey_connectors.control_system.*",
     "osprey_connectors.archiver.*",
     "osprey_connectors.ipc.*",
+    "osprey_connectors._config_read",
 ]
 allowed_importers = ["osprey_connectors"]
 ignore_imports = [
@@ -787,8 +789,11 @@ layers = [
     "osprey_connectors.control_context : osprey_connectors.posture_store",
     "osprey_connectors.logger",
     "osprey_connectors.config : osprey_connectors.workspace",
+    "osprey_connectors.archive_targets",
+    "osprey_connectors.simulator",
     "osprey_connectors.call_timeout | osprey_connectors.dotenv | osprey_connectors.honesty | osprey_connectors.session_hold",
     "osprey_connectors.connection | osprey_connectors.identity | osprey_connectors.log_filter | osprey_connectors.posture_env | osprey_connectors.process | osprey_connectors.refusals | osprey_connectors.relative_time | osprey_connectors.safety_file | osprey_connectors.standin | osprey_connectors.types | osprey_connectors.yaml_loader",
+    "osprey_connectors._config_read",
 ]
 ignore_imports = [
     # Edges that point up, each named so that no other can join them. The
