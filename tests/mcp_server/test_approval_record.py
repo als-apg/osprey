@@ -491,7 +491,7 @@ class TestTheRequiredFields:
         self, tool: str, guarded_run: bool
     ) -> None:
         assert requirements(tool, {}, guarded_run=guarded_run) == Requirements(
-            required_fields(tool, guarded_run=guarded_run), ()
+            required_fields(tool, guarded_run=guarded_run)
         )
 
     def test_the_executor_holds_no_spelling_or_rule_of_its_own(self) -> None:

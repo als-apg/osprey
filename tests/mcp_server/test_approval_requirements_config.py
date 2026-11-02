@@ -25,21 +25,13 @@ TOOL = "mcp__knob__set_knob"
 _ENTRY: dict[str, Any] = {
     "prompt": "Set {{ input.value }}",
     "panel_id": "knob",
-    "require": {
-        "all_of": ["approved_target"],
-        "one_of": [["approved_setpoint", "approved_readback"]],
-    },
+    "require": {"all_of": ["approved_target", "approved_setpoint"]},
 }
 
 CONFIG: dict[str, Any] = {
     "approval": {"enabled": True, "default_policy": "always"},
     "apps": {"knob": {"approval": {"set_knob": _ENTRY}}},
 }
-
-_EXACTLY_ONE = (
-    "not run: exactly one of `approved_setpoint`, `approved_readback` must be carried, "
-    "as the approval prompt recorded it (approval_missing). Call the tool again."
-)
 
 
 @pytest.fixture
@@ -77,21 +69,24 @@ class TestTheReader:
 
     def test_the_app_tools_requirements(self) -> None:
         assert requirements(TOOL, CONFIG, guarded_run=True) == Requirements(
-            ("approved_target",), (("approved_setpoint", "approved_readback"),)
+            ("approved_target", "approved_setpoint")
         )
 
     def test_a_built_in_keeps_its_static_requirements(self) -> None:
         assert requirements("pyaml_measure", CONFIG, guarded_run=True) == Requirements(
-            ("approved_target", "approved_view_sha256"), ()
+            ("approved_target", "approved_view_sha256")
         )
 
     def test_approved_target_is_required_under_a_guarded_run_when_the_manifest_omits_it(
         self,
     ) -> None:
-        config = _with({"one_of": [["approved_setpoint", "approved_readback"]]})
+        config = _with({"all_of": ["approved_setpoint"]})
 
-        assert requirements(TOOL, config, guarded_run=True).all_of == ("approved_target",)
-        assert requirements(TOOL, config).all_of == ()
+        assert requirements(TOOL, config, guarded_run=True).all_of == (
+            "approved_target",
+            "approved_setpoint",
+        )
+        assert requirements(TOOL, config).all_of == ("approved_setpoint",)
 
 
 class TestTheGrammar:
@@ -100,7 +95,7 @@ class TestTheGrammar:
 
         assert _require(CONFIG, {"approved_target": "live", "approved_setpoint": "s"}) is None
 
-    def test_a_both_shaped_call_refuses(self, stamps: ApprovalStamps) -> None:
+    def test_a_field_the_stamp_did_not_record_refuses(self, stamps: ApprovalStamps) -> None:
         stamps.ask(TOOL, approved_target="live", approved_setpoint="s")
 
         refusal = _require(
@@ -108,23 +103,20 @@ class TestTheGrammar:
             {"approved_target": "live", "approved_setpoint": "s", "approved_readback": "r"},
         )
 
-        assert refusal == Refusal(APPROVAL_MISSING, _EXACTLY_ONE)
+        assert refusal is not None and refusal.error_type == APPROVAL_MISSING
+        assert "`approved_readback` differs" in refusal.message
 
-    def test_a_neither_shaped_call_refuses(self, stamps: ApprovalStamps) -> None:
+    def test_a_call_missing_a_required_field_refuses(self, stamps: ApprovalStamps) -> None:
         stamps.ask(TOOL, approved_target="live", approved_setpoint="s")
 
         refusal = _require(CONFIG, {"approved_target": "live", "approved_readback": None})
 
-        assert refusal == Refusal(APPROVAL_MISSING, _EXACTLY_ONE)
+        assert refusal is not None and refusal.error_type == APPROVAL_MISSING
+        assert "`approved_setpoint` differs" in refusal.message
 
-    def test_a_stamp_holding_both_of_a_group_refuses(self, stamps: ApprovalStamps) -> None:
-        stamps.ask(TOOL, approved_target="live", approved_setpoint="s", approved_readback="r")
-
-        refusal = _require(CONFIG, {"approved_target": "live", "approved_setpoint": "s"})
-
-        assert refusal == Refusal(APPROVAL_MISSING, _EXACTLY_ONE)
-
-    def test_a_one_of_value_differing_from_the_stamp_refuses(self, stamps: ApprovalStamps) -> None:
+    def test_a_required_value_differing_from_the_stamp_refuses(
+        self, stamps: ApprovalStamps
+    ) -> None:
         stamps.ask(TOOL, approved_target="live", approved_setpoint="s")
 
         refusal = _require(CONFIG, {"approved_target": "live", "approved_setpoint": "other"})
@@ -143,7 +135,7 @@ class TestTheGrammar:
     def test_approved_target_is_required_even_when_the_manifest_omits_it(
         self, stamps: ApprovalStamps
     ) -> None:
-        config = _with({"one_of": [["approved_setpoint", "approved_readback"]]})
+        config = _with({"all_of": ["approved_setpoint"]})
         stamps.ask(TOOL, approved_target="live", approved_setpoint="s")
 
         refusal = _require(config, {"approved_setpoint": "s"})
@@ -182,9 +174,13 @@ class TestAMalformedRequire:
         [
             pytest.param({"all_of": "approved_target"}, id="all-of-not-a-list"),
             pytest.param({"all_of": [""]}, id="all-of-empty-name"),
-            pytest.param({"one_of": [[]]}, id="empty-group"),
-            pytest.param({"one_of": ["approved_setpoint"]}, id="group-not-a-list"),
-            pytest.param({"one_of": [["approved_setpoint", 3]]}, id="group-name-not-a-string"),
+            pytest.param(
+                {"all_of": ["approved_target", "approved_setpoint"], "one_of": []},
+                id="retired-one-of-empty",
+            ),
+            pytest.param({"one_of": [["approved_setpoint"]]}, id="retired-one-of"),
+            pytest.param({"any_of": ["approved_setpoint"]}, id="unknown-key"),
+            pytest.param({"all_of": ["approved_setpoint", 3]}, id="all-of-name-not-a-string"),
             pytest.param(["approved_target"], id="require-not-a-mapping"),
         ],
     )

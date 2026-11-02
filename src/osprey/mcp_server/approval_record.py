@@ -13,7 +13,7 @@ What a call must carry is its tool's :class:`Requirements`. A built-in reads
 them from :data:`TOOL_REQUIRED_FIELDS`; an application tool, named by its full
 ``mcp__<app>__<tool>`` name, from rendered config
 ``apps.<app>.approval.<tool>.require`` (:func:`app_approval_entry`): an
-``all_of`` list and ``one_of`` groups, each satisfied by exactly one field.
+``all_of`` list, its one key.
 
 A governed tool (the write switch decides it) is ask-capable whatever
 ``approval.enabled`` or its policy says, so its call needs the record in every
@@ -132,14 +132,9 @@ class Refusal:
 
 @dataclass(frozen=True)
 class Requirements:
-    """The approved fields an asking call must carry.
-
-    Every :attr:`all_of` name, and of each :attr:`one_of` group exactly one
-    name, as the approval prompt recorded it.
-    """
+    """The approved fields an asking call must carry: every :attr:`all_of` name."""
 
     all_of: tuple[str, ...]
-    one_of: tuple[tuple[str, ...], ...]
 
 
 def _app_tool(tool: str) -> tuple[str, str] | None:
@@ -179,20 +174,13 @@ def _names(value: Any) -> tuple[str, ...] | None:
     return tuple(value)
 
 
-def _parse_require(require: Any) -> tuple[tuple[str, ...], tuple[tuple[str, ...], ...]] | None:
-    """An entry's ``require`` as ``(all_of, one_of)``, or ``None`` when malformed."""
+def _parse_require(require: Any) -> tuple[str, ...] | None:
+    """An entry's ``require.all_of``, or ``None`` when malformed or keyed otherwise."""
     if require is None:
-        return (), ()
-    if not isinstance(require, Mapping):
+        return ()
+    if not isinstance(require, Mapping) or set(require) - {"all_of"}:
         return None
-    all_of = _names(require.get("all_of", []))
-    groups = require.get("one_of", [])
-    if all_of is None or not isinstance(groups, list):
-        return None
-    one_of = tuple(_names(group) for group in groups)
-    if any(not group for group in one_of):
-        return None
-    return all_of, one_of  # type: ignore[return-value]
+    return _names(require.get("all_of", []))
 
 
 def _require_fault(config: Mapping[str, Any], tool: str) -> str | None:
@@ -245,21 +233,20 @@ def requirements(
     """What an asking call of *tool* must carry under *config*.
 
     An application tool with an entry (:func:`app_approval_entry`) requires
-    ``approved_target`` under *guarded_run* and its ``require.all_of``, and its
-    ``require.one_of`` groups; every other tool :func:`required_fields`.
+    ``approved_target`` under *guarded_run* and its ``require.all_of``; every
+    other tool :func:`required_fields`.
 
     Raises:
         ValueError: The entry's ``require`` is malformed.
     """
     entry = app_approval_entry(config, tool)
     if entry is None:
-        return Requirements(required_fields(tool, guarded_run=guarded_run), ())
-    parsed = _parse_require(entry.get("require"))
-    if parsed is None:
+        return Requirements(required_fields(tool, guarded_run=guarded_run))
+    all_of = _parse_require(entry.get("require"))
+    if all_of is None:
         raise ValueError(_require_fault(config, tool))
-    all_of, one_of = parsed
     guard: tuple[str, ...] = ("approved_target",) if guarded_run else ()
-    return Requirements(tuple(dict.fromkeys((*guard, *all_of))), one_of)
+    return Requirements(tuple(dict.fromkeys((*guard, *all_of))))
 
 
 def require_approval_record(
@@ -277,9 +264,7 @@ def require_approval_record(
     otherwise the ask stamp for the call in scope
     (:func:`~osprey.audit.call.current_tool_use_id`) must exist and name
     *tool*, and every approved field the call carries, and every ``all_of``
-    name of its :func:`requirements`, must equal what the stamp recorded; of
-    each ``one_of`` group the call carries exactly one name, the stamp records
-    it with that value and records none of the group's others.
+    name of its :func:`requirements`, must equal what the stamp recorded.
 
     A governed tool is ask-capable under ``approval.enabled: false`` and under
     a ``skip`` policy alike. Neither the stamp's ``approver`` nor its
@@ -315,28 +300,13 @@ def require_approval_record(
         return Refusal(APPROVAL_MISSING, _NO_RECORD)
     needs = requirements(tool, config, guarded_run=guarded_run)
     required = needs.all_of
-    grouped = {name for group in needs.one_of for name in group}
     fields = approved or {}
     for name in dict.fromkeys((*APPROVED_FIELDS, *fields, *required)):
-        if name in grouped:
-            continue
         value = fields.get(name)
         if value is None and name not in required:
             continue
         if value is None or stamp.get(name) != value:
             return _differs(name)
-    for group in needs.one_of:
-        carried = [name for name in group if fields.get(name) is not None]
-        recorded = [name for name in group if stamp.get(name) is not None]
-        if len(carried) != 1 or len(recorded) > 1:
-            names = ", ".join(f"`{name}`" for name in group)
-            return Refusal(
-                APPROVAL_MISSING,
-                f"not run: exactly one of {names} must be carried, as the approval prompt "
-                "recorded it (approval_missing). Call the tool again.",
-            )
-        if stamp.get(carried[0]) != fields[carried[0]]:
-            return _differs(carried[0])
     return None
 
 
