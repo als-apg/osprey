@@ -1,1 +1,1 @@
-An application tool's write is now refused while a watchdog holds the session, with the flag's source in the refusal, as every other write tool already is.
+An application tool's write is now refused while a watchdog holds the session, with the flag's source in the refusal, as every other write tool already is. An MCP server's `env:` can no longer set `OSPREY_SESSION_ID` or `OSPREY_SESSION_HOLD_DIR`; a pinned value is dropped with a warning.
