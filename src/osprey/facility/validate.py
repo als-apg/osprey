@@ -32,6 +32,7 @@ import math
 import numbers
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
+from dataclasses import fields as dataclass_fields
 from functools import cache
 from importlib import resources
 from pathlib import Path
@@ -47,7 +48,7 @@ from osprey.facility.errors import (
     exact_number,
     quoted_slots,
 )
-from osprey.facility.records import FacilityRecords
+from osprey.facility.records import ChannelSelection, FacilityRecords
 from osprey.facility.scenarios import FaultRoster, fault_roster, map_fault_errors
 from osprey.facility.sources import Sources, group_families, load_sources
 from osprey_connectors.settle import declared_tolerance
@@ -879,6 +880,12 @@ class _References:
             listed = still if isinstance(still, list) else ()
             for address in sorted({entry for entry in listed if isinstance(entry, str)}):
                 yield from self._missing("scenario", name, files, "still", "channel", address)
+            for entry in listed:
+                for kind in ("model", "place", "group") if isinstance(entry, dict) else ():
+                    if isinstance(entry.get(kind), str):
+                        yield from self._missing(
+                            "scenario", name, files, "still", kind, entry[kind]
+                        )
             channel_faults = scenario.get("channel_faults")
             for address in sorted(
                 channel_faults if isinstance(channel_faults, dict) else (), key=str
@@ -1752,25 +1759,34 @@ class _Records:
     def _still(
         self, name: str, files: list[str], scenario: Mapping[str, Any]
     ) -> Iterator[FacilityBuildError]:
-        """A scenario's ``still``: ``all`` or float readings, none of whose motion it sets."""
+        """A scenario's ``still``: ``all``, or float readings and well-formed selections.
+
+        A scenario sets the motion of no reading it stills here by address; the
+        render checks what a selection resolves to.
+        """
         still = scenario.get("still")
         if still is None:
             return
         if still != STILL_ALL and (
             not isinstance(still, list)
             or not still
-            or not all(isinstance(address, str) for address in still)
+            or not all(isinstance(entry, str | dict) for entry in still)
         ):
             yield self._error(
                 "value-invalid",
                 "scenario",
                 name,
                 files,
-                f"`still` is {still!r}, neither `{STILL_ALL}` nor a list of addresses",
-                f"write `still: {STILL_ALL}` or a list of addresses",
+                f"`still` is {still!r}, neither `{STILL_ALL}` nor a list of addresses and "
+                "selections",
+                f"write `still: {STILL_ALL}` or a list of addresses and selections",
             )
             return
-        stilled = set() if still == STILL_ALL else set(still)
+        listed = () if still == STILL_ALL else still
+        for entry in listed:
+            if isinstance(entry, dict):
+                yield from self._still_selection(name, files, entry)
+        stilled = {entry for entry in listed if isinstance(entry, str)}
         for address in sorted(stilled):
             if address in self.index.channels and self._type(address) != "float":
                 yield self._error(
@@ -1793,6 +1809,34 @@ class _Records:
                         f"`{slot}.{address}` sets the motion of a reading `still` stills",
                         "a scenario either stills a reading or sets its motion",
                     )
+
+    def _still_selection(
+        self, name: str, files: list[str], entry: Mapping[str, Any]
+    ) -> Iterator[FacilityBuildError]:
+        """One selection of a scenario's ``still``: the read model's selection builds from it."""
+        keys = {field.name for field in dataclass_fields(ChannelSelection)}
+        unknown = sorted(str(key) for key in entry if key not in keys)
+        if unknown:
+            yield self._error(
+                "value-invalid",
+                "scenario",
+                name,
+                files,
+                f"`still` selection {entry!r} has no key `{unknown[0]}`",
+                f"use only {', '.join(field.name for field in dataclass_fields(ChannelSelection))}",
+            )
+            return
+        try:
+            ChannelSelection(**entry)
+        except ValueError as refusal:
+            yield self._error(
+                "value-invalid",
+                "scenario",
+                name,
+                files,
+                f"`still` selection {entry!r}: {refusal}",
+                "correct this selection in `still`",
+            )
 
     def _channel_faults(
         self, name: str, files: list[str], block: Any

@@ -403,7 +403,7 @@ STOP_SENTENCES: tuple[tuple[str, str, str], ...] = (
         "value-invalid",
         "a scenario `noise` entry stating both terms",
     ),
-    ("value_invalid__still_shape", "value-invalid", "a `still` neither `all` nor addresses"),
+    ("value_invalid__still_shape", "value-invalid", "a `still` neither `all` nor a list"),
     ("value_invalid__still_non_float", "value-invalid", "a `still` listing a non-float"),
     (
         "value_invalid__still_with_motion",
@@ -1531,7 +1531,8 @@ CASES: dict[str, tuple[Callable[[], Tree], str]] = {
         _plain(scenario("warm", {"still": "everything"})),
         (
             "facility: value-invalid: scenario warm — `still` is 'everything', neither `all` "
-            "nor a list of addresses; fix: write `still: all` or a list of addresses"
+            "nor a list of addresses and selections; fix: write `still: all` or a list of "
+            "addresses and selections"
         ),
     ),
     "value_invalid__still_non_float": (
