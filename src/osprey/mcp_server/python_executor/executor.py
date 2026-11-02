@@ -266,6 +266,9 @@ class ExecutionResult:
     #: The process id of the sandbox child this run started; ``None`` for a
     #: run that never started its child.
     pid: int | None = None
+    #: What the code review said to the agent about a run it let proceed; ``None``
+    #: when no review ran or it had nothing to say.
+    code_review: str | None = None
 
 
 def execution_timeout_seconds(value: object) -> float:
@@ -910,6 +913,68 @@ def _check_store_path(code: str, osprey_config: Mapping[str, Any], tool: str) ->
     return None
 
 
+def _admission(
+    code: str,
+    mode: str,
+    osprey_config: Mapping[str, Any],
+    tool: str,
+    approved: Mapping[str, str | None],
+    sandbox_env: dict[str, str],
+) -> tuple[str, Refusal | None]:
+    """Run the checks that decide whether a launch may spawn its child.
+
+    Args:
+        code: The code the launch would receive.
+        mode: ``"readonly"`` or ``"readwrite"``.
+        osprey_config: The deployment's config.
+        tool: The tool's short name, as ``approval.tools`` keys it.
+        approved: The call's approved fields, ``None`` for an absent one.
+        sandbox_env: Receives the control target's stamp.
+
+    Returns:
+        ``(control target, the refusal if there is one)``.
+
+    Raises:
+        _SwitchInProgress: When the deployment is mid-switch.
+    """
+    control_target = _apply_target_stamp(sandbox_env)
+    refusal = _check_store_path(code, osprey_config, tool) or _check_approved_call(
+        mode, osprey_config, tool, approved, control_target=control_target
+    )
+    return control_target, refusal
+
+
+def admission_refusal(code: str, mode: str, tool: str, approved: Mapping[str, str | None]) -> bool:
+    """Whether :func:`_execute_via_local` would decline this run before spawning it.
+
+    :func:`_admission` with no effect: the stamp goes into a throwaway dict, and the control
+    context, the config and the ask stamp are only read. The caller uses the answer to spare a
+    review, then still calls :func:`execute_code`, which runs these checks again and produces
+    the decline itself.
+
+    Args:
+        code: The code the launch would receive.
+        mode: ``"readonly"`` or ``"readwrite"``.
+        tool: The tool's short name, as ``approval.tools`` keys it.
+        approved: The call's approved fields, ``None`` for an absent one.
+
+    Returns:
+        ``True`` when the run would be declined. ``False`` otherwise, including when a check
+        could not answer: the review then still runs, because declining here on an unknown
+        would launch the code unreviewed if :func:`execute_code` then admitted it.
+    """
+    from osprey_connectors.workspace import load_osprey_config
+
+    try:
+        _, refusal = _admission(code, mode, load_osprey_config(), tool, approved, {})
+    except _SwitchInProgress:
+        return True
+    except Exception:
+        logger.warning("Could not pre-check admission; reviewing anyway", exc_info=True)
+        return False
+    return refusal is not None
+
+
 def _guarded_run_name(target: str) -> str | None:
     """The guarded-run directory name *target* resolves to, ``None`` when it names none."""
     from osprey.runtime.guarded_run import guarded_run_target
@@ -1112,8 +1177,20 @@ async def _execute_via_local(
     # spawned: the refusal is a fact about the fleet rather than about the
     # submitted code, so it comes back as a failed result naming the servers
     # to wait for, not as a traceback out of the sandbox.
+    #
+    # Whether this call was put to a human is decided here too, by the process
+    # that launches the script, from the record the approval hook left for
+    # this tool call; the sandbox is handed nothing of it. Code that names the
+    # posture store is checked first, readonly runs included.
     try:
-        control_target = _apply_target_stamp(sandbox_env)
+        control_target, refusal = _admission(
+            code,
+            execution_mode,
+            osprey_config,
+            tool,
+            {"approved_target": approved_target, "approved_view_sha256": approved_view_sha256},
+            sandbox_env,
+        )
     except _SwitchInProgress as in_flight:
         return ExecutionResult(
             success=False,
@@ -1124,17 +1201,6 @@ async def _execute_via_local(
             error_message=str(in_flight),
             failure_kind=FAILURE_KIND_SWITCH_IN_PROGRESS,
         )
-    # Whether this call was put to a human is decided here, by the process
-    # that launches the script, from the record the approval hook left for
-    # this tool call; the sandbox is handed nothing of it. Code that names the
-    # posture store is checked first, readonly runs included.
-    refusal = _check_store_path(code, osprey_config, tool) or _check_approved_call(
-        execution_mode,
-        osprey_config,
-        tool,
-        {"approved_target": approved_target, "approved_view_sha256": approved_view_sha256},
-        control_target=control_target,
-    )
     if refusal is not None:
         return ExecutionResult(
             success=False,

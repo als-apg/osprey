@@ -101,8 +101,12 @@ def _raise_failure(exec_result: ExecutionResult, stderr_text: str, payload: dict
     ``details`` carries the response the success path would have returned, so
     a failed run still surfaces its artifacts, plus :data:`SUBSYSTEM` and the
     ``kind`` — the same "one shared error_type, identity in details" contract
-    the graph server documents on ``GraphStoreError``.
+    the graph server documents on ``GraphStoreError``. A code review note goes
+    there too, in every shape and for every ``kind``: the concern was raised
+    about code that ran, so the run failing does not settle it.
     """
+    if exec_result.code_review is not None:
+        payload = {**payload, "code_review": exec_result.code_review}
     if exec_result.failure_kind == FAILURE_KIND_SETUP:
         make_error(
             "service_unavailable",
@@ -268,6 +272,8 @@ async def build_execution_response(
         }
         if artifact_ids:
             result["artifact_ids"] = artifact_ids
+        if exec_result.code_review is not None:
+            result["code_review"] = exec_result.code_review
         if has_errors:
             _raise_failure(exec_result, stderr_text, result)
         return json.dumps(result, default=str)
@@ -284,6 +290,8 @@ async def build_execution_response(
     if artifact_ids:
         summary["artifact_ids"] = artifact_ids
         summary["artifact_count"] = len(artifact_ids)
+    if exec_result.code_review is not None:
+        summary["code_review"] = exec_result.code_review
     access_details = {
         "execution_mode": execution_mode,
         "execution_method": exec_result.execution_method_used,

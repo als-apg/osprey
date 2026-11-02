@@ -40,7 +40,7 @@ from __future__ import annotations
 import json
 import logging
 import os
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, NoReturn
 
@@ -54,6 +54,8 @@ from osprey_connectors.types import baseline_target
 
 if TYPE_CHECKING:
     from osprey.mcp_server.python_executor.executor import ExecutionResult
+    from osprey.services.code_review.contract import ReviewRequest
+    from osprey.services.code_review.review import ReviewOutcome
 
 logger = logging.getLogger("osprey.mcp_server.tools.execution_gates")
 
@@ -629,6 +631,168 @@ def _refusal_lines(stderr: str, marker: str) -> list[str]:
 _SAFETY_SUBJECT = {"execute_file": "File"}
 
 
+def _record_review(outcome: ReviewOutcome, request: ReviewRequest) -> None:
+    """File one review's value-free record.
+
+    A refusal goes through :func:`~osprey.audit.dedup.record_and_mark`, so the MCP audit
+    middleware defers to it. A proceed goes through the writer, and the middleware still files
+    the call. Never raises: the audit trail degrades, the outcome does not.
+    """
+    try:
+        from osprey.audit import writer
+        from osprey.audit.dedup import record_and_mark
+        from osprey.audit.envelope import SURFACE_EXECUTOR
+        from osprey.services.code_review.review import ACTION_REFUSE, audit_fields
+
+        fields = audit_fields(outcome, request)
+        file_record = record_and_mark if outcome.action == ACTION_REFUSE else writer.record
+        file_record(
+            decision=fields.decision,
+            reason=fields.reason,
+            surface=SURFACE_EXECUTOR,
+            posture=posture.posture(),
+            posture_source=posture.posture_source(),
+            session=posture.posture_session(),
+            subject=fields.subject,
+            detail=fields.detail,
+        )
+    except Exception:
+        logger.warning("Could not record the code review", exc_info=True)
+
+
+async def _send_review_notice(tool: str, outcome: ReviewOutcome, request: ReviewRequest) -> None:
+    """Tell the operator's activity feed, when the outcome has anything to tell it."""
+    from osprey.services.code_review.review import notice_text
+
+    text = notice_text(outcome, request)
+    if text is None:
+        return
+    try:
+        await notify_agent_activity_async(tool, "review", detail=text)
+    except Exception:  # a notice is best-effort and never changes the outcome
+        logger.warning("Could not send the code review notice", exc_info=True)
+
+
+async def _conclude_review(tool: str, outcome: ReviewOutcome, request: ReviewRequest) -> str | None:
+    """Record an outcome, send its notice, and refuse the run if the outcome stops it.
+
+    Returns:
+        What the review has to say to the agent about a run that proceeds, if anything.
+
+    Raises:
+        Whatever :func:`make_error` raises for ``review_blocked`` or ``review_unavailable``.
+    """
+    from osprey.services.code_review.contract import ReviewFailure
+    from osprey.services.code_review.review import ACTION_REFUSE, agent_message
+
+    _record_review(outcome, request)
+    await _send_review_notice(tool, outcome, request)
+    message = agent_message(outcome)
+    if outcome.action != ACTION_REFUSE:
+        return message
+    result = outcome.result
+    if isinstance(result, ReviewFailure):
+        make_error("review_unavailable", str(message), details={"kind": result.kind})
+    return make_error(
+        "review_blocked",
+        str(message),
+        details={
+            "verdict": result.verdict,
+            "reasons": list(result.reasons),
+            "suggested_revision": result.suggested_revision,
+        },
+    )
+
+
+async def _review_before_launch(
+    *,
+    tool: str,
+    code: str,
+    gated: str,
+    description: str,
+    execution_mode: str,
+    project_root: Path | None,
+    script_args: Sequence[str],
+    approved_target: str | None,
+    approved_view_sha256: str | None,
+) -> str | None:
+    """Review the code when this deployment asks for it, and refuse what the review stops.
+
+    Nothing is reviewed when the feature is off, when the mode is not one it reviews, or when
+    the executor would decline the run anyway: that decline stays ``execute_code``'s to produce.
+    A section that cannot be read refuses in every mode, since the set to review is unknown.
+
+    Args:
+        tool: Tool name as the agent knows it.
+        code: The source the launch receives, which the executor's own checks read.
+        gated: The source as the operator reads it, which is what gets reviewed.
+        description: Caller's description.
+        execution_mode: ``"readonly"`` or ``"readwrite"``.
+        project_root: Project root when the caller resolved one.
+        script_args: The script's arguments, for ``execute_file``.
+        approved_target: The control target the approval hook put into the call.
+        approved_view_sha256: The view digest the approval hook put into the call.
+
+    Returns:
+        What the review has to say to the agent about a run that proceeds, if anything.
+
+    Raises:
+        Whatever :func:`make_error` raises for ``review_blocked`` or ``review_unavailable``.
+    """
+    from osprey.services.code_review.contract import (
+        SURFACE_EXECUTE,
+        ReviewFailure,
+        ReviewRequest,
+    )
+    from osprey.services.code_review.settings import ReviewConfigError, load_review_settings
+
+    subject = _tool_subject(tool)
+    try:
+        settings = load_review_settings(None)
+    except ReviewConfigError as exc:
+        from osprey.services.code_review.review import decide
+
+        # Before any level or any question about the run: the record names neither.
+        request = ReviewRequest(
+            surface=SURFACE_EXECUTE, code=gated, subject=subject, description=description
+        )
+        return await _conclude_review(
+            tool, decide(ReviewFailure("config", str(exc)), None), request
+        )
+    if not settings.enabled or execution_mode not in settings.modes:
+        return None
+
+    from osprey.mcp_server.python_executor.executor import (
+        _resolve_project_root,
+        admission_refusal,
+    )
+    from osprey.services.code_review.review import review_code
+    from osprey_connectors.workspace import resolve_config_path
+
+    approved = {
+        "approved_target": approved_target,
+        "approved_view_sha256": approved_view_sha256,
+    }
+    if admission_refusal(code, execution_mode, tool, approved):
+        return None
+
+    request = ReviewRequest(
+        surface=SURFACE_EXECUTE,
+        code=gated,
+        subject=subject,
+        description=description,
+        mode=execution_mode,
+        script_args=tuple(script_args),
+    )
+    outcome = await review_code(
+        request,
+        settings,
+        repo_root=project_root if project_root is not None else _resolve_project_root(),
+        render_dir=resolve_config_path().parent,
+    )
+    return await _conclude_review(tool, outcome, request)
+
+
 async def run_gated_execution(
     *,
     tool: str,
@@ -640,13 +804,15 @@ async def run_gated_execution(
     notify: Callable[..., Awaitable[Any]] | None = None,
     approved_target: str | None = None,
     approved_view_sha256: str | None = None,
+    code_review: bool = True,
+    script_args: Sequence[str] = (),
 ) -> tuple[ExecutionResult, dict]:
     """Run *code* through every executor gate, launch it, and report the run.
 
     The one gate sequence every executor tool runs, in this order: the posture
     clamp, ``quick_safety_check``, the path policy, the readonly import
-    denylist, pattern detection, the readonly pattern refusal, the launch, the write-activity report and the
-    runtime-refusal report. A call that trips several gates is told about the
+    denylist, pattern detection, the readonly pattern refusal, the code review, the launch, the
+    write-activity report and the runtime-refusal report. A call that trips several gates is told about the
     first one only, so the order is part of what every tool says, and keeping
     it here is what stops two tools from drifting apart on it.
 
@@ -689,6 +855,9 @@ async def run_gated_execution(
             call, handed to the launch.
         approved_view_sha256: The pyAML view digest the approval hook put into
             the call, handed to the launch.
+        code_review: Whether this tool's code is reviewed at all. ``False`` skips the settings
+            load too, so a malformed ``code_review`` section never refuses such a tool.
+        script_args: The script's arguments, which only the review request uses.
 
     Returns:
         ``(exec_result, patterns)`` — the backend's result and the pattern
@@ -780,6 +949,20 @@ async def run_gated_execution(
             ],
         )
 
+    review_message = None
+    if code_review:
+        review_message = await _review_before_launch(
+            tool=tool,
+            code=code,
+            gated=gated,
+            description=description,
+            execution_mode=execution_mode,
+            project_root=project_root,
+            script_args=script_args,
+            approved_target=approved_target,
+            approved_view_sha256=approved_view_sha256,
+        )
+
     from osprey.mcp_server.python_executor.executor import execute_code
 
     exec_result = await execute_code(
@@ -790,6 +973,8 @@ async def run_gated_execution(
         approved_target=approved_target,
         approved_view_sha256=approved_view_sha256,
     )
+    if review_message is not None:
+        exec_result.code_review = review_message
 
     detail = write_activity_detail(bool(patterns.get("has_writes")), execution_mode)
     if detail is not None and exec_result.execution_time_seconds is not None:
