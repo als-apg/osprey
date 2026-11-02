@@ -64,7 +64,8 @@ PALETTE_INPUT = ".command-palette-input"
 PALETTE_ROW = ".command-palette-item"
 PALETTE_ACTIVE = ".command-palette-item--active"
 SEARCH = "code review"
-ROW_TEXT = "Code review rules"
+# A row's words, as ROWS_JS reads them: its label (the gallery card's name) and its detail.
+ROW_TEXT = "rules · Safety · code-review"
 RULE = "#tab-safety .prompts-detail-view .osprey-md-rendered li"
 CLOSE_DRAWER = "#settings-drawer .drawer-close-btn"
 DRAWER_BUDGET_MS = 15_000
@@ -86,9 +87,13 @@ PALETTE_FOCUSED_JS = f"""
 () => !!document.activeElement?.matches('{PALETTE_INPUT}')
 """
 
-# The palette's active row, by its text.
-ACTIVE_JS = f"""
-() => document.querySelector('{PALETTE_ACTIVE}')?.textContent ?? null
+# The words of each visible palette row matching the selector: label and detail, joined.
+ROWS_JS = """
+(selector) => [...document.querySelectorAll(selector)]
+  .filter((row) => row.getClientRects().length > 0)
+  .map((row) => [...row.querySelectorAll(
+    '.command-palette-item-label, .command-palette-item-detail',
+  )].map((part) => part.textContent.trim()).filter(Boolean).join(' · '))
 """
 
 # Acknowledge the Settings warning for this server session as its Proceed button does
@@ -243,11 +248,18 @@ def _search(take: Take) -> None:
     take.page.keyboard.type(SEARCH, delay=TYPE_DELAY_MS)
 
 
+def _rows(take: Take, selector: str) -> list[str]:
+    return list(take.page.evaluate(ROWS_JS, selector) or [])
+
+
+def _row_listed(take: Take) -> bool:
+    return any(ROW_TEXT in words for words in _rows(take, PALETTE_ROW))
+
+
 def _choose_row(take: Take) -> None:
     """Arrow down to the rules' row, as an operator would, and press Enter on it."""
-    rows = take.page.locator(PALETTE_ROW).count()
-    for _ in range(rows + 1):
-        if ROW_TEXT in (take.page.evaluate(ACTIVE_JS) or ""):
+    for _ in range(len(_rows(take, PALETTE_ROW)) + 1):
+        if any(ROW_TEXT in words for words in _rows(take, PALETTE_ACTIVE)):
             take.page.keyboard.press("Enter")
             return
         take.page.keyboard.press("ArrowDown")
@@ -267,7 +279,9 @@ CODE_REVIEW = (
     hold("channels", CHANNELS, 4_000),
     Beat("palette", LOOK_UP, _open_palette),
     Beat("search", LOOK_UP, _search),
-    wait_for("row", LOOK_UP, PALETTE_ROW, budget_ms=PALETTE_BUDGET_MS, text=ROW_TEXT),
+    wait_until(
+        "row", LOOK_UP, _row_listed, what=f"no row {ROW_TEXT!r}", budget_ms=PALETTE_BUDGET_MS
+    ),
     Beat("reveal", LOOK_UP, _choose_row),
     Beat("settings-open", LOOK_UP, lambda take: _drawer(take, "settings-open", "shown")),
     wait_for("rules-shown", LOOK_UP, RULE, budget_ms=DRAWER_BUDGET_MS, text=BEAM_MODE),

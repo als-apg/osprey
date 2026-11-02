@@ -8,11 +8,13 @@ import pytest
 from docs.screenshots import video_beats, video_code_review
 from docs.screenshots.video_code_review import (
     ACKNOWLEDGE_JS,
-    ACTIVE_JS,
     CHORD_JS,
     DRAWER_JS,
+    PALETTE_ACTIVE,
     PALETTE_FOCUSED_JS,
+    PALETTE_ROW,
     ROW_TEXT,
+    ROWS_JS,
     SEARCH,
     WARNING,
 )
@@ -40,9 +42,6 @@ class FakeLocator:
         self.selector = selector
         self.first = self
 
-    def count(self):
-        return len(self.page.rows)
-
 
 class FakePage:
     """``states`` are the drawer readings in order; the last one repeats."""
@@ -67,8 +66,10 @@ class FakePage:
             return "Meta+k" if self.platform == "mac" else "Control+k"
         if js == PALETTE_FOCUSED_JS:
             return self.waits >= self.focus_after
-        if js == ACTIVE_JS:
-            return self.rows[self.active] if self.rows else None
+        if js == ROWS_JS and arg == PALETTE_ROW:
+            return list(self.rows)
+        if js == ROWS_JS and arg == PALETTE_ACTIVE:
+            return [self.rows[self.active]] if self.rows else []
         raise AssertionError(js)
 
     def locator(self, selector):
@@ -134,13 +135,13 @@ def test_the_search_is_typed_at_reading_speed() -> None:
 
 
 def test_the_reveal_arrows_down_to_the_rules_row_and_presses_enter() -> None:
-    page = FakePage(rows=["Code review: level", f"{ROW_TEXT} code-review/rules", "Other"])
+    page = FakePage(rows=["code_review.level · Settings", ROW_TEXT, "Other"])
     STORYBOARD["reveal"].run(_take(page))
     assert page.keys == ["ArrowDown", "Enter"]
 
 
 def test_the_reveal_without_the_rules_row_fails_and_presses_no_enter() -> None:
-    page = FakePage(rows=["Code review: level", "Other"])
+    page = FakePage(rows=["code_review.level · Settings", "Other"])
     with pytest.raises(ProbeFailed) as failed:
         STORYBOARD["reveal"].run(_take(page))
     assert failed.value.step == "reveal" and "Enter" not in page.keys
@@ -165,3 +166,9 @@ def test_every_row_of_the_script_has_its_own_subtitle() -> None:
     assert None not in captions
     shown = [c for i, c in enumerate(captions) if i == 0 or captions[i - 1] != c]
     assert shown == list(video_code_review.CAPTIONS)
+
+
+def test_the_rules_row_is_listed_by_its_label_and_detail() -> None:
+    listed = video_code_review._row_listed
+    assert listed(_take(FakePage(rows=["Other", ROW_TEXT])))
+    assert not listed(_take(FakePage(rows=["rules · Agent · claude"])))
