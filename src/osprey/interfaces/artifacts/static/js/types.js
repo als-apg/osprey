@@ -357,7 +357,8 @@ export function withTheme(url, theme) {
 // The server serves every agent-written document that is not on a closed inert
 // list under `Content-Security-Policy: sandbox <tokens>` (opaque_origin.py).
 // These mirror that module so the gallery frames and prints an artifact the
-// same way the server serves it.
+// same way the server serves it; tests/interfaces/test_opaque_origin.py holds
+// them to it.
 
 /** The sandbox tokens of an opaque document — never `allow-same-origin`. */
 export const OPAQUE_SANDBOX = 'allow-scripts allow-modals allow-popups allow-downloads';

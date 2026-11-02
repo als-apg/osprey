@@ -1,6 +1,6 @@
 """The launch pin as a three-valued term: ``none``, ``pinned`` or ``unreadable``.
 
-:func:`~osprey_connectors.posture_store.launch_pin_term` reads the executor's
+:func:`~osprey_connectors.posture_store._launch_pin_term` reads the executor's
 launch stamp and says, for one target, whether the run was pinned read-only at
 launch. The term fails closed: a stamp that is present but cannot be read is
 ``unreadable`` for every target, and the verdict refuses it as
@@ -31,7 +31,7 @@ def stamp(monkeypatch):
 
 
 def _terms() -> dict[str | None, str]:
-    return {t: posture_store.launch_pin_term(t) for t in [*CONTROL_TARGETS, None]}
+    return {t: posture_store._launch_pin_term(t) for t in [*CONTROL_TARGETS, None]}
 
 
 def test_an_absent_stamp_is_none_for_every_target(stamp):
@@ -57,13 +57,13 @@ def test_a_target_sandbox_stamp_pins_a_caller_that_names_no_target(stamp):
     # The most restrictive narrowing wins when the caller cannot say which
     # machine it is about, as in the record clause.
     stamp("live=sandbox")
-    assert posture_store.launch_pin_term(None) == "pinned"
+    assert posture_store._launch_pin_term(None) == "pinned"
 
 
 def test_the_stamp_written_by_launch_posture_stamp_reads_back_pinned(stamp):
     stamp(posture_store.launch_posture_stamp("va", posture_store.POSTURE_SANDBOX))
-    assert posture_store.launch_pin_term("va") == "pinned"
-    assert posture_store.launch_pin_term("live") == "none"
+    assert posture_store._launch_pin_term("va") == "pinned"
+    assert posture_store._launch_pin_term("live") == "none"
 
 
 def test_an_all_targets_sandbox_stamp_pins_every_target(stamp):
@@ -88,8 +88,8 @@ def test_an_all_targets_writes_stamp_is_none_for_every_target(stamp):
 
 def test_surrounding_whitespace_is_tolerated(stamp):
     stamp("  live = sandbox \n")
-    assert posture_store.launch_pin_term("live") == "pinned"
-    assert posture_store.launch_pin_term("va") == "none"
+    assert posture_store._launch_pin_term("live") == "pinned"
+    assert posture_store._launch_pin_term("va") == "none"
 
 
 @pytest.mark.parametrize(
@@ -115,15 +115,16 @@ def test_an_unknown_target_is_unreadable_even_for_a_named_known_target(stamp):
     # Regression guard: a tolerant reading would keep an unknown target as a
     # pin of that name only, which would leave every real target "none".
     stamp("mars=sandbox")
-    assert posture_store.launch_pin_term("live") == "unreadable"
+    assert posture_store._launch_pin_term("live") == "unreadable"
 
 
 def test_the_term_is_read_on_every_call(stamp):
     stamp("live=sandbox")
-    assert posture_store.launch_pin_term("live") == "pinned"
+    assert posture_store._launch_pin_term("live") == "pinned"
     stamp(None)
-    assert posture_store.launch_pin_term("live") == "none"
+    assert posture_store._launch_pin_term("live") == "none"
 
 
-def test_launch_pin_term_is_public():
-    assert "launch_pin_term" in posture_store.__all__
+def test_launch_pin_term_is_private():
+    assert "_launch_pin_term" not in posture_store.__all__
+    assert not hasattr(posture_store, "launch_pin_term")
