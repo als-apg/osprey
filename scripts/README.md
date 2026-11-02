@@ -62,8 +62,8 @@ differs from `package-lock.json`.
 - network access for the full tier's link check
 - `uv sync --extra virtual-accelerator` on Linux x86_64 (the full tier refuses
   there without it; elsewhere the live Channel Access gate does not run)
-- Node and npm on PATH (the TypeScript, ESLint, Vitest and dock-engine checks
-  refuse without the Node toolchain)
+- Node and npm on PATH (the TypeScript, ESLint and Vitest checks refuse
+  without the Node toolchain)
 
 **Exit codes**:
 - `0`: Clean

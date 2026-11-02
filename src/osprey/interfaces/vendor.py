@@ -161,12 +161,23 @@ def _fetch_one(
         )
 
 
+def _committed_asset_problem(asset: dict[str, Any], target: str) -> str:
+    """Why a committed asset (a ``source`` record, no ``url``) cannot be fetched."""
+    src = asset["source"]
+    return (
+        f"{target}{asset['filename']} is committed, not fetched, and is missing or changed. "
+        f"Re-copy {src['path']} from {src['repo']} at {src['commit']}."
+    )
+
+
 def fetch_all(
     base_dir: Path | None = None, quiet: bool = False, insecure: bool | None = None
 ) -> list[str]:
     """Download all vendor assets declared in the manifest.
 
     Idempotent: skips files that already exist with a matching checksum.
+    An asset with a ``source`` record and no ``url`` is committed in the
+    package; it is never fetched, and a missing or changed copy is an error.
     Returns list of files that were actually downloaded (not skipped).
 
     ``insecure`` skips TLS cert verification (SHA256 still enforced). If
@@ -185,6 +196,8 @@ def fetch_all(
             dest = base_dir / target / asset["filename"]
             if dest.exists() and _sha256(dest) == asset["sha256"]:
                 continue
+            if "url" not in asset:
+                raise RuntimeError(_committed_asset_problem(asset, target))
             if not quiet:
                 print(f"  {asset['filename']} → {target}")
             _fetch_one(asset["url"], dest, asset["sha256"], insecure=insecure)
@@ -312,7 +325,7 @@ def asset_cdn_url(name: str) -> str:
     catches typos at Jinja render time rather than producing broken ``src``.
     """
     for asset in _load_manifest().get("assets", []):
-        if asset.get("name") == name:
+        if asset.get("name") == name and "url" in asset:
             url: str = asset["url"]
             return url
     raise KeyError(

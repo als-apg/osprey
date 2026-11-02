@@ -55,6 +55,34 @@
       ]
     },
     {
+      "name": "dock-engine",
+      "filename": "dock-engine.mjs",
+      "version": "add5c4ffe5",
+      "source": {
+        "repo": "als-apg/canopy-osprey-mirror-screen-runtime",
+        "commit": "add5c4ffe5a004918557bdbb1d7e4537f8a32d16",
+        "path": "packages/dock-engine/dist/dock-engine.mjs"
+      },
+      "sha256": "0a8076b20e9832cd32881a29c9c505c7eb962c4bc9e354a5b2268e01abeb8b5c",
+      "targets": [
+        "web_terminal/static/vendor/"
+      ]
+    },
+    {
+      "name": "dock-engine types",
+      "filename": "dock-engine.d.mts",
+      "version": "add5c4ffe5",
+      "source": {
+        "repo": "als-apg/canopy-osprey-mirror-screen-runtime",
+        "commit": "add5c4ffe5a004918557bdbb1d7e4537f8a32d16",
+        "path": "packages/dock-engine/dist/dock-engine.d.mts"
+      },
+      "sha256": "041a50f0f4f2d3428b1d6419ee442c164e644d25fa9bd93ece1b9c911be936d9",
+      "targets": [
+        "web_terminal/static/vendor/"
+      ]
+    },
+    {
       "name": "KaTeX JS",
       "filename": "katex.min.js",
       "version": "0.16.11",

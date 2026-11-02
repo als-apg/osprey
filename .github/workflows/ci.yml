@@ -368,7 +368,7 @@ jobs:
       # budget in qmd-sidecar-e2e's "Run the wall-clock budgets serially".
       run: |
         if [ "${{ matrix.python-version }}" = "3.12" ] && [ "${{ matrix.os }}" = "ubuntu-latest" ]; then
-          COV_ARGS="--cov=src/osprey --cov=packages/osprey-connectors/src/osprey_connectors --cov=packages/pyaml-cs-osprey/src/pyaml_cs_osprey --cov=packages/dock-engine/src/dock_engine --cov-report=xml --cov-report=term"
+          COV_ARGS="--cov=src/osprey --cov=packages/osprey-connectors/src/osprey_connectors --cov=packages/pyaml-cs-osprey/src/pyaml_cs_osprey --cov-report=xml --cov-report=term"
         else
           COV_ARGS=""
         fi
@@ -1085,8 +1085,7 @@ jobs:
 
     # One step: the check builds the framework, twine-checks dist/ while it
     # holds only the framework's own artifacts, builds the lean connectors
-    # wheel and import-walks it on a bare venv, asserts the framework wheel
-    # carries dock_engine and its package data, and builds pyaml-cs-osprey and
+    # wheel and import-walks it on a bare venv, and builds pyaml-cs-osprey and
     # import-walks it beside the other two wheels. The order is declared once,
     # in PACKAGE_STEPS of scripts/repo_checks.py.
     - name: Build and check the packages
@@ -1582,15 +1581,6 @@ jobs:
 
     - name: Run JS tests (vitest)
       run: python3 scripts/check.py run vitest
-
-    # The dock engine's committed bundle, declarations and manifest are build
-    # outputs of its TypeScript; --check rebuilds them in memory and fails when
-    # a committed file differs, so a source edit cannot land without its build.
-    - name: Check the dock-engine bundle is current
-      run: python3 scripts/check.py run dock-engine-bundle
-
-    - name: Run dock-engine tests (vitest)
-      run: python3 scripts/check.py run dock-engine-tests
 
   plugin-smoke:
     name: Plugin marketplace smoke (install the osprey plugin)

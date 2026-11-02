@@ -176,7 +176,10 @@ data/benchmarks/cross_paradigm/tier*/
 # Vendor assets (fetched at build time via `osprey vendor fetch`)
 src/osprey/interfaces/artifacts/static/js/vendor/
 src/osprey/interfaces/artifacts/static/css/vendor/
-src/osprey/interfaces/web_terminal/static/vendor/
+src/osprey/interfaces/web_terminal/static/vendor/*
+# The dock engine is tracked: vendored from CANOPY's screen runtime at a pinned commit.
+!src/osprey/interfaces/web_terminal/static/vendor/dock-engine.mjs
+!src/osprey/interfaces/web_terminal/static/vendor/dock-engine.d.mts
 src/osprey/interfaces/bluesky_web/panels/bluesky/vendor/
 src/osprey/interfaces/tuning/static/vendor/
 src/osprey/interfaces/lattice_dashboard/static/vendor/
@@ -211,7 +214,6 @@ node_modules/
 src/osprey/_version.py
 packages/osprey-connectors/src/osprey_connectors/_version.py
 packages/pyaml-cs-osprey/src/pyaml_cs_osprey/_version.py
-packages/dock-engine/src/dock_engine/_version.py
 
 # feature-scaffolding logs (not committed)
 .claude/.logs/
