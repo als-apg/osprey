@@ -1868,7 +1868,7 @@ def _fold_profile_material(digest: Any, inputs: Iterable[ProfileInput]) -> None:
 
     *inputs* is :func:`profile_inputs`; every entry with a fold label is folded
     and the document entries, which the canonical JSON already covers, are not.
-    Five kinds of input are covered:
+    Six kinds of input are covered:
 
     * the ``data:`` tree, anchored via
       :meth:`~osprey.cli.build_profile_model.BuildProfile.resolved_data_root`
@@ -1894,6 +1894,8 @@ def _fold_profile_material(digest: Any, inputs: Iterable[ProfileInput]) -> None:
       no rebuild would follow, and the render already on disk (which
       ``up`` re-renders only when it is *absent*) would keep shipping the
       superseded delta into that render's image;
+    * every enabled watchdog's directory, which the render copies whole, so
+      editing its instructions or references moves the hash;
     * the host-variant overlay ``.env.variant`` selects, folded last under
       ``variant``. It is folded as file material rather than merged in:
       :func:`_fold_source_tree` contributes the file's NAME beside its content,
@@ -1942,7 +1944,8 @@ class ProfileInputRole(StrEnum):
     #: ``profile.yml`` and every non-preset file its ``extends`` chain reads.
     DOCUMENT = "document"
     #: The ``data:`` tree, the convention directories, the trigger file, the
-    #: layer files and the profile-relative service templates.
+    #: layer files, the profile-relative service templates and the enabled
+    #: watchdogs' directories.
     MATERIAL = "material"
     #: The selected host-variant profile.
     OVERLAY = "overlay"
@@ -2005,7 +2008,8 @@ def profile_inputs(
        (:func:`layer_fold_label`, in :func:`~osprey.cli.profile_root.layer_files`
        order), then each profile-relative service template
        (``services.<name>.template``, sorted by name; a bundled ``osprey.<name>``
-       template is package content and has none);
+       template is package content and has none), then each enabled watchdog's
+       directory (``watchdog:<name>``, sorted by name);
     3. the overlay ``.env.variant`` in ``document.root_dir`` selects (``variant``).
 
     Every entry anchors at ``document.root_dir``. A tier or app reads its
@@ -2018,7 +2022,10 @@ def profile_inputs(
             A preset is one file among many in a shared package directory, so
             its neighbours, its own file and any overlay are package content.
     """
+    from osprey.services.watchdog.config import WATCHDOGS_BLOCK
+
     from .build_profile_model import BuildProfile
+    from .build_profile_watchdogs import enabled_watchdogs
     from .profile_conventions import CONVENTION_SOURCES
     from .profile_root import layer_files
     from .variant_selection import VARIANT_DIRNAME, active_variant_overlay
@@ -2091,6 +2098,16 @@ def profile_inputs(
                     ProfileInputRole.MATERIAL,
                 )
             )
+
+    entries.extend(
+        ProfileInput(
+            f"{WATCHDOGS_BLOCK}/{name}/",
+            f"watchdog:{name}",
+            root / WATCHDOGS_BLOCK / name,
+            ProfileInputRole.MATERIAL,
+        )
+        for name in sorted(enabled_watchdogs(document.raw.get(WATCHDOGS_BLOCK)))
+    )
 
     overlay = active_variant_overlay(root)
     if overlay is not None:

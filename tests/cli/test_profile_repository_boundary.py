@@ -10,17 +10,20 @@ stamp folds.
 
 from __future__ import annotations
 
+import hashlib
 import os
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any, NoReturn
 
 import pytest
+import yaml
 from click.testing import CliRunner
 
 from osprey.cli.build_profile_document import _read_profile_document
 from osprey.cli.build_profile_merge import (
     OutsideInput,
+    _fold_profile_material,
     inputs_outside_repository,
     profile_inputs,
     resolve_profile_document,
@@ -97,6 +100,37 @@ def _template_outside(repo: Path) -> Path:
     (template / "docker-compose.yml.j2").write_text("services: {}\n", encoding="utf-8")
     _set_template(repo, "../svc")
     return template
+
+
+def _watchdog(repo: Path, *, enabled: bool = True) -> Path:
+    """Declare one decision watchdog, ``judge``, with its files; return its directory."""
+    directory = repo / "watchdogs" / "judge"
+    directory.mkdir(parents=True)
+    (directory / "instructions.md").write_text("Judge the prompt.\n", encoding="utf-8")
+    profile = repo / PROFILE_FILENAME
+    block = {
+        "watchdogs": {
+            "judge": {
+                "engine": "decision",
+                "enabled": enabled,
+                "options": [
+                    {"id": "risky", "text": "Pushing past a guard", "flag": True},
+                    {"id": "routine", "text": "Routine work", "flag": False},
+                ],
+            }
+        }
+    }
+    with profile.open("a", encoding="utf-8") as stream:
+        yaml.safe_dump(block, stream, sort_keys=False)
+    return directory
+
+
+def _material_hash(repo: Path) -> str:
+    digest = hashlib.sha256()
+    profile = repo / PROFILE_FILENAME
+    document = resolve_profile_document(_read_profile_document(profile), profile, warn=False)
+    _fold_profile_material(digest, profile_inputs(document))
+    return digest.hexdigest()
 
 
 def _outside(repo: Path) -> tuple[OutsideInput, ...]:
@@ -246,6 +280,65 @@ def test_a_second_hop_with_every_target_inside_is_admitted(repo: Path) -> None:
     (repo / "data" / "a").symlink_to(hop, target_is_directory=True)
 
     assert _outside(repo) == ()
+
+
+def test_a_second_hop_in_a_watchdog_tree_is_refused_before_anything_is_copied(
+    repo: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    outside = repo.parent / "elsewhere"
+    outside.mkdir()
+    hop = repo / "hop"
+    hop.mkdir()
+    (hop / "c").symlink_to(outside, target_is_directory=True)
+    directory = _watchdog(repo)
+    (directory / "references").symlink_to(hop, target_is_directory=True)
+
+    result = run_build(repo)
+
+    assert result.exit_code != 0
+    assert (
+        f"watchdogs/judge/references/c resolves to {outside.resolve().as_posix()}, "
+        f"outside the repository. {REMEDY}"
+    ) in caplog.text
+    assert not (repo / BUILD_DIR_NAME / "watchdogs").exists()
+
+
+def test_a_disabled_watchdog_tree_is_not_an_input(repo: Path) -> None:
+    outside = repo.parent / "elsewhere"
+    outside.mkdir()
+    directory = _watchdog(repo, enabled=False)
+    (directory / "references").symlink_to(outside, target_is_directory=True)
+
+    assert _outside(repo) == ()
+
+
+def test_an_enabled_watchdog_is_folded_and_imaged(repo: Path) -> None:
+    from osprey.cli.build_cmd import _image_build_inputs
+
+    directory = _watchdog(repo)
+    before = _material_hash(repo)
+    (directory / "instructions.md").write_text("Judge it differently.\n", encoding="utf-8")
+
+    assert _material_hash(repo) != before
+    assert directory.resolve() in {repo.resolve() / path for path in _image_build_inputs(repo)}
+
+
+def test_reordering_the_watchdogs_block_does_not_move_the_material_hash(repo: Path) -> None:
+    directory = _watchdog(repo)
+    second = directory.parent / "arbiter"
+    second.mkdir()
+    (second / "instructions.md").write_text("Arbitrate the prompt.\n", encoding="utf-8")
+    profile = repo / PROFILE_FILENAME
+    document = yaml.safe_load(profile.read_text(encoding="utf-8"))
+    judge = document["watchdogs"]["judge"]
+    document["watchdogs"] = {"judge": judge, "arbiter": judge}
+    profile.write_text(yaml.safe_dump(document, sort_keys=False), encoding="utf-8")
+    before = _material_hash(repo)
+
+    document["watchdogs"] = {"arbiter": judge, "judge": judge}
+    profile.write_text(yaml.safe_dump(document, sort_keys=False), encoding="utf-8")
+
+    assert _material_hash(repo) == before
 
 
 def test_a_link_under_the_runtime_subtree_is_not_walked(repo: Path) -> None:

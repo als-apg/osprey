@@ -84,7 +84,8 @@ Here ``*.h5`` drops ``x.h5`` at the root but not ``data/x.h5``; write
   ``build/`` and the repo's Claude Code files stay out;
 - a pattern that would remove a build input — ``data/``, the convention
   directories, ``tiers/``, ``apps/``, the trigger file, ``profile.yml``,
-  a repo-local ``extends:`` base, the selected host-variant profile —
+  a repo-local ``extends:`` base, the selected host-variant profile, an
+  enabled watchdog's directory —
   fails the build, naming the pattern.
 
 This file is yours; the rendered ``build/.dockerignore`` described above is
