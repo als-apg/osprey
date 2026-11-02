@@ -84,13 +84,14 @@ def render_simulator_view(facility_dir: Path, root: Path) -> Path:
 
     doc = build_facility(facility_dir, project_name="example")
     config = {"control_system": {"type": "virtual_accelerator"}}
+    records = FacilityRecords(doc)
     write_simulator_view(
         root,
         ViewInputs(
-            records=FacilityRecords(doc),
+            records=records,
             rendered_config=config,
             facility_dir=facility_dir,
-            served=resolve_served(config, doc),
+            served=resolve_served(config, records),
             reported=None,
         ),
     )

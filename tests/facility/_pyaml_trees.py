@@ -244,7 +244,7 @@ def view_inputs(root: Path, tree: Mapping[str, Any], served: list[str] | None = 
         records=FacilityRecords(document),
         rendered_config=config,
         facility_dir=facility,
-        served=resolve_served(config, document),
+        served=resolve_served(config, FacilityRecords(document)),
     )
 
 

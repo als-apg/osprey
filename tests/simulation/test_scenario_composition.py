@@ -40,7 +40,7 @@ def project(tmp_path_factory: pytest.TempPathFactory) -> Path:
             records=FacilityRecords(doc),
             rendered_config=VIEW_CONFIG,
             facility_dir=TEMPLATE_FACILITY,
-            served=resolve_served(VIEW_CONFIG, doc),
+            served=resolve_served(VIEW_CONFIG, FacilityRecords(doc)),
             reported=None,
         ),
     )

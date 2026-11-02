@@ -129,15 +129,16 @@ def render_facility_outputs(
     from osprey.facility.records import FacilityRecords
     from osprey.facility.served import check_served_probes, resolve_served
 
+    records = FacilityRecords(doc)
     inputs = views.ViewInputs(
-        records=FacilityRecords(doc),
+        records=records,
         rendered_config=rendered_config,
         facility_dir=facility_dir,
-        served=resolve_served(rendered_config, doc),
+        served=resolve_served(rendered_config, records),
         reported=omitted_reported,
         built_databases=built_databases,
     )
-    check_served_probes(rendered_config, doc)
+    check_served_probes(rendered_config, records)
     target = render_dir / FACILITY_FILE
     target.write_bytes(facility_bytes(doc))
     written = [target]

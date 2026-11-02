@@ -17,6 +17,7 @@ from typing import Any
 
 from osprey.facility import DEFAULT_ROLE, TEXTURE
 from osprey.facility.errors import FacilityBuildError, quoted_slots
+from osprey.facility.records import FacilityRecords
 from osprey_connectors.types import LIVE_STANDIN, VIRTUAL_ACCELERATOR
 
 __all__ = [
@@ -52,12 +53,12 @@ def _invalid(detail: str, remedy: str, key: str = SIMULATION_MODELS_KEY) -> Faci
     )
 
 
-def resolve_served(rendered_config: Mapping[str, Any], facility: Mapping[str, Any]) -> list[str]:
+def resolve_served(rendered_config: Mapping[str, Any], records: FacilityRecords) -> list[str]:
     """Compute the models one render serves.
 
     Args:
         rendered_config: The render's ``config.yml``, as a nested mapping.
-        facility: The build's facility file.
+        records: The build's facility file's records.
 
     Returns:
         The served model names: the physics models sorted by name, then
@@ -67,7 +68,7 @@ def resolve_served(rendered_config: Mapping[str, Any], facility: Mapping[str, An
         FacilityBuildError: ``profile-invalid`` when the key is not a list of
             names, or names a model the facility file does not hold.
     """
-    physics = sorted({str(m["name"]) for m in facility.get("models", [])} - {TEXTURE})
+    physics = sorted(records.ids("model") - {TEXTURE})
     known = [*physics, TEXTURE]
     simulation = rendered_config.get("simulation")
     if simulation is None:
@@ -95,7 +96,7 @@ def resolve_served(rendered_config: Mapping[str, Any], facility: Mapping[str, An
     return [*sorted(set(requested) - {TEXTURE}), TEXTURE]
 
 
-def check_served_probes(rendered_config: Mapping[str, Any], facility: Mapping[str, Any]) -> None:
+def check_served_probes(rendered_config: Mapping[str, Any], records: FacilityRecords) -> None:
     """Hold each served block's stated ``probe_channel`` to the facility file.
 
     A block that states no probe channel passes: the target switch reports a
@@ -103,21 +104,20 @@ def check_served_probes(rendered_config: Mapping[str, Any], facility: Mapping[st
 
     Args:
         rendered_config: The render's ``config.yml``, as a nested mapping.
-        facility: The build's facility file.
+        records: The build's facility file's records.
 
     Raises:
         FacilityBuildError: ``profile-invalid`` naming the first key of
             ``SERVED_PROBE_KEYS`` whose address is not a channel of the
             facility file, with the first readback by address as the remedy.
     """
-    channels = {str(channel["id"]): channel for channel in facility.get("channels", [])}
     for key in SERVED_PROBE_KEYS:
         address = _dotted(rendered_config, key)
-        if address is None or str(address) in channels:
+        if address is None or records.record("channel", str(address)) is not None:
             continue
         readbacks = sorted(
-            candidate
-            for candidate, channel in channels.items()
+            str(channel["id"])
+            for channel in records.of_kind("channel")
             if channel.get("role", DEFAULT_ROLE) == "readback"
         )
         remedy = (
