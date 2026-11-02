@@ -299,6 +299,19 @@ body.embedded .dashboard-header { display: none; }
   overflow-y: auto;
 }
 
+.entry-facility-link {
+  font-family: var(--font-mono);
+  cursor: help;
+  border-bottom: 1px dotted currentColor;
+}
+
+.entry-facility-link--dangling {
+  font-family: var(--font-mono);
+  cursor: help;
+  color: var(--text-muted);
+  border-bottom: 1px dashed var(--text-muted);
+}
+
 .entry-detail-sidebar {
   display: flex;
   flex-direction: column;

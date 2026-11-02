@@ -13,7 +13,7 @@ import {
   renderErrorState,
   escapeHtml,
 } from './components.js';
-import { parseEntryText } from './entries-helpers.js';
+import { parseEntryText, renderEntryText } from './entries-helpers.js';
 
 /**
  * One of this API's attachment routes, relative to the API base: the original
@@ -192,12 +192,19 @@ function renderEntryDetail(container, entry) {
   const attachments = entry.attachments || [];
 
   // Parse raw_text for subject and details
-  const { subject, details } = parseEntryText(entry.raw_text);
+  const rawText = entry.raw_text || '';
+  const { subject, details, detailsStart } = parseEntryText(rawText);
+  const references = entry.facility_references;
+  const subjectEnd = Array.from(rawText.split('\n')[0]).length;
+  const subjectHtml = subjectEnd
+    ? renderEntryText(rawText, references, 0, subjectEnd)
+    : escapeHtml(subject);
+  const detailsEnd = detailsStart + Array.from(details).length;
 
   container.innerHTML = `
     <div class="entry-detail">
       <div class="entry-detail-header">
-        <h2 class="entry-detail-title">${escapeHtml(subject)}</h2>
+        <h2 class="entry-detail-title">${subjectHtml}</h2>
         <div class="entry-detail-meta">
           <span class="entry-id font-mono text-accent-secondary">${escapeHtml(entry.entry_id)}</span>
           <span class="timestamp font-mono">${formatTimestamp(entry.timestamp)}</span>
@@ -210,7 +217,7 @@ function renderEntryDetail(container, entry) {
         <div class="entry-detail-main">
           <div class="entry-detail-content">
             <h3>Content</h3>
-            <div class="entry-detail-text">${escapeHtml(details)}</div>
+            <div class="entry-detail-text">${renderEntryText(rawText, references, detailsStart, detailsEnd)}</div>
           </div>
 
           ${
