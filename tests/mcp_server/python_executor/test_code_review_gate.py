@@ -28,6 +28,7 @@ from osprey.services.code_review.contract import (
     ReviewFailure,
     ReviewSwitchedOff,
     ReviewVerdict,
+    code_digest,
 )
 from osprey.services.code_review.review import AUDIT_REASON, agent_message, decide
 from osprey_connectors_tests._write_fakes import ARMED_SECTION, ARMED_TARGET, arm_switch
@@ -38,6 +39,8 @@ TOOLS = pytest.mark.parametrize("tool_name", ["execute", "execute_file"])
 #: Code no gate objects to: no write pattern, so the write-activity report stays out of it too.
 CODE = "print('reviewed')\n"
 DESCRIPTION = "review probe"
+#: The short digest of ``CODE`` every review record of these calls carries.
+DIGEST = f"digest={code_digest(CODE)[:16]}"
 
 #: The policy that asks nobody, so the reviewed calls clear the admission pre-check.
 NO_ASK = {"tools": {"execute": "skip", "execute_file": "skip", "pyaml_measure": "skip"}}
@@ -337,7 +340,7 @@ async def test_each_outcome_at_each_level(
 
     assert len(_review_records(records)) == 1
     writer, fields = _review_records(records)[0]
-    assert fields["detail"] == detail
+    assert fields["detail"] == f"{detail} {DIGEST}"
     assert fields["decision"] == decision
     assert fields["surface"] == "executor"
     assert fields["subject"] == tool_name
@@ -496,7 +499,7 @@ async def test_a_review_switched_off_is_skipped_recorded_and_the_run_goes_ahead(
     assert writer == "record"
     assert fields["decision"] == "allowed"
     assert fields["detail"] == (
-        f"review=skipped level={level} kind=switched_off by=alice mode=readwrite"
+        f"review=skipped level={level} kind=switched_off by=alice mode=readwrite {DIGEST}"
     )
     assert fields["surface"] == "executor"
     AuditEnvelope(actor="someone", **fields)
@@ -596,7 +599,9 @@ async def test_a_readonly_call_is_reviewed_when_modes_name_it(
     await _call(tool_name, project_root, "readonly")
 
     assert stub.calls[0]["request"].mode == "readonly"
-    assert _review_records(records)[0][1]["detail"] == "review=pass level=block mode=readonly"
+    assert _review_records(records)[0][1]["detail"] == (
+        f"review=pass level=block mode=readonly {DIGEST}"
+    )
     launch.assert_awaited_once()
 
 
@@ -688,7 +693,7 @@ async def test_a_config_failure_refuses_without_a_level(
     assert len(_review_records(records)) == 1
     writer, fields = _review_records(records)[0]
     assert writer == "record_and_mark"
-    assert fields["detail"] == "review=failure kind=config"
+    assert fields["detail"] == f"review=failure kind=config {DIGEST}"
     assert fields["decision"] == "refused"
     assert fields["subject"] == tool_name
     AuditEnvelope(actor="someone", **fields)
@@ -789,7 +794,7 @@ async def test_a_decline_that_does_not_hold_at_the_launch_runs_told_at_flag(
     assert "proceeded unreviewed" in message
     [(writer, fields)] = _review_records(records)
     assert writer == "record"
-    assert fields["detail"] == "review=failure level=flag kind=skipped mode=readwrite"
+    assert fields["detail"] == f"review=failure level=flag kind=skipped mode=readwrite {DIGEST}"
     assert len(_review_notices(notices)) == 1
 
 

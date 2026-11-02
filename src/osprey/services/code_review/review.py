@@ -12,8 +12,9 @@ import asyncio
 import os
 import shutil
 import tempfile
+import time
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from types import MappingProxyType
 from typing import NamedTuple
@@ -36,6 +37,7 @@ from osprey.services.code_review.contract import (
     ReviewRequest,
     ReviewSwitchedOff,
     ReviewVerdict,
+    code_digest,
     parse_verdict,
     render_request,
 )
@@ -53,6 +55,10 @@ ACTION_REFUSE = "refuse"
 
 #: The ``reason`` of every review's audit record.
 AUDIT_REASON = "code_review"
+
+#: Hex characters of the code's SHA-256 a review's record carries: enough to tell two runs
+#: apart and to find the code in the agent's record, and no code.
+AUDIT_DIGEST_CHARS = 16
 
 #: The most one review may spend, in USD.
 _REVIEW_BUDGET_USD = 1.0
@@ -85,11 +91,14 @@ class ReviewOutcome:
         level: The level it was decided under; ``None`` when the level could not be read.
         result: The reviewer's verdict, the failure that stands in for one, or the
             runtime switch that left the review out.
+        elapsed: Seconds the reviewer's run took, prompt read included; ``None`` where no
+            run was attempted.
     """
 
     action: str
     level: str | None
     result: ReviewVerdict | ReviewFailure | ReviewSwitchedOff
+    elapsed: float | None = None
 
 
 class AuditFields(NamedTuple):
@@ -99,7 +108,8 @@ class AuditFields(NamedTuple):
         decision: ``"refused"`` or ``"allowed"``.
         reason: Always :data:`AUDIT_REASON`.
         subject: The request's audit subject.
-        detail: The result in ``key=value`` form; never reasons or code.
+        detail: The result in ``key=value`` form; never reasons or code, only the code's
+            short digest.
     """
 
     decision: str
@@ -230,8 +240,9 @@ def audit_fields(outcome: ReviewOutcome, request: ReviewRequest) -> AuditFields:
         request: The request it answers.
 
     Returns:
-        The fields, holding no reasons, no code and no failure message; a review the
-        switch left out names who switched it off.
+        The fields, holding no reasons, no code and no failure message: the code's short
+        digest, how long the review took, and for a review the switch left out who
+        switched it off.
     """
     parts = [f"review={_result_name(outcome)}"]
     if outcome.level is not None:
@@ -244,6 +255,10 @@ def audit_fields(outcome: ReviewOutcome, request: ReviewRequest) -> AuditFields:
             parts.append(f"by={'_'.join(outcome.result.off_by.split())}")
     if request.mode is not None:
         parts.append(f"mode={request.mode}")
+    if request.code:
+        parts.append(f"digest={code_digest(request.code)[:AUDIT_DIGEST_CHARS]}")
+    if outcome.elapsed is not None:
+        parts.append(f"ms={round(outcome.elapsed * 1000)}")
     return AuditFields(
         decision="refused" if outcome.action == ACTION_REFUSE else "allowed",
         reason=AUDIT_REASON,
@@ -344,7 +359,8 @@ async def review_code(
         render_dir: The rendered project the reviewer's provider and launcher resolve from.
 
     Returns:
-        The outcome, with every failure as its kind.
+        The outcome, with every failure as its kind and the run's elapsed time.
     """
+    started = time.monotonic()
     result = await _run_review(request, settings, repo_root, render_dir)
-    return decide(result, settings.level)
+    return replace(decide(result, settings.level), elapsed=time.monotonic() - started)

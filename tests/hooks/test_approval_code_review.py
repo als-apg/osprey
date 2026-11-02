@@ -63,6 +63,10 @@ def _digest(code: str) -> str:
     return hashlib.sha256(code.encode("utf-8")).hexdigest()
 
 
+#: The short digest each review record of ``CODE`` carries.
+DIGEST = f"digest={_digest(CODE)[:16]}"
+
+
 class ReviewStub:
     """Stands in for ``review_code``: records its inputs, then applies the real level table."""
 
@@ -269,7 +273,7 @@ def test_a_review_switched_off_asks_with_a_line_records_the_skip_and_stamps_noth
     (audit,) = deployment.review_audits()
     assert audit["decision"] == "allowed"
     assert audit["detail"] == (
-        f"review=skipped level={level} kind=switched_off by=alice mode=readwrite"
+        f"review=skipped level={level} kind=switched_off by=alice mode=readwrite {DIGEST}"
     )
     assert deployment.notices == []
     # Unstamped, so the executor asks the switch again before the launch.
@@ -297,7 +301,7 @@ def test_a_block_in_blocking_mode_denies_before_anyone_is_asked(deployment):
     (audit,) = deployment.review_audits()
     assert audit["decision"] == "refused"
     assert audit["subject"] == EXECUTE
-    assert audit["detail"] == "review=block level=block mode=readwrite"
+    assert audit["detail"] == f"review=block level=block mode=readwrite {DIGEST}"
     assert REASON not in json.dumps(deployment.audits)
     ((tool, kind), kwargs), *_ = deployment.notices
     assert (tool, kind) == ("execute", "review")
@@ -332,7 +336,7 @@ def test_a_concern_goes_onto_the_prompt_and_into_the_stamp(deployment):
 
     (audit,) = deployment.review_audits()
     assert audit["decision"] == "allowed"
-    assert audit["detail"] == "review=concern level=block mode=readwrite"
+    assert audit["detail"] == f"review=concern level=block mode=readwrite {DIGEST}"
     ((tool, kind), kwargs), *_ = deployment.notices
     assert (tool, kind) == ("execute", "review")
     assert kwargs["detail"] == f"Code review on execute: concern, proceeded: {EXECUTE}"
@@ -352,7 +356,7 @@ def test_a_pass_stamps_the_digest_and_has_nothing_to_tell_the_agent(deployment):
     assert REVIEWED_MESSAGE_KEY not in stamp
     (audit,) = deployment.review_audits()
     assert audit["decision"] == "allowed"
-    assert audit["detail"] == "review=pass level=block mode=readwrite"
+    assert audit["detail"] == f"review=pass level=block mode=readwrite {DIGEST}"
     assert deployment.notices == [], "a pass sends no notice"
 
 
@@ -385,7 +389,7 @@ def test_a_failure_in_blocking_mode_denies_and_says_not_to_retry(deployment):
     assert "do not retry" in _reason(output)
     (audit,) = deployment.review_audits()
     assert audit["decision"] == "refused"
-    assert audit["detail"] == "review=failure level=block kind=timeout mode=readwrite"
+    assert audit["detail"] == f"review=failure level=block kind=timeout mode=readwrite {DIGEST}"
 
 
 def test_a_failure_in_advisory_mode_asks_unstamped(deployment):
@@ -402,7 +406,7 @@ def test_a_failure_in_advisory_mode_asks_unstamped(deployment):
     assert REVIEWED_DIGEST_KEY not in stamp
     (audit,) = deployment.review_audits()
     assert audit["decision"] == "allowed"
-    assert audit["detail"] == "review=failure level=flag kind=timeout mode=readwrite"
+    assert audit["detail"] == f"review=failure level=flag kind=timeout mode=readwrite {DIGEST}"
 
 
 def test_a_reviewer_that_raises_leaves_the_ask_as_it_was(deployment):

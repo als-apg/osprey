@@ -32,6 +32,7 @@ from osprey.services.code_review.contract import (
     ReviewRequest,
     ReviewSwitchedOff,
     ReviewVerdict,
+    code_digest,
     render_request,
 )
 from osprey.services.code_review.review import (
@@ -58,6 +59,9 @@ REQUEST = ReviewRequest(
     description="set x",
     mode="readwrite",
 )
+#: The short digest each record of a review of ``REQUEST`` carries.
+DIGEST = f"digest={code_digest(REQUEST.code)[:16]}"
+
 PASS_REPLY = json.dumps({"verdict": "pass", "reasons": []})
 CONCERN_REPLY = json.dumps({"verdict": "concern", "reasons": ["Writes without a limit check"]})
 BLOCK_REPLY = json.dumps({"verdict": "block", "reasons": ["Calls caput directly"]})
@@ -557,7 +561,7 @@ def test_a_level_less_failure_always_refuses(kind: str) -> None:
     assert outcome.level is None
     fields = audit_fields(outcome, replace(REQUEST, mode=None))
     assert fields.decision == "refused"
-    assert fields.detail == f"review=failure kind={kind}"
+    assert fields.detail == f"review=failure kind={kind} {DIGEST}"
 
 
 # ---------------------------------------------------------------------------
@@ -643,6 +647,7 @@ def test_a_failure_at_flag_says_the_review_did_not_run() -> None:
 _NOTEBOOK_REQUEST = ReviewRequest(
     surface=SURFACE_NOTEBOOK, code="y = 2\n", subject="notebooks/scan.ipynb"
 )
+_NOTEBOOK_DIGEST = f"digest={code_digest(_NOTEBOOK_REQUEST.code)[:16]}"
 
 
 @pytest.mark.parametrize("level", ["flag", "block"])
@@ -701,15 +706,25 @@ def test_a_notice_carries_no_reasons_and_no_code() -> None:
 @pytest.mark.parametrize(
     ("result", "level", "decision", "detail"),
     [
-        (_PASS, "block", "allowed", "review=pass level=block mode=readwrite"),
-        (_PASS, "flag", "allowed", "review=pass level=flag mode=readwrite"),
-        (_CONCERN, "block", "allowed", "review=concern level=block mode=readwrite"),
-        (_CONCERN, "flag", "allowed", "review=concern level=flag mode=readwrite"),
-        (_BLOCK, "block", "refused", "review=block level=block mode=readwrite"),
-        (_BLOCK, "flag", "allowed", "review=block level=flag mode=readwrite"),
-        (_FAILURE, "block", "refused", "review=failure level=block kind=timeout mode=readwrite"),
-        (_FAILURE, "flag", "allowed", "review=failure level=flag kind=timeout mode=readwrite"),
-        (_FAILURE, None, "refused", "review=failure kind=timeout mode=readwrite"),
+        (_PASS, "block", "allowed", f"review=pass level=block mode=readwrite {DIGEST}"),
+        (_PASS, "flag", "allowed", f"review=pass level=flag mode=readwrite {DIGEST}"),
+        (_CONCERN, "block", "allowed", f"review=concern level=block mode=readwrite {DIGEST}"),
+        (_CONCERN, "flag", "allowed", f"review=concern level=flag mode=readwrite {DIGEST}"),
+        (_BLOCK, "block", "refused", f"review=block level=block mode=readwrite {DIGEST}"),
+        (_BLOCK, "flag", "allowed", f"review=block level=flag mode=readwrite {DIGEST}"),
+        (
+            _FAILURE,
+            "block",
+            "refused",
+            f"review=failure level=block kind=timeout mode=readwrite {DIGEST}",
+        ),
+        (
+            _FAILURE,
+            "flag",
+            "allowed",
+            f"review=failure level=flag kind=timeout mode=readwrite {DIGEST}",
+        ),
+        (_FAILURE, None, "refused", f"review=failure kind=timeout mode=readwrite {DIGEST}"),
     ],
 )
 def test_the_audit_fields_are_exact(result, level: str | None, decision: str, detail: str) -> None:
@@ -724,7 +739,7 @@ def test_the_audit_fields_are_exact(result, level: str | None, decision: str, de
 def test_the_notebook_surface_has_no_mode_in_its_detail() -> None:
     fields = audit_fields(decide(_CONCERN, "block"), _NOTEBOOK_REQUEST)
 
-    assert fields.detail == "review=concern level=block"
+    assert fields.detail == f"review=concern level=block {_NOTEBOOK_DIGEST}"
     assert fields.subject == _NOTEBOOK_REQUEST.subject
 
 
@@ -734,7 +749,9 @@ def test_the_audit_fields_carry_no_reasons_and_no_code() -> None:
 
     fields = audit_fields(decide(verdict, "block"), request)
 
-    assert fields.detail == "review=block level=block mode=readwrite"
+    assert fields.detail == (
+        f"review=block level=block mode=readwrite digest={code_digest(SECRET_CODE)[:16]}"
+    )
     joined = " ".join(fields)
     assert SECRET_REASON not in joined
     assert SECRET_CODE not in joined
@@ -745,7 +762,7 @@ def test_a_failure_message_stays_out_of_the_audit_fields() -> None:
 
     fields = audit_fields(decide(failure, "block"), REQUEST)
 
-    assert fields.detail == "review=failure level=block kind=unparseable mode=readwrite"
+    assert fields.detail == f"review=failure level=block kind=unparseable mode=readwrite {DIGEST}"
 
 
 # ---------------------------------------------------------------------------
@@ -768,7 +785,9 @@ def test_a_switched_off_review_is_recorded_as_skipped_with_who() -> None:
 
     assert fields.decision == "allowed"
     assert fields.reason == "code_review"
-    assert fields.detail == "review=skipped level=block kind=switched_off by=alice mode=readwrite"
+    assert fields.detail == (
+        f"review=skipped level=block kind=switched_off by=alice mode=readwrite {DIGEST}"
+    )
 
 
 def test_a_switched_off_record_keeps_who_on_one_token() -> None:
@@ -776,13 +795,16 @@ def test_a_switched_off_record_keeps_who_on_one_token() -> None:
 
     detail = audit_fields(skip_switched_off(off, "flag"), _NOTEBOOK_REQUEST).detail
 
-    assert detail == "review=skipped level=flag kind=switched_off by=Ada_Lovelace_x"
+    assert (
+        detail
+        == f"review=skipped level=flag kind=switched_off by=Ada_Lovelace_x {_NOTEBOOK_DIGEST}"
+    )
 
 
 def test_a_switched_off_record_without_who_says_only_switched_off() -> None:
     detail = audit_fields(skip_switched_off(ReviewSwitchedOff(), "block"), _NOTEBOOK_REQUEST).detail
 
-    assert detail == "review=skipped level=block kind=switched_off"
+    assert detail == f"review=skipped level=block kind=switched_off {_NOTEBOOK_DIGEST}"
 
 
 def test_a_switched_off_review_tells_neither_the_agent_nor_the_feed() -> None:
@@ -790,3 +812,44 @@ def test_a_switched_off_review_tells_neither_the_agent_nor_the_feed() -> None:
 
     assert agent_message(outcome) is None
     assert notice_text(outcome, REQUEST) is None
+
+
+# ---------------------------------------------------------------------------
+# What the record carries for telemetry: the code's short digest and the time taken
+# ---------------------------------------------------------------------------
+
+
+async def test_a_review_carries_how_long_it_took_into_its_record(
+    repo: Path, render_dir: Path
+) -> None:
+    outcome = await _review(repo, render_dir, StubRunner())
+
+    assert outcome.elapsed is not None and outcome.elapsed >= 0
+    detail = audit_fields(outcome, REQUEST).detail
+    assert (
+        detail
+        == f"review=pass level=block mode=readwrite {DIGEST} ms={round(outcome.elapsed * 1000)}"
+    )
+
+
+async def test_a_review_that_failed_still_carries_its_time(repo: Path, render_dir: Path) -> None:
+    (repo / DEFAULT_PROMPT).unlink()
+
+    outcome = await _review(repo, render_dir, StubRunner())
+
+    assert outcome.elapsed is not None
+    assert audit_fields(outcome, REQUEST).detail.endswith(f" ms={round(outcome.elapsed * 1000)}")
+
+
+def test_an_outcome_no_run_produced_carries_no_time() -> None:
+    detail = audit_fields(decide(ReviewFailure("config", "x"), None), REQUEST).detail
+
+    assert "ms=" not in detail
+
+
+def test_the_digest_is_the_stamps_digest_cut_short_and_absent_without_code() -> None:
+    from osprey.services.code_review.stamp import code_digest as stamp_digest
+
+    assert DIGEST == f"digest={stamp_digest(REQUEST.code)[:16]}"
+    detail = audit_fields(decide(_PASS, "block"), replace(_NOTEBOOK_REQUEST, code="")).detail
+    assert "digest=" not in detail
