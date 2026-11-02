@@ -143,6 +143,7 @@ Facility services
    deploy-project/index
    llm-providers/index
    web-terminal/index
+   canopy-screens
    agent-interfaces/index
    health-and-monitoring/index
    control-systems/index

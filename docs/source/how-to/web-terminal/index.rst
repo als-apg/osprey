@@ -68,6 +68,14 @@ created, and switch between companion tools without ever leaving the page.
       Run JupyterLab in a tab, with kernels that read and write the control
       system through the session you already have open.
 
+   .. grid-item-card:: CANOPY
+      :link: canopy
+      :link-type: doc
+      :shadow: md
+
+      Machine screens, Trace and the correlation plot in a tab — one CANOPY
+      per user, on the control session the terminal already has.
+
    .. grid-item-card:: Multi-user
       :link: multi-user/index
       :link-type: doc
@@ -84,5 +92,6 @@ created, and switch between companion tools without ever leaving the page.
    panels
    lattice-dashboard
    notebooks
+   canopy
    send-feedback
    multi-user/index

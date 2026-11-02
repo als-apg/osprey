@@ -463,8 +463,8 @@ renders — not the terminal process itself, which has its own ``web_terminal:``
 section. The keys below aim the sidebar's two utility controls, bound the feedback
 store, name the deployment, decide who is offered the onboarding tour, choose
 whether the terminal is offered, size the operator-chat pool, bound how
-long a panel's own server gets to start, and set how often the file watchers
-re-read the tree.
+long a panel's own server gets to start, set how often the file watchers
+re-read the tree, and configure the CANOPY panel.
 
 .. _feedback-configuration:
 
@@ -516,7 +516,7 @@ Documentation and feedback keys
    * - ``web.sidecar_ready_timeout_s``
      - ``60``
      - Seconds the terminal waits for a panel that runs its own server (the
-       **JUPYTER** tab) to answer before it greys that tab. The terminal starts
+       **JUPYTER** and **CANOPY** tabs) to answer before it greys that tab. The terminal starts
        serving once the panel answers or the wait passes, so a larger value also
        lengthens a start in which the panel fails. A value that is not a
        positive number is refused with a warning, and 60 applies.
@@ -692,6 +692,117 @@ fewer listings. Lowering it does the opposite. A value that is not a
 positive number is reported in the log and the default is used; there is no
 value that switches the pass off, because a watcher with only one trigger is a
 watcher that can go blind without saying so.
+
+.. _config-web-panels-canopy:
+
+``web.panels.canopy`` — the CANOPY panel
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The CANOPY tab is a built-in panel that each web terminal serves from two
+processes of its own, one CANOPY per user (:doc:`/how-to/web-terminal/canopy`).
+Besides the ``enabled`` switch every built-in panel has, its block carries the
+settings the terminal hands to those processes. The terminal reads them each
+time it starts the panel's processes, so an edit takes effect at the next
+restart of a terminal.
+
+.. list-table::
+   :header-rows: 1
+   :widths: 34 16 50
+
+   * - Key
+     - Default
+     - Purpose
+   * - ``web.panels.canopy.enabled``
+     - the panel's registry default
+     - Whether the tab is shown and its processes are started. A panel that is
+       absent from ``web.panels`` is off; a profile leaves it out with
+       ``exclude.web_panels``.
+   * - ``web.panels.canopy.trace_default_query``
+     - ``""``
+     - The view Trace opens with when its URL carries none, as the query
+       string Trace parses (``pv=…&pv=…&range=-1h``). Empty opens Trace with
+       no channel.
+   * - ``web.panels.canopy.correlation_default_query``
+     - ``""``
+     - The view the correlation page opens with when its URL carries none
+       (``x=…&y=…&dt=…``). Empty opens the page with no channel.
+   * - ``web.panels.canopy.waveform_default_query``
+     - ``""``
+     - The view the waveform page opens with when its URL carries none
+       (``pv=…``). Empty opens the page with no channel.
+   * - ``web.panels.canopy.home_screen``
+     - ``""``
+     - The screen CANOPY opens first, by its id in the deployment's library:
+       its path under ``screens/`` without ``.screen.json``, such as
+       ``facility/overview``. Empty opens CANOPY's first screen. ``osprey
+       build`` and ``osprey validate`` refuse an id the library does not hold.
+   * - ``web.panels.canopy.vole_bytes_max``
+     - ``268435456``
+     - Ceiling in bytes on the live-value buffers one user's CANOPY keeps in
+       memory (256 MiB). A value that is not an integer keeps the default.
+   * - ``web.panels.canopy.theme_file``
+     - unset
+     - A colour theme for the panel. A relative path is read from the project
+       root; an absolute path is used as written. Unset keeps CANOPY's own
+       theme.
+
+There is no key for the confirmation dialog: a write click asks first exactly
+when the deployment's ``approval`` block asks a human before agent writes.
+There is no ``url``, ``label`` or ``health_endpoint`` either, because the
+terminal starts the server itself, and no key that turns the agent's screen
+tools on or off, because those follow the panel.
+
+What the panel declares
+^^^^^^^^^^^^^^^^^^^^^^^
+
+A panel the terminal serves from a process of its own is described by one
+``SidecarPanel`` entry in OSPREY's panel registry
+(``osprey.profiles.sidecar_panels``). The fields below are **registry fields,
+not configuration keys**: no profile or ``config.yml`` sets them, and they are
+listed here because they explain what a build and a terminal do for a
+deployment that shows the panel. Each is false, empty or ``0`` unless a panel
+says otherwise.
+
+.. list-table::
+   :header-rows: 1
+   :widths: 20 36 44
+
+   * - Field
+     - What it means
+     - CANOPY's value
+   * - ``agent_hop``
+     - The agent of a terminal may reach the panel's MCP transport through
+       that terminal's own panel proxy. Without it the transport is refused
+       for every caller. The build then renders the agent's server entry from
+       the panel, so no profile states one.
+     - on: the build writes a ``canopy`` entry into ``.mcp.json``
+   * - ``mcp_allow``
+     - The tools on that transport the agent may call without being asked.
+     - the twelve tools that read or arrange the workspace: ``check``,
+       ``read_pv``, ``search_pvs``, ``screenshot``, ``get_screen``,
+       ``list_drafts``, ``list_widgets``, ``get_widget``, ``get_schema``,
+       ``list_collections``, ``get_workspace``, ``set_workspace``
+   * - ``mcp_ask``
+     - The tools that need the operator's approval on every call. A tool in
+       neither list is not offered to the agent.
+     - the seven authoring tools: ``new_screen``, ``patch_node``,
+       ``add_node``, ``remove_node``, ``convert_legacy``, ``delete_draft``,
+       ``request_push``
+   * - ``image_checks``
+     - Commands an image build runs from the deployment directory once the
+       deployment is copied in. A failing one fails the build.
+     - two, run by the CANOPY inside the image: the screen library against its
+       write-binding report, and the facility collections against the library
+   * - ``entry_pages``
+     - The panel's own application pages. The panel proxy serves every other
+       document the panel returns into a sandboxed origin, because it may be a
+       page an agent wrote.
+     - ``/``, ``/s/*``, ``/embed/*``, ``/trace/*``; a draft stays sandboxed
+   * - ``stop_grace_s``
+     - Seconds the panel needs between the stop signal and the kill. A
+       terminal's compose service gets the largest value among the panels it
+       shows as its stop grace period.
+     - ``34``, so a write already sent is finished, not killed
 
 .. _config-dangerously-allow-bash:
 
