@@ -180,7 +180,7 @@ The ones that exist today:
 - `osprey.health.offload.reset_abandoned_state()`
 - `osprey.mcp_server.http.reset_panel_token_latch()` — the last panel token the
   MCP HTTP client saw. Without it, one test's token is sent by the next.
-- `osprey.interfaces.web_terminal.routes.websocket.reset_rendered_config_memo()`
+- `osprey.interfaces.web_terminal.config_view.reset_rendered_config_memo()`
   — the parsed `config.yml`, memoized on path and stat signature. Without it, two
   renders at one path within an mtime tick share one parse.
 - `osprey.interfaces.web_terminal.routes.panels.reset_host_addrs_cache()` — the

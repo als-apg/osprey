@@ -24,7 +24,7 @@ from osprey_connectors.logger import get_logger
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
 
-    from osprey.interfaces.web_terminal.app import PrivilegeGates
+    from osprey.interfaces.web_terminal.config_view import PrivilegeGates
 
 logger = get_logger("ariel")
 
@@ -253,7 +253,7 @@ def _resolve_privilege_gates(config_path: Path | None) -> PrivilegeGates:
 
     ``web.config_panel.enabled`` is one key with one meaning across both
     surfaces, so this delegates to the Web Terminal's own
-    :func:`~osprey.interfaces.web_terminal.app.resolve_privilege_gates`: one
+    :func:`~osprey.interfaces.web_terminal.config_view.resolve_privilege_gates`: one
     reader of one key on both surfaces. A value written as a ``${VAR}``
     reference expands here exactly as it does there, and an unset reference
     with no default is uninterpretable on both.
@@ -268,7 +268,7 @@ def _resolve_privilege_gates(config_path: Path | None) -> PrivilegeGates:
     Returns:
         The gates, and the unreadable file when there is one.
     """
-    from osprey.interfaces.web_terminal.app import resolve_privilege_gates
+    from osprey.interfaces.web_terminal.config_view import resolve_privilege_gates
 
     return resolve_privilege_gates(config_path)
 
@@ -311,7 +311,7 @@ def _resolve_config_state(config_path: str | Path | None) -> _ConfigState:
         config_errors = [str(e)]
 
     if gates.config_unreadable_path is not None:
-        from osprey.interfaces.web_terminal.app import unreadable_config_refusal
+        from osprey.interfaces.web_terminal.config_view import unreadable_config_refusal
 
         config_errors.insert(0, unreadable_config_refusal(gates.config_unreadable_path))
 
