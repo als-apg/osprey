@@ -359,7 +359,7 @@ def fetch_code_review_switch(timeout: float = 2) -> dict | None:
         # Checked with the connection still open, so the serving end is still held.
         if resp.status != 200 or conn.sock is None:
             return None
-        if not _served_by_an_ancestor(conn.sock.getsockname()[1], int(port)):
+        if not _served_by_an_ancestor(conn.sock.getsockname()[:2], conn.sock.getpeername()[:2]):
             logger.warning("code review switch answered by a process outside this session")
             return None
         data = _json.loads(body)
@@ -375,17 +375,19 @@ def fetch_code_review_switch(timeout: float = 2) -> dict | None:
 _SWITCH_BODY_LIMIT = 4096
 
 
-def _served_by_an_ancestor(local_port: int, server_port: int) -> bool:
-    """Whether one of this process's ancestors listens on *server_port* and holds our connection.
+def _served_by_an_ancestor(ours: tuple[str, int], theirs: tuple[str, int]) -> bool:
+    """Whether one of this process's ancestors listens where we connected and holds our connection.
 
     The terminal spawns every session, so the session's hooks and MCP servers
     descend from it; whatever the agent starts is a descendant of the session,
-    never an ancestor of them. The ancestor must hold both the listening socket
-    and the accepted end of this connection (local port *server_port*, remote
-    port *local_port*): a port taken over from a terminal that went away, or
-    stolen by a more specific bind, is held by a process outside the chain.
-    Never raises; a process table that cannot be read is no proof.
+    never an ancestor of them. The ancestor must hold both a listening socket on
+    the address we reached (or the wildcard) and the accepted end of this very
+    connection, matched on both addresses and ports: a port taken over from a
+    terminal that went away, or stolen by a more specific bind, is held by a
+    process outside the chain. Never raises; a process table that cannot be read
+    is no proof.
     """
+    ours, theirs = _plain(ours), _plain(theirs)
     try:
         import psutil
 
@@ -396,17 +398,23 @@ def _served_by_an_ancestor(local_port: int, server_port: int) -> bool:
                 continue
             listens = holds = False
             for c in connections:
-                if not c.laddr or c.laddr.port != server_port:
+                if not c.laddr or c.laddr.port != theirs[1]:
                     continue
                 if c.status == psutil.CONN_LISTEN:
-                    listens = True
-                elif c.raddr and c.raddr.port == local_port:
+                    listens = listens or _plain(c.laddr)[0] in (theirs[0], "0.0.0.0", "::")
+                elif c.raddr and _plain(c.laddr) == theirs and _plain(c.raddr) == ours:
                     holds = True
             if listens and holds:
                 return True
     except Exception:
         logger.warning("could not check who answered the code review switch", exc_info=True)
     return False
+
+
+def _plain(addr: tuple[str, int]) -> tuple[str, int]:
+    """*addr* as ``(ip, port)`` with an IPv4-mapped IPv6 address written as IPv4."""
+    ip, port = addr[0], addr[1]
+    return (ip.removeprefix("::ffff:"), port)
 
 
 def notify_panel_visibility(panel: str, visible: bool) -> None:

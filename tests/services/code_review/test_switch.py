@@ -13,8 +13,10 @@ import os
 import subprocess
 import sys
 import threading
+from collections import namedtuple
 from collections.abc import Iterator
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from types import SimpleNamespace
 
 import pytest
 
@@ -227,4 +229,43 @@ def test_a_process_table_that_cannot_be_read_is_no_proof(monkeypatch):
 
     monkeypatch.setattr("psutil.Process.parents", unreadable)
 
-    assert http_module._served_by_an_ancestor(1, 2) is False
+    assert http_module._served_by_an_ancestor(("127.0.0.1", 1), ("127.0.0.1", 2)) is False
+
+
+def _ancestor_holding(*conns):
+    class _Ancestor:
+        def net_connections(self, **_kind):
+            return list(conns)
+
+    return [_Ancestor()]
+
+
+_Addr = namedtuple("_Addr", "ip port")
+
+
+def _conn(laddr, raddr, status):
+    return SimpleNamespace(laddr=_Addr(*laddr), raddr=_Addr(*raddr) if raddr else (), status=status)
+
+
+@pytest.mark.parametrize(
+    ("listen_ip", "peer", "expected"),
+    [
+        ("127.0.0.1", ("127.0.0.1", 50000), True),
+        ("0.0.0.0", ("::ffff:127.0.0.1", 50000), True),
+        # Same ports, another client address: not this connection.
+        ("127.0.0.1", ("10.0.0.5", 50000), False),
+        # Listening on another address than the one we reached.
+        ("127.0.0.2", ("127.0.0.1", 50000), False),
+    ],
+)
+def test_the_ancestor_must_hold_this_very_connection(monkeypatch, listen_ip, peer, expected):
+    import psutil
+
+    held = _ancestor_holding(
+        _conn((listen_ip, 8080), None, psutil.CONN_LISTEN),
+        _conn(("127.0.0.1", 8080), peer, psutil.CONN_ESTABLISHED),
+    )
+    monkeypatch.setattr("psutil.Process.parents", lambda self: held)
+
+    ours, theirs = ("127.0.0.1", 50000), ("127.0.0.1", 8080)
+    assert http_module._served_by_an_ancestor(ours, theirs) is expected
