@@ -2125,8 +2125,7 @@ def _dispatch_worker_corpus_mounts(config, source_dir, layer_root=None):
     worker runs the deployment's own project and binds neither, as before.
 
     Entitlement is read off the renders' rendered ``config.yml`` files, from
-    ``layer_root`` while a build is in flight (see
-    :func:`_bluesky_panel_secret_env_vars`).
+    ``layer_root`` while a build is in flight (see :func:`_panel_grant`).
 
     :param config: Full project configuration dictionary
     :type config: dict
@@ -3029,11 +3028,11 @@ def _inject_project_metadata(config):
 
 
 _PANEL_GRANT_NAMES: Mapping[str, str] = {
-    "panel_grant.secret_env_vars": "the roster variables the panel's gate accepts, roster order",
-    "panel_grant.roster_owners": "`<SUFFIX>=<username>` pairs: whose each of those secrets is",
-    "panel_grant.secret_aliases": (
-        "a variable the panel's gate accepts, mapped to the deploy variable it reads; "
-        "`{}` on every render but the panel's service"
+    "_panel_grant.j2": "the panel grant's environment macro, imported",
+    "panel_grant.credentials": (
+        "`[{var, source, owner, required}]`: each variable the panel's gate accepts, the "
+        "deploy variable it reads (no default when `required`), whose it is; `[]` on every "
+        "render but the panel's service"
     ),
 }
 
@@ -5715,9 +5714,9 @@ def _service_key(source_dir):
 def _panel_grant(config, service_key, layer_root=None):
     """The ``panel_grant`` context value of one service render.
 
-    ``{secret_env_vars, roster_owners, secret_aliases}`` off the roster-grant
-    table (:func:`osprey.deployment.web_terminals.roster.service_panel_grant`)
-    for the service holding a panel's grant, all empty for every other render.
+    ``{credentials}`` off the roster-grant table
+    (:func:`osprey.deployment.web_terminals.roster.service_panel_grant`) for the
+    service holding a panel's grant, no credentials for every other render.
     A single-user alias names the account running the build
     (:func:`_control_tree_build_account`).
     Resolved here, in the services render, because a panel's service is part of
@@ -5739,8 +5738,7 @@ def _panel_grant(config, service_key, layer_root=None):
     :param layer_root: Where a build in flight has rendered its renders;
         ``None`` reads the published build zone
     :type layer_root: str or None
-    :return: ``{"secret_env_vars": [...], "roster_owners": "...",
-        "secret_aliases": {...}}``
+    :return: ``{"credentials": [{var, source, owner, required}, ...]}``
     :rtype: dict
     """
     from osprey.deployment.web_terminals.roster import service_panel_grant
@@ -5753,45 +5751,6 @@ def _panel_grant(config, service_key, layer_root=None):
         layer_root,
         build_account=lambda: _control_tree_build_account(config, repo_root),
     )
-
-
-def _bluesky_grant(service_key, panel_grant):
-    """*panel_grant* on the bluesky_web sidecar, the empty grant on every other service.
-
-    What the sidecar's two older context names carry: the same values
-    ``panel_grant`` holds there, never another panel's grant.
-    """
-    from osprey.deployment.web_terminals.roster import (
-        BLUESKY_PANEL_ID,
-        BUILTIN_PANEL_ROSTER_GRANTS,
-    )
-
-    if service_key != BUILTIN_PANEL_ROSTER_GRANTS[BLUESKY_PANEL_ID].service:
-        return {"secret_env_vars": [], "roster_owners": "", "secret_aliases": {}}
-    return panel_grant
-
-
-def _bluesky_panel_secret_env_vars(config, source_dir, layer_root=None):
-    """The per-user secret variables the bluesky_web sidecar's compose lists.
-
-    The bluesky row of the roster-grant table (see :func:`_panel_grant`);
-    ``[]`` for every other service render.
-
-    :return: ``OSPREY_TERMINAL_SECRET_<SUFFIX>`` names, roster order
-    :rtype: list[str]
-    """
-    key = _service_key(source_dir)
-    return _bluesky_grant(key, _panel_grant(config, key, layer_root))["secret_env_vars"]
-
-
-def _bluesky_panel_roster_owners(config, source_dir, layer_root=None):
-    """Whose secret each variable of the sidecar's roster grant is; ``""`` elsewhere.
-
-    :return: ``"<SUFFIX>=<username>,..."``, roster order
-    :rtype: str
-    """
-    key = _service_key(source_dir)
-    return _bluesky_grant(key, _panel_grant(config, key, layer_root))["roster_owners"]
 
 
 def _connection_ca_bundles(config, source_dir):
@@ -6104,15 +6063,9 @@ def service_render_context(
 
     * ``service_key`` — the ``services.<k>`` key being rendered — and
       ``service``, that block (``{}`` where the config has none);
-    * ``panel_grant`` — ``{secret_env_vars, roster_owners, secret_aliases}``
-      for the service holding a panel's roster grant, all empty elsewhere
-      (:func:`_panel_grant`). ``secret_aliases`` maps a variable to the deploy
-      variable it reads: on a roster-less deployment, an alias panel's
-      build-account variable reads ``OSPREY_TERMINAL_SECRET``. The template
-      writes the accept flag itself, inside the grant block;
-    * ``bluesky_panel_secret_env_vars`` / ``bluesky_panel_roster_owners`` —
-      the same two values under their older names, on the bluesky_web
-      sidecar only;
+    * ``panel_grant`` — ``{credentials}`` for the service holding a panel's
+      roster grant, no credentials elsewhere (:func:`_panel_grant`); a template
+      renders it through ``services/_panel_grant.j2``;
     * the staged-file flags (``channel_snapshot``, ``bluesky_devices``,
       ``control_identity_staged``), each True only when its file landed in
       *out_dir*, so a mount the fragment declares and the file it points at
@@ -6140,20 +6093,16 @@ def service_render_context(
     from osprey.deployment.web_terminals.roster import as_dict
 
     key = service_key or _service_key(source_dir)
-    panel_grant = _panel_grant(config, key, layer_root)
-    bluesky_grant = _bluesky_grant(key, panel_grant)
     return {
         **config,
         "service_key": key,
         # Injected, because the render's per-service facts (`state_mounts`) are part of
         # what the service's template reads.
         "service": as_dict(as_dict(_inject_project_metadata(config).get("services")).get(key)),
-        "panel_grant": panel_grant,
+        "panel_grant": _panel_grant(config, key, layer_root),
         "dev_mode": dev_mode,
         "site_image_build_args": site_image_build_args or {},
         "channel_snapshot": _stage_channel_snapshot(config, source_dir, out_dir),
-        "bluesky_panel_secret_env_vars": bluesky_grant["secret_env_vars"],
-        "bluesky_panel_roster_owners": bluesky_grant["roster_owners"],
         "bluesky_devices": _stage_bluesky_devices(config, source_dir, out_dir),
         # Mandatory where a fragment mounts it (the stager refuses otherwise);
         # False, with any stale copy removed, everywhere else.

@@ -1117,7 +1117,11 @@ def test_bluesky_panel_secret_vars_follow_each_users_own_project(tmp_path):
     web-terminal render grants every other credential by. The deploy config's
     own panels grant nobody."""
     from osprey.deployment.web_terminals.render import terminal_secret_env_var
-    from osprey.deployment.web_terminals.roster import bluesky_panel_secret_env_vars
+    from osprey.deployment.web_terminals.roster import service_panel_grant
+
+    def bluesky_panel_secret_env_vars(config, root):
+        grant = service_panel_grant(config, root, "bluesky_web")
+        return [c["var"] for c in grant["credentials"]]
 
     for tier, declares in (("viewer", False), ("operator", True)):
         project = tmp_path / "build" / f"demo-{tier}"

@@ -1029,16 +1029,28 @@ class PanelRosterGrant:
     single_user_alias: bool = False
 
 
-class PanelGrant(TypedDict):
-    """The ``panel_grant`` a service render's compose template reads."""
+class PanelCredential(TypedDict):
+    """One credential a panel's gate accepts, and whose it is."""
 
-    #: The ``OSPREY_TERMINAL_SECRET_<SUFFIX>`` variables the compose lists, roster order.
-    secret_env_vars: list[str]
-    #: ``"<SUFFIX>=<username>,..."``, whose secret each variable is.
-    roster_owners: str
-    #: ``{variable: the deploy variable it reads}``: a variable the compose sets
-    #: from another one rather than from itself. The single-user alias only.
-    secret_aliases: dict[str, str]
+    #: The ``OSPREY_TERMINAL_SECRET_<SUFFIX>`` variable the compose hands the container.
+    var: str
+    #: The deploy variable its value is interpolated from.
+    source: str
+    #: The account an admitted request carrying it is recorded as.
+    owner: str
+    #: Whether *source* is read with no default: unset, it fails the render
+    #: rather than leaving the one account it names locked out.
+    required: bool
+
+
+class PanelGrant(TypedDict):
+    """The ``panel_grant`` a service render's compose template reads.
+
+    Rendered by ``services/_panel_grant.j2``, which also derives the owners map.
+    """
+
+    #: Every credential the panel's gate accepts, roster order; ``[]`` elsewhere.
+    credentials: list[PanelCredential]
 
 
 #: The rows no application projects: panel id → the service holding its grant.
@@ -1158,29 +1170,6 @@ def _panel_roster_grants(
     return grants
 
 
-def roster_owners_value(grants: Iterable[tuple[str, str]]) -> str:
-    """Render ``(username, variable)`` grant pairs as the roster owners map.
-
-    Rendered beside a roster grant as ``OSPREY_TERMINAL_ROSTER_OWNERS`` — comma
-    separated ``SUFFIX=username`` pairs, in the grant's own order. The
-    service's web gate admits any of the granted secrets, and names the
-    operator behind an admitted request by the one that matched; without this
-    map a match says only which slot the credential filled, not whose account
-    it is, and every panel action the deployment records would name nobody.
-
-    Each key is sliced off the variable name the grant itself emits rather
-    than derived from the username a second time, so a key here cannot name a
-    variable the service was not handed. The render refuses a roster name that
-    is not a single ``[A-Za-z0-9][A-Za-z0-9._-]*`` component, which is what
-    makes ``,`` and ``=`` safe as this map's punctuation.
-    """
-    from osprey.deployment.web_terminals.auth_credentials import TERMINAL_SECRET_VAR_PREFIX
-
-    return ",".join(
-        f"{var.removeprefix(TERMINAL_SECRET_VAR_PREFIX)}={name}" for name, var in grants
-    )
-
-
 def service_panel_grant(
     config: Any,
     project_root: Any,
@@ -1192,12 +1181,12 @@ def service_panel_grant(
     """The ``panel_grant`` a service render's compose template reads.
 
     For the service :func:`panel_roster_grant_table` names as a panel's grant
-    holder: ``secret_env_vars``, the ``OSPREY_TERMINAL_SECRET_<SUFFIX>``
-    variables its compose lists, roster order, and ``roster_owners``, whose each
-    one is. On a deployment with no roster, a row with ``single_user_alias``
-    instead accepts the deployment-wide secret under the build account's name:
-    ``secret_aliases`` maps that account's variable to ``OSPREY_TERMINAL_SECRET``
-    and ``roster_owners`` names the account. All empty for every other service.
+    holder: one credential per entitled roster user, roster order, each read
+    from its own ``OSPREY_TERMINAL_SECRET_<SUFFIX>`` with an empty default. On a
+    deployment with no roster, a row with ``single_user_alias`` instead accepts
+    the deployment-wide secret under the build account's name: one required
+    credential, the account's variable read from ``OSPREY_TERMINAL_SECRET``.
+    No credentials for every other service.
 
     :param config: The parsed deploy config.
     :param project_root: Deploy project root; relative ``project_path`` values
@@ -1208,8 +1197,7 @@ def service_panel_grant(
     :param build_account: Names the account running the build, or ``None``
         when it cannot be one; asked only for an alias row with no roster.
         Without it no alias is granted.
-    :return: ``{"secret_env_vars": [...], "roster_owners": "...",
-        "secret_aliases": {...}}``.
+    :return: ``{"credentials": [{var, source, owner, required}, ...]}``.
     """
     from osprey.deployment.web_terminals.auth_credentials import terminal_secret_var
     from osprey.interfaces.web_auth import OPERATOR_SECRET_ENV
@@ -1223,56 +1211,22 @@ def service_panel_grant(
         if not row.single_user_alias or has_roster:
             grants = _panel_roster_grants(config, project_root, panel_id, layer_root)
             return {
-                "secret_env_vars": [var for _, var in grants],
-                "roster_owners": roster_owners_value(grants),
-                "secret_aliases": {},
+                "credentials": [
+                    {"var": var, "source": var, "owner": name, "required": False}
+                    for name, var in grants
+                ]
             }
         account = build_account() if build_account is not None else None
         if not account:
             break
-        alias = (account, terminal_secret_var(account))
-        return {
-            "secret_env_vars": [],
-            "roster_owners": roster_owners_value([alias]),
-            "secret_aliases": {alias[1]: OPERATOR_SECRET_ENV},
+        alias: PanelCredential = {
+            "var": terminal_secret_var(account),
+            "source": OPERATOR_SECRET_ENV,
+            "owner": account,
+            "required": True,
         }
-    return {"secret_env_vars": [], "roster_owners": "", "secret_aliases": {}}
-
-
-def bluesky_panel_secret_env_vars(
-    config: Any, project_root: Any, layer_root: Any = None
-) -> list[str]:
-    """The per-user secret variables the bluesky-web sidecar is handed.
-
-    The bluesky row of :func:`panel_roster_grant_table`, as
-    :func:`service_panel_grant` gives it: one name per roster user whose
-    terminal shows the BLUESKY tab.
-
-    :param config: The parsed deploy config.
-    :param project_root: Deploy project root; relative ``project_path`` values
-        resolve against it.
-    :param layer_root: Where a build in flight has rendered its renders;
-        see :func:`_render_configs`.
-    :return: Variable names (``OSPREY_TERMINAL_SECRET_<SUFFIX>``), one per
-        entitled user; empty when no user shows the tab.
-    """
-    service = BUILTIN_PANEL_ROSTER_GRANTS[BLUESKY_PANEL_ID].service
-    return service_panel_grant(config, project_root, service, layer_root)["secret_env_vars"]
-
-
-def bluesky_panel_roster_owners(config: Any, project_root: Any, layer_root: Any = None) -> str:
-    """Whose secret each variable of the bluesky-web sidecar's roster grant is.
-
-    :param config: The parsed deploy config.
-    :param project_root: Deploy project root; relative ``project_path`` values
-        resolve against it.
-    :param layer_root: Where a build in flight has rendered its renders;
-        see :func:`_render_configs`.
-    :return: ``"<SUFFIX>=<username>,..."`` (see :func:`roster_owners_value`);
-        empty when no user shows the tab.
-    """
-    service = BUILTIN_PANEL_ROSTER_GRANTS[BLUESKY_PANEL_ID].service
-    return service_panel_grant(config, project_root, service, layer_root)["roster_owners"]
+        return {"credentials": [alias]}
+    return {"credentials": []}
 
 
 def renders_needing_ariel_password(config: Any, project_root: Any) -> set[str]:
