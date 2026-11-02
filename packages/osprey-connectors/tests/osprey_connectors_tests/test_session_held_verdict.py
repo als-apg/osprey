@@ -51,6 +51,7 @@ CASES = json.loads((FIXTURES / "cases.json").read_text(encoding="utf-8"))["cases
 
 SESSION_ID = "OSPREY_SESSION_ID"
 KEY = "3f2b8c1e-6a0d-4c55-9a1e-0b7f2d4e9c11"  # gitleaks:allow - a test session id
+OTHER = "7c1d9e2a-0b3f-4e66-8d2c-5a9e1f0b3c22"  # gitleaks:allow - a second test session id
 PHRASE = "Writes are paused: this session has an unanswered hold the operator must answer."
 
 CA_TIMEOUT_S = 5.0
@@ -80,6 +81,18 @@ def hold_root(tmp_path, monkeypatch) -> Path:
 def _flag(flag_id: str = "f1", source: str = "watchdog:scope") -> None:
     assert session_hold.open_flag(
         KEY,
+        flag_id=flag_id,
+        source=source,
+        reason="off the plan",
+        prompt_ref=f"record:{flag_id}",
+        prompt_excerpt="move the corrector",
+    )
+
+
+def _flag_for(key: str, flag_id: str = "f1", source: str = "watchdog:scope") -> None:
+    session_hold.ensure_session(key)
+    assert session_hold.open_flag(
+        key,
         flag_id=flag_id,
         source=source,
         reason="off the plan",
@@ -215,6 +228,68 @@ def test_the_refusal_agrees_with_every_shared_fixture(case, tmp_path, monkeypatc
     assert session_hold.is_held(spec["session_key"]) is spec["held"]
     if spec["held"]:
         assert refusal.reason == "session_held"
+
+
+# -- several sessions at once ---------------------------------------------------
+
+
+@pytest.mark.usefixtures("hold_root")
+def test_no_session_keys_belong_to_no_session():
+    _flag()  # the environment's session is held, and is not asked
+    assert session_hold_refusal(session_keys=[]) is None
+    assert session_hold_refusal(session_keys=[""]) is None
+    assert execution_verdict(ARMED_SECTION, TARGET_VA, session_keys=[]) == write_verdict(
+        ARMED_SECTION, TARGET_VA
+    )
+
+
+@pytest.mark.usefixtures("hold_root")
+def test_one_session_key_is_asked_in_place_of_the_environment(monkeypatch):
+    _flag_for(OTHER)
+    monkeypatch.delenv(SESSION_ID)
+    assert session_hold_refusal() is None
+    assert session_hold_refusal(session_keys=[OTHER]).reason == "session_held"
+    assert session_hold_refusal(session_keys=[KEY]) is None
+
+
+@pytest.mark.usefixtures("hold_root")
+def test_any_held_session_holds_with_its_own_flags():
+    session_hold.ensure_session(OTHER)
+    assert session_hold_refusal(session_keys=[KEY, OTHER]) is None
+
+    _flag_for(OTHER, source="watchdog:other")
+    refusal = session_hold_refusal(session_keys=[KEY, OTHER])
+    assert refusal == WriteVerdict(allowed=False, reason="session_held", target=None, kind=None)
+    assert refusal.detail == "Raised by: watchdog:other."
+
+    _flag("f2", source="watchdog:mine")
+    assert session_hold_refusal(session_keys=[KEY, OTHER]).detail == "Raised by: watchdog:mine."
+    assert session_hold_refusal(session_keys=[OTHER, KEY]).detail == "Raised by: watchdog:other."
+
+    session_hold.answer_flags(OTHER, ["f1"], answer="continue", operator="op")
+    _release("f2")
+    assert session_hold_refusal(session_keys=[KEY, OTHER]) is None
+
+
+@pytest.mark.usefixtures("hold_root")
+def test_an_unsafe_key_among_several_holds():
+    session_hold.ensure_session(OTHER)
+    assert session_hold_refusal(session_keys=[OTHER, "../escape"]).reason == "session_held"
+
+
+@pytest.mark.usefixtures("hold_root")
+def test_execution_verdict_asks_the_named_sessions(monkeypatch, tmp_path):
+    _armed(monkeypatch, tmp_path)
+    _flag()  # the environment's session
+    session_hold.ensure_session(OTHER)
+    allowed = execution_verdict(ARMED_SECTION, TARGET_VA, session_keys=[OTHER])
+    assert allowed.allowed is True
+    assert allowed == write_verdict(ARMED_SECTION, TARGET_VA)
+
+    held = execution_verdict(ARMED_SECTION, TARGET_VA, session_keys=[OTHER, KEY])
+    assert held.reason == "session_held"
+    assert (held.target, held.kind) == (TARGET_VA, "simulator")
+    assert execution_verdict(ARMED_SECTION, TARGET_VA).reason == "session_held"
 
 
 # -- execution_verdict -------------------------------------------------------------

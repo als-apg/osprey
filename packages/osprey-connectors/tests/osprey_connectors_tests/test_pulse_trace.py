@@ -1,15 +1,20 @@
-"""The pulsed-septum trace: shape, linearity, enable, drift and the shape digest."""
+"""The pulsed-septum trace: shape, ringing, linearity, enable, drift and the shape digest."""
 
 from __future__ import annotations
 
 import numpy as np
 import pytest
 
-from osprey_connectors.simulation import pulse
+from osprey_connectors.simulation import pulse, series
 
 T0 = 1_760_000_000.0
 ADDRESS = "SR:INJ:SEK:01:CURRENT:WAVEFORM"
 THIRTY_MINUTES = np.arange(0.0, 1800.0, 5.0)
+KEY = series.channel_key_bytes(ADDRESS)
+T0_MS = T0 * 1000.0
+OFFSETS = np.arange(pulse.TRACE_POINTS, dtype=np.float64) - pulse.RISE_START_SAMPLE
+#: Bound on the ringing's magnitude, as a fraction of the flat-top level.
+RINGING_BOUND = pulse.RINGING_COMPONENTS * pulse.RINGING_AMPLITUDE_FRACTION
 
 
 def _rise_edge(values: np.ndarray) -> int:
@@ -57,7 +62,8 @@ def test_the_peak_ratio_equals_the_driver_ratio(offset):
 
 def test_the_peak_follows_the_driver_level():
     values = pulse.trace(ADDRESS, T0, 4.0, True)
-    assert values.max() == pytest.approx(4.0, rel=0.03)
+    allowance = pulse.AMPLITUDE_DRIFT_FRACTION + RINGING_BOUND + 4 * pulse.NOISE_FRACTION
+    assert values.max() == pytest.approx(4.0, rel=allowance)
 
 
 def test_a_disabled_supply_reads_flat_zero():
@@ -85,10 +91,11 @@ def test_the_flat_top_droops_slightly():
     assert clean[0] == 0.0
 
 
-def test_the_peak_drifts_over_thirty_minutes_by_at_most_three_percent():
+def test_the_peak_spread_over_thirty_minutes_is_bounded_by_drift_and_ringing():
     peaks = np.array([pulse.trace(ADDRESS, T0 + dt, 5.0, True).max() for dt in THIRTY_MINUTES])
     spread = (peaks.max() - peaks.min()) / peaks.mean()
-    assert 0.0 < spread <= 0.03
+    bound = 2 * pulse.AMPLITUDE_DRIFT_FRACTION + RINGING_BOUND + 8 * pulse.NOISE_FRACTION
+    assert 0.0 < spread <= bound
 
 
 def test_the_rise_edge_drifts_by_a_bounded_number_of_samples():
@@ -96,7 +103,68 @@ def test_the_rise_edge_drifts_by_a_bounded_number_of_samples():
         [_rise_edge(pulse.trace(ADDRESS, T0 + dt, 5.0, True)) for dt in THIRTY_MINUTES]
     )
     shift = int(edges.max() - edges.min())
-    assert 1 <= shift <= pulse.MAX_TIMING_DRIFT_SAMPLES
+    assert 1 <= shift <= pulse.MAX_TIMING_DRIFT_SAMPLES + 2 * pulse.EDGE_JITTER_SAMPLES
+
+
+def test_the_flat_top_rings_and_nothing_rings_before_the_rise():
+    ringing = pulse._ringing(KEY, T0_MS, OFFSETS)
+    assert np.all(ringing[OFFSETS < 0.0] == 0.0)
+    flat_top = (OFFSETS >= pulse.RISE_SAMPLES) & (OFFSETS < pulse.RISE_SAMPLES + 60.0)
+    assert np.ptp(ringing[flat_top]) > 0.1 * RINGING_BOUND
+
+
+def test_the_clean_trace_is_zero_before_the_rise():
+    start = int(
+        pulse.RISE_START_SAMPLE - pulse.MAX_TIMING_DRIFT_SAMPLES - pulse.EDGE_JITTER_SAMPLES
+    )
+    for dt in (0.0, 1.0, 2.0, 600.0):
+        assert np.all(pulse._clean(KEY, T0_MS + 1000.0 * dt)[:start] == 0.0)
+
+
+def test_the_ringing_fades_into_the_fall():
+    ringing = pulse._ringing(KEY, T0_MS, OFFSETS)
+    tail = OFFSETS >= pulse.RISE_SAMPLES + pulse.FLAT_TOP_SAMPLES + 2 * pulse.FALL_TAU_SAMPLES
+    assert np.max(np.abs(ringing[tail])) < 0.01 * RINGING_BOUND
+
+
+def test_consecutive_shots_differ_in_their_ringing():
+    shots = [pulse._ringing(KEY, T0_MS + 1000.0 * i, OFFSETS) for i in range(10)]
+    for first, second in zip(shots, shots[1:], strict=False):
+        assert not np.allclose(first, second)
+        assert abs(np.corrcoef(first, second)[0, 1]) < 0.99
+    early = (OFFSETS >= pulse.RISE_SAMPLES) & (OFFSETS < pulse.RISE_SAMPLES + 40.0)
+    spread = np.ptp(np.stack(shots)[:, early], axis=0).max()
+    assert spread > 0.2 * RINGING_BOUND
+
+
+def test_the_ringing_stays_inside_its_bound_and_uses_it():
+    shots = np.stack([pulse._ringing(KEY, T0_MS + 1000.0 * i, OFFSETS) for i in range(300)])
+    assert np.max(np.abs(shots)) <= RINGING_BOUND
+    assert np.max(np.abs(shots)) > 0.3 * RINGING_BOUND
+
+
+def test_the_edge_jitter_is_bounded_and_varies_shot_to_shot():
+    jitter = np.array([pulse._edge_jitter(KEY, T0_MS + 1000.0 * i) for i in range(1000)])
+    assert np.max(np.abs(jitter)) <= pulse.EDGE_JITTER_SAMPLES
+    assert np.std(jitter) > 0.3 * pulse.EDGE_JITTER_SAMPLES
+    assert len(np.unique(jitter)) == len(jitter)
+
+
+@pytest.mark.parametrize("offset", [0.0, 1.0, 97.0])
+def test_the_whole_trace_is_linear_in_the_driver(offset):
+    low = pulse.trace(ADDRESS, T0 + offset, 2.0, True)
+    high = pulse.trace(ADDRESS, T0 + offset, 7.0, True)
+    np.testing.assert_allclose(high, 3.5 * low, rtol=1e-12, atol=1e-12)
+
+
+@pytest.mark.parametrize("offset", [0.0, 1.0, 1234.5])
+def test_the_white_noise_is_the_keyed_sample_noise_on_top_of_the_clean_trace(offset):
+    driver = 3.0
+    t_ms = float(np.rint((T0 + offset) * 1000.0))
+    counters = np.int64(t_ms) * pulse.TRACE_POINTS + np.arange(pulse.TRACE_POINTS, dtype=np.int64)
+    expected = pulse.NOISE_FRACTION * series.keyed_normals(KEY + b":pulse_noise", counters)
+    residual = pulse.trace(ADDRESS, T0 + offset, driver, True) / driver - pulse._clean(KEY, t_ms)
+    np.testing.assert_allclose(residual, expected, rtol=0.0, atol=1e-12)
 
 
 def test_the_shape_constants_are_module_constants():

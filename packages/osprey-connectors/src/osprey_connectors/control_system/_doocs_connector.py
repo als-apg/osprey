@@ -347,7 +347,11 @@ class DOOCSConnector(ControlSystemConnector):
         return await self._read_concurrently(channel_addresses, timeout)
 
     async def subscribe(
-        self, channel_address: str, callback: Callable[[ChannelValue], None]
+        self,
+        channel_address: str,
+        callback: Callable[[ChannelValue], None],
+        *,
+        on_connection: Callable[[bool], None] | None = None,  # noqa: ARG002 - accepted and ignored: DOOCS reports no connection state
     ) -> str:
         """
         Subscribe to property value changes.
@@ -355,6 +359,8 @@ class DOOCSConnector(ControlSystemConnector):
         Args:
             channel_address: DOOCS address
             callback: Function to call when value changes
+            on_connection: Accepted for the base-class contract and ignored —
+                DOOCS reports no connection state to this connector.
 
         Returns:
             Subscription ID for later unsubscription

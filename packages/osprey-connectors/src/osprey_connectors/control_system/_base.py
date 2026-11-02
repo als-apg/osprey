@@ -8,10 +8,12 @@ subscribing to changes, and retrieving metadata from various control systems.
 
 import asyncio
 import functools
+import inspect
 import logging
 import math
 import numbers
 import sys
+import warnings
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
@@ -54,6 +56,21 @@ class ChannelMetadata:
     survives the connector-host IPC seam: :mod:`osprey_connectors.ipc._frames`
     encodes sequences as JSON arrays and decodes them as lists, so a tuple set
     here would compare unequal to the same field read through a proxy.
+
+    ``control_low`` / ``control_high`` (EPICS DRVL/DRVH), ``warning_low`` /
+    ``warning_high`` (LOW/HIGH) and ``alarm_low`` / ``alarm_high`` (LOLO/HIHI)
+    are the remaining limit pairs a control system reports. Like the display
+    range they describe the channel; none of them is a write bound OSPREY
+    enforces. ``writable`` is this client's access right on the channel (EPICS
+    CA write access) — not the user's tier — and ``None`` where the control
+    system does not report one.
+
+    Every limit pair, the display range included, passes through
+    :func:`normalise_limit_pair` on construction: a missing, non-numeric or
+    non-finite bound becomes ``None``, and a pair whose low is not below its high
+    (EPICS reports an unset range as ``0``/``0``) becomes ``None`` on both sides.
+    The normalisation is idempotent, so a value decoded on the far side of the
+    connector-host IPC seam — which re-runs ``__post_init__`` — is unchanged.
     """
 
     units: str = ""
@@ -73,11 +90,79 @@ class ChannelMetadata:
     #: The label for the value of THIS reading; None off enums and when unresolvable.
     enum_label: str | None = None
     raw_metadata: dict[str, Any] | None = field(default_factory=dict)
+    #: Drive range (EPICS DRVL/DRVH); None when unreported or not a valid range.
+    control_low: float | None = None
+    control_high: float | None = None
+    #: Minor-alarm range (EPICS LOW/HIGH); None when unreported or not a valid range.
+    warning_low: float | None = None
+    warning_high: float | None = None
+    #: Major-alarm range (EPICS LOLO/HIHI); None when unreported or not a valid range.
+    alarm_low: float | None = None
+    alarm_high: float | None = None
+    #: This client's write access to the channel; None when the control system does not say.
+    writable: bool | None = None
 
     def __post_init__(self):
-        """Ensure raw_metadata is a dict."""
+        """Ensure raw_metadata is a dict and normalise the limits and ``writable``."""
         if self.raw_metadata is None:
             self.raw_metadata = {}
+        for low_name, high_name in _LIMIT_PAIRS:
+            low, high = normalise_limit_pair(getattr(self, low_name), getattr(self, high_name))
+            setattr(self, low_name, low)
+            setattr(self, high_name, high)
+        self.writable = _writable_flag(self.writable)
+
+
+#: The limit pairs of :class:`ChannelMetadata`, each normalised as one pair.
+_LIMIT_PAIRS: tuple[tuple[str, str], ...] = (
+    ("display_low", "display_high"),
+    ("control_low", "control_high"),
+    ("warning_low", "warning_high"),
+    ("alarm_low", "alarm_high"),
+)
+
+
+def _limit_bound(value: Any) -> float | None:
+    """One limit as a finite ``float``, or ``None`` for anything else.
+
+    Bools are excluded (``True`` is not a limit), as is every non-numeric value —
+    including a ``MagicMock`` standing in for a PV in tests — so a connector may
+    hand over whatever its transport reported without checking it first.
+    """
+    if isinstance(value, bool) or not isinstance(value, numbers.Real):
+        return None
+    try:
+        bound = float(value)
+    except (TypeError, ValueError, OverflowError):
+        return None
+    return bound if math.isfinite(bound) else None
+
+
+def normalise_limit_pair(low: Any, high: Any) -> tuple[float | None, float | None]:
+    """Normalise one ``(low, high)`` limit pair the way :class:`ChannelMetadata` stores it.
+
+    Each bound that is missing, non-numeric or non-finite becomes ``None``. When
+    both survive and ``low >= high`` the pair describes no range — EPICS reports
+    an unset range as ``0``/``0`` — so both become ``None``. A pair with only one
+    valid bound keeps it. Idempotent.
+    """
+    low_bound, high_bound = _limit_bound(low), _limit_bound(high)
+    if low_bound is not None and high_bound is not None and low_bound >= high_bound:
+        return None, None
+    return low_bound, high_bound
+
+
+def _writable_flag(value: Any) -> bool | None:
+    """A reported write-access right as ``bool``, or ``None`` when not reported.
+
+    A client may report access rights as ``bool`` or ``0``/``1``; anything that
+    is not an integer (a ``MagicMock`` attribute, say) is "not reported".
+    """
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, numbers.Integral):
+        return bool(value)
+    return None
 
 
 @dataclass
@@ -337,6 +422,45 @@ class ChannelWriteResult:
 #: ``sys.argv[0]`` to that package's ``__main__.py``).
 _MCP_SERVER_PACKAGE_PARTS = ("osprey", "mcp_server")
 
+#: Set once by :func:`mark_long_lived_session`. A long-lived control session —
+#: a panel backend that holds one connector for hours — runs no script either,
+#: so a readonly refusal there is the deployment's, exactly as in an MCP server.
+#: Process-global by design: the mark describes the process, not one connector.
+_long_lived_session = False
+
+
+def mark_long_lived_session() -> None:
+    """Record that this process holds a long-lived control session.
+
+    Called by :meth:`osprey.runtime.session.ControlSession.open`. From then on a
+    readonly refusal in this process uses the deployment-wide wording: the
+    process was started by the deployment, not submitted as one readonly
+    script, so "resubmit it with execution_mode='readwrite'" would send the
+    operator to a script that does not exist. Irreversible for the process.
+    """
+    global _long_lived_session
+    _long_lived_session = True
+
+
+def _reset_long_lived_session_for_tests() -> None:
+    """Clear the :func:`mark_long_lived_session` mark. Tests only.
+
+    A test process opens many sessions; each test starts from an unmarked
+    process so the readonly wording does not depend on test order.
+    """
+    global _long_lived_session
+    _long_lived_session = False
+
+
+def _readonly_is_deployment_wide() -> bool:
+    """Whether a readonly refusal here is the deployment's rather than one script's.
+
+    True in an OSPREY MCP server (:func:`_in_mcp_server_process`) and in a
+    process that holds a long-lived control session
+    (:func:`mark_long_lived_session`); everything else keeps the script wording.
+    """
+    return _long_lived_session or _in_mcp_server_process()
+
 
 def _in_mcp_server_process() -> bool:
     """True when this process is an OSPREY MCP server, not a script it ran.
@@ -391,7 +515,8 @@ _READONLY_MARKER = "readonly execution mode"
 
 #: What a read-only refusal adds when the process is a script the executor ran
 #: for one readonly submission rather than an MCP server of a read-only
-#: deployment (:func:`_in_mcp_server_process`): that run alone can be resubmitted.
+#: deployment or a long-lived control session
+#: (:func:`_readonly_is_deployment_wide`): that run alone can be resubmitted.
 _READONLY_SCRIPT_REMEDY = (
     "This script was submitted readonly; resubmit it with execution_mode='readwrite' "
     "(human approval required) if the write is intended."
@@ -442,7 +567,7 @@ def _verdict_refusal(
     remedy = None
     if verdict.reason == "readonly_run":
         marker = f" ({_READONLY_MARKER})"
-        if not _in_mcp_server_process():
+        if not _readonly_is_deployment_wide():
             # One script submitted readonly, not the deployment: the same
             # refusal, and the one remedy that applies to it alone.
             remedy = _READONLY_SCRIPT_REMEDY
@@ -524,6 +649,66 @@ def raise_for_write_result(result: ChannelWriteResult) -> ChannelWriteResult:
         value_written=result.value_written,
         observed_value=result.observed_value,
     )
+
+
+def _accepts_on_connection(subscribe: Callable[..., Any]) -> bool:
+    """Whether a ``subscribe()`` takes ``on_connection`` itself, by name or by ``**kwargs``."""
+    parameters = inspect.signature(subscribe).parameters.values()
+    return any(
+        parameter.name == "on_connection" or parameter.kind is inspect.Parameter.VAR_KEYWORD
+        for parameter in parameters
+    )
+
+
+def _compat_subscribe_without_on_connection(
+    owner: type, subscribe: Callable[..., Any]
+) -> Callable[..., Any]:
+    """Give a ``subscribe()`` that predates ``on_connection`` the keyword. Deprecated.
+
+    A connector that reports no connection state of its own still shows one
+    fact about it: a value arrived, so the channel is up. The wrapper tells
+    ``on_connection`` ``True`` before the first value and nothing after —
+    never ``False``, because such a connector never says a channel dropped.
+    Without ``on_connection`` the original runs untouched.
+
+    Wrapping ``owner`` emits one :class:`DeprecationWarning` naming it. This
+    compatibility wrapper is removed in osprey-connectors 2027.3.0; a connector's
+    ``subscribe`` should take ``on_connection`` itself.
+    """
+    warnings.warn(
+        f"{owner.__module__}.{owner.__qualname__}.subscribe does not take on_connection; "
+        "the base class wraps it for now, but the wrapper is deprecated and is removed "
+        "in osprey-connectors 2027.3.0. Add the on_connection keyword to subscribe().",
+        DeprecationWarning,
+        # this function, __init_subclass__, ABCMeta.__new__, the class statement
+        stacklevel=4,
+    )
+
+    @functools.wraps(subscribe)
+    async def _subscribe(self, channel_address, callback, *args, on_connection=None, **kwargs):
+        if on_connection is None:
+            return await subscribe(self, channel_address, callback, *args, **kwargs)
+        connected = False
+
+        def _deliver(value: "ChannelValue") -> None:
+            nonlocal connected
+            if not connected:
+                connected = True
+                on_connection(True)
+            callback(value)
+
+        return await subscribe(self, channel_address, _deliver, *args, **kwargs)
+
+    # inspect.signature() reads __signature__ before following __wrapped__, so
+    # the wrapper reports the keyword it takes; mypy knows no such attribute.
+    signature = inspect.signature(subscribe)
+    _subscribe.__signature__ = signature.replace(  # type: ignore[attr-defined]
+        parameters=[
+            *signature.parameters.values(),
+            inspect.Parameter("on_connection", inspect.Parameter.KEYWORD_ONLY, default=None),
+        ]
+    )
+    return _subscribe
 
 
 class ControlSystemConnector(ABC):
@@ -662,8 +847,16 @@ class ControlSystemConnector(ABC):
         :func:`~osprey_connectors.control_system.write_door.open_door`, so the
         raw-client guard attributes its put to a connector. A connector whose
         writes are disabled never opens the door.
+
+        A ``subscribe()`` written before ``on_connection`` existed is wrapped
+        too (:func:`_compat_subscribe_without_on_connection`, deprecated), so every connector
+        takes the keyword and a facility's own connector keeps working.
         """
         super().__init_subclass__(**kwargs)
+
+        original_subscribe = cls.__dict__.get("subscribe")
+        if original_subscribe is not None and not _accepts_on_connection(original_subscribe):
+            cls.subscribe = _compat_subscribe_without_on_connection(cls, original_subscribe)
 
         original_write = cls.__dict__.get("write_channel")
         if original_write is not None:
@@ -942,7 +1135,11 @@ class ControlSystemConnector(ABC):
 
     @abstractmethod
     async def subscribe(
-        self, channel_address: str, callback: Callable[[ChannelValue], None]
+        self,
+        channel_address: str,
+        callback: Callable[[ChannelValue], None],
+        *,
+        on_connection: Callable[[bool], None] | None = None,
     ) -> str:
         """
         Subscribe to channel changes.
@@ -950,6 +1147,14 @@ class ControlSystemConnector(ABC):
         Args:
             channel_address: Address/name of the channel
             callback: Function called when value changes (receives ChannelValue)
+            on_connection: Optional function told the channel's connection state:
+                ``True`` when it connects (before the first value of that
+                connection), ``False`` when it drops. A channel that never
+                connects reports nothing. Called on the event loop, like
+                ``callback``. Connectors whose control system reports no
+                connection state (DOOCS, Tango) accept and ignore it. A
+                subclass whose ``subscribe`` does not take it is told ``True``
+                before its first value by the base class instead.
 
         Returns:
             Subscription ID for later unsubscribe
@@ -963,6 +1168,42 @@ class ControlSystemConnector(ABC):
         Args:
             subscription_id: Subscription ID returned by subscribe()
         """
+
+    async def wait_stale(self) -> None:
+        """
+        Raise :class:`~osprey_connectors.errors.ConnectorUnavailableError` once this connector's transport has gone stale.
+
+        Stale means the control system serves a channel again while this
+        process's client library still holds it down and will not notice on its
+        own; only a new connector in a new process cures it. That is a lost
+        connector, so it is raised as the lost-connector root, and the
+        supervisor that owns the connector's lifetime replaces it as it would
+        after any :class:`~osprey_connectors.errors.ConnectorUnavailableError`
+        (:mod:`osprey_connectors.recovery`). It never returns normally. A
+        connector that can tell (EPICS with a name server) overrides this
+        method.
+
+        This default serves every connector where staleness cannot occur or
+        cannot be told (DOOCS, Tango, ...): it waits for ever. A caller that is
+        shutting down cancels it.
+
+        An overriding connector counts only channels that connected in this
+        process, so in the successor of a stale process a channel that never
+        comes back cannot drive a respawn loop.
+        """
+        await asyncio.get_running_loop().create_future()
+
+    def channel_key(self, address: str) -> str:
+        """The one name every spelling of a channel's address shares on this control system.
+
+        A caller that must treat two addresses as one channel (a session
+        admitting one write per channel at a time) compares these keys; the
+        read or write itself still goes to the address as given. Pure and
+        synchronous. This default strips surrounding whitespace; a connector
+        whose protocol spells one channel several ways (EPICS: ``ca://X``,
+        ``X.VAL`` and ``X``) overrides it.
+        """
+        return address.strip()
 
     @abstractmethod
     async def get_metadata(self, channel_address: str) -> ChannelMetadata:

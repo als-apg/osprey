@@ -157,6 +157,7 @@ __all__ = [
     "REPORT_FAILED",
     "OWNER_CONTROLS_SERVER",
     "OWNER_WEB_TERMINAL",
+    "REACHABLE_STATES",
     "RECORD_FILENAME",
     "REPORT_FILE_GLOB",
     "REPORT_FILE_PREFIX",
@@ -166,6 +167,7 @@ __all__ = [
     "SWITCH_APPLIED",
     "SWITCH_POSITIONS",
     "SWITCH_REFUSED",
+    "WRITES_STATEMENT_KEYS",
     "ControlContext",
     "Owner",
     "ServerReport",
@@ -174,8 +176,12 @@ __all__ = [
     "blocking_pids",
     "invalidate_cache",
     "is_process_alive",
+    "is_foreign_process",
     "live_owner",
+    "live_report_payloads",
     "live_reports",
+    "live_statement_reports",
+    "write_statement",
     "owned_here",
     "parse_posture",
     "posture_mirror",
@@ -187,6 +193,8 @@ __all__ = [
     "read_record_status",
     "read_report",
     "record_path",
+    "report_path",
+    "report_path_under",
     "report_paths",
     "set_switch",
     "state_dir",
@@ -1138,6 +1146,33 @@ def is_process_alive(pid: object) -> bool:
     return not _is_thread_id(pid)
 
 
+def is_foreign_process(pid: object) -> bool:
+    """Whether *pid* names a running process that belongs to another user.
+
+    The other half of what ``os.kill(pid, 0)`` says. :func:`is_process_alive`
+    reads a ``PermissionError`` as ALIVE, which is right for a sweeper — a file
+    whose author is merely unreachable must not be deleted. It is the wrong
+    answer to "does this process own the record": the record lives in the
+    acting identity's directory (rule 1), so its owner runs as that identity
+    and can always be signalled by a reader that does. A process this reader
+    may not signal is somebody else's process wearing a PID the record's owner
+    once had — PIDs are per container and start again at 1 with every one.
+
+    ``False`` for anything that is not a positive ``int``, for a PID nothing
+    runs under, and on any other error: only the kernel's explicit refusal
+    says "another user's".
+    """
+    if isinstance(pid, bool) or not isinstance(pid, int) or pid <= 0:
+        return False
+    try:
+        os.kill(pid, 0)
+    except PermissionError:
+        return True
+    except OSError:
+        return False
+    return False
+
+
 def _pid_from_filename(name: str, prefix: str, suffix: str) -> int | None:
     """The PID *name* encodes, or ``None`` when it encodes none.
 
@@ -1177,10 +1212,21 @@ def live_owner(record: ControlContext | None) -> Owner | None:
     every way of having no live owner — no record, no owner, a dead one — so
     a caller that only wants to know whether to claim need not tell them
     apart.
+
+    A PID that is running under another user is not the owner either
+    (:func:`is_foreign_process`). The record outlives the container that wrote
+    it, and the PID it names is then handed out again: a record written by a
+    terminal that ran as PID 1 names, in the next container, whatever runs as
+    PID 1 there — an init process owned by root, alive for as long as the
+    container is. Read as a live owner, that process would be followed by
+    every terminal for ever, and nobody could switch the target again.
     """
     if record is None or record.owner is None:
         return None
-    return record.owner if is_process_alive(record.owner.pid) else None
+    pid = record.owner.pid
+    if not is_process_alive(pid) or is_foreign_process(pid):
+        return None
+    return record.owner
 
 
 # -- the terminus of a switch ----------------------------------------------
@@ -1332,6 +1378,14 @@ class ServerReport:
         last_posture_realign: Its last posture realignment, or ``None``.
         targets: Per-target display metadata, ``{}`` when it has none.
         updated_at: When it last wrote, ISO-8601, or ``None``.
+        statement: The machine statement a process that displays the machine
+            (a panel backend) writes in place of controlling it, ``None`` on a
+            controls server's report. ``{"reachable": ..., "writes": ...}``,
+            each axis ``None`` until stated: ``reachable`` is
+            ``{"state", "since", "reason"}`` with ``state`` one of
+            :data:`REACHABLE_STATES`, and ``writes`` is :func:`write_statement`
+            of the session's execution verdict. A statement that does not have
+            this shape states nothing, and the report is then an ordinary one.
     """
 
     server_pid: int
@@ -1344,14 +1398,27 @@ class ServerReport:
     last_posture_realign: dict[str, Any] | None = None
     targets: dict[str, Any] = field(default_factory=dict)
     updated_at: str | None = None
+    statement: dict[str, Any] | None = None
+
+    @property
+    def display_only(self) -> bool:
+        """Whether this report is a display process's: it carries a statement.
+
+        Such a process shows the machine rather than controlling it, so the
+        fleet readers leave its report out (:func:`live_reports`) and only
+        :func:`live_statement_reports` reads it.
+        """
+        return self.statement is not None
 
     def to_payload(self) -> dict[str, Any]:
         """This report as the JSON object its file holds.
 
-        The ten contract fields and nothing else, so a payload round-trips
-        through :func:`parse_report` unchanged.
+        The ten contract fields, plus ``statement`` as the eleventh for a
+        display-only report and only then, so a payload round-trips through
+        :func:`parse_report` unchanged and a controls server's report never
+        reads back as display-only.
         """
-        return {
+        payload: dict[str, Any] = {
             "server_pid": self.server_pid,
             "session": self.session,
             "applied_target": self.applied_target,
@@ -1365,6 +1432,12 @@ class ServerReport:
             "targets": dict(self.targets),
             "updated_at": self.updated_at,
         }
+        if self.statement is not None:
+            payload["statement"] = {
+                axis: None if value is None else dict(value)
+                for axis, value in self.statement.items()
+            }
+        return payload
 
 
 def _non_negative_int(value: Any) -> int | None:
@@ -1400,13 +1473,98 @@ def _mapping(value: Any) -> dict[str, Any]:
     return dict(value) if isinstance(value, dict) else {}
 
 
+#: What a statement says about reaching the machine. ``yes`` until the
+#: connector is lost, ``no`` once it is — the lost-connector root,
+#: :class:`~osprey_connectors.errors.ConnectorUnavailableError`. A channel that
+#: does not answer (:class:`~osprey_connectors.errors.ChannelUnreachableError`)
+#: is that channel's failure and never makes the machine unreachable.
+REACHABLE_STATES: tuple[str, ...] = ("yes", "no")
+
+#: The keys of a statement's ``writes``: the execution verdict's own terms.
+WRITES_STATEMENT_KEYS: tuple[str, ...] = ("allowed", "position", "reason", "kind")
+
+_WRITE_POSITIONS: tuple[Any, ...] = (None, "asked", "allowed")
+_MACHINE_KINDS: tuple[Any, ...] = (None, "real", "rehearsal", "simulator")
+
+
+def write_statement(verdict: posture_store.WriteVerdict) -> dict[str, Any]:
+    """The ``writes`` half of a machine statement, from one execution verdict.
+
+    The verdict's own terms and nothing else: ``allowed``, ``position`` (whether
+    a person is asked, never a boolean "on"), ``reason`` (a
+    :data:`~osprey_connectors.refusals.REASONS` member when refused) and
+    ``kind``. A reader renders the refusal with
+    :func:`~osprey_connectors.refusals.refusal_phrase`; no surface words it
+    again.
+
+    Args:
+        verdict: :func:`~osprey_connectors.posture_store.execution_verdict` for
+            the session's target, so a held session states ``session_held``.
+    """
+    return {
+        "allowed": verdict.allowed,
+        "position": verdict.position,
+        "reason": verdict.reason,
+        "kind": verdict.kind,
+    }
+
+
+def _reachable_statement(value: Any) -> dict[str, Any] | None:
+    """*value* as the ``reachable`` axis, or ``None`` when it is not one."""
+    if not isinstance(value, dict) or value.get("state") not in REACHABLE_STATES:
+        return None
+    since, reason = value.get("since"), value.get("reason")
+    if not (since is None or isinstance(since, str)):
+        return None
+    if not (reason is None or isinstance(reason, str)):
+        return None
+    return {"state": value["state"], "since": since, "reason": reason}
+
+
+def _writes_statement(value: Any) -> dict[str, Any] | None:
+    """*value* as the ``writes`` axis, or ``None`` when it is not a verdict's terms."""
+    if not isinstance(value, dict) or not isinstance(value.get("allowed"), bool):
+        return None
+    if value.get("position") not in _WRITE_POSITIONS or value.get("kind") not in _MACHINE_KINDS:
+        return None
+    reason = value.get("reason")
+    if not (reason is None or isinstance(reason, str)):
+        return None
+    return {key: value.get(key) for key in WRITES_STATEMENT_KEYS}
+
+
+def _statement(value: Any) -> dict[str, Any] | None:
+    """*value* as a machine statement, or ``None`` when it is not one.
+
+    A statement is a mapping holding both ``reachable`` and ``writes``, each
+    ``null`` (not stated yet) or of its axis's shape. Anything else states
+    nothing: the report is then not a display process's, and the fleet reads
+    it as it reads any other.
+    """
+    if not isinstance(value, dict) or "reachable" not in value or "writes" not in value:
+        return None
+    reachable, writes = value["reachable"], value["writes"]
+    if reachable is not None:
+        reachable = _reachable_statement(reachable)
+        if reachable is None:
+            return None
+    if writes is not None:
+        writes = _writes_statement(writes)
+        if writes is None:
+            return None
+    return {"reachable": reachable, "writes": writes}
+
+
 def parse_report(raw: Any) -> ServerReport | None:
     """Decode one server report, or ``None`` when it describes no server.
 
     Rule 5. ``server_pid`` is the identity and the only field that can make the
     whole report worthless: without a plausible PID there is nothing to ask the
     kernel about, so the file says nothing a reader can use. Everything else
-    degrades to its own "not stated" value.
+    degrades to its own "not stated" value. A ``statement`` of the statement's
+    shape makes the report a display process's; one of any other shape states
+    nothing, so the writer of a display report keeps to the shape or is read
+    as a controls server.
     """
     if not isinstance(raw, dict):
         return None
@@ -1427,10 +1585,11 @@ def parse_report(raw: Any) -> ServerReport | None:
         last_posture_realign=dict(last_realign) if isinstance(last_realign, dict) else None,
         targets=_mapping(raw.get("targets")),
         updated_at=_text(raw.get("updated_at")),
+        statement=_statement(raw.get("statement")),
     )
 
 
-def _report_path_under(root: Path, server_pid: object) -> Path:
+def report_path_under(root: Path, server_pid: object) -> Path:
     """The report path of *server_pid* under an explicit agent-data *root*.
 
     Through the same three hops as :func:`_record_path_under`, identity
@@ -1445,7 +1604,7 @@ def _report_path_under(root: Path, server_pid: object) -> Path:
     )
 
 
-def _report_path(server_pid: object) -> Path | None:
+def report_path(server_pid: object) -> Path | None:
     """The report path of *server_pid*, or ``None`` without an agent-data root."""
     directory = state_dir()
     if directory is None:
@@ -1517,7 +1676,7 @@ def read_report(path: Path) -> ServerReport | None:
     return None if entry is None else entry[1]
 
 
-def _live_report_payloads(
+def live_report_payloads(
     entries: Iterable[Path],
     *,
     is_alive: Callable[[object], bool] = is_process_alive,
@@ -1534,11 +1693,14 @@ def _live_report_payloads(
             must not glob twice.
         is_alive: The liveness predicate, so one pass over a fleet asks the
             same question the same way throughout.
+
+    A display-only report (one carrying a statement) is left out: it
+    describes a process that shows the machine, not a member of the fleet.
     """
     live: list[dict[str, Any]] = []
     for entry in entries:
         payload = _read_report_payload(entry)
-        if payload is None:
+        if payload is None or _statement(payload.get("statement")) is not None:
             continue
         pid = _positive_int(payload.get("server_pid"))
         if pid is None or not is_alive(pid):
@@ -1555,12 +1717,40 @@ def live_reports(
     """Every report of a running controls server, parsed.
 
     The fleet as a reader sees it: what each live server is on, at which
-    generation, and how far through a switch it has got.
+    generation, and how far through a switch it has got. Display-only reports
+    are left out here, at the source, so no fleet reader ever counts a process
+    that only shows the machine (:func:`live_statement_reports` reads them).
 
     Args:
         entries: Report paths; :func:`report_paths` when omitted.
-        is_alive: As for :func:`_live_report_payloads`.
+        is_alive: As for :func:`live_report_payloads`.
     """
+    return [report for report in _live_parsed(entries, is_alive) if not report.display_only]
+
+
+def live_statement_reports(
+    entries: Iterable[Path] | None = None,
+    *,
+    is_alive: Callable[[object], bool] = is_process_alive,
+) -> list[ServerReport]:
+    """Every live display-only report, parsed: the machine statements on offer.
+
+    The one opt-in reader of the reports :func:`live_reports` leaves out. Only
+    a view that shows the machine statement reads these; no fleet decision
+    (a switch, a landing wait, a published target) ever does.
+
+    Args:
+        entries: Report paths; :func:`report_paths` when omitted.
+        is_alive: As for :func:`live_report_payloads`.
+    """
+    return [report for report in _live_parsed(entries, is_alive) if report.display_only]
+
+
+def _live_parsed(
+    entries: Iterable[Path] | None,
+    is_alive: Callable[[object], bool],
+) -> list[ServerReport]:
+    """Every parsed report among *entries* whose process still runs."""
     paths = report_paths() if entries is None else entries
     reports: list[ServerReport] = []
     for entry in paths:

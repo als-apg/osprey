@@ -7,9 +7,14 @@ the connector was called from.
 """
 
 import asyncio
+import concurrent.futures
+import contextlib
+import contextvars
 import fnmatch
 import operator
 import os
+import threading
+import time
 from collections.abc import Callable
 from datetime import datetime
 from typing import Any
@@ -26,6 +31,7 @@ from osprey_connectors.control_system._base import (
     values_match,
 )
 from osprey_connectors.control_system._ca_loop import CaLoop, current_ca_env, get_ca_loop
+from osprey_connectors.control_system._epics_bulk import CABulk, normalise_address
 from osprey_connectors.control_system._limits_validator import (
     DEFAULT_STEP_READ_TIMEOUT_SECONDS,
     c_numeral,
@@ -33,6 +39,7 @@ from osprey_connectors.control_system._limits_validator import (
 )
 from osprey_connectors.errors import (
     ChannelUnreachableError,
+    ConnectorInternalError,
     ConnectorUnavailableError,
     RefusalReason,
 )
@@ -41,6 +48,89 @@ from osprey_connectors.posture_env import is_readonly_run
 from osprey_connectors.types import WRITES_KEY, machine_kind
 
 logger = get_logger("epics_connector")
+
+#: Seconds between two stale-transport probes of :meth:`EPICSConnector.wait_stale`.
+STALE_PROBE_INTERVAL_S = 1.0
+#: A subscribed channel counts as held down once it has been down this long.
+STALE_HOLD_DOWN_S = 3.0
+#: A one-shot read that failed to connect keeps its channel held down this long.
+STALE_ONE_SHOT_WINDOW_S = 10.0
+#: A held-down name still down this long after a channel connected since it went down is stale.
+STALE_CONFIRM_S = 0.5
+#: A held-down name down this long with no channel connecting since is stale too.
+STALE_SILENT_S = 30.0
+#: Name prefix of the threads that run a write's limits validation (see ``_WriteExecutor``).
+WRITE_THREAD_PREFIX = "epics-write"
+#: Most write-validation threads alive at once (see ``_WriteExecutor``).
+WRITE_THREAD_CAP = 64
+
+
+class _WriteExecutor(concurrent.futures.Executor):
+    """An executor that starts one thread per submitted call, so nothing ever queues.
+
+    A write's put and confirming read run on the CA loop and hold no thread.
+    Its limits validation does: the validator reads the channel's current value
+    for a ``max_step`` check synchronously, within S. That bound only holds from
+    the moment a thread starts the validation, and on the loop's default
+    executor it would queue behind PVA reads, which share that pool and can fill
+    it. Starting a thread per call removes the queue: every thread ends within
+    S, so the number alive is at most the number of writes in flight, which the
+    session already limits to one per address.
+
+    ``max_threads`` caps that number on its own: a call submitted while that
+    many threads are alive raises
+    :class:`~osprey_connectors.errors.ConnectorInternalError` and does not run,
+    so a write refused this way sends nothing. A full executor is this
+    connector's own machinery saturated, not a reachability answer, so no
+    supervisor replaces the connector for it.
+    """
+
+    def __init__(
+        self, thread_name_prefix: str = WRITE_THREAD_PREFIX, max_threads: int = WRITE_THREAD_CAP
+    ) -> None:
+        self._prefix = thread_name_prefix
+        self._max_threads = max_threads
+        self._lock = threading.Lock()
+        self._threads: set[threading.Thread] = set()
+        self._serial = 0
+
+    def submit(self, fn, /, *args, **kwargs):  # type: ignore[override]
+        future: concurrent.futures.Future = concurrent.futures.Future()
+
+        def run() -> None:
+            try:
+                if not future.set_running_or_notify_cancel():
+                    return
+                try:
+                    result = fn(*args, **kwargs)
+                except BaseException as exc:  # handed to the awaiting caller
+                    future.set_exception(exc)
+                else:
+                    future.set_result(result)
+            finally:
+                with self._lock:
+                    self._threads.discard(threading.current_thread())
+
+        with self._lock:
+            if len(self._threads) >= self._max_threads:
+                raise ConnectorInternalError(
+                    f"{len(self._threads)} write threads are already running "
+                    f"(the cap is {self._max_threads}); this write was not sent"
+                )
+            # Nothing queues here, so a call that races shutdown still runs.
+            self._serial += 1
+            thread = threading.Thread(target=run, name=f"{self._prefix}_{self._serial}")
+            self._threads.add(thread)
+        thread.start()
+        return future
+
+    def shutdown(self, wait: bool = True, *, cancel_futures: bool = False) -> None:
+        del cancel_futures  # a started phase is never cancelled; nothing queues
+        with self._lock:
+            threads = list(self._threads)
+        if wait:
+            for thread in threads:
+                thread.join()
 
 
 # Channel Access status codes the connector branches on (EPICS base caerr.h).
@@ -337,6 +427,32 @@ def _readback_alarm_fields(readback: Any) -> tuple[str | None, int | None]:
     return (str(status) if status is not None else None, severity)
 
 
+#: ``ChannelMetadata`` limit field -> attribute of a CTRL-form aioca reading carrying it.
+_CA_CTRL_LIMITS: tuple[tuple[str, str], ...] = (
+    ("display_low", "lower_disp_limit"),
+    ("display_high", "upper_disp_limit"),
+    ("control_low", "lower_ctrl_limit"),
+    ("control_high", "upper_ctrl_limit"),
+    ("warning_low", "lower_warning_limit"),
+    ("warning_high", "upper_warning_limit"),
+    ("alarm_low", "lower_alarm_limit"),
+    ("alarm_high", "upper_alarm_limit"),
+)
+
+
+def _ca_ctrl_limits(ctrl: Any, writable: bool | None) -> dict[str, Any]:
+    """The CTRL limits of a channel and this client's write access, as metadata kwargs.
+
+    Read off the channel's CTRL-form reading; an absent reading (its fetch
+    failed) yields no limits. The values are handed over raw --
+    :class:`ChannelMetadata` normalises them, which is what turns an unset
+    ``0``/``0`` range into ``None``.
+    """
+    found: dict[str, Any] = {field: getattr(ctrl, attr, None) for field, attr in _CA_CTRL_LIMITS}
+    found["writable"] = writable
+    return found
+
+
 # Normative-type identifiers the PVA read path maps specially. Compared with a
 # prefix match so a minor revision ("epics:nt/NTEnum:1.1") keeps its mapping
 # instead of silently degrading to the generic scalar path.
@@ -347,7 +463,7 @@ _NT_NDARRAY_ID = "epics:nt/NTNDArray:"
 # whole structure would pull the payload too — on an NTNDArray that is a full
 # camera frame per call, and a frame in a codec the connector cannot decode
 # would make a metadata lookup fail on a channel that is perfectly reachable.
-_PVA_METADATA_REQUEST = "field(alarm,timeStamp,display)"
+_PVA_METADATA_REQUEST = "field(alarm,timeStamp,display,control,valueAlarm)"
 
 
 def _pva_type_id(value: Any) -> str:
@@ -396,37 +512,24 @@ class _ChannelSubscription:
     """One active subscription plus the teardown its transport needs.
 
     Both transports store one of these in ``EPICSConnector._subscriptions``:
-    Channel Access keeps the aioca ``Subscription``, PVAccess the p4p
-    ``Subscription``; both are released with ``close()``. The aioca one
-    belongs to the CA loop, so its release is handed to that loop
+    Channel Access keeps a handle onto its address's record (``_epics_bulk``),
+    PVAccess the p4p ``Subscription``; both are released with ``close()``.
+    The record belongs to the CA loop, so the release is handed to that loop
     (``ca_loop``) rather than run on whichever thread unsubscribes. Dispatching
     here is what lets ``unsubscribe`` and ``disconnect`` walk subscription ids
     without knowing which protocol opened them.
-
-    A Channel Access subscription can also carry ``reopen``, registered with
-    the CA loop so a repoint opens the monitor again on the new context and
-    swaps it in as ``handle``. The release forgets it and closes whichever
-    handle is current when it runs: both run on the loop thread, so a
-    subscription closed before, during or after a repoint stays closed.
 
     ``close()`` is idempotent and best effort: closing twice is a no-op, and a
     handle that fails to release is logged rather than raised, so tearing down
     a whole connector cannot be derailed by one dead channel.
     """
 
-    __slots__ = ("_closed", "ca_loop", "handle", "kind", "reopen")
+    __slots__ = ("_closed", "ca_loop", "handle", "kind")
 
-    def __init__(
-        self,
-        kind: str,
-        handle: Any,
-        ca_loop: Any = None,
-        reopen: Callable[[], None] | None = None,
-    ) -> None:
+    def __init__(self, kind: str, handle: Any, ca_loop: Any = None) -> None:
         self.kind = kind
         self.handle = handle
         self.ca_loop = ca_loop
-        self.reopen = reopen
         self._closed = False
 
     @property
@@ -448,14 +551,64 @@ class _ChannelSubscription:
             logger.debug(f"Subscription teardown failed for {self.kind} handle: {exc}")
 
     def _release(self) -> None:
-        """Forget the re-opener and close the current handle; on the CA loop."""
+        """Close the handle; on the CA loop."""
         try:
-            if self.reopen is not None:
-                self.ca_loop.discard_reopener(self.reopen)
             if self.handle is not None:
                 self.handle.close()
         except Exception as exc:  # teardown is best effort, never fatal
             logger.debug(f"Subscription teardown failed for {self.kind} handle: {exc}")
+
+
+class _BulkHandle:
+    """A CA subscription's handle: closing it leaves its address's record (CA loop only)."""
+
+    __slots__ = ("bulk", "sub_id")
+
+    def __init__(self, bulk: CABulk, sub_id: str) -> None:
+        self.bulk = bulk
+        self.sub_id = sub_id
+
+    def close(self) -> None:
+        self.bulk.unsubscribe(self.sub_id)
+
+
+class _PvaMetadataSlot:
+    """The metadata one PVA subscription has learned from its monitor.
+
+    The first value update after each (re)connection is the subscription's
+    metadata source: it carries the same display / control / valueAlarm fields
+    a metadata-only get asks for, so ``get_metadata`` of a subscribed address
+    answers from it instead of opening a second request. A connection-down
+    update empties the slot, so a lookup during an outage waits for the
+    channel to come back rather than answering from a server that is gone.
+
+    ``metadata`` is written on p4p's worker thread and read on the event loop,
+    so it lives under ``lock``; ``waiters`` are futures of ``get_metadata``
+    calls parked until the first update lands. They are settled on their own
+    loop (``call_soon_threadsafe``), with the metadata, or with ``None`` when
+    the subscription is closed underneath them.
+    """
+
+    __slots__ = ("address", "lock", "metadata", "waiters")
+
+    def __init__(self, address: str) -> None:
+        self.address = address
+        self.lock = threading.Lock()
+        self.metadata: ChannelMetadata | None = None
+        self.waiters: list[asyncio.Future] = []
+
+    def settle(self, waiters: list[asyncio.Future], result: ChannelMetadata | None) -> None:
+        """Hand ``result`` to each waiter on the loop that owns it."""
+        for waiter in waiters:
+            # A waiter whose loop is closed has nobody waiting on it.
+            with contextlib.suppress(RuntimeError):
+                waiter.get_loop().call_soon_threadsafe(_settle_waiter, waiter, result)
+
+
+def _settle_waiter(waiter: asyncio.Future, result: ChannelMetadata | None) -> None:
+    """Resolve a parked ``get_metadata`` future unless it already finished."""
+    if not waiter.done():
+        waiter.set_result(result)
 
 
 class EPICSConnector(ControlSystemConnector):
@@ -513,12 +666,14 @@ class EPICSConnector(ControlSystemConnector):
         # aioca, and the CA loop every call to it runs on; both set by connect().
         self._aioca: Any = None
         self._ca: CaLoop = None  # type: ignore[assignment]
-        # Per channel, the CTRL-form reading that carries units, precision and
-        # enum labels: fetched on a channel's first read, then reused, since
-        # they describe the record rather than the reading. Touched only on
-        # the CA loop.
+        # Per channel, the CTRL-form reading that carries units, precision,
+        # enum labels and limits for one-shot reads: fetched on a channel's
+        # first read, then reused, since they describe the record rather than
+        # the reading. Subscriptions keep their own, fresh per connection (see
+        # _epics_bulk); the two can differ after a record's limits change: a
+        # one-shot read describes the record as first seen, a subscription as
+        # it is now. Touched only on the CA loop.
         self._ca_ctrl: dict[str, Any] = {}
-        self._ca_ctrl_fetches: set[Any] = set()
         self._epics_configured = False
         # The gateway role connect() pointed Channel Access at, and whether the
         # block configures a write gateway at all. A write the verdict allows
@@ -532,6 +687,26 @@ class EPICSConnector(ControlSystemConnector):
         self._pva_channel_globs: list[str] = []
         self._p4p: Any = None
         self._pva_context: Any = None
+        # Per PVA subscription id: the metadata its monitor delivered.
+        self._pva_metadata_slots: dict[str, _PvaMetadataSlot] = {}
+        # The Channel Access subscription path (_epics_bulk), built on first need.
+        self._bulk: CABulk | None = None
+        self._bulk_lock = threading.Lock()
+        # Stale-transport bookkeeping (wait_stale). The name server this
+        # connector was configured with, as ``host:port``; None for a
+        # UDP-search connector, which never reports stale.
+        self._name_server: str | None = None
+        # One-shot connects, written on the CA loop: the monotonic time each
+        # channel last failed to connect (cleared when it connects again), the
+        # channels that have connected, and when a one-shot channel last
+        # connected newly (its first connect, or its first after a failure).
+        self._connect_failures: dict[str, float] = {}
+        self._one_shot_connected: set[str] = set()
+        self._one_shot_connect_at: float | None = None
+        # The executor a write's limits validation runs on, built on first
+        # write and shut down on disconnect; see _write_pool().
+        self._write_executor: _WriteExecutor | None = None
+        self._write_executor_lock = threading.Lock()
 
     async def connect(self, config: dict[str, Any]) -> None:
         """
@@ -660,6 +835,7 @@ class EPICSConnector(ControlSystemConnector):
         # The EPICS_CA_* settings this connector needs, planned against the
         # environment as it stands.
         ca_env = current_ca_env()
+        self._name_server = None
         if gateway_config:
             address = gateway_config.get("address", "")
             port = gateway_config.get("port", 5064)
@@ -675,6 +851,7 @@ class EPICSConnector(ControlSystemConnector):
             if use_name_server:
                 # Use CA_NAME_SERVERS (required for SSH tunnels and some gateway configurations)
                 ca_env["EPICS_CA_NAME_SERVERS"] = f"{address}:{port}"
+                self._name_server = f"{address}:{port}"
                 ca_env["EPICS_CA_ADDR_LIST"] = None
                 ca_env["EPICS_CA_SERVER_PORT"] = None
                 logger.debug(f"Using EPICS_CA_NAME_SERVERS: {address}:{port}")
@@ -695,6 +872,7 @@ class EPICSConnector(ControlSystemConnector):
         # reach the new machine.
         self._ca = get_ca_loop()
         await self._ca.point_at(ca_env)
+        self._ca_bulk()
         self._selected_role = gateway_role if gateway_config else None
         self._write_gateway_configured = bool(write_gateway)
         if gateway_config:
@@ -853,6 +1031,14 @@ class EPICSConnector(ControlSystemConnector):
         # any one connector; only this connector's cached control fields go.
         self._ca_ctrl.clear()
 
+        # Shut the write executor down without waiting: a validation still
+        # running finishes within its own bound, and a later connect() builds
+        # a fresh executor on its first write.
+        with self._write_executor_lock:
+            executor, self._write_executor = self._write_executor, None
+        if executor is not None:
+            executor.shutdown(wait=False)
+
         self._connected = False
         logger.info("EPICS connector disconnected")
 
@@ -885,56 +1071,97 @@ class EPICSConnector(ControlSystemConnector):
             # p4p's thread client blocks, so it runs in a worker thread.
             return await asyncio.to_thread(self._read_channel_pva, channel_address, timeout)
 
-        return await self._ca.run(self._read_channel_ca(channel_address, timeout))
+        name = normalise_address(channel_address)
+        deadline = (time.time() + timeout,)
+        return await self._ca.run(self._read_channel_ca(name, deadline, timeout))
 
     # ------------------------------------------------------------------
     # Channel Access (aioca). Every coroutine here runs on the CA loop.
+    # Each phase is bounded by one absolute deadline, ``(time.time() + T,)``,
+    # handed to every aioca call in it: aioca bounds connect and call
+    # together under one timeout, and a tuple is a deadline rather than a
+    # fresh allowance per call.
     # ------------------------------------------------------------------
 
-    async def _read_channel_ca(self, channel_address: str, timeout: float) -> ChannelValue:
-        """Read a channel's value, alarm state and timestamp from the IOC.
+    async def _ca_connect(self, name: str, deadline: tuple[float]) -> Any:
+        """Connect ``name`` within ``deadline``; record the outcome for :meth:`wait_stale`."""
+        connected = await self._aioca.connect(name, timeout=deadline, throw=False)
+        if connected:
+            # A new connect: the channel's first, or its first since it failed,
+            # and not one a subscription record already holds connected. A
+            # name's first connect after a repoint is not counted: the repoint
+            # purged aioca's cache, not this bookkeeping, so it is a false
+            # negative only, which the silent rule backs.
+            new = name not in self._one_shot_connected or name in self._connect_failures
+            if new and not (self._bulk is not None and self._bulk.is_down(name) is False):
+                self._one_shot_connect_at = time.monotonic()
+            self._one_shot_connected.add(name)
+            self._connect_failures.pop(name, None)
+        else:
+            self._connect_failures[name] = time.monotonic()
+        return connected
+
+    async def _read_channel_ca(
+        self, name: str, deadline: tuple[float], timeout: float, *, ctrl: str = "always"
+    ) -> ChannelValue:
+        """Read a channel's value, alarm state and timestamp from the IOC, within ``deadline``.
 
         Connecting is a step of its own, so a channel nobody answers for is
         reported as the connection failure it is, apart from a get that timed
         out on a channel that did connect. Every read asks the IOC: there is
         no monitor cache to answer from, so no reading can be stale.
+
+        ``ctrl="always"`` enriches the reading with the channel's control
+        fields (units, precision, labels, limits) and write access;
+        ``ctrl="enum"`` fetches them only for an enumeration, whose label a
+        write confirmation compares -- the one thing it needs them for.
+        ``timeout`` is only quoted in the error.
         """
         aioca = self._aioca
-        connected = await aioca.connect(channel_address, timeout=timeout, throw=False)
+        connected = await self._ca_connect(name, deadline)
         if not connected:
             raise ChannelUnreachableError(
-                channel_address,
-                f"Failed to connect to PV '{channel_address}' (timeout after {timeout}s)",
+                name, f"Failed to connect to PV '{name}' (timeout after {timeout}s)"
             )
-        reading = await aioca.caget(
-            channel_address, format=aioca.FORMAT_TIME, timeout=timeout, throw=False
-        )
+        reading = await aioca.caget(name, format=aioca.FORMAT_TIME, timeout=deadline, throw=False)
         if isinstance(reading, aioca.CANothing):
-            raise _ca_failure(channel_address, reading, "Read of")
-        ctrl = await self._ca_ctrl_fields(channel_address, timeout)
-        return self._ca_channel_value(reading, ctrl)
+            raise _ca_failure(name, reading, "Read of")
+        want_ctrl = ctrl == "always" or _is_enum_type(
+            _ca_type_name(getattr(reading, "datatype", None))
+        )
+        fields = await self._ca_ctrl_fields(name, deadline) if want_ctrl else None
+        writable = None
+        if ctrl == "always":
+            info = await aioca.cainfo(name, timeout=deadline, throw=False)
+            if not isinstance(info, aioca.CANothing):
+                writable = getattr(info, "write", None)
+        return self._ca_channel_value(reading, fields, writable)
 
-    async def _ca_ctrl_fields(self, channel_address: str, timeout: float) -> Any:
-        """The channel's CTRL-form reading (units, precision, enum labels), or ``None``.
+    async def _ca_ctrl_fields(self, name: str, deadline: tuple[float]) -> Any:
+        """The channel's CTRL-form reading (units, precision, labels, limits), or ``None``.
 
         Fetched once per channel and reused: these fields describe the record,
-        not the reading. A fetch that fails is logged and not cached, so the
-        next read tries again; the reading it was meant to enrich still stands.
+        not the reading. One element is asked for, so a waveform's payload is
+        not shipped with its metadata. A fetch that fails (or runs out of the
+        deadline) is logged and not cached, so the next read tries again; the
+        reading it was meant to enrich still stands.
         """
-        cached = self._ca_ctrl.get(channel_address)
+        cached = self._ca_ctrl.get(name)
         if cached is not None:
             return cached
         aioca = self._aioca
-        ctrl = await aioca.caget(
-            channel_address, format=aioca.FORMAT_CTRL, timeout=timeout, throw=False
+        fields = await aioca.caget(
+            name, format=aioca.FORMAT_CTRL, count=1, timeout=deadline, throw=False
         )
-        if isinstance(ctrl, aioca.CANothing):
-            logger.debug("Could not fetch control fields for '%s': %s", channel_address, ctrl)
+        if isinstance(fields, aioca.CANothing):
+            logger.debug("Could not fetch control fields for '%s': %s", name, fields)
             return None
-        self._ca_ctrl[channel_address] = ctrl
-        return ctrl
+        self._ca_ctrl[name] = fields
+        return fields
 
-    def _ca_channel_value(self, reading: Any, ctrl: Any) -> ChannelValue:
+    def _ca_channel_value(
+        self, reading: Any, ctrl: Any, writable: bool | None = None
+    ) -> ChannelValue:
         """Build the connector's ChannelValue from a TIME-form reading and its CTRL fields.
 
         The alarm status is reported by name; the raw CA code stays in
@@ -967,18 +1194,34 @@ class EPICSConnector(ControlSystemConnector):
                 "type": pv_type,
                 "count": getattr(reading, "element_count", None),
             },
+            **_ca_ctrl_limits(ctrl, writable),
         )
         return ChannelValue(value=value, timestamp=timestamp, metadata=metadata)
 
+    @staticmethod
+    def _ca_ctrl_metadata(ctrl: Any, writable: bool | None) -> ChannelMetadata:
+        """Metadata of a subscribed channel that has delivered control data but no value yet."""
+        return ChannelMetadata(
+            units=getattr(ctrl, "units", "") or "",
+            precision=getattr(ctrl, "precision", None),
+            enum_labels=_enum_label_fields(getattr(ctrl, "enums", None), None)[0],
+            **_ca_ctrl_limits(ctrl, writable),
+        )
+
     async def _put_ca(
-        self, channel_address: str, value: Any, wait: bool, timeout: float
+        self, channel_address: str, value: Any, wait: bool, deadline: tuple[float]
     ) -> tuple[str, Any]:
-        """Put ``value``; say whether it was sent, acknowledged, or refused.
+        """Put ``value`` within ``deadline``; say whether it was sent, acknowledged, or refused.
+
+        Connect, field-type lookup and put share the one deadline T the
+        caller set before handing this to the CA loop, so time spent queued
+        for the loop is charged to it too.
 
         Answers one of:
 
-        - ``("not_sent", failure)``: the channel never connected, so nothing
-          left this process.
+        - ``("not_sent", failure)``: the channel never connected, or the
+          deadline ran out before the put was issued, so nothing left this
+          process.
         - ``("unacknowledged", failure)``: the put went out and its callback did
           not arrive in time. aioca reports this and a connect timeout with the
           same code, which is why connecting is a step of its own here.
@@ -998,22 +1241,26 @@ class EPICSConnector(ControlSystemConnector):
         and every answer above claims to know it.
         """
         aioca = self._aioca
-        connected = await aioca.connect(channel_address, timeout=timeout, throw=False)
+        connected = await self._ca_connect(channel_address, deadline)
         if not connected:
-            return "not_sent", connected
+            return "not_sent", f"did not connect: {connected}"
         # The channel's own field type decides what goes out. cainfo reads it
         # from the channel just connected, without a round trip to the IOC.
-        info = await aioca.cainfo(channel_address, timeout=timeout, throw=False)
+        info = await aioca.cainfo(channel_address, timeout=deadline, throw=False)
         if isinstance(info, aioca.CANothing):
-            return "not_sent", info
+            return "not_sent", f"field type unreadable: {info}"
         try:
             put_value, as_text = _ca_put_form(value, info.datatype, info.count)
         except _Unwritable as reason:
             return "unwritable", reason
         datatype = aioca.DBR_CHAR_STR if as_text else None
         sent = value if as_text else put_value
+        if time.time() >= deadline[0]:
+            # aioca would time an exhausted deadline out before sending,
+            # and that would read as a put that went out unacknowledged.
+            return "not_sent", TimeoutError("the put deadline ran out before the put")
         done = await aioca.caput(
-            channel_address, put_value, datatype=datatype, wait=wait, timeout=timeout, throw=False
+            channel_address, put_value, datatype=datatype, wait=wait, timeout=deadline, throw=False
         )
         if done:
             return "sent", (sent, as_text)
@@ -1150,18 +1397,21 @@ class EPICSConnector(ControlSystemConnector):
     def _pva_metadata(
         self, value: Any, timestamp: datetime, raw_metadata: dict[str, Any]
     ) -> ChannelMetadata:
-        """Map the NT ``display`` and ``alarm`` fields onto :class:`ChannelMetadata`.
+        """Map the NT ``display``, ``control``, ``valueAlarm`` and ``alarm`` fields.
 
         Reads nothing but metadata fields, so it maps a full read and a
         metadata-only get (:data:`_PVA_METADATA_REQUEST`) identically — the
         payload branches contribute only what they put in ``raw_metadata``.
+        ``control`` and ``valueAlarm`` are optional NT fields: where a server
+        omits them, or reports something non-numeric, the limits are ``None``
+        (:class:`ChannelMetadata` normalises whatever is handed over).
         """
         display = _pva_field(value, "display")
+        control = _pva_field(value, "control")
+        value_alarm = _pva_field(value, "valueAlarm")
         units = _pva_field(display, "units", "") or ""
         precision = _pva_field(display, "precision")
         description = _pva_field(display, "description") or None
-        display_low = _pva_field(display, "limitLow")
-        display_high = _pva_field(display, "limitHigh")
 
         return ChannelMetadata(
             units=str(units),
@@ -1170,8 +1420,14 @@ class EPICSConnector(ControlSystemConnector):
             alarm_severity=_severity_int(raw_metadata.get("severity")),
             timestamp=timestamp,
             description=str(description) if description else None,
-            display_low=float(display_low) if isinstance(display_low, int | float) else None,
-            display_high=float(display_high) if isinstance(display_high, int | float) else None,
+            display_low=_pva_field(display, "limitLow"),
+            display_high=_pva_field(display, "limitHigh"),
+            control_low=_pva_field(control, "limitLow"),
+            control_high=_pva_field(control, "limitHigh"),
+            warning_low=_pva_field(value_alarm, "lowWarningLimit"),
+            warning_high=_pva_field(value_alarm, "highWarningLimit"),
+            alarm_low=_pva_field(value_alarm, "lowAlarmLimit"),
+            alarm_high=_pva_field(value_alarm, "highAlarmLimit"),
             raw_metadata=raw_metadata,
         )
 
@@ -1303,8 +1559,11 @@ class EPICSConnector(ControlSystemConnector):
             aioca = self._aioca
             budget = self._step_read_timeout
             try:
+                # One budget S for connection and get together (aioca bounds
+                # both under one timeout); the extra second only backs up a
+                # CA loop that does not answer at all.
                 reading = self._ca.run_sync(
-                    aioca.caget(channel_address, timeout=budget, throw=False),
+                    aioca.caget(normalise_address(channel_address), timeout=budget, throw=False),
                     timeout=budget + 1.0,
                 )
             except Exception as exc:  # the CA loop did not answer in time
@@ -1315,6 +1574,24 @@ class EPICSConnector(ControlSystemConnector):
             return _ca_plain(reading)
 
         return read_current
+
+    def _write_pool(self) -> _WriteExecutor:
+        """The executor a write's limits validation runs on, built on first use."""
+        with self._write_executor_lock:
+            if self._write_executor is None:
+                self._write_executor = _WriteExecutor()
+            return self._write_executor
+
+    async def _run_write_phase(self, fn: Callable[..., Any], *args: Any) -> Any:
+        """Run one blocking write phase on the write executor, inside the caller's context.
+
+        ``loop.run_in_executor`` alone starts the worker from a fresh context;
+        running ``fn`` through ``contextvars.copy_context().run`` carries every
+        context variable of the write into it, as ``asyncio.to_thread`` does.
+        """
+        loop = asyncio.get_running_loop()
+        context = contextvars.copy_context()
+        return await loop.run_in_executor(self._write_pool(), context.run, fn, *args)
 
     def _role_refusal(self, channel_address: str, value: Any) -> ChannelWriteResult | None:
         """The ``switching`` refusal for a write the selected gateway cannot carry, or ``None``.
@@ -1393,6 +1670,14 @@ class EPICSConnector(ControlSystemConnector):
                 ),
             )
 
+        # One name for the whole write. ``X``, ``ca://X`` and a spelling with
+        # surrounding whitespace are one record, and the limits database, the
+        # current-value read, the refusals, the put and the result must all
+        # judge and name that one record; a lookup on the raw spelling would
+        # pick a different limits entry than the one the put targets. The
+        # PVAccess check above stays on the raw address by its own contract.
+        channel_address = normalise_address(channel_address.strip())
+
         # Step 0b: the verdict allowed this write (the guard asked it first), but
         # the gateway this connector selected at connect() may predate the
         # switch. Refused before limits validation reads anything.
@@ -1411,9 +1696,10 @@ class EPICSConnector(ControlSystemConnector):
         # Import here to avoid circular dependency
         from osprey_connectors.errors import ChannelLimitsViolationError
 
-        # Step 2: Validate limits (FAIL CLOSED) in a worker thread, so a caller
-        # on the event loop is never stalled by the blocking read that max_step
-        # validation waits for.
+        # Step 2: Validate limits (FAIL CLOSED) in a thread of the write
+        # executor, so a caller on the event loop is never stalled by the
+        # blocking read that max_step validation waits for, and the validation
+        # never queues behind PVA reads on the default executor.
         def _validate():
             if self._limits_validator:
                 try:
@@ -1430,16 +1716,19 @@ class EPICSConnector(ControlSystemConnector):
                     return e
             return None
 
-        validation_error = await asyncio.to_thread(_validate)
+        validation_error = await self._run_write_phase(_validate)
         if validation_error is not None:
             return self._validation_refusal(channel_address, value, validation_error)
 
         # Step 3: The put. The put-callback is Channel Access's acknowledgement
         # that the IOC processed the put, so a confirming write waits for it:
         # the read that follows would otherwise race the record's own
-        # processing. A write nobody asked to confirm does not wait.
+        # processing. A write nobody asked to confirm does not wait. The put
+        # phase has one deadline T, set here so the wait for the CA loop is
+        # charged to it as well.
+        put_deadline = (time.time() + timeout,)
         put_result, payload = await self._ca.run(
-            self._put_ca(channel_address, value, wait=bool(confirm), timeout=timeout)
+            self._put_ca(channel_address, value, wait=bool(confirm), deadline=put_deadline)
         )
 
         if put_result == "cs_refused":
@@ -1502,8 +1791,8 @@ class EPICSConnector(ControlSystemConnector):
                 value_written=value,
                 outcome=WriteOutcome.FAILED,
                 error_message=(
-                    f"Failed to write to channel '{channel_address}': it did not connect "
-                    f"within {timeout}s, so no value was sent"
+                    f"Failed to write to channel '{channel_address}': no value was sent "
+                    f"within {timeout}s ({payload})"
                 ),
             )
 
@@ -1576,8 +1865,17 @@ class EPICSConnector(ControlSystemConnector):
         taken after the put-callback cannot be a stale cached one. A read that
         fails raises, and the caller reports the write as unconfirmed: what
         the channel holds is unknown, not different.
+
+        Connect and get share one deadline T; the control fields are fetched
+        only for an enumeration, whose label the comparison uses, and under
+        the same deadline.
         """
-        return await self._ca.run(self._read_channel_ca(channel_address, timeout))
+        deadline = (time.time() + timeout,)
+        return await self._ca.run(
+            self._read_channel_ca(
+                normalise_address(channel_address), deadline, timeout, ctrl="enum"
+            )
+        )
 
     async def read_multiple_channels(
         self, channel_addresses: list[str], timeout: float | None = None
@@ -1586,7 +1884,11 @@ class EPICSConnector(ControlSystemConnector):
         return await self._read_concurrently(channel_addresses, timeout)
 
     async def subscribe(
-        self, channel_address: str, callback: Callable[[ChannelValue], None]
+        self,
+        channel_address: str,
+        callback: Callable[[ChannelValue], None],
+        *,
+        on_connection: Callable[[bool], None] | None = None,
     ) -> str:
         """
         Subscribe to channel value changes.
@@ -1594,99 +1896,213 @@ class EPICSConnector(ControlSystemConnector):
         Args:
             channel_address: EPICS channel address
             callback: Function to call when value changes
+            on_connection: Optional function told ``True`` when the channel
+                connects and ``False`` when it drops (see the base class)
 
         Returns:
             Subscription ID for later unsubscription
 
         Routing mirrors the read path: a PVA-routed address opens a p4p
-        monitor, every other address a Channel Access monitor. Either way the
-        subscriber callback runs on the event loop, never on the transport's
-        own worker thread.
+        monitor, every other address joins the address's Channel Access record
+        (:mod:`~osprey_connectors.control_system._epics_bulk`): one pair of
+        monitors per address, every value carrying the control data of the
+        connection it arrived on, connection state reported ahead of the
+        connection's first value. Either way the subscriber callbacks run on
+        the event loop, never on the transport's own thread.
 
-        A Channel Access monitor outlives a repoint: when a connect elsewhere in
-        the process moves CA to another gateway, the monitor is opened again on
-        the new context, and its first update there reaches the callback like
-        any other. Cancelling the call leaves no monitor open behind it.
+        A Channel Access subscription outlives a repoint: when a connect
+        elsewhere in the process moves CA to another gateway, the record
+        reports the channel down and opens it again on the new context.
+        Cancelling the call leaves no subscriber behind it.
         """
         loop = asyncio.get_running_loop()
 
         if self._is_pva_channel(channel_address):
-            return self._subscribe_pva(channel_address, callback, loop)
+            return self._subscribe_pva(channel_address, callback, loop, on_connection)
 
-        aioca = self._aioca
+        bulk = self._ca_bulk()
         subscription = _ChannelSubscription("ca", None, ca_loop=self._ca)
-
-        def ca_callback(reading: Any) -> None:
-            """Adapt one aioca monitor update; runs on the CA loop.
-
-            A disconnect arrives as a ``CANothing`` rather than a reading: it is
-            connection state, not a channel value, so it never reaches the
-            subscriber. Units and enum labels come from the channel's CTRL
-            fields, fetched in the background when the monitor opens: an update
-            that lands first carries the index alone rather than waiting.
-            """
-            if isinstance(reading, aioca.CANothing):
-                logger.debug(f"CA monitor event for '{channel_address}': {reading}")
-                return
-            try:
-                channel_value = self._ca_channel_value(reading, self._ca_ctrl.get(channel_address))
-            except Exception as exc:
-                logger.warning(f"Dropping CA update for '{channel_address}': {exc}")
-                return
-            try:
-                loop.call_soon_threadsafe(callback, channel_value)
-            except RuntimeError:
-                # The subscriber's loop has closed (osprey.runtime runs one per
-                # call). Raised here, aioca would print it to stdout -- a stdio
-                # MCP server's protocol stream -- and drop the monitor; close
-                # the subscription here instead, quietly, so a repoint does not
-                # re-open it either.
-                logger.debug(f"Closing CA monitor on '{channel_address}': its loop has closed")
-                subscription.close()
-
-        def open_monitor() -> None:
-            # On the CA loop: aioca binds a monitor to the loop it is opened on.
-            subscription.handle = aioca.camonitor(
-                channel_address, ca_callback, format=aioca.FORMAT_TIME, notify_disconnect=True
-            )
-
-        async def open_first() -> None:
-            # Closed already: the caller gave up waiting before the loop got
-            # here, and its release has run or is queued behind this.
-            if subscription.closed:
-                return
-            # The task is held until it finishes, so it is not collected mid-fetch.
-            fetch = asyncio.ensure_future(self._ca_ctrl_fields(channel_address, self._timeout))
-            self._ca_ctrl_fetches.add(fetch)
-            fetch.add_done_callback(self._ca_ctrl_fetches.discard)
-            open_monitor()
-            # A repoint purges every aioca channel without telling the monitor's
-            # callback; the CA loop re-opens this one on the new context.
-            subscription.reopen = open_monitor
-            self._ca.add_reopener(open_monitor)
-
+        sub_id = f"{channel_address}_{id(subscription)}"
+        # Closing the subscription leaves the record, on the CA loop.
+        subscription.handle = _BulkHandle(bulk, sub_id)
         try:
-            await self._ca.run(open_first())
+            await self._ca.run(
+                bulk.subscribe(
+                    channel_address,
+                    sub_id,
+                    callback,
+                    loop,
+                    on_connection,
+                    released=lambda: subscription.closed,
+                )
+            )
         except asyncio.CancelledError:
-            # A caller that bounds the open (the dispatch trigger source does)
-            # cancels it here, but the open may already be queued on the CA
-            # loop, or done with its result still in flight. Closing hands the
-            # release to that loop, behind the open: no monitor is left firing
-            # with nobody to unsubscribe it.
+            # The join may already be queued on the CA loop, or done with its
+            # result in flight; the release is queued behind it.
             subscription.close()
             raise
 
-        sub_id = f"{channel_address}_{id(subscription)}"
         self._subscriptions[sub_id] = subscription
-
         logger.debug(f"EPICS subscription created: {sub_id}")
         return sub_id
+
+    def _ca_bulk(self) -> CABulk:
+        """This connector's Channel Access subscription path, built once.
+
+        ``connect()`` builds it; the lock keeps two first subscribers on
+        different loops from building two.
+        """
+        with self._bulk_lock:
+            if self._bulk is None:
+                self._bulk = CABulk(
+                    self._aioca,
+                    self._ca,
+                    value_factory=self._ca_channel_value,
+                    metadata_factory=self._ca_ctrl_metadata,
+                    held_warning_s=self._timeout,
+                )
+            return self._bulk
+
+    async def warm(self) -> None:
+        """Create the Channel Access context the subscription path runs under.
+
+        The session calls this (bounded) when it opens, so the first
+        subscriber does not pay for creating the context. No channel is opened.
+        """
+        if self._aioca is None or self._ca is None:
+            return
+        aioca = self._aioca
+
+        async def create_context() -> None:
+            aioca.get_channel_infos()
+
+        await self._ca.run(create_context())
+
+    async def wait_stale(self) -> None:
+        """Raise :class:`ConnectorUnavailableError` once this connector's Channel Access transport has gone stale.
+
+        After an outage of a name server, libca may search for a channel it
+        held again only after a long back-off, and its own connection to the
+        name server can stay broken for good, so the channel stays down after
+        the server is back. This watch reads aioca's own channel state on the
+        CA loop, once per :data:`STALE_PROBE_INTERVAL_S`; it makes no CA call
+        and opens no connection for it, so it cannot ask the server whether it
+        serves a name.
+
+        A name is held down when it connected in this process and is down now:
+        its subscription record has been down longer than
+        :data:`STALE_HOLD_DOWN_S`, or it is a one-shot channel that failed to
+        connect within :data:`STALE_ONE_SHOT_WINDOW_S` and is still not
+        connected. A held-down name is stale when
+
+        * some channel of this connector connected newly after it went down --
+          a subscription record's connection came up, or a one-shot channel
+          connected for the first time or for the first time since it failed --
+          and it is still down :data:`STALE_CONFIRM_S` later: the transport
+          carries again, and libca has not caught up; or
+        * it is a subscription record (a one-shot failure is held down only
+          for :data:`STALE_ONE_SHOT_WINDOW_S`, so only the first rule confirms
+          it) and has been down :data:`STALE_SILENT_S` with no such connect: nothing
+          here can tell a server that is gone from a connection libca will not
+          rebuild, so a long silence counts as stale. A server that really is
+          gone costs one fresh connector, not a loop: see below.
+
+        A name that never connected in this process never counts: nothing here
+        can tell a name nobody serves from one the transport fails to reach,
+        and a successor of a stale process only counts names it connected
+        itself. So a process in which nothing has connected yet -- started
+        during an outage, or the successor of a stale exit while the server
+        is still gone -- never reports stale; it recovers only if libca
+        reconnects to the name server by itself. Without a name server (UDP search) the server's
+        beacons make libca search again on a restart, and this waits for ever,
+        like the base class. A caller that is shutting down cancels it.
+
+        A stale transport is a lost connector: libca will not rebuild it, so
+        every channel it held fails alike until a fresh connector replaces this
+        one. It is raised as :class:`ConnectorUnavailableError`, whose text
+        names the stale channels and why they count, and the supervisor that
+        owns this connector hands that to the recovery policy
+        (:mod:`osprey_connectors.recovery`) like any other lost connector.
+        """
+        if self._name_server is None:
+            await asyncio.get_running_loop().create_future()
+        while True:
+            stale = await self._ca.run(self._stale_now())
+            if stale:
+                names = sorted(stale)
+                reasons = ", ".join(sorted(set(stale.values())))
+                logger.warning("EPICS transport stale: %s still down here (%s)", names, reasons)
+                raise ConnectorUnavailableError(
+                    f"EPICS Channel Access transport is stale: {', '.join(names)} still down "
+                    f"here ({reasons}); only a fresh connector in a fresh process reconnects"
+                )
+            await asyncio.sleep(STALE_PROBE_INTERVAL_S)
+
+    def channel_key(self, address: str) -> str:
+        """``ca://X``, ``X.VAL`` and ``X`` are one record's value field: key ``X``."""
+        return normalise_address(address.strip()).removesuffix(".VAL")
+
+    def _one_shot_states(self) -> dict[str, bool]:
+        """Connected state of every channel in aioca's cache, by name. CA loop.
+
+        A channel absent from the cache (never opened, or purged by a repoint)
+        is absent here, and so is not held down.
+        """
+        try:
+            infos = self._aioca.get_channel_infos()
+        except Exception:
+            return {}
+        return {info.name: bool(info.connected) for info in infos}
+
+    async def _held_down(self) -> dict[str, float]:
+        """Each name held down right now, with when it went down (see :meth:`wait_stale`). CA loop."""
+        now = time.monotonic()
+        held: dict[str, float] = {}
+        if self._bulk is not None:
+            for name, connected, down_since, ever_connected in self._bulk.snapshot():
+                if connected or down_since is None or not ever_connected:
+                    continue
+                if now - down_since <= STALE_HOLD_DOWN_S:
+                    continue
+                held[name] = down_since
+        states = self._one_shot_states()
+        for name, failed_at in self._connect_failures.items():
+            if now - failed_at > STALE_ONE_SHOT_WINDOW_S:
+                continue
+            if states.get(name, True):
+                continue
+            if name not in self._one_shot_connected:
+                continue
+            held.setdefault(name, failed_at)
+        return held
+
+    def _last_connect_at(self) -> float | None:
+        """When a channel of this connector last connected newly; None if none has. CA loop."""
+        times = [self._one_shot_connect_at]
+        if self._bulk is not None:
+            times.append(self._bulk.last_connect_at)
+        known = [t for t in times if t is not None]
+        return max(known) if known else None
+
+    async def _stale_now(self) -> dict[str, str]:
+        """Each held-down name that is stale now, with why (see :meth:`wait_stale`). CA loop."""
+        now = time.monotonic()
+        last = self._last_connect_at()
+        stale: dict[str, str] = {}
+        for name, down_since in (await self._held_down()).items():
+            if last is not None and last > down_since:
+                if now - last >= STALE_CONFIRM_S:
+                    stale[name] = "a channel connected since it went down"
+            elif now - down_since >= STALE_SILENT_S:
+                stale[name] = f"down {STALE_SILENT_S:g}s with no channel connecting"
+        return stale
 
     def _subscribe_pva(
         self,
         channel_address: str,
         callback: Callable[[ChannelValue], None],
         loop: asyncio.AbstractEventLoop,
+        on_connection: Callable[[bool], None] | None = None,
     ) -> str:
         """Open a p4p monitor and adapt its updates to the connector callback.
 
@@ -1701,13 +2117,39 @@ class EPICSConnector(ControlSystemConnector):
         say) drops that one update with a log line. Raising instead would
         propagate into p4p's dispatcher, which responds by closing the
         subscription outright — one bad frame would silently end the monitor.
+
+        The monitor is opened with ``notify_disconnect=True``, so p4p reports
+        every loss of the channel as a ``Disconnected`` update instead of
+        going silent. Any exception update means the channel is down:
+        ``on_connection`` is told ``False`` (once, and only after the channel
+        had connected — a channel that never connects reports nothing) and
+        the update never becomes a value. The monitor is never closed or
+        re-created on a drop; p4p re-establishes it itself, and the first value
+        after that is preceded by ``on_connection(True)``. Every report is
+        posted to the loop ahead of anything that comes after it.
+
+        The first value update after each (re)connection is also the
+        subscription's metadata source (:class:`_PvaMetadataSlot`): it settles
+        any :meth:`get_metadata` call waiting on this address. A drop empties
+        the slot again.
         """
         context = self._require_pva_context(channel_address, "subscribe to")
 
+        connected = False
+        slot = _PvaMetadataSlot(channel_address)
+
         def pva_callback(update: Any) -> None:
             """Wrapper to convert a p4p monitor update to our format."""
+            nonlocal connected
             if isinstance(update, Exception):
+                # Connection state, never data: the channel is down until a
+                # value arrives again, and so is the metadata it carried.
                 logger.debug(f"PVA monitor event for '{channel_address}': {update!r}")
+                with slot.lock:
+                    slot.metadata = None
+                if connected and on_connection is not None:
+                    loop.call_soon_threadsafe(on_connection, False)
+                connected = False
                 return
             try:
                 channel_value = self._pva_channel_value(
@@ -1716,13 +2158,23 @@ class EPICSConnector(ControlSystemConnector):
             except Exception as exc:
                 logger.warning(f"Dropping PVA update for '{channel_address}': {exc}")
                 return
+            if not connected and on_connection is not None:
+                loop.call_soon_threadsafe(on_connection, True)
+            connected = True
+            waiters: list[asyncio.Future] = []
+            with slot.lock:
+                if slot.metadata is None:
+                    slot.metadata = channel_value.metadata
+                    waiters, slot.waiters = slot.waiters, []
+            slot.settle(waiters, channel_value.metadata)
             # Schedule callback in event loop
             loop.call_soon_threadsafe(callback, channel_value)
 
-        subscription = context.monitor(channel_address, pva_callback)
+        subscription = context.monitor(channel_address, pva_callback, notify_disconnect=True)
 
         sub_id = f"{channel_address}_{id(subscription)}"
         self._subscriptions[sub_id] = _ChannelSubscription("pva", subscription)
+        self._pva_metadata_slots[sub_id] = slot
 
         logger.debug(f"PVA subscription created: {sub_id}")
         return sub_id
@@ -1733,6 +2185,12 @@ class EPICSConnector(ControlSystemConnector):
         if subscription is None:
             return
         subscription.close()
+        slot = self._pva_metadata_slots.pop(subscription_id, None)
+        if slot is not None:
+            # A get_metadata parked on this subscription falls back to a get.
+            with slot.lock:
+                waiters, slot.waiters = slot.waiters, []
+            slot.settle(waiters, None)
         logger.debug(f"EPICS subscription removed: {subscription_id}")
 
     def _read_metadata_pva(self, channel_address: str, timeout: float) -> ChannelMetadata:
@@ -1758,15 +2216,78 @@ class EPICSConnector(ControlSystemConnector):
     async def get_metadata(self, channel_address: str) -> ChannelMetadata:
         """Get metadata for a channel, over whichever transport serves it.
 
-        The PVA path asks for the metadata fields alone rather than reading the
-        channel and discarding its value; the CA path keeps reading the channel,
-        because a read carries units and precision with the value.
+        A PVA address this connector is subscribed to answers from the
+        subscription: the first update of its monitor is the metadata source,
+        and the call awaits that update for up to ``timeout_s``, then raises
+        :class:`TimeoutError` — it never opens a second request for a channel
+        it is already watching. An unsubscribed PVA address asks for the
+        metadata fields alone rather than reading the channel and discarding
+        its value.
+
+        A subscribed CA address answers from its subscription record's CTRL
+        event (units, precision, enum labels, the limits, write access), awaited
+        the same way; an unsubscribed CA address is read once, because a read
+        carries units, precision and limits with the value.
+
+        Raises:
+            ChannelUnreachableError: A subscribed address delivered no update
+                (PVA) or no control data (CA) within ``timeout_s``: it is
+                down, or was never reached.
         """
         if self._is_pva_channel(channel_address):
+            slots = [
+                slot
+                for slot in self._pva_metadata_slots.values()
+                if slot.address == channel_address
+            ]
+            if slots:
+                metadata = await self._await_subscribed_pva_metadata(channel_address, slots)
+                if metadata is not None:
+                    return metadata
+                # Every subscription closed while we waited: no monitor to ask.
             return await asyncio.to_thread(self._read_metadata_pva, channel_address, self._timeout)
 
+        if self._bulk is not None:
+            bulk_metadata: ChannelMetadata | None = await self._ca.run(
+                self._bulk.metadata(channel_address, self._timeout)
+            )
+            if bulk_metadata is not None:
+                return bulk_metadata
         channel_value = await self.read_channel(channel_address)
         return channel_value.metadata
+
+    async def _await_subscribed_pva_metadata(
+        self, channel_address: str, slots: list[_PvaMetadataSlot]
+    ) -> ChannelMetadata | None:
+        """Metadata of a subscribed PVA address, awaiting its first update.
+
+        Returns ``None`` when the subscriptions were closed while waiting (the
+        caller then falls back to a metadata-only get); raises
+        :class:`ChannelUnreachableError` when no update arrived within
+        ``timeout_s``.
+        """
+        waiter: asyncio.Future = asyncio.get_running_loop().create_future()
+        parked: list[_PvaMetadataSlot] = []
+        try:
+            for slot in slots:
+                with slot.lock:
+                    if slot.metadata is not None:
+                        return slot.metadata
+                    slot.waiters.append(waiter)
+                parked.append(slot)
+            try:
+                return await asyncio.wait_for(waiter, self._timeout)
+            except TimeoutError:
+                raise ChannelUnreachableError(
+                    channel_address,
+                    f"PVA channel '{channel_address}' is subscribed but delivered no "
+                    f"update within {self._timeout}s",
+                ) from None
+        finally:
+            for slot in parked:
+                with slot.lock:
+                    if waiter in slot.waiters:
+                        slot.waiters.remove(waiter)
 
     async def validate_channel(self, channel_address: str) -> bool:
         """

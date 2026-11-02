@@ -908,6 +908,23 @@ def reset_connector_config_cache():
     reset_config_cache()
 
 
+@pytest.fixture(autouse=True, scope="function")
+def long_lived_session_mark_per_test():
+    """Start every test in a process that holds no long-lived control session.
+
+    ``ControlSession.open`` calls ``mark_long_lived_session``, which flips a
+    process-global flag for good: from then on every readonly refusal in the
+    process uses the deployment-wide wording. Without this reset, any test that
+    opens a session would switch the script wording off for every later test
+    sharing its worker, so the readonly-wording tests would pass or fail by
+    xdist placement and file order.
+    """
+    from osprey_connectors.control_system import _base as connector_base
+
+    connector_base._reset_long_lived_session_for_tests()
+    yield
+
+
 @pytest.fixture
 def ioc_prefix() -> str:
     """One record prefix per test, so an IOC this test did not start — another

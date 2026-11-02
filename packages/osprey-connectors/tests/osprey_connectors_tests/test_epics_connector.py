@@ -15,6 +15,7 @@ refusal reason — never merely that a call "didn't raise".
 import asyncio
 import os
 import sys
+import time
 from unittest.mock import AsyncMock, MagicMock
 from zoneinfo import ZoneInfo
 
@@ -246,14 +247,15 @@ class TestDisconnect:
     @pytest.mark.asyncio
     async def test_disconnect_unsubscribes_and_forgets_control_fields(self):
         """disconnect() closes subscriptions and drops the cached CTRL readings."""
-        monitor = MagicMock()
-        connector = _connector()
-        connector._subscriptions = {"sub1": _ChannelSubscription("ca", monitor)}
+        connector = _channel_connector()
+        await connector.subscribe("SR:CH", lambda _value: None)
+        ctrl, time_ = connector._aioca.monitors_of("SR:CH")
+        ctrl.fire(ca_reading(0.0))  # the record holds a live connection
         connector._ca_ctrl = {"A": object()}
 
         await connector.disconnect()
 
-        monitor.close.assert_called_once()  # via unsubscribe()
+        assert ctrl.closed and time_.closed  # via unsubscribe(): CTRL and TIME closed
         assert connector._ca_ctrl == {}
         assert connector._subscriptions == {}
         assert connector._connected is False
@@ -273,22 +275,6 @@ class TestDisconnect:
         (release,) = ca_loop.call_soon.call_args.args
         release()
         monitor.close.assert_called_once_with()
-
-    def test_the_release_forgets_the_reopener_and_closes_the_current_handle(self):
-        """A repoint between close() and the release swapped the handle: the new one closes."""
-        first, reopened = MagicMock(), MagicMock()
-        ca_loop = MagicMock()
-        reopen = MagicMock()
-        subscription = _ChannelSubscription("ca", first, ca_loop=ca_loop, reopen=reopen)
-
-        subscription.close()
-        subscription.handle = reopened
-        (release,) = ca_loop.call_soon.call_args.args
-        release()
-
-        ca_loop.discard_reopener.assert_called_once_with(reopen)
-        reopened.close.assert_called_once_with()
-        first.close.assert_not_called()
 
 
 class TestReadChannel:
@@ -544,7 +530,23 @@ class TestWriteConfirmation:
 
         assert result.outcome is WriteOutcome.FAILED
         assert "no value was sent" in result.error_message
+        assert "did not connect" in result.error_message
         assert result.observed_value is None
+        assert connector._aioca.puts == []
+
+    @pytest.mark.asyncio
+    async def test_an_unreadable_field_type_is_failed_and_says_so(self, monkeypatch):
+        connector = _write_connector()
+
+        async def no_info(name, **_kwargs):
+            return aioca.CANothing(name, 80)  # ECA_TIMEOUT
+
+        monkeypatch.setattr(connector._aioca, "cainfo", no_info)
+        result = await connector.write_channel("SR:CH", 5.0)
+
+        assert result.outcome is WriteOutcome.FAILED
+        assert "no value was sent" in result.error_message
+        assert "field type unreadable" in result.error_message
         assert connector._aioca.puts == []
 
     @pytest.mark.asyncio
@@ -693,15 +695,21 @@ class TestWriteExactness:
     async def test_the_write_waits_for_the_connection_as_long_as_the_call(self, given, expected):
         """A channel not yet connected gets the write's own timeout to
         connect, as a read does: a busy IOC answers the search late, and the
-        write must not fail first."""
+        write must not fail first. The put phase hands connect its absolute
+        deadline, ``(time.time() + T,)``, so the connection may take as long
+        as the call."""
         connector = _typed_write_connector(DBR_DOUBLE)
         connector._timeout = 42.0
         want = connector._timeout if expected == "configured" else expected
 
+        before = time.time()
         await connector.write_channel("SR:CH", 5.0, confirm=False, timeout=given)
+        after = time.time()
 
         connects = [kw for fn, _, kw in connector._aioca.calls if fn == "connect"]
-        assert connects == [{"timeout": want}]
+        assert len(connects) == 1
+        (deadline,) = connects[0]["timeout"]
+        assert before + want <= deadline <= after + want
 
     @pytest.mark.asyncio
     async def test_text_a_char_array_holds_is_confirmed(self):
@@ -939,28 +947,45 @@ class TestCurrentValueReader:
 # ---------------------------------------------------------------------------
 
 
-async def _subscribed(connector, name="SR:CH"):
-    """Subscribe, and return (received list, the fake monitor's callback)."""
+async def _subscribed(connector, name="SR:CH", **kwargs):
+    """Subscribe, and return (received list, the record's CTRL monitor, its TIME monitor)."""
     received: list = []
-    await connector.subscribe(name, received.append)
-    monitor = connector._aioca.monitors[-1]
-    return received, monitor.callback
+    await connector.subscribe(name, received.append, **kwargs)
+    ctrl, time_ = connector._aioca.monitors_of(name)
+    return received, ctrl, time_
+
+
+async def _flush():
+    await asyncio.sleep(0.01)  # let call_soon_threadsafe flush
 
 
 class TestSubscribe:
     @pytest.mark.asyncio
-    async def test_a_monitor_update_converts_to_channel_value(self, monkeypatch):
-        """aioca's monitor update is adapted into a facility-tz ChannelValue."""
+    async def test_subscribe_registers_a_bulk_record_and_returns_id(self):
+        connector = _channel_connector()
+
+        sub_id = await connector.subscribe("SR:CH", lambda _value: None)
+
+        assert sub_id.startswith("SR:CH_")
+        assert connector._subscriptions[sub_id].kind == "ca"
+        assert connector._subscriptions[sub_id].handle.sub_id == sub_id
+        opened = [c[1] for c in connector._aioca.calls if c[0] == "camonitor"]
+        assert opened == ["SR:CH", "SR:CH"]  # the record's CTRL and TIME monitors
+        assert [c for c in connector._aioca.calls if c[0] != "camonitor"] == []
+
+    @pytest.mark.asyncio
+    async def test_a_time_event_converts_to_channel_value(self, monkeypatch):
+        """A TIME event is adapted into a facility-tz ChannelValue with its connection's CTRL."""
         monkeypatch.setattr(
             "osprey_connectors.control_system._epics_connector.get_facility_timezone",
             lambda: ZoneInfo("Asia/Tokyo"),
         )
-        connector = _channel_connector(ctrl=ca_reading(0.0, units="A"))
-        received, fire = await _subscribed(connector)
-        await asyncio.sleep(0)  # let the background CTRL fetch land
+        connector = _channel_connector()
+        received, ctrl, time_ = await _subscribed(connector)
 
-        fire(ca_reading(7.0, timestamp=1_750_000_000.0))
-        await asyncio.sleep(0.01)  # let call_soon_threadsafe flush
+        ctrl.fire(ca_reading(0.0, units="A"))
+        time_.fire(ca_reading(7.0, timestamp=1_750_000_000.0))
+        await _flush()
 
         assert len(received) == 1
         assert received[0].value == 7.0
@@ -968,84 +993,109 @@ class TestSubscribe:
         assert received[0].timestamp.utcoffset().total_seconds() == 9 * 3600
 
     @pytest.mark.asyncio
-    async def test_the_monitor_asks_for_timestamps_and_disconnect_notices(self):
+    async def test_the_record_asks_for_ctrl_then_time_with_disconnect_notices(self):
         connector = _channel_connector()
 
         await connector.subscribe("SR:CH", lambda _value: None)
 
-        call = next(c for c in connector._aioca.calls if c[0] == "camonitor")
-        assert call[2] == {"format": aioca.FORMAT_TIME, "notify_disconnect": True}
+        ctrl_call, time_call = [c[2] for c in connector._aioca.calls if c[0] == "camonitor"]
+        assert ctrl_call == {
+            "events": aioca.DBE_PROPERTY,
+            "format": aioca.FORMAT_CTRL,
+            "count": 1,
+            "all_updates": True,
+            "notify_disconnect": True,
+        }
+        assert time_call["events"] == aioca.DBE_VALUE | aioca.DBE_ALARM
+        assert time_call["format"] == aioca.FORMAT_TIME
+        assert time_call["all_updates"] is True
+        assert time_call["notify_disconnect"] is True
 
     @pytest.mark.asyncio
     async def test_a_disconnect_notice_never_reaches_the_subscriber(self):
         connector = _channel_connector()
-        received, fire = await _subscribed(connector)
+        received, ctrl, time_ = await _subscribed(connector)
+        ctrl.fire(ca_reading(0.0))
+        time_.fire(ca_reading(1.0))
 
-        fire(aioca.CANothing("SR:CH", ECA_DISCONN))
-        await asyncio.sleep(0.01)
+        connector._aioca.channels["SR:CH"].connected = False
+        time_.drop()
+        ctrl.drop()
+        await _flush()
 
-        assert received == []
+        assert [value.value for value in received] == [1.0]
 
     @pytest.mark.asyncio
-    async def test_unsubscribe_closes_the_monitor(self):
+    async def test_unsubscribe_closes_both_monitors(self):
         connector = _channel_connector()
         sub_id = await connector.subscribe("SR:CH", lambda _value: None)
 
         await connector.unsubscribe(sub_id)
 
-        assert connector._aioca.monitors[-1].closed is True
+        assert len(connector._aioca.monitors) == 2
+        assert all(monitor.closed for monitor in connector._aioca.monitors)
+        assert connector._ca.reopeners == []
         assert sub_id not in connector._subscriptions
 
-    def test_an_update_after_the_subscribers_loop_closed_closes_the_monitor(self):
-        """osprey.runtime's loop ends with its call; aioca must not be left to print."""
+    def test_an_update_after_the_subscribers_loop_closed_closes_the_monitors(self):
+        """osprey.runtime's loop ends with its call; the record must not post into it."""
         connector = _channel_connector()
         asyncio.run(connector.subscribe("SR:CH", lambda _value: None))
-        monitor = connector._aioca.monitors[-1]
+        ctrl, time_ = connector._aioca.monitors_of("SR:CH")
 
-        monitor.callback(ca_reading(7.0))  # raising here is what aioca prints
+        async def on_the_ca_loop():
+            ctrl.fire(ca_reading(0.0))
+            time_.fire(ca_reading(7.0))  # posting fails: the subscriber's loop is gone
+            time_.fire(ca_reading(8.0))  # a second queued event, before the release runs
+            await asyncio.sleep(0)  # the deferred release
 
-        assert monitor.closed is True
-        # Nor does a later repoint bring it back for a loop that is gone.
+        asyncio.run(on_the_ca_loop())
+
+        assert ctrl.closed is True and time_.closed is True
+        # Nor does a later repoint bring them back for a loop that is gone.
         connector._ca.repoint()
-        assert connector._aioca.monitors == [monitor]
+        assert connector._aioca.monitors == [ctrl, time_]
 
 
 class TestSubscriptionAcrossARepoint:
     """aioca closes every monitor on a repoint without telling its callback."""
 
     @pytest.mark.asyncio
-    async def test_a_repoint_reopens_the_monitor_and_updates_keep_arriving(self):
+    async def test_a_repoint_reopens_the_monitors_and_updates_keep_arriving(self):
         connector = _channel_connector()
-        received, _fire = await _subscribed(connector)
-        first = connector._aioca.monitors[-1]
+        states: list[bool] = []
+        received, ctrl, time_ = await _subscribed(connector, on_connection=states.append)
+        ctrl.fire(ca_reading(0.0))
+        time_.fire(ca_reading(1.0))
 
         connector._ca.repoint()
 
-        reopened = connector._aioca.monitors[-1]
-        assert reopened is not first
-        assert (reopened.name, reopened.callback) == ("SR:CH", first.callback)
-        call = [c for c in connector._aioca.calls if c[0] == "camonitor"][-1]
-        assert call[2] == {"format": aioca.FORMAT_TIME, "notify_disconnect": True}
-        reopened.callback(ca_reading(3.0))
-        await asyncio.sleep(0.01)
-        assert [value.value for value in received] == [3.0]
+        new_ctrl, new_time = connector._aioca.monitors_of("SR:CH")
+        assert new_ctrl is not ctrl and new_time is not time_
+        assert (new_ctrl.kwargs, new_time.kwargs) == (ctrl.kwargs, time_.kwargs)
+        new_ctrl.fire(ca_reading(0.0))
+        new_time.fire(ca_reading(3.0))
+        await _flush()
+        assert [value.value for value in received] == [1.0, 3.0]
+        assert states == [True, False, True]  # down on the repoint, up on the new CTRL
 
     @pytest.mark.asyncio
-    async def test_unsubscribe_after_a_repoint_closes_the_reopened_monitor(self):
+    async def test_unsubscribe_after_a_repoint_closes_the_reopened_monitors(self):
         connector = _channel_connector()
         sub_id = await connector.subscribe("SR:CH", lambda _value: None)
         connector._ca.repoint()
-        reopened = connector._aioca.monitors[-1]
+        reopened = connector._aioca.monitors_of("SR:CH")
 
         await connector.unsubscribe(sub_id)
 
-        assert reopened.closed is True
+        assert all(monitor.closed for monitor in reopened)
         assert connector._ca.reopeners == []
-        connector._ca.repoint()  # an unsubscribed monitor stays closed
-        assert connector._aioca.monitors[-1] is reopened
+        count = len(connector._aioca.monitors)
+        connector._ca.repoint()  # an unsubscribed record stays closed
+        assert len(connector._aioca.monitors) == count
 
     @pytest.mark.asyncio
-    async def test_each_subscription_is_reopened(self):
+    async def test_each_record_is_reopened(self):
         connector = _channel_connector()
         await connector.subscribe("SR:CH", lambda _value: None)
         await connector.subscribe("SR:OTHER", lambda _value: None)
@@ -1054,8 +1104,12 @@ class TestSubscriptionAcrossARepoint:
 
         assert [m.name for m in connector._aioca.monitors] == [
             "SR:CH",
+            "SR:CH",
+            "SR:OTHER",
             "SR:OTHER",
             "SR:CH",
+            "SR:CH",
+            "SR:OTHER",
             "SR:OTHER",
         ]
 
@@ -1104,8 +1158,9 @@ class TestSubscribeCancelled:
         for coro in connector._ca.queued:  # the open the loop ran late
             await coro
 
-        # Opened before the caller gave up, it is closed; queued, it never opens.
-        assert [m.closed for m in connector._aioca.monitors] == ([True] if opens_first else [])
+        # Opened before the caller gave up, both are closed; queued, they never open.
+        expected = [True, True] if opens_first else []
+        assert [m.closed for m in connector._aioca.monitors] == expected
         assert reopeners.reopeners == []
         assert connector._subscriptions == {}
 
@@ -1210,10 +1265,11 @@ class TestChannelAccessAlarmNames:
             lambda: ZoneInfo("UTC"),
         )
         connector = _channel_connector()
-        received, fire = await _subscribed(connector)
+        received, ctrl, time_ = await _subscribed(connector)
 
-        fire(ca_reading(7.0, status=4, severity=1))
-        await asyncio.sleep(0.01)  # let call_soon_threadsafe flush
+        ctrl.fire(ca_reading(0.0))
+        time_.fire(ca_reading(7.0, status=4, severity=1))
+        await _flush()
 
         assert received[0].metadata.alarm_status == "HIGH"
         assert received[0].metadata.alarm_severity == 1
@@ -1355,30 +1411,32 @@ class TestChannelAccessEnumLabels:
         assert result.metadata.enum_label is None
 
     @pytest.mark.asyncio
-    async def test_subscribe_callback_reports_the_label_once_ctrl_fields_arrive(self, monkeypatch):
+    async def test_subscribe_callback_reports_the_label_from_its_ctrl_event(self, monkeypatch):
+        """The record's CTRL event carries the enum labels; each value resolves its own."""
         monkeypatch.setattr(
             "osprey_connectors.control_system._epics_connector.get_facility_timezone",
             lambda: ZoneInfo("UTC"),
         )
         connector = _enum_connector()
-        received, fire = await _subscribed(connector, "SR:MODE")
-        await asyncio.sleep(0)  # the background CTRL fetch
+        received, ctrl, time_ = await _subscribed(connector, "SR:MODE")
 
-        fire(ca_reading(3, datatype=DBR_ENUM))
-        await asyncio.sleep(0.01)  # let call_soon_threadsafe flush
+        ctrl.fire(ca_reading(0, datatype=DBR_ENUM, enums=_MODES))
+        time_.fire(ca_reading(3, datatype=DBR_ENUM))
+        await _flush()
 
         assert received[0].value == 3
         assert received[0].metadata.enum_label == "FAULT"
         assert received[0].metadata.enum_labels == list(_MODES)
 
     @pytest.mark.asyncio
-    async def test_an_update_before_the_labels_arrive_is_delivered_anyway(self):
-        """An update that beats the CTRL fetch carries the index alone."""
+    async def test_subscribe_callback_without_labels_delivers_the_update_anyway(self):
+        """A CTRL event that carries no labels still lets the update land, index only."""
         connector = _enum_connector()
-        received, fire = await _subscribed(connector, "SR:MODE")
+        received, ctrl, time_ = await _subscribed(connector, "SR:MODE")
 
-        fire(ca_reading(1, datatype=DBR_ENUM))  # before the fetch has run
-        await asyncio.sleep(0.01)
+        ctrl.fire(ca_reading(0, datatype=DBR_ENUM))
+        time_.fire(ca_reading(1, datatype=DBR_ENUM))
+        await _flush()
 
         assert received[0].value == 1
         assert received[0].metadata.enum_label is None

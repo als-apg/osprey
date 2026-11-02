@@ -31,6 +31,13 @@ A waveform channel whose seed states ``pulse: {driver, enable}`` reads
 the driver's held value and switched by the enable channel's held label, so
 it moves on every read. Every other waveform channel reads its held array.
 
+A float channel whose seed states ``topoff: {ceiling, lifetime_h, period_s}``
+holds the level ``ceiling * m`` of :mod:`~osprey_connectors.simulation.topoff`
+and carries the tooth ``level * (s(t) / m - 1)`` as motion on that level, so
+it reads ``ceiling * s(t)`` at the held level and a stilled one serves the
+level. A channel whose seed states ``topoff_lifetime: {of}`` holds the named
+``topoff`` seed's ``lifetime_h``.
+
 A channel whose seed states ``gate: {inputs, gated}`` holds its gated value
 while any input holds its blocking label, and its value by the rules above
 otherwise. ``gated`` is typed by the channel: a float holds its value times
@@ -60,7 +67,7 @@ from lume.variables import (
     Variable,
 )
 
-from osprey_connectors.simulation import pulse, series, values
+from osprey_connectors.simulation import pulse, series, topoff, values
 from osprey_connectors.simulation.envelope import declares_motion
 
 __all__ = [
@@ -264,6 +271,9 @@ class TextureModel(LUMEModel):
     def _nominal(self, address: str, wiring_default: Any) -> Any:
         channel = self._channels[address]
         seed = self._seeds.get(address, {})
+        held = topoff.held_value(seed, self._seeds.get)
+        if held is not None:
+            return self._coerce(address, held)
         if seed.get("nominal") is not None:
             return self._coerce(address, seed["nominal"])
         if wiring_default is not None:
@@ -391,10 +401,11 @@ class TextureModel(LUMEModel):
     def motion(self, address: str, t_s: Any, base: Any = 0.0) -> np.ndarray:
         """The motion of a channel at absolute epoch seconds.
 
-        Drift, then the held couplings, then noise: the held scenario's noise
+        Drift, then the held couplings, then a ``topoff`` seed's tooth
+        ``base * (s(t) / m - 1)``, then noise: the held scenario's noise
         record, else the seed's. An absolute term is its sigma times a keyed
-        normal draw; a relative term scales ``base`` plus drift plus
-        couplings. Every term is a pure function of the address and the
+        normal draw; a relative term scales ``base`` plus drift, couplings
+        and tooth. Every term is a pure function of the address and the
         epoch time.
 
         Args:
@@ -422,6 +433,9 @@ class TextureModel(LUMEModel):
             )
         for coupling in self._couple.get(address, ()):
             total = total + self._coupling(address, coupling, flat)
+        record = topoff.topoff_record(seed)
+        if record is not None:
+            total = total + self._tooth(record, flat, base)
         term, value, subkey = self._noise_term(address)
         if value:
             normals = series.keyed_normals(key + subkey, np.rint(flat * _MS_PER_S).astype(np.int64))
@@ -437,17 +451,17 @@ class TextureModel(LUMEModel):
 
         True for a ``pulse`` waveform channel, whose trace changes with
         time. Otherwise true exactly for a float channel the held motion does
-        not still, with seed drift, a held coupling, or a non-zero noise term
-        under the held motion.
+        not still, with seed drift, a ``topoff`` seed, a held coupling, or a
+        non-zero noise term under the held motion.
         """
         if self._pulse(address) is not None:
             return True
         channel = self._channels.get(address)
         if channel is None or not is_float_channel(channel) or self._stilled(address):
             return False
-        if self._couple.get(address):
-            return True
         seed = self._seeds.get(address) or {}
+        if self._couple.get(address) or topoff.topoff_record(seed) is not None:
+            return True
         if address not in self._noise:
             return declares_motion(seed)
         return bool(seed.get("drift") or self._noise_term(address)[1])
@@ -468,6 +482,15 @@ class TextureModel(LUMEModel):
             subkeys = {_ABSOLUTE: _SCENARIO_ABSOLUTE_SUBKEY, _RELATIVE: _SCENARIO_RELATIVE_SUBKEY}
         term = _RELATIVE if _RELATIVE in record else _ABSOLUTE
         return term, float(record.get(term) or 0.0), subkeys[term]
+
+    @staticmethod
+    def _tooth(record: Mapping[str, Any], times: np.ndarray, base: Any) -> np.ndarray:
+        """The top-off tooth ``base * (s(t) / m - 1)`` on the level ``base``."""
+        tau, period = topoff.tau_period(record)
+        unit = np.exp(-np.mod(times, period) / tau)
+        level = np.asarray(base, dtype=np.float64).reshape(-1)
+        tooth: np.ndarray = level * (unit / topoff.period_mean(record) - 1.0)
+        return tooth
 
     @staticmethod
     def _coupling(address: str, coupling: Mapping[str, Any], times: np.ndarray) -> np.ndarray:
