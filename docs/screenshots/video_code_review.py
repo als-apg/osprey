@@ -285,7 +285,7 @@ CODE_REVIEW = (
     Beat("reveal", LOOK_UP, _choose_row),
     Beat("settings-open", LOOK_UP, lambda take: _drawer(take, "settings-open", "shown")),
     wait_for("rules-shown", LOOK_UP, RULE, budget_ms=DRAWER_BUDGET_MS, text=BEAM_MODE),
-    spotlight("rule", THE_RULE, RULE, text=BEAM_MODE, ms=8_000),
+    spotlight("rule", THE_RULE, RULE, text=BEAM_MODE, ms=6_000),
     click("close", ASK, CLOSE_DRAWER),
     Beat("settings-closed", ASK, lambda take: _drawer(take, "settings-closed", "gone")),
     Beat("arm", ASK, _arm),
