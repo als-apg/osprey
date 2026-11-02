@@ -287,6 +287,12 @@ def _device_order(records: FacilityRecords, members: Iterable[str]) -> list[str]
     return sorted(dict.fromkeys(str(member) for member in members), key=key)
 
 
+def _wiring(records: FacilityRecords, model: str) -> dict[str, Mapping[str, Any]]:
+    """The wiring records a model states, by address."""
+    wiring = records.require("model", model).get("wiring", ())
+    return {str(entry["address"]): entry for entry in wiring}
+
+
 #: The plane each corrector role steers; a role not named here takes every plane.
 ROLE_PLANES: dict[str, str] = {"hcor": "x", "vcor": "y"}
 
@@ -317,13 +323,10 @@ def measurement_groups(records: FacilityRecords, model: str) -> dict[str, list[s
         KeyError: The facility file has no model ``model``.
     """
     from osprey.facility.sources import group_families
-    from osprey.facility.views.simulator import simulator_wiring
 
     record = records.require("model", model)
     groups_named = (record.get("measurement") or {}).get("groups") or {}
-    wiring = {
-        str(entry["address"]): entry for entry in simulator_wiring(dict(records.document), model)
-    }
+    wiring = _wiring(records, model)
     found: dict[str, list[str]] = {}
     for role in GROUP_ROLES:
         if groups_named.get(role) is None:
@@ -531,11 +534,7 @@ def _bound(limit: Mapping[str, Any], key: str, default: float) -> float:
 def _magnets(
     records: FacilityRecords, model: str, groups: Mapping[str, list[str]]
 ) -> list[_Magnet]:
-    from osprey.facility.views.simulator import simulator_wiring
-
-    wiring = {
-        str(entry["address"]): entry for entry in simulator_wiring(dict(records.document), model)
-    }
+    wiring = _wiring(records, model)
     magnets: list[_Magnet] = []
     for role in MAGNET_TYPES:
         for address in groups.get(role, ()):
@@ -549,11 +548,7 @@ def _magnets(
 
 def _bpms(records: FacilityRecords, model: str, addresses: Sequence[str]) -> list[_Bpm]:
     """The BPM devices the ``bpm`` readbacks are on, in the readbacks' order."""
-    from osprey.facility.views.simulator import simulator_wiring
-
-    wiring = {
-        str(entry["address"]): entry for entry in simulator_wiring(dict(records.document), model)
-    }
+    wiring = _wiring(records, model)
     bpms: dict[str, dict[str, Any]] = {}
     for address in addresses:
         entry = wiring[address]
@@ -579,11 +574,8 @@ def tune_references(records: FacilityRecords, model: str, address: str) -> tuple
     other plane whose engine block differs from its own in one key alone, the
     one that names the plane.
     """
-    from osprey.facility.views.simulator import simulator_wiring
-
-    entries = simulator_wiring(dict(records.document), model)
-    wired = {str(entry["address"]): entry for entry in entries}
-    entry = wired.get(address)
+    entries = records.require("model", model).get("wiring", ())
+    entry = next((entry for entry in entries if str(entry["address"]) == address), None)
     if entry is None:
         return None
     plane = entry.get("plane")
