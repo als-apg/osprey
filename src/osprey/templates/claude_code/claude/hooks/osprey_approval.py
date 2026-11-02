@@ -3556,24 +3556,18 @@ def _app_binding(entry, tool_input, state, target) -> dict:
 def _app_requirement_unmet(entry, binding) -> str | None:
     """What of the declaration's ``require`` the binding leaves unmet, or ``None``.
 
-    Every ``all_of`` field bound, and exactly one field of each ``one_of`` group.
+    Every ``all_of`` field bound; a ``require`` keyed by anything but ``all_of``
+    is malformed.
     """
     require = entry.get("require") or {}
     if not isinstance(require, dict):
         return "the declaration's require is not a mapping"
     all_of = require.get("all_of") or []
-    groups = require.get("one_of") or []
-    if not isinstance(all_of, list) or not isinstance(groups, list):
+    if not isinstance(all_of, list) or set(require) - {"all_of"}:
         return "the declaration's require is malformed"
     missing = [name for name in all_of if name not in binding]
     if missing:
         return f"{', '.join(map(str, missing))} could not be bound"
-    for group in groups:
-        if not isinstance(group, list) or not group:
-            return "the declaration's require is malformed"
-        bound = [name for name in group if name in binding]
-        if len(bound) != 1:
-            return f"exactly one of {', '.join(map(str, group))} must be bound, not {len(bound)}"
     return None
 
 

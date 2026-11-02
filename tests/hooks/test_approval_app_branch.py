@@ -55,7 +55,7 @@ STEP_ENTRY: dict[str, Any] = {
         "state_fields": [],
         "input_digests": [{"field": "approved_step_digest", "over": ["step"]}],
     },
-    "require": {"all_of": ["approved_target", "approved_step_digest"], "one_of": []},
+    "require": {"all_of": ["approved_target", "approved_step_digest"]},
 }
 
 #: The value shape is a second tool, with its own digest and prompt.
@@ -67,7 +67,7 @@ VALUE_ENTRY: dict[str, Any] = {
         "state_fields": [],
         "input_digests": [{"field": "approved_value_digest", "over": ["value"]}],
     },
-    "require": {"all_of": ["approved_target", "approved_value_digest"], "one_of": []},
+    "require": {"all_of": ["approved_target", "approved_value_digest"]},
 }
 
 
@@ -266,7 +266,7 @@ def test_a_refusal_holds_at_allowed(hook_runner, allowed, panel):
 
     reason = _deny_reason(_run(hook_runner, allowed, {"value": 3}))
 
-    assert "approved_readback must be bound" in reason
+    assert "approved_readback could not be bound" in reason
     assert allowed.stamps() == []
 
 
@@ -308,6 +308,19 @@ def test_the_ask_binds_every_all_of_field(hook_runner, deployment):
     }
 
 
+@pytest.mark.parametrize(
+    "one_of", [pytest.param([], id="empty"), pytest.param([["approved_step_digest"]], id="a-group")]
+)
+def test_a_rendered_require_carrying_one_of_refuses(hook_runner, deployment, one_of):
+    entry = copy.deepcopy(STEP_ENTRY)
+    entry["require"]["one_of"] = one_of
+
+    result = _run(hook_runner, deployment, {"step": 1}, hook_config=_hook_config(entry))
+
+    assert "the declaration's require is malformed" in _deny_reason(result)
+    assert deployment.stamps() == []
+
+
 def test_a_second_input_shape_is_a_second_tool(hook_runner, deployment):
     hook_config = _hook_config(VALUE_ENTRY, tool=VALUE_TOOL)
 
@@ -331,7 +344,7 @@ def test_a_digest_over_a_key_the_call_lacks_is_refused_before_any_prompt(hook_ru
 def test_an_absent_state_key_is_unbound_and_the_unmet_require_refuses(
     hook_runner, deployment, panel
 ):
-    """No ``readback`` in the state: ``approved_readback`` is unbound, its one_of group empty."""
+    """No ``readback`` in the state: ``approved_readback``, which all_of names, is unbound."""
     panel.state = {"lines": []}
 
     result = _run(hook_runner, deployment, {"value": 3})
