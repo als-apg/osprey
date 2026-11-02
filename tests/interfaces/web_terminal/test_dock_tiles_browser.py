@@ -27,9 +27,11 @@ What is read back. The holder's layout as a shape (``row[a,[*b|c],terminal]``:
 a tile with one tab is its key, a tile with several lists them with ``*``
 before the showing one), and each tile's on-screen rectangle. The drop
 highlight is read during the drag (its kind class and rectangle) and compared
-with the resulting tile's rectangle after the drop (within 2 px). What a
-stored dock comes back as on reload is the open rule's business and pinned
-with it, not here.
+with the resulting tile's rectangle after the drop (within 2 px).
+
+The open rule is pinned at the end: a sidebar row click and the agent's open
+land as a tab in front of the service tile used last, and a reload brings the
+stored arrangement back whole.
 
 Run:
 
@@ -49,6 +51,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 import pytest
+import requests
 
 from tests.interfaces._browser import open_hub_page, rail_entry, wait_for_dock_settled
 from tests.interfaces.web_terminal.test_panels_browser import _live_server
@@ -423,6 +426,20 @@ def _settle(page: Page) -> dict:
     raise AssertionError(
         f"the dock never settled on the holder's layout: {json.dumps(state)[:2000]}"
     )
+
+
+def _settle_until(page: Page, ready) -> dict:
+    """Settle repeatedly until ``ready(state)`` holds, within the settle budget.
+
+    Returns the last settled state either way, so the caller's assertions name
+    what was actually on screen when the budget ran out.
+    """
+    deadline = time.monotonic() + _SETTLE_S
+    state = _settle(page)
+    while not ready(state) and time.monotonic() < deadline:
+        page.wait_for_timeout(100)
+        state = _settle(page)
+    return state
 
 
 def _restore(page: Page, layout: dict) -> dict:
@@ -1138,4 +1155,95 @@ def test_closing_a_split_tile_gives_its_space_back_to_the_tile_it_split_from(
         assert after["shape"] == S("row[a,b,c]")
         # C, the tile D split from, takes the space back, not B (the previous one).
         _assert_same_rects(start, after, [a, b, c])
+        assert hub.errors == []
+
+
+# ---------------------------------------------------------------------------
+# The open rule
+# ---------------------------------------------------------------------------
+
+
+def test_an_open_lands_as_a_tab_in_front_of_the_service_tile_used_last(tmp_path, chromium_browser):
+    """A row click and the agent's open add a tab in front; nothing resizes."""
+    with _hub(tmp_path) as hub:
+        page = _open(chromium_browser, hub)
+        _open_services(page, "a", "b", "c")
+        a, b, c, d = (S(x) for x in "abcd")
+        start = _restore(page, MATRIX_START)
+
+        # C's tile is the one used last: D's row lands D in front of C there.
+        page.locator('#dock-root .tile-tab[data-tile="t2"]:visible .tile-tab-title').click()
+        _settle(page)
+        rail_entry(page, d, enabled_only=True).click()
+        after = _settle(page)
+        assert after["shape"] == S("row[[*a|b],[c|*d],terminal]")
+        _assert_same_rects(start, after, [a, c, TERMINAL])
+        expect(_iframe(page, d)).to_be_visible(timeout=5_000)
+        expect(_iframe(page, c)).to_be_hidden(timeout=5_000)
+        _type_in_service(page, d, "tab-d")
+
+        # A covered panel's row brings it forward where it is.
+        rail_entry(page, b, enabled_only=True).click()
+        after = _settle(page)
+        assert after["shape"] == S("row[[a|*b],[c|*d],terminal]")
+        _assert_same_rects(start, after, [a, c, TERMINAL])
+
+        # The agent's open lands the same way as the row click.
+        start = _restore(page, MATRIX_START)
+        r = requests.post(
+            f"{hub.base_url}/api/panel-focus", json={"panel": d, "source": "agent"}, timeout=10
+        )
+        assert r.status_code == 200, r.text
+        expect(_item(page, d)).to_have_count(1, timeout=10_000)
+        after = _settle(page)
+        assert after["shape"] == S("row[[*a|b],[c|*d],terminal]")
+        _assert_same_rects(start, after, [a, c, TERMINAL])
+        _type_in_service(page, d, "agent-d")
+        assert hub.errors == []
+
+
+def test_a_reload_brings_the_stored_layout_back_whole(tmp_path, chromium_browser):
+    """Tiles, tabs, the tab in front and the sizes come back as they were saved."""
+    with _hub(tmp_path) as hub:
+        page = _open(chromium_browser, hub)
+        _open_services(page, "a", "b", "c")
+        a, b, c = (S(x) for x in "abc")
+        before = _restore(page, MATRIX_START)
+        # The debounced persist has written the three-tile arrangement.
+        page.wait_for_function(
+            """() => Object.keys(localStorage).some((k) => {
+                 if (!k.includes('osprey-dock-layout-')) return false;
+                 try {
+                   return JSON.parse(localStorage.getItem(k)).layout?.items?.length === 3;
+                 } catch { return false; }
+               })""",
+            timeout=5_000,
+        )
+
+        page.reload()
+        wait_for_dock_settled(page)
+        for key in (a, c):
+            expect(_iframe(page, key)).to_be_visible(timeout=10_000)
+        # The stored sizes are applied after the boot layout; under load the dock
+        # can be still at an intermediate size for a moment, so wait on the
+        # rects themselves rather than on one settled read.
+        after = _settle_until(
+            page,
+            lambda state: (
+                state["shape"] == before["shape"]
+                and all(
+                    _close(_rect(before, key), _rect(state, key), 2 * PX)
+                    for key in (a, c, TERMINAL)
+                )
+            ),
+        )
+        assert after["shape"] == S("row[[*a|b],c,terminal]") == before["shape"]
+        for key in (a, c, TERMINAL):
+            assert _close(_rect(before, key), _rect(after, key), 2 * PX), (
+                key,
+                _rect(before, key),
+                _rect(after, key),
+            )
+        assert b in after["tiles"][_tile_of(after, a)]["tabs"]
+        _type_in_service(page, a, "after-reload")
         assert hub.errors == []

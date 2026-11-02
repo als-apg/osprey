@@ -27,13 +27,14 @@ happens. Everything below is built around that.
 ## The workspace, in the words you'll narrate
 
 The left **rail** is a membership list: an entry exists only while its panel is a
-member; an off-rail panel waits in the "+" catalog. The workspace shows **one
-panel per tile**, each with its own header bar.
+member; an off-rail panel waits in the "+" catalog. The workspace is **tiles that
+hold tabs**, each tile with one header bar.
 
 Two axes, and the verb names which one it moves. `open_panel` puts a panel on
-screen — the tile appears, the active marker moves on the rail, and the panel it
-replaced stays one rail-click away with its state intact; `close_panel` takes the
-tile away again and leaves the entry. `add_panel_to_rail` and
+screen — as a new tab in front of the service tile the operator used last, so
+nothing resizes; the active marker moves on the rail, and the tab it covers stays
+one click away with its state intact; `close_panel` takes the
+tab away again and leaves the entry. `add_panel_to_rail` and
 `remove_panel_from_rail` move membership instead: adding brings the entry back
 with a glow but puts nothing on screen, and removing takes the entry away (and
 with it any open tile — an unlaunchable panel is not left stranded). The chat is

@@ -7,17 +7,18 @@ turns human dock gestures into the same server POSTs the agent's MCP calls make.
 These tests drive that stack through a real browser and a live SSE stream — the
 parts the FastAPI TestClient cannot reach.
 
-An activation REPLACES the focused service tile's panel (the evicted panel
-closes server-side and dims on the rail); the "+" add menu and the rail entry's
-"Open in a new tile" are the verbs that open a NEW tile beside the current one.
-A tile holds tabs: the dock engine (``dock-drop.js``) decides every drop, a
-tab dropped on another tile's header or centre joins it, an edge splits it.
+An open — a rail click, the "+" add menu, an agent focus — lands as a new tab
+in front of the service tile used last, so nothing resizes and nothing is
+evicted; the rail entry's "Open in a new tile" is the one verb that opens a
+NEW tile beside the current one. A tile holds tabs: the dock engine
+(``dock-drop.js``) decides every drop, a tab dropped on another tile's header
+or centre joins it, an edge splits it.
 
 What is proven here, grouped:
 
   * SSE / rail flows materialize as dockview panels: focusing a service panel
-    docks a placeholder whose overlay iframe tracks the group geometry — taking
-    the focused tile over from its previous panel; hiding a panel removes its
+    docks a placeholder whose overlay iframe tracks the group geometry — as a
+    tab in front of the focused service tile; hiding a panel removes its
     placeholder; register appends a rail entry WITHOUT auto-docking.
   * The echo guard (``dock-sync.js``): a human dock-tab focus POSTs setPanelFocus
     exactly once, a human tab-close POSTs visibility(false), and a server-driven
@@ -30,7 +31,7 @@ What is proven here, grouped:
     reload, two project cwds keep distinct layouts on one origin, reset restores
     the default, and a corrupt stored value falls back cleanly.
   * The "+" add menu: unclipped geometry beside the rail, URL-row gating, reveal a
-    hidden panel INTO A NEW TILE beside the active one, register from URL, and
+    hidden panel as a tab of the active service tile, register from URL, and
     inline register errors.
   * Tile header-bar contributions (the embed contract): a panel's own nav, search
     and overflow items render in ITS bar only, actions round-trip into the iframe,
@@ -437,11 +438,10 @@ def _open_rail_menu(page: Page, panel_id: str):
 def _open_second_tile(page: Page, base_url: str, panel_id: str, label: str) -> None:
     """Open ``panel_id`` as a SECOND tile beside the current one from its menu.
 
-    A rail click would REPLACE the focused tile's panel (one panel per tile), so
-    tests that need two service tiles side by side use the entry's context-menu
-    row "Open in a new tile" — the open-beside verb, whose hover ⊞ corner is
-    gone. ``base_url`` is unused (kept so call sites read uniformly with the old
-    add-menu dance).
+    A rail click adds a tab to the focused service tile, so tests that need two
+    service tiles side by side use the entry's context-menu row "Open in a new
+    tile" — the one open that splits. ``base_url`` is unused (kept so call
+    sites read uniformly with the old add-menu dance).
     """
     del base_url  # the menu path is purely client-side
     _open_rail_menu(page, panel_id)
@@ -485,15 +485,14 @@ def _dock_locked(page: Page) -> bool:
 # ===========================================================================
 
 
-def test_focus_docks_service_panel_with_overlay_geometry(tmp_path, chromium_browser):
-    """A rail click REPLACES the focused tile's panel; the overlay tracks the tile.
+def test_focus_opens_service_panel_as_a_tab_with_overlay_geometry(tmp_path, chromium_browser):
+    """A rail click opens the panel as a tab in front of the focused service tile.
 
-    A rail click on data-viz takes over the tile artifacts occupied (one panel
-    per tile — the rail is the tab system): data-viz's overlay iframe becomes
-    visible and its rectangle aligns to the dock group's content area (the
-    adapter's follow contract), while the evicted artifacts panel loses its dock
-    tab entirely and its overlay is concealed — a purely LOCAL vacate: its rail
-    entry stays in place at full brightness, one click from taking the tile back.
+    A rail click on data-viz lands it in the tile artifacts occupies, in front:
+    data-viz's overlay iframe becomes visible and its rectangle aligns to the
+    dock group's content area (the adapter's follow contract), while artifacts
+    stays as the tile's other tab — its overlay hidden behind, its tab and its
+    rail entry in place, one click from coming forward again. Nothing resizes.
     """
     workspace = tmp_path / "_agent_data"
     workspace.mkdir()
@@ -508,8 +507,9 @@ def test_focus_docks_service_panel_with_overlay_geometry(tmp_path, chromium_brow
         # Artifacts is auto-activated at boot: its dock tab + overlay iframe exist.
         expect(_service_tab(page, "Artifacts")).to_have_count(1, timeout=10_000)
         expect(_overlay_iframe(page, "artifacts")).to_be_visible(timeout=5_000)
+        before = _dock_groups(page)
 
-        # Act — focus data-viz from the rail; it docks and becomes the active tab.
+        # Act — focus data-viz from the rail; it joins the tile and comes forward.
         _focus_service_panel(page, "data-viz", "DATA VIZ")
         expect(_overlay_iframe(page, "data-viz")).to_be_visible(timeout=5_000)
 
@@ -523,17 +523,19 @@ def test_focus_docks_service_panel_with_overlay_geometry(tmp_path, chromium_brow
         assert abs(geo["iframeW"] - geo["contentW"]) <= 2, geo
         assert abs(geo["iframeH"] - geo["contentH"]) <= 2, geo
 
-        # The evicted artifacts panel: overlay concealed, dock tab gone — but
-        # its rail entry survives untouched (eviction is local occupancy, not a
-        # membership change) — the tile holds exactly one panel again.
+        # The covered artifacts panel: overlay hidden, tab and rail entry kept.
         expect(_overlay_iframe(page, "artifacts")).to_be_hidden(timeout=5_000)
-        expect(_service_tab(page, "Artifacts")).to_have_count(0, timeout=5_000)
+        expect(_service_tab(page, "Artifacts")).to_have_count(1)
         expect(page.locator('button.panel-rail-button[data-panel-id="artifacts"]')).to_be_attached(
             timeout=5_000
         )
         groups = _dock_groups(page)
         service_groups = [g for g in groups if "Agent" not in g["tabs"]]
-        assert all(len(g["tabs"]) == 1 for g in service_groups), groups
+        assert [g["tabs"] for g in service_groups] == [["Artifacts", "Data Viz"]], groups
+        # The same tiles at the same rectangles: an open never resizes.
+        assert [(g["x"], g["y"], g["w"], g["h"]) for g in groups] == [
+            (g["x"], g["y"], g["w"], g["h"]) for g in before
+        ], (before, groups)
 
         page.close()
 
@@ -760,8 +762,8 @@ def test_reopen_after_empty_state_redocks_panel(tmp_path, chromium_browser):
 def test_dock_tab_focus_posts_setfocus_once(tmp_path, chromium_browser):
     """A human dock-tab focus POSTs setPanelFocus exactly once — no echo loop.
 
-    With the two service panels in side-by-side tiles (via the "+" menu — a rail
-    click would replace, not add), clicking the inactive artifacts dock tab
+    With the two service panels in side-by-side tiles (via "Open in a new tile"
+    — a rail click would add a tab, not a tile), clicking the inactive artifacts dock tab
     fires one panel-focus POST. The server's SSE echo is applied under the echo
     guard, so it does not POST focus back again.
     """
@@ -1119,7 +1121,7 @@ def test_server_sse_focus_is_applied_without_posting_back(tmp_path, chromium_bro
         custom_panels=[_CUSTOM_DATA_VIZ],
     ) as (base_url, _app):
         page = _open_page(chromium_browser, base_url)
-        # Pre-dock data-viz as a SECOND tile (a rail click would replace), then
+        # Pre-dock data-viz as a SECOND tile (a rail click would add a tab), then
         # make artifacts active again, so the later server focus only has to
         # re-activate an existing placeholder.
         expect(_service_tab(page, "Artifacts")).to_have_count(1, timeout=10_000)
@@ -1620,8 +1622,8 @@ def test_add_menu_reveals_hidden_panel(tmp_path, chromium_browser):
     """Clicking a hidden panel in the "+" menu un-hides its rail entry and docks it.
 
     data-viz starts visible, is hidden via the API, then revealed from the menu —
-    which docks it as a NEW tile beside the active group (the add menu is the
-    grow-the-layout verb; a rail click would replace) and POSTs the reveal.
+    which opens it as a tab in front of the active service tile, like every
+    other open, and POSTs the reveal.
     """
     workspace = tmp_path / "_agent_data"
     workspace.mkdir()
@@ -2015,13 +2017,13 @@ def test_terminal_rail_entry_close_and_reopen(tmp_path, chromium_browser):
         page.close()
 
 
-def test_evicted_panel_entry_click_redocks_it(tmp_path, chromium_browser):
-    """An evicted panel's rail entry survives and one click takes the tile back.
+def test_rail_click_on_covered_panel_brings_it_forward(tmp_path, chromium_browser):
+    """A covered tab's rail entry stays lit, and one click brings the tab forward.
 
-    A rail click on data-viz evicts artifacts from the tile (local vacate —
-    membership untouched); the artifacts entry stays in the rail, and clicking
-    it re-docks artifacts by taking the tile over from data-viz in turn. No
-    visibility POST fires in either direction: occupancy is per-client state.
+    A rail click on data-viz puts it in front of artifacts in the same tile;
+    clicking the artifacts entry brings artifacts forward again, in place. Both
+    tabs stay; no visibility POST fires in either direction: which tab is in
+    front is per-client state.
     """
     workspace = tmp_path / "_agent_data"
     workspace.mkdir()
@@ -2038,21 +2040,27 @@ def test_evicted_panel_entry_click_redocks_it(tmp_path, chromium_browser):
 
         posts = _track_panel_posts(page)
 
-        # Evict artifacts by activating data-viz (one panel per tile).
+        # Cover artifacts by activating data-viz (a tab in front of it).
         _focus_service_panel(page, "data-viz", "DATA VIZ")
-        expect(_service_tab(page, "Artifacts")).to_have_count(0, timeout=5_000)
+        expect(_overlay_iframe(page, "artifacts")).to_be_hidden(timeout=5_000)
+        expect(_service_tab(page, "Artifacts")).to_have_count(1)
         expect(artifacts_rail).to_be_attached()
 
-        # Take the tile back through the surviving entry.
+        # Bring artifacts forward through its entry.
         artifacts_rail.click()
-        expect(_service_tab(page, "Artifacts")).to_have_count(1, timeout=5_000)
         expect(_overlay_iframe(page, "artifacts")).to_be_visible(timeout=5_000)
-        expect(_service_tab(page, "DATA VIZ")).to_have_count(0, timeout=5_000)
+        expect(_overlay_iframe(page, "data-viz")).to_be_hidden(timeout=5_000)
+        expect(_service_tab(page, "DATA VIZ")).to_have_count(1)
+        groups = _dock_groups(page)
+        assert [g["tabs"] for g in groups if "Agent" not in g["tabs"]] == [
+            ["Artifacts", "Data Viz"]
+        ], groups
 
-        # Focus POSTs only (the docking flow may report focus more than once —
-        # pre-existing, benign) — evictions never touch server visibility.
-        page.wait_for_timeout(600)
-        assert "panel-visibility" not in posts, f"eviction must stay local, got {posts}"
+        # Focus POSTs only — which tab is in front never touches server visibility.
+        expect(
+            page.locator('button.panel-rail-button[data-panel-id="artifacts"].active')
+        ).to_have_count(1, timeout=5_000)
+        assert "panel-visibility" not in posts, f"a tab switch must stay local, got {posts}"
         assert set(_command_posts(posts)) == {"panel-focus"}, f"expected only focus POSTs: {posts}"
 
         page.close()

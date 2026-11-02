@@ -75,7 +75,7 @@ import {
   TERMINAL_KEY,
   getLayoutHolder,
 } from './dock-apply.js';
-import { closeKeys, openBeside, showIn } from './dock-open.js';
+import { closeKeys, openTab } from './dock-open.js';
 import { keysOf } from '/static/vendor/dock-engine.mjs';
 import { flashElement } from '/design-system/js/highlight.js';
 import { isPoppedOut } from './popout.js';
@@ -236,46 +236,21 @@ function dockedServiceKeys() {
 }
 
 /**
- * Put a managed panel's placeholder in the dock through the layout holder,
- * enforcing the one-panel-per-tile model. Placement by intent (the rules are
- * dock-open.js's):
- *
- *   'replace' (an activation — rail click, agent focus): the new placeholder
- *   takes over the target service tile and the tile's previous occupant is
- *   evicted: its placeholder leaves the layout and its iframe is concealed, a
- *   purely local vacate that leaves its rail membership alone. The rail is
- *   the tab system; an activation switches the tile rather than stacking a
- *   tab into it.
- *
- *   'beside' (a redock after a layout rebuild): the placeholder docks as a
- *   NEW tile beside the target service tile — re-materializing several
- *   visible panels must not have them evict one another.
- *
- * With no service tile at all, either intent opens the first one LEFT of the
- * terminal at the classic 60/40 split (or against the grid's left edge when
- * the terminal tile is closed too). A panel already in the dock stays where
- * it is. No-op without a holder (fallback mode).
+ * Put a managed panel's placeholder in the dock through the layout holder, by
+ * the open rule (dock-open.js's openTab): a panel already in the dock stays
+ * where it is; otherwise its tab lands in front in the service tile the
+ * operator used last, so nothing resizes and no panel is evicted. With no
+ * service tile at all it opens the first one LEFT of the agent pane at the
+ * classic 60/40 split (or against the grid's left edge when the agent pane's
+ * tile is closed too). No-op without a holder (fallback mode).
  * @param {string} panelId
  * @param {ManagedPanel} entry
- * @param {'replace'|'beside'} [intent]
  */
-function place(panelId, entry, intent = 'replace') {
+function place(panelId, entry) {
   const holder = getLayoutHolder();
   if (!holder) return;
   holder.setPanelRecord(panelId, { title: entry.title });
-  const before = dockedServiceKeys();
-  if (before.has(panelId)) {
-    if (intent === 'replace') holder.run((layout, ctx) => showIn(layout, panelId, ctx));
-    return;
-  }
-  holder.run((layout, ctx) =>
-    intent === 'replace' ? showIn(layout, panelId, ctx) : openBeside(layout, panelId, ctx)
-  );
-  const after = dockedServiceKeys();
-  for (const key of before) {
-    const evicted = after.has(key) ? null : managed.get(key);
-    if (evicted) concealEntry(evicted);
-  }
+  holder.run((layout, ctx) => openTab(layout, panelId, ctx));
 }
 
 /**
@@ -293,15 +268,15 @@ function concealEntry(entry) {
  * Re-create the placeholder for every visible managed panel, drop orphaned
  * placeholders, and re-sync geometry. Registered with dock-workspace's
  * setServiceRedock, which fires after every whole-layout apply (default
- * rebuild, stored-layout restore). Re-docking uses 'beside'
- * placement — materializing several visible panels into tiles must not have
- * them evict one another.
+ * rebuild, stored-layout restore). A visible panel the applied layout lacks
+ * comes back by the open rule — as a tab, so re-materializing several
+ * panels never evicts one of them.
  */
 function redockVisiblePanels() {
   const api = getDockApi();
   if (!api || !overlayEl) return;
   for (const [panelId, entry] of managed) {
-    if (entry.visible) place(panelId, entry, 'beside');
+    if (entry.visible) place(panelId, entry);
   }
   pruneOrphanPlaceholders();
   syncGeometry();

@@ -104,12 +104,13 @@ export function subscribePanelEvents(sseDeps) {
   //
   //   panel_focus      {type, panel, url?}      — explicit open_panel MCP call
   //                                               or the echo of a human focus
-  //                                               gesture; always honor. An
-  //                                               agent-tagged frame surfaces
-  //                                               the panel without evicting
-  //                                               anything (applyAgentSwitch);
-  //                                               a human echo takes the tile
-  //                                               over as it always has.
+  //                                               gesture; always honor. Either
+  //                                               lands by the open rule: a tab
+  //                                               in front of the service tile
+  //                                               used last, nothing evicted; an
+  //                                               agent-tagged frame also adds
+  //                                               the rail entry and flashes
+  //                                               (applyAgentSwitch).
   //   panel_close      {type, panel}            — close_panel MCP call: close the
   //                                               panel's tile and leave rail
   //                                               membership alone, so the panel
@@ -181,9 +182,9 @@ export function subscribePanelEvents(sseDeps) {
             focusPopout(data.panel);
             if (data.source === 'agent') flashAgentTile(data.panel);
           } else if (data.source === 'agent') {
-            // An AGENT switch is polite: focus the panel's own tile, or open
-            // one beside the operator's — never take a tile away
-            // (applyAgentSwitch). Human focus is never broadcast (the server
+            // An AGENT switch lands by the open rule — a tab in front of the
+            // service tile used last, never taking a tile away — and adds the
+            // rail entry (applyAgentSwitch). Human focus is never broadcast (the server
             // mirrors it silently and the gesturing client applies it
             // locally), so an unattributed frame can only come from an
             // out-of-contract caller; it keeps the plain activation. The

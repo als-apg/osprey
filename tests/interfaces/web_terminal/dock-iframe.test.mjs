@@ -5,21 +5,19 @@
  *
  *   npx vitest run tests/interfaces/web_terminal/dock-iframe.test.mjs
  *
- * One panel per tile is a workspace invariant — the rail is the tab system.
  * Every open, redock, prune and hide is one operation on the page's layout
  * holder (dock-apply.js), which applies it to dockview. These tests run
  * against the pinned real dockview-core in jsdom and a real holder, and pin:
  *
  *   - the first service placeholder docks LEFT of the terminal at the 60/40
  *     split;
- *   - an ACTIVATION ('replace' intent) takes over the target service tile:
- *     the previous occupant leaves the layout and its iframe is concealed, a
- *     local vacate that leaves its rail membership alone;
- *   - the terminal is never evicted;
- *   - focusing a panel that already has a tile jumps to it — no new tile, no
- *     eviction;
- *   - a REDOCK after a layout rebuild ('beside' intent) re-materializes each
- *     visible panel as its own tile — they must not evict one another;
+ *   - an OPEN lands as a new tab in front of the service tile the operator
+ *     used last: the tab it covers stays, its iframe hidden behind, nothing
+ *     resizes and nothing is evicted;
+ *   - the terminal's tile never takes a service tab;
+ *   - focusing a panel that already has a tab brings it forward in place;
+ *   - a REDOCK after a layout rebuild brings every visible panel the layout
+ *     lacks back by the same rule — as tabs, so none evicts another;
  *   - hidePanel drops a placeholder even with no managed entry (a tile
  *     restored from storage for a panel closed elsewhere);
  *   - pruning removes placeholders of server-closed panels once the visible
@@ -173,37 +171,44 @@ describe('first placement — the classic 60/40 split', () => {
   });
 });
 
-describe("activation ('replace') — the new panel takes over the tile", () => {
-  test('the previous occupant is evicted; the tile holds exactly the new panel', async () => {
+describe('an open — a new tab in front of the service tile, nothing evicted', () => {
+  test('the previous occupant stays; the tile holds both, the new one in front', async () => {
     const { mod, api, holder } = await freshAdapter();
     open(mod, 'artifacts');
     const serviceTile = tileWith(holder.layout, 'artifacts').tile;
 
     open(mod, 'ariel');
 
-    expect(tileWith(holder.layout, 'ariel')).toMatchObject({ tile: serviceTile, tabs: ['ariel'] });
-    expect(tileWith(holder.layout, 'artifacts')).toBeNull();
-    expect(api.getPanel('iframe:artifacts')).toBeFalsy();
+    expect(tileWith(holder.layout, 'ariel')).toMatchObject({
+      tile: serviceTile,
+      tabs: ['artifacts', 'ariel'],
+      showing: 'ariel',
+    });
+    expect(api.getPanel('iframe:artifacts')).toBeTruthy();
     const group = api.getPanel('iframe:ariel').group;
-    expect(group.panels.map((/** @type {any} */ p) => p.id)).toEqual(['iframe:ariel']);
+    expect(group.panels.map((/** @type {any} */ p) => p.id)).toEqual([
+      'iframe:artifacts',
+      'iframe:ariel',
+    ]);
+    expect(group.activePanel?.id).toBe('iframe:ariel');
   });
 
-  test('the evicted iframe is concealed but kept cached for a later re-activation', async () => {
-    const { mod, api } = await freshAdapter();
+  test('the covered iframe is hidden but kept; re-activating it brings it forward in place', async () => {
+    const { mod, api, holder } = await freshAdapter();
     const artifactsFrame = open(mod, 'artifacts');
 
     const arielFrame = open(mod, 'ariel');
     expect(artifactsFrame.style.display).toBe('none');
     expect(artifactsFrame.isConnected).toBe(true); // cached in the overlay, state intact
 
-    // Re-activating the evicted panel takes the tile back the same way.
     mod.focusPanel('artifacts');
-    expect(api.getPanel('iframe:artifacts')).toBeTruthy();
-    expect(api.getPanel('iframe:ariel')).toBeFalsy();
+    expect(tileWith(holder.layout, 'artifacts')?.tabs).toEqual(['artifacts', 'ariel']);
+    expect(api.getPanel('iframe:artifacts').group.activePanel?.id).toBe('iframe:artifacts');
     expect(arielFrame.style.display).toBe('none');
+    expect(artifactsFrame.style.display).not.toBe('none');
   });
 
-  test('with the terminal focused, the take-over targets the last-focused service tile — never the terminal', async () => {
+  test('with the terminal focused, the tab goes to the last-focused service tile — never the terminal', async () => {
     const { mod, api, holder } = await freshAdapter();
     open(mod, 'artifacts');
 
@@ -212,8 +217,7 @@ describe("activation ('replace') — the new panel takes over the tile", () => {
     open(mod, 'okf');
 
     expect(tileWith(holder.layout, 'terminal')?.tabs).toEqual(['terminal']);
-    expect(tileWith(holder.layout, 'okf')).not.toBeNull();
-    expect(tileWith(holder.layout, 'artifacts')).toBeNull(); // the service tile was taken over
+    expect(tileWith(holder.layout, 'okf')?.tabs).toEqual(['artifacts', 'okf']);
   });
 });
 
@@ -234,8 +238,8 @@ describe('focusing an existing tile — jump, not move', () => {
   });
 });
 
-describe("redock after a layout rebuild ('beside') — tiles do not evict one another", () => {
-  test('each visible panel re-materializes as its own tile', async () => {
+describe('redock after a layout rebuild — visible panels come back as tabs', () => {
+  test('each visible panel the layout lacks re-materializes by the open rule', async () => {
     const { mod, api, holder } = await freshAdapter(
       row(tile('t1', ['artifacts']), tile('t2', ['ariel']), TERMINAL)
     );
@@ -251,12 +255,12 @@ describe("redock after a layout rebuild ('beside') — tiles do not evict one an
     const ariel = tileWith(holder.layout, 'ariel');
     expect(artifacts).not.toBeNull();
     expect(ariel).not.toBeNull();
-    // Beside, never within: neither re-materialized tile evicted the other.
-    expect(ariel.tile).not.toBe(artifacts.tile);
-    expect(api.getPanel('iframe:ariel').group).not.toBe(api.getPanel('iframe:artifacts').group);
-    // The first re-opens at the terminal split; the second splits beside it,
-    // left of the terminal.
-    expect(tiles(holder.layout).map((t) => t.tabs[0])).toEqual(['artifacts', 'ariel', 'terminal']);
+    // The first re-opens left of the terminal at the classic split; the next
+    // joins it as a tab. Neither evicted the other, and the terminal is alone.
+    expect(ariel.tile).toBe(artifacts.tile);
+    expect(artifacts.tabs).toEqual(['artifacts', 'ariel']);
+    expect(api.getPanel('iframe:ariel').group).toBe(api.getPanel('iframe:artifacts').group);
+    expect(tiles(holder.layout).map((t) => t.tabs[0])).toEqual(['artifacts', 'terminal']);
     expect(tileWith(holder.layout, 'terminal')?.tabs).toEqual(['terminal']);
   });
 });

@@ -67,11 +67,17 @@ import {
   withEchoSuppressed,
   setTileCloseHandler,
   setTileFocusHandler,
-  dockPanelBesideActive,
 } from './dock-sync.js';
 import { setTileContextMenuHandler } from './dock-tab.js';
 import { initRailDrag } from './rail-drag.js';
-import { openTerminalPanel, getDockApi } from './dock-workspace.js';
+import {
+  openTerminalPanel,
+  getDockApi,
+  bootLayoutSettled,
+  setLayoutRestoredHook,
+} from './dock-workspace.js';
+import { getLayoutHolder, TERMINAL_KEY } from './dock-apply.js';
+import { serviceTileTarget } from './dock-open.js';
 import {
   initMenuPolicy,
   openTileContextMenu,
@@ -115,6 +121,7 @@ import { onSessionChange } from './terminal.js';
  * @property {ReturnType<typeof setTimeout> | null} pollTimer
  * @property {boolean} polling
  * @property {boolean} configLoaded
+ * @property {boolean} settled - the first liveness verdict is in: healthy, unhealthy, failed, or no backend to ask
  * @property {string | null} [pendingUrl]
  * @property {string | null} [failedMessage] - the server's sentence while a sidecar's start has failed
  * @property {boolean} [activateOnHealthy] - surface the panel on its first healthy settle (an operator retry)
@@ -334,6 +341,12 @@ export async function initPanelManager(panelId) {
   // tab focus / close POSTs the same setPanelFocus / setPanelVisibility the rail
   // and agent use. Wires lazily once the dockview shell is up; no-ops without it.
   initDockSync();
+
+  // The landing must not claim the workspace slot while a stored layout may
+  // still arrive (dock-workspace restores it after its own /api/panels round
+  // trip): re-run it once the boot layout is final. Latched, so a layout that
+  // settled before this registration fires it at once.
+  setLayoutRestoredHook(ensureActivePanel);
 
   // Hand panel-placement (the tile-geometry half of this module: open-beside,
   // agent switch, arrange rebuild) live access to the state it places panels
@@ -577,6 +590,10 @@ export async function initPanelManager(panelId) {
           const panel = PANELS.find((p) => p.id === cp.id);
           if (panel) startHealthPolling(panel);
         }
+      } else if (ps) {
+        // Declared without an address: there is nothing to ask, so the verdict
+        // is in and a default that names this panel falls through at once.
+        ps.settled = true;
       }
     }
   }
@@ -688,19 +705,12 @@ function vacateForPopout(panelId) {
 }
 
 /**
- * Put a panel's tile back after its pop-out window closed: beside the active
- * tile when a service tile is open (the placement an agent switch uses, so
- * whatever the operator was watching survives), else by the plain activation
- * and its first-tile rule. Nobody asked the server for this surfacing, so the
- * activation carries no focus report.
+ * Put a panel back in the dock after its pop-out window closed, by the open
+ * rule: a tab in front of the service tile used last. Nobody asked the server
+ * for this surfacing, so the activation carries no focus report.
  * @param {string} panelId
  */
 function redockPanel(panelId) {
-  const panels = getDockApi()?.panels;
-  const hasServiceTile = (Array.isArray(panels) ? panels : []).some(
-    (/** @type {any} */ p) => typeof p?.id === 'string' && p.id.startsWith(PLACEHOLDER_PREFIX)
-  );
-  if (hasServiceTile) dockPanelBesideActive(panelId, labelOf(panelId));
   activateTab(panelId, { userInitiated: false });
 }
 
@@ -739,26 +749,52 @@ function hydrateRestoredTiles() {
 }
 
 /**
+ * The panel the empty slot goes to first: what a restored layout shows in the
+ * service tile the operator used last, when the dock holds one and this page
+ * knows the panel — so a stored arrangement comes back as it was saved — else
+ * the profile-pinned default.
+ * @returns {string}
+ */
+function landingTarget() {
+  const holder = getLayoutHolder();
+  const layout = holder?.layout ?? null;
+  if (holder && layout) {
+    const key = serviceTileTarget(layout, holder.context())?.showing;
+    if (key && key !== TERMINAL_KEY && panelState[key]) return key;
+  }
+  return DEFAULT_PANEL;
+}
+
+/**
  * Give the empty slot to the best panel available, if any.
  *
  * Health-driven, so {auto: true} keeps it from ever surfacing a hidden panel.
  * Safe to call on every settle: it no-ops once something is active.
  *
  * This is deliberately re-entrant rather than a one-shot at each health
- * transition. A panel's FIRST healthy transition can land while the default is
- * still loading its config — decline then and that panel never gets another
- * transition to try again, stranding the pane blank.
+ * transition. Another panel's FIRST healthy transition can land while the
+ * wanted panel is still loading its config or waiting on its first health
+ * answer — decline then, and let that panel's own settle re-run the policy.
  */
 function ensureActivePanel() {
   if (activeTabId) return;
-  const ds = panelState[DEFAULT_PANEL];
-  if (!ds?.configLoaded) return; // default may still claim the slot — wait
-  // Hidden disqualifies the default exactly as unhealthy does; activateTab
-  // would refuse it anyway, and the slot must not sit empty behind it. So
-  // does a panel living in its own window: its tile is retired on purpose.
+  // A stored layout is applied after a network round trip and may hold the
+  // tabs this session starts with: nothing claims the slot before it is in.
+  // The boot-layout hook re-runs this. Fallback mode has no layout to wait for.
+  if (getDockApi() && !bootLayoutSettled()) return;
+  const wanted = landingTarget();
+  const ds = panelState[wanted];
+  // It may still claim the slot: its config is loading, or its backend has not
+  // answered its first probe (a sidecar still starting, a health poll in
+  // flight). Decline until its first verdict is in — every path reaches one
+  // (panel-lifecycle's `settled`), so a dead panel releases the slot too.
+  if (!ds?.configLoaded || !ds.settled) return;
+  // Hidden disqualifies it exactly as unhealthy does; activateTab would refuse
+  // it anyway, and the slot must not sit empty behind it. So does a panel
+  // living in its own window: its tile is retired on purpose.
   const target =
-    ds.healthy && visiblePanels.has(DEFAULT_PANEL) && !isPoppedOut(DEFAULT_PANEL)
-      ? DEFAULT_PANEL
+    ds.healthy && visiblePanels.has(wanted) && !isPoppedOut(wanted)
+      ? wanted
       : PANELS.find(
           (p) => visiblePanels.has(p.id) && panelState[p.id]?.healthy && !isPoppedOut(p.id)
         )?.id;

@@ -7,10 +7,11 @@
  * comes to exist and stay alive, and panel-sse.js owns the server→client
  * frame dispatcher that drives this module's applyAgentSwitch and
  * applyArrange. This module owns the tile geometry those states are applied
- * onto — the open-beside verb behind the rail's ⊞ corner, the landing of a
- * sidebar row's drop,
- * the polite agent switch, and the whole-workspace rebuild a `panel_arrange`
- * frame requests.
+ * onto — the "Open in a new tile" verb, the landing of a sidebar row's drop,
+ * the agent switch, and the whole-workspace rebuild a `panel_arrange` frame
+ * requests. An open itself follows the open rule in dock-open.js (a new tab,
+ * in front, in the service tile used last), applied by panel-manager's
+ * activation.
  *
  * It reaches the dock only through the existing seams: dock-sync's placement
  * verbs (dockPanelAt / dockPanelBesideActive) and echo guard, dock-iframe's
@@ -106,14 +107,9 @@ export function hasDockedTile(panelId) {
 
 /**
  * Whether ANY service panel holds a tile right now — read straight off the live
- * panel list, not off the serialized layout.
- *
- * The polarity matters and is not symmetric with the rebuild's. There, a layout
- * that cannot be read means "drop nothing" — the safe direction. Here, a false
- * "no tiles" would send an agent switch down the plain-activation path, whose
- * placement REPLACES the tile the operator is watching: the one outcome this
- * verb exists to prevent. Reading the panel list directly removes the question,
- * since it stays answerable while a layout is mid-rebuild or refuses toJSON.
+ * panel list, not off the serialized layout, so it stays answerable while a
+ * layout is mid-rebuild or refuses toJSON. A false "no tiles" would paint the
+ * empty pane over a workspace that visibly still holds one.
  * @returns {boolean}
  */
 function hasAnyServiceTile() {
@@ -143,9 +139,10 @@ function revealOpenedPanel(panelId, wasOnScreen) {
 }
 
 /**
- * Open a panel as a NEW tile beside the active group — the rail ⊞ corner's
- * action. An already-open panel is MOVED beside the active tile (dockPanelAt's
- * move semantics), never duplicated. In fallback mode the placement no-ops in
+ * Open a panel as a NEW tile beside the active tile — the row menu's "Open in
+ * a new tile", the one open that splits instead of adding a tab. An
+ * already-open panel is MOVED beside the active tile (dockPanelAt's move
+ * semantics), never duplicated. In fallback mode the placement no-ops in
  * dock-sync and the reveal tail takes the single surface over like a rail click.
  * @param {string} panelId
  */
@@ -172,38 +169,24 @@ export function landDroppedPanel(panelId, { wasOnScreen }) {
 
 /**
  * Apply an agent open_panel: bring the panel into view without ever taking a
- * tile away from the operator. A panel that already holds a tile is simply
- * focused (no move); one without a tile opens as a NEW tile beside the active
- * group — the same placement the rail's ⊞ corner uses — so whatever the
- * operator was watching survives. A non-member gains its rail entry first: the
+ * tile away from the operator. The activation lands it by the open rule
+ * (dock-open.js's openTab): a panel already in the dock is focused where it
+ * is; one without a tab opens as a new tab, in front, in the service tile the
+ * operator used last — nothing resizes, and whatever the operator was
+ * watching is one click away. A non-member gains its rail entry first: the
  * switch implies membership, and the server's own visibility broadcast then
- * lands on an already-current rail.
- *
- * The fallback-mode degradation falls out of the placement verb rather than a
- * branch here: dockPanelBesideActive no-ops with no dock shell, leaving exactly
- * the plain activation takeover it had before.
+ * lands on an already-current rail. An unhealthy target stays the no-op it
+ * has always been (the activation refuses it; attention badge intact), and
+ * in fallback mode the activation is the plain takeover it had before.
  * @param {string} panelId
  */
 export function applyAgentSwitch(panelId) {
   const c = ctx();
   // Unknown id — a panel dropped from the deployment, or the terminal entry,
   // which has no panel state. The activation would refuse it, so refuse before
-  // touching membership or the grid.
+  // touching membership.
   if (!c.isKnown(panelId)) return;
   if (!c.isMember(panelId)) c.addMember(panelId);
-  // Only a panel that can fill a tile gets one: the activation refuses while
-  // unhealthy, and the tile it never claimed would linger empty. An unhealthy
-  // target stays the no-op it has always been (attention badge intact).
-  //
-  // "Beside" also needs something to be beside. With every service tile retired
-  // the active group is the TERMINAL's, so splitting off it would open the
-  // panel to the terminal's right at a default width — losing the first-tile
-  // rule (left of the terminal at the classic split) that the adapter applies
-  // on a plain activation. Nothing is open to evict in that state either, so
-  // the plain activation below is both correctly anchored and still polite.
-  if (c.isHealthy(panelId) && !hasDockedTile(panelId) && hasAnyServiceTile()) {
-    dockPanelBesideActive(panelId, c.label(panelId));
-  }
   c.activate(panelId);
 }
 

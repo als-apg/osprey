@@ -5,20 +5,20 @@
  * layout: each takes the held layout and the holder's context and returns the
  * layout after, whether it changed and the tile to focus (dock-apply.js's
  * `run`). Nothing here reads or mutates the dock; the holder applies the
- * result. One panel per tile is the rule these express:
+ * result.
  *
- *   - an ACTIVATION (a sidebar row click, an agent focus) shows the panel in
- *     the service tile the operator used last, in place of the panel that
- *     tile showed — the sidebar is the tab system, so an activation switches
- *     the tile rather than stacking a tab into it ({@link showIn});
- *   - OPEN BESIDE (the row's ⊞ corner, the "+" menu, a redock after a layout
- *     rebuild) splits a new tile to the right of that service tile
- *     ({@link openBeside});
- *   - OPEN AT (a row dropped on a tile edge or a dock edge) splits where the
- *     drop said, and moves a panel that already holds a tile ({@link openAt});
- *   - with no service tile at all, any of them opens the first one LEFT of the
- *     terminal at the classic 60/40 split, or against the dock's left edge when
- *     the terminal tile is closed too ({@link firstTile});
+ * THE OPEN RULE. A panel that is opened — by a sidebar row click, by the
+ * agent, by a link, by the "+" menu — lands as a NEW TAB, IN FRONT, in the
+ * service tile the operator used last ({@link openTab}): nothing resizes, and
+ * the tab it covers is one click away. A panel already in the dock is shown
+ * where it is. With no service tile at all, the first one opens LEFT of the
+ * agent pane at the classic 60/40 split, or against the dock's left edge when
+ * the agent pane is closed too ({@link firstTile}) — the agent pane is always
+ * its own tile and never the target.
+ *
+ *   - OPEN AT (a drop on a tile edge or a dock edge, the row's "Open in a new
+ *     tile") splits where the gesture said, and moves a panel that already
+ *     holds a tab ({@link openAt}) — the one way to make a new tile on purpose;
  *   - the terminal reopens at the dock's right edge, its home side
  *     ({@link reopenTerminal}), and closes as its tile ({@link closeKey}).
  */
@@ -30,7 +30,6 @@ import {
   mintTileId,
   planDrop,
   removeTab,
-  replaceKey,
   tileIdsOf,
   tileOf,
 } from '/static/vendor/dock-engine.mjs';
@@ -68,9 +67,10 @@ function unchanged(layout) {
 }
 
 /**
- * The service tile a placement targets: the focused tile when it shows a
- * service, else the last tile that did, else the first tile in tree order
- * showing a service. Null when no tile shows a service.
+ * The service tile the operator used last — where an open lands: the focused
+ * tile when it shows a service, else the last tile that did, else the first
+ * tile in tree order showing a service. Null when no tile shows a service.
+ * The agent pane's tile is never chosen because the agent pane is in it.
  * @param {Layout|null} layout
  * @param {OpContext} ctx
  * @returns {Tile|null}
@@ -136,36 +136,23 @@ export function firstTile(layout, key, dock) {
 }
 
 /**
- * Show `key` for an activation: where it already is, else in place of the
- * panel the target service tile shows, else as the first service tile.
+ * Open `key` by the open rule: a panel already in the dock stays where it is
+ * (nothing changes here — the caller brings its tab forward, and the focused
+ * tile follows that); otherwise it lands as a new tab, in front, in the
+ * service tile the operator used last — nothing resizes — or, with no service
+ * tile, as the first service tile beside the agent pane.
  * @param {Layout|null} layout
  * @param {string} key
  * @param {OpContext} ctx
  * @returns {OpResult}
  */
-export function showIn(layout, key, ctx) {
-  const home = tileOf(layout, key);
-  if (home) return { layout, changed: false, focus: home.tile };
-  const target = serviceTileTarget(layout, ctx);
-  if (!target) return firstTile(layout, key, ctx.dock);
-  const out = replaceKey(layout, target.showing, key);
-  return { layout: out.layout, changed: out.changed, focus: target.tile };
-}
-
-/**
- * Open `key` as a new tile right of the target service tile, else as the
- * first service tile. A panel already holding a tile stays where it is.
- * @param {Layout|null} layout
- * @param {string} key
- * @param {OpContext} ctx
- * @returns {OpResult}
- */
-export function openBeside(layout, key, ctx) {
-  const home = tileOf(layout, key);
-  if (home) return { layout, changed: false, focus: home.tile };
+export function openTab(layout, key, ctx) {
+  if (tileOf(layout, key)) return unchanged(layout);
   const target = serviceTileTarget(layout, ctx);
   if (!target || layout === null) return firstTile(layout, key, ctx.dock);
-  return openAt(layout, key, { referenceTile: target.tile, direction: 'right' }, ctx);
+  const out = planDrop(layout, { new: key }, { tile: target.tile, zone: 'centre' }, ctx.dock);
+  if (!out.changed || !tileOf(out.layout, key)) return unchanged(layout);
+  return { layout: out.layout, changed: true, focus: target.tile };
 }
 
 /**

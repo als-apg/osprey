@@ -296,12 +296,13 @@ async def open_panel(panel_id: str, url: str | None = None) -> str:
     and after producing something they should see (a new artifact, a drafted
     plan, a lattice view).
 
-    Additive — an open tile is never evicted:
+    Additive — nothing on screen is evicted or resized:
 
-    - the panel's tile is already on screen → it is focused;
-    - the panel is on the rail but has no tile → a tile opens *beside* the one
-      the operator is currently on;
-    - the panel is not on the rail → it is added to the rail, then opened beside.
+    - the panel is already on screen → it is brought forward where it is;
+    - the panel is on the rail but has no tab → it opens as a new tab, in
+      front, in the service tile the operator used last;
+    - the panel is not on the rail → it is added to the rail, then opened the
+      same way.
 
     A panel whose backend is unhealthy does not open: nothing appears and focus
     is unchanged.

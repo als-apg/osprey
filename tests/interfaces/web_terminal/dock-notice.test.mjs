@@ -97,8 +97,8 @@ async function freshAdapter(api) {
 }
 
 /**
- * Open `id` as a tile of its own beside the service tile, through the holder —
- * what the "+" menu does before the adapter adopts the panel's iframe.
+ * Open `id` as a tile of its own beside the focused tile, through the holder —
+ * what "Open in a new tile" does before the adapter adopts the panel's iframe.
  * @param {string} id
  */
 async function openTile(id) {
@@ -107,7 +107,7 @@ async function openTile(id) {
   const holder = apply.getLayoutHolder();
   if (!holder) throw new Error('no holder');
   holder.run((/** @type {any} */ layout, /** @type {any} */ ctx) =>
-    open.openBeside(layout, id, ctx)
+    open.openAt(layout, id, null, ctx)
   );
 }
 

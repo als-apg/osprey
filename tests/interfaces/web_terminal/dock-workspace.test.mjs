@@ -142,13 +142,14 @@ async function boot(scope) {
 }
 
 /**
- * Open a service the way an activation does (dock-open through the holder).
+ * Open a service the way an activation does: a tab in front of the service
+ * tile used last (dock-open's openTab through the holder).
  * @param {Awaited<ReturnType<typeof boot>>} page
  * @param {string} key
  */
 async function openService(page, key) {
   page.holder.run((/** @type {any} */ layout, /** @type {any} */ ctx) =>
-    page.open.showIn(layout, key, ctx)
+    page.open.openTab(layout, key, ctx)
   );
   await settle();
 }
@@ -258,8 +259,9 @@ describe('a reload restores tiles, the showing tab and sizes', () => {
     await openService(page, 'artifacts');
     const stored = await storedAt(KEY);
 
-    expect(stored.panels).toEqual({ artifacts: { title: 'artifacts' } });
-    expect(stored.layout.items[0].tabs).toEqual(['artifacts']);
+    // The restored record rides along with the new tab's.
+    expect(stored.panels).toEqual({ ariel: { title: 'ARIEL' }, artifacts: { title: 'artifacts' } });
+    expect(stored.layout.items[0].tabs).toEqual(['ariel', 'artifacts']);
   });
 
   test('a key the dock can no longer build is closed; the rest is kept', async () => {
@@ -335,7 +337,7 @@ describe('a reload restores tiles, the showing tab and sizes', () => {
     await openService(page, 'artifacts');
     const stored = await storedAt(KEY);
     expect(stored.version).toBe(2);
-    expect(stored.layout.items[0].tabs).toEqual(['artifacts']);
+    expect(stored.layout.items[0].tabs).toEqual(['ariel', 'artifacts']);
   });
 });
 

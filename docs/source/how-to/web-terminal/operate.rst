@@ -95,6 +95,12 @@ tab's controls, **Pop out** and **×** beside them. Click a tab to bring it in
 front; with the header's tab strip focused, the arrow keys do the same and
 Delete closes the tab in front.
 
+A panel you open — from its sidebar row, from a link, or one the agent opens
+for you — lands as a new tab, in front, in the service tile you used last;
+nothing resizes, and the tab it covers is one click away. A panel already
+open is brought forward where it is. To open a panel in a tile of its own,
+pick **Open in a new tile** from its row's menu, or drag the row (below).
+
 Drag a tab, a whole tile (by its header), or a sidebar row, and drop it on the
 tile under the pointer:
 

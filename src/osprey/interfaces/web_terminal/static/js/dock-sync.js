@@ -406,20 +406,18 @@ function panelIdForTab(tab) {
 
 /**
  * Dock a service panel's placeholder at an explicit position as its own tile —
- * the shared placement verb behind "open beside" (rail ⊞ / "+" add-menu) and
- * the rail drag-and-drop drop routing. One operation on the layout holder
- * (dock-open.js's openAt), placing the placeholder by the adapter's own id so
- * the adapter adopts it in place.
+ * the placement verb behind "Open in a new tile" and the arrange rebuild. One
+ * operation on the layout holder (dock-open.js's openAt), placing the
+ * placeholder by the adapter's own id so the adapter adopts it in place.
  *
  * An ALREADY-DOCKED placeholder is MOVED to the position, never duplicated.
  * Two guarded no-op cases: the target is the placeholder's own tile, and an
  * already-docked panel with no position at all (nothing meaningful to do).
  *
  * No-op in fallback mode (no dock to place into).
- * No-op too for a panel living in its own pop-out window — every placement
- * verb lands here (open beside, drag-and-drop, the agent switch, the arrange
- * rebuild), and a placeholder for it would be an empty tile: the panel comes
- * back through popout.js when its window closes.
+ * No-op too for a panel living in its own pop-out window — a placeholder for
+ * it would be an empty tile: the panel comes back through popout.js when its
+ * window closes.
  * The holder applies the layout inside the echo guard, so the rebuild's
  * active-panel change is never read as a human focus — the caller's show path
  * owns the focus POST.
@@ -453,13 +451,12 @@ export function dockPanelAt(serviceId, title = serviceId, position = null) {
 }
 
 /**
- * Dock a service panel's placeholder BESIDE the focused tile as a NEW tile, so
- * a panel opened from the rail's ⊞ corner or the "+" add-menu splits where
- * the operator is working — the discoverable half of the open-beside verb
- * (rail drag-and-drop is the precise half; both land in {@link dockPanelAt},
- * so an already-open panel is moved, not duplicated). A rail click on the
- * entry itself still REPLACES the focused tile's panel instead (the adapter's
- * activation placement).
+ * Dock a service panel's placeholder BESIDE the focused tile as a NEW tile —
+ * the row menu's "Open in a new tile", the one open that splits where the
+ * operator is working instead of adding a tab (it lands in
+ * {@link dockPanelAt}, so an already-open panel is moved, not duplicated).
+ * Every other open — a row click, the agent, a link — is a tab in front of the
+ * service tile used last (dock-open.js's openTab, through the activation).
  * @param {string} serviceId  panel-manager rail id
  * @param {string} [title]    dock tab title (defaults to the id)
  */
