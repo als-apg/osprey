@@ -39,6 +39,19 @@ import sys
 logging.basicConfig(level=logging.WARNING, stream=sys.stderr, force=True)
 from osprey.services.code_review.switch import switched_off
 off = switched_off()
+if off is None:
+    import os
+    import psutil
+    port = int(os.environ["OSPREY_WEB_PORT"])
+    print("ancestry of", os.getpid(), file=sys.stderr)
+    for a in psutil.Process().parents():
+        try:
+            seen = [(c.status, tuple(c.laddr), tuple(c.raddr) if c.raddr else None)
+                    for c in a.net_connections(kind="tcp")
+                    if (c.laddr and c.laddr.port == port) or (c.raddr and c.raddr.port == port)]
+        except Exception as exc:
+            seen = repr(exc)
+        print("  ", a.pid, a.name(), seen, file=sys.stderr)
 print(json.dumps(None if off is None else [off.off_by, off.off_at]))
 """
 
