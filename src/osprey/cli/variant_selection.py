@@ -50,6 +50,10 @@ VARIANT_SETTING_KEY = "OSPREY_PROFILE_VARIANT"
 #: variant. Tracked, unlike the setting that picks among them.
 VARIANT_DIRNAME = "profiles"
 
+#: How long the tracked probe waits for git before giving up. A probe that
+#: gives up answers "could not check", never "untracked".
+_GIT_PROBE_TIMEOUT_S = 10.0
+
 
 @dataclass(frozen=True)
 class VariantSelection:
@@ -166,7 +170,7 @@ def _is_git_tracked(repo_root: Path, relative: str) -> bool:
             cwd=repo_root,
             capture_output=True,
             text=True,
-            timeout=10,
+            timeout=_GIT_PROBE_TIMEOUT_S,
         )
     except (OSError, subprocess.SubprocessError):
         return False
