@@ -50,13 +50,14 @@ from osprey.interfaces.web_terminal.operator_session import (
     session_hold_root_of,
     stamp_session_hold,
 )
+from osprey.interfaces.web_terminal.routes.watchdog import session_is_live
 from osprey.interfaces.web_terminal.session_discovery import SessionDiscovery
 from osprey.interfaces.web_terminal.session_key import is_posture_key
 from osprey_connectors import control_context, posture_store
 from osprey_connectors.identity import acting_identity
 from osprey_connectors.posture_env import is_readonly_run
 from osprey_connectors.refusals import refusal_phrase
-from osprey_connectors.session_hold import is_held
+from osprey_connectors.session_hold import has_no_record, is_held, is_safe_session_key
 from osprey_connectors.types import published_machine_kind
 from osprey_connectors.write_target import KIND_BANNERS
 
@@ -2921,9 +2922,25 @@ def _switch_state(record: Any, status: str, target: str) -> str | None:
 
 
 def _session_held(app: Any, session_id: str | None) -> bool:
-    """Whether the named session has an unanswered hold. BLOCKING; never raises."""
+    """Whether the named session has an unanswered hold. BLOCKING; never raises.
+
+    A key no session runs under, with nothing on disk, has not started: a Simple
+    tab names its session before its first prompt. It is not held, as the flags
+    route also says; writes still read ``is_held`` itself.
+    """
     root = session_hold_root_of(app)
-    return bool(session_id and root is not None and is_held(session_id, root=root))
+    if not session_id or root is None:
+        return False
+    try:
+        if (
+            is_safe_session_key(session_id)
+            and not session_is_live(app, session_id)
+            and has_no_record(session_id, root=root)
+        ):
+            return False
+    except Exception:  # undecided: fall through to the fail-closed read
+        logger.debug("not-started check for %r failed", session_id, exc_info=True)
+    return is_held(session_id, root=root)
 
 
 def _posture_view(

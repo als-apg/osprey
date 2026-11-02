@@ -55,8 +55,15 @@ from osprey.interfaces.web_terminal.pty_manager import PtyRegistry
 from osprey.interfaces.web_terminal.routes import router
 from osprey.interfaces.web_terminal.routes.agent_activity import ACTIVITY_BUFFER_MAX
 from osprey.interfaces.web_terminal.routes.chat_attachments import sweep_uploads_at_startup
+from osprey.interfaces.web_terminal.routes.safety_switches import router as safety_switch_router
 from osprey.interfaces.web_terminal.routes.watchdog import make_notifier
 from osprey.interfaces.web_terminal.routes.watchdog import router as watchdog_router
+from osprey.interfaces.web_terminal.safety_switches import (
+    WATCHDOG_SWITCH,
+    SafetySwitches,
+    feature_is_on,
+    switches_of,
+)
 from osprey.interfaces.web_terminal.sidecar_status import (
     PANEL_STATUS_DIRNAME,
     SidecarStatus,
@@ -1140,6 +1147,9 @@ def _start_watchdogs(app: FastAPI, config_file: Path | None) -> None:
     A rendered ``watchdogs`` block that breaks a rule stops the server with
     :class:`BuildProfileError`: serving on with the deployment's watchdogs quietly
     off is the one failure an operator could not see.
+
+    A build that runs watchdogs registers them as one runtime safety switch; the
+    runner asks it before every hold, and the intake route before every run.
     """
     os.environ.pop(HOLD_DIR_ENV_VAR, None)
     app.state.session_hold_root = None
@@ -1162,12 +1172,17 @@ def _start_watchdogs(app: FastAPI, config_file: Path | None) -> None:
 
     root = session_hold_dir(repo_root_for_config(config_file))
     app.state.session_hold_root = root
+    switches = switches_of(app)
+    if switches is None:
+        switches = app.state.safety_switches = SafetySwitches()
+    switches.register(WATCHDOG_SWITCH, "Safety watchdog")
     app.state.watchdog_runner = WatchdogRunner(
         definitions,
         hold_root=root,
         notify=make_notifier(app),
         config=config,
         build_dir=build_dir,
+        may_hold=lambda: feature_is_on(app, WATCHDOG_SWITCH),
     )
 
 
@@ -1346,6 +1361,10 @@ def _create_lifespan(
                 resolved_config_path = config_candidate.resolve()
                 break
         app.state.config_path = resolved_config_path
+        # Built before any feature registers into it; a restart starts it empty.
+        # Registered: the watchdog (_start_watchdogs). Code review is not yet:
+        # its hook runs in the agent sandbox and needs the state through the state zone.
+        app.state.safety_switches = SafetySwitches()
         _start_watchdogs(app, resolved_config_path)
 
         # ── Web theme (SSR no-FOUC attribute) ──
@@ -1991,6 +2010,7 @@ def create_app(
 
     app.include_router(router)
     app.include_router(watchdog_router)
+    app.include_router(safety_switch_router)
     register_scaffold_conflict_handlers(app)
 
     @app.get("/")

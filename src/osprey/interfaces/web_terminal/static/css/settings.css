@@ -529,6 +529,37 @@
   100% { opacity: 0; }
 }
 
+/* ---- Runtime safety switches (rows reuse the hook-debug bar) ---- */
+
+.safety-switch-row {
+  gap: var(--space-3);
+}
+
+/* The text takes the width the toggle leaves, so a long off line wraps
+   short of the toggle instead of running under it. */
+.safety-switch-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.safety-switch-state {
+  overflow-wrap: anywhere;
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  margin-top: var(--space-1);
+}
+
+.safety-switch-state.off {
+  color: var(--color-warning);
+}
+
+/* Read-only for a tier that may not move it: the shared half-opacity still
+   reads as live next to the hook-debug toggle, so drop the accent too. */
+.safety-switch-row .toggle-switch input:disabled + .toggle-slider {
+  filter: grayscale(1);
+  opacity: 0.4;
+}
+
 /* ---- Hook Debug Log Viewer ---- */
 
 .hook-debug-log {

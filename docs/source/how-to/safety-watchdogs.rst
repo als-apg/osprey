@@ -258,3 +258,12 @@ project to replay against:
 
 Turn one off by setting ``enabled: false`` and rebuilding. A disabled watchdog leaves no trace
 in the render, and with none enabled sessions behave as if the feature were not there.
+
+To pause the watchdogs without a rebuild, turn **Safety watchdog** off in **Settings > Safety**
+of an admin-tier web terminal (``web.config_panel.enabled``, on by default outside the tier presets).
+The off reaches the sessions of that terminal only. In a multi-user deployment each login has its
+own terminal, so it does not pause anyone else's watchdog; for that, set ``enabled: false``. While it
+is off, prompts there are not judged and no new hold opens, unless the terminal cannot take a prompt
+and the hook judges it itself. Open holds stay until an operator answers. The move is audited, and
+a restart turns the watchdogs back on. The control-assistant preset's readonly dispatch tier refuses
+``web.config_panel.enabled``, so no terminal there can move the switch yet (`#2278 <https://github.com/als-apg/osprey/issues/2278>`__).

@@ -678,6 +678,29 @@ def test_the_posture_route_passes_the_session_and_reports_held(root):
     assert websocket_routes._posture_view(app, None)["held"] is False
 
 
+def test_a_session_that_has_not_started_is_not_held(root):
+    """A tab names its session before its first prompt; nothing is on disk yet."""
+    app = SimpleNamespace(state=SimpleNamespace(session_hold_root=root))
+
+    assert websocket_routes._posture_view(app, None, KEY)["held"] is False
+
+
+def test_a_live_session_with_no_record_is_held(root):
+    """Running with its record gone is lost, not new: the chip says held, as writes do."""
+    live = SimpleNamespace(get_session=lambda key: object() if key == KEY else None)
+    app = SimpleNamespace(state=SimpleNamespace(session_hold_root=root, pty_registry=live))
+
+    assert websocket_routes._posture_view(app, None, KEY)["held"] is True
+
+
+def test_an_unreadable_record_is_held_even_before_a_session_runs(root):
+    (root / KEY).mkdir(parents=True)
+    (root / KEY / RECORD_NAME).write_text("not json")
+    app = SimpleNamespace(state=SimpleNamespace(session_hold_root=root))
+
+    assert websocket_routes._posture_view(app, None, KEY)["held"] is True
+
+
 def test_held_is_false_with_no_watchdog_whatever_the_path(tmp_path, monkeypatch):
     corrupted = tmp_path / "corrupted"
     corrupted.write_text("x")

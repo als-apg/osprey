@@ -38,7 +38,7 @@ import {
 import { createChatRenderer, elem } from './chat-render.js';
 import { buildConsole } from './chat-console.js';
 import { isTerminalSurface, showTerminalSurface } from './agent-surface.js';
-import { emitChat } from './chat-events.js';
+import { emitChat, setChatNoticeSink } from './chat-events.js';
 import { createTurnFollower } from './chat-follow.js';
 import { initChatFeatures } from './chat-features.js';
 import { handoffRefusal, HANDOFF_FALLBACK, transportNotice } from './chat-notices.js';
@@ -288,6 +288,13 @@ export function initChat(containerId = 'operator-container') {
     scrollToBottom();
     emitChat('notice', { text: message });
   }
+  // News from outside the conversation lands here only while the chat is on
+  // screen; otherwise its sender shows it its own way.
+  setChatNoticeSink((text) => {
+    if (isTerminalSurface() || container.getClientRects().length === 0) return false;
+    showNotice(text);
+    return true;
+  });
 
   /** Update the elapsed counter in place. */
   function renderElapsed() {

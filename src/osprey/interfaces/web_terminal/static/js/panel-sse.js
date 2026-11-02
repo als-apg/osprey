@@ -48,6 +48,7 @@ import {
   onWatchdogFrame,
   refetchFlags,
 } from './watchdog-alert.js';
+import { isSafetySwitchFrame, refreshSafetySwitches } from './safety-switches.js';
 
 /** @typedef {import('./panel-manager.js').PanelSSEEvent} PanelSSEEvent */
 /** @typedef {import('./panel-manager.js').AgentActivityEvent} AgentActivityEvent */
@@ -140,6 +141,8 @@ export function subscribePanelEvents(sseDeps) {
   //   watchdog_*       {type, session_key, ...} — a change notice: handed to
   //                                               watchdog-alert.js, which re-reads
   //                                               the flags from their route.
+  //   safety_switch    {type, name, on}         — a runtime safety switch moved:
+  //                                               safety-switches.js re-reads them.
   //
   // The first three may carry source:'agent' (agent-originated command): that
   // adds a transient glow on the rail entry — never a persistent badge, the
@@ -158,6 +161,7 @@ export function subscribePanelEvents(sseDeps) {
     onOpen: () => {
       void resyncPanelState().then(restoreAgentBadges);
       void refetchFlags();
+      void refreshSafetySwitches();
       // The first open follows the config reads of this page's boot. A later
       // one may be a different hub: what each panel is served at is read again.
       if (streamOpened) for (const panel of PANELS) void rereadPanelConfig(panel);
@@ -223,6 +227,8 @@ export function subscribePanelEvents(sseDeps) {
           }
         } else if (isWatchdogFrame(data)) {
           onWatchdogFrame(data);
+        } else if (isSafetySwitchFrame(data)) {
+          void refreshSafetySwitches();
         }
       } catch (err) {
         // A throw mid-dispatch can leave rail membership, the dock layout and
