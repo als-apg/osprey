@@ -47,6 +47,18 @@ def _row(**overrides: Any) -> dict[str, Any]:
     return row
 
 
+def _roster_credential(suffix: str, owner: str) -> dict[str, Any]:
+    """A roster user's credential: it reads its own variable, empty by default."""
+    var = f"OSPREY_TERMINAL_SECRET_{suffix}"
+    return {"var": var, "source": var, "owner": owner, "required": False}
+
+
+def _alias_credential(suffix: str, owner: str) -> dict[str, Any]:
+    """The roster-less alias: the deployment-wide secret, read with no default."""
+    var = f"OSPREY_TERMINAL_SECRET_{suffix}"
+    return {"var": var, "source": "OSPREY_TERMINAL_SECRET", "owner": owner, "required": True}
+
+
 def _render(
     row: dict[str, Any] | None = None, *, panel_grant: dict[str, Any] | None = None
 ) -> tuple[str, dict[str, Any]]:
@@ -64,8 +76,7 @@ def _render(
         **config,
         "service_key": KEY,
         "service": config["services"][KEY],
-        "panel_grant": panel_grant
-        or {"secret_env_vars": [], "roster_owners": "", "secret_aliases": {}},
+        "panel_grant": panel_grant or {"credentials": []},
     }
     text = _packaged_compose_template(TEMPLATE).render(**context)
     return text, yaml.safe_load(text)["services"][KEY]
@@ -142,10 +153,7 @@ def test_the_launch_token_is_named_with_no_default() -> None:
 
 
 def test_the_panel_grant_lists_each_roster_secret() -> None:
-    grant = {
-        "secret_env_vars": ["OSPREY_TERMINAL_SECRET_ALICE"],
-        "roster_owners": "ALICE=alice",
-    }
+    grant = {"credentials": [_roster_credential("ALICE", "alice")]}
     _, svc = _render(panel_grant=grant)
 
     env = svc["environment"]
@@ -156,11 +164,7 @@ def test_the_panel_grant_lists_each_roster_secret() -> None:
 
 def test_a_roster_less_panel_grant_reads_the_deploy_variable_with_no_default() -> None:
     """The alias holds the one secret a roster-less deployment has; empty would lock it out."""
-    grant = {
-        "secret_env_vars": [],
-        "roster_owners": "OPERATOR=operator",
-        "secret_aliases": {"OSPREY_TERMINAL_SECRET_OPERATOR": "OSPREY_TERMINAL_SECRET"},
-    }
+    grant = {"credentials": [_alias_credential("OPERATOR", "operator")]}
     text, svc = _render(panel_grant=grant)
 
     env = svc["environment"]
@@ -171,11 +175,7 @@ def test_a_roster_less_panel_grant_reads_the_deploy_variable_with_no_default() -
 
 
 def test_a_grant_with_both_shapes_renders_each_by_its_own_rule() -> None:
-    grant = {
-        "secret_env_vars": ["OSPREY_TERMINAL_SECRET_ALICE"],
-        "roster_owners": "ALICE=alice,BOB=bob",
-        "secret_aliases": {"OSPREY_TERMINAL_SECRET_BOB": "OSPREY_TERMINAL_SECRET"},
-    }
+    grant = {"credentials": [_roster_credential("ALICE", "alice"), _alias_credential("BOB", "bob")]}
     text, svc = _render(panel_grant=grant)
 
     env = svc["environment"]
@@ -185,7 +185,7 @@ def test_a_grant_with_both_shapes_renders_each_by_its_own_rule() -> None:
 
 
 def test_an_empty_grant_renders_no_roster_secret() -> None:
-    _, svc = _render(panel_grant={"secret_env_vars": [], "roster_owners": "", "secret_aliases": {}})
+    _, svc = _render(panel_grant={"credentials": []})
 
     env = svc["environment"]
     assert "OSPREY_TERMINAL_ACCEPT_ROSTER_SECRETS" not in env

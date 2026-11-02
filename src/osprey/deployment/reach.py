@@ -1040,7 +1040,7 @@ REACH_CONTRACTS: dict[str, ReachContract] = {
         # The reverse grant — the sidecar is handed each entitled user's own
         # secret — is in the sidecar's OWN compose file (services/bluesky_web,
         # rendered in the services stack), keyed on the same panel declaration
-        # (renders.bluesky_panel_secret_env_vars).
+        # (panel_grant).
         # The url IS the endpoint: a profile that pins one for a sidecar it
         # does not deploy has named it.
         names_external=_panel_url_resolves(BLUESKY_PANEL_ID),

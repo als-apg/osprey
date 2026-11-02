@@ -7,6 +7,7 @@
 -#}
 {%- import "services/_network_axis.j2" as net -%}
 {%- import "services/_env_axis.j2" as hostenv -%}
+{%- import "services/_panel_grant.j2" as panel -%}
 # An application container (`runtime: osprey` in the application's app.yml):
 # the application's own code, run on the PROJECT image (<project>:local) that
 # `osprey up` builds from the project root. `osprey build` installs the
@@ -90,24 +91,7 @@ services:
       # refusing every launch rather than accepting a guessable one.
       {{ svc.launch_token_env }}: ${{ "{" }}{{ svc.launch_token_env }}{{ "}" }}
 {%- endif %}
-{%- if grant.secret_env_vars or grant.secret_aliases %}
-      # THE ROSTER GRANT. Every web-terminal user whose login shows this
-      # application's panel proxies it here with the operator secret their own
-      # container holds. Listing each of those variables lets this container's
-      # web gate accept any of them, so no user's container is handed another's
-      # secret; the flag is what makes the gate accept the roster variables.
-      OSPREY_TERMINAL_ACCEPT_ROSTER_SECRETS: "1"
-{%- for var in grant.secret_env_vars %}
-      {{ var }}: ${{ "{" }}{{ var }}:-}
-{%- endfor %}
-      # An alias reads the deploy variable that holds its secret, with no default:
-      # empty, it would lock out the one account a roster-less deployment has.
-{%- for var, source in (grant.secret_aliases | default({}, true)).items() %}
-      {{ var }}: ${{ "{" }}{{ source }}{{ "}" }}
-{%- endfor %}
-      # WHOSE each of those secrets is, as `<SUFFIX>=<username>` pairs.
-      OSPREY_TERMINAL_ROSTER_OWNERS: "{{ grant.roster_owners | default('') }}"
-{%- endif %}
+{{- panel.env(grant.credentials) }}
 {%- if svc.drives_target %}
       # The staged config, bound below over the image's: it alone carries the
       # login map an owned write is judged by. Both loaders read it.

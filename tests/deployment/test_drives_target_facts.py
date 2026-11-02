@@ -78,7 +78,7 @@ def repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     service.mkdir(parents=True)
     packaged = _TEMPLATES / "services"
     shutil.copy(packaged / "app_runtime" / "docker-compose.yml.j2", service)
-    for macro in ("_network_axis.j2", "_env_axis.j2"):
+    for macro in ("_network_axis.j2", "_env_axis.j2", "_panel_grant.j2"):
         shutil.copy(packaged / macro, repo / "services")
     (repo / "config.yml").write_text("project_name: fixture\n")
     monkeypatch.chdir(repo)

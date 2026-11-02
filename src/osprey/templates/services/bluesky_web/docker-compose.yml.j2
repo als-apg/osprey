@@ -12,6 +12,11 @@
     way. With none declared it emits nothing and this file renders exactly
     as it did before the axis existed. -#}
 {%- import "services/_env_axis.j2" as hostenv -%}
+{#- A panel's roster grant — which operator secrets this sidecar's web gate
+    accepts beside the deployment-wide one, and whose each is — is rendered by
+    the shared macro every panel's service imports. -#}
+{%- import "services/_panel_grant.j2" as panel -%}
+{%- set grant = panel_grant if panel_grant is defined and panel_grant else {} -%}
 {#- The site's build settings — a proxy CA, pip's bypass list, an internal
     package index — are rendered by the shared macro rather than spelled out
     per template, so every image OSPREY builds is handed the same set. -#}
@@ -146,37 +151,7 @@ services:
       # proxies its BLUESKY tab here with ITS OWN secret, never this one —
       # see the roster grant just below.
       OSPREY_TERMINAL_SECRET: ${OSPREY_TERMINAL_SECRET}
-{%- if bluesky_panel_secret_env_vars | default([]) %}
-      # THE ROSTER GRANT. Every web-terminal user whose tier shows the
-      # BLUESKY tab proxies it here with the operator secret THEIR container
-      # holds (under the fixed OSPREY_TERMINAL_SECRET name, interpolated from
-      # their own OSPREY_TERMINAL_SECRET_<SUFFIX> in the deploy .env). Listing
-      # each of those variables here lets this sidecar's web gate accept any
-      # of them beside the deployment-wide secret above, so no user's
-      # container is ever handed that secret, and a user purged from the
-      # roster is refused here from the next `osprey build` on (the start
-      # verbs are as-built and re-render nothing). Only the entitled users
-      # are listed (compose_generator resolves them from the renders'
-      # rendered configs, which the build renders first); the others cannot
-      # reach this sidecar and get no key to it. The flag is what makes
-      # web_auth ACCEPT the roster
-      # variables it finds: every process that loads the deploy .env sees
-      # them all, and only this sidecar may treat them as its operators.
-      OSPREY_TERMINAL_ACCEPT_ROSTER_SECRETS: "1"
-{%- for var in bluesky_panel_secret_env_vars %}
-      {{ var }}: ${{ "{" }}{{ var }}:-}
-{%- endfor %}
-      # WHOSE each of those secrets is, as `<SUFFIX>=<username>` pairs. The
-      # gate admits any of them and names the operator behind the request by
-      # the one that matched, so every queue action the panel relays carries
-      # the account that asked for it rather than the sidecar's own name. A
-      # variable alone cannot answer that: it survives compose interpolation
-      # as a value, not as a name. Not a secret and no interpolation — the
-      # usernames are already in the rendered roster — and resolved from the
-      # same entitlement walk as the grant above, so the two can name
-      # different people only if this file is hand-edited.
-      OSPREY_TERMINAL_ROSTER_OWNERS: "{{ bluesky_panel_roster_owners }}"
-{%- endif %}
+{{- panel.env(grant.credentials) }}
       # Marks the container shape for web_auth: an empty secret then refuses
       # startup naming the variable, instead of minting a value that is
       # announced only to the container log and reachable by nobody.
