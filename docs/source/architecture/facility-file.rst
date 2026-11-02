@@ -41,6 +41,85 @@ which fixes were applied and which fields the build filled.
 The file is the same in every render of a build. It carries no timestamp, no
 OSPREY version and no absolute path, so equal sources give equal bytes.
 
+Reading the facility file
+=========================
+
+Code reads the built file through one read model,
+``osprey.facility.records.FacilityRecords``: the records of a finished document
+by kind and id. A reference resolves to a channel or a device. A selection
+filters the file's own channel records and names a model or a place.
+
+.. list-table::
+   :header-rows: 1
+   :widths: 24 36 20 20
+
+   * - Method
+     - What it answers
+     - Order
+     - Absence
+   * - ``FacilityRecords(document)``
+     - The index over one finished document.
+     -
+     - An absent or non-list kind has no records.
+   * - ``from_file(path)``
+     - The read model of a render's ``facility.json``.
+     -
+     - ``None`` with no file; ``FacilityFileError`` when it cannot be read, is not JSON or is not an object.
+   * - ``document``
+     - The mapping it was built from, read-only.
+     -
+     -
+   * - ``record(kind, id)``
+     - The one record of that kind and id.
+     -
+     - ``None``.
+   * - ``require(kind, id)``
+     - The same, for a caller that cannot go on without it.
+     -
+     - ``KeyError`` naming the kind and the id.
+   * - ``of_kind(kind)``
+     - Every record of a kind that carries its id; the first of a duplicate id.
+     - Document order.
+     - Empty.
+   * - ``ids(kind)``
+     - The ids of a kind.
+     -
+     - Empty.
+   * - ``find(id)``
+     - Every record, of any kind, with that id.
+     - ``RECORD_KINDS``: place, device, channel, group, model.
+     - Empty.
+   * - ``channels_on(device_id)``
+     - The channels whose ``on.device`` names the device or that list it in ``endpoint_of``.
+     - Document order, each once.
+     - Empty, also for an unknown id.
+   * - ``resolve(target)``
+     - The channel and device records a reference target names, by exact id.
+     - ``LINK_KINDS``: channel, then device.
+     - Empty when dangling.
+   * - ``targets()``
+     - Every string ``resolve`` resolves.
+     -
+     - Empty.
+   * - ``describe(target)``
+     - A fresh ``{kind, id, unit?, description?}`` per record ``resolve`` returns.
+     - ``resolve`` order.
+     - Empty when dangling.
+   * - ``select_channels(selection)``
+     - The channels a ``ChannelSelection`` matches. Its ``model``, ``place``, ``group`` and ``signal`` facets AND; a place takes every place under it.
+     - Document order.
+     - Empty when nothing matches; ``ValueError`` naming a model, place or group the file does not hold.
+
+``osprey.facility.references.resolved_references`` is the one describer of
+references: every surface that returns ``facility_references`` calls it.
+
+The read model relies on four things the build guarantees:
+
+- Ids are unique per kind, so one string may name records of several kinds but only one of each.
+- An address is wired at most once.
+- Every record carries its id, and every id a record names exists.
+- A channel's devices are its ``on.device`` and its ``endpoint_of``, each once.
+
 Two halves of the build
 =======================
 
