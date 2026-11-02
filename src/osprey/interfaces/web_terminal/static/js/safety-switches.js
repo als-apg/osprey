@@ -1,5 +1,7 @@
 /* OSPREY Web Terminal — runtime safety switches in the Settings drawer's Safety tab */
 
+import { formatFacilityTime } from '/design-system/js/facility-time.js';
+
 import { apiRequest, fetchJSON } from './api.js';
 import { postChatNotice } from './chat-events.js';
 import { dismissConfirm, isConfirmUp, showConfirm } from './posture-confirm.js';
@@ -91,7 +93,10 @@ function announce(message) {
  */
 export function offSentence(sw) {
   const by = sw.off_by ? ` by ${sw.off_by}` : '';
-  const at = sw.off_at ? ` at ${new Date(sw.off_at * 1000).toLocaleTimeString()}` : '';
+  const time = sw.off_at
+    ? formatFacilityTime(sw.off_at * 1000, { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })
+    : '';
+  const at = time ? ` at ${time}` : '';
   return `${sw.label} is off in this terminal${by}${at}. It returns at the next restart.`;
 }
 
