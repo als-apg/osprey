@@ -72,6 +72,7 @@ from tests.integration._qmd_ariel_support import (
     VOCABULARY_QUERY,
     VOCABULARY_SOURCE_SYSTEM,
     VOCABULARY_TIMESTAMP,
+    advance_marker,
     build_sidecar_container,
     open_migrated_repository,
     qmd_ariel_config_dict,
@@ -1263,7 +1264,6 @@ class TestPostgresIsAuthoritative:
         Runs against ``AUTHORITY_ID``, which carries its own token, so drifting
         its file cannot perturb any other test in this module.
         """
-        from osprey.services.ariel_search.enhancement.qmd_export import TOUCH_MARKER_NAME
         from osprey.services.ariel_search.enhancement.qmd_export.writer import mirror_path
 
         row = sidecar_world.rows[AUTHORITY_ID]
@@ -1274,7 +1274,7 @@ class TestPostgresIsAuthoritative:
             f"# Entry {AUTHORITY_ID}\n\nThe {AUTHORITY_TOKEN} record says {lie}.\n",
             encoding="utf-8",
         )
-        (sidecar_world.mirror_root / TOUCH_MARKER_NAME).write_text(str(time.time()))
+        advance_marker(sidecar_world.mirror_root)
 
         wait_for_indexed(
             sidecar_client,
@@ -1284,6 +1284,7 @@ class TestPostgresIsAuthoritative:
             lambda hits: any("NEVER" in (hit.snippet or "") for hit in hits),
             what="the drifted mirror file",
             since=mark,
+            marker_root=sidecar_world.mirror_root,
         )
 
         results = await _search(

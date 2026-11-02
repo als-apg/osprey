@@ -374,7 +374,39 @@ def reindex_settled(log: str, since: int | None) -> bool:
     return False
 
 
-def wait_for_reindex_settled(client, container, *, since: int | None = None) -> None:
+#: How often a settle wait re-advances a marker it was handed. The container
+#: polls every second, so one advance is normally seen at once; this only
+#: matters when the bind mount dropped the change (see :func:`advance_marker`).
+SIDECAR_MARKER_RETRY_INTERVAL = 15.0
+
+
+def advance_marker(mirror_root: Path) -> None:
+    """Advance the mirror's freshness marker the way the exporter does.
+
+    The exporter replaces ``.qmd-touch`` atomically (a temp file renamed over
+    it), so this does too rather than rewriting the file in place. On a macOS
+    Docker Desktop bind mount an in-place rewrite can stay invisible to the
+    container's ``stat()`` for minutes when the host is busy with other file
+    I/O, as it is under ``-n 4``: the sidecar then never sees the marker move.
+
+    Args:
+        mirror_root: The bind-mounted mirror directory holding the marker.
+    """
+    from osprey.services.ariel_search.enhancement.qmd_export import TOUCH_MARKER_NAME
+
+    marker = mirror_root / TOUCH_MARKER_NAME
+    staging = mirror_root / f"{TOUCH_MARKER_NAME}.{os.getpid()}.tmp"
+    staging.write_text(f"{datetime.now(UTC).isoformat()}\n", encoding="utf-8")
+    os.replace(staging, marker)
+
+
+def wait_for_reindex_settled(
+    client,
+    container,
+    *,
+    since: int | None = None,
+    marker_root: Path | None = None,
+) -> None:
     """Block until the sidecar's index has settled, or fail with its own logs.
 
     The sidecar re-indexes asynchronously — a marker touch is observed by a poll
@@ -390,13 +422,24 @@ def wait_for_reindex_settled(client, container, *, since: int | None = None) -> 
         container: The started sidecar container.
         since: Offset from :func:`sidecar_log_mark` taken before a marker touch,
             or ``None`` when the content was indexed at startup.
+        marker_root: The mirror whose marker the caller advanced, if any. The
+            marker is advanced again every :data:`SIDECAR_MARKER_RETRY_INTERVAL`
+            seconds while waiting, as a producer that keeps writing would, so a
+            change the bind mount dropped does not leave the index stale until
+            the hourly sweep.
 
     Raises:
         ContainerExitedError: If the sidecar exited during the wait.
         AssertionError: If the index did not settle.
     """
 
+    next_advance = time.monotonic() + SIDECAR_MARKER_RETRY_INTERVAL
+
     def _settled() -> None:
+        nonlocal next_advance
+        if marker_root is not None and time.monotonic() >= next_advance:
+            advance_marker(marker_root)
+            next_advance = time.monotonic() + SIDECAR_MARKER_RETRY_INTERVAL
         if not reindex_settled(_sidecar_log_text(container), since):
             raise AssertionError(
                 "the marker update has not finished"
@@ -426,6 +469,7 @@ def wait_for_indexed(
     *,
     what: str,
     since: int | None = None,
+    marker_root: Path | None = None,
 ):
     """Wait for the sidecar's index to settle, then check ``predicate`` once.
 
@@ -440,11 +484,12 @@ def wait_for_indexed(
         what: Human description used in the failure message.
         since: Offset from :func:`sidecar_log_mark` taken before a marker touch,
             or ``None`` when the content was indexed at startup.
+        marker_root: Passed to :func:`wait_for_reindex_settled`.
 
     Returns:
         The hit list the predicate accepted.
     """
-    wait_for_reindex_settled(client, container, since=since)
+    wait_for_reindex_settled(client, container, since=since, marker_root=marker_root)
 
     hits = client.query(collection, query, limit=50, rerank=False, candidate_limit=40)
     if not predicate(hits):
