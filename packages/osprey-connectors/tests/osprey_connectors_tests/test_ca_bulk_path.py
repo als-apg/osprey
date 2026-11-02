@@ -15,7 +15,7 @@ Two halves:
   record opened, the way aioca would on the CA loop.
 * **Wire** — a soft IOC (``tests/connectors/_soft_ioc.py``) and a client in its
   own process and session: each scenario runs as
-  ``python -m tests.connectors.test_ca_bulk_path <scenario> <json args>`` so its
+  ``python -m osprey_connectors_tests.test_ca_bulk_path <scenario> <json args>`` so its
   CA context is created from exactly the environment the scenario chose (the
   no-gateway UDP shape or the gateway name-server shape). The client asks this
   process to kill or restart the IOC over a line protocol on stdin/stdout and
@@ -1068,7 +1068,7 @@ class TestWarm:
 
 
 def _records():
-    from tests.connectors._soft_ioc import ai_record, enum_record
+    from osprey_connectors_tests._soft_ioc import ai_record, enum_record
 
     return [
         # Outside HIHI, so it is delivered in a MAJOR alarm.
@@ -1080,7 +1080,7 @@ def _records():
 
 @pytest.fixture
 def ioc(tmp_path):
-    from tests.connectors._soft_ioc import SoftIOC
+    from osprey_connectors_tests._soft_ioc import SoftIOC
 
     with SoftIOC(_records(), workdir=tmp_path) as running:
         yield running
@@ -1100,11 +1100,17 @@ def _client_env(ioc, *, gateway: bool) -> dict[str, str]:
 
 def run_client(ioc, scenario: str, *, gateway: bool, timeout: float = 90.0) -> dict[str, Any]:
     """Run one client scenario against ``ioc``; serve its kill/restart requests."""
-    from tests.connectors._soft_ioc import kill_group
+    from osprey_connectors_tests._soft_ioc import kill_group
 
     args = {"port": ioc.ports.ca_server, "gateway": gateway}
     proc = subprocess.Popen(
-        [sys.executable, "-m", "tests.connectors.test_ca_bulk_path", scenario, json.dumps(args)],
+        [
+            sys.executable,
+            "-m",
+            "osprey_connectors_tests.test_ca_bulk_path",
+            scenario,
+            json.dumps(args),
+        ],
         cwd=REPO,
         env=_client_env(ioc, gateway=gateway),
         stdin=subprocess.PIPE,
@@ -1209,7 +1215,7 @@ class TestOverTheWire:
 
 
 # ---------------------------------------------------------------------------
-# The client process (python -m tests.connectors.test_ca_bulk_path <scenario>)
+# The client process (python -m osprey_connectors_tests.test_ca_bulk_path <scenario>)
 # ---------------------------------------------------------------------------
 
 

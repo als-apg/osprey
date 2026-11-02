@@ -18,9 +18,9 @@ import time
 
 import pytest
 
-from tests.connectors import _ca_search, _soft_ioc
-from tests.connectors._ca_search import ca_raw_search
-from tests.connectors._soft_ioc import (
+from osprey_connectors_tests import _ca_search, _soft_ioc
+from osprey_connectors_tests._ca_search import ca_raw_search
+from osprey_connectors_tests._soft_ioc import (
     OCCUPIED_PORTS,
     STARTUP_BUDGET_S,
     IOCPorts,

@@ -1,8 +1,9 @@
 """``subscribe(channel_address, callback, *, on_connection=None)`` across connectors.
 
-The base class declares it; EPICS (CA and PVA) and the in-process simulator
-report connection state through it; DOOCS and TANGO accept and ignore it; the connector-host IPC
-proxy still has no ``subscribe`` at all.
+The base class declares it; EPICS (CA and PVA) reports connection state through
+it; DOOCS and TANGO accept and ignore it; the connector-host IPC proxy still has
+no ``subscribe`` at all. The in-process simulator's report is pinned beside the
+framework's served tree, in the framework's connector tests.
 """
 
 import asyncio
@@ -20,7 +21,6 @@ from osprey_connectors.control_system._va_connector import VirtualAcceleratorCon
 from osprey_connectors.control_system._va_in_process_connector import VAInProcessConnector
 from osprey_connectors.ipc._proxy import ConnectorHostProxy
 from osprey_connectors_tests._epics_fakes import FakeAioca, FakeChannel, ca_connector, ca_reading
-from tests.facility.served_tree import in_process_config, served_tree
 
 CONNECTORS = [
     ControlSystemConnector,
@@ -217,38 +217,6 @@ class TestPvaOnConnection:
         await asyncio.sleep(0.01)
 
         assert values == [4.0]
-
-
-# ---------------------------------------------------------------------------
-# The in-process simulator
-# ---------------------------------------------------------------------------
-
-
-class TestInProcessOnConnection:
-    @staticmethod
-    async def _connected(tmp_path) -> VAInProcessConnector:
-        view = served_tree(tmp_path, {"SR:CH:SP": None})
-        connector = VAInProcessConnector()
-        await connector.connect(in_process_config(view, response_delay_ms=0))
-        return connector
-
-    async def test_true_once_before_subscribe_returns(self, tmp_path):
-        connector = await self._connected(tmp_path)
-        states: list = []
-
-        await connector.subscribe("SR:CH:SP", lambda v: None, on_connection=states.append)
-
-        assert states == [True]
-        await connector.disconnect()
-
-    async def test_a_raising_connection_callback_does_not_fail_subscribe(self, tmp_path):
-        connector = await self._connected(tmp_path)
-
-        def boom(up):  # noqa: ARG001 - the on_connection signature; it raises regardless
-            raise RuntimeError("bad subscriber")
-
-        assert await connector.subscribe("SR:CH:SP", lambda v: None, on_connection=boom)
-        await connector.disconnect()
 
 
 # ---------------------------------------------------------------------------

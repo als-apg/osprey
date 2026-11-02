@@ -10,7 +10,7 @@ Records are caller-supplied: either ready db text or a list of
 :class:`RecordSpec` (see :func:`ai_record`, :func:`enum_record`). Nothing here
 imports pytest or a CA/PVA client, so a probe script can use it too::
 
-    from tests.connectors._soft_ioc import SoftIOC, ai_record
+    from osprey_connectors_tests._soft_ioc import SoftIOC, ai_record
 
     with SoftIOC([ai_record(f"SIM:AI{i}") for i in range(300)]) as ioc:
         env = ioc.client_env()      # point a CA / PVA client at this IOC

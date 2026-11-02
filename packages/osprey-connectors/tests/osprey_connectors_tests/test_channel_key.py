@@ -13,7 +13,7 @@ import pytest
 from osprey_connectors.control_system._epics_connector import EPICSConnector
 from osprey_connectors.control_system._va_connector import VirtualAcceleratorConnector
 from osprey_connectors.control_system._va_in_process_connector import VAInProcessConnector
-from tests._fake_connector import FakeConnector
+from osprey_connectors_tests._fake_connector import FakeConnector
 
 
 @pytest.mark.parametrize("cls", [EPICSConnector, VirtualAcceleratorConnector])

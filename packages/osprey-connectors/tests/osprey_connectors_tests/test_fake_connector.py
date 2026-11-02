@@ -1,4 +1,4 @@
-"""The test-only :class:`~tests._fake_connector.FakeConnector` keeps its promises.
+"""The test-only :class:`~osprey_connectors_tests._fake_connector.FakeConnector` keeps its promises.
 
 Session and adapter tests drive a control system through it, so what they rely
 on is pinned here: a connected channel reports ``True`` before its first value
@@ -15,7 +15,7 @@ import pytest
 
 from osprey_connectors.control_system._base import WriteOutcome
 from osprey_connectors.errors import ChannelUnreachableError, ConnectorUnavailableError
-from tests._fake_connector import FakeConnector
+from osprey_connectors_tests._fake_connector import FakeConnector
 
 ADDR = "SR:FAKE:CURRENT"
 OTHER = "SR:FAKE:OTHER"

@@ -17,7 +17,7 @@ Two halves:
   shapes.
 * **Wire** — a soft IOC (``tests/connectors/_soft_ioc.py``) and a client in its
   own process and session, as in ``test_ca_bulk_path.py``: each scenario runs as
-  ``python -m tests.connectors.test_ca_wait_stale <scenario> <json args>`` and
+  ``python -m osprey_connectors_tests.test_ca_wait_stale <scenario> <json args>`` and
   asks this process to kill or restart the IOC over stdin/stdout.
 """
 
@@ -53,7 +53,7 @@ from osprey_connectors_tests._epics_fakes import (
     patch_writes_enabled,
 )
 from osprey_connectors_tests._paths import TESTS_ROOT
-from tests.connectors._soft_ioc import READY_TIMEOUT_S
+from osprey_connectors_tests._soft_ioc import READY_TIMEOUT_S
 
 # xdist_group("soft-ioc"): the wire half starts real soft IOCs. Their ports are
 # probed free and then bound by a child process a moment later, so two workers
@@ -414,7 +414,7 @@ class TestNameServerStorage:
 
 @pytest.fixture
 def ioc(tmp_path):
-    from tests.connectors._soft_ioc import SoftIOC, ai_record
+    from osprey_connectors_tests._soft_ioc import SoftIOC, ai_record
 
     with SoftIOC([ai_record(SERVED, 1.5), ai_record(OTHER, 2.5)], workdir=tmp_path) as running:
         yield running
@@ -435,11 +435,17 @@ def run_client(
     ioc, scenario: str, *, gateway: bool = True, timeout: float = CLIENT_TIMEOUT_S, **extra: Any
 ) -> dict[str, Any]:
     """Run one client scenario against ``ioc``; serve its kill/restart requests."""
-    from tests.connectors._soft_ioc import kill_group
+    from osprey_connectors_tests._soft_ioc import kill_group
 
     args = {"port": ioc.ports.ca_server, "gateway": gateway, **extra}
     proc = subprocess.Popen(
-        [sys.executable, "-m", "tests.connectors.test_ca_wait_stale", scenario, json.dumps(args)],
+        [
+            sys.executable,
+            "-m",
+            "osprey_connectors_tests.test_ca_wait_stale",
+            scenario,
+            json.dumps(args),
+        ],
         cwd=REPO,
         env=_client_env(ioc, gateway=gateway),
         stdin=subprocess.PIPE,
