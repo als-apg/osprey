@@ -11,7 +11,11 @@
 import { test, expect, describe, vi, beforeEach, afterEach } from 'vitest';
 
 import { createChatRenderer } from '../../../src/osprey/interfaces/web_terminal/static/js/chat-render.js';
-import { onChat } from '../../../src/osprey/interfaces/web_terminal/static/js/chat-events.js';
+import {
+  onChat,
+  postChatNotice,
+  setChatNoticeSink,
+} from '../../../src/osprey/interfaces/web_terminal/static/js/chat-events.js';
 import { systemFrame } from '../../../src/osprey/interfaces/web_terminal/static/js/chat-system.js';
 
 /** @type {Array<() => void>} */
@@ -140,5 +144,23 @@ describe('systemFrame', () => {
         ?.activity ?? '';
     expect(activity).toContain('529');
     expect(activity).toContain('2/10');
+  });
+});
+
+describe('a notice posted from outside the chat', () => {
+  afterEach(() => setChatNoticeSink(null));
+
+  test('with no chat booted it is not shown, so the sender shows it itself', () => {
+    expect(postChatNotice('Safety watchdog is back on.')).toBe(false);
+  });
+
+  test('the console sink decides and answers whether it showed it', () => {
+    /** @type {string[]} */
+    const shown = [];
+    setChatNoticeSink((text) => (shown.push(text), true));
+    expect(postChatNotice('Safety watchdog is back on.')).toBe(true);
+    setChatNoticeSink(() => false);
+    expect(postChatNotice('hidden')).toBe(false);
+    expect(shown).toEqual(['Safety watchdog is back on.']);
   });
 });

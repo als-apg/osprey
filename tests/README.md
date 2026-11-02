@@ -45,8 +45,12 @@ the parallel invocation, so you normally just run a tier:
 `scripts/check.py list` prints every check and the tiers that run it.
 
 The check bounds its pytest runs with `scripts/run_bounded.py`, which exits
-124 when a run passes its bound. A run stopped by its bound prints every
-process's Python stacks before it is killed. Every pytest process the suite
+124 when a run passes its bound, after naming any process of its group that
+SIGKILL did not end, or saying the process table could not be read. A run stopped by its bound prints every
+process's Python stacks before it is killed. `Popen.wait()` and `poll()` report
+exit status 0 for a child something else reaped, so a child OSPREY owns is
+reaped only by its stop (`stop_child`); every liveness question asks
+`observe_exit`. Every pytest process the suite
 starts carries an exit report (the harness's `_live_threads.py`): after its last test it
 names the non-daemon threads and child processes keeping it alive, and a slow
 final garbage collection (`SLOW_CLEANUP_SECONDS`). A serial run or the xdist
@@ -57,13 +61,16 @@ holding it, and the exit callbacks registered with `atexit`.
 `tests/integration/test_suite_exit_bound.py` (`wallclock`) holds a facility
 test module under `-n 2` to that bound.
 
-A run keeps only failing tests' `tmp_path` directories
-(`tmp_path_retention_policy = "failed"` in `pyproject.toml`). Every run takes a
-temporary root of its own when it starts (`tests/_scoped_temp.py`), from any
-entry point, so no other pytest process prunes or removes what it holds. A
-green run removes the root; a red run keeps it and prints its path, with the
-failing tests' trees under `<root>/pytest-of-<user>/pytest-N/`. A
-`PYTEST_DEBUG_TEMPROOT` set by the caller is kept.
+Each run creates its own temporary root, `{temproot}/osprey-tests-*`
+(`PYTEST_DEBUG_TEMPROOT` or the system temp dir), in `tests/conftest.py`;
+an xdist run's workers live under it. A green run removes it. A red run keeps
+it, with only its failing tests' `tmp_path` directories
+(`tmp_path_retention_policy = "failed"` in `pyproject.toml`), and names it in
+the summary (`temporary files kept at …`). Nothing else on the host numbers or
+prunes it. Pass `--basetemp` to choose the place yourself; it is then never
+removed. Never add `--basetemp` to a launcher.
+
+A run owns its ports the same way; section 6 says how a test takes one.
 
 A test that reads a built project requests `built_control_assistant`
 (`tests/_builds.py`): one `osprey build --skip-deps` per run, which every xdist

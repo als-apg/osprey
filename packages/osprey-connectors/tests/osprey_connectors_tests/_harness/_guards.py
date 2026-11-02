@@ -25,6 +25,7 @@ from osprey_connectors_tests._harness import (
     _env_scope_guard,
     _live_threads,
     _repo_cleanliness,
+    _run_temp,
     ci_diagnostics,
 )
 from osprey_connectors_tests._harness._env_scope_guard import restore_module_environment
@@ -744,8 +745,15 @@ def reset_second_real_block_warning():
 # the variable unset this installs nothing and costs nothing.
 
 
+@pytest.hookimpl(tryfirst=True)
 def pytest_configure(config):
-    """Register the harness plugins, the CI recorder among them."""
+    """Claim the run's temporary root, then register the harness plugins and the CI recorder.
+
+    The root is claimed first, ahead of pytest's own temporary-path setup,
+    which reads it. See _run_temp.py.
+    """
+    _run_temp.claim(config)
+
     # Registered as a plugin rather than left as a hook in this file: a
     # session-scoped fixture's ``pytest_fixture_setup`` is dispatched on the
     # Session node, whose hook proxy carries only the conftests above it — this
@@ -902,6 +910,23 @@ def reset_connector_config_cache():
     reset_config_cache()
     yield
     reset_config_cache()
+
+
+@pytest.fixture(autouse=True, scope="function")
+def long_lived_session_mark_per_test():
+    """Start every test in a process that holds no long-lived control session.
+
+    ``ControlSession.open`` calls ``mark_long_lived_session``, which flips a
+    process-global flag for good: from then on every readonly refusal in the
+    process uses the deployment-wide wording. Without this reset, any test that
+    opens a session would switch the script wording off for every later test
+    sharing its worker, so the readonly-wording tests would pass or fail by
+    xdist placement and file order.
+    """
+    from osprey_connectors.control_system import _base as connector_base
+
+    connector_base._reset_long_lived_session_for_tests()
+    yield
 
 
 @pytest.fixture

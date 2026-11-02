@@ -12,8 +12,8 @@ under the key. These tests pin the invariants around that:
 - the spawn callback is told what to resume from a fresh look at the
   transcript map and the transcripts on disk, and is not called at all when
   the incoming surface's own entry is already pooled;
-- an Expert caller is attached with its channel token before the pending
-  slot and the reservation are released, and a displaced Expert connection
+- a terminal caller is attached with its channel token before the pending
+  slot and the reservation are released, and a displaced terminal connection
   is closed and detached first;
 - a cancellation delivered mid-phase does not stop the phase;
 - an Expert caller reuses the key's pooled PTY only when it was launched
@@ -101,11 +101,11 @@ def turn_state(app: SimpleNamespace) -> str | None:
 
 
 @pytest.mark.usefixtures("disk")
-async def test_free_key_expert_spawns_attaches_and_releases():
+async def test_free_key_terminal_spawns_attaches_and_releases():
     app = make_app()
     channel = object()
     spawn = pty_spawner(app)
-    result = await acquire_surface(app, KEY, "expert", channel, spawn=spawn)
+    result = await acquire_surface(app, KEY, "terminal", channel, spawn=spawn)
 
     assert isinstance(result, AcquireResult)
     assert result.plan.action == ACTION_SPAWN
@@ -113,7 +113,7 @@ async def test_free_key_expert_spawns_attaches_and_releases():
     assert result.spawned is True
     assert result.resume_id is None
     assert spawn.calls == [
-        SpawnRequest(key=KEY, surface="expert", resume_id=None, transcript_id=KEY)
+        SpawnRequest(key=KEY, surface="terminal", resume_id=None, transcript_id=KEY)
     ]
     assert registry(app).get_session(KEY) is result.session
     assert registry(app).attached_owner(KEY) is channel
@@ -123,16 +123,14 @@ async def test_free_key_expert_spawns_attaches_and_releases():
 
 
 @pytest.mark.usefixtures("disk")
-async def test_free_key_simple_spawns_the_chat_and_releases():
+async def test_free_key_chat_spawns_the_chat_and_releases():
     app = make_app()
     spawn = chat_spawner(app)
-    result = await acquire_surface(app, KEY, "simple", object(), spawn=spawn)
+    result = await acquire_surface(app, KEY, "chat", object(), spawn=spawn)
 
     assert result.plan.action == ACTION_SPAWN
     assert result.spawned is True
-    assert spawn.calls == [
-        SpawnRequest(key=KEY, surface="simple", resume_id=None, transcript_id=KEY)
-    ]
+    assert spawn.calls == [SpawnRequest(key=KEY, surface="chat", resume_id=None, transcript_id=KEY)]
     assert chats(app).get(KEY) is result.session
     # Nothing to attach for a chat, and nothing of the PTY's turn store touched.
     assert not registry(app).is_attached(KEY)
@@ -162,7 +160,7 @@ async def test_the_spawn_resumes_the_current_transcript_when_it_is_on_disk(
         app.state.transcript_map[KEY] = mapped
     disk.update(on_disk)
     spawn = pty_spawner(app)
-    result = await acquire_surface(app, KEY, "expert", object(), spawn=spawn)
+    result = await acquire_surface(app, KEY, "terminal", object(), spawn=spawn)
     (request,) = spawn.calls
     assert request.resume_id == expected
     assert request.transcript_id == (mapped or KEY)
@@ -175,13 +173,13 @@ async def test_the_spawn_resumes_the_current_transcript_when_it_is_on_disk(
 
 
 @pytest.mark.usefixtures("disk")
-async def test_expert_reuse_attaches_without_spawning():
+async def test_terminal_reuse_attaches_without_spawning():
     app = make_app()
     pty = pool_pty(app)
     set_store(app, BUSY, 1.0)
     channel = object()
     spawn = pty_spawner(app)
-    result = await acquire_surface(app, KEY, "expert", channel, spawn=spawn)
+    result = await acquire_surface(app, KEY, "terminal", channel, spawn=spawn)
 
     assert result.plan.action == ACTION_REUSE
     # A running TUI is reattached to, not waited on.
@@ -198,12 +196,12 @@ async def test_expert_reuse_attaches_without_spawning():
 
 
 @pytest.mark.usefixtures("disk")
-async def test_simple_reuse_hands_the_idle_chat_back_without_spawning():
+async def test_chat_reuse_hands_the_idle_chat_back_without_spawning():
     app = make_app()
     chat = Chat(busy=False)
     chats(app).sessions[KEY] = chat
     spawn = chat_spawner(app)
-    result = await acquire_surface(app, KEY, "simple", object(), spawn=spawn)
+    result = await acquire_surface(app, KEY, "chat", object(), spawn=spawn)
 
     assert result.plan.action == ACTION_REUSE
     assert result.outcome == WaitOutcome(REASON_IDLE)
@@ -214,12 +212,12 @@ async def test_simple_reuse_hands_the_idle_chat_back_without_spawning():
 
 
 @pytest.mark.usefixtures("disk")
-async def test_simple_reuse_with_interrupt_cancels_the_turn():
+async def test_chat_reuse_with_interrupt_cancels_the_turn():
     app = make_app()
     chat = Chat(busy=True)
     chats(app).sessions[KEY] = chat
     spawn = chat_spawner(app)
-    result = await acquire_surface(app, KEY, "simple", object(), interrupt=True, spawn=spawn)
+    result = await acquire_surface(app, KEY, "chat", object(), interrupt=True, spawn=spawn)
 
     assert result.outcome == WaitOutcome(REASON_INTERRUPTED)
     assert result.session is chat
@@ -231,13 +229,13 @@ async def test_simple_reuse_with_interrupt_cancels_the_turn():
 
 
 @pytest.mark.usefixtures("disk")
-async def test_simple_reuse_of_a_chat_that_died_discards_it_and_spawns():
+async def test_chat_reuse_of_a_chat_that_died_discards_it_and_spawns():
     app = make_app()
     corpse = Chat(busy=True)
     chats(app).sessions[KEY] = corpse
     spawn = chat_spawner(app)
     with wait_returns(REASON_EXITED):
-        result = await acquire_surface(app, KEY, "simple", object(), spawn=spawn)
+        result = await acquire_surface(app, KEY, "chat", object(), spawn=spawn)
 
     assert chats(app).terminated == [KEY]
     assert result.spawned is True
@@ -247,11 +245,11 @@ async def test_simple_reuse_of_a_chat_that_died_discards_it_and_spawns():
 
 
 @pytest.mark.usefixtures("disk")
-async def test_simple_joining_a_creation_in_flight_goes_through_the_spawn():
+async def test_chat_joining_a_creation_in_flight_goes_through_the_spawn():
     app = make_app()
     chats(app).starting.add(KEY)
     spawn = chat_spawner(app)
-    result = await acquire_surface(app, KEY, "simple", object(), spawn=spawn)
+    result = await acquire_surface(app, KEY, "chat", object(), spawn=spawn)
 
     assert result.plan.action == ACTION_REUSE and result.plan.outgoing is None
     assert len(spawn.calls) == 1
@@ -280,7 +278,7 @@ async def test_takeover_closes_the_displaced_owner_then_attaches_the_newcomer():
 
     get_state(app).closers[older] = close_older
     spawn = pty_spawner(app)
-    result = await acquire_surface(app, KEY, "expert", newer, spawn=spawn)
+    result = await acquire_surface(app, KEY, "terminal", newer, spawn=spawn)
 
     assert result.plan.action == ACTION_TAKEOVER
     # Immediate: a takeover is not a wait for the older owner to leave.
@@ -309,7 +307,7 @@ async def test_takeover_tolerates_a_missing_or_failing_closer():
                 raise OSError("socket already gone")
 
             get_state(app).closers[older] = close_older
-        result = await acquire(app, KEY, "expert", newer)
+        result = await acquire(app, KEY, "terminal", newer)
         assert registry(app).attached_owner(KEY) is newer
         assert result.spawned is False
         assert_released(app)
@@ -327,7 +325,7 @@ async def test_handoff_tears_the_chat_down_and_spawns_the_pty():
     chats(app).sessions[KEY] = chat
     channel = object()
     spawn = pty_spawner(app)
-    result = await acquire_surface(app, KEY, "expert", channel, spawn=spawn)
+    result = await acquire_surface(app, KEY, "terminal", channel, spawn=spawn)
 
     assert result.plan.action == ACTION_HANDOFF
     assert result.outcome == WaitOutcome(REASON_IDLE)
@@ -348,7 +346,7 @@ async def test_an_interrupted_chat_handoff_cancels_the_turn_through_the_teardown
     chat = Chat(busy=True)
     chats(app).sessions[KEY] = chat
     spawn = pty_spawner(app)
-    result = await acquire_surface(app, KEY, "expert", object(), interrupt=True, spawn=spawn)
+    result = await acquire_surface(app, KEY, "terminal", object(), interrupt=True, spawn=spawn)
     assert result.outcome == WaitOutcome(REASON_INTERRUPTED)
     assert chats(app).terminated == [KEY]
     assert chat.teardowns == 1
@@ -362,7 +360,7 @@ async def test_the_chat_child_is_observed_dead_before_the_spawn():
     chats(app).sessions[KEY] = chat
     chat.dying(app)
     spawn = pty_spawner(app)
-    result = await acquire_surface(app, KEY, "expert", object(), spawn=spawn)
+    result = await acquire_surface(app, KEY, "terminal", object(), spawn=spawn)
     assert result.spawned is True
     assert chat.process_exited is True
     polls = [s for s in app.clock.sleeps if s <= DEATH_POLL_S]
@@ -376,7 +374,7 @@ async def test_a_chat_child_that_survives_is_reinserted_and_refused_503():
     chats(app).sessions[KEY] = chat
     spawn = pty_spawner(app)
     with pytest.raises(HandoffRefused) as refused:
-        await acquire_surface(app, KEY, "expert", object(), spawn=spawn)
+        await acquire_surface(app, KEY, "terminal", object(), spawn=spawn)
 
     assert refused.value.status == 503
     assert refused.value.error == ERROR_OUTGOING_STILL_RUNNING
@@ -399,11 +397,11 @@ async def test_the_next_acquire_meets_the_chat_survivor_and_kills_it_again():
     chats(app).sessions[KEY] = chat
     spawn = pty_spawner(app)
     with pytest.raises(HandoffRefused):
-        await acquire_surface(app, KEY, "expert", object(), spawn=spawn)
+        await acquire_surface(app, KEY, "terminal", object(), spawn=spawn)
     assert chat.teardowns == 1 and chats(app).get(KEY) is chat
 
     chat.let_die()
-    result = await acquire_surface(app, KEY, "expert", object(), spawn=spawn)
+    result = await acquire_surface(app, KEY, "terminal", object(), spawn=spawn)
     # Handed off, not discarded: popped and torn down a second time, and
     # observed dead before the spawn.
     assert result.plan.action == ACTION_HANDOFF
@@ -417,24 +415,24 @@ async def test_the_next_acquire_meets_the_chat_survivor_and_kills_it_again():
 
 
 @pytest.mark.usefixtures("disk")
-async def test_a_chat_survivor_is_never_handed_back_to_the_simple_view():
-    """Its client is closed; a Simple caller gets a fresh chat after the re-kill."""
+async def test_a_chat_survivor_is_never_handed_back_to_the_chat_view():
+    """Its client is closed; a chat caller gets a fresh chat after the re-kill."""
     app = make_app()
     chat = Chat(busy=False, exits=False)
     chats(app).sessions[KEY] = chat
     with pytest.raises(HandoffRefused):
-        await acquire_surface(app, KEY, "expert", object(), spawn=pty_spawner(app))
+        await acquire_surface(app, KEY, "terminal", object(), spawn=pty_spawner(app))
     assert chats(app).get(KEY) is chat
 
     spawn = chat_spawner(app)
     with pytest.raises(HandoffRefused) as refused:
-        await acquire_surface(app, KEY, "simple", object(), spawn=spawn)
+        await acquire_surface(app, KEY, "chat", object(), spawn=spawn)
     assert refused.value.error == ERROR_OUTGOING_STILL_RUNNING
     assert chat.teardowns == 2
     assert spawn.calls == []
 
     chat.let_die()
-    result = await acquire_surface(app, KEY, "simple", object(), spawn=spawn)
+    result = await acquire_surface(app, KEY, "chat", object(), spawn=spawn)
     assert result.plan.action == ACTION_HANDOFF
     assert chat.teardowns == 3
     assert result.spawned is True
@@ -451,11 +449,11 @@ async def test_a_chat_survivor_whose_child_exited_meanwhile_is_a_corpse():
     chats(app).sessions[KEY] = chat
     spawn = pty_spawner(app)
     with pytest.raises(HandoffRefused):
-        await acquire_surface(app, KEY, "expert", object(), spawn=spawn)
+        await acquire_surface(app, KEY, "terminal", object(), spawn=spawn)
 
     chat.process_exited = True
     app.clock.sleeps.clear()
-    result = await acquire_surface(app, KEY, "expert", object(), spawn=spawn)
+    result = await acquire_surface(app, KEY, "terminal", object(), spawn=spawn)
     assert result.plan.action == ACTION_SPAWN
     assert chat.teardowns == 2
     assert app.clock.sleeps == []
@@ -474,7 +472,7 @@ async def test_an_outgoing_chat_already_gone_is_still_torn_down_and_observed():
 
     spawn = pty_spawner(app)
     with wait_returns(REASON_IDLE, before=gone):
-        result = await acquire_surface(app, KEY, "expert", object(), spawn=spawn)
+        result = await acquire_surface(app, KEY, "terminal", object(), spawn=spawn)
     assert chats(app).terminated == []
     assert chat.teardowns == 1
     assert chat.process_exited is True
@@ -489,7 +487,7 @@ async def test_a_chat_without_a_process_handle_is_taken_as_gone_with_a_warning(c
     chats(app).sessions[KEY] = chat
     spawn = pty_spawner(app)
     with caplog.at_level(logging.WARNING, logger=session_handoff.__name__):
-        result = await acquire_surface(app, KEY, "expert", object(), spawn=spawn)
+        result = await acquire_surface(app, KEY, "terminal", object(), spawn=spawn)
     assert result.spawned is True
     assert "cannot be observed dead" in caplog.text
     assert app.clock.sleeps == []
@@ -516,7 +514,7 @@ async def test_handoff_pops_terminates_off_the_loop_and_resets_the_turn_state():
         real_terminate()
 
     pty.terminate = terminate  # type: ignore[method-assign]
-    result = await acquire_surface(app, KEY, "simple", object(), spawn=spawn)
+    result = await acquire_surface(app, KEY, "chat", object(), spawn=spawn)
 
     assert result.plan.action == ACTION_HANDOFF
     assert result.outcome == WaitOutcome(REASON_IDLE)
@@ -537,7 +535,7 @@ async def test_a_forced_outcome_still_pops_terminates_and_checks_death():
     pty = pool_pty(app)
     set_store(app, BUSY, 1.0)
     spawn = chat_spawner(app)
-    result = await acquire_surface(app, KEY, "simple", object(), interrupt=True, spawn=spawn)
+    result = await acquire_surface(app, KEY, "chat", object(), interrupt=True, spawn=spawn)
 
     assert result.outcome == WaitOutcome(REASON_FORCED)
     assert pty.terminates == 2
@@ -557,7 +555,7 @@ async def test_an_exited_outcome_reaps_the_corpse_and_spawns():
 
     spawn = chat_spawner(app)
     with wait_returns(REASON_EXITED, before=dies):
-        result = await acquire_surface(app, KEY, "simple", object(), spawn=spawn)
+        result = await acquire_surface(app, KEY, "chat", object(), spawn=spawn)
 
     assert pty.terminates == 1
     assert registry(app).get_session(KEY) is None
@@ -576,7 +574,7 @@ async def test_a_pty_that_survives_is_reinserted_unattached_and_refused_503():
     set_store(app, IDLE, 3.0)
     spawn = chat_spawner(app)
     with pytest.raises(HandoffRefused) as refused:
-        await acquire_surface(app, KEY, "simple", object(), spawn=spawn)
+        await acquire_surface(app, KEY, "chat", object(), spawn=spawn)
 
     assert refused.value.status == 503
     assert refused.value.error == ERROR_OUTGOING_STILL_RUNNING
@@ -609,7 +607,7 @@ async def test_an_outgoing_pty_replaced_mid_wait_is_an_error_and_kills_nothing()
 
     spawn = chat_spawner(app)
     with wait_returns(REASON_IDLE, before=replace), pytest.raises(HandoffError) as failed:
-        await acquire_surface(app, KEY, "simple", object(), spawn=spawn)
+        await acquire_surface(app, KEY, "chat", object(), spawn=spawn)
 
     assert failed.value.error == ERROR_OUTGOING_VANISHED
     assert pty.terminates == 0 and impostor.terminates == 0
@@ -629,7 +627,7 @@ async def test_an_outgoing_chat_replaced_mid_wait_is_an_error():
 
     spawn = pty_spawner(app)
     with wait_returns(REASON_IDLE, before=replace), pytest.raises(HandoffError) as failed:
-        await acquire_surface(app, KEY, "expert", object(), spawn=spawn)
+        await acquire_surface(app, KEY, "terminal", object(), spawn=spawn)
     assert failed.value.error == ERROR_OUTGOING_VANISHED
     assert chats(app).terminated == [] and impostor.teardowns == 0
     assert spawn.calls == []
@@ -647,7 +645,7 @@ async def test_an_outgoing_entry_already_gone_leaves_nothing_to_tear_down():
 
     spawn = chat_spawner(app)
     with wait_returns(REASON_IDLE, before=gone):
-        result = await acquire_surface(app, KEY, "simple", object(), spawn=spawn)
+        result = await acquire_surface(app, KEY, "chat", object(), spawn=spawn)
     # The reference (c) kept is still reaped; the key was free for the spawn.
     assert pty.terminates == 1
     assert result.spawned is True
@@ -669,7 +667,7 @@ async def test_other_spawn_failures_escape_unchanged_after_the_release():
         raise OSError("fork failed")
 
     with pytest.raises(OSError, match="fork failed"):
-        await acquire_surface(app, KEY, "expert", object(), spawn=spawn)
+        await acquire_surface(app, KEY, "terminal", object(), spawn=spawn)
     # The outgoing chat was already torn down; the key is empty and free.
     assert chat.teardowns == 1
     assert chats(app).get(KEY) is None
@@ -685,7 +683,7 @@ async def test_a_spawn_that_pools_nothing_is_an_error():
         return RecordingPty()
 
     with pytest.raises(HandoffError) as failed:
-        await acquire_surface(app, KEY, "expert", object(), spawn=spawn)
+        await acquire_surface(app, KEY, "terminal", object(), spawn=spawn)
     assert failed.value.error == ERROR_SPAWN_NOT_POOLED
     assert not registry(app).is_attached(KEY)
     assert_released(app)
@@ -702,7 +700,7 @@ async def test_an_attachment_taken_meanwhile_is_the_409_refusal():
         return pty
 
     with pytest.raises(HandoffRefused) as refused:
-        await acquire_surface(app, KEY, "expert", object(), spawn=spawn)
+        await acquire_surface(app, KEY, "terminal", object(), spawn=spawn)
     assert refused.value.status == 409
     assert refused.value.error == ERROR_SESSION_ATTACHED_ELSEWHERE
     assert registry(app).attached_owner(KEY) is intruder
@@ -722,7 +720,7 @@ async def test_a_cancellation_mid_phase_lets_the_phase_finish():
     gate = asyncio.Event()
     channel = object()
     spawn = pty_spawner(app, gate=gate)
-    task = asyncio.create_task(acquire_surface(app, KEY, "expert", channel, spawn=spawn))
+    task = asyncio.create_task(acquire_surface(app, KEY, "terminal", channel, spawn=spawn))
     await until(lambda: len(spawn.calls) == 1)
     assert chat.teardowns == 1
 
@@ -758,7 +756,7 @@ async def test_a_failure_after_the_caller_was_cancelled_is_logged_not_lost(caplo
         await gate.wait()
         raise OSError("fork failed")
 
-    task = asyncio.create_task(acquire_surface(app, KEY, "expert", object(), spawn=spawn))
+    task = asyncio.create_task(acquire_surface(app, KEY, "terminal", object(), spawn=spawn))
     await until(lambda: len(calls) == 1)
     task.cancel()
     await asyncio.sleep(0.01)
@@ -779,12 +777,12 @@ async def test_the_phase_holds_the_key_lock_so_a_second_acquire_waits():
     gate = asyncio.Event()
     first, second = object(), object()
     spawn = pty_spawner(app, gate=gate)
-    task = asyncio.create_task(acquire_surface(app, KEY, "expert", first, spawn=spawn))
+    task = asyncio.create_task(acquire_surface(app, KEY, "terminal", first, spawn=spawn))
     await until(lambda: len(spawn.calls) == 1)
     assert get_state(app).lock_for(KEY).locked()
 
     # The second blocks on the lock itself: not one look at the pools yet.
-    other = asyncio.create_task(acquire(app, KEY, "expert", second))
+    other = asyncio.create_task(acquire(app, KEY, "terminal", second))
     await asyncio.sleep(0.02)
     assert not other.done()
     assert app.clock.sleeps == []
@@ -819,9 +817,9 @@ async def test_a_replaced_same_channel_acquire_carrying_out_leaves_the_new_slot_
     channel = object()
     spawn = chat_spawner(app)
     with patch.object(session_handoff, "_wait_for_idle", gated_wait):
-        first = asyncio.create_task(acquire(app, KEY, "simple", channel, spawn=spawn))
+        first = asyncio.create_task(acquire(app, KEY, "chat", channel, spawn=spawn))
         await until(lambda: len(gates) == 1)
-        second = asyncio.create_task(acquire(app, KEY, "simple", channel, spawn=spawn))
+        second = asyncio.create_task(acquire(app, KEY, "chat", channel, spawn=spawn))
         await until(lambda: len(gates) == 2)
         second_record = get_state(app).pending[KEY]
 
@@ -860,7 +858,7 @@ async def test_a_pty_launched_under_the_same_overlay_is_reattached():
     result = await acquire_surface(
         app,
         KEY,
-        "expert",
+        "terminal",
         channel,
         spawn=must_not_spawn,
         launch_env=lambda _key: dict(OVERLAY_A),
@@ -881,7 +879,7 @@ async def test_a_pty_launched_under_another_overlay_is_replaced(disk):  # noqa: 
     channel = object()
     spawn = pty_spawner(app)
     result = await acquire_surface(
-        app, KEY, "expert", channel, spawn=spawn, launch_env=lambda _key: dict(OVERLAY_B)
+        app, KEY, "terminal", channel, spawn=spawn, launch_env=lambda _key: dict(OVERLAY_B)
     )
 
     assert old.terminates == 1 and not old.is_alive
@@ -912,7 +910,7 @@ async def test_a_takeover_of_a_mismatched_pty_closes_the_older_connection_first(
     get_state(app).closers[older] = close_older
     spawn = pty_spawner(app)
     result = await acquire_surface(
-        app, KEY, "expert", newer, spawn=spawn, launch_env=lambda _key: dict(OVERLAY_B)
+        app, KEY, "terminal", newer, spawn=spawn, launch_env=lambda _key: dict(OVERLAY_B)
     )
 
     assert result.plan.action == ACTION_TAKEOVER
@@ -932,7 +930,7 @@ async def test_a_mismatched_pty_that_survives_its_kill_is_put_back_and_refused_5
     spawn = pty_spawner(app)
     with pytest.raises(HandoffRefused) as refused:
         await acquire_surface(
-            app, KEY, "expert", object(), spawn=spawn, launch_env=lambda _key: dict(OVERLAY_B)
+            app, KEY, "terminal", object(), spawn=spawn, launch_env=lambda _key: dict(OVERLAY_B)
         )
 
     assert refused.value.status == 503
@@ -949,7 +947,7 @@ async def test_a_mismatched_pty_that_survives_its_kill_is_put_back_and_refused_5
 async def test_no_stated_overlay_reattaches_a_pty_launched_with_none():
     app = make_app()
     pty = pool_pty(app)
-    result = await acquire(app, KEY, "expert", object())
+    result = await acquire(app, KEY, "terminal", object())
 
     assert result.session is pty
     assert result.spawned is False
@@ -963,7 +961,7 @@ async def test_the_spawn_request_never_shows_the_overlay(caplog):
     launched_under(app, OVERLAY_A)
     spawn = pty_spawner(app)
     await acquire_surface(
-        app, KEY, "expert", object(), spawn=spawn, launch_env=lambda _key: dict(OVERLAY_B)
+        app, KEY, "terminal", object(), spawn=spawn, launch_env=lambda _key: dict(OVERLAY_B)
     )
 
     (request,) = spawn.calls

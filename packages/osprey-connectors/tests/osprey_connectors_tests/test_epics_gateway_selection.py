@@ -264,7 +264,7 @@ async def test_a_connector_lagging_the_switch_refuses_switching(monkeypatch, rec
     connector = EPICSConnector()
     await connector.connect({"gateways": _both_gateways()})
 
-    turn_switch(ARMED_TARGET, "on")
+    turn_switch(ARMED_TARGET, "asked")
     result = await connector.write_channel(SP, 2.0)
 
     assert result.outcome is WriteOutcome.REFUSED
@@ -278,7 +278,7 @@ async def test_a_lagging_connector_turned_off_again_refuses_switch_off(monkeypat
     connector = EPICSConnector()
     await connector.connect({"gateways": _both_gateways()})
 
-    turn_switch(ARMED_TARGET, "on")
+    turn_switch(ARMED_TARGET, "asked")
     turn_switch(ARMED_TARGET, "off")
     result = await connector.write_channel(SP, 2.0)
 
@@ -292,7 +292,7 @@ async def test_reconnecting_after_the_turn_on_selects_the_write_gateway(
     connector = EPICSConnector()
     await connector.connect({"gateways": _both_gateways()})
 
-    turn_switch(ARMED_TARGET, "on")
+    turn_switch(ARMED_TARGET, "asked")
     await connector.connect({"gateways": _both_gateways()})
     result = await connector.write_channel(SP, 2.0, confirm=False)
 
@@ -322,7 +322,7 @@ async def test_no_write_gateway_is_never_refused_switching(monkeypatch, record_r
     connector = EPICSConnector()
     await connector.connect({"gateways": {"read_only": dict(READ)}})
 
-    turn_switch(ARMED_TARGET, "on")
+    turn_switch(ARMED_TARGET, "asked")
     result = await connector.write_channel(SP, 2.0, confirm=False)
 
     assert result.outcome is not WriteOutcome.REFUSED, result.error_message
@@ -336,7 +336,7 @@ async def test_a_batch_on_a_lagging_connector_refuses_every_operation(
     connector = EPICSConnector()
     await connector.connect({"gateways": _both_gateways()})
 
-    turn_switch(ARMED_TARGET, "on")
+    turn_switch(ARMED_TARGET, "asked")
     results = await connector.write_multiple_channels([(SP, 1.0), (SP, 2.0)])
 
     assert [r.outcome for r in results] == [WriteOutcome.REFUSED, WriteOutcome.REFUSED]

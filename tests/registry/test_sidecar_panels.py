@@ -95,7 +95,7 @@ def test_importing_the_package_does_not_build_the_web_application():
         "print(pkg.run_web.__module__)"
     )
     result = subprocess.run(
-        [sys.executable, "-c", probe], capture_output=True, text=True, check=True
+        [sys.executable, "-c", probe], capture_output=True, text=True, check=True, timeout=120
     )
     imported, run_web_module = result.stdout.split()
 

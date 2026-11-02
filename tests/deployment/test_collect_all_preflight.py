@@ -732,7 +732,7 @@ def stubbed_start(monkeypatch):
         provision, "verify_renders", lambda config, resolved_users, repo_root=None: None
     )
     monkeypatch.setattr(
-        container_lifecycle, "_compose_provider", lambda config: ComposeProvider.DOCKER_V2
+        container_lifecycle, "_compose_provider", lambda config=None, **_: ComposeProvider.DOCKER_V2
     )
     return reached
 

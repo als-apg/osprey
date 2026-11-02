@@ -28,6 +28,7 @@ from osprey_connectors.errors import BuildProfileError
 from osprey_connectors.types import (
     configured_targets,
     resolve_target,
+    tier_allows,
     tier_writes,
 )
 
@@ -1009,10 +1010,10 @@ def _pin_edit_doors(config: dict[str, Any]) -> dict[str, Any]:
 
 
 def _judge_app_posture(app_config: dict[str, Any], app_rel: str) -> None:
-    """Refuse an app that spells ``control_system.writes: allowed``; warn about one that arms.
+    """Refuse an app that spells an arming tier word; warn about one that arms a retired leaf.
 
-    An app is always ``never``. The tier key spelled ``allowed`` in an app is
-    refused (the parse refuses it too; this is the composer's own door, for a
+    An app is always ``never``. The tier key spelled ``asked`` or ``allowed`` in
+    an app is refused (the parse refuses it too; this is the composer's own door, for a
     caller that hands it an unparsed document). An app on the retired
     ``writes_enabled`` leaves that arm is pinned ``never`` as it always was,
     and warned about once: the normalizer has already rewritten a parsed one,
@@ -1022,9 +1023,12 @@ def _judge_app_posture(app_config: dict[str, Any], app_rel: str) -> None:
 
     from .build_profile_document import retired_write_answer
 
-    if any(value == "allowed" for value in _document._tier_key_values(app_config)):
+    arming = next(
+        (v for v in _document._tier_key_values(app_config) if v in _document._ARMING_WORDS), None
+    )
+    if arming is not None:
         raise BuildProfileError(
-            f"{app_rel}: an app cannot spell `{WRITES_KEY}: allowed` — an app is always "
+            f"{app_rel}: an app cannot spell `{WRITES_KEY}: {arming}` — an app is always "
             f"`{WRITES_KEY}: {_APP_WRITES}`; give write access through a tier."
         )
     if retired_write_answer(app_config) == "allowed":
@@ -1139,8 +1143,8 @@ def compose_app_render(host: dict[str, Any], app: dict[str, Any], app_rel: str) 
         The composed render, before the attachment facts are set.
 
     Raises:
-        BuildProfileError: If the app file spells ``control_system.writes:
-            allowed``, or if the composed render could still write.
+        BuildProfileError: If the app file spells ``control_system.writes``
+            with an arming word, or if the composed render could still write.
     """
     render = {
         key: value
@@ -1374,9 +1378,12 @@ def judge_retired_posture(
       previous-release tier spells an unarmed ``epics`` leaf on deployments
       that configure no EPICS machine, and those keep building for the
       release window).
-    * A difference warns "was <today>, now <tier>".
-    * An unchanged ``allowed`` whose configured machines today's reading only
-      partly armed warns, naming the machines that become armable.
+    * A difference warns "was <today>, now <tier>". Today's reading has two
+      words, so an arming tier word agrees with today's ``allowed``: the
+      question is whether the render arms, not how it spells that.
+    * A tier word that arms (``asked`` or ``allowed``) over a today that armed,
+      but only partly armed its configured machines, warns, naming the tier
+      word and the machines that become armable.
 
     Each warning is logged once per *dedupe* key, and never with *warn* off.
 
@@ -1426,7 +1433,8 @@ def judge_retired_posture(
         target for target, on in _document._retired_session_posture(today_section).items() if on
     ]
     today = _ALLOWED if armed else _NEVER
-    if today != tier:
+    arms = tier_allows(section)
+    if bool(armed) != arms:
         _warn_once(
             dedupe,
             _POSTURE_CHANGE,
@@ -1437,13 +1445,13 @@ def judge_retired_posture(
             f"`{_CONTROL_SYSTEM_SECTION}.writes` explicitly",
         )
         return
-    if tier == _ALLOWED:
+    if arms:
         armable = [t for t in configured_now if t not in armed]
         if armable:
             _warn_once(
                 dedupe,
                 _WIDENING,
-                f"{label}: `{_CONTROL_SYSTEM_SECTION}.writes: {_ALLOWED}` lets a session write to "
+                f"{label}: `{_CONTROL_SYSTEM_SECTION}.writes: {tier}` lets a session write to "
                 f"every configured machine; today only "
                 f"{', '.join(_machine(today_section, t) for t in armed)} was armed, so "
                 f"{', '.join(_machine(today_section, t) for t in armable)} become armable",

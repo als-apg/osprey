@@ -38,7 +38,7 @@ BINDING = corpora.BINDING
 #: top place ``SR``, which carries the tune and chromaticity channels itself.
 DEMO_DEVICES = 645
 DEMO_TYPED_DEVICES = 644
-DEMO_BINDINGS = 3338
+DEMO_BINDINGS = 3339
 DEMO_WRITE_ONLY = 522
 DEMO_READ_ONLY = 2812
 DEMO_MAGNETS = 466
@@ -48,7 +48,7 @@ DEMO_CLASS_COUNT = 30
 #: The channels bound to the top place rather than to a device: no system, no
 #: signal, no class.
 DEMO_PLACE_BOUND = frozenset(
-    {"SR:DIAG:CHROM:X", "SR:DIAG:CHROM:Y", "SR:DIAG:TUNE:X", "SR:DIAG:TUNE:Y"}
+    {"SR:BEAM:USER_MODE", "SR:DIAG:CHROM:X", "SR:DIAG:CHROM:Y", "SR:DIAG:TUNE:X", "SR:DIAG:TUNE:Y"}
 )
 
 
@@ -430,7 +430,7 @@ class TestModuleImport:
             """
         )
         result = subprocess.run(
-            [sys.executable, "-c", script], capture_output=True, text=True, check=False
+            [sys.executable, "-c", script], capture_output=True, text=True, check=False, timeout=120
         )
         assert result.returncode == 0, result.stderr
         assert "ok" in result.stdout

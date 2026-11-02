@@ -202,6 +202,7 @@ from osprey_connectors.simulation.view import (  # noqa: E402
     SimulatorView,
 )
 from osprey_connectors_tests._harness._ports import reserved_port  # noqa: E402
+from tests.e2e._facility_select import monitor_addresses  # noqa: E402
 from tests.va._collection import assert_module_collected  # noqa: E402
 from tests.va.e2e import conftest as e2e_conftest  # noqa: E402
 
@@ -225,15 +226,10 @@ EXACT_TOL = 1e-9
 #: platform and this process's agree on it to this, relative (a few parts in a
 #: million apart on the demo), and on every other channel to :data:`EXACT_TOL`.
 CHROMATICITY_TOL = 1e-5
-CHROMATICITY = frozenset({"SR:DIAG:CHROM:X", "SR:DIAG:CHROM:Y"})
+CHROMATICITY = e2e_conftest.CHROMATICITY
 
-#: The noisy served channels of the demo: every served address whose seed
-#: declares noise or drift. The transfer line adds none: it carries no seeds.
-EXPECTED_NOISY_CHANNELS = 751
 #: The example facility's seeds, keyed by address.
 DEMO_SEEDS = REPO_ROOT / "src" / "osprey" / "templates" / "facilities" / "example" / "seeds.yaml"
-#: The address prefix of the demo's transfer line, the physics model solved single-pass.
-LINE_PREFIX = "LINE:"
 #: Reads per substrate per noisy channel.
 SAMPLES = 200
 #: The family-wise false-alarm rate the noise bounds are set for.
@@ -252,22 +248,16 @@ SWITCH_BOUND_S = 30.0
 #: active: far above its seed noise, far below the override.
 BURST_THRESHOLD = 1e-6
 
-#: The operating point the held comparison is taken at: a horizontal and a
-#: vertical corrector the other suites in this directory never write, so the
-#: closed orbit is nonzero at every monitor, and a texture setpoint whose
-#: write echoes into its readback.
-OPERATING_POINT: dict[str, float] = {
-    "SR:MAG:HCM:11:CURRENT:SP": 1.5,
-    "SR:MAG:VCM:11:CURRENT:SP": -0.75,
-    "SR:RF:CAVITY:01:VOLTAGE:SP": 2.6,
-}
+#: The operating point the held comparison is taken at (the scenario world's,
+#: see the directory conftest).
+OPERATING_POINT = e2e_conftest.OPERATING_POINT
 
 #: The served address the capture leaves out besides the waveforms: the suite's
 #: synthetic string channel, which the demo does not carry.
 SUITE_ADDITIONS = frozenset({e2e_conftest.STRING_CHANNEL})
-#: The physics model's status channel: ``ok`` while it solves, its error text
+#: The lane model's status channel: ``ok`` while it solves, its error text
 #: once it fails.
-SR_STATUS = "ca:SIM:SR:STATUS"
+LANE_STATUS = e2e_conftest.LANE.status_address
 
 #: Container-name prefix of the noise container; the pid follows, as for the
 #: session container (see the directory conftest for why).
@@ -331,6 +321,14 @@ class View:
         if address in self.status:
             return "string"
         return str(self.channel(address).value_type or "float")
+
+
+def _facility_noisy_count() -> int:
+    """How many channels of the preset's view carry a seed that declares noise or drift."""
+    view = e2e_conftest.PRESET_VIEW
+    count = sum(declares_motion(view.seed(address)) for address in view.channels())
+    assert count > 0, "no seed of the preset's view declares noise or drift"
+    return count
 
 
 def _composite(view: View, state_dir: Path | None) -> Any:
@@ -507,11 +505,7 @@ def test_every_channel_without_motion_agrees_at_the_operating_point(
         )
     }
 
-    line_monitors = [
-        address
-        for address in session_view.served
-        if address.startswith(f"{LINE_PREFIX}DIAG:BPM:") and ":POSITION:" in address
-    ]
+    line_monitors = monitor_addresses(session_view.reader, model=e2e_conftest.SECOND_MODEL)
 
     assert len(still) > len(session_view.addresses) // 2
     assert line_monitors
@@ -543,11 +537,7 @@ def test_the_operating_point_moves_the_orbit_at_every_monitor(
     """Anti-vacuous guard: at rest the closed orbit is zero at every monitor,
     and the agreement above would be a comparison of zeros."""
     wire, _mock, _held = operating_point
-    monitors = [
-        address
-        for address in session_view.served
-        if address.startswith("SR:DIAG:BPM:") and ":POSITION:" in address
-    ]
+    monitors = sorted(monitor_addresses(session_view.reader, model=e2e_conftest.LANE_MODEL))
 
     assert monitors
     assert [address for address in monitors if wire[address]["value"] == 0.0] == []
@@ -647,8 +637,8 @@ def test_every_string_channel_decodes_to_the_text_the_composite_holds(
     assert decoded[e2e_conftest.STRING_CHANNEL] == e2e_conftest.STRING_NOMINAL
 
 
-def _sr_status() -> str:
-    return decode_char_waveform(_read(e2e_conftest.CA_PORT, [SR_STATUS])[SR_STATUS]["value"])
+def _lane_status() -> str:
+    return decode_char_waveform(_read(e2e_conftest.CA_PORT, [LANE_STATUS])[LANE_STATUS]["value"])
 
 
 def test_a_failed_scenario_reads_with_the_composites_severity(
@@ -661,13 +651,13 @@ def test_a_failed_scenario_reads_with_the_composites_severity(
     assert applied.returncode == 0, applied.stdout + applied.stderr
     try:
         deadline = time.monotonic() + SWITCH_BOUND_S
-        while _sr_status() == "ok":
+        while _lane_status() == "ok":
             assert time.monotonic() < deadline, "the container never failed the physics model"
             time.sleep(0.2)
         wire = _read(e2e_conftest.CA_PORT, session_view.addresses)
         mock = _composite(session_view, va_container.state_dir)
         failed = mock.output_severity(session_view.addresses)
-        mock_status = mock.status("SR")
+        mock_status = mock.status(e2e_conftest.LANE_MODEL)
     finally:
         _to_nominal(va_container)
 
@@ -745,15 +735,20 @@ def test_the_container_without_the_suite_scenario_serves_the_demos_noisy_channel
 ) -> None:
     noisy = [address for address in noisy_va.view.served if noisy_va.view.moving(address)]
 
-    assert len(noisy) == EXPECTED_NOISY_CHANNELS
+    assert len(noisy) == _facility_noisy_count()
 
 
 def test_the_transfer_line_carries_no_seeds() -> None:
     """The noisy count holds with the transfer line served: no seed names it."""
     seeds = yaml.safe_load(DEMO_SEEDS.read_text(encoding="utf-8"))
+    wired = {
+        binding.address
+        for binding in e2e_conftest.PRESET_VIEW.bindings(model=e2e_conftest.SECOND_MODEL)
+    }
 
     assert seeds
-    assert sorted(address for address in seeds if address.startswith(LINE_PREFIX)) == []
+    assert wired
+    assert sorted(wired & set(seeds)) == []
 
 
 @pytest.fixture(scope="module")
@@ -824,7 +819,7 @@ def test_the_noisy_channels_agree_in_mean_and_spread(
         elif spread_gap > spread_bound:
             failures[address] = f"|ln(σ ratio)| {spread_gap}, bound {spread_bound}"
 
-    assert count == EXPECTED_NOISY_CHANNELS
+    assert count == _facility_noisy_count()
     assert failures == {}
 
 

@@ -97,6 +97,13 @@ Available Providers
      - OpenAI (proxied)
      - No
      - No
+   * - ``openrouter``
+     - OpenRouter hosted model router (models from many vendors)
+     - Cloud
+     - ``OPENROUTER_API_KEY``
+     - OpenAI (proxied)
+     - No
+     - No
    * - ``vllm``
      - vLLM inference server
      - Self-hosted
@@ -154,6 +161,7 @@ Set the API key as an environment variable before running Osprey:
    export ANTHROPIC_API_KEY="sk-ant-..."
    export OPENAI_API_KEY="sk-..."
    export GOOGLE_API_KEY="AIza..."
+   export OPENROUTER_API_KEY="sk-or-..."
 
    # Institutional proxies
    export CBORG_API_KEY="..."

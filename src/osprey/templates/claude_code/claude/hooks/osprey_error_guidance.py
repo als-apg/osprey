@@ -77,6 +77,8 @@ ERROR_CLASS_MAP = {
     # envelope; "control system" only when the controls server says so.
     "connection_error": "Connection",
     "timeout_error": "Connection",
+    # One channel's device did not answer; the control system as a whole did.
+    "channel_unreachable": "Connection",
     "service_unavailable": "Connection",
     # A switch that was attempted and did not complete: the destination did
     # not answer, and the previous target is still active.
@@ -142,6 +144,8 @@ ERROR_CLASS_MAP = {
     "figure_not_current": "Validation",
     # A lattice figure the selected model cannot draw: pick another figure.
     "figure_unavailable": "Validation",
+    # The reviewer refused this code: revise it and resubmit.
+    "review_blocked": "Validation",
     # ---- Data: a lookup that missed. Report what was asked for and that
     # nothing was found; suggest refining.
     "not_found": "Data",
@@ -223,6 +227,8 @@ ERROR_CLASS_MAP = {
     # Bluesky bridge refusals that need an operator.
     "config_unreadable": "Internal",
     "manager_not_configured": "Internal",
+    # The reviewer could not run: report it verbatim and do not retry.
+    "review_unavailable": "Internal",
 }
 
 

@@ -54,7 +54,7 @@ pytestmark = pytest.mark.slow
 #: delta pins. That leaf IS the tier boundary between them — both pin the flat
 #: key off — which makes it the one field that proves a render came from the
 #: right delta.
-RENDER_WRITES = {"readonly": "never", "readwrite": "allowed"}
+RENDER_WRITES = {"readonly": "never", "readwrite": "asked"}
 
 
 def _run_build(repo: Path) -> None:

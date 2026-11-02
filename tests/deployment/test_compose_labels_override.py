@@ -307,7 +307,7 @@ def _docker_compose_missing() -> str | None:
     if shutil.which("docker") is None:
         return "the docker CLI is not on PATH"
     probe = subprocess.run(
-        ["docker", "compose", "version"], capture_output=True, text=True, check=False
+        ["docker", "compose", "version"], capture_output=True, text=True, check=False, timeout=60
     )
     if probe.returncode != 0:
         return "the docker compose plugin is not installed"
@@ -335,6 +335,7 @@ def test_docker_compose_config_shows_the_four_labels_on_every_service(
         env=env,
         cwd=tmp_path,
         check=False,
+        timeout=60,
     )
 
     assert result.returncode == 0, result.stderr

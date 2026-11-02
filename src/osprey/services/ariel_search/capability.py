@@ -61,7 +61,7 @@ async def get_ariel_search_service() -> ARIELSearchService:
 def reset_ariel_service() -> None:
     """Reset the service singleton (for testing).
 
-    Note: This does NOT close the service's connection pool.
+    Note: This does NOT close the service.
     Use close_ariel_service() for proper cleanup.
     """
     global _ariel_service_instance

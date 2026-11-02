@@ -33,9 +33,22 @@ import {
 } from './panel-agent-attention.js';
 import { AGENT_ACTIVITY_FRAME } from './activity-format.js';
 import { PANELS, TERMINAL_RAIL_ID } from './panel-catalog.js';
-import { ensureRailMembership, addPanel, applyRailOrder } from './panel-lifecycle.js';
+import {
+  ensureRailMembership,
+  addPanel,
+  applyRailOrder,
+  rereadPanelConfig,
+} from './panel-lifecycle.js';
 import { entryIds, placeEntry } from './panel-rail.js';
 import { applyAgentSwitch, applyArrange } from './panel-placement.js';
+import { isPoppedOut, focusPopout } from './popout.js';
+import {
+  initWatchdogAlert,
+  isWatchdogFrame,
+  onWatchdogFrame,
+  refetchFlags,
+} from './watchdog-alert.js';
+import { isSafetySwitchFrame, refreshSafetySwitches } from './safety-switches.js';
 
 /** @typedef {import('./panel-manager.js').PanelSSEEvent} PanelSSEEvent */
 /** @typedef {import('./panel-manager.js').AgentActivityEvent} AgentActivityEvent */
@@ -56,8 +69,6 @@ import { applyAgentSwitch, applyArrange } from './panel-placement.js';
  * @property {(id: string, url: string) => void} navigate - point a panel's iframe at `url`
  * @property {() => string | null} getActive - the locally surfaced panel id
  * @property {() => void} resetActive - forget the surfaced panel, leaving the rail accent alone
- * @property {() => boolean} isWorkspaceSuppressed - simple-UX chat-only boot still armed
- * @property {() => void} endWorkspaceSuppression - one-way exit from that boot state
  * @property {(message: string) => void} renderEmpty - paint the empty-workspace placeholder
  * @property {(frame: AgentActivityEvent) => void} reportActivity - hand a frame to the strip seam
  */
@@ -85,6 +96,7 @@ function ctx() {
  */
 export function subscribePanelEvents(sseDeps) {
   deps = sseDeps;
+  initWatchdogAlert();
 
   // Listen for SSE events via createEventSource (api.js) so the URL picks up
   // window.__OSPREY_PREFIX__ under multi-user deployments (empty prefix ⇒
@@ -126,10 +138,16 @@ export function subscribePanelEvents(sseDeps) {
   //                                               signal: badge+glow the rail entry
   //                                               for target.kind 'panel', otherwise
   //                                               hand off to the strip seam.
+  //   watchdog_*       {type, session_key, ...} — a change notice: handed to
+  //                                               watchdog-alert.js, which re-reads
+  //                                               the flags from their route.
+  //   safety_switch    {type, name, on}         — a runtime safety switch moved:
+  //                                               safety-switches.js re-reads them.
   //
   // The first three may carry source:'agent' (agent-originated command): that
   // adds a transient glow on the rail entry — never a persistent badge, the
   // action itself already happened. Untagged frames behave exactly as before.
+  let streamOpened = false;
   createEventSource('/api/files/events', {
     // prefixed via createEventSource (api.js)
     // SSE has no replay: anything broadcast while this client was
@@ -142,6 +160,12 @@ export function subscribePanelEvents(sseDeps) {
     // an entry the resync just re-added can carry one (restoreAgentBadges).
     onOpen: () => {
       void resyncPanelState().then(restoreAgentBadges);
+      void refetchFlags();
+      void refreshSafetySwitches();
+      // The first open follows the config reads of this page's boot. A later
+      // one may be a different hub: what each panel is served at is read again.
+      if (streamOpened) for (const panel of PANELS) void rereadPanelConfig(panel);
+      streamOpened = true;
     },
     onMessage: (raw) => {
       try {
@@ -149,21 +173,23 @@ export function subscribePanelEvents(sseDeps) {
         const c = ctx();
 
         if (data.type === 'panel_focus' && data.panel) {
-          // A broadcast switch also ends the simple-UX chat-only suppression,
-          // even when the activation still refuses (unhealthy panel): the
-          // intent to surface the workspace is clear, so the next health
-          // settle may fill the slot.
-          c.endWorkspaceSuppression();
           if (data.url) c.navigate(data.panel, data.url);
-          // An AGENT switch is polite: focus the panel's own tile, or open one
-          // beside the operator's — never take a tile away (applyAgentSwitch).
-          // Human focus is never broadcast (the server mirrors it silently and
-          // the gesturing client applies it locally), so an unattributed frame
-          // can only come from an out-of-contract caller; it keeps the plain
-          // activation. The attribution runs after the switch so a just-added
-          // entry can flash and the tile glow measures the tile the switch
-          // actually surfaced.
-          if (data.source === 'agent') {
+          // A panel living in its own pop-out window has no tile to focus or
+          // open: the window comes to the front instead, and an agent switch
+          // still flashes the rail entry so the operator sees who asked.
+          if (isPoppedOut(data.panel)) {
+            focusPopout(data.panel);
+            if (data.source === 'agent') flashAgentTile(data.panel);
+          } else if (data.source === 'agent') {
+            // An AGENT switch is polite: focus the panel's own tile, or open
+            // one beside the operator's — never take a tile away
+            // (applyAgentSwitch). Human focus is never broadcast (the server
+            // mirrors it silently and the gesturing client applies it
+            // locally), so an unattributed frame can only come from an
+            // out-of-contract caller; it keeps the plain activation. The
+            // attribution runs after the switch so a just-added entry can
+            // flash and the tile glow measures the tile the switch actually
+            // surfaced.
             applyAgentSwitch(data.panel);
             flashAgentTile(data.panel);
           } else {
@@ -199,6 +225,10 @@ export function subscribePanelEvents(sseDeps) {
           if (!(t.kind === 'panel' && t.panel && badgePanelActivity(t.panel, data.ts))) {
             c.reportActivity(data);
           }
+        } else if (isWatchdogFrame(data)) {
+          onWatchdogFrame(data);
+        } else if (isSafetySwitchFrame(data)) {
+          void refreshSafetySwitches();
         }
       } catch (err) {
         // A throw mid-dispatch can leave rail membership, the dock layout and
@@ -218,16 +248,14 @@ export function subscribePanelEvents(sseDeps) {
  * Order matters and is pinned by the test suite: membership + rail entry
  * first (the agent glow runs after the add so a just-added entry can flash,
  * and an agent-origin change reports itself on the activity strip);
- * then the simple-UX chat-only reveal (showing a panel while the workspace is
- * suppressed brings the workspace up ON that panel — {auto: true} keeps the
- * health guard); then, on a hide, the dock tile drop (one panel per tile — a
+ * then, on a hide, the dock tile drop (one panel per tile — a
  * closed panel's placeholder would be a ghost tile) under the echo guard
  * (dockview auto-activating a neighbor on removal is a server-applied echo
  * and must not POST focus back), and finally the active-panel fallback so a
  * hidden active panel never strands a blank pane.
  *
  * An addition with an `index` lands at that position among the rail's panel
- * entries, counted without SESSION — the same count the operator's Undo took
+ * entries, counted without Agent — the same count the operator's Undo took
  * at removal — so every client puts a restored entry back where it was, not
  * only the one that clicked. A panel that was already a member keeps its
  * place.
@@ -262,11 +290,6 @@ function applyPanelVisibility(panel, visible, source, index) {
       tool: visible ? 'add_panel_to_rail' : 'remove_panel_from_rail',
       target: { kind: 'panel', panel },
     });
-
-  if (visible && c.isWorkspaceSuppressed()) {
-    c.endWorkspaceSuppression();
-    if (!c.getActive()) c.activate(panel, { auto: true });
-  }
 
   // A panel the operator can no longer launch must not be stranded on screen.
   // A hide of a panel that was never on the rail changed nothing, so a tile it

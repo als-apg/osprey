@@ -49,7 +49,7 @@ def _h5py_importable() -> bool:
     """
     return (
         subprocess.run(  # fixed argv
-            [sys.executable, "-c", "import h5py"], capture_output=True
+            [sys.executable, "-c", "import h5py"], capture_output=True, timeout=120
         ).returncode
         == 0
     )

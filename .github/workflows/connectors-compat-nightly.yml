@@ -58,7 +58,7 @@ env:
 
 jobs:
   plan:
-    name: Plan the nightly connectors compatibility run
+    name: Plan the connectors compatibility run
     runs-on: ubuntu-latest
     timeout-minutes: 10
     outputs:
@@ -212,7 +212,7 @@ jobs:
         --timeout=600 --timeout-method=signal
 
   report-failure:
-    name: Open or update an issue for each failed nightly job
+    name: Open or update an issue for each failed compatibility job
     needs: [plan, connectors-compat, release-tests]
     # A scheduled run only: a dispatched dry run reports to whoever ran it.
     if: failure() && github.event_name == 'schedule'

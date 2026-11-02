@@ -233,14 +233,6 @@
 
 /* ---- Header Icon Buttons ---- */
 
-.header-actions {
-  display: flex;
-  align-items: center;
-  gap: var(--space-1);
-  margin-left: var(--space-3);
-  flex: 0 0 auto;
-}
-
 .header-icon-btn {
   background: transparent;
   border: 1px solid transparent;

@@ -60,7 +60,7 @@ def _run_import_check(module: str, forbidden: str) -> subprocess.CompletedProces
     # `sys.executable` -- not a bare `python` -- so the child is this tree's
     # venv interpreter; a bare `python` in a worktree resolves to the main
     # checkout's osprey and would silently test the wrong source.
-    return subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)
+    return subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, timeout=120)
 
 
 @pytest.mark.parametrize("forbidden", FORBIDDEN_MODULES)

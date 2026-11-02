@@ -103,7 +103,12 @@ DECISIONS: tuple[str, ...] = (DECISION_ALLOWED, DECISION_REFUSED)
 #: The answer to an approval prompt, each filed as its own record on the
 #: approval hook's surface: ``approved`` when the call the prompt asked about
 #: ran, ``denied`` when the turn ended without it. Canonical spellings only,
-#: like the two above.
+#: like the two above. A governed write the write switch's ``allowed`` position
+#: approved files ``approved`` too, with reason ``switch``.
+#:
+#: The switch position never rides in ``decision``: ``allowed`` here is the
+#: admitted-call word whatever the switch said. The position's one home is the
+#: approval stamp's ``position`` field, copied into ``tool_call.approval``.
 DECISION_APPROVED = "approved"
 DECISION_DENIED = "denied"
 

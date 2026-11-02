@@ -192,7 +192,7 @@ loaded = [m for m in sys.modules if m == "litellm" or m.startswith("osprey.model
 print(loaded)
 """
     result = subprocess.run(
-        [sys.executable, "-c", script], capture_output=True, text=True, check=True
+        [sys.executable, "-c", script], capture_output=True, text=True, check=True, timeout=120
     )
     assert result.stdout.strip() == "[]", result.stdout + result.stderr
 
@@ -516,7 +516,13 @@ def test_only_the_lifecycle_module_starts_the_proxy_primitive():
     for path in sorted(root.rglob("*.py")):
         if path.resolve() == own:
             continue
-        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        source = path.read_text(encoding="utf-8")
+        # An import or a call spells the name (an identifier has no escape
+        # sequence), and parsing every module is what the scan spends its time
+        # on: a module that never spells it is passed over.
+        if primitive not in source:
+            continue
+        tree = ast.parse(source, filename=str(path))
         where = path.relative_to(root)
         for node in ast.walk(tree):
             if isinstance(node, ast.ImportFrom) and any(

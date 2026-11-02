@@ -31,6 +31,7 @@
   "enhancement_modules.semantic_processor",
   "enhancement_modules.text_embedding",
   "entries",
+  "errors",
   "image_embedding_tables",
   "image_embedding_tables[].active",
   "image_embedding_tables[].dimension",

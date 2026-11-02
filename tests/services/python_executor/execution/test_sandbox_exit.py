@@ -15,7 +15,6 @@ user code itself: exactly as blocking, and it needs no control system.
 from __future__ import annotations
 
 import json
-import os
 import subprocess
 import sys
 import time
@@ -24,8 +23,7 @@ from pathlib import Path
 import pytest
 
 from osprey.services.python_executor.execution.wrapper import ExecutionWrapper
-
-_SRC_ROOT = Path(__file__).resolve().parents[4] / "src"
+from tests.services.python_executor._child_env import child_env
 
 #: Longer than the assertion below, shorter than any patience a CI runner has.
 _HOOK_BLOCK_SECONDS = 45
@@ -43,8 +41,7 @@ def _run_wrapper(
         ExecutionWrapper(execution_mode=mode).create_wrapper(user_code, execution_folder),
         encoding="utf-8",
     )
-    env = os.environ.copy()
-    env["PYTHONPATH"] = os.pathsep.join(filter(None, [str(_SRC_ROOT), env.get("PYTHONPATH")]))
+    env = child_env()
     proc = subprocess.run(  # fixed argv, generated script
         [sys.executable, str(script)],
         capture_output=True,

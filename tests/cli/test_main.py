@@ -441,6 +441,7 @@ class TestConsoleScriptWiring:
             [sys.executable, "-c", program, "boom"],
             capture_output=True,
             text=True,
+            timeout=120,
         )
 
         assert "Traceback (most recent call last)" not in result.stderr

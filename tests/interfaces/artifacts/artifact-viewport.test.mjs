@@ -3,13 +3,13 @@
  * (artifact-viewport.js).
  *
  * This module exists to be the ONE answer to "how does artifact X render?".
- * Before it, Expert's preview pane (preview.js) and Simple's result card
- * (gallery.js) each had their own dispatch — Expert's a full 9-branch switch
- * with async markdown/JSON/timeseries mounting, Simple's a borrowed
- * `thumbnailHtml()` that only knew <img>/<iframe> types and dropped markdown,
- * JSON, text, PDF and timeseries to a placeholder. Everything below is
- * therefore a parity guard as much as a dispatch guard: both panes call
- * exactly these two functions, so a type that renders here renders in both.
+ * Before it, the gallery had two full-size surfaces with a dispatch each —
+ * one a full 9-branch switch with async markdown/JSON/timeseries mounting,
+ * the other a borrowed `thumbnailHtml()` that only knew <img>/<iframe> types
+ * and dropped markdown, JSON, text, PDF and timeseries to a placeholder. The
+ * preview pane (preview.js) now calls exactly these two functions, standalone
+ * and as the embedded viewer alike, so a type that renders here renders
+ * wherever an artifact is shown full-size.
  *
  * Pure DOM/logic guard, happy-dom environment (configured globally) —
  * mirrors preview.test.mjs/preview-content.test.mjs:
@@ -253,7 +253,7 @@ describe('artifactViewportHtml: per-type dispatch', () => {
     expect(container.querySelector('img')).toBeNull();
   });
 
-  test('emits no ids — both panes mount this markup, so ids would collide', () => {
+  test('emits no ids — each mount is found through its own container', () => {
     for (const artifact_type of ['markdown', 'json', 'text', 'html', 'image']) {
       const html = artifactViewportHtml(makeArtifact({ artifact_type }));
       expect(html).not.toMatch(/\sid=/);
@@ -324,32 +324,31 @@ describe('mountArtifactViewport: post-mount renderers', () => {
   });
 });
 
-describe('mountArtifactViewport: container scoping (the parity property)', () => {
+describe('mountArtifactViewport: container scoping', () => {
   test('mounting two viewports targets each container, not the first in the document', () => {
-    // The Expert pane and the Simple card can both hold a mounted viewport at
-    // once (renderPreview still runs while Simple is on screen). A dispatch
-    // that looked its containers up by document id would resolve both mounts
-    // to whichever came first in document order — the whole reason this markup
-    // carries classes instead.
-    const expertPane = document.createElement('div');
-    const simpleCard = document.createElement('div');
-    document.body.append(expertPane, simpleCard);
+    // The post-mount step must find its element through the container it is
+    // handed. A dispatch that looked its containers up by document id would
+    // resolve both mounts below to whichever came first in document order —
+    // the whole reason this markup carries classes instead.
+    const firstPane = document.createElement('div');
+    const secondPane = document.createElement('div');
+    document.body.append(firstPane, secondPane);
 
-    const expertArtifact = makeArtifact({ id: 'expert', artifact_type: 'markdown' });
-    const simpleArtifact = makeArtifact({ id: 'simple', artifact_type: 'markdown' });
+    const firstArtifact = makeArtifact({ id: 'first', artifact_type: 'markdown' });
+    const secondArtifact = makeArtifact({ id: 'second', artifact_type: 'markdown' });
 
-    expertPane.innerHTML = artifactViewportHtml(expertArtifact);
-    mountArtifactViewport(expertPane, expertArtifact, {});
-    simpleCard.innerHTML = artifactViewportHtml(simpleArtifact);
-    mountArtifactViewport(simpleCard, simpleArtifact, {});
+    firstPane.innerHTML = artifactViewportHtml(firstArtifact);
+    mountArtifactViewport(firstPane, firstArtifact, {});
+    secondPane.innerHTML = artifactViewportHtml(secondArtifact);
+    mountArtifactViewport(secondPane, secondArtifact, {});
 
     const calls = vi.mocked(renderMarkdownView).mock.calls;
     expect(calls).toHaveLength(2);
-    expect(calls[0][0]).toBe(expertPane.querySelector('.md-preview-container'));
-    expect(calls[1][0]).toBe(simpleCard.querySelector('.md-preview-container'));
+    expect(calls[0][0]).toBe(firstPane.querySelector('.md-preview-container'));
+    expect(calls[1][0]).toBe(secondPane.querySelector('.md-preview-container'));
     expect(calls[0][0]).not.toBe(calls[1][0]);
 
-    expertPane.remove();
-    simpleCard.remove();
+    firstPane.remove();
+    secondPane.remove();
   });
 });

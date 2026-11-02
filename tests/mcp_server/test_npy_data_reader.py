@@ -69,6 +69,7 @@ def _run_reader_in_sandbox(data_source: str, tmp_path: Path) -> dict:
         capture_output=True,
         text=True,
         check=False,
+        timeout=120,
     )
     assert proc.returncode == 0, f"reader failed:\n{proc.stdout}\n{proc.stderr}"
     marker = [ln for ln in proc.stdout.splitlines() if ln.startswith("__RESULT__")]

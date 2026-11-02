@@ -242,11 +242,21 @@ class CaLoop:
         self._loop.call_soon_threadsafe(callback, *args)
 
     def stop(self) -> None:
-        """Stop the loop and wait briefly for its thread. Idempotent."""
+        """Stop the loop, wait for its thread and close the loop once the thread has ended.
+
+        Idempotent; a no-op in a forked child.
+        """
         if self._loop.is_closed() or os.getpid() != self._pid:
             return
         self._loop.call_soon_threadsafe(self._loop.stop)
         self._thread.join(timeout=2.0)
+        if self._thread.is_alive():
+            # A running loop cannot be closed; a stuck thread keeps its loop.
+            logger.warning(
+                "the Channel Access loop thread did not stop within 2 s; its loop is left open"
+            )
+            return
+        self._loop.close()
 
 
 _ca_loop: CaLoop | None = None

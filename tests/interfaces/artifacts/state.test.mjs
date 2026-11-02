@@ -38,12 +38,10 @@ import {
   fetchMoreArtifacts,
   fetchFocus,
   getFilteredArtifacts,
-  getArtifactTotal,
   hasMoreArtifacts,
   inCurrentScope,
   addArtifact,
   removeArtifact,
-  getListSearch,
   getPickedIds,
   setPicked,
   togglePicked,
@@ -219,7 +217,7 @@ describe('fetchArtifacts', () => {
     expect(byId('error-banner').textContent).toBe('Failed to fetch artifacts: network down');
   });
 
-  test('records the total and the cursor, and defaults the total to the returned length', async () => {
+  test('records the cursor', async () => {
     setCurrentSessionId(null);
     setShowAllSessions(false);
     vi.stubGlobal(
@@ -230,7 +228,6 @@ describe('fetchArtifacts', () => {
       })
     );
     await fetchArtifacts();
-    expect(getArtifactTotal()).toBe(40);
     expect(hasMoreArtifacts()).toBe(true);
 
     vi.stubGlobal(
@@ -241,7 +238,6 @@ describe('fetchArtifacts', () => {
       })
     );
     await fetchArtifacts();
-    expect(getArtifactTotal()).toBe(2);
     expect(hasMoreArtifacts()).toBe(false);
   });
 
@@ -577,7 +573,6 @@ describe('paging', () => {
 
     expect(addArtifact({ id: 'new' })).toBe(false);
     expect(getArtifacts().map((a) => a.id)).toEqual(['a1']);
-    expect(getArtifactTotal()).toBe(1);
   });
 
   test('addArtifact returns true without adding a foreign-session entry', async () => {
@@ -591,80 +586,27 @@ describe('paging', () => {
 
     expect(addArtifact({ id: 'foreign', session_id: 's2' })).toBe(true);
     expect(getArtifacts().map((a) => a.id)).toEqual(['a1']);
-    expect(getArtifactTotal()).toBe(1);
     setCurrentSessionId(null);
   });
 
-  test('addArtifact adds, bumps the total, and refuses a duplicate', async () => {
+  test('addArtifact adds an entry and refuses a duplicate', async () => {
     await loadFirstPage({ artifacts: [{ id: 'a1' }], total: 1 });
 
     expect(addArtifact({ id: 'a2' })).toBe(true);
     expect(getArtifacts().map((a) => a.id)).toEqual(['a1', 'a2']);
-    expect(getArtifactTotal()).toBe(2);
 
     expect(addArtifact({ id: 'a2' })).toBe(true);
     expect(getArtifacts().map((a) => a.id)).toEqual(['a1', 'a2']);
-    expect(getArtifactTotal()).toBe(2);
   });
 
-  test('addArtifact holds an entry the total already counts without bumping the total', async () => {
-    await loadFirstPage({ artifacts: [{ id: 'a1' }], total: 3, next_cursor: 'c1' });
-
-    expect(addArtifact({ id: 'older' }, { counted: true })).toBe(true);
-    expect(getArtifacts().map((a) => a.id)).toEqual(['a1', 'older']);
-    expect(getArtifactTotal()).toBe(3);
-  });
-
-  test('an entry held on its own before its save event is counted once when that event arrives', async () => {
-    await loadFirstPage({ artifacts: [{ id: 'a1' }], total: 3 });
-
-    addArtifact({ id: 'new' }, { counted: true });
-    expect(getArtifactTotal()).toBe(3);
-    expect(addArtifact({ id: 'new' })).toBe(true);
-    expect(getArtifactTotal()).toBe(4);
-    expect(getArtifacts().map((a) => a.id)).toEqual(['a1', 'new']);
-    addArtifact({ id: 'new' });
-    expect(getArtifactTotal()).toBe(4);
-  });
-
-  test('a fresh first page settles the count of an entry held on its own', async () => {
-    await loadFirstPage({ artifacts: [{ id: 'a1' }], total: 3 });
-    addArtifact({ id: 'new' }, { counted: true });
-
-    await loadFirstPage({ artifacts: [{ id: 'new' }, { id: 'a1' }], total: 4 });
-    addArtifact({ id: 'new' });
-    expect(getArtifactTotal()).toBe(4);
-  });
-
-  test('getListSearch names the search the held list was fetched with', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(okResponse({ artifacts: [] })));
-    await fetchArtifacts({ search: 'orbit' });
-    expect(getListSearch()).toBe('orbit');
-    await fetchArtifacts();
-    expect(getListSearch()).toBe('');
-  });
-
-  test('removeArtifact drops the entry, decrements the total, and floors it at zero', async () => {
+  test('removeArtifact drops the entry and tolerates an id the list does not hold', async () => {
     await loadFirstPage({ artifacts: [{ id: 'a1' }, { id: 'a2' }], total: 5 });
 
     removeArtifact('a1');
     expect(getArtifacts().map((a) => a.id)).toEqual(['a2']);
-    expect(getArtifactTotal()).toBe(4);
 
-    await loadFirstPage({ artifacts: [], total: 0 });
-    setArtifacts([{ id: 'stray' }]);
-    removeArtifact('stray');
-    expect(getArtifacts()).toEqual([]);
-    expect(getArtifactTotal()).toBe(0);
-  });
-
-  test('removeArtifact of an entry held uncounted drops it and leaves the total alone', async () => {
-    await loadFirstPage({ artifacts: [{ id: 'a1' }], total: 3 });
-    addArtifact({ id: 'x' }, { counted: true });
-
-    removeArtifact('x');
-    expect(getArtifacts().map((a) => a.id)).toEqual(['a1']);
-    expect(getArtifactTotal()).toBe(3);
+    removeArtifact('missing');
+    expect(getArtifacts().map((a) => a.id)).toEqual(['a2']);
   });
 });
 

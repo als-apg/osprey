@@ -77,7 +77,7 @@ def test_the_tools_field_names_the_granted_tools(
     page = chromium_browser.new_page(viewport=VIEWPORT)
     try:
         page.goto(
-            f"{dashboard_url}/?mode=expert&view=trigger&name={trigger_name}",
+            f"{dashboard_url}/?view=trigger&name={trigger_name}",
             wait_until="domcontentloaded",
         )
         cell = "#trigger-detail .field-label:text-is('Tools') + .field-value"

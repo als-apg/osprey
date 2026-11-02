@@ -36,10 +36,7 @@ from osprey.utils.tool_rules import matches_denylist
 
 try:
     from claude_agent_sdk import PermissionResultAllow, PermissionResultDeny
-
-    CLAUDE_SDK_AVAILABLE = True
 except ImportError:  # pragma: no cover - exercised only without the SDK
-    CLAUDE_SDK_AVAILABLE = False
     PermissionResultAllow = object  # type: ignore[assignment,misc]
     PermissionResultDeny = object  # type: ignore[assignment,misc]
 
@@ -54,6 +51,13 @@ logger = logging.getLogger(__name__)
 # Read/Glob/Grep, because main-thread file access would expose e.g. config.yml
 # provider settings. Denylist entries still beat this set.
 PASSTHROUGH_TOOLS = frozenset({"TaskCreate", "TaskGet", "TaskList", "TaskUpdate"})
+
+# How a subagent returns its report on the builds and models that use a handback:
+# the CLI withholds the report until this call succeeds, so denying it loses the
+# answer. A subagent's tools: list cannot name it. The CLI offers it only inside a
+# subagent, so it is absent from the tool inventory, and the main thread still
+# meets the trigger allowlist.
+SUBAGENT_HANDBACK_TOOL = "SubagentHandback"
 
 # Both names the CLI has used for the subagent-delegation tool.
 DELEGATION_TOOLS = ("Task", "Agent")
@@ -161,7 +165,7 @@ def make_pretooluse_hook(
                         f"Tool {tool_name!r} denied: unknown or tools-less subagent "
                         f"context {agent_type!r}"
                     )
-                if tool_name in surface:
+                if tool_name in surface or tool_name == SUBAGENT_HANDBACK_TOOL:
                     return {}
                 return _deny(
                     f"Tool {tool_name!r} is not in subagent {agent_type!r}'s declared tools list"

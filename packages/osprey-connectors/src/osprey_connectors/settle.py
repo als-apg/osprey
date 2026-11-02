@@ -8,7 +8,9 @@ magnitude); with none stated, on the simulator only, the readback's motion
 band; a caller's floor raises the bound and never lowers it. :func:`settle`
 polls each readback through the connector until it is within its bound, and
 fails closed with :class:`SettleTimeoutError` when the time runs out. A
-readback read that fails, or answers no value, raises :class:`SettleReadError`.
+readback that cannot be reached, is not a channel, or times out raises
+:class:`SettleReadError`, which names it, as does one that answers no value; a
+lost connector raises its own error.
 
 This module imports only the std-lib and ``osprey_connectors.errors``, and
 takes any connector with an awaitable ``read_channel(address)`` whose result
@@ -25,7 +27,7 @@ from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
-from osprey_connectors.errors import ChannelReadFailedError
+from osprey_connectors.errors import ChannelError, ChannelReadFailedError
 
 __all__ = [
     "POLL_INTERVAL_S",
@@ -163,8 +165,11 @@ async def settle(
     Raises:
         SettleTimeoutError: A landing was not inside its bound once ``timeout_s``
             had passed, naming the first such landing in ``landings`` order.
-        SettleReadError: A readback read raised or answered no value, naming
-            that readback.
+        SettleReadError: A readback read failed with a
+            :class:`~osprey_connectors.errors.ChannelError` (it cannot be
+            reached, is not a channel, or timed out) or answered no value,
+            naming that readback. Any other failure, a lost connector among
+            them, propagates as itself.
     """
     deadline = clock() + timeout_s
     pending = list(landings)
@@ -173,7 +178,7 @@ async def settle(
         for landing in pending:
             try:
                 reading = await connector.read_channel(landing.readback)
-            except Exception as exc:
+            except ChannelError as exc:
                 raise SettleReadError(landing, exc) from exc
             value = getattr(reading, "value", None)
             if value is None:

@@ -3,10 +3,12 @@
 The suite is run by path, ``pytest tests/e2e/``, and has no suite-wide marker.
 """
 
+import contextlib
 import json
 import os
 import sys
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
@@ -107,11 +109,8 @@ def pytest_collection_finish(session):
         else:
             lane = "unmarked"
         lanes[item.nodeid] = lane
-    try:
-        with open(lanes_path, "w") as f:
-            json.dump(lanes, f, indent=1)
-    except Exception:
-        pass
+    with contextlib.suppress(Exception):
+        Path(lanes_path).write_text(json.dumps(lanes, indent=1))
 
 
 def _run_names_a_provider() -> bool:
@@ -237,11 +236,10 @@ def _e2e_translation_proxy():
         forward_headers=(END_USER_HEADER, TAGS_HEADER),
         supports_images=None,
     )
-    os.environ["OSPREY_E2E_PROXY_BASE_URL"] = f"http://127.0.0.1:{port}"
     try:
-        yield
+        with patch.dict(os.environ, {"OSPREY_E2E_PROXY_BASE_URL": f"http://127.0.0.1:{port}"}):
+            yield
     finally:
-        os.environ.pop("OSPREY_E2E_PROXY_BASE_URL", None)
         stop_proxy()
 
 
@@ -277,7 +275,7 @@ def _e2e_claude_config_dir(request, tmp_path_factory, monkeypatch):
 def scripted_model(monkeypatch):
     """Start a scripted model and point this test's agent runs at it.
 
-    Returns a factory: ``scripted_model(script)`` starts a
+    Returns a factory: ``scripted_model(script, reviewer=None)`` starts a
     :class:`~tests.e2e.scripted_model.ScriptedModel` for *script* and routes
     every run the test starts afterwards to it, through the same
     ``OSPREY_E2E_PROXY_BASE_URL`` seam the translation proxy uses.
@@ -317,8 +315,8 @@ def scripted_model(monkeypatch):
 
     started: list[ScriptedModel] = []
 
-    def _start(script):
-        model = ScriptedModel(script)
+    def _start(script, reviewer=None):
+        model = ScriptedModel(script, reviewer)
         model.start()
         started.append(model)
         monkeypatch.setenv("OSPREY_E2E_PROXY_BASE_URL", model.base_url)
@@ -349,8 +347,9 @@ def reset_registry_between_tests():
     This is critical for e2e tests as they create full framework instances
     with registries that can leak state between tests.
 
-    IMPORTANT: Also clears config cache AND CONFIG_FILE env var to prevent
-    stale configuration from leaking between tests that use different config files.
+    IMPORTANT: Also clears the config cache to prevent stale configuration from
+    leaking between tests that use different config files. ``CONFIG_FILE`` itself
+    is cleared on the way in, and restored on the way out, by ``restore_environ``.
     """
     # Reset before test
     reset_registry()
@@ -363,10 +362,6 @@ def reset_registry_between_tests():
     config_module._default_configurable = None
     config_module._config_cache.clear()
 
-    # Clear CONFIG_FILE environment variable to prevent contamination
-    if "CONFIG_FILE" in os.environ:
-        del os.environ["CONFIG_FILE"]
-
     yield
 
     # Reset after test for good measure
@@ -376,10 +371,6 @@ def reset_registry_between_tests():
     config_module._default_config = None
     config_module._default_configurable = None
     config_module._config_cache.clear()
-
-    # Clear CONFIG_FILE env var again
-    if "CONFIG_FILE" in os.environ:
-        del os.environ["CONFIG_FILE"]
 
 
 def pytest_addoption(parser):

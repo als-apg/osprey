@@ -25,7 +25,7 @@ from watchdog.observers.polling import PollingObserver
 
 from osprey.interfaces.artifacts.store_watcher import StoreIndexWatcher, _IndexFileHandler
 from osprey.interfaces.fs_watch import one_level_listing
-from osprey.stores.artifact_store import ArtifactStore
+from osprey.stores.artifact_store import ArtifactStore, is_run_record
 from tests.interfaces.fsevents_wait import poke_until, wait_for, wait_for_polling_baseline
 
 
@@ -36,6 +36,11 @@ def _polling_observer() -> PollingObserver:
     seconds in a test that only needs the emitter to look again.
     """
     return PollingObserver(timeout=0.05)
+
+
+def _payload(entry):
+    """What the gallery's payload function returns: the index dict plus the verdict."""
+    return {**entry.to_dict(), "run_record": is_run_record(entry)}
 
 
 def _make_watcher(tmp_path, *, observer_factory=_polling_observer):
@@ -56,6 +61,7 @@ def _make_watcher(tmp_path, *, observer_factory=_polling_observer):
         workspace_root=tmp_path,
         broadcaster=broadcaster,
         artifact_store=artifact_store,
+        payload=_payload,
         observer_factory=observer_factory,
     )
     return watcher, broadcaster, artifact_store
@@ -112,6 +118,7 @@ def _index_handler(tmp_path, broadcaster):
         workspace_root=tmp_path,
         broadcaster=broadcaster,
         artifact_store=ArtifactStore(workspace_root=tmp_path),
+        payload=_payload,
     )
     handler = _IndexFileHandler(watcher._index_configs, broadcaster)
     handler._debounce_seconds = 0
@@ -347,6 +354,70 @@ class TestStoreWatcher:
         announced = [call.args[0] for call in broadcaster.broadcast.call_args_list]
         assert [e for e in announced if e.get("title") == "Announced From A Bytes Path"]
 
+    def test_an_added_entry_is_broadcast_as_its_payload_callable_returns_it(self, tmp_path):
+        """The frame is ``type`` plus whatever the gallery's payload function says.
+
+        The payload here shares nothing with ``to_dict()``, so a frame built
+        from the entry directly would fail on every key.
+        """
+        seen = []
+
+        def payload(entry):
+            seen.append(entry.id)
+            return {"id": entry.id, "marker": "from-the-payload-callable"}
+
+        artifact_store = ArtifactStore(workspace_root=tmp_path)
+        broadcaster = MagicMock()
+        watcher = StoreIndexWatcher(
+            workspace_root=tmp_path,
+            broadcaster=broadcaster,
+            artifact_store=artifact_store,
+            payload=payload,
+        )
+        handler = _IndexFileHandler(watcher._index_configs, broadcaster)
+        entry = artifact_store.save_file(
+            file_content=b"hello",
+            filename="note.txt",
+            artifact_type="text",
+            title="Saved elsewhere",
+            mime_type="text/plain",
+            tool_source="test",
+        )
+
+        handler._handle(FileModifiedEvent(str(tmp_path / "artifacts" / "artifacts.json")))
+
+        assert seen == [entry.id]
+        broadcaster.broadcast.assert_called_once_with(
+            {"type": "artifact", "id": entry.id, "marker": "from-the-payload-callable"}
+        )
+
+    def test_a_deletion_frame_does_not_go_through_the_payload_callable(self, tmp_path):
+        """The deleted entry is gone from the store; its frame names only the id."""
+        artifact_store = ArtifactStore(workspace_root=tmp_path)
+        entry = artifact_store.save_file(
+            file_content=b"hello",
+            filename="note.txt",
+            artifact_type="text",
+            title="Soon gone",
+            mime_type="text/plain",
+            tool_source="test",
+        )
+        broadcaster = MagicMock()
+        called = []
+        watcher = StoreIndexWatcher(
+            workspace_root=tmp_path,
+            broadcaster=broadcaster,
+            artifact_store=artifact_store,
+            payload=lambda e: called.append(e) or {},
+        )
+        handler = _IndexFileHandler(watcher._index_configs, broadcaster)
+        ArtifactStore(workspace_root=tmp_path).delete_entry(entry.id)
+
+        handler._handle(FileModifiedEvent(str(tmp_path / "artifacts" / "artifacts.json")))
+
+        assert called == []
+        broadcaster.broadcast.assert_called_once_with({"type": "artifact_deleted", "id": entry.id})
+
 
 class TestACoalescedDirectoryFrame:
     """The index write can arrive as a frame about its directory.
@@ -512,6 +583,7 @@ class TestACoalescedDirectoryFrame:
             workspace_root=tmp_path,
             broadcaster=broadcaster,
             artifact_store=ArtifactStore(workspace_root=tmp_path),
+            payload=_payload,
         )
         handler = _IndexFileHandler(watcher._index_configs, broadcaster)
         # Both events below land inside one window by construction, rather than
@@ -556,6 +628,7 @@ class TestACoalescedDirectoryFrame:
             workspace_root=tmp_path,
             broadcaster=broadcaster,
             artifact_store=ArtifactStore(workspace_root=tmp_path),
+            payload=_payload,
         )
         handler = _IndexFileHandler(watcher._index_configs, broadcaster)
         artifacts_dir = tmp_path / "artifacts"

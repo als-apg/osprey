@@ -89,7 +89,7 @@ first finding, filed under "this skill is drifting" with the replacement you fou
 Before any judgment, run what CI runs and what the guard tests assert:
 
 ```bash
-cd docs && uv run make html SPHINXOPTS="-W --keep-going"
+cd docs && uv run --frozen make html SPHINXOPTS="-W --keep-going"
 uv run pytest tests/docs -q
 ```
 

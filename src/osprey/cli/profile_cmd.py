@@ -20,7 +20,7 @@ prints.
 
 Usage:
     osprey profile presets
-    osprey profile validate ~/deployments/als-assistant
+    osprey profile validate ~/deployments/my-assistant
 """
 
 from __future__ import annotations
@@ -33,6 +33,7 @@ from typing import TYPE_CHECKING, Any, NamedTuple
 import click
 
 from osprey.profiles.providers import PROVIDERS_FILENAME
+from osprey.services.watchdog.config import WATCHDOGS_BLOCK, parse_watchdogs_block
 from osprey.utils.workspace import APPS_DIRNAME, LAYER_DIR_KINDS, TIERS_DIRNAME
 from osprey_connectors.errors import BuildProfileError
 from osprey_connectors.logger import get_logger
@@ -116,8 +117,8 @@ def validate(target: Path) -> None:
     Examples:
 
     \b
-      $ osprey profile validate ~/deployments/als-assistant
-      $ osprey profile validate ~/deployments/als-assistant/tiers/readonly.yml
+      $ osprey profile validate ~/deployments/my-assistant
+      $ osprey profile validate ~/deployments/my-assistant/tiers/readonly.yml
     """
     # The check itself belongs to the verb, not to either spelling of it: this
     # command differs from `osprey validate` only in requiring its TARGET, so
@@ -151,7 +152,7 @@ def card(as_json: bool, repo: Path | None) -> None:
 
     \b
       $ osprey profile card
-      $ osprey profile card --repo ~/deployments/als-assistant
+      $ osprey profile card --repo ~/deployments/my-assistant
       $ osprey profile card --json
     """
     import json
@@ -253,6 +254,7 @@ MATERIALIZED_SOURCE_ENTRIES: tuple[str, ...] = (
     PROFILE_TRIGGERS_FILENAME,
     _CONTEXT_CONVENTION_DIRNAME,
     _PROFILE_ENV_EXAMPLE_FILENAME,
+    WATCHDOGS_BLOCK,
 )
 
 # Build exhaust that a source checkout may hold inside a bundle's data tree but
@@ -1313,7 +1315,7 @@ def _roster_layers(config: Mapping[str, Any], dispatch_tier: Any) -> tuple[list[
     from one file reports it.
     """
     from osprey.deployment.web_terminals.render_naming import RENDER_KIND_APP
-    from osprey.deployment.web_terminals.roster import served_render_names
+    from osprey.deployment.web_terminals.roster import served_render_names, shared_app_name
 
     from .build_profile_emit import effective_web_terminals
 
@@ -1324,8 +1326,9 @@ def _roster_layers(config: Mapping[str, Any], dispatch_tier: Any) -> tuple[list[
     tiers = {name for name, kind in served.items() if kind != RENDER_KIND_APP}
     apps = {name for name, kind in served.items() if kind == RENDER_KIND_APP}
     shared = web_terminals.get("shared")
-    for name in shared if isinstance(shared, list) else []:
-        if isinstance(name, str) and name in tiers:
+    for item in shared if isinstance(shared, list) else []:
+        name = shared_app_name(item)
+        if name is not None and name in tiers:
             apps.add(name)
     return sorted(tiers), sorted(apps)
 
@@ -1885,6 +1888,16 @@ def _materialize_profile_directory(
         )
         (target / "profile.yml").write_text(profile_text, encoding="utf-8")
         (target / PROVIDERS_FILENAME).write_text(catalog.text, encoding="utf-8")
+        # Every watchdog the block names, enabled or not, so the files travel with
+        # the block. The strict parser holds a preset's disabled entries to their
+        # files too, where validating the resolved preset does not.
+        parse_watchdogs_block(resolved.watchdogs, base_dir=preset_dir)
+        for watchdog in resolved.watchdogs:
+            shutil.copytree(
+                preset_dir / WATCHDOGS_BLOCK / watchdog,
+                target / WATCHDOGS_BLOCK / watchdog,
+                ignore=shutil.ignore_patterns("__pycache__", "*.py[co]"),
+            )
         if catalog.carried:
             logger.debug(
                 "  Provider catalog: kept %s", ", ".join(f"{name}" for name in catalog.carried)

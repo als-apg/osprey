@@ -34,7 +34,7 @@ from osprey.cli.web_cmd import (
     web,
 )
 from osprey.port_layout import default_port
-from osprey_connectors_tests._harness._ports import bound_socket
+from osprey_connectors_tests._harness._ports import bound_socket, reserved_port
 from tests.cli._lifecycle_build import stub_build
 from tests.cli._scoped_subprocess import patch_subprocess
 
@@ -53,15 +53,13 @@ def _isolate_operator_secret(monkeypatch):
     inherits it) and into the process-wide web-credentials holder. Both survive
     a CliRunner invocation, so a launch in one test would otherwise hand its
     secret to the next — masking, for instance, a multi-user launch that should
-    have refused to mint. The setenv-then-delenv forces monkeypatch to record an
-    undo entry even when the key starts absent, so the app's own direct write is
-    rolled back; ``reset_web_credentials`` clears the module holder around each
-    test.
+    have refused to mint. The root ``restore_environ`` guard rolls back the
+    app's own direct write; ``reset_web_credentials`` clears the module holder
+    around each test.
     """
     from osprey.interfaces.web_auth import OPERATOR_SECRET_ENV, reset_web_credentials
 
-    monkeypatch.setenv(OPERATOR_SECRET_ENV, "__unset_by_test_fixture__")
-    monkeypatch.delenv(OPERATOR_SECRET_ENV)
+    monkeypatch.delenv(OPERATOR_SECRET_ENV, raising=False)
     reset_web_credentials()
     yield
     reset_web_credentials()
@@ -253,14 +251,10 @@ class TestDeploymentResolution:
     @pytest.fixture(autouse=True)
     def _clean_env(self, monkeypatch):
         # web() writes OSPREY_WEB_PORT and OSPREY_CONFIG directly into
-        # os.environ for its child processes. setenv-then-delenv forces
-        # monkeypatch to record an undo entry even when the key started
-        # absent, so those in-test writes are always rolled back instead of
-        # leaking into later tests (same trick as test_web_bind.py's
-        # _isolate_bind_and_port_env).
+        # os.environ for its child processes; the root restore_environ guard
+        # rolls those writes back, and each test starts with neither set.
         for key in ("OSPREY_CONFIG", "OSPREY_WEB_PORT"):
-            monkeypatch.setenv(key, "__unset_by_test_fixture__")
-            monkeypatch.delenv(key)
+            monkeypatch.delenv(key, raising=False)
 
     def test_outside_any_deployment_refuses_to_start(self, runner, tmp_path):
         with runner.isolated_filesystem(temp_dir=tmp_path):
@@ -447,8 +441,7 @@ class TestDeploymentResolution:
         """
         keys = ("OSPREY_TERMINAL_SECRET", "OSPREY_TEST_BRIDGE_LAUNCH_TOKEN", "OSPREY_TEST_PLAIN")
         for key in keys:
-            monkeypatch.setenv(key, "__unset_by_test_fixture__")
-            monkeypatch.delenv(key)
+            monkeypatch.delenv(key, raising=False)
         (deployment / ".env").write_text(
             "OSPREY_TERMINAL_SECRET=secret-from-dotenv\n"
             "OSPREY_TEST_BRIDGE_LAUNCH_TOKEN=token-from-dotenv\n"
@@ -1544,7 +1537,6 @@ class TestRepoFlagIsAuthoritative:
         )
         return result, observed, repo, port
 
-    @pytest.mark.usefixtures("restore_process_state")
     def test_repo_dotenv_is_loaded(
         self, reserve_port, tmp_path, lifecycle_repo, runner, monkeypatch
     ):
@@ -1562,7 +1554,6 @@ class TestRepoFlagIsAuthoritative:
         assert result.exit_code == 0
         assert observed["key"] == "sk-from-project-dotenv"
 
-    @pytest.mark.usefixtures("restore_process_state")
     def test_the_render_becomes_the_working_directory(
         self, reserve_port, tmp_path, lifecycle_repo, runner, monkeypatch
     ):
@@ -1577,7 +1568,6 @@ class TestRepoFlagIsAuthoritative:
 
         assert Path(observed["cwd"]).resolve() == (repo / "build").resolve()
 
-    @pytest.mark.usefixtures("restore_process_state")
     def test_render_web_terminal_port_is_honored(
         self, reserve_port, tmp_path, lifecycle_repo, runner, monkeypatch
     ):
@@ -1588,7 +1578,6 @@ class TestRepoFlagIsAuthoritative:
 
         assert observed["kwargs"]["port"] == port
 
-    @pytest.mark.usefixtures("restore_process_state")
     def test_osprey_config_points_at_the_render(
         self, reserve_port, tmp_path, lifecycle_repo, runner, monkeypatch
     ):
@@ -1600,7 +1589,6 @@ class TestRepoFlagIsAuthoritative:
         expected = (repo / "build" / "config.yml").resolve()
         assert Path(observed["osprey_config"]).resolve() == expected
 
-    @pytest.mark.usefixtures("restore_process_state")
     def test_explicit_flag_beats_stale_osprey_config_export(
         self, reserve_port, tmp_path, lifecycle_repo, runner, monkeypatch
     ):
@@ -2221,3 +2209,64 @@ class TestInheritedSecretIsExplained:
         assert "Open:" not in result.output
         assert "OSPREY_TERMINAL_SECRET" not in result.output
         assert "supplied-by-the-deployment" not in result.output
+
+
+class TestLaunchSitesTurnOffPerMessageDeflate:
+    """Both ways ``osprey web`` starts uvicorn serve WebSockets without deflate.
+
+    The foreground branch reaches uvicorn through ``run_web``; ``--reload``
+    calls it directly with the app factory. Either one left on uvicorn's
+    default would negotiate permessage-deflate with every browser, and the
+    panel relay would then inflate and re-deflate every frame it forwards.
+    """
+
+    @pytest.mark.parametrize("reload", [False, True], ids=["foreground", "reload"])
+    def test_uvicorn_runs_with_deflate_off(self, runner, monkeypatch, deployment, reload):
+        monkeypatch.setattr("osprey.mcp_env.load_dotenv_from_project", lambda **_kw: None)
+        monkeypatch.delenv(DECLARED_BIND_ENV, raising=False)
+        monkeypatch.setattr(
+            "osprey.interfaces.web_terminal.app._open_browser_when_ready",
+            lambda *a, **k: None,
+        )
+        monkeypatch.setattr("osprey.interfaces.web_terminal.app.create_app", lambda **_k: object())
+        import uvicorn
+
+        calls: list[dict] = []
+        # --reload hands uvicorn.run the factory; the foreground serves run_web's
+        # bound socket through uvicorn.Server(uvicorn.Config(...)).
+        monkeypatch.setattr(uvicorn, "run", lambda *a, **k: calls.append(k))
+
+        class _Config:
+            def __init__(self, _app, **kwargs):
+                calls.append(kwargs)
+
+        class _Server:
+            started = True
+
+            def __init__(self, _config):
+                pass
+
+            def run(self, sockets=None):
+                pass
+
+        monkeypatch.setattr(uvicorn, "Config", _Config)
+        monkeypatch.setattr(uvicorn, "Server", _Server)
+        with reserved_port() as port:
+            args = [
+                "--repo",
+                str(deployment),
+                "--port",
+                str(port),
+                "--shell",
+                "true",
+                "--skip-preflight",
+            ]
+            if reload:
+                args.append("--reload")
+
+            result = runner.invoke(web, args, catch_exceptions=False)
+
+        assert result.exit_code == 0
+        assert len(calls) == 1
+        assert calls[0].get("ws_per_message_deflate") is False
+        assert calls[0].get("reload", False) is reload

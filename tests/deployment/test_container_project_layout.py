@@ -28,6 +28,7 @@ which cannot run in the fast suite; these are the cheap pins that fail first.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import re
@@ -494,22 +495,21 @@ def test_the_context_root_dockerignore_is_osprey_s_not_the_repos(tmp_path: Path)
 # Every test below renders the exemplar for real (seconds, not milliseconds), so
 # each one carries `@pytest.mark.slow`.
 
-#: The exemplar's renders and whether each one's ``control_system.writes``
-#: resolves to ``allowed``. The deployment's own render is ``allowed``, and the
-#: ``readonly`` tier and every app pin ``never`` over it, so together they prove
-#: an image context carries ITS OWN merged config rather than the deployment's —
-#: the defect that made layers invisible to their own MCP servers. ``admin``
-#: carries readwrite's posture exactly: what makes it the admin tier is
-#: deployment editing, not a wider write surface. The apps (``channel-finder``,
-#: ``knowledge``, ``logbook``) are separate agents with no control surface at
-#: all, so the build pins them ``never``.
+#: The exemplar's renders and the word each one's ``control_system.writes``
+#: resolves to. The deployment's own render is ``asked``, and the ``readonly``
+#: tier and every app pin ``never`` over it while ``admin`` pins ``allowed``, so
+#: together they prove an image context carries ITS OWN merged config rather than
+#: the deployment's — the defect that made layers invisible to their own MCP
+#: servers. ``readwrite`` pins the root's ``asked``; ``admin`` sits one ceiling
+#: above it. The apps (``channel-finder``, ``knowledge``, ``logbook``) are
+#: separate agents with no control surface at all, so the build pins them ``never``.
 RENDER_WRITES = {
-    "admin": True,
-    "channel-finder": False,
-    "knowledge": False,
-    "logbook": False,
-    "readonly": False,
-    "readwrite": True,
+    "admin": "allowed",
+    "channel-finder": "never",
+    "knowledge": "never",
+    "logbook": "never",
+    "readonly": "never",
+    "readwrite": "asked",
 }
 
 
@@ -534,13 +534,8 @@ def built_repo(tmp_path_factory) -> Path:
     (repo / ".mcp.json").write_text('{"mcpServers": {"dev": {}}}\n', encoding="utf-8")
     (repo / ".claude" / "skills" / "dev").mkdir(parents=True)
     (repo / ".claude" / "skills" / "dev" / "SKILL.md").write_text("# dev\n", encoding="utf-8")
-    previous = Path.cwd()
-    os.chdir(repo)
-    try:
-        with preserved_environ():
-            result = CliRunner().invoke(build_command, ["--skip-deps", "--skip-lifecycle"])
-    finally:
-        os.chdir(previous)
+    with contextlib.chdir(repo), preserved_environ():
+        result = CliRunner().invoke(build_command, ["--skip-deps", "--skip-lifecycle"])
     assert result.exit_code == 0, result.output
     return repo
 
@@ -633,7 +628,7 @@ def test_every_produced_context_is_a_container_repo(built_repo: Path, tier: str 
 @pytest.mark.slow
 @pytest.mark.parametrize("tier,writes", sorted(RENDER_WRITES.items()))
 def test_a_render_context_carries_its_own_merged_config(
-    built_repo: Path, tier: str, writes: bool
+    built_repo: Path, tier: str, writes: str
 ) -> None:
     """A render image's config is the delta merged over the root, not the deployment's.
 
@@ -648,14 +643,14 @@ def test_a_render_context_carries_its_own_merged_config(
     root_config = yaml.safe_load(
         (root_context / RENDERED_CONFIG_RELPATH).read_text(encoding="utf-8")
     )
-    assert root_config["control_system"]["writes"] == "allowed", (
+    assert root_config["control_system"]["writes"] == "asked", (
         "the deployment's own render must allow writes, or a never render proves nothing"
     )
 
     context = _contexts(built_repo)[f"{built_repo.name}-{tier}"]
     config = yaml.safe_load((context / RENDERED_CONFIG_RELPATH).read_text(encoding="utf-8"))
     section = config["control_system"]
-    expected = "allowed" if writes else "never"
+    expected = writes
     assert section[WRITES_KEY.split(".")[-1]] == expected
     assert tier_writes(section) == expected
     assert "writes_enabled" not in section
@@ -848,13 +843,8 @@ def test_a_regenerable_file_under_a_fold_input_is_neither_folded_nor_shipped(
     (data_root / "__pycache__").mkdir(exist_ok=True)
     (data_root / "__pycache__" / "loader.cpython-312.pyc").write_bytes(b"\x00compiled")
 
-    previous = Path.cwd()
-    os.chdir(repo)
-    try:
-        with preserved_environ():
-            result = CliRunner().invoke(build_command, ["--skip-deps", "--skip-lifecycle"])
-    finally:
-        os.chdir(previous)
+    with contextlib.chdir(repo), preserved_environ():
+        result = CliRunner().invoke(build_command, ["--skip-deps", "--skip-lifecycle"])
     assert result.exit_code == 0, result.output
 
     for name, context in _contexts(repo).items():

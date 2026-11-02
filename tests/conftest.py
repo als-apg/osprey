@@ -22,6 +22,8 @@ from osprey_connectors_tests._harness import _repo_cleanliness
 # osprey_connectors_tests._harness._guards for why they are not a registered plugin.
 from osprey_connectors_tests._harness._guards import (  # noqa: F401 - fixtures and hooks, used by name
     _GUARD_KNOWN_LIMIT,
+    _PRE_COLLECTION_ENV,
+    _ancestor_dotenv_values,
     _clear_dotenv_timezone,
     _first_seen_clause,
     _is_real_deployment_item,
@@ -912,6 +914,33 @@ def _has_cborg_api_key() -> bool:
     return bool(_os.environ.get("CBORG_API_KEY"))
 
 
+def _live_key_present(var: str) -> bool:
+    """True if ``var`` holds a key this run was actually given.
+
+    A key counts when it was already in the environment before collection, or
+    was set during collection by something other than an ancestor ``.env``.
+    Collection imports litellm, which loads an ancestor checkout's ``.env``;
+    :func:`pytest_collection_finish` removes such injections, but this hook
+    runs before that, so the same test — added during collection and carrying
+    exactly the ancestor ``.env`` value — is applied here to keep a key the run
+    never exported from arming a live test.
+    """
+    value = os.environ.get(var)
+    if not value:
+        return False
+    if var in _PRE_COLLECTION_ENV:
+        return True
+    return _ancestor_dotenv_values().get(var) != value
+
+
+def _has_typesafe_api_key() -> bool:
+    return _live_key_present("TYPESAFE_API_KEY")
+
+
+def _has_openrouter_api_key() -> bool:
+    return _live_key_present("OPENROUTER_API_KEY")
+
+
 def _e2e_provider_availability() -> tuple[bool, str]:
     """Whether the credential of the provider this run builds with is present.
 
@@ -1013,6 +1042,14 @@ _RESOURCE_CHECKS: dict[str, tuple[Callable[[], bool], str | Callable[[], str]]] 
     "requires_openai": (_has_openai_api_key, "OPENAI_API_KEY not set"),
     "requires_google": (_has_google_api_key, "GOOGLE_API_KEY not set"),
     "requires_cborg": (_has_cborg_api_key, "CBORG_API_KEY not set"),
+    "requires_typesafe": (
+        _has_typesafe_api_key,
+        "TYPESAFE_API_KEY not set (a value only an ancestor .env supplies does not count)",
+    ),
+    "requires_openrouter": (
+        _has_openrouter_api_key,
+        "OPENROUTER_API_KEY not set (a value only an ancestor .env supplies does not count)",
+    ),
 }
 
 
@@ -1038,8 +1075,13 @@ def pytest_collection_modifyitems(items):
                 item.add_marker(pytest.mark.skip(reason=resolved[1]))
 
 
+@pytest.hookimpl(tryfirst=True)
 def pytest_configure(config):
-    """Register the harness's plugins and the markers whose seams live in this file."""
+    """Claim the run's temporary root, then register the harness's plugins and this file's markers.
+
+    The harness claims the root first, ahead of pytest's own temporary-path
+    setup, which reads it. See the harness's _run_temp.py.
+    """
     _harness.pytest_configure(config)
 
     # A shared fixture's temporary directories go when its scope ends, not when
@@ -1065,6 +1107,17 @@ def pytest_configure(config):
         "facility's profiles checkout, a named export and mapping, or a "
         "stand-in tree, and skips naming the unset variables anywhere else.",
     )
+
+
+@pytest.hookimpl(trylast=True)
+def pytest_sessionfinish(session):
+    """Relay a worker's e2e refusal, ending the session as a usage error.
+
+    The harness's _run_temp releases the run's temporary root after this hook,
+    reading the exit status it settles: the ``failed`` retention policy keeps
+    the root of a run that did not pass.
+    """
+    _relay_e2e_refusal(session)
 
 
 # ===================================================================
@@ -1123,12 +1176,12 @@ def pytest_sessionstart(session):
     os.environ["GIT_CEILING_DIRECTORIES"] = os.pathsep.join((base, ceilings)) if ceilings else base
 
 
-@pytest.hookimpl(trylast=True)
-def pytest_sessionfinish(session):
+def _relay_e2e_refusal(session) -> None:
     """Print a relayed refusal and end the session as a usage error.
 
-    Every worker collects the same selection, so every refusal is identical and
-    the first one is printed.
+    Called from ``pytest_sessionfinish`` above, before the run's temporary root
+    is released. Every worker collects the same selection, so every refusal is
+    identical and the first one is printed.
     """
     refusals = session.config.stash.get(_E2E_REFUSALS, [])
     if not refusals:
@@ -1157,24 +1210,22 @@ def test_config(tmp_path):
     Examples:
         Basic usage::
 
-            def test_something(test_config):
+            def test_something(test_config, monkeypatch):
                 # Config file exists at test_config
                 assert test_config.exists()
                 # Set environment to use it
-                os.environ['CONFIG_FILE'] = str(test_config)
+                monkeypatch.setenv("CONFIG_FILE", str(test_config))
 
         With custom modifications::
 
             def test_custom(test_config):
                 # Read existing config
                 import yaml
-                with open(test_config) as f:
-                    config = yaml.safe_load(f)
+                config = yaml.safe_load(test_config.read_text())
                 # Modify
-                config['execution']['execution_method'] = 'subprocess'
+                config["execution"]["execution_method"] = "subprocess"
                 # Write back
-                with open(test_config, 'w') as f:
-                    yaml.dump(config, f)
+                test_config.write_text(yaml.dump(config))
     """
     import yaml
 
@@ -1219,8 +1270,7 @@ class TestRegistryProvider(RegistryConfigProvider):
         },
     }
 
-    with open(config_file, "w") as f:
-        yaml.dump(config, f)
+    config_file.write_text(yaml.dump(config))
 
     # Do NOT initialize registry here - let each test handle registry initialization
     # to avoid state pollution between tests

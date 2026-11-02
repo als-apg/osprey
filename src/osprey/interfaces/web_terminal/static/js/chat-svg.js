@@ -1,6 +1,6 @@
 // @ts-check
 /**
- * OSPREY Web Terminal — Simple-mode chat: SVG callouts in agent replies.
+ * OSPREY Web Terminal — operator chat: SVG callouts in agent replies.
  *
  * A fenced ```svg block in an agent reply is drawn as the picture it holds: a
  * quick look the agent made for the operator (a few top results, a small

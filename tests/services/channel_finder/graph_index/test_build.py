@@ -39,7 +39,7 @@ from osprey.services.facility_knowledge.seeder.graph_seeder import ttl_sha256
 #: chromaticity channels itself, is one of the 645; ``signals`` is what
 #: ``GRAPH_SIGNAL_COUNT_CYPHER`` counts, and ``sections`` what
 #: ``GRAPH_SECTION_COUNT_CYPHER`` does.
-DEMO_BINDINGS = 3338
+DEMO_BINDINGS = 3339
 DEMO_DEVICES = 645
 DEMO_CLASSES = 30
 DEMO_SIGNALS = 46
@@ -149,7 +149,7 @@ class TestDemoCorpus:
         records = [record for record in caplog.records if record.name == builder_logger]
         assert [record.levelno for record in records] == [logging.DEBUG], records
         line = records[0].getMessage()
-        assert "3338 bindings" in line
+        assert "3339 bindings" in line
         assert "645 devices" in line
         assert " s: " in line, line
 

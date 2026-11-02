@@ -48,6 +48,7 @@ class TestValidateLeafModule:
             capture_output=True,
             text=True,
             cwd=path.parent.parent,
+            timeout=120,
         )
         assert "Traceback" not in result.stderr, result.stderr
         assert result.returncode != 0
@@ -353,6 +354,7 @@ def _run_script(*args: str) -> subprocess.CompletedProcess[str]:
         capture_output=True,
         text=True,
         cwd=MODULE_PATH.parent.parent,
+        timeout=120,
     )
 
 
@@ -509,6 +511,7 @@ class TestStagedHelper:
             capture_output=True,
             text=True,
             cwd=cwd,
+            timeout=120,
         )
 
     def test_staged_module_writes_through_the_helper_beside_it(self, tmp_path: Path) -> None:

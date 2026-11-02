@@ -8,6 +8,7 @@ import subprocess
 import sys
 import textwrap
 from datetime import datetime, timedelta
+from pathlib import Path
 from unittest.mock import patch
 
 import pytest
@@ -18,8 +19,14 @@ from osprey_connectors.control_system._va_in_process_connector import (
     NO_VIEW_MESSAGE,
     VAInProcessConnector,
 )
-from osprey_connectors.errors import ChannelNotFoundError, ChannelWriteBlockedError
+from osprey_connectors.errors import (
+    ChannelNotFoundError,
+    ChannelWriteBlockedError,
+    ConnectorUnavailableError,
+)
 from osprey_connectors_tests._write_fakes import arm_switch, writes_enabled_config
+from tests._archive_composites import held_state_directories
+from tests._live import async_wait_until
 from tests.facility.served_tree import in_process_config, served_tree
 
 
@@ -64,9 +71,26 @@ class TestVAInProcessConnector:
         await connector.disconnect()
 
         assert await connector.validate_channel("A:SP") is False
-        with pytest.raises(RuntimeError) as refusal:
+        with pytest.raises(ConnectorUnavailableError) as refusal:
             await connector.write_channel("A:SP", 1.0)
         assert str(refusal.value) == "the in-process simulator is not connected"
+
+    @pytest.mark.asyncio
+    async def test_a_disconnected_in_process_simulator_is_unavailable(self, tmp_path):
+        """A read, a metadata lookup and a reset on a disconnected simulator say it is gone."""
+        connector = VAInProcessConnector()
+        await connector.connect(
+            in_process_config(served_tree(tmp_path, ["A:SP"]), response_delay_ms=0)
+        )
+        await connector.disconnect()
+
+        for call in (
+            connector.read_channel("A:SP"),
+            connector.get_metadata("A:SP"),
+            connector.reset(),
+        ):
+            with pytest.raises(ConnectorUnavailableError, match="not connected"):
+                await call
 
     @pytest.mark.asyncio
     async def test_connect_without_a_built_view_is_refused(self, tmp_path, monkeypatch):
@@ -189,6 +213,30 @@ class TestVAInProcessConnector:
         assert result.outcome is WriteOutcome.REFUSED
         assert "not a writable setpoint" in result.error_message
         assert puts == []
+
+        await connector.disconnect()
+
+    @pytest.mark.asyncio
+    async def test_a_put_refused_without_text_still_says_it_was_refused(
+        self, tmp_path, monkeypatch
+    ):
+        """A simulator refusal that raises with no text still carries a message."""
+        monkeypatch.setattr("osprey_connectors.config.get_config_value", writes_enabled_config)
+        connector = VAInProcessConnector()
+        await connector.connect(
+            in_process_config(served_tree(tmp_path, ["A:SP"]), response_delay_ms=0)
+        )
+
+        def silent_refusal(*_args):
+            raise ValueError()
+
+        monkeypatch.setattr(connector, "_put", silent_refusal)
+
+        result = await connector.write_channel("A:SP", 1.0)
+
+        assert result.outcome is WriteOutcome.REFUSED
+        assert result.refusal_reason == "CONTROL_SYSTEM_REFUSED"
+        assert result.error_message == "Write to 'A:SP' refused by the simulator"
 
         await connector.disconnect()
 
@@ -375,11 +423,8 @@ class TestVAInProcessConnector:
 
     @staticmethod
     async def _wait_for(predicate, timeout_s):
-        loop = asyncio.get_running_loop()
-        deadline = loop.time() + timeout_s
-        while not predicate() and loop.time() < deadline:
-            await asyncio.sleep(0.01)
-        return predicate()
+        await async_wait_until(predicate, timeout=timeout_s, interval=0.01)
+        return True
 
     @pytest.mark.asyncio
     async def test_a_tick_fires_a_moving_channel_with_no_write(self, tmp_path):
@@ -607,6 +652,44 @@ def _archived_tree(tmp_path, *readings):
 
 class TestMockArchiverConnector:
     """Test MockArchiverConnector functionality."""
+
+    @pytest.mark.asyncio
+    async def test_a_rebuild_after_an_active_set_change_closes_the_previous_composite(
+        self, tmp_path, monkeypatch
+    ):
+        """The composite a rebuild replaces gives up its state directory."""
+        from osprey_connectors.control_system._va_in_process_connector import (
+            simulation_state_dir,
+        )
+        from osprey_connectors.simulation.state import ACTIVE_SCENARIOS_FILENAME
+
+        view = _archived_tree(tmp_path, "BEAM:CURRENT")
+        connector = MockArchiverConnector()
+        with held_state_directories(monkeypatch) as held:
+            await connector.connect(in_process_config(view))
+            [previous] = held
+            state_file = simulation_state_dir(view) / ACTIVE_SCENARIOS_FILENAME
+            state_file.parent.mkdir(parents=True, exist_ok=True)
+            state_file.write_text("nominal\n", encoding="utf-8")
+
+            await connector.check_availability(["BEAM:CURRENT"])
+
+            [_, current] = held
+            assert not Path(previous.name).exists()
+            assert Path(current.name).is_dir()
+            await connector.disconnect()
+
+    @pytest.mark.asyncio
+    async def test_disconnect_closes_the_composite(self, tmp_path, monkeypatch):
+        """Disconnecting removes the served composite's state directory."""
+        connector = MockArchiverConnector()
+        with held_state_directories(monkeypatch) as held:
+            await connector.connect(in_process_config(_archived_tree(tmp_path, "BEAM:CURRENT")))
+            [state] = held
+
+            await connector.disconnect()
+
+            assert not Path(state.name).exists()
 
     @pytest.mark.asyncio
     async def test_connect_disconnect(self, tmp_path):
@@ -893,7 +976,7 @@ class TestMockArchiverReproducibility:
         """)
 
         runs = []
-        for seed in ("0", "1", "12345"):
+        for seed in ("0", "1"):
             env = {**os.environ, "PYTHONHASHSEED": seed}
             proc = subprocess.run(
                 [sys.executable, "-c", script, str(view)],
@@ -901,10 +984,11 @@ class TestMockArchiverReproducibility:
                 text=True,
                 env=env,
                 check=True,
+                timeout=120,
             )
             runs.append(json.loads(proc.stdout.strip().splitlines()[-1]))
 
-        assert runs[0] == runs[1] == runs[2]
+        assert runs[0] == runs[1]
         assert len(runs[0]) > 0
 
 

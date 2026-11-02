@@ -140,7 +140,7 @@ def worker():
     finally:
         if w.proc.poll() is None:
             w.proc.kill()
-            w.proc.wait()
+            w.proc.wait(timeout=30)
 
 
 def noise(mode: str, size: tuple[int, int], seed: int = 7) -> Image.Image:
@@ -639,6 +639,7 @@ def test_the_worker_entry_point_hardens_before_its_handshake():
         cwd="/",
         capture_output=True,
         check=False,
+        timeout=120,
     )
     assert result.returncode == 0, result.stderr.decode()
     assert json.loads(result.stdout) == {"ready": True, "pillow": PIL.__version__}
@@ -701,6 +702,7 @@ def _probe(data: bytes) -> dict:
         cwd="/",
         capture_output=True,
         check=False,
+        timeout=120,
     )
     assert result.returncode == 0, result.stderr.decode()
     return json.loads(result.stdout)

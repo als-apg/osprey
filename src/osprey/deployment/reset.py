@@ -152,6 +152,11 @@ from osprey.deployment.container_ownership import (
 from osprey.deployment.container_ownership import (
     foreign_refusal as _foreign_refusal,
 )
+from osprey.deployment.deployment_record import (
+    DEPLOYMENT_RECORD_RELPATH,
+    read_deployment_record,
+)
+from osprey.deployment.errors import DeploymentRecordError
 from osprey.deployment.runtime_helper import (
     get_runtime_command,
     removal_refusal,
@@ -1051,8 +1056,12 @@ def load_as_built_config(repo_root: Path) -> dict | None:
 def resolve_reset_project_name(repo_root: Path, config: dict | None) -> tuple[str, str]:
     """This repo's compose project name, and where it was read from.
 
-    Read from the rendered config when there is one, because that is the value
-    the running containers were actually labelled with. With no readable config
+    Read from the deployment record first, because that is the value the
+    running containers were started under: ``osprey up`` wrote it before its
+    first container step. A record that cannot be read does not block a reset;
+    the name is then read as if there were none, and the source says the record
+    was unreadable. With no record, it is read from the rendered config when
+    there is one, the value the build labelled the containers with. With no readable config
     — a repo that was never built, or one whose build was already wiped — it is
     read from the profile's top-level ``project_name:`` field, as merged with
     the host's selected overlay, which is the value the next build would
@@ -1068,6 +1077,19 @@ def resolve_reset_project_name(repo_root: Path, config: dict | None) -> tuple[st
     Returns:
         ``(project_name, human-readable source)``.
     """
+    record_path = DEPLOYMENT_RECORD_RELPATH.as_posix()
+    try:
+        record = read_deployment_record(Path(repo_root))
+    except DeploymentRecordError:
+        project, source = _unrecorded_project_name(repo_root, config)
+        return project, f"{source} ({record_path} unreadable)"
+    if record is not None:
+        return record.compose_project, f"from {record_path}"
+    return _unrecorded_project_name(repo_root, config)
+
+
+def _unrecorded_project_name(repo_root: Path, config: dict | None) -> tuple[str, str]:
+    """The project name read without a deployment record, and its source."""
     if config:
         return resolve_project_name(config), f"from {BUILD_DIRNAME}/config.yml"
     declared, source = _profile_project_name(Path(repo_root))
@@ -1429,6 +1451,7 @@ def plan_reset(repo_root: Path, *, probe: RuntimeProbe, purge_audit: bool = Fals
         repo_root / BUILD_DIRNAME,
         repo_root / MERGED_COMPOSE_FILENAME,
         repo_root / AUTH_ENV_FILENAME,
+        repo_root / DEPLOYMENT_RECORD_RELPATH,
     ]
     if contained:
         paths.insert(0, agent_data)
@@ -1515,19 +1538,25 @@ def execute_reset(plan: ResetPlan, *, probe: RuntimeProbe) -> None:
     Order, and why:
 
     1. ``down`` — stop the stack first, so nothing is holding a volume open and
-       nothing writes to ``var/agent_data`` while it is being deleted. A ``down``
-       that fails aborts the whole reset before anything is destroyed: a volume
-       removed out from under containers that would not stop just fails again
-       downstream while masking the real error.
+       nothing writes to ``var/agent_data`` while it is being deleted. The stop
+       acts on the project the plan printed, with the runtime *probe* holds; it
+       never re-reads the deployment record, so a record too damaged to read
+       does not block the reset that removes it. A ``down`` that fails aborts
+       the whole reset before anything is destroyed: a volume removed out from
+       under containers that would not stop just fails again downstream while
+       masking the real error.
     2. containers, then volumes, then images — dependents before dependencies,
        which is the only order the runtime will accept.
-    3. the filesystem: ``var/agent_data``, ``build/`` and the merged compose
-       document (and ``var/audit``, ``var/agent_record`` and ``var/spool`` under
-       ``--purge-audit``), each removed and —
-       for the state directories — left behind empty, so the repo has the shape
-       a fresh ``osprey init`` gives it. Under ``--purge-audit`` the record's
-       export of each planned archive day goes next, under the archive lock,
-       and that day's manifest gets an ``agent_record_purged`` line.
+    3. the filesystem: ``var/agent_data``, ``build/``, the merged compose
+       document and the deployment record ``var/deployment.json`` (and
+       ``var/audit``, ``var/agent_record`` and ``var/spool`` under
+       ``--purge-audit``), each removed and — for the state directories — left
+       behind empty, so the repo has the shape a fresh ``osprey init`` gives it.
+       The deployment record names the deployment this reset ends, so it is not
+       recreated: the next ``osprey up`` writes it again. Under
+       ``--purge-audit`` the agent record's export of each planned archive day
+       goes next, under the archive lock, and that day's manifest gets an
+       ``agent_record_purged`` line.
     4. ``.env`` last. It is the one file here that is edited rather than deleted,
        and doing it last means a failure anywhere above leaves the deployment's
        secrets exactly as they were.
@@ -1539,7 +1568,7 @@ def execute_reset(plan: ResetPlan, *, probe: RuntimeProbe) -> None:
     """
     if (refusal := running_host_record_refusal(plan.repo_root)) is not None:
         raise refusal
-    down_deployment(plan.repo_root)
+    down_deployment(plan.repo_root, runtime=probe.runtime, project=plan.project)
 
     for resource in plan.containers:
         probe.remove_container(resource.name)
@@ -1549,13 +1578,14 @@ def execute_reset(plan: ResetPlan, *, probe: RuntimeProbe) -> None:
         probe.remove_image(resource.name)
 
     # Left absent, never recreated: `build/` because its absence is what
-    # `osprey up` reads as "no build found", and the two FILES because the next
+    # `osprey up` reads as "no build found", and the FILES because the next
     # deploy that needs them writes each whole (an empty directory in a file's
     # place would fail that write).
     derived = {
         plan.repo_root / BUILD_DIRNAME,
         plan.repo_root / MERGED_COMPOSE_FILENAME,
         plan.repo_root / AUTH_ENV_FILENAME,
+        plan.repo_root / DEPLOYMENT_RECORD_RELPATH,
     }
     for path in plan.paths:
         _wipe_directory(path, recreate=path not in derived)
@@ -1870,11 +1900,21 @@ def _default_probe(repo_root: Path) -> RuntimeProbe:
     with empty output — which reset would render as "no containers, no volumes"
     and an operator would read as "already clean". Checking first is what keeps
     a plan from stating an absence it never verified.
+
+    The runtime is the one the deployment record names, the one the last start
+    drove; with no readable record it is the one the as-built config selects.
+    The pinned compose project is the one the plan resolves
+    (:func:`resolve_reset_project_name`).
     """
     from osprey.deployment.runtime_helper import verify_runtime_is_running
 
     config = runtime_selection_config(repo_root)
-    is_running, error = verify_runtime_is_running(config)
+    try:
+        record = read_deployment_record(repo_root)
+    except DeploymentRecordError:
+        record = None
+    recorded_runtime = record.runtime if record is not None else None
+    is_running, error = verify_runtime_is_running(config, runtime=recorded_runtime)
     if not is_running:
         raise RuntimeError(
             f"{error}\n\nReset needs the container runtime to see what this deployment owns. "
@@ -1882,4 +1922,8 @@ def _default_probe(repo_root: Path) -> RuntimeProbe:
             "would look like a deployment that is already clean. Nothing was touched."
         )
 
-    return RuntimeProbe(get_runtime_command(config)[0], env=runtime_env(config, os.environ.copy()))
+    project = resolve_reset_project_name(repo_root, load_as_built_config(repo_root))[0]
+    return RuntimeProbe(
+        recorded_runtime or get_runtime_command(config)[0],
+        env=runtime_env(config, os.environ.copy(), project=project),
+    )

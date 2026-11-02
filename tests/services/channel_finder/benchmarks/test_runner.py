@@ -1091,5 +1091,7 @@ class TestGraphChannelCensus:
             "from osprey.services.channel_finder.benchmarks import runner\n"
             "assert 'neo4j' not in sys.modules, 'neo4j imported at module scope'\n"
         )
-        result = subprocess.run([sys.executable, "-c", source], capture_output=True, text=True)
+        result = subprocess.run(
+            [sys.executable, "-c", source], capture_output=True, text=True, timeout=120
+        )
         assert result.returncode == 0, result.stderr

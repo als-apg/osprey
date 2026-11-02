@@ -2277,6 +2277,7 @@ class TestWorktree:
             capture_output=True,
             text=True,
             check=True,
+            timeout=60,
         )
 
     @pytest.fixture
@@ -2295,7 +2296,7 @@ class TestWorktree:
 
     def check(self, repo: Path, *extra: str) -> int:
         def run(argv: list[str]) -> subprocess.CompletedProcess[str]:
-            return subprocess.run(argv, cwd=repo, capture_output=True, text=True)
+            return subprocess.run(argv, cwd=repo, capture_output=True, text=True, timeout=60)
 
         argv = ["check", "--base", "base", *extra]
         argv += ["--dir", str(repo / "changelog.d"), "--changelog", str(repo / "CHANGELOG.md")]

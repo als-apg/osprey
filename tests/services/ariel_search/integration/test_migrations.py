@@ -577,7 +577,7 @@ class TestAttachmentTextColumnsMigration:
             "attachment_captions": ("jsonb", "YES", None),
         }
 
-    async def test_busy_table_skips_quickly_without_blocking_readers(
+    async def test_busy_table_skips_without_queueing_or_blocking_readers(
         self, scratch_database, scratch_pool, scratch_config, monkeypatch
     ):
         """An open reader makes migrate return busy while it still reads; a later reader never waits.

@@ -39,10 +39,7 @@ the base class's own function, bound here unchanged: it only composes
 guard and the limits checks run — with
 :func:`~osprey_connectors.control_system.raise_for_write_result`, which
 reads the result the child already decided. Running that composition in the
-parent keeps every refusal decision in the child while letting a
-``ChannelWriteFailedError`` reach the caller typed; raised in the child, that
-class is outside the IPC exception registry and would cross as a bare
-``ConnectionError``.
+parent keeps every refusal decision in the child.
 
 Concurrency
 -----------
@@ -59,8 +56,12 @@ any other reason ends the proxy: every outstanding call completes with a
 every later call raises the same. A dead proxy never revives — starting a
 fresh child and a fresh proxy is the supervisor's job, not this object's.
 :attr:`ConnectorHostProxy.dead_reason` says whether that has happened, which
-is how a supervisor tells a dead child from a ``ConnectionError`` the connector
+is how a supervisor tells a dead child from a connection failure the connector
 itself raised and the child relayed.
+
+A well-framed reply whose value cannot be rebuilt is not a broken stream: that
+one call fails with a :class:`~osprey_connectors.errors.ConnectorInternalError`
+and the proxy stays up.
 
 A call the child does not answer in time fails with
 :class:`ChildUnresponsiveError` — a :class:`TimeoutError`, because that is what
@@ -91,6 +92,7 @@ from osprey_connectors.control_system._base import (
     ControlSystemConnector,
 )
 from osprey_connectors.ipc import _frames as frames
+from osprey_connectors.recovery import _RAISED_BY_CHILD
 
 __all__ = ["CHILD", "ChildUnresponsiveError", "ConnectorHostProxy", "raised_by_child"]
 
@@ -122,21 +124,18 @@ def _expect(reply: object, kind: type[_T], method: str) -> _T:
     return reply
 
 
-#: Attribute set on an exception decoded from the child's own error frame.
-_FROM_CHILD = "_osprey_raised_by_child"
-
-
 def raised_by_child(exc: BaseException) -> bool:
     """Whether *exc* is an error the child sent, rather than one this proxy made.
 
-    A :class:`ConnectionError` can mean two opposite things to a caller: the
-    connector in a healthy child could not reach a channel, or the child itself
-    is gone. The first arrives in an error frame and is marked here as it is
+    A :class:`ConnectionError` can come from two places: the connector in a
+    child that answered says it lost its own transport, or the child itself is
+    gone. The first arrives in an error frame and is marked here as it is
     decoded; the second is manufactured by this proxy when the pipe ends. A
     supervisor classifies by this mark, never by whatever state the proxy is
-    in when the caller happens to resume.
+    in when the caller happens to resume. A failure about one channel is no
+    :class:`ConnectionError` at all.
     """
-    return bool(getattr(exc, _FROM_CHILD, False))
+    return bool(getattr(exc, _RAISED_BY_CHILD, False))
 
 
 def _consume_exception(future: asyncio.Future[Any]) -> None:
@@ -513,10 +512,11 @@ class ConnectorHostProxy:
             return
         if isinstance(frame, frames.ErrorFrame):
             # decode_frame already ran the typed-exception registry, so this is
-            # the real class with its fields, or a ConnectionError standing in
-            # for a class this build does not know.
+            # the real class with its fields, or a ConnectorInternalError
+            # standing in for a class this build does not know or a reply value
+            # it could not rebuild.
             exception = frame.exception
-            setattr(exception, _FROM_CHILD, True)
+            setattr(exception, _RAISED_BY_CHILD, True)
             future.set_exception(exception)
         else:
             future.set_result(frame.value)

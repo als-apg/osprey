@@ -13,7 +13,7 @@
    - limits            # Enforce per-channel min/max limits before writes
    - error-guidance    # Post-error hook that surfaces remediation hints
    - memory-guard      # Gate Write to memory files, NotebookEdit to agent-data artifacts and notebooks
-@@ -70,7 +73,7 @@
+@@ -73,7 +76,7 @@
    - safety              # Core safety rules: never write without approval
    - error-handling      # Standard error handling and retry guidance
    - artifacts           # Rules for saving diagnostic and tuning artifacts
@@ -22,7 +22,7 @@
    - workflows           # Approved workflow patterns (scan, ramp, restore)
    - timezone            # Always localise timestamps to facility timezone
    - python-execution    # Rules governing Python executor sandbox usage
-@@ -150,9 +153,9 @@
+@@ -153,9 +156,9 @@
    # this key alone the build derives the target's connector block,
    # `control_system.connector.live_standin` — seven leaves, nothing else.
    # `control_target_set standin` points a session at it, and what an operator
@@ -35,17 +35,17 @@
    # Delete the line on a laptop: the simulator image is amd64-only, so a
    # second emulated container on Apple Silicon doubles what QEMU has to run —
    # one more emulated soft-IOC for the life of the deployment.
-@@ -241,13 +244,14 @@
+@@ -287,19 +290,20 @@
    # `osprey set config.archiver.type=<the archiver that records it>` and
    # `osprey set va_archiver=null`, because the recorded archive goes with it.
    control_system.type: virtual_accelerator
--  # Write posture, the FIRST guard in the write-safety chain: while `never`,
--  # every hardware write is refused before the limits check or the approval
--  # prompt is consulted. `allowed` here because the baseline is the simulator,
--  # which cannot move a magnet; the read-only tier pins it `never`. Under
--  # `allowed`, each login's own write switch for each machine decides the next
--  # write, so allowing writes arms no machine by itself.
--  control_system.writes: allowed
+-  # Write ceiling, the FIRST guard in the write-safety chain: `never` refuses
+-  # every hardware write before the limits check or the approval prompt is
+-  # consulted, `asked` lets a login's write switch reach the position that
+-  # prompts, and `allowed` also the position that does not. This preset ships
+-  # `asked`; the read-only tier pins `never`, the admin tier `allowed`. Each
+-  # login's own switch for each machine decides, so a ceiling arms nothing.
+-  control_system.writes: asked
 +  # Master write switch, the FIRST guard in the write-safety chain: while
 +  # false, every hardware write is refused before the limits check or the
 +  # approval prompt is consulted. On here because the baseline is the
@@ -57,7 +57,15 @@
    # Extra tools the kill switch refuses while writes are off. Framework write
    # tools are covered automatically; list your own servers' write tools here.
    # control_system.write_tools: [mcp__my_server__dangerous_write]
-@@ -289,6 +293,10 @@
+   # Operator-facing names for the control targets on the web terminal's
+-  # control-target chip. Defaults: "Live", "Rehearsal", "Simulator".
+-  # control_system.target_display_names.live: Live
++  # control-target chip. Defaults: "Real machine", "Rehearsal", "Simulator".
++  # control_system.target_display_names.live: Real machine
+   # control_system.target_display_names.standin: Rehearsal
+   # control_system.target_display_names.va: Simulator
+   # Limits are optional. `enabled: false` = no limits at all. `mode:
+@@ -335,6 +339,10 @@
    #
    # Channel Access timeout in seconds.
    control_system.connector.virtual_accelerator.timeout_s: 5.0
@@ -68,7 +76,7 @@
    # Where the simulator runs: `served` is its container over Channel Access; `in_process` is inside this process, with no container.
    # control_system.connector.virtual_accelerator.serving: served
    # Milliseconds each read and write takes when the simulator is served in process; unread when served.
-@@ -318,6 +326,9 @@
+@@ -364,6 +372,9 @@
    # value, in seconds. Running out of budget refuses the write, so raise this
    # for a slow gateway — it buys room, never a weaker check.
    # control_system.connector.epics.step_read_timeout_s: 2.0
@@ -78,7 +86,7 @@
    # Channel the target switch reads to prove the live machine is reachable.
    # While unset this target is never switched to.
    # control_system.connector.epics.probe_channel: SR:BEAM:CURRENT
-@@ -342,9 +353,12 @@
+@@ -388,9 +399,12 @@
    # DOOCS connector: no coordinates of its own. doocs4py reaches the ENS the
    # facility's own DOOCS environment already names, so the empty coordinate set
    # is the point of this block rather than an omission — what is left is how
@@ -92,7 +100,7 @@
    # Property the target switch reads to prove this machine is reachable.
    # control_system.connector.doocs.probe_channel: FACILITY/DEVICE/LOCATION/PROPERTY
    # TANGO connector: one coordinate of its own, the device database, spelled
-@@ -356,7 +370,8 @@
+@@ -402,7 +416,8 @@
    # control_system.connector.tango.tango_host: your-tango-db.example.com:10000
    # Seconds a device call waits before it is given up on.
    # control_system.connector.tango.timeout_s: 5.0
@@ -102,7 +110,36 @@
    # control_system.connector.tango.probe_channel: sys/tg_test/1/ampli
    # Target switch: how a running session moves between the connectors above.
    #
-@@ -1115,7 +1130,7 @@
+@@ -530,19 +545,21 @@
+
+   # ── Human-in-the-loop approval ─────────────────────────────────────────────
+   # The THIRD guard: a write that passed the master switch and the limits check
+-  # still pauses for a yes/no prompt, unless its slider stands at `allowed`.
+-  # Applied by the approval hook, so it reaches only hook-wired tools; the
+-  # health check, channel-finder queries and most workspace tools are gated by
+-  # the rendered settings.json permissions.
++  # still pauses for a yes/no prompt. Applied by the approval hook, so it
++  # reaches only hook-wired tools; the health check, channel-finder queries and
++  # most workspace tools are gated by the rendered settings.json permissions.
+   approval.enabled: true
+   # Policy for any hook-wired tool not listed below. "always" is fail-closed:
+   # reads need their own "skip" entry to run unprompted.
+   approval.default_policy: always
+-  # Per-tool policies: always (prompt every time) or skip (no prompt). A tool
+-  # the write switch governs, channel writes and Python execution among them,
+-  # takes no entry here: the slider on the control-target chip decides for it.
++  # Per-tool policies: always (prompt every time), skip (no prompt), or
++  # selective (content-aware, for `execute` only; other tools read it as
++  # always).
++  approval.tools.channel_write: always
+   approval.tools.channel_read: skip
+   approval.tools.archiver_read: skip
++  # Python execution: content-aware, so a script that only reads runs unprompted.
++  approval.tools.execute: selective
+   # The agent's own config-editing tool: a config change needs approval.
+   approval.tools.setup_patch: always
+   # Creating a logbook entry always asks first.
+@@ -1086,7 +1103,7 @@
      # To override one port rather than move the block, name it here:
      #   nginx_port: 18000         # the landing page everyone opens first
      #   web_base_port: 18100      # first per-user web-terminal port
@@ -111,7 +148,7 @@
      # Every terminal below asks for a login (user alice: password alice, and
      # so on — set in this repo's .env; rotate with `osprey users passwd`).
      auth:
-@@ -1175,22 +1190,37 @@
+@@ -1146,22 +1163,37 @@
            # to your terminal" button, so the page lists nobody. It needs the
            # login wall above (auth.method password or oidc).
            # names: shown
@@ -155,7 +192,7 @@
        # The one login that can change this deployment's configuration — the web
        # Config panel, the scaffold gallery's editors, and the agent's own setup
        # tool. Behind the login wall like every other person on this page: an
-@@ -1198,15 +1228,31 @@
+@@ -1169,15 +1201,31 @@
        # it.
        - name: carol
          index: 2
@@ -190,7 +227,7 @@
        - channel-finder   # Channel Finder: channel addresses from the hierarchy
 
    # ── Health checks ──────────────────────────────────────────────────────────
-@@ -1310,14 +1356,14 @@
+@@ -1280,14 +1328,14 @@
      OSPREY_AUTH_PW_CAROL: carol
  data: data
  # Minimum OSPREY release that understands this profile's keys. Builds below it abort.

@@ -117,7 +117,6 @@ from __future__ import annotations
 import contextlib
 import http.server
 import json
-import os
 import shutil
 import subprocess
 import threading
@@ -575,12 +574,12 @@ def _arm_queue_owner(repo: Path) -> None:
 
     from osprey.deployment.compose_generator import ensure_control_target_dir
     from osprey_connectors.types import TARGET_VA
-    from tests.e2e.sdk_helpers import render_dir, switch_on_in_record
+    from tests.e2e.sdk_helpers import render_dir, set_switch_in_record
 
     config = yaml.safe_load((render_dir(repo) / "config.yml").read_text(encoding="utf-8"))
     owner = _queue_owner()
     ensure_control_target_dir(config, repo, owner, relative_to=repo)
-    switch_on_in_record(repo, owner=owner, targets=[TARGET_VA])
+    set_switch_in_record(repo, owner=owner, targets=[TARGET_VA])
 
 
 def _enqueue_ok(revision: int, *, token: str | None = None) -> str:
@@ -846,12 +845,8 @@ def stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[QueueStack]:
 
     # Force fresh --dev builds so the deployed containers run CURRENT source
     # (`osprey up` does not pass --build to compose, so it would otherwise
-    # reuse a stale cached image). Exact-named images only.
-    # E2E_REUSE_IMAGES=1 skips this for fast local iteration on the test
-    # itself; never set it in CI, where a source change must always rebuild.
-    if not os.environ.get("E2E_REUSE_IMAGES"):
-        for image in (BRIDGE_IMAGE, VA_IMAGE, PANELS_IMAGE):
-            subprocess.run(["docker", "rmi", "-f", image], capture_output=True, text=True)
+    # reuse a stale cached image).
+    _orm_stack.force_image_rebuild(BRIDGE_IMAGE, VA_IMAGE, PANELS_IMAGE)
 
     try:
         up = run_command(
@@ -1419,11 +1414,11 @@ def _switch_on_for_this_login() -> None:
     current = control_context.read_record(path=path)
     epoch = (current.switch_epoch if current is not None else None) or 0
     try:
-        control_context.set_switch([target], "on", epoch=epoch, path=path)
+        control_context.set_switch([target], "asked", epoch=epoch, path=path)
     except control_context.StoppedSince as refused:
         if not refused.stamped or refused.epoch is None:
             raise
-        control_context.set_switch([target], "on", epoch=refused.epoch, path=path)
+        control_context.set_switch([target], "asked", epoch=refused.epoch, path=path)
     control_context.invalidate_cache()
 
 

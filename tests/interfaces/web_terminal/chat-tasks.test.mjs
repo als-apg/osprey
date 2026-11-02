@@ -1,5 +1,5 @@
 /**
- * Unit tests for the Simple view's task bar (chat-tasks.js):
+ * Unit tests for the chat's task bar (chat-tasks.js):
  *   npx vitest run tests/interfaces/web_terminal/chat-tasks.test.mjs
  *
  * The bar reads the chat's frames from the bus, so the tests publish the same

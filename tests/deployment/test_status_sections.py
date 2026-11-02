@@ -44,6 +44,12 @@ from osprey.cli.phase_reporter import PhaseReporter, install_reporter
 from osprey.cli.styles import osprey_theme
 from osprey.deployment import status_display
 from osprey.deployment.compose_generator import REPO_ID_LABEL, repo_identity
+from osprey.deployment.deployment_record import (
+    DEPLOYMENT_RECORD_RELPATH,
+    NOTHING_DEPLOYED,
+    DeploymentRecord,
+    write_deployment_record,
+)
 from tests.deployment.test_up_as_built import _RENDERED_CONFIG, render_build
 from tests.fixtures.lifecycle_repo import EXEMPLAR_DIRNAME, build_exemplar_repo
 
@@ -52,8 +58,14 @@ PROJECT = "als-exemplar"
 
 @pytest.fixture
 def lifecycle_repo(tmp_path: Path) -> Path:
-    """The gold-standard three-zone deployment repo, with no ``.env`` in it."""
-    return build_exemplar_repo(tmp_path / EXEMPLAR_DIRNAME)
+    """The gold-standard three-zone deployment repo, with no ``.env`` in it.
+
+    It holds the record a start of :data:`PROJECT` on docker wrote, which is
+    what both verbs report on.
+    """
+    repo = build_exemplar_repo(tmp_path / EXEMPLAR_DIRNAME)
+    write_deployment_record(repo, DeploymentRecord("docker", PROJECT))
+    return repo
 
 
 def container(
@@ -92,9 +104,14 @@ def runtime(monkeypatch):
     monkeypatch.setattr(
         status_display,
         "get_ps_command",
-        lambda config, all_containers=False: ["docker", "ps", "-a", "--format", "json"],
+        lambda config, all_containers=False, runtime=None: [
+            runtime,
+            "ps",
+            "-a",
+            "--format",
+            "json",
+        ],
     )
-    monkeypatch.setattr(status_display, "get_runtime_command", lambda config=None: ["docker"])
 
     def _fake_run(
         cmd,
@@ -199,8 +216,8 @@ def test_a_repo_with_no_build_says_so_and_still_shows_its_containers(lifecycle_r
     # computed rather than not appearing: two silently absent sections read as a
     # deployment with no endpoints and no agent.
     assert "read from build/config.yml" in text
-    # And the project name in the header is labelled as the derivation it is.
-    assert "from the directory name" in text
+    # The project in the header is the one the last start recorded.
+    assert PROJECT in text.split("Containers", 1)[1]
 
 
 @pytest.mark.usefixtures("runtime")
@@ -893,6 +910,78 @@ def test_status_only_ever_asks_the_runtime_to_list(lifecycle_repo, runtime):
         assert argv[1] in ("ps", "volume"), argv
 
 
+def _corrupt_the_record(repo: Path) -> None:
+    (repo / DEPLOYMENT_RECORD_RELPATH).write_text("{not json", encoding="utf-8")
+
+
+def test_status_owns_the_containers_of_the_recorded_project(lifecycle_repo, runtime):
+    """A rebuild renamed the project; the running stack is still the recorded one's."""
+    render_build(lifecycle_repo)
+    write_deployment_record(lifecycle_repo, DeploymentRecord("docker", "earlier-name"))
+    runtime["containers"] = [container("dispatch", project="earlier-name")]
+
+    text = report(lifecycle_repo)
+
+    containers = text.split("Containers", 1)[1]
+    assert "earlier-name" in containers
+    assert "dispatch" in containers
+    assert "Other OSPREY containers" not in text
+
+
+def test_status_asks_the_recorded_runtime(lifecycle_repo, monkeypatch):
+    """ps, volume ls and inspect all go to the runtime the last start drove."""
+    from osprey.cli.web_cmd import PREFLIGHT_REFUSED_MARKER
+    from osprey.deployment.compose_generator import state_identity_dir
+    from osprey.deployment.web_terminals.naming import web_container_name
+
+    monkeypatch.setenv("CONTAINER_RUNTIME", "docker")
+    render_build(
+        lifecycle_repo,
+        config=_RENDERED_CONFIG + "modules:\n  web_terminals:\n    enabled: true\n"
+        "    users:\n      - alice\n",
+    )
+    write_deployment_record(lifecycle_repo, DeploymentRecord("podman", PROJECT))
+    marker = state_identity_dir(lifecycle_repo, "alice") / PREFLIGHT_REFUSED_MARKER
+    marker.parent.mkdir(parents=True, exist_ok=True)
+    marker.write_text("2099-01-01T00:00:00+00:00\n- refused\n", encoding="utf-8")
+    rows = [container(web_container_name(PROJECT, "alice"), repo_id=repo_identity(lifecycle_repo))]
+    asked: list[list[str]] = []
+
+    def _run(cmd, **kwargs):
+        argv = list(cmd)
+        asked.append(argv)
+        stdout = json.dumps(rows) if argv[1] == "ps" else ""
+        return subprocess.CompletedProcess(argv, 0, stdout, "")
+
+    monkeypatch.setattr(status_display.subprocess, "run", _run)
+
+    report(lifecycle_repo)
+
+    assert {argv[1] for argv in asked} == {"ps", "volume", "inspect"}
+    assert {argv[0] for argv in asked} == {"podman"}
+
+
+def test_status_with_no_record_says_nothing_is_deployed_and_asks_nothing(lifecycle_repo, runtime):
+    render_build(lifecycle_repo)
+    (lifecycle_repo / DEPLOYMENT_RECORD_RELPATH).unlink()
+
+    text = report(lifecycle_repo)
+
+    assert NOTHING_DEPLOYED in text
+    assert runtime["cmds"] == []
+
+
+def test_status_names_an_unreadable_record_and_asks_nothing(lifecycle_repo, runtime):
+    render_build(lifecycle_repo)
+    _corrupt_the_record(lifecycle_repo)
+
+    text = report(lifecycle_repo)
+
+    assert "unreadable" in text
+    assert str(DEPLOYMENT_RECORD_RELPATH) in text
+    assert runtime["cmds"] == []
+
+
 # ---------------------------------------------------------------------------
 # logs: the invocation it hands to the runtime
 # ---------------------------------------------------------------------------
@@ -991,6 +1080,42 @@ def test_logs_pins_the_compose_project_name(lifecycle_repo):
     _cmd, env = status_display.logs_command(lifecycle_repo)
 
     assert env["COMPOSE_PROJECT_NAME"] == PROJECT
+
+
+@pytest.mark.usefixtures("runtime")
+def test_logs_follows_the_recorded_project_with_the_recorded_runtime(lifecycle_repo, monkeypatch):
+    from osprey.deployment.compose_generator import resolve_project_name
+
+    monkeypatch.setenv("CONTAINER_RUNTIME", "docker")
+    render_build(lifecycle_repo)
+    recorded = DeploymentRecord("podman", "earlier-name")
+    assert resolve_project_name({"project_name": PROJECT}) != recorded.compose_project
+    write_deployment_record(lifecycle_repo, recorded)
+
+    cmd, env = status_display.logs_command(lifecycle_repo)
+
+    assert cmd[0] == recorded.runtime
+    assert env["COMPOSE_PROJECT_NAME"] == recorded.compose_project
+
+
+def test_logs_with_no_record_says_nothing_is_deployed(lifecycle_repo):
+    render_build(lifecycle_repo)
+    (lifecycle_repo / DEPLOYMENT_RECORD_RELPATH).unlink()
+
+    result = CliRunner().invoke(logs_verb, ["--repo", str(lifecycle_repo)])
+
+    assert result.exit_code != 0
+    assert NOTHING_DEPLOYED in result.output
+
+
+def test_logs_names_an_unreadable_record(lifecycle_repo):
+    from osprey.deployment.errors import DeploymentRecordError
+
+    render_build(lifecycle_repo)
+    _corrupt_the_record(lifecycle_repo)
+
+    with pytest.raises(DeploymentRecordError, match=str(DEPLOYMENT_RECORD_RELPATH)):
+        status_display.logs_command(lifecycle_repo)
 
 
 def test_logs_without_a_build_refuses_and_names_the_remedy(lifecycle_repo):
@@ -1118,7 +1243,7 @@ def test_logs_help_states_that_both_stacks_are_covered():
 
 
 # ---------------------------------------------------------------------------
-# Writes: per login its tier, its record's target, and which machines are on
+# Writes: per login its tier, its record's target, and each armed machine's position
 # ---------------------------------------------------------------------------
 
 
@@ -1199,7 +1324,7 @@ def test_single_user_lists_its_record_at_the_deployments_own_tier(tmp_path):
 
     rows = status_display.writes_rows(config, tmp_path)
 
-    assert rows == [("thorsten", "allowed", "standin", "standin")]
+    assert rows == [("thorsten", "allowed", "standin", "standin:asked")]
     text = _writes_text(config, tmp_path)
     assert "Writes:" in text
     assert "not in the roster" not in text
@@ -1214,12 +1339,12 @@ def test_single_user_with_no_record_says_every_machine_is_off(tmp_path):
 
 def test_multi_user_lists_each_login_with_its_tier_target_and_machines(tmp_path):
     config = _multi_user_config(tmp_path)
-    _write_record(tmp_path, "alice", target="live", switch={"live": "on", "standin": "on"})
+    _write_record(tmp_path, "alice", target="live", switch={"live": "asked", "standin": "allowed"})
 
     rows = status_display.writes_rows(config, tmp_path)
 
     assert rows == [
-        ("alice", "allowed", "live", "live, standin"),
+        ("alice", "allowed", "live", "live:asked, standin:allowed"),
         # No record is every switch off; nothing is created to say so.
         ("bob", "never", "—", "off"),
     ]
@@ -1228,15 +1353,78 @@ def test_multi_user_lists_each_login_with_its_tier_target_and_machines(tmp_path)
     assert not control_target_identity_dir({}, tmp_path, "bob").exists()
 
 
-def test_an_on_under_a_never_tier_is_marked_inert(tmp_path):
-    """O-3: a demoted login's "on" stays recorded and inert."""
+def test_a_position_under_a_never_tier_is_marked_inert(tmp_path):
+    """O-3: a demoted login's positions stay recorded and inert, in neither case capped."""
     config = _multi_user_config(tmp_path)
-    _write_record(tmp_path, "bob", target="standin", switch={"standin": "on"})
+    _write_record(tmp_path, "bob", target="standin", switch={"live": "allowed", "standin": "asked"})
 
     rows = _rows_by_login(config, tmp_path)
 
-    assert rows["bob"] == ["never", "standin", "standin on — tier never, inert"]
-    assert "standin on — tier never, inert" in _writes_text(config, tmp_path)
+    expected = "live:allowed, standin:asked — tier never, inert"
+    assert rows["bob"] == ["never", "standin", expected]
+    assert expected in _writes_text(config, tmp_path)
+
+
+def test_a_staged_asked_entry_is_the_tier_cell(tmp_path):
+    config = _multi_user_config(tmp_path, login_tiers={"alice": "asked", "bob": "never"})
+
+    rows = _rows_by_login(config, tmp_path)
+
+    assert rows["alice"] == ["asked", "—", "off"]
+
+
+def test_a_legacy_on_record_reads_asked(tmp_path):
+    """The stored ``on`` from before the three positions is the word ``asked`` everywhere."""
+    config = _multi_user_config(tmp_path)
+    _write_record(tmp_path, "alice", target="standin", switch={"standin": "on"})
+
+    rows = _rows_by_login(config, tmp_path)
+
+    assert rows["alice"] == ["allowed", "standin", "standin:asked"]
+
+
+def test_an_allowed_under_an_asked_ceiling_is_marked_capped(tmp_path):
+    """Only the entry above the ceiling is marked; ``asked`` is in force as stored."""
+    config = _multi_user_config(tmp_path, login_tiers={"alice": "asked", "bob": "never"})
+    _write_record(tmp_path, "alice", target="live", switch={"live": "allowed", "standin": "asked"})
+
+    rows = _rows_by_login(config, tmp_path)
+
+    expected = "live:allowed (capped: asked), standin:asked"
+    assert rows["alice"] == ["asked", "live", expected]
+    assert expected in _writes_text(config, tmp_path)
+
+
+@pytest.mark.parametrize("tier", ["allowed", "unknown"])
+def test_an_allowed_is_not_capped_without_an_asked_ceiling(tmp_path, tier):
+    """``unknown`` states no ceiling, so nothing here claims one."""
+    login_tiers = {"bob": "never"} if tier == "unknown" else {"alice": tier, "bob": "never"}
+    config = _multi_user_config(tmp_path, login_tiers=login_tiers)
+    _write_record(tmp_path, "alice", target="live", switch={"live": "allowed"})
+
+    rows = _rows_by_login(config, tmp_path)
+
+    assert rows["alice"] == [tier, "live", "live:allowed"]
+
+
+def test_an_all_off_record_reads_off(tmp_path):
+    """A switch map with nothing armed states the record's target and no machine."""
+    config = _multi_user_config(tmp_path)
+    _write_record(tmp_path, "alice", target="live", switch={"standin": "maybe"})
+
+    rows = _rows_by_login(config, tmp_path)
+
+    assert rows["alice"] == ["allowed", "live", "off"]
+
+
+def test_the_writes_table_names_the_three_words_not_the_retired_one(tmp_path):
+    config = _multi_user_config(tmp_path)
+    _write_record(tmp_path, "alice", target="standin", switch={"standin": "asked"})
+
+    text = _writes_text(config, tmp_path)
+
+    assert "Writes (off, asked, allowed)" in text
+    assert "Writes on" not in text
 
 
 def test_an_identity_not_in_the_roster_is_named_as_such(tmp_path):
@@ -1245,7 +1433,7 @@ def test_an_identity_not_in_the_roster_is_named_as_such(tmp_path):
 
     rows = status_display.writes_rows(config, tmp_path)
 
-    assert rows[-1] == ("mallory", "not in the roster — cannot write", "live", "live")
+    assert rows[-1] == ("mallory", "not in the roster — cannot write", "live", "live:asked")
     assert [row[0] for row in rows] == ["alice", "bob", "mallory"]
 
 
@@ -1266,6 +1454,20 @@ def test_an_unreadable_record_reads_refused_never_off(tmp_path):
     assert "record unreadable — writes refused" in text
 
 
+def test_an_unreadable_record_under_an_asked_tier_reads_refused(tmp_path):
+    from osprey.deployment.compose_generator import control_target_identity_dir
+    from osprey_connectors.control_context import RECORD_FILENAME
+
+    config = _multi_user_config(tmp_path, login_tiers={"alice": "asked", "bob": "never"})
+    directory = control_target_identity_dir({}, tmp_path, "alice")
+    directory.mkdir(parents=True)
+    (directory / RECORD_FILENAME).write_text("{not json", encoding="utf-8")
+
+    rows = _rows_by_login(config, tmp_path)
+
+    assert rows["alice"] == ["asked", "?", "record unreadable — writes refused"]
+
+
 def test_an_sso_login_without_a_role_has_its_tier_decided_at_sign_in(tmp_path):
     """Carried R2 CF-4: the claim picks the role, so no file here names the tier."""
     config = _multi_user_config(
@@ -1283,7 +1485,7 @@ def test_an_sso_login_without_a_role_has_its_tier_decided_at_sign_in(tmp_path):
     rows = _rows_by_login(config, tmp_path)
 
     assert rows["alice"] == ["allowed", "—", "off"]
-    assert rows["carol"] == ["by role at sign-in", "standin", "standin"]
+    assert rows["carol"] == ["by role at sign-in", "standin", "standin:asked"]
 
 
 def test_no_staged_map_answers_unknown_for_every_card_not_a_guess(tmp_path):
@@ -1336,7 +1538,7 @@ def test_a_mapped_login_outside_the_roster_lists_only_with_a_record_at_its_mappe
     rows = status_display.writes_rows(config, tmp_path)
 
     assert [row[0] for row in rows] == ["alice", "bob", "builder"]
-    assert rows[-1] == ("builder", "allowed", "standin", "standin")
+    assert rows[-1] == ("builder", "allowed", "standin", "standin:asked")
 
 
 @pytest.mark.parametrize(

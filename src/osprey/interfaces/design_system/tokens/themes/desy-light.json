@@ -34,6 +34,17 @@
     "default": { "$value": "{color.petrol.300}", "$type": "color" },
     "accent": { "$value": "rgba(0, 123, 200, 0.25)", "$type": "color", "$description": "Alpha composite of the accessibility cyan (#007bc8)." }
   },
+  "surface": {
+    "$description": "Layout F surfaces. canvas = bg.secondary step, card = bg.terminal step (desy.white), well = bg.primary step (between them). Corrects the inversion where bg.panel is darker than the canvas. Washes are alpha composites of text.primary (#2b485a) and accent.base (#007bc8); hairline is border.default (#b3c8d6) at 0.8.",
+    "canvas": { "$value": "{color.petrol.150}", "$type": "color" },
+    "card": { "$value": "{color.desy.white}", "$type": "color" },
+    "well": { "$value": "{color.petrol.50}", "$type": "color" },
+    "hairline": { "$value": "rgba(179, 200, 214, 0.8)", "$type": "color" },
+    "hover": { "$value": "rgba(43, 72, 90, 0.06)", "$type": "color" },
+    "press": { "$value": "rgba(43, 72, 90, 0.1)", "$type": "color" },
+    "selected": { "$value": "rgba(0, 123, 200, 0.12)", "$type": "color" },
+    "focus": { "$value": "rgba(0, 123, 200, 0.28)", "$type": "color" }
+  },
   "tint": {
     "accent": {
       "$description": "Base rgb(0,123,200) = accent.base (DESY accessibility cyan #007bc8).",

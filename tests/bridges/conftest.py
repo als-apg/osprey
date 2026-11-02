@@ -18,8 +18,9 @@ The adapters' suites share three smaller doubles from here too: :class:`FakeCloc
 
 from __future__ import annotations
 
+import signal
 from collections import deque
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -219,6 +220,15 @@ class RecordingChannelOps:
         self._record("coalesce_key", {"entry": entry})
         knob = self.coalesce
         return knob(entry) if callable(knob) else knob
+
+
+@pytest.fixture
+def _restore_signal_handlers() -> Iterator[None]:
+    """Put back the SIGTERM and SIGINT handlers an entrypoint test installs."""
+    saved = {sig: signal.getsignal(sig) for sig in (signal.SIGTERM, signal.SIGINT)}
+    yield
+    for sig, handler in saved.items():
+        signal.signal(sig, handler)
 
 
 @pytest.fixture

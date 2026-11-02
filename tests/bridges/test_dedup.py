@@ -30,8 +30,7 @@ def _store(tmp_path):
 
 def _write_raw(tmp_path, data):
     """Seed the store file directly, simulating a pre-feature persisted store."""
-    with open(str(tmp_path / "dedup.json"), "w", encoding="utf-8") as f:
-        json.dump(data, f)
+    (tmp_path / "dedup.json").write_text(json.dumps(data), encoding="utf-8")
 
 
 # ===========================================================================

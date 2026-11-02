@@ -89,7 +89,7 @@ from osprey.simulation.engines.calibration import (
     to_hardware,
     to_physics,
 )
-from osprey.simulation.engines.pyat_faults import magnet_cal, supply_calibration
+from osprey.simulation.engines.pyat_faults import magnet_cal, multipole_error, supply_calibration
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from collections.abc import Iterable, Mapping
@@ -327,12 +327,14 @@ class CalibratedSetpoint(PyATWritableScalarVariable):
         is checked before any is written, so a bad binding leaves the lattice
         untouched.
 
+        A multipole error an element holds on the written coefficient
+        (:func:`~osprey.simulation.engines.pyat_faults.multipole_error`) is
+        added to what lands there, so a write moves the nominal strength and
+        the error stays.
+
         Raises:
             AttributeError: an element has no such attribute.
         """
-        if not self.slice_curves:
-            super()._set(simulator, self._physics(simulator, value))
-            return
         delivered = self._delivered(simulator, value)
         factor = self._rigidity_factor(simulator)
         elements = [simulator.element(binding.element_name) for binding in self.bindings]
@@ -342,21 +344,30 @@ class CalibratedSetpoint(PyATWritableScalarVariable):
                     f"element {binding.element_name!r} has no attribute "
                     f"{binding.attribute!r} to write"
                 )
-        for binding, element, own in zip(self.bindings, elements, self.slice_curves, strict=True):
+        curves = self.slice_curves or [None] * len(self.bindings)
+        for binding, element, own in zip(self.bindings, elements, curves, strict=True):
             curve = self.calibration if own is None else own
             weighted = to_physics(curve, delivered) * factor * binding.weight
             if binding.index is None:
                 setattr(element, binding.attribute, weighted)
             else:
-                getattr(element, binding.attribute)[binding.index] = weighted
+                error = multipole_error(element, binding.attribute, binding.index)
+                getattr(element, binding.attribute)[binding.index] = weighted + error
 
     def _get(self, simulator: PyATSimulator) -> float:
         """Return the hardware value the lattice is presently holding.
 
         The inverse of :meth:`_set`, to the precision the calibration's two
-        directions share.
+        directions share; the first element's multipole error on the
+        coefficient is not the setpoint's, so it is taken off first.
         """
-        return self._hardware(super()._get(simulator) / self._rigidity_factor(simulator))
+        first = self.bindings[0]
+        element = simulator.element(first.element_name)
+        held = getattr(element, first.attribute)
+        if first.index is not None:
+            held = held[first.index] - multipole_error(element, first.attribute, first.index)
+        physics = float(held) / first.weight
+        return self._hardware(physics / self._rigidity_factor(simulator))
 
     def readback(self, value: float) -> float:
         """What the control system reads back once ``value`` has been written.
@@ -397,7 +408,8 @@ class CalibratedSetpoint(PyATWritableScalarVariable):
             if binding.index is None:
                 setattr(element, binding.attribute, held * factor)
             else:
-                held[binding.index] = held[binding.index] * factor
+                error = multipole_error(element, binding.attribute, binding.index)
+                held[binding.index] = (held[binding.index] - error) * factor + error
 
     def _physics(self, simulator: PyATSimulator, value: float) -> float:
         """The physics value ``value`` is worth at the lattice's present energy.

@@ -86,7 +86,6 @@ beforeAll(async () => {
         <footer id="bundle-health" hidden></footer>
       </aside>
       <main id="reader">
-        <button type="button" id="browse-all">Browse all pages</button>
         <div id="reader-content"></div>
       </main>
     </div>`;

@@ -5,6 +5,8 @@ config validation warnings, the one config the server refuses to start on,
 shutdown, channel_finder_config, and dot-path access.
 """
 
+import asyncio
+import inspect
 import logging
 from unittest.mock import AsyncMock, patch
 
@@ -18,7 +20,11 @@ from osprey.mcp_server.control_system.server_context import (
     initialize_server_context,
     reset_server_context,
 )
-from osprey_connectors.errors import ConfigurationError
+from osprey_connectors.errors import (
+    ChannelUnreachableError,
+    ConfigurationError,
+    ConnectorUnavailableError,
+)
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -156,7 +162,7 @@ async def test_connector_caching(tmp_path, monkeypatch):
 
     assert c1 is c2
     # Factory should only be called once (cached after first call)
-    assert mock_connector is c1
+    assert c1.connector is mock_connector
 
 
 async def test_archiver_connector_caching(tmp_path, monkeypatch):
@@ -197,13 +203,114 @@ async def test_connector_invalidation(tmp_path, monkeypatch):
         side_effect=[mock_c1, mock_c2],
     ):
         c1 = await registry.control_system()
+        first = c1.connector
         await registry.invalidate_connector("control_system")
         c2 = await registry.control_system()
 
-    assert c1 is not c2
-    assert c1 is mock_c1
-    assert c2 is mock_c2
+    # One handle, bound to the key; the connector it reaches is rebuilt.
+    assert c1 is c2
+    assert first is mock_c1
+    assert c2.connector is mock_c2
     mock_c1.disconnect.assert_called_once()
+
+
+def _in_process_registry(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    _write_config(
+        tmp_path,
+        {
+            "control_system": {
+                "type": "virtual_accelerator",
+                "connector": {"virtual_accelerator": {"serving": "in_process"}},
+            }
+        },
+    )
+    return initialize_server_context()
+
+
+async def test_an_in_process_connector_is_dropped_once_per_instance(tmp_path, monkeypatch):
+    """A batch that finds its connector unavailable drops it once and every failure says so."""
+    registry = _in_process_registry(tmp_path, monkeypatch)
+    mock_c1 = AsyncMock()
+    mock_c1.read_channel.side_effect = ConnectorUnavailableError("the transport is gone")
+    mock_c2 = AsyncMock()
+
+    with patch(
+        "osprey_connectors.factory.ConnectorFactory.create_control_system_connector",
+        new_callable=AsyncMock,
+        side_effect=[mock_c1, mock_c2],
+    ):
+        connector = await registry.control_system()
+        failures = await asyncio.gather(
+            *(connector.read_channel(f"SR:CH{n}") for n in range(20)), return_exceptions=True
+        )
+        await connector.read_channel("SR:CH0")
+
+    assert all(isinstance(failure, ConnectorUnavailableError) for failure in failures)
+    assert {failure.recovery[0]["action"] for failure in failures} == {"connector_dropped"}
+    mock_c1.disconnect.assert_awaited_once()
+    assert connector.connector is mock_c2
+    mock_c2.read_channel.assert_awaited_once_with("SR:CH0")
+
+
+async def test_a_bare_connection_error_is_the_connectors_own_loss(tmp_path, monkeypatch):
+    registry = _in_process_registry(tmp_path, monkeypatch)
+    mock_c1 = AsyncMock()
+    lost = ConnectionError("socket closed")
+    mock_c1.read_channel.side_effect = lost
+
+    with patch(
+        "osprey_connectors.factory.ConnectorFactory.create_control_system_connector",
+        new_callable=AsyncMock,
+        return_value=mock_c1,
+    ):
+        connector = await registry.control_system()
+        with pytest.raises(ConnectorUnavailableError, match="socket closed") as raised:
+            await connector.read_channel("SR:CH")
+
+    assert raised.value.__cause__ is lost
+    assert [record["action"] for record in raised.value.recovery] == ["connector_dropped"]
+    mock_c1.disconnect.assert_awaited_once()
+
+
+async def test_one_unreachable_channel_keeps_the_in_process_connector(tmp_path, monkeypatch):
+    registry = _in_process_registry(tmp_path, monkeypatch)
+    mock_c1 = AsyncMock()
+    mock_c1.read_channel.side_effect = ChannelUnreachableError("SR:DEAD")
+
+    with patch(
+        "osprey_connectors.factory.ConnectorFactory.create_control_system_connector",
+        new_callable=AsyncMock,
+        return_value=mock_c1,
+    ):
+        connector = await registry.control_system()
+        with pytest.raises(ChannelUnreachableError):
+            await connector.read_channel("SR:DEAD")
+
+    mock_c1.disconnect.assert_not_awaited()
+    assert connector.connector is mock_c1
+
+
+async def test_a_handle_with_no_connector_serving_offers_only_the_contracts_calls(
+    tmp_path, monkeypatch
+):
+    """With nothing serving, the handle offers the contract's calls and no other name."""
+    registry = _in_process_registry(tmp_path, monkeypatch)
+    mock_c1 = AsyncMock()
+    mock_c1.target = "va"
+
+    with patch(
+        "osprey_connectors.factory.ConnectorFactory.create_control_system_connector",
+        new_callable=AsyncMock,
+        return_value=mock_c1,
+    ):
+        connector = await registry.control_system()
+        await registry.invalidate_connector("control_system")
+
+    assert connector.connector is None
+    assert not hasattr(connector, "target")
+    assert not hasattr(connector, "no_such_call")
+    assert inspect.iscoroutinefunction(connector.read_channel)
 
 
 async def test_invalidate_unknown_connector(tmp_path, monkeypatch):

@@ -307,4 +307,3 @@ web:
   scaffold_gallery:
     write_enabled: true
   theme: light
-  ui_mode: expert

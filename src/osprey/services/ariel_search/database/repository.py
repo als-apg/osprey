@@ -2609,10 +2609,16 @@ class ARIELRepository:
                 row = await result.fetchone()
                 if not row or not row[0]:
                     raise ConfigurationError(
-                        f"Embedding table '{table_name}' does not exist. "
-                        f"The model '{model}' is configured for semantic search "
-                        "but migrations have not been run. Run 'osprey ariel migrate'.",
+                        "search_modules.semantic.model: semantic search is enabled "
+                        f"for model '{model}', but this database has no embedding "
+                        f"table for it ('{table_name}')",
                         config_key="search_modules.semantic.model",
+                        remedy=(
+                            "Run `osprey ariel quickstart` -- it creates the table, "
+                            "which needs the pgvector extension and the model listed "
+                            "under enhancement_modules.text_embedding.models -- or set "
+                            "search_modules.semantic.enabled: false"
+                        ),
                     )
         except ConfigurationError:
             raise

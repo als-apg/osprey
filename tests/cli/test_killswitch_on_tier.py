@@ -4,10 +4,11 @@
 writes-check-gated framework matchers, the declared facility tools exactly, and
 a list-less writes_check facility server whole as ``mcp__<srv>`` — while mixed
 read/write tools and ``control_system.write_tools`` entries keep their reads and
-are refused per call. ``allowed`` denies nothing; a write tool leaves ``ask``
-only when its rule carries both writes-check and an approval hook.
+are refused per call. ``asked`` and ``allowed`` render alike: neither denies
+anything, and a write tool leaves ``ask`` only when its rule carries both
+writes-check and an approval hook.
 
-Also pins the build refusals of ``_lint_write_gates_are_selected`` on both tiers
+Also pins the build refusals of ``_lint_write_gates_are_selected`` on every tier
 and that every rendered deny entry is valid Claude Code permission syntax.
 """
 
@@ -28,6 +29,9 @@ from osprey_connectors.errors import BuildProfileError
 from tests._preset_data import create_project_as_built
 
 _PROJECT_COUNTER = 0
+
+#: The tier words that arm writes; the render does not tell them apart.
+ARMING = ("asked", "allowed")
 
 #: A facility server that declares its one write, asks for it, and reads freely.
 _PLC = {
@@ -233,9 +237,10 @@ def test_never_unasks_a_write_tools_entry_only_when_writes_check_fires_on_it(tmp
             assert not _gated_per_call(settings, tool)
 
 
-def test_allowed_keeps_an_uncovered_write_tools_entry_in_ask(tmp_path):
+@pytest.mark.parametrize("word", ARMING)
+def test_an_arming_tier_keeps_an_uncovered_write_tools_entry_in_ask(tmp_path, word):
     settings = _settings(
-        tmp_path, writes="allowed", servers={"dumb": _DUMB}, write_tools=["mcp__dumb__poke"]
+        tmp_path, writes=word, servers={"dumb": _DUMB}, write_tools=["mcp__dumb__poke"]
     )
     assert "mcp__dumb__poke" in settings["permissions"]["ask"]
 
@@ -254,24 +259,27 @@ def test_never_deny_cannot_be_lifted_by_remove_deny(tmp_path):
         assert deny.count(matcher) == 1
 
 
-@pytest.mark.parametrize("value", ["Allowed", "true", True, 1, None, "yes"])
-def test_only_the_literal_allowed_arms_writes(tmp_path, value):
+@pytest.mark.parametrize("value", ["Allowed", "Asked", "true", True, 1, None, "yes", "on"])
+def test_only_the_literal_arming_words_arm_writes(tmp_path, value):
     ctx = _ctx(tmp_path, writes=value)
     assert "mcp__controls__channel_write" in ctx["killswitch_deny"]
 
 
 # ---------------------------------------------------------------------------
-# allowed
+# asked, allowed
 # ---------------------------------------------------------------------------
 
 
-def test_allowed_denies_nothing(tmp_path):
-    ctx = _ctx(tmp_path, writes="allowed", servers=_FACILITY)
+@pytest.mark.parametrize("word", ARMING)
+def test_an_arming_tier_denies_nothing(tmp_path, word):
+    ctx = _ctx(tmp_path, writes=word, servers=_FACILITY)
     assert ctx["killswitch_deny"] == []
+    assert ctx["writes_tier"] == word
 
 
-def test_allowed_pulls_writes_check_and_approval_tools_from_ask(tmp_path):
-    ctx = _ctx(tmp_path, writes="allowed", servers=_FACILITY)
+@pytest.mark.parametrize("word", ARMING)
+def test_an_arming_tier_pulls_writes_check_and_approval_tools_from_ask(tmp_path, word):
+    ctx = _ctx(tmp_path, writes=word, servers=_FACILITY)
     remove_ask = ctx["facility_permissions"]["remove_ask"]
     assert "mcp__controls__channel_write" in remove_ask
     # The Bluesky arming pair carries the preflight approval variant.
@@ -283,8 +291,9 @@ def test_allowed_pulls_writes_check_and_approval_tools_from_ask(tmp_path):
     assert "mcp__sitectl__set_point" in remove_ask
 
 
-def test_allowed_keeps_tools_missing_either_hook_in_ask(tmp_path):
-    ctx = _ctx(tmp_path, writes="allowed", servers=_FACILITY)
+@pytest.mark.parametrize("word", ARMING)
+def test_an_arming_tier_keeps_tools_missing_either_hook_in_ask(tmp_path, word):
+    ctx = _ctx(tmp_path, writes=word, servers=_FACILITY)
     remove_ask = ctx["facility_permissions"]["remove_ask"]
     allow = ctx["facility_permissions"]["allow"]
     # writes-check alone, no approval.
@@ -353,6 +362,16 @@ def test_never_without_writes_check_still_builds_for_facility_write_tools(tmp_pa
     assert "mcp__plc__set_value" in ctx["killswitch_deny"]
 
 
-def test_allowed_without_approval_is_refused_naming_the_tier_key(tmp_path):
-    with pytest.raises(BuildProfileError, match=r"control_system\.writes: never"):
-        _ctx(tmp_path, writes="allowed", drop_hooks=("approval",))
+@pytest.mark.parametrize("word", ARMING)
+def test_an_arming_tier_without_approval_is_refused_naming_its_word(tmp_path, word):
+    with pytest.raises(BuildProfileError) as excinfo:
+        _ctx(tmp_path, writes=word, drop_hooks=("approval",))
+    message = str(excinfo.value)
+    assert f"allows writes (`control_system.writes: {word}`)" in message
+    assert "pin writes off (`control_system.writes: never`)" in message
+
+
+@pytest.mark.parametrize("word", ARMING)
+def test_an_arming_tier_without_writes_check_is_refused(tmp_path, word):
+    with pytest.raises(BuildProfileError, match="writes-check"):
+        _ctx(tmp_path, writes=word, drop_hooks=("writes-check",))

@@ -1,6 +1,6 @@
 // @ts-check
 /**
- * OSPREY Web Terminal — Simple-mode chat: what a frame means for a turn.
+ * OSPREY Web Terminal — operator chat: what a frame means for a turn.
  *
  * The controller draws every frame the transport decodes, but two questions
  * about a frame decide what it does with it: whether the frame closes the

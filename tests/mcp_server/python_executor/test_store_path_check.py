@@ -1,9 +1,12 @@
 """The executor's store-path check: store-naming code runs only on a person's approval.
 
 Checked before spawn, in every execution mode, whether or not the approval hook
-ran. Code that names the posture store runs only when the tool's policy asks and
-the hook's ask stamp for the call names the tool; under ``skip``, with approval
-disabled, and in a dispatch run it is refused. The rows of
+ran. Code that names the posture store runs only when the hook's ask stamp for
+the call names the tool and was answered by a person; a ``write_switch`` stamp
+(filed at ``allowed`` with nobody asked) never lets it run, and a dispatch run
+is refused whatever the stamp. ``execute`` and ``execute_file`` are governed, so
+``approval.enabled: false`` and a ``skip`` policy have no say: the call is asked
+in every switch position, and without a person's stamp it is refused. The rows of
 ``tests/fixtures/store_path_cases.json`` hold the outcomes; the parity test
 (``tests/test_store_path_parity.py``) drives the real hook against the same rows.
 """
@@ -152,9 +155,27 @@ def test_each_row_with_a_stamp(stamps: Path, monkeypatch, case: dict[str, Any]) 
     if case["dispatch"]:
         monkeypatch.setenv("OSPREY_DISPATCH_RUN", "1")
     stamp(stamps, case["tool"])
-    if case.get("deny_reason") != "store_path":
+    if case.get("deny_reason") != "store_path" or not case["dispatch"]:
+        # The row's hook outcome (a ``skip`` or disabled approval read as
+        # nobody-asked) is the ungoverned spelling; the executor reads
+        # ``execute``/``execute_file`` as governed, so a person's stamp is the
+        # approval the call was asked for.
         assert check(case["code"], case_config(case), case["tool"]) is None
         return
+    assert refused(case["code"], case_config(case), case["tool"]) == STORE_PATH_REFUSAL
+
+
+@pytest.mark.parametrize(
+    "case",
+    [pytest.param(c, id=c["id"]) for c in CASES if c.get("deny_reason") == "store_path"],
+)
+def test_each_store_path_row_refuses_a_switch_stamp(
+    stamps: Path, monkeypatch, case: dict[str, Any]
+) -> None:
+    """A stamp nobody answered (``write_switch``) never lets store-naming code run."""
+    if case["dispatch"]:
+        monkeypatch.setenv("OSPREY_DISPATCH_RUN", "1")
+    stamp(stamps, case["tool"], approver="write_switch")
     assert refused(case["code"], case_config(case), case["tool"]) == STORE_PATH_REFUSAL
 
 
@@ -170,13 +191,29 @@ STORE_CODE = "print(open('_agent_data/control_target/default/control_context.jso
         pytest.param({"enabled": True, "tools": {"execute": "skip"}}, id="skip"),
     ],
 )
-@pytest.mark.parametrize("stamped", [False, True], ids=["no-stamp", "stamp"])
-def test_store_naming_code_is_refused_where_nobody_is_asked(
-    stamps: Path, approval: dict[str, Any], stamped: bool
+@pytest.mark.parametrize("approver", [None, "write_switch"], ids=["no-stamp", "switch-stamp"])
+def test_store_naming_code_is_refused_without_a_person_whatever_the_policy(
+    stamps: Path, approval: dict[str, Any], approver: str | None
 ) -> None:
-    if stamped:
-        stamp(stamps, "execute")
+    """``execute`` is governed: ``approval.*`` cannot waive the person's stamp."""
+    if approver is not None:
+        stamp(stamps, "execute", approver=approver)
     assert refused(STORE_CODE, {"approval": approval}) == STORE_PATH_REFUSAL
+
+
+@pytest.mark.parametrize(
+    "approval",
+    [
+        pytest.param({"enabled": False}, id="approval-disabled"),
+        pytest.param({"enabled": True, "tools": {"execute": "skip"}}, id="skip"),
+    ],
+)
+def test_store_naming_code_runs_on_a_persons_stamp_whatever_the_policy(
+    stamps: Path, approval: dict[str, Any]
+) -> None:
+    """The governed hook asks in every position, so a person's stamp is a real approval."""
+    stamp(stamps, "execute")
+    assert check(STORE_CODE, {"approval": approval}) is None
 
 
 @pytest.mark.usefixtures("stamps")

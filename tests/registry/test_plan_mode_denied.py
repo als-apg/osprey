@@ -198,6 +198,13 @@ def test_every_framework_write_tool_is_denied():
     assert set(framework_write_tools()) <= denied
 
 
+def test_the_reviewed_executor_tools_are_denied():
+    """The code review runs inside the approval ask, so plan mode must refuse both tools first."""
+    denied = set(plan_mode_denied_tools(_resolve(), []))
+
+    assert {"mcp__python__execute", "mcp__python__execute_file"} <= denied
+
+
 def test_plan_mode_never_denies_what_the_read_only_floor_allows(tmp_path: Path):
     """The two consumers of one classifier cannot disagree beyond the exemptions."""
     config = {"claude_code": _all_on_config()}

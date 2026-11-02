@@ -20,6 +20,7 @@ import importlib.util
 import inspect
 import pkgutil
 from datetime import UTC, datetime
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -85,8 +86,7 @@ def test_the_package_is_the_recorder_and_its_entry_point():
 def test_no_recorder_module_names_a_connector_write_method(module_name):
     spec = importlib.util.find_spec(module_name)
     assert spec is not None and spec.origin is not None
-    with open(spec.origin, encoding="utf-8") as handle:
-        tree = ast.parse(handle.read())
+    tree = ast.parse(Path(spec.origin).read_text(encoding="utf-8"))
     names: set[str] = set()
     for node in ast.walk(tree):
         if isinstance(node, ast.Attribute):

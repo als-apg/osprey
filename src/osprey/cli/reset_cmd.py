@@ -53,7 +53,7 @@ def reset(repo: Path | None, dry_run: bool, assume_yes: bool, purge_audit: bool)
     stack, removes this deployment's containers and volumes along with the
     images it built, destroys the agent's memory
     under var/agent_data/, strips the tokens `osprey up` minted out of .env, and
-    deletes build/.
+    deletes build/ and var/deployment.json.
 
     What survives, the plan lists before you confirm:
 

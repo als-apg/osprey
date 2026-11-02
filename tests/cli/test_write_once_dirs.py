@@ -268,14 +268,14 @@ def _reset_runs_without_a_container_runtime(monkeypatch: pytest.MonkeyPatch) -> 
 
     monkeypatch.setattr(
         "osprey.deployment.runtime_helper.verify_runtime_is_running",
-        lambda config=None: (True, ""),
+        lambda config=None, **_: (True, ""),
     )
     monkeypatch.setattr(
         "osprey.deployment.reset.reset_for_reinit",
         lambda repo_root, **kw: ResetOutcome.COMPLETED,
     )
     monkeypatch.setattr(
-        "osprey.cli.init_cmd._surviving_project_resources", lambda target, runtime: []
+        "osprey.cli.init_cmd._surviving_project_resources", lambda runtime, project: []
     )
 
 

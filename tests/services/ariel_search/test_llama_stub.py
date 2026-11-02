@@ -136,6 +136,9 @@ class _StatusService:
     async def health_check(self) -> tuple[bool, str]:
         return True, "connected"
 
+    async def verify_search_model_table(self) -> None:
+        return None
+
 
 def _status_repository() -> MagicMock:
     """A repository double answering every query ``get_status`` makes.

@@ -1582,6 +1582,8 @@ _EXPECTED_PANEL_ROUTES = {
     ("POST", "/api/panel-arrange"),
     ("POST", "/api/agent-activity"),
     ("POST", "/api/agent-turn"),
+    # The trigger hook's door. Reading and answering flags stay operator tier.
+    ("POST", "/api/watchdog/prompt"),
     ("POST", "/api/focus"),
     # The proxy hop to the event dispatcher's MCP transport — the one entry
     # that is not panel arrangement. Its own properties are pinned below;
@@ -1661,6 +1663,15 @@ def test_route_tiers() -> None:
             f"{method} {path} must be operator-only"
         )
         assert web_auth.classify(method, path, True) is web_auth.Tier.OPERATOR
+
+
+@pytest.mark.parametrize(
+    ("method", "path"),
+    [("GET", "/api/watchdog/flags"), ("POST", "/api/watchdog/flags/answer")],
+)
+def test_a_panel_token_can_neither_read_nor_answer_flags(method: str, path: str) -> None:
+    """An agent holds the panel token, so these tiers are what keep its hold on it."""
+    assert web_auth.classify(method, path, False) is web_auth.Tier.OPERATOR
 
 
 def test_panel_register_is_panel_tier_only_without_a_url() -> None:
@@ -1972,22 +1983,6 @@ def test_a_panel_token_put_to_the_dispatcher_route_is_refused_by_the_gate() -> N
 # ---------------------------------------------------------------------------
 # One-time URL announcement
 # ---------------------------------------------------------------------------
-
-
-@pytest.fixture(autouse=True)
-def _drop_announced_carrier():
-    """Undo the environment variable ``mint_and_announce`` deliberately publishes.
-
-    The module's own population *pops* the carrier, so ``monkeypatch`` has
-    nothing recorded for it and would not clean up a value a test caused the
-    product code to write. Without this teardown the first announcement in this
-    file would leak a real operator secret into ``os.environ`` for every test
-    that runs after it, in this file and any other in the same worker.
-    """
-    import os
-
-    yield
-    os.environ.pop(OPERATOR_SECRET_ENV, None)
 
 
 def test_mint_and_announce() -> None:

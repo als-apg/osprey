@@ -2,7 +2,7 @@
 /* OSPREY Web Terminal — Dock Layout Reconcile
  *
  * The pure layout-repair algorithm run on EVERY dockview layout apply (storage
- * load, mode restore, reset): a persisted SerializedDockview is reconciled
+ * load, reset): a persisted SerializedDockview is reconciled
  * against the panels the dock can currently build. Unknown ids are dropped,
  * stacked groups are flattened to one panel per tile (a layout persisted
  * before the strict tile model, or hand-corrupted storage), and only genuinely
@@ -37,7 +37,7 @@ export const PLACEHOLDER_PREFIX = 'iframe:';
  * Reconcile a persisted dockview layout against the panels the dock can build
  * right now. PURE — it never reads or mutates live dock/DOM state and never
  * touches the argument object (a defensive deep copy is reconciled and
- * returned). Runs on EVERY layout apply (storage load, mode restore, reset) so
+ * returned). Runs on EVERY layout apply (storage load, reset) so
  * a stored layout can neither reference a panel that no longer exists nor
  * stack several panels into one tile (one panel per tile is a workspace
  * invariant; the rail is the tab system). Panels missing from the layout are
@@ -95,7 +95,7 @@ export function reconcile(layout, registeredPanels) {
   // inner single-child branch legitimately collapses to a leaf, but if the
   // collapse reaches the root (e.g. a single-group layout, or every group but
   // one pruned away) we must re-wrap it as a branch or the whole layout gets
-  // rejected on reload / simple→expert restore.
+  // rejected on reload.
   const root = pruned.type === 'branch' ? pruned : { type: 'branch', data: [pruned] };
   data.grid.root = root;
 

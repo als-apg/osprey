@@ -23,6 +23,7 @@ here. ``requests`` is a base dependency and is safe at module scope.
 """
 
 import functools
+import json
 import logging
 import shutil
 import subprocess
@@ -336,6 +337,10 @@ READINESS_CEILING = 300.0
 #: seconds and a boot log runs to thousands of lines.
 _PROGRESS_TAIL_LINES = 3
 
+#: Log lines a readiness failure quotes from the container it waited on: enough
+#: to show the error a boot died on or the step it sat in.
+_FAILURE_TAIL_LINES = 20
+
 #: Container states from which the subject can no longer become ready. Reaching
 #: one is terminal: the remaining budget cannot help, and spending it anyway
 #: reports a dead container in the words of a slow one.
@@ -356,6 +361,68 @@ class ContainerExitedError(AssertionError):
     not answer is the same container on a second look, while one that exited
     during its own boot is gone, and only a fresh one can come up differently.
     """
+
+
+class RuntimeContainer:
+    """A container known only by name, read through its runtime's CLI.
+
+    The handle :func:`wait_until_ready` takes for a container that ``docker
+    compose`` or the runtime CLI started rather than testcontainers: it offers
+    the same surface (``get_wrapped_container()``, ``reload()``, ``status``,
+    ``attrs``, ``logs(tail=)``), so the wait reads it like any other. It goes
+    through the CLI rather than an SDK socket, so it reads a docker and a
+    podman container alike.
+
+    Every read raises when the runtime cannot answer — an unknown name, a
+    failed command, a timeout — which the wait treats as "unreadable, keep
+    waiting", never as a dead container.
+
+    Args:
+        name: The container's name as the runtime knows it.
+        runtime: The runtime CLI to call, ``docker`` or ``podman``.
+    """
+
+    def __init__(self, name: str, runtime: str = "docker") -> None:
+        self.name = name
+        self.runtime = runtime
+        self.attrs: dict = {}
+        self.status: str | None = None
+
+    def get_wrapped_container(self) -> "RuntimeContainer":
+        return self
+
+    def reload(self) -> None:
+        """Read the container's state from ``<runtime> inspect``."""
+        result = self._run("inspect", self.name)
+        attrs = json.loads(result.stdout)[0]
+        self.status = str(attrs["State"]["Status"])
+        self.attrs = attrs
+
+    def logs(self, tail: int | None = None) -> bytes:
+        """What the container wrote, stdout and stderr as the one stream it wrote.
+
+        The two streams come back interleaved in the order they were written, so
+        the log only ever grows at its end and a byte offset into an earlier read
+        still marks the same point in a later one.
+
+        Args:
+            tail: Lines to return from the end, or ``None`` for the whole log.
+        """
+        tail_args = () if tail is None else ("--tail", str(tail))
+        return self._run("logs", *tail_args, self.name, merge_streams=True).stdout
+
+    def _run(self, *args: str, merge_streams: bool = False) -> subprocess.CompletedProcess:
+        result = subprocess.run(
+            [self.runtime, *args],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT if merge_streams else subprocess.PIPE,
+            timeout=CONTAINER_STATE_TIMEOUT,
+        )
+        if result.returncode != 0:
+            output = result.stdout if merge_streams else result.stderr
+            detail = output.decode("utf-8", "replace").strip()
+            raise RuntimeError(f"{self.runtime} {args[0]} {self.name}: {detail}")
+        return result
 
 
 def wait_until_ready(
@@ -394,7 +461,9 @@ def wait_until_ready(
       tail of its log, instead of spending the budget and then blaming the host;
     * treats a log that is still growing as work in progress and restarts
       *timeout* from that moment, making *timeout* the length of silence the
-      subject is allowed rather than the length of its whole boot.
+      subject is allowed rather than the length of its whole boot;
+    * quotes the tail of its log in the failure however the wait ended, since
+      a container that is still running and will not answer says why there too.
 
     That last part is what a fixed window cannot get right, because how long a
     boot takes is a property of the machine rather than of the subject: an image
@@ -527,16 +596,24 @@ def _container_exit_detail(container: object) -> str:
         state = wrapped.attrs.get("State", {})
         code = state.get("ExitCode")
         error = str(state.get("Error") or "").strip()
-        tail = wrapped.logs(tail=20).decode("utf-8", "replace").strip()
     except Exception as exc:  # diagnosis is best-effort
         logger.debug("could not read container exit detail: %s", exc)
         return ""
     detail = f"\nexit code: {code}"
     if error:
         detail += f" ({error})"
-    if tail:
-        detail += f"\nlast log lines:\n{tail}"
-    return detail
+    return detail + _container_log_tail(container)
+
+
+def _container_log_tail(container: object) -> str:
+    """The last log lines of *container* as a failure paragraph, if readable."""
+    try:
+        wrapped = container.get_wrapped_container()  # type: ignore[attr-defined]
+        tail = wrapped.logs(tail=_FAILURE_TAIL_LINES).decode("utf-8", "replace").strip()
+    except Exception as exc:  # diagnosis is best-effort
+        logger.debug("could not read container log tail: %s", exc)
+        return ""
+    return f"\nlast log lines:\n{tail}" if tail else ""
 
 
 def _readiness_failure(
@@ -567,6 +644,8 @@ def _readiness_failure(
     )
     if container is not None and ending.startswith(_EXITED_ENDING_PREFIX):
         message += _container_exit_detail(container)
+    elif container is not None:
+        message += _container_log_tail(container)
     return f"{message}\nlast attempt: {type(last).__name__}: {last}"
 
 

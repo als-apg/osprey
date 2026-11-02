@@ -1,6 +1,6 @@
 // @ts-check
 /**
- * OSPREY Web Terminal — Simple-mode chat: the turn's actions.
+ * OSPREY Web Terminal — operator chat: the turn's actions.
  *
  * Where a turn's tool and subagent rows go, and how consecutive tool calls of
  * one kind fold into a run: "Read 4 channels", one row with a short stack of

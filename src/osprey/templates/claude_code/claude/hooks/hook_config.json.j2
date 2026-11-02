@@ -1,7 +1,7 @@
 {#-
   Runtime contract for the write-gating layers: the osprey_writes_check.py
   PreToolUse hook and the MCP audit middleware both read this file as data.
-  Every key is emitted UNCONDITIONALLY — never under the writes-off
+  Every write-gating key is emitted UNCONDITIONALLY — never under the writes-off
   kill-switch condition — because both consumers run under a readonly session
   posture too, where that condition never applied.
 
@@ -18,6 +18,11 @@
   osprey.registry.mcp.facility_write_tools computed it; it is rendered
   verbatim, and this template derives nothing from it. Both write-target
   twins read it to send exactly those tools to `live`.
+
+  `governed_tools` is the set the write switch's position decides for, as
+  osprey.registry.mcp.governed_write_tools computed it; rendered verbatim, and
+  read by the approval hook through `is_governed`, which honours the same
+  trailing wildcard as `is_write_tool`.
 
   `control_system_write_tools` is the subset of the project's
   `control_system.write_tools` that this render actually APPENDED to
@@ -36,6 +41,9 @@
   is in plan mode, derived from the registry's side-effect classification.
   osprey_plan_mode.py reads it, and the approval hook through it; an empty list
   means plan mode changes nothing.
+  `watchdogs_enabled` is the one conditional key: `true` when the render has an
+  enabled watchdog and absent otherwise, so a build with none renders what it
+  would render without the feature. It has nothing to do with writes.
 -#}
 {%- set server_pfx = [] -%}
 {%- set approval_pfx = [] -%}
@@ -66,8 +74,12 @@
   "write_tools": {{ write_tools | tojson }},
   "control_system_write_tools": {{ appended_extras | tojson }},
   "facility_write_tools": {{ facility_write_tools | default([], true) | tojson }},
+  "governed_tools": {{ governed_tools | default([], true) | tojson }},
   "mixed_read_write_tools": {{ mixed_read_write_tools | default([], true) | tojson }},
   "lane_addressed_tools": {{ lane_addressed_tools | default([], true) | tojson }},
   "measurement": {{ measurement | default({}, true) | tojson }},
   "plan_mode_denied_tools": {{ plan_mode_denied_tools | default([], true) | tojson }}
+{%- if watchdogs_enabled %},
+  "watchdogs_enabled": true
+{%- endif %}
 }

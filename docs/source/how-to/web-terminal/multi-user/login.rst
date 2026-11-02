@@ -397,6 +397,22 @@ other set is written as a list.
    * - ``domain:<domain>``
      - Everyone whose asserted email address is in that domain. Needs
        ``method: oidc`` and ``claim: email``.
+   * - ``tier:<tier>``
+     - Every roster login whose tier is ``<tier>``. The build spells it out as
+       each of those logins' ``oidc_subject``, so it follows the roster and
+       needs ``method: oidc``; a tier no login with an ``oidc_subject`` runs is
+       a build error.
+
+A shared app takes the same set. List the app by name to open it to the whole
+roster, or as a mapping to name who may open it. ``user:`` members need not be
+on the roster: they reach the app and nothing else.
+
+.. code-block:: yaml
+
+   shared:
+     - logbook                          # every roster login
+     - name: controls                   # the admins and two named experts
+       access: [tier:admin, "user:ada@example.org", "user:grace@example.org"]
 
 A card whose set is anything but ``[self]`` is a **shared card**: one
 terminal, one tier, one audit directory, opened by more than one person.

@@ -33,6 +33,17 @@
     "default": { "$value": "{color.gray.200}", "$type": "color", "$description": "Frame 2c hairline border #d8d9da — a solid ramp step." },
     "accent": { "$value": "rgba(31, 98, 196, 0.25)", "$type": "color", "$description": "Alpha composite of the accent (#1f62c4)." }
   },
+  "surface": {
+    "$description": "Layout F surfaces. canvas = bg.secondary step, card = bg.terminal step, well = bg.primary step (between them). Washes are alpha composites of text.primary (#24292e) and accent.base (#1f62c4); hairline is border.default (#d8d9da) at 0.8.",
+    "canvas": { "$value": "{color.gray.150}", "$type": "color" },
+    "card": { "$value": "{color.gray.50}", "$type": "color" },
+    "well": { "$value": "{color.gray.100}", "$type": "color" },
+    "hairline": { "$value": "rgba(216, 217, 218, 0.8)", "$type": "color" },
+    "hover": { "$value": "rgba(36, 41, 46, 0.06)", "$type": "color" },
+    "press": { "$value": "rgba(36, 41, 46, 0.1)", "$type": "color" },
+    "selected": { "$value": "rgba(31, 98, 196, 0.12)", "$type": "color" },
+    "focus": { "$value": "rgba(31, 98, 196, 0.28)", "$type": "color" }
+  },
   "tint": {
     "accent": {
       "04": { "$value": "rgba(31, 98, 196, 0.04)", "$type": "color" },

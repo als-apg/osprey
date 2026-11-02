@@ -259,6 +259,7 @@ def check_regen_permitted() -> None:
         capture_output=True,
         text=True,
         check=True,
+        timeout=60,
     ).stdout.strip()
     if head != expected:
         raise RegenRefused(f"HEAD {head} is not the B1 commit {expected}; goldens stay B1's")

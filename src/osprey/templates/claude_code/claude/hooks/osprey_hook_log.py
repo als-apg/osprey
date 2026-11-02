@@ -148,6 +148,19 @@ def is_write_tool(tool_name, write_tools):
     return False
 
 
+def is_governed(tool_name):
+    """Does the write switch's position decide for *tool_name*?
+
+    Reads ``governed_tools`` from the generated config, matching entries the way
+    :func:`is_write_tool` does. There is no fallback list: with the config
+    unreadable nothing is governed, so a call takes the policy path and is put
+    to a person, and a call that path lets through unprompted is refused by its
+    server for want of a record. That is the conservative side of a degraded
+    render, not a hole; a literal here would be one more copy of the set to drift.
+    """
+    return is_write_tool(tool_name, load_hook_config().get("governed_tools"))
+
+
 def is_write_call(tool_name, tool_input, short_name=None):
     """Does *this call* write, judged from the tool name and its arguments?
 
@@ -229,7 +242,7 @@ _INLINE_COMMENT = re.compile(r"\s+#")
 _NULL_SCALARS = frozenset({"~", "null", "true", "false"})
 
 
-def _config_path(hook_input=None):
+def locate_osprey_config(hook_input=None):
     """The config.yml a hook should read: ``OSPREY_CONFIG``, else the project's.
 
     One reader for the question "which config file", so the config *loader*, the
@@ -288,7 +301,7 @@ def get_repo_root(hook_input=None):
 
     Resolution order, mirroring the framework's:
 
-    1. ``project_root`` in the config :func:`_config_path` names, WHEN it names a
+    1. ``project_root`` in the config :func:`locate_osprey_config` names, WHEN it names a
        directory that exists here. The qualifier is the rule, not a safety net:
        a deployed service reads a config STAGED on the host, whose
        ``project_root`` is a host path naming nothing inside the container, and
@@ -324,7 +337,7 @@ def get_repo_root(hook_input=None):
     """
     project_dir = get_project_dir(hook_input)
     base = Path(project_dir) if project_dir else Path.cwd()
-    config_path = _config_path(hook_input)
+    config_path = locate_osprey_config(hook_input)
 
     configured = _project_root_from_config(config_path)
     recorded = Path(configured).expanduser() if configured else None
@@ -356,7 +369,7 @@ def load_osprey_config(hook_input=None):
     try:
         import yaml
 
-        config_path = _config_path(hook_input)
+        config_path = locate_osprey_config(hook_input)
         if config_path.exists():
             with open(config_path) as f:
                 _osprey_config_cache = yaml.safe_load(f) or {}
@@ -491,7 +504,7 @@ def _is_debug_enabled(hook_input):
     try:
         import yaml
 
-        config_path = _config_path(hook_input)
+        config_path = locate_osprey_config(hook_input)
         if config_path.exists():
             with open(config_path) as f:
                 cfg = yaml.safe_load(f) or {}
@@ -989,14 +1002,16 @@ def emit_audit(hook_name, hook_input, decision, subject, reason, detail=None, to
     """Record one hook decision on the agent record, through the spool.
 
     Call this at a deny or an ask, before the ``sys.exit(0)`` that carries the
-    decision. Allows are not recorded here: the hook layer refuses and defers,
-    and the MCP middleware already records the calls it admits.
+    decision, and for the answer to an approval: the call an asked prompt let run,
+    or the call the write switch approved with nobody asked. Other allows are not
+    recorded here: the hook layer refuses and defers, and the MCP middleware
+    already records the calls it admits.
 
     :param hook_name: The hook's own name, exactly as given to :func:`log_hook`.
     :param hook_input: The parsed stdin payload: it anchors the repo and names
         the conversation (``session_id``) and the tool call (``tool_use_id``).
-    :param decision: :data:`AUDIT_DECISION_REFUSED` or :data:`AUDIT_DECISION_ASK`
-        (or an ask's answer).
+    :param decision: :data:`AUDIT_DECISION_REFUSED`, :data:`AUDIT_DECISION_ASK`,
+        :data:`AUDIT_DECISION_APPROVED` or :data:`AUDIT_DECISION_DENIED`.
     :param subject: What was acted on — a tool name, a path. An identifier.
     :param reason: Short machine-ish reason (``posture``, ``writes_disabled``).
     :param detail: Optional supplementary context. Identifiers and config keys

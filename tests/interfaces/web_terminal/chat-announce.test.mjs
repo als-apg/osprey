@@ -1,5 +1,5 @@
 /**
- * Unit tests for the Simple chat's screen-reader layer (chat-announce.js and
+ * Unit tests for the chat chat's screen-reader layer (chat-announce.js and
  * the roles, labels and focus rules the console, blocks and cards carry):
  *   npx vitest run tests/interfaces/web_terminal/chat-announce.test.mjs
  *

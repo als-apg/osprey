@@ -21,6 +21,7 @@ from tests.interfaces.lattice_dashboard._render import fodo_deck, settle, write_
 from osprey.interfaces.lattice_dashboard import app as app_mod
 from osprey.interfaces.lattice_dashboard.app import create_app
 from osprey.interfaces.lattice_dashboard.catalog import NO_SERVED_MODEL_TEXT, NO_VIEW_TEXT
+from osprey.interfaces.lattice_dashboard.schema import FigureErrorEvent
 from osprey.interfaces.lattice_dashboard.state import (
     ALL_FIGURES,
     FAST_FIGURES,
@@ -539,13 +540,13 @@ class TestKeyedFigures:
     def test_select_broadcasts_no_figure_error(self, client, monkeypatch):
         events = []
         monkeypatch.setattr(
-            app_mod._SSEBroadcaster, "broadcast", lambda self, data: events.append(data)
+            app_mod._SSEBroadcaster, "broadcast", lambda self, event: events.append(event)
         )
 
         select(client, "TRANSFER")
         select(client, "SR")
 
-        assert [e for e in events if e["type"] == "figure_error"] == []
+        assert [e for e in events if isinstance(e, FigureErrorEvent)] == []
 
     def test_unknown_model_keeps_the_figures(self, client, fake_slots):
         land(client, fake_slots, "optics", _OPTICS_RAW)

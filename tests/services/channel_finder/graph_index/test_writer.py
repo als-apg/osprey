@@ -492,7 +492,7 @@ class TestImportIsolation:
             assert callable(builder.build_from_rows)
             """
         )
-        subprocess.run([sys.executable, "-c", script], check=True)
+        subprocess.run([sys.executable, "-c", script], check=True, timeout=120)
 
     def test_the_package_exports_the_writer_lazily(self):
         from osprey.services.channel_finder import graph_index
@@ -517,9 +517,9 @@ class TestDemoCorpus:
         path = tmp_path / "graph.duckdb"
         report = _build(demo, path, corpus_filename="facility.ttl")
 
-        assert report.binding_count == 3338
+        assert report.binding_count == 3339
         assert report.class_count == 30
-        assert read_rows(path, "SELECT count(*) FROM bindings") == [(3338,)]
+        assert read_rows(path, "SELECT count(*) FROM bindings") == [(3339,)]
         assert read_rows(path, "SELECT count(*) FROM classes") == [(30,)]
 
     def test_every_binding_row_survives_with_its_lists(self, demo: ParsedCorpus, tmp_path: Path):

@@ -28,7 +28,7 @@ from osprey_connectors_tests._harness import (
 HOOK = "osprey_approval.py"
 EXECUTE = "mcp__python__execute"
 CODE = "x = 1\nprint(x)\n"
-REVIEW_TITLE = "Pre-Execution Review"
+REVIEW_TITLE = "Approval preview"
 NOT_RUN = "Not run: declined or interrupted at the prompt"
 
 HOOK_CONFIG = {

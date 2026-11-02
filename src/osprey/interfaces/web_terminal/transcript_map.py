@@ -4,11 +4,11 @@ A session key is the one identity a browser tab keeps for its whole life: the
 same string names the PTY pool entry, the chat pool entry and the audit
 session. The *transcript* is a different thing — the Claude
 Code session id whose ``.jsonl`` holds the conversation — and the two are equal
-only until the conversation is replaced. A ``/clear`` in either view starts a
+only until the conversation is replaced. A ``/clear`` on either surface starts a
 fresh transcript under a new id while the key stays exactly where it was, so
 after one ``/clear`` the key and the transcript have diverged permanently. Two
 routes record the move: the agent-turn route for the terminal, from its hook's
-reports, and the chat route for the Simple view, from the SDK's own reports.
+reports, and the chat route for the chat, from the SDK's own reports.
 
 This module holds that divergence, and nothing else:
 
@@ -31,7 +31,7 @@ no location — every :func:`get` still answers, the process keeps its in-memory
 mapping, and only durability is lost. That is the right degrade: a transcript
 id that survives in memory but not a restart costs the operator the *contents*
 of a cleared-and-continued conversation after a container recreation, whereas
-raising here would take down a view flip over a file nobody can repair from the
+raising here would take down a surface change over a file nobody can repair from the
 browser.
 
 **Durability is best-effort by design.** Unlike the control-context record,

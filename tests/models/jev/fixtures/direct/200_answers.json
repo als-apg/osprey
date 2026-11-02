@@ -1,0 +1,44 @@
+{
+  "synthetic": true,
+  "note": "Synthetic fixture hand-written from the documented direct-route response and error shapes; not a recorded reply.",
+  "route": "typesafe",
+  "status": 200,
+  "headers": {},
+  "body": {
+    "model": "jev-1.13.0",
+    "answers": {
+      "q_noul": {
+        "type": "noul",
+        "noul": 0.87
+      },
+      "q_choice": {
+        "type": "choice",
+        "choice": "o1",
+        "probabilities": {
+          "o1": 0.81,
+          "o2": 0.19
+        },
+        "confidence": 0.9
+      },
+      "q_score": {
+        "type": "score",
+        "score": 1.6,
+        "legend": {
+          "0": "cold",
+          "1": "tepid",
+          "2": "hot"
+        },
+        "probabilities": {
+          "0": 0.1,
+          "1": 0.2,
+          "2": 0.7
+        },
+        "confidence": 0.75
+      }
+    },
+    "usage": {
+      "input_tokens": 412,
+      "output_tokens": 15
+    }
+  }
+}

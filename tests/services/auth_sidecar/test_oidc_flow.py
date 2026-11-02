@@ -1502,7 +1502,9 @@ def test_a_card_refused_for_its_role_is_left_out_and_filed(
     assert response.status_code == 303
     assert response.headers["location"] == "/u/carol/"
     assert list(_minted(response)) == ["carol"]
-    assert [(r["subject"], r["reason"]) for r in zone.records()] == [
+    # One sign-in files both in the same millisecond, so the record's order between
+    # them is its tie-break key, not the write order.
+    assert sorted((r["subject"], r["reason"]) for r in zone.records()) == [
         ("alice", audit.REASON_UNMAPPED_ROLE_CLAIM),
         ("carol", audit.REASON_OIDC_LOGIN),
     ]

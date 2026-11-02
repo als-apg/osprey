@@ -205,11 +205,6 @@ class TestEventToWire:
         assert ev["num_turns"] == 2
         assert ev["session_id"] == "sdk-session"
 
-    def test_a_result_without_a_session_id_carries_no_key(self):
-        ev = _event_to_wire(_result(session_id=""))
-        assert ev is not None
-        assert "session_id" not in ev
-
     def test_frames_keep_their_key_order(self):
         frames = [
             _event_to_wire(ThinkingEvent(text="think")),
@@ -449,7 +444,7 @@ class TestCardTarget:
                 {
                     "key": "live",
                     "machine_kind": "real",
-                    "kind_words": "Real machine — writes move hardware",
+                    "kind_words": "Live — writes move hardware",
                 },
                 id="real",
             ),
@@ -469,7 +464,7 @@ class TestCardTarget:
                 {
                     "key": "standin",
                     "machine_kind": "real",
-                    "kind_words": "Real machine — writes move hardware",
+                    "kind_words": "Live — writes move hardware",
                 },
                 id="standin-not-vouched-for",
             ),
@@ -967,7 +962,7 @@ class TestOperatorSessionResumeOptions:
         assert options.session_id is None
         # Everything else about the launch is unchanged by the resume.
         assert options.setting_sources == ["project"]
-        assert options.env["OSPREY_WEB_UX"] == "simple"
+        assert options.env["OSPREY_WEB_UX"] == "chat"
 
     @pytest.mark.asyncio
     async def test_without_a_resume_the_child_opens_one_under_the_session_key(self):
@@ -1105,25 +1100,6 @@ class TestTurnGuardEpoch:
         session = OperatorSession(cwd="/tmp")
         assert session.release_turn(1) is False
         assert session.in_flight is False
-
-
-class TestNoteTranscript:
-    """The session remembers which conversation its child last reported."""
-
-    def test_the_first_report_is_the_baseline(self):
-        session = OperatorSession(cwd="/tmp", session_key="key")
-        assert session.note_transcript("other") is False
-
-    def test_the_same_id_again_is_no_move(self):
-        session = OperatorSession(cwd="/tmp")
-        session.note_transcript("a")
-        assert session.note_transcript("a") is False
-
-    def test_a_new_id_is_a_move_once(self):
-        session = OperatorSession(cwd="/tmp")
-        session.note_transcript("a")
-        assert session.note_transcript("b") is True
-        assert session.note_transcript("b") is False
 
 
 # ---------------------------------------------------------------------------
@@ -1942,7 +1918,7 @@ class TestProcessExited:
 async def test_the_pid_names_the_running_child_and_nothing_else():
     """``pid`` is the chat child's pid while it runs, and ``None`` when it is not.
 
-    The Simple view holds a session in this child, so anything addressed to
+    The chat holds a session in this child, so anything addressed to
     the process behind a session key — a controls-server record, a
     diagnostic — has to be able to ask which process that is. A session that
     never started has no handle, and a handle carrying a return code names a
@@ -2456,7 +2432,7 @@ class TestOperatorChatLaunchParity:
         assert options.env["PATH"] == "/usr/bin"
         assert options.env["OSPREY_TELEMETRY_SESSION_ID"] == key
         assert options.env["OSPREY_TELEMETRY_SESSION_START"]
-        assert options.env["OSPREY_WEB_UX"] == "simple"
+        assert options.env["OSPREY_WEB_UX"] == "chat"
         await session.stop()
 
     @pytest.mark.asyncio
@@ -2537,7 +2513,7 @@ class TestOperatorChatStreamParity:
                 ),
                 user_message([ToolResultBlock("tu_1", "42.0", is_error=False)]),
                 system_message("init", {"session_id": "abc"}),
-                result_message(),
+                result_message(session_id="abc"),
             ]
         )
         async with _started_session(client) as session:
@@ -2577,9 +2553,68 @@ class TestOperatorChatStreamParity:
                 "total_cost_usd": 0.01,
                 "duration_ms": 1200,
                 "num_turns": 1,
-                "session_id": "sdk-session",
+                "session_id": "abc",
             },
         ]
+
+
+class _TurnScriptedClient(_ScriptedClient):
+    """A client that answers each prompt with the next of *turns*, in order."""
+
+    def __init__(self, *turns) -> None:
+        super().__init__()
+        self._turns = [list(turn) for turn in turns]
+
+    async def receive_response(self):
+        await self._prompts.get()
+        for message in self._turns.pop(0):
+            yield message
+
+
+class TestTheConversationMoves:
+    """A child that moves to a new transcript (``/clear``) says so, and the session follows.
+
+    The SDK answers such a turn with a result naming a new ``session_id`` and
+    no text. The session keeps the id the child last reported and, when a
+    result names a different one, emits a ``session_reset`` ahead of it so
+    the turn's consumer and every feed see the boundary where the old
+    conversation ends (#1483).
+    """
+
+    @pytest.mark.asyncio
+    async def test_the_init_id_is_kept_and_announces_nothing(self):
+        client = _TurnScriptedClient(
+            [system_message("init", {"session_id": "t-1"}), result_message(session_id="t-1")]
+        )
+        async with _started_session(client) as session:
+            assert session.transcript_id is None
+            frames = await collect_turn(session, "hello")
+            assert session.transcript_id == "t-1"
+        assert [f["type"] for f in frames] == ["turn_start", "system", "result"]
+
+    @pytest.mark.asyncio
+    async def test_a_result_on_a_new_transcript_emits_a_reset_before_it(self):
+        client = _TurnScriptedClient(
+            [system_message("init", {"session_id": "t-1"}), result_message(session_id="t-1")],
+            [result_message(session_id="t-2")],
+        )
+        async with _started_session(client) as session:
+            await collect_turn(session, "hello")
+            cleared = await collect_turn(session, "/clear")
+            assert session.transcript_id == "t-2"
+        assert [f["type"] for f in cleared] == ["turn_start", "session_reset", "result"]
+        assert [unnumbered(f) for f in cleared][1] == {"type": "session_reset"}
+
+    @pytest.mark.asyncio
+    async def test_a_result_on_the_same_transcript_is_not_a_move(self):
+        client = _TurnScriptedClient(
+            [system_message("init", {"session_id": "t-1"}), result_message(session_id="t-1")],
+            [assistant_message([TextBlock("again")]), result_message(session_id="t-1")],
+        )
+        async with _started_session(client) as session:
+            await collect_turn(session, "hello")
+            second = await collect_turn(session, "more")
+        assert "session_reset" not in [f["type"] for f in second]
 
     @pytest.mark.asyncio
     async def test_an_agent_sdk_failure_mid_turn_is_named_for_its_class(self):

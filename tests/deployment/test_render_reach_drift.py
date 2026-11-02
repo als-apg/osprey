@@ -97,8 +97,7 @@ def moved_port_stack(tmp_path_factory) -> Path:
 
 
 def _load_config(path: Path) -> dict:
-    with path.open("r", encoding="utf-8") as fh:
-        return yaml.safe_load(fh)
+    return yaml.safe_load(path.read_text(encoding="utf-8"))
 
 
 def _dial_port_bluesky(layer_dir: Path, _render_cfg: dict, monkeypatch) -> int:

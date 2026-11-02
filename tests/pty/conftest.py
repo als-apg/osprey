@@ -45,6 +45,7 @@ import os
 import shutil
 import subprocess
 import sys
+import tempfile
 from collections.abc import Iterator, Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -180,6 +181,7 @@ def _cli(*args: str, cwd: Path, env: Mapping[str, str]) -> subprocess.CompletedP
         capture_output=True,
         text=True,
         check=False,
+        timeout=180,
     )
 
 
@@ -262,11 +264,10 @@ def ensure_exemplar(preset: str = EXEMPLAR_PRESET) -> Path:
     if repo.is_dir():
         return repo
 
-    staging = cached.with_name(f"{cached.name}.building-{os.getpid()}")
-    shutil.rmtree(staging, ignore_errors=True)
+    cached.parent.mkdir(parents=True, exist_ok=True)
+    staging = Path(tempfile.mkdtemp(prefix=f"{cached.name}.building-", dir=cached.parent))
     try:
         render_exemplar(staging, preset)
-        cached.parent.mkdir(parents=True, exist_ok=True)
         try:
             staging.rename(cached)
         except OSError:
@@ -561,7 +562,8 @@ def startable_repo(exemplar_copy: Path, stub_runtime: StubRuntime, reserve_port)
     the rendered config, so no run dials whatever service this host runs at the
     rendered default. What answers there is :class:`StackRecordStandIn`: the
     stack's agent-record as the stub runtime's ``compose up`` would have started
-    it, so the start's wait for it ends the way it does against a real stack.
+    it, binding the reserved port, so the start's wait for it ends the way it
+    does against a real stack.
 
     Rendered output only: nothing in ``profile.yml`` changes, so the build
     fingerprint still matches and the start is not a stale one.

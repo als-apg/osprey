@@ -258,7 +258,7 @@ class TestEmbeddingTimeout:
 
     @pytest.mark.asyncio
     async def test_saturation_reaches_the_caller_as_a_timeout(
-        self, monkeypatch, mock_repository, mock_embedder
+        self, monkeypatch, mock_repository, mock_embedder, search_calls
     ):
         from osprey.services.ariel_search.exceptions import SearchTimeoutError
         from osprey.services.ariel_search.search._offload import SearchCallPool

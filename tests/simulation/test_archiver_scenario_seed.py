@@ -312,8 +312,8 @@ def _seeded(root: Path, mongo_store: dict):
     # seeded from any other source would disagree with every later recompute,
     # and the disagreement would look exactly like a scenario that failed to
     # restore.
-    archive = build(root / "data" / "simulator", [], anchor_s=T0.timestamp())
-    seed_base(collection, archive, KNOBS, t0=T0, chunk_size=256)
+    with build(root / "data" / "simulator", [], anchor_s=T0.timestamp()) as archive:
+        seed_base(collection, archive, KNOBS, t0=T0, chunk_size=256)
     try:
         yield root, collection
     finally:

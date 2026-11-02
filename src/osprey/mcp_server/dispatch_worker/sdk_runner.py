@@ -411,7 +411,7 @@ async def run_dispatch(
     # Keep subagent delegation in the foreground. Since CLI 2.1.x the Agent tool
     # auto-backgrounds delegated subagents: it returns immediately, the turn
     # ends, and the results arrive on a *later* turn as a task notification.
-    # ``_drain_response`` stops at the first ResultMessage, so the worker would
+    # ``receive_response()`` stops at the first ResultMessage, so the worker would
     # answer "the agent is searching, I'll notify you when it completes" and
     # silently drop the delegated work. Set explicitly rather than inherited —
     # ``build_clean_env()`` strips every ``CLAUDE_CODE_*`` key by design.

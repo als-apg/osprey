@@ -54,6 +54,7 @@ def test_sidecar_import_closure_holds_no_cli_or_deployment_modules() -> None:
         capture_output=True,
         text=True,
         env=dict(os.environ, PYTHONPATH=pythonpath),
+        timeout=120,
     )
 
     # Assert

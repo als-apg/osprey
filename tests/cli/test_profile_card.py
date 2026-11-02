@@ -104,13 +104,13 @@ def test_each_user_row_carries_rights_auth_and_port(exemplar_lines: list[str]) -
     band rather than at whatever the profile happened to spell.
     """
     alice = line_with(exemplar_lines, "alice")
-    assert "readwrite · rights approval-gated" in alice
+    assert "readwrite · rights asked" in alice
     assert "password" in alice
     assert alice.rstrip().endswith(f":{_PORTS['web']}")
 
     bob = line_with(exemplar_lines, "bob")
     assert "readonly" in bob
-    assert "rights approval-gated" not in bob
+    assert "rights" not in bob
     assert bob.rstrip().endswith(f":{_PORTS['web'] + 1}")
 
 
@@ -152,8 +152,74 @@ def test_a_single_target_render_keeps_one_unqualified_write_right() -> None:
             "control_system.connector.virtual_accelerator.serving": "in_process",
         }
     )
-    assert _write_rights(armed, {}, "readwrite") == ["rights approval-gated"]
+    assert _write_rights(armed, {}, "readwrite") == ["rights allowed"]
     assert _write_rights(cold, {}, "readonly") == []
+
+
+_TIER_KEY = "control_system.writes"
+
+
+@pytest.mark.parametrize(
+    ("word", "rights"),
+    [("never", []), ("asked", ["rights asked"]), ("allowed", ["rights allowed"])],
+)
+def test_the_right_prints_the_ceiling_word_on_every_tier(word: str, rights: list[str]) -> None:
+    """The word is the tier's own: asked and allowed cap the slider differently."""
+    from types import SimpleNamespace
+
+    from osprey.cli.profile_card import _write_rights
+
+    host = SimpleNamespace(config={_TIER_KEY: word})
+    assert _write_rights(host, {}, "plain") == rights
+
+    # A layer's word beats the host's, in either direction.
+    for other in ("never", "asked", "allowed"):
+        over = SimpleNamespace(config={_TIER_KEY: other})
+        assert _write_rights(over, {"r": {"config": {_TIER_KEY: word}}}, "r") == rights
+
+
+@pytest.mark.parametrize("value", ["Asked", "on", True, None])
+def test_a_tier_value_outside_the_three_words_prints_no_right(value: object) -> None:
+    from types import SimpleNamespace
+
+    from osprey.cli.profile_card import _write_rights
+
+    assert _write_rights(SimpleNamespace(config={_TIER_KEY: value}), {}, "plain") == []
+
+
+def test_a_retired_spelling_that_armed_prints_allowed_never_asked() -> None:
+    """The rewrite of a retired armed leaf is ``allowed``; only the tier key says ``asked``."""
+    from types import SimpleNamespace
+
+    from osprey.cli.profile_card import _write_rights
+
+    host = SimpleNamespace(config={"control_system.writes_enabled": True})
+    assert _write_rights(host, {}, "plain") == ["rights allowed"]
+
+
+def test_the_roster_row_prints_each_tier_word() -> None:
+    profile = BuildProfile(
+        name="three-tiers",
+        config={
+            "modules.web_terminals.enabled": True,
+            "modules.web_terminals.users": [
+                {"name": "dana", "index": 0, "tier": "gated"},
+                {"name": "evan", "index": 1, "tier": "free"},
+                {"name": "finn", "index": 2, "tier": "cold"},
+            ],
+        },
+    )
+    deltas = {
+        "gated": {"config": {_TIER_KEY: "asked"}},
+        "free": {"config": {_TIER_KEY: "allowed"}},
+        "cold": {"config": {_TIER_KEY: "never"}},
+    }
+
+    lines = format_profile_card(profile, deltas)
+
+    assert "gated · rights asked" in line_with(lines, "dana")
+    assert "free · rights allowed" in line_with(lines, "evan")
+    assert "rights" not in line_with(lines, "finn")
 
 
 def test_a_switch_capable_render_answers_once_for_its_tier(exemplar_lines: list[str]) -> None:
@@ -163,7 +229,7 @@ def test_a_switch_capable_render_answers_once_for_its_tier(exemplar_lines: list[
     # the readonly tier's `never` answers with nothing.
     bob = line_with(exemplar_lines, "bob")
     assert "readonly" in bob
-    assert "rights approval-gated" not in bob
+    assert "rights" not in bob
     assert "read-only" not in bob
 
 
@@ -192,7 +258,7 @@ def test_a_render_arming_one_block_is_allowed_on_every_machine() -> None:
 
     dana = line_with(format_profile_card(profile, deltas), "dana")
 
-    assert "va-write · rights approval-gated" in dana
+    assert "va-write · rights allowed" in dana
     assert "read-only" not in dana
 
 
@@ -776,10 +842,10 @@ def test_card_rows_carry_the_layer_deltas_read_off_disk(
     assert roster["alice"].startswith("readwrite")
     assert roster["bob"].startswith("readonly")
     # The readonly tier states `never` in its own file; the host it is merged
-    # over allows writes, which is what bob reads as with no delta.
-    assert "rights approval-gated" not in roster["bob"]
+    # over asks for writes, which is what bob reads as with no delta.
+    assert "rights" not in roster["bob"]
     bare = {row["label"]: row["value"] for row in card_rows(profile, {})}
-    assert "rights approval-gated" in bare["bob"]
+    assert "rights asked" in bare["bob"]
     assert bare["bob"] != roster["bob"]
 
 

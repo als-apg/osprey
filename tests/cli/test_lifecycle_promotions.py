@@ -32,6 +32,7 @@ import logging
 import re
 import subprocess
 from collections.abc import Iterator
+from contextlib import nullcontext
 from io import StringIO
 from pathlib import Path
 from types import SimpleNamespace
@@ -629,7 +630,8 @@ def _stub_start_stack_preflights(monkeypatch: pytest.MonkeyPatch) -> None:
 
     Every preflight between the roster check and the ``DEV_MODE`` line asks the
     host a question this test has no answer for; each is covered by its own
-    module's tests.
+    module's tests. The host is answered on both questions a start asks it: the
+    runtime is up, and it is the one the deployment record names.
     """
     for name in (
         "_check_shared_disk_preflight",
@@ -644,8 +646,11 @@ def _stub_start_stack_preflights(monkeypatch: pytest.MonkeyPatch) -> None:
     ):
         monkeypatch.setattr(container_lifecycle, name, lambda *a, **k: None)
     monkeypatch.setattr(container_lifecycle, "verify_runtime_is_running", lambda config: (True, ""))
+    monkeypatch.setattr(
+        container_lifecycle, "get_runtime_command", lambda config=None: ["docker", "compose"]
+    )
     monkeypatch.setattr(container_lifecycle, "_ensure_service_tokens", lambda *a, **k: set())
-    monkeypatch.setattr(container_lifecycle, "_compose_provider", lambda config: None)
+    monkeypatch.setattr(container_lifecycle, "_compose_provider", lambda config=None, **_: None)
 
     def _stop(*args, **kwargs):
         raise _StopBeforeTheBuild
@@ -708,7 +713,9 @@ def archiver_stubs(monkeypatch: pytest.MonkeyPatch) -> dict:
     monkeypatch.setattr(
         container_lifecycle,
         "_archiver_seed_inputs",
-        lambda config, project_dir: SimpleNamespace(addresses=["SR:BPM1:X", "SR:BPM2:X"]),
+        lambda config, project_dir: nullcontext(
+            SimpleNamespace(addresses=["SR:BPM1:X", "SR:BPM2:X"])
+        ),
     )
     monkeypatch.setattr(container_lifecycle, "_wait_for_archiver_store", lambda *a, **k: None)
     monkeypatch.setattr(container_lifecycle, "_reapply_active_scenarios", lambda *a, **k: None)
@@ -819,7 +826,7 @@ def _stub_legacy_down(
         container_lifecycle, "prepare_compose_files", lambda *a, **k: ({}, ["rendered.yml"])
     )
     monkeypatch.setattr(container_lifecycle, "resolve_repo_root", lambda *a, **k: Path("."))
-    monkeypatch.setattr(container_lifecycle, "_compose_provider", lambda config: None)
+    monkeypatch.setattr(container_lifecycle, "_compose_provider", lambda config=None, **_: None)
     monkeypatch.setattr(container_lifecycle, "compose_base_cmd", lambda *a, **k: ["docker"])
     monkeypatch.setattr(container_lifecycle, "_env_file_args", lambda *a, **k: [])
     monkeypatch.setattr(container_lifecycle, "runtime_env", lambda config, env: dict(env))
@@ -1290,7 +1297,7 @@ def _stub_the_legacy_clean(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> N
     # deferred import resolves the attribute off `container_lifecycle` at call
     # time, which is what makes patching them there take effect. Left unpatched,
     # `_compose_provider` probes for a real runtime and raises.
-    monkeypatch.setattr(container_lifecycle, "_compose_provider", lambda config: None)
+    monkeypatch.setattr(container_lifecycle, "_compose_provider", lambda config=None, **_: None)
     monkeypatch.setattr(container_lifecycle, "_env_file_args", lambda *a, **k: [])
 
 

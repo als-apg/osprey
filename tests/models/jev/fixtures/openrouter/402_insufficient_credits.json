@@ -1,0 +1,14 @@
+{
+  "synthetic": true,
+  "note": "Synthetic fixture hand-written from OpenRouter's documented response and error examples; not a recorded reply.",
+  "route": "openrouter",
+  "status": 402,
+  "headers": {},
+  "body": {
+    "id": "gen-dec-synthetic-0005",
+    "error": {
+      "code": 402,
+      "message": "Insufficient credits. Add more using https://openrouter.ai/credits"
+    }
+  }
+}

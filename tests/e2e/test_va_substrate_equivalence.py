@@ -106,7 +106,7 @@ from tests.e2e._deploy_support import (
 )
 from tests.e2e._volumes import remove_project_volumes
 from tests.e2e.profile_edits import set_pairs
-from tests.e2e.sdk_helpers import render_dir, switch_on_in_record
+from tests.e2e.sdk_helpers import render_dir, set_switch_in_record
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SWEEP_SCRIPT = REPO_ROOT / "scripts" / "va" / "sweep_check.py"
@@ -554,13 +554,8 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
 
     # Force fresh --dev builds so the deployed containers run CURRENT source
     # (osprey up does not pass --build to compose, so it would otherwise reuse a
-    # stale cached image). Exact-named images only.
-    # E2E_REUSE_IMAGES=1 skips this (dev-only: fast local iteration on the test
-    # itself when the osprey source is unchanged; never set it in CI, where a
-    # source change must always rebuild). The first-time native VA build is slow.
-    if not os.environ.get("E2E_REUSE_IMAGES"):
-        subprocess.run(["docker", "rmi", "-f", VA_IMAGE], capture_output=True, text=True)
-        subprocess.run(["docker", "rmi", "-f", BRIDGE_IMAGE], capture_output=True, text=True)
+    # stale cached image). The first-time native VA build is slow.
+    _orm_stack.force_image_rebuild(VA_IMAGE, BRIDGE_IMAGE)
 
     try:
         up = run_command(
@@ -616,13 +611,13 @@ def _arm_queue_owner(repo: Path) -> None:
 
     The preset's tier already allows writes (``control_system.writes:
     allowed``); the switch is the other half. Written through the production
-    writers (:func:`~tests.e2e.sdk_helpers.switch_on_in_record`) into the
+    writers (:func:`~tests.e2e.sdk_helpers.set_switch_in_record`) into the
     control tree the deploy provisions, before ``up`` so the worker reads it.
     """
     config = yaml.safe_load((render_dir(repo) / "config.yml").read_text(encoding="utf-8"))
     owner = _queue_owner()
     ensure_control_target_dir(config, repo, owner, relative_to=repo)
-    switch_on_in_record(repo, owner=owner, targets=[TARGET_VA])
+    set_switch_in_record(repo, owner=owner, targets=[TARGET_VA])
 
 
 def _dead_container_logs() -> str:

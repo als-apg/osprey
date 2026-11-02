@@ -5,13 +5,16 @@ from __future__ import annotations
 import ast
 import fcntl
 import os
+import re
 import socket
 import subprocess
 import sys
 import textwrap
+from pathlib import Path
 
 import pytest
 
+from osprey.deployment.subprocess_capture import observe_exit, stop_child
 from osprey_connectors_tests._harness import _ports
 from osprey_connectors_tests._harness._ports import (
     bound_socket,
@@ -24,10 +27,58 @@ from osprey_connectors_tests._harness._ports import (
 )
 from tests._nested_pytest import with_harness_path
 
+#: Seconds a lock holder gets between SIGTERM and SIGKILL when it did not end.
+_HOLDER_GRACE_S = 1.0
+
+
+def _end_holder(holder: subprocess.Popen[str]) -> None:
+    """End a lock holder by closing its stdin, then stop its group, which reaps it.
+
+    A holder exits on EOF; one that ignores it is stopped all the same and
+    fails the test.
+    """
+    if holder.stdin is not None:
+        holder.stdin.close()
+    exited = observe_exit(holder, within=10.0)
+    if holder.stdout is not None:
+        holder.stdout.close()
+    outcome = stop_child(holder, grace=_HOLDER_GRACE_S)
+    assert outcome.gone, outcome.describe()
+    if exited is None:
+        pytest.fail("the lock holder ignored EOF; its group was stopped")
+
 
 def test_the_port_lies_below_the_ephemeral_range():
     with reserved_port() as port:
         assert _ports.PORT_FLOOR <= port < ephemeral_range_start()
+
+
+def test_a_reservation_never_lands_in_a_booked_block():
+    candidates = set(_ports._candidates(ephemeral_range_start()))
+    assert candidates
+    for block in _ports.BOOKED_BLOCKS:
+        assert candidates.isdisjoint(block)
+
+
+def test_every_block_an_e2e_lane_books_is_kept_clear_of_reservations():
+    repo_tests = Path(__file__).resolve().parents[1]
+    booking = re.compile(r"""port_base["']?\s*[=:]\s*(\d{5})""")
+    found = {
+        int(base): path
+        for tree in ("e2e", "va/e2e")
+        for path in (repo_tests / tree).rglob("*.py")
+        for base in booking.findall(path.read_text(encoding="utf-8"))
+    }
+    assert found, "the scan read no bookings, so a pass here would mean nothing"
+    uncovered = {
+        base: str(path)
+        for base, path in found.items()
+        if base >= _ports.PORT_FLOOR
+        and not all(
+            any(port in block for block in _ports.BOOKED_BLOCKS) for port in (base, base + 999)
+        )
+    }
+    assert not uncovered, f"add these blocks to _ports.BOOKED_BLOCKS: {uncovered}"
 
 
 def test_two_nested_reservations_never_share_a_port():
@@ -64,6 +115,7 @@ def test_a_port_locked_by_another_process_is_never_yielded(monkeypatch):
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
         text=True,
+        start_new_session=True,
     )
     try:
         assert holder.stdout is not None
@@ -72,7 +124,7 @@ def test_a_port_locked_by_another_process_is_never_yielded(monkeypatch):
         with pytest.raises(RuntimeError, match="1 candidate"), reserved_port():
             pass
     finally:
-        holder.communicate(timeout=10)
+        _end_holder(holder)
 
 
 @pytest.mark.parametrize(
@@ -173,6 +225,7 @@ def test_hold_ports_keeps_the_locks_until_exit():
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
         text=True,
+        start_new_session=True,
     )
     try:
         assert holder.stdout is not None
@@ -180,7 +233,7 @@ def test_hold_ports_keeps_the_locks_until_exit():
         assert len(set(ports)) == 2
         assert _lockable_elsewhere(ports) == [False, False]
     finally:
-        holder.communicate(timeout=10)
+        _end_holder(holder)
     assert holder.returncode == 0
     assert _lockable_elsewhere(ports) == [True, True]
 

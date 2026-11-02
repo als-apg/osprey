@@ -700,7 +700,7 @@ async def search(request: Request, search_req: SearchRequest) -> SearchResponse:
     is rejected with 400 rather than falling back to another module.
     """
     from osprey.services.ariel_search.database.repository import schema_behind_diagnostics
-    from osprey.services.ariel_search.exceptions import PatternError, VocabularyError
+    from osprey.services.ariel_search.exceptions import ConfigurationError, PatternError
     from osprey.services.ariel_search.models import parse_time_bound
 
     service = _require_service(request)
@@ -776,14 +776,15 @@ async def search(request: Request, search_req: SearchRequest) -> SearchResponse:
             expanded_terms=_expanded_terms(result),
         )
 
-    except VocabularyError as e:
-        # The deployment asked for vocabulary expansion and cannot have it.
-        # 503, not 500: the service is up, this one path is unavailable until
-        # the operator acts, and the detail names the key and that action.
-        first = e.errors[0] if e.errors else e.message
+    except ConfigurationError as e:
+        # A configuration the host contradicts: 503, the detail names the key
+        # and the fix. The message leads with its key, so the key is not
+        # repeated.
+        errors = getattr(e, "errors", None)
+        first = errors[0] if errors else e.message
         raise HTTPException(
             status_code=503,
-            detail=f"{e.config_key}: {first}. {e.remedy}",
+            detail=f"{first}. {e.remedy}" if e.remedy else first,
         ) from e
     except PatternError as e:
         # Defensive: the keyword module turns a rejected pattern into an ERROR

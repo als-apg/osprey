@@ -1074,6 +1074,7 @@ def test_a_single_lanes_posture_is_the_deployment_wide_one() -> None:
         return _bluesky_lane_write_posture(lane, control_system)["bluesky"]
 
     assert posture({"writes": "allowed"}) is True
+    assert posture({"writes": "asked"}) is True
     assert posture({"writes": "never"}) is False
     assert posture(None) is False
     assert posture({"writes_enabled": True}) is False
@@ -1081,9 +1082,9 @@ def test_a_single_lanes_posture_is_the_deployment_wide_one() -> None:
     assert posture({"type": "virtual_accelerator", "writes": "allowed"}) is True
 
 
-@pytest.mark.parametrize("writes", ["allowed", "never"])
+@pytest.mark.parametrize("writes", ["asked", "allowed", "never"])
 def test_the_login_tier_alone_decides_which_lanes_mount_the_limits_db(writes: str) -> None:
-    """The tier is a ceiling, not a selection: ``allowed`` arms every lane, ``never`` none.
+    """The tier is a ceiling, not a selection: an arming word arms every lane, ``never`` none.
 
     A live-baseline deployment with a VA lane beside its live lane: the lane's
     target does not narrow the mount, because which machine a write reaches is
@@ -1112,11 +1113,32 @@ def test_the_login_tier_alone_decides_which_lanes_mount_the_limits_db(writes: st
         )
     )
 
-    expected = [LIMITS_DB_MOUNT] if writes == "allowed" else []
+    expected = [] if writes == "never" else [LIMITS_DB_MOUNT]
     assert _limits_mounts(rendered, "bluesky-va-bridge") == expected
     assert _limits_mounts(rendered, "bluesky-va-queueserver") == expected
     assert _limits_mounts(rendered, "bluesky-bridge") == expected
     assert _limits_mounts(rendered, "queueserver") == expected
+
+
+@pytest.mark.parametrize(
+    ("writes", "armed"), [("asked", True), ("allowed", True), ("never", False)]
+)
+def test_the_tier_word_decides_the_queue_token_and_the_lane_verdict(
+    writes: str, armed: bool, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The launch-token entitlement and the lane's startup verdict read the same tier."""
+    from osprey.deployment.web_terminals.roster import config_needs_launch_token_for
+    from osprey.services.bluesky_bridge import queue_backend
+
+    control_system = {"type": "epics", "writes": writes}
+    config = {
+        "control_system": control_system,
+        "claude_code": {"servers": {"bluesky": {"enabled": True}}},
+    }
+    monkeypatch.setattr(queue_backend, "resolve_lane_connector_type", lambda: ("epics", None))
+
+    assert config_needs_launch_token_for(config, "bluesky") is armed
+    assert queue_backend.lane_tier_allows(control_system) is armed
 
 
 def test_an_armed_lane_renders_without_a_limits_db_when_none_is_configured() -> None:
@@ -1813,7 +1835,7 @@ def test_the_queueserver_applies_its_lane_identity_before_the_manager_starts(
         f' || echo "WARNING: control identity {identity} not applied; this lane writes as root"'
         " >&2; exec start-re-manager"
     )
-    subprocess.run(["sh", "-n", "-c", script], check=True)
+    subprocess.run(["sh", "-n", "-c", script], check=True, timeout=60)
 
 
 @pytest.mark.parametrize("rename_exit", [0, 1])
@@ -1838,6 +1860,7 @@ def test_the_manager_starts_whether_or_not_the_rename_lands(
         capture_output=True,
         text=True,
         check=False,
+        timeout=60,
     )
 
     assert result.returncode == 0, result.stderr

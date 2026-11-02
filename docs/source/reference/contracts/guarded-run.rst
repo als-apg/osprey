@@ -114,9 +114,9 @@ them with their old values.
 - The lock records and restores nothing.
 - A run that is killed, fails or is interrupted leaves every setpoint where it
   stopped, as the MATLAB Middle Layer and pyAML do.
-- ``pyaml_measure`` lists in its result every setpoint the call moved, with its
-  value before the call (``moved``), whether the run completed, stopped or
-  failed.
+- ``pyaml_measure`` lists in its result every setpoint whose write may have
+  gone out, a write whose outcome is unknown included, with its value before
+  the call (``moved``), whether the run completed, stopped or failed.
 - A run killed outright cannot list values, and its failure names the channels
   it attempted. That includes a run that reaches the execution timeout:
   nothing stops a tool early to leave time for a report, so it is killed like

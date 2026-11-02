@@ -77,8 +77,7 @@ def _line_no(text: str, needle: str) -> int:
 
 def _load(path):
     yaml = YAML(typ="safe")
-    with open(path, encoding="utf-8") as fh:
-        return yaml.load(fh)
+    return yaml.load(path)
 
 
 # ---------------------------------------------------------------------------
@@ -95,8 +94,7 @@ class TestAnchoredAppend:
         anchored_append(config["deployed_services"], "virtual_accelerator")
         anchored_append(config["deployed_services"], "bluesky")
 
-        with open(path, "w", encoding="utf-8") as fh:
-            yaml.dump(config, fh)
+        yaml.dump(config, path)
         text = path.read_text(encoding="utf-8")
 
         assert _line_no(text, "- bluesky") < _line_no(text, "# SAFETY CONTROLS")
@@ -126,8 +124,7 @@ class TestAnchoredPut:
             {"path": "./services/virtual_accelerator", "port": 5064},
         )
 
-        with open(path, "w", encoding="utf-8") as fh:
-            yaml.dump(config, fh)
+        yaml.dump(config, path)
         text = path.read_text(encoding="utf-8")
 
         # New block sits under services:, before the deployed_services comment.
@@ -146,8 +143,7 @@ class TestAnchoredPut:
 
         anchored_put(config["services"], "va", {"port": 5064})
 
-        with open(path, "w", encoding="utf-8") as fh:
-            yaml.dump(config, fh)
+        yaml.dump(config, path)
         lines = path.read_text(encoding="utf-8").splitlines()
 
         comment_line = _line_no("\n".join(lines), "# Services to deploy")
@@ -160,8 +156,7 @@ class TestAnchoredPut:
 
         anchored_put(config["services"], "postgresql", {"path": "./services/postgresql"})
 
-        with open(path, "w", encoding="utf-8") as fh:
-            yaml.dump(config, fh)
+        yaml.dump(config, path)
         text = path.read_text(encoding="utf-8")
 
         assert _line_no(text, "# Services to deploy") < _line_no(text, "deployed_services:")
@@ -178,8 +173,7 @@ class TestAnchoredPut:
             {"url": "http://localhost:8020", "path": "/dashboard"},
         )
 
-        with open(path, "w", encoding="utf-8") as fh:
-            yaml.dump(config, fh)
+        yaml.dump(config, path)
         text = path.read_text(encoding="utf-8")
 
         assert _line_no(text, "events:") < _line_no(text, "# trailing panel docs")

@@ -198,8 +198,9 @@ import time
 from collections import deque
 from typing import Any
 
+from osprey_connectors.errors import ConnectorInternalError
 from osprey_connectors.ipc import _frames as frames
-from osprey_connectors.ipc._exceptions import encode_exception
+from osprey_connectors.ipc._exceptions import decode_exception, encode_exception
 from osprey_connectors.posture_env import POSTURE_ENV_VAR, SANDBOX_MODE, is_readonly_run
 
 __all__ = [
@@ -725,21 +726,26 @@ def _error_frame(request_id: str, exc: BaseException) -> bytes:
     """Encode a failure for one request, normalising unknown classes here.
 
     :func:`~osprey_connectors.ipc.encode_exception` decides what
-    crosses typed; a class outside its registry is turned into a
-    ``ConnectionError`` carrying the original ``repr`` at this edge, so the
-    parent is never handed a tag it cannot rebuild. A value that defeats the
-    codec itself still produces a frame — losing the reply entirely would leave
-    the parent waiting on a request that already failed.
+    crosses typed; a class outside its registry is turned, at this edge, into
+    the nearest registered class it subclasses or else into a
+    ``ConnectorInternalError`` carrying the original ``repr``, so the parent is
+    never handed a tag it cannot rebuild. A value that defeats the codec itself
+    still produces a frame, as the same ``ConnectorInternalError`` — losing the
+    reply entirely would leave the parent waiting on a request that already
+    failed.
     """
     body = encode_exception(exc)
     if body["class_tag"] != type(exc).__name__:
-        exc = ConnectionError(body["message"])
+        exc = decode_exception(body)
     try:
         return frames.encode_error(request_id, exc)
     except Exception as encode_failure:  # pragma: no cover - defensive
         return frames.encode_error(
             request_id,
-            ConnectionError(f"connector host could not encode its error ({encode_failure}): {exc}"),
+            ConnectorInternalError(
+                f"connector host could not encode its error ({encode_failure}): {exc}",
+                class_tag=type(exc).__name__,
+            ),
         )
 
 

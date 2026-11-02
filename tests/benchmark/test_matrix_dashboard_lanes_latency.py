@@ -117,6 +117,7 @@ def test_rendered_page_names_the_lanes_and_shows_only_models_with_data(tmp_path)
         ],
         check=True,
         capture_output=True,
+        timeout=120,
     )
     page = out.read_text()
     assert "Capability lane" in page and "Harness lane" in page

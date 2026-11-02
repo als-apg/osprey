@@ -17,7 +17,7 @@ GET /api/chat/commands
 Answers {"commands": [{"name", "description", "argument_hint", "kind"}, ...]},
 the slash commands the chat agent accepts in this project.
 
-The Simple-mode chat is keyed on a caller-supplied ``chat_id`` and backed by a
+The operator chat is keyed on a caller-supplied ``chat_id`` and backed by a
 registry-managed :class:`OperatorSession` (the ``ChatSessionPool``). Each POST
 mints a per-session turn guard, then consumes one
 :meth:`OperatorSession.run_turn` — the turn machine (queue consumption,
@@ -31,6 +31,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+from collections.abc import Callable
 from dataclasses import asdict
 from pathlib import Path
 from typing import Any, cast
@@ -53,7 +54,7 @@ from osprey.interfaces.web_terminal.operator_session import (
 )
 from osprey.interfaces.web_terminal.routes.chat_attachments import mark_sent
 from osprey.interfaces.web_terminal.session_handoff import (
-    SURFACE_SIMPLE,
+    SURFACE_CHAT,
     ChannelClosed,
     ChannelToken,
     HandoffError,
@@ -162,7 +163,8 @@ def _strip_for_chat(event: dict[str, Any]) -> dict[str, Any]:
     - ``context``  reduce to the window's occupancy: ``used_tokens``,
                    ``window_tokens`` and ``percent``.
     - every other type (``text``, ``thinking``, ``system``, ``error``,
-      ``session_reset``, …) passes through unchanged.
+      ``session_reset``, the ``watchdog_*`` change notices, …) passes through
+      unchanged.
 
     The input event is never mutated; a new dict is returned whenever a change
     applies (and the same object may be returned for pass-through types).
@@ -191,41 +193,16 @@ def _strip_for_chat(event: dict[str, Any]) -> dict[str, Any]:
     return event
 
 
-def _follow_transcript(app: Any, chat_id: str, session: OperatorSession, event: dict) -> bool:
-    """Keep *chat_id*'s map entry on the conversation its chat agent is on.
-
-    The child names its conversation on the init message and on every result.
-    The session notes each report, and when both the key and the reported id
-    are session UUIDs (the predicate the agent-turn route applies to the
-    terminal's reports) the key's entry in
-    :mod:`~osprey.interfaces.web_terminal.transcript_map` is set to it; the map
-    itself skips a write that changes nothing.
-
-    Returns True when the report moved the conversation inside this child,
-    which the caller marks with ``session_reset``. Any other event is no report
-    and returns False.
-    """
-    if event.get("type") not in ("system", "result"):
-        return False
-    transcript_id = event.get("session_id")
-    if not transcript_id:
-        return False
-    moved = session.note_transcript(transcript_id)
-    if is_posture_key(chat_id) and is_posture_key(transcript_id):
-        transcript_map.set(app, chat_id, transcript_id)
-    return moved
-
-
 def _turn_timeout_s(request: Request) -> float:
     """Resolve the per-turn SDK-silence timeout from app.state (with default)."""
     return getattr(request.app.state, "chat_turn_timeout_s", _DEFAULT_TURN_TIMEOUT_S)
 
 
 async def _acquire_chat_turn(request: Request, chat_id: str) -> tuple[OperatorSession, int, bool]:
-    """Take the session key for the Simple view, then mint this turn's guard.
+    """Take the session key for the chat, then mint this turn's guard.
 
     Every turn goes through :func:`acquire_surface`, because the key may be
-    held by the Expert view's terminal and only the hand-off door can stand
+    held by the terminal and only the hand-off door can stand
     that process down before this one starts. A key the chat already holds
     passes straight through: the pooled child is handed back and the spawn
     callback below is never called, so the pool's own environment comparison
@@ -236,13 +213,11 @@ async def _acquire_chat_turn(request: Request, chat_id: str) -> tuple[OperatorSe
     is True only when the child that will answer this prompt was started with
     no transcript to resume: the conversation begins here and the client is
     told so with a ``session_reset`` marker. A resumed child continues a
-    conversation the operator has already seen — in the other view, or in this
-    one before a restart — so it carries no marker. A conversation that moves
-    inside a live child is marked with the same ``session_reset`` where the
-    move is seen (see :func:`_follow_transcript`).
+    conversation the operator has already seen — in the other surface, or in this
+    one before a restart — so it carries no marker.
 
     Maps every failure to the HTTP contract with a machine-readable ``error``
-    in the body: 409 when another view or connection is consuming the key,
+    in the body: 409 when another surface or connection is consuming the key,
     when a terminal turn can only be ended by an interrupt
     (``handoff_needs_interrupt`` — the client offers to stop it and ask
     again), when the chat was torn down as it started
@@ -304,7 +279,7 @@ async def _acquire_chat_turn(request: Request, chat_id: str) -> tuple[OperatorSe
         result = await acquire_surface(
             request.app,
             chat_id,
-            SURFACE_SIMPLE,
+            SURFACE_CHAT,
             ChannelToken(request.is_disconnected),
             spawn=spawn,
         )
@@ -396,27 +371,58 @@ async def chat(request: Request, body: ChatRequest, stream: bool = True):
 
     turn_timeout_s = _turn_timeout_s(request)
 
+    def follow_transcript() -> None:
+        _record_transcript(request.app, body.chat_id, session)
+
     if not stream:
         return await _buffered_response(
-            request.app, body.chat_id, session, token, prompt, fresh_conversation, turn_timeout_s
+            session,
+            token,
+            prompt,
+            fresh_conversation,
+            turn_timeout_s,
+            on_turn_end=follow_transcript,
         )
 
     return StreamingResponse(
         _stream_events(
-            request.app, body.chat_id, session, token, prompt, fresh_conversation, turn_timeout_s
+            session,
+            token,
+            prompt,
+            fresh_conversation,
+            turn_timeout_s,
+            on_turn_end=follow_transcript,
         ),
         media_type="text/event-stream",
     )
 
 
+def _record_transcript(app, key: str, session: OperatorSession) -> None:
+    """Point *key* at the transcript its live child is on, once a turn has run.
+
+    The terminal's child reports every turn through the agent-turn hook,
+    which writes the same map; the chat child runs with no such hook, so the
+    route is where its transcript follows the key. Written after every turn,
+    unconditionally, for the same reason the hook route writes
+    unconditionally: a child that reports the key itself clears a stale
+    pointer rather than keeping one to a conversation it has left. The map
+    holds only canonical session UUIDs, so an embedder-chosen key or an id
+    that is not one is left alone, as the hook route leaves them.
+    """
+    transcript_id = session.transcript_id
+    if not transcript_id or not is_posture_key(key) or not is_posture_key(transcript_id):
+        return
+    transcript_map.set(app, key, transcript_id)
+
+
 async def _stream_events(
-    app: Any,
-    chat_id: str,
     session: OperatorSession,
     token: int,
     prompt: str,
     fresh_conversation: bool,
     turn_timeout_s: float,
+    *,
+    on_turn_end: Callable[[], None] | None = None,
 ):
     """SSE consumer of :meth:`OperatorSession.run_turn` for one turn.
 
@@ -424,10 +430,7 @@ async def _stream_events(
     terminal detection, and the quiesce/release discipline — lives in
     ``run_turn``. This wrapper only maps its output to the SSE wire: heartbeat
     markers become comment frames, events are stripped via
-    :func:`_strip_for_chat`, a silence timeout becomes an error frame. A
-    conversation that moves inside the live child is marked with the same
-    ``session_reset`` as a fresh one, emitted just before the frame that
-    revealed the move (see :func:`_follow_transcript`). The
+    :func:`_strip_for_chat`, a silence timeout becomes an error frame. The
     ``finally`` safety net covers the one exit ``run_turn`` cannot: the outer
     generator being closed before ``run_turn`` ever started (both calls are
     synchronous, so the pair cannot be interleaved by another request).
@@ -442,8 +445,6 @@ async def _stream_events(
             if event.get("type") == "heartbeat":
                 yield ": heartbeat\n\n"
                 continue
-            if _follow_transcript(app, chat_id, session, event):
-                yield _sse(_strip_for_chat({"type": "session_reset"}))
             yield _sse(_strip_for_chat(event))
     except TurnSilenceTimeout:
         yield _sse(_strip_for_chat(_timeout_event()))
@@ -459,6 +460,8 @@ async def _stream_events(
         )
     finally:
         session.end_consumer(token)
+        if on_turn_end is not None:
+            on_turn_end()
 
 
 def _timeout_event() -> dict[str, Any]:
@@ -471,22 +474,20 @@ def _timeout_event() -> dict[str, Any]:
 
 
 async def _buffered_response(
-    app: Any,
-    chat_id: str,
     session: OperatorSession,
     token: int,
     prompt: str,
     fresh_conversation: bool,
     turn_timeout_s: float,
+    *,
+    on_turn_end: Callable[[], None] | None = None,
 ) -> JSONResponse:
     """Run one turn to completion and return a single reduced JSON response.
 
     Consumes the same :meth:`OperatorSession.run_turn` machine as the SSE
     branch — heartbeat markers are skipped instead of forwarded, and a silence
     timeout maps to 504 instead of an error frame. A ``session_reset`` marker is
-    prepended to ``events`` when the conversation starts with this turn, and a
-    conversation that moves inside the live child is marked with the same
-    ``session_reset`` just before the event that revealed the move; and
+    prepended to ``events`` when the conversation starts with this turn, and
     ``_strip_for_chat`` applies to every event. The top-level payload is reduced to exactly
     ``{text, events, is_error, error?}`` — cost/duration/turn counts never
     reach the chat client.
@@ -508,8 +509,6 @@ async def _buffered_response(
             if etype == "heartbeat":
                 continue
 
-            if _follow_transcript(app, chat_id, session, event):
-                events.append(_strip_for_chat({"type": "session_reset"}))
             events.append(_strip_for_chat(event))
             if etype == "text":
                 text_parts.append(event.get("content", ""))
@@ -526,6 +525,8 @@ async def _buffered_response(
     finally:
         # Safety net for the never-started case only (see _stream_events).
         session.end_consumer(token)
+        if on_turn_end is not None:
+            on_turn_end()
 
     payload: dict[str, Any] = {
         "text": "".join(text_parts),

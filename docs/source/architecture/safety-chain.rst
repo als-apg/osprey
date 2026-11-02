@@ -48,25 +48,24 @@ drive meet the first and the last:
    The step size is left to the connector, the only layer that can read the channel first.
    Channel writes only.
 
-3. **Does a human approve?** (``osprey_approval``) --- the operator answers a prompt at the
-   terminal. How often it asks is set per tool: ``always``, ``selective``, or ``skip``. Under
-   ``selective`` the check reads the request itself and asks only when a Python run is
-   read-write or its code contains a write; a channel write is always asked. When a Python run
-   needs approval, the exact code is saved as a **Pre-Execution Review** notebook in the
+3. **Does a human approve?** (``osprey_approval``) --- for a governed write the switch's
+   position decides: at *asked* the operator answers a prompt at the terminal, at *allowed*
+   the write runs unprompted on a record naming the switch. Every other tool keeps its own
+   policy: ``always``, ``selective``, or ``skip``. When a Python run
+   needs approval, the exact code is saved as an **Approval preview** notebook in the
    artifact gallery and linked from the prompt, so the operator can read what is about to run.
-   The approval is the terminal prompt; the gallery only shows the code.
+   The approval is the terminal prompt; the preview only shows the code.
 
-   **What a prompt guarantees (stage 1).** Where the policy asks, a channel write, a Phoebus
-   drive, queueing or starting a plan, and a read-write Python run go ahead only on the record
-   the prompt left for that call; a call the prompt never saw is refused by the server that
+   **What a prompt guarantees (stage 1).** A governed write, and a Phoebus drive where its
+   policy asks, go ahead only on the record the hook left for that call; a call the hook
+   never saw is refused by the server that
    would carry it out. That is all it claims: the record is checked on the agent's own host,
    by processes of the agent's own user, so it binds every tool path and does not contain code
    already running there (see :ref:`architecture-safety-chain-residual`). Python code that names the store holding the machine's switch is asked
-   under every policy and refused where nothing can ask --- under ``skip``, with approval off,
-   or in a dispatch run. The executor checks it again before the code runs, read-only runs
-   included.
+   in every position and refused where nothing can ask, as in a dispatch run. The executor
+   checks it again before the code runs, read-only runs included.
 
-Which machine the deployment points at, and whether the login's switch is on for it, come
+Which machine the deployment points at, and the login's switch position for it, come
 from the records the deployment keeps --- one per login --- read fresh on every call, so a
 flip reaches the agent's next tool call. The tier is rendered at build time and takes a
 rebuild to change. See :ref:`web-terminal-session-posture` for the switch and
@@ -91,6 +90,11 @@ A write meets its gates in this order, and the first that refuses ends it:
 The hooks and the connector share one verdict and one order, so a write refused at either
 names the same reason.
 
+Where a watchdog has flagged the session, the hook's verdict (gate 2), the server (gate 3) and
+the connector (gate 4) each refuse the write with ``session_held``. The approval prompt does
+not answer a flag, so a write approved while the flag is open is refused at the server. See
+:ref:`Safety watchdogs <architecture-safety-watchdogs>`.
+
 Plan mode
 =========
 
@@ -103,6 +107,84 @@ they ask for approval because what they read is sensitive, and they change nothi
 custom server follows its ``config.yml``: its ``permissions.ask`` tools are refused, and so is
 every tool of a server that declares ``writes_check``; a tool it lists in neither ``allow`` nor
 ``ask`` is not.
+Plan mode and a watchdog's hold are independent refusals with different escapes: plan mode
+refuses ``control_target_set`` and ends when the agent leaves plan mode; a hold never holds the
+control target and ends only when an operator answers the flag.
+
+.. _architecture-safety-watchdogs:
+
+Safety watchdogs
+================
+
+.. raw:: html
+   :file: ../_diagrams/safety-watchdogs.html
+
+A **watchdog** is a check a facility writes, in plain language, that judges each operator
+prompt in the background: is this session heading somewhere it should not? A deployment may
+enable any number, off by default, and each uses one of two engines:
+
+- **The decision engine** asks a decision model (TypeSafe Jev) to pick among options the
+  facility wrote. It sees the watchdog's instructions and the session's recent history, and
+  nothing else, and usually answers within seconds.
+- **The agent engine** runs a read-only agent, which also sees the watchdog's references and
+  facility knowledge and can read the machine. It is slower and costs more, and each run is
+  capped in time and cost. Every write or edit it attempts is refused and recorded.
+
+A watchdog answers *clear*, *flagged* or *unavailable*. Nothing it says means an action is
+safe, so no record or screen says so: a clear verdict is logged and not shown. An unavailable
+watchdog raises no dialog and no hold, and the terminal shows it as unavailable.
+
+**The hold.** A flag holds the writes of the agent in that session, by every route the agent
+has: write tools, executed scripts, plans queued through its tools, ``phoebus_drive``. Each
+flag stays open until an operator answers it, whether or not anyone is attached; a reload or
+a reattach brings the dialog back. The hold is one more reason to refuse, and it loosens
+nothing: every other gate on this page still applies once it is gone. Stopping a plan, and
+switching the control target, are never held.
+
+**A watchdog is advisory, not a gate on the first write.** The prompt goes to the agent at
+once, because a watchdog must never delay it, so a verdict can land after a write has already
+run. The hold covers the time from the flag to the answer. A fooled or failed watchdog fails
+to warn, and that is all it can do.
+
+**The dialog** names each watchdog, the prompt it judged and its reason, and flags raised
+together share one dialog. Only a click answers it. **Stop** interrupts the turn and waits;
+when the turn has ended and nothing the agent started still runs, the flags are released. If
+not, they stay open, the dialog says the turn did not stop, and it lists what still runs.
+**Continue** releases the flags and records who chose to proceed. The next write then meets
+the checks above, including the approval prompt.
+
+What watchdogs do not cover
+---------------------------
+
+- **Only the prompt.** A watchdog judges when a prompt arrives, not after each tool call or
+  at the end of a turn. The decision engine sees only about the last 30,000 tokens of a
+  session, and it does not treat what a tool returned as hostile.
+- **Only the agent's writes.** A write the operator makes directly, from a notebook cell or
+  the BLUESKY panel, is not held.
+- **Not motion already running.** A plan the agent started keeps running; stop it with the
+  existing tools.
+- **Only the web terminal holds.** ``osprey chat`` or a bare ``claude`` in a built project
+  records its flags and is never held, because no dialog could answer them.
+- **Only an operator's prompts.** Dispatch jobs, webhooks and ``osprey query`` trigger no
+  watchdog.
+- **Not code set on releasing its own hold.** The hold record sits with the deployment's other
+  state records, and the agent's file tools and shell are denied its directory. Code running
+  as the agent's user that deliberately rewrites the record can still release its own hold
+  with no audited Continue, the same boundary as :ref:`the switch's record
+  <architecture-safety-chain-residual>`.
+
+Setting one up
+--------------
+
+A watchdog is an entry in the profile's ``watchdogs:`` block plus an instructions file at
+``watchdogs/<name>/instructions.md``, and ``enabled: true`` and a rebuild turn it on. Run
+``osprey watchdog replay`` over labelled prompts before enabling one: the thresholds are not
+calibrated for any facility. A decision watchdog sends session history to TypeSafe (hosted in
+the US) or OpenRouter; an agent watchdog uses the deployment's own LLM provider. Each adds its
+cost to every prompt.
+
+:doc:`/how-to/safety-watchdogs` has the steps, and :ref:`reference-watchdog` has the exact
+behaviour.
 
 Five paths below the checks
 ===========================
@@ -126,11 +208,15 @@ in it. The Python executor takes over from there. Before the code runs, it is re
 patterns are refused, code that writes into the deployment's own files is refused, and
 read-only code may neither import a control-system client library nor spell a write;
 read-write code that plainly spells a client library's own put is refused by the approval hook
-before anyone is asked to approve it. Before a read-write run starts, the executor
+before anyone is asked to approve it. A deployment can also turn on code review: a second
+AI agent then reads the code before the operator is asked, following instructions the
+deployment writes itself, and says whether it is safe to run. Depending on how the deployment
+set it up, unsafe code is either stopped or allowed through with a warning
+(:ref:`architecture-safety-chain-code-review`). Before a read-write run starts, the executor
 checks that the approval prompt recorded this call and that what the call carries matches
 what it recorded; otherwise nothing runs. This check runs beside the script on one host, not
-out of the script's reach. Then the code runs in its own process with guards in
-place: read-only code cannot write even if it tries, read-write code writes through the
+out of the script's reach. Then the code
+runs in its own process with guards in place: read-only code cannot write even if it tries, read-write code writes through the
 connector only because a client library's own put is refused (a PVAccess put, which the
 connector cannot carry yet, is limits-checked instead), it cannot write into the
 deployment's own files, and it is stopped after a time limit. When the code finishes, its result is saved to a record and the process ends at once,
@@ -199,7 +285,7 @@ A Jupyter cell
 A cell is run by a person, so no tool call and none of the checks are involved. What guards it
 are the deployment's settings, which the notebook kernel carries. Before every cell the kernel
 re-reads which machine the deployment points at, and the connector asks the verdict on every
-write, so a flip of the switch reaches a cell already running. A cell reaches
+write, so moving the switch to off reaches a cell already running. A cell reaches
 the machine through ``osprey.runtime``: importing a control-system client library, or loading
 one through ``ctypes`` or ``cffi``, is refused whatever the chip says, for reads as for writes,
 so a cell written the ordinary way reads and writes through the connector. The block is
@@ -207,7 +293,10 @@ cooperative, and its gaps are listed with the others on this page. A refused
 write is shown in the cell, with a line saying what to do where something in the notebook
 would change it. The agent may edit notebooks only in the ``notebooks`` and ``artifacts``
 folders under the agent-data root, held there by a file-write guard that protects the host's
-files, not the machine. See :doc:`/how-to/web-terminal/notebooks`.
+files, not the machine. With code review turned on, the same reviewing agent reads a code cell
+the OSPREY agent writes into a notebook before it is saved, and can stop it or warn about it
+the same way; cells a person writes are never reviewed
+(:ref:`architecture-safety-chain-code-review`). See :doc:`/how-to/web-terminal/notebooks`.
 
 .. _architecture-safety-chain-guarded-run:
 
@@ -258,6 +347,57 @@ call that was allowed, is written down as one ``audit`` entry in the agent recor
 check, the server or the Python executor that made the decision; the
 connector writes none itself, the path that called it does. Each line records the write
 posture in force and who acted, or which kernel. See :ref:`reference-audit-trail`.
+
+.. _architecture-safety-chain-code-review:
+
+Code review
+===========
+
+Everything above checks code by its spelling: a client library's own put, the name of the
+store that holds the switch, a pattern on a list. None of it can tell whether a write makes
+sense --- whether it belongs to the task the agent was given, whether the step is reasonable
+for the magnet it moves, whether a loop will ever end. Code review lets a deployment close that
+gap: a second AI agent reads the code and judges it against the deployment's rules. (The approval preview is
+something else: there the operator reads the code at the prompt; here a machine does the
+reading.)
+
+A deployment turns it on in its profile (:doc:`/how-to/control-systems/code-review`). From
+then on the reviewer reads two things: a Python run the OSPREY agent sends to the executor,
+before the operator is asked to approve it, and a code cell the agent writes into a
+notebook, before it is saved. Nothing else is reviewed: channel writes, plans and
+pyAML tools carry no code of the agent's, and cells a person writes are the person's own.
+
+The reviewer judges by rules the deployment writes itself, in a Markdown file in the project
+(``data/code_review/reviewer.md``): which channels must never be written, when writes need
+extra care, which procedures a write has to follow. OSPREY ships that file with one worked
+rule for the demo facility and nothing more, so a deployment gets the checks it wrote and
+pays only for those. The reviewer has no tools and takes one turn, and anything
+the code says to it is treated as evidence, never as an instruction.
+
+Its answer is *pass*, *concern* or *block*, with the reasons and, where a small change would
+fix it, a corrected version. All of that goes back to the OSPREY agent, which revises its code
+and tries again. Under the shipped rule, a scan that moves a storage-ring corrector without
+first reading the beam mode is a block, and the same scan with the check passes. The deployment
+chooses what a block does. In blocking mode (``level: block``, the default) the code is
+stopped. In advisory mode (``level: flag``) the code runs and the agent is told what the
+reviewer found. A concern never stops code; it only comes with an explanation.
+
+Three things are worth knowing. First, the review happens *before* the operator's approval.
+In blocking mode, code the reviewer stops never reaches the operator; otherwise the answer and
+the reasons stand on the approval prompt and in the approval preview, so the operator decides
+knowing what the reviewer found. A run no prompt sees --- the write switch at *allowed*, a
+read-only run --- is reviewed by the executor just before it starts.
+Second, the operator sees a *code review* line in the activity log whenever the reviewer found
+something --- what was reviewed, the answer, and whether the code ran; the reasons go to the
+agent, and on a run they are on the prompt too; the audit trail keeps a record that a review
+happened and how it ended (:ref:`reference-audit-trail`). Third, if the reviewer cannot
+answer --- the model is unreachable, or the time limit runs out --- blocking mode stops the
+code and the agent is told to report the problem rather than retry, while advisory mode lets
+the code run unreviewed and says so. The reviewer is never a safety boundary: every gate on
+this page holds whatever it answers.
+
+.. raw:: html
+   :file: ../_diagrams/code-review.html
 
 .. _architecture-safety-chain-phoebus-drive:
 
@@ -391,8 +531,8 @@ What the switch does not close
 **The same-uid residual.** The switch's record is written by the terminal's server, and the
 agent, its Python runs and its notebook kernels run as the same Unix user. OSPREY closes what
 it can reach: the agent's file tools are denied the record's store, a shell is denied on every
-``allowed`` tier (lifting it fails the build), Python code that names the store needs approval
-and is refused where nothing can ask, and every writer other than the person's own route
+``asked`` or ``allowed`` tier (lifting it fails the build), Python code that names the store
+needs approval and is refused where nothing can ask, and every writer other than the person's own route
 leaves the switch as it found it. Code in the executor running as that user, assembling the
 path at run time, can still reach it. A writer the agent cannot reach --- the record in its
 own user or container --- is the structural close, and is left to the sandboxing work (SBX).

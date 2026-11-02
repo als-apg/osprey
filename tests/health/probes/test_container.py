@@ -10,6 +10,8 @@ touched:
 - any other state (e.g. ``exited``) → ``warning`` carrying the state;
 - no matching container → ``warning`` "not deployed";
 - no container runtime (``RuntimeError``/``FileNotFoundError``) → ``skip``;
+- the runtime and project are the deployment record's; no record, or one that
+  cannot be read, → ``warning`` and nothing queried;
 - no config on the context and none loadable → ``skip`` "config unavailable";
 - only this deployment's containers are graded: a container labelled for
   another OSPREY or compose project never is, a service matches whole name
@@ -24,6 +26,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from pathlib import Path
 
 import pytest
 from tests.deployment.test_container_ownership import HOST_ROWS, PROJECT
@@ -36,11 +39,29 @@ from osprey.deployment.container_ownership import (
     container_names,
     deployment_containers,
 )
+from osprey.deployment.deployment_record import (
+    DEPLOYMENT_RECORD_RELPATH,
+    NOTHING_DEPLOYED,
+    DeploymentRecord,
+    write_deployment_record,
+)
 from osprey.health.models import Status
 from osprey.health.probes import ProbeContext, get_probe
 from osprey.health.probes import container as container_mod
 from osprey.health.probes.container import run
 from osprey.health.runtime import HealthRuntime
+
+
+@pytest.fixture(autouse=True)
+def _recorded(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """The repo the probe's config resolves to, holding the record of a start of ``proj``.
+
+    The config these tests hand the probe names no repo, so it resolves to the
+    working directory.
+    """
+    monkeypatch.chdir(tmp_path)
+    write_deployment_record(tmp_path, DeploymentRecord("docker", "proj"))
+    return tmp_path
 
 
 def _ctx() -> ProbeContext:
@@ -54,15 +75,10 @@ def _patch_runtime(
     proc: FakeProc | None = None,
     ps_error: Exception | None = None,
 ) -> None:
-    """Patch ``get_ps_command`` and ``create_subprocess_exec`` for one test."""
-    if ps_error is not None:
+    """Patch ``get_ps_command`` and ``create_subprocess_exec`` for one test.
 
-        def _raise(*_a: object, **_k: object) -> list[str]:
-            raise ps_error
-
-        monkeypatch.setattr(container_mod, "get_ps_command", _raise)
-        return
-
+    ``ps_error`` is what running the runtime raises: the runtime is not there.
+    """
     monkeypatch.setattr(
         container_mod,
         "get_ps_command",
@@ -70,6 +86,8 @@ def _patch_runtime(
     )
 
     async def _fake_exec(*_a: object, **_k: object) -> FakeProc:
+        if ps_error is not None:
+            raise ps_error
         assert proc is not None
         return proc
 
@@ -381,6 +399,7 @@ async def test_the_probe_grades_exactly_the_rows_the_rule_claims(
     monkeypatch: pytest.MonkeyPatch, service: str
 ) -> None:
     _serve(monkeypatch, *HOST_ROWS)
+    write_deployment_record(Path.cwd(), DeploymentRecord("docker", PROJECT))
     ctx = ProbeContext(runtime=HealthRuntime({}), config={"project_name": PROJECT})
     result = await run({"container": service}, ctx)
 
@@ -395,3 +414,49 @@ async def test_the_probe_grades_exactly_the_rows_the_rule_claims(
         assert not any(name in text for name in every_name)
     else:
         assert {name for name in every_name if name in text} == expected
+
+
+async def test_the_record_names_the_runtime_and_the_project(
+    monkeypatch: pytest.MonkeyPatch, _recorded: Path
+) -> None:
+    """A rebuild renamed the project and the shell says docker; the record wins."""
+    monkeypatch.setenv("CONTAINER_RUNTIME", "docker")
+    write_deployment_record(_recorded, DeploymentRecord("podman", "earlier-name"))
+    asked: list[tuple[object, ...]] = []
+    rows = [_row("earlier-name-postgresql", "exited", **{PROJECT_LABEL: "earlier-name"})]
+
+    async def _fake_exec(*argv: object, **_k: object) -> FakeProc:
+        asked.append(argv)
+        return FakeProc(stdout=json.dumps(rows).encode())
+
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", _fake_exec)
+
+    result = await run({"container": "postgresql"}, _ctx())
+
+    assert [argv[0] for argv in asked] == ["podman"]
+    assert result.value == "exited"
+
+
+async def test_no_record_says_nothing_is_deployed_and_asks_nothing(
+    monkeypatch: pytest.MonkeyPatch, _recorded: Path
+) -> None:
+    (_recorded / DEPLOYMENT_RECORD_RELPATH).unlink()
+    _patch_runtime(monkeypatch, ps_error=AssertionError("the runtime was asked"))
+
+    result = await run({"container": "postgresql"}, _ctx())
+
+    assert result.status is Status.WARNING
+    assert result.message == NOTHING_DEPLOYED
+
+
+async def test_an_unreadable_record_is_named_and_nothing_is_asked(
+    monkeypatch: pytest.MonkeyPatch, _recorded: Path
+) -> None:
+    (_recorded / DEPLOYMENT_RECORD_RELPATH).write_text("{not json", encoding="utf-8")
+    _patch_runtime(monkeypatch, ps_error=AssertionError("the runtime was asked"))
+
+    result = await run({"container": "postgresql"}, _ctx())
+
+    assert result.status is Status.WARNING
+    assert "unreadable" in result.message
+    assert str(DEPLOYMENT_RECORD_RELPATH) in (result.details or "")

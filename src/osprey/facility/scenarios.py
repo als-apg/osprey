@@ -5,6 +5,11 @@ A scenario faults a model in two spellings, both under ``faults.<model>``:
 * by channel address, ``{<address>: {<fault field>: <value>}}``;
 * by the engine's own fault name, ``{<engine variable>: <value>}``.
 
+An engine may also declare faults keyed by something other than a channel --
+the pyat engine's element errors, ``<element>/dx`` and the like, keyed by the
+served deck element's name. Those take the engine-name spelling, or the map
+spelling with the element in place of the address, ``{<element>: {dx: ...}}``.
+
 The engine plug-in names what a model built from a wiring declares through
 ``fault_variables(wiring)``: fault name -> a slot carrying ``address``,
 ``field``, ``value_range`` and ``options``. A plug-in is reached through the
@@ -709,11 +714,17 @@ def _named_fault(
 ) -> Iterator[FacilityBuildError]:
     slots = roster.slots if roster is not None else {}
     slot = f"faults.{model}.{key}"
+    if isinstance(value, Mapping) and roster is not None and roster.fields(key):
+        yield from map_fault_errors(name, files, model, key, value, roster)
+        return
     fault = slots.get(key)
     if fault is None:
         engine = roster.engine if roster is not None else "engine"
         article = "an" if engine[:1] in "aeiou" else "a"
-        remedy = f"name a channel address or {article} {engine} variable (<address>/<field>)"
+        remedy = (
+            f"name a channel address or {article} {engine} variable "
+            "(<address>/<field>, or <element>/<field> for an element error)"
+        )
         closest = difflib.get_close_matches(key, sorted(slots), n=3)
         if closest:
             remedy += f"; closest: {', '.join(closest)}"

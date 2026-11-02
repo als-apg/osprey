@@ -97,7 +97,7 @@ describe('onHeaderAction', () => {
     const callback = vi.fn();
     onHeaderAction(callback);
 
-    deliverMessage({ type: 'osprey-mode-change', mode: 'simple' });
+    deliverMessage({ type: 'osprey-theme-change', theme: 'dark' });
     deliverMessage({ type: 'osprey-header-action' }); // no id
     deliverMessage({ type: 'osprey-header-action', id: 42 }); // non-string id
     deliverMessage(null);

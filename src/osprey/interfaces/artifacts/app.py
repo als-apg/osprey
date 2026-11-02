@@ -717,6 +717,7 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
         ArtifactEntry,
         ArtifactStore,
         artifact_mutation_actor,
+        is_run_record,
         register_artifact_delete_listener,
         register_artifact_listener,
         unregister_artifact_delete_listener,
@@ -773,7 +774,7 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
 
     # Also after config priming: the one gallery process each workspace has
     # (single-user `osprey web` and every render container alike) seeds the
-    # shipped example here, so the WORKSPACE is not empty on a first visit.
+    # shipped example here, so the Artifacts panel is not empty on a first visit.
     # Idempotent and sentinel-aware — see example_artifact.py.
     if _example_artifact_enabled():
         try:
@@ -785,14 +786,25 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
 
     broadcaster = _SSEBroadcaster()
 
+    def _entry_payload(entry: ArtifactEntry) -> dict[str, Any]:
+        """The entry as every browser-bound frame and response carries it.
+
+        ``entry.to_dict()`` is the index format and stays as it is; the server's
+        :func:`~osprey.stores.artifact_store.is_run_record` verdict rides along
+        as ``run_record`` so the web terminal's sidebar sorts Script runs from
+        Artifacts without re-deriving the rule in JavaScript.
+        """
+        return {**entry.to_dict(), "run_record": is_run_record(entry)}
+
     index_watcher = StoreIndexWatcher(
         workspace_root=data_root,
         broadcaster=broadcaster,
         artifact_store=store,
+        payload=_entry_payload,
     )
 
     def _on_artifact_saved(entry: ArtifactEntry) -> None:
-        broadcaster.broadcast({"type": "artifact", **entry.to_dict()})
+        broadcaster.broadcast({"type": "artifact", **_entry_payload(entry)})
 
     def _on_artifact_deleted(entry: ArtifactEntry) -> None:
         if app.state.focused_artifact_id == entry.id:
@@ -901,7 +913,16 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
         session_id: str | None = None,
         limit: int = Query(page_size, ge=1, le=MAX_PAGE_SIZE),
         cursor: str | None = Query(None),
+        run: bool | None = Query(None),
     ):
+        """List one newest-first page of artifacts.
+
+        ``run`` splits the store by the server's run-record verdict
+        (:func:`~osprey.stores.artifact_store.is_run_record`): ``true`` returns
+        only run records, ``false`` everything else, absent both. ``total`` and
+        ``next_cursor`` count and walk the filtered set. Every entry carries
+        its verdict as ``run_record``.
+        """
         try:
             page = store.page_entries(
                 limit=limit,
@@ -911,6 +932,7 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
                 pinned=pinned,
                 category_filter=category,
                 session_filter=session_id,
+                run_record=run,
             )
         except ValueError as exc:
             raise HTTPException(
@@ -920,7 +942,7 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
             "count": len(page.entries),
             "total": page.total,
             "next_cursor": page.next_cursor,
-            "artifacts": [e.to_dict() for e in page.entries],
+            "artifacts": [_entry_payload(e) for e in page.entries],
         }
 
     @app.get("/api/artifacts/{artifact_id}")
@@ -928,7 +950,7 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
         entry = store.get_entry(artifact_id)
         if not entry:
             raise HTTPException(status_code=404, detail=f"Artifact {artifact_id} not found")
-        return entry.to_dict()
+        return _entry_payload(entry)
 
     @app.post("/api/artifacts/{artifact_id}/pin")
     async def pin_artifact(artifact_id: str, req: PinRequest):
@@ -936,7 +958,7 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
         if not entry:
             raise HTTPException(status_code=404, detail=f"Artifact {artifact_id} not found")
         _write_focus_file()
-        broadcaster.broadcast({"type": "artifact_updated", **entry.to_dict()})
+        broadcaster.broadcast({"type": "artifact_updated", **_entry_payload(entry)})
         return {"status": "ok", "artifact_id": artifact_id, "pinned": entry.pinned}
 
     @app.get("/api/artifacts/{artifact_id}/data")
@@ -1050,14 +1072,14 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
         if focused_id:
             entry = store.get_entry(focused_id)
             if entry:
-                return {"focused": True, "artifact": entry.to_dict()}
+                return {"focused": True, "artifact": _entry_payload(entry)}
             # Stale focus — clear it and fall back to latest
             app.state.focused_artifact_id = None
 
         # Fall back to latest artifact
         entries = store.list_entries()
         if entries:
-            return {"focused": False, "artifact": entries[-1].to_dict()}
+            return {"focused": False, "artifact": _entry_payload(entries[-1])}
         return {"focused": False, "artifact": None}
 
     @app.post("/api/focus")

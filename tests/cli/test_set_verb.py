@@ -107,7 +107,7 @@ def test_project_name_is_renamed_in_place(runner, lifecycle_repo):
     result = _invoke(runner, lifecycle_repo, "project_name=als-renamed")
 
     assert result.exit_code == 0, result.output
-    assert "unknown" not in result.output.lower()
+    assert "Not a profile key" not in result.output
     after = _profile_text(lifecycle_repo)
     assert "\nproject_name: als-renamed\n" in after
     assert "\nproject_name: als-exemplar\n" not in after
@@ -571,10 +571,17 @@ def _honesty_repo(tmp_path: Path, name: str = "honesty") -> Path:
         "provider: cborg\n"
         "model: claude-haiku-4-5\n"
         "channel_finder_mode: in_context\n"
+        # A tool the write switch governs is put to a human whatever
+        # `approval.*` says, so the build requires the hook that asks; naming
+        # hooks replaces the bundle's list, so the kill switch and the Write
+        # gate are named beside it.
+        "hooks:\n"
+        "  - writes-check\n"
+        "  - approval\n"
+        "  - memory-guard\n"
         "config:\n"
         "  control_system.type: epics\n"
         "  archiver.type: mock_archiver\n"
-        # No approval hook is selected, so nothing would ask: approval is off.
         "  approval.enabled: false\n"
         "  approval.default_policy: always\n"
         "  hooks.debug: false\n"

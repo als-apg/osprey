@@ -37,20 +37,17 @@ def deployment(lifecycle_repo: Path) -> Path:
 
 @pytest.fixture(autouse=True)
 def _isolate_launch_env(monkeypatch):
-    """Roll back every env key a launch writes directly into ``os.environ``.
+    """Start without any env key a launch writes directly into ``os.environ``.
 
     ``web()`` writes ``OSPREY_CONFIG``, ``OSPREY_WEB_PORT`` and the operator
-    secret itself, not through monkeypatch, so a plain ``delenv`` on an
-    already-absent key would record no undo entry and let those writes leak
-    into later tests. setenv-then-delenv forces the undo entry (same trick as
-    ``test_web_cmd.py``); ``STATE_DIR_ENV`` joins the list so no ambient
+    secret itself, not through monkeypatch; the root ``restore_environ`` guard
+    rolls those writes back. ``STATE_DIR_ENV`` joins the list so no ambient
     export from the developer's shell decides where a marker lands.
     """
     from osprey.interfaces.web_auth import OPERATOR_SECRET_ENV, reset_web_credentials
 
     for key in ("OSPREY_CONFIG", "OSPREY_WEB_PORT", OPERATOR_SECRET_ENV, STATE_DIR_ENV):
-        monkeypatch.setenv(key, "__unset_by_test_fixture__")
-        monkeypatch.delenv(key)
+        monkeypatch.delenv(key, raising=False)
     reset_web_credentials()
     yield
     reset_web_credentials()

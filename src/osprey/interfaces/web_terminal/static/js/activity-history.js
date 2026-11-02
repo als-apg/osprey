@@ -9,9 +9,9 @@
  * appends to its buffer BEFORE broadcasting, a refetch always re-includes them,
  * so a live row is never lost when a slower fetch resolves over it.
  *
- * The popover is a child of <body>, position:fixed, because the hub's strip
- * sits inside the footer status bar and that bar is overflow:hidden and one
- * row tall — an in-place popover would be clipped away (same reason, same
+ * The popover is a child of <body>, position:fixed, because the strip sits
+ * inside a one-row container with overflow:hidden, so an in-place popover
+ * would be clipped away (same reason, same
  * recipe as the tile contribution menu in tile-header-items.js).
  *
  * The strip mount is its own trigger. It is an aria-live region provided by
@@ -161,8 +161,8 @@ export function createActivityHistory({ mount, labelOf: panelLabel }) {
   }
 
   /**
-   * Anchor the fixed popover to the strip. It opens upward by default: in the
-   * hub the strip is the footer status bar, so above is where the room is.
+   * Anchor the fixed popover to the strip. It opens upward by default: the
+   * strip sits low on the page, so above is where the room is.
    */
   function placeHistory() {
     if (!popoverEl) return;

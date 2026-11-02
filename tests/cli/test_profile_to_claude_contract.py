@@ -745,6 +745,9 @@ def test_hook_config_with_no_enabled_servers(tmp_path):
         # The facility servers' declared write tools; with every server off
         # there is none.
         "facility_write_tools": [],
+        # The tools the write switch's position decides for; with every server
+        # off there is none.
+        "governed_tools": [],
         "mixed_read_write_tools": [],
         # Not a per-server list: it names the tools the writes-check hook leaves
         # to their own lane gate, and renders whether or not any server is on.

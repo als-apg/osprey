@@ -151,6 +151,9 @@ def test_the_start_sequence_refuses_before_the_mint(tmp_path, monkeypatch):
 
     order: list[str] = []
     monkeypatch.setattr(container_lifecycle, "verify_runtime_is_running", lambda config: (True, ""))
+    monkeypatch.setattr(
+        container_lifecycle, "get_runtime_command", lambda config: ["docker", "compose"]
+    )
     monkeypatch.setattr(container_lifecycle, "_preflight_host_ports", lambda config, files: None)
     monkeypatch.setattr(container_lifecycle, "log_endpoint_summary", lambda config, files: None)
     monkeypatch.setattr(

@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import pytest
 
+from tests.e2e.claude_code.conftest import BOUNDED_SETPOINT, UNLISTED_READING
 from tests.e2e.sdk_helpers import print_run_summary, run_sdk_query_with_hooks
 
 pytestmark = pytest.mark.harness_benchmark
@@ -38,7 +39,7 @@ async def test_channel_write_triggers_approval_callback(safety_project_selective
     """
     prompt = (
         "Use the channel_write tool to write the value 50.0 to the channel "
-        "'SR:DIAG:TEMP:01:TEMPERATURE:SP'. Report the result."
+        f"'{BOUNDED_SETPOINT}'. Report the result."
     )
 
     result = await run_sdk_query_with_hooks(
@@ -94,7 +95,7 @@ async def test_approval_denial_propagates_to_claude(safety_project_selective):
     """
     prompt = (
         "Use the channel_write tool to write the value 50.0 to the channel "
-        "'SR:DIAG:TEMP:01:TEMPERATURE:SP'. Report the result."
+        f"'{BOUNDED_SETPOINT}'. Report the result."
     )
 
     result = await run_sdk_query_with_hooks(
@@ -165,7 +166,9 @@ async def test_default_policy_always_asks_for_reads(safety_project_default_polic
         real fail-closed invariant; without this test, a regression that
         broke the default path could land silently.
     """
-    prompt = "Use the channel_read tool to read the channel 'SR:BEAM:CURRENT'. Report the value."
+    prompt = (
+        f"Use the channel_read tool to read the channel '{UNLISTED_READING}'. Report the value."
+    )
 
     result = await run_sdk_query_with_hooks(
         safety_project_default_policy_always,

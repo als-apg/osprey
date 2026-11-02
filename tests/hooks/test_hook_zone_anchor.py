@@ -599,6 +599,7 @@ def test_derivation_works_without_pyyaml(tmp_path):
         capture_output=True,
         text=True,
         env={"PATH": "/usr/bin:/bin"},
+        timeout=120,
     )
 
     assert result.returncode == 0, result.stderr
@@ -640,6 +641,7 @@ def test_hook_imports_without_yaml_or_osprey(tmp_path, module_name):
         input="",
         cwd=tmp_path,
         env={"PATH": "/usr/bin:/bin"},
+        timeout=120,
     )
 
     assert result.returncode == 0, result.stderr

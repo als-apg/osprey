@@ -35,9 +35,11 @@ from osprey.agent_runner.project_paths import CLAUDE_CONFIG_DIR_ENV
 from osprey.deployment import container_lifecycle
 from osprey.deployment.compose_generator import (
     AGENT_RECORD_TEMPLATE_DIR,
+    resolve_project_name,
     resolve_user_projects_volume_name,
     resolve_user_volume_names,
 )
+from osprey.deployment.deployment_record import DeploymentRecord, write_deployment_record
 from osprey.deployment.web_terminals import lifecycle
 from tests.deployment.test_collect_all_preflight import stubbed_start  # noqa: F401
 from tests.deployment.web_terminals.test_lifecycle import _config as _web_config
@@ -197,7 +199,7 @@ def runtime_calls(monkeypatch: pytest.MonkeyPatch) -> list[list[str]]:
 
     monkeypatch.setattr(lifecycle.subprocess, "run", _run)
     monkeypatch.setattr(lifecycle, "get_runtime_command", lambda config=None: ["docker", "compose"])
-    monkeypatch.setattr(lifecycle, "verify_runtime_is_running", lambda config=None: (True, ""))
+    monkeypatch.setattr(lifecycle, "verify_runtime_is_running", lambda config=None, **_: (True, ""))
     return calls
 
 
@@ -647,8 +649,9 @@ def test_after_down_an_ensure_spawns_again(
     monkeypatch.setattr(container_lifecycle, "as_built_compose_files", lambda c, r: ["x.yml"])
     monkeypatch.setattr(container_lifecycle, "run_captured", _run_captured)
     monkeypatch.setattr(
-        container_lifecycle, "get_runtime_command", lambda config=None: ["docker", "compose"]
+        container_lifecycle, "verify_runtime_is_running", lambda config=None, **_: (True, "")
     )
+    write_deployment_record(root, DeploymentRecord("docker", resolve_project_name(config)))
     container_lifecycle.down_deployment(root)
 
     assert downs and downs[0][-1] == "down"

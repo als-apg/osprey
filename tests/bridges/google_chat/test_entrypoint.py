@@ -29,7 +29,7 @@ import logging
 import os
 import signal
 import threading
-from collections.abc import Callable, Iterator
+from collections.abc import Callable
 from typing import Any
 
 import httpx
@@ -458,14 +458,6 @@ def test_the_prior_artifact_fetcher_reads_the_worker_over_the_injected_client(
 
 
 # --- one stop event ----------------------------------------------------------
-
-
-@pytest.fixture
-def _restore_signal_handlers() -> Iterator[None]:
-    saved = {sig: signal.getsignal(sig) for sig in (signal.SIGTERM, signal.SIGINT)}
-    yield
-    for sig, handler in saved.items():
-        signal.signal(sig, handler)
 
 
 @pytest.mark.usefixtures("_restore_signal_handlers")

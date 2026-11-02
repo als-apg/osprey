@@ -1315,7 +1315,8 @@ def get_tool_descriptor() -> SearchToolDescriptor:
         execute=hybrid_search,
         format_result=format_qmd_result,
         # Only the rrf strategy embeds, and it resolves its own provider, so the
-        # default qmd strategy depends on the sidecar alone.
+        # default qmd strategy depends on the sidecar alone; every lane's provider
+        # call runs on the pool the service hands over.
         needs_embedder=False,
         needs_search_calls=True,
         accepts_expansion=True,

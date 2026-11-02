@@ -228,6 +228,7 @@ def _tracked_texts() -> tuple[tuple[str, str], ...]:
         cwd=REPO_ROOT,
         capture_output=True,
         check=True,
+        timeout=60,
     )
     texts: list[tuple[str, str]] = []
     for name in listed.stdout.decode("utf-8").split("\0"):

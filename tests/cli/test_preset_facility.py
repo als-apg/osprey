@@ -186,7 +186,7 @@ def test_a_preset_naming_no_facility_composes_the_app_template_alone(tmp_path: P
     composed = compose_preset_data(root, "app", None)
 
     assert composed.facility_root is None
-    assert not any(relative.startswith("facility/") for relative in composed.placed_files())
+    assert list(composed.placed_files()) == ["code_review/reviewer.md"]
 
 
 def _template_root(tmp_path: Path, *, app_ships_facility: bool) -> Path:
@@ -196,6 +196,8 @@ def _template_root(tmp_path: Path, *, app_ships_facility: bool) -> Path:
         (root / "apps" / "app" / "data" / "facility").mkdir()
     (root / "facilities" / "plant").mkdir(parents=True)
     (root / "facilities" / "plant" / "identity.yaml").write_text("code: plant\n")
+    (root / "code_review").mkdir()
+    (root / "code_review" / "reviewer.md").write_text("Review this.\n")
     return root
 
 
@@ -221,3 +223,24 @@ def test_an_absent_facility_is_a_packaging_fault(tmp_path: Path) -> None:
 
     with pytest.raises(BuildProfileError, match="reinstall"):
         compose_preset_data(root, "app", "no_such_facility")
+
+
+def test_an_absent_starter_prompt_is_a_packaging_fault(tmp_path: Path) -> None:
+    root = _template_root(tmp_path, app_ships_facility=False)
+    (root / "code_review" / "reviewer.md").unlink()
+
+    with pytest.raises(BuildProfileError, match="reinstall"):
+        compose_preset_data(root, "app", None)
+
+
+def test_an_app_template_shipping_a_prompt_at_the_starters_path_is_refused(
+    tmp_path: Path,
+) -> None:
+    """Landing the starter would silently overwrite the app template's file."""
+    root = _template_root(tmp_path, app_ships_facility=False)
+    shipped = root / "apps" / "app" / "data" / "code_review" / "reviewer.md"
+    shipped.parent.mkdir()
+    shipped.write_text("The app's own.\n")
+
+    with pytest.raises(BuildProfileError, match="ships data/code_review/reviewer.md"):
+        compose_preset_data(root, "app", None)

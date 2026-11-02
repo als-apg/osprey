@@ -1,0 +1,1 @@
+Stopping the ARIEL service (the MCP server, the web interface, or `close_ariel_service()`) now also ends its search-call worker threads, so a process that ran one search no longer holds them open until it exits.

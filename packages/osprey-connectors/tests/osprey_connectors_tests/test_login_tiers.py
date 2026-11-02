@@ -2,7 +2,7 @@
 
 A shared container reads other logins' records, so its own section's tier says
 nothing about the owner of the record it reads. The build renders
-``control_system.login_tiers`` — ``{<login>: "allowed" | "never"}`` — and
+``control_system.login_tiers`` — ``{<login>: "never" | "asked" | "allowed"}`` — and
 :func:`~osprey_connectors.posture_store.owner_tier_term` reads the owner's entry.
 The rung applies when the section carries the map or a control-context tree is
 bound; under a tree a missing or unreadable map is ``unknown``, never skipped.
@@ -99,10 +99,28 @@ def test_a_mapped_allowed_is_allowed():
     assert owner_tier_term(_section({"alice": "allowed"}), "alice") == "allowed"
 
 
+@pytest.mark.parametrize("bound", [False, True], ids=["host", "tree"])
+def test_a_mapped_asked_is_asked(monkeypatch, tmp_path, bound):
+    if bound:
+        monkeypatch.setenv(TREE_ENV, str(tmp_path))
+    else:
+        monkeypatch.delenv(TREE_ENV, raising=False)
+    assert owner_tier_term(_section({"alice": "asked"}), "alice") == "asked"
+
+
+@pytest.mark.usefixtures("no_tree")
+def test_a_map_carrying_all_three_words_is_readable():
+    login_tiers = {"alice": "never", "bob": "asked", "carol": "allowed"}
+    for login, tier in login_tiers.items():
+        assert owner_tier_term(_section(login_tiers), login) == tier
+
+
 @pytest.mark.usefixtures("no_tree")
 def test_the_map_decides_even_over_the_section_tier():
     section = {"writes": "never", "login_tiers": {"alice": "allowed"}}
     assert owner_tier_term(section, "alice") == "allowed"
+    section = {"writes": "allowed", "login_tiers": {"alice": "asked"}}
+    assert owner_tier_term(section, "alice") == "asked"
 
 
 @pytest.mark.parametrize(
@@ -133,10 +151,10 @@ def test_a_non_string_value_for_the_owner_is_unknown(login_tiers):
 
 @pytest.mark.parametrize(
     "value",
-    ["Allowed", "ALLOWED", " allowed", "yes", "", "readwrite"],
+    ["Allowed", "ALLOWED", " allowed", "Asked", "asked ", "on", "off", "yes", "", "readwrite"],
 )
 @pytest.mark.usefixtures("no_tree")
-def test_a_string_outside_the_two_tiers_is_unknown(value):
+def test_a_string_outside_the_three_tiers_is_unknown(value):
     assert owner_tier_term(_section({"alice": value}), "alice") == "unknown"
 
 
@@ -146,8 +164,9 @@ def test_a_string_outside_the_two_tiers_is_unknown(value):
         {"alice": "allowed", "bob": True},
         {"alice": "allowed", "bob": "maybe"},
         {"alice": "allowed", 1: "never"},
+        {"alice": "asked", "bob": "on"},
     ],
-    ids=["other-value-bool", "other-value-string", "non-string-key"],
+    ids=["other-value-bool", "other-value-string", "non-string-key", "other-value-on"],
 )
 @pytest.mark.usefixtures("no_tree")
 def test_one_unreadable_entry_makes_the_whole_map_unreadable(login_tiers):

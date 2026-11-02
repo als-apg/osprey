@@ -166,3 +166,24 @@ def test_spec_renders_to_a_png(tmp_path: Path) -> None:
     png = render_plot_spec(spec, datetime(2025, 10, 3, 2, 40, tzinfo=UTC))
     assert png.startswith(PNG_SIGNATURE)
     (tmp_path / "dcct_decay_run.png").write_bytes(png)
+
+
+def _named_channels(node: object) -> set[str]:
+    """Every value a scenario document gives under a ``channel`` key, at any depth."""
+    if isinstance(node, dict):
+        found = {str(node["channel"])} if "channel" in node else set()
+        return found.union(*(_named_channels(value) for value in node.values()))
+    if isinstance(node, list):
+        return set().union(*(_named_channels(item) for item in node))
+    return set()
+
+
+def test_every_address_the_scenarios_name_is_an_example_channel() -> None:
+    records = packaged_facility_dir("control_assistant") / "records" / "channels.yaml"
+    channel_ids = {record["id"] for record in yaml.safe_load(records.read_text("utf-8"))}
+    in_scenarios: set[str] = set()
+    for path in sorted(fixture.SCENARIOS_DIR.glob("*.yaml")):
+        in_scenarios |= _named_channels(yaml.safe_load(path.read_text("utf-8")))
+    assert in_scenarios, f"no scenario under {fixture.SCENARIOS_DIR} names a channel"
+    named = in_scenarios | {fixture.DCCT_CHANNEL}
+    assert named <= channel_ids, sorted(named - channel_ids)

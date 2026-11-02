@@ -60,7 +60,6 @@ import yaml
 from osprey.mcp_server.control_system import error_handling, server_context, target_state
 from osprey.mcp_server.control_system.connector_host_manager import (
     ConnectorHostManager,
-    NoConnectorHostError,
 )
 from osprey.mcp_server.control_system.server_context import (
     ControlSystemContext,
@@ -72,7 +71,11 @@ from osprey.mcp_server.python_executor import executor as host_executor
 from osprey_connectors import control_context, posture_store
 from osprey_connectors.control_system._base import ChannelValue
 from osprey_connectors.control_system._va_connector import fill_gateway_ports
-from osprey_connectors.errors import ChannelLimitsViolationError, ChannelNotFoundError
+from osprey_connectors.errors import (
+    ChannelLimitsViolationError,
+    ChannelNotFoundError,
+    ChannelUnreachableError,
+)
 from osprey_connectors.factory import ConnectorFactory
 from osprey_connectors.ipc import _frames as frames
 from osprey_connectors.ipc._proxy import ConnectorHostProxy
@@ -352,7 +355,7 @@ class TestRoutingFollowsTheActiveTarget:
         be, so its refusal is what rules that out.
         """
         connector = await pair.context.control_system()
-        assert isinstance(connector, ConnectorHostProxy)
+        assert isinstance(connector.connector, ConnectorHostProxy)
         assert isinstance(
             await connector.read_channel(LIVE_PROBE, timeout=CALL_TIMEOUT_S), ChannelValue
         )
@@ -363,7 +366,7 @@ class TestRoutingFollowsTheActiveTarget:
         assert isinstance(
             await connector.read_channel(VA_PROBE, timeout=CALL_TIMEOUT_S), ChannelValue
         )
-        with pytest.raises(ConnectionError):
+        with pytest.raises(ChannelUnreachableError):
             await connector.read_channel(LIVE_PROBE, timeout=CALL_TIMEOUT_S)
 
     async def test_the_roster_and_the_report_file_report_the_new_target(self, pair):
@@ -511,66 +514,72 @@ class TestBatchedReadsCrossOnce:
 
 
 class TestChildDeathIsRefusedThenRecovered:
-    async def test_a_killed_child_fails_the_call_refuses_the_next_and_comes_back(
+    async def test_a_killed_child_fails_the_call_it_held_and_is_replaced_once(
         self, pair, monkeypatch
     ):
         """The whole recovery loop, composed once, through the real tool.
 
-        The invalidate seam is recorded rather than executed for the first two
-        calls: it is what turns a lost child into a respawn, and letting it run
-        immediately would hide the state this test exists to pin — a session
-        that still knows its target, has no process serving it, and refuses
-        every control-system call with that as the reason (FR-1). The real seam
-        is then called explicitly, which is the recovery the error handler
-        performs for a deployment nobody is watching.
+        A call already on the wire when the process is killed outright gets no
+        error frame and no goodbye — the failure a fail-closed refusal is for.
+        The supervisor that owns the child replaces it once, on the same
+        target, and the envelope reports that; the next call is served.
         """
         await pair.context.control_system()
         invalidated: list[str] = []
+        invalidate = pair.context.invalidate_connector
 
-        async def record(connector_name: str) -> None:
-            invalidated.append(connector_name)
+        async def record(name: str, **kwargs: Any) -> bool:
+            invalidated.append(name)
+            return await invalidate(name, **kwargs)
 
-        monkeypatch.setattr(error_handling, "invalidate_active_connector", record)
+        monkeypatch.setattr(pair.context, "invalidate_connector", record)
+        killed = pair.manager.status()["child_pid"]
 
-        # A call already on the wire when the process is killed outright: no
-        # error frame, no goodbye — the failure a fail-closed refusal is for.
         hung = asyncio.ensure_future(read_through_the_tool(SLOW_CHANNEL))
         await asyncio.sleep(0.3)
         assert not hung.done()
-        os.kill(pair.manager.status()["child_pid"], signal.SIGKILL)
+        os.kill(killed, signal.SIGKILL)
 
         with assert_raises_error(error_type="connection_error") as captured:
             await asyncio.wait_for(hung, SETTLE_TIMEOUT_S)
-        assert "connector-host child" in captured["envelope"]["error_message"]
-        # The envelope names the machine the session was pointed at (#697):
-        # composed through the real context and the real supervisor, not the
-        # patched resolver the unit suite uses.
-        assert captured["envelope"]["details"]["active_target"]["name"] == "live"
-        assert "active target" in captured["envelope"]["error_message"]
+        envelope = captured["envelope"]
+        assert "connector-host child" in envelope["error_message"]
+        # The envelope names the machine the session was pointed at: composed
+        # through the real context and the real supervisor.
+        assert envelope["details"]["active_target"]["name"] == "live"
+        assert "active target" in envelope["error_message"]
+        assert [r["action"] for r in envelope["details"]["recovery"]] == ["child_replaced"]
+        assert invalidated == ["control_system"]
 
-        # The session is still pointed where it was — a dead child is not a
-        # switch — and the seam has no child to hand out.
+        # A respawn is not a switch: same target, same generation, new process.
+        assert pair.manager.has_child() is True
+        assert pair.manager.status()["child_pid"] != killed
+        assert pair.manager.active_target() == "live"
+        assert pair.manager.active_generation() == 0
+        assert value_read(await read_through_the_tool(SHARED_CHANNEL), SHARED_CHANNEL) == LIVE_SEED
+        assert invalidated == ["control_system"]
+
+    async def test_a_child_that_died_idle_refuses_the_call_that_finds_it_and_serves_the_next(
+        self, pair
+    ):
+        """FR-1: refused with the reason, and the restart named; never quietly restarted."""
+        await pair.context.control_system()
+        killed = pair.manager.status()["child_pid"]
+        os.kill(killed, signal.SIGKILL)
         await async_wait_until(
             lambda: not pair.manager.has_child(),
             timeout=SETTLE_TIMEOUT_S,
             what="the manager dropping the dead child",
         )
-        with pytest.raises(NoConnectorHostError) as refusal:
-            await pair.context.control_system()
-        assert refusal.value.as_dict()["reason"] == "no_connector_host"
-        assert refusal.value.target == "live"
-        assert refusal.value.generation == pair.manager.active_generation()
 
         with assert_raises_error(error_type="connection_error") as captured:
             await read_through_the_tool(SHARED_CHANNEL)
-        refused = captured["envelope"]["error_message"]
-        assert "No connector-host child is serving target 'live'" in refused
-        assert invalidated == ["control_system", "control_system"]
-
-        await pair.context.invalidate_connector("control_system")
+        envelope = captured["envelope"]
+        assert "No connector-host child is serving target 'live'" in envelope["error_message"]
+        assert [r["action"] for r in envelope["details"]["recovery"]] == ["child_replaced"]
 
         assert pair.manager.has_child() is True
-        # A respawn is not a switch: same target, same generation, new process.
+        assert pair.manager.status()["child_pid"] != killed
         assert pair.manager.active_target() == "live"
         assert pair.manager.active_generation() == 0
         assert value_read(await read_through_the_tool(SHARED_CHANNEL), SHARED_CHANNEL) == LIVE_SEED
@@ -808,7 +817,7 @@ class TestTheSimulatorInProcessIsTheBaseline:
         on_va = await read_through_the_tool(SHARED_CHANNEL)
         assert value_read(on_va, SHARED_CHANNEL) == pytest.approx(IN_PROCESS_SEED)
         connector = await deployment.context.control_system()
-        assert isinstance(connector, ConnectorHostProxy)
+        assert isinstance(connector.connector, ConnectorHostProxy)
         assert isinstance(
             await connector.read_channel(VA_PROBE, timeout=CALL_TIMEOUT_S), ChannelValue
         )

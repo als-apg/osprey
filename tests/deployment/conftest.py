@@ -93,7 +93,7 @@ def compose_provider_is_docker_v2(monkeypatch):
     from osprey.deployment.runtime_helper import ComposeProvider
 
     monkeypatch.setattr(
-        container_lifecycle, "_compose_provider", lambda config=None: ComposeProvider.DOCKER_V2
+        container_lifecycle, "_compose_provider", lambda config=None, **_: ComposeProvider.DOCKER_V2
     )
 
 

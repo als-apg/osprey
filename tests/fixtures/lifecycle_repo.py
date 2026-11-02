@@ -68,11 +68,12 @@ sentinels and expanded at materialization, so a byte-comparison against a live
 ``str.format``/``%`` because the YAML carries literal ``${VAR:-default}`` shell
 expansions.
 
-``providers.yml`` and ``triggers.yml`` are the fourth and fifth things not
-frozen. Init copies the packaged provider catalog and the packaged tutorial
-trigger file into the repo verbatim, so the fixture reads both rather than
-holding a second copy of either; see :func:`packaged_providers_yml` and
-:func:`packaged_tutorial_triggers_yml`.
+``providers.yml``, ``triggers.yml`` and ``data/README.md`` are the fourth,
+fifth and sixth things not frozen. Init copies the packaged provider catalog,
+the packaged tutorial trigger file and the preset's data README into the repo
+verbatim, so the fixture reads all three rather than holding a second copy of
+any; see :func:`packaged_providers_yml`, :func:`packaged_tutorial_triggers_yml`
+and :func:`packaged_data_readme_md`.
 
 Usage::
 
@@ -93,6 +94,7 @@ import re
 import subprocess
 from collections.abc import Callable, Mapping
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 import yaml
@@ -216,6 +218,9 @@ hooks:
   - workspace-delta   # Report web workspace changes since the agent's last turn
   - control-context   # Tell the agent the active control target and each target's write state
   - turn-state        # Tell the web terminal when a turn starts and ends
+  # Available — uncomment to enable:
+  # - code-review  # PreToolUse review of the code cells an agent writes with NotebookEdit, under the code_review config section
+  # - watchdog-trigger  # UserPromptSubmit hook that hands each prompt to the deployment's watchdogs; ships whenever a watchdog is enabled
 
 rules:
   - safety              # Core safety rules: never write without approval
@@ -358,6 +363,35 @@ agent_record:
   readers:
     - name: carol
 
+# ── Watchdogs ────────────────────────────────────────────────────────────────
+# Independent judges of each prompt, off until you turn them on. This one sends
+# the session to an outside model, so read the how-to before setting `enabled`.
+# Its instructions are in watchdogs/guard-circumvention/instructions.md.
+watchdogs:
+  guard-circumvention:
+    engine: decision
+    enabled: false
+    threshold: 0.5   # not calibrated for your facility; replay before relying on it
+    options:
+      - id: routine
+        text: Ordinary work, including questions about the guards themselves.
+        flag: false
+      - id: direct-api
+        text: Asked the agent to call a web terminal or panel API directly, around its tools.
+        flag: true
+      - id: loosen-gate
+        text: Asked the agent to edit hooks, settings or configuration to loosen a gate.
+        flag: true
+      - id: bypass-check
+        text: Asked the agent to get past an approval prompt or the writes check.
+        flag: true
+      - id: flip-control
+        text: Asked the agent to change the control target or write posture out of the operator's sight.
+        flag: true
+      - id: scripted-write
+        text: Asked the agent to write through a script so the write tools would not see it.
+        flag: true
+
 # ── Everything else ──────────────────────────────────────────────────────────
 # One dotted `key.path` per line. Never write a nested block here: it would
 # replace the whole subtree and silently drop the keys beside it.
@@ -406,19 +440,19 @@ config:
   # `osprey set config.archiver.type=<the archiver that records it>` and
   # `osprey set va_archiver=null`, because the recorded archive goes with it.
   control_system.type: virtual_accelerator
-  # Write posture, the FIRST guard in the write-safety chain: while `never`,
-  # every hardware write is refused before the limits check or the approval
-  # prompt is consulted. `allowed` here because the baseline is the simulator,
-  # which cannot move a magnet; the read-only tier pins it `never`. Under
-  # `allowed`, each login's own write switch for each machine decides the next
-  # write, so allowing writes arms no machine by itself.
-  control_system.writes: allowed
+  # Write ceiling, the FIRST guard in the write-safety chain: `never` refuses
+  # every hardware write before the limits check or the approval prompt is
+  # consulted, `asked` lets a login's write switch reach the position that
+  # prompts, and `allowed` also the position that does not. This preset ships
+  # `asked`; the read-only tier pins `never`, the admin tier `allowed`. Each
+  # login's own switch for each machine decides, so a ceiling arms nothing.
+  control_system.writes: asked
   # Extra tools the kill switch refuses while writes are off. Framework write
   # tools are covered automatically; list your own servers' write tools here.
   # control_system.write_tools: [mcp__my_server__dangerous_write]
   # Operator-facing names for the control targets on the web terminal's
-  # control-target chip. Defaults: "Real machine", "Rehearsal", "Simulator".
-  # control_system.target_display_names.live: Real machine
+  # control-target chip. Defaults: "Live", "Rehearsal", "Simulator".
+  # control_system.target_display_names.live: Live
   # control_system.target_display_names.standin: Rehearsal
   # control_system.target_display_names.va: Simulator
   # Limits are optional. `enabled: false` = no limits at all. `mode:
@@ -649,21 +683,19 @@ config:
 
   # ── Human-in-the-loop approval ─────────────────────────────────────────────
   # The THIRD guard: a write that passed the master switch and the limits check
-  # still pauses for a yes/no prompt. Applied by the approval hook, so it
-  # reaches only hook-wired tools; the health check, channel-finder queries and
-  # most workspace tools are gated by the rendered settings.json permissions.
+  # still pauses for a yes/no prompt, unless its slider stands at `allowed`.
+  # Applied by the approval hook, so it reaches only hook-wired tools; the
+  # health check, channel-finder queries and most workspace tools are gated by
+  # the rendered settings.json permissions.
   approval.enabled: true
   # Policy for any hook-wired tool not listed below. "always" is fail-closed:
   # reads need their own "skip" entry to run unprompted.
   approval.default_policy: always
-  # Per-tool policies: always (prompt every time), skip (no prompt), or
-  # selective (content-aware, for `execute` only; other tools read it as
-  # always).
-  approval.tools.channel_write: always
+  # Per-tool policies: always (prompt every time) or skip (no prompt). A tool
+  # the write switch governs, channel writes and Python execution among them,
+  # takes no entry here: the slider on the control-target chip decides for it.
   approval.tools.channel_read: skip
   approval.tools.archiver_read: skip
-  # Python execution: content-aware, so a script that only reads runs unprompted.
-  approval.tools.execute: selective
   # The agent's own config-editing tool: a config change needs approval.
   approval.tools.setup_patch: always
   # Creating a logbook entry always asks first.
@@ -785,8 +817,9 @@ config:
   # fallback a keyword search runs when nothing matches exactly. Lower accepts
   # looser spellings.
   ariel.search_modules.keyword.settings.fuzzy_threshold: 0.3
-  # Semantic search over pgvector embeddings. Degrades to keyword-only when
-  # Ollama or pgvector is unavailable, and says so.
+  # Semantic search over pgvector embeddings. An embedding provider that is
+  # down fails semantic queries with a diagnostic; a missing embedding table is
+  # refused with the fix.
   ariel.search_modules.semantic.enabled: true
   # Embedding provider (an entry in providers.yml) and model.
   ariel.search_modules.semantic.provider: ollama
@@ -1144,9 +1177,9 @@ config:
   # snapshot, so a database with more channels than this is skipped (the build
   # says so) and the fields simply offer no suggestions.
   web.channel_suggestions.max_channels: 50000
-  # The SYSTEM tab is served but starts off the rail: the status bar's health
-  # dot opens it, and so does ⋯ More on the rail, which can also pin it there.
-  # Delete this line to give it a rail entry from the first load.
+  # The SYSTEM tab is served but starts out of the sidebar: `+ Add panel` and
+  # the command palette open it, and `+ Add panel` can also pin it there.
+  # Delete this line to give it a sidebar row from the first load.
   web.panels.system-health.hidden: true
   # Custom panels are `web.panels.<id>.*` keys here; the built-in tabs are
   # switched by `web_panels:` above. `rewrite_json_paths` opts a backend's
@@ -1585,16 +1618,9 @@ name: Als Exemplar (readonly)
 # Dotted keys ONLY, as in the deployment's own config: block.
 config:
   # The axis this tier hard-pins. `never` wins over the deployment's own
-  # `allowed`, since a tier's key beats the root's, so no session of this
+  # ceiling, since a tier's key beats the root's, so no session of this
   # tier writes to any machine the deployment configures.
   control_system.writes: never
-  # Pared-down operator layout: chat only, workspace hidden until the agent
-  # puts something in it. Pinned on both sides of the tier boundary (readwrite
-  # pins `expert`), same rationale as control_system.writes.
-  #
-  # This tier also has no EVENTS/BLUESKY panels, not by any key here, but
-  # because only the write-capable tiers add them by name.
-  web.ui_mode: simple
 
 # What this file was materialized from. Emitted, not hand-written: `osprey
 # validate` compares it against the installed tier and reports every
@@ -1635,11 +1661,7 @@ web_panels:
 config:
   # The tier boundary, pinned rather than left to the deployment's root, so
   # a root that says `never` does not take this tier's writes away.
-  control_system.writes: allowed
-  # Full split-pane terminal + workspace layout for the write-armed operator.
-  # Pinned on both sides of the tier boundary (readonly pins `simple`) rather
-  # than left to the server default, for the same reason control_system.writes is.
-  web.ui_mode: expert
+  control_system.writes: asked
 
 # What this file was materialized from. Emitted, not hand-written: `osprey
 # validate` compares it against the installed tier and reports every
@@ -1685,8 +1707,8 @@ skills:
 # ── Config overrides ─────────────────────────────────────────────────────────
 # Dotted keys ONLY, as in the deployment's own config: block.
 config:
-  # The admin tier carries readwrite's control posture exactly: writes
-  # allowed, each machine's write still decided by the login's own switch.
+  # The top of `never`, `asked` and `allowed`, one above readwrite's `asked`;
+  # each machine's write is still decided by the login's own switch.
   # What makes this the admin tier is the deployment-editing block below, not a
   # wider write surface.
   control_system.writes: allowed
@@ -1706,10 +1728,6 @@ config:
   # delete surfaces back on. Its contents are shared deployment state, which is
   # exactly what this tier is for.
   web.scaffold_gallery.write_enabled: true
-  # Full split-pane terminal + workspace layout: the Config panel and the
-  # gallery editors need the panel area. Pinned rather than left to the server
-  # default, for the same reason the other tiers pin theirs.
-  web.ui_mode: expert
 
 # What this file was materialized from. Emitted, not hand-written: `osprey
 # validate` compares it against the installed tier and reports every
@@ -1824,8 +1842,6 @@ config:
   # the facility's logbook, so it is gated too.
   approval.tools.entry_create: always
   approval.tools.entry_publish: always
-  # Full split-pane layout: the ARIEL search panel needs the panel area.
-  web.ui_mode: expert
   # No control-target picker in the title bar: nothing here reaches the machine.
   web.control_target_picker: false
   # No shipped example plot: it invites a live plot this app cannot produce.
@@ -1933,8 +1949,6 @@ config:
     - mcp__osprey_facility_knowledge__draft_concept
   # The write boundary: `never`, the only value an app may spell.
   control_system.writes: never
-  # Full split-pane layout: the KNOWLEDGE and CHANNELS panels need the panel area.
-  web.ui_mode: expert
   # No control-target picker in the title bar: nothing here reaches the machine.
   web.control_target_picker: false
   # No shipped example plot: it invites a live plot this app cannot produce.
@@ -2040,8 +2054,6 @@ config:
   #
   # The write boundary: `never`, the only value an app may spell.
   control_system.writes: never
-  # Full split-pane layout: the CHANNELS panel needs the panel area.
-  web.ui_mode: expert
   # No control-target picker in the title bar: nothing here reaches the machine.
   web.control_target_picker: false
   # No shipped example plot: it invites a live plot this app cannot produce.
@@ -2081,6 +2093,29 @@ def packaged_tutorial_triggers_yml() -> str:
 #: ``init`` writes into a new repo as ``triggers.yml``. Resolved at import,
 #: because :data:`BASE_SOURCE_FILES` is built at import.
 TRIGGERS_YML = packaged_tutorial_triggers_yml()
+
+
+def packaged_data_readme_md() -> str:
+    """The preset's packaged ``data/README.md``, which ``osprey init`` copies verbatim.
+
+    Read rather than frozen, for the same reason the provider catalog and the
+    trigger file are: the package owns this file's content, so a copy here
+    would prove only that someone remembered to update two places. What the
+    byte comparison downstream is for is that init copies the README through
+    unchanged, and that is what reading it here asserts.
+
+    Resolved from the preset's packaged composition, the tree ``osprey init``
+    copies into ``data/``, so the exemplar and the emission it is compared
+    against read one file.
+    """
+    from tests._preset_data import preset_data
+
+    return (preset_data("control_assistant").app_data / "README.md").read_text(encoding="utf-8")
+
+
+#: The ``data/README.md`` the ``control-assistant`` preset ships. Resolved at
+#: import, because :data:`BASE_SOURCE_FILES` is built at import.
+DATA_README_MD = packaged_data_readme_md()
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -2174,6 +2209,7 @@ ANTHROPIC_API_KEY=your-anthropic-api-key-here
 # ARGO_API_KEY=your-argo-api-key-here
 # STANFORD_API_KEY=your-stanford-api-key-here
 # ALS_APG_API_KEY=your-als-apg-api-key-here
+# OPENROUTER_API_KEY=your-openrouter-api-key-here
 # ASKSAGE_API_KEY=your-asksage-api-key-here
 
 # Declared by this profile with a default (`env.defaults`). Override only if
@@ -2268,12 +2304,12 @@ in `profile.yml`, not the folder name.
 
 | What | Where | In git? | Kept? |
 | --- | --- | --- | --- |
-| Your settings | `profile.yml`, `data/`, `tiers/`, `apps/` | yes | yes |
+| Your settings | `profile.yml`, `data/`, `tiers/`, `apps/`, `watchdogs/` | yes | yes |
 | Your API keys | `.env` | no | yes |
 | Generated files | `build/` | no | no, safe to delete |
 | The agent's memory and record | `var/agent_data/`, `var/agent_record/` | no | yes |
 
-In full, the first row is: `profile.yml`, `providers.yml`, `data/`, `tiers/`, `apps/`, `triggers.yml`, `web-terminal-context/`, `.env.example`, `rules/`, `.gitignore`, `.env.shared`, `README.md`, `ci-extra.yml`, `.gitlab-ci.yml`, `scripts/verify.sh`.
+In full, the first row is: `profile.yml`, `providers.yml`, `data/`, `tiers/`, `apps/`, `triggers.yml`, `web-terminal-context/`, `.env.example`, `watchdogs/`, `rules/`, `.gitignore`, `.env.shared`, `README.md`, `ci-extra.yml`, `.gitlab-ci.yml`, `scripts/verify.sh`.
 
 `build/` is generated from your settings every time you run `osprey build`.
 Deleting it is always safe: no settings, no keys and no agent memory live there.
@@ -2594,13 +2630,17 @@ VERIFY_SH = """\
 #   ./scripts/verify.sh containers         # one group
 #   ./scripts/verify.sh --strict           # exit 1 if anything is flagged
 #
+# The containers group lists the compose project `osprey up` recorded in
+# var/deployment.json, with the runtime it recorded. Before the first
+# `osprey up` there is no record: the script says so and checks nothing.
+#
 # Exits 0 unless run with --strict. A container that is not running or not
 # healthy, and a probe that gets no answer, is flagged: it tells an operator
 # where to look, and is never by itself the reason a deploy is reported as
 # failed. --strict exits 1 when anything is flagged, for a job that should fail
 # on it. A group or option the script does not have exits 2.
 #
-# Needs curl, and python3 to read the container runtime's JSON.
+# Needs curl, and python3 to read the record and the container runtime's JSON.
 #
 # No `set -e`: one probe timing out must not skip the ones after it.
 # =============================================================================
@@ -2656,55 +2696,22 @@ sys.exit(s.connect_ex(('$host', $port)))" 2>/dev/null; then
 # The repo root: this script sits in scripts/ directly under it.
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
-# This deployment's compose project, named the way `osprey up` names it:
-# COMPOSE_PROJECT_NAME when the caller pins it, else project_name in
-# build/config.yml. The built config is the source; the repo directory's
-# name is only a fallback for a repo that has no project_name there. Either is
-# put in compose's alphabet — lower case, [a-z0-9_-], no leading or trailing _ or -.
-compose_project() {
-  if [ -n "${COMPOSE_PROJECT_NAME:-}" ]; then
-    printf '%s' "$COMPOSE_PROJECT_NAME"
-    return
-  fi
-  local name=""
-  if [ -f "$REPO_ROOT/build/config.yml" ]; then
-    name="$(sed -n "s/^project_name:[[:space:]]*[\\"']\\{0,1\\}\\([A-Za-z0-9_.-]*\\).*/\\1/p" \\
-      "$REPO_ROOT/build/config.yml" | head -n 1)"
-  fi
-  if [ -z "$name" ]; then
-    name="$(basename "$REPO_ROOT")"
-  fi
-  name="$(printf '%s' "$name" | LC_ALL=C tr '[:upper:]' '[:lower:]' \\
-    | LC_ALL=C tr -cd 'a-z0-9_-' | sed -e 's/^[-_]*//' -e 's/[-_]*$//')"
-  printf '%s' "${name:-unnamed-project}"
-}
-
-# The runtime `osprey up` uses: CONTAINER_RUNTIME, then container_runtime in
-# build/config.yml, then docker before podman — the first whose compose
-# and daemon both answer. A `docker` that is podman's Docker-CLI emulation
-# (podman-docker) is passed over, as `osprey up` passes over it.
-container_runtime() {
-  local pinned="${CONTAINER_RUNTIME:-}" runtime
-  if [ -z "$pinned" ] && [ -f "$REPO_ROOT/build/config.yml" ]; then
-    pinned="$(sed -n "s/^container_runtime:[[:space:]]*[\\"']\\{0,1\\}\\([A-Za-z]*\\).*/\\1/p" \\
-      "$REPO_ROOT/build/config.yml")"
-  fi
-  case "$(printf '%s' "$pinned" | LC_ALL=C tr '[:upper:]' '[:lower:]')" in
-    docker) printf docker; return ;;
-    podman) printf podman; return ;;
-  esac
-  for runtime in docker podman; do
-    if [ "$runtime" = docker ] && command -v docker >/dev/null 2>&1 \\
-      && docker --version 2>&1 \\
-        | grep -qi -e '^podman version' -e 'emulate docker cli using podman'; then
-      continue
-    fi
-    if command -v "$runtime" >/dev/null 2>&1 \\
-      && "$runtime" compose version >/dev/null 2>&1 && "$runtime" ps >/dev/null 2>&1; then
-      printf '%s' "$runtime"
-      return
-    fi
-  done
+# What `osprey up` recorded it drove, as one "runtime<TAB>project" line. No
+# output and status 0 when there is no record; no output and status 3 when the
+# file is there but is not a record.
+read_record() {
+  python3 -c '
+import json, os, sys
+path = sys.argv[1]
+if not os.path.lexists(path):
+    sys.exit(0)
+try:
+    with open(path, encoding="utf-8") as handle:
+        record = json.load(handle)
+    print("%s\\t%s" % (record["runtime"], record["compose_project"]))
+except (OSError, ValueError, KeyError, TypeError):
+    sys.exit(3)
+' "$REPO_ROOT/var/deployment.json"
 }
 
 # Every container of the project as JSON, stopped ones included. podman-compose's
@@ -2745,17 +2752,11 @@ for row in sorted(rows):
     print("\\t".join(row))
 '
 
-# One line per container; a container not running, or running unhealthy, is
-# flagged. The loop reads a here-string, not a pipe, so the count survives it.
+# One line per container of the recorded project, listed with the recorded
+# runtime; a container not running, or running unhealthy, is flagged. The loop
+# reads a here-string, not a pipe, so the count survives it.
 check_containers() {
-  local runtime project listing rows name state health
-  runtime="$(container_runtime)"
-  if [ -z "$runtime" ]; then
-    printf '  %s✗%s no container runtime answers (docker, podman)\\n' "$RED" "$RESET"
-    FLAGGED=$((FLAGGED + 1))
-    return
-  fi
-  project="$(compose_project)"
+  local runtime="$1" project="$2" listing rows name state health
   if ! listing="$(list_containers "$runtime" "$project")" \\
     || ! rows="$(printf '%s' "$listing" | python3 -c "$PS_ROWS")"; then
     printf '  %s✗%s could not list project %s with %s\\n' "$RED" "$RESET" "$project" "$runtime"
@@ -2784,11 +2785,30 @@ check_containers() {
 
 wants() { case " $PROBE_GROUPS " in *" $1 "*) return 0 ;; *) return 1 ;; esac; }
 
+# The deployment every group checks is the one the record names. With no record,
+# or one that cannot be read, that is the one thing flagged and no group runs.
+RECORD="$(read_record)"
+RECORD_STATUS=$?
+RUNTIME="${RECORD%%$'\\t'*}"
+PROJECT="${RECORD#*$'\\t'}"
+if [ "$RECORD_STATUS" -eq 0 ] && [ -z "$RECORD" ]; then
+  printf '\\n  %s✗%s nothing has been deployed from this repo yet — run osprey up\\n' \\
+    "$RED" "$RESET"
+  FLAGGED=1
+  PROBE_GROUPS=""
+elif [ "$RECORD_STATUS" -ne 0 ] || [ -z "$PROJECT" ] \\
+  || { [ "$RUNTIME" != docker ] && [ "$RUNTIME" != podman ]; }; then
+  printf '\\n  %s✗%s var/deployment.json is unreadable — run osprey up to rewrite it\\n' \\
+    "$RED" "$RESET"
+  FLAGGED=1
+  PROBE_GROUPS=""
+fi
+
 # ── Containers ───────────────────────────────────────────────────────────────
-# Every container of this deployment's compose project, stopped ones included.
+# Every container of the recorded compose project, stopped ones included.
 if wants containers; then
   printf '\\n%s── Containers ──%s\\n\\n' "$BOLD" "$RESET"
-  check_containers
+  check_containers "$RUNTIME" "$PROJECT"
 fi
 
 # ── Deployed services ────────────────────────────────────────────────────────
@@ -2835,108 +2855,11 @@ exit 0
 # ─────────────────────────────────────────────────────────────────────────────
 # SOURCE zone — data tree
 # ─────────────────────────────────────────────────────────────────────────────
-# Hand-authored and deliberately small. The packaged bundle a real `init`
-# copies here is ~2 MB across ~60 files; a per-test tmp_path materialization
-# wants the *shape* — every path the profile and the build reference — not the
-# volume. Each file below is valid content of its real kind.
-
-DATA_README_MD = """\
-# Project Data Directory
-
-Everything the agent reads from disk lives here: channel databases, benchmark
-query sets, and the facility's sources and scenarios. These are your files —
-edit them freely.
-
-## Directory Structure
-
-The channel-finder indexes are not here: each is a view the build writes from
-`facility/` into the render. As shipped by the preset:
-
-```
-data/
-├── channel_databases/
-│   └── examples/                         # Hierarchy-shape examples
-├── benchmarks/
-│   └── cross_paradigm/queries/           # Benchmark query sources, one per channel-finder pipeline
-├── ariel/
-│   ├── vocabulary.yml                    # Logbook shorthand -> the words entries use
-│   └── README.md                         # Vocabulary format walkthrough
-├── facility/                              # The facility's authored sources
-│   ├── knowledge/                         # Markdown knowledge bundle
-│   └── scenarios/                         # Simulation scenarios
-```
-
-`osprey build` copies the benchmark query file matching `channel_finder_mode`
-to `benchmarks/queries.json`: `in_context_queries.json` for `in_context`,
-`tree_queries.json` for every other mode. Each channel-finder index is the view
-the build writes at its own path; nothing is flattened. The render drops the
-`benchmarks/cross_paradigm/` subtree.
-
-## Database Paradigms
-
-`channel_finder_mode` in the build profile picks one of three ways to organize
-the same channel namespace as a file; all three are views of the same
-facility records. The mode's fourth value, `graph`, is not one of them: it
-answers from the facility knowledge graph rather than a channel database. Its
-corpus is `data/graph/facility.ttl`, the graph view the build writes from
-`facility/`, seeded into the `services.graphdb` store.
-
-### `in_context` — flat structure
-
-Best for fewer than about 1,000 channels. The whole database fits in the
-agent's context, so lookup is direct semantic search over a flat list of
-channels.
-
-### `hierarchical` — nested structure
-
-Best for more than about 1,000 channels. The agent navigates the hierarchy
-level by level instead of loading everything at once: the facility's place
-words by depth, then class, device and leaf.
-
-### `middle_layer` — functional structure
-
-An MML-organized functional hierarchy: System / Family / Field / Subfield.
-Navigation mirrors the way operators reason about devices rather than the way
-the control system names them.
-
-## Database Tools
-
-Database tools are `osprey channel-finder` CLI subcommands. Each reads the
-active database from `config.yml` unless you pass `--database`.
-
-Validate database format and structure:
-
-```bash
-osprey channel-finder validate
-osprey channel-finder validate --database data/channel_finder/hierarchical.json
-```
-
-Preview database contents:
-
-```bash
-osprey channel-finder preview
-osprey channel-finder preview --database data/channel_finder/hierarchical.json
-```
-
-## Benchmarks
-
-Evaluate channel-finder accuracy against the query set in
-`data/benchmarks/queries.json`:
-
-```bash
-# Full query set
-osprey channel-finder benchmark --model anthropic/claude-haiku-4-5
-
-# A slice of the query set
-osprey channel-finder benchmark --model anthropic/claude-haiku-4-5 --queries 0:10
-
-# Repeat each query to measure run-to-run variance
-osprey channel-finder benchmark --model anthropic/claude-haiku-4-5 --runs-per-query 3
-```
-
-Results are written to `data/benchmarks/results/` as JSON reports carrying
-per-query outcomes, accuracy, timing, and cost.
-"""
+# Hand-authored and deliberately small, except ``data/README.md``, which is
+# read from the package (:func:`packaged_data_readme_md`). The packaged bundle a
+# real `init` copies here is ~2 MB across ~60 files; a per-test tmp_path
+# materialization wants the *shape* — every path the profile and the build
+# reference — not the volume. Each file below is valid content of its real kind.
 
 BENCHMARK_QUERIES_JSON = """\
 [
@@ -3237,12 +3160,8 @@ def preserved_environ():
     all. Wrap every in-process ``osprey build`` (or config load) of a repo that
     carries a ``.env`` in this guard.
     """
-    snapshot = os.environ.copy()
-    try:
+    with patch.dict(os.environ):
         yield
-    finally:
-        os.environ.clear()
-        os.environ.update(snapshot)
 
 
 def build_exemplar_repo(
@@ -3328,6 +3247,7 @@ def _git_init(root: Path) -> None:
             env=env,
             check=True,
             capture_output=True,
+            timeout=60,
         )
 
     run("init", "--quiet", "--initial-branch", "main")

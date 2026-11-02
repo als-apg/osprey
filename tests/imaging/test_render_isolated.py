@@ -19,7 +19,6 @@ from __future__ import annotations
 
 import asyncio
 import io
-import os
 import sys
 import textwrap
 from pathlib import Path
@@ -29,6 +28,7 @@ import pytest
 from osprey.imaging import render
 from osprey.imaging.formats import RENDITION_MAX_BYTES
 from tests._live import async_wait_until
+from tests._processes import running_state
 
 Image = pytest.importorskip("PIL.Image")
 
@@ -132,19 +132,6 @@ async def _scaled(monkeypatch):
     await render.close_render_worker()
 
 
-def _alive(pid: int) -> bool:
-    try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        return False
-    # A zombie still answers signal 0; ask the OS for its state.
-    try:
-        waited, _ = os.waitpid(pid, os.WNOHANG)
-    except ChildProcessError:
-        return False
-    return waited == 0
-
-
 # -- the real worker ----------------------------------------------------------------
 
 
@@ -198,7 +185,7 @@ def test_two_consecutive_asyncio_runs_both_succeed(monkeypatch):
     first, first_pid = asyncio.run(render_once())
     # The first loop's shutdown closed its worker before the loop went away.
     assert render.worker_pid() is None
-    assert first_pid is not None and not _alive(first_pid)
+    assert first_pid is not None and running_state(first_pid) is None
     second, second_pid = asyncio.run(render_once())
     assert first.rendition is not None
     assert second.rendition is not None
@@ -242,13 +229,21 @@ async def test_sleeper_id_times_out_and_siblings_render(monkeypatch, tmp_path):
 
 
 async def test_the_task_clock_starts_after_the_lock(monkeypatch, tmp_path):
-    # Each task takes 0.6 s against a 1 s clock; five queued tasks take 3 s in
-    # all, so a clock started at submission would time the later ones out.
-    monkeypatch.setattr(render, "WORKER_ARGV", _stub(tmp_path, "time.sleep(0.6)\nok()"))
+    # Each task takes a tenth of the clock and the queue holds one and a half
+    # clocks of them, so a clock started at submission would time the later ones
+    # out while one started after the lock leaves each task most of its clock.
+    clock = render.RENDER_TASK_TIMEOUT_S
+    count = 15
+    monkeypatch.setattr(render, "WORKER_ARGV", _stub(tmp_path, f"time.sleep({clock / 10})\nok()"))
+    loop = asyncio.get_running_loop()
+    started = loop.time()
     outcomes = await asyncio.gather(
-        *(render.render_isolated(bytes([i]), task_id=str(i)) for i in range(5))
+        *(render.render_isolated(bytes([i]), task_id=str(i)) for i in range(count))
     )
+    elapsed = loop.time() - started
     assert all(o.rendition is not None for o in outcomes)
+    # The queue really outlasted one clock.
+    assert elapsed > clock
 
 
 async def test_crash_on_one_id_leaves_siblings_and_next_call_rendered(monkeypatch, tmp_path):
@@ -519,12 +514,11 @@ async def test_idle_worker_exits(monkeypatch, tmp_path):
     await render.render_isolated(b"x", task_id="x")
     pid = render.worker_pid()
     assert pid is not None
-    for _ in range(40):
-        await asyncio.sleep(0.1)
-        if render.worker_pid() is None and not _alive(pid):
-            break
-    assert render.worker_pid() is None
-    assert not _alive(pid)
+    await async_wait_until(
+        lambda: render.worker_pid() is None and running_state(pid) is None,
+        timeout=4.0,
+        what="the idle worker to exit",
+    )
     # The next call respawns it.
     assert (await render.render_isolated(b"y", task_id="y")).rendition is not None
     assert render.worker_pid() not in (None, pid)
@@ -614,7 +608,9 @@ async def test_a_cancelled_render_never_leaks_its_reply_into_the_next_call(monke
     assert outcome.rendition.width == 2
     assert render.worker_pid() not in (None, first_pid)
     await async_wait_until(
-        lambda: not _alive(first_pid), timeout=_EXIT_CEILING_S, what="the cancelled worker's exit"
+        lambda: running_state(first_pid) is None,
+        timeout=_EXIT_CEILING_S,
+        what="the cancelled worker's exit",
     )
 
 
@@ -659,7 +655,9 @@ async def test_a_cancel_during_the_ready_wait_leaves_no_child(monkeypatch, tmp_p
         await pending
     assert render.worker_pid() is None
     await async_wait_until(
-        lambda: not _alive(spawned[0]), timeout=_EXIT_CEILING_S, what="the cancelled worker's exit"
+        lambda: running_state(spawned[0]) is None,
+        timeout=_EXIT_CEILING_S,
+        what="the cancelled worker's exit",
     )
 
 

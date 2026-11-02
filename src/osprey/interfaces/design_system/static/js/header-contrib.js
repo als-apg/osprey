@@ -45,8 +45,8 @@
  *
  * So order the array by how STABLE each item is, least stable first:
  *
- *   1. items contributed CONDITIONALLY — only in one view, only outside
- *      Simple, only while something is running;
+ *   1. items contributed CONDITIONALLY — only in one view, only while
+ *      something is running;
  *   2. items whose label CHANGES WIDTH at runtime — an arming button's
  *      "Confirm?", a count, an activity marker;
  *   3. the control the operator aims at repeatedly — the view switcher, the
@@ -68,13 +68,6 @@
  * lowest priority can fold ITSELF into the ⋯ menu at the moment it grows.
  * Both helpers are strict no-ops outside an embedded frame, so panels call
  * them unconditionally.
- *
- * SIMPLE MODE: the hub collapses a service tile's whole bar to zero height in
- * Simple mode, so anything contributed is invisible there. That suits chrome
- * Simple already drops (view switchers), but NOT a search box, which Simple
- * deliberately enlarges — nor anything safety-bearing. Gate those on
- * {@link isSimpleMode} and keep the in-body control for Simple; re-contribute
- * from the panel's existing `osprey-mode-change` handler.
  *
  * @module header-contrib
  */
@@ -115,19 +108,6 @@ export const HEADER_CONTRACT_VERSION = 1;
 /** @returns {boolean} true when running inside the web-terminal hub. */
 function isEmbedded() {
   return document.body.classList.contains('embedded') && window.parent !== window;
-}
-
-/**
- * True when the shell is in Simple mode. Panels use this to decide whether a
- * control belongs in the bar at all: the hub collapses a service tile's bar
- * in Simple, so a search box (or anything safety-bearing) must stay in the
- * body there. Reads the same `data-ui-mode` attribute mode-boot.js stamps
- * pre-paint and the hub's `osprey-mode-change` handler keeps current, so it
- * is correct from first paint onward.
- * @returns {boolean}
- */
-export function isSimpleMode() {
-  return document.documentElement.getAttribute('data-ui-mode') === 'simple';
 }
 
 /**

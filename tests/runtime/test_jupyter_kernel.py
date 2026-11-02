@@ -58,16 +58,14 @@ KERNEL_ID = "4f1c2a7e0000400080000000000002"
 
 @pytest.fixture
 def kernel_env():
-    """This process's environment, restored whole afterwards.
+    """This process's environment, which the launcher stamps in place.
 
     The launcher stamps ``os.environ`` and nothing else: the resolvers it calls
     read the process environment, so a dict handed in would be invisible to
-    them.
+    them. The root conftest's ``restore_environ`` puts the environment back
+    after the test; the posture cache read from the stamped one is dropped here.
     """
-    saved = dict(os.environ)
     yield os.environ
-    os.environ.clear()
-    os.environ.update(saved)
     posture_store.invalidate_cache()
 
 
@@ -299,7 +297,7 @@ def test_importing_the_module_pulls_in_no_kernel_stack():
     )
 
     result = subprocess.run(
-        [sys.executable, "-c", probe], capture_output=True, text=True, check=True
+        [sys.executable, "-c", probe], capture_output=True, text=True, check=True, timeout=120
     )
 
     assert result.stdout.strip() == ""
@@ -681,6 +679,13 @@ class TestTheAuditRecord:
         assert detail_tokens(audit_records[0]["detail"]) == {"ca_user": CA_USER}
         assert audit_records[0]["reason"] == "control_target_changed"
 
+    @pytest.mark.usefixtures("unstamped")
+    def test_a_subclass_of_a_refusal_files_under_its_class(self, shell, audit_records):
+        """A switch in flight is a moved target, so it files as one."""
+        fire(shell, SwitchInProgressError("switch_in_progress:4242"))
+
+        assert audit_records[0]["reason"] == "control_target_changed"
+
 
 class TestTheWriteRecord:
     """One record per channel a cell put on the wire, read back from the record."""
@@ -716,8 +721,16 @@ class TestTheWriteRecord:
 
     @pytest.mark.usefixtures("observed", "unstamped")
     def test_kernel_write_record_an_attempt_alone_files_nothing(self, recorded_entries):
-        """A refused write gets only ``attempt``, and its record is the refusal's."""
+        """``attempt`` precedes the send; the record comes with the outcome."""
         runtime._notify_write("SR:MAG:1", "attempt")
+
+        assert kernel_ledger(recorded_entries) == []
+
+    @pytest.mark.usefixtures("observed", "unstamped")
+    def test_a_refused_phase_files_no_record(self, recorded_entries):
+        """A refused write sent nothing; its record is the refusal's."""
+        runtime._notify_write("SR:MAG:1", "attempt")
+        runtime._notify_write("SR:MAG:1", "refused")
 
         assert kernel_ledger(recorded_entries) == []
 

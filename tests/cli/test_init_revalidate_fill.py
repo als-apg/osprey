@@ -463,7 +463,7 @@ def test_a_nested_parent_gets_real_mappings_not_a_dotted_key(
 
     approval = rendered_config(repo)["approval"]
     assert approval["default_policy"] == "selective"
-    assert approval["tools"]["channel_write"] == "always"
+    assert approval["tools"]["setup_patch"] == "always"
     assert _dotted_keys_below(approval) == []
 
 
@@ -547,7 +547,7 @@ def test_provenance_outranks_the_retired_key(runner: CliRunner, tmp_path: Path) 
     serving = "control_system.connector.virtual_accelerator.serving"
     epics_timeout = "control_system.connector.epics.timeout_s"
     # Measured, not assumed: the presets disagree on these keys.
-    assert bundle["control_system.writes"] == "allowed"
+    assert bundle["control_system.writes"] == "asked"
     assert recorded["control_system.writes"] == "never"
     assert serving not in bundle
     assert recorded[serving] == "in_process"
@@ -1095,6 +1095,7 @@ def test_every_remedy_names_the_one_migration_verb() -> None:
         capture_output=True,
         text=True,
         check=True,
+        timeout=60,
     ).stdout.splitlines()
     this_file = Path(__file__).resolve().relative_to(REPO_ROOT).as_posix()
     offenders = []

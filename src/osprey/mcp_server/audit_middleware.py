@@ -16,7 +16,11 @@ run (``OSPREY_EXECUTION_MODE=readonly``) or a tier that allows no writes
 :func:`~osprey_connectors.refusals.refusal_phrase`'s words. The backstop names
 no target and opens no record, so a switch that is off never refuses here: the
 tool's own write verdict and the connector's reference monitor own that, for
-the machine the write actually lands on. The clamp set is the rendered
+the machine the write actually lands on. A clamped call the backstop allows is
+then refused when the session is held
+(:func:`~osprey_connectors.posture_store.session_hold_refusal`), except the tools
+of :data:`_NEVER_HELD`, by bare name on the verified and the degraded path alike.
+The clamp set is the rendered
 ``hook_config.json``'s ``write_tools`` *minus* its ``mixed_read_write_tools`` —
 the read/write tools, of which ``mcp__python__execute`` is the framework's one,
 keep their own in-tool gate because a *readonly* execution is exactly what a
@@ -140,13 +144,16 @@ from osprey.audit.call import (
 from osprey.audit.dedup import decision_scope, mark_recorded, recorded_decision
 from osprey.audit.envelope import DECISION_ALLOWED, DECISION_REFUSED, utc_timestamp
 from osprey.audit.writer import record
+from osprey.bluesky_tool_names import QUEUE_STOP, STOP_RUN
 from osprey.mcp_server.approval_record import (
     APPROVAL_ASK_PREFIX,
     APPROVAL_ASK_SUFFIX,
     approval_ask_stamp,
 )
 from osprey.mcp_server.errors import make_error
+from osprey.utils.session_hold_api import refusal_detail, session_hold_refusal
 from osprey_connectors.identity import acting_identity
+from osprey_connectors.posture_store import backstop_verdict
 from osprey_connectors.refusals import refusal_text
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
@@ -253,6 +260,13 @@ _FALLBACK_MIXED_TOOLS: list[str] = ["mcp__python__execute", "mcp__python__execut
 
 #: The clamp set used whenever the render cannot be trusted.
 _FLOOR_CLAMP: frozenset[str] = frozenset(_FALLBACK_WRITE_TOOLS) - frozenset(_FALLBACK_MIXED_TOOLS)
+
+#: Bare names of the tools a held session may still call: halting the queue,
+#: aborting the running plan, and moving the session off a machine. A hold must
+#: never take away the way out of what it was raised about. Matched by bare name
+#: on both paths, so a facility write tool of one of these names passes this check
+#: too; the hook's facility branch still holds that tool.
+_NEVER_HELD: frozenset[str] = frozenset({QUEUE_STOP, STOP_RUN, "control_target_set"})
 
 # --------------------------------------------------------------------------
 # Record vocabulary
@@ -613,23 +627,28 @@ def _request_meta(context: MiddlewareContext[Any]) -> dict[str, Any]:
     return {}
 
 
-def _approval_answered(tool_use_id: str | None) -> tuple[str, str | None] | None:
-    """``(approver, permission_mode)`` when an approval prompt let this call through.
+def _approval_answered(tool_use_id: str | None) -> tuple[str, str | None, str | None] | None:
+    """``(approver, permission_mode, position)`` when an approval let this call through.
 
     The approval hook leaves an ask stamp named by the call's tool-use id
-    before the prompt is shown; the call reaching this server means the
-    prompt was answered yes. Read only, never consumed: the hook's
-    ``PostToolUse`` owns the stamp's removal. ``None`` without a stamp, and on
-    any error.
+    before the prompt is shown, or as it lets a call the write switch's
+    ``allowed`` position approved run with nobody asked; the call reaching
+    this server means the call was approved. *approver* is ``human``,
+    ``write_switch`` or ``dispatch_policy``; *position* is the switch position
+    the governed call ran under (``asked`` or ``allowed``), ``None`` on a
+    non-governed ask. Read only, never consumed: the hook's ``PostToolUse``
+    owns the stamp's removal. ``None`` without a stamp, and on any error.
     """
     stamp = approval_ask_stamp(tool_use_id)
     if stamp is None:
         return None
     approver = stamp.get("approver")
     mode = stamp.get("permission_mode")
+    position = stamp.get("position")
     return (
         approver if isinstance(approver, str) and approver else "unknown",
         mode if isinstance(mode, str) else None,
+        position if isinstance(position, str) and position else None,
     )
 
 
@@ -706,7 +725,12 @@ def _file_tool_call(
         approval = (
             None
             if answered is None
-            else {"outcome": "approved", "approver": answered[0], "permission_mode": answered[1]}
+            else {
+                "outcome": "approved",
+                "approver": answered[0],
+                "permission_mode": answered[1],
+                "position": answered[2],
+            }
         )
         target, generation = binding
         facts = dict(call.facts) if call is not None else {}
@@ -793,12 +817,18 @@ def _backstop() -> WriteVerdict:
     tool's verdict and the connector's to decide, about the machine the write
     lands on, and a clamp on every write tool of the server cannot know it.
     """
-    # Imported here, not at module scope: ``posture_store`` pulls in the
-    # connector package's control-context reader, and importing this module
-    # must stay cheap (a test pins that it reads nothing).
-    from osprey_connectors.posture_store import backstop_verdict
-
     return backstop_verdict(posture.control_system_section())
+
+
+def _clamp_refusal(backstop: WriteVerdict, tool: str) -> WriteVerdict | None:
+    """Why a clamped call is refused: the *backstop*, then the session's hold.
+
+    The tools of :data:`_NEVER_HELD` pass the hold and answer only to the
+    backstop. Asked only for a clamped call, so a read tool costs no record read.
+    """
+    if not backstop.allowed:
+        return backstop
+    return None if tool in _NEVER_HELD else session_hold_refusal()
 
 
 def _refusal_detail(clamp_source: str, verdict: WriteVerdict) -> str | None:
@@ -887,22 +917,27 @@ class AuditMiddleware(Middleware):
         # by costing the call, and a test pins that.
         clamp, clamp_source, verified = _clamp_for(_resolve_state(), prefix)
         backstop = _backstop()
-        if not backstop.allowed and _is_clamped(clamp, subject, tool, verified=verified):
-            refused_for = backstop.reason or "tier_never"
+        refusal = (
+            _clamp_refusal(backstop, tool)
+            if _is_clamped(clamp, subject, tool, verified=verified)
+            else None
+        )
+        if refusal is not None:
+            refused_for = refusal.reason or "tier_never"
             _record(
                 surface=surface,
                 subject=subject,
                 decision=DECISION_REFUSED,
                 reason=REASON_POSTURE,
-                detail=_call_detail(_refusal_detail(clamp_source, backstop)),
+                detail=_call_detail(_refusal_detail(clamp_source, refusal)),
             )
             # `make_error` raises: fastmcp turns a raised ToolError into a
             # CallToolResult with isError=True and the message verbatim, which
             # returning a result directly does not.
             #
-            # The words are the verdict's own: the backstop refuses only a
-            # read-only run or a tier that allows nothing, and the phrase says
-            # who can lift each.
+            # The words are the verdict's own: this refuses only a read-only
+            # run, a tier that allows nothing or a held session, and the phrase
+            # says who can lift each.
             suggestions: list[str] = []
             if clamp_source != CLAMP_SOURCE_LOADED:
                 # Off the verified path the match is by bare tool name, so a
@@ -915,9 +950,8 @@ class AuditMiddleware(Middleware):
                     "name; re-render with `osprey build`, and relaunch this server under "
                     "`osprey` if its name or launch changed."
                 )
-            make_error(
-                "safety_error", f"{tool} is refused: {refusal_text(refused_for)}", suggestions
-            )
+            words = refusal_text(refused_for, detail=refusal_detail(None, refusal))
+            make_error("safety_error", f"{tool} is refused: {words}", suggestions)
 
         # One dedup scope per call: the innermost layer that recorded a
         # decision owns it, and this layer defers. Entering clears any marker

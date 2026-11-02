@@ -26,14 +26,12 @@
 
 import { test, expect, describe, beforeEach, afterEach, vi } from 'vitest';
 
-// The host-chrome import graph below reaches bar-sync.js, which GETs the
-// operator's bar layout at import time, and the history popover reads the
-// server's buffer through the real reader. Both are answered here — from
-// `vi.hoisted`, which runs before the static imports are evaluated and
-// therefore before the bar GET is made. `recent` is the buffer a test serves:
-// its events, whether the read fails, a pending read a test settles by hand,
-// and the limits every read asked for. Any other URL is a dependency this
-// file has not declared, and fails loudly.
+// The history popover reads the server's buffer through the real reader,
+// answered here from `vi.hoisted`, which runs before the static imports are
+// evaluated. `recent` is the buffer a test serves: its events, whether the
+// read fails, a pending read a test settles by hand, and the limits every
+// read asked for. Any other URL is a dependency this file has not declared,
+// and fails loudly.
 const { recent } = vi.hoisted(() => {
   const recent = {
     /** @type {any[]} */ events: [],
@@ -44,20 +42,6 @@ const { recent } = vi.hoisted(() => {
   vi.stubGlobal(
     'fetch',
     vi.fn(async (/** @type {string} */ url) => {
-      if (url === '/api/bar-items') {
-        return {
-          ok: true,
-          status: 200,
-          json: async () => ({
-            version: 1,
-            rev: 0,
-            header: [],
-            status: [],
-            header_visible: true,
-            status_visible: true,
-          }),
-        };
-      }
       const history = /^\/api\/agent-activity\/recent\?limit=(\d+)$/.exec(url);
       if (history) {
         recent.limits.push(Number(history[1]));
@@ -323,6 +307,38 @@ describe('config and ui kinds', () => {
       verb: 'agent moved window',
       subject: 'manage_window',
     });
+  });
+});
+
+describe('review kind', () => {
+  test('a review frame reads as a code review of the notice text', () => {
+    const strip = makeStrip();
+    strip.handleActivity(frame({ kind: 'review', detail: 'blocked: writes to /etc' }, 'execute'));
+
+    expect(mount.querySelector('.activity-strip-verb')?.textContent).toBe('code review');
+    expect(mount.querySelector('.activity-strip-subject')?.textContent).toBe(
+      'blocked: writes to /etc'
+    );
+  });
+
+  test('a review frame names neither a write nor a launched run', () => {
+    expect(formatActivity(frame({ kind: 'review', detail: 'passed' }, 'execute'))).toEqual({
+      verb: 'code review',
+      subject: 'passed',
+    });
+  });
+
+  test('a detail-less review frame names the tool instead', () => {
+    expect(formatActivity(frame({ kind: 'review' }, 'execute'))).toEqual({
+      verb: 'code review',
+      subject: 'execute',
+    });
+  });
+
+  test('an unknown kind still falls through to the generic branch', () => {
+    expect(
+      formatActivity(frame(/** @type {any} */ ({ kind: 'reviews', detail: 'ignored' }), 'execute'))
+    ).toEqual({ verb: 'agent activity', subject: 'execute' });
   });
 });
 

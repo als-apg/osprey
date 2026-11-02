@@ -22,40 +22,51 @@ pressure excursion.
 ## Prerequisites
 
 - Identify and fix the root cause of the vacuum event before pumping down.
-- Beam is **off** (`PSS:Global:BeamInhibit = 1`).
-- All gate valves to affected section are **closed**.
+- Beam is **off** (the global beam inhibit is asserted at the PSS panel).
+- All gate valves to affected section are **closed**, for example
+  [SR:VAC:VALVE:01:POSITION:CLOSED](facility:SR:VAC:VALVE:01:POSITION:CLOSED).
 
 ## Steps
 
 ### 1. Roughing pumpdown (0–4 h)
 
+The roughing and turbomolecular pumps are carts connected by hand; the example
+facility file holds no records for them.
+
 1. Connect the roughing pump to the affected section.
-2. Enable roughing pump: `PS:VAC:RP01:Enable → 1`.
+2. Switch on the roughing pump at its cart.
 3. Monitor pressure until `< 1e-3 Torr`.
-4. Enable turbo pump (if available): `PS:VAC:TMP01:Enable → 1`.
+4. Switch on the turbo pump (if available).
 5. Pump down to `< 1e-5 Torr` before proceeding.
 
 ### 2. Ion pump conditioning (4–12 h)
 
-1. Start ion pumps at reduced voltage (typically 3 kV):
-   - Set `{SYS}:VAC:IP01:Voltage → 3000` V
-   - Enable: `{SYS}:VAC:IP01:Enable → 1`
-2. Allow pumps to run until pump current drops below 1 mA.
-3. Ramp to full voltage (5 kV) once stable: `{SYS}:VAC:IP01:Voltage → 5000`
-4. Continue until pressure `< 1e-8 Torr`.
+1. Start ion pumps at reduced voltage (typically 3 kV), for example pump
+   [SR/ION-PUMP01](facility:SR/ION-PUMP01):
+   - Set [SR:VAC:ION-PUMP:01:VOLTAGE:SP](facility:SR:VAC:ION-PUMP:01:VOLTAGE:SP) to 3000 V
+   - Confirm the pump is on: [SR:VAC:ION-PUMP:01:STATUS:ON](facility:SR:VAC:ION-PUMP:01:STATUS:ON)
+2. Allow pumps to run until pump current
+   ([SR:VAC:ION-PUMP:01:CURRENT:RB](facility:SR:VAC:ION-PUMP:01:CURRENT:RB))
+   drops below 1 mA.
+3. Ramp to full voltage (5 kV) once stable:
+   [SR:VAC:ION-PUMP:01:VOLTAGE:SP](facility:SR:VAC:ION-PUMP:01:VOLTAGE:SP) to 5000 V.
+4. Continue until pressure `< 1e-8 Torr`, read at a gauge such as
+   [SR:VAC:GAUGE:SR01:PRESSURE:RB](facility:SR:VAC:GAUGE:SR01:PRESSURE:RB).
 
 ### 3. Gate valve restoration
 
 1. Open gate valves one section at a time, verifying pressure does not spike:
-   - `{SYS}:VAC:GV01:Cmd → OPEN`
-   - Confirm `{SYS}:VAC:GV01:State = OPEN`
+   - Open the valve from the vacuum control panel, for example
+     [SR/VALVE01](facility:SR/VALVE01)
+   - Confirm it is open:
+     [SR:VAC:VALVE:01:POSITION:OPEN](facility:SR:VAC:VALVE:01:POSITION:OPEN)
 2. Proceed from the most-pumped section toward the vented section.
 
 ### 4. Final check
 
 1. Verify all section pressures `< 1e-8 Torr`.
 2. Confirm all ion pump currents `< 0.01 mA`.
-3. Clear beam inhibit: `PSS:Global:BeamInhibit → 0` (requires shift supervisor).
+3. Clear the beam inhibit (requires shift supervisor).
 
 ## Cross-links
 

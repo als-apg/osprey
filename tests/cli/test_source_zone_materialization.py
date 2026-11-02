@@ -723,7 +723,7 @@ def test_stray_j2_in_bundle_data_is_not_rendered(
 
     fake_root = tmp_path / "templates"
     real_root = manager_mod.TemplateManager().template_root
-    shutil.copytree(real_root, fake_root)
+    shutil.copytree(real_root, fake_root, ignore=shutil.ignore_patterns("__pycache__"))
     stray = fake_root / "apps" / "hello_world" / "data" / "stray.txt.j2"
     stray.parent.mkdir(parents=True, exist_ok=True)
     stray.write_text("{{ never_rendered }}\n", encoding="utf-8")

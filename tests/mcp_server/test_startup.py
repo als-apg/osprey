@@ -333,7 +333,7 @@ def test_importing_an_entry_point_module_does_not_pull_in_fastmcp(module):
         " 'osprey.mcp_server.audit_middleware' in sys.modules)"
     )
     out = subprocess.run(
-        [sys.executable, "-c", code], capture_output=True, text=True, check=True
+        [sys.executable, "-c", code], capture_output=True, text=True, check=True, timeout=120
     ).stdout.strip()
     assert out == "False False", f"{module} import closure: {out}"
 

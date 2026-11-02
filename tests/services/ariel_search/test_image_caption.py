@@ -1002,8 +1002,7 @@ class TestThroughTheDriver:
 
         ticker = asyncio.create_task(_ticker())
         task = asyncio.create_task(drive_image_module(module, repo, budget=None, stop_event=None))
-        while not started.is_set():
-            await asyncio.sleep(0.01)
+        assert await asyncio.to_thread(started.wait, 5)
         ticks_at_start = ticks
         await asyncio.sleep(0.3)
         assert ticks > ticks_at_start
@@ -1088,7 +1087,10 @@ class StubOllama:
         self.server = ThreadingHTTPServer(("127.0.0.1", port), Handler)
         self.port = self.server.server_address[1]
         self.url = f"http://127.0.0.1:{self.port}"
-        self._thread = threading.Thread(target=self.server.serve_forever, daemon=True)
+        # A short poll lets ``shutdown()`` return at once instead of after 0.5 s.
+        self._thread = threading.Thread(
+            target=self.server.serve_forever, kwargs={"poll_interval": 0.02}, daemon=True
+        )
         self._thread.start()
 
     def stop(self) -> None:

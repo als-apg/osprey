@@ -36,9 +36,9 @@
      Translucent card/modal/hover tints, composited from canonical bg
      tokens so they keep theming correctly without a local per-theme
      override block. */
-  --surface-card: color-mix(in srgb, var(--bg-secondary) 85%, transparent);
-  --surface-modal: color-mix(in srgb, var(--bg-primary) 96%, transparent);
-  --surface-hover: color-mix(in srgb, var(--bg-elevated) 60%, transparent);
+  --art-surface-card: color-mix(in srgb, var(--bg-secondary) 85%, transparent);
+  --art-surface-modal: color-mix(in srgb, var(--bg-primary) 96%, transparent);
+  --art-surface-hover: color-mix(in srgb, var(--bg-elevated) 60%, transparent);
 
   /* === Local-only shadow ===
      No canonical shadow scale step matches this card-hover glow's exact
@@ -101,28 +101,41 @@
 }
 
 /* In the web-terminal shell the host chrome supplies the wordmark, theme
-   toggle and status (and the rail names the active module), so the whole
-   app header is hidden and the browse view's two cards fill the panel
-   (frame 2a). Standalone, the header stays as a slim wordmark + theme +
-   status bar above the cards. */
+   toggle and status (and the sidebar names the active module), so the whole
+   app header is hidden. Standalone, the header stays as a slim wordmark +
+   theme + status bar above the cards. */
 body.embedded .header { display: none; }
 /* Explicit branding rule alongside the whole-header hide: display does not
    inherit, so the D15 embedded contract (computed display:none on .logo)
    needs the logo named directly, not just its hidden ancestor. */
 body.embedded .logo { display: none; }
 
-/* Embedded Expert: the browser column's toolbar row is contributed to the
-   host tile bar instead (gallery.js, header-contrib.js), so keeping it in
-   the body too would show every control twice. Simple is excluded because
-   the hub collapses a service tile's bar to zero height there — anything
-   contributed would simply vanish. */
-:root:not([data-ui-mode="simple"]) body.embedded .sidebar-controls-row { display: none; }
-/* With that row gone the header frames nothing (the layout toggle beside it
-   ships [hidden]), so drop its padding and rule rather than leave an empty
-   strip above the tree. */
-:root:not([data-ui-mode="simple"]) body.embedded .sidebar-header {
-  padding: 0;
-  border-bottom: none;
+/* Embedded, the page is the viewer of the one artifact the hub's sidebar
+   selects (gallery.js, viewer.js): the hub owns the artifact list, so the
+   browser column and both splitters never show. `:root` lifts these rules
+   above the orientation and 560px rules that display a splitter by its id
+   (html[data-browse-orient="column"] #resize-handle-y). */
+:root body.embedded .browse-sidebar,
+:root body.embedded #resize-handle,
+:root body.embedded #resize-handle-y {
+  display: none;
+}
+
+/* The preview pane fills the frame as the recessed well inside the hub's
+   card, and the artifact sits on it. The description and meta strip, right
+   under the hub's pane header, take that card's own surface. */
+body.embedded .browse-preview-pane {
+  background: var(--surface-well);
+}
+
+body.embedded .preview-viewport {
+  background: transparent;
+}
+
+body.embedded .preview-desc,
+body.embedded .preview-meta-strip {
+  background: var(--surface-card);
+  border-bottom-color: var(--surface-hairline);
 }
 
 /* ================================================================
@@ -430,7 +443,7 @@ code {
 .sidebar-menu-btn:hover,
 .sidebar-menu-btn[aria-expanded="true"] {
   color: var(--text-secondary);
-  background: var(--surface-hover);
+  background: var(--art-surface-hover);
 }
 
 .sidebar-menu {
@@ -474,7 +487,7 @@ code {
 
 .sidebar-menu-item:hover {
   color: var(--text-primary);
-  background: var(--surface-hover);
+  background: var(--art-surface-hover);
 }
 
 .sidebar-menu-item svg {
@@ -743,7 +756,7 @@ html[data-browse-orient="column"] #resize-handle-y {
 
 .mode-btn:hover {
   color: var(--text-secondary);
-  background: var(--surface-hover);
+  background: var(--art-surface-hover);
 }
 
 .mode-btn.active {
@@ -793,7 +806,7 @@ html[data-browse-orient="column"] #resize-handle-y {
 
 .layout-btn:hover {
   color: var(--text-secondary);
-  background: var(--surface-hover);
+  background: var(--art-surface-hover);
 }
 
 .layout-btn.active {
@@ -888,7 +901,7 @@ html[data-browse-orient="column"] .sidebar-body {
 
 .tree-section-header:hover {
   color: var(--text-secondary);
-  background: var(--surface-hover);
+  background: var(--art-surface-hover);
 }
 
 .tree-chevron {
@@ -938,7 +951,7 @@ html[data-browse-orient="column"] .sidebar-body {
 }
 
 .tree-item:hover {
-  background: var(--surface-hover);
+  background: var(--art-surface-hover);
 }
 
 .tree-item.selected {
@@ -1082,7 +1095,7 @@ html[data-browse-orient="column"] .sidebar-body {
 }
 
 .timeline-item:hover {
-  background: var(--surface-hover);
+  background: var(--art-surface-hover);
 }
 
 .timeline-item.selected {
@@ -1147,7 +1160,7 @@ html[data-browse-orient="column"] .sidebar-body {
   display: flex;
   flex-direction: column;
   margin: 0 var(--art-space-2);
-  background: var(--surface-card);
+  background: var(--art-surface-card);
   border: 1px solid var(--neutral-tint-10);
   border-radius: var(--art-radius-md);
   overflow: hidden;
@@ -1316,7 +1329,7 @@ html[data-browse-orient="column"] .sidebar-body {
 
 .gallery-section-header:hover {
   color: var(--text-secondary);
-  background: var(--surface-hover);
+  background: var(--art-surface-hover);
 }
 
 .gallery-section-header .tree-section-count {
@@ -1555,270 +1568,6 @@ html[data-browse-orient="column"] .sidebar-body {
 }
 
 /* ================================================================
-   Simple Mode — latest-result card + session-results list (frame 2b)
-   ================================================================ */
-
-/* Mode gating: the browse (Expert) view is the default; the Simple view is
-   shown only under html[data-ui-mode="simple"]. The id+attribute selectors
-   outrank .view.active without needing !important. */
-#view-artifacts-simple {
-  display: none;
-}
-
-:root[data-ui-mode="simple"] #view-artifacts-browse {
-  display: none;
-}
-
-:root[data-ui-mode="simple"] #view-artifacts-simple {
-  display: flex;
-  flex: 1;
-  min-height: 0;
-  animation: fadeIn var(--transition-base);
-}
-
-/* Vertical stack of two cards on the neutral canvas, same gutter/card
-   treatment as the Expert two-card layout. */
-.simple-layout {
-  display: flex;
-  flex-direction: column;
-  flex: 1;
-  min-height: 0;
-  gap: var(--art-panel-gap);
-  padding: var(--art-panel-gap);
-  background: var(--bg-primary);
-}
-
-.simple-result-card,
-.simple-list-card {
-  display: flex;
-  flex-direction: column;
-  background: var(--bg-panel);
-  border: 1px solid var(--border-default);
-  border-radius: var(--art-panel-radius);
-  overflow: hidden;
-}
-
-/* Latest result fills; the session list takes its natural height (capped). */
-.simple-result-card {
-  flex: 1;
-  min-height: 0;
-}
-
-.simple-list-card {
-  flex-shrink: 0;
-  max-height: 40%;
-}
-
-/* ---- Latest-result card ---- */
-
-.simple-empty {
-  flex: 1;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.simple-result {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-}
-
-.simple-result-header {
-  display: flex;
-  align-items: center;
-  gap: var(--art-space-3);
-  padding: var(--art-space-3) var(--art-space-4);
-  border-bottom: 1px solid var(--border-default);
-  flex-shrink: 0;
-}
-
-.simple-result-title {
-  font-family: var(--font-display);
-  font-size: var(--art-text-base);
-  font-weight: 600;
-  color: var(--text-primary);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  min-width: 0;
-}
-
-.simple-result-actions {
-  margin-left: auto;
-  display: flex;
-  gap: var(--art-space-2);
-  flex-shrink: 0;
-}
-
-/* Simple's result slot also carries .preview-viewport (see index.html), which
-   supplies the shared box + the per-element sizing for every viewport the
-   dispatch can produce — iframe, img, download fallback — and the
-   absolutely-positioned .md-preview-container / .json-viewer /
-   .ts-viewport-container size themselves against it. All that is left here is
-   the one property the card's flex column needs and the preview pane does
-   not. */
-.simple-result-preview {
-  min-height: 0;
-}
-
-.simple-result-caption {
-  flex-shrink: 0;
-  padding: var(--art-space-3) var(--art-space-4);
-  font-size: var(--art-text-sm);
-  color: var(--text-secondary);
-  line-height: var(--art-leading-normal);
-  border-top: 1px solid var(--neutral-tint-10);
-}
-
-/* ---- Session-results list card ---- */
-
-.simple-list-header {
-  display: flex;
-  align-items: center;
-  gap: var(--art-space-2);
-  padding: var(--art-space-2) var(--art-space-4);
-  border-bottom: 1px solid var(--border-default);
-  flex-shrink: 0;
-}
-
-.simple-list-title {
-  font-family: var(--font-display);
-  font-size: var(--art-text-sm);
-  font-weight: 500;
-  color: var(--text-primary);
-}
-
-.simple-list-count {
-  font-family: var(--font-mono);
-  font-size: var(--art-text-xs);
-  color: var(--text-muted);
-}
-
-.simple-show-all {
-  margin-left: auto;
-  background: transparent;
-  border: none;
-  cursor: pointer;
-  font-family: var(--font-mono);
-  font-size: var(--art-text-xs);
-  color: var(--color-accent-light);
-  padding: 0;
-}
-
-.simple-show-all:hover {
-  color: var(--color-accent);
-}
-
-.simple-list-body {
-  overflow-y: auto;
-  padding: var(--art-space-1) 0;
-}
-
-.simple-list-item {
-  display: flex;
-  align-items: center;
-  gap: var(--art-space-2);
-  padding: var(--art-space-2) var(--art-space-4);
-  cursor: pointer;
-  border-left: 2px solid transparent;
-  transition: background var(--transition-fast);
-}
-
-.simple-list-item:hover {
-  background: var(--surface-hover);
-}
-
-.simple-list-item.selected {
-  background: var(--accent-tint-08);
-  border-left-color: var(--color-accent);
-}
-
-.simple-list-item-icon {
-  display: inline-flex;
-  flex-shrink: 0;
-  color: var(--text-muted);
-}
-
-.simple-list-item-icon svg {
-  width: 15px;
-  height: 15px;
-}
-
-.simple-list-item.selected .simple-list-item-icon {
-  color: var(--color-accent-light);
-}
-
-.simple-list-item-name {
-  flex: 1;
-  min-width: 0;
-  font-size: var(--art-text-sm);
-  color: var(--text-secondary);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.simple-list-item.selected .simple-list-item-name {
-  color: var(--text-primary);
-}
-
-.simple-list-item-time {
-  font-family: var(--font-mono);
-  font-size: var(--art-text-xs);
-  color: var(--text-muted);
-  flex-shrink: 0;
-}
-
-/* Script runs: a folded group under the results, set apart by a rule and
-   drawn quieter, so a run's records never compete with what it produced. */
-.simple-runs {
-  border-top: 1px solid var(--border-default);
-  flex-shrink: 0;
-}
-
-.simple-runs-summary {
-  display: flex;
-  align-items: center;
-  gap: var(--art-space-2);
-  padding: var(--art-space-2) var(--art-space-4);
-  cursor: pointer;
-  font-family: var(--font-display);
-  font-size: var(--art-text-sm);
-  color: var(--text-secondary);
-}
-
-.simple-runs-summary:hover {
-  color: var(--text-primary);
-}
-
-.simple-runs-summary:focus-visible {
-  outline: 2px solid var(--color-accent);
-  outline-offset: -2px;
-}
-
-.simple-runs .simple-list-body {
-  max-height: 40vh;
-}
-
-/* NEW badge — tinted-green pill, matching the Expert tree's "new" badge
-   treatment (theme-safe in both light and dark, unlike a filled pill). */
-.simple-badge-new {
-  font-family: var(--font-mono);
-  font-size: 9px;
-  font-weight: 600;
-  letter-spacing: var(--tracking-wide);
-  text-transform: uppercase;
-  color: var(--color-success);
-  background: var(--success-tint-08);
-  border: 1px solid color-mix(in srgb, var(--color-success) 20%, transparent);
-  border-radius: 2px;
-  padding: 1px 5px;
-  flex-shrink: 0;
-}
-
-/* ================================================================
    Buttons
    ================================================================ */
 
@@ -1848,17 +1597,6 @@ html[data-browse-orient="column"] .sidebar-body {
   cursor: not-allowed;
 }
 
-.btn-primary {
-  background: var(--color-accent);
-  color: var(--color-on-accent);
-  border-color: var(--color-accent);
-}
-
-.btn-primary:hover:not(:disabled) {
-  background: var(--color-accent-light);
-  box-shadow: 0 0 8px var(--accent-tint-30);
-}
-
 .btn-secondary {
   background: var(--bg-elevated);
   color: var(--text-secondary);
@@ -1877,7 +1615,7 @@ html[data-browse-orient="column"] .sidebar-body {
 }
 
 .btn-ghost:hover:not(:disabled) {
-  background: var(--surface-hover);
+  background: var(--art-surface-hover);
   color: var(--text-secondary);
 }
 
@@ -2141,7 +1879,7 @@ body.fullscreen-mode .preview-header {
 
 .fullscreen-back-btn:hover {
   color: var(--text-secondary);
-  background: var(--surface-hover);
+  background: var(--art-surface-hover);
   border-color: var(--neutral-tint-35);
 }
 
@@ -2334,7 +2072,7 @@ body.fullscreen-entering[data-theme="light"] .browse-preview-pane::before,
 }
 
 .ts-data-table tbody tr:hover {
-  background: var(--surface-hover);
+  background: var(--art-surface-hover);
 }
 
 .ts-data-table td.ts-index-cell {
@@ -2462,7 +2200,7 @@ body.fullscreen-entering[data-theme="light"] .browse-preview-pane::before,
 }
 
 .ts-ch-toggle:hover {
-  background: var(--surface-hover);
+  background: var(--art-surface-hover);
   border-color: var(--neutral-tint-35);
 }
 
@@ -2511,7 +2249,7 @@ body.fullscreen-entering[data-theme="light"] .browse-preview-pane::before,
 
 .ts-action-btn:hover {
   color: var(--text-secondary);
-  background: var(--surface-hover);
+  background: var(--art-surface-hover);
   border-color: var(--neutral-tint-35);
 }
 
@@ -2543,7 +2281,7 @@ body.fullscreen-entering[data-theme="light"] .browse-preview-pane::before,
 }
 
 .logbook-modal {
-  background: var(--surface-modal);
+  background: var(--art-surface-modal);
   border: 1px solid var(--border-default);
   border-radius: var(--art-radius-lg);
   box-shadow: var(--shadow-lg);
@@ -2591,7 +2329,7 @@ body.fullscreen-entering[data-theme="light"] .browse-preview-pane::before,
 
 .logbook-modal-close:hover {
   color: var(--text-primary);
-  background: var(--surface-hover);
+  background: var(--art-surface-hover);
 }
 
 .logbook-modal-body {
@@ -2695,7 +2433,7 @@ body.fullscreen-entering[data-theme="light"] .browse-preview-pane::before,
 
 .logbook-btn-cancel:hover {
   color: var(--text-primary);
-  background: var(--surface-hover);
+  background: var(--art-surface-hover);
 }
 
 .logbook-btn-submit {
@@ -2835,7 +2573,7 @@ body.fullscreen-entering[data-theme="light"] .browse-preview-pane::before,
 }
 
 .logbook-detail-btn:hover {
-  background: var(--surface-hover);
+  background: var(--art-surface-hover);
   color: var(--text-primary);
 }
 
@@ -2927,7 +2665,7 @@ body.fullscreen-entering[data-theme="light"] .browse-preview-pane::before,
 }
 
 .logbook-artifact-pick-item:hover {
-  background: var(--surface-hover);
+  background: var(--art-surface-hover);
 }
 
 .logbook-artifact-pick-title {
@@ -3004,7 +2742,7 @@ body.fullscreen-entering[data-theme="light"] .browse-preview-pane::before,
 
 .logbook-btn-secondary:hover {
   color: var(--text-primary);
-  background: var(--surface-hover);
+  background: var(--art-surface-hover);
 }
 
 .logbook-btn-primary {

@@ -71,6 +71,14 @@ def _make_error_response(error_type, message, suggestions=None):
             id="timeout",
         ),
         pytest.param(
+            "mcp__controls__channel_read",
+            {"channels": ["SR:DEAD:IOC"]},
+            "channel_unreachable",
+            "Channel SR:DEAD:IOC did not answer during channel_read: SR:DEAD:IOC timed out",
+            "Connection",
+            id="channel-unreachable",
+        ),
+        pytest.param(
             "mcp__osprey_workspace__artifact_register",
             {"content": "test"},
             "validation_error",
@@ -414,6 +422,7 @@ EXPECTED_ERROR_CLASSES = {
     # Connection
     "connection_error": "Connection",
     "timeout_error": "Connection",
+    "channel_unreachable": "Connection",
     "service_unavailable": "Connection",
     "target_switch_failed": "Connection",
     "bluesky_bridge_unreachable": "Connection",
@@ -458,6 +467,7 @@ EXPECTED_ERROR_CLASSES = {
     "invalid_item": "Validation",
     "figure_not_current": "Validation",
     "figure_unavailable": "Validation",
+    "review_blocked": "Validation",
     # Data
     "not_found": "Data",
     "no_results": "Data",
@@ -514,6 +524,7 @@ EXPECTED_ERROR_CLASSES = {
     "gallery_error": "Internal",
     "config_unreadable": "Internal",
     "manager_not_configured": "Internal",
+    "review_unavailable": "Internal",
 }
 
 #: The taxonomy documented in ``.claude/rules/error-handling.md``. Every class

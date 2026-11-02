@@ -6,9 +6,9 @@ a collected helper module would report its imports as test failures.
 
 Each module is the entry point for a different half of the feature. What
 belongs to the sidecar itself rather than to either half — its port, the image
-check and the ``/health`` wait — lives in the ARIEL lane's sibling helper and is
-imported from there; the image tag comes from the environment so the CI lane and
-a local run name it the same way.
+check, the ``/health`` wait and the re-index wait — lives in the ARIEL lane's
+sibling helper and is imported from there; the image tag comes from the
+environment so the CI lane and a local run name it the same way.
 """
 
 from __future__ import annotations
@@ -40,12 +40,6 @@ QMD_SIDECAR_IMAGE = os.environ.get("OSPREY_QMD_IMAGE") or "osprey-qmd:local-vali
 #: on (``okf.bundle.OKF_COLLECTION``); a test asserts the two agree rather than
 #: restating the literal.
 SIDECAR_BUNDLE_TARGET = "/corpus/okf"
-
-#: How long to wait for a drafted document to reach the index after the touch
-#: marker advances. The container polls markers on its own interval and then
-#: re-indexes; on macOS the bind-mount stat() also has to propagate into the
-#: Docker VM.
-SIDECAR_REINDEX_TIMEOUT = 180.0
 
 #: Marker poll interval the lane runs the sidecar with. Far below the shipped
 #: default, because every freshness assertion here waits on it — the *mechanism*

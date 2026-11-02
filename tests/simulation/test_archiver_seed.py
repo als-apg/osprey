@@ -1013,6 +1013,7 @@ def test_the_module_never_imports_pymongo():
         capture_output=True,
         text=True,
         check=True,
+        timeout=120,
     )
     assert "CLEAN" in result.stdout
 

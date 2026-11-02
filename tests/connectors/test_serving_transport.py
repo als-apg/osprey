@@ -208,6 +208,7 @@ def test_no_reader_names_the_wire_by_type():
         capture_output=True,
         text=True,
         check=True,
+        timeout=60,
     ).stdout.split()
     offenders = []
     for relative in listed:

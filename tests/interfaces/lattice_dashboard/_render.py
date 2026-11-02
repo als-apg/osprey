@@ -8,10 +8,10 @@ models, and a pyAT JSON deck (:func:`fodo_deck`) per deck-bearing model;
 from __future__ import annotations
 
 import json
-import time
 
 import numpy as np
 import pytest
+from tests._live import wait_until
 
 from osprey_connectors.simulation.view import (
     ADDRESSES_FILE,
@@ -79,10 +79,9 @@ def write_render(root, *, served, models):
 
 def settle(client) -> dict:
     """Return the state once no resolve is loading."""
-    deadline = time.monotonic() + 20
-    while True:
+
+    def resolved() -> dict | None:
         state = client.get("/api/state").json()
-        if state["selection"]["status"] != "loading":
-            return state
-        assert time.monotonic() < deadline, "the selection never resolved"
-        time.sleep(0.02)
+        return state if state["selection"]["status"] != "loading" else None
+
+    return wait_until(resolved, timeout=20, interval=0.02, what="the selection to resolve")

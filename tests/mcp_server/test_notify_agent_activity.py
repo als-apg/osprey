@@ -7,7 +7,6 @@ honor its (short) timeout, and must produce a body matching the
 """
 
 import json
-import socket
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, HTTPServer
@@ -16,6 +15,7 @@ from unittest.mock import patch
 import pytest
 
 from osprey.mcp_server.http import notify_agent_activity
+from osprey_connectors_tests._harness._ports import bound_socket
 
 _MODULE = "osprey.mcp_server.http"
 
@@ -145,16 +145,12 @@ class TestAsyncWrapper:
 class TestTimeout:
     def test_hanging_socket_returns_quickly_without_raising(self):
         # Socket that accepts connections but never responds.
-        listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        listener.bind(("127.0.0.1", 0))
-        listener.listen(1)
-        port = listener.getsockname()[1]
-        try:
+        with bound_socket() as listener:
+            listener.listen(1)
+            port = listener.getsockname()[1]
             with patch(f"{_MODULE}.web_terminal_url", return_value=f"http://127.0.0.1:{port}"):
                 start = time.monotonic()
                 notify_agent_activity("channel_read", "channel", detail="SR:BPM1:X")
                 elapsed = time.monotonic() - start
             # Helper timeout is 1s; well under 3s proves it is honored.
             assert elapsed < 2.5
-        finally:
-            listener.close()

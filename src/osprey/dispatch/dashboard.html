@@ -3,11 +3,6 @@
 <head>
 <meta charset="utf-8">
 <script src="/design-system/js/theme-boot.js"></script>
-<!-- UI-mode axis (expert|simple): stamp data-ui-mode on <html> pre-paint from
-     ?mode= / localStorage / server attr, mirroring theme-boot.js for theme.
-     Must run synchronously here, ahead of every stylesheet, so the mode-gated
-     layout never flashes the wrong shell. -->
-<script src="/design-system/js/mode-boot.js"></script>
 <link rel="stylesheet" href="/design-system/css/tokens.css">
 <link rel="stylesheet" href="/design-system/css/base.css">
 <script type="module">
@@ -737,25 +732,6 @@ a.btn {
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: var(--neutral-tint-20); border-radius: 4px; }
 ::-webkit-scrollbar-thumb:hover { background: var(--neutral-tint-35); }
-
-/* ============================================================
-   Simple mode — subtraction, not substitution.
-
-   There is ONE markup tree. Everything an operator should not
-   see carries `.expert-only`, and this block is the whole of
-   the mode's structural effect. Wording differences (plain
-   outcomes, friendly ages) are chosen in JS off isSimple().
-
-   Hidden here: the Triggers tab and both of its screens (no
-   firing, no enable/disable), the timeline window control, and
-   every piece of technical metadata — run ids, durations, turn
-   and tool counts, and the tool-call transcript.
-   ============================================================ */
-
-:root[data-ui-mode="simple"] .expert-only { display: none !important; }
-/* With the Triggers tab gone there is nothing left to switch between, and a
-   lone lit tab reads as decoration rather than a control. */
-:root[data-ui-mode="simple"] .tabs { display: none; }
 </style>
 <link rel="stylesheet" href="/static/fonts/fonts.css">
 </head>
@@ -766,7 +742,7 @@ a.btn {
     <span class="app-title">Event dispatcher</span>
     <nav class="tabs" role="tablist" aria-label="Dispatcher views">
       <button id="tab-activity" role="tab" class="on">Activity</button>
-      <button id="tab-triggers" role="tab" class="expert-only">Triggers</button>
+      <button id="tab-triggers" role="tab">Triggers</button>
     </nav>
   </div>
   <div class="status-line" id="status-line">
@@ -781,7 +757,7 @@ a.btn {
   <section class="view on" id="view-activity" role="tabpanel">
     <div class="section-head">
       <span class="section-title" id="timeline-title">Last 24 hours</span>
-      <div class="seg expert-only" id="timeline-window" role="group" aria-label="Timeline window">
+      <div class="seg" id="timeline-window" role="group" aria-label="Timeline window">
         <button data-hours="1">1h</button>
         <button data-hours="24" class="on">24h</button>
         <button data-hours="168">7d</button>
@@ -791,7 +767,7 @@ a.btn {
 
     <div class="section-head">
       <span class="section-title" id="runs-title">Recent runs</span>
-      <div class="filters expert-only">
+      <div class="filters">
         <button class="chip on" data-status="">All</button>
         <button class="chip" data-status="error">Failed</button>
         <button class="chip" data-status="pending">Running</button>
@@ -804,7 +780,7 @@ a.btn {
   </section>
 
   <!-- Triggers: the list -->
-  <section class="view expert-only" id="view-triggers" role="tabpanel">
+  <section class="view" id="view-triggers" role="tabpanel">
     <div class="section-head">
       <span class="section-title">Triggers</span>
       <input class="text-input" id="trigger-filter" placeholder="Filter…" spellcheck="false" autocomplete="off">
@@ -820,7 +796,7 @@ a.btn {
   </section>
 
   <!-- Trigger detail -->
-  <section class="view expert-only" id="view-trigger" role="tabpanel">
+  <section class="view" id="view-trigger" role="tabpanel">
     <button class="back-link" id="trigger-back">← Back</button>
     <div id="trigger-detail"></div>
   </section>
@@ -856,10 +832,6 @@ const POLL_OK_MS = 3000;
    requests an hour. Back off and say so instead. */
 const POLL_BLOCKED_MS = 30000;
 
-function isSimple() {
-  return document.documentElement.getAttribute('data-ui-mode') === 'simple';
-}
-
 /* ============================================================
    Small helpers
    ============================================================ */
@@ -883,21 +855,13 @@ function el(tag, props = {}, children = []) {
 }
 function truncId(id) { return id ? id.slice(0, 8) : '—'; }
 
-/** Compact but readable — "14 min ago". Expert surfaces. */
+/** Compact but readable — "14 min ago". */
 function formatAge(sec) {
   if (sec == null) return '';
   if (sec < 60) return 'just now';
   if (sec < 3600) return Math.round(sec / 60) + ' min ago';
   if (sec < 86400) return Math.round(sec / 3600) + ' hr ago';
   return Math.round(sec / 86400) + ' d ago';
-}
-/** Spelled out — "14 minutes ago". Simple mode. */
-function formatAgeFriendly(sec) {
-  if (sec == null) return '';
-  if (sec < 60) return 'just now';
-  if (sec < 3600) { const m = Math.round(sec / 60); return m + (m === 1 ? ' minute ago' : ' minutes ago'); }
-  if (sec < 86400) { const h = Math.round(sec / 3600); return h + (h === 1 ? ' hour ago' : ' hours ago'); }
-  const d = Math.round(sec / 86400); return d + (d === 1 ? ' day ago' : ' days ago');
 }
 function formatDuration(sec) {
   if (sec == null) return null;
@@ -964,11 +928,6 @@ function outcomeOf(status) {
   if (status === 'completed') return 'ok';
   if (status === 'error') return 'err';
   return 'live';
-}
-function outcomeWord(status) {
-  if (status === 'completed') return 'Completed successfully';
-  if (status === 'error') return 'Did not finish';
-  return 'Running now';
 }
 
 // Build a <pre> with lightweight JSON syntax highlighting. Uses matchAll() so
@@ -1145,9 +1104,6 @@ function navigate(next, { push = true } = {}) {
    so they arrive through a dynamic import() rather than a top-level one. Until
    it settles — and standalone, where contributeHeader() is a no-op by
    construction — every publish below simply does nothing.
-
-   The tabs are chrome Simple mode already drops, and the hub collapses a
-   service tile's whole bar there, so neither item needs a Simple gate.
    ============================================================ */
 
 let headerContrib = null;
@@ -1248,19 +1204,6 @@ function renderStatus() {
 
   if (failed > 0) line.classList.add('is-error');
   else if (running > 0) line.classList.add('is-busy');
-
-  if (isSimple()) {
-    let headline;
-    if (failed > 0) headline = 'Some events need a look.';
-    else if (running > 0) headline = 'Running normally, with work in progress.';
-    else headline = 'Everything is running normally.';
-    const bits = [plural(armed, 'automation') + ' armed'];
-    if (running > 0) bits.push(plural(running, 'event') + ' in progress');
-    if (failed > 0) bits.push(plural(failed, 'event') + ' needs a look');
-    else if (done > 0) bits.push(plural(done, 'event') + ' completed recently');
-    text.textContent = headline + ' ' + bits.join(', ') + '.';
-    return;
-  }
 
   const parts = [plural(armed, 'trigger') + ' armed'];
   parts.push(plural(runs.length, 'recent run'));
@@ -1366,7 +1309,6 @@ function matchesFilter(r) {
 
 /** One run, as two lines. Shared by the Activity list and trigger detail. */
 function renderRunRow(r, { showName = true } = {}) {
-  const simple = isSimple();
   const outcome = outcomeOf(r.status);
   const row = el('div', {
     className: 'run-row is-' + outcome,
@@ -1376,23 +1318,15 @@ function renderRunRow(r, { showName = true } = {}) {
 
   const main = el('div', { className: 'run-main' });
   const headline = el('div', { className: 'run-headline' });
-  if (simple) {
-    headline.appendChild(el('span', { className: 'run-name', textContent: outcomeWord(r.status) }));
-    if (showName && r.trigger_name) {
-      headline.appendChild(el('span', { className: 'run-when', textContent: r.trigger_name }));
-    }
-    headline.appendChild(el('span', { className: 'run-when', textContent: formatAgeFriendly(r.age_sec) }));
-  } else {
-    if (showName) {
-      headline.appendChild(el('span', { className: 'run-name', textContent: r.trigger_name || 'Manual run' }));
-    }
-    const when = [formatAge(r.age_sec), formatDuration(r.duration_sec)].filter(Boolean).join(' · ');
-    headline.appendChild(el('span', { className: 'run-when', textContent: when }));
+  if (showName) {
+    headline.appendChild(el('span', { className: 'run-name', textContent: r.trigger_name || 'Manual run' }));
   }
+  const when = [formatAge(r.age_sec), formatDuration(r.duration_sec)].filter(Boolean).join(' · ');
+  headline.appendChild(el('span', { className: 'run-when', textContent: when }));
   main.appendChild(headline);
 
   const preview = r.error || (r.text_output || '').replace(/\s+/g, ' ').trim();
-  if (preview && !simple) {
+  if (preview) {
     main.appendChild(el('div', {
       className: 'run-preview' + (r.error ? ' is-err' : ''),
       textContent: preview.slice(0, 200),
@@ -1400,15 +1334,13 @@ function renderRunRow(r, { showName = true } = {}) {
   }
   row.appendChild(main);
 
-  row.appendChild(el('div', { className: 'run-id expert-only', textContent: truncId(r.run_id) }));
+  row.appendChild(el('div', { className: 'run-id', textContent: truncId(r.run_id) }));
   return row;
 }
 
 function renderRunList() {
   const host = $('#run-list');
   host.textContent = '';
-
-  $('#runs-title').textContent = isSimple() ? 'Recent activity' : 'Recent runs';
 
   for (const chip of document.querySelectorAll('.filters .chip')) {
     chip.classList.toggle('on', (chip.dataset.status || '') === filters.status);
@@ -1434,7 +1366,7 @@ function renderRunList() {
     host.appendChild(el('div', { className: 'empty-state' }, [
       el('span', {
         textContent: bare
-          ? (isSimple() ? 'Nothing has run yet.' : 'No runs recorded yet.')
+          ? 'No runs recorded yet.'
           : 'No runs match the current filters.',
       }),
       bare
@@ -1450,7 +1382,7 @@ function renderRunList() {
 
   if (filters.lane) {
     host.appendChild(el('button', {
-      className: 'back-link expert-only',
+      className: 'back-link',
       textContent: '× Clear ' + filters.lane + ' filter',
       style: { marginTop: '10px' },
       onclick: () => { filters.lane = ''; saveUrl(); renderRunList(); },
@@ -1717,7 +1649,6 @@ function renderRunDetail() {
     return;
   }
 
-  const simple = isSimple();
   const existing = document.getElementById('run-transcript');
   // The stream owns the transcript while it is open: repainting from the
   // polled snapshot mid-stream would duplicate text the stream has already
@@ -1733,12 +1664,10 @@ function renderRunDetail() {
   const head = el('div', { className: 'detail-head' });
   head.appendChild(el('span', {
     className: 'detail-title',
-    textContent: simple
-      ? outcomeWord(run.status)
-      : (run.trigger_name || 'Manual run') + ' · ' + truncId(run.run_id),
+    textContent: (run.trigger_name || 'Manual run') + ' · ' + truncId(run.run_id),
   }));
 
-  const actions = el('div', { className: 'detail-actions expert-only' });
+  const actions = el('div', { className: 'detail-actions' });
   if (run.status === 'pending') {
     actions.appendChild(el('button', {
       className: 'btn danger',
@@ -1790,21 +1719,14 @@ function renderRunDetail() {
   head.appendChild(actions);
   host.appendChild(head);
 
-  if (simple) {
-    host.appendChild(el('div', {
-      className: 'detail-summary',
-      textContent: (run.trigger_name ? run.trigger_name + ' · ' : '') + formatAgeFriendly(run.age_sec),
-    }));
-  } else {
-    const bits = [];
-    const dur = formatDuration(run.duration_sec);
-    if (dur) bits.push((run.status === 'error' ? 'Failed after ' : run.status === 'pending' ? 'Running for ' : 'Finished in ') + dur);
-    if (run.num_turns != null) bits.push(plural(run.num_turns, 'turn'));
-    if (run.tool_count) bits.push(plural(run.tool_count, 'tool'));
-    if (run.owner) bits.push('fired by ' + run.owner);
-    bits.push(formatAge(run.age_sec));
-    host.appendChild(el('div', { className: 'detail-summary expert-only', textContent: bits.filter(Boolean).join(' · ') }));
-  }
+  const bits = [];
+  const dur = formatDuration(run.duration_sec);
+  if (dur) bits.push((run.status === 'error' ? 'Failed after ' : run.status === 'pending' ? 'Running for ' : 'Finished in ') + dur);
+  if (run.num_turns != null) bits.push(plural(run.num_turns, 'turn'));
+  if (run.tool_count) bits.push(plural(run.tool_count, 'tool'));
+  if (run.owner) bits.push('fired by ' + run.owner);
+  bits.push(formatAge(run.age_sec));
+  host.appendChild(el('div', { className: 'detail-summary', textContent: bits.filter(Boolean).join(' · ') }));
 
   const transcript = preserved || el('div', { className: 'transcript', id: 'run-transcript' });
   host.appendChild(transcript);
@@ -1823,9 +1745,7 @@ function renderRunDetail() {
 function paintTranscript(container, run) {
   container.textContent = '';
   if (run.error) container.appendChild(el('div', { className: 'event event-error', textContent: '✘ ' + run.error }));
-  if (!isSimple()) {
-    for (const c of (run.tool_calls || [])) container.appendChild(renderToolCall(c));
-  }
+  for (const c of (run.tool_calls || [])) container.appendChild(renderToolCall(c));
   if (run.text_output) container.appendChild(el('div', { className: 'event event-text', textContent: run.text_output }));
   if (!run.error && !run.text_output && !(run.tool_calls || []).length) {
     container.appendChild(el('div', {
@@ -1846,7 +1766,7 @@ function renderToolCall(c) {
     catch { return inputStr.replace(/\s+/g, ' '); }
   })().slice(0, 90);
 
-  const wrap = el('div', { className: 'tool-call expert-only' });
+  const wrap = el('div', { className: 'tool-call' });
   const head = el('div', { className: 'tool-head', onclick: () => { wrap.classList.toggle('open'); } });
   head.appendChild(el('span', { className: 'chev', textContent: '▸' }));
   head.appendChild(el('span', { className: 'tool-name', textContent: c.name || '<tool>' }));
@@ -1932,7 +1852,7 @@ function handleStreamEvent(container, event) {
   } else if (event.type === 'tool_start') {
     const call = { name: event.name, input: event.input, result: null };
     streamParts.toolCalls.push(call);
-    if (!isSimple()) container.appendChild(renderToolCall(call));
+    container.appendChild(renderToolCall(call));
   } else if (event.type === 'tool_result') {
     const last = streamParts.toolCalls[streamParts.toolCalls.length - 1];
     if (last) last.result = event.result;
@@ -2061,27 +1981,6 @@ function wire() {
     }
   });
 }
-
-// Live Expert<->Simple switch broadcast by the hub (panel-manager postMessage).
-// The pre-paint rung (mode-boot.js) set the initial data-ui-mode; this is the
-// runtime flip. Coerce anything but "simple" to "expert", stamp <html>, then
-// re-render: wording is chosen off isSimple(), so it must be recomputed. Both
-// branches below reach render(), which re-publishes the tile-bar contribution
-// with the re-worded status sentence.
-window.addEventListener('message', (e) => {
-  if (e.origin !== window.location.origin) return;
-  if (e.data && e.data.type === 'osprey-mode-change' && e.data.mode) {
-    const mode = e.data.mode === 'simple' ? 'simple' : 'expert';
-    document.documentElement.setAttribute('data-ui-mode', mode);
-    // Simple mode has no Triggers side; bounce back to Activity rather than
-    // leaving the operator on a screen the stylesheet has just hidden.
-    if (mode === 'simple' && (view.name === 'triggers' || view.name === 'trigger')) {
-      navigate({ name: 'activity' });
-    } else {
-      render();
-    }
-  }
-});
 
 function init() {
   loadUrl();

@@ -45,7 +45,16 @@ from click.testing import CliRunner
 
 from osprey.cli.reset_cmd import reset as reset_command
 from osprey.deployment import reset as reset_mod
-from osprey.deployment.compose_generator import REPO_ID_LABEL, repo_identity
+from osprey.deployment.compose_generator import (
+    REPO_ID_LABEL,
+    repo_identity,
+    resolve_project_name,
+)
+from osprey.deployment.deployment_record import (
+    DEPLOYMENT_RECORD_RELPATH,
+    DeploymentRecord,
+    write_deployment_record,
+)
 from osprey.deployment.reset import (
     MINTED_ENV_BANNERS,
     ForeignCheckoutError,
@@ -216,7 +225,7 @@ def no_down(monkeypatch):
     stack was taken down before that point.
     """
     calls: list[Path] = []
-    monkeypatch.setattr(reset_mod, "down_deployment", lambda root: calls.append(Path(root)))
+    monkeypatch.setattr(reset_mod, "down_deployment", lambda root, **_: calls.append(Path(root)))
     return calls
 
 
@@ -606,7 +615,7 @@ def test_no_destructive_argv_is_a_glob_a_prune_or_an_all(repo):
 
 def test_the_down_runs_before_the_first_removal(repo, monkeypatch):
     order: list[str] = []
-    monkeypatch.setattr(reset_mod, "down_deployment", lambda root: order.append("down"))
+    monkeypatch.setattr(reset_mod, "down_deployment", lambda root, **_: order.append("down"))
     fake = FakeRuntime(containers={"mine": ours(repo)})
 
     original = fake.__call__
@@ -624,7 +633,7 @@ def test_the_down_runs_before_the_first_removal(repo, monkeypatch):
 
 
 def test_a_failing_down_aborts_before_anything_is_removed(repo, monkeypatch):
-    def boom(_root):
+    def boom(_root, **_):
         raise RuntimeError("`compose down` failed (exit 1)")
 
     monkeypatch.setattr(reset_mod, "down_deployment", boom)
@@ -636,6 +645,27 @@ def test_a_failing_down_aborts_before_anything_is_removed(repo, monkeypatch):
     assert fake.removals == []
     assert (repo / "var" / "agent_data" / "memory" / "notes.md").is_file()
     assert (repo / "build" / "config.yml").is_file()
+
+
+def test_a_reset_over_an_unreadable_record_stops_the_planned_project_and_removes_it(
+    repo, monkeypatch
+):
+    """The stop acts on the plan, never on the record a reset exists to clear."""
+    record = repo / DEPLOYMENT_RECORD_RELPATH
+    record.parent.mkdir(parents=True, exist_ok=True)
+    record.write_text("{not json", encoding="utf-8")
+    planned = plan_reset(repo, probe=RuntimeProbe("podman", run=FakeRuntime()))
+    downs: list[tuple[Path, dict]] = []
+    monkeypatch.setattr(
+        reset_mod, "down_deployment", lambda root, **kw: downs.append((Path(root), kw))
+    )
+
+    reset_deployment(
+        repo, probe=RuntimeProbe("podman", run=FakeRuntime()), assume_yes=True, emit=lambda _: None
+    )
+
+    assert downs == [(planned.repo_root, {"runtime": "podman", "project": planned.project})]
+    assert not record.exists()
 
 
 # ---------------------------------------------------------------------------
@@ -1389,6 +1419,45 @@ def test_without_a_build_the_hosts_overlay_outranks_profile_yml(repo):
     assert plan.project_name_source == "from profiles/scratch.yml"
 
 
+def test_the_recorded_project_is_the_one_reset_plans_against(repo):
+    """The project ``osprey up`` recorded outranks the one the build names."""
+    recorded = resolve_project_name({"project_name": "recorded-elsewhere"})
+    assert recorded != resolve_project_name({"project_name": PROJECT})
+    write_deployment_record(repo, DeploymentRecord("docker", recorded))
+
+    plan = plan_reset(repo, probe=make_probe(FakeRuntime()))
+
+    assert plan.project == recorded
+    assert plan.project_name_source == f"from {DEPLOYMENT_RECORD_RELPATH.as_posix()}"
+
+
+@pytest.mark.usefixtures("no_down")
+def test_reset_removes_the_deployment_record(repo):
+    """The record names a deployment the reset ends, so it goes and is not recreated."""
+    path = write_deployment_record(repo, DeploymentRecord("docker", PROJECT))
+
+    plan = plan_reset(repo, probe=make_probe(FakeRuntime()))
+    run_reset(repo, FakeRuntime())
+
+    assert path in plan.paths
+    assert not path.exists()
+
+
+@pytest.mark.usefixtures("no_down")
+def test_a_corrupt_record_does_not_block_a_reset(repo):
+    """A damaged record is named, the build's name answers, and the record goes."""
+    path = repo / DEPLOYMENT_RECORD_RELPATH
+    path.write_text("{not json", encoding="utf-8")
+
+    plan = plan_reset(repo, probe=make_probe(FakeRuntime()))
+    run_reset(repo, FakeRuntime())
+
+    assert plan.project == resolve_project_name({"project_name": PROJECT})
+    assert "build/config.yml" in plan.project_name_source
+    assert f"({DEPLOYMENT_RECORD_RELPATH.as_posix()} unreadable)" in plan.project_name_source
+    assert not path.exists()
+
+
 # ---------------------------------------------------------------------------
 # Images: verified by project label, because there is no per-checkout image
 # ---------------------------------------------------------------------------
@@ -1702,11 +1771,52 @@ def test_an_unreachable_runtime_refuses_instead_of_reporting_an_empty_plan(repo,
     """An empty filtered listing from a downed daemon looks exactly like "already clean"."""
     monkeypatch.setattr(
         "osprey.deployment.runtime_helper.verify_runtime_is_running",
-        lambda config=None: (False, "Docker daemon is not running"),
+        lambda config=None, **_: (False, "Docker daemon is not running"),
     )
 
     with pytest.raises(RuntimeError, match="not running"):
         reset_deployment(repo, assume_yes=True, emit=lambda _: None)
+
+
+def _probe_asked(repo, monkeypatch):
+    """The real runtime seam for *repo*, and every runtime its daemon check asked."""
+    asked: list[str | None] = []
+    monkeypatch.setattr(
+        "osprey.deployment.runtime_helper.verify_runtime_is_running",
+        lambda config=None, runtime=None: (asked.append(runtime), (True, ""))[1],
+    )
+    return reset_mod._default_probe(repo), asked
+
+
+def test_the_reset_probe_asks_the_recorded_runtime_and_pins_the_recorded_project(repo, monkeypatch):
+    monkeypatch.setenv("CONTAINER_RUNTIME", "docker")
+    record = DeploymentRecord("podman", "earlier-name")
+    write_deployment_record(repo, record)
+
+    probe, asked = _probe_asked(repo, monkeypatch)
+
+    assert asked == [record.runtime]
+    assert probe.runtime == record.runtime
+    assert probe._env["COMPOSE_PROJECT_NAME"] == record.compose_project
+
+
+@pytest.mark.parametrize("record_text", [None, "{not json"], ids=["no-record", "unreadable"])
+def test_the_reset_probe_without_a_readable_record_keeps_resets_chain(
+    repo, monkeypatch, record_text
+):
+    (repo / DEPLOYMENT_RECORD_RELPATH).unlink(missing_ok=True)
+    if record_text is not None:
+        (repo / DEPLOYMENT_RECORD_RELPATH).parent.mkdir(parents=True, exist_ok=True)
+        (repo / DEPLOYMENT_RECORD_RELPATH).write_text(record_text, encoding="utf-8")
+    monkeypatch.setattr(reset_mod, "get_runtime_command", lambda config=None: ["podman", "compose"])
+
+    probe, asked = _probe_asked(repo, monkeypatch)
+
+    assert probe.runtime == reset_mod.get_runtime_command(None)[0]
+    assert asked == [None]
+    config = reset_mod.load_as_built_config(repo)
+    expected = reset_mod.resolve_reset_project_name(repo, config)[0]
+    assert probe._env["COMPOSE_PROJECT_NAME"] == expected
 
 
 def test_a_listing_that_fails_is_raised_rather_than_read_as_empty(repo):
@@ -1860,7 +1970,7 @@ def test_an_interrupt_mid_teardown_reports_the_partial_state_not_a_clean_refusal
     """
     from osprey.deployment.reset import PARTIAL_RESET_EXIT_CODE
 
-    def interrupt_during_teardown(_root):
+    def interrupt_during_teardown(_root, **_):
         raise KeyboardInterrupt
 
     monkeypatch.setattr(reset_mod, "down_deployment", interrupt_during_teardown)

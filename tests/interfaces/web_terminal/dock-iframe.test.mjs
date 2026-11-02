@@ -49,6 +49,12 @@ vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/dock-workspace.js
   },
   onDragGesture: () => [],
 }));
+// The one question the adapter asks the pop-out seam: whether a panel lives
+// in its own window. The seam itself is popout.test.mjs's contract.
+const { isPoppedOut } = vi.hoisted(() => ({
+  isPoppedOut: vi.fn(/** @type {(id: string) => boolean} */ (() => false)),
+}));
+vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/popout.js', () => ({ isPoppedOut }));
 
 beforeEach(() => {
   vi.resetModules();
@@ -91,6 +97,18 @@ describe('first placement — the classic 60/40 split', () => {
       position: { referencePanel: 'terminal', direction: 'left' },
       initialWidth: 600,
     });
+  });
+
+  test("the overlay iframe takes the card's surface and its bottom corners", async () => {
+    const api = makeApi();
+    addTerminal(api);
+    const mod = await freshAdapter(api);
+    const iframe = makeIframe();
+
+    mod.adoptIframe('artifacts', iframe, { title: 'Artifacts' });
+
+    expect(iframe.style.borderRadius).toContain('var(--radius-xl)');
+    expect(iframe.style.background).toContain('var(--surface-card)');
   });
 });
 
@@ -239,6 +257,20 @@ describe('pruning — placeholders of server-closed panels', () => {
     mod.setKnownServicePanels(['lattice']);
 
     expect(api.getPanel('iframe:lattice')).not.toBeNull();
+  });
+
+  test('a panel living in its own pop-out window loses its restored tile, visible or not', async () => {
+    const api = makeApi();
+    addTerminal(api);
+    const mod = await freshAdapter(api);
+    api.addPanel({ id: 'iframe:lattice', component: 'dock-iframe-placeholder', title: 'LATTICE' });
+    isPoppedOut.mockImplementation((/** @type {string} */ id) => id === 'lattice');
+
+    mod.setServerVisiblePanels(new Set(['lattice']));
+    mod.setKnownServicePanels(['lattice']);
+
+    expect(api.getPanel('iframe:lattice')).toBeNull();
+    isPoppedOut.mockImplementation(() => false);
   });
 });
 

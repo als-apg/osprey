@@ -25,6 +25,13 @@ from osprey_connectors.identity import acting_identity
 from osprey_connectors_tests._harness import state_dir_under
 from tests.mcp_server._report_root import state_root as state_root
 
+
+@pytest.fixture(autouse=True)
+def empty_proc(tmp_path_factory, monkeypatch):
+    """An empty ``/proc``, so a PID faked through ``os.kill`` never meets a real thread."""
+    monkeypatch.setattr(control_context, "_PROC_ROOT", str(tmp_path_factory.mktemp("proc")))
+
+
 TARGETS_META = {
     "live": {
         "label": "Example storage ring",
@@ -665,6 +672,12 @@ class _FakeManager:
     def active_proxy(self):
         return self.proxy
 
+    async def serving_proxy(self):
+        return self.proxy
+
+    def active_binding(self):
+        return ("live", 0)
+
     def active_target(self):
         return "live"
 
@@ -709,15 +722,15 @@ class TestServerStartClaimsTheRecord:
             control_context_root,
             target="va",
             generation=7,
-            switch={"va": "on"},
+            switch={"va": "asked"},
             owned_by=None,
         )
 
         claimed = server_context.claim_control_context(baseline="live")
 
         assert claimed is not None
-        assert claimed.switch == {"va": "on"}
-        assert claimed.posture == control_context.posture_mirror({"va": "on"})
+        assert claimed.switch == {"va": "asked"}
+        assert claimed.posture == control_context.posture_mirror({"va": "asked"})
 
     def test_claim_moves_generation_zero_live_record_to_va(
         self, control_context_root, write_control_context

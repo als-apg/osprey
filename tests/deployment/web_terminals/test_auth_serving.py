@@ -131,6 +131,7 @@ from osprey_connectors.dotenv import (
 from osprey_connectors_tests._harness._ports import reserved_port
 from tests._container_support import docker_cli_unavailable_reason_once
 from tests._renders import tier_render
+from tests.deployment.web_terminals._sidecar_http import wait_for_http
 from tests.services.auth_sidecar.mock_idp import DEFAULT_CLIENT_ID, DEFAULT_CLIENT_SECRET
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -267,7 +268,12 @@ def _build_harness_image(tmp_path: Path) -> str:
     dockerfile = _harness_dockerfile()
     tag = f"osprey-auth-serving-harness:{hashlib.sha256(dockerfile.encode()).hexdigest()[:12]}"
 
-    if subprocess.run(["docker", "image", "inspect", tag], capture_output=True).returncode == 0:
+    if (
+        subprocess.run(
+            ["docker", "image", "inspect", tag], capture_output=True, timeout=60
+        ).returncode
+        == 0
+    ):
         return tag
 
     context = tmp_path / "harness"
@@ -298,7 +304,9 @@ def _ensure_image(reference: str) -> None:
     Pulling up front with a bounded retry keeps a registry hiccup from being
     reported as a failure of the perimeter.
     """
-    present = subprocess.run(["docker", "image", "inspect", reference], capture_output=True)
+    present = subprocess.run(
+        ["docker", "image", "inspect", reference], capture_output=True, timeout=60
+    )
     if present.returncode == 0:
         return
     pulled = None
@@ -450,9 +458,10 @@ class Stack:
         subprocess.run(["docker", "rm", "-f", self.auth_container], capture_output=True, timeout=60)
         started = subprocess.run(self.auth_run_argv, capture_output=True, text=True, timeout=180)
         assert started.returncode == 0, started.stderr
-        _wait_for(
+        wait_for_http(
             f"{self.base_url}/auth/login?user=alice",
-            names=[self.auth_container],
+            containers=[self.auth_container],
+            timeout=_READY_TIMEOUT,
             what="the recreated auth sidecar",
             ok=_login_page_status(self.auth_method),
         )
@@ -549,44 +558,13 @@ def _rendered_upstream_ports(nginx_conf: str) -> dict[str, int]:
     return {m.group("user"): int(m.group("port")) for m in _UPSTREAM_RE.finditer(nginx_conf)}
 
 
-def _docker_logs(name: str) -> str:
-    result = subprocess.run(
-        ["docker", "logs", "--tail", "40", name], capture_output=True, text=True
-    )
-    return f"--- {name} ---\n{result.stdout}\n{result.stderr}"
-
-
-def _wait_for(
-    url: str,
-    *,
-    names: list[str],
-    what: str,
-    timeout: float = 240.0,
-    ok: tuple[int, ...] = (200,),
-) -> None:
-    """Poll ``url`` until it answers with an ``ok`` status, else fail with the logs.
-
-    The default deadline is sized for a saturated host, not an idle one: the
-    sidecar's ``docker run`` returns long before uvicorn is listening, and with
-    an image build running alongside that gap has been observed past a minute
-    (#822). A generous deadline costs nothing on a healthy start — the poll
-    returns on the first good answer — and on a dead one the logs, not the
-    deadline, are the diagnosis.
-    """
-    deadline = time.monotonic() + timeout
-    last = "no attempt made"
-    while time.monotonic() < deadline:
-        try:
-            response = httpx.get(url, timeout=5)
-        except httpx.HTTPError as exc:  # not up yet
-            last = repr(exc)
-        else:
-            if response.status_code in ok:
-                return
-            last = f"HTTP {response.status_code}"
-        time.sleep(0.5)
-    logs = "\n".join(_docker_logs(name) for name in names)
-    raise AssertionError(f"{what} never became ready ({last})\n{logs}")
+#: How long a ``docker run`` sidecar gets to answer. Sized for a saturated host,
+#: not an idle one: the sidecar's ``docker run`` returns long before uvicorn is
+#: listening, and with an image build running alongside that gap has been
+#: observed past a minute (#822). A generous deadline costs nothing on a healthy
+#: start — the poll returns on the first good answer — and on a dead one the
+#: logs, not the deadline, are the diagnosis.
+_READY_TIMEOUT = 240.0
 
 
 _COMPOSE_INTERPOLATION = re.compile(
@@ -946,11 +924,12 @@ def serving_stack(tmp_path: Path, *, oidc: bool = False) -> Iterator[Stack]:
         base_url = f"http://127.0.0.1:{nginx_port}"
         # The landing page is nginx's own healthcheck target and needs no
         # session; the login page is the first thing that requires the sidecar.
-        _wait_for(f"{base_url}/", names=names, what="nginx")
-        _wait_for(
+        wait_for_http(f"{base_url}/", containers=names, what="nginx", timeout=_READY_TIMEOUT)
+        wait_for_http(
             f"{base_url}/auth/login?user=alice",
-            names=names,
+            containers=names,
             what="the auth sidecar",
+            timeout=_READY_TIMEOUT,
             ok=_login_page_status(auth_method),
         )
         if idp_issuer is not None:
@@ -958,10 +937,11 @@ def serving_stack(tmp_path: Path, *, oidc: bool = False) -> Iterator[Stack]:
             # the published port. The sidecar fetches discovery at the first
             # login, so a provider that is not up yet would surface there as a
             # 502 with nothing to say about why.
-            _wait_for(
+            wait_for_http(
                 f"{idp_issuer}/.well-known/openid-configuration",
-                names=names,
+                containers=names,
                 what="the stub OpenID provider",
+                timeout=_READY_TIMEOUT,
             )
 
         yield Stack(
