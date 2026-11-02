@@ -1300,6 +1300,16 @@ class TestStubComposite:
         # A float channel stating no precision is served the default, not CA's 0.
         assert _ca_precision(STUB_SETPOINT) == FLOAT_PRECISION
 
+    def test_a_child_failed_at_build_names_its_error_on_its_status_channel(
+        self, stub_server: _Server
+    ) -> None:
+        failed = f"{STUB_CODE}:SIM:F:STATUS"
+        serving = f"{STUB_CODE}:SIM:M:STATUS"
+
+        assert _ca_text(failed) == "the stub has no deck"
+        assert stub_server.pva_get(failed)["value"] == "the stub has no deck"
+        assert _ca_text(serving) == "ok"
+
     def test_a_failed_childs_bool_and_enum_outputs_are_invalid(self, stub_server: _Server) -> None:
         for address in (STUB_FLAG, STUB_MODE):
             assert _ca_alarm(address) == CA_UDF, address

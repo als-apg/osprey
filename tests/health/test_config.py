@@ -380,7 +380,7 @@ def test_core_category_names_content() -> None:
     assert "providers" in CORE_CATEGORY_NAMES
     assert "claude_cli_pinned" in CORE_CATEGORY_NAMES
     assert "agent_record" in CORE_CATEGORY_NAMES
-    assert len(CORE_CATEGORY_NAMES) == 18
+    assert len(CORE_CATEGORY_NAMES) == 19
 
 
 # --- timeout resolution helpers ---------------------------------------------
