@@ -23,11 +23,11 @@ read as a facility name.
 from __future__ import annotations
 
 import re
-from collections.abc import Iterable, Mapping
+from collections.abc import Collection, Iterable, Mapping
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, get_args
+from typing import TYPE_CHECKING, Any
 
-from osprey.facility.records import RecordKind
+from osprey.facility.records import LINK_KINDS, LinkKind
 
 if TYPE_CHECKING:
     from osprey.facility.records import FacilityRecords
@@ -62,6 +62,11 @@ _CODE_SPAN = re.compile(r"(?<!`)(`+)(?!`).*?(?<!`)\1(?!`)", re.DOTALL)
 _ESCAPE = re.compile(r"\\(.)", re.DOTALL)
 
 
+def _link_kinds(kinds: Collection[str]) -> tuple[LinkKind, ...]:
+    """The link kinds among ``kinds``, in ``LINK_KINDS`` order and distinct."""
+    return tuple(kind for kind in LINK_KINDS if kind in kinds)
+
+
 @dataclass(frozen=True)
 class FacilityReference:
     """One mention of a facility record in a text.
@@ -70,8 +75,9 @@ class FacilityReference:
         start: The offset where the mention starts in the text.
         end: The offset just past the mention; greater than ``start``.
         target: The channel id or device id the mention names; never empty.
-        kinds: The kinds of record ``target`` resolves to, sorted and
-            distinct; empty when it resolves to none or was not looked up.
+        kinds: The kinds of record ``target`` resolves to, in ``LINK_KINDS``
+            order and distinct; empty when it resolves to none or was not
+            looked up.
         label: The text an author gave a facility link, with its backslash
             escapes undone; ``None`` for a mention that is not a link. A mention
             spans exactly its target (``end - start == len(target)``); a link
@@ -84,7 +90,7 @@ class FacilityReference:
     start: int
     end: int
     target: str
-    kinds: tuple[RecordKind, ...] = ()
+    kinds: tuple[LinkKind, ...] = ()
     label: str | None = None
 
     def __post_init__(self) -> None:
@@ -97,10 +103,12 @@ class FacilityReference:
                 f"a mention spans its target {self.target!r}, not {self.start}..{self.end}"
             )
         kinds = tuple(self.kinds)
-        if any(kind not in get_args(RecordKind) for kind in kinds):
+        if any(kind not in LINK_KINDS for kind in kinds):
             raise ValueError(f"a reference resolves to channels or devices, not {kinds!r}")
-        if kinds != tuple(sorted(set(kinds))):
-            raise ValueError(f"a reference's kinds are sorted and distinct, not {kinds!r}")
+        if kinds != _link_kinds(kinds):
+            raise ValueError(
+                f"a reference's kinds are channel then device, each once, not {kinds!r}"
+            )
         object.__setattr__(self, "kinds", kinds)
 
     def to_json(self) -> dict[str, Any]:
@@ -184,9 +192,9 @@ def find_facility_links(
         target = _ESCAPE.sub(r"\1", angle) if angle is not None else parsed.group("bare")
         if not target:
             continue
-        kinds: tuple[RecordKind, ...] = ()
+        kinds: tuple[LinkKind, ...] = ()
         if records is not None:
-            kinds = tuple(sorted({record.kind for record in records.resolve(target)}))
+            kinds = _link_kinds({record.kind for record in records.resolve(target)})
         found.append(
             FacilityReference(
                 match.start(),
@@ -230,7 +238,7 @@ def find_facility_references(text: str, records: FacilityRecords) -> list[Facili
         if target is None:
             position += 1
             continue
-        kinds = tuple(dict.fromkeys(record.kind for record in records.resolve(target)))
+        kinds = _link_kinds({record.kind for record in records.resolve(target)})
         found.append(FacilityReference(position, position + len(target), target, kinds))
         position += len(target)
     return found
@@ -270,7 +278,7 @@ def resolved_references(
         described = records.describe(found.target) if records is not None else None
         kinds = found.kinds
         if described is not None:
-            kinds = tuple(sorted({entry["kind"] for entry in described}))
+            kinds = _link_kinds({entry["kind"] for entry in described})
         resolved.append(
             {
                 "start": found.start,

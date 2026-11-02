@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from osprey.facility.records import FacilityRecords
+from osprey.facility.records import LINK_KINDS, FacilityRecords
 from osprey.facility.references import (
     LINK_SCHEME,
     FacilityReference,
@@ -54,6 +54,21 @@ def test_a_reference_breaking_its_invariants_is_refused() -> None:
         FacilityReference(0, 1, "X", ("device", "channel"))
     with pytest.raises(ValueError):
         FacilityReference(0, 1, "X", ("place",))  # type: ignore[arg-type]
+
+
+def test_a_references_kinds_follow_link_kinds_order() -> None:
+    records = FacilityRecords({"channels": [{"id": "TWIN"}], "devices": [{"id": "TWIN"}]})
+    expected = ("channel", "device")
+    assert tuple(LINK_KINDS) == expected
+
+    (link,) = find_facility_links("[a](facility:TWIN)", records)
+    (quote,) = find_facility_references("the TWIN reads", records)
+    ((resolved),) = resolved_references([FacilityReference(0, 4, "TWIN")], records)
+    assert link.kinds == expected
+    assert quote.kinds == expected
+    assert tuple(resolved["kinds"]) == expected
+    with pytest.raises(ValueError):
+        FacilityReference(0, 1, "X", ("channel", "channel"))
 
 
 def test_links_in_code_are_not_links() -> None:
