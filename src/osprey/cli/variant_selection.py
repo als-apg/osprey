@@ -17,13 +17,14 @@ agent should ever see.
 
 Everything here reads; nothing writes. :func:`resolve_variant_selection` is the
 whole surface — it answers "which overlay, if any, does this host want", warns
-about the two states an operator would want to know about (the setting file
-committed by accident, a variant named but no variants in the repo), and raises
-only for a name the repo cannot honor.
+about the three states an operator would want to know about (the setting file
+committed by accident, git unable to say whether it is, a variant named but no
+variants in the repo), and raises only for a name the repo cannot honor.
 """
 
 from __future__ import annotations
 
+import os
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
@@ -157,12 +158,47 @@ def active_variant_overlay(repo_root: Path) -> Path | None:
     return path if path.is_file() else None
 
 
-def _is_git_tracked(repo_root: Path, relative: str) -> bool:
+@dataclass(frozen=True)
+class _TrackedAnswer:
+    """What the tracked probe learned: tracked, untracked, or could not tell.
+
+    Attributes:
+        tracked: ``True`` or ``False`` when git answered; ``None`` when it did
+            not, and the probe cannot say either way.
+        cause: Why the probe could not tell. Set exactly when ``tracked`` is
+            ``None``.
+    """
+
+    tracked: bool | None
+    cause: str = ""
+
+    def __post_init__(self) -> None:
+        if (self.tracked is None) != bool(self.cause):
+            raise ValueError("_TrackedAnswer carries a cause exactly when tracked is None")
+
+
+def _enclosed_by_repository(repo_root: Path) -> bool:
+    """Whether a git repository could enclose ``repo_root``.
+
+    True when ``GIT_DIR`` is set or ``repo_root`` or any ancestor holds a
+    ``.git`` entry (a directory, or the file a worktree has).
+    """
+    if os.environ.get("GIT_DIR"):
+        return True
+    resolved = repo_root.resolve()
+    return any((directory / ".git").exists() for directory in (resolved, *resolved.parents))
+
+
+def _git_tracked(repo_root: Path, relative: str) -> _TrackedAnswer:
     """Whether git tracks ``relative`` inside ``repo_root``.
 
-    Best-effort by construction: no git, no repository, or a git that takes too
-    long all answer "not tracked". The probe exists to catch a real mistake, so
-    it must never be the reason a build fails.
+    Three answers. Git exiting 0 is tracked, exiting 1 is untracked, and any
+    other exit is untracked only when no repository encloses ``repo_root``.
+    Every other outcome (no git, a git that does not answer within
+    :data:`_GIT_PROBE_TIMEOUT_S`, a git that fails inside a repository) is
+    "could not tell", with git's own reason as the cause; git's stderr is shown,
+    never matched. The probe exists to catch a real mistake, so it must never be
+    the reason a build fails.
     """
     try:
         completed = subprocess.run(
@@ -172,9 +208,19 @@ def _is_git_tracked(repo_root: Path, relative: str) -> bool:
             text=True,
             timeout=_GIT_PROBE_TIMEOUT_S,
         )
-    except (OSError, subprocess.SubprocessError):
-        return False
-    return completed.returncode == 0
+    except subprocess.TimeoutExpired:
+        return _TrackedAnswer(
+            tracked=None, cause=f"git did not answer within {_GIT_PROBE_TIMEOUT_S:g} s"
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        return _TrackedAnswer(tracked=None, cause=str(exc) or type(exc).__name__)
+    if completed.returncode == 0:
+        return _TrackedAnswer(tracked=True)
+    if completed.returncode == 1 or not _enclosed_by_repository(repo_root):
+        return _TrackedAnswer(tracked=False)
+    stderr = (completed.stderr or "").strip().splitlines()
+    detail = f": {stderr[0]}" if stderr else ""
+    return _TrackedAnswer(tracked=None, cause=f"git exited {completed.returncode}{detail}")
 
 
 def _unknown_variant_error(name: str, available: list[str]) -> BuildProfileError:
@@ -195,9 +241,10 @@ def resolve_variant_selection(repo_root: Path) -> VariantSelection:
     The four outcomes, in the order they are decided:
 
     * No setting in force — nothing selected, no notices. The ordinary case.
-    * The setting file is tracked by git — the choice is host-local, so a
-      committed one would follow the repo onto every other host. Warned about,
-      never fatal, and resolution continues.
+    * The setting file is tracked by git, or git could not be asked — the
+      choice is host-local, so a committed one would follow the repo onto every
+      other host. Either is warned about, never fatal, and resolution
+      continues; git answering "untracked", or no repository at all, is silent.
     * A variant is named but the repo defines none — the setting is ignored
       with a notice. This is what a host looks like after the variants are
       removed from the repo, and refusing there would break a build whose
@@ -223,7 +270,14 @@ def resolve_variant_selection(repo_root: Path) -> VariantSelection:
 
     notices: list[str] = []
 
-    if _is_git_tracked(repo_root, VARIANT_SETTING_FILENAME):
+    answer = _git_tracked(repo_root, VARIANT_SETTING_FILENAME)
+    if answer.tracked is None:
+        notice = (
+            f"could not check whether {VARIANT_SETTING_FILENAME} is tracked by git: {answer.cause}"
+        )
+        logger.warning(notice)
+        notices.append(notice)
+    elif answer.tracked:
         notice = (
             f"{VARIANT_SETTING_FILENAME} is tracked by git — it names which variant "
             f"THIS host builds, so committing it hands the same choice to every other "
