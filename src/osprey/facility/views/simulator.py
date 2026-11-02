@@ -7,7 +7,7 @@ Written into ``<render>/data/simulator/``::
     decks/<model><suffix>   a byte copy of each deck-bearing model's deck, under its own suffix
     variables.json       {schema: osprey.facility.simulator/2, code, models: [...], channels: [...]}
     seeds.json           {schema: osprey.facility.seeds/2, seeds: {<address>: <seed record>}}
-    scenarios.json       {schema: osprey.facility.scenarios/2, scenarios: [...]}
+    scenarios.json       {schema: osprey.facility.scenarios/3, scenarios: [...]}
     scenarios/<name>/    a byte copy of each file a scenario's logbook entries attach
 
 ``models`` lists the served physics models sorted by name, then ``texture``;

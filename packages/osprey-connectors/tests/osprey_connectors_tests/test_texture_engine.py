@@ -535,12 +535,12 @@ def test_a_stilled_reading_serves_its_held_value():
     assert model.has_motion("T:NOISY") is False
 
 
-def test_still_all_stills_every_float_reading():
+def test_a_still_list_stills_every_float_reading_it_names():
     model, clock = _clocked()
     model.set_motion(
         {"T:ZERO": [{"driver": "d1", "gain": 0.5, "drive": _DRIVE}]},
         {"T:HEAT:RB": {"absolute": 1.0}},
-        still_all=True,
+        still=frozenset({"T:NOISY", "T:CLAMPED", "T:ZERO", "T:HEAT:RB", "P:SERVED:RB"}),
     )
 
     for address in ("T:NOISY", "T:CLAMPED", "T:ZERO", "T:HEAT:RB", "P:SERVED:RB"):

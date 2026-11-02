@@ -247,7 +247,6 @@ class TextureModel(LUMEModel):
         self._couple: dict[str, list[Mapping[str, Any]]] = {}
         self._noise: dict[str, Mapping[str, Any]] = {}
         self._still: frozenset[str] = frozenset()
-        self._still_all = False
         self._active: dict[str, Any] = {}
         self.reset()
 
@@ -375,7 +374,6 @@ class TextureModel(LUMEModel):
         noise: Mapping[str, Mapping[str, Any]],
         *,
         still: frozenset[str] = frozenset(),
-        still_all: bool = False,
     ) -> None:
         """Hold the active scenarios' motion until the next call.
 
@@ -388,15 +386,10 @@ class TextureModel(LUMEModel):
                 ``{relative: <fraction>}``, standing in for the seed's.
                 Empty for the seeds' noise.
             still: Addresses served without motion.
-            still_all: Every address is served without motion.
         """
         self._couple = {str(address): list(terms) for address, terms in couple.items()}
         self._noise = {str(address): dict(entry) for address, entry in noise.items()}
         self._still = frozenset(str(address) for address in still)
-        self._still_all = still_all
-
-    def _stilled(self, address: str) -> bool:
-        return self._still_all or address in self._still
 
     def motion(self, address: str, t_s: Any, base: Any = 0.0) -> np.ndarray:
         """The motion of a channel at absolute epoch seconds.
@@ -422,7 +415,7 @@ class TextureModel(LUMEModel):
         flat = times.reshape(-1)
         total = np.zeros(flat.shape, dtype=np.float64)
         channel = self._channels.get(address)
-        if channel is None or not is_float_channel(channel) or self._stilled(address):
+        if channel is None or not is_float_channel(channel) or address in self._still:
             return total.reshape(times.shape)
         seed = self._seeds.get(address) or {}
         key = series.channel_key_bytes(address)
@@ -457,7 +450,7 @@ class TextureModel(LUMEModel):
         if self._pulse(address) is not None:
             return True
         channel = self._channels.get(address)
-        if channel is None or not is_float_channel(channel) or self._stilled(address):
+        if channel is None or not is_float_channel(channel) or address in self._still:
             return False
         seed = self._seeds.get(address) or {}
         if self._couple.get(address) or topoff.topoff_record(seed) is not None:
