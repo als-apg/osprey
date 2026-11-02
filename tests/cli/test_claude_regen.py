@@ -17,6 +17,7 @@ from pathlib import Path
 import pytest
 import yaml
 
+from osprey.agent_runner.build_artifacts.catalog import BuildArtifactCatalog
 from osprey.agent_runner.provider_env import MANAGED_ENV_VARS
 from osprey.cli.templates import claude_code
 from osprey.cli.templates.manager import TemplateManager
@@ -73,11 +74,12 @@ def _own(project_dir: Path, name: str) -> None:
 # Hook modules that are shipped into .claude/hooks/ as importable support code
 # rather than as hook entry points. They are deliberately absent from
 # settings.json and are excluded from the settings <-> hooks parity invariant.
+# The build catalog names them (``BuildArtifactCatalog.helpers()``).
+_CATALOG = BuildArtifactCatalog.default()
 HOOK_LIBRARY_MODULES = {
-    "osprey_hook_log.py",
-    "osprey_prompt_render.py",
-    "osprey_safety_file.py",
-    "osprey_target_state.py",
+    Path(a.output_path).name
+    for a in _CATALOG.all_artifacts()
+    if a.canonical_name in _CATALOG.helpers()
 }
 
 _HOOK_BASENAME_RE = re.compile(r"osprey_[A-Za-z0-9_]+\.py")
