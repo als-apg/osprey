@@ -21,12 +21,12 @@ from typing import TYPE_CHECKING
 
 from docs.screenshots import video_layout
 from docs.screenshots.video_beats import Beat, click, focus, hold, prompt, wait_for, wait_gone
-from docs.screenshots.video_code_review import CODE_REVIEW, INIT_SETS
+from docs.screenshots.video_code_review import CODE_REVIEW, INIT_SETS, acknowledge_settings
 from docs.screenshots.video_landing import LANDING
 from docs.screenshots.video_layout import Layout
 
 if TYPE_CHECKING:
-    from docs.screenshots.video_take import Take
+    from docs.screenshots.video_take import Take, TakeContext
 
 _ALLOWED_THEMES = frozenset({"dark", "light"})
 
@@ -75,6 +75,10 @@ class DocVideo:
 
     write_switch: tuple[str, str] | None = None
     """(target, position) the login's write switch is moved to before ``history``."""
+
+    before_record: Callable[[TakeContext], None] | None = None
+    """Off-camera setup run on the take after ``history``, just before recording:
+    what the storyboard relies on but must not show."""
 
 
 # ---------------------------------------------------------------------------
@@ -151,8 +155,9 @@ VIDEOS: tuple[DocVideo, ...] = (
         layout=Layout(surface="chat", active="channel-finder", tiles=("channel-finder",)),
         pages=("how-to/control-systems/code-review.rst",),
         poster_step="verdict",
-        window_s=(40.0, 80.0),
+        window_s=(50.0, 90.0),
         init_sets=INIT_SETS,
+        before_record=acknowledge_settings,
     ),
 )
 

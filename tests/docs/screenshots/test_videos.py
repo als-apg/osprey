@@ -250,17 +250,24 @@ def test_history_is_refused_on_the_terminal() -> None:
 
 
 def test_the_code_review_video_shows_the_rule_before_the_mark_and_the_prompt() -> None:
-    """Settings → Safety → the rules, spotlit, then the drawer closes before the arm."""
+    """Channels, ⌘K to the rules, spotlit, then the drawer closes before the arm."""
     beats = [b.name for b in video_named("code-review").storyboard]
     opening = [
-        "more",
-        "settings",
+        "channels",
+        "palette",
+        "search",
+        "row",
+        "reveal",
         "settings-open",
-        "safety",
-        "rules-listed",
-        "rules",
         "rules-shown",
     ]
     assert beats[: len(opening)] == opening
     order = ["rule", "close", "settings-closed", "arm", "ask"]
+    order += ["review", "blocked", "resubmit", "verdict", "allow", "ran", "result"]
     assert [beats.index(name) for name in order] == sorted(beats.index(name) for name in order)
+
+
+def test_the_code_review_warning_is_acknowledged_before_recording() -> None:
+    from docs.screenshots.video_code_review import acknowledge_settings
+
+    assert video_named("code-review").before_record is acknowledge_settings

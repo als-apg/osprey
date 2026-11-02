@@ -15,6 +15,7 @@ from docs.screenshots.video_beats import (
     spotlight,
     wait_for,
     wait_gone,
+    wait_until,
 )
 from docs.screenshots.video_probes import ProbeFailed
 
@@ -240,3 +241,17 @@ def test_spotlight_clears_even_when_the_hold_is_interrupted() -> None:
     with pytest.raises(RuntimeError):
         spotlight("rule", None, "li", ms=1)(FakeTake(page))
     assert page.spotlights == [BOX, None]
+
+
+def test_wait_until_returns_once_its_check_of_the_take_holds() -> None:
+    take = FakeTake()
+    beat = wait_until("hook", None, lambda t: t.page.ticks >= 2, what="no record", budget_ms=60_000)
+    beat.run(take)
+    assert take.page.ticks == 2
+
+
+def test_wait_until_timeout_names_what_never_happened() -> None:
+    take = FakeTake()
+    beat = wait_until("hook", None, lambda _t: False, what="no record", budget_ms=1_000)
+    failed = _failure(beat, take)
+    assert failed.step == "hook" and failed.detail.startswith("no record within 1000 ms")

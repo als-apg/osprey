@@ -10,7 +10,7 @@ a failed take says where it failed.
 A wait on the screen (:func:`wait_for`, :func:`wait_gone`) also watches the
 agent while it polls: an API error ending the turn, an unanswered terminal
 dialog and a stall each fail the beat at once, and so does any selector named
-in ``refuse``. A probe only one video needs is a custom beat: a
+in ``refuse``; :func:`wait_until` waits the same way on a check of the take. A probe only one video needs is a custom beat: a
 ``Beat(name, caption, run)`` with the video's own ``run(take)``, or a plain
 ``run(take)`` callable that opens its own steps.
 """
@@ -115,7 +115,7 @@ def spotlight(
 def _wait(
     name: str,
     caption: str | None,
-    done: Callable[[Any], bool],
+    done: Callable[[Take], bool],
     what: str,
     budget_ms: int,
     fast_forward: bool,
@@ -125,7 +125,7 @@ def _wait(
     def run(take: Take) -> None:
         watch = take.watch(name, dialogs)
         for _ in range(max(1, -(-budget_ms // video_probes.POLL_MS))):
-            if done(take.page):
+            if done(take):
                 return
             for selector, why in refuse:
                 if shown(take.page, selector):
@@ -134,7 +134,7 @@ def _wait(
                 raise ProbeFailed(name, "the agent's turn ended in an API error")
             watch()
             take.page.wait_for_timeout(video_probes.POLL_MS)
-        if done(take.page):
+        if done(take):
             return
         raise ProbeFailed(
             name,
@@ -164,7 +164,7 @@ def wait_for(
     return _wait(
         name,
         caption,
-        lambda page: shown(page, selector, text),
+        lambda take: shown(take.page, selector, text),
         what,
         budget_ms,
         fast_forward,
@@ -185,10 +185,29 @@ def wait_gone(
     return _wait(
         name,
         caption,
-        lambda page: not shown(page, selector),
+        lambda take: not shown(take.page, selector),
         f"{selector} still on screen",
         budget_ms,
         False,
         (),
         dialogs,
     )
+
+
+def wait_until(
+    name: str,
+    caption: str | None,
+    done: Callable[[Take], bool],
+    *,
+    what: str,
+    budget_ms: int,
+    fast_forward: bool = False,
+    refuse: tuple[tuple[str, str], ...] = (),
+    dialogs: tuple[str, ...] = video_check_stall.NOTICE_DIALOGS,
+) -> Beat:
+    """Wait until ``done(take)``, watching the agent as :func:`wait_for` does.
+
+    For a witness that is not on screen, such as a hook's own record; *what*
+    names what never happened when the budget runs out.
+    """
+    return _wait(name, caption, done, what, budget_ms, fast_forward, refuse, dialogs)
