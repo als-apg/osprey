@@ -30,6 +30,7 @@ from osprey.services.code_review.contract import (
     SURFACE_NOTEBOOK,
     ReviewFailure,
     ReviewRequest,
+    ReviewSwitchedOff,
     ReviewVerdict,
     render_request,
 )
@@ -40,6 +41,7 @@ from osprey.services.code_review.review import (
     decide,
     notice_text,
     review_code,
+    skip_switched_off,
 )
 from osprey.services.code_review.settings import (
     DEFAULT_PROMPT,
@@ -744,3 +746,47 @@ def test_a_failure_message_stays_out_of_the_audit_fields() -> None:
     fields = audit_fields(decide(failure, "block"), REQUEST)
 
     assert fields.detail == "review=failure level=block kind=unparseable mode=readwrite"
+
+
+# ---------------------------------------------------------------------------
+# A review the runtime switch left out
+# ---------------------------------------------------------------------------
+
+_OFF = ReviewSwitchedOff(off_by="alice", off_at=1700000000.0)
+
+
+@pytest.mark.parametrize("level", ["block", "flag", None])
+def test_a_switched_off_review_proceeds_at_every_level(level: str | None) -> None:
+    outcome = skip_switched_off(_OFF, level)
+
+    assert outcome.action == "proceed"
+    assert outcome.result is _OFF
+
+
+def test_a_switched_off_review_is_recorded_as_skipped_with_who() -> None:
+    fields = audit_fields(skip_switched_off(_OFF, "block"), REQUEST)
+
+    assert fields.decision == "allowed"
+    assert fields.reason == "code_review"
+    assert fields.detail == "review=skipped level=block kind=switched_off by=alice mode=readwrite"
+
+
+def test_a_switched_off_record_keeps_who_on_one_token() -> None:
+    off = ReviewSwitchedOff(off_by="Ada  Lovelace\nx", off_at=None)
+
+    detail = audit_fields(skip_switched_off(off, "flag"), _NOTEBOOK_REQUEST).detail
+
+    assert detail == "review=skipped level=flag kind=switched_off by=Ada_Lovelace_x"
+
+
+def test_a_switched_off_record_without_who_says_only_switched_off() -> None:
+    detail = audit_fields(skip_switched_off(ReviewSwitchedOff(), "block"), _NOTEBOOK_REQUEST).detail
+
+    assert detail == "review=skipped level=block kind=switched_off"
+
+
+def test_a_switched_off_review_tells_neither_the_agent_nor_the_feed() -> None:
+    outcome = skip_switched_off(_OFF, "block")
+
+    assert agent_message(outcome) is None
+    assert notice_text(outcome, REQUEST) is None

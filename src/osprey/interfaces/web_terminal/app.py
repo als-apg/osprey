@@ -59,6 +59,7 @@ from osprey.interfaces.web_terminal.routes.safety_switches import router as safe
 from osprey.interfaces.web_terminal.routes.watchdog import make_notifier
 from osprey.interfaces.web_terminal.routes.watchdog import router as watchdog_router
 from osprey.interfaces.web_terminal.safety_switches import (
+    CODE_REVIEW_SWITCH,
     WATCHDOG_SWITCH,
     SafetySwitches,
     feature_is_on,
@@ -1175,7 +1176,7 @@ def _start_watchdogs(app: FastAPI, config_file: Path | None) -> None:
     switches = switches_of(app)
     if switches is None:
         switches = app.state.safety_switches = SafetySwitches()
-    switches.register(WATCHDOG_SWITCH, "Safety watchdog")
+    switches.register(WATCHDOG_SWITCH, "Safety watchdog", "Open holds stay open.")
     app.state.watchdog_runner = WatchdogRunner(
         definitions,
         hold_root=root,
@@ -1184,6 +1185,34 @@ def _start_watchdogs(app: FastAPI, config_file: Path | None) -> None:
         build_dir=build_dir,
         may_hold=lambda: feature_is_on(app, WATCHDOG_SWITCH),
     )
+
+
+def _register_code_review_switch(app: FastAPI, config_file: Path | None) -> None:
+    """Make code review switchable when the rendered config turns it on.
+
+    Its consumers run in the agent's processes and read the switch through the
+    panel-tier ``GET /api/code-review/switch``. A section that cannot be read
+    registers nothing: every review refuses then, and there is nothing to turn off.
+    """
+    if config_file is None:
+        return
+    from osprey.services.code_review.settings import (
+        ReviewConfigError,
+        load_review_settings,
+        read_review_config,
+    )
+
+    try:
+        enabled = load_review_settings(read_review_config(config_file)).enabled
+    except ReviewConfigError:
+        return
+    switches = switches_of(app)
+    if enabled and switches is not None:
+        switches.register(
+            CODE_REVIEW_SWITCH,
+            "Code review",
+            "Meanwhile the agent's Python and notebook code runs unreviewed.",
+        )
 
 
 def _create_lifespan(
@@ -1362,10 +1391,9 @@ def _create_lifespan(
                 break
         app.state.config_path = resolved_config_path
         # Built before any feature registers into it; a restart starts it empty.
-        # Registered: the watchdog (_start_watchdogs). Code review is not yet:
-        # its hook runs in the agent sandbox and needs the state through the state zone.
         app.state.safety_switches = SafetySwitches()
         _start_watchdogs(app, resolved_config_path)
+        _register_code_review_switch(app, resolved_config_path)
 
         # ── Web theme (SSR no-FOUC attribute) ──
         # Resolved once at startup and server-rendered onto <html data-theme>

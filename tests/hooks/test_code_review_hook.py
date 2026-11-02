@@ -24,7 +24,12 @@ from osprey.agent_runner.primitives import SDKWorkflowResult
 from osprey.services.code_review import notebook as notebook_module
 from osprey.services.code_review import review as review_module
 from osprey.services.code_review import settings as settings_module
-from osprey.services.code_review.contract import SURFACE_NOTEBOOK, ReviewFailure, ReviewRequest
+from osprey.services.code_review.contract import (
+    SURFACE_NOTEBOOK,
+    ReviewFailure,
+    ReviewRequest,
+    ReviewSwitchedOff,
+)
 from osprey.services.code_review.settings import DEFAULT_PROMPT, HOOK_OVERHEAD_S
 from osprey_connectors.workspace import DEFAULT_AGENT_DATA_BASE_DIR
 from tests.hooks.conftest import HOOKS_DIR, hook_audit_records, import_hook
@@ -74,6 +79,11 @@ class Env:
         self.audits: list[dict] = []
         self.notices: list[tuple[str, str, str]] = []
         self.real_notify = hook.notify_activity
+        #: What code review's runtime switch answers; ``None`` is on.
+        self.switched_off: ReviewSwitchedOff | None = None
+        monkeypatch.setattr(
+            "osprey.services.code_review.switch.switched_off", lambda: self.switched_off
+        )
         monkeypatch.setattr(hook, "emit_audit", self._emit_audit)
         monkeypatch.setattr(hook, "notify_activity", lambda *args: self.notices.append(args))
 
@@ -323,6 +333,40 @@ def test_a_failure_at_each_level(env, level, denied):
         assert "do not retry" in output["permissionDecisionReason"]
     else:
         assert "proceeded unreviewed" in output["additionalContext"]
+
+
+@pytest.mark.parametrize("level", ["flag", "block"])
+def test_a_review_switched_off_lets_the_edit_land_and_records_the_skip(env, level):
+    env.config({"enabled": True, "level": level})
+    runner = env.stub("block")
+    env.switched_off = ReviewSwitchedOff(off_by="alice", off_at=1700000000.0)
+
+    output = env.run(env.notebook())
+
+    assert output is None
+    assert runner.calls == []
+    (record,) = env.audits
+    assert record == {
+        "name": "code-review",
+        "decision": "allowed",
+        "subject": "notebooks/x.ipynb",
+        "reason": "code_review",
+        "detail": f"review=skipped level={level} kind=switched_off by=alice",
+    }
+    assert env.notices == []
+
+
+def test_back_on_the_next_edit_is_reviewed_again(env):
+    env.config({"enabled": True, "level": "block"})
+    runner = env.stub("block")
+    notebook = env.notebook()
+    env.switched_off = ReviewSwitchedOff(off_by="alice")
+    assert env.run(notebook) is None
+
+    env.switched_off = None
+
+    assert _is_deny(env.run(notebook))
+    assert len(runner.calls) == 1
 
 
 def test_records_and_notices_hold_no_reasons_and_no_code(env):

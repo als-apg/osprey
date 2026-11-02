@@ -20,7 +20,12 @@ import pytest
 import yaml
 
 from osprey.services.code_review import review as review_module
-from osprey.services.code_review.contract import SURFACE_EXECUTE, ReviewFailure, ReviewVerdict
+from osprey.services.code_review.contract import (
+    SURFACE_EXECUTE,
+    ReviewFailure,
+    ReviewSwitchedOff,
+    ReviewVerdict,
+)
 from osprey.services.code_review.review import AUDIT_REASON, agent_message, decide
 from osprey.services.code_review.stamp import (
     REVIEWED_DIGEST_KEY,
@@ -90,7 +95,12 @@ class Deployment:
         self.audits: list[dict] = []
         self.notices: list[tuple] = []
         self.stub = ReviewStub()
+        #: What code review's runtime switch answers; ``None`` is on.
+        self.switched_off: ReviewSwitchedOff | None = None
         monkeypatch.setattr(review_module, "review_code", self.stub)
+        monkeypatch.setattr(
+            "osprey.services.code_review.switch.switched_off", lambda: self.switched_off
+        )
         monkeypatch.setattr(hook, "emit_audit", self._emit_audit)
         monkeypatch.setattr(
             "osprey.mcp_server.http.notify_agent_activity",
@@ -239,6 +249,31 @@ def test_a_render_with_no_room_leaves_the_review_to_the_executor(deployment):
     deployment.stub.result = BLOCK
 
     _assert_asked_unreviewed(deployment, deployment.run(EXECUTE, _execute(), argv=()))
+
+
+@pytest.mark.parametrize("level", ["block", "flag"])
+def test_a_review_switched_off_asks_with_a_line_records_the_skip_and_stamps_nothing(
+    deployment, level
+):
+    deployment.configure({"enabled": True, "level": level})
+    deployment.stub.result = BLOCK
+    deployment.switched_off = ReviewSwitchedOff(off_by="alice", off_at=1700000000.0)
+
+    output = deployment.run(EXECUTE, _execute())
+
+    assert output["permissionDecision"] == "ask"
+    assert "Code review: switched off by alice; the code runs unreviewed if approved." in _reason(
+        output
+    )
+    assert deployment.stub.calls == []
+    (audit,) = deployment.review_audits()
+    assert audit["decision"] == "allowed"
+    assert audit["detail"] == (
+        f"review=skipped level={level} kind=switched_off by=alice mode=readwrite"
+    )
+    assert deployment.notices == []
+    # Unstamped, so the executor asks the switch again before the launch.
+    assert REVIEWED_DIGEST_KEY not in deployment.stamp()
 
 
 # ---------------------------------------------------------------------------

@@ -6,9 +6,12 @@
  * rules file. The tab is present whether review is on or off. The server
  * spells the warning for a section or rules file a review cannot use, so the
  * tab states the consequence the reviewer actually has rather than a guess.
+ * Where the profile turns review on, its bar is code review's runtime safety
+ * switch, drawn by the Safety tab's own row.
  */
 
 import { fetchJSON } from './api.js';
+import { ADMIN_LOCK_TEXT, switchRow } from './safety-switches.js';
 
 /** Drawer-tab id of the Review tab (index.html: the tab button + panel). */
 export const REVIEW_TAB_ID = 'tab-review';
@@ -26,6 +29,7 @@ export const RULES_ENTRY_NAME = 'code-review/rules';
  * @property {string | null} rules  the file's text, null when it cannot be used
  * @property {string | null} warning  what a review does meanwhile, and the fix
  * @property {boolean} can_change
+ * @property {import('./safety-switches.js').SafetySwitch | null} switch  null while the profile leaves review off
  */
 
 /** @type {HTMLElement | null} */
@@ -113,10 +117,15 @@ function render(container, data) {
     warning.setAttribute('role', 'status');
     container.appendChild(warning);
   }
-  container.append(bar(data), limitRow(data), ...rulesBlock(data));
+  const head = data.switch
+    ? switchRow(data.switch, data.can_change, refreshCodeReviewTab)
+    : bar(data);
+  container.append(head, limitRow(data), ...rulesBlock(data));
 }
 
 /**
+ * The bar where there is no switch: review is off in the profile, or the
+ * section cannot be read. Nobody can move it here.
  * @param {CodeReviewState} data
  * @returns {HTMLElement}
  */
@@ -135,7 +144,7 @@ function bar(data) {
   );
 
   const right = document.createElement('span');
-  right.className = 'code-review-lock';
+  right.className = 'safety-switch-lock';
   right.appendChild(textEl('span', '', lockText(data)));
   const toggleLabel = document.createElement('label');
   toggleLabel.className = 'toggle-switch';
@@ -159,9 +168,7 @@ function bar(data) {
  * @returns {string}
  */
 export function lockText(data) {
-  return data.can_change
-    ? '🔒 Set in the profile; rebuild to apply'
-    : '🔒 Set by your deployment admin';
+  return data.can_change ? '🔒 Set in the profile; rebuild to apply' : ADMIN_LOCK_TEXT;
 }
 
 /**
@@ -239,9 +246,11 @@ export function rulesSpans(rules) {
  * @returns {string}
  */
 export function footText(data) {
-  return data.can_change
-    ? 'Edit the rules file in the profile; the next review reads it.'
-    : 'Ask your deployment admin to change these rules.';
+  if (!data.can_change) return 'Ask your deployment admin to change these rules.';
+  const moves = data.switch
+    ? 'Turning review off or back on is recorded in the audit trail with your name. '
+    : '';
+  return `${moves}Edit the rules file in the profile; the next review reads it.`;
 }
 
 /** Forget the mounted section; for tests. */

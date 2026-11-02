@@ -38,6 +38,10 @@ stdin ──► Parse JSON
               │
              YES
               ▼
+         Switched off in the terminal? ──YES──► Record (review=skipped) ──► EXIT
+              │
+              NO (or no answer)
+              ▼
          Run the reviewer, capped by --deadline
               │
               ▼
@@ -63,6 +67,10 @@ level. Before that it is a level-less ``unavailable`` denial, which also covers 
 cannot import ``osprey``. That denial holds even when the feature is off, because this hook cannot
 read the setting without the core. A crash this hook cannot catch lets the write land; the proposal
 accepts that remainder at this surface.
+
+**Switch.** An admin may switch code review off in the web terminal for a while. The hook asks
+right before it would review (``osprey.services.code_review.switch``); only an answer that says off
+skips the review, which is recorded with who switched it off, and anything else reviews.
 
 **Records.** Every reviewed edit writes one value-free audit record, passes included, so the record
 shows that a review happened. A notice goes to the operator's activity strip for everything but a
@@ -311,7 +319,8 @@ def _review(hook_input, tool_input, notebook_file, subject):
         return None
 
     from osprey.services.code_review.notebook import notebook_review_request
-    from osprey.services.code_review.review import review_code
+    from osprey.services.code_review.review import review_code, skip_switched_off
+    from osprey.services.code_review.switch import switched_off
 
     try:
         request = notebook_review_request(
@@ -321,6 +330,9 @@ def _review(hook_input, tool_input, notebook_file, subject):
         )
         if request is None:
             return None
+        off = switched_off()
+        if off is not None:
+            return _conclude(hook_input, skip_switched_off(off, settings.level), request)
         capped = dataclasses.replace(
             settings,
             time_limit=min(settings.time_limit, _parse_deadline(sys.argv) - HOOK_OVERHEAD_S),

@@ -1584,6 +1584,8 @@ _EXPECTED_PANEL_ROUTES = {
     ("POST", "/api/agent-turn"),
     # The trigger hook's door. Reading and answering flags stay operator tier.
     ("POST", "/api/watchdog/prompt"),
+    # The code review consumers' read of the switch; moving it stays operator tier.
+    ("GET", "/api/code-review/switch"),
     ("POST", "/api/focus"),
     # The proxy hop to the event dispatcher's MCP transport — the one entry
     # that is not panel arrangement. Its own properties are pinned below;

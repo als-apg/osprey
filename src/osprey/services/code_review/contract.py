@@ -112,6 +112,21 @@ class ReviewFailure:
     message: str
 
 
+@dataclass(frozen=True)
+class ReviewSwitchedOff:
+    """A review left out because an admin switched code review off at runtime.
+
+    No reviewer ran, so the code goes ahead whatever the level.
+
+    Attributes:
+        off_by: Who switched it off, as the web terminal names them.
+        off_at: When, in epoch seconds.
+    """
+
+    off_by: str | None = None
+    off_at: float | None = None
+
+
 def _unparseable(defect: str) -> ReviewFailure:
     return ReviewFailure("unparseable", defect)
 

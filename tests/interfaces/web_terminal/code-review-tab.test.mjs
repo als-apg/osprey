@@ -4,7 +4,8 @@
  *   npx vitest run tests/interfaces/web_terminal/code-review-tab.test.mjs
  *
  * The tab renders `GET /api/code-review` as it is: on, off or unreadable, the
- * server's warning verbatim, the rules file's text, and a locked toggle.
+ * server's warning verbatim, the rules file's text, and either code review's
+ * runtime safety switch (the Safety tab's own row) or a locked toggle.
  */
 
 import { test, expect, beforeEach, afterEach, vi } from 'vitest';
@@ -15,6 +16,7 @@ import {
   refreshCodeReviewTab,
   reviewPaletteEntries,
 } from '../../../src/osprey/interfaces/web_terminal/static/js/code-review-tab.js';
+import { dismissConfirm } from '../../../src/osprey/interfaces/web_terminal/static/js/posture-confirm.js';
 
 const ON = {
   enabled: true,
@@ -24,10 +26,22 @@ const ON = {
   rules: '## Rules\n\n- Read SR:BEAM:USER_MODE first.\n',
   warning: null,
   can_change: false,
+  switch: null,
+};
+
+const SWITCH = {
+  name: 'code_review',
+  label: 'Code review',
+  note: "Meanwhile the agent's Python and notebook code runs unreviewed.",
+  on: true,
+  off_by: null,
+  off_at: null,
 };
 
 /** @type {any} */
 let payload;
+/** @type {Array<{url: string, init: any}>} */
+let posts = [];
 
 beforeEach(() => {
   document.body.innerHTML = `
@@ -41,13 +55,18 @@ beforeEach(() => {
   payload = { ...ON };
   vi.stubGlobal(
     'fetch',
-    vi.fn(async () => ({ ok: true, status: 200, statusText: 'OK', json: async () => payload }))
+    vi.fn(async (/** @type {string} */ url, /** @type {any} */ init) => {
+      if (init?.method === 'POST') posts.push({ url, init });
+      return { ok: true, status: 200, statusText: 'OK', json: async () => payload };
+    })
   );
+  posts = [];
   _resetCodeReviewTabForTest();
   initCodeReviewTab();
 });
 
 afterEach(() => {
+  dismissConfirm();
   vi.unstubAllGlobals();
 });
 
@@ -77,7 +96,7 @@ test('a non-admin sees the locked toggle, a read-only badge and the ask-your-adm
   const toggle = /** @type {HTMLInputElement} */ (document.querySelector('.toggle-switch input'));
   expect(toggle.disabled).toBe(true);
   expect(toggle.checked).toBe(true);
-  expect(text('.code-review-lock')).toContain('Set by your deployment admin');
+  expect(text('.safety-switch-lock')).toContain('Set by your deployment admin');
   expect(text('.code-review-section-head .read-only')).toBe('READ-ONLY');
   expect(text('.code-review-foot')).toBe('Ask your deployment admin to change these rules.');
 });
@@ -87,8 +106,51 @@ test('the admin tier is told where the section is changed, not offered a dead co
   await refreshCodeReviewTab();
   const toggle = /** @type {HTMLInputElement} */ (document.querySelector('.toggle-switch input'));
   expect(toggle.disabled).toBe(true);
-  expect(text('.code-review-lock')).toContain('Set in the profile');
+  expect(text('.safety-switch-lock')).toContain('Set in the profile');
   expect(text('.code-review-foot')).toContain('Edit the rules file in the profile');
+});
+
+test('with the switch registered, an admin moves it with the Safety tab row', async () => {
+  payload = { ...ON, can_change: true, switch: SWITCH };
+  await refreshCodeReviewTab();
+  const toggle = /** @type {HTMLInputElement} */ (
+    document.querySelector('[data-switch="code_review"] input')
+  );
+  expect(toggle.disabled).toBe(false);
+  expect(toggle.checked).toBe(true);
+  expect(text('.safety-switch-state')).toBe('On, as the profile sets it.');
+  expect(text('.safety-switch-lock')).toBe('');
+  expect(text('.code-review-foot')).toBe(
+    'Turning review off or back on is recorded in the audit trail with your name. ' +
+      'Edit the rules file in the profile; the next review reads it.'
+  );
+
+  toggle.checked = false;
+  toggle.dispatchEvent(new Event('change'));
+  const dialog = document.querySelector('.posture-modal');
+  expect(dialog?.textContent).toContain('Turn Code review off?');
+  expect(dialog?.textContent).toContain('runs unreviewed');
+  const confirm = dialog?.querySelector('.posture-modal-confirm');
+  if (!(confirm instanceof HTMLButtonElement)) throw new Error('no confirm button');
+  confirm.click();
+  await vi.waitFor(() => expect(posts).toHaveLength(1));
+  expect(posts[0].url).toContain('/api/safety-switches/code_review');
+  expect(JSON.parse(posts[0].init.body)).toEqual({ state: 'off' });
+});
+
+test('with the switch off, every tier reads who turned it off; a non-admin cannot move it', async () => {
+  payload = {
+    ...ON,
+    switch: { ...SWITCH, on: false, off_by: 'alice', off_at: 1_700_000_000 },
+  };
+  await refreshCodeReviewTab();
+  const toggle = /** @type {HTMLInputElement} */ (
+    document.querySelector('[data-switch="code_review"] input')
+  );
+  expect(toggle.disabled).toBe(true);
+  expect(toggle.checked).toBe(false);
+  expect(text('.safety-switch-state')).toContain('Code review is off in this terminal by alice');
+  expect(text('.safety-switch-lock')).toContain('Set by your deployment admin');
 });
 
 test("the server's warning leads the tab, verbatim, as text", async () => {

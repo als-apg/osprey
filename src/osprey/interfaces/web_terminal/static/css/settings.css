@@ -236,7 +236,7 @@
   border-color: var(--color-accent);
 }
 
-.settings-input[type="number"] {
+.settings-input[type='number'] {
   max-width: 80px;
   text-align: right;
 }
@@ -525,8 +525,13 @@
 }
 
 @keyframes hookToastFade {
-  0%, 70% { opacity: 1; }
-  100% { opacity: 0; }
+  0%,
+  70% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
 }
 
 /* ---- Runtime safety switches (rows reuse the hook-debug bar) ---- */
@@ -560,15 +565,16 @@
   opacity: 0.4;
 }
 
-/* ---- Review tab (code-review-tab.js; the bar reuses the safety-switch row) ---- */
-
-.code-review-lock {
+/* The toggle, with the lock line beside it for a tier that may not move it. */
+.safety-switch-lock {
   display: inline-flex;
   align-items: center;
   gap: var(--space-2);
   font-size: var(--text-sm);
   color: var(--text-muted);
 }
+
+/* ---- Review tab (code-review-tab.js; the bar is the safety-switch row) ---- */
 
 .code-review-rows {
   padding: var(--space-2) 16px;

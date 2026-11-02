@@ -54,7 +54,7 @@ from osprey_connectors.types import baseline_target
 
 if TYPE_CHECKING:
     from osprey.mcp_server.python_executor.executor import ExecutionResult
-    from osprey.services.code_review.contract import ReviewRequest
+    from osprey.services.code_review.contract import ReviewRequest, ReviewSwitchedOff
     from osprey.services.code_review.review import ReviewOutcome
 
 logger = logging.getLogger("osprey.mcp_server.tools.execution_gates")
@@ -725,6 +725,19 @@ def _stamped_review(tool: str, gated: str) -> tuple[bool, str | None]:
         return False, None
 
 
+async def _review_switched_off() -> ReviewSwitchedOff | None:
+    """Whether an admin switched code review off in this session's terminal; off a thread.
+
+    :func:`~osprey.services.code_review.switch.switched_off` fails closed, so only an
+    answer saying off skips the review.
+    """
+    import anyio
+
+    from osprey.services.code_review.switch import switched_off
+
+    return await anyio.to_thread.run_sync(switched_off)
+
+
 class _PreLaunchReview(NamedTuple):
     """What the review before the launch came to.
 
@@ -759,6 +772,8 @@ async def _review_before_launch(
     That last skip is a prediction the launch re-decides, so it comes back as ``spared`` and the
     launch is held to it (:func:`run_gated_execution`).
     A section that cannot be read refuses in every mode, since the set to review is unknown.
+    A review an admin switched off in this session's terminal, asked right before it would run,
+    is recorded as skipped and the run goes ahead (:mod:`osprey.services.code_review.switch`).
 
     A call the approval prompt already reviewed is not reviewed again: its ask stamp carries the
     digest of the code the reviewer read and what the agent is told
@@ -832,6 +847,13 @@ async def _review_before_launch(
     if reviewed:
         return _PreLaunchReview(stamped_message)
 
+    off = await _review_switched_off()
+    if off is not None:
+        from osprey.services.code_review.review import skip_switched_off
+
+        return _PreLaunchReview(
+            await _conclude_review(tool, skip_switched_off(off, settings.level), request)
+        )
     outcome = await review_code(
         request,
         settings,

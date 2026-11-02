@@ -9,6 +9,7 @@ from __future__ import annotations
 import ast
 import json
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock, Mock, patch
 
@@ -22,7 +23,12 @@ from osprey.mcp_server.python_executor import executor
 from osprey.mcp_server.python_executor.executor import ExecutionResult
 from osprey.mcp_server.python_executor.tools import _execution_gates, pyaml_measure
 from osprey.mcp_server.python_executor.tools._execution_gates import run_gated_execution
-from osprey.services.code_review.contract import SURFACE_EXECUTE, ReviewFailure, ReviewVerdict
+from osprey.services.code_review.contract import (
+    SURFACE_EXECUTE,
+    ReviewFailure,
+    ReviewSwitchedOff,
+    ReviewVerdict,
+)
 from osprey.services.code_review.review import AUDIT_REASON, agent_message, decide
 from osprey_connectors_tests._write_fakes import ARMED_SECTION, ARMED_TARGET, arm_switch
 from tests.mcp_server.conftest import assert_raises_error, get_tool_fn
@@ -158,6 +164,20 @@ def stub():
     review = ReviewStub()
     with patch("osprey.services.code_review.review.review_code", review):
         yield review
+
+
+@pytest.fixture(autouse=True)
+def switch(monkeypatch):
+    """Code review's runtime switch as the gate reads it: on, unless a case turns it off."""
+    reads: list[ReviewSwitchedOff | None] = []
+    state: dict[str, ReviewSwitchedOff | None] = {"off": None}
+
+    def read() -> ReviewSwitchedOff | None:
+        reads.append(state["off"])
+        return state["off"]
+
+    monkeypatch.setattr("osprey.services.code_review.switch.switched_off", read)
+    return SimpleNamespace(reads=reads, state=state)
 
 
 @pytest.fixture(autouse=True)
@@ -451,6 +471,66 @@ async def test_the_project_root_a_tool_resolved_anchors_the_review(tmp_path, pro
         )
 
     assert stub.calls[0]["repo_root"] == other
+
+
+# ---------------------------------------------------------------------------
+# Switched off at runtime by an admin
+# ---------------------------------------------------------------------------
+
+
+@TOOLS
+@pytest.mark.parametrize("level", ["block", "flag"])
+async def test_a_review_switched_off_is_skipped_recorded_and_the_run_goes_ahead(
+    tool_name, level, project_root, launch, notices, records, stub, switch
+):
+    _configure(project_root, {"enabled": True, "level": level})
+    stub.result = BLOCK  # would refuse at block, were it reached
+    switch.state["off"] = ReviewSwitchedOff(off_by="alice", off_at=1700000000.0)
+
+    await _call(tool_name, project_root)
+
+    assert stub.calls == [], "no reviewer runs while the switch is off"
+    launch.assert_awaited_once()
+    assert _result(launch).code_review is None
+    [(writer, fields)] = _review_records(records)
+    assert writer == "record"
+    assert fields["decision"] == "allowed"
+    assert fields["detail"] == (
+        f"review=skipped level={level} kind=switched_off by=alice mode=readwrite"
+    )
+    assert fields["surface"] == "executor"
+    AuditEnvelope(actor="someone", **fields)
+    assert _review_notices(notices) == []
+
+
+@TOOLS
+@pytest.mark.usefixtures("launch")
+async def test_the_switch_is_read_at_each_review_so_back_on_reviews_again(
+    tool_name, project_root, records, stub, switch
+):
+    _configure(project_root, {"enabled": True, "level": "block"})
+    stub.stage(PASS)
+    switch.state["off"] = ReviewSwitchedOff(off_by="alice")
+    await _call(tool_name, project_root)
+    switch.state["off"] = None
+
+    await _call(tool_name, project_root)
+
+    assert len(stub.calls) == 1
+    assert [f["detail"].split()[0] for _, f in _review_records(records)] == [
+        "review=skipped",
+        "review=pass",
+    ]
+
+
+@TOOLS
+@pytest.mark.usefixtures("launch")
+async def test_no_switch_read_where_nothing_would_be_reviewed(tool_name, project_root, switch):
+    _configure(project_root, {"enabled": False})
+
+    await _call(tool_name, project_root)
+
+    assert switch.reads == []
 
 
 # ---------------------------------------------------------------------------

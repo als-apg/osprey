@@ -34,6 +34,7 @@ from osprey.agent_runner.verdict import _BUDGET_SUBTYPES, EXIT_PASS, evaluate_ve
 from osprey.services.code_review.contract import (
     ReviewFailure,
     ReviewRequest,
+    ReviewSwitchedOff,
     ReviewVerdict,
     parse_verdict,
     render_request,
@@ -82,12 +83,13 @@ class ReviewOutcome:
     Attributes:
         action: ``ACTION_PROCEED`` or ``ACTION_REFUSE``.
         level: The level it was decided under; ``None`` when the level could not be read.
-        result: The reviewer's verdict, or the failure that stands in for one.
+        result: The reviewer's verdict, the failure that stands in for one, or the
+            runtime switch that left the review out.
     """
 
     action: str
     level: str | None
-    result: ReviewVerdict | ReviewFailure
+    result: ReviewVerdict | ReviewFailure | ReviewSwitchedOff
 
 
 class AuditFields(NamedTuple):
@@ -121,6 +123,19 @@ def decide(result: ReviewVerdict | ReviewFailure, level: str | None) -> ReviewOu
     """
     stopped = level != "flag" and (isinstance(result, ReviewFailure) or result.verdict == "block")
     return ReviewOutcome(ACTION_REFUSE if stopped else ACTION_PROCEED, level, result)
+
+
+def skip_switched_off(off: ReviewSwitchedOff, level: str | None) -> ReviewOutcome:
+    """The outcome of a review the runtime switch left out: the code goes ahead unreviewed.
+
+    Args:
+        off: Who switched code review off, and when.
+        level: The level the review would have been decided under.
+
+    Returns:
+        A proceeding outcome carrying *off*.
+    """
+    return ReviewOutcome(ACTION_PROCEED, level, off)
 
 
 def _verdict_message(outcome: ReviewOutcome, verdict: ReviewVerdict) -> str | None:
@@ -158,11 +173,14 @@ def agent_message(outcome: ReviewOutcome) -> str | None:
         outcome: The review's outcome.
 
     Returns:
-        The message, or ``None`` for a pass with nothing to say.
+        The message, or ``None`` for a pass with nothing to say and for a review the
+        switch left out: an admin chose that, and the agent has nothing to change.
     """
     result = outcome.result
     if isinstance(result, ReviewVerdict):
         return _verdict_message(outcome, result)
+    if isinstance(result, ReviewSwitchedOff):
+        return None
     if outcome.action == ACTION_REFUSE:
         return (
             f"The code review failed (kind {result.kind}), so the code was refused: "
@@ -175,8 +193,11 @@ def agent_message(outcome: ReviewOutcome) -> str | None:
 
 
 def _result_name(outcome: ReviewOutcome) -> str:
-    """The word for a review's result: the verdict, or ``"failure"``."""
-    return outcome.result.verdict if isinstance(outcome.result, ReviewVerdict) else "failure"
+    """The word for a review's result: the verdict, ``"skipped"`` or ``"failure"``."""
+    result = outcome.result
+    if isinstance(result, ReviewVerdict):
+        return result.verdict
+    return "skipped" if isinstance(result, ReviewSwitchedOff) else "failure"
 
 
 def notice_text(outcome: ReviewOutcome, request: ReviewRequest) -> str | None:
@@ -189,10 +210,11 @@ def notice_text(outcome: ReviewOutcome, request: ReviewRequest) -> str | None:
         request: The request it answers.
 
     Returns:
-        The notice, or ``None`` for a pass, which sends none.
+        The notice, or ``None`` for a pass, which sends none, and for a review the switch
+        left out, which the switch's own notice already told every operator about.
     """
     result = _result_name(outcome)
-    if result == "pass":
+    if result in ("pass", "skipped"):
         return None
     if isinstance(outcome.result, ReviewFailure):
         result = f"{result} ({outcome.result.kind})"
@@ -208,13 +230,18 @@ def audit_fields(outcome: ReviewOutcome, request: ReviewRequest) -> AuditFields:
         request: The request it answers.
 
     Returns:
-        The fields, holding no reasons, no code and no failure message.
+        The fields, holding no reasons, no code and no failure message; a review the
+        switch left out names who switched it off.
     """
     parts = [f"review={_result_name(outcome)}"]
     if outcome.level is not None:
         parts.append(f"level={outcome.level}")
     if isinstance(outcome.result, ReviewFailure):
         parts.append(f"kind={outcome.result.kind}")
+    if isinstance(outcome.result, ReviewSwitchedOff):
+        parts.append("kind=switched_off")
+        if outcome.result.off_by is not None:
+            parts.append(f"by={'_'.join(outcome.result.off_by.split())}")
     if request.mode is not None:
         parts.append(f"mode={request.mode}")
     return AuditFields(

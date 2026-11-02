@@ -42,8 +42,9 @@ write must follow. Every rule adds to the tokens of each review.
 
 The reviewer cannot look anything up, so a rule has to say what it needs: the channel name
 as the agent spells it, the limit, the state. The agent cannot edit this file, and a change
-to it counts from the next review on, with no rebuild. The web terminal shows the rules,
-and whether review is on, under Settings → Review.
+to it counts from the next review on, with no rebuild. Settings → Review shows the rules and
+whether review is on; an admin-tier terminal (``web.config_panel.enabled``) can turn it off there
+for its own sessions until it restarts, and every move and skipped review is audited.
 
 Blocking or advisory
 ====================

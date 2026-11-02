@@ -1476,6 +1476,12 @@ class Tier(Enum):
 #: and answering them are operator acts, absent here, so an agent cannot release
 #: its own hold.
 #:
+#: ``GET /api/code-review/switch`` is the code review consumers' read: the approval
+#: hook, the notebook hook and the executor run in the agent's processes and ask it
+#: before every review. A read can only tell them to review; an answer they cannot
+#: get or parse reviews too. Moving the switch is the safety-switch route, absent
+#: here, so an agent cannot turn off what reviews its code.
+#:
 #: What is deliberately *absent* matters as much as what is present:
 #: ``GET /api/panel-focus`` (a real route) and ``POST /api/panel-layout`` (which
 #: writes the persisted layout) are operator-only, as is every config, scaffold,
@@ -1493,6 +1499,7 @@ PANEL_TIER_ROUTES: frozenset[tuple[str, str]] = frozenset(
         ("POST", "/api/agent-activity"),
         ("POST", "/api/agent-turn"),
         ("POST", "/api/watchdog/prompt"),
+        ("GET", "/api/code-review/switch"),
         ("POST", "/api/focus"),
         ("GET", "/panel/events/mcp"),
         ("POST", "/panel/events/mcp"),

@@ -317,6 +317,45 @@ def fetch_panels(timeout: int = 3) -> dict | None:
     return data if isinstance(data, dict) else None
 
 
+#: Code review's switch read on the web terminal (``routes.code_review.SWITCH_ROUTE``).
+CODE_REVIEW_SWITCH_ROUTE = "/api/code-review/switch"
+
+
+def fetch_code_review_switch(timeout: float = 2) -> dict | None:
+    """Read code review's runtime switch from the web terminal that started this session.
+
+    Only ``OSPREY_WEB_PORT`` names that terminal, with no config fallback: a
+    session no terminal started is under no terminal's switch. The call stays on
+    loopback with proxies ignored, as the watchdog trigger's does, and carries
+    the panel token (:func:`_panel_auth_headers`).
+
+    .. warning::
+        A **blocking** call bounded by ``timeout``; async callers run it in a thread.
+
+    Returns:
+        The parsed JSON object, or ``None`` when no terminal is named, it cannot
+        be reached, refuses, or answers with anything but a JSON object.
+    """
+    import json as _json
+    import os
+    import urllib.request
+
+    port = os.environ.get("OSPREY_WEB_PORT", "").strip()
+    if not port.isdigit():
+        return None
+    try:
+        req = urllib.request.Request(
+            f"http://127.0.0.1:{port}{CODE_REVIEW_SWITCH_ROUTE}", headers=_panel_auth_headers()
+        )
+        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+        with opener.open(req, timeout=timeout) as resp:
+            data = _json.loads(resp.read())
+    except Exception as exc:
+        logger.warning("code review switch read failed: %s", exc)
+        return None
+    return data if isinstance(data, dict) else None
+
+
 def notify_panel_visibility(panel: str, visible: bool) -> None:
     """Fire-and-forget POST to show or hide a panel in the Web Terminal.
 
