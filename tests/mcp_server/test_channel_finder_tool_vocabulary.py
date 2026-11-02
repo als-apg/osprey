@@ -14,12 +14,12 @@ tool that no longer exists, and the agent quietly loses the capability.
 
 The tool descriptions and input-schema descriptions every MCP server offers an
 agent, and the ARIEL search descriptors, are written for any control system.
-They name no protocol (``PV``, ``EPICS``) and no demo address prefix (``SR:``),
-and they lose ``RATCHET_WORD``. The same guard reads what a build renders
+They name no protocol (``PV``, ``EPICS``) and no demo address prefix (``SR:``).
+The same guard reads what a build renders
 for the agent: ``CLAUDE.md`` and the markdown under ``.claude/`` of every
 render root of the control-assistant preset. The words and the texts that still carry them
 live in :mod:`tests._vocabulary`, with ``PENDING_REWORDING`` holding the texts
-whose wording has not changed yet; no text carries ``RATCHET_WORD``. The
+whose wording has not changed yet. The
 rendered texts are masked per render root: the strings that root received from
 the facility definition are the facility's words, not OSPREY's, and are not judged.
 """
@@ -28,7 +28,6 @@ import asyncio
 import importlib
 import importlib.util
 import pkgutil
-import re
 from collections.abc import Iterator, Mapping
 from pathlib import Path
 from typing import Any
@@ -40,13 +39,11 @@ from tests._vocabulary import (
     FACILITY_MASK,
     PENDING_REWORDING,
     PROTOCOL_WORDS,
-    RATCHET_WORD,
     TextKey,
     facility_strings,
     mask_facility_text,
     render_root_facility_strings,
 )
-from tests.facility.test_word_ratchet import violations
 
 _VARIANTS = ("in_context", "middle_layer", "hierarchical", "graph")
 
@@ -275,13 +272,6 @@ def stale_rewording_entries(
     return sorted(key for key in pending if not PROTOCOL_WORDS.search(texts.get(key, "")))
 
 
-def ratchet_violations(texts: Mapping[TextKey, str]) -> list[str]:
-    """What the file ratchet's rule refuses, over texts instead of files."""
-    return violations(
-        {" ".join(key) for key, text in texts.items() if re.search(RATCHET_WORD, text)}
-    )
-
-
 @pytest.mark.parametrize("source", SOURCES)
 def test_agent_facing_text_names_no_protocol_word(source, agent_facing_texts):
     """The text an agent reads before calling a tool names no protocol word or demo address."""
@@ -302,11 +292,6 @@ def test_pending_rewording_entries_still_name_a_protocol_word(agent_facing_texts
     )
 
 
-def test_agent_facing_text_carries_no_ratchet_word(agent_facing_texts):
-    """No tool text carries the word."""
-    assert ratchet_violations(agent_facing_texts) == []
-
-
 @pytest.mark.slow
 def test_rendered_text_names_no_protocol_word(rendered_texts):
     """The markdown a build renders for the agent names no protocol word or demo address."""
@@ -321,34 +306,20 @@ def test_pending_rewording_entries_still_name_a_protocol_word_when_rendered(rend
     )
 
 
-@pytest.mark.slow
-def test_rendered_text_carries_no_ratchet_word(rendered_texts):
-    """No rendered file carries the word."""
-    assert ratchet_violations(rendered_texts) == []
-
-
-def test_ratchet_word_in_an_unlisted_text_is_refused():
-    texts = {("server", "tool", "description"): "the storage ring", ("server", "b", "x"): "strings"}
-    assert ratchet_violations(texts) == [
-        "server tool description: carries the word and has no allowlist entry"
-    ]
-
-
 def test_facility_string_is_masked_and_osprey_prose_is_not():
-    masked = mask_facility_text('| "storage ring" | machine |\nthe ring holds', {"storage ring"})
-    assert masked == f'| "{FACILITY_MASK}" | machine |\nthe ring holds'
-    assert ratchet_violations({("rendered", "CLAUDE.md", "text"): masked}) == [
-        "rendered CLAUDE.md text: carries the word and has no allowlist entry"
-    ]
+    masked = mask_facility_text('| "SR:BPM1" | machine |\nread the PV', {"SR:BPM1"})
+    assert masked == f'| "{FACILITY_MASK}" | machine |\nread the PV'
+    assert protocol_offenders({("rendered", "CLAUDE.md", "text"): masked}, frozenset()) == {
+        ("rendered", "CLAUDE.md", "text"): ["PV"]
+    }
 
 
 def test_a_bare_guarded_facility_string_is_masked():
-    assert mask_facility_text("the ring", {"ring"}) == f"the {FACILITY_MASK}"
     assert mask_facility_text("read the PV", {"PV"}) == f"read the {FACILITY_MASK}"
 
 
 def test_masks_match_whole_words_only():
-    assert mask_facility_text("storage rings", {"storage ring"}) == "storage rings"
+    assert mask_facility_text("read the PVs", {"PV"}) == "read the PVs"
 
 
 def test_osprey_vocabulary_is_never_a_facility_string():

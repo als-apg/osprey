@@ -5,7 +5,9 @@ A preset names two packaged sources: an app template (``app_template:``,
 ``templates/facilities/<name>/``). A facility is owned by no app template and
 no preset; it lands in the profile at ``data/facility/``, beside the app
 template's own ``data/`` tree, so the operator's layout is the same whichever
-preset produced it.
+preset produced it. The starter reviewer prompt (``templates/code_review/``) is
+owned by no preset either: every composition lands it at
+``data/code_review/reviewer.md``, and no preset names it.
 
 :class:`PresetData` is that one composition. Everything that reads a preset's
 packaged data — ``osprey init`` materializing a profile, ``osprey scaffold
@@ -27,6 +29,10 @@ FACILITIES_DIRNAME = "facilities"
 #: Where a facility lands inside a profile's ``data/`` tree.
 FACILITY_DATA_DIRNAME = "facility"
 
+#: The starter reviewer prompt, both under the template root and inside ``data/``.
+#: ``osprey.services.code_review.settings.DEFAULT_PROMPT`` points at where it lands.
+STARTER_PROMPT_PATH = "code_review/reviewer.md"
+
 
 @dataclass(frozen=True)
 class PresetData:
@@ -38,10 +44,14 @@ class PresetData:
         facility_root: The bundled facility directory
             (``templates/facilities/<name>``), landed at ``data/facility/``;
             ``None`` when the preset names no facility.
+        starter_prompt: The packaged starter reviewer prompt, landed at
+            :data:`STARTER_PROMPT_PATH` inside ``data/``; ``None`` for a bare
+            tree that was not composed from a preset.
     """
 
     app_root: Path
     facility_root: Path | None = None
+    starter_prompt: Path | None = None
 
     @property
     def app_data(self) -> Path:
@@ -51,7 +61,8 @@ class PresetData:
     def placed_files(self) -> dict[str, Path]:
         """The files that land in ``data/`` from outside the app template's ``data/``.
 
-        The facility's files, at ``facility/<path>``.
+        The facility's files, at ``facility/<path>``, and the starter reviewer
+        prompt at :data:`STARTER_PROMPT_PATH`.
 
         Returns:
             Data-relative POSIX path -> the packaged file it is copied from,
@@ -63,6 +74,8 @@ class PresetData:
                 if path.is_file():
                     relative = path.relative_to(self.facility_root).as_posix()
                     files[f"{FACILITY_DATA_DIRNAME}/{relative}"] = path
+        if self.starter_prompt is not None:
+            files[STARTER_PROMPT_PATH] = self.starter_prompt
         return dict(sorted(files.items()))
 
     def copy_into(
@@ -122,6 +135,21 @@ def facility_root(template_root: Path, facility: str) -> Path:
     return root
 
 
+def starter_prompt_path(template_root: Path) -> Path:
+    """The packaged starter reviewer prompt.
+
+    Raises:
+        BuildProfileError: If the prompt is absent from the installation.
+    """
+    path = Path(template_root) / STARTER_PROMPT_PATH
+    if not path.is_file():
+        raise BuildProfileError(
+            f"The starter reviewer prompt is absent from this installation at "
+            f"{path}. This is a packaging bug — reinstall osprey-framework."
+        )
+    return path
+
+
 def compose_preset_data(template_root: Path, app_template: str, facility: str | None) -> PresetData:
     """Compose the packaged data a preset naming *app_template* and *facility* copies.
 
@@ -131,19 +159,27 @@ def compose_preset_data(template_root: Path, app_template: str, facility: str | 
         facility: The bundled facility the preset names, or ``None``.
 
     Returns:
-        The composition, with both directories checked to exist.
+        The composition, with everything it names checked to exist.
 
     Raises:
-        BuildProfileError: If either directory is absent, or the preset names a
+        BuildProfileError: If a packaged source is absent, the preset names a
             facility while its app template still ships a ``data/facility/`` of
-            its own — two facilities for one ``data/facility/``.
+            its own — two facilities for one ``data/facility/`` — or the app
+            template ships a file at the starter prompt's path, which landing
+            the starter would silently overwrite.
     """
     app_root = app_template_root(template_root, app_template)
+    starter = starter_prompt_path(template_root)
+    if (app_root / "data" / STARTER_PROMPT_PATH).exists():
+        raise BuildProfileError(
+            f"App template {app_template!r} ships data/{STARTER_PROMPT_PATH}, where every "
+            f"preset lands the starter reviewer prompt: remove the app template's copy."
+        )
     if facility is None:
-        return PresetData(app_root)
+        return PresetData(app_root, starter_prompt=starter)
     if (app_root / "data" / FACILITY_DATA_DIRNAME).exists():
         raise BuildProfileError(
             f"App template {app_template!r} ships data/{FACILITY_DATA_DIRNAME}/ and its "
             f"preset names facility {facility!r}: remove the app template's copy."
         )
-    return PresetData(app_root, facility_root(template_root, facility))
+    return PresetData(app_root, facility_root(template_root, facility), starter)

@@ -34,7 +34,7 @@ from .models import PlotConfig
 logger = logging.getLogger(__name__)
 
 #: Data Browser's element for the live sample buffer of one trace, in its own spelling.
-_SAMPLE_BUFFER = "<ring_size>5000</ring_size>"  # outside-format-quote
+_SAMPLE_BUFFER = "<ring_size>5000</ring_size>"
 
 
 def sanitize_xml_text(text: str) -> str:

@@ -182,7 +182,7 @@ beforeEach(() => {
   localStorage.clear();
   document.body.innerHTML = '';
   document.body.className = '';
-  document.documentElement.removeAttribute('data-ui-mode');
+  document.documentElement.removeAttribute('data-agent-surface');
   document.documentElement.removeAttribute('data-control-target');
   vi.clearAllMocks();
   // first-contact.js holds this deployment's facts as module state, and these
@@ -414,9 +414,9 @@ describe('steps', () => {
 
     const body = document.querySelector('.tour-body')?.textContent ?? '';
     expect(body).toContain('currently on Rehearsal — writes off.');
-    for (const word of ['real machine', 'rehearsal', 'simulator']) expect(body).toContain(word);
+    for (const word of ['live machine', 'rehearsal', 'simulator']) expect(body).toContain(word);
     expect(body).toContain('turn writes on or off');
-    expect(body).not.toMatch(/stand-in|sandbox|LIVE MACHINE/i);
+    expect(body).not.toMatch(/stand-in|sandbox/i);
   });
 
   test('a session on no known machine gets no read phrase', () => {
@@ -557,11 +557,11 @@ describe('prompt chips', () => {
     expect(chipTexts()).toContain('What can you read right now?');
   });
 
-  test('in Simple view the chip reaches the visible input, not the hidden terminal', () => {
-    document.documentElement.setAttribute('data-ui-mode', 'simple');
+  test('in chat the chip reaches the visible input, not the hidden terminal', () => {
+    document.documentElement.removeAttribute('data-agent-surface');
     serve({ kind: 'real' });
     reachTryIt();
-    // The Simple view's one prompt input, alongside the tour's own anchor.
+    // The chat's one prompt input, alongside the tour's own anchor.
     document.body.insertAdjacentHTML(
       'beforeend',
       '<div id="operator-container"><div class="op-input-area"><textarea></textarea></div></div>'

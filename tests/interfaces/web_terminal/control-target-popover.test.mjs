@@ -11,7 +11,7 @@
  *
  * What they pin down, in the order a reviewer would ask about it:
  *
- * - machines are named by consequence (`Real machine`, `Rehearsal`,
+ * - machines are named by consequence (`Live`, `Rehearsal`,
  *   `Simulator`), the deployment's configured `display_name` wins, and the
  *   server's implementation label survives only on the tooltip;
  * - NO PROCESS CLAIMS: nothing rendered — rows, card, either confirm — states
@@ -44,7 +44,6 @@
  *   their write switches stay live — writing is a separate question;
  * - `Turn all writes off` POSTs `all`/`off`, enabled exactly when `any_armed`;
  * - a waived widening shows its sentence once in the status line;
- * - ONE DOM for both `ui_mode`s: the same markup under `simple` and `expert`.
  *
  * Seams: `fetch` is stubbed the way the other suites here stub it, and
  * `EventSource` is stubbed as a class, since happy-dom has none. Both modules hold module-private state
@@ -81,7 +80,7 @@ let popoverModule;
 const KINDS = {
   live: {
     target: 'live',
-    label: 'Real machine — writes move hardware',
+    label: 'Live — writes move hardware',
     short_label: 'LIVE',
     machine_kind: 'real',
     display_name: '',
@@ -407,7 +406,7 @@ beforeEach(async () => {
   // The don't-ask-again waivers persist in localStorage; no test inherits
   // another's.
   localStorage.clear();
-  document.documentElement.removeAttribute('data-ui-mode');
+  document.documentElement.removeAttribute('data-agent-surface');
   delete (/** @type {any} */ (window).__OSPREY_PREFIX__);
   chipModule = await import(CHIP);
   popoverModule = await import(POPOVER);
@@ -584,7 +583,7 @@ describe('beside the sidebar', () => {
 /* ---- the design-system primitives ---------------------------------------- */
 
 describe('built on the design-system primitives', () => {
-  test('titles, separators, rows, dots, switches and buttons', async () => {
+  test('titles, separators, rows, glyphs, switches and buttons', async () => {
     await bootOpen();
     const pop = /** @type {HTMLElement} */ (popEl());
     const titles = [...pop.querySelectorAll(':scope > .osprey-popover-title')].map(
@@ -595,8 +594,8 @@ describe('built on the design-system primitives', () => {
 
     const row = /** @type {HTMLElement} */ (rowEl('live'));
     expect(row.classList.contains('osprey-popover-item')).toBe(true);
-    expect(row.querySelector('.ctc-name-line > .osprey-dot')).not.toBeNull();
-    expect(cardEl()?.querySelector('.ctc-card-title > .osprey-dot')).not.toBeNull();
+    expect(row.querySelector('.ctc-name-line > .ctc-machine-glyph')).not.toBeNull();
+    expect(cardEl()?.querySelector('.ctc-card-title > .ctc-machine-glyph')).not.toBeNull();
     expect(groupEl('live')?.closest('.ctc-switchwrap')).not.toBeNull();
     expect(allOffEl().classList.contains('osprey-btn')).toBe(true);
   });
@@ -636,7 +635,7 @@ describe('the card', () => {
     expect(tip.textContent).toContain('Rehearsal — nothing moves');
     expect(tip.textContent).toContain('127.0.0.1:10090');
     expect(tip.querySelector('.ctc-tip-what')?.textContent).toBe(
-      "Copy of the real machine's controls · nothing moves"
+      "Copy of the live machine's controls · nothing moves"
     );
     expect(groupEl('standin')?.getAttribute('aria-label')).toBe('writes asked for Rehearsal');
     expect(checked('standin')).toEqual(['asked']);
@@ -671,13 +670,13 @@ describe('the card', () => {
 describe('names', () => {
   test('every machine is named by what it is, not how it is wired', async () => {
     await bootOpen();
-    expect(rowEl('live')?.querySelector('.ctc-name')?.textContent).toBe('Real machine');
+    expect(rowEl('live')?.querySelector('.ctc-name')?.textContent).toBe('Live');
     expect(rowEl('va')?.querySelector('.ctc-name')?.textContent).toBe('Simulator');
     // No raw server label reaches a resting surface — the labels live only
     // inside the ⓘ tooltips.
     const atRest = /** @type {HTMLElement} */ (popEl()?.cloneNode(true));
     for (const tip of atRest.querySelectorAll('.ctc-tip')) tip.remove();
-    expect(atRest.textContent).not.toContain('Real machine — writes move hardware');
+    expect(atRest.textContent).not.toContain('Live — writes move hardware');
     expect(atRest.textContent).not.toContain('Simulator — nothing moves');
   });
 
@@ -915,9 +914,7 @@ describe('the switch under a lock', () => {
       })
     );
     expect(optionEl('live', 'asked')?.disabled).toBe(false);
-    expect(optionEl('live', 'asked')?.title).toBe(
-      'Set writes to asked for Real machine — asks first'
-    );
+    expect(optionEl('live', 'asked')?.title).toBe('Set writes to asked for Live — asks first');
     expect(optionEl('va', 'off')?.disabled).toBe(false);
     // And no row offers a Switch it knows would be refused; the reason word
     // stands where the button was.
@@ -1042,11 +1039,11 @@ describe('turning writes off and on', () => {
     optionEl('live', 'asked')?.click();
     await flush();
 
-    expect(confirmTitle()).toBe('Set writes to asked on Real machine?');
+    expect(confirmTitle()).toBe('Set writes to asked on Live?');
     expect(posts()).toHaveLength(0);
     // The facility's own machine, and only it, carries the hardware notice.
     expect(confirmEl()?.querySelector('.posture-modal-live')?.textContent).toBe(
-      'Real machine — writes move hardware'
+      'Live — writes move hardware'
     );
     expect(confirmBtn()?.dataset.live).toBe('true');
     expect(confirmBtn()?.textContent).toBe('Set writes to asked');
@@ -1062,15 +1059,18 @@ describe('turning writes off and on', () => {
     expect(body).not.toMatch(/approval|asks you|limits/i);
     expect(body).not.toMatch(/[\w.-]+:\d+/);
     // D10: every widening names the machine and whether writes will still prompt.
-    expect(body).toContain('Writes to Real machine will still prompt');
+    expect(body).toContain('Writes to Live will still prompt');
   });
 
-  test('the simulator turns on without the hardware notice', async () => {
+  test('the simulator turns on with its own banner, toned by where the move lands', async () => {
     await bootOpen(viewOf({ targets: [rowOf(KINDS.va, { ...STATES.off })] }));
     optionEl('va', 'asked')?.click();
     await flush();
     expect(confirmTitle()).toBe('Set writes to asked on Simulator?');
-    expect(confirmEl()?.querySelector('.posture-modal-live')).toBeNull();
+    expect(confirmEl()?.querySelector('.posture-modal-live')?.textContent).toBe(
+      'Simulator — nothing moves'
+    );
+    expect(inConfirm('.posture-modal').dataset.to).toBe('asked');
   });
 
   test('cancelling the confirm changes nothing and leaves the popover open', async () => {
@@ -1289,7 +1289,7 @@ describe('a stop that lands while a turn-on is asked', () => {
     // The new click carries the epoch the re-read brought.
     optionEl('live', 'asked')?.click();
     await flush();
-    expect(confirmTitle()).toBe('Set writes to asked on Real machine?');
+    expect(confirmTitle()).toBe('Set writes to asked on Live?');
     postAnswers.push({ ok: true, body: { target: 'live', state: 'asked', switch_epoch: '9' } });
     confirmBtn()?.click();
     await flush();
@@ -1545,7 +1545,7 @@ describe('switching', () => {
     switchEl('live')?.click();
     await flush();
     expect(confirmEl()?.querySelector('.posture-modal-live')?.textContent).toBe(
-      'Real machine — writes move hardware'
+      'Live — writes move hardware'
     );
   });
 
@@ -1788,7 +1788,7 @@ describe("don't ask again", () => {
       new MouseEvent('click', { shiftKey: true, bubbles: true, cancelable: true })
     );
 
-  test('ticking it on a switch confirm mutes the NEXT switch to that machine only', async () => {
+  test('ticking it on a switch confirm mutes the next switch, to any machine', async () => {
     await bootOpen();
     switchEl('va')?.click();
     await flush();
@@ -1797,10 +1797,9 @@ describe("don't ask again", () => {
     confirmBtn()?.click();
     await flush();
 
-    // The waiver is per gesture per machine, user-scoped (bare key here:
-    // no data-osprey-storage-scope on a single-user page).
-    expect(localStorage.getItem('osprey-ctc-skip-confirm:switch:va')).toBe('1');
-    expect(localStorage.getItem('osprey-ctc-skip-confirm:switch:live')).toBeNull();
+    // One slot per gesture, user-scoped (bare key here: no
+    // data-osprey-storage-scope on a single-user page).
+    expect(localStorage.getItem('osprey-ctc-skip-confirm:switch')).toBe('1');
 
     // The outcome lands (clearing the pending request), the session comes
     // back; then switch to va again: no dialog, straight to the POST.
@@ -1819,12 +1818,22 @@ describe("don't ask again", () => {
     expect(outcomes('va')).toContain('switching…');
   });
 
-  test('a waived switch to ANOTHER machine still asks', async () => {
-    localStorage.setItem('osprey-ctc-skip-confirm:switch:va', '1');
+  test('the waiver covers a switch to the live machine', async () => {
+    localStorage.setItem('osprey-ctc-skip-confirm:switch', '1');
+    await bootOpen();
+    postAnswers.push({ ok: true, body: { request_id: 'req-1', target: 'live' } });
+    switchEl('live')?.click();
+    await flush();
+    expect(confirmEl()).toBeNull();
+    expect(posts()[0].body).toEqual({ session_id: null, target: 'live' });
+  });
+
+  test('a retired per-machine switch waiver answers for nothing', async () => {
+    localStorage.setItem('osprey-ctc-skip-confirm:switch:live', '1');
     await bootOpen();
     switchEl('live')?.click();
     await flush();
-    expect(confirmTitle()).toBe('Switch to Real machine?');
+    expect(confirmTitle()).toBe('Switch to Live?');
   });
 
   test('cancelling with the box ticked records nothing', async () => {
@@ -1835,14 +1844,14 @@ describe("don't ask again", () => {
     inConfirm('.posture-modal-cancel').click();
     await flush();
 
-    expect(localStorage.getItem('osprey-ctc-skip-confirm:switch:va')).toBeNull();
+    expect(localStorage.getItem('osprey-ctc-skip-confirm:switch')).toBeNull();
     switchEl('va')?.click();
     await flush();
     expect(confirmTitle()).toBe('Switch to Simulator?');
   });
 
   test('Shift re-shows a waived dialog, pre-ticked, and unticking there is the undo', async () => {
-    localStorage.setItem('osprey-ctc-skip-confirm:switch:va', '1');
+    localStorage.setItem('osprey-ctc-skip-confirm:switch', '1');
     await bootOpen();
     shiftClick(switchEl('va'));
     await flush();
@@ -1854,11 +1863,11 @@ describe("don't ask again", () => {
     postAnswers.push({ ok: true, body: { request_id: 'req-1', target: 'va' } });
     confirmBtn()?.click();
     await flush();
-    expect(localStorage.getItem('osprey-ctc-skip-confirm:switch:va')).toBeNull();
+    expect(localStorage.getItem('osprey-ctc-skip-confirm:switch')).toBeNull();
   });
 
   test('a waived move to asked applies directly and says the sentence once', async () => {
-    localStorage.setItem('osprey-ctc-skip-confirm:writes-asked:va:simulator', '1');
+    localStorage.setItem('osprey-ctc-skip-confirm:move', '1');
     await bootOpen(viewOf({ targets: [rowOf(KINDS.va, { ...STATES.off })] }));
     postAnswers.push({ ok: true, body: { target: 'va', state: 'asked', switch_epoch: EPOCH } });
     optionEl('va', 'asked')?.click();
@@ -1887,7 +1896,7 @@ describe("don't ask again", () => {
   });
 
   test('a waived move that is refused shows no sentence', async () => {
-    localStorage.setItem('osprey-ctc-skip-confirm:writes-asked:va:simulator', '1');
+    localStorage.setItem('osprey-ctc-skip-confirm:move', '1');
     await bootOpen(viewOf({ targets: [rowOf(KINDS.va, { ...STATES.off })] }));
     postAnswers.push({
       ok: false,
@@ -1900,23 +1909,21 @@ describe("don't ask again", () => {
     expect(outcomes('va')).toContain(`✗ ${TIER_NEVER_PHRASE}`);
   });
 
-  test('a move to asked on the live machine offers no waiver and ignores a stale one', async () => {
-    // The gesture after which hardware can move keeps asking, always — even a
-    // hand-planted waiver key changes nothing.
+  test('a retired per-machine waiver answers for nothing, so the live machine asks', async () => {
+    // Nobody inherits a silent live machine: the one waiver is ticked afresh.
     localStorage.setItem('osprey-ctc-skip-confirm:writes-asked:live:real', '1');
     await bootOpen();
     optionEl('live', 'asked')?.click();
     await flush();
 
-    expect(confirmTitle()).toBe('Set writes to asked on Real machine?');
-    expect(skipBox()).toBeNull();
+    expect(confirmTitle()).toBe('Set writes to asked on Live?');
     expect(posts()).toHaveLength(0);
   });
 
   test('a waived switch that is refused puts the server sentence on the row', async () => {
     // With no dialog up, the refusal's home is the row — same as a verb
     // click's.
-    localStorage.setItem('osprey-ctc-skip-confirm:switch:va', '1');
+    localStorage.setItem('osprey-ctc-skip-confirm:switch', '1');
     await bootOpen();
     postAnswers.push({
       ok: false,
@@ -2036,21 +2043,21 @@ describe('confirm and waiver paths', () => {
     expect(inConfirm('.posture-modal-body').textContent).toContain('still prompt');
   });
 
-  test('ticking the waiver records it under the writes-asked key base', async () => {
+  test('ticking the waiver records it in the one move slot', async () => {
     await bootOpen(only(KINDS.va, STATES.off));
     optionEl('va', 'asked')?.click();
     await flush();
     /** @type {HTMLInputElement} */ (skipBox()).click();
     confirmBtn()?.click();
     await flush();
-    expect(localStorage.getItem('osprey-ctc-skip-confirm:writes-asked:va:simulator')).toBe('1');
+    expect(localStorage.getItem('osprey-ctc-skip-confirm:move')).toBe('1');
     // That POST followed a dialog, so it does not claim a waived confirm.
     expect(posts()[0].body.waived).toBe(false);
     expect(statusEl()).toBeNull();
   });
 
   test('Shift re-shows a waived move, and the POST it confirms is not waived', async () => {
-    localStorage.setItem('osprey-ctc-skip-confirm:writes-asked:va:simulator', '1');
+    localStorage.setItem('osprey-ctc-skip-confirm:move', '1');
     await bootOpen(only(KINDS.va, STATES.off));
     optionEl('va', 'asked')?.dispatchEvent(
       new MouseEvent('click', { shiftKey: true, bubbles: true, cancelable: true })
@@ -2073,12 +2080,12 @@ describe('confirm and waiver paths', () => {
     ['simulator', KINDS.va, STATES.asked],
     ['rehearsal', KINDS.standin, STATES.off],
     ['real', KINDS.live, STATES.asked],
-  ])('a move to allowed on the %s always confirms, with no waiver', async (kindName, kind, row) => {
+  ])('a move to allowed on the %s confirms and offers the waiver', async (kindName, kind, row) => {
     await bootOpen(only(kind, row));
     optionEl(kind.target, 'allowed')?.click();
     await flush();
     expect(posts()).toHaveLength(0);
-    expect(skipBox()).toBeNull();
+    expect(skipBox()).not.toBeNull();
     expect(confirmTitle()).toContain('Set writes to allowed on');
     expect(inConfirm('.posture-modal').dataset.targetKind).toBe(kindName);
     expect(inConfirm('.posture-modal-body').textContent).toContain('no prompt');
@@ -2088,19 +2095,45 @@ describe('confirm and waiver paths', () => {
     expect(posts()[0].body).toMatchObject({ state: 'allowed', waived: false });
   });
 
-  test('no waiver key can skip a move to allowed', async () => {
-    for (const key of [
-      'writes-allowed:va:simulator',
-      'writes-allowed:va',
-      'writes-asked:va:simulator',
-    ]) {
-      localStorage.setItem(`osprey-ctc-skip-confirm:${key}`, '1');
-    }
-    await bootOpen(only(KINDS.va, STATES.asked));
-    optionEl('va', 'allowed')?.click();
+  test.each([
+    ['asked', KINDS.live, STATES.off],
+    ['allowed', KINDS.live, STATES.asked],
+    ['allowed', KINDS.va, STATES.asked],
+  ])('the one waiver applies a move to %s directly on any machine', async (to, kind, row) => {
+    localStorage.setItem('osprey-ctc-skip-confirm:move', '1');
+    await bootOpen(only(kind, row));
+    postAnswers.push({ ok: true, body: { target: kind.target, state: to, switch_epoch: EPOCH } });
+    optionEl(kind.target, to)?.click();
+    await flush();
+    expect(confirmEl()).toBeNull();
+    expect(posts()[0].body).toMatchObject({ target: kind.target, state: to, waived: true });
+  });
+
+  test('the move waiver does not answer for a target switch', async () => {
+    localStorage.setItem('osprey-ctc-skip-confirm:move', '1');
+    await bootOpen();
+    switchEl('va')?.click();
+    await flush();
+    expect(confirmTitle()).toBe('Switch to Simulator?');
+  });
+
+  test('Ask again shows only while a waiver stands, and clears both', async () => {
+    await bootOpen(only(KINDS.va, STATES.off));
+    const link = () => document.querySelector('.ctc-ask-again-link');
+    expect(link()).toBeNull();
+    localStorage.setItem('osprey-ctc-skip-confirm:move', '1');
+    localStorage.setItem('osprey-ctc-skip-confirm:switch', '1');
+    await chipModule.refetch();
+    await flush();
+
+    /** @type {HTMLButtonElement} */ (link()).click();
+    await flush();
+    expect(localStorage.getItem('osprey-ctc-skip-confirm:move')).toBeNull();
+    expect(localStorage.getItem('osprey-ctc-skip-confirm:switch')).toBeNull();
+    expect(link()).toBeNull();
+    optionEl('va', 'asked')?.click();
     await flush();
     expect(confirmEl()).not.toBeNull();
-    expect(posts()).toHaveLength(0);
   });
 
   test.each([
@@ -2244,7 +2277,7 @@ describe('the keyboard model', () => {
   });
 
   test('Shift with Enter re-shows a waived dialog', async () => {
-    localStorage.setItem('osprey-ctc-skip-confirm:writes-asked:va:simulator', '1');
+    localStorage.setItem('osprey-ctc-skip-confirm:move', '1');
     await bootOpen(view());
     const asked = /** @type {HTMLButtonElement} */ (optionEl('va', 'asked'));
     asked.focus();
@@ -2437,51 +2470,6 @@ describe('no process claims', () => {
 });
 
 /* ---- one DOM for both densities ------------------------------------------- */
-
-describe('simple and expert are one DOM', () => {
-  /**
-   * Every popover render, as markup, for a given ui-mode.
-   * @param {string} mode @param {any} view
-   */
-  async function markupUnder(mode, view) {
-    document.documentElement.setAttribute('data-ui-mode', mode);
-    await bootOpen(view);
-    const html = popEl()?.innerHTML ?? '';
-    popoverModule.teardownControlTargetPopover();
-    chipModule.teardownControlTargetChip();
-    return html;
-  }
-
-  test('the plain roster produces identical markup in either mode', async () => {
-    const simple = await markupUnder('simple', viewOf());
-    const expert = await markupUnder('expert', viewOf());
-    expect(simple).toBe(expert);
-  });
-
-  test('a locked, unreachable, followed roster is identical too', async () => {
-    // The lock here is a context this terminal follows rather than owns: every
-    // row is read-only and the banner names the holder. That is the widest
-    // difference the two modes could have rendered differently, and they must
-    // not — the modes differ in defaults, never in markup.
-    const view = () =>
-      viewOf({
-        owner: { kind: 'web_terminal', pid: 77, port: 8123, self: false },
-        targets: [
-          rowOf(KINDS.live, {
-            ...STATES.off,
-            reachability: { state: 'down', role: 'read_only', age_s: 8 },
-          }),
-          rowOf(KINDS.va, { is_baseline: true, active: true }),
-        ],
-      });
-    const simple = await markupUnder('simple', view());
-    const expert = await markupUnder('expert', view());
-    expect(simple).toBe(expert);
-    // And the lock is really in the markup being compared — a seed that stopped
-    // biting would leave two plain rosters agreeing about nothing.
-    expect(simple).toContain('holds the control context');
-  });
-});
 
 /* ---- request plumbing ----------------------------------------------------- */
 

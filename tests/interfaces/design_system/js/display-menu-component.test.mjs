@@ -11,12 +11,9 @@
  *
  * Covers:
  *   - the `customElements.get()` registration guard
- *   - the three FIXED rows (Appearance / View / Theme) render, with the
+ *   - the two FIXED rows (Appearance / Theme) render, with the
  *     family pills coming from theme-manager.js's `themeFamilies()`
  *   - the Appearance row drives theme-manager.js's `toggleTheme()`
- *   - the View row's three-step mechanism: persist under
- *     `localStorage['osprey-ui-mode']`, strip a leftover `?mode=`, and post
- *     `osprey-mode-change` to its OWN window
  *   - the Theme pills call `setFamily()` and reflect `subscribe()` notifications
  *   - the popover grammar: trigger toggles, outside click and Escape dismiss
  *   - the optional Settings entry — present only with `settings-drawer`, and
@@ -26,7 +23,7 @@
  * Module-identity note (same as theme-switcher.test.mjs): `customElements` is
  * a process-global registry Vitest's module-registry reset cannot touch, so
  * the one `OspreyDisplayMenu` class that backs every element created here has
- * its theme-manager.js / frame-params.js imports bound to whichever module
+ * its theme-manager.js imports bound to whichever module
  * instances were live the first time this file's top-level imports ran.
  * Re-importing them per test would silently decouple the test's handles from
  * the instances the element actually talks to — so this file imports each
@@ -39,8 +36,6 @@ import { qs } from '../../_support/dom.mjs';
 
 import * as ThemeManager from '/design-system/js/theme-manager.js';
 import '/design-system/js/components/osprey-display-menu.js';
-
-const MODE_KEY = 'osprey-ui-mode';
 
 /**
  * Mount a fresh menu, optionally naming a settings drawer. The attribute is
@@ -60,7 +55,7 @@ describe('<osprey-display-menu>', () => {
   beforeEach(() => {
     window.localStorage.clear();
     document.documentElement.removeAttribute('data-theme');
-    document.documentElement.removeAttribute('data-ui-mode');
+    document.documentElement.removeAttribute('data-agent-surface');
     document.body.innerHTML = '';
     document.body.className = '';
     window.history.replaceState({}, '', '/');
@@ -96,12 +91,12 @@ describe('<osprey-display-menu>', () => {
   });
 
   describe('fixed rows', () => {
-    test('renders the three headings in order: Appearance, View, Theme', () => {
+    test('renders the two headings in order: Appearance, Theme', () => {
       const el = mount();
       const headings = Array.from(el.querySelectorAll('.display-menu-heading')).map(
         (h) => h.textContent
       );
-      expect(headings).toEqual(['Appearance', 'View', 'Theme']);
+      expect(headings).toEqual(['Appearance', 'Theme']);
     });
 
     test('the Appearance row offers exactly light and dark', () => {
@@ -110,29 +105,6 @@ describe('<osprey-display-menu>', () => {
         el.querySelectorAll('.display-menu-appearance .display-seg-option')
       ).map((o) => (o instanceof HTMLElement ? o.dataset.appearance : null));
       expect(options).toEqual(['light', 'dark']);
-    });
-
-    test('no View row when the deployment offers no Expert view', () => {
-      document.documentElement.setAttribute('data-expert-view', 'off');
-      try {
-        const el = mount();
-        const headings = Array.from(el.querySelectorAll('.display-menu-heading')).map(
-          (h) => h.textContent
-        );
-        expect(headings).toEqual(['Appearance', 'Theme']);
-        expect(el.querySelector('.display-menu-view')).toBeNull();
-        expect(el.querySelector('[data-mode="expert"]')).toBeNull();
-      } finally {
-        document.documentElement.removeAttribute('data-expert-view');
-      }
-    });
-
-    test('the View row offers exactly expert and simple', () => {
-      const el = mount();
-      const options = Array.from(el.querySelectorAll('.display-menu-view .display-seg-option')).map(
-        (o) => (o instanceof HTMLElement ? o.dataset.mode : null)
-      );
-      expect(options).toEqual(['expert', 'simple']);
     });
 
     test('the Theme row renders one pill per family, from themeFamilies()', () => {
@@ -209,96 +181,6 @@ describe('<osprey-display-menu>', () => {
       qs(el, '.display-menu-trigger').click();
       qs(el, '.display-menu-appearance .display-seg-option[data-appearance="light"]').click();
       expect(qs(el, '.display-menu-card').classList.contains('open')).toBe(true);
-    });
-  });
-
-  describe('View row', () => {
-    test('persists the pick under localStorage[osprey-ui-mode]', () => {
-      const el = mount();
-      qs(el, '.display-menu-view .display-seg-option[data-mode="simple"]').click();
-      expect(window.localStorage.getItem(MODE_KEY)).toBe('simple');
-
-      qs(el, '.display-menu-view .display-seg-option[data-mode="expert"]').click();
-      expect(window.localStorage.getItem(MODE_KEY)).toBe('expert');
-    });
-
-    test('posts osprey-mode-change to its OWN window, at the page origin', () => {
-      const postSpy = vi.spyOn(window, 'postMessage');
-      const el = mount();
-
-      qs(el, '.display-menu-view .display-seg-option[data-mode="simple"]').click();
-
-      expect(postSpy).toHaveBeenCalledWith(
-        { type: 'osprey-mode-change', mode: 'simple' },
-        window.location.origin
-      );
-    });
-
-    test('clicking the already-active view segment does not broadcast a flip', () => {
-      // The segment stays a live button (the card stays open across a pick),
-      // so re-clicking it is an ordinary gesture. The hub's dock treats every
-      // broadcast as a flip and stashes the current layout under the OTHER
-      // view's key, so a same-value pick must persist and nothing more.
-      document.documentElement.setAttribute('data-ui-mode', 'expert');
-      const postSpy = vi.spyOn(window, 'postMessage').mockImplementation(() => {});
-      const el = mount();
-
-      qs(el, '.display-menu-view .display-seg-option[data-mode="expert"]').click();
-      expect(postSpy).not.toHaveBeenCalled();
-      expect(window.localStorage.getItem(MODE_KEY)).toBe('expert');
-
-      qs(el, '.display-menu-view .display-seg-option[data-mode="simple"]').click();
-      expect(postSpy).toHaveBeenCalledWith(
-        { type: 'osprey-mode-change', mode: 'simple' },
-        window.location.origin
-      );
-    });
-
-    test('strips a leftover one-shot ?mode= so it cannot out-rank the pick on reload', () => {
-      window.history.replaceState({}, '', '/?mode=expert&embedded=true');
-      const el = mount();
-
-      qs(el, '.display-menu-view .display-seg-option[data-mode="simple"]').click();
-
-      const params = new URLSearchParams(window.location.search);
-      expect(params.has('mode')).toBe(false);
-      expect(params.get('embedded')).toBe('true');
-    });
-
-    test('does not stamp data-ui-mode itself — the page listener owns that', () => {
-      // The stamp path lives in each page's app.js 'message' listener, which
-      // this suite never imports — so nothing here would stamp even without
-      // the mock. Suppressing delivery anyway pins the claim to the element
-      // itself: the null assertion stays meaningful even if another suite
-      // sharing this window ever registers such a listener.
-      vi.spyOn(window, 'postMessage').mockImplementation(() => {});
-      const el = mount();
-
-      qs(el, '.display-menu-view .display-seg-option[data-mode="simple"]').click();
-
-      expect(document.documentElement.getAttribute('data-ui-mode')).toBeNull();
-    });
-
-    test('reflects the pick immediately, without waiting for the broadcast', () => {
-      vi.spyOn(window, 'postMessage').mockImplementation(() => {});
-      const el = mount();
-
-      qs(el, '.display-menu-view .display-seg-option[data-mode="simple"]').click();
-
-      const seg = qs(el, '.display-menu-view');
-      expect(seg.getAttribute('data-active')).toBe('simple');
-      expect(qs(seg, '.display-seg-option[data-mode="simple"]').getAttribute('aria-pressed')).toBe(
-        'true'
-      );
-      expect(qs(seg, '.display-seg-option[data-mode="expert"]').getAttribute('aria-pressed')).toBe(
-        'false'
-      );
-    });
-
-    test('reflects the mode mode-boot.js already stamped, at connect time', () => {
-      document.documentElement.setAttribute('data-ui-mode', 'simple');
-      const el = mount();
-      expect(qs(el, '.display-menu-view').getAttribute('data-active')).toBe('simple');
     });
   });
 

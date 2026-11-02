@@ -341,7 +341,6 @@ class TestGrammar:
             "not_taken",
             "invalid_session_id",
             "tier_caps",
-            "waiver_not_allowed",
         ):
             assert reason not in REASONS
 
@@ -693,42 +692,25 @@ class TestTheCeiling:
 
 
 class TestTheWaiver:
-    """400 ``waiver_not_allowed``: only a move to ``asked`` off the real machine may skip."""
+    """``waived`` is an audit fact about the dialog; it never decides the move."""
 
-    def test_a_move_to_asked_on_the_simulator_may_be_waived(self, client):
-        assert turn_on(client, "va", "asked", waived=True).status_code == 200
-        assert switch_now() == {"va": "asked"}
+    @pytest.mark.parametrize(
+        ("target", "state"),
+        [("va", "asked"), ("va", "allowed"), ("live", "asked"), ("live", "allowed")],
+    )
+    def test_any_move_may_be_waived_on_any_machine(self, client, target, state):
+        assert turn_on(client, target, state, waived=True).status_code == 200
+        assert switch_now() == {target: state}
 
-    def test_a_move_to_allowed_may_not(self, client):
-        assert_envelope(
-            post_switch(client, target="va", state="allowed", waived=True),
-            400,
-            reason="waiver_not_allowed",
-        )
-        assert switch_now() == {}
-
-    def test_a_real_machine_may_not(self, client):
-        assert_envelope(
-            post_switch(client, target="live", state="asked", waived=True),
-            400,
-            reason="waiver_not_allowed",
-        )
-        assert switch_now() == {}
-
-    def test_a_false_waiver_on_a_real_machine_is_no_waiver(self, client):
-        assert turn_on(client, "live", "allowed", waived=False).status_code == 200
-
-    def test_it_comes_after_unknown_target_and_before_the_cap(self, client, tmp_path):
-        assert_envelope(
-            post_switch(client, target="banana", waived=True), 400, reason="unknown_target"
-        )
+    def test_a_waiver_does_not_get_past_the_cap(self, client, tmp_path):
         client.app.state.config_path = write_config(
             tmp_path, control_system_section(writes="asked"), name="asked.yml"
         )
         assert_envelope(
             post_switch(client, target="va", state="allowed", waived=True),
-            400,
-            reason="waiver_not_allowed",
+            403,
+            reason="tier_caps",
+            ceiling="asked",
         )
 
     @pytest.mark.parametrize("target", ["live", "all"])
@@ -1150,17 +1132,7 @@ class TestAudit:
             target=kwargs.get("target", "standin"),
         )
 
-    def test_the_two_new_refusals_each_file_one_line(self, client, ledger, tmp_path):
-        assert post_switch(client, target="live", waived=True).status_code == 400
-        _assert_one_line(
-            ledger,
-            decision="refused",
-            reason="waiver_not_allowed",
-            state="asked",
-            target="live",
-            waived="true",
-        )
-        ledger.clear()
+    def test_the_cap_refusal_files_one_line(self, client, ledger, tmp_path):
         client.app.state.config_path = write_config(
             tmp_path, control_system_section(writes="asked"), name="asked.yml"
         )

@@ -76,6 +76,13 @@ Operate
       Connectors for your control system, the virtual accelerator to rehearse
       on, switching to the live machine, and what the agent may not touch.
 
+   .. grid-item-card:: Safety Watchdogs
+      :link: safety-watchdogs
+      :link-type: doc
+
+      Have facility-written checks judge each operator prompt, hold the agent's
+      writes when one flags it, and ask the operator to stop or continue.
+
 Facility services
 -----------------
 
@@ -139,6 +146,7 @@ Facility services
    agent-interfaces/index
    health-and-monitoring/index
    control-systems/index
+   safety-watchdogs
    describe-your-facility
    measure-with-pyaml
    use-channel-finder

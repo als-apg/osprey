@@ -1,5 +1,5 @@
 /**
- * The Simple chat's feature modules, started once by initChat.
+ * The chat's feature modules, started once by initChat.
  *
  * A feature reads the chat's lifecycle from chat-events.js and reaches the
  * console through the context handed in here, so adding one needs no hook in

@@ -267,6 +267,7 @@ _KNOWN_PROFILE_KEYS = frozenset(
         "teams_bridge",
         "va_archiver",
         "agent_record",
+        "watchdogs",
         "provenance",
     }
 )
@@ -292,6 +293,9 @@ ROOT_ONLY_KEYS = frozenset(
         # Where the deployment's one agent record lives: a fact about the whole
         # deployment, never about one access level of its agent.
         "agent_record",
+        # What judges the deployment's sessions. A tier may not spell it: the
+        # access level being watched does not get to choose its own watchdog.
+        "watchdogs",
     }
 )
 
@@ -1904,5 +1908,6 @@ def _parse_profile(raw: dict[str, Any]) -> BuildProfile:
         teams_bridge=teams_bridge,
         va_archiver=parse_va_archiver_block(raw, base=port_base),
         agent_record=parse_agent_record_block(raw, base=port_base),
+        watchdogs=_block(raw, "watchdogs"),
         provenance=provenance,
     )

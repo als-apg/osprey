@@ -31,7 +31,6 @@ Covers:
     dispatch for every seeded type, and the hub's
     ``osprey-artifact-action`` messages run the gallery's own pin, logbook
     and delete paths
-  - standalone, a gallery opened in Simple mode is the browse gallery too
 
 Unlike _launchers.py's `launch_artifacts` (an empty tmp_path -- fine
 there, since it only checks the page loads clean), this suite needs real
@@ -263,23 +262,6 @@ def test_a_sidebar_taller_than_one_page_fetches_the_next_one(
         page = chromium_browser.new_page(viewport=VIEWPORT)
         page.goto(base_url, wait_until="domcontentloaded")
 
-        expect(_card_for_title(page, "Paged Artifact 000")).to_have_count(1, timeout=10_000)
-        expect(page.locator(".tree-item")).to_have_count(25, timeout=5_000)
-        page.close()
-
-
-def test_a_gallery_opened_in_simple_mode_is_the_browse_gallery(
-    tmp_path, monkeypatch, chromium_browser
-):
-    """Standalone, the gallery is the browse view in every UI mode: opened in
-    Simple, it shows the browser column and fetches on until a sidebar taller
-    than one page reaches past the list's end, without a scroll.
-    """
-    with _launch_many_artifacts(tmp_path, monkeypatch, 25) as base_url:
-        page = chromium_browser.new_page(viewport=VIEWPORT)
-        page.goto(f"{base_url}?mode=simple", wait_until="domcontentloaded")
-
-        expect(page.locator("html")).to_have_attribute("data-ui-mode", "simple")
         expect(_card_for_title(page, "Paged Artifact 000")).to_have_count(1, timeout=10_000)
         expect(page.locator(".tree-item")).to_have_count(25, timeout=5_000)
         page.close()

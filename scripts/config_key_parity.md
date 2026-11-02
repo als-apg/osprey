@@ -40,7 +40,7 @@ The bundled apps, each composed over `control-assistant` (the host):
 An app is a complete agent definition, not a delta, so a key only an app states
 has its writer in the apps context: the `python` and
 `osprey_facility_knowledge` server switches, `web.control_target_picker`,
-`web.ui_mode`, the `graph` server switch and the per-type write pins. The
+the `graph` server switch and the per-type write pins. The
 governed-set claims are measured from the `logbook` and `channel-finder` app
 renders.
 

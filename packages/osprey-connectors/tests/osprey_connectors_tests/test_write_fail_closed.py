@@ -33,6 +33,53 @@ def _switch_on(monkeypatch, tmp_path):
     return arm_switch(monkeypatch, tmp_path / "armed-data")
 
 
+class TestOneNamePerWrite:
+    """``X``, ``ca://X`` and a padded spelling are one record, judged and written as one."""
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("spelling", ["ca://TEST:PV", "  TEST:PV ", " ca://TEST:PV\t"])
+    async def test_limits_are_looked_up_under_the_canonical_name(self, spelling):
+        """Every spelling validates against the limits entry of ``TEST:PV`` and is
+        refused by that entry's limit; the raw spelling never reaches the validator."""
+        violation = ChannelLimitsViolationError(
+            channel_address="TEST:PV",
+            value=999.0,
+            violation_type="max_value",
+            violation_reason="above max",
+        )
+        connector = _make_connector(validate_side_effect=violation)
+
+        with patch(
+            "osprey_connectors.config.get_config_value",
+            side_effect=_writes_enabled_config,
+        ):
+            with pytest.raises(ChannelLimitsViolationError) as raised:
+                await connector.write_channel(spelling, 999.0, confirm=False)
+
+        assert raised.value is violation
+        connector._limits_validator.validate.assert_called_once()
+        (name, value), _kwargs = connector._limits_validator.validate.call_args
+        assert (name, value) == ("TEST:PV", 999.0)
+        assert connector._aioca.puts == []
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("spelling", ["ca://TEST:PV", "  TEST:PV "])
+    async def test_the_put_and_the_result_name_the_canonical_record(self, spelling):
+        """A write that passes validation puts to ``TEST:PV`` and reports that name."""
+        connector = _make_connector()
+
+        with patch(
+            "osprey_connectors.config.get_config_value",
+            side_effect=_writes_enabled_config,
+        ):
+            result = await connector.write_channel(spelling, 1.0, confirm=False)
+
+        (name, _value), _kwargs = connector._limits_validator.validate.call_args
+        assert name == "TEST:PV"
+        assert [(n, v) for n, v, _wait in connector._aioca.puts] == [("TEST:PV", 1.0)]
+        assert result.channel_address == "TEST:PV"
+
+
 class TestFailClosedValidation:
     @pytest.mark.asyncio
     async def test_non_limits_validation_error_refuses_write(self):

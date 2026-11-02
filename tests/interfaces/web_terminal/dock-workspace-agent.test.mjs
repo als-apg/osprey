@@ -7,11 +7,11 @@
  * owns: `html[data-agent="closed"]`, present exactly while the terminal panel
  * is absent from the dock, and the `osprey-agent-pane` `{detail: {open}}`
  * event on `document`, dispatched on every change. Every path that adds or
- * removes the pane must keep both in step: boot, close, reopen, a reset, and
- * a view flip. The dock is a hand-built stand-in (`_dock-fake.mjs`) behind a
+ * removes the pane must keep both in step: boot, close, reopen and a reset. The
+ * dock is a hand-built stand-in (`_dock-fake.mjs`) behind a
  * fake `dockview-core` global; geometry is the browser suite's.
  *
- * Also pinned: the Agent tile adopts the chat console's bar in the Simple view
+ * Also pinned: the Agent tile adopts the chat console's bar in the chat
  * (registered by initDockWorkspace before the dock adopts the card), and the
  * default service width leaves the sidebar's width out.
  */
@@ -26,7 +26,7 @@ vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/terminal.js', () 
   fitTerminal: () => {},
   getCurrentSessionId: () => null,
 }));
-// No project key: persistence stays inert, so every flip builds a default.
+// No project key: persistence stays inert, so every apply builds a default.
 vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/api.js', () => ({
   fetchJSON: async () => ({}),
 }));
@@ -103,7 +103,6 @@ function mountHub() {
 beforeEach(async () => {
   vi.resetModules();
   document.documentElement.removeAttribute('data-agent');
-  document.documentElement.setAttribute('data-ui-mode', 'expert');
   mountHub();
   api = fullApi();
   /** @type {any} */ (window)['dockview-core'] = {
@@ -123,7 +122,7 @@ afterEach(() => {
   document.removeEventListener('osprey-agent-pane', record);
   delete (/** @type {any} */ (window)['dockview-core']);
   document.documentElement.removeAttribute('data-agent');
-  document.documentElement.removeAttribute('data-ui-mode');
+  document.documentElement.removeAttribute('data-agent-surface');
   document.body.innerHTML = '';
 });
 
@@ -175,16 +174,6 @@ describe('Agent pane state', () => {
     expect(events).toEqual([true, false, true]);
   });
 
-  test("a flip to Simple builds Simple's default, with the pane in it", () => {
-    dock.initDockWorkspace();
-    dock.closeTerminalPanel();
-    document.documentElement.setAttribute('data-ui-mode', 'simple');
-    dock.applyDockMode('simple');
-    expect(dock.isTerminalPanelOpen()).toBe(true);
-    expect(document.documentElement.hasAttribute('data-agent')).toBe(false);
-    expect(events).toEqual([true, false, true]);
-  });
-
   test('the tile carries the Agent title', () => {
     dock.initDockWorkspace();
     expect(api.getPanel('terminal').title).toBe('Agent');
@@ -192,8 +181,8 @@ describe('Agent pane state', () => {
 });
 
 describe('Agent bar registration', () => {
-  test("Simple's Agent tile adopts the console bar the chat built", () => {
-    document.documentElement.setAttribute('data-ui-mode', 'simple');
+  test("the chat's Agent tile adopts the console bar it built", () => {
+    document.documentElement.removeAttribute('data-agent-surface');
     const bar = document.querySelector('.op-session-bar');
     dock.initDockWorkspace();
     const tab = options.createTabComponent({ id: 'terminal' });
@@ -201,7 +190,8 @@ describe('Agent bar registration', () => {
     expect(tab.element.querySelector('.terminal-header')).toBeNull();
   });
 
-  test("Expert's Agent tile adopts the terminal header", () => {
+  test("the terminal surface's Agent tile adopts the terminal header", () => {
+    document.documentElement.setAttribute('data-agent-surface', 'terminal');
     const header = document.querySelector('.terminal-header');
     dock.initDockWorkspace();
     const tab = options.createTabComponent({ id: 'terminal' });

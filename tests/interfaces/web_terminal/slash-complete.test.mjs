@@ -1,6 +1,6 @@
 // @ts-check
 /**
- * Unit tests for the Simple view's slash-command suggestions (slash-complete.js):
+ * Unit tests for the chat's slash-command suggestions (slash-complete.js):
  *   ./node_modules/.bin/vitest run tests/interfaces/web_terminal/slash-complete.test.mjs
  *
  * The keyboard contract is what is pinned: the list opens only on a single

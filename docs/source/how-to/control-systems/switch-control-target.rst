@@ -240,7 +240,7 @@ From the Web Terminal
 ---------------------
 
 Everything above can also be done by hand, without a prompt. Click the
-control-target chip in the header and the popover lists every machine this
+control-target chip at the top of the sidebar and the popover lists every machine this
 deployment configures — the one the agent stands on as a card, every other as
 a row.
 
@@ -250,7 +250,7 @@ a row.
    .. grid-item::
 
       .. image:: /_static/screenshots/control_target_popover_light.png
-         :alt: The control-target popover in the light theme, showing the Rehearsal card with its writes switch, and rows for the real machine and the simulator
+         :alt: The control-target popover in the light theme, showing the Simulator card with its writes switch, and rows for Live and Rehearsal
          :width: 100%
 
    .. grid-item::
@@ -259,9 +259,9 @@ a row.
          :alt: The control-target popover in the dark theme
          :width: 100%
 
-The popover on the tutorial deployment, whose baseline is the stand-in: the
-*Rehearsal* card, the real machine still ``not set up``, and the simulator a
-**Switch to** away. Captured with OSPREY |captured_control_target_popover|.
+The popover on the tutorial deployment, whose baseline is the simulator: the
+*Simulator* card, *Live* still ``not set up``, and *Rehearsal* a **Switch to**
+away. Captured with OSPREY |captured_control_target_popover|.
 
 Each machine carries:
 
@@ -540,7 +540,7 @@ is a materially different situation on the live machine than on the simulator. S
 every control-system failure envelope — a connect failure, a timeout, a limits
 refusal, a write the control system itself denied — names the target the
 deployment was pointed at when it failed: a human clause in the message
-(``active target: Real machine — writes move hardware at 10.0.0.5:5064``) and a machine-readable
+(``active target: Live — writes move hardware at 10.0.0.5:5064``) and a machine-readable
 ``details.active_target`` block carrying the target name, its label, and the
 endpoint where the configuration knows one. The agent narrating a failure, and
 any script asserting on one, can attribute it to the right machine from the
@@ -554,11 +554,11 @@ The switch would be a hazard if it were quiet. It is not:
 - **Every approval prompt names the target**, not only the write prompts — a
   queue start, a patch or an execution all carry the line too, so its absence is
   never something you learn to read as safe. The live machine is named as
-  ``Real machine — writes move hardware`` with the gateway the deployment
-  actually holds; the stand-in as ``Rehearsal — nothing moves``, in amber; the
+  ``Live — writes move hardware`` with the gateway the deployment
+  actually holds; the stand-in as ``Rehearsal — nothing moves``; the
   simulator as ``virtual accelerator (simulation)``. If the target cannot be read at all, the
   line says so explicitly instead of disappearing. (The web terminal names the
-  same machines by what they are --- *Real machine*, *Rehearsal*, *Simulator*,
+  same machines by what they are --- *Live*, *Rehearsal*, *Simulator*,
   or the deployment's own configured names --- and keeps these technical labels
   on its tooltips.)
 - **Results and artifacts are stamped.** Archive reads carry the control
@@ -568,7 +568,7 @@ The switch would be a hazard if it were quiet. It is not:
   work happens, and on the :ref:`control-target chip
   <web-terminal-session-posture>` in the header, which names the machine the
   deployment stands on and the write state on *that* machine ---
-  ``● Simulator · writes allowed``, ``● Real machine · writes locked``. The write
+  ``● Simulator · writes allowed``, ``● Live · writes locked``. The write
   state is per machine, so a deployment can arm its simulator and leave the
   live machine read-only; the chip is where that shows. The terminal tells the
   chip when the record moves, so it repaints as soon as a switch lands, whoever

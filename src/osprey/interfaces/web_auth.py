@@ -1470,6 +1470,12 @@ class Tier(Enum):
 #: carries a call, ``GET`` opens the event stream, ``DELETE`` ends the session.
 #: Anything else on that path, a websocket included, is not that client.
 #:
+#: ``POST /api/watchdog/prompt`` is the trigger hook's door: the hook runs in the
+#: agent's sandbox and holds nothing stronger. It can only ask for a prompt to be
+#: judged, which can add a hold and never remove one. Reading a session's flags
+#: and answering them are operator acts, absent here, so an agent cannot release
+#: its own hold.
+#:
 #: What is deliberately *absent* matters as much as what is present:
 #: ``GET /api/panel-focus`` (a real route) and ``POST /api/panel-layout`` (which
 #: writes the persisted layout) are operator-only, as is every config, scaffold,
@@ -1486,6 +1492,7 @@ PANEL_TIER_ROUTES: frozenset[tuple[str, str]] = frozenset(
         ("POST", "/api/panel-arrange"),
         ("POST", "/api/agent-activity"),
         ("POST", "/api/agent-turn"),
+        ("POST", "/api/watchdog/prompt"),
         ("POST", "/api/focus"),
         ("GET", "/panel/events/mcp"),
         ("POST", "/panel/events/mcp"),

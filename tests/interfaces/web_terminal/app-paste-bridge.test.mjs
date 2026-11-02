@@ -7,12 +7,12 @@
  * hub to: it posts `{type:'osprey-paste-to-terminal', text}` to `window.parent`
  * and the hub puts that text where the operator is composing. The contract this
  * file pins is that the text ARRIVES and nothing else happens — it is never
- * sent and it never replaces a half-written prompt in the Simple view. That a
+ * sent and it never replaces a half-written prompt in the chat. That a
  * message from another origin is not text at all is proven in a real page, on
  * the PTY socket itself, by test_contract_params.py.
  *
- * Both views are covered because the hub has two places to compose in and the
- * panel knows neither: expert types into the terminal, Simple into the chat
+ * Both surfaces are covered because the hub has two places to compose in and the
+ * panel knows neither: the terminal surface takes it in the terminal, the chat in its
  * textarea, and routing between them is `insertPrompt`'s job (first-contact.js).
  *
  * Seams: terminal.js is mocked whole — it is the module app.js's import graph
@@ -71,8 +71,8 @@ vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/sidebar-artifacts
 
 import { initIframePasteBridge } from '../../../src/osprey/interfaces/web_terminal/static/js/app.js';
 
-/** The Simple view's input, in the shape the insert seam looks for. */
-function mountSimpleInput() {
+/** The chat's input, in the shape the insert seam looks for. */
+function mountChatInput() {
   document.body.innerHTML =
     '<div id="operator-container"><div class="op-input-area"><textarea></textarea></div></div>';
   return /** @type {HTMLTextAreaElement} */ (
@@ -101,7 +101,7 @@ beforeAll(() => {
 
 beforeEach(() => {
   document.body.innerHTML = '';
-  document.documentElement.removeAttribute('data-ui-mode');
+  document.documentElement.removeAttribute('data-agent-surface');
   vi.clearAllMocks();
 });
 
@@ -109,9 +109,9 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe('initIframePasteBridge: expert view', () => {
+describe('initIframePasteBridge: terminal surface', () => {
   test('pastes the panel text into the terminal, once, verbatim', () => {
-    document.documentElement.setAttribute('data-ui-mode', 'expert');
+    document.documentElement.setAttribute('data-agent-surface', 'terminal');
 
     post({ type: 'osprey-paste-to-terminal', text: ADDRESSES });
 
@@ -123,10 +123,10 @@ describe('initIframePasteBridge: expert view', () => {
   });
 });
 
-describe('initIframePasteBridge: Simple view', () => {
+describe('initIframePasteBridge: chat', () => {
   test('appends the addresses under what the operator is already writing', () => {
-    document.documentElement.setAttribute('data-ui-mode', 'simple');
-    const input = mountSimpleInput();
+    document.documentElement.removeAttribute('data-agent-surface');
+    const input = mountChatInput();
     input.value = 'set these to nominal:';
 
     post({ type: 'osprey-paste-to-terminal', text: ADDRESSES });
@@ -138,8 +138,8 @@ describe('initIframePasteBridge: Simple view', () => {
 
 describe('initIframePasteBridge: what it refuses', () => {
   test('ignores an empty text, so a stray post cannot blank the input', () => {
-    document.documentElement.setAttribute('data-ui-mode', 'simple');
-    const input = mountSimpleInput();
+    document.documentElement.removeAttribute('data-agent-surface');
+    const input = mountChatInput();
     input.value = 'half a question';
 
     post({ type: 'osprey-paste-to-terminal', text: '' });
@@ -149,7 +149,7 @@ describe('initIframePasteBridge: what it refuses', () => {
   });
 
   test('ignores another message type entirely', () => {
-    document.documentElement.setAttribute('data-ui-mode', 'expert');
+    document.documentElement.setAttribute('data-agent-surface', 'terminal');
 
     post({ type: 'osprey-something-else', text: ADDRESSES });
 

@@ -4,7 +4,7 @@
  * data-sidebar="collapsed" on <html>; anything else leaves <html> alone,
  * because an absent attribute means expanded.
  *
- * Like mode-boot.js, sidebar-boot.js is a non-module, dependency-free IIFE, so
+ * Like theme-boot.js, sidebar-boot.js is a non-module, dependency-free IIFE, so
  * each scenario arranges localStorage and the <html> attributes and then
  * re-executes the exact on-disk source against the happy-dom globals.
  * collapsible.js is the WRITER of the key; collapsible.test.mjs pins its half.

@@ -2,7 +2,7 @@
 /* OSPREY Web Terminal — Panel Iframe State Sync
  *
  * The per-iframe "push host state into a panel" seam: theme, active session,
- * UI mode and header actions, plus the artifacts viewer's three messages
+ * header actions, plus the artifacts viewer's three messages
  * (which artifact to show, a tile-menu action on it, and a server-side change
  * to it), each serialized to a panel
  * iframe via postMessage. Extracted from panel-manager so that module stays
@@ -32,7 +32,7 @@ import { getCurrentSessionId } from './terminal.js';
  * {@link postToIframe} for a frame.
  *
  * The target origin is the hub's own, so an opaque panel (origin "null") never
- * receives the session id, the mode or a header action: the browser drops a
+ * receives the session id or a header action: the browser drops a
  * message whose target origin does not match. Only the theme message to a
  * frame passes `targetOrigin: '*'` (see sendThemeToIframe).
  * @param {Window | null} win
@@ -81,15 +81,6 @@ export function sendSessionToWindow(win) {
 }
 
 /**
- * Send the hub's current UI mode to a popped-out window — the window twin of
- * {@link sendModeToIframe}.
- * @param {Window | null} win
- */
-export function sendModeToWindow(win) {
-  postToWindow(win, { type: 'osprey-mode-change', mode: getMode() });
-}
-
-/**
  * Send the hub's current theme to one iframe. Always sends — never
  * conditioned on whether the id differs from the last send — because a
  * hidden iframe can read empty custom properties on Firefox and needs a
@@ -131,39 +122,12 @@ export function sendSessionToIframe(iframe) {
   postToIframe(iframe, { type: 'osprey-session-change', session_id: sid });
 }
 
-// ---- UI Mode Sync ----
-//
-// The mode axis (expert|simple) has no manager module the way the theme axis
-// does — mode-boot.js resolves it pre-paint and the live value simply lives on
-// <html data-ui-mode>. Read it straight from there, defaulting to 'expert' so
-// the broadcast payload is never the empty/missing string consumers ignore.
-
-/** @returns {string} */
-export function getMode() {
-  return document.documentElement.getAttribute('data-ui-mode') || 'expert';
-}
-
-/**
- * Send the hub's current UI mode to one iframe — the mode-axis twin of
- * sendThemeToIframe(), owned by the same two per-iframe trigger points (iframe
- * creation and tab activation). Always sends unconditionally for the same
- * hidden-iframe reason its theme twin does, and swallows the cross-origin
- * postMessage throw the same way.
- *
- * 'osprey-mode-change' is the message type embedded interfaces listen for to
- * flip their layout between Expert and Simple.
- * @param {HTMLIFrameElement | null} iframe
- */
-export function sendModeToIframe(iframe) {
-  postToIframe(iframe, { type: 'osprey-mode-change', mode: getMode() });
-}
-
 /**
  * Send a tile-bar header action to one iframe — the hub→panel half of the
  * header-contribution round-trip (tile-header-contrib.js owns the receive
  * side and the bar rendering; design_system/js/header-contrib.js documents
- * the contract). Funnels through the same guarded send as the theme/session/
- * mode twins above.
+ * the contract). Funnels through the same guarded send as the theme and session
+ * twins above.
  * @param {HTMLIFrameElement | null} iframe
  * @param {string} id      the contributed item's id
  * @param {string} [value] nav items: the clicked entry's id
@@ -219,7 +183,7 @@ export function sendArtifactChangedToIframe(iframe, artifactId, change, artifact
 /**
  * Build the src for a panel embed — the load-time half of the host→follower
  * contract whose live half is the postMessage senders above: the target URL
- * stamped with `embedded` plus the current theme and mode, so the panel first-
+ * stamped with `embedded` plus the current theme, so the panel first-
  * paints in the right state before any message arrives.
  *
  * `targetUrl` (a panel's server-reported url, or a panel_focus SSE payload) is
@@ -257,6 +221,5 @@ function stampedUrl(targetUrl, flag) {
   const url = new URL(targetUrl, window.location.origin);
   url.searchParams.set(flag, 'true');
   url.searchParams.set('theme', /** @type {string} */ (getTheme()));
-  url.searchParams.set('mode', getMode());
   return url.toString();
 }

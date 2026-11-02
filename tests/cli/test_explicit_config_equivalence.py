@@ -215,6 +215,12 @@ class Delta:
         return None
 
 
+#: Provider catalog entries ``providers.yml`` carries beyond the frozen fixtures.
+#: Every render lists the whole catalog under ``api.providers``, so every document
+#: of every frozen cell gains them.
+_CATALOG_ADDITIONS = ("openrouter",)
+
+
 #: The leaves the three-way write switch moves in every render, root, tier or
 #: app: the governed tools' per-tool approval policies retire, so the presets no
 #: longer spell ``approval.tools.channel_write: always`` or
@@ -243,6 +249,21 @@ _CONTROL_ASSISTANT_RENDERS = (
 )
 
 
+def _catalog_addition_deltas(*documents: str) -> tuple[Delta, ...]:
+    """The ``api.providers`` delta each of *documents* gains from the catalog additions.
+
+    Args:
+        documents: The rendered documents the cell emits.
+
+    Returns:
+        One delta per document.
+    """
+    return tuple(
+        Delta(document=document, path="api.providers", added=_CATALOG_ADDITIONS)
+        for document in documents
+    )
+
+
 def _control_assistant_deltas() -> tuple[Delta, ...]:
     deltas: list[Delta] = []
     for document in _CONTROL_ASSISTANT_RENDERS:
@@ -265,9 +286,10 @@ def _control_assistant_deltas() -> tuple[Delta, ...]:
 #: spell a delta. The fixtures stay frozen at the baseline: the render-identity
 #: proof is the baseline render plus exactly these leaves.
 CELL_DELTAS: dict[str, tuple[Delta, ...]] = {
-    "hello-world/unset": _retired_governed_policies("root"),
+    "hello-world/unset": _retired_governed_policies("root") + _catalog_addition_deltas("root"),
     **{
         f"control-assistant/{mode}": _control_assistant_deltas()
+        + _catalog_addition_deltas(*_CONTROL_ASSISTANT_RENDERS)
         for mode in ("in_context", "hierarchical", "middle_layer", "graph")
     },
 }

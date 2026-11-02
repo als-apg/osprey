@@ -1,6 +1,6 @@
 """The whole web-terminal app, started over a config the test writes in code.
 
-The render-table suites — theme, UI mode, rail position, tour — each carried a
+The render-table suites — theme, rail position, tour — each carried a
 generator that booted ``create_app`` under a couple of config patches and was
 torn down by a hand-driven ``next(gen)``, and two of them answered *every*
 ``get_config_value`` key with the one value under test. This module

@@ -137,11 +137,8 @@ workspace as a real object the operator can open, keep, and come back to.
    Plotly figure. Accelerator-physics content fits the setting (a beam profile, an
    orbit, a tune scan); a single well-labelled panel beats a dense multi-panel grid
    on a projector. Call `save_artifact(fig, "Title")` at the end of the code.
-2. **Surface the gallery** — in Expert mode, `open_panel` on the artifacts panel
-   so the gallery is on screen before you point at it. In Simple mode on a
-   chat-only page, that same call *is* the beat: the
-   workspace column arrives, already showing the gallery — the single strongest
-   moment these demos have, so announce it first.
+2. **Surface the gallery** — `open_panel` on the artifacts panel so the gallery
+   is on screen before you point at it.
 3. **Focus it** — `artifact_focus` on the returned artifact id. The gallery jumps
    to the figure and opens its preview. Off screen, the only cue is a one-line
    note in the bottom activity strip that clears in seconds — hence step 2 first.

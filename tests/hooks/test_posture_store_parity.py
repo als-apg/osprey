@@ -461,10 +461,10 @@ def test_a_stored_on_reads_as_asked_on_both_sides(stamped_root):
 #: any other test that documents the difference.
 _PRODUCTION_ROOTS = ("packages", "src")
 
-#: The posture store's write-path question, taking the target the write lands
-#: on as its second argument. A caller that hands it no target has stopped
-#: naming the machine it writes to.
-_TARGETED_RULES = ("write_verdict",)
+#: The posture store's write-path questions, each taking the target the write
+#: lands on as its second argument. A caller that hands them no target has
+#: stopped naming the machine it writes to.
+_TARGETED_RULES = ("write_verdict", "execution_verdict")
 
 
 def _production_python_files():

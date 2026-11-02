@@ -548,7 +548,7 @@ class TestTheTranscriptJoinsTheReuseCheck:
     async def test_a_changed_resume_id_rebuilds_instead_of_reusing(self, second_id):
         """A different transcript — or none — means a different child.
 
-        This is what makes a ``/clear`` in the other view reach this one. The
+        This is what makes a ``/clear`` in the other surface reach this one. The
         key is unchanged, so nothing else in the pool would notice. An absent
         transcript is a launch identity of its own, not a wildcard.
         """

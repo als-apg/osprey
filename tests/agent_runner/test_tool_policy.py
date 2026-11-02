@@ -20,6 +20,7 @@ import pytest
 from osprey.agent_runner.tool_policy import (
     DELEGATION_TOOLS,
     PASSTHROUGH_TOOLS,
+    SUBAGENT_HANDBACK_TOOL,
     make_backstop,
     make_pretooluse_hook,
     narrow_allowed_tools,
@@ -171,6 +172,40 @@ class TestPretooluseHookDenylist:
 
         # Act
         result = await hook(_main_input("TaskCreate"), "t1", None)
+
+        # Assert
+        assert _decision(result) == "deny"
+
+
+class TestPretooluseHookSubagentHandback:
+    async def test_a_declared_subagent_can_hand_back_its_report(self):
+        # Act
+        result = await _hook()(_subagent_input(SUBAGENT_HANDBACK_TOOL), "t1", None)
+
+        # Assert
+        assert result == {}
+
+    async def test_an_undeclared_subagent_still_cannot(self):
+        # Act
+        input_data = _subagent_input(SUBAGENT_HANDBACK_TOOL, agent_type="mystery")
+        result = await _hook()(input_data, "t1", None)
+
+        # Assert
+        assert _decision(result) == "deny"
+
+    async def test_the_main_thread_still_meets_the_allowlist(self):
+        # Act
+        result = await _hook()(_main_input(SUBAGENT_HANDBACK_TOOL), "t1", None)
+
+        # Assert
+        assert _decision(result) == "deny"
+
+    async def test_the_server_denylist_still_wins(self):
+        # Arrange
+        hook = make_pretooluse_hook(TRIGGER_TOOLS, SURFACES, [SUBAGENT_HANDBACK_TOOL])
+
+        # Act
+        result = await hook(_subagent_input(SUBAGENT_HANDBACK_TOOL), "t1", None)
 
         # Assert
         assert _decision(result) == "deny"

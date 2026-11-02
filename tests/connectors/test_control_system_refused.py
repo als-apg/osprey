@@ -22,6 +22,7 @@ from unittest.mock import patch
 import pytest
 import yaml
 
+from osprey.mcp_server.control_system import server_context
 from osprey.mcp_server.control_system.error_handling import (
     ToolError,
     connector_error_handler,
@@ -51,7 +52,12 @@ def _switch_on(monkeypatch, tmp_path):
     With :func:`writes_enabled_config` serving a write tier that allows, that is
     everything the reference monitor's verdict asks before a write reaches the
     transport; a test that disarms serves a tier that does not.
+
+    The server context is a process singleton, and an envelope names the active
+    target whenever one is set, so each test starts from none and leaves the
+    worker as it found it.
     """
+    monkeypatch.setattr(server_context, "_registry", None)
     return arm_switch(monkeypatch, tmp_path / "armed-data")
 
 

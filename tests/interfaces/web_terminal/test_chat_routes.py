@@ -600,7 +600,7 @@ class TestChatHandoffMapping:
         assert resp.json()["detail"]["error"] == slug
 
     def test_a_vanished_premise_is_503_with_its_slug(self):
-        app, patched = self._refusing_app(handoff_module.HandoffError.vanished("c1", "expert"))
+        app, patched = self._refusing_app(handoff_module.HandoffError.vanished("c1", "terminal"))
         with patched, TestClient(app) as client:
             resp = client.post("/api/chat", json={"prompt": "x", "chat_id": "c1"})
 
@@ -1005,7 +1005,7 @@ class TestChatStatusMapIntegration:
     async def test_second_prompt_waits_for_the_turn_in_flight(self):
         """The second prompt is queued behind the first, not refused.
 
-        Taking the key for the Simple view when the Simple view already holds
+        Taking the key for the chat when the chat already holds
         it and is working is a wait: the hand-off polls the chat until it is
         idle and then hands back the very same child. This replaces the
         immediate 409 the route used to answer — that refusal survives only as
@@ -1157,7 +1157,7 @@ class TestChatSessionResetContract:
 
         The marker says "this conversation starts here", and after a resume it
         does not: the operator is looking at the same exchange, whether they
-        left it in this view or in the terminal. So the re-created 'A' — a new
+        left it in this surface or in the terminal. So the re-created 'A' — a new
         process by every other measure — sends none.
         """
         transcripts_on_disk.add("A")

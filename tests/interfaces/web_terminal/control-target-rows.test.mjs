@@ -83,7 +83,7 @@ describe('renderRow', () => {
     expect(node.dataset.target).toBe('va');
     expect(node.dataset.targetKind).toBe('simulator');
     expect(node.dataset.state).toBe('asked');
-    expect(node.querySelector('.ctc-name-line > .osprey-dot.ctc-dot')).not.toBeNull();
+    expect(node.querySelector('.ctc-name-line > .ctc-machine-glyph')).not.toBeNull();
     const group = /** @type {HTMLElement} */ (node.querySelector('.ctc-positions'));
     expect(group.getAttribute('role')).toBe('radiogroup');
     const checked = [...group.querySelectorAll('[role="radio"][aria-checked="true"]')];
@@ -149,7 +149,7 @@ describe('renderCard', () => {
     const card = renderCard(rowOf({ active: true }), stateOf(), ctx);
 
     expect(card.classList.contains('ctc-card')).toBe(true);
-    expect(card.querySelector('.ctc-card-title > .osprey-dot.ctc-dot')).not.toBeNull();
+    expect(card.querySelector('.ctc-card-title > .ctc-machine-glyph')).not.toBeNull();
     expect(card.querySelector('.ctc-name')?.textContent).toBe('Simulator');
     expect(card.querySelector('.ctc-switchwrap [role="radiogroup"]')).not.toBeNull();
     expect(card.querySelector('.ctc-card-eyebrow')).toBeNull();

@@ -52,6 +52,9 @@ other tool asks by its policy. The build guarantees that a render which asks
 selects the hook that asks: a tool put to a human in a profile whose ``hooks:``
 list lacks ``approval`` stops the build. So asks ⇒ hook selected, and
 ``config.yml`` alone answers whether a call of a guarded tool is asked.
+
+:func:`check_code_review` is the same kind of read-only gate over the
+``code_review`` section.
 """
 
 from __future__ import annotations
@@ -59,10 +62,12 @@ from __future__ import annotations
 import json
 from collections.abc import Iterable, Mapping
 from functools import lru_cache
+from pathlib import Path
 from typing import Any
 
 __all__ = [
     "APPROVAL_HOOK",
+    "CODE_REVIEW_HOOKS",
     "CONTROLS_SERVER",
     "GUARDED_TOOLS",
     "REQUIRED_ALWAYS",
@@ -73,6 +78,7 @@ __all__ = [
     "ask_capable",
     "check_approval_enabled",
     "check_approval_hook_selected",
+    "check_code_review",
     "effective_policy",
     "missing_posture_errors",
 ]
@@ -87,6 +93,10 @@ CONTROLS_SERVER = "controls"
 
 #: Artifact name of the approval hook, as a profile's ``hooks:`` list spells it.
 APPROVAL_HOOK = "approval"
+
+#: The hooks an enabled ``code_review`` section needs: the one that reviews a
+#: notebook edit, and the one that gates where the edit may land.
+CODE_REVIEW_HOOKS: tuple[str, ...] = ("code-review", "memory-guard")
 
 #: The tools whose read-write call runs under the target's run lock and the
 #: executor's approved-call check.
@@ -496,3 +506,73 @@ def check_approval_hook_selected(
         raise _no_hook_error(
             f"guarded tool `{tool}` is put to a human under `{_policy_key(rendered, tool)}`"
         )
+
+
+def check_code_review(
+    rendered: Mapping[str, Any], selected_hooks: Iterable[str], repo_root: Path
+) -> None:
+    """Stop a render whose ``code_review`` section a session could not act on.
+
+    A present section is validated whether or not it is enabled; a running
+    session reads one that is off as off, so the build refuses a superset of what
+    the session refuses. The hooks and the prompt are checked only when it is on.
+
+    Args:
+        rendered: The rendered ``config.yml``, read after the injectors.
+        selected_hooks: The resolved profile's ``hooks:`` list.
+        repo_root: Anchor of the prompt path and of the profile's source zone.
+
+    Raises:
+        FacilityBuildError: ``profile-invalid`` on the key at fault: a malformed
+            section, a hook of :data:`CODE_REVIEW_HOOKS` not selected, or a prompt
+            that is missing or lies where it is not protected from the agent.
+    """
+    if "code_review" not in rendered:
+        return
+    from osprey.facility.errors import FacilityBuildError
+    from osprey.services.code_review.settings import (
+        ReviewConfigError,
+        parse_review_section,
+        resolve_prompt,
+    )
+
+    try:
+        settings = parse_review_section(rendered["code_review"])
+    except ReviewConfigError as exc:
+        raise FacilityBuildError(
+            "profile-invalid",
+            "code_review",
+            [PROFILE_FILENAME],
+            f"correct `code_review` under `config:` in {PROFILE_FILENAME}, or remove the section",
+            record_kind="path",
+            detail=str(exc),
+        ) from exc
+    if not settings.enabled:
+        return
+
+    selected = set(selected_hooks)
+    missing = [f"`{hook}`" for hook in CODE_REVIEW_HOOKS if hook not in selected]
+    if missing:
+        hooks = " and ".join(missing)
+        raise FacilityBuildError(
+            "profile-invalid",
+            "code_review.enabled",
+            [PROFILE_FILENAME],
+            f"add {hooks} to `hooks:` in {PROFILE_FILENAME}, or set "
+            "`config: code_review.enabled: false`",
+            record_kind="path",
+            detail=f"code review is on but the profile does not select {hooks}",
+        )
+
+    try:
+        resolve_prompt(settings, repo_root, rendered)
+    except ReviewConfigError as exc:
+        raise FacilityBuildError(
+            "profile-invalid",
+            "code_review.prompt",
+            [PROFILE_FILENAME],
+            f"point `code_review.prompt` in {PROFILE_FILENAME} at a readable file under "
+            "the profile's source files, such as `data/`, outside the agent's data root",
+            record_kind="path",
+            detail=str(exc),
+        ) from exc

@@ -1,7 +1,7 @@
 {#-
   Runtime contract for the write-gating layers: the osprey_writes_check.py
   PreToolUse hook and the MCP audit middleware both read this file as data.
-  Every key is emitted UNCONDITIONALLY — never under the writes-off
+  Every write-gating key is emitted UNCONDITIONALLY — never under the writes-off
   kill-switch condition — because both consumers run under a readonly session
   posture too, where that condition never applied.
 
@@ -36,6 +36,10 @@
   `measurement` is each pyAML view's block, `{kinds, groups, rf, view_sha256}`
   per model, as the build read it from the view; `kinds` maps each listed kind
   to the view name of each setpoint role it steps; `{}` when the render has none.
+
+  `watchdogs_enabled` is the one conditional key: `true` when the render has an
+  enabled watchdog and absent otherwise, so a build with none renders what it
+  would render without the feature. It has nothing to do with writes.
 -#}
 {%- set server_pfx = [] -%}
 {%- set approval_pfx = [] -%}
@@ -70,4 +74,7 @@
   "mixed_read_write_tools": {{ mixed_read_write_tools | default([], true) | tojson }},
   "lane_addressed_tools": {{ lane_addressed_tools | default([], true) | tojson }},
   "measurement": {{ measurement | default({}, true) | tojson }}
+{%- if watchdogs_enabled %},
+  "watchdogs_enabled": true
+{%- endif %}
 }

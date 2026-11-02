@@ -170,7 +170,7 @@ describe('labThemeFor', () => {
 describe('on a page the hub framed (embedded=true)', () => {
   test("switches to the address's theme once Lab has a theme and has started", async () => {
     const lab = installLab();
-    expect(openAt('?embedded=true&theme=dark&mode=expert')).toBe(true);
+    expect(openAt('?embedded=true&theme=dark')).toBe(true);
     await flush();
     // Lab is still booting: there is no theme manager to answer yet.
     expect(lab.execute).not.toHaveBeenCalled();
@@ -219,7 +219,7 @@ describe('on a page the hub framed (embedded=true)', () => {
     openAt('?embedded=true&theme=light');
 
     postTheme('dark', { origin: 'https://elsewhere.example' });
-    postTheme('dark', { type: 'osprey-mode-change' });
+    postTheme('dark', { type: 'osprey-session-change' });
     for (const theme of ['JupyterLab Dark', 'auto', '', undefined]) postTheme(theme);
     window.dispatchEvent(
       new MessageEvent('message', { origin: window.location.origin, data: null })
@@ -342,7 +342,7 @@ describe('on a page the hub popped out (popout=true)', () => {
     lab.load('JupyterLab Light');
     lab.start();
 
-    expect(openAt('?popout=true&theme=dark&mode=expert')).toBe(true);
+    expect(openAt('?popout=true&theme=dark')).toBe(true);
     await vi.waitFor(() => expect(loadedTheme()).toBe('JupyterLab Dark'));
     postTheme('desy-light');
     await vi.waitFor(() => expect(loadedTheme()).toBe('JupyterLab Light'));

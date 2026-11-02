@@ -1,4 +1,4 @@
-"""A stand-in for the Simple view's agent child.
+"""A stand-in for the chat's agent child.
 
 A real process the runner holds, which starts the processes the tests then
 look for: shell commands in sessions of their own, as the agent CLI runs them,

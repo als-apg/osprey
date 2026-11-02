@@ -28,8 +28,10 @@ from osprey.models.providers.als_apg import ALSAPGProviderAdapter
 from osprey.models.providers.amsc_i2 import AMSCI2ProviderAdapter
 from osprey.models.providers.cborg import CBorgProviderAdapter
 from osprey.models.providers.google import GoogleProviderAdapter
+from osprey.models.providers.litellm_adapter import get_litellm_model_name
 from osprey.models.providers.litellm_delegating import LiteLLMDelegatingProvider
 from osprey.models.providers.openai import OpenAIProviderAdapter
+from osprey.models.providers.openrouter import OpenRouterProviderAdapter
 from osprey.models.providers.stanford import StanfordProviderAdapter
 from osprey.profiles.providers import load_provider_catalog
 
@@ -168,6 +170,22 @@ LITELLM_ADAPTERS: tuple[_Adapter, ...] = (
         missing_base_url_resolves_to=None,
     ),
     _Adapter(
+        adapter=OpenRouterProviderAdapter,
+        name="openrouter",
+        description_keyword="OpenRouter",
+        requires_base_url=True,
+        default_base_url="https://openrouter.ai/api/v1",
+        default_model_id="anthropic/claude-sonnet-4.5",
+        health_check_model_id="anthropic/claude-haiku-4.5",
+        is_openai_compatible=False,
+        supports_native_structured_output=False,
+        litellm_prefix="openrouter",
+        api_key_url="https://openrouter.ai/settings/keys",
+        declares_api_key_note=True,
+        missing_base_url_refusal=None,
+        missing_base_url_resolves_to="https://openrouter.ai/api/v1",
+    ),
+    _Adapter(
         adapter=StanfordProviderAdapter,
         name="stanford",
         description_keyword="Stanford",
@@ -282,6 +300,33 @@ class TestTheDeclaredMetadata:
     @pytest.mark.parametrize("row", LITELLM_ADAPTERS, ids=_ids(LITELLM_ADAPTERS))
     def test_the_adapter_is_instantiable(self, row):
         assert isinstance(row.adapter(), row.adapter)
+
+
+class TestOpenRouterRouting:
+    """OpenRouter routes through litellm's native prefix, never the OpenAI path."""
+
+    def test_a_vendor_model_id_gains_the_openrouter_prefix(self):
+        assert (
+            get_litellm_model_name("openrouter", "anthropic/claude-haiku-4.5")
+            == "openrouter/anthropic/claude-haiku-4.5"
+        )
+
+    def test_the_unregistered_fallback_does_not_treat_openrouter_as_openai_compatible(self):
+        """With no adapter to read, the name alone must not select ``openai/``.
+
+        The fallback's OpenAI-compatible set would route the id through the
+        generic OpenAI client; outside it, the provider name is the prefix.
+        """
+        with patch(
+            "osprey.models.provider_registry.ProviderRegistry.get_provider", return_value=None
+        ):
+            routed = get_litellm_model_name("openrouter", "anthropic/claude-haiku-4.5")
+        assert routed == "openrouter/anthropic/claude-haiku-4.5"
+        assert not routed.startswith("openai/")
+
+    def test_openrouter_is_not_a_litellm_gateway(self):
+        assert OpenRouterProviderAdapter.gateway is None
+        assert OpenRouterProviderAdapter.base_url_env_var == "OPENROUTER_BASE_URL"
 
 
 class TestForwardingACompletion:

@@ -251,7 +251,7 @@ THREE_MACHINE_MARKERS = (
     "**standin** — the live stand-in",
     "a soft IOC this deployment runs for itself",
     "**Rehearsal — nothing moves** only while this deployment has actually stood the soft IOC up",
-    "a `standin` it has not stood up shows as **Real machine — writes move hardware**",
+    "a `standin` it has not stood up shows as **Live — writes move hardware**",
 )
 
 

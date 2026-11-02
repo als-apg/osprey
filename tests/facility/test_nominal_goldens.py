@@ -52,7 +52,9 @@ PHYSICS_MODEL = "SR"
 BTS_MODEL = "BTS"
 
 #: The deck machine's instruments the golden's capture predates.
-ADDITIONS = frozenset({"SR:DIAG:CHROM:X", "SR:DIAG:CHROM:Y", "SR:DIAG:TUNE:X", "SR:DIAG:TUNE:Y"})
+ADDITIONS = frozenset(
+    {"SR:BEAM:USER_MODE", "SR:DIAG:CHROM:X", "SR:DIAG:CHROM:Y", "SR:DIAG:TUNE:X", "SR:DIAG:TUNE:Y"}
+)
 
 #: How many transfer line channels the golden's capture predates.
 LINE_CHANNELS = 40

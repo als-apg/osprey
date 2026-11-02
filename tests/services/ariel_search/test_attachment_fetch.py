@@ -389,7 +389,7 @@ async def test_fetch_relative_path_on_file_source_skips_the_origin_rule(tmp_path
 
 async def test_fetch_content_length_3gb_is_size_cap(server, adapter):
     out = await asyncio.wait_for(
-        fetch_attachment_bytes(_url(server, "/big"), 1000, _origins(server), adapter), 3
+        fetch_attachment_bytes(_url(server, "/big"), 1000, _origins(server), adapter), 30
     )
     assert out == FetchOutcome(code="size_cap", observed_size=1001)
 

@@ -28,8 +28,9 @@ guard them, both enforced BEFORE any HTTP call — but only the first is carried
 everywhere:
 
 1. The write verdict for the control target the BOUND LANE serves
-   (``osprey_connectors.posture_store.write_verdict``), the one verdict every
-   OSPREY write path shares: a read-only run, the deployment's tier, the target,
+   (``osprey_connectors.posture_store.execution_verdict``), the one verdict every
+   OSPREY write path shares: a read-only run, the deployment's tier, the session's
+   hold, the target,
    the owner, the record and the owner's switch, in one order, first refusal
    wins. It is the same verdict ``ControlSystemConnector``'s reference monitor
    asks, so the queue agrees with every other write path about which machines
@@ -178,6 +179,7 @@ from osprey.mcp_server.control_system.target_banner import (
 from osprey.mcp_server.errors import make_error
 from osprey.mcp_server.http import notify_agent_activity_async
 from osprey.utils.launch_token import LAUNCH_TOKEN_INVALID, LAUNCH_TOKEN_REQUIRED
+from osprey.utils.session_hold_api import execution_verdict, refusal_detail
 from osprey_connectors import posture_store
 from osprey_connectors.types import baseline_target
 
@@ -358,13 +360,13 @@ def _lane_verdict(lane_target: str | None) -> posture_store.WriteVerdict:
     the same substitution), so a caller with no lane in hand gets the
     baseline's verdict rather than a fail-open read of nothing.
 
-    Asks the ONE verdict every OSPREY write path shares,
-    :func:`osprey_connectors.posture_store.write_verdict`, over the deployment's
+    Asks the ONE verdict every OSPREY write path shares, with the session's hold,
+    :func:`osprey_connectors.posture_store.execution_verdict`, over the deployment's
     ``control_system`` section, with the owner left to the verdict's own ladder
     (:func:`~osprey_connectors.posture_store.current_owner`). So the queue's
     arming gate refuses for the same reason, in the same order, as the
     connector's reference monitor, the executor's gate and the PreToolUse hook:
-    a read-only run, a tier that allows nothing, a target this deployment does
+    a read-only run, a tier that allows nothing, a held session, a target this deployment does
     not know, an owner it cannot name, a record it cannot read, a switch that
     is off.
 
@@ -373,7 +375,7 @@ def _lane_verdict(lane_target: str | None) -> posture_store.WriteVerdict:
     launch token is still refused, and a switch turned off reaches this server
     at its next arming call.
 
-    Never raises. ``write_verdict`` never raises by contract; reading the
+    Never raises. ``execution_verdict`` never raises by contract; reading the
     section or naming the baseline can, and a verdict that cannot be reached
     refuses as ``record_unavailable``.
     """
@@ -382,7 +384,7 @@ def _lane_verdict(lane_target: str | None) -> posture_store.WriteVerdict:
 
         section = get_config_value("control_system", {})
         target = lane_target or baseline_target(section)
-        return posture_store.write_verdict(section, target)
+        return execution_verdict(section, target)
     except Exception:  # unknown posture must not arm hardware
         logger.warning("Write verdict for lane target %r could not be reached", lane_target)
         return posture_store.WriteVerdict(
@@ -427,7 +429,8 @@ def _refusal_text(verdict: posture_store.WriteVerdict) -> tuple[str, str]:
     from osprey_connectors.refusals import refusal_phrase
 
     reason = verdict.reason or "record_unavailable"
-    return reason, refusal_phrase(reason, verdict.kind)
+    phrase = refusal_phrase(reason, verdict.kind)
+    return reason, refusal_detail(phrase, verdict) or phrase
 
 
 def _refuse_writes_disabled(
@@ -450,7 +453,9 @@ def _refuse_writes_disabled(
     make_error(
         "writes_disabled",
         refusal_text(
-            reason, verdict.kind, detail=f"{refused} was refused before reaching the bridge."
+            reason,
+            verdict.kind,
+            detail=refusal_detail(f"{refused} was refused before reaching the bridge.", verdict),
         ),
         [
             f"Hand the action to the operator, who can perform {refused} from the "

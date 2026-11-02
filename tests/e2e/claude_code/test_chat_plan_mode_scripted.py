@@ -1,4 +1,4 @@
-"""The Simple view's plan-mode round trip, proved on the Claude Code the project pins.
+"""The chat's plan-mode round trip, proved on the Claude Code the project pins.
 
 The chat child enters plan mode on its own: the model calls ``EnterPlanMode``, which
 the CLI runs without an operator card. In plan mode the model writes its plan to the

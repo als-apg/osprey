@@ -1,7 +1,7 @@
 // @ts-check
 /* OSPREY Design System — Sidebar Boot
  *
- * Hand-written (not generated) sibling of mode-boot.js for the sidebar width:
+ * Hand-written (not generated) sibling of theme-boot.js for the sidebar width:
  * it stamps data-sidebar="collapsed" onto <html> before first paint when the
  * viewer collapsed the sidebar last time, so the shell never flashes the
  * labelled 232 px sidebar before it snaps to 56 px icons.

@@ -1816,8 +1816,9 @@ class TestEventDispatcherServer:
 
         The agent never holds ``EVENT_DISPATCHER_TOKEN``; the terminal's panel
         proxy does, and it is reached on loopback at the terminal's own port
-        with the panel token every agent child already carries. The ``:-`` form
-        matters in both places: Claude Code leaves a bare ``${VAR}`` in place
+        with the panel token every agent child already carries, and the session
+        header names who is calling so the proxy can refuse a job fired from a
+        held session. The ``:-`` form matters in every place: Claude Code leaves a bare ``${VAR}`` in place
         when the variable is unset, so the entry would carry the literal text
         of the placeholder as a port number or as a bearer.
         """
@@ -1825,7 +1826,10 @@ class TestEventDispatcherServer:
 
         assert entry["enabled"] is True
         assert entry["url"] == "http://127.0.0.1:${OSPREY_WEB_PORT:-}/panel/events/mcp"
-        assert entry["headers"] == {"Authorization": "Bearer ${OSPREY_PANEL_TOKEN:-}"}
+        assert entry["headers"] == {
+            "Authorization": "Bearer ${OSPREY_PANEL_TOKEN:-}",
+            "X-Osprey-Session": "${OSPREY_SESSION_ID:-}",
+        }
         assert entry["transport"] == "http"
         assert entry["command"] == ""
         assert entry["args"] == []
@@ -1898,7 +1902,10 @@ class TestEventDispatcherServer:
         assert rendered["event_dispatcher"] == {
             "type": "http",
             "url": "http://127.0.0.1:${OSPREY_WEB_PORT:-}/panel/events/mcp",
-            "headers": {"Authorization": "Bearer ${OSPREY_PANEL_TOKEN:-}"},
+            "headers": {
+                "Authorization": "Bearer ${OSPREY_PANEL_TOKEN:-}",
+                "X-Osprey-Session": "${OSPREY_SESSION_ID:-}",
+            },
         }
 
         assert "event_dispatcher" not in _render({})

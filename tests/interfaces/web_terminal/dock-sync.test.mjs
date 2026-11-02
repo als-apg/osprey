@@ -8,7 +8,7 @@
  * tab CLOSE is deliberately NOT a server change (tile occupancy is per-client
  * layout state under the launcher-rail model) — it routes to a locally-registered
  * vacate handler instead. The forward half (server → dock application, and the
- * simple-mode layout synthesis) lives in dock-workspace.js / panel-manager.js and
+ * chat layout synthesis) lives in dock-workspace.js / panel-manager.js and
  * is pinned by the reconcile tests (dock-reconcile.test.mjs) plus the browser
  * suite; this file does not duplicate them. Here we pin dock-sync's own contract:
  *
@@ -500,7 +500,7 @@ describe('occupancy reporter — settle debounce, content dedupe, capability', (
   });
 
   test('a burst of layout changes reports ONCE, from the arrangement it settles on', async () => {
-    // The shape of a mode flip / reset / fromJSON restore: panels land one at a
+    // The shape of a reset / fromJSON restore: panels land one at a
     // time, and only the final arrangement may reach the server.
     const { api } = await wireReporting(branch(leaf('terminal')));
 

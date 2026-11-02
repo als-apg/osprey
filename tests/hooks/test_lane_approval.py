@@ -14,7 +14,7 @@ What these tests hold the hook to:
   and pinned against a config that has no ``services`` block at all;
 * **a two-lane deployment names the lane and its target in the identity voice
   the ``Target:`` line uses** — the kind banners ("Simulator — nothing moves",
-  "Real machine — writes move hardware (<endpoint>)") — because two different phrasings for one machine on one
+  "Live — writes move hardware (<endpoint>)") — because two different phrasings for one machine on one
   prompt is the ambiguity the identity line exists to remove;
 * **the detail comes from the addressed lane's own bridge.** Each lane holds its
   own draft and its own queue, so lane 1's answers would describe a different

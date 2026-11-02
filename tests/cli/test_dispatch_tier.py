@@ -28,7 +28,7 @@ _READONLY = """\
 name: Read-Only
 config:
   control_system.writes_enabled: false
-  web.ui_mode: simple
+  web.theme: main
 """
 
 _ADMIN = """\

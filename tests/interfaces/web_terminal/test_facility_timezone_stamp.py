@@ -80,8 +80,7 @@ def test_unconfigured_deployment_stamps_utc(workspace_dir, page_id):
 
 def test_index_keeps_its_existing_stamps(workspace_dir):
     tag = _html_tag(_serve(workspace_dir, "Asia/Tokyo")["index"])
-    for attr in ("data-theme=", "data-ui-mode="):
-        assert attr in tag
+    assert "data-theme=" in tag
 
 
 def test_pages_and_operator_chat_share_one_resolver():

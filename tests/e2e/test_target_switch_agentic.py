@@ -257,7 +257,7 @@ TARGET_LINE_PREFIX = "Target: "
 #: Access endpoint; a live target a controls server publishes as this
 #: deployment's stand-in is spoken of as the rehearsal instead, and these
 #: composed lines would name that.
-LIVE_MACHINE_PHRASE = "Real machine — writes move hardware"
+LIVE_MACHINE_PHRASE = "Live — writes move hardware"
 DESTINATION_LINE_PREFIX = "Destination: "
 DESTINATION_PROBE_LINE_PREFIX = "Destination probe channel: "
 LIVE_SWITCH_WARNING = "THIS SWITCH POINTS THE SESSION AT THE REAL MACHINE"

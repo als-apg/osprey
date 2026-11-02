@@ -89,15 +89,14 @@ body.embedded .panel-chrome { display: none; }
 /* ---- View switcher (Plans | Queue | Results) ----
  *
  * The panel describes these three to the web-terminal hub as a `nav`
- * contribution in every UI mode, so an embedded panel gets ONE header: the
- * hub's tile bar, which it draws in Simple as well as Expert. This in-body
- * strip exists for standalone serving, where `contributeHeader` is a no-op
+ * contribution, so an embedded panel gets ONE header: the hub's tile bar. This
+ * in-body strip exists for standalone serving, where `contributeHeader` is a no-op
  * and it is the only way to navigate. It is therefore hidden whenever the
  * panel is embedded.
  *
  * Deliberately `.panel-tabs`/`.panel-tab`, not the `.tabs`/`.tab` the Plans
  * detail pane already uses for Parameters/Source — those are a different strip
- * with different rules (Simple mode hides them). */
+ * with different rules. */
 .panel-tabs {
   display: flex;
   gap: 2px;
@@ -130,8 +129,7 @@ body.embedded .panel-tabs { display: none; }
 
 /* ---- Queue control strip ----
  *
- * Queue state plus Start · Stop · Abort, on screen for EVERY view and in every
- * UI mode. Nothing here is ever contributed to the tile bar: the tile bar
+ * Queue state plus Start · Stop · Abort, on screen for EVERY view. Nothing here is ever contributed to the tile bar: the tile bar
  * does not exist standalone, and a halt that disappears with the chrome is
  * not a halt. Which buttons SHOW is decided per tab in queue-view.js
  * (stripControls): the Queue tab is the control panel and shows them all; the
@@ -409,11 +407,9 @@ body.embedded .status-strip {
   padding: 8px;
   border-bottom: 1px solid var(--border-default);
 }
-/* The plan filter is contributed to the tile bar as a `search` item, but only
-   while the Plans view is showing AND the shell is in Expert — Simple keeps a
-   search box in the body rather than in the bar (header-contrib.js). So the
-   in-body one hides only when embedded AND Expert. */
-html:not([data-ui-mode="simple"]) body.embedded .sidebar-head { display: none; }
+/* The plan filter is contributed to the tile bar as a `search` item while the
+   Plans view is showing, so the in-body one hides when embedded. */
+body.embedded .sidebar-head { display: none; }
 
 .search {
   width: 100%;
@@ -653,7 +649,7 @@ html:not([data-ui-mode="simple"]) body.embedded .sidebar-head { display: none; }
  * whenever the banner shows) and reads as the agent-activity accent family
  * (same family as .agent-flash), a step stronger than the affordance's
  * subtle tint: solid accent edge + filled action button. Lives inside
- * .draft-status, so Simple mode hides it with the rest of the draft chrome. */
+ * .draft-status. */
 .agent-draft-banner {
   display: inline-flex;
   align-items: center;
@@ -1943,7 +1939,7 @@ button.queue-label:focus-visible {
 }
 
 /* =========================================================================
-   Narrow hosts + UI-mode axis
+   Narrow hosts
    ========================================================================= */
 
 /* ---- Narrow hosts: stack panes, collapse form columns ---- */
@@ -1962,67 +1958,4 @@ button.queue-label:focus-visible {
   .tree { max-height: 36vh; }
   .form-row { grid-template-columns: 1fr; }
   .foot-row { flex-direction: column; align-items: stretch; }
-}
-
-/* ---- UI-mode axis: Simple (operator-facing) deltas ----
- *
- * Expert stays pixel-identical: every rule below is gated on
- * html[data-ui-mode="simple"]. Simple keeps the operator's job — pick a plan,
- * set the essential parameters, add it to the queue, then watch what it does —
- * and strips the expert scaffolding: the Source (raw code) tab, the
- * shared-draft binding chrome, the trust/provenance internals (sidebar status
- * dots, provenance folder headers, the detail status line), the connector-
- * arming footnote, the raw data table, the mono run-meta line, and the
- * per-item parameter summaries. Validation still
- * surfaces in plain language: the unvalidated-note, the launch-outcome banner,
- * the draft-rejected banner and the root error all stay visible, and the live
- * parameter readout is kept as friendly guidance. Add-to-queue is promoted to
- * a single full-width primary affordance. Token-only, both themes.
- *
- * The status strip is NOT touched here: the halts must survive every mode.
- * The view switcher is not either: embedded, the tile bar carries it in both
- * modes, and standalone the in-body strip is the only navigation.
- */
-
-/* Flatten the sidebar to a plain plan list: no trust dots, no provenance
- * folder headers (the <details> stay open, so their rows show ungrouped). */
-html[data-ui-mode="simple"] .plan-row .dot,
-html[data-ui-mode="simple"] .folder-summary {
-  display: none;
-}
-
-/* Drop the expert detail scaffolding. */
-html[data-ui-mode="simple"] .tabs,
-html[data-ui-mode="simple"] .status-line,
-html[data-ui-mode="simple"] #session-note,
-html[data-ui-mode="simple"] .draft-status,
-html[data-ui-mode="simple"] #draft-discard-note,
-html[data-ui-mode="simple"] #draft-unknown-banner,
-html[data-ui-mode="simple"] .detail-foot .footnote {
-  display: none;
-}
-
-/* Drop the queue/results internals. The figure is NOT among them: its titles,
-   axes and annotations are the plain-language answer to "what did the run do",
-   which is exactly what Simple keeps. */
-html[data-ui-mode="simple"] #run-meta,
-html[data-ui-mode="simple"] #table-card,
-html[data-ui-mode="simple"] .queue-params {
-  display: none;
-}
-
-/* Promote Add-to-queue to a single, prominent, full-width primary action,
- * with Reset stacked beneath it as the quiet escape hatch. The capability
- * banner is NOT hidden here: "this deployment cannot execute plans" is the
- * plain-language explanation for a disabled button, which Simple needs more
- * than Expert does, not less. */
-html[data-ui-mode="simple"] .foot-row,
-html[data-ui-mode="simple"] .foot-actions {
-  flex-direction: column;
-  align-items: stretch;
-}
-html[data-ui-mode="simple"] #queue-add-btn {
-  width: 100%;
-  font-size: var(--text-xl);
-  padding: 12px 18px;
 }

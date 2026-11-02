@@ -75,7 +75,7 @@ STANDIN_LABEL = "Rehearsal — nothing moves"
 #: The words only this deployment's own stand-in may carry.
 NOTHING_MOVES = "nothing moves"
 #: The real machine's published label (C-WORDS, D4): its kind's banner.
-LIVE_LABEL = "Real machine — writes move hardware"
+LIVE_LABEL = "Live — writes move hardware"
 
 
 def _build_exemplar(dest: Path, *, standin: int | None) -> Path:
@@ -403,7 +403,7 @@ def test_status_prints_the_words_beside_the_key(tmp_path, monkeypatch) -> None:
     status_display._print_writes_section({}, tmp_path)
 
     assert [row[2] for row in printed] == [
-        "live (Real machine — writes move hardware)",
-        "standin (Real machine — writes move hardware)",
+        "live (Live — writes move hardware)",
+        "standin (Live — writes move hardware)",
         "—",
     ]

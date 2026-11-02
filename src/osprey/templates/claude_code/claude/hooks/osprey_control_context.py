@@ -45,7 +45,7 @@ something the agent's own context does not already hold:
 target: va  gen: 2
 writes: live=off va=asked
 positions: off="the next write is refused until the chip moves the switch" asked="a person approves the next write" allowed="the login's switch position approves the next write; limits still apply"
-machines: live="Real machine — writes move hardware" va="Simulator — nothing moves"
+machines: live="Live — writes move hardware" va="Simulator — nothing moves"
 ```
 
 At a session start (``startup``, ``resume``, ``clear`` and ``compact`` alike:
@@ -59,7 +59,7 @@ a machine's words moved since the last emission for this session, marked
 target: live  gen: 3  (was va)
 writes: live=allowed (was off) va=asked
 positions: off="the next write is refused until the chip moves the switch" asked="a person approves the next write" allowed="the login's switch position approves the next write; limits still apply"
-machines: live="Real machine — writes move hardware" va="Simulator — nothing moves"
+machines: live="Live — writes move hardware" va="Simulator — nothing moves"
 ```
 
 An unchanged prompt injects nothing. Nothing in the block asks the agent to do
@@ -100,7 +100,7 @@ file at all stays silent: there is nothing to describe.
 ## The machine words
 
 ``machines`` names each target by the words the operator sees for it, keyed by
-the same raw key: ``"Real machine — writes move hardware"``, ``"Rehearsal —
+the same raw key: ``"Live — writes move hardware"``, ``"Rehearsal —
 nothing moves"`` or ``"Simulator — nothing moves"``. The kind comes from the
 controls server's published report (``osprey_target_state.published_machine_kind``), so the
 stand-in reads ``Rehearsal — nothing moves`` only while this deployment has it
@@ -189,7 +189,7 @@ _RECORD_UNAVAILABLE = "record_unavailable"
 #: of ``osprey_connectors.write_target.KIND_BANNERS``: hooks import nothing from
 #: the package, so a test pins the two.
 MACHINE_WORDS = {
-    "real": "Real machine — writes move hardware",
+    "real": "Live — writes move hardware",
     "rehearsal": "Rehearsal — nothing moves",
     "simulator": "Simulator — nothing moves",
 }

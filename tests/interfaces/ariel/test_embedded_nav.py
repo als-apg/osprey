@@ -5,9 +5,7 @@ host tile bar is its only header: ``layout.css`` hides the panel's own header
 and each view's title row (the Search hero, the Browse and New Entry
 headings) outright, and ``app.js`` contributes a Browse / New Entry nav into
 the tile bar instead, with Search in front of them where
-``ariel.embedded_search`` is on. The nav goes up in Simple as well as Expert:
-the hub keeps the tile bar in Simple, and the standalone Simple header's
-"Browse all entries" link is inside the hidden header.
+``ariel.embedded_search`` is on.
 Embedded without the switch, the router opens Browse and redirects a stray
 ``#search`` there; ``#status`` is redirected either way.
 Standalone keeps the full header, the view headings and Search as the
@@ -98,16 +96,14 @@ def test_embedded_new_entry_has_no_title_row(tmp_path, monkeypatch, chromium_bro
         page.close()
 
 
-@pytest.mark.parametrize("mode", ["simple", "expert"])
-def test_embedded_nav_carries_browse_in_both_modes(tmp_path, monkeypatch, chromium_browser, mode):
-    """The tile-bar nav offers Browse in Simple and Expert, and a click there opens it."""
+def test_embedded_nav_carries_browse(tmp_path, monkeypatch, chromium_browser):
+    """The tile-bar nav offers Browse, and a click there opens it."""
     with launch_ariel(tmp_path, monkeypatch) as base_url:
         page = chromium_browser.new_page()
         page.add_init_script(_RECORD_CONTRIBUTIONS)
 
-        page.goto(f"{base_url}?embedded=true&mode={mode}#create", wait_until="load")
+        page.goto(f"{base_url}?embedded=true#create", wait_until="load")
 
-        expect(page.locator("html")).to_have_attribute("data-ui-mode", mode)
         expect(page.locator("#view-create.active")).to_have_count(1)
         nav = _last_nav(page)
         assert [entry["id"] for entry in nav] == ["browse", "create"]

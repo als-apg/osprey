@@ -4,7 +4,7 @@
  * The popup side of the web terminal's pop-out protocol (the hub side is the
  * web terminal's popout.js). A panel page the hub opened in its own window
  * reports to the hub so the hub can retire the panel's tile while the window
- * is open, keep the window's theme, view mode and session in step, and put
+ * is open, keep the window's theme and session in step, and put
  * the tile back when the window goes away.
  *
  * The page knows it is a pop-out from its address (`?popout=true`,
@@ -22,10 +22,10 @@
  * and only while that opener is alive. A page whose opener is gone — closed,
  * or the address pasted into a fresh tab — is a plain standalone page and
  * sends nothing. The hub's state messages (`osprey-theme-change`,
- * `osprey-mode-change`, `osprey-session-change`) arrive by the same channel
- * every embedded frame uses and are applied by the receivers those pages
- * already run (theme-manager.js, frame-params.js's onModeChange, the page's
- * own session receiver), each of which takes a message from this origin only.
+ * `osprey-session-change`) arrive by the same channel every embedded frame uses
+ * and are applied by the receivers those pages already run (theme-manager.js,
+ * the page's own session receiver), each of which takes a message from this
+ * origin only.
  */
 
 import { scopedStorageKey } from '/design-system/js/storage-scope.js';

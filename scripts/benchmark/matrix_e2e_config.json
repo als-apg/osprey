@@ -135,6 +135,14 @@
       "reason": "Own hardcoded provider/model axis (als-apg/cborg/anthropic env-key preference with fixed haiku wire ids) — bypasses OSPREY_E2E_FORCE_MODEL."
     },
     {
+      "path": "tests/e2e/test_jev_live.py",
+      "reason": "Owner-run live Jev checks that spend real money on a Jev account (direct or OpenRouter route); no call goes through the model-under-test, and with no Jev key on the bench box every test skips."
+    },
+    {
+      "path": "tests/e2e/test_watchdog_live.py",
+      "reason": "Opt-in live proof of the watchdog engines: it needs a Jev key the bench box does not hold, and it fails rather than skips without one. The latency half reaches no model at all, and the agent half measures the watchdog's read-only run on one fixed pair rather than the capability of the model-under-test."
+    },
+    {
       "path": "tests/e2e/test_nextcloud_talk_bridge_e2e.py",
       "reason": "Runs against a pinned, PRIVATE ghcr Nextcloud + Talk fixture image; the module never builds or pulls it and skips outright when it is absent from the local store, so on the bench box this file contributes nothing but skips. Its substance is the two-party wire contract with a real Talk server (room-type rules, mention filter, poll cursor, restart recovery), asserted through the dispatch engine's persisted run_id rather than through anything the model says — an adapter-integrity proof, not a model-capability signal."
     },

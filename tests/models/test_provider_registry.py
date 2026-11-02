@@ -26,6 +26,7 @@ BUILTIN_ORDER = [
     "argo",
     "stanford",
     "als-apg",
+    "openrouter",
     "ollama",
     "asksage",
     "vllm",
@@ -123,7 +124,7 @@ class TestProviderRegistry:
         assert cls.name == "anthropic"
 
     def test_list_providers_contains_all_builtins(self):
-        """list_providers returns all 13 built-in names."""
+        """list_providers returns all 14 built-in names."""
         reg = ProviderRegistry()
         names = reg.list_providers()
         expected = {
@@ -140,9 +141,10 @@ class TestProviderRegistry:
             "vllm",
             "ds4",
             "llama-cpp",
+            "openrouter",
         }
         assert expected == set(names)
-        assert len(names) == 13
+        assert len(names) == 14
 
     def test_singleton_identity(self):
         """get_provider_registry() returns the same instance."""
@@ -191,6 +193,17 @@ class TestProviderRegistry:
         provider = reg.get_provider("anthropic")
         assert provider is not None
         assert provider.name == "openai"
+
+    def test_openrouter_is_registered_with_its_key_variable(self):
+        """openrouter resolves to its adapter and authenticates with OPENROUTER_API_KEY."""
+        from osprey.models.provider_registry import PROVIDER_API_KEYS
+
+        reg = ProviderRegistry()
+        cls = reg.get_provider("openrouter")
+        assert cls is not None
+        assert cls.__name__ == "OpenRouterProviderAdapter"
+        assert cls.name == "openrouter"
+        assert PROVIDER_API_KEYS["openrouter"] == "OPENROUTER_API_KEY"
 
     def test_load_providers_skips_failed_imports(self):
         """A configured provider whose module can't be imported is silently

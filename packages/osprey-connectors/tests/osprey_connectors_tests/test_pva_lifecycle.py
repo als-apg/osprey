@@ -44,7 +44,7 @@ PVA_GLOB = "SR:CAM*:IMAGE"
 PVA_ADDRESS = "SR:CAM1:IMAGE"
 CA_ADDRESS = "SR:BEAM:CURRENT"
 
-METADATA_REQUEST = "field(alarm,timeStamp,display)"
+METADATA_REQUEST = "field(alarm,timeStamp,display,control,valueAlarm)"
 
 
 # ---------------------------------------------------------------------------
@@ -169,16 +169,20 @@ class TestDisconnectClosesPvaContext:
         """CA teardown is unchanged and downstream of the PVA close."""
         order: list[str] = []
         context = FakeContext(log=order)
-        ca_monitor = MagicMock()
-        ca_monitor.close.side_effect = lambda: order.append("ca-subscription")
-
-        connector = _pva_connector(context=context)
-        connector._subscriptions = {"sub1": _ChannelSubscription("ca", ca_monitor)}
+        ca = FakeAioca({CA_ADDRESS: FakeChannel()})
+        connector = _pva_connector(context=context, aioca=ca)
+        await connector.subscribe(CA_ADDRESS, lambda v: None)
+        ctrl, _time = ca.monitors_of(CA_ADDRESS)
+        ctrl.fire(ca_reading(0.0, units="mA"))  # the CA record holds a live connection
+        for monitor in ca.monitors:
+            close = monitor.close
+            monitor.close = lambda close=close: (order.append("ca-subscription"), close())[1]
         connector._ca_ctrl = {"A": object()}
 
         await connector.disconnect()
 
-        assert order == ["ca-subscription", "context"]
+        assert order == ["ca-subscription", "ca-subscription", "context"]
+        assert all(monitor.closed for monitor in ca.monitors)
         assert connector._ca_ctrl == {}
         assert connector._connected is False
 

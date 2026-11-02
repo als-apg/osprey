@@ -6,7 +6,7 @@
  */
 
 import { initTheme } from '/design-system/js/theme-manager.js';
-import { applyEmbedded, isEmbedded, onModeChange } from '/design-system/js/frame-params.js';
+import { applyEmbedded, isEmbedded } from '/design-system/js/frame-params.js';
 import { contributeHeader, onHeaderAction } from '/design-system/js/header-contrib.js';
 import '/design-system/js/components/osprey-display-menu.js';
 import { fetchJSON, putJSON } from './api.js';
@@ -26,15 +26,6 @@ import { refreshStatsBadges, renderProvenance } from './stats-badges.js';
 initTheme({ role: isEmbedded() ? 'follower' : 'hub' });
 
 applyEmbedded();
-
-// Live Expert<->Simple switch broadcast by the hub's header toggle. The
-// pre-paint rung (mode-boot.js) already set the initial data-ui-mode; this is
-// the runtime flip. frame-params.js's shared receive side normalizes the
-// mode, re-stamps the attribute (CSS deltas key off it) and calls back only
-// on an actual change; the follow-up re-mounts the active view so the
-// in-context renderer repaints its plain cards <-> dense table. Mirrors the
-// ARIEL panel's app.js listener.
-onModeChange(() => remountCurrentView());
 
 /** @typedef {{ mount: (container: HTMLElement) => void, unmount: () => void }} ViewModule */
 
@@ -125,14 +116,6 @@ function activateView(viewName) {
   contributeViewNav();
 }
 
-/** Force a re-mount of the active view (e.g. after a live UI-mode flip). */
-function remountCurrentView() {
-  if (!currentView) return;
-  const view = currentView;
-  currentView = null;
-  activateView(view);
-}
-
 // ---- Navigation ----
 
 function setupNav() {
@@ -151,9 +134,7 @@ function setupNav() {
  * graph finder's search box and ⋯ menu). The view's items come first: they
  * exist only in one view, and the header contract puts conditional items
  * before the persistent switcher so the switcher never slides. Sent whole on
- * every change — the hub renders only the latest contribution. The hub draws
- * the tile bar in both Expert and Simple, so both modes contribute the same
- * items. No-op standalone, where `.header-nav` carries the same tabs.
+ * every change — the hub renders only the latest contribution. No-op standalone, where `.header-nav` carries the same tabs.
  */
 function contributeViewNav() {
   contributeHeader([

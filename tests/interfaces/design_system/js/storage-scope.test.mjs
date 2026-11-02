@@ -38,29 +38,29 @@ describe('storage-scope.js', () => {
 
   describe('scopedStorageKey()', () => {
     test('returns the bare legacy key when unscoped', () => {
-      expect(scopedStorageKey('osprey-ui-mode')).toBe('osprey-ui-mode');
+      expect(scopedStorageKey('osprey-sidebar')).toBe('osprey-sidebar');
     });
 
     test('suffixes the scope with a double dash when scoped', () => {
       document.documentElement.setAttribute(SCOPE_ATTR, 'bob');
-      expect(scopedStorageKey('osprey-ui-mode')).toBe('osprey-ui-mode--bob');
+      expect(scopedStorageKey('osprey-sidebar')).toBe('osprey-sidebar--bob');
     });
 
     test('an empty attribute value never mints a trailing-dash key', () => {
       document.documentElement.setAttribute(SCOPE_ATTR, '');
-      expect(scopedStorageKey('osprey-ui-mode')).toBe('osprey-ui-mode');
+      expect(scopedStorageKey('osprey-sidebar')).toBe('osprey-sidebar');
     });
 
     test('two users on one origin get two distinct keys', () => {
       document.documentElement.setAttribute(SCOPE_ATTR, 'bob');
-      const bob = scopedStorageKey('osprey-ui-mode');
+      const bob = scopedStorageKey('osprey-sidebar');
       document.documentElement.setAttribute(SCOPE_ATTR, 'carol');
-      const carol = scopedStorageKey('osprey-ui-mode');
+      const carol = scopedStorageKey('osprey-sidebar');
 
       expect(bob).not.toBe(carol);
       // ...and neither of them is the shared slot they exist to escape.
-      expect(bob).not.toBe('osprey-ui-mode');
-      expect(carol).not.toBe('osprey-ui-mode');
+      expect(bob).not.toBe('osprey-sidebar');
+      expect(carol).not.toBe('osprey-sidebar');
     });
 
     test('the scope is read per call, not captured at module load', () => {

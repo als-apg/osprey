@@ -3,11 +3,7 @@
  * The command palette does not depend on any page chrome being present:
  *   npx vitest run tests/interfaces/web_terminal/js/palette-without-chrome.test.js
  *
- * Two palette rows used to reach THROUGH a chrome control — "Switch to … mode"
- * clicked the display menu's View segment, "Log out" clicked the identity
- * menu's button — so they have to work on a page that has neither. The mode
- * pick goes through the same function the display menu's own row calls; Log
- * out reads the landing URL the server stamps on `<html>`, asks with the
+ * Log out works on a page with no logout button: it reads the landing URL the server stamps on `<html>`, asks with the
  * sign-out dialog (sign-out.js) and runs logout.js's flow on confirm.
  */
 
@@ -56,36 +52,19 @@ async function openPalette() {
 afterEach(() => {
   document.body.innerHTML = '';
   delete document.documentElement.dataset.landingUrl;
-  delete document.documentElement.dataset.uiMode;
-  delete document.documentElement.dataset.expertView;
+  delete document.documentElement.dataset.agentSurface;
+  delete document.documentElement.dataset.terminal;
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
 });
 
-describe('the mode switch', () => {
-  test('flips the mode with no display menu on the page', async () => {
-    expect(document.querySelector('osprey-display-menu')).toBe(null);
-    const post = vi.spyOn(window, 'postMessage').mockImplementation(() => {});
-
+describe('the terminal', () => {
+  // The way to it is the Agent tile's ⋯ menu and nothing else.
+  test.each([[undefined], ['terminal']])('has no palette entry (surface %s)', async (surface) => {
+    if (surface) document.documentElement.dataset.agentSurface = surface;
     await openPalette();
-    paletteRow('Switch to Simple mode')?.click();
-
-    expect(post).toHaveBeenCalledWith(
-      { type: 'osprey-mode-change', mode: 'simple' },
-      window.location.origin
-    );
-    expect(localStorage.getItem('osprey-ui-mode')).toBe('simple');
-  });
-});
-
-describe('the mode switch on a deployment with no Expert view', () => {
-  test('is not offered at all (web.expert_view: false)', async () => {
-    document.documentElement.dataset.uiMode = 'simple';
-    document.documentElement.dataset.expertView = 'off';
-
-    await openPalette();
-
-    expect(paletteLabels().some((label) => label.startsWith('Switch to'))).toBe(false);
+    const labels = paletteLabels().map((label) => label.toLowerCase());
+    expect(labels.filter((label) => /terminal|chat|new session/.test(label))).toEqual([]);
   });
 });
 
@@ -139,11 +118,7 @@ describe('Log out', () => {
 });
 
 describe('Open activity log', () => {
-  test.each([
-    ['Expert', undefined],
-    ['Simple', 'simple'],
-  ])('is offered in %s and opens the page in a new tab', async (_view, uiMode) => {
-    if (uiMode) document.documentElement.dataset.uiMode = uiMode;
+  test('is offered and opens the page in a new tab', async () => {
     const open = vi.fn();
     vi.stubGlobal('open', open);
 

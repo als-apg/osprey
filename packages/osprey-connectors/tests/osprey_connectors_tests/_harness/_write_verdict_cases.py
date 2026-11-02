@@ -66,7 +66,7 @@ LOGIN_TIERS_SHAPE_PATH = FIXTURES / "login_tiers_shape.json"
 EXECUTION_MODE_ENV_VAR = "OSPREY_EXECUTION_MODE"
 
 #: The reasons no row expects: the verdict never answers them.
-UNCOVERED_REASONS = frozenset({"stopped_since", "switching"})
+UNCOVERED_REASONS = frozenset({"session_held", "stopped_since", "switching"})
 
 #: Which sides a row can drive.
 SIDES = frozenset({"package", "twin"})

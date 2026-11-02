@@ -348,10 +348,7 @@ def _shape_repo(repo: Path) -> None:
     # No attachment spellings: the build attaches every tier to its deployment
     # and refuses a tier file that restates it.
     (renders / f"{RENDER}.yml").write_text(
-        f"name: {PROJECT_NAME} ({RENDER})\n"
-        "config:\n"
-        "  control_system.writes: allowed\n"
-        "  web.ui_mode: expert\n",
+        f"name: {PROJECT_NAME} ({RENDER})\nconfig:\n  control_system.writes: allowed\n",
         encoding="utf-8",
     )
 

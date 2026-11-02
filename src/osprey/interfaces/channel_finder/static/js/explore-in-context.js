@@ -30,15 +30,6 @@ function getFiltered() {
 }
 
 /**
- * Resolve the active UI mode from the <html> data-ui-mode attribute stamped by
- * mode-boot.js (and updated live by app.js). Anything but "simple" is Expert.
- * @returns {'expert'|'simple'}
- */
-function uiMode() {
-  return document.documentElement.getAttribute('data-ui-mode') === 'simple' ? 'simple' : 'expert';
-}
-
-/**
  * @param {HTMLElement} container
  */
 export async function mountInContext(container) {
@@ -110,15 +101,6 @@ function renderTable() {
     countEl.textContent = `${filtered.length} of ${allChannels.length}`;
   }
 
-  // Simple mode (frame recipe): plain result cards — the channel address
-  // prominent, a plain-language description below — with the dense table and
-  // row-numbers dropped. Chrome (the filter label) is hidden by CSS; only the
-  // results markup forks here.
-  if (uiMode() === 'simple') {
-    renderSimpleCards(area, filtered, pageItems);
-    return;
-  }
-
   if (filtered.length === 0) {
     area.innerHTML = '<div class="empty-state">No channels match the filter</div>';
     return;
@@ -154,38 +136,6 @@ function renderTable() {
         </tbody>
       </table>
     </div>
-  `;
-}
-
-/**
- * Simple-mode results: a friendly count line above plain channel cards.
- * @param {HTMLElement} area
- * @param {any[]} filtered - the full filtered set (for the count)
- * @param {any[]} pageItems - the current chunk's channels (for the cards)
- */
-function renderSimpleCards(area, filtered, pageItems) {
-  if (filtered.length === 0) {
-    area.innerHTML = '<div class="empty-state">No channels match your search</div>';
-    return;
-  }
-
-  const noun = filtered.length === 1 ? 'channel' : 'channels';
-  const cards = pageItems
-    .map((ch) => {
-      const name = ch.name || ch.channel_name || ch.channel || '—';
-      const desc = ch.description || '';
-      return `
-      <div class="cf-simple-card">
-        <div class="cf-simple-card-name">${esc(name)}</div>
-        ${desc ? `<div class="cf-simple-card-desc">${esc(desc)}</div>` : ''}
-      </div>
-    `;
-    })
-    .join('');
-
-  area.innerHTML = `
-    <div class="cf-simple-count">${filtered.length} ${noun} found</div>
-    <div class="cf-simple-card-list">${cards}</div>
   `;
 }
 

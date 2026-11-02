@@ -168,7 +168,7 @@ def test_a_channel_write_ask_stamps_the_binding_it_rendered(approval, root, stat
         "Channel write: TEST:PV=42.0", hook_input_for(write_payload())
     )
 
-    assert f"Target: Real machine — writes move hardware ({LIVE_ENDPOINT})" in reason_of(output)
+    assert f"Target: Live — writes move hardware ({LIVE_ENDPOINT})" in reason_of(output)
     stamps = stamps_in(state_dir)
     assert len(stamps) == 1
     assert stamps[0]["target"] == "live"
@@ -571,7 +571,7 @@ def test_a_stamp_is_neither_the_record_nor_a_server_report(approval, root, state
     assert [path.name for path in state_dir.glob("server_*.json")] == [f"server_{os.getpid()}.json"]
     assert len(stamp_files(state_dir)) == 1
     assert approval._target_line(hook_input_for(write_payload())).startswith(
-        "Target: Real machine — writes move hardware"
+        "Target: Live — writes move hardware"
     )
 
 

@@ -1,19 +1,18 @@
 // @ts-check
 /**
  * Embedded in the web-terminal hub, the KNOWLEDGE panel's one header is the
- * tile bar, in Simple as in Expert (app.js `publishHeaderContribution`):
+ * tile bar (app.js `publishHeaderContribution`):
  *   npx vitest run tests/interfaces/okf_panel/app-header.test.mjs
  *
- * The panel boots in Simple here — the mode that used to contribute nothing —
- * and must still put the search box and the Browse view in the bar, draw no
- * "Browse all pages" bar inside the pane, and answer both items' actions.
+ * The panel must put the search box and the Browse view in the bar and answer
+ * both items' actions.
  *
  * header-contrib.js is mocked: under happy-dom `window.parent === window`, so
  * the real `contributeHeader()` is a no-op and the contribution's shape could
  * not be asserted. The mocks record into a hoisted object rather than leaning
  * on `mock.calls`: app.js registers and publishes once, at boot in
  * `beforeAll`, and the runner clears mock call history between tests. app.js
- * boots on evaluation, so the URL, mode, DOM, `marked` and `fetch` are in place
+ * boots on evaluation, so the URL, DOM, `marked` and `fetch` are in place
  * before the one dynamic import below.
  */
 
@@ -97,7 +96,6 @@ async function headerAction(id, value) {
 
 beforeAll(async () => {
   history.replaceState(null, '', '/?embedded=true#devices/bpm');
-  document.documentElement.setAttribute('data-ui-mode', 'simple');
   document.body.innerHTML = `
     <div id="app">
       <aside id="sidebar">
@@ -110,9 +108,6 @@ beforeAll(async () => {
         <footer id="bundle-health" hidden></footer>
       </aside>
       <main id="reader">
-        <div id="reader-topbar" class="reader-topbar" hidden>
-          <button type="button" id="browse-all">Browse all pages</button>
-        </div>
         <div id="reader-content"></div>
       </main>
     </div>`;
@@ -122,15 +117,8 @@ beforeAll(async () => {
   await flush();
 });
 
-describe('okf panel tile-bar contribution (embedded, Simple)', () => {
-  test('the pane draws no "Browse all pages" bar', () => {
-    expect(document.body.classList.contains('embedded')).toBe(true);
-    expect(document.getElementById('reader-topbar')).toBeNull();
-    expect(document.getElementById('browse-all')).toBeNull();
-    expect(document.body.textContent).not.toContain('Browse all pages');
-  });
-
-  test('Simple contributes the search box and the Browse view, nav last', () => {
+describe('okf panel tile-bar contribution (embedded)', () => {
+  test('the panel contributes the search box and the Browse view, nav last', () => {
     const items = lastContribution();
     expect(items.map((/** @type {any} */ item) => `${item.kind}:${item.id}`)).toEqual([
       'search:search',

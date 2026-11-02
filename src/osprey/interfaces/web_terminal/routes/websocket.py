@@ -47,13 +47,17 @@ from osprey.interfaces.web_terminal.operator_session import (
     POSTURE_SOURCE_SPAWN,
     build_operator_child_env,
     resolve_agent_data_root,
+    session_hold_root_of,
+    stamp_session_hold,
 )
+from osprey.interfaces.web_terminal.routes.watchdog import session_is_live
 from osprey.interfaces.web_terminal.session_discovery import SessionDiscovery
 from osprey.interfaces.web_terminal.session_key import is_posture_key
 from osprey_connectors import control_context, posture_store
 from osprey_connectors.identity import acting_identity
 from osprey_connectors.posture_env import is_readonly_run
 from osprey_connectors.refusals import refusal_phrase
+from osprey_connectors.session_hold import has_no_record, is_held, is_safe_session_key
 from osprey_connectors.types import published_machine_kind
 from osprey_connectors.write_target import KIND_BANNERS
 
@@ -83,9 +87,8 @@ router = APIRouter()
 # The GET roster reports each machine's switch and the write verdict a new call
 # by the login would meet (C-GET); it carries no narrowing.
 
-#: The switch position that arms nothing, and the one no waiver may reach.
+#: The switch position that arms nothing.
 SWITCH_OFF = control_context.SWITCH_POSITIONS[0]
-SWITCH_ALLOWED = control_context.SWITCH_POSITIONS[-1]
 
 #: The positions in widening order. The login's ceiling compares on the same
 #: scale, which is why ``never`` and ``unknown`` are absent: neither is a position.
@@ -415,7 +418,7 @@ def _transcript_missing(app, registry, discovery: SessionDiscovery, session_id: 
     yet, because Claude Code writes the transcript on the first prompt. A key
     the chat pool answers to (:func:`_chat_pool_answers_to`, so a creation
     still inside ``start()`` counts) is equally a session: both views are
-    windows onto one key, and the conversation the operator started in Simple
+    windows onto one key, and the conversation the operator started in chat
     is the one they are asking for here. Only with none of those is the
     transcript directory the authority: ``--resume`` on an id with no file
     there prints :data:`~osprey.agent_runner.launcher.NO_CONVERSATION_MARKER` and exits, which is the dead
@@ -491,7 +494,7 @@ def _build_extra_env(
     included. It scopes the child's execution root
     (:func:`osprey_connectors.workspace.resolve_agent_data_root` appends
     ``sessions/<key>``) and tags the artifacts it files. One key, one root: a
-    conversation is one session whichever view is showing it, so the chat
+    conversation is one session whichever surface is showing it, so the chat
     child spawned under that key
     (:func:`~osprey.interfaces.web_terminal.operator_session.build_operator_child_env`)
     works out of the same directory as this one. The name is in
@@ -516,15 +519,15 @@ def _build_extra_env(
     operator secret is never put back.
     """
     extra_env: dict[str, str] = {}
-    # The PTY terminal IS the expert web surface — every session spawned here
-    # serves it, whatever web.ui_mode the deployment defaults to (the operator
-    # can flip modes live; the chat surface runs its own SDK sessions, marked
-    # "simple" in operator_session.py). The panels-context SessionStart hook
-    # reads this to tell the agent which UI the operator is looking at.
-    extra_env["OSPREY_WEB_UX"] = "expert"
+    # Every session spawned here serves the terminal surface; the chat runs its
+    # own SDK sessions, marked in operator_session.py. The panels-context
+    # SessionStart hook reads this to tell the agent which UI the operator is
+    # looking at.
+    extra_env["OSPREY_WEB_UX"] = session_handoff.SURFACE_TERMINAL
     session_key = claude_session_id or telemetry_session_id
     if session_key:
         extra_env["OSPREY_SESSION_ID"] = session_key
+        stamp_session_hold(extra_env, session_key, websocket.app)
     if telemetry_session_id:
         extra_env["OSPREY_TELEMETRY_SESSION_ID"] = telemetry_session_id
         extra_env["OSPREY_TELEMETRY_SESSION_START"] = datetime.now(UTC).isoformat()
@@ -697,7 +700,7 @@ class _TerminalChannel:
         spawn: SpawnCallback,
         end_started: bool = False,
     ) -> AcquireResult:
-        """Take *key* for the Expert surface while reading the socket.
+        """Take *key* for the terminal surface while reading the socket.
 
         The acquire runs in the handler's own task — a cancellation delivered
         while phase (c) runs is then honoured only once the phase is done,
@@ -710,7 +713,7 @@ class _TerminalChannel:
             return await session_handoff.acquire_surface(
                 app,
                 key,
-                session_handoff.SURFACE_EXPERT,
+                session_handoff.SURFACE_TERMINAL,
                 self.token,
                 interrupt=interrupt,
                 spawn=spawn,
@@ -868,10 +871,10 @@ async def _spawn_pooled_pty(
 
 
 #: Close code of a ``/ws/terminal`` refused because the deployment offers no
-#: Expert view (``web.expert_view: false``). In the 4000-4999 application
+#: terminal (``web.terminal: false``). In the 4000-4999 application
 #: range beside the hand-off's 4409; 4403 reads as "forbidden" the way HTTP's
 #: 403 does.
-WS_CLOSE_EXPERT_VIEW_OFF = 4403
+WS_CLOSE_TERMINAL_OFF = 4403
 
 
 @router.websocket("/ws/terminal")
@@ -900,7 +903,7 @@ async def terminal_ws(websocket: WebSocket):
 
     Every PTY this handler serves comes through
     :func:`~osprey.interfaces.web_terminal.session_handoff.acquire_surface`:
-    the key is one session whichever view shows it, so taking it here hands
+    the key is one session whichever surface shows it, so taking it here hands
     the conversation off from a chat that holds it (``handoff_pending``
     while that finishes), takes it over from an older terminal on the same
     key (closed with 4409), reuses the pooled PTY, or spawns one resuming
@@ -920,23 +923,23 @@ async def terminal_ws(websocket: WebSocket):
     with the exit ``code``, replaces ``exit`` when a ``--resume`` child prints
     that it found no such conversation and quits.
 
-    A deployment with ``web.expert_view: false`` offers no Expert view, and
-    this socket is the Expert view's PTY session: it is refused before
-    anything is looked up or spawned, with an ``error`` frame naming the key
-    and close code :data:`WS_CLOSE_EXPERT_VIEW_OFF`. The page never opens it
+    A deployment with ``web.terminal: false`` offers no terminal, and this
+    socket is its PTY session: it is refused before anything is looked up or
+    spawned, with an ``error`` frame naming the key and close code
+    :data:`WS_CLOSE_TERMINAL_OFF`. The page never opens it
     there; the refusal is what stops a hand-made client.
     """
     await websocket.accept()
 
     app = websocket.app
-    if not getattr(app.state, "web_expert_view", True):
+    if not getattr(app.state, "web_terminal_offered", True):
         # Imported here for the routes -> app cycle routes/panels.py avoids too.
-        from osprey.interfaces.web_terminal.app import EXPERT_VIEW_REFUSAL
+        from osprey.interfaces.web_terminal.app import TERMINAL_REFUSAL
 
-        logger.info("Refusing /ws/terminal: web.expert_view is false")
+        logger.info("Refusing /ws/terminal: web.terminal is false")
         with suppress(Exception):
-            await websocket.send_text(json.dumps({"type": "error", "message": EXPERT_VIEW_REFUSAL}))
-            await websocket.close(code=WS_CLOSE_EXPERT_VIEW_OFF)
+            await websocket.send_text(json.dumps({"type": "error", "message": TERMINAL_REFUSAL}))
+            await websocket.close(code=WS_CLOSE_TERMINAL_OFF)
         return
 
     registry = app.state.pty_registry
@@ -981,10 +984,8 @@ async def terminal_ws(websocket: WebSocket):
     # The resume boundary. ``--resume`` on an id with no transcript exits at
     # once with "No conversation found", and a PTY that dies on attach is a
     # terminal the operator cannot use. The server knows before spawning, so
-    # it says so and closes; the client renders the state and offers a fresh
-    # start (terminal.js). Deliberately not a silent fresh session: the
-    # operator picked a chat, and starting a different one under them hides
-    # that it is gone.
+    # it says so and closes, spawning nothing for that id; the client
+    # starts a new session (terminal.js).
     if (
         mode == "resume"
         and req_session_id
@@ -1987,12 +1988,10 @@ STOP_NOT_TAKEN_PHRASE = (
 
 #: Route outcomes of ``POST /api/terminal/posture`` that are not write-verdict
 #: reasons. They are answers about the request — a turn-on of everything, a
-#: machine this render does not describe, a waiver the move may not carry, a
-#: position above the login's ceiling, a record that did not take the gesture —
+#: machine this render does not describe, a position above the login's ceiling, a record that did not take the gesture —
 #: so they stay out of :data:`osprey_connectors.refusals.REASONS`.
 POSTURE_REASON_BULK_ON = "bulk_on_refused"
 POSTURE_REASON_UNKNOWN_TARGET = "unknown_target"
-POSTURE_REASON_WAIVER = "waiver_not_allowed"
 POSTURE_REASON_TIER_CAPS = "tier_caps"
 POSTURE_REASON_NOT_TAKEN = "not_taken"
 POSTURE_REASON_INVALID_SESSION = "invalid_session_id"
@@ -2026,8 +2025,6 @@ class _PostureRequestFacts:
     before: str | None = None
     #: The login's ceiling (:func:`_login_tier`) for a widening, else ``None``.
     ceiling: str | None = None
-    #: The machine's kind when the render configures it, else ``None``.
-    kind: str | None = None
 
 
 def _widens(state: str, before: str | None) -> bool:
@@ -2062,23 +2059,17 @@ def _posture_post_facts(
         before = control_context.switch_position(record, target)
     lock = None
     ceiling = None
-    kind = None
-    if target in configured:
-        kind = published_machine_kind(target)
-        if _widens(state, before):
-            ceiling = _login_tier(section, login)
-            verdict = posture_store.write_verdict(
-                section, target, owner=login, ignore_launch_pin=True
-            )
-            if verdict.reason in _TURN_ON_LOCKS:
-                lock = verdict
+    if target in configured and _widens(state, before):
+        ceiling = _login_tier(section, login)
+        verdict = posture_store.write_verdict(section, target, owner=login, ignore_launch_pin=True)
+        if verdict.reason in _TURN_ON_LOCKS:
+            lock = verdict
     return _PostureRequestFacts(
         configured=configured,
         record_status=status,
         lock=lock,
         before=before,
         ceiling=ceiling,
-        kind=kind,
     )
 
 
@@ -2196,9 +2187,7 @@ async def set_terminal_posture(body: PostureRequest, request: Request):
     is ``{detail: {reason, ...}}``):
 
     * **400** ``invalid_session_id`` (a session id outside the key grammar),
-      ``bulk_on_refused`` (``all`` with anything but ``off``), ``unknown_target``,
-      ``waiver_not_allowed`` (``waived`` on a move to ``allowed`` or on a real
-      machine; a stop has no confirm to waive and is not refused for one).
+      ``bulk_on_refused`` (``all`` with anything but ``off``), ``unknown_target``.
     * **403** ``tier_caps`` with ``ceiling`` and no phrase — a position above
       the login's ceiling; the chip composes that sentence from ``locks.tier``.
     * **403** ``tier_never`` / ``readonly_run`` with ``phrase`` — a widening the
@@ -2247,15 +2236,6 @@ async def set_terminal_posture(body: PostureRequest, request: Request):
     if body.target != ALL_TARGETS and body.target not in facts.configured:
         raise _refuse_posture(
             session_id, status_code=400, gesture=gesture, reason=POSTURE_REASON_UNKNOWN_TARGET
-        )
-
-    if (
-        body.waived
-        and body.state != SWITCH_OFF
-        and (body.state == SWITCH_ALLOWED or facts.kind == "real")
-    ):
-        raise _refuse_posture(
-            session_id, status_code=400, gesture=gesture, reason=POSTURE_REASON_WAIVER
         )
 
     # ``never`` and ``unknown`` have no rank: the first is the lock below, and
@@ -2941,7 +2921,31 @@ def _switch_state(record: Any, status: str, target: str) -> str | None:
     return None if status == "unreadable" else control_context.switch_position(record, target)
 
 
-def _posture_view(app: Any, config_path: Path | None) -> dict[str, Any]:
+def _session_held(app: Any, session_id: str | None) -> bool:
+    """Whether the named session has an unanswered hold. BLOCKING; never raises.
+
+    A key no session runs under, with nothing on disk, has not started: a Simple
+    tab names its session before its first prompt. It is not held, as the flags
+    route also says; writes still read ``is_held`` itself.
+    """
+    root = session_hold_root_of(app)
+    if not session_id or root is None:
+        return False
+    try:
+        if (
+            is_safe_session_key(session_id)
+            and not session_is_live(app, session_id)
+            and has_no_record(session_id, root=root)
+        ):
+            return False
+    except Exception:  # undecided: fall through to the fail-closed read
+        logger.debug("not-started check for %r failed", session_id, exc_info=True)
+    return is_held(session_id, root=root)
+
+
+def _posture_view(
+    app: Any, config_path: Path | None, session_id: str | None = None
+) -> dict[str, Any]:
     """Everything ``GET /api/terminal/posture`` reports. BLOCKING.
 
     Called through ``run_in_threadpool``: it parses ``config.yml``, reads the
@@ -2966,9 +2970,12 @@ def _posture_view(app: Any, config_path: Path | None) -> dict[str, Any]:
     A switch landing mid-render can still move a later row's verdict; the window
     is one poll wide and the chip refetches on the ``control_context`` frame.
 
-    **No session is involved.** There is one control context per login
+    **One session-scoped field.** There is one control context per login
     identity, so every answer here is that login's: the caller's ``session_id``
-    names who is asking and decides nothing about what they are told.
+    names who is asking and decides nothing about the roster or its verdicts.
+    The exception is ``held``, which says the asking session has an unanswered
+    hold, so the chip can name why its writes are paused. It is ``False`` with no
+    session named and wherever no watchdog runs.
     """
     config = _rendered_config(config_path)
     derive_path = str(config_path) if config_path else None
@@ -3057,6 +3064,7 @@ def _posture_view(app: Any, config_path: Path | None) -> dict[str, Any]:
         "owner": _owner_row(app, record),
         "servers": _server_rows(reports),
         "execution_in_flight": _execution_rows(),
+        "held": _session_held(app, session_id),
         "last_switch": _aged(None if record is None else record.last_switch),
         "last_posture_realign": _fleet_realign(reports),
         "targets": rows,
@@ -3070,7 +3078,7 @@ async def get_terminal_posture(request: Request, session_id: str | None = None):
     The single truth the header chip and its popover read. There is one control
     context per deployment, so every answer here is the deployment's: the
     caller's ``session_id`` names who is asking and changes nothing about what
-    they are told.
+    they are told, except the session-scoped ``held`` field.
 
     One row per configured control target, each answering the whole of what the
     operator needs about that machine:
@@ -3153,7 +3161,9 @@ async def get_terminal_posture(request: Request, session_id: str | None = None):
     """
     _require_session_uuid(session_id)
 
-    view = await run_in_threadpool(_posture_view, request.app, request.app.state.config_path)
+    view = await run_in_threadpool(
+        _posture_view, request.app, request.app.state.config_path, session_id
+    )
     return {"session_id": session_id, **view}
 
 

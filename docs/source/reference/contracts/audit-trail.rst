@@ -73,6 +73,9 @@ refusal never share one.
    * - ``hook_writes_check``, ``hook_approval``,
        ``hook_limits``, ``hook_memory_guard``
      - What the safety hooks denied, and what they put in front of a person
+   * - ``hook_code_review``
+     - What the code review decided on a notebook edit --- see
+       :ref:`architecture-safety-chain-code-review`
    * - ``http_mutation``, ``web_auth``
      - Requests that changed something through a web API, and the 401s and 403s
        the login check itself refused
@@ -92,6 +95,9 @@ refusal never share one.
        ``detail``
    * - ``auth_sidecar`` (written as ``sidecar``)
      - Logins and login refusals, where a deployment has a login wall
+   * - ``safety_watchdog``
+     - Each watchdog's verdict on a prompt, its failures, and the operator's
+       answer to a flag --- see :ref:`reference-watchdog`
 
 ``decision`` reads ``allowed`` or ``refused`` on almost all of them.
 ``hook_approval`` has three words of its own, all on the same
@@ -100,6 +106,8 @@ then ``approved`` when the harness reported that the call ran, or ``denied``
 when the turn ended without it --- declined or interrupted. A write the
 switch's *allowed* position let run has no ``ask``: its ``approved`` names
 ``approver=write_switch`` in ``detail``.
+``safety_watchdog`` has its own too: ``flagged``, ``clear``, ``unavailable``,
+``stop``, ``continue`` and ``stop_unconfirmed``.
 
 Some of that is chatter rather than safety: every request that changes state is
 recorded, so moving a panel around the terminal leaves ``http_mutation``
@@ -159,7 +167,11 @@ JSON object:
      - Short machine-readable reason --- ``protected_key``, ``reserved path``,
        ``reserved path in ownership store``; a control-system write the
        write posture refused reads ``posture`` on every surface (the hook,
-       the MCP server and the Python executor all spell it the same way). The
+       the MCP server and the Python executor all spell it the same way);
+       ``code_review`` is a code review's own record, on ``hook_approval`` (a
+       Python run, ahead of its prompt), ``executor`` (a run no prompt reviewed)
+       or ``hook_code_review`` (a notebook edit)
+       (:ref:`architecture-safety-chain-code-review`). The
        login service has a vocabulary of its own --- see
        :ref:`audit-trail-login-refusals`
    * - ``detail``

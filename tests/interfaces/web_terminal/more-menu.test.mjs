@@ -14,9 +14,8 @@
  * `#about-popover`, copied with the Jinja expressions written out, plus a
  * `#sidebar` holding `#more-btn`.
  *
- * Seams mocked: the view pick and its change notice (frame-params.js), the
- * theme preference (theme-manager.js, whose real exports are kept except the
- * ones the menu reads and writes), the tour (tour.js) and the activity log
+ * Seams mocked: the theme preference (theme-manager.js, whose real exports are
+ * kept except the ones the menu reads and writes), the tour (tour.js) and the activity log
  * (activity-log-link.js). popover.js is the real module. `fetch` is stubbed
  * for `/health`. Module state is isolated by vi.resetModules() + dynamic import
  * per test.
@@ -29,9 +28,6 @@ import { byId, qs } from '../_support/dom.mjs';
 const MODULE = '../../../src/osprey/interfaces/web_terminal/static/js/more-menu.js';
 
 const mocks = vi.hoisted(() => ({
-  pickUiMode: vi.fn(),
-  /** @type {((mode: 'expert' | 'simple') => void)[]} */
-  modeListeners: [],
   startTour: vi.fn(),
   openActivityLog: vi.fn(),
 }));
@@ -55,12 +51,6 @@ const theme = vi.hoisted(() => ({
   setFamily: vi.fn(),
 }));
 
-vi.mock('/design-system/js/frame-params.js', async (importOriginal) => ({
-  .../** @type {object} */ (await importOriginal()),
-  pickUiMode: mocks.pickUiMode,
-  onModeChange: (/** @type {(mode: 'expert' | 'simple') => void} */ cb) =>
-    mocks.modeListeners.push(cb),
-}));
 vi.mock('/design-system/js/theme-manager.js', async (importOriginal) => ({
   .../** @type {object} */ (await importOriginal()),
   getTheme: () => theme.current,
@@ -108,12 +98,6 @@ const FIXTURE = `
       <span class="more-menu-sub">Example Research Facility</span>
     </div>
     <div class="osprey-popover-sep" role="separator"></div>
-    <div role="group" aria-labelledby="more-view-label">
-      <div class="osprey-popover-title" id="more-view-label">View</div>
-      <button class="osprey-popover-item" type="button" role="menuitemradio" aria-checked="false" data-view="simple">Simple<svg class="osprey-ic osprey-popover-check" data-icon="check" aria-hidden="true"></svg></button>
-      <button class="osprey-popover-item" type="button" role="menuitemradio" aria-checked="false" data-view="expert">Expert<svg class="osprey-ic osprey-popover-check" data-icon="check" aria-hidden="true"></svg></button>
-    </div>
-    <div class="osprey-popover-sep" role="separator"></div>
     <div role="group" aria-labelledby="more-appearance-label">
       <div class="osprey-popover-title" id="more-appearance-label">Appearance</div>
       <button class="osprey-popover-item" type="button" role="menuitemradio" aria-checked="false" data-appearance="auto">Match system<svg class="osprey-ic osprey-popover-check" data-icon="check" aria-hidden="true"></svg></button>
@@ -152,7 +136,6 @@ const FIXTURE = `
       <div><dt>Search everything</dt><dd><kbd class="osprey-kbd" data-chord="K">&#8984;K</kbd></dd></div>
       <div><dt>Show or hide sidebar labels</dt><dd><kbd class="osprey-kbd" data-chord="\\">&#8984;\\</kbd></dd></div>
       <div><dt>Open settings</dt><dd><kbd class="osprey-kbd" data-chord=",">&#8984;,</kbd></dd></div>
-      <div><dt>Focus the terminal</dt><dd><kbd class="osprey-kbd">Ctrl+\`</kbd></dd></div>
     </dl>
   </div>
 
@@ -196,8 +179,6 @@ async function settle() {
 
 beforeEach(async () => {
   vi.resetModules();
-  mocks.pickUiMode.mockReset();
-  mocks.modeListeners.length = 0;
   mocks.startTour.mockReset();
   mocks.openActivityLog.mockReset();
   theme.preference = 'auto';
@@ -207,7 +188,6 @@ beforeEach(async () => {
   theme.setTheme.mockReset();
   theme.toggleTheme.mockReset();
   theme.setFamily.mockReset();
-  document.documentElement.setAttribute('data-ui-mode', 'expert');
   Reflect.deleteProperty(window, '__OSPREY_PREFIX__');
   fetchMock = vi.fn(async () => ({
     ok: true,
@@ -220,18 +200,23 @@ beforeEach(async () => {
 
 afterEach(() => {
   vi.unstubAllGlobals();
-  document.documentElement.removeAttribute('data-ui-mode');
-  document.documentElement.removeAttribute('data-expert-view');
+  document.documentElement.removeAttribute('data-agent-surface');
+  document.documentElement.removeAttribute('data-terminal');
   document.body.innerHTML = '';
 });
 
 /* ---- the rows ------------------------------------------------------------- */
 
 describe('rows', () => {
+  test('offers no terminal and no view', () => {
+    boot();
+    expect(menu().querySelector('[data-view]')).toBeNull();
+    expect(menu().textContent).not.toMatch(/terminal|simple|expert/i);
+  });
+
   test('the server-rendered rows are all there', () => {
     boot();
     expect(qs(menu(), '.more-menu-who .more-menu-user').textContent).toBe('alice');
-    for (const view of ['simple', 'expert']) row(`[role="menuitemradio"][data-view="${view}"]`);
     for (const look of ['auto', 'light', 'dark']) {
       row(`[role="menuitemradio"][data-appearance="${look}"]`);
     }
@@ -270,57 +255,6 @@ describe('rows', () => {
 });
 
 /* ---- radios ---------------------------------------------------------------- */
-
-describe('View', () => {
-  test('the radios follow html[data-ui-mode]', () => {
-    document.documentElement.setAttribute('data-ui-mode', 'simple');
-    boot();
-    expect(checked('[data-view="simple"]')).toBe('true');
-    expect(checked('[data-view="expert"]')).toBe('false');
-
-    document.documentElement.setAttribute('data-ui-mode', 'expert');
-    for (const fn of mocks.modeListeners) fn('expert');
-    expect(checked('[data-view="simple"]')).toBe('false');
-    expect(checked('[data-view="expert"]')).toBe('true');
-  });
-
-  test('opening the menu brings the radios up to date', () => {
-    boot();
-    document.documentElement.setAttribute('data-ui-mode', 'simple');
-    openMenu();
-    expect(checked('[data-view="simple"]')).toBe('true');
-  });
-
-  test('a pick goes through pickUiMode, shows at once and leaves the menu open', () => {
-    boot();
-    openMenu();
-    row('[data-view="simple"]').click();
-
-    expect(mocks.pickUiMode).toHaveBeenCalledWith('simple');
-    // <html> still says expert until the mode message round-trips.
-    expect(checked('[data-view="simple"]')).toBe('true');
-    expect(checked('[data-view="expert"]')).toBe('false');
-    expect(menu().hidden).toBe(false);
-  });
-
-  test('with no Expert view offered, the group and its separator are gone', () => {
-    document.documentElement.setAttribute('data-expert-view', 'off');
-    document.documentElement.setAttribute('data-ui-mode', 'simple');
-    boot();
-    expect(menu().querySelector('[data-view]')).toBeNull();
-    expect(menu().querySelector('#more-view-label')).toBeNull();
-    // The Appearance group now follows the sign-in block directly: one
-    // separator between them, not two.
-    const who = qs(menu(), '.more-menu-who');
-    expect(who.nextElementSibling?.getAttribute('role')).toBe('separator');
-    expect(who.nextElementSibling?.nextElementSibling?.getAttribute('aria-labelledby')).toBe(
-      'more-appearance-label'
-    );
-    // The remaining radios still work.
-    openMenu();
-    expect(document.activeElement).toBe(row('[data-appearance="auto"]'));
-  });
-});
 
 describe('Appearance', () => {
   test("the radios follow theme-manager's modePreference", () => {
@@ -387,7 +321,7 @@ describe('open and close', () => {
     expect(button().getAttribute('aria-expanded')).toBe('true');
     expect(button().getAttribute('aria-controls')).toBe('more-menu');
     // Focus moves into the menu, onto its first row.
-    expect(document.activeElement).toBe(row('[data-view="simple"]'));
+    expect(document.activeElement).toBe(row('[data-appearance="auto"]'));
 
     button().click();
     expect(menu().hidden).toBe(true);
@@ -486,19 +420,16 @@ describe('keyboard', () => {
   test('ArrowDown and ArrowUp move between the rows, wrapping', () => {
     boot();
     openMenu();
-    expect(document.activeElement).toBe(row('[data-view="simple"]'));
+    expect(document.activeElement).toBe(row('[data-appearance="auto"]'));
 
     pressOnFocused('ArrowDown');
-    expect(document.activeElement).toBe(row('[data-view="expert"]'));
-    pressOnFocused('ArrowDown');
+    expect(document.activeElement).toBe(row('[data-appearance="light"]'));
+    pressOnFocused('ArrowUp');
     expect(document.activeElement).toBe(row('[data-appearance="auto"]'));
-    pressOnFocused('ArrowUp');
-    expect(document.activeElement).toBe(row('[data-view="expert"]'));
-    pressOnFocused('ArrowUp');
     pressOnFocused('ArrowUp');
     expect(document.activeElement).toBe(row('[data-more="about"]'));
     pressOnFocused('ArrowDown');
-    expect(document.activeElement).toBe(row('[data-view="simple"]'));
+    expect(document.activeElement).toBe(row('[data-appearance="auto"]'));
   });
 
   test('Home and End jump to the first and last rows', () => {
@@ -507,6 +438,6 @@ describe('keyboard', () => {
     pressOnFocused('End');
     expect(document.activeElement).toBe(row('[data-more="about"]'));
     pressOnFocused('Home');
-    expect(document.activeElement).toBe(row('[data-view="simple"]'));
+    expect(document.activeElement).toBe(row('[data-appearance="auto"]'));
   });
 });

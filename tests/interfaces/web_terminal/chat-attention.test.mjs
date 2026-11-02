@@ -1,5 +1,5 @@
 /**
- * Unit tests for the Simple view's attention signal (chat-attention.js):
+ * Unit tests for the chat's attention signal (chat-attention.js):
  *   npx vitest run tests/interfaces/web_terminal/chat-attention.test.mjs
  *
  * The signal reads the chat's frames and turn ends from the bus, so the tests

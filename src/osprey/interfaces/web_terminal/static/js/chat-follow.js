@@ -1,6 +1,6 @@
 // @ts-check
 /**
- * OSPREY Web Terminal — Simple-mode chat: following the turns this tab did not send.
+ * OSPREY Web Terminal — operator chat: following the turns this tab did not send.
  *
  * The console's live feed carries every frame the agent emits, whichever tab
  * asked: a turn another tab sent, a response the CLI starts on its own, a turn

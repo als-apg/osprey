@@ -1,6 +1,6 @@
 // @ts-check
 /**
- * OSPREY Web Terminal — Simple-mode operator chat: permission-card contract.
+ * OSPREY Web Terminal — operator chat: permission-card contract.
  *
  * The shapes the approval and question cards share: the body a card posts, the
  * hooks the renderer supplies, the handle a card returns, and how a request was

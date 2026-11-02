@@ -29,7 +29,7 @@ no location — every :func:`get` still answers, the process keeps its in-memory
 mapping, and only durability is lost. That is the right degrade: a transcript
 id that survives in memory but not a restart costs the operator the *contents*
 of a cleared-and-continued conversation after a container recreation, whereas
-raising here would take down a view flip over a file nobody can repair from the
+raising here would take down a surface change over a file nobody can repair from the
 browser.
 
 **Durability is best-effort by design.** Unlike the control-context record,

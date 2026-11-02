@@ -36,6 +36,7 @@ from fastapi.staticfiles import StaticFiles
 import osprey.interfaces.design_system as design_system_pkg
 from osprey.interfaces._serving import run_app_server
 from tests.interfaces._hub import hub_server
+from tests.interfaces.web_terminal._surface import arm_terminal_tab
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -482,6 +483,7 @@ def test_xterm_palette_switches_on_toggle(tmp_path, chromium_browser):
     with _hub_live_server(workspace, {"artifacts"}) as base_url:
         page = chromium_browser.new_page()
         errors = _collect_sentinel_errors(page)
+        arm_terminal_tab(page)
 
         _goto_with_seeded_theme(page, base_url, "dark")
         page.wait_for_selector(".xterm-viewport", timeout=10_000)

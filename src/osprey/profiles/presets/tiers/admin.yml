@@ -69,7 +69,3 @@ config:
   # delete surfaces back on. Its contents are shared deployment state, which is
   # exactly what this tier is for.
   web.scaffold_gallery.write_enabled: true
-  # Full split-pane terminal + workspace layout: the Config panel and the
-  # gallery editors need the panel area. Pinned rather than left to the server
-  # default, for the same reason the other tiers pin theirs.
-  web.ui_mode: expert

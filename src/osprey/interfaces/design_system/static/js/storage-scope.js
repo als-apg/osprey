@@ -3,7 +3,7 @@
  *
  * localStorage is origin-scoped, not path-scoped. On a multi-user deployment
  * every render is served from the SAME origin under a different path mount
- * (`/u/alice/`, `/u/bob/`), so a bare key like `osprey-ui-mode` is one shared
+ * (`/u/alice/`, `/u/bob/`), so a bare key like `osprey-sidebar` is one shared
  * slot: whoever picks last decides what everybody else boots into. The server
  * therefore stamps `data-osprey-storage-scope="<user>"` on `<html>` whenever it
  * serves under such a mount, and every browser-side reader and writer derives
@@ -24,8 +24,8 @@
  * no scoped value has no stored preference, and resolution falls through to the
  * next rung (the server-rendered attribute, then the built-in default).
  *
- * The pre-paint boot scripts (mode-boot.js, sidebar-boot.js, the generated
- * theme-boot.js) cannot import this module: they are non-module, dependency-free
+ * The pre-paint boot scripts (sidebar-boot.js, the generated theme-boot.js, the
+ * web terminal's agent-surface-boot.js) cannot import this module: they are non-module, dependency-free
  * IIFEs that must run synchronously in <head> ahead of every stylesheet. They
  * INLINE the same two rules — read the attribute, suffix the key, never fall
  * back — and this module is the written-down definition they mirror. Change the
@@ -44,7 +44,7 @@ const SCOPE_ATTRIBUTE = 'data-osprey-storage-scope';
  * An empty attribute value is treated as unscoped. The server never emits one
  * (it omits the attribute entirely rather than rendering `=""`), so this is
  * purely defensive: an empty scope would otherwise produce the key
- * `osprey-ui-mode--`, a third slot belonging to nobody.
+ * `osprey-sidebar--`, a third slot belonging to nobody.
  *
  * @returns {string|null}
  */
@@ -63,7 +63,7 @@ export function storageScope() {
  * There is deliberately no third case; see the no-legacy-fallback rule in the
  * module docstring for why a scoped reader must never consult `base`.
  *
- * @param {string} base the bare, historically-used key (e.g. `'osprey-ui-mode'`)
+ * @param {string} base the bare, historically-used key (e.g. `'osprey-sidebar'`)
  * @returns {string}
  */
 export function scopedStorageKey(base) {

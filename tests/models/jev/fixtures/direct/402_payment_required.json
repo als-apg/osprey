@@ -1,0 +1,13 @@
+{
+  "synthetic": true,
+  "note": "Synthetic fixture hand-written from the documented direct-route response and error shapes; not a recorded reply.",
+  "route": "typesafe",
+  "status": 402,
+  "headers": {},
+  "body": {
+    "detail": {
+      "error_type": "insufficient_balance",
+      "message": "account balance is too low for this request"
+    }
+  }
+}
