@@ -398,10 +398,20 @@ def render_fs_guard(
 
 
         def _osprey_fs_is_secret(path):
-            """True for an env-chain file under a secret root or a /proc environment."""
-            _name = path.name
+            """True for an env-chain file under a secret root or a /proc environment.
+
+            The name and the secret roots are compared casefolded. On a
+            case-insensitive filesystem (macOS's default) ``.ENV`` and
+            ``PROJECT/.env`` open the secret file, and resolve() keeps the
+            spelling it was given, so a comparison keyed on case lets them
+            through. On a case-sensitive filesystem the fold only widens the
+            refusal to files spelled like a secret.
+            """
+            _name = path.name.casefold()
             if _name == ".env" or _name.startswith(".env."):
-                if _osprey_fs_under(path, _OSPREY_FS_SECRET_ROOTS):
+                _folded = _OspreyGuardPath(str(path).casefold())
+                _roots = tuple(str(_root).casefold() for _root in _OSPREY_FS_SECRET_ROOTS)
+                if _osprey_fs_under(_folded, _roots):
                     return True
             _parts = path.parts
             return len(_parts) > 2 and _parts[1] == "proc" and _name in ("environ", "cmdline")
