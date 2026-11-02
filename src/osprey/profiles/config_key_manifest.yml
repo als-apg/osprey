@@ -1888,8 +1888,9 @@ keys:
     evidence: 'block = api\.get\("jev"\) if isinstance\(api, Mapping\)'
     note: >-
       Settings for the Jev decision client: which route serves requests
-      (typesafe direct, or openrouter through the api.providers.openrouter
-      entry), the pinned model and size limits per route, the concurrency cap,
+      (typesafe direct, openrouter through the api.providers.openrouter
+      entry, or openai for an OpenAI-compatible chat server such as a
+      self-hosted vLLM), the pinned model and size limits per route, the concurrency cap,
       the declared input price, and the interactive/batch time budgets. A
       missing block gives every default; a partial budget overrides only the
       keys it names.
@@ -1919,6 +1920,11 @@ keys:
   api.jev.routes.openrouter.model: {covered-by: api.jev, rendered: false, default: typesafe/jev-1.13}
   api.jev.routes.openrouter.max_request_tokens: {covered-by: api.jev, rendered: false, default: 30000}
   api.jev.routes.openrouter.max_state_plus_question_tokens: {covered-by: api.jev, rendered: false, default: 30000}
+  api.jev.routes.openai.model: {covered-by: api.jev, rendered: false, default: null}
+  api.jev.routes.openai.base_url: {covered-by: api.jev, rendered: false, default: null}
+  api.jev.routes.openai.api_key: {covered-by: api.jev, rendered: false, default: null}
+  api.jev.routes.openai.max_request_tokens: {covered-by: api.jev, rendered: false, default: 30000}
+  api.jev.routes.openai.max_state_plus_question_tokens: {covered-by: api.jev, rendered: false, default: 30000}
 
   # ── Claude Code ─────────────────────────────────────────────────────
   claude_code:
