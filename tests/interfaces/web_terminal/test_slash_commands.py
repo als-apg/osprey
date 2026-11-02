@@ -1,4 +1,4 @@
-"""Tests for the project slash-command listing behind the Simple view's suggestions.
+"""Tests for the project slash-command listing behind the chat's suggestions.
 
 Each naming rule pinned here is the one the agent CLI applies when it lists a
 project's skills and command files, so a suggestion is always a name the agent

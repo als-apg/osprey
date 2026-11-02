@@ -1,6 +1,6 @@
 // @ts-check
 /**
- * Unit tests for the question both views ask before ending an agent that
+ * Unit tests for the question both surfaces ask before ending an agent that
  * started commands still running (started-commands.js):
  *   npx vitest run tests/interfaces/web_terminal/started-commands.test.mjs
  *

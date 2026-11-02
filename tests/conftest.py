@@ -22,6 +22,8 @@ from osprey_connectors_tests._harness import _repo_cleanliness
 # osprey_connectors_tests._harness._guards for why they are not a registered plugin.
 from osprey_connectors_tests._harness._guards import (  # noqa: F401 - fixtures and hooks, used by name
     _GUARD_KNOWN_LIMIT,
+    _PRE_COLLECTION_ENV,
+    _ancestor_dotenv_values,
     _clear_dotenv_timezone,
     _first_seen_clause,
     _is_real_deployment_item,
@@ -914,6 +916,33 @@ def _has_cborg_api_key() -> bool:
     return bool(_os.environ.get("CBORG_API_KEY"))
 
 
+def _live_key_present(var: str) -> bool:
+    """True if ``var`` holds a key this run was actually given.
+
+    A key counts when it was already in the environment before collection, or
+    was set during collection by something other than an ancestor ``.env``.
+    Collection imports litellm, which loads an ancestor checkout's ``.env``;
+    :func:`pytest_collection_finish` removes such injections, but this hook
+    runs before that, so the same test — added during collection and carrying
+    exactly the ancestor ``.env`` value — is applied here to keep a key the run
+    never exported from arming a live test.
+    """
+    value = os.environ.get(var)
+    if not value:
+        return False
+    if var in _PRE_COLLECTION_ENV:
+        return True
+    return _ancestor_dotenv_values().get(var) != value
+
+
+def _has_typesafe_api_key() -> bool:
+    return _live_key_present("TYPESAFE_API_KEY")
+
+
+def _has_openrouter_api_key() -> bool:
+    return _live_key_present("OPENROUTER_API_KEY")
+
+
 def _e2e_provider_availability() -> tuple[bool, str]:
     """Whether the credential of the provider this run builds with is present.
 
@@ -1015,6 +1044,14 @@ _RESOURCE_CHECKS: dict[str, tuple[Callable[[], bool], str | Callable[[], str]]] 
     "requires_openai": (_has_openai_api_key, "OPENAI_API_KEY not set"),
     "requires_google": (_has_google_api_key, "GOOGLE_API_KEY not set"),
     "requires_cborg": (_has_cborg_api_key, "CBORG_API_KEY not set"),
+    "requires_typesafe": (
+        _has_typesafe_api_key,
+        "TYPESAFE_API_KEY not set (a value only an ancestor .env supplies does not count)",
+    ),
+    "requires_openrouter": (
+        _has_openrouter_api_key,
+        "OPENROUTER_API_KEY not set (a value only an ancestor .env supplies does not count)",
+    ),
 }
 
 

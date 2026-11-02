@@ -36,16 +36,17 @@ from pathlib import Path
 #: ports fixed services listen on.
 PORT_FLOOR = 20000
 
-#: Half-open ranges a reservation never hands out: the deployment blocks
-#: (``deployment.port_base`` plus 1000) that tests pin. A pinned stack binds its
-#: ports without taking a lock, so a reservation inside one could be handed a
-#: port the stack publishes later. ``tests/infrastructure/test_ports.py`` fails
-#: when a test pins a block these ranges do not cover.
-PINNED_BLOCKS: tuple[tuple[int, int], ...] = (
-    (20000, 26700),
-    (29000, 32000),
-    (40000, 41000),
-    (42000, 43000),
+#: The ``deployment.port_base`` blocks (``port_base`` plus 1000) that tests pin. A
+#: deployment derives a port from every slot of its block and binds them without
+#: taking a lock, and refuses a pinned port that lands on one, so a reservation
+#: inside a block can collide with that stack or fail its build.
+#: ``tests/infrastructure/test_ports.py`` fails when a test pins a block these
+#: ranges do not cover.
+BOOKED_BLOCKS: tuple[range, ...] = (
+    range(20000, 26700),
+    range(29000, 32000),
+    range(40000, 41000),
+    range(42000, 43000),
 )
 
 #: The one directory every test process on the host locks ports in, shared by
@@ -89,12 +90,12 @@ def lock_path(port: int) -> Path:
 
 
 def _candidates(first: int) -> list[int]:
-    """Every port in ``[PORT_FLOOR, first)`` outside :data:`PINNED_BLOCKS`, from a
+    """Every port in ``[PORT_FLOOR, first)`` outside :data:`BOOKED_BLOCKS`, from a
     random start so concurrent processes do not all try the same port first."""
     ports = [
         port
         for port in range(PORT_FLOOR, first)
-        if not any(low <= port < high for low, high in PINNED_BLOCKS)
+        if not any(port in block for block in BOOKED_BLOCKS)
     ]
     if not ports:
         return ports

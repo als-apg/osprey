@@ -34,6 +34,12 @@ import { createScaffoldGalleryDetail } from '../../../../src/osprey/interfaces/w
 import { createScaffoldGalleryDetailContent } from '../../../../src/osprey/interfaces/web_terminal/static/js/scaffold/detail-content.js';
 import { createScaffoldGalleryEditForm } from '../../../../src/osprey/interfaces/web_terminal/static/js/scaffold/edit-form.js';
 import { resetFetchCache } from '../../../../src/osprey/interfaces/web_terminal/static/js/scaffold/data.js';
+import {
+  DATA_READ_ONLY_REASON,
+  READ_ONLY_REASON,
+  readOnlyReason,
+} from '../../../../src/osprey/interfaces/web_terminal/static/js/scaffold/utils.js';
+import { applyScaffoldWriteGate } from '../../../../src/osprey/interfaces/web_terminal/static/js/scaffold/write-gate.js';
 
 /**
  * @typedef {import('../../../../src/osprey/interfaces/web_terminal/static/js/scaffold/detail.js').ScaffoldGalleryDetailHost} ScaffoldGalleryDetailHost
@@ -715,4 +721,41 @@ describe('renderPreview', () => {
       expect(gallery.detailContentEl.querySelector('img, script')).toBeNull();
     }
   );
+});
+
+// ---------------------------------------------------------------------------
+// Deployment data files (the code reviewer's rules)
+// ---------------------------------------------------------------------------
+
+describe('a deployment data file', () => {
+  const rules = {
+    name: 'code-review/rules',
+    status: 'user-owned',
+    custom: true,
+    read_only: true,
+    kind: 'data',
+  };
+
+  test('offers Preview, a disabled Edit, and no ownership button even with writes on', () => {
+    applyScaffoldWriteGate({ scaffold_write_enabled: true });
+    const gallery = makeGallery({ selectedArtifact: rules });
+    const detail = createScaffoldGalleryDetail(gallery);
+    detail.renderDetailHeader();
+    detail.renderDetailModes();
+
+    expect(gallery.detailHeaderEl.querySelector('.prompts-ownership-btn')).toBeNull();
+    const buttons = [...gallery.detailModesEl.querySelectorAll('.prompts-mode-btn')];
+    expect(buttons.map((b) => b.textContent)).toEqual(['Preview', 'Edit']);
+    const edit = /** @type {HTMLButtonElement} */ (buttons[1]);
+    expect(edit.disabled).toBe(true);
+    expect(edit.title).toBe(DATA_READ_ONLY_REASON);
+    expect(qs(gallery.detailHeaderEl, '.prompts-readonly-note').textContent).toBe(
+      DATA_READ_ONLY_REASON
+    );
+  });
+
+  test('a rendered artifact keeps the build-profile reason', () => {
+    expect(readOnlyReason({ kind: undefined })).toBe(READ_ONLY_REASON);
+    expect(readOnlyReason(rules)).toBe(DATA_READ_ONLY_REASON);
+  });
 });

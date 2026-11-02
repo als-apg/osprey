@@ -90,7 +90,11 @@ a field left out is either filled by the build or stays absent.
 A place with a ``span`` covers a stretch of one model's deck, from the
 ``from_marker`` element up to the ``to_marker`` element, or to the deck's end
 without one. A device the deck puts inside it belongs to the deepest such
-place, unless the device states its own ``place``.
+place, unless the device states its own ``place`` in an authored record or a
+fix. A place only an importing layer states (``place_from: imported``) yields
+to a span that is that place or lies inside it, and stands under a span that
+holds it or where none holds the device; any other span holding the device
+contradicts it, and the build stops ``place-conflict``.
 
 .. code-block:: yaml
 
@@ -158,7 +162,8 @@ address means anything to OSPREY. What a channel is comes from its fields:
    * - ``precision``
      - Optional, on float channels only: an integer from 0 to 17, the number
        of decimals a display shows. The simulator serves it as the channel's
-       display precision on both Channel Access and PVAccess.
+       display precision on both Channel Access and PVAccess, and serves a
+       float channel that states none with 4.
    * - ``former_addresses``, ``attributes``
      - Addresses the channel was known by, and a free map carried verbatim.
 

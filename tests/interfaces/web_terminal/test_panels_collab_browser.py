@@ -35,6 +35,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 import time
 from contextlib import contextmanager
 
@@ -85,7 +86,7 @@ _SCOPE: dict = {
 }
 
 #: rail id → dock tab accessible name, for the tab locator below.
-_LABELS = {"artifacts": "WORKSPACE", "data-viz": "DATA VIZ", "scope": "SCOPE"}
+_LABELS = {"artifacts": "Artifacts", "data-viz": "DATA VIZ", "scope": "SCOPE"}
 
 
 def _unhealthy_panel(panel_id: str = "beam-cam") -> dict:
@@ -221,13 +222,14 @@ def _open_page(browser, base_url: str) -> Page:
 # ---------------------------------------------------------------------------
 
 # Every dockview group with its tab labels and pixel rectangle. The terminal
-# tile's tab carries no accessible name (it adopts the live .terminal-header),
-# so it is reported under the synthetic "SESSION" handle, as in the sibling
-# suite.
+# tile's tab carries no accessible name (it adopts a live bar, which differs
+# between the views), so it is found by the .tile-tab-terminal class dock-tab.js
+# stamps in both and reported under the synthetic "Agent" handle, as in the
+# sibling suite.
 _GROUPS_JS = r"""() => [...document.querySelectorAll('.dv-groupview')].map(g => {
   const tabs = [...g.querySelectorAll('.dv-tab')].map(t =>
-    t.querySelector('.terminal-header')
-      ? 'SESSION'
+    t.querySelector('.tile-tab-terminal')
+      ? 'Agent'
       : (t.querySelector('.tile-tab')?.getAttribute('aria-label') ?? ''));
   const r = g.getBoundingClientRect();
   return { x: Math.round(r.x), y: Math.round(r.y), w: Math.round(r.width),
@@ -296,9 +298,18 @@ def _wait_for_client_tiles(page: Page, expected: list[str], timeout: float = 10_
     )
 
 
+def _title_case(label: str) -> str:
+    """The sidebar's reading of a panel label (panel-catalog.js ``titleCase``):
+    an all-caps label reads ``Data Viz``; mixed case is kept as spelled."""
+    if label != label.upper():
+        return label
+    return re.sub(r"(^|[\s-])(\w)", lambda m: m.group(1) + m.group(2).upper(), label.lower())
+
+
 def _service_tab(page: Page, label: str):
-    """The dockview tile strip whose accessible name is exactly ``label``."""
-    strip = page.locator(f'.tile-tab[aria-label="{label}"]')
+    """The dockview tile strip whose accessible name is exactly the
+    title-cased ``label`` the page renders."""
+    strip = page.locator(f'.tile-tab[aria-label="{_title_case(label)}"]')
     return page.locator(".dv-tab").filter(has=strip)
 
 
@@ -440,7 +451,7 @@ def test_human_tile_close_updates_open_tiles_and_freshness(tmp_path, chromium_br
         project_cwd=str(workspace),
     ) as (base_url, _app):
         page = _open_page(chromium_browser, base_url)
-        expect(_service_tab(page, "WORKSPACE")).to_have_count(1, timeout=15_000)
+        expect(_service_tab(page, "Artifacts")).to_have_count(1, timeout=15_000)
         _open_beside(page, "data-viz")
 
         # Both tiles reach the server, in the order they read off the screen.
@@ -497,7 +508,7 @@ def test_agent_switch_opens_beside_and_posts_nothing_back(tmp_path, chromium_bro
         project_cwd=str(workspace),
     ) as (base_url, _app):
         page = _open_page(chromium_browser, base_url)
-        expect(_service_tab(page, "WORKSPACE")).to_have_count(1, timeout=15_000)
+        expect(_service_tab(page, "Artifacts")).to_have_count(1, timeout=15_000)
         _open_beside(page, "data-viz")
         # scope is a rail member from config but holds no tile — the exact state
         # open_panel's "open beside" branch exists for.
@@ -532,7 +543,7 @@ def test_agent_switch_opens_beside_and_posts_nothing_back(tmp_path, chromium_bro
             "artifacts": "stamped:artifacts",
             "data-viz": "stamped:data-viz",
         }, f"an agent switch replaced an operator's tile: {survived}"
-        expect(_service_tab(page, "WORKSPACE")).to_have_count(1)
+        expect(_service_tab(page, "Artifacts")).to_have_count(1)
         expect(_service_tab(page, "DATA VIZ")).to_have_count(1)
 
         # The client reported the new occupancy and said nothing else.
@@ -578,11 +589,11 @@ def test_arrange_converges_from_two_layouts_without_a_report_loop(tmp_path, chro
     ) as (base_url, _app):
         # Client A: the boot layout — artifacts alone.
         page_a = _open_page(chromium_browser, base_url)
-        expect(_service_tab(page_a, "WORKSPACE")).to_have_count(1, timeout=15_000)
+        expect(_service_tab(page_a, "Artifacts")).to_have_count(1, timeout=15_000)
 
         # Client B: three tiles, deliberately in a different order.
         page_b = _open_page(chromium_browser, base_url)
-        expect(_service_tab(page_b, "WORKSPACE")).to_have_count(1, timeout=15_000)
+        expect(_service_tab(page_b, "Artifacts")).to_have_count(1, timeout=15_000)
         _open_beside(page_b, "scope")
         _open_beside(page_b, "data-viz")
 
@@ -616,9 +627,9 @@ def test_arrange_converges_from_two_layouts_without_a_report_loop(tmp_path, chro
             ).to_have_count(1, timeout=10_000)
             expect(_service_tab(page, "SCOPE")).to_have_count(0, timeout=10_000)
             # Left-to-right on screen, not merely in the serialization.
-            service = [g for g in _dock_groups(page) if "SESSION" not in g["tabs"]]
+            service = [g for g in _dock_groups(page) if "Agent" not in g["tabs"]]
             order = [g["tabs"][0] for g in sorted(service, key=lambda g: g["x"])]
-            assert order == ["DATA VIZ", "WORKSPACE"], order
+            assert order == [_title_case("DATA VIZ"), "Artifacts"], order
 
         # The arrangement reached the server as an observation, not just a command.
         _wait_for_open_tiles(base_url, ["data-viz", "artifacts"])
@@ -680,7 +691,7 @@ def test_arrange_with_unhealthy_focus_falls_back_and_docks_no_empty_tile(
         project_cwd=str(workspace),
     ) as (base_url, _app):
         page = _open_page(chromium_browser, base_url)
-        expect(_service_tab(page, "WORKSPACE")).to_have_count(1, timeout=15_000)
+        expect(_service_tab(page, "Artifacts")).to_have_count(1, timeout=15_000)
         # Let the broken panel's first health polls fail so it is decidedly
         # unhealthy before the arrangement is applied.
         page.wait_for_timeout(1_500)
@@ -742,7 +753,7 @@ def _workspace_signature(page: Page) -> dict:
 def _apply_preset_by_click(page: Page) -> None:
     """Apply the "Injection" layout the way a human does — the "+" popover."""
     page.locator("#panel-add-btn").click()
-    expect(page.locator(".panel-add-menu.open")).to_be_visible(timeout=5_000)
+    expect(page.locator("#panel-add-menu")).to_be_visible(timeout=5_000)
     page.locator(".panel-add-item", has_text="Injection").click()
 
 
@@ -778,7 +789,7 @@ def test_preset_click_and_agent_preset_call_are_the_same_operation(tmp_path, chr
             project_cwd=str(workspace),
         ) as (base_url, _app):
             page = _open_page(chromium_browser, base_url)
-            expect(_service_tab(page, "WORKSPACE")).to_have_count(1, timeout=15_000)
+            expect(_service_tab(page, "Artifacts")).to_have_count(1, timeout=15_000)
             # scope starts in the rail; the preset omits it, so its removal is
             # what makes the pruning observable.
             assert "scope" in _rail_ids(page)
@@ -903,7 +914,7 @@ def test_vertical_split_reports_column_before_its_neighbour(tmp_path, chromium_b
         project_cwd=str(workspace),
     ) as (base_url, _app):
         page = _open_page(chromium_browser, base_url)
-        expect(_service_tab(page, "WORKSPACE")).to_have_count(1, timeout=15_000)
+        expect(_service_tab(page, "Artifacts")).to_have_count(1, timeout=15_000)
         # Three columns: artifacts | data-viz | terminal.
         _open_beside(page, "data-viz")
         assert _client_open_tiles(page) == ["artifacts", "data-viz"], _client_open_tiles(page)
@@ -919,7 +930,8 @@ def test_vertical_split_reports_column_before_its_neighbour(tmp_path, chromium_b
 
         # Assert the arrangement really is a column beside a full-height tile.
         groups = {g["tabs"][0]: g for g in _dock_groups(page) if len(g["tabs"]) == 1}
-        artifacts, scope, data_viz = groups["WORKSPACE"], groups["SCOPE"], groups["DATA VIZ"]
+        artifacts = groups["Artifacts"]
+        scope, data_viz = groups[_title_case("SCOPE")], groups[_title_case("DATA VIZ")]
         assert abs(scope["x"] - artifacts["x"]) <= 2, groups
         assert abs(scope["w"] - artifacts["w"]) <= 2, groups
         assert scope["y"] > artifacts["y"], groups
@@ -978,7 +990,7 @@ def test_slow_restore_reports_nothing_before_the_layout_is_final(tmp_path, chrom
 
         page.goto(base_url, wait_until="domcontentloaded")
         expect(page.locator(".dv-groupview").first).to_be_visible(timeout=15_000)
-        expect(_service_tab(page, "WORKSPACE")).to_have_count(1, timeout=20_000)
+        expect(_service_tab(page, "Artifacts")).to_have_count(1, timeout=20_000)
         # Outlast the settle window plus a generous margin so a late report is
         # still counted rather than raced past.
         page.wait_for_timeout(2_000)
@@ -1043,7 +1055,7 @@ def test_occupancy_read_back_distinguishes_unknown_from_empty(tmp_path, chromium
 
         # --- known empty: a dock client closes the last service tile.
         page = _open_page(chromium_browser, base_url)
-        expect(_service_tab(page, "WORKSPACE")).to_have_count(1, timeout=15_000)
+        expect(_service_tab(page, "Artifacts")).to_have_count(1, timeout=15_000)
         _wait_for_open_tiles(base_url, ["artifacts"])
         _close_tile(page, "artifacts")
         known_empty = _wait_for_open_tiles(base_url, [])

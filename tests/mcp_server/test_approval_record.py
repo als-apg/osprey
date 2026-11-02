@@ -9,12 +9,27 @@ from typing import Any
 import pytest
 
 from osprey.audit.call import call_scope
-from osprey.cli.build_posture_check import GUARDED_TOOLS, STAGE1_TOOLS, ask_capable
+from osprey.cli.build_posture_check import (
+    GUARDED_TOOLS,
+    STAGE1_TOOLS,
+    _governed_matchers,
+    _short_name,
+    ask_capable,
+)
 from osprey.mcp_server import approval_record
 from osprey.mcp_server.approval_record import (
+    ANSWERED_AT_KEY,
     APPROVAL_CONFIG_INVALID,
     APPROVAL_MISSING,
     APPROVED_FIELDS,
+    APPROVER_DISPATCH_POLICY,
+    APPROVER_HUMAN,
+    APPROVER_WRITE_SWITCH,
+    POSITION_ALLOWED,
+    POSITION_ASKED,
+    PROMPTED_APPROVERS,
+    STAMP_APPROVERS,
+    STAMP_POSITIONS,
     TOOL_REQUIRED_FIELDS,
     Refusal,
     require_approval_record,
@@ -24,6 +39,20 @@ from tests._approval_stamp_fixture import ApprovalStamps, use_stamp_dir
 
 #: Every tool stage 1 guards.
 _TOOLS: tuple[str, ...] = (*GUARDED_TOOLS, *STAGE1_TOOLS)
+
+#: The tools the write switch decides in a default render, by short name.
+_GOVERNED: tuple[str, ...] = tuple(map(_short_name, _governed_matchers({}) or ()))
+
+#: The tools stage 1 guards that the write switch does not decide.
+_UNGOVERNED: tuple[str, ...] = tuple(tool for tool in _TOOLS if tool not in _GOVERNED)
+
+#: Configs under which the policy flow asks nobody.
+_ASKS_NOBODY: dict[str, dict[str, Any]] = {
+    "disabled": {"approval": {"enabled": False}},
+    "default-skip": {"approval": {"default_policy": "skip"}},
+    "tool-skip": {"approval": {"default_policy": "always", "tools": dict.fromkeys(_TOOLS, "skip")}},
+    "disabled-and-skip": {"approval": {"enabled": False, "default_policy": "skip"}},
+}
 
 #: A rendered config whose approval policy asks about every tool.
 _ASKING: dict[str, Any] = {"approval": {"enabled": True, "default_policy": "always"}}
@@ -50,6 +79,148 @@ def test_the_module_spells_the_ask_stamp_like_the_hook() -> None:
     hook = import_hook("osprey_approval")
     assert approval_record.APPROVAL_ASK_PREFIX == hook.APPROVAL_ASK_PREFIX
     assert approval_record.APPROVAL_ASK_SUFFIX == hook.APPROVAL_ASK_SUFFIX
+
+
+class TestTheStampSpellings:
+    """The ``approver``, ``position`` and ``answered_at`` words are the hook's."""
+
+    def test_the_approver_and_position_words_are_the_hooks(self) -> None:
+        from tests.hooks.conftest import import_hook
+
+        hook = import_hook("osprey_approval")
+        assert hook.APPROVER_WRITE_SWITCH == APPROVER_WRITE_SWITCH
+        assert (hook._POSITION_ASKED, hook._POSITION_ALLOWED) == (POSITION_ASKED, POSITION_ALLOWED)
+        assert STAMP_POSITIONS == (POSITION_ASKED, POSITION_ALLOWED)
+        assert STAMP_APPROVERS == ("human", "dispatch_policy", "write_switch")
+        assert PROMPTED_APPROVERS == {APPROVER_HUMAN, APPROVER_DISPATCH_POLICY}
+        assert APPROVER_WRITE_SWITCH not in PROMPTED_APPROVERS
+
+    @pytest.mark.parametrize(
+        ("dispatch", "position", "approver"),
+        [
+            (False, None, APPROVER_HUMAN),
+            (False, POSITION_ASKED, APPROVER_HUMAN),
+            (False, POSITION_ALLOWED, APPROVER_WRITE_SWITCH),
+            (True, None, APPROVER_DISPATCH_POLICY),
+            (True, POSITION_ASKED, APPROVER_DISPATCH_POLICY),
+            (True, POSITION_ALLOWED, APPROVER_DISPATCH_POLICY),
+        ],
+    )
+    def test_the_hooks_stamp_reads_back_in_this_modules_words(
+        self,
+        stamps: ApprovalStamps,
+        monkeypatch: pytest.MonkeyPatch,
+        dispatch: bool,
+        position: str | None,
+        approver: str,
+    ) -> None:
+        """The stamp the hook files is the one this module reads, and admits the call."""
+        from tests.hooks.conftest import import_hook
+
+        hook = import_hook("osprey_approval")
+        monkeypatch.setattr(hook, "_approval_state_dir", lambda _input: str(stamps.state))
+        if dispatch:
+            monkeypatch.setenv("OSPREY_DISPATCH_RUN", "1")
+        else:
+            monkeypatch.delenv("OSPREY_DISPATCH_RUN", raising=False)
+        hook_input = {
+            "tool_use_id": "toolu_stamped",
+            "tool_name": "mcp__controls__channel_write",
+            "session_id": "s1",
+            "permission_mode": "default",
+        }
+
+        hook._stamp_ask(hook_input, approved={"approved_target": "live"}, position=position)
+
+        stamp = approval_record.approval_ask_stamp("toolu_stamped")
+        assert stamp is not None
+        assert stamp["approver"] == approver and approver in STAMP_APPROVERS
+        if position is None:
+            assert "position" not in stamp
+        else:
+            assert stamp["position"] == position and position in STAMP_POSITIONS
+        assert (ANSWERED_AT_KEY in stamp) is (position == POSITION_ALLOWED)
+        if position == POSITION_ALLOWED:
+            assert stamp[ANSWERED_AT_KEY] == stamp["asked_at"]
+        assert _require("channel_write", _ASKING, approved={"approved_target": "live"}) is None
+
+
+class TestTheGovernedRecord:
+    """A governed tool needs the record whatever ``approval.*`` says."""
+
+    def test_the_default_render_governs_the_write_tools(self) -> None:
+        assert set(_GOVERNED) == {"channel_write", "execute", "execute_file", "pyaml_measure"}
+
+    @pytest.mark.parametrize("tool", _GOVERNED)
+    @pytest.mark.parametrize("config", list(_ASKS_NOBODY.values()), ids=list(_ASKS_NOBODY))
+    def test_a_governed_tool_is_ask_capable_where_the_policy_asks_nobody(
+        self, tool: str, config: dict[str, Any]
+    ) -> None:
+        assert ask_capable(config, tool) is True
+
+    @pytest.mark.usefixtures("stamps")
+    @pytest.mark.parametrize("tool", _UNGOVERNED)
+    @pytest.mark.parametrize("config", list(_ASKS_NOBODY.values()), ids=list(_ASKS_NOBODY))
+    def test_an_ungoverned_tool_keeps_the_policy_reading(
+        self, tool: str, config: dict[str, Any]
+    ) -> None:
+        assert ask_capable(config, tool) is False
+        assert _require(tool, config) is None
+
+    @pytest.mark.usefixtures("stamps")
+    @pytest.mark.parametrize("tool", _GOVERNED)
+    @pytest.mark.parametrize("config", list(_ASKS_NOBODY.values()), ids=list(_ASKS_NOBODY))
+    def test_a_governed_call_without_a_stamp_refuses_where_the_policy_asks_nobody(
+        self, tool: str, config: dict[str, Any]
+    ) -> None:
+        assert _require(tool, config) == Refusal(APPROVAL_MISSING, _NO_RECORD)
+
+    @pytest.mark.parametrize("tool", _GOVERNED)
+    @pytest.mark.parametrize("config", [_ASKING, *_ASKS_NOBODY.values()])
+    @pytest.mark.parametrize(
+        ("approver", "position"),
+        [
+            pytest.param(APPROVER_WRITE_SWITCH, POSITION_ALLOWED, id="switch-allowed"),
+            pytest.param(APPROVER_HUMAN, POSITION_ASKED, id="human-asked"),
+            pytest.param(APPROVER_DISPATCH_POLICY, POSITION_ALLOWED, id="dispatch-allowed"),
+        ],
+    )
+    def test_a_write_switch_stamp_is_a_record_like_a_humans(
+        self,
+        stamps: ApprovalStamps,
+        tool: str,
+        config: dict[str, Any],
+        approver: str,
+        position: str,
+    ) -> None:
+        fields = dict.fromkeys(required_fields(tool, guarded_run=True), "x")
+        extra = {ANSWERED_AT_KEY: 1.0} if position == POSITION_ALLOWED else {}
+        stamps.ask(tool, approver=approver, position=position, **extra, **fields)
+
+        assert _require(tool, config, approved=fields, guarded_run=True) is None
+
+    @pytest.mark.parametrize("tool", _GOVERNED)
+    def test_a_write_switch_stamp_still_binds_the_approved_fields(
+        self, stamps: ApprovalStamps, tool: str
+    ) -> None:
+        fields = dict.fromkeys(required_fields(tool, guarded_run=True), "x")
+        stamps.ask(tool, approver=APPROVER_WRITE_SWITCH, position=POSITION_ALLOWED, **fields)
+
+        refusal = _require(
+            tool, _ASKS_NOBODY["disabled"], approved={"approved_target": "y"}, guarded_run=True
+        )
+
+        assert refusal is not None and refusal.error_type == APPROVAL_MISSING
+        assert "`approved_target` differs" in refusal.message
+
+    @pytest.mark.parametrize("tool", _GOVERNED)
+    def test_a_write_switch_stamp_for_another_tool_refuses(
+        self, stamps: ApprovalStamps, tool: str
+    ) -> None:
+        other = "queue_add"
+        stamps.ask(other, approver=APPROVER_WRITE_SWITCH, position=POSITION_ALLOWED)
+
+        assert _require(tool, _ASKS_NOBODY["disabled"]) == Refusal(APPROVAL_MISSING, _NO_RECORD)
 
 
 class TestTheConfigFault:

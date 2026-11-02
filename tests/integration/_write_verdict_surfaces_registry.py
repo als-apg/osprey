@@ -1,8 +1,9 @@
 """The registry of write-verdict surfaces: one named projection per surface.
 
-Every src module that asks :func:`osprey_connectors.posture_store.write_verdict`
-or :func:`~osprey_connectors.posture_store.backstop_verdict` (or the hook
-twin's ``write_verdict``) "may this write?" is a *surface*. A surface rarely
+Every src module that asks :func:`osprey_connectors.posture_store.write_verdict`,
+:func:`~osprey_connectors.posture_store.execution_verdict` or
+:func:`~osprey_connectors.posture_store.backstop_verdict` (or the hook twin's
+``write_verdict`` or ``execution_verdict``) "may this write?" is a *surface*. A surface rarely
 returns the verdict itself: the connector host answers a bool, the executor a
 launch stamp, the kernel a hint line, the chip a turn-on lock. A
 *projection* is the rule that maps one case-table row's expected verdict onto
@@ -18,6 +19,16 @@ whose answer disagrees is a bug in the surface, fixed in src.
 This module is ADD-ONLY (D6): an existing entry is never edited, a new
 surface gets a new entry. ``freeze_check.sh`` in the plan directory enforces
 that against the ``wp/table-frozen`` tag.
+
+The one edit the switch's three positions forced: the two entries that spelled
+the retired switch word ``on`` — ``chip-post-lock``'s request state and
+``control-context-hook``'s expected word — spell ``asked``, the narrowest
+arming word, so each keeps its meaning. With the word went the rows the old
+word could not tell apart: ``chip-post-lock`` asks only a request that widens
+(the route's locks guard widenings and nothing else), and
+``control-context-hook`` only the rows whose write runs at ``asked``. The
+positions themselves are new entries: ``approval-position``,
+``control-context-word``, ``chip-row-position`` and ``status-position``.
 """
 
 from __future__ import annotations
@@ -31,7 +42,7 @@ from typing import Any
 import pytest
 import yaml
 
-from osprey_connectors_tests._harness._write_verdict_cases import Case
+from osprey_connectors_tests._harness._write_verdict_cases import Case, expected_position
 
 #: What a projection returns for a row outside its surface's domain.
 OUT_OF_DOMAIN: Any = object()
@@ -388,8 +399,8 @@ def _chip_post_lock(staged: Staged) -> Any:
         return OUT_OF_DOMAIN
     from osprey.interfaces.web_terminal.routes import websocket
 
-    facts = websocket._posture_post_facts(staged.config_path, case.target, "on", case.owner)
-    if case.target not in facts.configured:
+    facts = websocket._posture_post_facts(staged.config_path, case.target, "asked", case.owner)
+    if case.target not in facts.configured or not websocket._widens("asked", facts.before):
         return OUT_OF_DOMAIN
     observed = facts.lock.reason if facts.lock is not None else None
     reason = case.expect["reason"]
@@ -462,13 +473,211 @@ def _control_context_hook(staged: Staged) -> Any:
     if state is None or case.target not in state["writes"]:
         return OUT_OF_DOMAIN
     allowed, reason = _expected(case)
+    if allowed and expected_position(case) != "asked":
+        return OUT_OF_DOMAIN  # the word at another position is control-context-word's
     if allowed:
-        expected = hook.WRITES_ON
+        expected = "asked"
     elif reason == "switch_off":
         expected = hook.WRITES_OFF
     else:
         expected = f"{hook.WRITES_REFUSED}:{reason}"
     return state["writes"][case.target], expected
+
+
+# -- a held session ----------------------------------------------------------
+#
+# A surface that executes a write answers for the session's hold too. Each row
+# is asked again with a flag open: the backstop's two reasons still come first,
+# and every later term gives way to ``session_held``.
+
+_HELD_SESSION = "11111111-2222-3333-4444-555555555555"
+
+
+def _hold(staged: Staged) -> None:
+    """Open one flag on the session this process belongs to."""
+    from osprey_connectors import session_hold
+
+    root = staged.tmp_path / "session_holds"
+    staged.monkeypatch.setenv(session_hold.HOLD_DIR_ENV_VAR, str(root))
+    staged.monkeypatch.setenv("OSPREY_SESSION_ID", _HELD_SESSION)
+    session_hold.ensure_session(_HELD_SESSION)
+    session_hold.open_flag(
+        _HELD_SESSION,
+        flag_id="f1",
+        source="watchdog:scope",
+        reason="off the plan",
+        prompt_ref="record:f1",
+        prompt_excerpt="move the corrector",
+    )
+
+
+def _held(project: Callable[[Staged], Any]) -> Callable[[Staged], Any]:
+    """*project*, asked with the session held: the row's answer gives way to the hold."""
+
+    def held(staged: Staged) -> Any:
+        from osprey_connectors.posture_store import backstop_verdict
+
+        _hold(staged)
+        answer = project(staged)
+        if answer is OUT_OF_DOMAIN:
+            return answer
+        backstop = backstop_verdict(staged.case.section)
+        expected = (False, backstop.reason if not backstop.allowed else "session_held")
+        return answer[0], expected
+
+    return held
+
+
+def _twin_execution(staged: Staged) -> Any:
+    twin = _import_hook("osprey_target_state")
+    from osprey_connectors_tests._harness._write_verdict_cases import owner_argument
+
+    case = staged.case
+    verdict = twin.execution_verdict(
+        case.section,
+        case.target,
+        ignore_launch_pin=case.ignore_launch_pin,
+        **owner_argument(case, no_owner=twin.NO_OWNER),
+    )
+    return (verdict.allowed, verdict.reason), _expected(case)
+
+
+def _middleware_clamp(staged: Staged) -> Any:
+    """The clamp's answer for a clamped write tool: the backstop, then the hold."""
+    from osprey.mcp_server.audit_middleware import _backstop, _clamp_refusal
+
+    refusal = _clamp_refusal(_backstop(), "channel_write")
+    observed = (True, None) if refusal is None else (False, refusal.reason)
+    return observed, _expected(staged.case)
+
+
+# -- position surfaces (added with the switch's three positions) -------------
+
+
+def _approval_position(staged: Staged) -> Any:
+    """The approval hook's position for a placed governed write (``_governed_position``)."""
+    case = staged.case
+    if not _ladder_pin_honoured(case) or not _str_target(case):
+        return OUT_OF_DOMAIN
+    hook = _import_hook("osprey_approval")
+
+    _place(staged, hook)
+    staged.monkeypatch.setitem(hook._governed_position.__globals__, "is_write_call", _yes)
+    answer = hook._governed_position(
+        {"control_system": case.section},
+        "mcp__controls__channel_write",
+        "channel_write",
+        {},
+        {"tool_input": {}},
+    )
+    return answer, expected_position(case) if case.expect["allowed"] else None
+
+
+def _control_context_word(staged: Staged) -> Any:
+    """The control-context hook's ``writes`` word at every position: the word is the position."""
+    case = staged.case
+    if not case.has_owner or not isinstance(case.owner, str) or case.ignore_launch_pin:
+        return OUT_OF_DOMAIN  # the hook asks for the acting login, the pin honoured
+    if not _str_target(case) or case.record is None or case.record.get("status") != "ok":
+        return OUT_OF_DOMAIN  # the hook reads the host record it was rendered beside
+    if case.tree is not None:
+        return OUT_OF_DOMAIN
+    hook = _import_hook("osprey_control_context")
+
+    if case.owner != hook._target_state.acting_identity():
+        return OUT_OF_DOMAIN
+    _reset_hook_config_memo(staged, hook.current_state)
+    state = hook.current_state({})
+    if state is None or case.target not in state["writes"]:
+        return OUT_OF_DOMAIN
+    allowed, reason = _expected(case)
+    if allowed:
+        expected = expected_position(case)
+    elif reason == "switch_off":
+        expected = hook.WRITES_OFF
+    else:
+        expected = f"{hook.WRITES_REFUSED}:{reason}"
+    return state["writes"][case.target], expected
+
+
+#: The stored switch words a reader keeps; the retired ``on`` reads ``asked`` (D1).
+_STORED_POSITIONS = {"asked": "asked", "allowed": "allowed", "on": "asked"}
+
+
+def _stored_position(case: Case) -> str | None:
+    """The position the host record stores for the row's target, ``None`` when unreadable."""
+    record = case.record
+    if record is None:
+        return "off"
+    if record.get("status") != "ok":
+        return None
+    return _STORED_POSITIONS.get((record.get("switch") or {}).get(case.target), "off")
+
+
+def _chip_row_position(staged: Staged) -> Any:
+    """The chip's GET row (C-GET): the verdict, ``prompt`` and the stored ``switch``."""
+    case = staged.case
+    if not _login_pin_ignored(case) or not _str_target(case) or case.tree is not None:
+        return OUT_OF_DOMAIN
+    from types import SimpleNamespace
+
+    from osprey.interfaces.web_terminal.routes import websocket
+
+    if case.owner != websocket.acting_identity():
+        return OUT_OF_DOMAIN  # the row is the signed-in login's
+    view = websocket._posture_view(SimpleNamespace(state=SimpleNamespace()), staged.config_path)
+    rows = [row for row in view["targets"] if row["target"] == case.target]
+    if not rows:
+        return OUT_OF_DOMAIN
+    (row,) = rows
+    allowed, reason = _expected(case)
+    observed = (row["write_allowed"], row["write_reason"], row["prompt"], row["switch"])
+    expected = (allowed, reason, expected_position(case) == "asked", _stored_position(case))
+    return observed, expected
+
+
+#: The verdict reasons ``osprey status`` can tell: it reads the switch and the tier only.
+_STATUS_REASONS = frozenset({None, "switch_off", "tier_never"})
+
+
+def _status_position(staged: Staged) -> Any:
+    """``osprey status``'s Writes cell for the host login, read back as a verdict."""
+    case = staged.case
+    if case.has_owner or case.env or case.tree is not None or not _str_target(case):
+        return OUT_OF_DOMAIN  # status reads the host's own records, at the deployment's tier
+    if not isinstance(case.section, dict) or "login_tiers" in case.section:
+        return OUT_OF_DOMAIN
+    if case.record is None or case.record.get("status") != "ok":
+        return OUT_OF_DOMAIN
+    if case.expect["reason"] not in _STATUS_REASONS:
+        return OUT_OF_DOMAIN
+    from osprey.deployment import compose_generator, status_display
+    from osprey_connectors.control_context import _record_path_under
+    from osprey_connectors_tests._harness._write_verdict_cases import host_root
+
+    record_path = _record_path_under(host_root(staged.tmp_path))
+    tree, login = record_path.parent.parent, record_path.parent.name
+    staged.monkeypatch.setattr(
+        compose_generator, "control_target_tree_dir", lambda *_args, **_kw: tree
+    )
+    staged.monkeypatch.setattr(status_display, "_staged_login_tiers", lambda *_args: None)
+    rows = status_display.writes_rows({"control_system": case.section}, staged.tmp_path)
+    (row,) = [row for row in rows if row[0] == login]
+    _login, tier, _target, cell = row
+    if tier == "never":
+        observed: tuple[Any, ...] = (False, "tier_never", None)
+    else:
+        entries = [entry for entry in cell.split(", ") if entry.startswith(f"{case.target}:")]
+        if not entries:
+            observed = (False, "switch_off", None)
+        else:
+            (entry,) = entries
+            position = entry[len(case.target) + 1 :].split(" ")[0]
+            if status_display.CAPPED_AT_ASKED in entry:
+                position = "asked"
+            observed = (True, None, position)
+    allowed, reason = _expected(case)
+    return observed, (allowed, reason, expected_position(case))
 
 
 # -- the registry -------------------------------------------------------------
@@ -649,6 +858,94 @@ SURFACES: tuple[Surface, ...] = (
         stage1=False,
         reports_reason=True,
         project=_control_context_hook,
+    ),
+    Surface(
+        "twin-held",
+        f"{_HOOKS}.osprey_target_state",
+        "write",
+        stage1=False,
+        reports_reason=True,
+        project=_held(_twin_execution),
+    ),
+    Surface(
+        "bluesky-lane-held",
+        "osprey.mcp_server.bluesky.tools.queue",
+        "write",
+        stage1=False,
+        reports_reason=True,
+        project=_held(_bluesky_lane),
+    ),
+    Surface(
+        "channel-write-entry-held",
+        "osprey.mcp_server.control_system.tools.channel_write",
+        "write",
+        stage1=False,
+        reports_reason=True,
+        project=_held(_channel_write_entry),
+    ),
+    Surface(
+        "phoebus-drive-held",
+        "osprey.mcp_server.phoebus.tools.bridge_tools",
+        "write",
+        stage1=False,
+        reports_reason=True,
+        project=_held(_phoebus_drive),
+    ),
+    Surface(
+        "executor-gate-held",
+        "osprey.mcp_server.python_executor.tools._execution_gates",
+        "write",
+        stage1=False,
+        reports_reason=True,
+        project=_held(_executor_gate),
+    ),
+    Surface(
+        "writes-check-hook-held",
+        f"{_HOOKS}.osprey_writes_check",
+        "write",
+        stage1=False,
+        reports_reason=True,
+        project=_held(_writes_check),
+    ),
+    Surface(
+        "middleware-clamp-held",
+        "osprey.mcp_server.audit_middleware",
+        "backstop",
+        stage1=False,
+        reports_reason=True,
+        project=_held(_middleware_clamp),
+    ),
+    Surface(
+        "approval-position",
+        f"{_HOOKS}.osprey_approval",
+        "write",
+        stage1=False,
+        reports_reason=False,
+        project=_approval_position,
+    ),
+    Surface(
+        "control-context-word",
+        f"{_HOOKS}.osprey_control_context",
+        "write",
+        stage1=False,
+        reports_reason=True,
+        project=_control_context_word,
+    ),
+    Surface(
+        "chip-row-position",
+        "osprey.interfaces.web_terminal.routes.websocket",
+        "write",
+        stage1=False,
+        reports_reason=True,
+        project=_chip_row_position,
+    ),
+    Surface(
+        "status-position",
+        "osprey.deployment.status_display",
+        "write",
+        stage1=False,
+        reports_reason=True,
+        project=_status_position,
     ),
 )
 

@@ -9,7 +9,7 @@ is written and read.
 
 The file has exactly one writer at a time — its **owner**: the web terminal
 when one is running, otherwise a controls MCP server. Everything else is a
-reader: every chat session, the Simple view, every notebook kernel, every
+reader: every chat session, every notebook kernel, every
 executor sandbox, every sibling MCP server, and the stdlib-only hooks, which
 cannot import this module and therefore restate the rules below. Treat
 them as the contract; a change here is a change there.
@@ -41,8 +41,8 @@ on safely:
   the next process take the file over instead of stalling behind a ghost.
 * ``posture`` → ``{}``. A mirror of ``switch`` kept for old readers, never
   an input: :meth:`ControlContext.to_payload` writes ``sandbox`` for every
-  machine in :data:`~osprey_connectors.types.CONTROL_TARGETS` whose switch is
-  not ``"on"`` (:func:`posture_mirror`), whatever the record it was built
+  machine in :data:`~osprey_connectors.types.CONTROL_TARGETS` whose position
+  is off (:func:`posture_mirror`), whatever the record it was built
   from carried, and no write decision reads it back. A file written before
   the mirror may still hold an old narrowing; it is parsed by the posture
   store's grammar (rule 2 there) and ignored by the verdict.
@@ -55,11 +55,14 @@ on safely:
   same posture, a new ``last_switch``. That is the whole of how a refusal is
   reported.
 * ``switch`` → ``{}``, every machine's writes off. A per-target map of which
-  only ``"on"`` leaves survive; any other value is dropped on parse, so a
-  degraded switch can only refuse.
+  only ``"asked"`` and ``"allowed"`` leaves survive, and a target absent from
+  it is off. The legacy ``"on"`` reads as ``"asked"``, and any write stores the
+  whole map in the new spelling; any other value is dropped on parse, so a
+  degraded switch can only refuse. :func:`switch_position` is the one reader of
+  the map.
 * ``switch_epoch`` → ``None``, a record written before epochs existed. An
   epoch is a ``time.time_ns()`` stamp that only moves forward; the person who
-  turns a switch on names the epoch they saw, so a stop or a lost record in
+  widens a switch names the epoch they saw, so a stop or a lost record in
   between makes their gesture stale. ``None`` is never "older" than anything.
 
 The schema stays :data:`SCHEMA_VERSION` with the two switch fields added:
@@ -154,6 +157,7 @@ __all__ = [
     "REPORT_FAILED",
     "OWNER_CONTROLS_SERVER",
     "OWNER_WEB_TERMINAL",
+    "REACHABLE_STATES",
     "RECORD_FILENAME",
     "REPORT_FILE_GLOB",
     "REPORT_FILE_PREFIX",
@@ -161,7 +165,9 @@ __all__ = [
     "SCHEMA_VERSION",
     "STATE_DIR_NAME",
     "SWITCH_APPLIED",
+    "SWITCH_POSITIONS",
     "SWITCH_REFUSED",
+    "WRITES_STATEMENT_KEYS",
     "ControlContext",
     "Owner",
     "ServerReport",
@@ -170,8 +176,12 @@ __all__ = [
     "blocking_pids",
     "invalidate_cache",
     "is_process_alive",
+    "is_foreign_process",
     "live_owner",
+    "live_report_payloads",
     "live_reports",
+    "live_statement_reports",
+    "write_statement",
     "owned_here",
     "parse_posture",
     "posture_mirror",
@@ -183,10 +193,13 @@ __all__ = [
     "read_record_status",
     "read_report",
     "record_path",
+    "report_path",
+    "report_path_under",
     "report_paths",
     "set_switch",
     "state_dir",
     "sweep_dead",
+    "switch_position",
     "terminus",
     "write_json_atomic",
     "unchanged_detail",
@@ -251,9 +264,16 @@ _CACHE: dict[str, tuple[tuple[int, int, int], Any]] = {}
 #: stale, because every read re-stats before it trusts what it holds.
 _CACHE_MAX_ENTRIES = 128
 
-#: The one switch value that arms a machine. Every other value a payload
+#: A machine's three positions. ``off`` is never stored: it is a target absent
+#: from the map.
+_SWITCH_OFF: Literal["off"] = "off"
+_SWITCH_ASKED: Literal["asked"] = "asked"
+_SWITCH_ALLOWED: Literal["allowed"] = "allowed"
+
+#: The word a record written before the three positions arms a machine with.
+#: Read, and taken by :func:`set_switch`, as :data:`_SWITCH_ASKED`; never written. Every other value a payload
 #: carries under ``switch`` is dropped on parse (rule 2).
-_SWITCH_ON = "on"
+_SWITCH_LEGACY_ON = "on"
 
 #: The record lock's file, beside the record: ``<record path>`` plus this.
 #: Rule 3. Not one of the PID-named families, so :func:`sweep_dead` never
@@ -316,8 +336,9 @@ class ControlContext:
             ever stored, and no write decision reads it.
         last_switch: The terminus of the last switch request, verbatim, or
             ``None`` when no request has reached one.
-        switch: Which machines the person has switched writes on for,
-            ``{target: "on"}``; an absent target is off. :func:`write_record`
+        switch: The position the person has put each machine at,
+            ``{target: "asked" | "allowed"}``; an absent target is off, and
+            :func:`switch_position` is how it is read. :func:`write_record`
             never changes it — it keeps whatever the file on disk says.
         switch_epoch: The ``time.time_ns()`` stamp of the last stop or loss
             of the record, or ``None`` for a record written before epochs
@@ -357,19 +378,38 @@ def posture_mirror(switch: Mapping[str, str]) -> dict[str, str]:
     """The ``posture`` field a record with *switch* stores — ``{target: "sandbox"}``.
 
     ``sandbox`` for every machine in
-    :data:`~osprey_connectors.types.CONTROL_TARGETS` whose switch is not
-    ``"on"``, so an old reader of the field refuses every machine the person
-    has not turned on. Derived on every write and never read by a write
-    decision: the switch is the state, this is its shadow in the old grammar.
+    :data:`~osprey_connectors.types.CONTROL_TARGETS` at off, so an old reader
+    of the field refuses every machine the person has not turned on; ``asked``
+    and ``allowed`` both store no entry, which is how the old grammar spells
+    "writes". Derived on every write and never read by a write decision: the
+    switch is the state, this is its shadow in the old grammar.
 
     Args:
-        switch: The record's switch, ``{target: "on"}``.
+        switch: The record's switch, ``{target: "asked" | "allowed"}``.
     """
     return {
         target: posture_store.POSTURE_SANDBOX
         for target in CONTROL_TARGETS
-        if switch.get(target) != _SWITCH_ON
+        if _switch_word(switch.get(target)) is None
     }
+
+
+def switch_position(
+    record: ControlContext | None, target: str
+) -> Literal["off", "asked", "allowed"]:
+    """Where the person has put *target* — the one reader of the ``switch`` map.
+
+    Never raises. No record, a target absent from the map and an unknown value
+    all read as off; a hand-built record still spelling ``"on"`` reads as asked,
+    as a parsed one does.
+
+    Args:
+        record: The record, or ``None`` when there is none.
+        target: The machine.
+    """
+    if record is None:
+        return _SWITCH_OFF
+    return _switch_word(record.switch.get(target)) or _SWITCH_OFF
 
 
 def claimed(record: ControlContext, baseline: str) -> ControlContext:
@@ -475,19 +515,37 @@ def parse_posture(value: Any) -> dict[str, str]:
     return posture_store.parse_posture_value(value)
 
 
+def _switch_word(value: Any) -> Literal["asked", "allowed"] | None:
+    """One stored ``switch`` value as the word it arms with, or ``None`` for off.
+
+    Rule 2: an exact match, no folding and no trimming. The legacy ``"on"``
+    is ``"asked"``.
+    """
+    if not isinstance(value, str):
+        return None
+    if value == _SWITCH_LEGACY_ON:
+        return _SWITCH_ASKED
+    if value == _SWITCH_ASKED:
+        return _SWITCH_ASKED
+    if value == _SWITCH_ALLOWED:
+        return _SWITCH_ALLOWED
+    return None
+
+
 def _parse_switch(value: Any) -> dict[str, str]:
-    """One ``switch`` value as ``{target: "on"}`` — rule 2: only ``"on"`` arms.
+    """One ``switch`` value as ``{target: "asked" | "allowed"}`` (rule 2).
 
     Keys are kept whether or not they name a known target, so a turn-off of
     every machine can see and clear them; a reader only ever asks about the
-    target it is writing to.
+    target it is writing to. Because every write stores what this returned, a
+    map spelling ``"on"`` is rewritten in the new words by the next write.
     """
     if not isinstance(value, dict):
         return {}
     return {
-        key: _SWITCH_ON
+        key: word
         for key, state in value.items()
-        if isinstance(key, str) and isinstance(state, str) and state == _SWITCH_ON
+        if isinstance(key, str) and (word := _switch_word(state)) is not None
     }
 
 
@@ -818,7 +876,7 @@ def write_record(record: ControlContext, *, path: Path | None = None) -> Path:
     with the on-disk ``switch`` and ``switch_epoch`` in place of its own: no
     caller of this function changes either, whatever it read before. A file
     that is missing or unreadable is replaced with the switch empty and a
-    fresh ``time.time_ns()`` epoch, never 0, so a turn-on begun before the
+    fresh ``time.time_ns()`` epoch, never 0, so a widening begun before the
     record was lost names an older epoch and is refused.
 
     It does not check who owns the record: the owner decides what it is
@@ -855,19 +913,25 @@ def write_record(record: ControlContext, *, path: Path | None = None) -> Path:
 #: The keyword a person's gesture uses for "every machine": only ever off.
 _ALL_TARGETS = "all"
 
-#: The gesture's two states. ``"on"`` is also the only value stored (rule 2).
-_SWITCH_STATES = (_SWITCH_ON, "off")
+#: A machine's three positions, narrowest first: a later one widens an earlier
+#: one. The gesture's words and every reader's order. ``"off"`` is not stored
+#: (rule 2).
+SWITCH_POSITIONS: tuple[Literal["off"], Literal["asked"], Literal["allowed"]] = (
+    _SWITCH_OFF,
+    _SWITCH_ASKED,
+    _SWITCH_ALLOWED,
+)
 
 
 class StoppedSince(Exception):
-    """A turn-on refused because a stop, or a lost record, came after it began.
+    """A widening refused because a stop, or a lost record, came after it began.
 
-    Rule 3: a person turning a machine on names the epoch they saw. A record
-    whose epoch differs from it — newer or older —, a record that has no epoch,
-    and no record at all each mean that what they saw is no longer what is on
-    disk, so nothing is armed. The chip retries on its own, with :attr:`epoch`,
-    only when :attr:`stamped`; otherwise it re-renders and needs a new click, so
-    a turn-on that raced a stop stays off.
+    Rule 3: a person widening a machine names the epoch they saw. A record
+    whose epoch differs from it — newer or older —, a gesture that names none,
+    a record that has no epoch, and no record at all each mean that what they
+    saw is no longer what is on disk, so nothing is armed. The chip retries on
+    its own, with :attr:`epoch`, only when :attr:`stamped`; otherwise it
+    re-renders and needs a new click, so a widening that raced a stop stays off.
 
     Not a ``RuntimeError``: a caller that answers ``RuntimeError`` with "the
     store is unavailable" must not answer a stale gesture the same way.
@@ -893,12 +957,13 @@ def _gesture_targets(targets: Sequence[str] | Literal["all"], state: str) -> lis
 
     Raises:
         ValueError: Anything that is not ``"all"`` or a non-empty sequence of
-            names; ``"all"`` with ``"on"``; a turn-on of a name outside
+            names; ``"all"`` with anything but ``"off"``; ``"asked"`` or
+            ``"allowed"`` for a name outside
             :data:`~osprey_connectors.types.CONTROL_TARGETS`.
     """
     if targets == _ALL_TARGETS:
-        if state == _SWITCH_ON:
-            raise ValueError('set_switch("all", "on"): machines are turned on one at a time')
+        if state != _SWITCH_OFF:
+            raise ValueError(f'set_switch("all", {state!r}): machines are turned on one at a time')
         return None
     if isinstance(targets, str) or not isinstance(targets, Sequence):
         raise ValueError(
@@ -909,16 +974,21 @@ def _gesture_targets(targets: Sequence[str] | Literal["all"], state: str) -> lis
         raise ValueError(
             f"set_switch targets must be a non-empty sequence of names, not {targets!r}"
         )
-    if state == _SWITCH_ON:
+    if state != _SWITCH_OFF:
         unknown = [name for name in names if name not in CONTROL_TARGETS]
         if unknown:
             raise ValueError(f"set_switch cannot turn on unknown targets {unknown!r}")
     return names
 
 
+def _widens(state: str, position: str) -> bool:
+    """Whether moving a machine at *position* to *state* widens it."""
+    return SWITCH_POSITIONS.index(state) > SWITCH_POSITIONS.index(position)
+
+
 def set_switch(
     targets: Sequence[str] | Literal["all"],
-    state: Literal["on", "off"],
+    state: Literal["off", "on", "asked", "allowed"],
     *,
     epoch: int | None = None,
     path: Path | None = None,
@@ -929,16 +999,21 @@ def set_switch(
     same private writer :func:`write_record` uses, so no other write lands
     between what this compared and what it stored.
 
-    * ``"on"`` arms each named target. It requires *epoch*, the
-      ``switch_epoch`` the person saw, and succeeds only when it equals the
-      record's epoch — a compare-and-swap. It raises :class:`StoppedSince`
-      carrying the on-disk epoch when the two differ (newer or older), when the
-      record has no epoch (one is stamped and ``stamped`` is set, so the
-      retried gesture succeeds), or when there is no usable record.
-    * ``"off"`` disarms each named target — any key, known target or not —
-      and never refuses.
+    Each named target's move is classified inside the lock, against the map
+    on disk, so a move believed to be a narrowing that raced a stop is judged
+    a widening and refused.
+
+    * A **widening** (one name moving up off → asked → allowed gates the whole
+      call) requires *epoch*, the ``switch_epoch`` the person saw, and succeeds
+      only when it equals the record's epoch — a compare-and-swap. It raises
+      :class:`StoppedSince` carrying the on-disk epoch when the two differ
+      (newer or older) or *epoch* is ``None``, when the record has no epoch
+      (one is stamped and ``stamped`` is set, so the retried gesture succeeds),
+      or when there is no usable record.
+    * A **narrowing or a no-op** applies unconditionally and never refuses.
+      ``"off"`` clears each named key, known target or not.
     * ``"all"`` (with ``"off"``) clears every key and moves the epoch to
-      ``max(old + 1, time.time_ns())``, which makes every turn-on begun
+      ``max(old + 1, time.time_ns())``, which makes every widening begun
       before it stale.
 
     Only a stop moves an existing epoch; a gesture on an epoch-less record
@@ -946,27 +1021,35 @@ def set_switch(
 
     Args:
         targets: The machines, or ``"all"``.
-        state: ``"on"`` or ``"off"``.
-        epoch: The epoch a turn-on was begun against. Ignored for ``"off"``.
+        state: ``"off"``, ``"asked"`` or ``"allowed"``; the legacy ``"on"``
+            is taken as ``"asked"`` and never stored.
+        epoch: The epoch the gesture was begun against. Ignored when nothing
+            widens.
         path: Write this file instead of :func:`record_path`.
 
     Returns:
-        The record as stored, or ``None`` when ``"off"``/``"all"`` found no
+        The record as stored, or ``None`` when a non-widening gesture found no
         usable record — nothing is on, so nothing was written.
 
     Raises:
-        ValueError: ``("all", "on")``, ``"on"`` without *epoch*, an unknown
-            *state*, or malformed *targets*. Nothing is written.
-        StoppedSince: A turn-on that is stale, as above.
+        ValueError: ``"all"`` with anything but ``"off"``, an unknown *state*,
+            malformed *targets*, or an *epoch* that is neither ``None`` nor an
+            integer. Nothing is written.
+        StoppedSince: A widening that is stale, as above.
         RuntimeError: The agent-data root does not resolve, or the record
             stayed locked past the bounded wait.
         OSError: The write itself failed.
     """
-    if state not in _SWITCH_STATES:
-        raise ValueError(f'set_switch state must be "on" or "off", not {state!r}')
+    if state == _SWITCH_LEGACY_ON:
+        # A framework released before the three positions sends "on".
+        state = _SWITCH_ASKED
+    if state not in SWITCH_POSITIONS:
+        raise ValueError(f"set_switch state must be one of {SWITCH_POSITIONS}, not {state!r}")
     names = _gesture_targets(targets, state)
-    if state == _SWITCH_ON and (isinstance(epoch, bool) or not isinstance(epoch, int)):
-        raise ValueError('set_switch(..., "on") requires the epoch the turn-on was begun against')
+    if state != _SWITCH_OFF and (
+        epoch is not None and (isinstance(epoch, bool) or not isinstance(epoch, int))
+    ):
+        raise ValueError(f"set_switch epoch must be an integer or None, not {epoch!r}")
     target_path = record_path() if path is None else path
     if target_path is None:
         raise RuntimeError(
@@ -975,7 +1058,7 @@ def set_switch(
     with _record_lock(target_path):
         current, _status = _read(target_path)
         if current is None:
-            if state == _SWITCH_ON:
+            if state != _SWITCH_OFF:
                 raise StoppedSince(epoch=None)
             return None
         on_disk_epoch = current.switch_epoch
@@ -985,18 +1068,21 @@ def set_switch(
                 switch={},
                 switch_epoch=max((on_disk_epoch or 0) + 1, time.time_ns()),
             )
-        elif state == _SWITCH_ON:
-            if on_disk_epoch is None:
-                stamped = replace(current, switch_epoch=time.time_ns())
-                _write_record_unlocked(stamped, target_path)
-                raise StoppedSince(epoch=stamped.switch_epoch, stamped=True)
-            if epoch != on_disk_epoch:
-                raise StoppedSince(epoch=on_disk_epoch)
-            stored = replace(current, switch={**current.switch, **dict.fromkeys(names, _SWITCH_ON)})
         else:
+            if any(_widens(state, switch_position(current, name)) for name in names):
+                if on_disk_epoch is None:
+                    stamped = replace(current, switch_epoch=time.time_ns())
+                    _write_record_unlocked(stamped, target_path)
+                    raise StoppedSince(epoch=stamped.switch_epoch, stamped=True)
+                if epoch != on_disk_epoch:
+                    raise StoppedSince(epoch=on_disk_epoch)
+            if state == _SWITCH_OFF:
+                switch = {key: value for key, value in current.switch.items() if key not in names}
+            else:
+                switch = {**current.switch, **dict.fromkeys(names, state)}
             stored = replace(
                 current,
-                switch={key: value for key, value in current.switch.items() if key not in names},
+                switch=switch,
                 switch_epoch=time.time_ns() if on_disk_epoch is None else on_disk_epoch,
             )
         _write_record_unlocked(stored, target_path)
@@ -1060,6 +1146,33 @@ def is_process_alive(pid: object) -> bool:
     return not _is_thread_id(pid)
 
 
+def is_foreign_process(pid: object) -> bool:
+    """Whether *pid* names a running process that belongs to another user.
+
+    The other half of what ``os.kill(pid, 0)`` says. :func:`is_process_alive`
+    reads a ``PermissionError`` as ALIVE, which is right for a sweeper — a file
+    whose author is merely unreachable must not be deleted. It is the wrong
+    answer to "does this process own the record": the record lives in the
+    acting identity's directory (rule 1), so its owner runs as that identity
+    and can always be signalled by a reader that does. A process this reader
+    may not signal is somebody else's process wearing a PID the record's owner
+    once had — PIDs are per container and start again at 1 with every one.
+
+    ``False`` for anything that is not a positive ``int``, for a PID nothing
+    runs under, and on any other error: only the kernel's explicit refusal
+    says "another user's".
+    """
+    if isinstance(pid, bool) or not isinstance(pid, int) or pid <= 0:
+        return False
+    try:
+        os.kill(pid, 0)
+    except PermissionError:
+        return True
+    except OSError:
+        return False
+    return False
+
+
 def _pid_from_filename(name: str, prefix: str, suffix: str) -> int | None:
     """The PID *name* encodes, or ``None`` when it encodes none.
 
@@ -1099,10 +1212,21 @@ def live_owner(record: ControlContext | None) -> Owner | None:
     every way of having no live owner — no record, no owner, a dead one — so
     a caller that only wants to know whether to claim need not tell them
     apart.
+
+    A PID that is running under another user is not the owner either
+    (:func:`is_foreign_process`). The record outlives the container that wrote
+    it, and the PID it names is then handed out again: a record written by a
+    terminal that ran as PID 1 names, in the next container, whatever runs as
+    PID 1 there — an init process owned by root, alive for as long as the
+    container is. Read as a live owner, that process would be followed by
+    every terminal for ever, and nobody could switch the target again.
     """
     if record is None or record.owner is None:
         return None
-    return record.owner if is_process_alive(record.owner.pid) else None
+    pid = record.owner.pid
+    if not is_process_alive(pid) or is_foreign_process(pid):
+        return None
+    return record.owner
 
 
 # -- the terminus of a switch ----------------------------------------------
@@ -1254,6 +1378,14 @@ class ServerReport:
         last_posture_realign: Its last posture realignment, or ``None``.
         targets: Per-target display metadata, ``{}`` when it has none.
         updated_at: When it last wrote, ISO-8601, or ``None``.
+        statement: The machine statement a process that displays the machine
+            (a panel backend) writes in place of controlling it, ``None`` on a
+            controls server's report. ``{"reachable": ..., "writes": ...}``,
+            each axis ``None`` until stated: ``reachable`` is
+            ``{"state", "since", "reason"}`` with ``state`` one of
+            :data:`REACHABLE_STATES`, and ``writes`` is :func:`write_statement`
+            of the session's execution verdict. A statement that does not have
+            this shape states nothing, and the report is then an ordinary one.
     """
 
     server_pid: int
@@ -1266,14 +1398,27 @@ class ServerReport:
     last_posture_realign: dict[str, Any] | None = None
     targets: dict[str, Any] = field(default_factory=dict)
     updated_at: str | None = None
+    statement: dict[str, Any] | None = None
+
+    @property
+    def display_only(self) -> bool:
+        """Whether this report is a display process's: it carries a statement.
+
+        Such a process shows the machine rather than controlling it, so the
+        fleet readers leave its report out (:func:`live_reports`) and only
+        :func:`live_statement_reports` reads it.
+        """
+        return self.statement is not None
 
     def to_payload(self) -> dict[str, Any]:
         """This report as the JSON object its file holds.
 
-        The ten contract fields and nothing else, so a payload round-trips
-        through :func:`parse_report` unchanged.
+        The ten contract fields, plus ``statement`` as the eleventh for a
+        display-only report and only then, so a payload round-trips through
+        :func:`parse_report` unchanged and a controls server's report never
+        reads back as display-only.
         """
-        return {
+        payload: dict[str, Any] = {
             "server_pid": self.server_pid,
             "session": self.session,
             "applied_target": self.applied_target,
@@ -1287,6 +1432,12 @@ class ServerReport:
             "targets": dict(self.targets),
             "updated_at": self.updated_at,
         }
+        if self.statement is not None:
+            payload["statement"] = {
+                axis: None if value is None else dict(value)
+                for axis, value in self.statement.items()
+            }
+        return payload
 
 
 def _non_negative_int(value: Any) -> int | None:
@@ -1322,13 +1473,98 @@ def _mapping(value: Any) -> dict[str, Any]:
     return dict(value) if isinstance(value, dict) else {}
 
 
+#: What a statement says about reaching the machine. ``yes`` until the
+#: connector is lost, ``no`` once it is — the lost-connector root,
+#: :class:`~osprey_connectors.errors.ConnectorUnavailableError`. A channel that
+#: does not answer (:class:`~osprey_connectors.errors.ChannelUnreachableError`)
+#: is that channel's failure and never makes the machine unreachable.
+REACHABLE_STATES: tuple[str, ...] = ("yes", "no")
+
+#: The keys of a statement's ``writes``: the execution verdict's own terms.
+WRITES_STATEMENT_KEYS: tuple[str, ...] = ("allowed", "position", "reason", "kind")
+
+_WRITE_POSITIONS: tuple[Any, ...] = (None, "asked", "allowed")
+_MACHINE_KINDS: tuple[Any, ...] = (None, "real", "rehearsal", "simulator")
+
+
+def write_statement(verdict: posture_store.WriteVerdict) -> dict[str, Any]:
+    """The ``writes`` half of a machine statement, from one execution verdict.
+
+    The verdict's own terms and nothing else: ``allowed``, ``position`` (whether
+    a person is asked, never a boolean "on"), ``reason`` (a
+    :data:`~osprey_connectors.refusals.REASONS` member when refused) and
+    ``kind``. A reader renders the refusal with
+    :func:`~osprey_connectors.refusals.refusal_phrase`; no surface words it
+    again.
+
+    Args:
+        verdict: :func:`~osprey_connectors.posture_store.execution_verdict` for
+            the session's target, so a held session states ``session_held``.
+    """
+    return {
+        "allowed": verdict.allowed,
+        "position": verdict.position,
+        "reason": verdict.reason,
+        "kind": verdict.kind,
+    }
+
+
+def _reachable_statement(value: Any) -> dict[str, Any] | None:
+    """*value* as the ``reachable`` axis, or ``None`` when it is not one."""
+    if not isinstance(value, dict) or value.get("state") not in REACHABLE_STATES:
+        return None
+    since, reason = value.get("since"), value.get("reason")
+    if not (since is None or isinstance(since, str)):
+        return None
+    if not (reason is None or isinstance(reason, str)):
+        return None
+    return {"state": value["state"], "since": since, "reason": reason}
+
+
+def _writes_statement(value: Any) -> dict[str, Any] | None:
+    """*value* as the ``writes`` axis, or ``None`` when it is not a verdict's terms."""
+    if not isinstance(value, dict) or not isinstance(value.get("allowed"), bool):
+        return None
+    if value.get("position") not in _WRITE_POSITIONS or value.get("kind") not in _MACHINE_KINDS:
+        return None
+    reason = value.get("reason")
+    if not (reason is None or isinstance(reason, str)):
+        return None
+    return {key: value.get(key) for key in WRITES_STATEMENT_KEYS}
+
+
+def _statement(value: Any) -> dict[str, Any] | None:
+    """*value* as a machine statement, or ``None`` when it is not one.
+
+    A statement is a mapping holding both ``reachable`` and ``writes``, each
+    ``null`` (not stated yet) or of its axis's shape. Anything else states
+    nothing: the report is then not a display process's, and the fleet reads
+    it as it reads any other.
+    """
+    if not isinstance(value, dict) or "reachable" not in value or "writes" not in value:
+        return None
+    reachable, writes = value["reachable"], value["writes"]
+    if reachable is not None:
+        reachable = _reachable_statement(reachable)
+        if reachable is None:
+            return None
+    if writes is not None:
+        writes = _writes_statement(writes)
+        if writes is None:
+            return None
+    return {"reachable": reachable, "writes": writes}
+
+
 def parse_report(raw: Any) -> ServerReport | None:
     """Decode one server report, or ``None`` when it describes no server.
 
     Rule 5. ``server_pid`` is the identity and the only field that can make the
     whole report worthless: without a plausible PID there is nothing to ask the
     kernel about, so the file says nothing a reader can use. Everything else
-    degrades to its own "not stated" value.
+    degrades to its own "not stated" value. A ``statement`` of the statement's
+    shape makes the report a display process's; one of any other shape states
+    nothing, so the writer of a display report keeps to the shape or is read
+    as a controls server.
     """
     if not isinstance(raw, dict):
         return None
@@ -1349,10 +1585,11 @@ def parse_report(raw: Any) -> ServerReport | None:
         last_posture_realign=dict(last_realign) if isinstance(last_realign, dict) else None,
         targets=_mapping(raw.get("targets")),
         updated_at=_text(raw.get("updated_at")),
+        statement=_statement(raw.get("statement")),
     )
 
 
-def _report_path_under(root: Path, server_pid: object) -> Path:
+def report_path_under(root: Path, server_pid: object) -> Path:
     """The report path of *server_pid* under an explicit agent-data *root*.
 
     Through the same three hops as :func:`_record_path_under`, identity
@@ -1367,7 +1604,7 @@ def _report_path_under(root: Path, server_pid: object) -> Path:
     )
 
 
-def _report_path(server_pid: object) -> Path | None:
+def report_path(server_pid: object) -> Path | None:
     """The report path of *server_pid*, or ``None`` without an agent-data root."""
     directory = state_dir()
     if directory is None:
@@ -1439,7 +1676,7 @@ def read_report(path: Path) -> ServerReport | None:
     return None if entry is None else entry[1]
 
 
-def _live_report_payloads(
+def live_report_payloads(
     entries: Iterable[Path],
     *,
     is_alive: Callable[[object], bool] = is_process_alive,
@@ -1456,11 +1693,14 @@ def _live_report_payloads(
             must not glob twice.
         is_alive: The liveness predicate, so one pass over a fleet asks the
             same question the same way throughout.
+
+    A display-only report (one carrying a statement) is left out: it
+    describes a process that shows the machine, not a member of the fleet.
     """
     live: list[dict[str, Any]] = []
     for entry in entries:
         payload = _read_report_payload(entry)
-        if payload is None:
+        if payload is None or _statement(payload.get("statement")) is not None:
             continue
         pid = _positive_int(payload.get("server_pid"))
         if pid is None or not is_alive(pid):
@@ -1477,12 +1717,40 @@ def live_reports(
     """Every report of a running controls server, parsed.
 
     The fleet as a reader sees it: what each live server is on, at which
-    generation, and how far through a switch it has got.
+    generation, and how far through a switch it has got. Display-only reports
+    are left out here, at the source, so no fleet reader ever counts a process
+    that only shows the machine (:func:`live_statement_reports` reads them).
 
     Args:
         entries: Report paths; :func:`report_paths` when omitted.
-        is_alive: As for :func:`_live_report_payloads`.
+        is_alive: As for :func:`live_report_payloads`.
     """
+    return [report for report in _live_parsed(entries, is_alive) if not report.display_only]
+
+
+def live_statement_reports(
+    entries: Iterable[Path] | None = None,
+    *,
+    is_alive: Callable[[object], bool] = is_process_alive,
+) -> list[ServerReport]:
+    """Every live display-only report, parsed: the machine statements on offer.
+
+    The one opt-in reader of the reports :func:`live_reports` leaves out. Only
+    a view that shows the machine statement reads these; no fleet decision
+    (a switch, a landing wait, a published target) ever does.
+
+    Args:
+        entries: Report paths; :func:`report_paths` when omitted.
+        is_alive: As for :func:`live_report_payloads`.
+    """
+    return [report for report in _live_parsed(entries, is_alive) if report.display_only]
+
+
+def _live_parsed(
+    entries: Iterable[Path] | None,
+    is_alive: Callable[[object], bool],
+) -> list[ServerReport]:
+    """Every parsed report among *entries* whose process still runs."""
     paths = report_paths() if entries is None else entries
     reports: list[ServerReport] = []
     for entry in paths:

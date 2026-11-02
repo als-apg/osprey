@@ -81,7 +81,7 @@ def dashboard() -> Iterator[tuple[str, str]]:
 def _mark_title(chromium_browser: Browser, base_url: str, viewer_zone: str, expected_js: str):
     page = chromium_browser.new_page(viewport=VIEWPORT, timezone_id=viewer_zone, locale="en-US")
     try:
-        page.goto(f"{base_url}/?mode=expert", wait_until="domcontentloaded")
+        page.goto(f"{base_url}/", wait_until="domcontentloaded")
         page.wait_for_function(
             "() => document.querySelector('.lane-mark')?.title.includes(' — ')",
             timeout=10_000,

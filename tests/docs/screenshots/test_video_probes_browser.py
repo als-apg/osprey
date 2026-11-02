@@ -14,7 +14,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from docs.screenshots import video_probes, video_take
+from docs.screenshots import video_landing, video_probes
 
 from tests._playwright import chromium_available
 
@@ -59,13 +59,13 @@ def test_a_drag_released_over_the_colorbar_still_reads_as_rotation(tmp_path):
             # From the scene's centre to the colorbar at the right edge.
             page.mouse.move(300, 400)
             page.mouse.down()
-            for step in range(1, video_take.DRAG_STEPS + 1):
-                page.mouse.move(300 + 490 * step / video_take.DRAG_STEPS, 400)
+            for step in range(1, video_landing.DRAG_STEPS + 1):
+                page.mouse.move(300 + 490 * step / video_landing.DRAG_STEPS, 400)
             page.mouse.up()
             waited = 0
             while True:
-                page.wait_for_timeout(video_take.DRAG_SETTLE_MS)
-                waited += video_take.DRAG_SETTLE_MS
+                page.wait_for_timeout(video_landing.DRAG_SETTLE_MS)
+                waited += video_landing.DRAG_SETTLE_MS
                 after = video_probes.camera_azimuth(page.main_frame)
                 if video_probes.azimuth_change(before, after) >= 45 or waited >= _DEADLINE_MS:
                     break
@@ -74,14 +74,22 @@ def test_a_drag_released_over_the_colorbar_still_reads_as_rotation(tmp_path):
     assert video_probes.azimuth_change(before, after) >= 45
 
 
-# The preview pane's markup as the gallery's renderPreview writes it.
+# The hub's sidebar artifact row, and the embedded viewer's preview pane
+# as the gallery's renderPreview writes it. The probes run the row check on the
+# hub and the preview checks inside the artifacts iframe; one page holds both.
 _PANE = """
-<div class="tree-item" data-id="abc123"></div>
-<div id="preview-empty">Select an artifact to preview</div>
-<div id="preview-content" class="{hidden}">
-  <div class="preview-header"><span class="preview-header-title">Channels</span></div>
-  <span class="preview-path-text">var/agent_data/artifacts/{shown}_channels.md</span>
-  <div class="preview-viewport">{viewport}</div>
+<div class="sidebar-kids-list" id="sidebar-artifacts-list" role="listbox">
+  <button class="osprey-list-row" role="option" data-id="abc123">
+    <span class="osprey-list-title">Channels</span>
+  </button>
+</div>
+<div id="browse-preview-pane">
+  <div id="preview-empty">Select an artifact to preview</div>
+  <div id="preview-content" class="{hidden}">
+    <p class="preview-desc">Channel list</p>
+    <span class="preview-path-text">var/agent_data/artifacts/{shown}_channels.md</span>
+    <div class="preview-viewport">{viewport}</div>
+  </div>
 </div>
 """
 

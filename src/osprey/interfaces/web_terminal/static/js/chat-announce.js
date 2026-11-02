@@ -1,6 +1,6 @@
 // @ts-check
 /**
- * OSPREY Web Terminal — Simple-mode chat: screen-reader announcements.
+ * OSPREY Web Terminal — operator chat: screen-reader announcements.
  *
  * The message log is not a live region: a streamed reply would be read out
  * word by word. This module owns the one polite region the chat speaks

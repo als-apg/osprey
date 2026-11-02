@@ -123,7 +123,7 @@ from tests.e2e.sdk_helpers import (
     is_claude_code_available,
     render_dir,
     run_sdk_query_with_hooks,
-    switch_on_in_record,
+    set_switch_in_record,
 )
 from tests.e2e.test_preset_agentic import _to_workflow_result
 from tests.fixtures.bench_ioc import (
@@ -257,7 +257,7 @@ TARGET_LINE_PREFIX = "Target: "
 #: Access endpoint; a live target a controls server publishes as this
 #: deployment's stand-in is spoken of as the rehearsal instead, and these
 #: composed lines would name that.
-LIVE_MACHINE_PHRASE = "Real machine — writes move hardware"
+LIVE_MACHINE_PHRASE = "Live — writes move hardware"
 DESTINATION_LINE_PREFIX = "Destination: "
 DESTINATION_PROBE_LINE_PREFIX = "Destination probe channel: "
 LIVE_SWITCH_WARNING = "THIS SWITCH POINTS THE SESSION AT THE REAL MACHINE"
@@ -791,7 +791,7 @@ def arm_both_machines(repo: Path) -> None:
     so :func:`acting_identity` names it). The record is written ownerless at the
     baseline, so the next controls server still claims it fresh.
     """
-    switch_on_in_record(repo, owner=acting_identity(), targets=ARMED_TARGETS)
+    set_switch_in_record(repo, owner=acting_identity(), targets=ARMED_TARGETS)
 
 
 def put_both_correctors_at_the_start(deployment: SwitchDeployment) -> None:

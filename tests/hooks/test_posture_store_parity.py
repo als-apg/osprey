@@ -43,7 +43,7 @@ from osprey_connectors_tests._harness import (
 )
 
 #: Every machine the record can switch on.
-ALL_ON = {"live": "on", "va": "on", "standin": "on"}
+ALL_ON = {"live": "asked", "va": "asked", "standin": "allowed"}
 
 
 # ---------------------------------------------------------------------------
@@ -434,6 +434,24 @@ def test_the_retired_per_session_store_is_read_by_neither_side(stamped_root):
     assert reader.read_record({})["posture"] == {}
 
 
+def test_a_stored_on_reads_as_asked_on_both_sides(stamped_root):
+    """The retired spelling a file may still hold: asked, never allowed, on either side."""
+    path = write_control_context(stamped_root, switch={"live": "asked"})
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload["switch"] = {"live": "on", "va": "allowed", "standin": "ON"}
+    write_payload(path, payload)
+    posture_store.invalidate_cache()
+
+    record, status = reader.read_record_status({})
+    assert status == "ok"
+    canonical = control_context.read_record()
+    assert record["switch"] == canonical.switch == {"live": "asked", "va": "allowed"}
+    for target in ("live", "va", "standin"):
+        assert reader.switch_position(record, target) == control_context.switch_position(
+            canonical, target
+        )
+
+
 # ---------------------------------------------------------------------------
 # every write-path verdict names its machine
 # ---------------------------------------------------------------------------
@@ -443,10 +461,10 @@ def test_the_retired_per_session_store_is_read_by_neither_side(stamped_root):
 #: any other test that documents the difference.
 _PRODUCTION_ROOTS = ("packages", "src")
 
-#: The posture store's write-path question, taking the target the write lands
-#: on as its second argument. A caller that hands it no target has stopped
-#: naming the machine it writes to.
-_TARGETED_RULES = ("write_verdict",)
+#: The posture store's write-path questions, each taking the target the write
+#: lands on as its second argument. A caller that hands them no target has
+#: stopped naming the machine it writes to.
+_TARGETED_RULES = ("write_verdict", "execution_verdict")
 
 
 def _production_python_files():
@@ -462,8 +480,17 @@ def _production_python_files():
 def _verdict_calls(path):
     """``(lineno, call)`` for every call of a :data:`_TARGETED_RULES` name in *path*."""
     try:
-        tree = ast.parse(path.read_text(encoding="utf-8"))
-    except (OSError, SyntaxError):  # pragma: no cover - an unreadable file is not a caller
+        source = path.read_text(encoding="utf-8")
+    except OSError:  # pragma: no cover - an unreadable file is not a caller
+        return
+    # A call spells the name it calls (an identifier has no escape sequence),
+    # and parsing every module is what the scan spends its time on: a module
+    # that spells no rule is passed over.
+    if not any(rule in source for rule in _TARGETED_RULES):
+        return
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:  # pragma: no cover - an unparsable file is not a caller
         return
     for node in ast.walk(tree):
         if not isinstance(node, ast.Call):
@@ -628,12 +655,12 @@ def test_an_unstamped_process_with_a_readable_record_is_answered_by_it(tmp_path,
     reset_config_cache()
 
     try:
-        write_control_context(tmp_path / "var" / "agent_data", switch={"va": "on"})
+        write_control_context(tmp_path / "var" / "agent_data", switch={"va": "asked"})
 
         assert reader.posture_unknown({}) is False
         record, status = reader.read_record_status({})
         assert status == "ok"
-        assert record["switch"] == {"va": "on"}
+        assert record["switch"] == {"va": "asked"}
     finally:
         reset_config_cache()
         posture_store.invalidate_cache()

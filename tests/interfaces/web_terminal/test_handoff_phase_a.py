@@ -116,7 +116,7 @@ async def test_a_dead_pty_that_is_still_attached_is_discarded_too():
     assert registry(app).attach_session(KEY, stale_token)
     fake.exit(0)
 
-    plan = await acquire(app, KEY, "simple", object())
+    plan = await acquire(app, KEY, "chat", object())
 
     assert plan.action == ACTION_SPAWN
     assert not registry(app).is_attached(KEY)
@@ -128,7 +128,7 @@ async def test_a_dead_pty_that_is_still_attached_is_discarded_too():
 # ---------------------------------------------------------------------------
 
 
-async def test_an_expert_waits_for_a_chat_creation_to_land_then_hands_off():
+async def test_an_terminal_waits_for_a_chat_creation_to_land_then_hands_off():
     app = make_app()
     chats(app).starting.add(KEY)
     landed = FakeChatSession()
@@ -140,20 +140,20 @@ async def test_an_expert_waits_for_a_chat_creation_to_land_then_hands_off():
 
     app.clock.on_sleep.append(land)
 
-    plan = await acquire(app, KEY, "expert", object())
+    plan = await acquire(app, KEY, "terminal", object())
 
     assert plan.action == ACTION_HANDOFF
     assert plan.outgoing is not None and plan.outgoing.session is landed
     assert len(app.clock.sleeps) == 3
 
 
-async def test_an_expert_is_refused_while_a_chat_creation_never_lands():
+async def test_an_terminal_is_refused_while_a_chat_creation_never_lands():
     """A creation still in flight for the whole grace is a holder, not a gap."""
     app = make_app()
     chats(app).starting.add(KEY)
 
     with pytest.raises(HandoffRefused) as excinfo:
-        await acquire(app, KEY, "expert", object())
+        await acquire(app, KEY, "terminal", object())
 
     assert excinfo.value.status == 409
     assert excinfo.value.error == ERROR_SESSION_ATTACHED_ELSEWHERE
@@ -170,10 +170,10 @@ async def test_a_refusal_after_a_dead_discard_leaves_the_key_clean():
     app = make_app()
     dead = pool_pty(app)
     dead.exit(1)
-    chats(app).starting.add(KEY)  # blocks an Expert for the whole grace
+    chats(app).starting.add(KEY)  # blocks a terminal for the whole grace
 
     with pytest.raises(HandoffRefused) as excinfo:
-        await acquire(app, KEY, "expert", object())
+        await acquire(app, KEY, "terminal", object())
 
     assert excinfo.value.status == 409
     # The corpse was popped and reaped in the first look, not left for later.
@@ -186,7 +186,7 @@ async def test_a_refusal_after_a_dead_discard_leaves_the_key_clean():
 
 
 # ---------------------------------------------------------------------------
-# Attached PTY: takeover for an Expert, grace-then-409 for a chat
+# Attached PTY: takeover for a terminal, grace-then-409 for a chat
 # ---------------------------------------------------------------------------
 
 
@@ -196,7 +196,7 @@ async def test_a_chat_polls_an_attached_pty_every_50ms_for_2s_then_409():
     assert registry(app).attach_session(KEY, object())
 
     with pytest.raises(HandoffRefused) as excinfo:
-        await acquire(app, KEY, "simple", object())
+        await acquire(app, KEY, "chat", object())
 
     refused = excinfo.value
     assert refused.status == 409
@@ -220,7 +220,7 @@ async def test_release_pending_is_owner_checked_and_drops_the_reservation():
     """Only the call that registered the slot releases it: its channel and its task."""
     app = make_app()
     owner = object()
-    plan = await acquire(app, KEY, "simple", owner)
+    plan = await acquire(app, KEY, "chat", owner)
     assert plan.task is asyncio.current_task()
     assert registry(app).is_reserved(KEY)
     another_task = asyncio.create_task(asyncio.sleep(0))
@@ -258,9 +258,9 @@ async def test_cancelling_the_first_of_two_same_channel_acquires_keeps_the_secon
 
     with patch.object(session_handoff, "_wait_for_idle", gated_wait):
         channel = object()
-        first = asyncio.create_task(acquire(app, KEY, "simple", channel))
+        first = asyncio.create_task(acquire(app, KEY, "chat", channel))
         await until(lambda: len(gates) == 1)
-        second = asyncio.create_task(acquire(app, KEY, "simple", channel))
+        second = asyncio.create_task(acquire(app, KEY, "chat", channel))
         await until(lambda: len(gates) == 2)
         second_record = get_state(app).pending[KEY]
         assert second_record.task is second
@@ -286,7 +286,7 @@ async def test_waiting_for_the_lock_is_not_charged_to_the_attach_grace():
     lock = get_state(app).lock_for(KEY)
 
     await lock.acquire()
-    task = asyncio.create_task(acquire(app, KEY, "simple", object()))
+    task = asyncio.create_task(acquire(app, KEY, "chat", object()))
     for _ in range(5):
         await asyncio.sleep(0)
     assert app.clock.sleeps == []
@@ -318,13 +318,13 @@ async def test_the_per_key_lock_serialises_concurrent_inspections():
     gate = asyncio.Event()
     chats(app).terminate_gate = gate
 
-    first = asyncio.create_task(acquire(app, KEY, "expert", object()))
+    first = asyncio.create_task(acquire(app, KEY, "terminal", object()))
     for _ in range(5):
         await asyncio.sleep(0)
     assert get_state(app).lock_for(KEY).locked()
     assert chats(app).get_calls == 1
 
-    second = asyncio.create_task(acquire(app, KEY, "simple", object()))
+    second = asyncio.create_task(acquire(app, KEY, "chat", object()))
     for _ in range(5):
         await asyncio.sleep(0)
     assert chats(app).get_calls == 1, "second acquire inspected under the first's hold"
@@ -349,11 +349,11 @@ async def test_locks_are_per_key():
     gate = asyncio.Event()
     chats(app).terminate_gate = gate
 
-    blocked = asyncio.create_task(acquire(app, KEY, "expert", object()))
+    blocked = asyncio.create_task(acquire(app, KEY, "terminal", object()))
     for _ in range(5):
         await asyncio.sleep(0)
 
-    plan = await acquire(app, other, "simple", object())
+    plan = await acquire(app, other, "chat", object())
     assert plan.action == ACTION_SPAWN
 
     gate.set()

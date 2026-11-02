@@ -2936,6 +2936,13 @@
       "description": "Linac-to-booster line vertical corrector 07 on status (read-only): the corrector supply is on."
     },
     {
+      "address": "SR:BEAM:USER_MODE",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Storage ring user beam mode. True while beam is being delivered to users; false during machine development."
+    },
+    {
       "address": "SR:DIAG:CHROM:X",
       "role": "readback",
       "value_type": "float",

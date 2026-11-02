@@ -28,6 +28,7 @@ from osprey_connectors_tests._harness import write_control_context, write_server
 from osprey_connectors_tests._harness._control_context_fixtures import SELF_OWNER
 from tests.interfaces._hub import LONG_LIVED_SHELL, hub_server
 from tests.interfaces.web_terminal._control_context import read_record
+from tests.interfaces.web_terminal._surface import arm_terminal_tab
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -49,7 +50,7 @@ TIMEOUT = 15_000
 CHIP = "#control-target-chip"
 CHIP_SHORT = f"{CHIP} .ctc-short"
 CHIP_STATE = f"{CHIP} .ctc-state"
-POPOVER = ".ctc-popover.open"
+POPOVER = "#control-target-popover:not([hidden])"
 CARD = f"{POPOVER} .ctc-card"
 FOOT_NOTE = f"{POPOVER} .ctc-foot-note"
 
@@ -132,7 +133,7 @@ LABELS = {target: KIND_BANNERS[kind] for target, kind in KINDS.items()}
 #: confirm's waiver) follows :data:`KINDS`. The confirm titles quote these —
 #: never the labels above.
 NAMES = {
-    "live": "Real machine",
+    "live": "Live",
     "va": "Simulator",
     "standin": "Rehearsal",
 }
@@ -141,10 +142,23 @@ NAMES = {
 #: stand-in the rehearsal (C-KIND). Planted by ``chip_hub(rehearsal=True)``.
 REHEARSAL_STANDIN = {POSTURE_TARGET: {"machine_kind": "rehearsal"}}
 
-#: Every configured target with this login's switch on. The default record:
-#: every row starts at ``writes on``, so a turn-off asks nothing and is the
-#: first gesture a test can make.
-ALL_ON = dict.fromkeys(KINDS, "on")
+#: The three positions of a machine's write switch, lowest first. The order is
+#: the switch's own: a move up is a widening (it confirms), a move down a
+#: narrowing (it applies at once).
+POSITIONS = ("off", "asked", "allowed")
+
+#: Every configured target with this login's switch at ``asked``. The default
+#: record: every row starts armed at the lowest armed position, so a narrowing
+#: to off asks nothing and is the first gesture a test can make. Written through
+#: the production ``set_switch`` (the epoch is the one it stamps); a legacy
+#: ``"on"`` would be written verbatim and only READ as ``asked``.
+ALL_ASKED = dict.fromkeys(KINDS, "asked")
+
+#: Every configured target at ``allowed``: armed with no prompt.
+ALL_ALLOWED = dict.fromkeys(KINDS, "allowed")
+
+#: The name the sibling suites import for the default record.
+ALL_ON = ALL_ASKED
 
 
 # ---------------------------------------------------------------------------
@@ -240,7 +254,6 @@ def chip_hub(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     *,
-    ui_mode: str = "expert",
     switch: dict[str, str] | None = None,
     owned_by: Any = SELF_OWNER,
     writes: str = "allowed",
@@ -275,15 +288,12 @@ def chip_hub(
     instead of a mint from ``load_osprey_config``, and what makes this terminal
     the owner — the two conditions behind ``data-enforceable="true"``.
 
-    ``web.ui_mode`` reaches the page through ``app.state.web_ui_mode``, which
-    the ``GET /`` handler reads per request; it is overridden post-startup, the
-    same seam ``test_ui_mode_browser.py`` uses.
-
     The keyword arguments are the states the chip criteria are about, all of
     them planted before ``create_app`` so the lifespan's claim merges them:
 
-    * *switch* — this login's write switch, ``{target: "on"}``; ``None`` is
-      :data:`ALL_ON`, and ``{}`` every machine off. Written through the
+    * *switch* — this login's write switch, ``{target: "asked"|"allowed"}``;
+      ``None`` is :data:`ALL_ON` (every machine ``asked``), and ``{}`` every
+      machine off. Written through the
       production ``set_switch``, so the epoch is the one it stamps.
     * *owned_by* — :data:`SELF_OWNER`, or an ``owner(...)`` naming a live
       process that is not this one: a follower terminal, which may still turn
@@ -330,7 +340,6 @@ def chip_hub(
             shell_command=LONG_LIVED_SHELL,
             config_path=config,
         ) as (base_url, app):
-            app.state.web_ui_mode = ui_mode
             yield base_url, app, root
     finally:
         reset_process_memos()
@@ -436,21 +445,33 @@ def write_verdict_for(
 
 
 def verdict_word(app: Any, target: str) -> str:
-    """The state word the server's own facts give *target*: ``on``/``off``/``locked``.
+    """The state word the server's own facts give *target*: off/asked/allowed/locked.
 
     Derived here from the record and the verdict, not from anything the page
-    sent: ``on`` is a switch that is on and a write that would pass, ``off`` a
-    switch that is off, and ``locked`` a switch that is on and still refused —
-    or one nobody can read, which must never be shown as off.
+    sent: ``off`` is a switch at off; ``asked`` / ``allowed`` an armed switch
+    whose write would pass, named by the verdict's EFFECTIVE position (a stored
+    ``allowed`` under an ``asked`` ceiling reads ``asked``); and ``locked`` an
+    armed switch still refused — or one nobody can read, which must never be
+    shown as off.
     """
     control_context.invalidate_cache()
     record, status = control_context.read_record_status()
     if status == "unreadable":
         return "locked"
-    on = record is not None and record.switch.get(target) == "on"
-    if not on:
+    if control_context.switch_position(record, target) == "off":
         return "off"
-    return "on" if write_verdict_for(app, target).allowed else "locked"
+    verdict = write_verdict_for(app, target)
+    if not verdict.allowed or verdict.position is None:
+        return "locked"
+    return verdict.position
+
+
+def recorded_position(target: str) -> str:
+    """*target*'s stored position, read the way every write path reads it."""
+    control_context.invalidate_cache()
+    record = read_record()
+    assert record is not None, "the control-context record disappeared"
+    return control_context.switch_position(record, target)
 
 
 def popover_machine(page: Page, target: str) -> Any:
@@ -488,9 +509,43 @@ def popover_row(page: Page, target: str) -> Any:
     return page.locator(f'{POPOVER} .ctc-row[data-target="{target}"]')
 
 
-def writes_toggle(page: Page, target: str) -> Any:
-    """The machine's writes switch, card or row — ``aria-checked`` is the readout."""
-    return popover_machine(page, target).locator(".ctc-toggle")
+def writes_switch(page: Page, target: str) -> Any:
+    """The machine's writes switch, card or row: the three-option radiogroup."""
+    return popover_machine(page, target).locator('.ctc-positions[role="radiogroup"]')
+
+
+#: The name the sibling suites import for the machine's switch control.
+writes_toggle = writes_switch
+
+
+def writes_option(page: Page, target: str, position: str) -> Any:
+    """One option of *target*'s switch — ``aria-checked`` is the STORED position."""
+    assert position in POSITIONS, position
+    return popover_machine(page, target).locator(f'.ctc-position[data-position="{position}"]')
+
+
+def assert_options(
+    page: Page,
+    target: str,
+    *,
+    checked: str | None,
+    disabled: tuple[str, ...] = (),
+) -> None:
+    """*target*'s three options: which one is checked, and which are held.
+
+    *checked* ``None`` is a switch nobody can read: no option is checked.
+    Every option is a ``role="radio"`` whatever its state.
+    """
+    for position in POSITIONS:
+        option = writes_option(page, target, position)
+        expect(option).to_have_attribute("role", "radio", timeout=TIMEOUT)
+        expect(option).to_have_attribute(
+            "aria-checked", str(position == checked).lower(), timeout=TIMEOUT
+        )
+        if position in disabled:
+            expect(option).to_be_disabled(timeout=TIMEOUT)
+        else:
+            expect(option).to_be_enabled(timeout=TIMEOUT)
 
 
 def settled_chip(
@@ -528,14 +583,14 @@ def settled_chip(
             switches would be refused.
 
     Returns:
-        (page, session_id) — the id the owning surface settled on: the
-        terminal's confirmation in the Expert view, the console's key in the
-        Simple one. Both views write it and this helper waits for it, so a
+        (page, session_id) — the id the terminal's server confirmed on the
+        tab this opens, armed for the terminal. This helper waits for it, so a
         missing id is a timeout here, never an empty return. Nothing the chip
         does needs it; test_posture_toggle_browser's case (b) uses it to name
         the PTY it asserts was not respawned.
     """
     page = browser.new_page()
+    arm_terminal_tab(page)
     if init_script:
         page.add_init_script(init_script)
     page.goto(base_url, wait_until="domcontentloaded")
@@ -545,9 +600,8 @@ def settled_chip(
         "data-enforceable", str(enforceable).lower(), timeout=TIMEOUT
     )
 
-    # The pointer is written by the surface that owns the session — the
-    # terminal's own confirmation in the Expert view, the console's key in the
-    # Simple one — and the chip settles on two local reads, ahead of either. A
+    # The pointer is written by the surface that owns the session — here the
+    # terminal's own confirmation — and the chip settles on two local reads, ahead of either. A
     # single read here would be a read of whatever had happened by then.
     page.wait_for_function(
         "() => Boolean(localStorage.getItem('osprey-pty-session'))", timeout=TIMEOUT

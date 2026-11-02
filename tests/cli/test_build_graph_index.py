@@ -88,8 +88,10 @@ def _graph_repo(
         "  control_system.type: virtual_accelerator\n"
         "  control_system.connector.virtual_accelerator.serving: in_process\n"
         "  archiver.type: none\n"
-        # No approval hook is selected, so nothing would ask: approval is off.
+        # The bundle's own hooks, approval among them, are what a profile that
+        # names none renders with, so the approval floor is stated here.
         "  approval.enabled: false\n"
+        "  approval.default_policy: always\n"
         "  hooks.debug: false\n"
         f"  services.graphdb.ttl_path: {_CORPUS_RELATIVE}\n"
     )

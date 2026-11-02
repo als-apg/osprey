@@ -77,8 +77,9 @@ TARGET = "va"
 # Fixtures: the artifacts
 # ---------------------------------------------------------------------------
 
-#: The attack an agent could write into any HTML artifact: turn the simulator's
-#: writes on with whatever credential the browser attaches. Two shapes — the
+#: The attack an agent could write into any HTML artifact: set the simulator's
+#: writes to ``allowed`` — the position that runs every write with no prompt —
+#: with whatever credential the browser attaches. Two shapes — the
 #: chip's own gesture as a credentialed JSON ``fetch`` (read the epoch, POST,
 #: retry once on ``409``; needs CORS, which the opaque origin never gets) and a
 #: ``no-cors`` simple request (reaches the server; the gate must refuse it).
@@ -89,13 +90,13 @@ TARGET = "va"
 _ATTACK_SCRIPT = """<script>
 (function () {
   var url = location.protocol + '//' + location.host + '/' + 'api/terminal/posture';
-  var body = JSON.stringify({ target: '__TARGET__', state: 'on', epoch: null });
+  var body = JSON.stringify({ target: '__TARGET__', state: 'allowed', epoch: null });
   var out = { origin: String(self.origin) };
   try { out.cookie = document.cookie; } catch (e) { out.cookie = 'denied'; }
   function post(epoch) {
     return fetch(url, { method: 'POST', credentials: 'include',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ target: '__TARGET__', state: 'on', epoch: epoch }) });
+                        body: JSON.stringify({ target: '__TARGET__', state: 'allowed', epoch: epoch }) });
   }
   var a = fetch(url, { credentials: 'include' })
     .then(function (r) { return r.json(); })
@@ -388,7 +389,7 @@ def _first_party_turn_on(page: Page, epoch: str | None) -> dict:
           const r = await fetch('/' + 'api/terminal/posture', {
             method: 'POST', credentials: 'same-origin',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ target, state: 'on', epoch }),
+            body: JSON.stringify({ target, state: 'allowed', epoch }),
           });
           let body = null;
           try { body = await r.json(); } catch (e) { body = null; }
@@ -399,7 +400,7 @@ def _first_party_turn_on(page: Page, epoch: str | None) -> dict:
 
 
 def _assert_control_flips(page: Page, base_url: str) -> None:
-    """The same request from first-party script turns the switch on.
+    """The same request from first-party script sets the switch to ``allowed``.
 
     Sent the way the chip sends it: with the ``switch_epoch`` it read, and
     retried once with the epoch a ``409 stopped_since`` names (an epoch-less
@@ -410,7 +411,7 @@ def _assert_control_flips(page: Page, base_url: str) -> None:
     if answer["status"] == 409:
         answer = _first_party_turn_on(page, answer["body"]["detail"]["epoch"])
     assert answer["status"] == 200, f"first-party turn-on answered {answer}"
-    assert _switch(page, base_url) == "on"
+    assert _switch(page, base_url) == "allowed"
 
 
 def _probe(frame: Frame | Page) -> dict:

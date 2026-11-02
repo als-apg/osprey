@@ -27,7 +27,7 @@ from osprey.profiles.providers import packaged_catalog_path
 
 #: Catalog entries whose gateway fronts more than one vendor. Each lists a
 #: Claude id beside another vendor's ids, every one in the gateway's spelling.
-_MULTI_VENDOR_GATEWAYS = frozenset({"als-apg"})
+_MULTI_VENDOR_GATEWAYS = frozenset({"als-apg", "openrouter"})
 
 
 def _shipped_providers() -> dict:

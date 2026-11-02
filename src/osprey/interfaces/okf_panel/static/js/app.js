@@ -29,13 +29,9 @@
  */
 
 import { initTheme } from '/design-system/js/theme-manager.js';
-import { applyEmbedded, isEmbedded, onModeChange } from '/design-system/js/frame-params.js';
+import { applyEmbedded, isEmbedded } from '/design-system/js/frame-params.js';
 import { debounce } from '/design-system/js/dom.js';
-import {
-  contributeHeader,
-  onHeaderAction,
-  isSimpleMode,
-} from '/design-system/js/header-contrib.js';
+import { contributeHeader, onHeaderAction } from '/design-system/js/header-contrib.js';
 import '/design-system/js/components/osprey-display-menu.js';
 import {
   el,
@@ -71,40 +67,52 @@ import { initSidebarResize } from './resize.js';
 initTheme({ role: isEmbedded() ? 'follower' : 'hub' });
 
 /**
- * Publish this panel's tile-bar contribution. Embedded in Expert, the sidebar's
- * search box lives in the hub's tile bar instead (style.css hides the in-body
- * one), rendered as the hub's own magnifier pill.
+ * What the reading pane shows: `'browse'` is the structure overview (the list
+ * of every page), `'page'` a single concept.
+ * @type {'browse' | 'page'}
+ */
+let readerView = 'browse';
+
+/**
+ * Publish this panel's tile-bar contribution. Embedded, the tile bar is the
+ * panel's one header, with two items:
  *
- * Simple contributes nothing: the hub collapses a service tile's bar to zero
- * height there, so a contributed box would be invisible — and this panel's
- * Simple layout is a reading view that drops the whole sidebar anyway.
+ * - the sidebar's search box, rendered as the hub's magnifier pill (style.css
+ *   hides the in-body one);
+ * - a `view` nav whose Browse entry opens the structure overview. It is active
+ *   while the overview is showing.
  *
+ * The nav goes last, against the close button: it is the control aimed at
+ * repeatedly, and it outranks the search when a narrow tile has to fold one.
  * Sent WHOLE (the hub replaces, never diffs) and a no-op standalone.
  */
 function publishHeaderContribution() {
-  contributeHeader(
-    isSimpleMode()
-      ? []
-      : [
-          // Placeholder matches the in-body input in index.html.
-          { kind: 'search', id: 'search', placeholder: 'Search concepts…' },
-        ]
-  );
+  contributeHeader([
+    // Placeholder matches the in-body input in index.html.
+    { kind: 'search', id: 'search', placeholder: 'Search concepts…' },
+    {
+      kind: 'nav',
+      id: 'view',
+      priority: 1,
+      items: [{ id: 'browse', label: 'Browse', active: readerView === 'browse' }],
+    },
+  ]);
 }
 
-// Live Expert<->Simple switch broadcast by the hub (same-origin postMessage),
-// the mode-axis sibling of the osprey-theme-change follower wired by initTheme
-// above. mode-boot.js already stamped the initial data-ui-mode pre-paint; this
-// is the runtime flip. frame-params.js's shared receive side stamps <html> and
-// calls back only on an actual change. The Simple layout is pure CSS gated on
-// the attribute (see style.css), so the stamp covers the body; the tile-bar
-// contribution is mode-dependent, so re-publish it too — that is what moves the
-// search box between the bar and the body on a live flip.
-onModeChange(() => publishHeaderContribution());
+/**
+ * Record what the reading pane is about to show and re-publish the tile bar
+ * when that changes the Browse entry's active state.
+ * @param {'browse' | 'page'} view
+ */
+function setReaderView(view) {
+  if (view === readerView) return;
+  readerView = view;
+  publishHeaderContribution();
+}
 
 applyEmbedded();
 
-// Draggable sidebar/reader splitter (expert layout; hidden in simple mode).
+// Draggable sidebar/reader splitter.
 initSidebarResize();
 
 /**
@@ -265,6 +273,7 @@ function requireEl(id) {
    * @param {string} id
    */
   async function loadConcept(id) {
+    setReaderView('page');
     renderMessage('Loading…');
     let resp;
     try {
@@ -372,6 +381,7 @@ function requireEl(id) {
    */
   async function loadStructure(opts) {
     const push = !opts || opts.push !== false;
+    setReaderView('browse');
     highlightStructure();
     renderMessage('Loading…');
 
@@ -442,24 +452,16 @@ function requireEl(id) {
 
   // Embedded: the same box lives in the hub's tile bar and posts its text back
   // here. The hub already debounces before reporting, so this runs the search
-  // directly rather than through debouncedSearch.
+  // directly rather than through debouncedSearch. The bar's Browse entry opens
+  // the structure overview, like the sidebar's "Knowledge Base" link.
   onHeaderAction(function (id, value) {
     if (id === 'search') runSearch(value || '');
+    else if (id === 'view' && value === 'browse') loadStructure();
   });
 
   if (structureLink) {
     structureLink.addEventListener('click', function (ev) {
       ev.preventDefault();
-      loadStructure();
-    });
-  }
-
-  // Simple-mode "Browse all pages" affordance — with the expert sidebar tree
-  // hidden, this is the reading-focused mode's route back to the structure
-  // overview (the plain doc list). Harmless in Expert (the button is hidden).
-  const browseAllBtn = document.getElementById('browse-all');
-  if (browseAllBtn) {
-    browseAllBtn.addEventListener('click', function () {
       loadStructure();
     });
   }
@@ -528,6 +530,6 @@ function requireEl(id) {
   loadTree();
   loadBundleHealth();
   bootFromParams();
-  // Embedded: hand the search box to the host tile bar (Expert only).
+  // Embedded: hand the search box and the Browse view to the host tile bar.
   publishHeaderContribution();
 })();

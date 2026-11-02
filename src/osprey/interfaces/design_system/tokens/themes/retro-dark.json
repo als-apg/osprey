@@ -33,6 +33,17 @@
     "default": { "$value": "rgba(148, 163, 184, 0.12)", "$type": "color", "$description": "Alpha composite of the tint.neutral base (#94a3b8) — not a solid ramp step, kept literal." },
     "accent": { "$value": "rgba(79, 209, 197, 0.15)", "$type": "color", "$description": "Alpha composite of accent.light (#4fd1c5)." }
   },
+  "surface": {
+    "$description": "Layout F surfaces. canvas = bg.primary step, card = bg.panel step. well is slate.950, not the bg.terminal step: retro-dark's terminal (#050a10) is deeper than its canvas, and the well must sit between canvas and card. Washes are alpha composites of text.primary (#f1f5f9) and accent.base (#319795); hairline keeps border.default's own alpha (0.12).",
+    "canvas": { "$value": "{color.slate.1000}", "$type": "color" },
+    "card": { "$value": "{color.slate.900}", "$type": "color" },
+    "well": { "$value": "{color.slate.950}", "$type": "color" },
+    "hairline": { "$value": "rgba(148, 163, 184, 0.12)", "$type": "color" },
+    "hover": { "$value": "rgba(241, 245, 249, 0.06)", "$type": "color" },
+    "press": { "$value": "rgba(241, 245, 249, 0.1)", "$type": "color" },
+    "selected": { "$value": "rgba(49, 151, 149, 0.12)", "$type": "color" },
+    "focus": { "$value": "rgba(49, 151, 149, 0.28)", "$type": "color" }
+  },
   "tint": {
     "accent": {
       "04": { "$value": "rgba(79, 209, 197, 0.04)", "$type": "color" },

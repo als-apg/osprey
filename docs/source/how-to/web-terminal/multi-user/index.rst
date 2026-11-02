@@ -105,7 +105,7 @@ carries and what makes the boundary hold.
 
 **An app is a second agent on the same services.** Each file in ``apps/`` is a
 complete agent definition, opened from a shared card by everyone on the roster
-and read-only on the machine. The preset lists three under ``shared:``:
+(or by the principals its ``shared:`` entry names) and read-only on the machine. The preset lists three under ``shared:``:
 ``logbook`` searches and synthesises the logbook from the same PostgreSQL the
 operators write to; ``knowledge`` answers how the machine is built from the
 facility knowledge graph, the channel finder and the knowledge bundle;
@@ -380,11 +380,12 @@ What ``osprey build`` and ``osprey up`` do for the web tier
    .. note:: Upgrading a multi-user deployment
 
       Before this naming, the web containers and the auth image took their
-      prefix from ``facility.prefix`` (``ca-nginx``, ``ca-web-alice``,
-      ``ca-assistant-auth:local``). The first ``osprey up`` after upgrading
-      replaces them with the ``<project_name>-…`` containers and builds the auth
-      image under its new tag; no old-named container is left running. The
-      volumes keep their names, so every user's workspace carries over.
+      prefix from the since-removed ``facility.prefix`` key (``ca-nginx``,
+      ``ca-web-alice``, ``ca-assistant-auth:local``). The first ``osprey up``
+      after upgrading replaces them with the ``<project_name>-…`` containers and
+      builds the auth image under its new tag; no old-named container is left
+      running. The volumes keep their names, so every user's workspace carries
+      over.
 
 Stop the stack again with ``osprey down``; check on it with
 ``osprey status``.
@@ -594,9 +595,9 @@ showing a gap.
 Logging out and switching users
 -------------------------------
 
-Every session's header carries a chip in the top-left naming the terminal — the
-display name where the roster sets one, the username otherwise. Clicking it
-opens a small menu naming the signed-in user, with **Log out**. That POSTs to the terminal's logout
+The **☰ More** menu at the bottom of the sidebar names the signed-in user —
+the display name where the roster sets one, the username otherwise — and
+their role, and has **Sign out**. That POSTs to the terminal's logout
 route, clears the local session pointer, and returns you to the landing page.
 From there, pick another card to open a different user. Logging out ends the
 session for real — the terminal drops its running processes, so the next login

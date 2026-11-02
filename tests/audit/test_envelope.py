@@ -378,3 +378,72 @@ class TestLeafModule:
             timeout=120,
         )
         assert result.returncode == 0, result.stderr
+
+
+class TestNoPositionInDecision:
+    """The switch position has one home, the approval stamp; never ``decision``.
+
+    ``allowed`` is both a decision word and a position word, so the record's
+    words cannot tell the two apart: this pins it at the emitters instead. No
+    call in the shipped code passes a position constant, a ``position``
+    attribute or variable, or the word ``asked`` as an audit record's
+    ``decision`` — by keyword, or as ``emit_audit``'s third argument.
+    """
+
+    _ROOTS = ("src/osprey", "packages")
+
+    @staticmethod
+    def _repo_root() -> Path:
+        return Path(__file__).resolve().parents[2]
+
+    @staticmethod
+    def _names_a_position(node: ast.AST) -> bool:
+        for sub in ast.walk(node):
+            if isinstance(sub, ast.Name) and "position" in sub.id.lower():
+                return True
+            if isinstance(sub, ast.Attribute) and "position" in sub.attr.lower():
+                return True
+            if isinstance(sub, ast.Constant) and sub.value == "asked":
+                return True
+        return False
+
+    def _decision_args(self, tree: ast.AST):
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            for keyword in node.keywords:
+                if keyword.arg == "decision":
+                    yield node, keyword.value
+            func = node.func
+            name = func.id if isinstance(func, ast.Name) else getattr(func, "attr", "")
+            if name == "emit_audit" and len(node.args) >= 3:
+                yield node, node.args[2]
+
+    def test_the_scan_sees_the_emitters(self) -> None:
+        """The scan is not vacuous: it finds the hook and middleware emitters."""
+        root = self._repo_root()
+        hook = root / "src/osprey/templates/claude_code/claude/hooks/osprey_approval.py"
+        found = list(self._decision_args(ast.parse(hook.read_text(encoding="utf-8"))))
+        assert len(found) >= 3
+
+    def test_the_scan_catches_a_position_decision(self) -> None:
+        tree = ast.parse('emit_audit("approval", h, decision=_POSITION_ALLOWED, subject=s)')
+        assert any(self._names_a_position(value) for _call, value in self._decision_args(tree))
+        tree = ast.parse('emit_audit("approval", h, "asked", s, r)')
+        assert any(self._names_a_position(value) for _call, value in self._decision_args(tree))
+
+    def test_no_emitter_writes_a_position_into_decision(self) -> None:
+        root = self._repo_root()
+        offenders: list[str] = []
+        for base in self._ROOTS:
+            for path in sorted((root / base).rglob("*.py")):
+                if "/tests/" in path.as_posix() or "/.venv/" in path.as_posix():
+                    continue
+                try:
+                    tree = ast.parse(path.read_text(encoding="utf-8"))
+                except (SyntaxError, UnicodeDecodeError):
+                    continue
+                for call, value in self._decision_args(tree):
+                    if self._names_a_position(value):
+                        offenders.append(f"{path.relative_to(root)}:{call.lineno}")
+        assert offenders == []

@@ -106,18 +106,18 @@ def test_dispatch_deploy_maps_the_firing_user_at_an_arming_tier(dispatch_repo: P
     for rel, section in _staged_sections(dispatch_repo).items():
         login_tiers = section.get("login_tiers")
         assert isinstance(login_tiers, dict), f"{rel} carries no control_system.login_tiers"
-        assert login_tiers.get(user) == "allowed", (
+        assert login_tiers.get(user) == "asked", (
             f"{rel} maps {user!r} to {login_tiers.get(user)!r}: O2 needs the firing "
             f"user's own tier to arm writes, so its refusal is the narrowing, not "
             f"owner_unknown or the tier. Map: {login_tiers}"
         )
         with _pinned_env():
-            assert owner_tier_term(section, user) == "allowed"
+            assert owner_tier_term(section, user) == "asked"
 
 
 def test_dispatch_worker_runs_the_tier_the_e2e_expects(dispatch_repo: Path) -> None:
     worker = _load(dispatch_repo / "build" / "services/dispatch_worker/config.yml")
-    assert worker["control_system"]["writes"] == "allowed", (
+    assert worker["control_system"]["writes"] == "asked", (
         f"the {dispatch_e2e.WORKER_TIER} dispatch worker's own render does not arm "
         "writes, so no write would ever reach the narrowing"
     )
@@ -128,7 +128,7 @@ def test_single_user_maps_the_build_account_at_the_root_tier(single_user_repo: P
     from osprey_connectors.types import tier_writes
 
     root = _load(single_user_repo / "build" / "config.yml")["control_system"]
-    assert tier_writes(root) == "allowed"
+    assert tier_writes(root) == "asked"
     for rel, section in _staged_sections(single_user_repo).items():
         login_tiers = section.get("login_tiers")
         assert isinstance(login_tiers, dict), f"{rel} carries no control_system.login_tiers"
@@ -138,4 +138,4 @@ def test_single_user_maps_the_build_account_at_the_root_tier(single_user_repo: P
         )
         assert "unknown" not in login_tiers
         with _pinned_env():
-            assert owner_tier_term(section, BUILD_ACCOUNT) == "allowed"
+            assert owner_tier_term(section, BUILD_ACCOUNT) == "asked"

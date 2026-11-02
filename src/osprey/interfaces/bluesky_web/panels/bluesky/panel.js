@@ -5,20 +5,17 @@
  * One panel, three views: Plans (compose a plan), Queue (what the queue server
  * is holding) and Results (the selected run's record, table and trace). This
  * module owns only what is common to all three — which one is showing, the
- * run the Results view is following, the tile-bar contribution, and the fan-out
- * of the hub's Expert/Simple flips. Each view is a factory that takes the panel
+ * run the Results view is following, and the tile-bar contribution. Each view is a factory that takes the panel
  * root and its callbacks; nothing here reaches into a view's internals.
  *
- * TWO tab strips, deliberately, and both are load-bearing:
+ * ONE view switcher on screen at a time:
  *
- * - The panel describes the three views to the web-terminal hub as a `nav`
- *   contribution, so an embedded panel gets ONE header (the tile bar) rather
- *   than a bar under a bar.
- * - The panel ALSO renders its own strip in the body. `contributeHeader` is a
- *   strict no-op standalone, and the hub collapses a service tile's bar to
- *   zero height in Simple mode — in both cases the contributed strip does not
- *   exist, and the panel would be unnavigable without its own. The in-body
- *   strip is therefore hidden by CSS in exactly one case: embedded AND Expert.
+ * - Embedded, the panel describes the three views to the web-terminal hub as
+ *   a `nav` contribution, so the tile gets ONE header (the tile bar) rather
+ *   than a bar under a bar; the in-body strip is hidden by CSS whenever the
+ *   panel is embedded.
+ * - Standalone, `contributeHeader` is a strict no-op, so the panel renders its
+ *   own strip in the body; without it the panel would be unnavigable there.
  *
  * - No `innerHTML`, anywhere. Plan names, parameter values, and refusal
  *   sentences all originate off-panel (an agent's draft, the bridge, another
@@ -33,20 +30,15 @@
  *   flip command for a deployment serving the simulator in process).
  *
  * The persistent control strip (queue state badge, "Stop", "Abort") is NEVER
- * contributed, for the same reason read in reverse:
- * anything safety-bearing has to survive Simple mode, and the tile bar does
- * not. It renders in the body on every tab — see index.html.
+ * contributed: anything safety-bearing has to be on screen wherever the panel
+ * runs, and the tile bar does not exist standalone. It renders in the body on
+ * every tab — see index.html.
  *
  * @module panel
  */
 
 import { panelApiPrefix } from '/design-system/js/dom.js';
-import { onModeChange } from '/design-system/js/frame-params.js';
-import {
-  contributeHeader,
-  isSimpleMode,
-  onHeaderAction,
-} from '/design-system/js/header-contrib.js';
+import { contributeHeader, onHeaderAction } from '/design-system/js/header-contrib.js';
 
 import {
   laneIsKnown,
@@ -185,9 +177,9 @@ const queueView = createQueueView({
   api,
   onSelectRun(runId, activate) {
     selectRun(runId);
-    // An operator's click on a run is a request to SEE it; the Simple-mode
-    // auto-pick is the panel's own housekeeping and must not move anyone off
-    // the tab they chose.
+    // An operator's click on a run is a request to SEE it; following a finished
+    // run is the panel's own housekeeping and must not move anyone off the tab
+    // they chose.
     if (activate) setActiveView('results');
   },
   onStatus(status) {
@@ -315,18 +307,15 @@ function publishContribution() {
   // after it.
   //
   // The filter is the conditional item here — it belongs to the Plans view, so
-  // it is contributed only while that view is showing, and never in Simple
-  // mode, where the hub collapses the tile bar and Simple deliberately
-  // ENLARGES a search box rather than hiding it (in both excluded cases the
-  // in-body box is the one on screen). The view switcher is the item an
-  // operator aims at over and over. So the filter goes FIRST and the switcher
-  // LAST: the switcher stays pinned to the close button and the filter appears
-  // and disappears to its left, in the slack.
+  // it is contributed only while that view is showing. The view switcher is
+  // the item an operator aims at over and over. So the filter goes FIRST and
+  // the switcher LAST: the switcher stays pinned to the close button and the
+  // filter appears and disappears to its left, in the slack.
   //
   // The other order would put the tab strip on the moving side of its own
   // effect — clicking away from Plans drops the filter, and the strip you just
   // clicked slides right by the filter's whole width. Do not swap these.
-  if (activeView === 'plans' && !isSimpleMode()) {
+  if (activeView === 'plans') {
     items.push({ kind: 'search', id: FILTER_ITEM_ID, placeholder: 'Filter plans…' });
   }
   items.push({
@@ -360,15 +349,6 @@ tabStrip.addEventListener('click', (event) => {
 onHeaderAction((id, value) => {
   if (id === VIEW_ITEM_ID && value) setActiveView(value);
   else if (id === FILTER_ITEM_ID) plansView.setFilter(value ?? '');
-});
-
-// One subscription for the whole panel, fanned out to the views. Re-publishing
-// matters as much as the fan-out: the Plans filter is contributed only outside
-// Simple mode, so a flip has to add or drop that item.
-onModeChange((mode) => {
-  plansView.onModeChange(mode);
-  queueView.onModeChange(mode);
-  publishContribution();
 });
 
 // ---------------------------------------------------------------------------
@@ -442,8 +422,8 @@ async function loadChannelCatalog() {
  *
  * In the persistent status strip, deliberately: which machine this panel is
  * pointed at is safety-bearing context for the queue badge and the two halts
- * beside it, must be visible from every tab and in every UI mode, and the
- * tile bar survives neither Simple mode nor standalone serving.
+ * beside it, must be visible from every tab, and the tile bar does not exist
+ * standalone.
  *
  * @param {import('./lane-client.js').LaneEntry[]} roster
  */

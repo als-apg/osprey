@@ -75,7 +75,7 @@
  *
  * Each report is serialized at FLUSH time from the live api, once a settle
  * debounce has expired — so a rebuild that removes and re-adds panels one at a
- * time (mode flip, reset, fromJSON restore) reports only the arrangement it
+ * time (reset, fromJSON restore) reports only the arrangement it
  * settles on, never an intermediate one. Note the debounce RESTARTS on every
  * event, unlike dock-workspace's schedulePersist (which fires a fixed delay
  * after the FIRST event of a burst) — settling on the final state is the whole
@@ -97,7 +97,7 @@
  * WHY CLOSE USES A CLICK, NOT onDidRemovePanel
  * --------------------------------------------
  * A placeholder panel is removed both when a human closes its tab AND during
- * every programmatic layout rebuild (mode flip, reset, expert-layout restore —
+ * every programmatic layout rebuild (reset, stored-layout restore —
  * all api.clear()/fromJSON in dock-workspace.js, a file this module does not own
  * and cannot wrap in the suppress guard). onDidRemovePanel therefore cannot tell
  * a human close from a rebuild, and treating a rebuild's removals as closes would
@@ -124,6 +124,7 @@
 
 import { getDockApi, setLayoutRestoredHook } from './dock-workspace.js';
 import { setPanelFocus, reportPanelLayout } from './panel-commands.js';
+import { isPoppedOut } from './popout.js';
 // dock-iframe.js owns the placeholder lifecycle and resolves panels by these ids;
 // dockPanelBesideActive() below pre-creates a placeholder the adapter then adopts
 // by the same id, so both modules share the single source of truth for them.
@@ -234,7 +235,7 @@ function collectTiles(node, out, seen) {
 
 /**
  * How long the dock must sit still before its occupancy is reported. Long
- * enough that a multi-step rebuild (mode flip, reset, fromJSON restore) settles
+ * enough that a multi-step rebuild (reset, fromJSON restore) settles
  * inside one window and reports once, short enough that an agent reading
  * `open_tiles` right after a human gesture sees the new arrangement.
  */
@@ -457,7 +458,11 @@ function panelIdForTab(tab) {
  * the group the re-add would reference), and an already-docked panel with no
  * position at all (nothing meaningful to do).
  *
- * No-op in fallback mode (no dock to place into); the same in both ui views.
+ * No-op in fallback mode (no dock to place into).
+ * No-op too for a panel living in its own pop-out window — every placement
+ * verb lands here (open beside, drag-and-drop, the agent switch, the arrange
+ * rebuild), and a placeholder for it would be an empty tile: the panel comes
+ * back through popout.js when its window closes.
  * Wrapped in the echo guard so neither the removal's auto-activation nor the
  * add's active-panel change is read as a human focus — the caller's show path
  * owns the focus POST.
@@ -468,7 +473,7 @@ function panelIdForTab(tab) {
  */
 export function dockPanelAt(serviceId, title = serviceId, position = null) {
   const api = getDockApi();
-  if (!api) return;
+  if (!api || isPoppedOut(serviceId)) return;
   const placeholderId = PLACEHOLDER_PREFIX + serviceId;
   const existing = api.getPanel(placeholderId);
   if (existing) {

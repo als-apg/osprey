@@ -4,10 +4,9 @@
  * Pure DOM/logic guard, happy-dom environment (configured globally):
  *   npx vitest run tests/interfaces/design_system/js/frame-params.test.js
  *
- * Covers CONTRACT_VERSION, applyEmbedded(), stripQueryMode(), and
- * onModeChange() (the receive side of the host's `osprey-mode-change`
- * postMessage broadcast: origin check, mode normalization, data-ui-mode
- * stamping, callback hook).
+ * Covers CONTRACT_VERSION, applyEmbedded() (the embedded class, and on a
+ * pop-out page the `data-popout` stamp and the pop-out client start),
+ * isEmbedded(), isPopout() and terminalOffered().
  *
  * NOTE: frame-params.js is imported by RELATIVE path, not the absolute
  * `/design-system/js/frame-params.js` runtime specifier — matching the
@@ -17,26 +16,16 @@
 
 import { test, expect, describe, afterEach, vi } from 'vitest';
 
+const { initPopoutClient } = vi.hoisted(() => ({ initPopoutClient: vi.fn(() => true) }));
+vi.mock('/design-system/js/popout-client.js', () => ({ initPopoutClient }));
+
 import {
   applyEmbedded,
-  expertViewOffered,
+  terminalOffered,
   isEmbedded,
-  onModeChange,
-  pickUiMode,
-  stripQueryMode,
+  isPopout,
   CONTRACT_VERSION,
 } from '../../../../src/osprey/interfaces/design_system/static/js/frame-params.js';
-
-/**
- * Deliver a message event synchronously (window.postMessage queues a task,
- * which awkwardly interleaves with test teardown; dispatchEvent is the
- * established pattern for exercising message listeners in this suite).
- * @param {any} data
- * @param {string} [origin]
- */
-function deliverMessage(data, origin = window.location.origin) {
-  window.dispatchEvent(new MessageEvent('message', { data, origin }));
-}
 
 describe('applyEmbedded', () => {
   afterEach(() => {
@@ -74,6 +63,28 @@ describe('applyEmbedded', () => {
 
     expect(document.body.classList.contains('embedded')).toBe(false);
   });
+
+  test('?popout=true stamps data-popout on <html> and starts the client', () => {
+    window.history.replaceState({}, '', '?popout=true');
+    initPopoutClient.mockClear();
+
+    applyEmbedded();
+
+    expect(document.documentElement.getAttribute('data-popout')).toBe('true');
+    expect(document.body.classList.contains('embedded')).toBe(false);
+    expect(initPopoutClient).toHaveBeenCalledTimes(1);
+    document.documentElement.removeAttribute('data-popout');
+  });
+
+  test('an embedded frame is not a pop-out: no stamp, no client', () => {
+    window.history.replaceState({}, '', '?embedded=true&popout=false');
+    initPopoutClient.mockClear();
+
+    applyEmbedded();
+
+    expect(document.documentElement.hasAttribute('data-popout')).toBe(false);
+    expect(initPopoutClient).not.toHaveBeenCalled();
+  });
 });
 
 describe('isEmbedded', () => {
@@ -102,6 +113,26 @@ describe('isEmbedded', () => {
   });
 });
 
+describe('isPopout', () => {
+  afterEach(() => {
+    window.history.replaceState({}, '', '/');
+  });
+
+  test('is true only for ?popout=true, the rule isEmbedded applies to embedded', () => {
+    for (const [query, expected] of [
+      ['?popout=true', true],
+      ['?popout=true&theme=dark', true],
+      ['?popout=false', false],
+      ['?popout=1', false],
+      ['?embedded=true', false],
+      ['', false],
+    ]) {
+      window.history.replaceState({}, '', `/${query}`);
+      expect(isPopout()).toBe(expected);
+    }
+  });
+});
+
 describe('CONTRACT_VERSION', () => {
   test('is a non-empty string', () => {
     expect(typeof CONTRACT_VERSION).toBe('string');
@@ -109,230 +140,14 @@ describe('CONTRACT_VERSION', () => {
   });
 });
 
-describe('stripQueryMode', () => {
+describe('web.terminal: false (data-terminal="off" on <html>)', () => {
   afterEach(() => {
-    vi.restoreAllMocks();
-    window.history.replaceState({}, '', '/');
+    document.documentElement.removeAttribute('data-terminal');
   });
 
-  test('drops ?mode= when present', () => {
-    window.history.replaceState({}, '', '?mode=simple');
-
-    stripQueryMode();
-
-    expect(window.location.search).toBe('');
-  });
-
-  test('no-ops when no mode param is present', () => {
-    window.history.replaceState({}, '', '?other=x');
-    const replaceState = vi.spyOn(window.history, 'replaceState');
-
-    stripQueryMode();
-
-    expect(replaceState).not.toHaveBeenCalled();
-    expect(window.location.search).toBe('?other=x');
-  });
-
-  test('preserves the other params and the hash', () => {
-    window.history.replaceState({}, '', '?mode=simple&other=x#frag');
-
-    stripQueryMode();
-
-    expect(window.location.search).toBe('?other=x');
-    expect(window.location.hash).toBe('#frag');
-  });
-
-  test('rewrites the URL in place rather than adding a history entry', () => {
-    window.history.replaceState({}, '', '?mode=simple&other=x');
-    const replaceState = vi.spyOn(window.history, 'replaceState');
-    const pushState = vi.spyOn(window.history, 'pushState');
-
-    stripQueryMode();
-
-    expect(replaceState).toHaveBeenCalledTimes(1);
-    expect(pushState).not.toHaveBeenCalled();
-  });
-});
-
-describe('onModeChange', () => {
-  afterEach(() => {
-    document.documentElement.removeAttribute('data-ui-mode');
-  });
-
-  test('stamps data-ui-mode and invokes the callback with the mode', () => {
-    const callback = vi.fn();
-    onModeChange(callback);
-
-    deliverMessage({ type: 'osprey-mode-change', mode: 'simple' });
-
-    expect(document.documentElement.getAttribute('data-ui-mode')).toBe('simple');
-    expect(callback).toHaveBeenCalledWith('simple');
-  });
-
-  test('normalizes any non-"simple" mode to "expert"', () => {
-    const callback = vi.fn();
-    onModeChange(callback);
-
-    deliverMessage({ type: 'osprey-mode-change', mode: 'bogus' });
-
-    expect(document.documentElement.getAttribute('data-ui-mode')).toBe('expert');
-    expect(callback).toHaveBeenCalledWith('expert');
-  });
-
-  test('ignores messages from a foreign origin', () => {
-    const callback = vi.fn();
-    onModeChange(callback);
-
-    deliverMessage({ type: 'osprey-mode-change', mode: 'simple' }, 'https://evil.example');
-
-    expect(document.documentElement.hasAttribute('data-ui-mode')).toBe(false);
-    expect(callback).not.toHaveBeenCalled();
-  });
-
-  test('ignores unrelated message types and missing modes', () => {
-    const callback = vi.fn();
-    onModeChange(callback);
-
-    deliverMessage({ type: 'osprey-session-change', session_id: 'abc' });
-    deliverMessage({ type: 'osprey-mode-change' });
-    deliverMessage(null);
-
-    expect(document.documentElement.hasAttribute('data-ui-mode')).toBe(false);
-    expect(callback).not.toHaveBeenCalled();
-  });
-
-  test('works without a callback (CSS-only pages)', () => {
-    onModeChange();
-
-    deliverMessage({ type: 'osprey-mode-change', mode: 'simple' });
-
-    expect(document.documentElement.getAttribute('data-ui-mode')).toBe('simple');
-  });
-
-  test('a repeat of the mode already stamped invokes no callback', () => {
-    // The hub sends the mode twice on a flip — once as the broadcast, once
-    // again on tab activation — and once more every time a tab is activated.
-    // A follower's callback re-mounts its view or re-fetches, so it must run
-    // only when the mode actually changed.
-    const callback = vi.fn();
-    onModeChange(callback);
-
-    deliverMessage({ type: 'osprey-mode-change', mode: 'simple' });
-    deliverMessage({ type: 'osprey-mode-change', mode: 'simple' });
-
-    expect(callback).toHaveBeenCalledTimes(1);
-
-    deliverMessage({ type: 'osprey-mode-change', mode: 'expert' });
-    expect(callback).toHaveBeenCalledTimes(2);
-    expect(callback).toHaveBeenLastCalledWith('expert');
-  });
-
-  test('every listener on the window sees one flip, not just the first to stamp', () => {
-    // A page registers its own callback and its <osprey-display-menu>
-    // registers another. The first listener stamps <html>; the second must
-    // not read that stamp as "already this mode" and skip.
-    const page = vi.fn();
-    const menu = vi.fn();
-    onModeChange(page);
-    onModeChange(menu);
-
-    deliverMessage({ type: 'osprey-mode-change', mode: 'simple' });
-
-    expect(page).toHaveBeenCalledWith('simple');
-    expect(menu).toHaveBeenCalledWith('simple');
-  });
-
-  test('a repeat of the mode stamped pre-paint invokes no callback either', () => {
-    // mode-boot.js stamps data-ui-mode before this listener exists; the hub's
-    // activation-time resend of that same mode is not a flip.
-    document.documentElement.setAttribute('data-ui-mode', 'simple');
-    const callback = vi.fn();
-    onModeChange(callback);
-
-    deliverMessage({ type: 'osprey-mode-change', mode: 'simple' });
-
-    expect(callback).not.toHaveBeenCalled();
-    expect(document.documentElement.getAttribute('data-ui-mode')).toBe('simple');
-  });
-});
-
-describe('pickUiMode', () => {
-  afterEach(() => {
-    document.documentElement.removeAttribute('data-ui-mode');
-    window.localStorage.removeItem('osprey-ui-mode');
-    vi.restoreAllMocks();
-  });
-
-  test('persists the pick and broadcasts it when the mode changes', () => {
-    document.documentElement.setAttribute('data-ui-mode', 'expert');
-    const postSpy = vi.spyOn(window, 'postMessage').mockImplementation(() => {});
-
-    pickUiMode('simple');
-
-    expect(window.localStorage.getItem('osprey-ui-mode')).toBe('simple');
-    expect(postSpy).toHaveBeenCalledWith(
-      { type: 'osprey-mode-change', mode: 'simple' },
-      window.location.origin
-    );
-  });
-
-  test('a pick of the mode already stamped persists but does not broadcast', () => {
-    // Every listener treats a broadcast as a flip: the web terminal's dock
-    // stashes the on-screen layout under the view being LEFT. Re-broadcasting
-    // the current mode would therefore file this view's layout under the
-    // other view's key -- the one thing a same-value pick must never do.
-    document.documentElement.setAttribute('data-ui-mode', 'expert');
-    const postSpy = vi.spyOn(window, 'postMessage').mockImplementation(() => {});
-
-    pickUiMode('expert');
-
-    expect(window.localStorage.getItem('osprey-ui-mode')).toBe('expert');
-    expect(postSpy).not.toHaveBeenCalled();
-  });
-
-  test('with nothing stamped yet, the first pick still broadcasts', () => {
-    const postSpy = vi.spyOn(window, 'postMessage').mockImplementation(() => {});
-
-    pickUiMode('expert');
-
-    expect(postSpy).toHaveBeenCalledTimes(1);
-  });
-});
-
-describe('web.expert_view: false (data-expert-view="off" on <html>)', () => {
-  afterEach(() => {
-    document.documentElement.removeAttribute('data-expert-view');
-    document.documentElement.removeAttribute('data-ui-mode');
-    window.localStorage.removeItem('osprey-ui-mode');
-    vi.restoreAllMocks();
-  });
-
-  test('expertViewOffered reads the attribute and defaults to offered', () => {
-    expect(expertViewOffered()).toBe(true);
-    document.documentElement.setAttribute('data-expert-view', 'off');
-    expect(expertViewOffered()).toBe(false);
-  });
-
-  test('a pick of expert neither persists nor broadcasts', () => {
-    document.documentElement.setAttribute('data-expert-view', 'off');
-    document.documentElement.setAttribute('data-ui-mode', 'simple');
-    const postSpy = vi.spyOn(window, 'postMessage').mockImplementation(() => {});
-
-    pickUiMode('expert');
-
-    expect(window.localStorage.getItem('osprey-ui-mode')).toBeNull();
-    expect(postSpy).not.toHaveBeenCalled();
-  });
-
-  test('a broadcast of expert is received as simple', () => {
-    document.documentElement.setAttribute('data-expert-view', 'off');
-    document.documentElement.setAttribute('data-ui-mode', 'simple');
-    const callback = vi.fn();
-    onModeChange(callback);
-
-    deliverMessage({ type: 'osprey-mode-change', mode: 'expert' });
-
-    expect(document.documentElement.getAttribute('data-ui-mode')).toBe('simple');
-    expect(callback).not.toHaveBeenCalled();
+  test('terminalOffered reads the attribute and defaults to offered', () => {
+    expect(terminalOffered()).toBe(true);
+    document.documentElement.setAttribute('data-terminal', 'off');
+    expect(terminalOffered()).toBe(false);
   });
 });

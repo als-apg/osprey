@@ -77,9 +77,9 @@ Some errors indicate conditions that need human operator attention:
 - **Control system unreachable** (a `connection_error` / `timeout_error` from the controls
   server, or an envelope with `details.active_target`) → The facility's control system
   infrastructure may be down. Suggest checking with the control room or operations staff.
-- **One channel unreachable** (`channel_unreachable`) → That channel's device did not answer;
-  the rest of the control system did. Name the channel to the operator; on its own it is not
-  a control-room matter.
+- **One channel unreachable** (`channel_unreachable`) → That channel did not answer, which
+  alone does not say whether the machine is up. If other channels fail the same way, the
+  active target is unreachable (as above); otherwise name the channel to the operator.
 - **Any other service unreachable** (a bridge, the gallery, a search or graph store) → Name
   that service. Suggest the operator check it; it is not a control-room matter.
 - **Repeated write failures** → Hardware may be in a fault state or in local control mode.

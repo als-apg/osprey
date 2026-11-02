@@ -186,10 +186,6 @@ async def add_panel_to_rail(panel_id: str) -> str:
     Use when the user asks to make a panel available, or to bring back one they
     took off the rail earlier.
 
-    In the Simple web UI, which has the same rail but one locked workspace slot
-    instead of a dock, adding a panel while the page is chat-only also brings up
-    the workspace column — on that panel, when the slot is still empty.
-
     Panel IDs are provided in your context at session start; call
     ``list_panels`` to refresh the live state if needed.  Do NOT guess
     panel IDs — they vary between deployments.
@@ -300,15 +296,12 @@ async def open_panel(panel_id: str, url: str | None = None) -> str:
     and after producing something they should see (a new artifact, a drafted
     plan, a lattice view).
 
-    Additive in the expert (dock) UX — an open tile is never evicted:
+    Additive — an open tile is never evicted:
 
     - the panel's tile is already on screen → it is focused;
     - the panel is on the rail but has no tile → a tile opens *beside* the one
       the operator is currently on;
     - the panel is not on the rail → it is added to the rail, then opened beside.
-
-    In the Simple web UI there is a single workspace slot, so the panel takes it
-    over (and the workspace column appears if the page was chat-only).
 
     A panel whose backend is unhealthy does not open: nothing appears and focus
     is unchanged.

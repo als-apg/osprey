@@ -12,7 +12,7 @@ withdraws the gallery's whole WRITE surface on the server:
   browser can stop painting controls for a surface that refuses them.
 
 The route half is the load-bearing one. A client-only guard is undone by typing
-the URL or by ``curl`` — the same cosmetic-gate failure ``ui_mode: simple`` was.
+the URL or by ``curl`` — a cosmetic gate.
 
 Three properties are asserted directly, because each can regress on its own:
 

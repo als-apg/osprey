@@ -20,7 +20,6 @@ import { test, expect, describe, beforeEach } from 'vitest';
 import {
   applyFacilityTimezone,
   formatTimestamp,
-  formatHumanTimestamp,
   formatRelativeTime,
 } from '../../../src/osprey/interfaces/ariel/static/js/components.js';
 
@@ -33,15 +32,6 @@ const DISPLAY = {
   month: '2-digit',
   day: '2-digit',
   hour: '2-digit',
-  minute: '2-digit',
-};
-
-/** @type {Intl.DateTimeFormatOptions} */
-const SIMPLE = {
-  weekday: 'long',
-  month: 'long',
-  day: 'numeric',
-  hour: 'numeric',
   minute: '2-digit',
 };
 
@@ -83,11 +73,6 @@ describe('entry times in the facility zone', () => {
     expect(hour?.value).toBe('09');
   });
 
-  test('formatHumanTimestamp reads the wire time in the stamped zone', () => {
-    applyFacilityTimezone({ facility_timezone: 'Asia/Tokyo' });
-    expect(formatHumanTimestamp(ENTRY_AT)).toBe(intl(ENTRY_AT, SIMPLE, 'Asia/Tokyo'));
-  });
-
   test('the stamp decides the wall time, not the viewer', () => {
     applyFacilityTimezone({ facility_timezone: 'Asia/Tokyo' });
     const tokyo = formatTimestamp(ENTRY_AT);
@@ -102,18 +87,12 @@ describe('entry times in the facility zone', () => {
     expect(formatTimestamp(ENTRY_AT)).toBe(
       intl(ENTRY_AT, { ...DISPLAY, timeZoneName: 'short' }, viewer)
     );
-    expect(formatHumanTimestamp(ENTRY_AT)).toBe(
-      intl(ENTRY_AT, { ...SIMPLE, timeZoneName: 'short' }, viewer)
-    );
   });
 
   test('an unparsable timestamp is shown as sent', () => {
     expect(formatTimestamp('not-a-time')).toBe('not-a-time');
-    expect(formatHumanTimestamp('not-a-time')).toBe('not-a-time');
     expect(formatTimestamp('')).toBe('');
-    expect(formatHumanTimestamp('')).toBe('');
     expect(formatTimestamp(undefined)).toBe('');
-    expect(formatHumanTimestamp(undefined)).toBe('');
   });
 
   test('an old entry falls back from relative to the facility-zone time', () => {

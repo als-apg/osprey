@@ -300,6 +300,10 @@ _SOURCE_ZONE_ENTRIES: frozenset[str] = frozenset(
         *LAYER_DIRNAMES,
         "profiles",
         "scripts",
+        # The watchdogs' instructions and references. Source zone so executed
+        # code cannot rewrite what judges it; the build copies only the enabled
+        # watchdogs' directories.
+        "watchdogs",
         "ci-extra.yml",
         _SYSTEMD_UNIT_ENTRY,
     }
@@ -626,6 +630,13 @@ PROTECTED_CONFIG_KEYS: dict[str, tuple[str, ...]] = {
         # where the path goes must not slip past the gate as a child key.
         "services.graphdb.ttl_path.*",
         "channel_finder.pipelines.*.database.path.*",
+        # What judges the session, and the keys its judge runs on: a watched
+        # agent that could reach either could disable or blind its own watchdog.
+        "watchdogs.*",
+        "api.jev.*",
+        # The review of the agent's own code gates writes: these keys switch it
+        # off, downgrade its verdict, repoint its prompt or shrink its modes.
+        "code_review.*",
         *RUNTIME_WRITE_PATH_KEYS,
     ),
     ".mcp.json": (

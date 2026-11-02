@@ -1,6 +1,6 @@
 """What the hand-off promises the operator about the commands the outgoing terminal agent started.
 
-Taking a session key from the Expert view ends the terminal agent, and ending
+Taking a session key from the terminal ends the terminal agent, and ending
 it ends every process it started. A command the agent started in a process
 group of its own (a scan script, a polling loop) is therefore ended by the
 hand-off, so the door asks before it acts: it refuses with the list until the
@@ -15,6 +15,7 @@ its commands the way the agent CLI does, and the door runs through
 from __future__ import annotations
 
 import sys
+import time
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -69,18 +70,40 @@ def _pool_terminal(
     return session, pid_file, input_file
 
 
+def _hold_writes_until_read(session: PtySession, input_file: Path) -> None:
+    """Return from *session*'s input write only once the real child has recorded it.
+
+    The fake clock spends the interrupt grace at once, so without this the door
+    can terminate the child before it has read what it was sent.
+    """
+    write = session.write_input
+
+    def write_then_wait(data: bytes) -> None:
+        write(data)
+        deadline = time.monotonic() + 30.0
+        while not input_file.read_bytes() and time.monotonic() < deadline:
+            time.sleep(0.01)
+
+    session.write_input = write_then_wait  # type: ignore[method-assign]
+
+
 async def test_stop_and_switch_asks_before_a_started_command_is_ended(tmp_path):
     app = make_app(hook=False)
-    session, pid_file, input_file = _pool_terminal(app, tmp_path, ("magnet_scan.py",))
+    session, pid_file, input_file = _pool_terminal(
+        app, tmp_path, ("magnet_scan.py", "orbit_poll.py")
+    )
     pids: list[int] = []
     try:
-        pids = wait_for_pids(session, pid_file, 2)
+        pids = wait_for_pids(session, pid_file, 3)
         grandchild = pids[0]
 
         with pytest.raises(HandoffRefused) as refused:
-            await acquire(app, KEY, "simple", object(), interrupt=True, spawn=chat_spawner(app))
+            await acquire(app, KEY, "chat", object(), interrupt=True, spawn=chat_spawner(app))
 
         assert refused.value.error == ERROR_HANDOFF_STARTED_COMMANDS
+        # The refusal lists each started command.
+        labels = [command["label"] for command in refused.value.extra["commands"]]
+        assert sorted(labels) == ["magnet_scan.py", "orbit_poll.py"]
         assert registry(app).get_session(KEY) is session
         assert session.is_alive
         assert input_file.read_bytes() == b""
@@ -98,11 +121,12 @@ async def test_stop_both_ends_the_agent_and_its_commands(tmp_path):
     pids: list[int] = []
     try:
         pids = wait_for_pids(session, pid_file, 2)
+        _hold_writes_until_read(session, input_file)
 
         await acquire(
             app,
             KEY,
-            "simple",
+            "chat",
             object(),
             interrupt=True,
             spawn=chat_spawner(app),
@@ -129,7 +153,7 @@ async def test_a_plain_flip_that_finds_the_agent_idle_asks_too(tmp_path):
         pids = wait_for_pids(session, pid_file, 2)
 
         with pytest.raises(HandoffRefused) as refused:
-            await acquire(app, KEY, "simple", object(), spawn=chat_spawner(app))
+            await acquire(app, KEY, "chat", object(), spawn=chat_spawner(app))
 
         assert refused.value.error == ERROR_HANDOFF_STARTED_COMMANDS
         assert registry(app).get_session(KEY) is session
@@ -149,7 +173,7 @@ async def test_with_nothing_started_the_stop_goes_straight_through(tmp_path):
     try:
         pids = wait_for_pids(session, pid_file, 1)
 
-        await acquire(app, KEY, "simple", object(), interrupt=True, spawn=chat_spawner(app))
+        await acquire(app, KEY, "chat", object(), interrupt=True, spawn=chat_spawner(app))
 
         assert not session.is_alive
         await wait_gone([pids[0]])
@@ -198,7 +222,7 @@ async def test_a_failed_process_table_read_is_looked_at_again_before_the_door_ac
         reads = _fail_first_read(monkeypatch)
 
         with pytest.raises(HandoffRefused) as refused:
-            await acquire(app, KEY, "simple", object(), interrupt=True, spawn=chat_spawner(app))
+            await acquire(app, KEY, "chat", object(), interrupt=True, spawn=chat_spawner(app))
 
         assert reads[0] is False
         assert refused.value.error == ERROR_HANDOFF_STARTED_COMMANDS
@@ -224,7 +248,7 @@ async def test_a_process_table_that_never_reads_asks_instead_of_ending_unseen_co
         _fail_reads(monkeypatch)
 
         with pytest.raises(HandoffRefused) as refused:
-            await acquire(app, KEY, "simple", object(), interrupt=True, spawn=chat_spawner(app))
+            await acquire(app, KEY, "chat", object(), interrupt=True, spawn=chat_spawner(app))
 
         assert refused.value.error == ERROR_HANDOFF_STARTED_COMMANDS
         assert refused.value.extra == {"commands": [], "unread": True}
@@ -247,12 +271,13 @@ async def test_agreeing_to_end_unseen_commands_goes_through_without_a_look(tmp_p
     pids: list[int] = []
     try:
         pids = wait_for_pids(session, pid_file, 2)
+        _hold_writes_until_read(session, input_file)
         _fail_reads(monkeypatch)
 
         await acquire(
             app,
             KEY,
-            "simple",
+            "chat",
             object(),
             interrupt=True,
             spawn=chat_spawner(app),
@@ -265,22 +290,5 @@ async def test_agreeing_to_end_unseen_commands_goes_through_without_a_look(tmp_p
         assert_released(app)
     finally:
         monkeypatch.undo()
-        registry(app).cleanup_all()
-        kill_quietly(pids)
-
-
-async def test_the_refusal_lists_each_started_command(tmp_path):
-    app = make_app(hook=False)
-    session, pid_file, _ = _pool_terminal(app, tmp_path, ("magnet_scan.py", "orbit_poll.py"))
-    pids: list[int] = []
-    try:
-        pids = wait_for_pids(session, pid_file, 3)
-
-        with pytest.raises(HandoffRefused) as refused:
-            await acquire(app, KEY, "simple", object(), interrupt=True, spawn=chat_spawner(app))
-
-        labels = [command["label"] for command in refused.value.extra["commands"]]
-        assert sorted(labels) == ["magnet_scan.py", "orbit_poll.py"]
-    finally:
         registry(app).cleanup_all()
         kill_quietly(pids)

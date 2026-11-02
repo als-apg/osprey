@@ -19,9 +19,9 @@ run's thinking there: the person who asked and ``history: all`` viewers. What
 those viewers really see is proven against the page itself in
 ``test_dispatch_run_thinking_browser.py``.
 
-Placement rationale: matches ``test_dispatch_dashboard_modes.py`` and
-``test_visual.py``, which already stand the dispatch dashboard up from this
-directory (it has no standalone FastAPI app of its own in production).
+Placement rationale: matches ``test_visual.py``, which already stands the
+dispatch dashboard up from this directory (it has no standalone FastAPI app of
+its own in production).
 
 Run:
     .venv/bin/pytest tests/interfaces/design_system/test_dispatch_run_crosslinks.py -v
@@ -146,15 +146,9 @@ def _open_run(page: Page, base_url: str, run_id: str) -> None:
 
     The state poll has no dispatcher behind it here, so ``state`` is assigned
     directly and the router is driven the same way a click does it -- through
-    ``navigate()``, which is what repaints the screen. Expert mode is forced:
-    the actions row is ``.expert-only``, so asserting in Simple mode would find
-    nothing regardless of whether the links were built.
+    ``navigate()``, which is what repaints the screen.
     """
-    page.goto(f"{base_url}/?mode=expert", wait_until="domcontentloaded")
-    page.wait_for_function(
-        "() => document.documentElement.getAttribute('data-ui-mode') === 'expert'",
-        timeout=10_000,
-    )
+    page.goto(f"{base_url}/", wait_until="domcontentloaded")
     page.wait_for_function("() => typeof navigate === 'function'", timeout=10_000)
     page.evaluate(
         """([nextState, runId]) => {

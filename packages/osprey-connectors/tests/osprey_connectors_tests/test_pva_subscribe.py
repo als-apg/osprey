@@ -7,8 +7,10 @@ mapping — a p4p monitor, which differs from a read in three ways that matter:
 * its updates arrive on p4p's worker thread, so the subscriber callback has to
   be handed to the event loop rather than called where the update landed;
 * p4p delivers connection state (``Disconnected`` and friends) to the same
-  callback, *as a value*, so anything that is an exception instance has to be
-  filtered before it can be mistaken for channel data;
+  callback, *as a value* — the monitor is opened with ``notify_disconnect=True``
+  so every drop is reported — so anything that is an exception instance is a
+  connection-down report, never channel data, and the monitor is never
+  re-created because of one;
 * raising inside a monitor callback makes p4p close the subscription, so a
   value the mapping cannot decode (a compressed NTNDArray, say) must be dropped
   rather than propagated.
@@ -130,6 +132,7 @@ class TestSubscribeRouting:
         sub_id = await connector.subscribe(PVA_ADDRESS, lambda v: None)
 
         assert [call["name"] for call in context.calls] == [PVA_ADDRESS]
+        assert context.calls[0]["notify_disconnect"] is True  # drops are reported
         assert ca.calls == []  # no Channel Access connection was made
         assert sub_id.startswith(f"{PVA_ADDRESS}_")
         assert connector._subscriptions[sub_id].kind == "pva"
@@ -144,10 +147,11 @@ class TestSubscribeRouting:
         sub_id = await connector.subscribe(CA_ADDRESS, lambda v: None)
 
         assert context.calls == []  # PVA client untouched
-        assert ca.monitors[0].name == CA_ADDRESS
+        ctrl, time_ = ca.monitors_of(CA_ADDRESS)  # the address's CA record opened both
+        assert ctrl is not None and time_ is not None
         assert sub_id.startswith(f"{CA_ADDRESS}_")
         assert connector._subscriptions[sub_id].kind == "ca"
-        assert connector._subscriptions[sub_id].handle is ca.monitors[0]
+        assert connector._subscriptions[sub_id].handle.sub_id == sub_id
 
     @pytest.mark.asyncio
     async def test_subscribe_without_a_context_is_connector_unavailable(self):
@@ -203,7 +207,7 @@ class TestUpdateMarshaling:
 
     @pytest.mark.asyncio
     async def test_ca_subscription_still_marshals_through_the_loop(self, monkeypatch):
-        """The CA callback path is unchanged by the shared wrapper."""
+        """A CA event from the CA loop is posted to the subscriber's loop, never delivered inline."""
         ca = FakeAioca({CA_ADDRESS: FakeChannel()})
         connector = _pva_connector(aioca=ca)
         received = []
@@ -211,12 +215,15 @@ class TestUpdateMarshaling:
         loop_calls = _recording_loop(monkeypatch)
 
         await connector.subscribe(CA_ADDRESS, subscriber)
-        ca.monitors[0].callback(ca_reading(7.0))
+        ctrl, time_ = ca.monitors_of(CA_ADDRESS)
+        ctrl.fire(ca_reading(0.0, units="mA", precision=3))
+        time_.fire(ca_reading(7.0))
 
         assert received == []
         assert len(loop_calls) == 1
         assert loop_calls[0][0] is subscriber
         assert loop_calls[0][1][0].value == 7.0
+        assert loop_calls[0][1][0].metadata.units == "mA"  # the connection's CTRL data
 
 
 # ---------------------------------------------------------------------------
@@ -232,31 +239,55 @@ class TestSentinelAndErrorFiltering:
         ids=["disconnected", "remote-error"],
     )
     async def test_exception_sentinels_never_reach_the_subscriber(self, monkeypatch, sentinel):
-        """p4p reports connection state as a callback value — it is not data."""
+        """p4p reports connection state as a callback value — it is not data.
+
+        After a value, the exception update is a connection-down report: the
+        subscriber's ``on_connection`` is told ``False`` and the value callback
+        is never scheduled with it.
+        """
         context = FakeMonitorContext()
         connector = _pva_connector(context=context)
         received = []
+        states = []
+        subscriber = received.append
         loop_calls = _recording_loop(monkeypatch)
 
-        await connector.subscribe(PVA_ADDRESS, received.append)
+        await connector.subscribe(PVA_ADDRESS, subscriber, on_connection=states.append)
+        context.fire(_scalar_update(1.5))
+        loop_calls.clear()
         context.fire(sentinel)
 
         assert received == []
-        assert loop_calls == []  # nothing was even scheduled
+        assert [(fn, args) for fn, args in loop_calls] == [(states.append, (False,))]
+        assert not any(fn is subscriber for fn, _ in loop_calls)
 
     @pytest.mark.asyncio
     async def test_a_sentinel_does_not_end_the_subscription(self, monkeypatch):
-        """A disconnect is transient: the next real update still gets through."""
+        """A disconnect is transient: the next real update still gets through.
+
+        The monitor is neither closed nor re-opened on a drop — p4p restores it
+        — and the value after the drop is preceded by a connection-up report.
+        """
         context = FakeMonitorContext()
         connector = _pva_connector(context=context)
         received = []
+        states = []
+        subscriber = received.append
         loop_calls = _recording_loop(monkeypatch)
 
-        await connector.subscribe(PVA_ADDRESS, received.append)
+        await connector.subscribe(PVA_ADDRESS, subscriber, on_connection=states.append)
+        context.fire(_scalar_update(2.5))
         context.fire(FakeDisconnected("gone"))
         context.fire(_scalar_update(3.5))
 
-        assert [call[1][0].value for call in loop_calls] == [3.5]
+        assert [call[1][0].value for call in loop_calls if call[0] is subscriber] == [2.5, 3.5]
+        assert [call[1][0] for call in loop_calls if call[0] is not subscriber] == [
+            True,
+            False,
+            True,
+        ]
+        assert len(context.calls) == 1  # no monitor re-creation
+        assert context.subscriptions[0].close_calls == 0
 
     @pytest.mark.asyncio
     async def test_undecodable_value_is_dropped_without_raising(self, monkeypatch):
@@ -293,14 +324,16 @@ class TestUnsubscribe:
         assert sub_id not in connector._subscriptions
 
     @pytest.mark.asyncio
-    async def test_unsubscribe_closes_a_ca_monitor(self):
+    async def test_unsubscribe_releases_a_ca_subscription(self):
         ca = FakeAioca({CA_ADDRESS: FakeChannel()})
         connector = _pva_connector(aioca=ca)
         sub_id = await connector.subscribe(CA_ADDRESS, lambda v: None)
+        assert len(ca.monitors) == 2  # the record's CTRL and TIME monitors
 
         await connector.unsubscribe(sub_id)
 
-        assert ca.monitors[0].closed is True
+        assert all(monitor.closed for monitor in ca.monitors)
+        assert ca.monitors_of(CA_ADDRESS) == (None, None)
         assert sub_id not in connector._subscriptions
 
     @pytest.mark.asyncio
@@ -354,3 +387,14 @@ class TestChannelSubscriptionWrapper:
         assert subscription.kind == "pva"
         assert subscription.handle is handle
         assert subscription.closed is False
+
+    @pytest.mark.asyncio
+    async def test_close_dispatches_on_kind(self):
+        ca = FakeAioca({CA_ADDRESS: FakeChannel()})
+        connector = _pva_connector(aioca=ca)
+        sub_id = await connector.subscribe(CA_ADDRESS, lambda v: None)
+        handle = connector._subscriptions.pop(sub_id).handle  # the record handle
+
+        _ChannelSubscription("ca", handle).close()  # no CA loop: closed in place
+
+        assert ca.monitors_of(CA_ADDRESS) == (None, None)  # the last subscriber left

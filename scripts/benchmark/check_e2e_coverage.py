@@ -63,6 +63,10 @@ def check_lanes(root: Path, excluded: dict[str, str]) -> list[str]:
             "no:cacheprovider",
             "-o",
             "addopts=",
+            # Collection reads markers and runs no assert, so rewriting each
+            # module's asserts on import buys nothing here; on a checkout with
+            # no bytecode cache it is a quarter of the collection's time.
+            "--assert=plain",
             *[f"--ignore={p}" for p in excluded],
         ]
         env = {**os.environ, "OSPREY_E2E_LANES": str(lanes_path)}

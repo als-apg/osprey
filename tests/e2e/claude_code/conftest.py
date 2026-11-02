@@ -21,8 +21,8 @@ from tests.e2e.sdk_helpers import (
     init_project,
     is_claude_code_available,
     render_dir,
+    set_switch_in_record,
     set_writes_tier,
-    switch_on_in_record,
 )
 from tests.facility.served_tree import in_process_config, served_tree
 
@@ -165,6 +165,44 @@ def safety_project(tmp_path_factory):
 
 
 @pytest.fixture(scope="module")
+def safety_project_code_review(tmp_path_factory):
+    """:func:`safety_project` with code review on at ``block``.
+
+    Turned on in the profile before the rebuild :func:`enable_writes_in_project`
+    makes, since the approval entry's timeout and ``--budget`` carry the review's
+    deadline only in a render built with review on.
+
+    The reviewer runs inside the approval hook, past the scripted fixture's reach, and
+    takes its key from the deployment's ``.env``, which ``osprey init`` seeds from the
+    shell. The key there is the scripted token, so no review presents a real one.
+    """
+    from tests.e2e.scripted_model import SCRIPTED_AUTH_TOKEN
+
+    tmp = tmp_path_factory.mktemp("safety-code-review")
+    repo = init_project(tmp, "safety-code-review", provider="als-apg")
+    env_path = repo / ".env"
+    env_path.write_text(
+        "".join(
+            f"ALS_APG_API_KEY={SCRIPTED_AUTH_TOKEN}\n"
+            if line.startswith("ALS_APG_API_KEY=")
+            else line
+            for line in env_path.read_text(encoding="utf-8").splitlines(keepends=True)
+        ),
+        encoding="utf-8",
+    )
+    profile_path = repo / "profile.yml"
+    profile = yaml.safe_load(profile_path.read_text(encoding="utf-8"))
+    profile["config"]["code_review.enabled"] = True
+    profile["config"]["code_review.level"] = "block"
+    profile["hooks"].append("code-review")
+    profile_path.write_text(yaml.safe_dump(profile, sort_keys=False), encoding="utf-8")
+    enable_writes_in_project(repo)
+    _serve_safety_channels(repo, tmp / "served")
+    _point_at_safety_limits_db(repo)
+    return repo
+
+
+@pytest.fixture(scope="module")
 def safety_project_writes_off(tmp_path_factory):
     """Module-scoped deployment whose write tier is ``never``.
 
@@ -205,7 +243,7 @@ def safety_project_mixed_render(tmp_path_factory):
 
     The preset's tier is ``allowed``, and the switch of the login this process
     acts as is turned on for ``va`` alone (the record fixture,
-    :func:`switch_on_in_record`), so the live target stays off. The render is made
+    :func:`set_switch_in_record`), so the live target stays off. The render is made
     switch-capable the way the switch lifecycle tests do it:
     ``control_system.type`` is the in-process simulator by
     dotted path (so ``live`` resolves to it) with a connector block of its own,
@@ -250,7 +288,7 @@ def safety_project_mixed_render(tmp_path_factory):
     _point_at_safety_limits_db(repo)
     _rerender_claude_artifacts(repo)
     # After the edit, so the record's baseline is the ``live`` the edit made.
-    switch_on_in_record(repo, owner=acting_identity(), targets=["va"])
+    set_switch_in_record(repo, owner=acting_identity(), targets=["va"])
     return repo
 
 

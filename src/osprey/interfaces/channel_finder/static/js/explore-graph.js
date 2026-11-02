@@ -34,11 +34,10 @@
  * the panel it was asked for is still mounted, so a slow answer to an abandoned
  * query can never overwrite a faster answer to the current one.
  *
- * Embedded in the web terminal (outside Simple mode) the toolbar's search box
- * and ⋯ menu move into the hub's tile bar (graph-finder-verbs.js
- * contributeHeader → state.setViewHeader → app.js), so the panel body starts
- * at the filters like every other tile. Simple mode hides the hub's tile bar,
- * so there the in-body toolbar stays.
+ * Embedded in the web terminal the toolbar's search box and ⋯ menu move into
+ * the hub's tile bar (graph-finder-verbs.js contributeHeader →
+ * state.setViewHeader → app.js), so the panel body starts at the filters like
+ * every other tile; only standalone keeps the in-body toolbar.
  */
 
 import { state } from './state.js';
@@ -73,7 +72,7 @@ import {
   FINDER_IDS,
   skeletonHtml,
 } from './graph-finder-render.js';
-import { buildForest, classNameIn, fetchJson, stringList } from './graph-finder-data.js';
+import { buildForest, classNameIn, createFlights, stringList } from './graph-finder-data.js';
 import { contributeHeader, createActions } from './graph-finder-verbs.js';
 import { bindFinderEvents } from './graph-finder-events.js';
 import {
@@ -90,9 +89,6 @@ import {
 /** @typedef {import('./graph-finder-data.js').Reply} Reply */
 /** @typedef {import('./graph-finder-verbs.js').FinderHost} FinderHost */
 /** @typedef {import('/design-system/js/splitter.js').SplitterApi} SplitterApi */
-
-/** One request kind's in-flight controller and its generation counter. */
-/** @typedef {{controller: AbortController|null, generation: number}} Flight */
 
 const ONTOLOGY_PATH = '/api/graph/ontology';
 const SEARCH_PATH = '/api/graph/search';
@@ -148,16 +144,8 @@ let unbindEvents = null;
 /** @type {Array<() => void>} */
 let skeletonTeardown = [];
 
-/**
- * One flight per request kind. A new request of a kind aborts the previous one
- * and takes the next generation; a reply from an older generation is dropped.
- * @type {Record<'ontology'|'search'|'device', Flight>}
- */
-const flights = {
-  ontology: { controller: null, generation: 0 },
-  search: { controller: null, generation: 0 },
-  device: { controller: null, generation: 0 },
-};
+/** The finder's requests, one in flight per kind. */
+const flights = createFlights(() => paneEl);
 
 /** The mount as the verbs and handlers see it. @type {FinderHost} */
 const host = {
@@ -224,7 +212,7 @@ export async function mountGraph(content) {
  * @returns {void}
  */
 export function unmountGraph() {
-  for (const kind of /** @type {const} */ (['ontology', 'search', 'device'])) abort(kind);
+  for (const kind of /** @type {const} */ (['ontology', 'search', 'device'])) flights.abort(kind);
   teardownSkeleton();
   unbindEvents?.();
   unbindEvents = null;
@@ -236,44 +224,6 @@ export function unmountGraph() {
   results = null;
   cardHtml = '';
   card = null;
-}
-
-/**
- * Abort the in-flight request of one kind, if there is one, and retire its
- * generation so a reply already on its way is discarded.
- *
- * @param {'ontology'|'search'|'device'} kind - Which request to abandon.
- * @returns {void}
- */
-function abort(kind) {
-  const flight = flights[kind];
-  flight.controller?.abort();
-  flight.controller = null;
-  flight.generation += 1;
-}
-
-/**
- * Run one request of `kind`, superseding whatever else that kind had running.
- *
- * @param {'ontology'|'search'|'device'} kind - Which request this is.
- * @param {string} url - The url to read.
- * @returns {Promise<Reply>} The reply, or null when it no longer applies.
- */
-async function request(kind, url) {
-  abort(kind);
-  const flight = flights[kind];
-  const mine = flight.generation;
-  const pane = paneEl;
-  const controller = new AbortController();
-  flight.controller = controller;
-
-  const reply = await fetchJson(url, controller.signal);
-
-  // A newer request of this kind, or an unmount, happened while this one was
-  // in flight.
-  if (mine !== flight.generation || paneEl === null || paneEl !== pane) return null;
-  flight.controller = null;
-  return reply;
 }
 
 /** @returns {string} The search url for the current state. */
@@ -299,8 +249,8 @@ async function load() {
   body.innerHTML = LOADING_HTML;
 
   const [ontReply, searchReply] = await Promise.all([
-    request('ontology', ONTOLOGY_PATH),
-    request('search', searchUrl()),
+    flights.request('ontology', ONTOLOGY_PATH),
+    flights.request('search', searchUrl()),
   ]);
   if (ontReply === null || searchReply === null) return;
 
@@ -324,7 +274,7 @@ async function load() {
  * @returns {Promise<void>} Resolves once the answer has been rendered.
  */
 async function runSearch() {
-  const reply = await request('search', searchUrl());
+  const reply = await flights.request('search', searchUrl());
   if (reply === null) return;
   if (!reply.ok) return renderInfo(reply.detail, reply.suggestions);
   await applySearch(reply.data);
@@ -558,7 +508,13 @@ function markOpenRows() {
   }
 }
 
-/** Redraw the inspector region from `cardHtml`. @returns {void} */
+/**
+ * Redraw the inspector region from `cardHtml`. Opening it takes room from the
+ * results (all of it below them in a narrow tile), so the row it was opened
+ * from is scrolled back into the results' view; `nearest` leaves a row that is
+ * still visible where it is.
+ * @returns {void}
+ */
 function renderCard() {
   const region = part(FINDER_IDS.card);
   if (!region) return;
@@ -567,6 +523,9 @@ function renderCard() {
   const split = part(FINDER_IDS.cardSplit);
   if (split) split.hidden = cardHtml === '';
   markOpenRows();
+  if (cardHtml !== '') {
+    paneEl?.querySelector('.result-table tbody tr.open')?.scrollIntoView?.({ block: 'nearest' });
+  }
 }
 
 /**
@@ -696,7 +655,7 @@ async function toggleDevice(uri) {
  */
 async function openDevice(uri) {
   if (!uri) return;
-  const reply = await request('device', `${DEVICE_PATH}?uri=${encodeURIComponent(uri)}`);
+  const reply = await flights.request('device', `${DEVICE_PATH}?uri=${encodeURIComponent(uri)}`);
   if (reply === null) return;
   if (reply.ok) {
     card = { uri, data: reply.data };
@@ -712,7 +671,7 @@ async function openDevice(uri) {
 
 /** Close the inspector and abandon a lookup still in flight. @returns {void} */
 function closeCard() {
-  abort('device');
+  flights.abort('device');
   card = null;
   cardHtml = '';
   renderCard();

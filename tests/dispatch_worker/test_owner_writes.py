@@ -109,7 +109,7 @@ def _refused(result, reason: str) -> None:
 async def test_a_cron_run_with_no_owner_is_refused_as_unscheduled(monkeypatch, tree):
     # Arrange: every login's switch is on, so no record is the reason.
     for login in ("alice", "bob", "carol"):
-        _set_switch(tree, login, "on")
+        _set_switch(tree, login, "asked")
     _dispatch_run(monkeypatch, None)
     connector = _connector()
 
@@ -124,7 +124,7 @@ async def test_a_cron_run_with_no_owner_is_refused_as_unscheduled(monkeypatch, t
 @pytest.mark.asyncio
 async def test_a_cron_run_on_the_host_is_refused_as_unscheduled(monkeypatch, tmp_path):
     """No tree bound: the process account is not an owner for a dispatch job."""
-    write_control_context(tmp_path / "data", owned_by=None, switch={TARGET_LIVE: "on"})
+    write_control_context(tmp_path / "data", owned_by=None, switch={TARGET_LIVE: "asked"})
     _dispatch_run(monkeypatch, None)
     connector = _connector()
 
@@ -136,7 +136,7 @@ async def test_a_cron_run_on_the_host_is_refused_as_unscheduled(monkeypatch, tmp
 
 @pytest.mark.asyncio
 async def test_an_owned_run_with_the_switch_on_writes(monkeypatch, tree):
-    _set_switch(tree, "alice", "on")
+    _set_switch(tree, "alice", "asked")
     _dispatch_run(monkeypatch, "alice")
     connector = _connector()
 
@@ -161,7 +161,7 @@ async def test_an_owned_run_with_the_switch_off_is_refused(monkeypatch, tree):
 @pytest.mark.asyncio
 async def test_an_owner_the_map_does_not_name_is_refused(monkeypatch, tree):
     """``carol``'s switch is on, but the map does not say what she may do."""
-    _set_switch(tree, "carol", "on")
+    _set_switch(tree, "carol", "asked")
     _dispatch_run(monkeypatch, "carol")
     connector = _connector()
 
@@ -173,8 +173,8 @@ async def test_an_owner_the_map_does_not_name_is_refused(monkeypatch, tree):
 
 @pytest.mark.asyncio
 async def test_a_demoted_owner_with_a_stale_on_is_refused(monkeypatch, tree):
-    """``bob``'s ``"on"`` predates his demotion; the tier rung comes first."""
-    _set_switch(tree, "bob", "on")
+    """``bob``'s ``"asked"`` predates his demotion; the tier rung comes first."""
+    _set_switch(tree, "bob", "asked")
     _dispatch_run(monkeypatch, "bob")
     connector = _connector()
 
@@ -182,14 +182,14 @@ async def test_a_demoted_owner_with_a_stale_on_is_refused(monkeypatch, tree):
 
     _refused(result, "tier_never")
     assert connector.writes == []
-    # The stale "on" stays on disk, inert.
+    # The stale "asked" stays on disk, inert.
     record = tree / "bob" / control_context.RECORD_FILENAME
-    assert '"on"' in record.read_text(encoding="utf-8")
+    assert '"asked"' in record.read_text(encoding="utf-8")
 
 
 @pytest.mark.asyncio
 async def test_turning_off_mid_run_refuses_the_next_write(monkeypatch, tree):
-    _set_switch(tree, "alice", "on")
+    _set_switch(tree, "alice", "asked")
     _dispatch_run(monkeypatch, "alice")
     connector = _connector()
     first = await connector.write_channel(CHANNEL, 0.5)
@@ -263,7 +263,7 @@ async def test_a_sandboxed_write_in_an_owner_less_job_is_refused_as_unscheduled(
 ):
     # Arrange: the worker runs with the tree bound; the fire carries no owner.
     for login in ("alice", "bob", "carol"):
-        _set_switch(tree, login, "on")
+        _set_switch(tree, login, "asked")
     worker_env = {posture_store.CONTROL_CONTEXT_TREE_ENV_VAR: str(tree), "PATH": "/usr/bin"}
     agent_env = await _agent_env(monkeypatch, tmp_path, worker_env, run_id="run-1")
 
@@ -284,7 +284,7 @@ async def test_a_sandboxed_write_in_an_owner_less_job_is_refused_as_unscheduled(
 @pytest.mark.asyncio
 async def test_a_sandboxed_write_in_an_owned_job_follows_the_owner(monkeypatch, tmp_path, tree):
     """The control for the case above: the same child env, with an owner, writes."""
-    _set_switch(tree, "alice", "on")
+    _set_switch(tree, "alice", "asked")
     worker_env = {posture_store.CONTROL_CONTEXT_TREE_ENV_VAR: str(tree), "PATH": "/usr/bin"}
     agent_env = await _agent_env(monkeypatch, tmp_path, worker_env, run_id="run-2", owner="alice")
 

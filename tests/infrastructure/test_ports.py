@@ -65,7 +65,7 @@ def test_the_port_lies_below_the_ephemeral_range():
 
 
 def _pinned(port: int) -> bool:
-    return any(low <= port < high for low, high in _ports.PINNED_BLOCKS)
+    return any(port in block for block in _ports.BOOKED_BLOCKS)
 
 
 def test_no_candidate_lies_in_a_pinned_block():
@@ -110,7 +110,7 @@ def test_every_block_a_test_pins_is_skipped():
     }
     assert not uncovered, (
         "test(s) pin a deployment block that reservations may hand out; widen "
-        f"_ports.PINNED_BLOCKS to cover it: {uncovered}"
+        f"_ports.BOOKED_BLOCKS to cover it: {uncovered}"
     )
 
 

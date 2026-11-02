@@ -2407,14 +2407,12 @@ describe('bundle wiring', () => {
     expect(details.slice(0, details.indexOf('>'))).not.toContain('open');
   });
 
-  test('the in-body view switcher and filter hide only when embedded AND Expert', () => {
-    // The single most important correctness point of the merge, checked as
-    // resolved style rather than as matching source text. `contributeHeader`
-    // is a no-op standalone, and the hub collapses a service tile's bar in
-    // Simple mode — in both of those cases the in-body strip is the ONLY way
-    // to navigate the panel, so a plain `body.embedded` rule would strand the
-    // operator on whichever view happened to be showing. Same rule, same
-    // reason, for the plan filter.
+  test('the in-body view switcher and filter hide whenever embedded', () => {
+    // Checked as resolved style rather than as matching source text. Embedded,
+    // the hub's tile bar carries the view switcher (SPEC §5.1: one header row
+    // per pane), so the in-body strip would be a second switcher under the
+    // first. Standalone, `contributeHeader` is a no-op and the in-body strip is
+    // the ONLY way to navigate.
     const style = document.createElement('style');
     style.textContent = readFileSync(`${BUNDLE}panel.css`, 'utf-8');
     document.head.appendChild(style);
@@ -2426,11 +2424,9 @@ describe('bundle wiring', () => {
     strip.className = 'status-strip';
     document.body.append(tabs, filter, strip);
 
-    /** @param {{embedded: boolean, simple: boolean}} context */
-    function shown({ embedded, simple }) {
+    /** @param {boolean} embedded */
+    function shown(embedded) {
       document.body.classList.toggle('embedded', embedded);
-      if (simple) document.documentElement.setAttribute('data-ui-mode', 'simple');
-      else document.documentElement.removeAttribute('data-ui-mode');
       return {
         tabs: getComputedStyle(tabs).display !== 'none',
         filter: getComputedStyle(filter).display !== 'none',
@@ -2439,27 +2435,16 @@ describe('bundle wiring', () => {
     }
 
     try {
-      expect(shown({ embedded: false, simple: false })).toEqual({
+      expect(shown(false)).toEqual({
         tabs: true,
         filter: true,
         strip: true,
       });
-      expect(shown({ embedded: false, simple: true })).toEqual({
-        tabs: true,
-        filter: true,
-        strip: true,
-      });
-      // The one case the hub really is drawing these for us.
-      expect(shown({ embedded: true, simple: false })).toEqual({
+      // Embedded: the hub draws both in the tile bar, and the safety strip stays
+      // on screen.
+      expect(shown(true)).toEqual({
         tabs: false,
         filter: false,
-        strip: true,
-      });
-      // Simple: the tile bar is collapsed to zero height, so the body keeps
-      // both — and the safety strip is on screen in every single case.
-      expect(shown({ embedded: true, simple: true })).toEqual({
-        tabs: true,
-        filter: true,
         strip: true,
       });
     } finally {
@@ -2468,7 +2453,6 @@ describe('bundle wiring', () => {
       filter.remove();
       strip.remove();
       document.body.classList.remove('embedded');
-      document.documentElement.removeAttribute('data-ui-mode');
     }
   });
 
@@ -3392,14 +3376,13 @@ describe('the merged panel shell', () => {
    * a strict no-op outside a frame — so a test that wants to see the
    * contribution has to claim both the body class and a distinct parent.
    *
-   * @param {{embedded?: boolean, mode?: 'expert'|'simple'}} [options]
+   * @param {{embedded?: boolean}} [options]
    */
-  function mount({ embedded = true, mode = 'expert' } = {}) {
+  function mount({ embedded = true } = {}) {
     const html = readFileSync(`${BUNDLE}index.html`, 'utf-8');
     const body = html.match(/<body>([\s\S]*)<\/body>/);
     if (!body) throw new Error('could not extract <body> from index.html');
     document.body.innerHTML = body[1].replace(/<script[\s\S]*?<\/script>/g, '');
-    document.documentElement.setAttribute('data-ui-mode', mode);
     if (embedded) document.body.classList.add('embedded');
     Object.defineProperty(window, 'parent', {
       configurable: true,
@@ -3509,13 +3492,38 @@ describe('the merged panel shell', () => {
     vi.unstubAllGlobals();
     document.body.innerHTML = '';
     document.body.classList.remove('embedded');
-    document.documentElement.removeAttribute('data-ui-mode');
   });
 
   /** Which of the three view containers is on screen. */
   function visibleViews() {
     return ['plans', 'queue', 'results'].filter((id) => !byId(`view-${id}`).hidden);
   }
+
+  test('the detail pane says what to do until a plan is selected, then shows that plan', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url) =>
+        String(url).endsWith('/plans')
+          ? {
+              ok: true,
+              status: 200,
+              json: async () => [{ name: 'orm', provenance: 'shipped', description: '' }],
+            }
+          : { ok: true, status: 200, json: async () => ({}) }
+      )
+    );
+    mount();
+    // Before any plan is chosen the pane is not a bare box: it carries the sentence.
+    const empty = byId('detail-empty');
+    expect(empty.hidden).toBe(false);
+    expect(empty.textContent).toContain('Select a plan to see its parameters.');
+    expect(byId('detail-body').hidden).toBe(true);
+
+    await import(`${BUNDLE}panel.js`);
+    // The first plan is auto-selected once the list lands: the sentence goes, the detail comes.
+    await vi.waitFor(() => expect(byId('detail-body').hidden).toBe(false));
+    expect(empty.hidden).toBe(true);
+  });
 
   test('exactly one view shows at a time, and Plans is the one on boot', async () => {
     mount();
@@ -3619,7 +3627,7 @@ describe('the merged panel shell', () => {
     // The hub right-anchors the interactive items into ONE cluster against the
     // close button and lays it out in contribution order, so an item's arrival
     // or departure moves everything BEFORE it and nothing after it. The filter
-    // is conditional (Plans view, Expert only); the switcher is what an
+    // is conditional (Plans view only); the switcher is what an
     // operator aims at repeatedly. Switcher last therefore keeps the tab strip
     // still, and the filter comes and goes in the slack to its left.
     //
@@ -3630,17 +3638,6 @@ describe('the merged panel shell', () => {
     await import(`${BUNDLE}panel.js`);
 
     expect(lastContribution().map((entry) => entry.kind)).toEqual(['search', 'nav']);
-  });
-
-  test('Simple mode contributes no search — the hub collapses the bar there', async () => {
-    // Simple deliberately ENLARGES a search box; the tile bar it would live in
-    // is zero-height. The in-body one is the one on screen.
-    mount({ mode: 'simple' });
-    await import(`${BUNDLE}panel.js`);
-    expect(lastContribution().some((entry) => entry.kind === 'search')).toBe(false);
-    // The nav still goes up — a collapsed bar renders nothing, it does not
-    // reject anything.
-    expect(lastContribution().some((entry) => entry.kind === 'nav')).toBe(true);
   });
 
   test('the hub search action filters the same plans the in-body box does', async () => {
@@ -3666,9 +3663,6 @@ describe('the merged panel shell', () => {
     sendHeaderAction('plan-filter', 'orm');
     expect(byId('plan-tree').textContent).not.toContain('grid_scan');
     expect(byId('plan-tree').textContent).toContain('orm');
-    // The in-body box is kept in step, so flipping to Simple — where the
-    // contributed copy disappears — does not lose the filter.
-    expect(byId('plan-search').value).toBe('orm');
   });
 
   test('the Results tab carries a marker while data arrives for an unwatched run', async () => {
@@ -3722,7 +3716,7 @@ describe('the merged panel shell', () => {
 
   test('a run finishing with nothing selected fills Results without switching tabs', async () => {
     // The regression this pins: a fast run completes between two glances, and
-    // in Expert mode nothing followed it — the Results view sat on its empty
+    // nothing followed it — the Results view sat on its empty
     // state while the finished run's row waited in the Completed-runs card on
     // the other tab.
     vi.stubGlobal(
@@ -3762,7 +3756,7 @@ describe('the merged panel shell', () => {
         return { ok: true, status: 200, json: async () => [] };
       })
     );
-    mount(); // Expert mode — the Simple-mode auto-pick is not in play.
+    mount();
     await import(`${BUNDLE}panel.js`);
 
     byId('view-tab-queue').click();

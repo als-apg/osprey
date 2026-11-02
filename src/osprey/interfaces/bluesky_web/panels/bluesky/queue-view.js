@@ -11,7 +11,7 @@
  *
  * The queue state badge and the two halts do NOT live inside the Queue tab —
  * they render into the panel's persistent status strip, which is on screen for
- * every tab and in every UI mode. This view owns them all the same: they are
+ * every tab. This view owns them all the same: they are
  * driven by the same queue frames as the list below them, so splitting their
  * wiring across two modules would be splitting one state machine in half.
  *
@@ -84,7 +84,7 @@ import { badgeToneForStatus } from './results-view.js';
  * @property {(runId: string|null, activate: boolean) => void} onSelectRun  A run
  *   was picked, or (`null`) the selected run was removed and nothing is
  *   selected now. `activate` is true for an operator's click — which opens the
- *   Results tab — and false for the Simple-mode auto-pick, which fills the
+ *   Results tab — and false for following a finished run, which fills the
  *   Results view without yanking the operator off the tab they are on.
  * @property {(status: import('./queue-client.js').QueueStatus|null) => void} [onStatus]
  *   The manager summary changed (or the stream dropped: `null`). The shell
@@ -98,7 +98,6 @@ import { badgeToneForStatus } from './results-view.js';
  *   current selection so the queue and history rows highlight it.
  * @property {(view: string) => void} setView  The tab now showing. Decides
  *   which of the strip's controls are on screen (`stripControls`).
- * @property {(mode: 'expert'|'simple') => void} onModeChange
  * @property {(runId: string) => Promise<boolean>} removeRun  Drop one finished
  *   run from history; the Results tab's "Remove from history" lands here.
  */
@@ -679,27 +678,6 @@ export function createQueueView({ root, api, onSelectRun, onStatus = () => {} })
       return;
     }
     renderHistory();
-    maybeAutoSelectLatest();
-  }
-
-  // -------------------------------------------------------------------------
-  // Selection
-  // -------------------------------------------------------------------------
-
-  /**
-   * In Simple mode the operator shouldn't have to hunt for the newest run:
-   * surface the running one, or failing that the newest completed one, as soon
-   * as either exists. No-op in Expert, and no-op once anything is selected (a
-   * deep link or a manual pick). Passes `activate: false` — this is the
-   * panel's own housekeeping, not an operator action, so it must not move
-   * anyone off the tab they chose.
-   */
-  function maybeAutoSelectLatest() {
-    if (document.documentElement.dataset.uiMode !== 'simple') return;
-    if (state.selected) return;
-    const running = itemRunId(state.queue.runningItem);
-    const candidate = running || (state.history.length > 0 ? state.history[0].id : null);
-    if (candidate) onSelectRun(candidate, false);
   }
 
   // -------------------------------------------------------------------------
@@ -928,14 +906,12 @@ export function createQueueView({ root, api, onSelectRun, onStatus = () => {} })
       // two glances, and with nothing selected the Results view would sit on
       // "Select a queued or completed run" while the finished run's row waits
       // one tab away. So when the running item leaves the slot and NOTHING is
-      // selected yet — in either UI mode — the finished run is followed.
-      // `activate: false`, exactly like the Simple-mode auto-pick below: this
+      // selected yet the finished run is followed. `activate: false`: this
       // is the panel's own housekeeping, so it fills the Results view without
       // moving anyone off the tab they chose. A manual pick or deep link
       // (state.selected non-null) always wins.
       const finished = finishedRunId(previousRunning, next.runningItem);
       if (finished !== null && state.selected === null) onSelectRun(finished, false);
-      maybeAutoSelectLatest();
     },
     onConnectionChange(connected) {
       if (connected === state.queue.connected) return;
@@ -969,10 +945,6 @@ export function createQueueView({ root, api, onSelectRun, onStatus = () => {} })
       if (view === activeView) return;
       activeView = view;
       renderQueue();
-    },
-    /** @param {'expert'|'simple'} mode */
-    onModeChange(mode) {
-      if (mode === 'simple') maybeAutoSelectLatest();
     },
     /**
      * Drop one finished run from the history view — the Results tab's

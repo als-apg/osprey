@@ -290,38 +290,43 @@ class TestEffectivePolicy:
 
 
 class TestAskCapable:
-    """Whether a guarded tool's call is put to a human, read from the render alone."""
+    """Whether a policy-keeping tool's call is put to a human, read from the render alone.
+
+    Governed tools ask whatever ``approval.*`` says; that half is in
+    ``test_governed_tools.py``. ``phoebus_drive`` stands in for the tools that
+    keep their policy.
+    """
 
     def test_enabled_and_a_prompting_policy_is_ask_capable(self) -> None:
-        assert ask_capable(_rendered(approval=_approval()), "execute_file")
+        assert ask_capable(_rendered(approval=_approval()), "phoebus_drive")
 
     def test_approval_disabled_is_not_ask_capable(self) -> None:
         rendered = _rendered(approval={**_approval(), "enabled": False})
-        assert not ask_capable(rendered, "execute_file")
+        assert not ask_capable(rendered, "phoebus_drive")
 
     def test_a_skip_policy_is_not_ask_capable(self) -> None:
-        rendered = _rendered(approval=_approval(pyaml_measure="skip"))
-        assert not ask_capable(rendered, "pyaml_measure")
+        rendered = _rendered(approval=_approval(phoebus_drive="skip"))
+        assert not ask_capable(rendered, "phoebus_drive")
 
     def test_a_selective_policy_is_ask_capable(self) -> None:
-        rendered = _rendered(approval=_approval(execute="selective"))
-        assert ask_capable(rendered, "execute")
+        rendered = _rendered(approval=_approval(phoebus_drive="selective"))
+        assert ask_capable(rendered, "phoebus_drive")
 
     def test_an_absent_approval_block_asks(self) -> None:
         """The hook reads an unstated switch as on and an unstated policy as ``always``."""
         rendered = _rendered()
         del rendered["approval"]
-        assert ask_capable(rendered, "execute")
+        assert ask_capable(rendered, "phoebus_drive")
 
     @pytest.mark.parametrize("enabled", [None, "", 0, "false", "no", 1])
     def test_a_non_bool_switch_is_not_ask_capable(self, enabled: Any) -> None:
         """A switch that is not true or false asks nobody; the hook and executor refuse it."""
         rendered = _rendered(approval={**_approval(), "enabled": enabled})
-        assert ask_capable(rendered, "execute") is False
+        assert ask_capable(rendered, "phoebus_drive") is False
 
     @pytest.mark.parametrize("section", [None, "disabled"], ids=["bare", "string"])
     def test_a_section_that_is_not_a_mapping_is_not_ask_capable(self, section: Any) -> None:
-        assert ask_capable(_rendered(approval=section), "execute") is False
+        assert ask_capable(_rendered(approval=section), "phoebus_drive") is False
 
 
 class TestApprovalEnabled:
@@ -381,21 +386,51 @@ class TestApprovalEnabled:
         )
 
 
+#: No server that serves a governed tool, on top of the registry defaults, so a
+#: test of a policy-keeping tool is not answered by a governed one first.
+_NO_GOVERNED_SERVERS: dict[str, dict[str, bool]] = {
+    "controls": {"enabled": False},
+    "python": {"enabled": False},
+}
+
+
 class TestApprovalHookSelected:
-    """A render that puts a guarded tool to a human selects the hook that asks."""
+    """A render that puts a tool to a human selects the hook that asks.
+
+    The governed half, facility tools included, is in ``test_governed_tools.py``.
+    """
 
     def test_the_hook_selected_passes(self) -> None:
         check_approval_hook_selected(_rendered(approval=_approval()), [APPROVAL_HOOK])
 
-    def test_approval_disabled_without_the_hook_passes(self) -> None:
+    def test_approval_disabled_without_the_hook_stops(self) -> None:
+        """``approval.*`` has no say over a governed tool, so off is no way out."""
         rendered = _rendered(approval={**_approval(), "enabled": False})
+        with pytest.raises(FacilityBuildError) as stop:
+            check_approval_hook_selected(rendered, ["error-guidance"])
+        assert "governed tool `execute`" in stop.value.format_message()
+
+    def test_approval_disabled_with_no_governed_tool_served_passes(self) -> None:
+        rendered = _rendered(
+            approval={**_approval(), "enabled": False},
+            claude_code={"servers": _NO_GOVERNED_SERVERS},
+        )
         check_approval_hook_selected(rendered, ["error-guidance"])
 
-    def test_every_guarded_tool_skipped_without_the_hook_passes(self) -> None:
+    def test_every_guarded_tool_skipped_without_the_hook_stops(self) -> None:
+        """A ``skip`` policy on a governed tool is no way out either."""
         rendered = _rendered(
             approval=_approval(
                 channel_write="skip", execute="skip", execute_file="skip", pyaml_measure="skip"
             )
+        )
+        with pytest.raises(FacilityBuildError):
+            check_approval_hook_selected(rendered, ["error-guidance"])
+
+    def test_every_tool_skipped_with_no_governed_tool_served_passes(self) -> None:
+        skipped = dict.fromkeys((*GUARDED_TOOLS, *STAGE1_TOOLS), "skip")
+        rendered = _rendered(
+            approval=_approval(**skipped), claude_code={"servers": _NO_GOVERNED_SERVERS}
         )
         check_approval_hook_selected(rendered, ["error-guidance"])
 
@@ -406,29 +441,40 @@ class TestApprovalHookSelected:
         assert stop.value.kind == "profile-invalid"
         assert stop.value.record_id == "approval.enabled"
         message = stop.value.format_message()
-        assert "guarded tool `execute` is put to a human under `approval.tools.execute`" in message
+        assert "governed tool `execute` is put to a human by the write switch" in message
         assert "add `approval` to `hooks:` in profile.yml" in message
+        assert "approval.enabled: false" not in message
 
     @pytest.mark.parametrize(
-        ("tool", "server"),
-        [
-            ("channel_write", "controls"),
-            ("queue_start", "bluesky"),
-            ("queue_add", "bluesky"),
-            ("phoebus_drive", "phoebus"),
-        ],
+        ("server", "named"),
+        [("controls", "channel_write"), ("bluesky", "queue_start")],
     )
-    def test_an_asking_stage1_tool_on_an_enabled_server_stops(self, tool: str, server: str) -> None:
+    def test_a_governed_stage1_tool_on_an_enabled_server_stops(
+        self, server: str, named: str
+    ) -> None:
         skipped = dict.fromkeys((*GUARDED_TOOLS, *STAGE1_TOOLS), "skip")
         rendered = _rendered(
-            approval=_approval(**{**skipped, tool: "always"}),
-            claude_code={"servers": {server: {"enabled": True}}},
+            approval=_approval(**skipped),
+            claude_code={"servers": {**_NO_GOVERNED_SERVERS, server: {"enabled": True}}},
         )
         with pytest.raises(FacilityBuildError) as stop:
             check_approval_hook_selected(rendered, ["error-guidance"])
-        assert f"guarded tool `{tool}` is put to a human under `approval.tools.{tool}`" in (
+        assert f"governed tool `{named}` is put to a human by the write switch" in (
             stop.value.format_message()
         )
+        check_approval_hook_selected(rendered, [APPROVAL_HOOK])
+
+    def test_an_asking_policy_tool_on_an_enabled_server_stops(self) -> None:
+        skipped = dict.fromkeys((*GUARDED_TOOLS, *STAGE1_TOOLS), "skip")
+        rendered = _rendered(
+            approval=_approval(**{**skipped, "phoebus_drive": "always"}),
+            claude_code={"servers": {**_NO_GOVERNED_SERVERS, "phoebus": {"enabled": True}}},
+        )
+        with pytest.raises(FacilityBuildError) as stop:
+            check_approval_hook_selected(rendered, ["error-guidance"])
+        assert (
+            "guarded tool `phoebus_drive` is put to a human under `approval.tools.phoebus_drive`"
+        ) in stop.value.format_message()
         check_approval_hook_selected(rendered, [APPROVAL_HOOK])
 
     @pytest.mark.parametrize(
@@ -446,7 +492,7 @@ class TestApprovalHookSelected:
         skipped = dict.fromkeys((*GUARDED_TOOLS, *STAGE1_TOOLS), "skip")
         rendered = _rendered(
             approval=_approval(**{**skipped, tool: "always"}),
-            claude_code={"servers": {server: {"enabled": False}}},
+            claude_code={"servers": {**_NO_GOVERNED_SERVERS, server: {"enabled": False}}},
         )
         check_approval_hook_selected(rendered, ["error-guidance"])
 
@@ -454,10 +500,11 @@ class TestApprovalHookSelected:
         rendered = _rendered(approval=_approval(execute="always"))
         with pytest.raises(FacilityBuildError) as stop:
             check_approval_hook_selected(rendered, [])
-        assert "guarded tool `execute`" in stop.value.format_message()
+        assert "governed tool `execute`" in stop.value.format_message()
 
-    def test_an_unstated_approval_block_without_the_hook_stops(self) -> None:
-        rendered = _rendered()
+    def test_an_unserved_guarded_tool_still_stops_by_its_policy(self) -> None:
+        """Off the governed set a guarded tool is read as before, served or not."""
+        rendered = _rendered(claude_code={"servers": _NO_GOVERNED_SERVERS})
         del rendered["approval"]
         with pytest.raises(FacilityBuildError) as stop:
             check_approval_hook_selected(rendered, [])

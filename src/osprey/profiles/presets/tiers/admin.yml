@@ -48,8 +48,8 @@ skills:
 # ── Config overrides ─────────────────────────────────────────────────────────
 # Dotted keys ONLY, as in the deployment's own config: block.
 config:
-  # The admin tier carries readwrite's control posture exactly: writes
-  # allowed, each machine's write still decided by the login's own switch.
+  # The top of `never`, `asked` and `allowed`, one above readwrite's `asked`;
+  # each machine's write is still decided by the login's own switch.
   # What makes this the admin tier is the deployment-editing block below, not a
   # wider write surface.
   control_system.writes: allowed
@@ -69,7 +69,3 @@ config:
   # delete surfaces back on. Its contents are shared deployment state, which is
   # exactly what this tier is for.
   web.scaffold_gallery.write_enabled: true
-  # Full split-pane terminal + workspace layout: the Config panel and the
-  # gallery editors need the panel area. Pinned rather than left to the server
-  # default, for the same reason the other tiers pin theirs.
-  web.ui_mode: expert

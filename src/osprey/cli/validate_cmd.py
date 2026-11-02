@@ -111,7 +111,6 @@ def check_profile_file(profile_file: Path, *, drift: str = "error") -> None:
         profile_dispatch_tier,
     )
     from .build_profile_drift import MARKER_REACH, preset_drift_report
-    from .build_profile_panels import bar_items_selection_warnings
     from .build_profile_presets import bundled_layer_file_refusal
     from .build_profile_schema import DEFAULT_DEVIATION_MARKER
     from .build_profile_timezone import system_timezone_errors, system_timezone_reminders
@@ -193,9 +192,6 @@ def check_profile_file(profile_file: Path, *, drift: str = "error") -> None:
             dispatch_tier=dispatch_tier,
             agent_record=build_profile.agent_record,
         ),
-        # The same line `osprey build` prints for a `web.bar_items` entry the
-        # served default drops because its panel is not selected.
-        *bar_items_selection_warnings(build_profile.config, build_profile.web_panels),
         # The same UTC reminder `osprey build` prints.
         *system_timezone_reminders(build_profile.config),
     ):

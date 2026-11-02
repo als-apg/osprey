@@ -28,8 +28,9 @@ guard them, both enforced BEFORE any HTTP call — but only the first is carried
 everywhere:
 
 1. The write verdict for the control target the BOUND LANE serves
-   (``osprey_connectors.posture_store.write_verdict``), the one verdict every
-   OSPREY write path shares: a read-only run, the deployment's tier, the target,
+   (``osprey_connectors.posture_store.execution_verdict``), the one verdict every
+   OSPREY write path shares: a read-only run, the deployment's tier, the session's
+   hold, the target,
    the owner, the record and the owner's switch, in one order, first refusal
    wins. It is the same verdict ``ControlSystemConnector``'s reference monitor
    asks, so the queue agrees with every other write path about which machines
@@ -178,6 +179,7 @@ from osprey.mcp_server.control_system.target_banner import (
 from osprey.mcp_server.errors import make_error
 from osprey.mcp_server.http import notify_agent_activity_async
 from osprey.utils.launch_token import LAUNCH_TOKEN_INVALID, LAUNCH_TOKEN_REQUIRED
+from osprey.utils.session_hold_api import execution_verdict, refusal_detail
 from osprey_connectors import posture_store
 from osprey_connectors.types import baseline_target
 
@@ -358,13 +360,13 @@ def _lane_verdict(lane_target: str | None) -> posture_store.WriteVerdict:
     the same substitution), so a caller with no lane in hand gets the
     baseline's verdict rather than a fail-open read of nothing.
 
-    Asks the ONE verdict every OSPREY write path shares,
-    :func:`osprey_connectors.posture_store.write_verdict`, over the deployment's
+    Asks the ONE verdict every OSPREY write path shares, with the session's hold,
+    :func:`osprey_connectors.posture_store.execution_verdict`, over the deployment's
     ``control_system`` section, with the owner left to the verdict's own ladder
     (:func:`~osprey_connectors.posture_store.current_owner`). So the queue's
     arming gate refuses for the same reason, in the same order, as the
     connector's reference monitor, the executor's gate and the PreToolUse hook:
-    a read-only run, a tier that allows nothing, a target this deployment does
+    a read-only run, a tier that allows nothing, a held session, a target this deployment does
     not know, an owner it cannot name, a record it cannot read, a switch that
     is off.
 
@@ -373,7 +375,7 @@ def _lane_verdict(lane_target: str | None) -> posture_store.WriteVerdict:
     launch token is still refused, and a switch turned off reaches this server
     at its next arming call.
 
-    Never raises. ``write_verdict`` never raises by contract; reading the
+    Never raises. ``execution_verdict`` never raises by contract; reading the
     section or naming the baseline can, and a verdict that cannot be reached
     refuses as ``record_unavailable``.
     """
@@ -382,7 +384,7 @@ def _lane_verdict(lane_target: str | None) -> posture_store.WriteVerdict:
 
         section = get_config_value("control_system", {})
         target = lane_target or baseline_target(section)
-        return posture_store.write_verdict(section, target)
+        return execution_verdict(section, target)
     except Exception:  # unknown posture must not arm hardware
         logger.warning("Write verdict for lane target %r could not be reached", lane_target)
         return posture_store.WriteVerdict(
@@ -427,7 +429,8 @@ def _refusal_text(verdict: posture_store.WriteVerdict) -> tuple[str, str]:
     from osprey_connectors.refusals import refusal_phrase
 
     reason = verdict.reason or "record_unavailable"
-    return reason, refusal_phrase(reason, verdict.kind)
+    phrase = refusal_phrase(reason, verdict.kind)
+    return reason, refusal_detail(phrase, verdict) or phrase
 
 
 def _refuse_writes_disabled(
@@ -450,7 +453,9 @@ def _refuse_writes_disabled(
     make_error(
         "writes_disabled",
         refusal_text(
-            reason, verdict.kind, detail=f"{refused} was refused before reaching the bridge."
+            reason,
+            verdict.kind,
+            detail=refusal_detail(f"{refused} was refused before reaching the bridge.", verdict),
         ),
         [
             f"Hand the action to the operator, who can perform {refused} from the "
@@ -465,8 +470,11 @@ def _require_approval_record(tool: str, *, lane: str | None) -> None:
 
     Stage 1 of approval
     (:func:`~osprey.mcp_server.approval_record.require_approval_record`): where
-    the deployment's policy for *tool* asks, the call runs only on the ask stamp
-    the approval hook filed for it, so a call that reached this server without
+    *tool* is ask-capable (:func:`~osprey.cli.build_posture_check.ask_capable`
+    — always for a governed tool, whatever ``approval.*`` says), the call runs
+    only on the ask stamp the approval hook filed for it, whichever approver
+    filed it (``human`` at ``asked``, ``write_switch`` at ``allowed``), so a
+    call that reached this server without
     passing the prompt is refused here before the bridge is called. The rendered
     ``config.yml`` is read fresh on every call, as the verdict is. The refusal's
     ``error_type`` is the record's (``approval_missing`` or
@@ -812,9 +820,9 @@ def _relay_refusal(
 
 # Manager states that mean this lane's queue is draining toward hardware. A copy
 # of `queue_backend.QUEUE_ACTIVE_MANAGER_STATES`, forced by this server's
-# no-bluesky-imports invariant and kept in step by name — the two JS clients
-# (`queue-client.js`, `bar-item-queue.js`) carry the same copy for the same
-# reason. A lane in one of these is a lane with something to halt.
+# no-bluesky-imports invariant and kept in step by name — the JS client
+# (`queue-client.js`) carries the same copy for the same reason. A lane in one
+# of these is a lane with something to halt.
 _MOVING_MANAGER_STATES = frozenset(
     {"executing_queue", "starting_queue", "executing_task", "paused"}
 )
@@ -1168,9 +1176,9 @@ async def queue_add(draft_revision: int, lane: str | None = None) -> str:
           true, an item could NOT be withdrawn and is sitting in an armed queue
           — ``details.item_uid`` names it and a human must deal with it.
         - approval_missing / approval_config_invalid: the write verdict
-          allows this add, so it may arm the queue, and the deployment's
-          approval policy asks about it, but its prompt left no record (or the
-          approval switch is malformed). Refused before the bridge is called;
+          allows this add, so it may arm the queue, and it needs an approval
+          record, but the approval hook left none (or the approval switch is
+          malformed). Refused before the bridge is called;
           call again so the prompt can ask. An add the verdict refuses is
           posted unarmed and is never refused for this.
         - stale_draft_revision: the draft changed after you pinned it. Re-read
@@ -1463,9 +1471,9 @@ async def queue_start(lane: str | None = None) -> str:
           which says who can lift it. Refused before the bridge is called at
           all, and refused per LANE: the other lane may well be startable. Not
           agent-recoverable.
-        - approval_missing: the deployment's approval policy asks about this
-          start and its prompt left no record — the call did not pass the
-          approval prompt. Refused before the bridge is called; call again so
+        - approval_missing: this start needs an approval record and the
+          approval hook left none — the call did not pass the approval
+          prompt. Refused before the bridge is called; call again so
           the prompt can ask.
         - approval_config_invalid: the deployment's ``approval.enabled`` is
           neither true nor false, so no call it guards runs. Not
@@ -1534,7 +1542,8 @@ async def queue_start(lane: str | None = None) -> str:
     if not verdict.allowed:
         return _refuse_writes_disabled("queue_start", verdict, lane=bound.key)
     # Stage 1, after the verdict so an off lane is refused for being off: a
-    # start whose policy asks runs only on the record its prompt left.
+    # start that needs a record (a governed one always does) runs only on the
+    # record the approval hook left, whichever approver filed it.
     _require_approval_record("queue_start", lane=bound.key)
 
     # A server without a token still goes to the bridge, sending no header:

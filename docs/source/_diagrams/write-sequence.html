@@ -1,7 +1,7 @@
 <div class="osprey-diagram">
 <svg viewBox="0 0 1280 728" role="img" aria-labelledby="write-sequence-title write-sequence-desc">
   <title id="write-sequence-title">Control-system write, end to end</title>
-  <desc id="write-sequence-desc">Sequence of a corrector bump: the operator asks, the OSPREY agent resolves the channel via the channel-finder sub-agent, reads the current value through the connector, then the safety hooks check the write verdict (tier, owner, switch) and limits and ask the operator for approval before the control-system MCP writes through the connector and confirms the write landed.</desc>
+  <desc id="write-sequence-desc">Sequence of a corrector bump: the operator asks, the OSPREY agent resolves the channel via the channel-finder sub-agent, reads the current value through the connector, then the safety hooks check the write verdict (tier, owner, and the switch's position: off, asked or allowed) and limits; at asked they ask the operator for approval, at allowed they let the write through without a prompt, with the switch record standing as its approval, before the control-system MCP writes through the connector and confirms the write landed.</desc>
   <defs>
     <marker id="write-sequence-arr" viewBox="0 0 8 6" refX="7" refY="3" markerWidth="8" markerHeight="6" orient="auto-start-reverse">
       <polygon points="0,0 8,3 0,6" fill="context-stroke"/>
@@ -63,18 +63,20 @@
   <text class="ta" x="640" y="357" text-anchor="middle">channel_write(…, 1.7 A)</text>
 
   <path class="e" d="M748,400 H780 Q788,400 788,408 V416 Q788,424 780,424 H752" marker-end="url(#write-sequence-arr)"/>
-  <text class="ta" x="796" y="412">writes_check → allowed</text>
+  <text class="ta" x="796" y="412">writes_check → switch asked</text>
 
   <path class="e" d="M748,432 H780 Q788,432 788,440 V448 Q788,456 780,456 H752" marker-end="url(#write-sequence-arr)"/>
   <text class="ta" x="796" y="444">limits → within range</text>
 
   <line class="e" x1="740" y1="464" x2="124" y2="464" marker-end="url(#write-sequence-arr)"/>
-  <rect class="mask" x="168" y="444" width="112" height="12" rx="2"/>
-  <text class="ta" x="224" y="453" text-anchor="middle">approve? write 1.7 A</text>
+  <rect class="mask" x="152" y="444" width="144" height="12" rx="2"/>
+  <text class="ta" x="224" y="453" text-anchor="middle">asked: approve? write 1.7 A</text>
 
   <line class="e e-dash" x1="120" y1="496" x2="740" y2="496" marker-end="url(#write-sequence-arr)"/>
   <rect class="mask" x="196" y="476" width="56" height="12" rx="2"/>
   <text class="ta" x="224" y="485" text-anchor="middle">approved</text>
+  <text class="ta" x="796" y="478">at allowed: no prompt,</text>
+  <text class="ta" x="796" y="490">the switch record approves</text>
 
   <line class="e" x1="748" y1="528" x2="948" y2="528" marker-end="url(#write-sequence-arr)"/>
   <rect class="mask" x="820" y="508" width="56" height="12" rx="2"/>

@@ -68,6 +68,7 @@ the base tree, so it is a developer-time check, not part of the CI run.
 from __future__ import annotations
 
 import argparse
+import copy
 import re
 import subprocess
 import sys
@@ -221,6 +222,16 @@ _SEP = "\n\x00\n"
 #: tree can never collide with the repository.
 _TEXT_CACHE: dict[tuple[str, str], list[tuple[str, str]]] = {}
 
+#: The service injectors' output, once per (preset, render handed to them) for
+#: the whole process. Each run scaffolds a project and parses every service
+#: template, which is most of what a union costs, and the test suite builds a
+#: fresh guard per negative control. The key is the injectors' entire input —
+#: the preset names the resolved profile, and ``repr`` of the render spells
+#: the ``config.yml`` laid out for them — so a doctored render is a different
+#: key, never a stale hit. Callers get a deep copy, so no guard's edits reach
+#: another's.
+_INJECTED_CACHE: dict[tuple[str, str], dict[str, Any]] = {}
+
 
 @dataclass
 class Failure:
@@ -303,6 +314,7 @@ class ConfigKeyGuard:
         self._rendered: dict[str, list[dict[str, Any]]] | None = None
         self._stated: dict[str, dict[str, Any]] | None = None
         self._apps: dict[str, tuple[Any, dict[str, Any]]] | None = None
+        self._presets: dict[str, tuple[Any, dict[str, Any]]] | None = None
 
     # ── plumbing ────────────────────────────────────────────────────────
 
@@ -488,7 +500,12 @@ class ConfigKeyGuard:
         fill the union would be missing every ``services.*`` port key that a
         real render carries — and the manifest entries for them would read as
         rot.
+
+        Cached on the guard like :meth:`resolved_apps`: :meth:`render_one`
+        reads it once per preset, and the union calls it once per preset again.
         """
+        if self._presets is not None:
+            return self._presets
         from osprey.cli.build_profile_archiver import _expand_dotted
         from osprey.cli.build_profile_ports import layout_port_fill
         from osprey.cli.build_profile_resolve import resolve_build_profile
@@ -502,6 +519,7 @@ class ConfigKeyGuard:
             for key, port in layout_port_fill(overlay, DEFAULT_PORT_BASE).items():
                 overlay.setdefault(key, port)
             out[name] = (profile, _expand_dotted(overlay))
+        self._presets = out
         return out
 
     def stated_presets(self) -> dict[str, dict[str, Any]]:
@@ -613,18 +631,28 @@ class ConfigKeyGuard:
         The union takes only what the injectors ADD (:meth:`injected_paths`);
         the rest of this render is the preset's own, already in the union under
         the preset's name.
+
+        The injectors are the costliest step of a render, and their answer is
+        determined by the preset and the render handed to them, so it is kept
+        for the process under exactly that pair (see :data:`_INJECTED_CACHE`).
         """
         from dataclasses import replace
 
         from osprey.cli.build_cmd import _inject_services
         from osprey.cli.build_profile_resolve import resolve_build_profile
 
-        profile, preset_dir = resolve_build_profile(None, name)
-        with tempfile.TemporaryDirectory() as scratch:
-            project = Path(scratch)
-            (project / "config.yml").write_text(yaml.safe_dump(self.render_one(name)))
-            _inject_services(replace(profile, deploy_services=True), preset_dir, project)
-            return yaml.safe_load((project / "config.yml").read_text()) or {}
+        own = self.render_one(name)
+        cache_key = (name, repr(own))
+        if cache_key not in _INJECTED_CACHE:
+            profile, preset_dir = resolve_build_profile(None, name)
+            with tempfile.TemporaryDirectory() as scratch:
+                project = Path(scratch)
+                (project / "config.yml").write_text(yaml.safe_dump(own))
+                _inject_services(replace(profile, deploy_services=True), preset_dir, project)
+                _INJECTED_CACHE[cache_key] = (
+                    yaml.safe_load((project / "config.yml").read_text()) or {}
+                )
+        return copy.deepcopy(_INJECTED_CACHE[cache_key])
 
     def injected_paths(self, name: str) -> set[str]:
         """The dotted paths the service injectors add to one preset's render.
@@ -1447,15 +1475,23 @@ class ConfigKeyGuard:
         green light wired to nothing. Four of the manifest's first 22 were
         exactly that. Both sides are measured with this module's own matcher so
         the comparison cannot drift on engine semantics.
+
+        The verdict needs only whether each side matches, which the engine
+        answers at the first hit; the counts the failure prints are taken only
+        for a regex that fails.
         """
         for key, sites in self.manifest["orphan_sites"].items():
             for site in sites:
                 pattern = site["regex"]
                 roots = self.site_roots(site)
-                base_hits = sum(
-                    self.count_matches(pattern, self._base_text(commit, root)) for root in roots
-                )
-                branch_hits = sum(self.count_matches(pattern, self.joined(root)) for root in roots)
+                base_texts = [self._base_text(commit, root) for root in roots]
+                branch_texts = [self.joined(root) for root in roots]
+                if any(self.has_match(pattern, text) for text in base_texts) and not any(
+                    self.has_match(pattern, text) for text in branch_texts
+                ):
+                    continue
+                base_hits = sum(self.count_matches(pattern, text) for text in base_texts)
+                branch_hits = sum(self.count_matches(pattern, text) for text in branch_texts)
                 if base_hits < 1 or branch_hits != 0:
                     self.fail(
                         "back-test",

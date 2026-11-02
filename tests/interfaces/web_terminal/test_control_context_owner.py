@@ -171,8 +171,8 @@ async def test_a_foreign_owner_refuses_the_mutation(record_file):
 def _turn_on(path: Path, target: str) -> ControlContext:
     """The person's turn-on, as the posture route makes it: null epoch, then retry."""
     with pytest.raises(control_context.StoppedSince) as refused:
-        control_context.set_switch([target], "on", epoch=0, path=path)
-    stored = control_context.set_switch([target], "on", epoch=refused.value.epoch, path=path)
+        control_context.set_switch([target], "asked", epoch=0, path=path)
+    stored = control_context.set_switch([target], "asked", epoch=refused.value.epoch, path=path)
     assert stored is not None
     return stored
 
@@ -194,7 +194,7 @@ async def test_a_mutation_keeps_the_switch_the_gesture_wrote(context_owner, reco
     stored = read(record_file)
     assert stored is not None
     assert (stored.target, stored.generation) == ("va", 4)
-    assert stored.switch == {"standin": "on"}
+    assert stored.switch == {"standin": "asked"}
     assert stored.switch_epoch == switched.switch_epoch
 
 
@@ -214,7 +214,7 @@ async def test_the_switch_gesture_needs_no_ownership(record_file):
 
     stored = read(record_file)
     assert stored is not None
-    assert stored.switch == {"va": "on"}
+    assert stored.switch == {"va": "asked"}
     assert stored.owner == OTHER_TERMINAL
 
 

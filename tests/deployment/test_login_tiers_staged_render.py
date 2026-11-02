@@ -70,6 +70,8 @@ class Case:
     #: The dispatch worker's tier, or ``None`` for an untiered worker.
     worker_tier: str | None = "readonly"
     edits: tuple[tuple[str, str], ...] = ()
+    #: Exact edits to ``tiers/readwrite.yml``, the render alice's card lands on.
+    readwrite_edits: tuple[tuple[str, str], ...] = ()
     #: Hand-checked entries the map must carry, so the oracle is not vacuous.
     must_map: dict[str, str] = field(default_factory=dict)
     #: Logins the map must leave out.
@@ -79,6 +81,10 @@ class Case:
 
 
 _DISPATCH_TIER_LINE = ("\n  tier: readonly\n", "\n")
+
+#: The readwrite tier spelling ``allowed`` over its shipped ``asked``; the root
+#: stays ``asked`` and the admin tier ``allowed``.
+_READWRITE_ALLOWS = ("\n  control_system.writes: asked\n", "\n  control_system.writes: allowed\n")
 
 _OIDC_AUTH = (
     "    auth:\n      method: password\n",
@@ -120,18 +126,26 @@ _DAVE_ON_DEFAULT_TIER = (
 )
 
 CASES = (
+    # A tier word of its own: the map carries all three, verbatim.
+    Case(
+        id="allowed-readwrite-tier",
+        build_account=BUILDER,
+        readwrite_edits=(_READWRITE_ALLOWS,),
+        must_map={"alice": "allowed", "bob": "never", "carol": "allowed", BUILDER: "asked"},
+        exact=True,
+    ),
     # The exemplar as shipped: three pinned cards, a tiered worker on readonly.
     Case(
         id="pinned-cards-tiered-worker",
         build_account=BUILDER,
-        must_map={"alice": "allowed", "bob": "never", "carol": "allowed", BUILDER: "allowed"},
+        must_map={"alice": "asked", "bob": "never", "carol": "allowed", BUILDER: "asked"},
     ),
     Case(
         id="pinned-cards-untiered-worker",
         build_account=BUILDER,
         worker_tier=None,
         edits=(_DISPATCH_TIER_LINE,),
-        must_map={"alice": "allowed", "bob": "never", "carol": "allowed", BUILDER: "allowed"},
+        must_map={"alice": "asked", "bob": "never", "carol": "allowed", BUILDER: "asked"},
     ),
     # Single sign-on picks the tier: only alice's explicit role binds statically;
     # bob's and carol's pins and dave's default_tier do not.
@@ -139,7 +153,7 @@ CASES = (
         id="oidc-claim-with-default-tier",
         build_account=BUILDER,
         edits=(_OIDC_AUTH, _AUTHORIZATION_WITH_CLAIM, _ALICE_BY_ROLE, _DAVE_ON_DEFAULT_TIER),
-        must_map={"alice": "allowed", BUILDER: "allowed"},
+        must_map={"alice": "asked", BUILDER: "asked"},
         must_omit=("bob", "carol", "dave"),
     ),
     # The build account is a readonly roster login: it keeps its roster tier,
@@ -147,7 +161,7 @@ CASES = (
     Case(
         id="build-account-is-readonly-login",
         build_account="bob",
-        must_map={"alice": "allowed", "bob": "never", "carol": "allowed"},
+        must_map={"alice": "asked", "bob": "never", "carol": "allowed"},
         must_omit=(BUILDER,),
     ),
     # The build account names a card whose tier sign-in decides: absent stays
@@ -157,7 +171,7 @@ CASES = (
         build_account="bob",
         worker_tier=None,
         edits=(_DISPATCH_TIER_LINE, _OIDC_AUTH, _AUTHORIZATION_WITH_CLAIM, _ALICE_BY_ROLE),
-        must_map={"alice": "allowed"},
+        must_map={"alice": "asked"},
         must_omit=("bob", "carol"),
     ),
     # The build account names a shared app card, not a person: it is a roster
@@ -165,7 +179,7 @@ CASES = (
     Case(
         id="build-account-is-app-card-tiered-worker",
         build_account="logbook",
-        must_map={"alice": "allowed", "bob": "never", "carol": "allowed"},
+        must_map={"alice": "asked", "bob": "never", "carol": "allowed"},
         must_omit=("logbook",),
         exact=True,
     ),
@@ -174,7 +188,7 @@ CASES = (
         build_account="logbook",
         worker_tier=None,
         edits=(_DISPATCH_TIER_LINE,),
-        must_map={"alice": "allowed", "bob": "never", "carol": "allowed"},
+        must_map={"alice": "asked", "bob": "never", "carol": "allowed"},
         must_omit=("logbook",),
         exact=True,
     ),
@@ -183,7 +197,7 @@ CASES = (
     Case(
         id="build-account-is-unknown",
         build_account=UNKNOWN,
-        must_map={"alice": "allowed", "bob": "never", "carol": "allowed"},
+        must_map={"alice": "asked", "bob": "never", "carol": "allowed"},
         must_omit=(UNKNOWN,),
         exact=True,
     ),
@@ -200,7 +214,7 @@ CASES = (
             "bob": "never",
             "carol": "allowed",
             "dave": "never",
-            BUILDER: "allowed",
+            BUILDER: "asked",
         },
         exact=True,
     ),
@@ -245,6 +259,12 @@ def _build(base: Path, case: Case) -> Path:
             assert text.count(old) == 1, old
             text = text.replace(old, new)
         profile.write_text(text, encoding="utf-8")
+        tier_file = repo / "tiers" / "readwrite.yml"
+        tier_text = tier_file.read_text(encoding="utf-8")
+        for old, new in case.readwrite_edits:
+            assert tier_text.count(old) == 1, old
+            tier_text = tier_text.replace(old, new)
+        tier_file.write_text(tier_text, encoding="utf-8")
         with _cwd(repo):
             result = CliRunner().invoke(build_command, ["--skip-deps", "--skip-lifecycle"])
     assert result.exit_code == 0, result.output
@@ -409,14 +429,14 @@ def _assert_staged_maps(repo: Path, staged_root: Path, case: Case) -> None:
         login_tiers = staged["control_system"][MAP_KEY]
 
         assert UNKNOWN not in login_tiers, staged_path
-        assert set(login_tiers.values()) <= {"allowed", "never"}, staged_path
+        assert set(login_tiers.values()) <= {"never", "asked", "allowed"}, staged_path
         assert login_tiers == expected, (staged_path, login_tiers, expected)
 
         # Restated apart from `expected`: no person whose own render is
-        # `never` is mapped `allowed`, whatever sign-in decides.
+        # `never` is mapped an arming word, whatever sign-in decides.
         for login, writes in own_writes.items():
             if writes == "never":
-                assert login_tiers.get(login) != "allowed", (staged_path, login)
+                assert login_tiers.get(login, "never") == "never", (staged_path, login)
         # No app card is a key: an app's container never acts as a login.
         assert not apps & set(login_tiers), (staged_path, login_tiers)
         # Every key is a person or the build account; nothing else.

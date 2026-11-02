@@ -12,7 +12,7 @@
 
 /** @type {Readonly<Record<string, string>>} */
 export const BUILTIN_PANEL_LABELS = Object.freeze({
-  artifacts: 'WORKSPACE',
+  artifacts: 'Artifacts',
   ariel: 'ARIEL',
   'channel-finder': 'CHANNELS',
   lattice: 'LATTICE',

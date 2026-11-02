@@ -8,7 +8,6 @@
 import { searchApi } from './api.js';
 import {
   renderEntryCard,
-  renderEntryCardSimple,
   renderAnswerBox,
   renderDiagnosticsBar,
   renderExpansionBanner,
@@ -27,16 +26,6 @@ import {
 import { showEntry } from './entries-detail.js';
 
 /**
- * Read the resolved UI mode (presentation axis, independent of the search
- * mode). mode-boot.js has already stamped data-ui-mode on <html>; anything
- * other than "simple" is treated as "expert".
- * @returns {'expert'|'simple'}
- */
-function getUiMode() {
-  return document.documentElement.getAttribute('data-ui-mode') === 'simple' ? 'simple' : 'expert';
-}
-
-/**
  * @typedef {Object} SearchResults
  * @property {string} [answer]
  * @property {string[]} [sources]
@@ -53,9 +42,6 @@ let currentQuery = '';
 let isSearching = false;
 /** @type {SearchResults|null} */
 let lastResults = null;
-// The search mode of the last render, kept so a live Expert<->Simple UI-mode
-// flip can re-render the same results without re-running the query.
-let lastSearchMode = 'keyword';
 // Monotonic id of the newest search the module has started. A reranked search
 // paints twice, and the second paint arrives long after the first; every render
 // a search performs is guarded on still owning this id, so a late phase-2
@@ -63,41 +49,30 @@ let lastSearchMode = 'keyword';
 let searchSeq = 0;
 /**
  * Where the current search sits on the two-phase rerank path, or null when the
- * search never had a second phase. Read by both renderers so any repaint — a
- * phase completing, or a live Expert<->Simple flip — shows the same line.
+ * search never had a second phase.
  * @type {'reranking'|'updated'|'fallback'|null}
  */
 let rerankStatus = null;
 
 /**
- * The one-line status each phase shows, per UI mode. Expert names the mechanism
- * because Expert users tune it; Simple says what changed in plain words. The
- * fallback wording is deliberately gentle and shared: a reranker that could not
- * load in time is the normal first-query experience after a sidecar restart,
- * not an error the operator has to act on.
- * @type {Record<'expert'|'simple', Record<'reranking'|'updated'|'fallback', string>>}
+ * The one-line status each phase shows. The fallback wording is deliberately
+ * gentle: a reranker that could not load in time is the normal first-query
+ * experience after a sidecar restart, not an error the operator has to act on.
+ * @type {Record<'reranking'|'updated'|'fallback', string>}
  */
 const RERANK_STATUS_TEXT = {
-  expert: {
-    reranking: 'Search complete — reranking with LLM…',
-    updated: 'Results updated after reranking',
-    fallback: 'Could not improve the ranking — showing fast results',
-  },
-  simple: {
-    reranking: 'Showing quick results — improving the order now…',
-    updated: 'Order improved — best matches first',
-    fallback: 'Could not improve the ranking — showing fast results',
-  },
+  reranking: 'Search complete — reranking with LLM…',
+  updated: 'Results updated after reranking',
+  fallback: 'Could not improve the ranking — showing fast results',
 };
 
 /**
  * The rerank status line, or '' when the search has no second phase.
- * @param {'expert'|'simple'} uiMode - Which wording to use
  * @returns {string} HTML string
  */
-function renderRerankStatus(uiMode) {
+function renderRerankStatus() {
   if (!rerankStatus) return '';
-  const message = RERANK_STATUS_TEXT[uiMode][rerankStatus];
+  const message = RERANK_STATUS_TEXT[rerankStatus];
   return `
     <div class="results-modes" data-testid="rerank-status" role="status" aria-live="polite">
       ${escapeHtml(message)}
@@ -342,13 +317,6 @@ function renderSearchResults(results, mode = 'keyword') {
   const resultsContainer = document.getElementById('search-results');
   if (!resultsContainer) return;
 
-  lastSearchMode = mode;
-
-  if (getUiMode() === 'simple') {
-    renderSearchResultsSimple(resultsContainer, results);
-    return;
-  }
-
   // Build results header
   const modesUsed = results.search_modes_used?.join(', ') || 'none';
   const execTime = results.execution_time_ms || 0;
@@ -367,7 +335,7 @@ function renderSearchResults(results, mode = 'keyword') {
   }
 
   // Two-phase rerank status, immediately above the results header it describes
-  html += renderRerankStatus('expert');
+  html += renderRerankStatus();
 
   // Results header
   html += `
@@ -382,8 +350,7 @@ function renderSearchResults(results, mode = 'keyword') {
     </div>
   `;
 
-  // What the vocabulary expanded, Expert mode only (Simple deliberately omits
-  // the search-mechanics chrome). Empty/absent expansions render nothing.
+  // What the vocabulary expanded. Empty/absent expansions render nothing.
   html += renderExpansionBanner(results.expanded_terms);
 
   // Results list
@@ -400,62 +367,6 @@ function renderSearchResults(results, mode = 'keyword') {
   }
 
   resultsContainer.innerHTML = html;
-}
-
-/**
- * Render search results for Simple mode (frame 1b): the plain-language answer
- * (when present), a friendly "N entries found — newest first" header, and
- * plain result cards. Deliberately omits the score/mode diagnostics chrome
- * that the Expert render carries.
- * @param {HTMLElement} container - The #search-results container
- * @param {SearchResults} results - Search results from API
- */
-function renderSearchResultsSimple(container, results) {
-  let html = '';
-
-  if (results.answer) {
-    html += renderAnswerBox(results.answer, results.sources);
-  }
-
-  // The one plain-language status line Simple mode gets. It is emitted before
-  // the empty-results branch too: "still improving the order" is exactly as
-  // true of an empty fast ranking as of a full one.
-  html += renderRerankStatus('simple');
-
-  const entries = results.entries ?? [];
-  if (entries.length === 0) {
-    html += renderEmptyState('No entries found', 'Try different words, or browse all entries.');
-    container.innerHTML = html;
-    return;
-  }
-
-  const count = results.total_results;
-  const noun = count === 1 ? 'entry' : 'entries';
-  html += `
-    <div class="results-header results-header-simple">
-      <span class="results-count"><strong>${count}</strong> ${noun} found &mdash; newest first</span>
-    </div>
-  `;
-
-  html += '<div class="results-list">';
-  entries.forEach((entry) => {
-    html += renderEntryCardSimple(entry);
-  });
-  html += '</div>';
-
-  container.innerHTML = html;
-}
-
-/**
- * Re-render the current results after a live Expert<->Simple UI-mode flip.
- * mode-boot.js / the app.js message listener has already stamped the new
- * data-ui-mode on <html>; this just repaints the existing results (if any)
- * into the layout that mode calls for. No-op when nothing has been searched.
- */
-export function onUiModeChange() {
-  if (lastResults) {
-    renderSearchResults(lastResults, lastSearchMode);
-  }
 }
 
 /**

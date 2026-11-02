@@ -120,7 +120,7 @@ describe('openContextMenu — DOM contract', () => {
       x: 0,
       y: 0,
       ariaLabel: 'ARIEL actions',
-      items: [{ label: 'Open in a new window', glyph: '↗', disabled: true, run }],
+      items: [{ label: 'Pop out', glyph: '↗', disabled: true, run }],
     });
 
     expect(rows()[0].getAttribute('aria-disabled')).toBe('true');
@@ -185,7 +185,7 @@ describe('keyboard behavior', () => {
       y: 0,
       ariaLabel: 'ARIEL actions',
       items: [
-        { label: 'Open in a new window', disabled: true },
+        { label: 'Pop out', disabled: true },
         { label: 'Focus ARIEL', run: () => {} },
       ],
     });
@@ -200,7 +200,7 @@ describe('keyboard behavior', () => {
       ariaLabel: 'ARIEL actions',
       items: [
         { label: 'Focus ARIEL', run: () => {} },
-        { label: 'Open in a new window', disabled: true },
+        { label: 'Pop out', disabled: true },
         { label: 'Remove from rail', danger: true, run: () => {} },
       ],
     });

@@ -400,11 +400,11 @@ describe('export button', () => {
     URL.revokeObjectURL = vi.fn();
   });
 
-  test('is a labelled button in the session bar', () => {
+  test('is an icon button in the Agent bar, named Export', () => {
     const button = /** @type {HTMLButtonElement} */ (bar.querySelector('.op-export'));
-    // The visible label is the accessible name.
-    expect(button.textContent).toBeTruthy();
-    expect(button.hasAttribute('aria-label')).toBe(false);
+    expect(button.classList.contains('osprey-icon-btn')).toBe(true);
+    expect(button.querySelector('svg.osprey-ic')).not.toBeNull();
+    expect(button.getAttribute('aria-label')).toBe('Export');
     expect(button.title).toBeTruthy();
   });
 

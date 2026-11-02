@@ -33,6 +33,17 @@
     "default": { "$value": "{color.slate.450}", "$type": "color", "$description": "Unlike dark's border.default (an alpha composite), light's is a solid hex in source — kept as a one-hop alias." },
     "accent": { "$value": "rgba(13, 115, 119, 0.25)", "$type": "color", "$description": "Alpha composite of accent.light (#0d7377)." }
   },
+  "surface": {
+    "$description": "Layout F surfaces. canvas = bg.secondary step, card = bg.terminal step (slate.50), well = bg.primary step (between them). Corrects the inversion where bg.panel is darker than the canvas. Washes are alpha composites of text.primary (#0c1322) and accent.base (#0a8f8c); hairline is border.default (#d1d8e3) at 0.8.",
+    "canvas": { "$value": "{color.slate.300}", "$type": "color" },
+    "card": { "$value": "{color.slate.50}", "$type": "color" },
+    "well": { "$value": "{color.slate.150}", "$type": "color" },
+    "hairline": { "$value": "rgba(209, 216, 227, 0.8)", "$type": "color" },
+    "hover": { "$value": "rgba(12, 19, 34, 0.06)", "$type": "color" },
+    "press": { "$value": "rgba(12, 19, 34, 0.1)", "$type": "color" },
+    "selected": { "$value": "rgba(10, 143, 140, 0.12)", "$type": "color" },
+    "focus": { "$value": "rgba(10, 143, 140, 0.28)", "$type": "color" }
+  },
   "tint": {
     "accent": {
       "04": { "$value": "rgba(13, 115, 119, 0.04)", "$type": "color" },

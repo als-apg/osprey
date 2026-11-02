@@ -1,6 +1,6 @@
 // @ts-check
 /**
- * Artifact ids in the Simple view's agent answers, made into controls that
+ * Artifact ids in the chat's agent answers, made into controls that
  * show the artifact in the workspace.
  *
  * Invariants:

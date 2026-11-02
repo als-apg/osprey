@@ -1,7 +1,7 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="-2 -6 20 20">
   <!-- OSPREY mark, the 16x8 pixel osprey, on the design's "16 light" tile. The
        same pixels are inlined in the web terminal header (index.html) and the
-       Simple chat sprite (chat-icons.js). The tile carries its own contrast, so
+       chat sprite (chat-icons.js). The tile carries its own contrast, so
        the mark reads on a light or a dark tab strip alike. The pages link this
        file at a content-hashed URL (app.py `_favicon_url`): a browser keeps a
        tab icon by its URL, so an edit here reaches it only at a new address. -->

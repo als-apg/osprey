@@ -1,0 +1,12 @@
+{
+  "synthetic": true,
+  "note": "Synthetic fixture hand-written from the documented direct-route response and error shapes; not a recorded reply.",
+  "route": "typesafe",
+  "status": 429,
+  "headers": {
+    "retry-after": "1"
+  },
+  "body": {
+    "detail": "Rate limit exceeded"
+  }
+}

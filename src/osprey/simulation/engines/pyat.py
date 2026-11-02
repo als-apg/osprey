@@ -45,11 +45,20 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Any
 
-from lume_pyat.exceptions import OrbitSolveError
+from lume_pyat.exceptions import AmbiguousElementError, OrbitSolveError, UnknownElementError
 
 from osprey.facility.errors import FacilityBuildError
 from osprey.simulation.engines.calibration import NoInverse, curve_from_record, field, to_hardware
-from osprey.simulation.engines.pyat_faults import fault_variables, readout
+from osprey.simulation.engines.pyat_faults import (
+    ELEMENT_SCOPE,
+    FAULT_SEPARATOR,
+    MULTIPOLE_PREFIXES,
+    FaultSlot,
+    fault_variables,
+    multipole_attribute,
+    multipole_field,
+    readout,
+)
 
 if TYPE_CHECKING:
     import numpy as np
@@ -875,7 +884,12 @@ def build(
     The model drives its own copy of the deck, so the deck a later call loads
     is never the one a model has written to. Every other key of ``active``
     is a fault seed, ``<address>/<field>``, written onto its element before the
-    model adopts the variables. The model is then reset once -- one batch, one
+    model adopts the variables, or an element error, ``<element>/<field>``
+    (:func:`~osprey.simulation.engines.pyat_faults.fault_variables`): a
+    misalignment (``dx``, ``dy``, ``roll``) becomes the element's entrance and
+    exit transforms, a multipole error (``dB<n>``, ``dA<n>``) is added to the
+    element's polynomial coefficient and held there across every later write
+    of a setpoint on the same coefficient. The model is then reset once -- one batch, one
     solve -- so the lattice holds every setpoint's default, and a later
     :meth:`reset` returns to the active scenario rather than to the deck.
 
@@ -898,11 +912,16 @@ def build(
             the tunes or the chromaticity.
         ValueError: an entry cannot be built as a variable, a default or an
             active value lies outside its ``value_range``, a key of
-            ``active`` names no setpoint and no fault of the model, or a
+            ``active`` names no setpoint and no fault of the model, an
+            element error lies outside its bounds or is not finite, or a
             ``single_pass`` model wires a tune or chromaticity record.
         pydantic.ValidationError: a fault seed lies outside its bounds.
+        UnknownElementError: an element error names an element the deck does
+            not hold exactly once, or a multipole error one with no such
+            polynomial.
         OrbitSolveError: the deck, or the deck at the active scenario, has no
-            stable solve, or loses the single-pass particle.
+            stable solve, or loses the single-pass particle; with element
+            errors seeded, the message says so and names them.
     """
     from osprey.simulation.engines.pyat_model import (
         ArrayReadbackVariable,
@@ -968,11 +987,126 @@ def build(
             channels.append(variable)
 
     faults = {name: float(value) for name, value in active.items() if name not in writes}
-    built = PyATLatticeModel(
-        lattice, channels, faults=faults, solve=prepared.solve, twiss_in=prepared.twiss_in
-    )
-    built.reset()
+    element_slots = {
+        name: slot for name, slot in fault_variables(entries).items() if slot.scope == ELEMENT_SCOPE
+    }
+    errors = {name: faults.pop(name) for name in sorted(faults) if name in element_slots}
+    misalignments, multipoles = _element_errors(errors, element_slots)
+    _seed_multipoles(lattice, multipoles)
+    try:
+        built = PyATLatticeModel(
+            lattice,
+            channels,
+            faults=faults,
+            element_misalignments=misalignments or None,
+            solve=prepared.solve,
+            twiss_in=prepared.twiss_in,
+        )
+        built.reset()
+    except SOLVE_ERRORS as exc:
+        if not errors:
+            raise
+        raise OrbitSolveError(_seeded_failure(model, exc, errors)) from exc
     return built
+
+
+def _element_errors(
+    errors: Mapping[str, float], slots: Mapping[str, FaultSlot]
+) -> tuple[dict[str, dict[str, float]], dict[str, dict[tuple[str, int], float]]]:
+    """Split element errors into misalignments and multipole deltas, each held to its bounds.
+
+    Returns:
+        ``{element: {dx|dy|roll: value}}`` and
+        ``{element: {(PolynomB|PolynomA, n): delta}}``.
+
+    Raises:
+        ValueError: a value is not finite or lies outside its slot's range.
+    """
+    misalignments: dict[str, dict[str, float]] = {}
+    multipoles: dict[str, dict[tuple[str, int], float]] = {}
+    for name, value in errors.items():
+        slot = slots[name]
+        if not math.isfinite(value):
+            raise ValueError(f"element error {name} is {value!r}; write a finite value")
+        low, high = slot.value_range or (-math.inf, math.inf)
+        if not low <= value <= high:
+            raise ValueError(
+                f"element error {name} is {value:g}, outside its range [{low:g}, {high:g}]"
+            )
+        polynomial = multipole_field(slot.field)
+        if polynomial is None:
+            misalignments.setdefault(slot.address, {})[slot.field] = value
+        else:
+            multipoles.setdefault(slot.address, {})[polynomial] = value
+    return misalignments, multipoles
+
+
+def _seed_multipoles(
+    lattice: Any, multipoles: Mapping[str, Mapping[tuple[str, int], float]]
+) -> None:
+    """Add each multipole delta to its element's coefficient and record it on the element.
+
+    A coefficient past the element's polynomials pads both with zeros and
+    raises ``MaxOrder`` to reach it. Every element is resolved before any is
+    written.
+
+    Raises:
+        UnknownElementError: an element is absent from the deck or carries
+            no polynomial to add to.
+        AmbiguousElementError: the deck repeats the element's name.
+    """
+    if not multipoles:
+        return
+    import numpy as np
+
+    found: dict[str, list[Any]] = {}
+    for element in lattice:
+        if element.FamName in multipoles:
+            found.setdefault(element.FamName, []).append(element)
+    for name in multipoles:
+        held = found.get(name, [])
+        if not held:
+            raise UnknownElementError(f"the lattice has no element {name!r} for element errors")
+        if len(held) > 1:
+            raise AmbiguousElementError(
+                f"{len(held)} lattice elements are named {name!r}; an element error names one"
+            )
+        missing = [
+            attribute
+            for attribute in MULTIPOLE_PREFIXES.values()
+            if not hasattr(held[0], attribute)
+        ]
+        if missing:
+            raise UnknownElementError(
+                f"element {name!r} carries no {' or '.join(missing)} for a multipole error"
+            )
+    for name, deltas in multipoles.items():
+        element = found[name][0]
+        reach = max(index for _, index in deltas) + 1
+        order = int(getattr(element, "MaxOrder", 0))
+        length = max(reach, order + 1)
+        for attribute in MULTIPOLE_PREFIXES.values():
+            coefficients = np.asarray(getattr(element, attribute), dtype=float)
+            if coefficients.size < length:
+                coefficients = np.concatenate([coefficients, np.zeros(length - coefficients.size)])
+            setattr(element, attribute, coefficients)
+        element.MaxOrder = max(order, reach - 1)
+        for (attribute, index), delta in sorted(deltas.items()):
+            getattr(element, attribute)[index] += delta
+            setattr(element, multipole_attribute(attribute, index), float(delta))
+
+
+def _seeded_failure(model: str, exc: BaseException, errors: Mapping[str, float]) -> str:
+    """The solve failure of a model built with element errors, naming them."""
+    elements = sorted({name.split(FAULT_SEPARATOR, 1)[0] for name in errors})
+    shown = ", ".join(elements[:5]) + (
+        f" and {len(elements) - 5} more" if len(elements) > 5 else ""
+    )
+    detail = " ".join(str(exc).split()) or type(exc).__name__
+    return (
+        f"model {model} has no solve with the element errors seeded on {len(elements)} "
+        f"element(s) ({shown}): {detail}"
+    )
 
 
 def _is_monitor_reading(record: Any) -> bool:

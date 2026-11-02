@@ -528,7 +528,7 @@ def test_a_handoff_error_is_an_error_frame_and_a_close(ws_app, sessions_dir):
     """An error from inside the door reaches the client as ``error``, then the socket closes."""
     sid = new_session_id()
     (sessions_dir / f"{sid}.jsonl").write_text("")
-    failing = AsyncMock(side_effect=HandoffError.vanished(sid, "simple"))
+    failing = AsyncMock(side_effect=HandoffError.vanished(sid, "chat"))
     with (
         patch("osprey.interfaces.web_terminal.session_handoff.acquire_surface", failing),
         TestClient(ws_app) as client,

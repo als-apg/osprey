@@ -12,6 +12,7 @@ import is held by ``lint-imports`` (``[tool.importlinter]`` in the root
 from __future__ import annotations
 
 import ast
+import functools
 import importlib
 import importlib.util
 import inspect
@@ -131,11 +132,24 @@ def test_a_lazy_namespace_maps_what_it_lists(namespace: str):
 # -- The framework takes only listed names -----------------------------------
 
 
-def _framework_imports() -> list[tuple[str, str, str]]:
-    """``(file:line, module, name)`` for every name src/osprey takes from the package."""
+@functools.cache
+def _framework_imports() -> tuple[tuple[str, str, str], ...]:
+    """``(file:line, module, name)`` for every name src/osprey takes from the package.
+
+    Two tests read the same scan, and the tree does not change while the suite
+    runs, so it is made once.
+    """
     found: list[tuple[str, str, str]] = []
     for path in sorted(FRAMEWORK.rglob("*.py")):
-        tree = ast.parse(path.read_text(encoding="utf-8"))
+        source = path.read_text(encoding="utf-8")
+        # Every name the scan reports is reached through an import of the
+        # package, and an import spells the package's name in the source (a
+        # module path is identifiers, which have no escape sequence). Most of
+        # the framework imports nothing from it, and parsing is what the scan
+        # spends its time on.
+        if "osprey_connectors" not in source:
+            continue
+        tree = ast.parse(source)
         aliases: dict[str, str] = {}
         where = path.relative_to(REPO)
         for node in ast.walk(tree):
@@ -157,7 +171,7 @@ def _framework_imports() -> list[tuple[str, str, str]]:
                 module = aliases.get(node.value.id)
                 if module is not None and not _is_module(f"{module}.{node.attr}"):
                     found.append((f"{where}:{node.lineno}", module, node.attr))
-    return found
+    return tuple(found)
 
 
 def _is_module(name: str) -> bool:
@@ -219,7 +233,13 @@ def _annotation_names(module: object, annotation: object) -> set[object]:
     }
 
 
+@functools.cache
 def _type_checking_names(module: object) -> dict[str, object]:
+    """The names *module* imports under ``if TYPE_CHECKING:``, resolved.
+
+    Every string annotation of the module asks for them, and parsing its source
+    again for each one was most of what the signature test spent.
+    """
     names: dict[str, object] = {}
     source = inspect.getsourcefile(module)  # type: ignore[arg-type]
     if source is None:

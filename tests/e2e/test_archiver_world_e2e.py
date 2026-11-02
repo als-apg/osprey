@@ -103,8 +103,9 @@ DEPLOY_UP_TIMEOUT_SEC = 2400
 
 # The measured budgets this lane owns. Both are stated against DEFAULT
 # va_archiver knobs (30-day retention, 48 h hot span) -- see the module
-# docstring for why the fast lanes cannot own them.
-SEED_BUDGET_SEC = 180.0
+# docstring for why the fast lanes cannot own them. The seed measures about 200 s
+# on a CI runner, so 300 s leaves room for a slow one without hiding a stall.
+SEED_BUDGET_SEC = 300.0
 DISK_BUDGET_BYTES = 2 * 1024**3
 
 # From a setpoint write to that value being readable out of the archive. Covers
@@ -140,7 +141,9 @@ UNCOVERED_FRACTION = 0.05
 # pads the continuation with the log gutter's spaces -- so this line arrives
 # split across two or three physical lines with ANSI colour codes through it.
 # A line-oriented regex silently finds nothing and reads as "the seed never ran".
-_SEED_REPORT_RE = re.compile(r"seeded ([\d,]+) documents x ([\d,]+) channels .* in ([\d.]+)s")
+# Normalizing also folds the whole deploy onto one line, so the gap is non-greedy:
+# a greedy one runs on to the last ` in <N>s` of the deploy, not the seed's own.
+_SEED_REPORT_RE = re.compile(r"seeded ([\d,]+) documents x ([\d,]+) channels .*? in ([\d.]+)s")
 _SEED_PROGRESS_RE = re.compile(r"seeding archive: [\d,]+ documents written")
 
 # Every step line the seed reports, announcement to report, with the lap the phase

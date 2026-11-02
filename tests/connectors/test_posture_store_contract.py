@@ -64,7 +64,7 @@ def _write_record(
 def _switch_record(root: Path, *switched_on: str, target: str = "live") -> Path:
     """A record with exactly *switched_on* turned on, the way the person's gesture stores it."""
     path = write_control_context(
-        root, target=target, owned_by=None, switch=dict.fromkeys(switched_on, "on")
+        root, target=target, owned_by=None, switch=dict.fromkeys(switched_on, "asked")
     )
     posture_store.invalidate_cache()
     return path
@@ -162,7 +162,7 @@ def test_the_retired_store_file_is_gone(data_root):
 
     record = control_context.read_record()
     assert record is not None
-    assert record.switch == {"live": "on"}
+    assert record.switch == {"live": "asked"}
     assert "live" not in record.posture
 
 
@@ -301,7 +301,7 @@ def _write_tree_record(tree: Path, owner: str, switched_on=(), *, target: str = 
     record = control_context.ControlContext(
         target=target,
         generation=3,
-        switch=dict.fromkeys(switched_on, "on"),
+        switch=dict.fromkeys(switched_on, "asked"),
         switch_epoch=1,
     )
     write_payload(path, record.to_payload())
@@ -330,11 +330,11 @@ def test_a_record_in_the_tree_is_its_own_owners(tmp_path):
 
     alice, unavailable = _read_tree(tree, "alice")
     assert unavailable is None
-    assert alice.switch == dict.fromkeys(LIVE_OFF, "on")
+    assert alice.switch == dict.fromkeys(LIVE_OFF, "asked")
     # Bob's own record arms every machine, and Alice's never reaches him.
     bob, unavailable = _read_tree(tree, "bob")
     assert unavailable is None
-    assert bob.switch == dict.fromkeys(ALL_ON, "on")
+    assert bob.switch == dict.fromkeys(ALL_ON, "asked")
 
 
 def test_no_record_in_the_tree_for_this_owner_is_an_answer(tmp_path):
@@ -353,8 +353,8 @@ def test_a_record_in_the_tree_pointed_at_another_target_still_answers_per_machin
     record, unavailable = _read_tree(tree, "alice")
     assert unavailable is None
     assert record is not None
-    assert record.switch == {"live": "on", "standin": "on"}
-    assert record.switch.get("va") != "on"
+    assert record.switch == {"live": "asked", "standin": "asked"}
+    assert record.switch.get("va") != "asked"
 
 
 def test_an_unmarked_tree_is_unavailable(tmp_path):
@@ -484,7 +484,7 @@ def test_the_tree_reader_does_not_route_through_the_host_readers(tmp_path, monke
 
     monkeypatch.setattr(control_context, "read_record", _boom)
     monkeypatch.setattr(control_context, "read_record_status", _boom)
-    assert _read_tree(tree, "alice")[0].switch == dict.fromkeys(LIVE_OFF, "on")
+    assert _read_tree(tree, "alice")[0].switch == dict.fromkeys(LIVE_OFF, "asked")
 
 
 def test_the_tree_bind_is_read_through_one_normalisation(tmp_path, monkeypatch):
@@ -635,4 +635,4 @@ def test_a_record_of_ordinary_size_is_still_read(bound_tree):
     record, unavailable = _read_tree(bound_tree, "alice")
     assert unavailable is None
     assert record is not None
-    assert record.switch == dict.fromkeys(LIVE_OFF, "on")
+    assert record.switch == dict.fromkeys(LIVE_OFF, "asked")

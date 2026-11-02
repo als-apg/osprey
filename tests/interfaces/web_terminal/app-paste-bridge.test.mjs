@@ -7,12 +7,12 @@
  * hub to: it posts `{type:'osprey-paste-to-terminal', text}` to `window.parent`
  * and the hub puts that text where the operator is composing. The contract this
  * file pins is that the text ARRIVES and nothing else happens — it is never
- * sent and it never replaces a half-written prompt in the Simple view. That a
+ * sent and it never replaces a half-written prompt in the chat. That a
  * message from another origin is not text at all is proven in a real page, on
  * the PTY socket itself, by test_contract_params.py.
  *
- * Both views are covered because the hub has two places to compose in and the
- * panel knows neither: expert types into the terminal, Simple into the chat
+ * Both surfaces are covered because the hub has two places to compose in and the
+ * panel knows neither: the terminal surface takes it in the terminal, the chat in its
  * textarea, and routing between them is `insertPrompt`'s job (first-contact.js).
  *
  * Seams: terminal.js is mocked whole — it is the module app.js's import graph
@@ -20,33 +20,20 @@
  * xterm.js and a socket. app.js is imported once and statically, exactly as in
  * app-logout.test.mjs: its DOMContentLoaded bootstrap has already passed by the
  * time a test module evaluates, and `initIframePasteBridge` is exported so it
- * can be driven directly instead.
+ * can be driven directly instead. sidebar-artifacts.js is mocked: app.js only
+ * calls its init, which this file never reaches.
  */
 
 import { afterEach, beforeAll, beforeEach, describe, expect, test, vi } from 'vitest';
 
-// The host-chrome import graph below reaches bar-sync.js, which GETs the
-// operator's bar layout at import time. Nothing serves this environment, so
-// that request is answered here — from `vi.hoisted`, which runs before the
-// static imports are evaluated and therefore before the GET is made. Any other
-// URL is a dependency this file has not declared, and fails loudly.
+// Nothing serves this environment, so no request is answered: any fetch is a
+// dependency this file has not declared, and fails loudly. Stubbed from
+// `vi.hoisted`, which runs before the static imports are evaluated.
 vi.hoisted(() => {
   vi.stubGlobal(
     'fetch',
     vi.fn(async (/** @type {string} */ url) => {
-      if (url !== '/api/bar-items') throw new Error(`unstubbed fetch: ${url}`);
-      return {
-        ok: true,
-        status: 200,
-        json: async () => ({
-          version: 1,
-          rev: 0,
-          header: [],
-          status: [],
-          header_visible: true,
-          status_visible: true,
-        }),
-      };
+      throw new Error(`unstubbed fetch: ${url}`);
     })
   );
 });
@@ -77,10 +64,15 @@ vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/terminal.js', () 
   onSessionChange: (fn) => term.sessionListeners.push(fn),
 }));
 
+vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/sidebar-artifacts.js', () => ({
+  initSidebarArtifacts: vi.fn(),
+  teardownSidebarArtifacts: vi.fn(),
+}));
+
 import { initIframePasteBridge } from '../../../src/osprey/interfaces/web_terminal/static/js/app.js';
 
-/** The Simple view's input, in the shape the insert seam looks for. */
-function mountSimpleInput() {
+/** The chat's input, in the shape the insert seam looks for. */
+function mountChatInput() {
   document.body.innerHTML =
     '<div id="operator-container"><div class="op-input-area"><textarea></textarea></div></div>';
   return /** @type {HTMLTextAreaElement} */ (
@@ -109,7 +101,7 @@ beforeAll(() => {
 
 beforeEach(() => {
   document.body.innerHTML = '';
-  document.documentElement.removeAttribute('data-ui-mode');
+  document.documentElement.removeAttribute('data-agent-surface');
   vi.clearAllMocks();
 });
 
@@ -117,9 +109,9 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe('initIframePasteBridge: expert view', () => {
+describe('initIframePasteBridge: terminal surface', () => {
   test('pastes the panel text into the terminal, once, verbatim', () => {
-    document.documentElement.setAttribute('data-ui-mode', 'expert');
+    document.documentElement.setAttribute('data-agent-surface', 'terminal');
 
     post({ type: 'osprey-paste-to-terminal', text: ADDRESSES });
 
@@ -131,10 +123,10 @@ describe('initIframePasteBridge: expert view', () => {
   });
 });
 
-describe('initIframePasteBridge: Simple view', () => {
+describe('initIframePasteBridge: chat', () => {
   test('appends the addresses under what the operator is already writing', () => {
-    document.documentElement.setAttribute('data-ui-mode', 'simple');
-    const input = mountSimpleInput();
+    document.documentElement.removeAttribute('data-agent-surface');
+    const input = mountChatInput();
     input.value = 'set these to nominal:';
 
     post({ type: 'osprey-paste-to-terminal', text: ADDRESSES });
@@ -146,8 +138,8 @@ describe('initIframePasteBridge: Simple view', () => {
 
 describe('initIframePasteBridge: what it refuses', () => {
   test('ignores an empty text, so a stray post cannot blank the input', () => {
-    document.documentElement.setAttribute('data-ui-mode', 'simple');
-    const input = mountSimpleInput();
+    document.documentElement.removeAttribute('data-agent-surface');
+    const input = mountChatInput();
     input.value = 'half a question';
 
     post({ type: 'osprey-paste-to-terminal', text: '' });
@@ -157,7 +149,7 @@ describe('initIframePasteBridge: what it refuses', () => {
   });
 
   test('ignores another message type entirely', () => {
-    document.documentElement.setAttribute('data-ui-mode', 'expert');
+    document.documentElement.setAttribute('data-agent-surface', 'terminal');
 
     post({ type: 'osprey-something-else', text: ADDRESSES });
 

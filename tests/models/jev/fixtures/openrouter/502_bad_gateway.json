@@ -1,0 +1,14 @@
+{
+  "synthetic": true,
+  "note": "Synthetic fixture hand-written from OpenRouter's documented response and error examples; not a recorded reply.",
+  "route": "openrouter",
+  "status": 502,
+  "headers": {},
+  "body": {
+    "id": "gen-dec-synthetic-0007",
+    "error": {
+      "code": 502,
+      "message": "Provider returned error"
+    }
+  }
+}

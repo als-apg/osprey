@@ -490,6 +490,12 @@ def _swap_in_render(zones: _RenderZones) -> None:
     ``build/``, and :func:`_repair_interrupted_swap` restores it from
     ``incoming`` at the start of the next build.
 
+    The paths in :data:`_CARRIED_ACROSS_SWAP` move into the staged tree the same
+    way (step 1), so a running stack's bind mounts keep resolving: they are
+    written by ``osprey up`` and the roster verbs rather than by the build, so
+    the render never contains them, and a swap that only brought the render
+    across would delete what nginx is serving until the next start.
+
     The venv moves *into* the staged tree (step 1) rather than being rendered
     there, because a virtual environment is the one artifact that records its
     own absolute location — in the shebang of every console script, in
@@ -501,10 +507,22 @@ def _swap_in_render(zones: _RenderZones) -> None:
     venv = zones.build_dir / ".venv"
     if venv.is_dir():
         os.replace(venv, zones.stage / ".venv")
+    for name in _CARRIED_ACROSS_SWAP:
+        served = zones.build_dir / name
+        if served.exists() and not (zones.stage / name).exists():
+            os.replace(served, zones.stage / name)
     os.replace(zones.stage, zones.incoming)
     os.replace(zones.build_dir, zones.outgoing)
     os.replace(zones.incoming, zones.build_dir)
     shutil.rmtree(zones.outgoing, ignore_errors=True)
+
+
+#: Paths under ``build/`` that a running stack bind-mounts but the build does
+#: not render: ``osprey up`` and the roster verbs write the web-terminal compose
+#: file and the nginx config, landing page and secret templates there. The swap
+#: carries them into the new ``build/`` by rename, so the files the containers
+#: serve from are the same inodes before and after, and never absent.
+_CARRIED_ACROSS_SWAP: tuple[str, ...] = ("nginx", "docker-compose.web.yml")
 
 
 #: Runtime-state directories a renderer must never leave inside the tree it is
@@ -2010,6 +2028,7 @@ def _render_project(
     from .build_posture_check import (
         check_approval_enabled,
         check_approval_hook_selected,
+        check_code_review,
         missing_posture_errors,
     )
     from .build_profile_archiver import va_archiver_config_overrides
@@ -2026,12 +2045,18 @@ def _render_project(
         live_standin_config_overrides,
         live_standin_duplicate_key_errors,
     )
+    from .build_profile_watchdogs import (
+        copy_enabled_watchdogs,
+        enabled_watchdogs,
+        watchdog_config_overrides,
+    )
     from .profile_conventions import (
         convention_selections,
         library_selection,
         profile_artifact_lists,
         render_convention_selections,
     )
+    from .templates.claude_code import watchdog_hook_selection
     from .validate_claude_artifacts import (
         agent_model_pin_errors,
         validate_agent_tools_against_permissions,
@@ -2061,6 +2086,16 @@ def _render_project(
     # the very resolver `create_project` applies, not a second implementation of
     # the same rule that can drift from it.
     effective_artifacts = manager._effective_artifacts(data_bundle, artifacts or None)
+    # The trigger hook follows the block, whatever `hooks:` says: an enabled
+    # watchdog watches every session, and with none the hook ships nowhere.
+    if effective_artifacts is not None:
+        effective_artifacts = {
+            **effective_artifacts,
+            "hooks": watchdog_hook_selection(
+                effective_artifacts.get("hooks") or [],
+                bool(enabled_watchdogs(build_profile.watchdogs)),
+            ),
+        }
 
     context = _repo_render_context(
         build_profile,
@@ -2130,6 +2165,7 @@ def _render_project(
             data_root=data_root,
         )
         progress("  ✓ Base template rendered")
+        copy_enabled_watchdogs(build_profile.watchdogs, repo_root, render_dir)
 
         # One fact, two homes: a profile that also spells a key the live stand-in
         # derives is refused rather than silently overwritten below — the same rule
@@ -2188,6 +2224,8 @@ def _render_project(
             # The resolved record block, defaults included, rendered as the
             # top-level `agent_record` key the record service reads.
             "agent_record": agent_record_config_overrides(build_profile.agent_record),
+            # The enabled watchdogs; no key at all when none is.
+            "watchdogs": watchdog_config_overrides(build_profile.watchdogs),
             # Reads the render because the stand-in's probe channel is the sandbox
             # VA's: whatever the template put there is the fallback for a profile
             # that named none of its own.
@@ -2324,8 +2362,10 @@ def _render_project(
         # was about to write. The execution backend is read here for the same
         # reason: it is the render, not the profile, that a container loads.
         # The hooks this render selects from the library, a replacing path
-        # counted as the artifact it replaces.
-        selected_hooks = library_selection("hooks", build_profile.hooks)
+        # counted as the artifact it replaces. Read from the selection the
+        # render was made with: a profile that names no artifacts renders with
+        # its bundle's own, hooks included.
+        selected_hooks = library_selection("hooks", (effective_artifacts or {}).get("hooks", []))
         unrunnable = [
             *_resolve_rendered_execution_method(render_dir),
             *reach_errors(_rendered_config(render_dir), repo_root=repo_root),
@@ -2345,6 +2385,9 @@ def _render_project(
         # off, or on, by truthiness; the render states a bool or nothing.
         check_approval_enabled(_rendered_config(render_dir))
         check_approval_hook_selected(_rendered_config(render_dir), selected_hooks)
+        # A malformed review section would reach a session, and an enabled one
+        # needs its hooks and a prompt the agent cannot have written.
+        check_code_review(_rendered_config(render_dir), selected_hooks, repo_root)
         if unrunnable:
             raise BuildProfileError("Profile validation failed:\n  " + "\n  ".join(unrunnable))
         # And the runtime, for the same reason once more: the verbs that stop,
@@ -3419,15 +3462,8 @@ def _build_repo(
             dispatch_tier=dispatch_tier,
             agent_record=build_profile.agent_record,
         )
-        # An authored `web.bar_items` entry the served default will not carry:
-        # the server filters a panel-gated item whose panel this profile does
-        # not select, so the operator who wrote it is told here, not by an
-        # item that never appears.
-        from .build_profile_panels import bar_items_selection_warnings
-
         web_warnings = [
             *web_warnings,
-            *bar_items_selection_warnings(build_profile.config, build_profile.web_panels),
             # Advisory: UTC is a legal, reproducible choice, and `config.yml`
             # carries it whether chosen or defaulted, so the build reminds.
             *system_timezone_reminders(build_profile.config),

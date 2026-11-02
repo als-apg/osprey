@@ -18,8 +18,8 @@
 :root {
   /* Translucent card/hover surfaces, composited from canonical bg tokens
      so they still theme correctly without a local per-theme override. */
-  --surface-card: color-mix(in srgb, var(--bg-secondary) 80%, transparent);
-  --surface-hover: color-mix(in srgb, var(--bg-elevated) 50%, transparent);
+  --ariel-surface-card: color-mix(in srgb, var(--bg-secondary) 80%, transparent);
+  --ariel-surface-hover: color-mix(in srgb, var(--bg-elevated) 50%, transparent);
 
   --text-accent: var(--color-accent-light);
   --text-accent-secondary: var(--color-accent-secondary-light);
@@ -223,7 +223,7 @@ th {
 }
 
 tbody tr:hover {
-  background: var(--surface-hover);
+  background: var(--ariel-surface-hover);
 }
 
 /* === Animations === */

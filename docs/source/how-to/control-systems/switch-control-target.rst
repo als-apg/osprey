@@ -105,10 +105,10 @@ asks for is the same one — the same gate, the same checks, the same refusal
 reasons — and a target the gate would refuse shows why where the button
 would be. See `From the Web Terminal`_.
 
-Whether writes are *allowed* follows it too. Your write switch is per machine
+Whether writes may run follows it too. Your write switch is per machine
 and starts off on each, so a setpoint the simulator took is refused on the real
-machine until you turn that machine on from the chip
-(:ref:`write-safety-config`). Moving the deployment never turns a switch on. Ask
+machine until you arm that machine from the chip
+(:ref:`write-safety-config`). Moving the deployment never arms a switch. Ask
 ``control_target`` if you want to know before you move: every row carries its
 own ``writes_permitted``.
 
@@ -240,7 +240,7 @@ From the Web Terminal
 ---------------------
 
 Everything above can also be done by hand, without a prompt. Click the
-control-target chip in the header and the popover lists every machine this
+control-target chip at the top of the sidebar and the popover lists every machine this
 deployment configures — the one the agent stands on as a card, every other as
 a row.
 
@@ -250,7 +250,7 @@ a row.
    .. grid-item::
 
       .. image:: /_static/screenshots/control_target_popover_light.png
-         :alt: The control-target popover in the light theme, showing the Rehearsal card with its writes switch, and rows for the real machine and the simulator
+         :alt: The control-target popover in the light theme, showing the Simulator card with its writes switch, and rows for Live and Rehearsal
          :width: 100%
 
    .. grid-item::
@@ -259,16 +259,16 @@ a row.
          :alt: The control-target popover in the dark theme
          :width: 100%
 
-The popover on the tutorial deployment, whose baseline is the stand-in: the
-*Rehearsal* card, the real machine still ``not set up``, and the simulator a
-**Switch to** away. Captured with OSPREY |captured_control_target_popover|.
+The popover on the tutorial deployment, whose baseline is the simulator: the
+*Simulator* card, *Live* still ``not set up``, and *Rehearsal* a **Switch to**
+away. Captured with OSPREY |captured_control_target_popover|.
 
 Each machine carries:
 
 - **A writes switch** — your login's switch for that machine, and the control
-  that changes it, in one widget. Turning writes off applies as you click and
-  nothing refuses it; turning them on asks first. A switch that is off and
-  cannot be turned on is disabled, with the reason on hover.
+  that changes it, in one widget: *off*, *asked* or *allowed*. Narrowing
+  applies as you click and nothing refuses it; widening asks first. A position
+  your tier or a lock forbids is disabled, with the reason on hover.
 - **A small ⓘ** after the name — what writing to this machine means (*Writes
   move hardware*, or one of the *nothing moves* lines), the endpoint, and the
   controls server's own technical label, shown on hover or keyboard focus.
@@ -289,8 +289,8 @@ is one login's: two logins on one machine never change each other's writes.
 chip cannot lift and who can.
 
 One process holds the deployment's control context at a time, and only that
-one moves the deployment. A second web terminal of the same login turns
-switches on and off as the first does, but its **Switch to** buttons give way
+one moves the deployment. A second web terminal of the same login moves
+switches as the first does, but its **Switch to** buttons give way
 to a phrase naming the holder.
 
 What a deployment needs first
@@ -408,7 +408,7 @@ has actually measured it — whether its gateway answered.
      - Whether writes are permitted on **this target**, whether this target is
        the real machine, and the channel a switch would prove it with. Two rows
        of the same deployment can disagree about the first one: the switch is
-       per machine, so the simulator may be on beside a real machine that is off.
+       per machine, so the simulator may be armed beside a real machine that is off.
    * - ``limits_strict``
      - Whether **this target** runs exclusive limits — limits checking on and
        ``mode: exclusive``, so only channels in the limits file can be written.
@@ -540,7 +540,7 @@ is a materially different situation on the live machine than on the simulator. S
 every control-system failure envelope — a connect failure, a timeout, a limits
 refusal, a write the control system itself denied — names the target the
 deployment was pointed at when it failed: a human clause in the message
-(``active target: Real machine — writes move hardware at 10.0.0.5:5064``) and a machine-readable
+(``active target: Live — writes move hardware at 10.0.0.5:5064``) and a machine-readable
 ``details.active_target`` block carrying the target name, its label, and the
 endpoint where the configuration knows one. The agent narrating a failure, and
 any script asserting on one, can attribute it to the right machine from the
@@ -554,11 +554,11 @@ The switch would be a hazard if it were quiet. It is not:
 - **Every approval prompt names the target**, not only the write prompts — a
   queue start, a patch or an execution all carry the line too, so its absence is
   never something you learn to read as safe. The live machine is named as
-  ``Real machine — writes move hardware`` with the gateway the deployment
-  actually holds; the stand-in as ``Rehearsal — nothing moves``, in amber; the
+  ``Live — writes move hardware`` with the gateway the deployment
+  actually holds; the stand-in as ``Rehearsal — nothing moves``; the
   simulator as ``virtual accelerator (simulation)``. If the target cannot be read at all, the
   line says so explicitly instead of disappearing. (The web terminal names the
-  same machines by what they are --- *Real machine*, *Rehearsal*, *Simulator*,
+  same machines by what they are --- *Live*, *Rehearsal*, *Simulator*,
   or the deployment's own configured names --- and keeps these technical labels
   on its tooltips.)
 - **Results and artifacts are stamped.** Archive reads carry the control
@@ -568,7 +568,7 @@ The switch would be a hazard if it were quiet. It is not:
   work happens, and on the :ref:`control-target chip
   <web-terminal-session-posture>` in the header, which names the machine the
   deployment stands on and the write state on *that* machine ---
-  ``● Simulator · writes on``, ``● Real machine · writes locked``. The write
+  ``● Simulator · writes allowed``, ``● Live · writes locked``. The write
   state is per machine, so a deployment can arm its simulator and leave the
   live machine read-only; the chip is where that shows. The terminal tells the
   chip when the record moves, so it repaints as soon as a switch lands, whoever

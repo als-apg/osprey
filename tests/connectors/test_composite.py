@@ -104,6 +104,8 @@ def _stub_build(model, wiring, deck, settings, active=None):
     del model, deck
     if settings and settings.get("fail"):
         raise RuntimeError(settings["fail"])
+    if (active or {}).get("Q1/dB1"):
+        raise RuntimeError("no closed orbit")
     return StubModel(list(wiring), active or {})
 
 
@@ -323,6 +325,11 @@ def test_a_failed_model_lists_no_variables(tmp_path: Path) -> None:
 def _model_set_callers(path: Path) -> set[str]:
     """The functions of ``path`` that call ``model_set``, ``<module>`` at top level."""
     callers: set[str] = set()
+    source = path.read_text(encoding="utf-8")
+    # A call spells the name it calls (an identifier has no escape sequence),
+    # and parsing every module is what the scan spends its time on.
+    if "model_set" not in source:
+        return callers
 
     def visit(node: ast.AST, scope: str) -> None:
         for child in ast.iter_child_nodes(node):
@@ -336,7 +343,7 @@ def _model_set_callers(path: Path) -> set[str]:
                     callers.add(scope)
             visit(child, scope)
 
-    visit(ast.parse(path.read_text(encoding="utf-8")), "<module>")
+    visit(ast.parse(source), "<module>")
     return callers
 
 
@@ -689,6 +696,32 @@ def test_a_refused_batch_puts_the_stuck_demand_back(tmp_path: Path) -> None:
 
     assert composite.held(["M:STUCK:SP"]) == {"M:STUCK:SP": 1.0}
     assert composite.get("M:STUCK:SP") == 1.0
+
+
+def test_a_scenario_whose_seed_fails_the_build_is_named_in_the_status(tmp_path: Path) -> None:
+    scenarios = [
+        {"name": "seeded", "faults": {"M": {"writes": {"Q1/dB1": 50.0}}}},
+        {"name": "cooler", "overrides": {"T:SP": 4.0}},
+    ]
+    composite = _composite(tmp_path, scenarios=scenarios)
+
+    activate(tmp_path / "state", "seeded", "cooler")
+
+    assert composite.status("M") == "scenario seeded: no closed orbit"
+    assert math.isnan(composite.get("M:RB"))
+    activate(tmp_path / "state")
+    assert composite.status("M") == "ok"
+
+
+def test_a_build_failing_with_no_scenario_names_none(tmp_path: Path) -> None:
+    scenarios = [{"name": "cooler", "overrides": {"T:SP": 4.0}}]
+    composite = _composite(
+        tmp_path, scenarios=scenarios, settings={"fail": "the deck has no stable orbit"}
+    )
+
+    activate(tmp_path / "state", "cooler")
+
+    assert composite.status("M") == "the deck has no stable orbit"
 
 
 def test_a_failed_child_is_rebuilt_on_a_scenario_change(tmp_path: Path) -> None:

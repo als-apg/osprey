@@ -28,6 +28,10 @@ stdin ──► Parse JSON
          Load config.yml
               │
               ▼
+  (governed tools leave this flow after the denies:
+   see "The write switch's position" below)
+              │
+              ▼
   Is this call a write, and is the deployment
   NOT armed for the target it would act on?
      │                    │
@@ -72,7 +76,7 @@ Per-tool policies from `approval.tools` in config.yml:
   every call is denied with the fix
 - **default_policy**: fail-closed default for unmapped tools
 
-Creates a pre-execution notebook artifact for code review whenever
+Creates an approval-preview notebook of the code whenever
 `execute` requires approval (write mode, write patterns, or always policy).
 
 ## Write posture
@@ -86,6 +90,25 @@ per-target narrowing in the control-context record counts the same way as a
 config disarm, because `osprey_writes_check` reads the same record. A target
 whose write tier is not stated has the tier `never`, so its writes defer here
 like any other refusal; silence never means a prompt.
+
+## The write switch's position
+
+For a governed tool (`governed_tools` in hook_config.json) the switch decides, and
+`approval.enabled`, `approval.default_policy` and `approval.tools.*` are not read:
+
+- a read-only call runs unprompted in every position, unless its code names the
+  posture store;
+- a write the verdict refuses defers, as above;
+- at `asked` the call is put to a person, and its stamp says `position: "asked"`;
+- at `allowed` the call is bound and stamped as an ask would be, and filed on the
+  agent record as `approved`/`switch`. Outside a dispatch run it is allowed; in a dispatch
+  run it is sent as an ask, because the ask is what carries `updatedInput` past the
+  worker's backstop;
+- code naming the posture store is put to a person in every position, and denied
+  in a dispatch run, where nobody can be asked.
+
+A governed write this hook cannot place keeps its prompt. Every other tool takes
+the policy flow above.
 
 ## Write-approval stamps
 
@@ -113,6 +136,20 @@ An `execute` ask also leaves its review notebook to be settled. Once the outcome
 the status line reads `Ran`, `Failed` or `Not run`, and names the approver the stamp
 records. The pinned CLI sends no outcome event for a declined call, so its review is
 settled at `Stop`, as any unconsumed ask is.
+
+## Code review ahead of the prompt
+
+Where the deployment turns on code review (`code_review` in config.yml), an `execute`
+or `execute_file` ask in a reviewed mode has its code read by the reviewer BEFORE the
+operator sees the prompt. A block in blocking mode denies the call with the reasons and
+asks nobody. Every other answer goes onto the prompt and into the Approval preview, and
+the ask stamp records the digest of the reviewed code with what the agent is told, so
+the executor's own review — the backstop for a run no prompt saw — does not read the
+same code twice. Anything short of a verdict (no `osprey` on this interpreter, a section
+that cannot be read, a file the tool will refuse, a reviewer that did not answer in
+advisory mode) leaves the ask as it was and the executor's review in place. The time
+the review may take comes out of `--budget`, which the render grows by the review's
+deadline on these two tools.
 
 ## Bluesky plan lanes
 
@@ -147,10 +184,13 @@ from osprey_hook_log import (
     emit_audit,
     get_hook_input,
     get_project_dir,
+    get_repo_root,
+    is_governed,
     is_write_call,
     is_write_tool,
     load_hook_config,
     load_osprey_config,
+    locate_osprey_config,
     log_hook,
     short_tool_name,
     write_tools,
@@ -307,6 +347,11 @@ def build_approval_output(
     record = (read_record or _record_reader(hook_input))()
     _stamp_write_approval(hook_input, record)
     _record_ask(hook_input)
+    return _ask_envelope(reason_detail, hook_input, record, updated_input)
+
+
+def _ask_envelope(reason_detail, hook_input, record, updated_input=None) -> dict:
+    """The ask envelope alone: no stamp, no audit entry."""
     specific: dict = {
         "hookEventName": "PreToolUse",
         "permissionDecision": "ask",
@@ -326,7 +371,9 @@ def build_approval_output(
 APPROVED_FIELD_PREFIX = "approved_"
 
 
-def _emit_ask(output, hook_input, approved=None, review_id=None) -> None:
+def _emit_ask(
+    output, hook_input, approved=None, review_id=None, position=None, review=None
+) -> None:
     """Send the ask envelope, then leave its stamp.
 
     The stamp is written only after the envelope is flushed to the harness, so
@@ -336,10 +383,14 @@ def _emit_ask(output, hook_input, approved=None, review_id=None) -> None:
     the stamp.
 
     *review_id* is the review notebook's artifact id, when the ask has one.
+    *position* is the switch position a governed ask was put under.
+
+    *review* holds what the code review ahead of this prompt found, as the
+    fields the executor reads back (see "Code review ahead of the prompt").
     """
     json.dump(output, sys.stdout)
     sys.stdout.flush()
-    _stamp_ask(hook_input, approved=approved, review_id=review_id)
+    _stamp_ask(hook_input, approved=approved, review_id=review_id, position=position, review=review)
 
 
 def _record_ask(hook_input):
@@ -436,7 +487,7 @@ def _focus_artifact(gallery_base_url: str, artifact_id: str) -> None:
     how ``mcp_server.http._panel_auth_headers`` reads the same carrier.
 
     The focus is sent as ``automatic``: no one asked for it, so a layout that
-    already shows the call another way (the Simple chat's approval card) may
+    already shows the call another way (the chat's approval card) may
     leave its own selection alone.
 
     Non-fatal: silently swallows errors so focus failures never block approval.
@@ -639,7 +690,7 @@ _TARGET_BASELINE_LINE = "Target: deployment baseline (state unavailable)"
 #: deliberately NOT the refusal words (``KIND_WORDS``), which complete a
 #: refusal sentence rather than name a machine.
 _KIND_WORDS = {
-    "real": "Real machine — writes move hardware",
+    "real": "Live — writes move hardware",
     "rehearsal": "Rehearsal — nothing moves",
     "simulator": "Simulator — nothing moves",
 }
@@ -701,6 +752,13 @@ WRITE_APPROVAL_TTL_S = 3600.0
 #: ``denied`` at the end of the turn that did not run it.
 APPROVAL_ASK_PREFIX = "approval_ask_"
 APPROVAL_ASK_SUFFIX = ".json"
+
+#: The approver a stamp names when the switch's position approved the call.
+APPROVER_WRITE_SWITCH = "write_switch"
+
+#: The position word that lets a governed call run with nobody asked.
+_POSITION_ASKED = "asked"
+_POSITION_ALLOWED = "allowed"
 
 #: How long an unanswered ask stamp stays on disk. A turn that is interrupted
 #: fires no ``Stop``, so its stamps are closed at the next ``Stop`` of the same
@@ -958,7 +1016,14 @@ def _approval_state_dir(hook_input):
         return None
 
 
-def _stamp_ask(hook_input, approved=None, review_id=None) -> None:
+def _stamp_approver(position) -> str:
+    """Who answers a call: the dispatch policy in a dispatch run, else the position or a human."""
+    if os.environ.get("OSPREY_DISPATCH_RUN") == "1":
+        return "dispatch_policy"
+    return APPROVER_WRITE_SWITCH if position == _POSITION_ALLOWED else "human"
+
+
+def _stamp_ask(hook_input, approved=None, review_id=None, position=None, review=None) -> None:
     """Leave the stamp that lets this ask's answer be recorded. Never raises.
 
     Keyed by the call's tool-use id, so the ``PostToolUse`` for that call finds
@@ -972,6 +1037,12 @@ def _stamp_ask(hook_input, approved=None, review_id=None) -> None:
     one the stamp does not hold.
 
     *review_id* names the review notebook the call's outcome settles.
+
+    *position* is the switch position of a governed call, absent on any other
+    ask. At ``allowed`` the answer is already known, so the stamp also carries
+    ``answered_at``.
+
+    *review* holds the code review's fields for the executor, when the prompt ran one.
     """
     try:
         if not isinstance(hook_input, dict):
@@ -988,12 +1059,14 @@ def _stamp_ask(hook_input, approved=None, review_id=None) -> None:
             "tool_use_id": tool_use_id,
             "tool": str(hook_input.get("tool_name") or ""),
             "session_id": hook_input.get("session_id"),
-            "approver": (
-                "dispatch_policy" if os.environ.get("OSPREY_DISPATCH_RUN") == "1" else "human"
-            ),
+            "approver": _stamp_approver(position),
             "permission_mode": hook_input.get("permission_mode"),
             "asked_at": time.time(),
         }
+        if position is not None:
+            payload["position"] = position
+        if position == _POSITION_ALLOWED:
+            payload["answered_at"] = payload["asked_at"]
         payload.update(
             (key, value)
             for key, value in (approved or {}).items()
@@ -1001,6 +1074,7 @@ def _stamp_ask(hook_input, approved=None, review_id=None) -> None:
         )
         if review_id:
             payload[REVIEW_ARTIFACT_KEY] = review_id
+        payload.update(review or {})
         _write_stamp(os.path.join(directory, approval_ask_filename(tool_use_id)), payload)
     except Exception:
         return
@@ -1031,6 +1105,10 @@ APPROVED_CALL_NOTE = "The operator approved this call at the approval prompt bef
 #: other mode the hook cannot tell that a person answered, so the note is
 #: withheld: it must never claim an approval that did not happen.
 _PROMPTED_PERMISSION_MODES = frozenset({"default"})
+
+
+#: The audit ``detail`` of a call the switch approved.
+_SWITCH_APPROVED_DETAIL = f"approver={APPROVER_WRITE_SWITCH} position={_POSITION_ALLOWED}"
 
 
 def _approved_call_note(stamp) -> str | None:
@@ -1117,13 +1195,16 @@ def _close_unanswered_asks(hook_input) -> None:
             stamp = _read_stamp(path)
             if stamp is None or stamp.get("session_id") != session_id:
                 continue
+            # Nobody declined a call the switch approved: it was approved and
+            # did not run.
+            by_switch = stamp.get("approver") == APPROVER_WRITE_SWITCH
             emit_audit(
                 "approval",
                 hook_input,
-                decision=AUDIT_DECISION_DENIED,
+                decision=AUDIT_DECISION_APPROVED if by_switch else AUDIT_DECISION_DENIED,
                 subject=stamp.get("tool") or "",
                 reason="not_executed",
-                detail=_outcome_detail(stamp),
+                detail=_SWITCH_APPROVED_DETAIL if by_switch else _outcome_detail(stamp),
                 tool_use_id=stamp.get("tool_use_id"),
             )
             _settle_review(stamp, "not_run")
@@ -2658,7 +2739,7 @@ def _gallery_base_url(config: dict) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Review notebook: the artifact an `execute` ask puts in front of the operator
+# Approval preview: the notebook an `execute` ask puts in front of the operator
 # ---------------------------------------------------------------------------
 # An `execute` ask saves the code under review as a notebook, which says
 # "Pending approval". The answer then settles that notebook through the ask
@@ -2672,8 +2753,8 @@ def _gallery_base_url(config: dict) -> str:
 #: The ask-stamp field that names the review notebook's artifact id.
 REVIEW_ARTIFACT_KEY = "review_artifact_id"
 
-_REVIEW_TITLE = "Pre-Execution Review"
-_REVIEW_FILENAME = "pre_execution_review.ipynb"
+_REVIEW_TITLE = "Approval preview"
+_REVIEW_FILENAME = "approval_preview.ipynb"
 _REVIEW_PENDING = "pending approval"
 
 #: How each outcome reads in a review. A call that ran or failed may then name its approver.
@@ -2684,18 +2765,30 @@ _REVIEW_OUTCOME_WORDS = {
 }
 
 
-def _review_notebook_bytes(code: str, exec_mode: str, state: str) -> bytes:
-    """The review notebook for *code*, its status line reading *state*."""
+#: The artifact-metadata field holding what the code review said about the previewed code.
+_REVIEW_FINDINGS_KEY = "code_review"
+
+
+def _review_notebook_bytes(code: str, exec_mode: str, state: str, review=None) -> bytes:
+    """The review notebook for *code*, its status line reading *state*.
+
+    *review* is what the code review said ahead of the prompt, when it ran. It is
+    fenced as the reviewer's own message fences code: the reasons are a model's
+    text, and a line of them must not be able to pass for a status line.
+    """
     import nbformat
 
+    from osprey.services.code_review.contract import fenced
+
     status = state[:1].upper() + state[1:]
+    header = (
+        f"# {_REVIEW_TITLE}\n\n**Mode:** `{exec_mode or 'unspecified'}`  \n**Status:** {status}  \n"
+    )
+    if review:
+        header += f"\n**Code review**\n\n{fenced(review)}\n"
     notebook = nbformat.v4.new_notebook()
     notebook.cells = [
-        nbformat.v4.new_markdown_cell(
-            f"# {_REVIEW_TITLE}\n\n"
-            f"**Mode:** `{exec_mode or 'unspecified'}`  \n"
-            f"**Status:** {status}  \n"
-        ),
+        nbformat.v4.new_markdown_cell(header),
         nbformat.v4.new_code_cell(code),
     ]
     return str(nbformat.writes(notebook)).encode()
@@ -2724,30 +2817,36 @@ def _review_outcome_state(outcome: str, stamp) -> str:
 
 
 def _create_pre_execution_notebook(
-    code: str, exec_mode: str, config: dict
+    code: str, exec_mode: str, config: dict, review=None
 ) -> tuple[str | None, str | None]:
     """Save the review notebook for *code* as ``(gallery URL, artifact id)``.
 
     Either part may be ``None``: the URL when no gallery address can be derived,
     the id when the notebook could not be saved. Failures are silently swallowed,
     because notebook creation must never break approval.
+
+    *review* is what the code review said ahead of the prompt, kept in the
+    entry's metadata so that settling the notebook can write it out again.
     """
     artifact_id = None
     try:
         from osprey.stores.artifact_store import RUN_RECORD_KEY, ArtifactStore
 
+        metadata = {"exec_mode": exec_mode or "", RUN_RECORD_KEY: True}
+        if review:
+            metadata[_REVIEW_FINDINGS_KEY] = review
         # The hook is a one-shot process, so it must not start a gallery of its
         # own: a gallery already running picks the notebook up from the shared store.
         store = ArtifactStore(auto_launch=False)
         entry = store.save_file(
-            file_content=_review_notebook_bytes(code, exec_mode, _REVIEW_PENDING),
+            file_content=_review_notebook_bytes(code, exec_mode, _REVIEW_PENDING, review),
             filename=_REVIEW_FILENAME,
             artifact_type="notebook",
             title=_REVIEW_TITLE,
             description=_review_description(exec_mode, _REVIEW_PENDING),
             mime_type="application/x-ipynb+json",
             tool_source="osprey_approval",
-            metadata={"exec_mode": exec_mode or "", RUN_RECORD_KEY: True},
+            metadata=metadata,
         )
         artifact_id = entry.id
 
@@ -2793,11 +2892,220 @@ def _settle_review(stamp, outcome: str) -> None:
         state = _review_outcome_state(outcome, stamp)
         store.replace_file(
             artifact_id,
-            _review_notebook_bytes(code, exec_mode, state),
+            _review_notebook_bytes(
+                code, exec_mode, state, entry.metadata.get(_REVIEW_FINDINGS_KEY)
+            ),
             description=_review_description(exec_mode, state),
         )
     except Exception:
         return
+
+
+# ---------------------------------------------------------------------------
+# Code review ahead of the prompt
+# ---------------------------------------------------------------------------
+# An `execute` or `execute_file` ask in a reviewed mode has its code read by the
+# code review before the operator sees the prompt, the way the notebook hook
+# reads a cell before it lands. The core in `osprey.services.code_review` builds
+# the request, runs the reviewer and words every result; this section adapts
+# that to the ask. A block in blocking mode denies the call and asks nobody.
+# Every other answer goes onto the prompt and into the Approval preview, and
+# the ask stamp carries the digest of the reviewed code with what the agent is
+# told, so the executor's own review — the backstop for a run no prompt saw —
+# does not read the same code twice.
+#
+# Anything short of a verdict leaves the ask exactly as it was and the executor's
+# review in place: no `osprey` on this interpreter, a section that cannot be
+# read, a file the tool will refuse, a budget with no room. A reviewer that did
+# not answer is an outcome of its own and takes the level's word for it, as it
+# does on every surface: denied in blocking mode, asked with the note in advisory
+# mode and left unstamped, so the executor tries again.
+
+#: The tools whose code this hook reviews ahead of the ask.
+_REVIEWED_TOOLS = frozenset({"execute", "execute_file"})
+
+#: What this hook keeps of its `--budget` for the prompt itself; the review gets
+#: the rest. Equal to the budget an unreviewed ask renders with, which is what
+#: the render adds the review's deadline on top of.
+_REVIEW_PROMPT_OVERHEAD_S = 5.0
+
+#: The execution mode a call that names none runs in: the executor's default.
+_DEFAULT_EXECUTION_MODE = "readonly"
+
+#: The activity kind a review notice is filed under, as the executor files it.
+_REVIEW_ACTIVITY_KIND = "review"
+
+
+def _script_text(tool_input, hook_input):
+    """The text `execute_file` would run, read as the tool reads it, or ``None``.
+
+    A relative path is anchored on the repo root, as the tool anchors it; a path
+    outside the root, not a ``.py`` file, unreadable or empty is one the tool
+    refuses, so there is nothing to review ahead of a prompt it will never need.
+    """
+    path = tool_input.get("file_path")
+    if not isinstance(path, str) or not path.strip():
+        return None
+    try:
+        root = Path(get_repo_root(hook_input)).resolve()
+        target = Path(path)
+        if not target.is_absolute():
+            target = root / target
+        resolved = target.resolve()
+        if not resolved.is_relative_to(root) or resolved.suffix != ".py":
+            return None
+        text = resolved.read_text("utf-8")
+    except (OSError, ValueError, RuntimeError):
+        return None
+    return text if text.strip() else None
+
+
+def _reviewed_code(short_name, tool_input, hook_input):
+    """``(code, script arguments)`` this ask would have reviewed, or ``None``."""
+    if short_name == "execute":
+        code = tool_input.get("code")
+        return (code, ()) if isinstance(code, str) and code.strip() else None
+    text = _script_text(tool_input, hook_input)
+    if text is None:
+        return None
+    args = tool_input.get("script_args")
+    return text, tuple(str(arg) for arg in args) if isinstance(args, (list, tuple)) else ()
+
+
+def _review_prompt_lines(outcome) -> list[str]:
+    """What the operator reads about the review, one line per reason.
+
+    Each reason is a model's text and is kept to one line, so none can pass for
+    a line of the prompt itself. The suggested revision goes to the agent, not
+    onto the prompt.
+    """
+    from osprey.services.code_review.contract import ReviewVerdict
+
+    result = outcome.result
+    if not isinstance(result, ReviewVerdict):
+        return [f"Code review: did not run ({result.kind}); the code runs unreviewed if approved."]
+    headline = f"Code review: {result.verdict}"
+    if result.verdict == "block":
+        headline += " (advisory mode: the code may still run)"
+    lines = [headline]
+    lines.extend(f"  - {_sanitize_label(reason)}" for reason in result.reasons if reason.strip())
+    if result.suggested_revision and result.suggested_revision.strip():
+        lines.append("  The reviewer suggested a revision, which the agent receives.")
+    return lines
+
+
+def _record_review(hook_input, short_name, outcome, request) -> None:
+    """File the review's value-free record and tell the operator's activity feed.
+
+    One record per review, passes included, as on every surface; the notice goes
+    out for everything but a pass. Neither may cost the prompt.
+    """
+    from osprey.services.code_review.review import audit_fields, notice_text
+
+    fields = audit_fields(outcome, request)
+    log_hook("approval", hook_input, status=fields.decision, detail=fields.detail)
+    with contextlib.suppress(Exception):
+        emit_audit(
+            "approval",
+            hook_input,
+            decision=fields.decision,
+            subject=fields.subject,
+            reason=fields.reason,
+            detail=fields.detail,
+        )
+    notice = notice_text(outcome, request)
+    if notice:
+        with contextlib.suppress(Exception):
+            from osprey.mcp_server.http import notify_agent_activity
+
+            notify_agent_activity(short_name, _REVIEW_ACTIVITY_KIND, detail=notice)
+
+
+def _deny_reviewed(message) -> None:
+    """Deny the call with what the review said, and exit 0. Does not return."""
+    json.dump(
+        {
+            "hookSpecificOutput": {
+                "hookEventName": "PreToolUse",
+                "permissionDecision": "deny",
+                "permissionDecisionReason": message,
+            }
+        },
+        sys.stdout,
+    )
+    sys.exit(0)
+
+
+def _review_before_ask(hook_input, tool_name, short_name, tool_input):
+    """Review the code an ask is about, ahead of the prompt.
+
+    Returns ``(prompt lines, stamp fields, text for the preview)``, all empty when
+    nothing was reviewed. Exits with a deny when the review stops the code.
+
+    The reviewer's own time comes out of ``--budget``, less what the prompt keeps
+    for itself; a render that leaves no room (one from before the review existed)
+    reviews nothing here and leaves it to the executor.
+    """
+    nothing = [], {}, None
+    if short_name not in _REVIEWED_TOOLS:
+        return nothing
+    try:
+        from osprey.services.code_review.settings import (
+            load_review_settings,
+            read_review_config,
+        )
+
+        settings = load_review_settings(config=read_review_config(locate_osprey_config(hook_input)))
+    except Exception:
+        return nothing
+    if not settings.enabled:
+        return nothing
+    mode = tool_input.get("execution_mode") or _DEFAULT_EXECUTION_MODE
+    if mode not in settings.modes:
+        return nothing
+    reviewed = _reviewed_code(short_name, tool_input, hook_input)
+    if reviewed is None:
+        return nothing
+    code, script_args = reviewed
+    time_limit = min(
+        settings.time_limit, _parse_hook_budget(sys.argv[1:]) - _REVIEW_PROMPT_OVERHEAD_S
+    )
+    if time_limit <= 0:
+        return nothing
+
+    try:
+        import asyncio
+        import dataclasses
+
+        from osprey.services.code_review.contract import SURFACE_EXECUTE, ReviewRequest
+        from osprey.services.code_review.review import ACTION_REFUSE, agent_message, review_code
+        from osprey.services.code_review.stamp import reviewed_fields
+
+        description = tool_input.get("description")
+        request = ReviewRequest(
+            surface=SURFACE_EXECUTE,
+            code=code,
+            subject=tool_name,
+            description=description if isinstance(description, str) and description else None,
+            mode=mode,
+            script_args=script_args,
+        )
+        outcome = asyncio.run(
+            review_code(
+                request,
+                dataclasses.replace(settings, time_limit=time_limit),
+                repo_root=Path(get_repo_root(hook_input)),
+                render_dir=locate_osprey_config(hook_input).parent,
+            )
+        )
+    except Exception:
+        return nothing
+
+    _record_review(hook_input, short_name, outcome, request)
+    if outcome.action == ACTION_REFUSE:
+        _deny_reviewed(agent_message(outcome))
+    lines = _review_prompt_lines(outcome)
+    return lines, reviewed_fields(code, outcome), "\n".join(lines)
 
 
 # ---------------------------------------------------------------------------
@@ -2886,6 +3194,28 @@ def _call_write_posture(config, tool_name, short_name, tool_input, hook_input):
         return _target_state.write_verdict(section, placed, hook_input=hook_input).allowed
     except Exception:
         return _unanswerable_posture(short_name)
+
+
+def _governed_position(config, tool_name, short_name, tool_input, hook_input):
+    """The switch position deciding a governed write, or ``None``. Never raises.
+
+    ``"asked"`` or ``"allowed"`` for a write the verdict allows. Places
+    ``queue_add`` as :func:`~osprey_target_state.hook_write_target` does, unlike
+    :func:`_call_write_posture`, which leaves it out because it must never defer.
+    ``None`` for a write that cannot be placed or is refused without a defer, and
+    for any failure: ``main`` puts those to a person.
+    """
+    try:
+        if _target_state is None or not is_write_call(tool_name, tool_input, short_name):
+            return None
+        placed = _target_state.hook_write_target(config, tool_name, short_name, hook_input)
+        if placed is None or placed is _target_state.UNRESOLVED:
+            return None
+        section = config.get("control_system") if isinstance(config, dict) else None
+        verdict = _target_state.write_verdict(section, placed, hook_input=hook_input)
+        return verdict.position if verdict.allowed else None
+    except Exception:
+        return None
 
 
 #: Spellings of a direct client-library write that no reading makes innocent,
@@ -3393,6 +3723,168 @@ def _measure_call(hook_input, tool_name, tool_input, read_record):
     return lines, _bound_input(tool_input, binding), binding
 
 
+def _bind_call(hook_input, tool_name, short_name, tool_input, read_record):
+    """What approving this call rewrites, the same whichever position approves it.
+
+    Returns ``(measure lines, updated input, binding)``, the last two ``None`` for
+    a call with nothing to bind, or ``None`` for a measurement the block does not
+    map. A measurement refused here is denied and does not return: a list too long
+    to show is too long to run unseen.
+    """
+    if short_name in ("execute", "execute_file"):
+        updated_input, binding = _guarded_call(hook_input, tool_input, read_record)
+        return [], updated_input, binding
+    if short_name == "pyaml_measure":
+        return _measure_call(hook_input, tool_name, tool_input, read_record)
+    return [], None, None
+
+
+def _allow_unmapped_measure(hook_input):
+    """Pass on a measurement the block does not map; the tool refuses it. Does not return."""
+    log_hook("approval", hook_input, status="allow", detail="pyaml_measure_unmapped")
+    json.dump(build_allow_output(), sys.stdout)
+    sys.exit(0)
+
+
+def _describe_ask(hook_input, tool_name, short_name, tool_input, config, read_record):
+    """The prompt lines, rewritten input, binding, review id and review stamp of an ask.
+
+    Whatever a describer learns about the recorded control target comes from
+    *read_record*, so one prompt describes one read. A run's code is reviewed here,
+    so every ask carries the verdict, and a block exits with the deny.
+    """
+    bound = _bind_call(hook_input, tool_name, short_name, tool_input, read_record)
+    if bound is None:
+        _allow_unmapped_measure(hook_input)
+    lines, updated_input, binding = bound
+    lines = list(lines)
+    review_id = None
+    review_lines, review_stamp, review_text = _review_before_ask(
+        hook_input, tool_name, short_name, tool_input
+    )
+    lines.extend(review_lines)
+    if short_name == "execute":
+        code = tool_input.get("code")
+        exec_mode = tool_input.get("execution_mode", "")
+        if isinstance(code, str) and code.strip():
+            gallery_link, review_id = _create_pre_execution_notebook(
+                code, exec_mode, config, review_text
+            )
+            if gallery_link:
+                lines.append(f"\nApproval preview: {gallery_link}")
+    elif short_name == "channel_write":
+        channel_list = _channel_write_summary(tool_input)
+        if channel_list:
+            lines.append(f"Channels: {channel_list}")
+    else:
+        for describers in (_QUEUE_DESCRIBERS, _TARGET_DESCRIBERS, _CALL_DESCRIBERS):
+            if short_name in describers:
+                with contextlib.suppress(Exception):
+                    lines.extend(
+                        describers[short_name](tool_input, config, hook_input, read_record)
+                    )
+                break
+    return lines, updated_input, binding, review_id, review_stamp
+
+
+def _ask_governed(hook_input, tool_name, short_name, tool_input, config, *, store_naming):
+    """Put a governed call to a person, whatever the approval policy says. Does not return."""
+    read_record = _record_reader(hook_input)
+    reason_parts = [f"Tool: {short_name}", f"Write switch: {_POSITION_ASKED}"]
+    if short_name == "execute":
+        code = tool_input.get("code")
+        reason_parts.append(
+            f"Python execution (mode: {tool_input.get('execution_mode') or 'unspecified'})"
+        )
+        if isinstance(code, str) and has_write_patterns(code, config):
+            reason_parts.append("Code contains control system write patterns.")
+        if store_naming:
+            reason_parts.append("Code names the posture store.")
+    lines, updated_input, binding, review_id, review_stamp = _describe_ask(
+        hook_input, tool_name, short_name, tool_input, config, read_record
+    )
+    reason_parts.extend(lines)
+    log_hook("approval", hook_input, status="ask", detail=f"position=asked tool={short_name}")
+    _emit_ask(
+        build_approval_output("\n".join(reason_parts), hook_input, read_record, updated_input),
+        hook_input,
+        binding,
+        review_id=review_id,
+        position=_POSITION_ASKED,
+        review=review_stamp,
+    )
+    sys.exit(0)
+
+
+def _allow_governed(hook_input, tool_name, short_name, tool_input):
+    """Run a governed call at ``allowed``, with the records an ask leaves. Does not return.
+
+    The server reads the same stamps either way, so the prelude is the ask's: one
+    read of the record, the binding, the window stamp. A start shows no queue, so
+    it withdraws any token an earlier prompt stamped. In a dispatch run the
+    envelope is an ask, because only that carries ``updatedInput`` past the
+    worker's backstop.
+    """
+    read_record = _record_reader(hook_input)
+    bound = _bind_call(hook_input, tool_name, short_name, tool_input, read_record)
+    if bound is None:
+        _allow_unmapped_measure(hook_input)
+    _lines, updated_input, binding = bound
+    record = read_record()
+    _stamp_write_approval(hook_input, record)
+    if short_name == _LANE_ADDRESSED_TOOL:
+        _null_queue_start_stamps(hook_input)
+    approver = _stamp_approver(_POSITION_ALLOWED)
+    # the audit trail must never cost the call
+    with contextlib.suppress(Exception):
+        emit_audit(
+            "approval",
+            hook_input,
+            decision=AUDIT_DECISION_APPROVED,
+            subject=tool_name,
+            reason="switch",
+            detail=f"approver={approver} position={_POSITION_ALLOWED}",
+        )
+    _stamp_ask(hook_input, approved=binding, position=_POSITION_ALLOWED)
+    log_hook("approval", hook_input, status="allow", detail=f"position=allowed tool={short_name}")
+    if os.environ.get("OSPREY_DISPATCH_RUN") == "1":
+        reason = f"Tool: {short_name}\nWrite switch: {_POSITION_ALLOWED}"
+        output = _ask_envelope(reason, hook_input, record, updated_input)
+    else:
+        output = build_allow_output()
+        if updated_input is not None:
+            output["hookSpecificOutput"]["updatedInput"] = dict(updated_input)
+    json.dump(output, sys.stdout)
+    sys.exit(0)
+
+
+def _governed_main(config, tool_name, short_name, tool_input, hook_input):
+    """Decide a governed call from the switch's position. Does not return.
+
+    A write the verdict refuses has already deferred.
+    """
+    if short_name in _STORE_PATH_TOOLS and _names_store(tool_input.get("code")):
+        if os.environ.get("OSPREY_DISPATCH_RUN") == "1":
+            _deny_store_path(hook_input, tool_name)
+        _ask_governed(hook_input, tool_name, short_name, tool_input, config, store_naming=True)
+    if short_name in ("execute", "execute_file"):
+        # `execute_file` carries a path, so it has no code to read here.
+        code = tool_input.get("code")
+        read_only = tool_input.get("execution_mode", "readonly") == "readonly" and not (
+            isinstance(code, str) and has_write_patterns(code, config)
+        )
+    else:
+        read_only = not is_write_call(tool_name, tool_input, short_name)
+    if read_only:
+        log_hook("approval", hook_input, status="allow", detail=f"read_only tool={short_name}")
+        json.dump(build_allow_output(), sys.stdout)
+        sys.exit(0)
+    position = _governed_position(config, tool_name, short_name, tool_input, hook_input)
+    if position == _POSITION_ALLOWED:
+        _allow_governed(hook_input, tool_name, short_name, tool_input)
+    _ask_governed(hook_input, tool_name, short_name, tool_input, config, store_naming=False)
+
+
 def main():
     # What the harness will allow this hook, straight from the rendered
     # command. The render derives the `--budget` value and the harness timeout
@@ -3500,6 +3992,11 @@ def main():
             _APPROVAL_CONFIG_INVALID_REASON.format(value=approval_config["enabled"]),
         )
 
+    # The switch's position decides for a governed tool; the policy below is
+    # not read for one.
+    if is_governed(tool_name):
+        _governed_main(config, tool_name, short_name, tool_input, hook_input)
+
     # Executor code that names the posture store runs only on a person's
     # approval. Placed ahead of the `enabled` and `skip` allows and the
     # selective-readonly allow, so none of them lets it through. A dispatch run
@@ -3555,13 +4052,17 @@ def main():
                     reason_parts.append("Code contains control system write patterns.")
                 if store_naming:
                     reason_parts.append("Code names the posture store.")
+                review_lines, review_stamp, review_text = _review_before_ask(
+                    hook_input, tool_name, short_name, tool_input
+                )
+                reason_parts.extend(review_lines)
                 review_id = None
                 if code.strip():
                     gallery_link, review_id = _create_pre_execution_notebook(
-                        code, exec_mode, config
+                        code, exec_mode, config, review_text
                     )
                     if gallery_link:
-                        reason_parts.append(f"\nReview notebook: {gallery_link}")
+                        reason_parts.append(f"\nApproval preview: {gallery_link}")
                 reason = "\n".join(reason_parts)
                 log_hook("approval", hook_input, status="ask", detail="execute_selective")
                 _emit_ask(
@@ -3569,6 +4070,7 @@ def main():
                     hook_input,
                     binding,
                     review_id=review_id,
+                    review=review_stamp,
                 )
                 sys.exit(0)
 
@@ -3598,46 +4100,10 @@ def main():
     # rendered from the same read. It resolves nothing until something asks, so a
     # prompt with no target-aware describer costs exactly what it always did.
     read_record = _record_reader(hook_input)
-    updated_input = None
-    binding = None
-    review_id = None
-    if short_name == "execute":
-        code = tool_input.get("code", "")
-        exec_mode = tool_input.get("execution_mode", "")
-        updated_input, binding = _guarded_call(hook_input, tool_input, read_record)
-        if code.strip():
-            gallery_link, review_id = _create_pre_execution_notebook(code, exec_mode, config)
-            if gallery_link:
-                reason_parts.append(f"\nReview notebook: {gallery_link}")
-    elif short_name == "execute_file":
-        updated_input, binding = _guarded_call(hook_input, tool_input, read_record)
-    elif short_name == "pyaml_measure":
-        measured = _measure_call(hook_input, tool_name, tool_input, read_record)
-        if measured is None:
-            log_hook("approval", hook_input, status="allow", detail="pyaml_measure_unmapped")
-            json.dump(build_allow_output(), sys.stdout)
-            sys.exit(0)
-        measure_lines, updated_input, binding = measured
-        reason_parts.extend(measure_lines)
-    elif short_name == "channel_write":
-        channel_list = _channel_write_summary(tool_input)
-        if channel_list:
-            reason_parts.append(f"Channels: {channel_list}")
-    elif short_name in _QUEUE_DESCRIBERS:
-        with contextlib.suppress(Exception):
-            reason_parts.extend(
-                _QUEUE_DESCRIBERS[short_name](tool_input, config, hook_input, read_record)
-            )
-    elif short_name in _TARGET_DESCRIBERS:
-        with contextlib.suppress(Exception):
-            reason_parts.extend(
-                _TARGET_DESCRIBERS[short_name](tool_input, config, hook_input, read_record)
-            )
-    elif short_name in _CALL_DESCRIBERS:
-        with contextlib.suppress(Exception):
-            reason_parts.extend(
-                _CALL_DESCRIBERS[short_name](tool_input, config, hook_input, read_record)
-            )
+    lines, updated_input, binding, review_id, review_stamp = _describe_ask(
+        hook_input, tool_name, short_name, tool_input, config, read_record
+    )
+    reason_parts.extend(lines)
 
     reason = "\n".join(reason_parts)
     log_hook(
@@ -3651,6 +4117,7 @@ def main():
         hook_input,
         binding,
         review_id=review_id,
+        review=review_stamp,
     )
     sys.exit(0)
 

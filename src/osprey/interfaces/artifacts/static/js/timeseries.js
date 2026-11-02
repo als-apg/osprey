@@ -403,13 +403,10 @@ export function _tsChartTheme() {
  * module's {@link renderTimeseriesChart} builds the same keys at initial
  * render); gallery.js's theme subscription just calls this.
  *
- * Plural, and document-wide, because the gallery's two artifact surfaces —
- * Expert's preview pane and Simple's result card — can each hold a mounted
- * chart at the same time (`renderPreview` still runs while Simple is on
- * screen). Restyling only "the visible one" would mean deciding which that is
- * from a `display:none` ancestor; restyling all of them is both cheaper and
- * correct, since there are at most two and a hidden chart re-themed early is
- * simply already right when its pane comes back.
+ * Document-wide rather than a lookup of the preview pane's chart: the pane is
+ * the one surface that mounts a chart, but this pass needs no knowledge of
+ * where charts are mounted, and a chart in a pane that is hidden at the time
+ * is simply already right when the pane comes back.
  * @returns {void}
  */
 export function restyleMountedCharts() {

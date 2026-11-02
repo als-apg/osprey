@@ -58,6 +58,7 @@ import yaml
 from osprey.mcp_server.control_system import target_state
 from osprey.mcp_server.python_executor import executor as host_executor
 from osprey_connectors_tests._harness import write_control_context
+from tests._approval_stamp_fixture import ApprovalStamps
 from tests.facility.served_tree import in_process_config, served_tree
 
 #: Absent from the limits database on purpose: the posture is the only thing
@@ -151,8 +152,6 @@ def _write_deployment(root: Path) -> Path:
     config = {
         "project_root": str(root),
         "agent_data": {"base_dir": "var/agent_data"},
-        # Nobody is asked: these runs are about the limits posture, not approval.
-        "approval": {"enabled": False},
         "control_system": {
             "type": "epics",
             # Otherwise the write tier refuses first and neither path ever
@@ -213,7 +212,7 @@ def _publish_target(root: Path, target: str) -> None:
     launch pin would refuse both paths before either reached a limits decision.
     """
     write_control_context(
-        root / "var" / "agent_data", target=target, generation=0, switch={target: "on"}
+        root / "var" / "agent_data", target=target, generation=0, switch={target: "asked"}
     )
 
 
@@ -228,9 +227,17 @@ def _run_sandbox(root: Path, target: str) -> dict:
     folder = root / "var" / "agent_data" / "python_executions" / target
     (folder / "figures").mkdir(parents=True)
 
-    result = asyncio.run(
-        host_executor._execute_via_local(PROBE_SCRIPT, "readwrite", {"timeout": 300}, folder)
-    )
+    # A write-mode ``execute`` is governed, so ``approval.*`` cannot exempt it:
+    # the run goes ahead on the record its approval prompt files. These runs are
+    # about the limits posture, so that record is filed here, approved for *target*.
+    state = target_state.state_dir()
+    state.mkdir(parents=True, exist_ok=True)
+    with ApprovalStamps(state).approved("execute", approved_target=target):
+        result = asyncio.run(
+            host_executor._execute_via_local(
+                PROBE_SCRIPT, "readwrite", {"timeout": 300}, folder, approved_target=target
+            )
+        )
 
     assert result.control_target == target, (
         f"the run was stamped for {result.control_target!r}, not {target!r}; "

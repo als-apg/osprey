@@ -54,9 +54,9 @@ NARAD_PROPERTY = "https://narad.example.org/property/"
 #: Expected sizes, spelled out rather than derived, so a change to *both* sides
 #: at once still trips something.
 #: ``EXPECTED_CHANNELS`` counts the channel database; the view carries those and
-#: ``EXPECTED_BINDINGS`` in all, the 430 addresses the facility adds included.
+#: ``EXPECTED_BINDINGS`` in all, the 431 addresses the facility adds included.
 EXPECTED_CHANNELS = 2908
-EXPECTED_BINDINGS = 3338
+EXPECTED_BINDINGS = 3339
 EXPECTED_DEVICES = 644
 
 #: Devices carrying each device prose predicate: every device carries its

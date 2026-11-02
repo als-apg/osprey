@@ -4,9 +4,9 @@
  *   npx vitest run tests/interfaces/web_terminal/session-pointer-boot.test.mjs
  *
  * The pointer is one slot with two writers — the terminal (terminal.js) and
- * the operator console (chat.js) — and both views read it. The surface that
- * owns the session is the one that names it: in the Expert view that is the
- * id the terminal's server confirms, in the Simple view it is the console's
+ * the operator console (chat.js) — and both surfaces read it. The surface that
+ * owns the session is the one that names it: in the terminal that is the
+ * id the terminal's server confirms, in the chat it is the console's
  * own key, because the terminal never connects there. A boot that writes the
  * slot twice leaves the two views disagreeing for as long as a PTY takes to
  * spawn, and every reader in that window believes the first value.
@@ -47,17 +47,18 @@ vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/chat-client.js', 
   fetchHistory: vi.fn(async () => []),
   sendPrompt: vi.fn(() => ({ abort: () => {}, aborted: false })),
   interrupt: vi.fn(async () => undefined),
-  requestHandoff: vi.fn(async () => ({ state: 'simple', session_id: 'k' })),
+  requestHandoff: vi.fn(async () => ({ state: 'chat', session_id: 'k' })),
   fetchCommands: vi.fn(async () => []),
   followChat: vi.fn(() => ({ close: () => {} })),
 }));
 
 /**
- * Load both surfaces into a fresh document in the given view.
- * @param {'expert'|'simple'} mode
+ * Load both surfaces into a fresh document on the given surface.
+ * @param {'terminal'|'chat'} surface
  */
-async function loadPage(mode) {
-  document.documentElement.setAttribute('data-ui-mode', mode);
+async function loadPage(surface) {
+  if (surface === 'terminal')
+    document.documentElement.setAttribute('data-agent-surface', 'terminal');
   terminal = await import('../../../src/osprey/interfaces/web_terminal/static/js/terminal.js');
   chat = await import('../../../src/osprey/interfaces/web_terminal/static/js/chat.js');
   pointer =
@@ -81,13 +82,13 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  document.documentElement.removeAttribute('data-ui-mode');
+  document.documentElement.removeAttribute('data-agent-surface');
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
 });
 
-test('an Expert boot with nothing stored writes the pointer once, with the id the server confirmed', async () => {
-  await loadPage('expert');
+test('a terminal boot with nothing stored writes the pointer once, with the id the server confirmed', async () => {
+  await loadPage('terminal');
 
   terminal.initTerminal('terminal-container');
   chat.initChat('operator-container');
@@ -104,9 +105,9 @@ test('an Expert boot with nothing stored writes the pointer once, with the id th
   expect(pointer.getPointer()).toBe('server-minted-id');
 });
 
-test('an Expert boot on a kept-warm key writes nothing', async () => {
+test('a terminal boot on a kept-warm key writes nothing', async () => {
   localStorage.setItem(STORAGE_KEY, 'kept-warm-id');
-  await loadPage('expert');
+  await loadPage('terminal');
 
   terminal.initTerminal('terminal-container');
   expect(/** @type {FakeWebSocket} */ (FakeWebSocket.last).url).toContain(
@@ -124,11 +125,11 @@ test('an Expert boot on a kept-warm key writes nothing', async () => {
   expect(pointer.getPointer()).toBe('kept-warm-id');
 });
 
-test('a Simple boot with nothing stored writes the pointer once, with the key the console minted', async () => {
-  await loadPage('simple');
+test('a chat boot with nothing stored writes the pointer once, with the key the console minted', async () => {
+  await loadPage('chat');
 
   terminal.initTerminal('terminal-container');
-  // The terminal does not connect in the Simple view.
+  // The terminal does not connect in the chat.
   expect(FakeWebSocket.last).toBeNull();
 
   chat.initChat('operator-container');

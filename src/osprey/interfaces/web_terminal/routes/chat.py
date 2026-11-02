@@ -17,7 +17,7 @@ GET /api/chat/commands
 Answers {"commands": [{"name", "description", "argument_hint", "kind"}, ...]},
 the slash commands the chat agent accepts in this project.
 
-The Simple-mode chat is keyed on a caller-supplied ``chat_id`` and backed by a
+The operator chat is keyed on a caller-supplied ``chat_id`` and backed by a
 registry-managed :class:`OperatorSession` (the ``ChatSessionPool``). Each POST
 mints a per-session turn guard, then consumes one
 :meth:`OperatorSession.run_turn` — the turn machine (queue consumption,
@@ -31,6 +31,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+from collections.abc import Callable
 from dataclasses import asdict
 from pathlib import Path
 from typing import Any, cast
@@ -41,6 +42,7 @@ from pydantic import BaseModel
 
 from osprey.agent_runner import HAS_SDK, AgentRunError
 from osprey.audit.envelope import POSTURE_SOURCE_PROCESS
+from osprey.interfaces.web_terminal import transcript_map
 from osprey.interfaces.web_terminal.chat_session_pool import ChatSessionTerminatedError
 from osprey.interfaces.web_terminal.operator_session import (
     POSTURE_SOURCE_LIVE,
@@ -52,7 +54,7 @@ from osprey.interfaces.web_terminal.operator_session import (
 )
 from osprey.interfaces.web_terminal.routes.chat_attachments import mark_sent
 from osprey.interfaces.web_terminal.session_handoff import (
-    SURFACE_SIMPLE,
+    SURFACE_CHAT,
     ChannelClosed,
     ChannelToken,
     HandoffError,
@@ -161,7 +163,8 @@ def _strip_for_chat(event: dict[str, Any]) -> dict[str, Any]:
     - ``context``  reduce to the window's occupancy: ``used_tokens``,
                    ``window_tokens`` and ``percent``.
     - every other type (``text``, ``thinking``, ``system``, ``error``,
-      ``session_reset``, …) passes through unchanged.
+      ``session_reset``, the ``watchdog_*`` change notices, …) passes through
+      unchanged.
 
     The input event is never mutated; a new dict is returned whenever a change
     applies (and the same object may be returned for pass-through types).
@@ -196,10 +199,10 @@ def _turn_timeout_s(request: Request) -> float:
 
 
 async def _acquire_chat_turn(request: Request, chat_id: str) -> tuple[OperatorSession, int, bool]:
-    """Take the session key for the Simple view, then mint this turn's guard.
+    """Take the session key for the chat, then mint this turn's guard.
 
     Every turn goes through :func:`acquire_surface`, because the key may be
-    held by the Expert view's terminal and only the hand-off door can stand
+    held by the terminal and only the hand-off door can stand
     that process down before this one starts. A key the chat already holds
     passes straight through: the pooled child is handed back and the spawn
     callback below is never called, so the pool's own environment comparison
@@ -210,11 +213,11 @@ async def _acquire_chat_turn(request: Request, chat_id: str) -> tuple[OperatorSe
     is True only when the child that will answer this prompt was started with
     no transcript to resume: the conversation begins here and the client is
     told so with a ``session_reset`` marker. A resumed child continues a
-    conversation the operator has already seen — in the other view, or in this
+    conversation the operator has already seen — in the other surface, or in this
     one before a restart — so it carries no marker.
 
     Maps every failure to the HTTP contract with a machine-readable ``error``
-    in the body: 409 when another view or connection is consuming the key,
+    in the body: 409 when another surface or connection is consuming the key,
     when a terminal turn can only be ended by an interrupt
     (``handoff_needs_interrupt`` — the client offers to stop it and ask
     again), when the chat was torn down as it started
@@ -276,7 +279,7 @@ async def _acquire_chat_turn(request: Request, chat_id: str) -> tuple[OperatorSe
         result = await acquire_surface(
             request.app,
             chat_id,
-            SURFACE_SIMPLE,
+            SURFACE_CHAT,
             ChannelToken(request.is_disconnected),
             spawn=spawn,
         )
@@ -368,13 +371,48 @@ async def chat(request: Request, body: ChatRequest, stream: bool = True):
 
     turn_timeout_s = _turn_timeout_s(request)
 
+    def follow_transcript() -> None:
+        _record_transcript(request.app, body.chat_id, session)
+
     if not stream:
-        return await _buffered_response(session, token, prompt, fresh_conversation, turn_timeout_s)
+        return await _buffered_response(
+            session,
+            token,
+            prompt,
+            fresh_conversation,
+            turn_timeout_s,
+            on_turn_end=follow_transcript,
+        )
 
     return StreamingResponse(
-        _stream_events(session, token, prompt, fresh_conversation, turn_timeout_s),
+        _stream_events(
+            session,
+            token,
+            prompt,
+            fresh_conversation,
+            turn_timeout_s,
+            on_turn_end=follow_transcript,
+        ),
         media_type="text/event-stream",
     )
+
+
+def _record_transcript(app, key: str, session: OperatorSession) -> None:
+    """Point *key* at the transcript its live child is on, once a turn has run.
+
+    The expert view's child reports every turn through the agent-turn hook,
+    which writes the same map; the chat child runs with no such hook, so the
+    route is where its transcript follows the key. Written after every turn,
+    unconditionally, for the same reason the hook route writes
+    unconditionally: a child that reports the key itself clears a stale
+    pointer rather than keeping one to a conversation it has left. The map
+    holds only canonical session UUIDs, so an embedder-chosen key or an id
+    that is not one is left alone, as the hook route leaves them.
+    """
+    transcript_id = session.transcript_id
+    if not transcript_id or not is_posture_key(key) or not is_posture_key(transcript_id):
+        return
+    transcript_map.set(app, key, transcript_id)
 
 
 async def _stream_events(
@@ -383,6 +421,8 @@ async def _stream_events(
     prompt: str,
     fresh_conversation: bool,
     turn_timeout_s: float,
+    *,
+    on_turn_end: Callable[[], None] | None = None,
 ):
     """SSE consumer of :meth:`OperatorSession.run_turn` for one turn.
 
@@ -420,6 +460,8 @@ async def _stream_events(
         )
     finally:
         session.end_consumer(token)
+        if on_turn_end is not None:
+            on_turn_end()
 
 
 def _timeout_event() -> dict[str, Any]:
@@ -437,6 +479,8 @@ async def _buffered_response(
     prompt: str,
     fresh_conversation: bool,
     turn_timeout_s: float,
+    *,
+    on_turn_end: Callable[[], None] | None = None,
 ) -> JSONResponse:
     """Run one turn to completion and return a single reduced JSON response.
 
@@ -481,6 +525,8 @@ async def _buffered_response(
     finally:
         # Safety net for the never-started case only (see _stream_events).
         session.end_consumer(token)
+        if on_turn_end is not None:
+            on_turn_end()
 
     payload: dict[str, Any] = {
         "text": "".join(text_parts),

@@ -22,6 +22,7 @@ from unittest.mock import patch
 import pytest
 import yaml
 
+from osprey.mcp_server.control_system import server_context
 from osprey.mcp_server.control_system.error_handling import (
     ToolError,
     connector_error_handler,
@@ -35,6 +36,7 @@ from osprey_connectors.errors import ChannelWriteBlockedError, RefusalReason
 from osprey_connectors_tests._epics_fakes import ECA_NOWTACCESS
 from osprey_connectors_tests._write_fakes import arm_switch, make_mock_epics_connector
 from osprey_connectors_tests._write_fakes import writes_enabled_config as _writes_enabled_config
+from tests._approval_stamp_fixture import ApprovalStamps
 from tests.facility.served_tree import in_process_config, served_tree
 
 CHANNEL = "TEST:MAG:PS:SP"
@@ -50,7 +52,12 @@ def _switch_on(monkeypatch, tmp_path):
     With :func:`writes_enabled_config` serving a write tier that allows, that is
     everything the reference monitor's verdict asks before a write reaches the
     transport; a test that disarms serves a tier that does not.
+
+    The server context is a process singleton, and an envelope names the active
+    target whenever one is set, so each test starts from none and leaves the
+    worker as it found it.
     """
+    monkeypatch.setattr(server_context, "_registry", None)
     return arm_switch(monkeypatch, tmp_path / "armed-data")
 
 
@@ -316,22 +323,25 @@ async def _run_all_blocked_batch(tmp_path, monkeypatch, *reasons, connector=None
     """
     from unittest.mock import AsyncMock
 
+    from osprey.mcp_server.control_system import target_state
     from osprey.mcp_server.control_system.server_context import initialize_server_context
-    from osprey.mcp_server.control_system.tools.channel_write import channel_write
+    from osprey.mcp_server.control_system.tools.channel_write import (
+        _read_target_binding,
+        channel_write,
+    )
 
     monkeypatch.chdir(tmp_path)
     view = served_tree(tmp_path / "served", ["PV:A", "PV:B"])
-    # A write tier that allows, and approval switched off: the autouse switch is
-    # on for the simulator, so the tool's stage 1 lets the batch reach the
-    # connector, whose refusals are the subject here.
+    # A write tier that allows, the autouse switch on for the simulator, and the
+    # approval the prompt would have filed for this batch: ``channel_write`` is
+    # governed, so ``approval.*`` cannot exempt it and stage 1 runs only on that
+    # record. The batch then reaches the connector, whose refusals are the subject.
     control_system = {
         "type": "virtual_accelerator",
         "writes": "allowed",
         "connector": {"virtual_accelerator": in_process_config(view)},
     }
-    (tmp_path / "config.yml").write_text(
-        yaml.safe_dump({"control_system": control_system, "approval": {"enabled": False}})
-    )
+    (tmp_path / "config.yml").write_text(yaml.safe_dump({"control_system": control_system}))
     initialize_server_context()
 
     answered: list[ChannelWriteResult] = []
@@ -350,8 +360,20 @@ async def _run_all_blocked_batch(tmp_path, monkeypatch, *reasons, connector=None
 
     connector.write_multiple_channels = _recording
 
+    operations = [
+        {"channel": "PV:A", "value": 1.0},
+        {"channel": "PV:B", "value": 1.0},
+    ]
+    state = target_state.state_dir()
+    state.mkdir(parents=True, exist_ok=True)
+    binding = _read_target_binding()
+    target, generation = binding if binding is not None else (None, None)
+
     fn = channel_write.fn if hasattr(channel_write, "fn") else channel_write
     with (
+        ApprovalStamps(state).approved(
+            "channel_write", operations=operations, target=target, generation=generation
+        ),
         patch(
             "osprey_connectors.factory.ConnectorFactory.create_control_system_connector",
             new_callable=AsyncMock,
@@ -364,12 +386,7 @@ async def _run_all_blocked_batch(tmp_path, monkeypatch, *reasons, connector=None
         patch("osprey_connectors.config.get_config_value", side_effect=_writes_enabled_config),
         pytest.raises(ToolError) as excinfo,
     ):
-        await fn(
-            operations=[
-                {"channel": "PV:A", "value": 1.0},
-                {"channel": "PV:B", "value": 1.0},
-            ]
-        )
+        await fn(operations=operations)
     return json.loads(str(excinfo.value)), answered
 
 

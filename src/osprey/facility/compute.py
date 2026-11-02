@@ -17,7 +17,11 @@ computed device slots in place on the document:
   single-pass deck a stated s outside [0, L] stops (``place-conflict``).
 * ``place``: when no source states one, the deepest span of the device's model
   that contains its s, computed or stated; ``provenance.place_from`` says
-  where the place came from.
+  where the place came from. A place a fix sets or an authored record states
+  stands (``fix``, ``authored``), deepened to a span inside it. A place an
+  importing layer alone states (``imported``) yields to a span that is that
+  place or inside it, and stands under a span that holds it or where none
+  holds the device.
 * ``ordinalInPlace``, ``ordinalInModel``: per (class, place) and per
   (class, model), in s order with ties by id, a periodic model's s read
   modulo its length; a device with an ``s`` and no ``model`` is numbered in
@@ -608,12 +612,14 @@ def _places(run: _Run, positions: Mapping[str, _Position], spans: Sequence[_Span
             continue
         if span is not None and (span.place == stated or span.place.startswith(f"{stated}/")):
             device["place"] = span.place
-            _place_from(device, origin if span.place == stated and origin else "span")
+            _place_from(device, origin if span.place == stated and origin in _DECIDED else "span")
             continue
-        if origin is not None:
-            _place_from(device, origin)
-            continue
-        if span is not None and position is not None:
+        if (
+            origin == "imported"
+            and span is not None
+            and position is not None
+            and not stated.startswith(f"{span.place}/")
+        ):
             run.stop(
                 "place-conflict",
                 "device",
@@ -623,6 +629,9 @@ def _places(run: _Run, positions: Mapping[str, _Position], spans: Sequence[_Span
                 f"{span.place} holds the device at s {position.s:g} in model {position.model}",
                 f"drop `place` from the layer, or add a fix `set` of place {stated}",
             )
+            continue
+        if origin is not None:
+            _place_from(device, origin)
 
 
 def _deepest(spans: Iterable[_Span], position: _Position) -> _Span | None:
@@ -630,14 +639,28 @@ def _deepest(spans: Iterable[_Span], position: _Position) -> _Span | None:
     return max(holding, key=lambda span: (span.depth, span.place), default=None)
 
 
+#: The place origins that stand against a span.
+_DECIDED = ("fix", "authored")
+
+
 def _origin(device: Mapping[str, Any], fixed: set[str]) -> str | None:
-    """``fix`` or ``authored`` for a place that is itself the decision, else ``None``."""
+    """Where a stated place comes from: ``fix``, ``authored``, ``imported``, else ``None``.
+
+    ``fix`` and ``authored`` are the decision itself and stand against a span;
+    ``imported``, stated by an importing layer alone, yields to a span that is
+    that place or inside it, stands under a span that holds it, and stops
+    ``place-conflict`` against any other span.
+    """
     if device["id"] in fixed:
         return "fix"
-    for source in device.get("provenance", {}).get("sources", []):
-        if source.get("layer") == AUTHORED and "place" in source.get("fields", ()):
-            return "authored"
-    return None
+    stating = [
+        source.get("layer")
+        for source in device.get("provenance", {}).get("sources", [])
+        if "place" in source.get("fields", ())
+    ]
+    if AUTHORED in stating:
+        return "authored"
+    return "imported" if stating else None
 
 
 def _place_from(device: dict[str, Any], place_from: str) -> None:

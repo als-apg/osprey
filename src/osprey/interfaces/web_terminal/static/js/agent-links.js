@@ -1,6 +1,6 @@
 // @ts-check
 /**
- * Links in an agent answer in the Simple view's chat log.
+ * Links in an agent answer in the chat log.
  *
  * Invariants:
  * - A link in an agent answer never navigates the hub page away.

@@ -120,7 +120,7 @@ def write_report(
         "targets": {},
         "updated_at": datetime.now(UTC).isoformat(),
     }
-    path = control_context._report_path_under(root, pid)
+    path = control_context.report_path_under(root, pid)
     path.write_text(json.dumps(payload), encoding="utf-8")
     control_context.invalidate_cache()
     return path

@@ -525,7 +525,7 @@ def module_environment(tmp_path_factory):
         patch.setenv(posture_store.AGENT_DATA_ROOT_ENV_VAR, str(root))
         control_context.invalidate_cache()
         write_control_context(
-            root, target=TARGET_VA, generation=0, owned_by=None, switch={TARGET_STANDIN: "on"}
+            root, target=TARGET_VA, generation=0, owned_by=None, switch={TARGET_STANDIN: "asked"}
         )
         patch.setenv("PYTHONPATH", os.pathsep.join(REPO_PATHS))
         patch.delenv("CONFIG_FILE", raising=False)

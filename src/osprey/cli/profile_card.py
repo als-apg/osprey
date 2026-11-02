@@ -93,7 +93,7 @@ def _document_tier(config: Any) -> str | None:
 
     ``control_system.writes`` when the block spells it (any spelling, deeper
     key winning), through :func:`~osprey_connectors.types.tier_writes` so only
-    the literal ``allowed`` arms; else what its retired ``writes_enabled``
+    the literal ``asked`` and ``allowed`` arm; else what its retired ``writes_enabled``
     leaves amount to (:func:`~.build_profile_document.retired_write_answer`,
     the rewrite the normalizer applies — a layer handed to the card may be a
     raw parse); else ``None``, a block that says nothing about the posture.
@@ -114,20 +114,23 @@ def _document_tier(config: Any) -> str | None:
 def _write_rights(
     profile: BuildProfile, layer_deltas: Mapping[str, Mapping[str, Any]], render: str
 ) -> list[str]:
-    """``render``'s write posture: one item when its login tier allows writes, else none.
+    """``render``'s write posture: ``rights <ceiling word>`` when its tier arms writes, else none.
 
     The tier — ``control_system.writes`` — is the one posture a login has. The
     render's layer states it or inherits the host profile's (silence is
     ``never``), each document read on its own (:func:`_document_tier`) so a
     retired spelling in either answers as the build rewrites it. It is
-    target-blind: a tier that allows writes allows them for every machine the
-    render reaches, and the person's switch picks which one at the moment of
-    each write, so there is no per-target answer to print.
+    target-blind: a tier that arms writes does so for every machine the render
+    reaches, and the person's switch picks which one at the moment of each
+    write, so there is no per-target answer to print. The word is the ceiling
+    the slider stops at: ``asked`` or ``allowed``.
     """
+    from osprey_connectors.types import tier_allows
+
     tier = _document_tier(layer_deltas.get(render, {}).get("config"))
     if tier is None:
         tier = _document_tier(profile.config)
-    return ["rights approval-gated"] if tier == "allowed" else []
+    return [f"rights {tier}"] if tier_allows({"writes": tier}) else []
 
 
 def _panel_labels(

@@ -51,6 +51,7 @@ names another one explicitly.
    osprey theme-lab          # Design and preview a theme in the browser
    osprey scaffold           # CI files, boot unit, build artifact overrides
    osprey audit              # Audit project or profile safety
+   osprey watchdog           # Try safety watchdogs on labelled prompts
    osprey vendor             # Manage locally bundled vendor assets
 
 Global Options
@@ -142,7 +143,8 @@ its path), so every render keeps what it carried.
 Your deployment's own selections — the roster, the shared apps, the default
 tier, role tiers, the landing groups — are left for you and named in the
 output. Retired write keys are rewritten to the tier key
-``control_system.writes`` in every layer (:ref:`write-safety-upgrade`). Prints
+``control_system.writes`` in every layer (:ref:`write-safety-upgrade`), and
+retired per-tool policies for switch-governed tools are removed. Prints
 a diff to review and commit.
 
 The step is one-way: an older OSPREY refuses the revalidated repository. To go
@@ -204,7 +206,9 @@ facilities' gateway addresses.
    osprey set channel_finder_mode=in_context
    osprey set config.system.timezone=America/Los_Angeles
    osprey set config.control_system.connector.epics.gateways.read_only.address=gw.example.org
-   osprey set --repo ~/my-assistant config.control_system.writes=allowed
+   osprey set --repo ~/my-assistant config.control_system.writes=never
+
+``osprey set`` only lowers the write ceiling; raise it in the profile or tier file.
 
 osprey validate
 ===============
@@ -485,10 +489,11 @@ Show what this deployment is doing. It reads and reports — it starts nothing,
 stops nothing and renders nothing — so it is safe to run against a live stack at
 any time.
 
-Four sections. **Build** says whether ``build/`` still matches ``profile.yml``,
+Five sections. **Build** says whether ``build/`` still matches ``profile.yml``,
 the same check ``osprey up`` refuses on, and which version of osprey rendered it.
 **Containers** is what the container runtime reports, not what compose thinks
 should exist. **Endpoints** is where the services are declared to answer.
+**Writes** lists each login's tier and switch positions.
 **Agent** is the provider, whether its credential can be found, and whether the
 rendered agent files still match the config.
 
@@ -601,6 +606,11 @@ these verbs act on that roster, which lives in the profile. Every verb takes
      - Change one user's login password (password authentication only).
        Prompts without echoing, and ends that user's sessions.
      - —
+   * - ``list [USER]``
+     - Show every card, what it runs and who may open it, with a grid of
+       logins against shared cards. Name a login for what it may open, or a
+       card for who may open it. Reads only.
+     - ``--json``, ``--live``
    * - ``login-url USER``
      - Print the URL that opens that user's terminal under ``auth.method:
        token``. Only the URL goes to stdout, so it can be piped or copied.
@@ -619,6 +629,15 @@ these verbs act on that roster, which lives in the profile. Every verb takes
 ``-y, --yes`` -- Assume yes to confirmation prompts.
 
 ``--dry-run`` -- Show what would happen without making changes.
+
+``osprey users list`` joins the rendered roster, shared apps and each render's
+``control_system.writes`` by the rules the render and the login service apply.
+``--live`` adds container state and last sign-in from the running stack; off the
+host, or with the stack down, those read as a dash. Sign-ins come from the agent
+record, in UTC, so a dash there means the record holds none, not that the person
+never signed in. The grid appears only under
+``password`` and ``oidc``, the two methods that enforce ``access``; under
+``none`` and ``token`` the command says what opens a card instead.
 
 ``osprey users login-url`` builds the URL from that user's operator secret in
 the repository's ``.env``, which ``osprey up`` mints for every roster user in
@@ -654,6 +673,7 @@ secrets go to the job log.
 
    osprey users remove alice --archive
    osprey users prune --dry-run
+   osprey users list
    osprey users seed alice
    osprey users passwd alice
    osprey users login-url alice
@@ -808,6 +828,33 @@ record's ``history`` login (``OSPREY_AGENT_RECORD_LOGIN``), naming the viewer
 the sign-in resolved; the record decides what that viewer sees. It admits only
 requests that carry the gate secret nginx presents
 (``OSPREY_TERMINAL_SECRET_HISTORY``).
+
+osprey watchdog
+===============
+
+Try safety watchdogs out before relying on them. :doc:`/how-to/safety-watchdogs`
+has the steps, including the format of a fixture.
+
+osprey watchdog replay
+----------------------
+
+Replay labelled prompts through watchdogs, enabled or not, and report how each
+did. Nothing is flagged, held or recorded.
+
+.. code-block:: bash
+
+   osprey watchdog replay FIXTURES_DIR [--watchdog NAME] [--profile DIR ...] [--project-dir DIR]
+
+``FIXTURES_DIR`` holds ``*.jsonl`` fixtures at any depth, and each directory is
+one set. Definitions come from each ``--profile``, by default from the project's
+profile. Agent watchdogs need a built project through ``--project-dir`` and are
+reported as not run without one. A fixture's ``machine`` values are written to
+that project's in-process simulator under its usual write checks; a fixture they
+cannot apply to is reported as not run, and no other control system is written.
+
+For each watchdog, engine and set it prints the hit rate on risky prompts, the
+false-flag rate on benign prompts, p50 and p95 latency, and cost. The exit status
+is non-zero only when an engine answered on none of its fixtures.
 
 osprey agent-record
 ===================

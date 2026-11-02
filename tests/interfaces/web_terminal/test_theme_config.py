@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import dataclasses
 import logging
+import re
 from unittest.mock import patch
 
 import pytest
@@ -136,21 +137,25 @@ class TestRenderedDataTheme:
             body = client.get("/").text
             assert 'data-theme="dark"' in body
 
-    def test_display_menu_mounted(self, workspace_dir):
-        """The hub header mounts the shared ``<osprey-display-menu>``.
+    def test_more_menu_holds_the_theme_controls(self, workspace_dir):
+        """The hub's appearance controls are radios in the sidebar's ☰ More menu.
 
         The always-visible ``<osprey-theme-switcher>`` and the old binary
-        ``#theme-toggle`` button are both gone from the hub page — theme
-        controls live inside the component's popover card (session.html keeps
-        the shared switcher component). The hub projects its own Settings row
-        into the card, so that id is still rendered.
+        ``#theme-toggle`` button are gone from the hub page (session.html keeps
+        the shared switcher component). The More menu renders one
+        ``menuitemradio`` row per appearance and the Settings row beside them.
         """
         with started_client(workspace_dir) as client:
             body = client.get("/").text
 
-        assert '<osprey-display-menu id="display-menu">' in body
-        assert 'id="display-menu-settings"' in body
-        assert 'id="display-menu-btn"' not in body
+        assert 'id="more-menu"' in body
+        for appearance in ("auto", "light", "dark"):
+            assert re.search(
+                rf'<button[^>]*role="menuitemradio"[^>]*data-appearance="{appearance}"'
+                rf'|<button[^>]*data-appearance="{appearance}"[^>]*role="menuitemradio"',
+                body,
+            ), f"no {appearance!r} appearance radio in the More menu"
+        assert 'id="more-settings"' in body
         assert "<osprey-theme-switcher>" not in body
         assert 'id="theme-toggle"' not in body
 

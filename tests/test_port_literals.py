@@ -79,6 +79,10 @@ _NUMBER_RE = re.compile(r"(?<![\d.#])(\d{4,5})(?![\d.])")
 # plausible colour literal could land.)
 _HEX_COLOUR_RE = re.compile(r"#(?:[0-9a-fA-F]{8}|[0-9a-fA-F]{6}|[0-9a-fA-F]{3,4})\b")
 
+# Content digests pinned in source (``sha256:<64 hex>``, as init_revalidate.py
+# spells them): a run inside one lands in the retired ranges by chance.
+_HEX_DIGEST_RE = re.compile(r"\b[0-9a-fA-F]{32,}\b")
+
 
 def _retired_ports() -> frozenset[int]:
     """The numbers the port-block layout replaced.
@@ -180,6 +184,7 @@ def _retired_on_line(line: str) -> list[int]:
     if MARKER in line:
         return []
     colour_spans = [m.span() for m in _HEX_COLOUR_RE.finditer(line)]
+    colour_spans += [m.span() for m in _HEX_DIGEST_RE.finditer(line)]
     found: list[int] = []
     for match in _NUMBER_RE.finditer(line):
         if any(start <= match.start() and match.end() <= end for start, end in colour_spans):
@@ -282,6 +287,13 @@ def test_guard_drops_a_retired_run_inside_a_hex_colour() -> None:
     assert _retired_on_line("  --teal: #0d8090;") == []
     # ...and the immediate-hash form is handled by the lookbehind alone.
     assert _retired_on_line("  --brand: #8090ab;") == []
+
+
+def test_guard_drops_a_retired_run_inside_a_digest() -> None:
+    """A pinned sha256 digest can end in 8096 by chance; the digest rule drops it."""
+    digest = "186325d335e1f00d44104d4cd0da7d7e928117eea5c8257369259cabbf0b8096"
+    assert _retired_on_line(f'    "sha256:{digest}",') == []
+    assert _retired_on_line("PORT = 8096  # a bare number still counts") == [8096]
 
 
 def test_marker_suppresses_the_line_it_sits_on() -> None:

@@ -1,15 +1,15 @@
-"""PR-12: on an ``allowed`` tier, lifting ``Bash`` or ``Monitor`` is a build refusal.
+"""PR-12: on an arming tier, lifting ``Bash`` or ``Monitor`` is a build refusal.
 
-A shell on a render whose ``control_system.writes`` is ``allowed`` is an arming
-path: it reaches the write switch, the connectors and the dispatcher wire around
+A shell on a render whose ``control_system.writes`` is ``asked`` or ``allowed`` is
+an arming path: it reaches the write switch, the connectors and the dispatcher wire around
 every write gate. So ``claude_code.permissions.remove_deny`` lifting either
 shell built-in fails the build there, even when the profile declares its own
-PreToolUse gate for it. On a ``never`` render the same lift keeps today's
-declared-gate warning.
+PreToolUse gate for it, and the refusal names the tier's word. On a ``never``
+render the same lift keeps today's declared-gate warning.
 
 Covered on the root render (a regen over a project's own config) and on a tier
-render (a real ``osprey build`` of the exemplar, whose ``readwrite`` tier is
-``allowed`` and whose ``readonly`` tier is ``never``).
+render (a real ``osprey build`` of the exemplar, whose ``readonly`` tier is
+``never`` and whose ``readwrite`` tier is spelled each arming word in turn).
 """
 
 from __future__ import annotations
@@ -17,6 +17,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 from contextlib import chdir
 from pathlib import Path
 
@@ -35,6 +36,8 @@ from tests.fixtures.lifecycle_repo import (
 )
 
 SHELLS = list(SHELL_TOOLS)
+#: Both words arm a shell: `asked` governs the tools that prompt, not the shell.
+ARMING = ("asked", "allowed")
 
 
 def test_the_shell_set_is_bash_and_monitor_declared_once() -> None:
@@ -81,12 +84,13 @@ def _root_project(tmp_path: Path, name: str, writes: str, permissions: dict) -> 
 # --- root render ------------------------------------------------------------
 
 
+@pytest.mark.parametrize("word", ARMING)
 @pytest.mark.parametrize("tool", SHELLS)
-def test_root_allowed_refuses_a_lifted_shell_even_with_a_declared_gate(
-    tmp_path: Path, tool: str
+def test_root_arming_tier_refuses_a_lifted_shell_even_with_a_declared_gate(
+    tmp_path: Path, tool: str, word: str
 ) -> None:
     manager, project = _root_project(
-        tmp_path, f"pr12-root-{tool.lower()}", "allowed", {"remove_deny": [tool]}
+        tmp_path, f"pr12-root-{tool.lower()}", word, {"remove_deny": [tool]}
     )
     _ship_declared_pre_hook(project, f"facility_{tool.lower()}_gate.py", tool)
 
@@ -96,7 +100,8 @@ def test_root_allowed_refuses_a_lifted_shell_even_with_a_declared_gate(
     message = str(excinfo.value)
     assert tool in message
     assert "arming path" in message
-    assert "control_system.writes: allowed" in message
+    assert f"control_system.writes: {word}" in message
+    assert f"On an {word!r} tier" in message
     assert "remove_deny" in message
     assert f"pr12-root-{tool.lower()}" in message
     # Refused before anything is written: no settings.json lifts the shell.
@@ -105,13 +110,14 @@ def test_root_allowed_refuses_a_lifted_shell_even_with_a_declared_gate(
         assert tool in json.loads(settings.read_text())["permissions"]["deny"]
 
 
+@pytest.mark.parametrize("word", ARMING)
 @pytest.mark.parametrize("tool", SHELLS)
-def test_root_allowed_refuses_a_lifted_ungated_shell_with_the_pr12_reason(
-    tmp_path: Path, tool: str
+def test_root_arming_tier_refuses_a_lifted_ungated_shell_with_the_pr12_reason(
+    tmp_path: Path, tool: str, word: str
 ) -> None:
     """With no gate at all the refusal is still PR-12's, not the generic one."""
     manager, project = _root_project(
-        tmp_path, f"pr12-ungated-{tool.lower()}", "allowed", {"remove_deny": [tool]}
+        tmp_path, f"pr12-ungated-{tool.lower()}", word, {"remove_deny": [tool]}
     )
 
     with pytest.raises(BuildProfileError, match="arming path"):
@@ -150,8 +156,11 @@ def test_root_never_ungated_lift_keeps_the_no_gate_refusal(tmp_path: Path, tool:
     assert "arming path" not in str(excinfo.value)
 
 
-def test_root_allowed_without_a_lift_builds_with_both_shells_denied(tmp_path: Path) -> None:
-    manager, project = _root_project(tmp_path, "pr12-no-lift", "allowed", {})
+@pytest.mark.parametrize("word", ARMING)
+def test_root_arming_tier_without_a_lift_builds_with_both_shells_denied(
+    tmp_path: Path, word: str
+) -> None:
+    manager, project = _root_project(tmp_path, "pr12-no-lift", word, {})
 
     manager.regenerate_claude_code(project)
 
@@ -160,10 +169,13 @@ def test_root_allowed_without_a_lift_builds_with_both_shells_denied(tmp_path: Pa
         assert tool in deny
 
 
-def test_root_allowed_lifting_a_non_shell_is_not_pr12(tmp_path: Path, caplog) -> None:
+@pytest.mark.parametrize("word", ARMING)
+def test_root_arming_tier_lifting_a_non_shell_is_not_pr12(
+    tmp_path: Path, caplog, word: str
+) -> None:
     """EnterWorktree writes to disk but runs no shell: it keeps the warning."""
     manager, project = _root_project(
-        tmp_path, "pr12-worktree", "allowed", {"remove_deny": ["EnterWorktree", "WebSearch"]}
+        tmp_path, "pr12-worktree", word, {"remove_deny": ["EnterWorktree", "WebSearch"]}
     )
     _ship_declared_pre_hook(project, "facility_worktree_gate.py", "EnterWorktree")
 
@@ -193,11 +205,26 @@ def _lift_in_tier(repo: Path, tier: str, tool: str) -> None:
     )
 
 
+def _spell_tier(repo: Path, tier: str, word: str) -> None:
+    """State *word* as a tier file's ``control_system.writes``."""
+    path = repo / "tiers" / f"{tier}.yml"
+    text, count = re.subn(
+        r"^  control_system\.writes: \w+$",
+        f"  control_system.writes: {word}",
+        path.read_text(encoding="utf-8"),
+        flags=re.MULTILINE,
+    )
+    assert count == 1, path
+    path.write_text(text, encoding="utf-8")
+
+
 #: The exemplar profile's dispatch tier line (the only two-space ``tier:``).
 _DISPATCH_TIER_LINE = "\n  tier: readonly\n"
 
 
-def _build_with_lift(base: Path, tier: str, tool: str, *, untiered_dispatch: bool = False):
+def _build_with_lift(
+    base: Path, tier: str, tool: str, *, untiered_dispatch: bool = False, word: str | None = None
+):
     from click.testing import CliRunner
 
     from osprey.cli.build_cmd import build as build_command
@@ -209,6 +236,8 @@ def _build_with_lift(base: Path, tier: str, tool: str, *, untiered_dispatch: boo
         os.environ.pop("OSPREY_CONTROL_CONTEXT_TREE", None)
         repo = build_exemplar_repo(base / EXEMPLAR_DIRNAME, seed_env=True)
         _lift_in_tier(repo, tier, tool)
+        if word is not None:
+            _spell_tier(repo, tier, word)
         if untiered_dispatch:
             # A dispatch tier may lift no base deny at all; take the dispatch
             # worker off the tier so the lint under test is what decides.
@@ -227,18 +256,22 @@ def _failure_text(result, caplog) -> str:
 
 
 @pytest.mark.slow
+@pytest.mark.parametrize("word", ARMING)
 @pytest.mark.parametrize("tool", SHELLS)
-def test_allowed_tier_render_refuses_a_lifted_shell(tmp_path: Path, caplog, tool: str) -> None:
-    """The exemplar's readwrite tier is ``allowed``: lifting a shell there fails
-    the build, and the refusal names that tier's render."""
+def test_arming_tier_render_refuses_a_lifted_shell(
+    tmp_path: Path, caplog, tool: str, word: str
+) -> None:
+    """The readwrite tier arms writes: lifting a shell there fails the build, and
+    the refusal names that tier's render and its word."""
     with caplog.at_level(logging.WARNING):
-        result = _build_with_lift(tmp_path, "readwrite", tool)
+        result = _build_with_lift(tmp_path, "readwrite", tool, word=word)
 
     assert result.exit_code != 0, result.output
     text = _failure_text(result, caplog)
     assert "arming path" in text, text
     assert "'als-exemplar-readwrite'" in text, text
     assert f"lifts {tool!r}" in text, text
+    assert f"control_system.writes: {word}" in text, text
 
 
 @pytest.mark.slow

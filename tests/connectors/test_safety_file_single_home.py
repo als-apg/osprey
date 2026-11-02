@@ -13,7 +13,7 @@ reason; an entry with no matching call fails too, so the list cannot rot.
 from __future__ import annotations
 
 import ast
-from collections.abc import Iterator
+import functools
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -136,15 +136,30 @@ class _RenameFinder(ast.NodeVisitor):
         self.generic_visit(node)
 
 
-def _rename_calls() -> Iterator[tuple[str, str, int]]:
-    """Every rename call in the scanned trees, as (path, qualname, line)."""
+#: The attribute names a rename call reaches through. A call spells its
+#: attribute in the source, and an identifier has no escape sequence, so a module
+#: that spells none of them holds no rename call and is passed over unparsed.
+_RENAME_ATTRIBUTES = ("replace", "rename", "move")
+
+
+@functools.cache
+def _rename_calls() -> tuple[tuple[str, str, int], ...]:
+    """Every rename call in the scanned trees, as (path, qualname, line).
+
+    Both tests read the same scan, and the tree does not change while the suite
+    runs, so its parse of every module is done once.
+    """
+    found: list[tuple[str, str, int]] = []
     for root in SCANNED_ROOTS:
         for path in sorted((REPO_ROOT / root).rglob("*.py")):
+            source = path.read_text(encoding="utf-8")
+            if not any(attribute in source for attribute in _RENAME_ATTRIBUTES):
+                continue
             relative = path.relative_to(REPO_ROOT).as_posix()
             finder = _RenameFinder()
-            finder.visit(ast.parse(path.read_text(encoding="utf-8"), filename=relative))
-            for qualname, line in finder.found:
-                yield relative, qualname, line
+            finder.visit(ast.parse(source, filename=relative))
+            found += ((relative, qualname, line) for qualname, line in finder.found)
+    return tuple(found)
 
 
 def test_no_file_is_replaced_by_a_hand_rolled_rename() -> None:

@@ -50,38 +50,37 @@ where it listens. The shipped ``control-assistant`` preset ships that tick, and
 the sections for KNOWLEDGE and CHANNELS, which is why all three work out of the
 box. :doc:`lattice-dashboard` describes the tab.
 
-Where the panel rail lives
---------------------------
-
-Open panels line up in the **panel rail**, which sits along the left edge by
-default. If your team prefers the panel buttons along the top, set
-``web.rail_position: top`` in ``config.yml``, or switch from the panel ``+``
-menu (or the command palette) at any time. The choice is remembered per
-browser, and each user's own pick wins over the configured default. (Pair it
-with the retro theme for a navy-and-teal terminal — see :doc:`theming`.)
-
-Dragging rail entries
+Where the panels live
 ---------------------
 
-Drag an entry along the rail to reorder it; SESSION stays at the head. The
-order is shared by everyone on the same terminal and kept across reloads. Drag
-an entry onto the workspace instead to open it as a new tile where you drop it.
+Panels have a row in the sidebar on the left of the window.
+**Artifacts** (and **Events**, when the deployment enables it) is in the
+**Workspace** section, with **Agent**. All other panels are in the **Tools**
+section, followed by **+ Add panel**. See :ref:`web-terminal-sidebar`.
 
-Taking panels off the rail
---------------------------
+Dragging sidebar rows
+---------------------
 
-**Remove from rail** (right-click, or the entry's **×**) can be undone for a
-few seconds.
+Drag a Tools row up or down to change the order. The order is the same for
+everyone on the same terminal, and it stays after a reload. Drag a row onto
+the work pane instead to open the panel as a new tile where you drop it.
 
-A panel can be open without a rail entry. In the ``control-assistant`` preset
+Taking panels out of the sidebar
+--------------------------------
+
+To remove a panel row, right-click it or use the **×** of the row. You can
+undo this for a few seconds.
+
+A panel can be open without a sidebar row. In the ``control-assistant`` preset
 SYSTEM starts that way (``web.panels.system-health.hidden: true``): open it
-from the health dot or **⋯ More**, and right-click its tile to **Pin to rail**.
+from **+ Add panel** or the command palette, and right-click its tile to pin it
+to the sidebar.
 
 When a panel stops answering
 ----------------------------
 
 Panels with a health check are polled every 10 seconds. One that has answered
-and then misses two polls in a row dims its rail entry, which stays clickable
+and then misses two polls in a row dims its sidebar row, which stays clickable
 and reads "not answering since <time>" in its tooltip. Its open tile shows a
 warning strip with the same time across the top and greys the page below it,
 so the out-of-date view is not mistaken for a live one. The page underneath is
@@ -159,17 +158,16 @@ whole of what it is told. Everything below is **version 1** of the contract
 that follows it keeps working as later versions add to it.
 
 **The theme arrives in the address.** The terminal opens the panel at the URL
-you configured with three parameters added:
+you configured with two parameters added:
 
 .. code-block:: text
 
-   ?embedded=true&theme=retro-dark&mode=expert
+   ?embedded=true&theme=retro-dark
 
 ``theme`` is the theme to paint with. ``embedded=true`` says the page is
 running inside the terminal rather than on its own, which is the cue to hide
 your own logo and page chrome — the terminal already draws a header around the
-tab, and without this you get two. ``mode`` is the operator's Expert or Simple
-preference. Read all three *before the page first paints*, or the operator sees
+tab, and without this you get two. Read both *before the page first paints*, or the operator sees
 your default colors flash before yours settle on theirs.
 
 **The theme is one of eight names.** ``light`` and ``dark`` for the main
@@ -189,8 +187,7 @@ switches theme, the terminal posts to the panel's frame:
 
 A panel is always served from the terminal's own address, so the message is
 same-origin. Check that before acting on it — ``if (event.origin !==
-window.location.origin) return;`` — and repaint. The Expert/Simple toggle
-broadcasts the same way, as ``{ type: 'osprey-mode-change', mode }``. A panel
+window.location.origin) return;`` — and repaint. A panel
 that runs at an opaque origin (see `Panels you add run at an opaque origin`_)
 receives only the theme message, and checks ``event.source === window.parent``
 instead of the origin.

@@ -56,6 +56,8 @@ CHIP_JS = (
     "control-target-chip.js",
     "control-target-facts.js",
     "control-target-popover.js",
+    "control-target-popover-switch.js",
+    "control-target-rows.js",
     "control-target-lab-bar.js",
 )
 
@@ -289,7 +291,7 @@ def test_writes_off_is_the_deny_lead():
 
 
 def _refused(reason: str | None, kind: str | None = None, allowed: bool = False) -> Any:
-    verdict = SimpleNamespace(allowed=allowed, reason=reason, kind=kind)
+    verdict = SimpleNamespace(allowed=allowed, reason=reason, kind=kind, detail=None)
     return connector_base._verdict_refusal("SR:TEST:SP", 1.0, verdict)
 
 
@@ -403,6 +405,8 @@ def _refusal_surface() -> list[str]:
             texts.append(twin.refusal_text(reason, kind))
             texts.append(check._DENY_HEADER + check._text(reason, kind))
     texts += [check._fallback_text("readonly_run"), check._fallback_text("record_unavailable")]
+    # A hold's sources follow its phrase; a source is an opaque name, not a key.
+    texts.append(refusals.refusal_text("session_held", detail="Raised by: session_hold."))
     return texts
 
 
@@ -500,7 +504,8 @@ def _agent_context_surface() -> list[str]:
     context = _import_hook("osprey_control_context")
     writes = {
         **{f"t-{reason}": f"{context.WRITES_REFUSED}:{reason}" for reason in refusals.REASONS},
-        "on": context.WRITES_ON,
+        "asked": context.WRITES_ASKED,
+        "allowed": context.WRITES_ALLOWED,
         "off": context.WRITES_OFF,
     }
     state = {

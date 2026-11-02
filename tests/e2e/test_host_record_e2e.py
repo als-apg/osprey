@@ -10,7 +10,7 @@ tree, ``deployed_services`` pinned empty and a stated
 
 1. No ``osprey up``. A live ``osprey query`` and a live ``osprey chat --print``
    each leave their session in the record: a tool call in the session log, the
-   session in the session list, thinking in the Simple view's turns, and their
+   session in the session list, thinking in the chat's turns, and their
    OTLP decision and usage events. A host ``osprey web`` reads the same
    sessions through its own routes. ``osprey feedback list`` answers. No
    container is started and no record process is left after any of them.
@@ -345,7 +345,7 @@ def _assert_session_recorded(client: RecordClient, session: str) -> None:
         for e in turn.get("events") or []
         if e.get("type") == "thinking"
     ]
-    assert any(text.strip() for text in thinking), "no thinking in the Simple view's turns"
+    assert any(text.strip() for text in thinking), "no thinking in the chat's turns"
 
     for kind in (KIND_DECISION, KIND_USAGE):
         _await(

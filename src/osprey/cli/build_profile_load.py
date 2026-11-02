@@ -207,6 +207,14 @@ RETIRED_ROSTER_KEYS_REFUSED_FROM = "2026.11.0"
 #: the window test until every such warning becomes its refusal.
 RETIRED_WRITE_KEYS_REFUSED_FROM = RETIRED_ROSTER_KEYS_REFUSED_FROM
 
+#: The release from which ``approval.tools.<tool>`` for a tool the write switch
+#: governs is refused rather than dropped with a warning
+#: (:func:`~osprey.cli.build_profile_document.normalize_retired_approval_policies`).
+#: Its own window, one minor after the write-posture sunset, because the
+#: policies retire in the release that refuses the write keys. A test tripwire
+#: like the others, not a runtime version compare.
+RETIRED_APPROVAL_POLICY_REFUSED_FROM = "2026.12.0"
+
 
 # Top-level keys recognized by BuildProfile. Anything else is almost certainly
 # a typo of one of these (e.g. mcp_server vs mcp_servers).
@@ -259,6 +267,7 @@ _KNOWN_PROFILE_KEYS = frozenset(
         "teams_bridge",
         "va_archiver",
         "agent_record",
+        "watchdogs",
         "provenance",
     }
 )
@@ -284,6 +293,9 @@ ROOT_ONLY_KEYS = frozenset(
         # Where the deployment's one agent record lives: a fact about the whole
         # deployment, never about one access level of its agent.
         "agent_record",
+        # What judges the deployment's sessions. A tier may not spell it: the
+        # access level being watched does not get to choose its own watchdog.
+        "watchdogs",
     }
 )
 
@@ -1896,5 +1908,6 @@ def _parse_profile(raw: dict[str, Any]) -> BuildProfile:
         teams_bridge=teams_bridge,
         va_archiver=parse_va_archiver_block(raw, base=port_base),
         agent_record=parse_agent_record_block(raw, base=port_base),
+        watchdogs=_block(raw, "watchdogs"),
         provenance=provenance,
     )

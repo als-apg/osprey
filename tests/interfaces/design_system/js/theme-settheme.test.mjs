@@ -126,6 +126,28 @@ describe('setTheme()', () => {
 
       expect(window.location.search).not.toContain('theme');
     });
+
+    test('modePreference() reads auto until a concrete pick pins the mode', () => {
+      ThemeManager.initTheme({ role: 'hub' });
+      expect(ThemeManager.modePreference()).toBe('auto');
+
+      ThemeManager.setTheme('light');
+      expect(ThemeManager.modePreference()).toBe('light');
+
+      ThemeManager.setTheme('auto');
+      expect(ThemeManager.modePreference()).toBe('auto');
+    });
+  });
+
+  describe('modePreference() in the follower role', () => {
+    test('is always auto: a follower has no preference of its own', () => {
+      window.history.replaceState({}, '', '/panel?theme=dark');
+      ThemeManager.initTheme({ role: 'follower' });
+
+      ThemeManager.setTheme('light');
+
+      expect(ThemeManager.modePreference()).toBe('auto');
+    });
   });
 
   describe('broadcast-driven apply (postMessage, follower role)', () => {

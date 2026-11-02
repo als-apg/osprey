@@ -1,0 +1,169 @@
+/* Watchdog alert — the dialog over a full-viewport scrim, and the unavailable
+ * indicator. Every value is a design-system token. */
+
+.watchdog-alert-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: var(--overlay-black-70);
+  z-index: var(--z-modal);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-4);
+  opacity: 0;
+  transition: opacity var(--wt-transition-fast);
+}
+
+.watchdog-alert-overlay.visible {
+  opacity: 1;
+}
+
+.watchdog-alert-dialog {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  width: 100%;
+  max-width: 560px;
+  max-height: 80vh;
+  padding: var(--space-4);
+  background: var(--bg-secondary);
+  border: 1px solid var(--color-warning);
+  border-radius: var(--radius-2xl);
+  box-shadow: var(--shadow-dialog);
+  color: var(--text-primary);
+}
+
+.watchdog-alert-dialog:focus {
+  outline: none;
+}
+
+.watchdog-alert-title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: var(--text-lg);
+  font-weight: var(--weight-semibold);
+  color: var(--color-warning);
+}
+
+.watchdog-alert-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  overflow-y: auto;
+}
+
+.watchdog-alert-flag {
+  padding: var(--space-3);
+  background: var(--bg-primary);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  font-size: var(--text-sm);
+}
+
+.watchdog-alert-name {
+  font-weight: var(--weight-semibold);
+}
+
+.watchdog-alert-prompt {
+  margin: var(--space-2) 0;
+  padding-left: var(--space-3);
+  border-left: 2px solid var(--border-default);
+  color: var(--text-secondary);
+  overflow-wrap: anywhere;
+}
+
+.watchdog-alert-reason,
+.watchdog-alert-unconfirmed {
+  margin: var(--space-2) 0 0;
+  overflow-wrap: anywhere;
+}
+
+.watchdog-alert-unconfirmed,
+.watchdog-alert-note {
+  color: var(--color-error);
+}
+
+.watchdog-alert-note {
+  margin: 0;
+  font-size: var(--text-sm);
+}
+
+.watchdog-alert-note[hidden] {
+  display: none;
+}
+
+.watchdog-alert-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  flex-shrink: 0;
+}
+
+.watchdog-alert-button {
+  padding: var(--space-2) var(--space-4);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+  cursor: pointer;
+}
+
+.watchdog-alert-button:hover,
+.watchdog-alert-button:focus-visible {
+  border-color: var(--border-accent);
+}
+
+.watchdog-alert-button:disabled {
+  color: var(--text-muted);
+  cursor: default;
+}
+
+.watchdog-alert-stop {
+  border-color: var(--color-error);
+  color: var(--color-error);
+}
+
+.watchdog-status {
+  position: fixed;
+  right: var(--space-4);
+  bottom: var(--space-4);
+  z-index: var(--z-sticky);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.watchdog-status-line {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-2);
+  background: var(--bg-elevated);
+  border: 1px solid var(--color-warning);
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+  font-size: var(--text-xs);
+}
+
+.watchdog-status-dismiss {
+  padding: 0;
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+  cursor: pointer;
+}
+
+.control-target-chip[data-held="true"] {
+  border-color: var(--color-warning);
+  color: var(--color-warning);
+}

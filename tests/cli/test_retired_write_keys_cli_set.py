@@ -5,7 +5,8 @@ named ``--set``) before they edit the resolved profile, so a retired-key pair
 states a ``control_system.writes`` value that overrides the resolved one, and a
 command line spelling both forms is refused. ``osprey init --set`` emits through
 the same edit, so it never writes a retired leaf or a mixed document, and
-``osprey set`` writes the tier key into a materialized profile.
+``osprey set`` writes the tier key into a materialized profile. The command
+itself refuses a retired key before any of that runs.
 
 The oracle is the render (each config key applied in order, as the build
 does) read through ``tier_writes``, never the normalizer.
@@ -19,6 +20,7 @@ from typing import Any
 
 import pytest
 import yaml
+from click.testing import CliRunner
 
 from osprey.cli import build_profile_document as doc
 from osprey.cli.build_profile_document import _read_profile_document
@@ -28,9 +30,10 @@ from osprey.cli.build_profile_resolve import (
     resolve_build_profile,
     write_back_cli_overrides,
 )
+from osprey.cli.set_cmd import set as set_command
 from osprey.utils.config_writer import config_update_fields
 from osprey_connectors.errors import BuildProfileError
-from osprey_connectors.types import tier_writes
+from osprey_connectors.types import tier_allows, tier_writes
 
 _LOGGER_NAME = doc.__name__
 
@@ -171,11 +174,33 @@ def test_osprey_set_writes_the_tier_key_into_a_materialized_profile(tmp_path):
         emit_standalone_profile_yaml("control-assistant", (), "Demo", project_name="demo"),
         encoding="utf-8",
     )
-    assert _rendered_section(_read_profile_document(path)["config"], tmp_path)["writes"] == (
-        "allowed"
-    )
+    assert tier_allows(_rendered_section(_read_profile_document(path)["config"], tmp_path))
     write_back_cli_overrides(path, ("config.control_system.writes_enabled=false",))
     text = path.read_text(encoding="utf-8")
     assert not [line for line in _emitted_lines(text) if "writes_enabled" in line.split("#")[0]]
     reread = _read_profile_document(path)
     assert _rendered_section(reread["config"], tmp_path)["writes"] == "never"
+
+
+@pytest.mark.parametrize(
+    "pair",
+    [
+        "config.control_system.writes_enabled=false",
+        "config.control_system.connector.epics.writes_enabled=false",
+    ],
+    ids=["global", "per-type"],
+)
+def test_the_set_command_refuses_a_retired_key_before_writing(pair, tmp_path):
+    """The verb stops short of the write-back above: a retired key never reaches it."""
+    path = tmp_path / "profile.yml"
+    path.write_text(
+        emit_standalone_profile_yaml("control-assistant", (), "Demo", project_name="demo"),
+        encoding="utf-8",
+    )
+    before = path.read_bytes()
+
+    result = CliRunner().invoke(set_command, ["--repo", str(tmp_path), pair])
+
+    assert result.exit_code != 0
+    assert "retired" in result.output and "never | asked | allowed" in result.output
+    assert path.read_bytes() == before
