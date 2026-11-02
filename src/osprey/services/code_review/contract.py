@@ -17,7 +17,16 @@ SURFACE_EXECUTE = "execute"
 SURFACE_NOTEBOOK = "notebook"
 
 #: Every ``ReviewFailure.kind``.
-FAILURE_KINDS = ("config", "prompt", "timeout", "budget", "unparseable", "unavailable", "runner")
+FAILURE_KINDS = (
+    "config",
+    "prompt",
+    "timeout",
+    "budget",
+    "unparseable",
+    "unavailable",
+    "runner",
+    "skipped",
+)
 
 #: The verdicts a reviewer may reach, in rising severity.
 _VERDICTS = ("pass", "concern", "block")

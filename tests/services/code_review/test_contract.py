@@ -39,6 +39,7 @@ def test_contract_constants_and_types() -> None:
         "unparseable",
         "unavailable",
         "runner",
+        "skipped",
     )
     request = ReviewRequest(surface=SURFACE_EXECUTE, code="x = 1", subject="s")
     assert request.description is None

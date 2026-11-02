@@ -664,6 +664,78 @@ async def test_a_run_mid_switch_is_declined_unreviewed(
     assert _review_notices(notices) == []
 
 
+def _a_switch_that_lands_after_the_pre_check(monkeypatch) -> None:
+    """In flight at the admission pre-check, settled by the launch."""
+    answers = iter([(4242,)])
+    monkeypatch.setattr(executor, "_blocking_pids", lambda _record: next(answers, ()))
+
+
+@TOOLS
+async def test_a_decline_that_does_not_hold_at_the_launch_refuses_at_block(
+    tool_name, project_root, monkeypatch, notices, records, stub
+):
+    """The review was spared on a decline; the launch must not then run the code unreviewed."""
+    _configure(project_root, {"enabled": True, "level": "block"})
+    _a_switch_that_lands_after_the_pre_check(monkeypatch)
+    spawn = AsyncMock()
+    monkeypatch.setattr(executor, "_load_limits_validator", spawn)
+
+    with assert_raises_error(error_type="execution_error") as ctx:
+        await _call(tool_name, project_root)
+
+    assert ctx["envelope"]["details"]["kind"] == executor.FAILURE_KIND_UNREVIEWED
+    assert "Call the tool again" in ctx["envelope"]["error_message"]
+    spawn.assert_not_called()
+    assert stub.calls == []
+    assert _review_records(records) == []
+    assert _review_notices(notices) == []
+
+
+@TOOLS
+async def test_a_decline_that_does_not_hold_at_the_launch_runs_told_at_flag(
+    tool_name, project_root, monkeypatch, launch, notices, records, stub
+):
+    """``flag`` lets an unreviewed run go ahead, and says so: record, notice and agent."""
+    _configure(project_root, {"enabled": True, "level": "flag"})
+    _a_switch_that_lands_after_the_pre_check(monkeypatch)
+
+    await _call(tool_name, project_root)
+
+    assert launch.await_args.kwargs["expect_declined"] is False
+    assert stub.calls == []
+    message = _result(launch).code_review
+    assert message is not None
+    assert "kind skipped" in message
+    assert "proceeded unreviewed" in message
+    [(writer, fields)] = _review_records(records)
+    assert writer == "record"
+    assert fields["detail"] == "review=failure level=flag kind=skipped mode=readwrite"
+    assert len(_review_notices(notices)) == 1
+
+
+@TOOLS
+async def test_a_spared_review_holds_a_blocking_launch_to_its_decline(
+    tool_name, project_root, monkeypatch, launch, stub
+):
+    _configure(project_root, {"enabled": True, "level": "block"})
+    monkeypatch.setattr(executor, "_blocking_pids", lambda _record: (4242,))
+
+    await _gate(tool_name)
+
+    assert launch.await_args.kwargs["expect_declined"] is True
+    assert stub.calls == []
+
+
+@TOOLS
+async def test_a_reviewed_launch_is_not_held_to_a_decline(tool_name, project_root, launch, stub):
+    _configure(project_root, {"enabled": True, "level": "block"})
+    stub.stage(PASS)
+
+    await _gate(tool_name)
+
+    assert launch.await_args.kwargs["expect_declined"] is False
+
+
 def _tree_bytes(root: Path) -> dict[str, bytes]:
     return {str(p): p.read_bytes() for p in sorted(root.rglob("*")) if p.is_file()}
 

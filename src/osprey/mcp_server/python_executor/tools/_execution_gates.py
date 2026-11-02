@@ -42,7 +42,7 @@ import logging
 import os
 from collections.abc import Awaitable, Callable, Sequence
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, NoReturn
+from typing import TYPE_CHECKING, Any, NamedTuple, NoReturn
 
 from osprey.audit import posture
 from osprey.mcp_server.errors import make_error
@@ -725,6 +725,21 @@ def _stamped_review(tool: str, gated: str) -> tuple[bool, str | None]:
         return False, None
 
 
+class _PreLaunchReview(NamedTuple):
+    """What the review before the launch came to.
+
+    Attributes:
+        message: What the review has to say to the agent about a run that proceeds, if anything.
+        spared: The request whose review was skipped because the executor was about to decline
+            the run; ``None`` when there was nothing to spare.
+        level: The level *spared* was skipped under.
+    """
+
+    message: str | None
+    spared: ReviewRequest | None = None
+    level: str | None = None
+
+
 async def _review_before_launch(
     *,
     tool: str,
@@ -736,11 +751,13 @@ async def _review_before_launch(
     script_args: Sequence[str],
     approved_target: str | None,
     approved_view_sha256: str | None,
-) -> str | None:
+) -> _PreLaunchReview:
     """Review the code when this deployment asks for it, and refuse what the review stops.
 
     Nothing is reviewed when the feature is off, when the mode is not one it reviews, or when
     the executor would decline the run anyway: that decline stays ``execute_code``'s to produce.
+    That last skip is a prediction the launch re-decides, so it comes back as ``spared`` and the
+    launch is held to it (:func:`run_gated_execution`).
     A section that cannot be read refuses in every mode, since the set to review is unknown.
 
     A call the approval prompt already reviewed is not reviewed again: its ask stamp carries the
@@ -761,7 +778,7 @@ async def _review_before_launch(
         approved_view_sha256: The view digest the approval hook put into the call.
 
     Returns:
-        What the review has to say to the agent about a run that proceeds, if anything.
+        The review's message, and the request it spared when it skipped on a predicted decline.
 
     Raises:
         Whatever :func:`make_error` raises for ``review_blocked`` or ``review_unavailable``.
@@ -783,11 +800,11 @@ async def _review_before_launch(
         request = ReviewRequest(
             surface=SURFACE_EXECUTE, code=gated, subject=subject, description=description
         )
-        return await _conclude_review(
-            tool, decide(ReviewFailure("config", str(exc)), None), request
+        return _PreLaunchReview(
+            await _conclude_review(tool, decide(ReviewFailure("config", str(exc)), None), request)
         )
     if not settings.enabled or execution_mode not in settings.modes:
-        return None
+        return _PreLaunchReview(None)
 
     from osprey.mcp_server.python_executor.executor import (
         _resolve_project_root,
@@ -800,13 +817,6 @@ async def _review_before_launch(
         "approved_target": approved_target,
         "approved_view_sha256": approved_view_sha256,
     }
-    if admission_refusal(code, execution_mode, tool, approved):
-        return None
-
-    reviewed, stamped_message = _stamped_review(tool, gated)
-    if reviewed:
-        return stamped_message
-
     request = ReviewRequest(
         surface=SURFACE_EXECUTE,
         code=gated,
@@ -815,13 +825,45 @@ async def _review_before_launch(
         mode=execution_mode,
         script_args=tuple(script_args),
     )
+    if admission_refusal(code, execution_mode, tool, approved):
+        return _PreLaunchReview(None, request, settings.level)
+
+    reviewed, stamped_message = _stamped_review(tool, gated)
+    if reviewed:
+        return _PreLaunchReview(stamped_message)
+
     outcome = await review_code(
         request,
         settings,
         repo_root=project_root if project_root is not None else _resolve_project_root(),
         render_dir=resolve_config_path().parent,
     )
-    return await _conclude_review(tool, outcome, request)
+    return _PreLaunchReview(await _conclude_review(tool, outcome, request))
+
+
+async def _conclude_spared_review(
+    tool: str, review: _PreLaunchReview, exec_result: ExecutionResult
+) -> str | None:
+    """Answer for a review spared on a decline the launch did not make.
+
+    Only ``flag`` answers here: under ``block`` the launch was held to the decline and refused a
+    run it admitted (:data:`~osprey.mcp_server.python_executor.executor.FAILURE_KIND_UNREVIEWED`).
+    A run that started is recorded and told as a review that did not run, which is what ``flag``
+    does with one.
+    """
+    if (
+        review.spared is None
+        or review.level != "flag"
+        or exec_result.failure_kind in executor.NOT_STARTED_FAILURE_KINDS
+    ):
+        return review.message
+    from osprey.services.code_review.contract import ReviewFailure
+    from osprey.services.code_review.review import decide
+
+    failure = ReviewFailure(
+        "skipped", "the run was about to be declined, and by the launch it no longer was"
+    )
+    return await _conclude_review(tool, decide(failure, review.level), review.spared)
 
 
 async def run_gated_execution(
@@ -980,9 +1022,9 @@ async def run_gated_execution(
             ],
         )
 
-    review_message = None
+    review = _PreLaunchReview(None)
     if code_review:
-        review_message = await _review_before_launch(
+        review = await _review_before_launch(
             tool=tool,
             code=code,
             gated=gated,
@@ -1003,7 +1045,11 @@ async def run_gated_execution(
         tool=tool,
         approved_target=approved_target,
         approved_view_sha256=approved_view_sha256,
+        # A review spared on a predicted decline holds the launch to that decline, unless the
+        # deployment only flags: there an unreviewed run goes ahead and the agent is told.
+        expect_declined=review.spared is not None and review.level != "flag",
     )
+    review_message = await _conclude_spared_review(tool, review, exec_result)
     if review_message is not None:
         exec_result.code_review = review_message
 
