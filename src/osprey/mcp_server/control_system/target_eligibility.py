@@ -191,6 +191,11 @@ REASON_EXECUTION_IN_FLIGHT = "execution_in_flight"
 SURFACE_PYTHON_EXECUTOR = "python_executor"
 #: A notebook cell, between its first control-system call and the end of the cell.
 SURFACE_NOTEBOOK_KERNEL = "notebook_kernel"
+#: The in-flight marker field naming its client in words, stamped by a
+#: control-session write (:meth:`osprey.runtime.session.ControlSession.write`),
+#: which has no window or kernel an operator could find and ends on its own
+#: within the write time budget.
+MARKER_CLIENT_FIELD = "client"
 
 
 @dataclass(frozen=True)
@@ -824,8 +829,12 @@ def _notebook_client(kernel_id: str, kernel_name: KernelNameResolver | None) -> 
 def busy_client(marker: Mapping[str, Any], *, kernel_name: KernelNameResolver | None = None) -> str:
     """How a refusal names the client whose run is holding the target down.
 
-    Four answers, and the last is the interesting one:
+    Five answers, and the last is the interesting one:
 
+    * a control-session write, named by the label its marker carries
+      (:data:`MARKER_CLIENT_FIELD`): its session key is ``<surface>:<pid>``,
+      which names a process, not a window, and the write ends on its own within
+      the write time budget;
     * a notebook kernel, named by the notebook it is running when *kernel_name*
       resolves one and by its kernel id when it does not. A kernel is named by
       its surface before its session because ``kernel:<id>`` is a session key
@@ -849,6 +858,10 @@ def busy_client(marker: Mapping[str, Any], *, kernel_name: KernelNameResolver | 
     Returns:
         A noun phrase that fits after "belongs to".
     """
+    client = marker.get(MARKER_CLIENT_FIELD)
+    if isinstance(client, str) and client:
+        return client
+
     kernel_id = _notebook_kernel_id(marker)
     if kernel_id is not None:
         return _notebook_client(kernel_id, kernel_name)
