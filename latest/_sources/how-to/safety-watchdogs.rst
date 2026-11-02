@@ -45,6 +45,10 @@ deployment: its entry in ``profile.yml`` and its instructions in
 around OSPREY's own guards, for instance by asking it to edit hooks or call a panel's API with
 ``curl``.
 
+.. literalinclude:: ../../../src/osprey/profiles/presets/watchdogs/guard-circumvention/instructions.md
+   :language: markdown
+   :caption: watchdogs/guard-circumvention/instructions.md
+
 **1. Give it a key.** Add one to the ``.env`` at the root of the deployment repository
 (:ref:`deployment-env-chain`):
 

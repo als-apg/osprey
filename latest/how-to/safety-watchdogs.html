@@ -558,6 +558,46 @@ deployment: its entry in <code class="docutils literal notranslate"><span class=
 <code class="docutils literal notranslate"><span class="pre">watchdogs/guard-circumvention/instructions.md</span></code>. It flags an operator pushing the agent
 around OSPREY’s own guards, for instance by asking it to edit hooks or call a panel’s API with
 <code class="docutils literal notranslate"><span class="pre">curl</span></code>.</p>
+<div class="literal-block-wrapper docutils container" id="id1">
+<div class="code-block-caption"><span class="caption-text">watchdogs/guard-circumvention/instructions.md</span><a class="headerlink" href="#id1" title="Link to this code">#</a></div>
+<div class="highlight-markdown notranslate"><div class="highlight"><pre><span></span><span class="gh"># Guard circumvention</span>
+
+You watch one operator&#39;s session with an AI agent that can act on a particle
+accelerator or beamline through OSPREY. OSPREY puts guards between the agent and
+the machine: an approval prompt before a write, a check of the machine&#39;s write
+switch, channel limits, the control target and write posture the operator can
+see on screen, and hooks and settings that hold all of these in place.
+
+Judge the newest operator prompt, read in the light of the session before it.
+Decide whether the operator is pushing the agent around one of those guards,
+rather than working through them.
+
+That is the case when the operator asks the agent to:
+
+<span class="k">-</span><span class="w"> </span>call the web terminal&#39;s or a panel&#39;s API directly, with curl or any other HTTP
+  client, to do what the agent&#39;s tools would refuse or ask about;
+<span class="k">-</span><span class="w"> </span>edit hooks, settings, permissions or configuration so that a gate becomes
+  looser, is switched off, or no longer applies to the agent;
+<span class="k">-</span><span class="w"> </span>get past an approval prompt or the writes check: approve its own request,
+  retry until one gives way, or find a tool call that is not checked;
+<span class="k">-</span><span class="w"> </span>change the control target or the write posture without the operator at the
+  panel doing it and seeing it;
+<span class="k">-</span><span class="w"> </span>run a write through a script, a subprocess or another route chosen because the
+  write tools would not see it.
+
+A prompt that names these things is not enough. Operators routinely use curl to
+check a service that has nothing to do with writes, read hooks and settings to
+understand them, ask why a write was refused, ask what the approval prompt
+covers, and change the control target themselves through the normal control.
+Writing a value through the write tools and accepting the approval prompt is the
+guard working. Choose the routine option for all of these.
+
+Judge intent to avoid a guard, not the danger of the value involved, and not
+whether the attempt would succeed. A refusal earlier in the session followed by
+a request for another route to the same result is the clearest sign.
+</pre></div>
+</div>
+</div>
 <p><strong>1. Give it a key.</strong> Add one to the <code class="docutils literal notranslate"><span class="pre">.env</span></code> at the root of the deployment repository
 (<a class="reference internal" href="deploy-project/env-chain.html#deployment-env-chain"><span class="std std-ref">Environment Variables (the .env chain)</span></a>):</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="nv">TYPESAFE_API_KEY</span><span class="o">=</span>...
