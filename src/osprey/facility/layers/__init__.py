@@ -21,7 +21,6 @@ __all__ = ["HEADER", "LayerSourceInvalid"]
 HEADER = "# Seeded once by the facility import; edit this file by hand."
 
 #: The body of the knowledge index an import seeds.
-_KNOWLEDGE_INDEX_BODY = "Put your facility's documentation here: one page per topic."
 
 
 class LayerSourceInvalid(click.ClickException):
@@ -49,10 +48,10 @@ class LayerSourceInvalid(click.ClickException):
 
 
 def _seed_knowledge_index(facility_dir: Path) -> Path | None:
-    """Write the knowledge index when it is absent, and never rewrite one.
+    """Write the blank placeholder knowledge index when none exists; never rewrite one.
 
-    The header sits inside a frontmatter block because a ``#`` line in a Markdown
-    body is a heading.
+    The placeholder is empty: the index regenerator neither renders it nor calls
+    it stale, and writes over it once the bundle holds a page.
 
     Args:
         facility_dir: The ``data/facility`` directory.
@@ -64,5 +63,5 @@ def _seed_knowledge_index(facility_dir: Path) -> Path | None:
     if index.exists():
         return None
     index.parent.mkdir(parents=True, exist_ok=True)
-    index.write_text(f"---\n{HEADER}\n---\n\n{_KNOWLEDGE_INDEX_BODY}\n", encoding="utf-8")
+    index.write_text("", encoding="utf-8")
     return index

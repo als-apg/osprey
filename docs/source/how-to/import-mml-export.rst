@@ -295,18 +295,12 @@ Before it reads an export, the import looks at ``data/facility/``:
 * Everything else of your own stays, such as ``fixes.yaml``, your knowledge pages
   and hand-written records of other kinds.
 
-When no ``knowledge/index.md`` exists, the import seeds a stub for your
-documentation.
+The import regenerates the knowledge indexes, so your kept pages are listed, and
+leaves a blank ``knowledge/index.md`` when no page remains.
 
-A deployment that began as a preset states
-``control_system.connector.virtual_accelerator.probe_channel`` for the demo's
-channels. ``osprey build`` and ``osprey facility validate`` stop with
-``profile-invalid`` while it names a channel the imported facility does not
-hold, and name one it does. Set it to that channel:
-
-.. code-block:: bash
-
-   osprey set config.control_system.connector.virtual_accelerator.probe_channel=<channel>
+The build derives the simulator's probe channel from the imported file. A stated
+``simulation.default_scenarios`` naming a scenario the imported file lacks stops
+the next build with the file's scenarios.
 
 Check the result
 ================
