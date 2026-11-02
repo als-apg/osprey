@@ -39,6 +39,7 @@ REPO = "demo"
 
 #: The sentence every refusal line ends with.
 REMEDY = "Move it into the repository."
+LOOP_REMEDY = "Remove the link."
 
 #: A file only the outside directory holds; a copy of that directory carries it.
 MARKER = "MARKER"
@@ -177,6 +178,72 @@ def test_a_nested_link_inside_the_repository_is_admitted(repo: Path) -> None:
     other = repo / "other"
     other.mkdir()
     (repo / "data" / "sub").symlink_to(other, target_is_directory=True)
+
+    assert _outside(repo) == ()
+
+
+def test_a_second_hop_that_resolves_outside_is_refused_at_its_path_under_the_input(
+    repo: Path,
+) -> None:
+    from osprey.cli.build_profile_load import load_profile
+
+    outside = repo.parent / "elsewhere"
+    outside.mkdir()
+    hop = repo / "hop"
+    hop.mkdir()
+    (hop / "c").symlink_to(outside, target_is_directory=True)
+    (repo / "data" / "a").symlink_to(hop, target_is_directory=True)
+
+    with pytest.raises(BuildProfileError) as raised:
+        load_profile(repo / PROFILE_FILENAME)
+
+    assert str(raised.value) == (
+        f"data: data/a/c resolves to {outside.resolve().as_posix()}, "
+        f"outside the repository. {REMEDY}"
+    )
+
+
+def test_a_directory_link_back_to_its_own_parent_is_refused(repo: Path) -> None:
+    from osprey.cli.build_profile_load import load_profile
+
+    (repo / "data" / "loop").symlink_to(repo / "data", target_is_directory=True)
+
+    with pytest.raises(BuildProfileError) as raised:
+        load_profile(repo / PROFILE_FILENAME)
+
+    assert str(raised.value) == (
+        f"data: data/loop leads back into its own tree, so the copy would not end. {LOOP_REMEDY}"
+    )
+
+
+def test_a_link_above_the_input_is_refused_where_the_descent_comes_back(repo: Path) -> None:
+    (repo / "data" / "up").symlink_to(repo, target_is_directory=True)
+
+    assert [found.link for found in _outside(repo) if found.loops] == ["up/data"]
+
+
+def test_two_links_to_one_directory_are_admitted(repo: Path) -> None:
+    shared = repo / "shared"
+    shared.mkdir()
+    (repo / "data" / "a").symlink_to(shared, target_is_directory=True)
+    (repo / "data" / "b").symlink_to(shared, target_is_directory=True)
+
+    assert _outside(repo) == ()
+
+
+def test_a_link_to_itself_is_admitted(repo: Path) -> None:
+    (repo / "data" / "self").symlink_to(repo / "data" / "self")
+
+    assert _outside(repo) == ()
+
+
+def test_a_second_hop_with_every_target_inside_is_admitted(repo: Path) -> None:
+    final = repo / "final"
+    final.mkdir()
+    hop = repo / "hop"
+    hop.mkdir()
+    (hop / "c").symlink_to(final, target_is_directory=True)
+    (repo / "data" / "a").symlink_to(hop, target_is_directory=True)
 
     assert _outside(repo) == ()
 
