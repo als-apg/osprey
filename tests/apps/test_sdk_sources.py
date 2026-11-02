@@ -5,31 +5,16 @@ check, the module loader and the launch-token verifier, plus the run-lock
 action context. These tests pin that each one exists at its exact import
 path with the signature the SDK calls, so a move or a rename fails here
 rather than inside an application.
-
-Setting ``OSPREY_ATTEST_BASE=1`` additionally runs the absence checks: they
-attest that the framework base carries none of the mechanisms the
-application SDK adds on top of it. They are skipped otherwise, since those
-mechanisms land later and would turn them red.
 """
 
 from __future__ import annotations
 
 import dataclasses
 import importlib
-import importlib.util
 import inspect
-import os
 from pathlib import Path
 
 import pytest
-
-attest_base = pytest.mark.skipif(
-    os.environ.get("OSPREY_ATTEST_BASE") != "1",
-    reason=(
-        "set OSPREY_ATTEST_BASE=1 when attesting the framework base the "
-        "application SDK wraps; absence checks are skipped otherwise"
-    ),
-)
 
 #: A tool name no per-tool rule names, so the default rule answers for it.
 SYNTHETIC_TOOL = "synthetic_sdk_source_tool"
@@ -109,50 +94,3 @@ def test_panel_validator_skips_vendor_builds(tmp_path: Path):
     (vendor / "lib.js").write_text("const c = '#000000';\n")
 
     assert _hex_scan_files(tmp_path, None) == [tmp_path / "panel.js"]
-
-
-# --- Absence (attest only) -----------------------------------------------
-
-
-@attest_base
-def test_required_fields_is_a_flat_all_of_tuple():
-    from osprey.mcp_server.approval_record import required_fields
-
-    assert required_fields(SYNTHETIC_TOOL, guarded_run=True) == ("approved_target",)
-
-
-@attest_base
-def test_action_context_has_no_limits_switch():
-    from osprey.runtime._run_state import ActionContext
-
-    names = [field.name for field in dataclasses.fields(ActionContext)]
-    assert names == ["target", "owner", "approved_target"]
-
-
-@attest_base
-def test_guarded_run_has_no_command_write():
-    from osprey.runtime import guarded_run
-
-    assert not hasattr(guarded_run, "command_write")
-
-
-@attest_base
-def test_posture_store_has_no_owner_context():
-    from osprey_connectors import posture_store
-
-    assert not hasattr(posture_store, "owner_context")
-
-
-@attest_base
-def test_application_sdk_package_is_absent():
-    assert importlib.util.find_spec("osprey.apps") is None
-
-
-@attest_base
-def test_vendor_fetch_has_no_package_targets():
-    from osprey.cli.vendor_cmd import fetch
-    from osprey.interfaces import vendor
-
-    assert "targets" not in inspect.signature(vendor.fetch_all).parameters
-    assert not hasattr(vendor, "_target_spec")
-    assert all("--target" not in param.opts for param in fetch.params)
