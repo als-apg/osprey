@@ -24,11 +24,14 @@ from osprey.agent_runner.tool_names import DENY_DEFAULTS, SHELL_TOOLS, WRITE_CAP
 from osprey.ariel_attachment_view import attachment_view_enabled
 from osprey.bluesky_tool_names import QUEUE_CONTROL_TOOLS
 from osprey.build.modes import VALID_CHANNEL_FINDER_MODES
+from osprey.cli.build_profile_watchdogs import enabled_watchdogs
 from osprey.cli.profile_conventions import SETUP_PATCH_TOOL, ownership_name
 from osprey.cli.styles import console
 from osprey.cli.templates import manifest as manifest_mod
 from osprey.cli.templates._rendering import render_template
 from osprey.phoebus_agent_access import agent_access as phoebus_agent_access
+from osprey.services.watchdog.config import WATCHDOGS_BLOCK
+from osprey.utils.workspace import session_hold_dir
 from osprey_connectors import yaml_loader
 from osprey_connectors.config import resolve_env_vars
 from osprey_connectors.errors import BuildProfileError
@@ -121,8 +124,8 @@ def _spellable(path: str) -> str:
     unspellable = set(path) & set('"*?[\\')
     if unspellable:
         raise ValueError(
-            f"The agent-data root {path!r} contains {sorted(unspellable)}, which a "
-            "permission rule cannot spell; move the deployment or its agent_data.base_dir."
+            f"The path {path!r} contains {sorted(unspellable)}, which a permission rule "
+            "cannot spell; move the deployment or its agent_data.base_dir."
         )
     return path
 
@@ -147,6 +150,39 @@ def store_deny(config: dict, project_dir: Path) -> list[str]:
     absolute = _spellable(str(_resolved_agent_data_root(config, project_dir) / STATE_DIR_NAME))
     relative = f"{agent_data_base_dir(config)}/{STATE_DIR_NAME}"
     return [f"Edit(/{absolute}/**)", f"Edit({relative}/**)"]
+
+
+def watchdogs_enabled(config: Mapping[str, Any]) -> bool:
+    """Whether the rendered ``config.yml`` carries an enabled watchdog."""
+    return bool(enabled_watchdogs(config.get(WATCHDOGS_BLOCK)))
+
+
+def watchdog_deny(config: dict, project_dir: Path) -> list[str]:
+    """The file-tool denies on what a watched agent must not rewrite; none with no watchdog.
+
+    A watched agent that could edit its watchdog's files could blind it, and one
+    that could edit the session holds could release itself. The render's own
+    ``watchdogs/`` is spelled project-relative (``/``) and working-directory
+    relative, neither of which moves when a staged render is swapped into place.
+    The hold store is outside the render, so it takes the absolute ``//`` form,
+    from the repo root the runtime resolves.
+
+    Claude Code holds every file-writing tool to ``Edit(path)`` rules, as
+    :func:`store_deny` says; these render with its entries, under the same
+    never-filtered key.
+    """
+    if not watchdogs_enabled(config):
+        return []
+    from osprey_connectors.workspace import dotted_config_str, repo_root_for_config
+
+    configured = dotted_config_str(config, "project_root")
+    repo_root = (
+        Path(configured).expanduser()
+        if configured
+        else repo_root_for_config(project_dir.absolute() / "config.yml")
+    )
+    holds = _spellable(str(session_hold_dir(repo_root).resolve()))
+    return ["Edit(/watchdogs/**)", "Edit(watchdogs/**)", f"Edit(/{holds}/**)"]
 
 
 def resolve_hierarchy_context(channel_finder: dict, project_dir: Path) -> dict[str, object] | None:
@@ -440,7 +476,9 @@ def config_derived_context(config: dict, project_dir: Path) -> dict[str, Any]:
         # Its own key for the same reason as `killswitch_deny`: settings.json.j2
         # appends it after that list and never filters it, so no `remove_deny`
         # reaches it. Config-derived, so both render paths carry it.
-        "store_deny": store_deny(config, project_dir),
+        "store_deny": store_deny(config, project_dir) + watchdog_deny(config, project_dir),
+        # hook_config.json carries the key only when this is true.
+        "watchdogs_enabled": watchdogs_enabled(config),
         # The render's read/write-MIXED tools, fully qualified — the writes
         # kill switch's documented exception (mcp__python__execute and any
         # extends clone of it), which a readonly posture keeps reachable
@@ -824,7 +862,7 @@ def build_claude_code_context(
             artifacts = tmpl_manifest.get("artifacts", {})
 
     # Derive feature flags from artifact selections
-    selected_hooks = artifacts.get("hooks", [])
+    selected_hooks = watchdog_hook_selection(artifacts.get("hooks", []), watchdogs_enabled(config))
 
     # Everything the templates read straight out of config.yml and the build's
     # facts file, read once per render (see config_derived_context).
@@ -1446,6 +1484,7 @@ _FRAMEWORK_EVENT_HOOKS: tuple[tuple[str, str | None, tuple[tuple[str, int], ...]
             ("workspace-delta", 3),
             ("control-context", 3),
             ("turn-state", 3),
+            ("watchdog-trigger", 2),
         ),
     ),
     # The closing edge of a turn, reported by the same hook that reports the
@@ -1457,6 +1496,12 @@ _FRAMEWORK_EVENT_HOOKS: tuple[tuple[str, str | None, tuple[tuple[str, int], ...]
     ("Stop", None, (("turn-state", 3), ("approval", 5))),
     ("StopFailure", None, (("turn-state", 3), ("approval", 5))),
 )
+
+#: The hook that hands each prompt to the deployment's watchdogs. It follows the
+#: ``watchdogs:`` block, not the profile's ``hooks:`` list (see
+#: :func:`watchdog_hook_selection`).
+WATCHDOG_TRIGGER_HOOK = "watchdog-trigger"
+_WATCHDOG_TRIGGER_OUTPUT = ".claude/hooks/osprey_watchdog_trigger.py"
 
 #: The hooks that stand between the agent and a control-system write: the kill
 #: switch, the human gate and the per-channel limits. A deployment that arms
@@ -1483,6 +1528,24 @@ def _hook_name_of_command(command: str) -> str | None:
 
     match = _HOOK_COMMAND_SCRIPT.search(command)
     return _hook_short_name(match.group("stem")) if match else None
+
+
+def watchdog_hook_selection(hooks: Iterable[str], watching: bool) -> list[str]:
+    """A hook selection with the watchdog trigger in it exactly when a watchdog is enabled.
+
+    The block decides, never the profile's ``hooks:`` list: a deployment that
+    enabled a watchdog cannot leave its sessions unwatched by omitting the
+    trigger, and one that enabled none renders no trigger by naming it.
+
+    Args:
+        hooks: The selection, in short-name form.
+        watching: Whether the build has an enabled watchdog.
+
+    Returns:
+        The selection in its order, the trigger last when watching.
+    """
+    selection = [name for name in hooks if name != WATCHDOG_TRIGGER_HOOK]
+    return [*selection, WATCHDOG_TRIGGER_HOOK] if watching else selection
 
 
 def _build_framework_event_rules(selected_hooks: Iterable[str]) -> dict[str, list[dict]]:
@@ -2508,8 +2571,13 @@ def create_claude_code_integration(
                 dst_file = project_dir / ".claude" / rel_path
 
                 # Not in manifest: remove any stale file from an earlier,
-                # wider render pass instead of orphaning it on disk.
-                if allowed_outputs is not None and dst_rel not in allowed_outputs:
+                # wider render pass instead of orphaning it on disk. The trigger
+                # also leaves a render with no manifest filter, which would
+                # otherwise copy it with no watchdog to serve.
+                if (allowed_outputs is not None and dst_rel not in allowed_outputs) or (
+                    dst_rel == _WATCHDOG_TRIGGER_OUTPUT
+                    and WATCHDOG_TRIGGER_HOOK not in (ctx.get("selected_hooks") or [])
+                ):
                     if dst_file.exists():
                         dst_file.unlink()
                     continue
@@ -2667,6 +2735,20 @@ def regenerate_claude_code(
             pass
     if regen_manifest is None:
         regen_manifest = manifest_mod.load_template_manifest(preset)
+
+    # The selection the manifest recorded, with the trigger following config.yml as
+    # the rendered rows do, so a regenerated row never points at a file not shipped.
+    if regen_manifest:
+        recorded = regen_manifest.get("artifacts") or {}
+        regen_manifest = {
+            **regen_manifest,
+            "artifacts": {
+                **recorded,
+                "hooks": watchdog_hook_selection(
+                    recorded.get("hooks") or [], watchdogs_enabled(config)
+                ),
+            },
+        }
 
     allowed_outputs = (
         manifest_mod.resolve_manifest_outputs(regen_manifest) if regen_manifest else None

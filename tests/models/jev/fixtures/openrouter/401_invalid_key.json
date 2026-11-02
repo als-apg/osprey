@@ -1,0 +1,14 @@
+{
+  "synthetic": true,
+  "note": "Synthetic fixture hand-written from OpenRouter's documented response and error examples; not a recorded reply.",
+  "route": "openrouter",
+  "status": 401,
+  "headers": {},
+  "body": {
+    "id": "gen-dec-synthetic-0004",
+    "error": {
+      "code": 401,
+      "message": "No auth credentials found"
+    }
+  }
+}

@@ -47,6 +47,8 @@ from osprey.interfaces.web_terminal.operator_session import (
     POSTURE_SOURCE_SPAWN,
     build_operator_child_env,
     resolve_agent_data_root,
+    session_hold_root_of,
+    stamp_session_hold,
 )
 from osprey.interfaces.web_terminal.session_discovery import SessionDiscovery
 from osprey.interfaces.web_terminal.session_key import is_posture_key
@@ -54,6 +56,7 @@ from osprey_connectors import control_context, posture_store
 from osprey_connectors.identity import acting_identity
 from osprey_connectors.posture_env import is_readonly_run
 from osprey_connectors.refusals import refusal_phrase
+from osprey_connectors.session_hold import is_held
 from osprey_connectors.types import published_machine_kind
 from osprey_connectors.write_target import KIND_BANNERS
 
@@ -523,6 +526,7 @@ def _build_extra_env(
     session_key = claude_session_id or telemetry_session_id
     if session_key:
         extra_env["OSPREY_SESSION_ID"] = session_key
+        stamp_session_hold(extra_env, session_key, websocket.app)
     if telemetry_session_id:
         extra_env["OSPREY_TELEMETRY_SESSION_ID"] = telemetry_session_id
         extra_env["OSPREY_TELEMETRY_SESSION_START"] = datetime.now(UTC).isoformat()
@@ -2916,7 +2920,15 @@ def _switch_state(record: Any, status: str, target: str) -> str | None:
     return None if status == "unreadable" else control_context.switch_position(record, target)
 
 
-def _posture_view(app: Any, config_path: Path | None) -> dict[str, Any]:
+def _session_held(app: Any, session_id: str | None) -> bool:
+    """Whether the named session has an unanswered hold. BLOCKING; never raises."""
+    root = session_hold_root_of(app)
+    return bool(session_id and root is not None and is_held(session_id, root=root))
+
+
+def _posture_view(
+    app: Any, config_path: Path | None, session_id: str | None = None
+) -> dict[str, Any]:
     """Everything ``GET /api/terminal/posture`` reports. BLOCKING.
 
     Called through ``run_in_threadpool``: it parses ``config.yml``, reads the
@@ -2941,9 +2953,12 @@ def _posture_view(app: Any, config_path: Path | None) -> dict[str, Any]:
     A switch landing mid-render can still move a later row's verdict; the window
     is one poll wide and the chip refetches on the ``control_context`` frame.
 
-    **No session is involved.** There is one control context per login
+    **One session-scoped field.** There is one control context per login
     identity, so every answer here is that login's: the caller's ``session_id``
-    names who is asking and decides nothing about what they are told.
+    names who is asking and decides nothing about the roster or its verdicts.
+    The exception is ``held``, which says the asking session has an unanswered
+    hold, so the chip can name why its writes are paused. It is ``False`` with no
+    session named and wherever no watchdog runs.
     """
     config = _rendered_config(config_path)
     derive_path = str(config_path) if config_path else None
@@ -3032,6 +3047,7 @@ def _posture_view(app: Any, config_path: Path | None) -> dict[str, Any]:
         "owner": _owner_row(app, record),
         "servers": _server_rows(reports),
         "execution_in_flight": _execution_rows(),
+        "held": _session_held(app, session_id),
         "last_switch": _aged(None if record is None else record.last_switch),
         "last_posture_realign": _fleet_realign(reports),
         "targets": rows,
@@ -3045,7 +3061,7 @@ async def get_terminal_posture(request: Request, session_id: str | None = None):
     The single truth the header chip and its popover read. There is one control
     context per deployment, so every answer here is the deployment's: the
     caller's ``session_id`` names who is asking and changes nothing about what
-    they are told.
+    they are told, except the session-scoped ``held`` field.
 
     One row per configured control target, each answering the whole of what the
     operator needs about that machine:
@@ -3128,7 +3144,9 @@ async def get_terminal_posture(request: Request, session_id: str | None = None):
     """
     _require_session_uuid(session_id)
 
-    view = await run_in_threadpool(_posture_view, request.app, request.app.state.config_path)
+    view = await run_in_threadpool(
+        _posture_view, request.app, request.app.state.config_path, session_id
+    )
     return {"session_id": session_id, **view}
 
 

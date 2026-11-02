@@ -1,0 +1,8 @@
+{
+  "synthetic": true,
+  "note": "Synthetic fixture hand-written from the documented direct-route response and error shapes; not a recorded reply.",
+  "route": "typesafe",
+  "status": 503,
+  "headers": {},
+  "body": null
+}

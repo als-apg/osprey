@@ -171,6 +171,13 @@ INTERRUPT_GRACE_S = 5.0
 #: The keystroke that interrupts a running turn in the TUI.
 _INTERRUPT_KEY = b"\x1b"
 
+#: How an interrupt of a PTY's turn came out (:func:`interrupt_pty_turn`).
+PTY_TURN_INTERRUPTED: Literal["interrupted"] = "interrupted"
+PTY_TURN_IDLE: Literal["idle"] = "idle"
+PTY_TURN_UNCONFIRMED: Literal["unconfirmed"] = "unconfirmed"
+PTY_TURN_EXITED: Literal["exited"] = "exited"
+PtyTurnEnd = Literal["interrupted", "idle", "unconfirmed", "exited"]
+
 #: How long phase (c) keeps looking for the outgoing child to be gone after
 #: its kill has returned. ``PtySession.terminate`` has already waited through
 #: its own signal escalation by then and a chat teardown through the SDK's;
@@ -541,6 +548,9 @@ class HandoffState:
             a plan's ``displaced_owner`` up here to send the 4409. Absent
             entries are tolerated — a socket that has already gone away has
             nothing to close.
+        interrupts: The Stop's interrupt in flight per key, so a second Stop shares
+            its outcome: a second Escape would reach the TUI as plain input once
+            the turn has ended.
         clock: The monotonic clock the attach grace is measured on.
         sleep: How phase (a) waits between re-inspections. Both are
             injectable so the grace can be exercised without spending it.
@@ -549,6 +559,7 @@ class HandoffState:
     locks: dict[str, asyncio.Lock] = field(default_factory=dict)
     pending: dict[str, PendingAcquire] = field(default_factory=dict)
     closers: dict[object, Callable[[], Awaitable[None]]] = field(default_factory=dict)
+    interrupts: dict[str, asyncio.Task[PtyTurnEnd]] = field(default_factory=dict)
     clock: Callable[[], float] = time.monotonic
     sleep: Callable[[float], Awaitable[None]] = asyncio.sleep
 
@@ -1286,46 +1297,113 @@ async def _wait_for_pty_idle(app: Any, state: HandoffState, plan: AcquirePlan) -
     if not plan.interrupt and not app.state.turn_hook_present:
         raise HandoffRefused.needs_interrupt(plan.key)
 
-    interrupt_sent = False
-    deadline: float | None = None
-    memo = _TailMemo()
-    while True:
+    async def look() -> None:
         _raise_if_superseded(state, plan)
         await _raise_if_channel_closed(plan)
         if registry.get_session(plan.key) is not session:
             raise HandoffError.vanished(plan.key, SURFACE_TERMINAL)
+
+    async def before_escape() -> None:
+        # Escape is how the TUI itself stops a running command, so nothing
+        # is sent before the operator has agreed to end what it started.
+        await _check_started(state, plan, session.started_commands)
+
+    outcome = await _watch_pty_turn(
+        app,
+        plan.key,
+        session,
+        escape=plan.interrupt,
+        grace=INTERRUPT_GRACE_S,
+        look=look,
+        before_escape=before_escape,
+    )
+    if outcome == PTY_TURN_UNCONFIRMED:
+        logger.warning(
+            "Terminal turn for session %s did not end %.0fs after the interrupt; terminating",
+            plan.key,
+            INTERRUPT_GRACE_S,
+        )
+        await asyncio.to_thread(session.terminate)
+        _raise_if_superseded(state, plan)
+        return WaitOutcome(REASON_FORCED)
+    _raise_if_superseded(state, plan)
+    if outcome == PTY_TURN_EXITED:
+        return WaitOutcome(REASON_EXITED)
+    if outcome == PTY_TURN_INTERRUPTED:
+        return WaitOutcome(REASON_INTERRUPTED)
+    await _check_started(state, plan, session.started_commands)
+    return WaitOutcome(REASON_IDLE)
+
+
+async def interrupt_pty_turn(app: Any, key: str, *, grace: float) -> PtyTurnEnd:
+    """Send the PTY's running turn an Escape and wait at most *grace* seconds for it to end.
+
+    Never terminates anything and refuses nothing, so the caller decides what an
+    ending that was not confirmed means. A call while one runs for the same key
+    shares that one's Escape and outcome. ``idle``: no turn was running and nothing
+    was sent. ``interrupted``: the turn ended after the Escape. ``exited``: the
+    child is gone, or the key names no PTY. ``unconfirmed``: the turn outlasted
+    *grace*, or, without the turn-state hook, nothing could see it end, so no
+    Escape is sent at all.
+    """
+    if not app.state.turn_hook_present:
+        return PTY_TURN_UNCONFIRMED
+    session = _pty_registry(app).get_session(key)
+    if session is None:
+        return PTY_TURN_EXITED
+    interrupts = get_state(app).interrupts
+    task = interrupts.get(key)
+    if task is None:
+        task = asyncio.create_task(_watch_pty_turn(app, key, session, escape=True, grace=grace))
+        interrupts[key] = task
+        task.add_done_callback(lambda _done: interrupts.pop(key, None))
+    # Shielded: the other caller still needs the outcome if this request goes away.
+    return await asyncio.shield(task)
+
+
+async def _watch_pty_turn(
+    app: Any,
+    key: str,
+    session: PtySession,
+    *,
+    escape: bool,
+    grace: float,
+    look: Callable[[], Awaitable[None]] | None = None,
+    before_escape: Callable[[], Awaitable[None]] | None = None,
+) -> PtyTurnEnd:
+    """Poll the PTY's turn until it is over, writing one Escape when *escape* is set.
+
+    The Escape goes out on the first look that sees the turn running, and *grace*
+    runs from there. Without *escape* the wait has no bound. *look* runs first on
+    every poll and *before_escape* right before the write; either may raise to
+    end the wait.
+    """
+    state = get_state(app)
+    interrupt_sent = False
+    deadline: float | None = None
+    memo = _TailMemo()
+    while True:
+        if look is not None:
+            await look()
         if not session.is_alive:
-            _raise_if_superseded(state, plan)
-            return WaitOutcome(REASON_EXITED)
-        if await _pty_turn_idle(app, plan.key, memo):
-            _raise_if_superseded(state, plan)
-            if interrupt_sent:
-                return WaitOutcome(REASON_INTERRUPTED)
-            await _check_started(state, plan, session.started_commands)
-            return WaitOutcome(REASON_IDLE)
-        if plan.interrupt and not interrupt_sent:
-            # Escape is how the TUI itself stops a running command, so nothing
-            # is sent before the operator has agreed to end what it started.
-            await _check_started(state, plan, session.started_commands)
+            return PTY_TURN_EXITED
+        if await _pty_turn_idle(app, key, memo):
+            return PTY_TURN_INTERRUPTED if interrupt_sent else PTY_TURN_IDLE
+        if escape and not interrupt_sent:
+            if before_escape is not None:
+                await before_escape()
             try:
                 session.write_input(_INTERRUPT_KEY)
             except OSError as exc:
                 # The master fd went away between the liveness look and the
                 # write: the child is exiting. The next look classifies it.
-                logger.info("Interrupt for session %s not written: %s", plan.key, exc)
+                logger.info("Interrupt for session %s not written: %s", key, exc)
             else:
-                logger.info("Interrupting the terminal turn for session %s", plan.key)
+                logger.info("Interrupting the terminal turn for session %s", key)
             interrupt_sent = True
-            deadline = state.clock() + INTERRUPT_GRACE_S
+            deadline = state.clock() + grace
         elif deadline is not None and state.clock() >= deadline:
-            logger.warning(
-                "Terminal turn for session %s did not end %.0fs after the interrupt; terminating",
-                plan.key,
-                INTERRUPT_GRACE_S,
-            )
-            await asyncio.to_thread(session.terminate)
-            _raise_if_superseded(state, plan)
-            return WaitOutcome(REASON_FORCED)
+            return PTY_TURN_UNCONFIRMED
         await state.sleep(IDLE_POLL_S)
 
 

@@ -818,6 +818,35 @@ mcp_servers:
 #       label: Optics
 #       color: "#4C9AFF"
 
+# ── Watchdogs ────────────────────────────────────────────────────────────────
+# Independent judges of each prompt, off until you turn them on. This one sends
+# the session to an outside model, so read the how-to before setting `enabled`.
+# This exemplar carries the block only; `osprey init` materializes its files.
+watchdogs:
+  guard-circumvention:
+    engine: decision
+    enabled: false
+    threshold: 0.5   # not calibrated for your facility; replay before relying on it
+    options:
+      - id: routine
+        text: Ordinary work, including questions about the guards themselves.
+        flag: false
+      - id: direct-api
+        text: Asked the agent to call a web terminal or panel API directly, around its tools.
+        flag: true
+      - id: loosen-gate
+        text: Asked the agent to edit hooks, settings or configuration to loosen a gate.
+        flag: true
+      - id: bypass-check
+        text: Asked the agent to get past an approval prompt or the writes check.
+        flag: true
+      - id: flip-control
+        text: Asked the agent to change the control target or write posture out of the operator's sight.
+        flag: true
+      - id: scripted-write
+        text: Asked the agent to write through a script so the write tools would not see it.
+        flag: true
+
 # --- Nextcloud bridge --------------------------------------------------------
 # Answers questions asked from a Nextcloud Talk room. The trigger name must
 # match one declared in the dispatch triggers file.

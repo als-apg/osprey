@@ -1,0 +1,10 @@
+{
+  "synthetic": true,
+  "note": "Synthetic fixture hand-written from the documented direct-route response and error shapes; not a recorded reply.",
+  "route": "typesafe",
+  "status": 524,
+  "headers": {
+    "content-type": "text/html"
+  },
+  "body": "<!DOCTYPE html><html><head><title>524: A timeout occurred</title></head><body><h1>A timeout occurred</h1><p>The origin web server timed out responding to this request.</p></body></html>"
+}

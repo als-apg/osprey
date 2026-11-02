@@ -1448,6 +1448,7 @@ jobs:
           tests/interfaces/web_terminal/test_auth_login_browser.py \
           tests/interfaces/web_terminal/test_feedback_rail_browser.py \
           tests/interfaces/web_terminal/test_feedback_modal_browser.py \
+          tests/interfaces/web_terminal/test_watchdog_dialog_browser.py \
           tests/interfaces/web_terminal/test_posture_toggle_browser.py \
           tests/interfaces/web_terminal/test_control_context_browser.py \
           tests/interfaces/web_terminal/test_agent_surface_browser.py \
@@ -1471,6 +1472,47 @@ jobs:
           tests/interfaces/test_browser_helper.py \
           tests/interfaces/test_lattice_dashboard_browser.py \
           tests/interfaces/test_load_smokes.py -v --tb=short
+
+    - name: Install the pinned Claude Code CLI
+      # The watchdog suite below launches the agent the web terminal launches,
+      # against a scripted model. Every agent run refuses to start without the
+      # version OSPREY pins.
+      uses: ./.github/actions/install-pinned-claude-code
+
+    - name: Run the watchdog browser suite
+      timeout-minutes: 20
+      # Apart from the list above, whose suites need no agent on the runner.
+      run: |
+        uv run pytest tests/interfaces/test_watchdog_e2e.py -m browser -v --tb=short \
+          --junitxml=junit-watchdog-browser.xml
+
+    - name: Fail the lane on any skipped watchdog browser test
+      run: |
+        # The chromium fixture skips when its binary is absent, and pytest's
+        # exit code cannot tell "everything passed" from "everything was
+        # skipped". The junit report is read instead: zero skips, and a
+        # non-zero test count so an empty selection cannot pass either.
+        uv run python - <<'PY'
+        import sys
+        import xml.etree.ElementTree as ET
+
+        report = "junit-watchdog-browser.xml"
+        total = skipped = 0
+        for suite in ET.parse(report).getroot().iter("testsuite"):
+            total += int(suite.get("tests", 0))
+            skipped += int(suite.get("skipped", 0))
+        print(f"{report}: {total} test(s), {skipped} skipped")
+        failed = False
+        if total == 0:
+            print(f"::error::{report} collected no tests")
+            failed = True
+        if skipped:
+            print(f"::error::{report} reports {skipped} skipped test(s)")
+            failed = True
+        if failed:
+            sys.exit(1)
+        print("every watchdog browser test ran; none skipped")
+        PY
 
     - name: Run visual regression suite
       # Linux is the authoritative platform for the pixel diff (see
@@ -1904,6 +1946,9 @@ jobs:
           # pull request. They run in e2e-no-model, which is this lane's
           # directory sweep minus the gateway key — named there by path, and
           # ignored here one by one so the two sets stay disjoint.
+          # The live watchdog checks leave because they are opt-in: a run that
+          # names a provider and lacks the Jev key fails them on purpose, and
+          # this lane holds no Jev key.
           # -n 4 --dist loadfile (pytest-xdist): this lane is ~18 min of
           # real-LLM round-trips at near-zero CPU, so four workers cut it to
           # roughly the slowest single file. loadfile (not load) keeps every
@@ -1972,6 +2017,9 @@ jobs:
             --ignore=tests/e2e/claude_code/test_chat_approval_gates_scripted.py \
             --ignore=tests/e2e/claude_code/test_chat_plan_mode_scripted.py \
             --ignore=tests/e2e/claude_code/test_chat_attachment_read_scripted.py \
+            --ignore=tests/e2e/test_watchdog_agent_scripted.py \
+            --ignore=tests/e2e/test_watchdog_hold_scripted.py \
+            --ignore=tests/e2e/test_watchdog_live.py \
             --ignore=tests/e2e/tier2
         fi
     # On failure only: container logs, exit codes, `OOMKilled`, and runner
@@ -2174,6 +2222,8 @@ jobs:
           tests/e2e/claude_code/test_chat_approval_gates_scripted.py \
           tests/e2e/claude_code/test_chat_plan_mode_scripted.py \
           tests/e2e/claude_code/test_chat_attachment_read_scripted.py \
+          tests/e2e/test_watchdog_agent_scripted.py \
+          tests/e2e/test_watchdog_hold_scripted.py \
           -v --tb=short --durations=15 -n 4 --dist loadfile \
           --junitxml=junit-e2e-no-model.xml
 

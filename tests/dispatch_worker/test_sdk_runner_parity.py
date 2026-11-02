@@ -53,6 +53,8 @@ _ENV_KEYS = [
     # The job's launch-scoped terminal session, ``dispatch-<run id>``; never
     # the posture session, which stays unset for dispatch.
     "OSPREY_TERMINAL_SESSION",
+    # Every headless run carries it: a dispatch prompt comes from code, not an operator.
+    "OSPREY_WATCHDOG_SKIP",
 ]
 
 

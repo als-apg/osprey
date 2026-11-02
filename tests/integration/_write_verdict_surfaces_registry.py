@@ -1,8 +1,9 @@
 """The registry of write-verdict surfaces: one named projection per surface.
 
-Every src module that asks :func:`osprey_connectors.posture_store.write_verdict`
-or :func:`~osprey_connectors.posture_store.backstop_verdict` (or the hook
-twin's ``write_verdict``) "may this write?" is a *surface*. A surface rarely
+Every src module that asks :func:`osprey_connectors.posture_store.write_verdict`,
+:func:`~osprey_connectors.posture_store.execution_verdict` or
+:func:`~osprey_connectors.posture_store.backstop_verdict` (or the hook twin's
+``write_verdict`` or ``execution_verdict``) "may this write?" is a *surface*. A surface rarely
 returns the verdict itself: the connector host answers a bool, the executor a
 launch stamp, the kernel a hint line, the chip a turn-on lock. A
 *projection* is the rule that maps one case-table row's expected verdict onto
@@ -483,6 +484,73 @@ def _control_context_hook(staged: Staged) -> Any:
     return state["writes"][case.target], expected
 
 
+# -- a held session ----------------------------------------------------------
+#
+# A surface that executes a write answers for the session's hold too. Each row
+# is asked again with a flag open: the backstop's two reasons still come first,
+# and every later term gives way to ``session_held``.
+
+_HELD_SESSION = "11111111-2222-3333-4444-555555555555"
+
+
+def _hold(staged: Staged) -> None:
+    """Open one flag on the session this process belongs to."""
+    from osprey_connectors import session_hold
+
+    root = staged.tmp_path / "session_holds"
+    staged.monkeypatch.setenv(session_hold.HOLD_DIR_ENV_VAR, str(root))
+    staged.monkeypatch.setenv("OSPREY_SESSION_ID", _HELD_SESSION)
+    session_hold.ensure_session(_HELD_SESSION)
+    session_hold.open_flag(
+        _HELD_SESSION,
+        flag_id="f1",
+        source="watchdog:scope",
+        reason="off the plan",
+        prompt_ref="record:f1",
+        prompt_excerpt="move the corrector",
+    )
+
+
+def _held(project: Callable[[Staged], Any]) -> Callable[[Staged], Any]:
+    """*project*, asked with the session held: the row's answer gives way to the hold."""
+
+    def held(staged: Staged) -> Any:
+        from osprey_connectors.posture_store import backstop_verdict
+
+        _hold(staged)
+        answer = project(staged)
+        if answer is OUT_OF_DOMAIN:
+            return answer
+        backstop = backstop_verdict(staged.case.section)
+        expected = (False, backstop.reason if not backstop.allowed else "session_held")
+        return answer[0], expected
+
+    return held
+
+
+def _twin_execution(staged: Staged) -> Any:
+    twin = _import_hook("osprey_target_state")
+    from osprey_connectors_tests._harness._write_verdict_cases import owner_argument
+
+    case = staged.case
+    verdict = twin.execution_verdict(
+        case.section,
+        case.target,
+        ignore_launch_pin=case.ignore_launch_pin,
+        **owner_argument(case, no_owner=twin.NO_OWNER),
+    )
+    return (verdict.allowed, verdict.reason), _expected(case)
+
+
+def _middleware_clamp(staged: Staged) -> Any:
+    """The clamp's answer for a clamped write tool: the backstop, then the hold."""
+    from osprey.mcp_server.audit_middleware import _backstop, _clamp_refusal
+
+    refusal = _clamp_refusal(_backstop(), "channel_write")
+    observed = (True, None) if refusal is None else (False, refusal.reason)
+    return observed, _expected(staged.case)
+
+
 # -- position surfaces (added with the switch's three positions) -------------
 
 
@@ -790,6 +858,62 @@ SURFACES: tuple[Surface, ...] = (
         stage1=False,
         reports_reason=True,
         project=_control_context_hook,
+    ),
+    Surface(
+        "twin-held",
+        f"{_HOOKS}.osprey_target_state",
+        "write",
+        stage1=False,
+        reports_reason=True,
+        project=_held(_twin_execution),
+    ),
+    Surface(
+        "bluesky-lane-held",
+        "osprey.mcp_server.bluesky.tools.queue",
+        "write",
+        stage1=False,
+        reports_reason=True,
+        project=_held(_bluesky_lane),
+    ),
+    Surface(
+        "channel-write-entry-held",
+        "osprey.mcp_server.control_system.tools.channel_write",
+        "write",
+        stage1=False,
+        reports_reason=True,
+        project=_held(_channel_write_entry),
+    ),
+    Surface(
+        "phoebus-drive-held",
+        "osprey.mcp_server.phoebus.tools.bridge_tools",
+        "write",
+        stage1=False,
+        reports_reason=True,
+        project=_held(_phoebus_drive),
+    ),
+    Surface(
+        "executor-gate-held",
+        "osprey.mcp_server.python_executor.tools._execution_gates",
+        "write",
+        stage1=False,
+        reports_reason=True,
+        project=_held(_executor_gate),
+    ),
+    Surface(
+        "writes-check-hook-held",
+        f"{_HOOKS}.osprey_writes_check",
+        "write",
+        stage1=False,
+        reports_reason=True,
+        project=_held(_writes_check),
+    ),
+    Surface(
+        "middleware-clamp-held",
+        "osprey.mcp_server.audit_middleware",
+        "backstop",
+        stage1=False,
+        reports_reason=True,
+        project=_held(_middleware_clamp),
     ),
     Surface(
         "approval-position",

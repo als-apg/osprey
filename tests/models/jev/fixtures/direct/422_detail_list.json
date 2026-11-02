@@ -1,0 +1,30 @@
+{
+  "synthetic": true,
+  "note": "Synthetic fixture hand-written from the documented direct-route response and error shapes; not a recorded reply.",
+  "route": "typesafe",
+  "status": 422,
+  "headers": {},
+  "body": {
+    "detail": [
+      {
+        "type": "string_too_short",
+        "loc": [
+          "body",
+          "questions",
+          "q1",
+          "instructions"
+        ],
+        "msg": "String should have at least 1 character",
+        "input": {
+          "state": "synthetic state: find the warm widget in bay seven",
+          "questions": {
+            "q1": {
+              "type": "noul",
+              "instructions": ""
+            }
+          }
+        }
+      }
+    ]
+  }
+}

@@ -115,6 +115,7 @@ PROFILE_SOURCE_ENTRIES: tuple[str, ...] = (
     *LAYER_DIRNAMES,
     "profiles",
     "scripts",
+    "watchdogs",
     # Convention directories, in CONVENTION_DIRS order.
     "rules",
     "skills",

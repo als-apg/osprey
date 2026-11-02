@@ -92,6 +92,9 @@ refusal never share one.
        ``detail``
    * - ``auth_sidecar`` (written as ``sidecar``)
      - Logins and login refusals, where a deployment has a login wall
+   * - ``safety_watchdog``
+     - Each watchdog's verdict on a prompt, its failures, and the operator's
+       answer to a flag --- see :ref:`reference-watchdog`
 
 ``decision`` reads ``allowed`` or ``refused`` on almost all of them.
 ``hook_approval`` has three words of its own, all on the same
@@ -100,6 +103,8 @@ then ``approved`` when the harness reported that the call ran, or ``denied``
 when the turn ended without it --- declined or interrupted. A write the
 switch's *allowed* position let run has no ``ask``: its ``approved`` names
 ``approver=write_switch`` in ``detail``.
+``safety_watchdog`` has its own too: ``flagged``, ``clear``, ``unavailable``,
+``stop``, ``continue`` and ``stop_unconfirmed``.
 
 Some of that is chatter rather than safety: every request that changes state is
 recorded, so moving a panel around the terminal leaves ``http_mutation``

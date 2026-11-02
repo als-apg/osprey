@@ -55,6 +55,8 @@ from osprey.interfaces.web_terminal.pty_manager import PtyRegistry
 from osprey.interfaces.web_terminal.routes import router
 from osprey.interfaces.web_terminal.routes.agent_activity import ACTIVITY_BUFFER_MAX
 from osprey.interfaces.web_terminal.routes.chat_attachments import sweep_uploads_at_startup
+from osprey.interfaces.web_terminal.routes.watchdog import make_notifier
+from osprey.interfaces.web_terminal.routes.watchdog import router as watchdog_router
 from osprey.interfaces.web_terminal.sidecar_status import (
     PANEL_STATUS_DIRNAME,
     SidecarStatus,
@@ -73,8 +75,12 @@ from osprey.profiles.web_panels import (
     panel_spec_enabled,
 )
 from osprey.registry.web import PANEL_ID_TO_REGISTRY_KEY, panel_url_state_attr
+from osprey.services.watchdog.definitions import load_watchdogs
 from osprey.utils.seconds import positive_seconds
+from osprey.utils.workspace import session_hold_dir
 from osprey_connectors.config import get_facility_timezone
+from osprey_connectors.session_hold import HOLD_DIR_ENV_VAR
+from osprey_connectors.workspace import repo_root_for_config
 
 if TYPE_CHECKING:
     import socket
@@ -1123,6 +1129,48 @@ def _detect_turn_hook(app: FastAPI) -> None:
         )
 
 
+def _start_watchdogs(app: FastAPI, config_file: Path | None) -> None:
+    """Resolve, once, whether this build runs watchdogs, and where their holds live.
+
+    ``app.state.session_hold_root`` and ``app.state.watchdog_runner`` are both set
+    or both ``None``, and every in-process hold call goes through that root. A
+    value inherited in this process's environment is dropped, because a child
+    could otherwise read it and hold on a store no watchdog here ever writes.
+
+    A rendered ``watchdogs`` block that breaks a rule stops the server with
+    :class:`BuildProfileError`: serving on with the deployment's watchdogs quietly
+    off is the one failure an operator could not see.
+    """
+    os.environ.pop(HOLD_DIR_ENV_VAR, None)
+    app.state.session_hold_root = None
+    app.state.watchdog_runner = None
+    if config_file is None:
+        return
+    try:
+        config = yaml.safe_load(config_file.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, yaml.YAMLError) as exc:
+        logger.warning("No watchdogs: %s is unreadable (%s)", config_file, type(exc).__name__)
+        return
+    if not isinstance(config, dict):
+        return
+    build_dir = config_file.parent
+    definitions = load_watchdogs(config, build_dir)
+    if not definitions:
+        return
+
+    from osprey.services.watchdog.runner import WatchdogRunner
+
+    root = session_hold_dir(repo_root_for_config(config_file))
+    app.state.session_hold_root = root
+    app.state.watchdog_runner = WatchdogRunner(
+        definitions,
+        hold_root=root,
+        notify=make_notifier(app),
+        config=config,
+        build_dir=build_dir,
+    )
+
+
 def _create_lifespan(
     config_path: str | Path | None = None,
     shell_command: list[str] | None = None,
@@ -1298,6 +1346,7 @@ def _create_lifespan(
                 resolved_config_path = config_candidate.resolve()
                 break
         app.state.config_path = resolved_config_path
+        _start_watchdogs(app, resolved_config_path)
 
         # ── Web theme (SSR no-FOUC attribute) ──
         # Resolved once at startup and server-rendered onto <html data-theme>
@@ -1809,6 +1858,10 @@ def _create_lifespan(
 
         yield
 
+        # First, so the runs it ends can still reach the sessions that are live.
+        if app.state.watchdog_runner is not None:
+            await app.state.watchdog_runner.shutdown()
+
         await app.state.control_context_task.stop()
 
         reaper_task.cancel()
@@ -1937,6 +1990,7 @@ def create_app(
     app.state.url_prefix = url_prefix
 
     app.include_router(router)
+    app.include_router(watchdog_router)
     register_scaffold_conflict_handlers(app)
 
     @app.get("/")
