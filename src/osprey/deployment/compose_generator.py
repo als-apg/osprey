@@ -2935,8 +2935,14 @@ FRAGMENT_TOP_LEVEL_KEYS: tuple[str, ...] = (
     "services",
     "volumes",
     "networks",
-    "configs",
-    "secrets",
+)
+
+#: The migration a refused top-level key's remedy names: key -> one sentence.
+_TOP_LEVEL_KEY_MIGRATIONS: Mapping[str, str] = dict.fromkeys(
+    ("configs", "secrets"),
+    "A file a container needs is a bind stated on the service's volumes: (./build/... for a "
+    "file the build wrote), judged by the protected-path rule; a per-deploy value goes through "
+    "the service's env axis in the profile.",
 )
 
 #: The keys a compose service of such a fragment may carry. ``network_mode`` is
@@ -3165,27 +3171,7 @@ def _fragment_mapping(value, where, key):
     return value
 
 
-def _top_level_bind_sources(document, key):
-    """The host paths a rendered document's top-level sections reach, with their key paths.
-
-    A ``configs.<name>`` or ``secrets.<name>`` reaches one through its ``file``.
-
-    :param document: The rendered compose document
-    :type document: dict
-    :param key: The application service
-    :type key: str
-    :rtype: collections.abc.Iterator[tuple[str, str]]
-    :raises DeploymentPreconditionError: A section is malformed
-    """
-    for section in ("configs", "secrets"):
-        for name, entry in _fragment_mapping(document.get(section), section, key).items():
-            where = f"{section}.{name}"
-            source = _fragment_mapping(entry, where, key).get("file")
-            if source:
-                yield f"{where}.file", str(source)
-
-
-def _refuse_unstated_keys(section, stated, where, prefix=""):
+def _refuse_unstated_keys(section, stated, where, prefix="", migrations=None):
     """Refuse the first key of *section* its stated schema does not hold.
 
     :param section: A mapping of a rendered compose document
@@ -3196,16 +3182,20 @@ def _refuse_unstated_keys(section, stated, where, prefix=""):
     :type where: str
     :param prefix: The key path to *section* inside *where*
     :type prefix: str
+    :param migrations: What to do instead of a refused key, by key
+    :type migrations: collections.abc.Mapping[str, str] | None
     :raises DeploymentPreconditionError: It carries another key
     """
     for field in section:
         if field not in stated:
+            migration = (migrations or {}).get(field)
+            instead = f" {migration}" if migration else ""
             raise DeploymentPreconditionError(
                 reason=(
                     f"{where} renders {prefix}{field}:, which is not a key an application "
                     "fragment may carry."
                 ),
-                remedy=f"Remove it. The keys stated here are: {', '.join(stated)}.",
+                remedy=f"Remove it.{instead} The keys stated here are: {', '.join(stated)}.",
             )
 
 
@@ -3225,7 +3215,10 @@ def _refuse_fragment_sections(document, key):
     :raises DeploymentPreconditionError: A rule is broken, or a section is malformed
     """
     _refuse_unstated_keys(
-        document, FRAGMENT_TOP_LEVEL_KEYS, f"The application fragment of service {key}"
+        document,
+        FRAGMENT_TOP_LEVEL_KEYS,
+        f"The application fragment of service {key}",
+        migrations=_TOP_LEVEL_KEY_MIGRATIONS,
     )
     for name, volume in _fragment_mapping(document.get("volumes"), "volumes", key).items():
         where = f"volumes.{name}"
@@ -3481,10 +3474,10 @@ def _refuse_fragment_document(document, config):
 
     Within that schema a fragment owns its binds and ports, so the rules read what
     it rendered: no service ``volumes``, ``env_file``, ``build.context``,
-    ``build.dockerfile`` or ``build.additional_contexts`` entry, and no
-    ``configs.<name>.file`` or ``secrets.<name>.file`` reaches a guarded-run, limits
-    or identity path, the config binds where the build wrote it, and every port
-    stays on loopback. Host networking comes from the service's network axis alone.
+    ``build.dockerfile`` or ``build.additional_contexts`` entry reaches a
+    guarded-run, limits or identity path, the config binds where the build wrote it,
+    and every port stays on loopback. Host networking comes from the service's
+    network axis alone.
     Fragments are judged one at a time, with no compose CLI call, so whatever
     cannot be judged here refuses: a volume ``driver`` or ``driver_opts`` could
     mean a bind after merge, and a path or host spelled with a variable has no
@@ -3537,8 +3530,6 @@ def _refuse_fragment_document(document, config):
                         "deployment.bind_address says."
                     ),
                 )
-    for where, source in _top_level_bind_sources(document, key):
-        _refuse_bind(f"{where} of application service {key}", source, config)
 
 
 def _refuse_fragment_output(output_filepath, config):
