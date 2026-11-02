@@ -23,6 +23,7 @@ from osprey.deployment.compose_generator import (
     FRAGMENT_CONTEXT,
     FRAGMENT_SERVICE_KEYS,
     FRAGMENT_TOP_LEVEL_KEYS,
+    FRAGMENT_VOLUME_TYPES,
     _incremental_setup_build_dir,
     _inject_project_metadata,
     setup_build_dir,
@@ -323,10 +324,6 @@ def _bind(source: str) -> str:
             {"type": "bind", "source": "./var/guarded_run", "target": "/mnt/target"},
             id="long-form",
         ),
-        pytest.param(
-            {"type": "${KIND}", "source": "./var/guarded_run", "target": "/mnt/target"},
-            id="long-form-variable-type",
-        ),
         pytest.param(_bind("./var/$$x/../guarded_run"), id="escaped-dollar"),
         pytest.param(_bind("./var/$${x/../guarded_run"), id="escaped-brace-hides-no-colon"),
         pytest.param(_bind("./data/limits.json"), id="limits-file"),
@@ -375,6 +372,63 @@ def test_a_protected_mount_refuses_naming_the_service(
     ],
 )
 def test_an_unprotected_mount_renders(repo: Path, volume: Any) -> None:
+    _write_fragment(_fragment_with(volumes=[volume]))
+    document = _render("full", _config(repo))
+    assert document["services"]["controls-admin-web"]["volumes"] == [volume]
+
+
+def _long_form(kind: Any = None, source: str | None = "/facility/data") -> dict[str, Any]:
+    """A long-form volume entry; ``None`` leaves that field out."""
+    volume: dict[str, Any] = {"target": "/mnt/target"}
+    if kind is not None:
+        volume["type"] = kind
+    if source is not None:
+        volume["source"] = source
+    return volume
+
+
+@pytest.mark.parametrize(
+    ("volume", "named"),
+    [
+        pytest.param(_long_form("npipe"), "type npipe", id="npipe"),
+        pytest.param(_long_form("image"), "type image", id="image"),
+        pytest.param(_long_form("cluster"), "type cluster", id="cluster"),
+        pytest.param(_long_form("bnid"), "type bnid", id="misspelled"),
+        pytest.param(_long_form("Bind"), "type Bind", id="case"),
+        pytest.param(_long_form(), "states no type", id="missing"),
+        pytest.param(_long_form(5), "type 5", id="a-number"),
+        pytest.param(
+            _long_form("${KIND}", "./var/guarded_run"), "type ${KIND}", id="variable-protected"
+        ),
+        pytest.param(_long_form("${KIND}"), "type ${KIND}", id="variable-unprotected"),
+        pytest.param(_long_form("${KIND}", None), "type ${KIND}", id="variable-no-source"),
+        pytest.param(_long_form("$$bind"), "type $$bind", id="escaped-literal"),
+    ],
+)
+@pytest.mark.parametrize("entry_point", ENTRY_POINTS)
+def test_a_volume_type_outside_the_schema_refuses_by_name(
+    repo: Path, entry_point: str, volume: dict[str, Any], named: str
+) -> None:
+    """A long-form type is one of the stated three, spelled literally; anything else refuses."""
+    _write_fragment(_fragment_with(volumes=[volume]))
+    with pytest.raises(DeploymentPreconditionError, match="controls-admin-web") as refused:
+        _render(entry_point, _config(repo))
+    assert named in refused.value.reason
+    assert "spelled literally" in refused.value.remedy
+    for kind in FRAGMENT_VOLUME_TYPES:
+        assert kind in refused.value.remedy
+    assert not (Path("build") / "services" / KEY / "docker-compose.yml").exists()
+
+
+@pytest.mark.parametrize(
+    "volume",
+    [
+        pytest.param(_long_form("bind"), id="bind"),
+        pytest.param(_long_form("volume", "data"), id="volume"),
+        pytest.param(_long_form("tmpfs", None), id="tmpfs"),
+    ],
+)
+def test_a_stated_volume_type_renders(repo: Path, volume: dict[str, Any]) -> None:
     _write_fragment(_fragment_with(volumes=[volume]))
     document = _render("full", _config(repo))
     assert document["services"]["controls-admin-web"]["volumes"] == [volume]
@@ -1043,6 +1097,7 @@ def test_a_malformed_network_refuses_naming_the_section(
 
 def test_the_schema_is_the_contract() -> None:
     assert set(FRAGMENT_TOP_LEVEL_KEYS) == {"services", "volumes", "networks"}
+    assert set(FRAGMENT_VOLUME_TYPES) == {"bind", "volume", "tmpfs"}
     assert set(FRAGMENT_SERVICE_KEYS) == {
         "image",
         "container_name",
