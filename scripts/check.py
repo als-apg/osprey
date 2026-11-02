@@ -51,12 +51,16 @@ moved away touches the scope it left. The test runners get only the tests the
 changed paths map to. A path the mapping cannot place widens that runner to its
 whole selection; scoping never narrows. A script a check runs through, and a
 checks module, selects ``tests/scripts/``; a file under ``tests/<dir>/`` selects
-that directory when it holds a test module and widens otherwise. A base also arms the
-checks that judge a range. Paths after ``--`` are test files, pytest node ids
+that directory when it holds a test module and widens otherwise; a conftest
+below ``tests/<dir>/`` selects its own directory unless a module outside imports
+it or it defines a hook. Each widening prints ``check: <id>: widened by
+<path>: <rule>`` before any check runs. A base also arms the checks that judge
+a range. Paths after ``--`` are test files, pytest node ids
 or test directories added to what the range selects.
 
 ``list --changed BASE`` adds which checks and CI lanes the range ``BASE...HEAD``
-touches, read as a tier reads it; it runs nothing.
+touches, read as a tier reads it, and the ``widened`` path and rule per check; it
+runs nothing.
 
 ``--base BASE`` arms every check that judges a range against ``BASE`` and leaves
 the runners on their whole selection, so ``full --base BASE`` judges the whole
@@ -1038,20 +1042,31 @@ def declaration(tier: str | None = None) -> dict[str, object]:
     }
 
 
-def touched_by(base: str, tier: str = "full") -> list[str]:
-    """The ids of the checks of *tier* and of the CI lanes the range ``BASE...HEAD`` touches."""
-    files = repository_files()
-    plan = select(tier, touched(base), (), files, touched(base, scope=True))
+def range_plan(base: str, tier: str = "full") -> Plan:
+    """*tier* resolved against the range ``BASE...HEAD``."""
+    return select(tier, touched(base), (), repository_files(), touched(base, scope=True))
+
+
+def touched_by(plan: Plan) -> list[str]:
+    """The ids of the checks and of the CI lanes *plan* touches."""
     checks = [name for name, chosen in plan.selections.items() if chosen.state != NOT_TOUCHED]
     return [*checks, *plan.lanes]
 
 
+def widened_by(plan: Plan) -> dict[str, str]:
+    """Per check *plan* widened, the path and rule that widened it."""
+    return {name: chosen.reason for name, chosen in plan.selections.items() if chosen.reason}
+
+
 def _list(tier: str | None, as_json: bool, changed: str | None = None) -> int:
-    hit = touched_by(changed, tier or "full") if changed else None
+    plan = range_plan(changed, tier or "full") if changed else None
+    hit = touched_by(plan) if plan else None
+    widened = widened_by(plan) if plan else {}
     if as_json:
         data = declaration(tier)
         if hit is not None:
             data["touched"] = hit
+            data["widened"] = widened
         print(json.dumps(data, indent=2))
         return CLEAN
     for check in CHECKS:
@@ -1061,6 +1076,8 @@ def _list(tier: str | None, as_json: bool, changed: str | None = None) -> int:
             tiers = ",".join(t for t in TIERS if t in check.tiers)
             print(f"{check.id:<20}{check.kind:<11}{tiers:<12}{spelling}")
     if hit is not None:
+        for name, reason in widened.items():
+            print(f"widened: {name}: {reason}")
         print(f"touched: {', '.join(hit)}")
     return CLEAN
 
@@ -1079,6 +1096,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         if base:
             require_base(base)
         request = _request(argv)
+        for check, selection in request.planned:
+            if selection.reason:
+                print(f"check: {check.id}: widened by {selection.reason}", flush=True)
         outcomes = execute(request.planned, request.context, request.fix)
     except Refused as refusal:
         print(f"check: refused: {refusal}", file=sys.stderr, flush=True)

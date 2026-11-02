@@ -955,6 +955,8 @@ FILES = [
     "tests/cli/test_main.py",
     "src/osprey/lonely/__init__.py",
     "src/osprey/lonely/thing.py",
+    "src/osprey/cli/sub/__init__.py",
+    "src/osprey/cli/sub/thing.py",
     "tests/scripts/test_scenario_plots.py",
 ]
 
@@ -1061,7 +1063,6 @@ def test_a_source_file_selects_its_mirrored_tests() -> None:
     "path",
     [
         "tests/conftest.py",
-        "tests/cli/conftest.py",
         "tests/_shared_contract.py",
         "src/osprey/lonely/thing.py",
         "src/osprey/__init__.py",
@@ -1072,6 +1073,208 @@ def test_a_source_file_selects_its_mirrored_tests() -> None:
 )
 def test_what_the_mapping_cannot_place_widens_pytest_to_the_sweep(path: str) -> None:
     assert selected("quick", path)["pytest"].state == check.WHOLE
+
+
+def test_a_reason_does_not_change_what_a_selection_is() -> None:
+    explained = check.Selection(check.WHOLE, reason="tests/conftest.py: a rule")
+    assert explained == check.Selection(check.WHOLE)
+    assert explained.reason == "tests/conftest.py: a rule"
+    assert check.Selection(check.WHOLE).reason is None
+
+
+@pytest.mark.parametrize(
+    ("runner", "path", "rule"),
+    [
+        ("pytest", "tests/conftest.py", fw.WIDENS_ROOT_CONFTEST),
+        ("pytest", "tests/_shared_contract.py", fw.WIDENS_UNMIRRORED),
+        ("pytest", "pyproject.toml", fw.WIDENS_PROJECT),
+        ("pytest", "tests/fixtures/config.yml", fw.WIDENS_NO_TEST_MODULE),
+        ("pytest", "tests/README.md", fw.WIDENS_UNPLACED),
+        ("pytest", "src/osprey/lonely/thing.py", fw.WIDENS_NO_MIRROR),
+        ("vitest", "package.json", fw.WIDENS_NO_MAPPING),
+        pytest.param(
+            "vitest",
+            "src/osprey/interfaces/design_system/static/js/tokens.js",
+            fw.WIDENS_SHARED_INTERFACE,
+            marks=needs_mapping,
+        ),
+        pytest.param(
+            "vitest",
+            "src/osprey/interfaces/health/static/js/dashboard.js",
+            fw.WIDENS_UNTESTED_INTERFACE,
+            marks=needs_mapping,
+        ),
+        pytest.param("vitest", "vitest.config.js", fw.WIDENS_WIDE_INPUT, marks=needs_mapping),
+    ],
+)
+def test_every_widening_names_its_path_and_rule(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, runner: str, path: str, rule: str
+) -> None:
+    if rule == fw.WIDENS_NO_MAPPING:
+        monkeypatch.setattr(kit, "ROOT", tmp_path)
+    got = selected("quick", "src/osprey/cli/main.py", path, WT + "settings.js")[runner]
+    assert got.state == check.WHOLE
+    assert got.reason == f"{path}: {rule}"
+
+
+def test_the_first_widening_path_is_the_one_named() -> None:
+    got = selected("quick", "src/osprey/cli/main.py", "uv.lock", "pyproject.toml")["pytest"]
+    assert got.reason == f"uv.lock: {fw.WIDENS_PROJECT}"
+
+
+def test_no_selector_widens_without_a_reason() -> None:
+    import inspect
+
+    for selector in (fw._select_pytest, fw._select_vitest, fw._conftest_selection):
+        assert "Selection(WHOLE)" not in inspect.getsource(selector), selector.__name__
+
+
+def _tree(root: Path, files: dict[str, str]) -> list[str]:
+    for name, text in files.items():
+        (root / name).parent.mkdir(parents=True, exist_ok=True)
+        (root / name).write_text(text, encoding="utf-8")
+    return sorted(files)
+
+
+FIXTURE = "import pytest\n\n\n@pytest.fixture\ndef thing():\n    return 1\n"
+
+
+def test_a_conftest_that_reaches_only_its_directory_selects_it(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    assert selected("quick", "tests/cli/conftest.py")["pytest"] == check.Selection(
+        check.PATHS, ("tests/cli",)
+    )
+    monkeypatch.setattr(kit, "ROOT", tmp_path)
+    files = _tree(
+        tmp_path,
+        {
+            "tests/a/conftest.py": FIXTURE,
+            "tests/a/test_x.py": "from .conftest import thing\n",
+            "tests/a/deep/test_y.py": "from tests.a.conftest import thing\n",
+            "tests/b/test_z.py": "def test_z():\n    assert 'conftest'\n",
+        },
+    )
+    got = fw._select_pytest(["tests/a/conftest.py"], files)
+    assert got == check.Selection(check.PATHS, ("tests/a",))
+    assert got.reason is None
+
+
+def test_a_nested_conftest_selects_its_own_directory(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr(kit, "ROOT", tmp_path)
+    files = _tree(
+        tmp_path,
+        {
+            "tests/a/test_x.py": "",
+            "tests/a/b/conftest.py": FIXTURE,
+            "tests/a/b/test_y.py": "",
+        },
+    )
+    got = fw._select_pytest(["tests/a/b/conftest.py"], files)
+    assert got == check.Selection(check.PATHS, ("tests/a/b",))
+
+
+@pytest.mark.parametrize(
+    "path", ["tests/conftest.py", "packages/osprey-connectors/tests/conftest.py"]
+)
+def test_a_root_conftest_widens(path: str) -> None:
+    got = selected("quick", path)["pytest"]
+    assert got.state == check.WHOLE
+    assert got.reason == f"{path}: {fw.WIDENS_ROOT_CONFTEST}"
+
+
+@pytest.mark.parametrize(
+    "spelling",
+    [
+        "from tests.a.conftest import thing\n",
+        "from tests.a import conftest\n",
+        "import tests.a.conftest\n",
+        "from ..a.conftest import thing\n",
+    ],
+)
+def test_a_conftest_imported_from_outside_widens_and_names_the_importer(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, spelling: str
+) -> None:
+    monkeypatch.setattr(kit, "ROOT", tmp_path)
+    files = _tree(
+        tmp_path,
+        {
+            "tests/a/conftest.py": FIXTURE,
+            "tests/a/test_x.py": "",
+            "tests/b/test_y.py": spelling,
+        },
+    )
+    got = fw._select_pytest(["tests/a/conftest.py"], files)
+    assert got.state == check.WHOLE
+    assert got.reason == "tests/a/conftest.py: imported by tests/b/test_y.py"
+
+
+def test_a_conftest_defining_a_hook_widens(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(kit, "ROOT", tmp_path)
+    hook = FIXTURE + "\n\ndef pytest_addoption(parser):\n    pass\n"
+    files = _tree(tmp_path, {"tests/a/conftest.py": hook, "tests/a/test_x.py": ""})
+    got = fw._select_pytest(["tests/a/conftest.py"], files)
+    assert got.state == check.WHOLE
+    assert got.reason == ("tests/a/conftest.py: " + fw.WIDENS_HOOK.format(hook="pytest_addoption"))
+
+
+@pytest.mark.parametrize("text", [None, "def broken(:\n"])
+def test_an_unreadable_conftest_widens(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, text: str | None
+) -> None:
+    monkeypatch.setattr(kit, "ROOT", tmp_path)
+    files = _tree(tmp_path, {"tests/a/test_x.py": ""})
+    if text is not None:
+        files += _tree(tmp_path, {"tests/a/conftest.py": text})
+    got = fw._select_pytest(["tests/a/conftest.py"], files)
+    assert got.state == check.WHOLE
+    assert got.reason == f"tests/a/conftest.py: {fw.WIDENS_UNREADABLE}"
+
+
+def test_a_conftest_in_a_directory_without_test_modules_widens(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr(kit, "ROOT", tmp_path)
+    files = _tree(tmp_path, {"tests/a/conftest.py": FIXTURE, "tests/b/test_y.py": ""})
+    got = fw._select_pytest(["tests/a/conftest.py"], files)
+    assert got.reason == f"tests/a/conftest.py: {fw.WIDENS_NO_TEST_MODULE}"
+
+
+def test_the_shared_conftests_of_this_tree_widen(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(kit, "ROOT", REPO_ROOT)
+    files = check.repository_files()
+    for path in ("tests/mcp_server/conftest.py", "tests/hooks/conftest.py"):
+        got = fw._select_pytest([path], files)
+        assert got.state == check.WHOLE
+        assert got.reason is not None
+        assert got.reason.startswith(f"{path}: imported by ")
+        importer = got.reason.removeprefix(f"{path}: imported by ")
+        assert importer in files
+        assert not importer.startswith(path.rsplit("/", 1)[0] + "/")
+
+
+def test_a_source_file_walks_up_to_the_nearest_tested_package() -> None:
+    files = [
+        "src/osprey/cli/__init__.py",
+        "src/osprey/cli/sub/__init__.py",
+        "src/osprey/cli/sub/deep/__init__.py",
+        "src/osprey/cli/sub/deep/thing.py",
+        "tests/cli/test_main.py",
+        "tests/cli/sub/deep/data.json",
+    ]
+    got = fw._select_pytest(["src/osprey/cli/sub/deep/thing.py"], files)
+    assert got == check.Selection(check.PATHS, ("tests/cli",))
+    assert selected("quick", "src/osprey/cli/sub/thing.py")["pytest"] == check.Selection(
+        check.PATHS, ("tests/cli",)
+    )
+
+
+def test_a_package_with_no_tested_ancestor_widens() -> None:
+    got = selected("quick", "src/osprey/lonely/thing.py")["pytest"]
+    assert got.state == check.WHOLE
+    assert got.reason == f"src/osprey/lonely/thing.py: {fw.WIDENS_NO_MIRROR}"
 
 
 def test_a_helper_script_selects_only_its_mirror() -> None:
@@ -2996,13 +3199,55 @@ def test_list_changed_names_the_checks_and_lanes_a_range_touches(
 ) -> None:
     monkeypatch.setattr(check, "touched", lambda base, worktree=False, scope=False: [changed])
     assert check.main(["list", "--changed", "B", "--json"]) == 0
-    touched = json.loads(capsys.readouterr().out)["touched"]
+    data = json.loads(capsys.readouterr().out)
+    touched = data["touched"]
     assert ("pytest-wallclock" in touched) is hit
     assert ("deploy-e2e" in touched) is hit
     assert "lockfile" in touched and "pytest-pty" not in touched
     assert check.main(["list", "--changed", "B"]) == 0
-    assert capsys.readouterr().out.splitlines()[-1] == f"touched: {', '.join(touched)}"
+    lines = capsys.readouterr().out.splitlines()
+    assert lines[-1] == f"touched: {', '.join(touched)}"
+    assert [line for line in lines if line.startswith("widened: ")] == [
+        f"widened: {name}: {reason}" for name, reason in data["widened"].items()
+    ]
     assert check.resolve(["list", "--changed", "B"]) == []
+
+
+@pytest.mark.usefixtures("any_base")
+def test_list_changed_carries_the_widening(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(kit, "ROOT", REPO_ROOT)
+    monkeypatch.setattr(check, "touched", lambda base, worktree=False, scope=False: ["uv.lock"])
+    monkeypatch.setattr(check, "repository_files", lambda worktree=False: FILES)
+    assert check.main(["list", "--changed", "B", "--json"]) == 0
+    widened = json.loads(capsys.readouterr().out)["widened"]
+    assert widened["pytest"] == f"uv.lock: {fw.WIDENS_PROJECT}"
+    assert check.main(["list", "--changed", "B"]) == 0
+    lines = capsys.readouterr().out.splitlines()
+    assert f"widened: pytest: uv.lock: {fw.WIDENS_PROJECT}" in lines
+    assert lines[-1].startswith("touched: ")
+
+
+@pytest.mark.usefixtures("any_base")
+def test_a_widened_run_says_which_file_widened_it_before_running(
+    recorder: Recorder, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(kit, "ROOT", REPO_ROOT)
+    monkeypatch.setattr(check, "touched", lambda base, worktree=False, scope=False: ["uv.lock"])
+    monkeypatch.setattr(check, "repository_files", lambda worktree=False: FILES)
+    before_first_run: list[str] = []
+
+    def run(argv: Any, cwd: Path | None = None) -> int:
+        if not before_first_run:
+            before_first_run.append(capsys.readouterr().out)
+        return recorder(argv, cwd)
+
+    monkeypatch.setattr(kit, "run", run)
+    assert check.main(["quick", "--changed", "B"]) == 0
+    header = f"check: pytest: widened by uv.lock: {fw.WIDENS_PROJECT}"
+    assert header in before_first_run[0].splitlines()
+    assert header not in capsys.readouterr().out
 
 
 @pytest.mark.usefixtures("repo")

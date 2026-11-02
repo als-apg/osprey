@@ -12,6 +12,7 @@ Standard library only, for the reason ``scripts/check.py`` gives.
 
 from __future__ import annotations
 
+import ast
 import dataclasses
 import glob
 import importlib.util
@@ -22,7 +23,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
-from collections.abc import Callable, Iterable, Sequence
+from collections.abc import Callable, Iterable, Iterator, Sequence
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from types import ModuleType
@@ -121,8 +122,9 @@ DOCS_DIR = "docs"
 QUICK_PYTEST_BOUND_S = 1800
 
 #: Where the parallel sweep finds the tests of a changed source file, first match
-#: wins. ``package`` maps the nearest package to its directory under ``tests/``;
-#: ``file`` maps a top-level ``scripts/<name>.py`` to ``tests/scripts/test_<name>.py``.
+#: wins. ``package`` maps the nearest package, or failing that its nearest parent,
+#: whose directory under ``tests/`` holds a test module; ``file`` maps a top-level
+#: ``scripts/<name>.py`` to ``tests/scripts/test_<name>.py``.
 #: A source file under a root whose rule finds nothing widens the sweep.
 TEST_MIRRORS: tuple[tuple[str, str], ...] = (
     ("src/osprey/", "package"),
@@ -377,6 +379,90 @@ def _holds_test_module(directory: str, files: Sequence[str]) -> bool:
     )
 
 
+#: Why a change widens a runner to its whole selection, one rule per cause.
+WIDENS_ROOT_CONFTEST = "a root conftest reaches every test below it"
+WIDENS_UNREADABLE = "cannot read what it reaches"
+WIDENS_HOOK = "defines {hook}, which acts on the whole session"
+WIDENS_IMPORTED = "imported by {importer}"
+WIDENS_UNMIRRORED = "a Python file outside the test mirrors"
+WIDENS_PROJECT = "the project's dependencies reach every test"
+WIDENS_NO_TEST_MODULE = "its test directory holds no test module"
+WIDENS_UNPLACED = "a file under packages/ or tests/ that no rule places"
+WIDENS_NO_MIRROR = "no tested package mirrors it"
+WIDENS_NO_MAPPING = "no JavaScript module-to-test mapping in this tree"
+WIDENS_SHARED_INTERFACE = "the shared interface reaches every interface"
+WIDENS_UNTESTED_INTERFACE = "its interface has no tests"
+WIDENS_WIDE_INPUT = "a shared JavaScript input reaches every test"
+
+
+def _whole(path: str, rule: str) -> Selection:
+    return Selection(WHOLE, reason=f"{path}: {rule}")
+
+
+def _imported_modules(path: str, tree: ast.Module) -> Iterator[str]:
+    """The files *tree*, read from *path*, may import, as repository paths."""
+    parts = PurePosixPath(path).parts
+    roots = [""] if parts[0] != "packages" or len(parts) < 2 else ["", f"packages/{parts[1]}/"]
+    here = PurePosixPath(path).parent
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                yield from (root + alias.name.replace(".", "/") + ".py" for root in roots)
+        elif isinstance(node, ast.ImportFrom):
+            module = (node.module or "").replace(".", "/")
+            if node.level:
+                base = here
+                for _ in range(node.level - 1):
+                    base = base.parent
+                bases = [(base / module).as_posix() if module else base.as_posix()]
+            else:
+                bases = [root + module for root in roots]
+            for base in bases:
+                yield base + ".py"
+                yield from (f"{base}/{alias.name}.py" for alias in node.names)
+
+
+def _conftest_selection(path: str, files: Sequence[str]) -> str | Selection:
+    """The directory a changed *path* conftest reaches, or why it reaches the sweep.
+
+    pytest scopes a conftest to its own subtree, so one that only serves fixtures
+    to it selects that directory. One that a module outside imports, or that
+    defines a hook, acts beyond it.
+    """
+    directory = path.rsplit("/", 1)[0]
+    if not path.startswith("tests/") or len(PurePosixPath(path).parts) < 3:
+        return _whole(path, WIDENS_ROOT_CONFTEST)
+    try:
+        tree = ast.parse((kit.ROOT / path).read_text(encoding="utf-8"))
+    except (OSError, SyntaxError, UnicodeDecodeError, ValueError):
+        return _whole(path, WIDENS_UNREADABLE)
+    for node in tree.body:
+        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef) and node.name.startswith(
+            "pytest_"
+        ):
+            return _whole(path, WIDENS_HOOK.format(hook=node.name))
+    for importer in files:
+        if not importer.endswith(".py") or not importer.startswith(("tests/", "packages/")):
+            continue
+        if importer.startswith(directory + "/"):
+            continue
+        try:
+            text = (kit.ROOT / importer).read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue
+        if "conftest" not in text:
+            continue
+        try:
+            reached = set(_imported_modules(importer, ast.parse(text)))
+        except (SyntaxError, ValueError):
+            continue
+        if path in reached:
+            return _whole(path, WIDENS_IMPORTED.format(importer=importer))
+    if not _holds_test_module(directory, files):
+        return _whole(path, WIDENS_NO_TEST_MODULE)
+    return directory
+
+
 def _mirror_root(path: str) -> tuple[str, str] | None:
     """The ``TEST_MIRRORS`` entry whose source root holds *path*, if any."""
     return next((entry for entry in TEST_MIRRORS if path.startswith(entry[0])), None)
@@ -399,10 +485,12 @@ def _mirror(path: str, files: Sequence[str]) -> str | None:
     package = PurePosixPath(path).parent
     while package.as_posix() != top and f"{package}/__init__.py" not in known:
         package = package.parent
-    if package.as_posix() == top:
-        return None
-    mirror = "tests/" + package.relative_to(top).as_posix()
-    return mirror if any(name.startswith(mirror + "/") for name in files) else None
+    while package.as_posix() != top:
+        mirror = "tests/" + package.relative_to(top).as_posix()
+        if _holds_test_module(mirror, files):
+            return mirror
+        package = package.parent
+    return None
 
 
 def _paths(chosen: Iterable[str]) -> Selection:
@@ -426,25 +514,31 @@ def _select_pytest(
             if path in shaping:
                 chosen.append("tests/scripts")
                 continue
-            if name == "conftest.py" or _mirror_root(path) is None:
-                return Selection(WHOLE)
+            if name == "conftest.py":
+                reached = _conftest_selection(path, files)
+                if isinstance(reached, Selection):
+                    return reached
+                chosen.append(reached)
+                continue
+            if _mirror_root(path) is None:
+                return _whole(path, WIDENS_UNMIRRORED)
         elif name in ("pyproject.toml", "uv.lock"):
-            return Selection(WHOLE)
+            return _whole(path, WIDENS_PROJECT)
         elif suffix in JS_SUFFIXES or suffix in INERT_SUFFIXES:
             continue
         elif path.startswith("tests/") and len(PurePosixPath(path).parts) > 2:
             directory = "tests/" + PurePosixPath(path).parts[1]
             if not _holds_test_module(directory, files):
-                return Selection(WHOLE)
+                return _whole(path, WIDENS_NO_TEST_MODULE)
             chosen.append(directory)
             continue
         elif path.startswith(("packages/", "tests/")):
-            return Selection(WHOLE)
+            return _whole(path, WIDENS_UNPLACED)
         elif not path.startswith("src/osprey/"):
             continue
         mirror = _mirror(path, files)
         if mirror is None:
-            return Selection(WHOLE)
+            return _whole(path, WIDENS_NO_MIRROR)
         chosen.append(mirror)
     return _paths(chosen)
 
@@ -456,13 +550,17 @@ def _select_vitest(
     if guard is None:
         # Without the mapping no JavaScript change can be placed, so any one
         # widens Vitest to its whole selection.
-        reaches = any(
-            path.endswith(JS_SUFFIXES)
-            or path.rsplit("/", 1)[-1] in VITEST_WIDE_NAMES
-            or path == VITEST_SETUP
-            for path in paths
+        reaches = next(
+            (
+                path
+                for path in paths
+                if path.endswith(JS_SUFFIXES)
+                or path.rsplit("/", 1)[-1] in VITEST_WIDE_NAMES
+                or path == VITEST_SETUP
+            ),
+            None,
         )
-        return Selection(WHOLE) if reaches else Selection(NOT_TOUCHED)
+        return Selection(NOT_TOUCHED) if reaches is None else _whole(reaches, WIDENS_NO_MAPPING)
     chosen: list[str] = []
     for path in paths:
         name = path.rsplit("/", 1)[-1]
@@ -472,14 +570,14 @@ def _select_vitest(
         elif guard.modules([path]):
             interface = guard.interface_of(path)
             if interface == SHARED_INTERFACE:
-                return Selection(WHOLE)
+                return _whole(path, WIDENS_SHARED_INTERFACE)
             own = guard.covering_tests(path, files)
             if own:
                 chosen += own
                 continue
             fallback = f"{guard.TESTS_ROOT}{interface}/"
             if not any(f.startswith(fallback) and f.endswith(guard.TEST_SUFFIXES) for f in files):
-                return Selection(WHOLE)
+                return _whole(path, WIDENS_UNTESTED_INTERFACE)
             chosen.append(fallback)
         elif (
             name in VITEST_WIDE_NAMES
@@ -487,7 +585,7 @@ def _select_vitest(
             or path.endswith(JS_SUFFIXES)
             and path.startswith(("tests/", "src/"))
         ):
-            return Selection(WHOLE)
+            return _whole(path, WIDENS_WIDE_INPUT)
     return _paths(chosen)
 
 

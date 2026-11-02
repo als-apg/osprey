@@ -60,6 +60,9 @@ class Selection:
 
     state: str
     paths: tuple[str, ...] = ()
+    #: Why a selection widened, as ``"<path>: <rule>"``; it explains the state
+    #: and is not part of it.
+    reason: str | None = field(default=None, compare=False)
 
 
 @dataclass(frozen=True)
