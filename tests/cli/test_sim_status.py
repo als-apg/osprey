@@ -333,7 +333,7 @@ def test_list_names_the_built_in_still(lifecycle_repo: Path) -> None:
             records=FacilityRecords(doc),
             rendered_config=config,
             facility_dir=facility,
-            served=resolve_served(config, doc),
+            served=resolve_served(config, FacilityRecords(doc)),
             reported=None,
         ),
     )

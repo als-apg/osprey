@@ -89,7 +89,7 @@ def test_the_connectors_open_the_view_the_framework_writes(tmp_path: Path) -> No
             records=FacilityRecords(doc),
             rendered_config=VIEW_CONFIG,
             facility_dir=TEMPLATE_FACILITY,
-            served=resolve_served(VIEW_CONFIG, doc),
+            served=resolve_served(VIEW_CONFIG, FacilityRecords(doc)),
             reported=None,
         ),
     )

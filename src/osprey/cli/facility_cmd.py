@@ -282,7 +282,7 @@ def _overview(built: _InMemoryBuild) -> dict[str, Any]:
     from osprey.facility.views.facts import facts_document
 
     records = FacilityRecords(built.document)
-    served = resolve_served(built.rendered_config, built.document)
+    served = resolve_served(built.rendered_config, records)
     project_name = built.rendered_config.get("project_name")
     facts = facts_document(records, served, str(project_name) if project_name else None)
     return {

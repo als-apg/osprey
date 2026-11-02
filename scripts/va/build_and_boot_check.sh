@@ -303,13 +303,14 @@ else:
         }
     }
     doc = build_facility(facility, project_name="control_assistant")
+    records = FacilityRecords(doc)
     write_simulator_view(
         view,
         ViewInputs(
-            records=FacilityRecords(doc),
+            records=records,
             rendered_config=config,
             facility_dir=facility,
-            served=resolve_served(config, doc),
+            served=resolve_served(config, records),
             reported=None,
         ),
     )

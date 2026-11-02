@@ -153,7 +153,7 @@ def _render_view(facility: Path, root: Path) -> tuple[Any, SimulatorView]:
             records=FacilityRecords(doc),
             rendered_config=VIEW_CONFIG,
             facility_dir=facility,
-            served=resolve_served(VIEW_CONFIG, doc),
+            served=resolve_served(VIEW_CONFIG, FacilityRecords(doc)),
             reported=None,
         ),
     )
