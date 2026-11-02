@@ -102,6 +102,7 @@ source-text-tests = [
     "tests/connectors/test_composite.py::test_model_set_is_called_only_by_the_model_surface_and_the_rebuild",
     "tests/connectors/test_mock_journal.py::test_the_journal_is_named_in_the_in_process_connector_only",
     "tests/connectors/test_mock_journal.py::test_no_other_simulation_module_constructs_a_journal_reader",
+    "tests/connectors/test_public_api.py::test_a_lazy_namespace_maps_what_it_lists",
     "tests/connectors/test_public_api.py::test_every_listed_name_is_there",
     "tests/connectors/test_public_api.py::test_every_name_a_public_module_defines_is_listed_or_private",
     "tests/connectors/test_public_api.py::test_every_top_level_module_has_a_layer",

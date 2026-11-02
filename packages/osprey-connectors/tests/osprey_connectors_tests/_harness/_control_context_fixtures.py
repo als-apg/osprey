@@ -316,7 +316,7 @@ def write_server_report(
         targets=dict(targets or {}),
         updated_at=updated_at,
     )
-    path = control_context._report_path_under(root, pid)
+    path = control_context.report_path_under(root, pid)
     write_payload(path, report.to_payload())
     return path
 

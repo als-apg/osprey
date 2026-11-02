@@ -11,7 +11,8 @@ The limits validator's names are resolved on access (PEP 562). Every
 import of :mod:`osprey_connectors.control_system.write_door` runs this file
 first, and the raw-put guard reads the door inside executor sandboxes and
 notebook kernels; importing the validator here would load its logging and YAML
-stack into every one of them.
+stack into every one of them, and importing the EPICS connector for its stale
+hold-down would load its Channel Access stack.
 """
 
 from typing import TYPE_CHECKING, Any
@@ -22,20 +23,28 @@ from osprey_connectors.control_system._base import (
     ChannelWriteResult,
     ControlSystemConnector,
     WriteOutcome,
+    mark_long_lived_session,
     raise_for_write_result,
     values_match,
 )
 
 if TYPE_CHECKING:
+    from osprey_connectors.control_system._epics_connector import STALE_HOLD_DOWN_S
     from osprey_connectors.control_system._limits_validator import (
+        DEFAULT_STEP_READ_TIMEOUT_SECONDS,
         LIMITS_DATABASE_CONFIG_KEY,
+        STEP_READ_TIMEOUT_KEY,
         ChannelLimitsConfig,
         LimitsValidator,
         mapping_config_lookup,
+        step_read_timeout_seconds,
     )
 
 __all__ = [
+    "DEFAULT_STEP_READ_TIMEOUT_SECONDS",
     "LIMITS_DATABASE_CONFIG_KEY",
+    "STALE_HOLD_DOWN_S",
+    "STEP_READ_TIMEOUT_KEY",
     "ChannelLimitsConfig",
     "ChannelMetadata",
     "ChannelValue",
@@ -44,16 +53,22 @@ __all__ = [
     "LimitsValidator",
     "WriteOutcome",
     "mapping_config_lookup",
+    "mark_long_lived_session",
     "raise_for_write_result",
+    "step_read_timeout_seconds",
     "values_match",
 ]
 
 #: Public name -> the module that defines it, for the names resolved lazily.
 _LAZY_EXPORTS: dict[str, str] = {
+    "STALE_HOLD_DOWN_S": "osprey_connectors.control_system._epics_connector",
+    "DEFAULT_STEP_READ_TIMEOUT_SECONDS": "osprey_connectors.control_system._limits_validator",
     "LIMITS_DATABASE_CONFIG_KEY": "osprey_connectors.control_system._limits_validator",
+    "STEP_READ_TIMEOUT_KEY": "osprey_connectors.control_system._limits_validator",
     "ChannelLimitsConfig": "osprey_connectors.control_system._limits_validator",
     "LimitsValidator": "osprey_connectors.control_system._limits_validator",
     "mapping_config_lookup": "osprey_connectors.control_system._limits_validator",
+    "step_read_timeout_seconds": "osprey_connectors.control_system._limits_validator",
 }
 
 

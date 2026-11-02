@@ -132,7 +132,7 @@ import errno
 import logging
 import os
 import stat
-from collections.abc import Iterator
+from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass, field, replace
 from pathlib import Path
@@ -1267,26 +1267,50 @@ def backstop_verdict(section: Any) -> WriteVerdict:
     return WriteVerdict(allowed=reason is None, reason=reason, target=None, kind=None)
 
 
-def session_hold_refusal(*, root: Path | str | None = None) -> WriteVerdict | None:
+def session_hold_refusal(
+    *, root: Path | str | None = None, session_keys: Sequence[str] | None = None
+) -> WriteVerdict | None:
     """The ``session_held`` refusal for this process's session, or ``None``.
 
     The session is :data:`_SESSION_KEY_ENV_VAR`; a process without one belongs to
-    no session and is never held. The store is *root*, else the stamped
-    :data:`~osprey_connectors.session_hold.HOLD_DIR_ENV_VAR`; without either
-    nothing is held. Under a store, a record that cannot be read refuses.
+    no session and is never held. A process that serves several sessions at
+    once — a panel's data process, which starts before any conversation exists
+    and answers a terminal's every session — names them in *session_keys*
+    instead, and is held while any one of them is. The store is *root*, else
+    the stamped :data:`~osprey_connectors.session_hold.HOLD_DIR_ENV_VAR`;
+    without either nothing is held. Under a store, a record that cannot be
+    read refuses.
 
     Args:
         root: The hold root, for a caller that resolved it itself.
+        session_keys: The sessions to ask about, in place of the environment's
+            one key. An empty sequence belongs to no session; an empty key in it
+            names none. ``None`` reads the environment.
 
     Returns:
-        ``None`` when not held; otherwise a refusal whose ``target`` and ``kind``
-        are ``None`` and whose ``detail`` names the open flags' sources, each once
-        in the order opened. An unsafe session key has no flags to name. Never
-        raises.
+        ``None`` when no named session is held; otherwise the first held
+        session's refusal, in the order given: ``target`` and ``kind`` are
+        ``None`` and ``detail`` names that session's open flags' sources, each
+        once in the order opened. An unsafe session key has no flags to name.
+        Never raises.
     """
-    key = os.environ.get(_SESSION_KEY_ENV_VAR, "")
-    if not key:
-        return None
+    for key in _session_keys(session_keys):
+        refusal = _hold_refusal(key, root)
+        if refusal is not None:
+            return refusal
+    return None
+
+
+def _session_keys(session_keys: Sequence[str] | None) -> list[str]:
+    """The session keys a hold is asked about: *session_keys* as given, else the environment's."""
+    if session_keys is None:
+        key = os.environ.get(_SESSION_KEY_ENV_VAR, "")
+        return [key] if key else []
+    return [key for key in session_keys if key]
+
+
+def _hold_refusal(key: str, root: Path | str | None) -> WriteVerdict | None:
+    """The ``session_held`` refusal for one session *key*, or ``None`` (see :func:`session_hold_refusal`)."""
     detail = None
     try:
         # One read: the decision and the words it is refused in come from one answer.
@@ -1308,6 +1332,7 @@ def execution_verdict(
     *,
     owner: str | NoOwner | None = None,
     ignore_launch_pin: bool = False,
+    session_keys: Sequence[str] | None = None,
 ) -> WriteVerdict:
     """The verdict on one write about to execute: :func:`write_verdict` plus the hold.
 
@@ -1321,6 +1346,9 @@ def execution_verdict(
         target: The control target the write lands on.
         owner: As for :func:`write_verdict`.
         ignore_launch_pin: As for :func:`write_verdict`.
+        session_keys: As for :func:`session_hold_refusal`: the sessions the
+            write belongs to, held while any one is; ``None`` is the
+            environment's session.
 
     Returns:
         A :class:`WriteVerdict` with the ``target`` and ``kind`` of
@@ -1329,7 +1357,7 @@ def execution_verdict(
     verdict = write_verdict(section, target, owner=owner, ignore_launch_pin=ignore_launch_pin)
     if not backstop_verdict(section).allowed:
         return verdict
-    held = session_hold_refusal()
+    held = session_hold_refusal(session_keys=session_keys)
     if held is None:
         return verdict
     return replace(held, target=verdict.target, kind=verdict.kind)

@@ -69,7 +69,7 @@ import numpy as np
 from osprey_connectors.archiver._field_names import field_name
 from osprey_connectors.errors import ChannelNotFoundError
 from osprey_connectors.logger import get_logger
-from osprey_connectors.simulation import pulse
+from osprey_connectors.simulation import pulse, topoff
 from osprey_connectors.simulation import values as channel_values
 from osprey_connectors.simulation.series import (
     apply_events,
@@ -813,8 +813,10 @@ def seed_fingerprint(
 
     Everything here changes what the store *contains*: the window's depth and
     density, which channels are in it, how it is compressed on disk, the
-    document schema itself, and the pulse shape every stored trace is drawn
-    from (:data:`~osprey_connectors.simulation.pulse.SHAPE_VERSION`). Nothing here is an instant or a count — those move
+    document schema itself, the pulse shape every stored trace is drawn
+    from (:data:`~osprey_connectors.simulation.pulse.SHAPE_VERSION`), and the
+    top-off sawtooth every stored decaying current is drawn from
+    (:data:`~osprey_connectors.simulation.topoff.SHAPE_VERSION`). Nothing here is an instant or a count — those move
     on every deploy and would make the comparison a coin flip.
 
     Args:
@@ -836,6 +838,7 @@ def seed_fingerprint(
         "tail_cadence_sec": knobs.tail_cadence_sec,
         "compression": compression,
         "shape_version": pulse.SHAPE_VERSION,
+        "topoff_shape_version": topoff.SHAPE_VERSION,
         "channel_count": len(names),
         "channel_set_sha256": digest,
     }
