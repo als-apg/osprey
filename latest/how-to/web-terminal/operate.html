@@ -1092,6 +1092,40 @@ terminal does not show them, and it does not read the bar arrangements that
 those releases saved.</p>
 </section>
 </section>
+<section id="a-user-s-own-claude-subscription">
+<span id="personal-login"></span><h2>A user’s own Claude subscription<a class="headerlink" href="#a-user-s-own-claude-subscription" title="Link to this heading">#</a></h2>
+<p>By default every terminal authenticates with the deployment’s provider
+(<code class="docutils literal notranslate"><span class="pre">claude_code.provider</span></code>), one gateway and one key. Some sites let a
+colleague use their own Claude subscription inside the terminal while
+forbidding the deployment to hold that person’s credential. The route that
+satisfies both is the interactive <code class="docutils literal notranslate"><span class="pre">/login</span></code> inside the user’s own terminal,
+whose credential stays in that terminal’s config volume.</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">config</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">claude_code.allow_personal_login</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span><span class="w">   </span><span class="c1"># default false</span>
+</pre></div>
+</div>
+<p>With the key on, a terminal that holds a completed <code class="docutils literal notranslate"><span class="pre">/login</span></code> is launched
+with the deployment provider withheld: no auth token, base URL or model
+variables and no translation proxy, so Claude Code’s own credential
+precedence falls through to the subscription. The decision is made per
+terminal container at launch, by the presence of the credential file under
+that user’s <code class="docutils literal notranslate"><span class="pre">CLAUDE_CONFIG_DIR</span></code>; the file is never read, and a login
+survives a container restart because the config volume does. A terminal
+without a login routes to the deployment provider exactly as before and
+shows a dismissable card saying <code class="docutils literal notranslate"><span class="pre">/login</span></code> is on offer. With the key off,
+nothing changes.</p>
+<p>Whether the <code class="docutils literal notranslate"><span class="pre">/login</span></code> flow completes inside a terminal container has not
+been tried yet: the first site that enables the key does that trial. In
+a headless container the CLI should fall back to its paste-a-code path,
+which the terminal can carry.</p>
+<p>Two consequences follow. A login-routed session bypasses the gateway, so it
+leaves no row in the deployment’s spend ledger; that is the point. And
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">health</span></code> can no longer treat a failed probe of the agent provider
+as the whole deployment down: with the key on it stays a warning, naming the
+dispatch worker and the terminals without a login as the ones affected.
+The dispatch worker and every other headless path keep the deployment
+provider unconditionally.</p>
+</section>
 <section id="documentation-and-feedback-settings">
 <h2>Documentation and feedback settings<a class="headerlink" href="#documentation-and-feedback-settings" title="Link to this heading">#</a></h2>
 <p>Five <code class="docutils literal notranslate"><span class="pre">web</span></code> keys aim the sidebar’s <strong>Documentation</strong> link and <strong>Feedback</strong> button
@@ -1222,6 +1256,7 @@ verbs that read the results back.</p>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#where-your-preferences-live">Where your preferences live</a></li>
 </ul>
 </li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#a-user-s-own-claude-subscription">A user’s own Claude subscription</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#documentation-and-feedback-settings">Documentation and feedback settings</a></li>
 </ul>
   </nav></div>
