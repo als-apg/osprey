@@ -1,5 +1,6 @@
-"""Check a deployment's applications without building anything.
+"""Make and check a deployment's applications without building anything.
 
+``osprey app new`` copies the shipped example under a new name and lists it in the profile.
 ``osprey app check`` reports what ``osprey build`` reports of them, through the same
 :func:`osprey.apps.loader.check_deployment`, then what only the application's own source
 can tell: the import boundary over each of its Python packages, ESLint over ``panel/`` when
@@ -16,6 +17,7 @@ from __future__ import annotations
 import dataclasses
 import hashlib
 import os
+import re
 import shutil
 import subprocess
 import tempfile
@@ -24,9 +26,11 @@ from pathlib import Path
 from typing import NoReturn
 
 import click
+import yaml
 
 from osprey.apps.boundary import check_package
 from osprey.apps.errors import AppManifestError, Violation
+from osprey.apps.manifest import APP_NAME_PATTERN
 from osprey.utils.workspace import APPS_DIRNAME
 
 from .application_material import app_build_output
@@ -34,6 +38,12 @@ from .output import fail, report
 from .repo_resolver import PROFILE_FILENAME, find_repo_root, repo_option
 
 _OSPREY_DIR = Path(__file__).resolve().parents[1]
+#: The shipped example ``osprey app new`` copies.
+EXAMPLE_APP_DIR = _OSPREY_DIR / "profiles" / "presets" / APPS_DIRNAME / "knob-example"
+#: Every app-scoped identifier of the example is its name in one of these two forms.
+_EXAMPLE_NAMES = ("knob-example", "knob_example")
+#: The anchored ``.gitignore`` entry for the files a build fetches into a panel.
+_VENDOR_IGNORE = f"/{APPS_DIRNAME}/*/panel/vendor/"
 #: The pinned toolchain's manifest, lockfile and configs, copied beside its ``node_modules``.
 JS_CHECK_DIR = _OSPREY_DIR / "apps" / "js_check"
 #: What ``/design-system/js`` resolves to under a panel's tests.
@@ -51,7 +61,69 @@ class _ToolchainUnavailable(Exception):
 
 @click.group()
 def app() -> None:
-    """Check a deployment's applications."""
+    """Make and check a deployment's applications."""
+
+
+@app.command("new")
+@click.argument("name")
+@repo_option
+@click.option("--force", is_flag=True, help="Replace an existing apps/NAME/ directory.")
+def new(name: str, repo: Path | None, force: bool) -> None:
+    """Copy the shipped example application into apps/NAME/ and list it.
+
+    Every app-scoped name of the example is rewritten to NAME (its Python package to
+    NAME with underscores); no port is pinned. The profile's apps: block gains
+    NAME: {}, and .gitignore the entry that keeps fetched panel files out of git. An
+    existing apps/NAME/ is left alone unless --force replaces it.
+    """
+    from .build_profile import write_back_cli_overrides
+
+    package = name.replace("-", "_")
+    if not re.fullmatch(APP_NAME_PATTERN, name) or not package.isidentifier():
+        raise click.BadParameter(
+            "lower-case letters, digits and dashes, starting with a letter", param_hint="NAME"
+        )
+    root = find_repo_root(repo)
+    target = root / APPS_DIRNAME / name
+    if target.exists():
+        if not force:
+            raise click.UsageError(f"{APPS_DIRNAME}/{name}/ exists; --force replaces it.")
+        shutil.rmtree(target)
+    shutil.copytree(
+        EXAMPLE_APP_DIR, target, ignore=shutil.ignore_patterns("__pycache__", "*.py[co]")
+    )
+    _rename(target, dict(zip(_EXAMPLE_NAMES, (name, package), strict=True)))
+
+    profile_path = root / PROFILE_FILENAME
+    listed = (yaml.safe_load(profile_path.read_text(encoding="utf-8")) or {}).get("apps") or {}
+    if name not in listed:
+        write_back_cli_overrides(profile_path, (f"apps.{name}={{}}",))
+    _ignore_vendor_files(root / ".gitignore")
+    report(f"✓ {APPS_DIRNAME}/{name}/ written and listed; run `osprey app check`.")
+
+
+def _rename(root: Path, names: Mapping[str, str]) -> None:
+    """Rewrite every *names* key to its value in the paths and texts under *root*."""
+
+    def renamed(text: str) -> str:
+        for old, replacement in names.items():
+            text = text.replace(old, replacement)
+        return text
+
+    for path in sorted(root.rglob("*"), key=lambda p: len(p.parts), reverse=True):
+        if path.is_file():
+            path.write_text(renamed(path.read_text(encoding="utf-8")), encoding="utf-8")
+        if renamed(path.name) != path.name:
+            path.rename(path.with_name(renamed(path.name)))
+
+
+def _ignore_vendor_files(gitignore: Path) -> None:
+    """Make sure *gitignore* carries :data:`_VENDOR_IGNORE`."""
+    text = gitignore.read_text(encoding="utf-8") if gitignore.is_file() else ""
+    if _VENDOR_IGNORE in text.splitlines():
+        return
+    separator = "\n" if text and not text.endswith("\n") else ""
+    gitignore.write_text(f"{text}{separator}{_VENDOR_IGNORE}\n", encoding="utf-8")
 
 
 @app.command("check")
