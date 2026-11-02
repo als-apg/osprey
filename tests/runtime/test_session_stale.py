@@ -205,18 +205,18 @@ class _Counted:
         self.records = 0
         self.verdicts = 0
         read_record = session_module._read_record
-        verdicts = session_module._verdicts
+        verdict = session_module._verdict
 
         def counted_record():
             self.records += 1
             return read_record()
 
-        def counted_verdicts(target):
+        def counted_verdict(target, session_keys=None):
             self.verdicts += 1
-            return verdicts(target)
+            return verdict(target, session_keys)
 
         monkeypatch.setattr(session_module, "_read_record", counted_record)
-        monkeypatch.setattr(session_module, "_verdicts", counted_verdicts)
+        monkeypatch.setattr(session_module, "_verdict", counted_verdict)
 
     @property
     def reads(self) -> int:
@@ -352,42 +352,43 @@ class TestCachedVerdict:
         await _cancelled(waiter)
         await session.close()
 
-    async def test_off_flipped_to_permitted_is_a_move_and_reads_allowed(self, armed_va):
-        write_record(armed_va, switch=NARROWED)
-        session = await _opened()
+    async def _switched_in_place(self, armed_va, session, **record) -> None:
+        """Flip the switch under a watching session: it shows in place and is no move."""
         waiter = asyncio.ensure_future(session.wait_moved())
         await asyncio.sleep(3 * session_module.MOVE_POLL_S)
+        expected = dict(session.writes)
+        write_record(armed_va, **record)
+        await _until(lambda: session.writes != expected)
+        await asyncio.sleep(3 * session_module.MOVE_POLL_S)
+        assert not waiter.done(), "a switch change is not a move"
+        assert session.target_moving is False
+        await _cancelled(waiter)
 
-        write_record(armed_va)
-        await asyncio.wait_for(waiter, timeout=5)
+    async def test_off_flipped_to_permitted_reads_allowed_in_place(self, armed_va):
+        write_record(armed_va, switch=NARROWED)
+        session = await _opened()
+
+        await self._switched_in_place(armed_va, session)
 
         assert session.writes == ON
-        assert session.target_moving is False
         await session.close()
 
-    async def test_on_flipped_to_narrowed_is_a_move_and_names_the_switch(self, armed_va):
+    async def test_on_flipped_to_narrowed_names_the_switch_in_place(self, armed_va):
         write_record(armed_va)
         session = await _opened()
-        waiter = asyncio.ensure_future(session.wait_moved())
-        await asyncio.sleep(3 * session_module.MOVE_POLL_S)
 
-        write_record(armed_va, switch=NARROWED)
-        await asyncio.wait_for(waiter, timeout=5)
+        await self._switched_in_place(armed_va, session, switch=NARROWED)
 
         assert session.writes == _off("switch_off")
         await session.close()
 
-    async def test_allowed_moved_to_asked_is_a_move(self, armed_va):
+    async def test_allowed_moved_to_asked_reads_asked_in_place(self, armed_va):
         write_record(armed_va)
         session = await _opened()
-        waiter = asyncio.ensure_future(session.wait_moved())
-        await asyncio.sleep(3 * session_module.MOVE_POLL_S)
 
-        write_record(armed_va, switch={"va": "asked"})
-        await asyncio.wait_for(waiter, timeout=5)
+        await self._switched_in_place(armed_va, session, switch={"va": "asked"})
 
         assert session.writes == {**ON, "position": "asked"}
-        assert session.target_moving is False
         await session.close()
 
     async def test_a_record_naming_another_binding_marks_the_target_moving(self, armed_va):
@@ -503,4 +504,80 @@ class TestSessionHold:
         await _until(lambda: session.writes == ON)
         assert not waiter.done()
         await _cancelled(waiter)
+        await session.close()
+
+
+class TestSessionKeys:
+    """A process serving several sessions is held while any one of them is."""
+
+    @pytest.fixture
+    def holds(self, tmp_path, monkeypatch):
+        root = tmp_path / "holds"
+        monkeypatch.setenv(session_hold.HOLD_DIR_ENV_VAR, str(root))
+        monkeypatch.delenv(session_module.SESSION_KEY_ENV_VAR, raising=False)
+        for key in ("alice-1", "alice-2"):
+            session_hold.ensure_session(key, root=root)
+        return root
+
+    @staticmethod
+    def _raise(root: Path, key: str) -> None:
+        assert session_hold.open_flag(
+            key,
+            flag_id="flag-1",
+            source="watchdog:limits",
+            reason="a limit was refused",
+            prompt_ref="turn-7",
+            prompt_excerpt="set the current to 900",
+            root=root,
+        )
+
+    @staticmethod
+    async def _opened_with(keys: list[str]) -> ControlSession:
+        return await ControlSession.open(surface="panel", session_keys=lambda: list(keys))
+
+    async def test_a_hold_on_any_named_session_holds_the_writes(self, armed_va, holds):
+        write_record(armed_va)
+        self._raise(holds, "alice-2")
+        session = await self._opened_with(["alice-1", "alice-2"])
+
+        assert session.writes == _off("session_held")
+        assert session.moved() is False
+        await session.close()
+
+    async def test_no_named_session_is_no_hold(self, armed_va, holds):
+        write_record(armed_va)
+        self._raise(holds, "alice-2")
+        session = await self._opened_with([])
+
+        assert session.writes == ON
+        await session.close()
+
+    async def test_a_held_session_joining_shows_under_the_watch(self, armed_va, holds):
+        write_record(armed_va)
+        self._raise(holds, "alice-2")
+        keys = ["alice-1"]
+        session = await self._opened_with(keys)
+        assert session.writes == ON
+        waiter = asyncio.ensure_future(session.wait_moved())
+        await asyncio.sleep(3 * session_module.MOVE_POLL_S)
+
+        keys.append("alice-2")
+        await _until(lambda: session.writes["reason"] == "session_held")
+        keys.remove("alice-2")
+        await _until(lambda: session.writes == ON)
+
+        assert not waiter.done(), "a session coming or going is not a move"
+        await _cancelled(waiter)
+        await session.close()
+
+    @pytest.mark.usefixtures("holds")
+    async def test_a_provider_that_fails_refuses_the_writes(self, armed_va):
+        write_record(armed_va)
+
+        def broken() -> list[str]:
+            raise OSError("unreadable")
+
+        session = await ControlSession.open(surface="panel", session_keys=broken)
+
+        assert session.writes == {**_off("record_unavailable"), "kind": None}
         await session.close()
