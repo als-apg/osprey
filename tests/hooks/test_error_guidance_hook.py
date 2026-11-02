@@ -504,6 +504,7 @@ EXPECTED_ERROR_CLASSES = {
     "browse_only_connector": "Safety",
     "unsupported_connector": "Safety",
     "not_supported": "Safety",
+    "no_archive": "Safety",
     "interrupted_item_in_queue": "Safety",
     "queue_changed_since_approval": "Safety",
     # Internal

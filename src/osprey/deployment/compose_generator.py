@@ -4176,6 +4176,9 @@ def _ensure_agent_data_structure(config):
 #: channel snapshot: the bluesky_web sidecar's /channels route serves it.
 _CHANNEL_SNAPSHOT_SERVICE = "bluesky_web"
 
+#: Basename of the archiver recorder's service directory.
+ARCHIVER_RECORDER_SERVICE = "archiver_recorder"
+
 #: Filename the sidecar's /channels route expects beside its mounted config.yml.
 CHANNEL_SNAPSHOT_FILENAME = "channels.json"
 
@@ -4286,7 +4289,6 @@ def _connection_ca_bundles(config, source_dir):
         ca_bundle_mounts,
         config_archiver_ca_bundles,
     )
-    from osprey_connectors.standin import ARCHIVER_RECORDER_SERVICE
 
     service = os.path.basename(os.path.normpath(source_dir))
     if service == "dispatch_worker":

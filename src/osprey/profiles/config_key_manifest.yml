@@ -901,7 +901,7 @@ keys:
   services.mongodb.username: {covered-by: services.mongodb, default: n/a}
   services.mongodb.compression: {evidence: 'get\(_ARCHIVER_STORE_SERVICE\) or \{\}\)\.get\("compression"\)', default: zstd}
   services.archiver_recorder: {evidence: 'hostenv\.passthrough\(services\.archiver_recorder\)', default: null}
-  services.archiver_recorder.path: {evidence: 'ProjectedKey\("services\.archiver_recorder\.path"', default: no-fallback, default_note: "the compose generator indexes service_config['path'] and raises when absent; the archiver-store injector writes ./services/archiver_recorder"}
+  services.archiver_recorder.path: {evidence: 'service_config\["path"\]', default: no-fallback, default_note: "the compose generator indexes service_config['path'] and raises when absent; the archiver-store injector writes ./services/archiver_recorder"}
   services.archive: {evidence: 'set svc = services\.archive \| default', default: null}
   services.archive.path: {evidence: 'service_config\["path"\]', default: no-fallback, default_note: "the compose generator indexes service_config['path'] and raises when absent; the build writes ./services/archive"}
   services.archive.network: {rendered: false, covered-by: services.archive, default: bridge}

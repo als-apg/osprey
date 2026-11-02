@@ -41,7 +41,7 @@ _AXIS_SHAPES_ENTRY_POINT = "tests/templates/test_render_axis_shapes.py"
 _DEPLOYMENT_SUITES = {
     "tests/deployment/test_lane_compose.py": "bluesky",
     "tests/deployment/test_va_compose_instances.py": "virtual_accelerator",
-    "tests/deployment/test_recorder_standin_compose.py": "archiver_recorder",
+    "tests/deployment/test_recorder_compose_target.py": "archiver_recorder",
 }
 
 

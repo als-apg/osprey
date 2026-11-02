@@ -5,12 +5,15 @@
 # from then on this service records the machine as it actually behaves, into
 # the same collection, on the same timeline.
 #
-# It records only while `control_system.type` is `virtual_accelerator` —
-# read from the mounted CONFIG_FILE below and re-read on an interval, not
-# latched at boot, so the documented post-build flip takes effect without a
-# restart. On any other control system it idles with a one-line log and writes
-# nothing; recording a real machine's readings into a simulated archive would
-# be exactly the kind of two-world dishonesty this feature exists to remove.
+# It records only while the `va` target's endpoint — derived from the mounted
+# CONFIG_FILE below and re-read on an interval, not latched at boot — is this
+# deployment's own virtual accelerator: loopback, on the port
+# `services.virtual_accelerator.port` publishes. Whatever machine a session
+# starts on, the store is the simulator's. A `va` block repointed elsewhere, or
+# a deployment that no longer builds a simulator, idles it with a one-line log
+# and writes nothing; recording a real machine's readings into a simulated
+# archive would be exactly the kind of two-world dishonesty this feature exists
+# to remove.
 #
 # There is deliberately NO Dockerfile here and no `build:` block: this service
 # runs the VIRTUAL ACCELERATOR's image with a different command, so it adds no
@@ -23,7 +26,13 @@
 services:
   archiver-recorder:
 
-    image: ${OSPREY_VA_IMAGE:-proj-a-va:local}
+    # No co-deployed Virtual Accelerator means nothing in this deploy BUILDS
+    # the VA image, so the local tag would not exist and compose would fail
+    # trying to pull it ("pull access denied for <project>-va") without ever
+    # naming the real problem. `:?` says it instead. An external-IOC deploy
+    # that wants a recorder supplies a published image here — the same
+    # variable a project would set to use a prebuilt VA image anyway.
+    image: ${OSPREY_VA_IMAGE:?set OSPREY_VA_IMAGE to a published osprey VA image when the virtual_accelerator service is not co-deployed}
 
     # container_name is a HOST-GLOBAL docker identifier: namespace it per-project
     # so two OSPREY projects can deploy a recorder on one host without colliding
@@ -49,20 +58,13 @@ services:
       mongodb:
         condition: service_healthy
 
-      # Only when the VA is co-deployed: the recorder's CA client connects at
-      # startup, so it must not open before iocInit is answering. A recorder
-      # deployed against an EXTERNAL IOC must NOT get this — compose errors on
-      # depends_on naming an undefined service.
-      virtual-accelerator:
-        condition: service_healthy
-
     # Deliberately NO bulk .env passthrough (the gchat/nextcloud bridge
     # convention): this service talks to exactly two things, an IOC and the
     # archiver store, and never calls an LLM. Everything it reads arrives by
     # explicit interpolation below, resolved from the project .env because
     # `osprey up` runs compose with `--env-file .env`.
     environment:
-      # The recorder reads control_system.type (its own enablement), the
+      # The recorder reads the `va` target's gateways (its own enablement), the
       # va_archiver cadence/retention knobs and the archiver connection block
       # from config.yml at runtime. CWD is the image WORKDIR (/app), not the
       # project dir, so the path is named rather than discovered: the
@@ -90,13 +92,20 @@ services:
       # authenticate against.
       MONGO_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD:-osprey}
 
-      # Reach the co-deployed Virtual Accelerator over Channel Access.
-      # Name-server TCP transport is the one host<->container CA config proven
-      # to work — UDP broadcast discovery doesn't cross the VM boundary. Port
-      # matches services.virtual_accelerator.port so an operator override stays
-      # consistent between the two services.
-      EPICS_CA_NAME_SERVERS: "virtual-accelerator:5064"
-      EPICS_CA_AUTO_ADDR_LIST: "NO"
+      # External IOC: the address has to come from the deploy environment, and
+      # is REQUIRED (`:?`) rather than a bare reference. Compose resolves an
+      # unset bare ${VAR} to the empty string, so the recorder would come up
+      # with no route to any IOC and fail every read with a CA timeout — for
+      # minutes, quietly, looking exactly like a slow machine. `:?` turns that
+      # into a startup abort naming the missing variable. Set it (host:port),
+      # or co-deploy the virtual_accelerator service and this branch renders
+      # the address itself.
+      EPICS_CA_NAME_SERVERS: ${EPICS_CA_NAME_SERVERS:?set EPICS_CA_NAME_SERVERS to <host>:<port> of the IOC to record, or co-deploy the virtual_accelerator service}
+      # Defaulted rather than pinned, unlike the co-deployed branch: an
+      # external IOC may sit on a network where broadcast discovery genuinely
+      # works, and that is the operator's call. NO is the default because it
+      # is what pairs with the name-server transport above.
+      EPICS_CA_AUTO_ADDR_LIST: "${EPICS_CA_AUTO_ADDR_LIST:-NO}"
 
       TZ: UTC
     volumes:
