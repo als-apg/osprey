@@ -72,6 +72,8 @@ from .phase_reporter import current_reporter
 from .repo_resolver import PROFILE_FILENAME, find_repo_root, repo_option
 
 if TYPE_CHECKING:
+    from osprey.facility.records import FacilityRecords
+
     from .build_profile_load import LoadedProfile
 
 
@@ -231,24 +233,16 @@ def _build_in_memory(
     )
 
 
-#: Each record kind of the facility file: its key in the file and its id field.
-_RECORD_KINDS: tuple[tuple[str, str, str], ...] = (
-    ("place", "places", "id"),
-    ("device", "devices", "id"),
-    ("channel", "channels", "id"),
-    ("group", "groups", "id"),
-    ("model", "models", "name"),
-)
-
-
-def _counts(document: dict[str, Any]) -> dict[str, Any]:
+def _counts(records: FacilityRecords) -> dict[str, Any]:
     """The records per kind, and the wiring records per model."""
+    from osprey.facility.records import RECORD_KINDS
+
     counts: dict[str, Any] = {
-        key: len(document.get(key) or []) for _kind, key, _id in _RECORD_KINDS[:4]
+        key: len(records.of_kind(kind)) for kind, key, _id in RECORD_KINDS[:4]
     }
     counts["wiring"] = {
         str(model["name"]): len(model.get("wiring") or [])
-        for model in sorted(document.get("models") or [], key=lambda model: str(model["name"]))
+        for model in sorted(records.of_kind("model"), key=lambda model: str(model["name"]))
     }
     return counts
 
@@ -282,6 +276,7 @@ def _views(built: _InMemoryBuild, served: list[str]) -> list[dict[str, Any]]:
 
 def _overview(built: _InMemoryBuild) -> dict[str, Any]:
     """The ``facility show`` document of the whole facility."""
+    from osprey.facility.records import FacilityRecords
     from osprey.facility.served import resolve_served
     from osprey.facility.views.facts import facts_document
 
@@ -290,7 +285,7 @@ def _overview(built: _InMemoryBuild) -> dict[str, Any]:
     facts = facts_document(built.document, served, str(project_name) if project_name else None)
     return {
         "identity": facts["identity"],
-        "counts": _counts(built.document),
+        "counts": _counts(FacilityRecords(built.document)),
         "models": facts["models"],
         "views": _views(built, served),
     }
@@ -298,9 +293,11 @@ def _overview(built: _InMemoryBuild) -> dict[str, Any]:
 
 def _record(document: dict[str, Any], record_id: str) -> dict[str, Any] | str:
     """The ``facility show ID`` document, or the line that says why there is none."""
+    from osprey.facility.records import RECORD_KINDS
+
     found = [
         (kind, record)
-        for kind, key, id_field in _RECORD_KINDS
+        for kind, key, id_field in RECORD_KINDS
         for record in document.get(key) or []
         if str(record.get(id_field)) == record_id
     ]
