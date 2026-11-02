@@ -13,6 +13,7 @@ import hashlib
 import io
 import json
 import sys
+import time
 from pathlib import Path
 
 import nbformat
@@ -265,17 +266,21 @@ def test_a_review_switched_off_asks_with_a_line_records_the_skip_and_stamps_noth
 
     output = deployment.run(EXECUTE, _execute())
 
+    at = time.strftime("%Y-%m-%d %H:%M", time.localtime(1700000000.0))
     assert output["permissionDecision"] == "ask"
-    assert "Code review: switched off by alice; the code runs unreviewed if approved." in _reason(
-        output
-    )
+    assert (
+        f"Code review: skipped, switched off in this terminal by alice at {at}; "
+        "the code runs unreviewed if approved."
+    ) in _reason(output)
     assert deployment.stub.calls == []
     (audit,) = deployment.review_audits()
     assert audit["decision"] == "allowed"
     assert audit["detail"] == (
         f"review=skipped level={level} kind=switched_off by=alice mode=readwrite {DIGEST}"
     )
-    assert deployment.notices == []
+    ((tool, kind), kwargs), *_ = deployment.notices
+    assert (tool, kind) == ("execute", "review")
+    assert kwargs["detail"].startswith("Code review on execute: skipped (switched off")
     # Unstamped, so the executor asks the switch again before the launch.
     assert REVIEWED_DIGEST_KEY not in deployment.stamp()
 

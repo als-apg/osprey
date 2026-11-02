@@ -326,34 +326,87 @@ def fetch_code_review_switch(timeout: float = 2) -> dict | None:
 
     Only ``OSPREY_WEB_PORT`` names that terminal, with no config fallback: a
     session no terminal started is under no terminal's switch. The call stays on
-    loopback with proxies ignored, as the watchdog trigger's does, and carries
-    the panel token (:func:`_panel_auth_headers`).
+    loopback (``http.client`` consults no proxy) and carries the panel token
+    (:func:`_panel_auth_headers`).
+
+    An answer counts only when the process that served it is this process's own
+    ancestor (:func:`_served_by_an_ancestor`). Neither the port nor the panel token
+    tells the terminal apart from the agent: the agent's code runs as the same
+    account, holds the token, and can bind the port whenever the terminal is not
+    on it. What it cannot do is become an ancestor of the hook or the executor
+    asking, so an answer from anywhere else is no answer.
 
     .. warning::
         A **blocking** call bounded by ``timeout``; async callers run it in a thread.
 
     Returns:
         The parsed JSON object, or ``None`` when no terminal is named, it cannot
-        be reached, refuses, or answers with anything but a JSON object.
+        be reached, refuses, is not this session's ancestor, or answers with
+        anything but a JSON object.
     """
+    import http.client
     import json as _json
     import os
-    import urllib.request
 
     port = os.environ.get("OSPREY_WEB_PORT", "").strip()
     if not port.isdigit():
         return None
+    conn = http.client.HTTPConnection("127.0.0.1", int(port), timeout=timeout)
     try:
-        req = urllib.request.Request(
-            f"http://127.0.0.1:{port}{CODE_REVIEW_SWITCH_ROUTE}", headers=_panel_auth_headers()
-        )
-        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
-        with opener.open(req, timeout=timeout) as resp:
-            data = _json.loads(resp.read())
+        conn.request("GET", CODE_REVIEW_SWITCH_ROUTE, headers=_panel_auth_headers())
+        resp = conn.getresponse()
+        body = resp.read(_SWITCH_BODY_LIMIT)
+        # Checked with the connection still open, so the serving end is still held.
+        if resp.status != 200 or conn.sock is None:
+            return None
+        if not _served_by_an_ancestor(conn.sock.getsockname()[1], int(port)):
+            logger.warning("code review switch answered by a process outside this session")
+            return None
+        data = _json.loads(body)
     except Exception as exc:
         logger.warning("code review switch read failed: %s", exc)
         return None
+    finally:
+        conn.close()
     return data if isinstance(data, dict) else None
+
+
+#: The most of a switch answer read; the real one is a few dozen bytes.
+_SWITCH_BODY_LIMIT = 4096
+
+
+def _served_by_an_ancestor(local_port: int, server_port: int) -> bool:
+    """Whether one of this process's ancestors listens on *server_port* and holds our connection.
+
+    The terminal spawns every session, so the session's hooks and MCP servers
+    descend from it; whatever the agent starts is a descendant of the session,
+    never an ancestor of them. The ancestor must hold both the listening socket
+    and the accepted end of this connection (local port *server_port*, remote
+    port *local_port*): a port taken over from a terminal that went away, or
+    stolen by a more specific bind, is held by a process outside the chain.
+    Never raises; a process table that cannot be read is no proof.
+    """
+    try:
+        import psutil
+
+        for ancestor in psutil.Process().parents():
+            try:
+                connections = ancestor.net_connections(kind="tcp")
+            except (psutil.Error, OSError):
+                continue
+            listens = holds = False
+            for c in connections:
+                if not c.laddr or c.laddr.port != server_port:
+                    continue
+                if c.status == psutil.CONN_LISTEN:
+                    listens = True
+                elif c.raddr and c.raddr.port == local_port:
+                    holds = True
+            if listens and holds:
+                return True
+    except Exception:
+        logger.warning("could not check who answered the code review switch", exc_info=True)
+    return False
 
 
 def notify_panel_visibility(panel: str, visible: bool) -> None:

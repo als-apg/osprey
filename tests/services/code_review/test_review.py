@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import time
 from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
@@ -807,11 +808,26 @@ def test_a_switched_off_record_without_who_says_only_switched_off() -> None:
     assert detail == f"review=skipped level=block kind=switched_off {_NOTEBOOK_DIGEST}"
 
 
-def test_a_switched_off_review_tells_neither_the_agent_nor_the_feed() -> None:
+def test_a_switched_off_review_is_told_to_the_agent_and_the_feed_every_time() -> None:
     outcome = skip_switched_off(_OFF, "block")
+    at = time.strftime("%Y-%m-%d %H:%M", time.localtime(1700000000.0))
 
-    assert agent_message(outcome) is None
-    assert notice_text(outcome, REQUEST) is None
+    assert agent_message(outcome) == (
+        f"The code review was skipped: switched off in this terminal by alice at {at}. "
+        "The code proceeded unreviewed."
+    )
+    assert notice_text(outcome, REQUEST) == (
+        f"Code review on execute: skipped (switched off in this terminal by alice at {at}), "
+        f"proceeded: {REQUEST.subject}"
+    )
+
+
+def test_a_skip_without_who_or_when_still_says_it_was_switched_off() -> None:
+    outcome = skip_switched_off(ReviewSwitchedOff(), "flag")
+
+    assert agent_message(outcome) == (
+        "The code review was skipped: switched off in this terminal. The code proceeded unreviewed."
+    )
 
 
 # ---------------------------------------------------------------------------

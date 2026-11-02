@@ -15,6 +15,7 @@ import re
 import subprocess
 import sys
 import textwrap
+import time
 import urllib.request
 from pathlib import Path
 from types import SimpleNamespace
@@ -354,7 +355,12 @@ def test_a_review_switched_off_lets_the_edit_land_and_records_the_skip(env, leve
 
     output = env.run(env.notebook())
 
-    assert output is None
+    at = time.strftime("%Y-%m-%d %H:%M", time.localtime(1700000000.0))
+    assert "permissionDecision" not in output, "the edit lands"
+    assert output["additionalContext"] == (
+        f"The code review was skipped: switched off in this terminal by alice at {at}. "
+        "The code proceeded unreviewed."
+    )
     assert runner.calls == []
     (record,) = env.audits
     assert record == {
@@ -364,7 +370,12 @@ def test_a_review_switched_off_lets_the_edit_land_and_records_the_skip(env, leve
         "reason": "code_review",
         "detail": f"review=skipped level={level} kind=switched_off by=alice {DIGEST}",
     }
-    assert env.notices == []
+    [(tool, kind, detail)] = env.notices
+    assert (tool, kind) == ("NotebookEdit", "review")
+    assert detail == (
+        f"Code review on notebook: skipped (switched off in this terminal by alice at {at}), "
+        "proceeded: notebooks/x.ipynb"
+    )
 
 
 def test_back_on_the_next_edit_is_reviewed_again(env):
@@ -372,7 +383,7 @@ def test_back_on_the_next_edit_is_reviewed_again(env):
     runner = env.stub("block")
     notebook = env.notebook()
     env.switched_off = ReviewSwitchedOff(off_by="alice")
-    assert env.run(notebook) is None
+    assert not _is_deny(env.run(notebook))
 
     env.switched_off = None
 

@@ -6,10 +6,15 @@ the agent's processes: the approval hook, the notebook hook and the executor.
 Each asks :func:`switched_off` right before it would review, through the
 panel-tier ``GET /api/code-review/switch``, so a move counts from the next review.
 
-The read fails closed. Only an answer that says ``"on": false`` in so many words
-skips a review; no terminal, no answer, a refusal, a timeout or anything
-malformed is answered with ``None``, and the review runs. The agent can read the
-switch with its panel token and never move it.
+The read fails closed. Only an answer that says ``"on": false`` in so many words,
+served by this process's own ancestor (the terminal that spawned the session),
+skips a review; no terminal, no answer, a refusal, a timeout, an answer from any
+other process or anything malformed is answered with ``None``, and the review
+runs. The agent can read the switch with its panel token and never move it, and
+it cannot answer in the terminal's place: it runs as the same account and holds
+the same token, but nothing it starts is an ancestor of the hook or executor
+asking. Every skip is told to the agent, the operator's activity feed and the
+audit trail, so a skip nobody meant shows up.
 """
 
 from __future__ import annotations

@@ -183,14 +183,13 @@ def agent_message(outcome: ReviewOutcome) -> str | None:
         outcome: The review's outcome.
 
     Returns:
-        The message, or ``None`` for a pass with nothing to say and for a review the
-        switch left out: an admin chose that, and the agent has nothing to change.
+        The message, or ``None`` for a pass with nothing to say.
     """
     result = outcome.result
     if isinstance(result, ReviewVerdict):
         return _verdict_message(outcome, result)
     if isinstance(result, ReviewSwitchedOff):
-        return None
+        return f"The code review was skipped: {switched_off_phrase(result)}. The code proceeded unreviewed."
     if outcome.action == ACTION_REFUSE:
         return (
             f"The code review failed (kind {result.kind}), so the code was refused: "
@@ -200,6 +199,13 @@ def agent_message(outcome: ReviewOutcome) -> str | None:
         f"The code review did not run (kind {result.kind}): {result.message}\n\n"
         "The code proceeded unreviewed."
     )
+
+
+def switched_off_phrase(off: ReviewSwitchedOff) -> str:
+    """Who switched code review off and when, in the words every surface uses."""
+    by = f" by {off.off_by}" if off.off_by else ""
+    at = f" at {time.strftime('%Y-%m-%d %H:%M', time.localtime(off.off_at))}" if off.off_at else ""
+    return f"switched off in this terminal{by}{at}"
 
 
 def _result_name(outcome: ReviewOutcome) -> str:
@@ -220,13 +226,15 @@ def notice_text(outcome: ReviewOutcome, request: ReviewRequest) -> str | None:
         request: The request it answers.
 
     Returns:
-        The notice, or ``None`` for a pass, which sends none, and for a review the switch
-        left out, which the switch's own notice already told every operator about.
+        The notice, or ``None`` for a pass, which sends none. A review the switch left out
+        sends one every time, so a skip nobody meant shows up in the session.
     """
     result = _result_name(outcome)
-    if result in ("pass", "skipped"):
+    if result == "pass":
         return None
-    if isinstance(outcome.result, ReviewFailure):
+    if isinstance(outcome.result, ReviewSwitchedOff):
+        result = f"{result} ({switched_off_phrase(outcome.result)})"
+    elif isinstance(outcome.result, ReviewFailure):
         result = f"{result} ({outcome.result.kind})"
     taken = "refused" if outcome.action == ACTION_REFUSE else "proceeded"
     return f"Code review on {request.surface}: {result}, {taken}: {request.subject}"

@@ -2921,9 +2921,9 @@ def _settle_review(stamp, outcome: str) -> None:
 # does on every surface: denied in blocking mode, asked with the note in advisory
 # mode and left unstamped, so the executor tries again.
 #
-# A review an admin switched off in the terminal is not run: the prompt says so,
-# the skip is recorded, and nothing is stamped, so the executor asks the switch
-# again before the launch.
+# A review an admin switched off in the terminal is not run: the prompt and the
+# activity feed say so, the skip is recorded, and nothing is stamped, so the
+# executor asks the switch again before the launch.
 
 #: The tools whose code this hook reviews ahead of the ask.
 _REVIEWED_TOOLS = frozenset({"execute", "execute_file"})
@@ -2984,11 +2984,12 @@ def _review_prompt_lines(outcome) -> list[str]:
     onto the prompt.
     """
     from osprey.services.code_review.contract import ReviewSwitchedOff, ReviewVerdict
+    from osprey.services.code_review.review import switched_off_phrase
 
     result = outcome.result
     if isinstance(result, ReviewSwitchedOff):
-        by = f" by {_sanitize_label(result.off_by)}" if result.off_by else ""
-        return [f"Code review: switched off{by}; the code runs unreviewed if approved."]
+        phrase = _sanitize_label(switched_off_phrase(result))
+        return [f"Code review: skipped, {phrase}; the code runs unreviewed if approved."]
     if not isinstance(result, ReviewVerdict):
         return [f"Code review: did not run ({result.kind}); the code runs unreviewed if approved."]
     headline = f"Code review: {result.verdict}"

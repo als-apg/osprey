@@ -38,7 +38,7 @@ stdin ──► Parse JSON
               │
              YES
               ▼
-         Switched off in the terminal? ──YES──► Record (review=skipped) ──► EXIT
+         Switched off in the terminal? ──YES──► Record (review=skipped) ──► Notice ──► note
               │
               NO (or no answer)
               ▼
@@ -69,8 +69,9 @@ read the setting without the core. A crash this hook cannot catch lets the write
 accepts that remainder at this surface.
 
 **Switch.** An admin may switch code review off in the web terminal for a while. The hook asks
-right before it would review (``osprey.services.code_review.switch``); only an answer that says off
-skips the review, which is recorded with who switched it off, and anything else reviews.
+right before it would review (``osprey.services.code_review.switch``); only an answer that says off,
+from the terminal that spawned the session, skips the review. The skip is recorded with who switched
+it off, sent to the activity strip and told to the agent; anything else reviews.
 
 **Records.** Every reviewed edit writes one value-free audit record, passes included, so the record
 shows that a review happened. A notice goes to the operator's activity strip for everything but a

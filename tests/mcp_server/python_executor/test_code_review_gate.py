@@ -494,7 +494,10 @@ async def test_a_review_switched_off_is_skipped_recorded_and_the_run_goes_ahead(
 
     assert stub.calls == [], "no reviewer runs while the switch is off"
     launch.assert_awaited_once()
-    assert _result(launch).code_review is None
+    # The tool result tells the agent, and so the session, that the run went unreviewed.
+    assert _result(launch).code_review.startswith(
+        "The code review was skipped: switched off in this terminal by alice at "
+    )
     [(writer, fields)] = _review_records(records)
     assert writer == "record"
     assert fields["decision"] == "allowed"
@@ -503,7 +506,8 @@ async def test_a_review_switched_off_is_skipped_recorded_and_the_run_goes_ahead(
     )
     assert fields["surface"] == "executor"
     AuditEnvelope(actor="someone", **fields)
-    assert _review_notices(notices) == []
+    [notice] = _review_notices(notices)
+    assert notice.kwargs["detail"].startswith("Code review on execute: skipped (switched off")
 
 
 @TOOLS
