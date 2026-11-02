@@ -11,8 +11,9 @@ known-benign noise.
 ``wait_for_dock_settled`` is the other shared wait: it blocks until the dock has
 finished arranging the shell, for any suite that drives or photographs the
 web-terminal hub. ``open_hub_page`` is the hub's own entry point — it opens the
-page and waits for the panel rail and the dock grid together — and
-``rail_entry`` builds the locator for one of that rail's buttons.
+page and waits, through ``wait_for_hub_ready``, for the panel manager's ready
+mark and the dock grid together — and ``rail_entry`` builds the locator for one
+of that rail's buttons.
 """
 
 from __future__ import annotations
@@ -223,17 +224,26 @@ def rail_entry(page: Page, panel_id: str, *, enabled_only: bool = False):
     return page.locator(f"{selector}:not(.disabled)" if enabled_only else selector)
 
 
-def open_hub_page(browser: Browser, base_url: str, *, viewport: dict | None = None) -> Page:
-    """Open the web terminal and wait for the rail and the dock grid to render.
+def wait_for_hub_ready(page: Page) -> None:
+    """Wait until the panel manager has finished its start-up and the dock grid is up.
 
     Both waits are needed and neither implies the other: ``panel-manager.js``
-    builds the rail asynchronously (it fetches ``/api/panels`` and then each
-    panel's config endpoint) while ``dock-workspace.js`` builds the dockview
-    grid, so a page that has one is not yet a page that has the other. The
-    rail is waited on through the ``artifacts`` entry because that panel is
-    always enabled and is the default fallback, so it is the one entry a hub
-    is guaranteed to grow. It is matched as a button rather than by
-    ``data-panel-id`` alone: panel iframes carry the same attribute.
+    builds the sidebar asynchronously (it fetches ``/api/panels``, renders the
+    rail and wires the header controls) and sets ``html[data-panels-ready]`` as
+    its last step, while ``dock-workspace.js`` builds the dockview grid. The
+    mark is the one fact only the finished panel manager produces: the page
+    ships rail rows of its own, so a row on screen says nothing about whether
+    the ``+`` button or the row menus are wired yet.
+
+    Args:
+        page: A page already navigated to the hub.
+    """
+    expect(page.locator("html[data-panels-ready]")).to_be_attached(timeout=_HUB_READY_TIMEOUT_MS)
+    expect(page.locator(".dv-groupview").first).to_be_visible(timeout=_HUB_READY_TIMEOUT_MS)
+
+
+def open_hub_page(browser: Browser, base_url: str, *, viewport: dict | None = None) -> Page:
+    """Open the web terminal and wait until it is ready to drive.
 
     Args:
         browser: The function-scoped chromium fixture. The page it hands back
@@ -244,10 +254,10 @@ def open_hub_page(browser: Browser, base_url: str, *, viewport: dict | None = No
             the browser's default is used.
 
     Returns:
-        A page whose rail and dockview grid are both on screen.
+        A page whose panel manager has finished start-up and whose dockview
+        grid is on screen (``wait_for_hub_ready``).
     """
     page = browser.new_page(viewport=viewport) if viewport else browser.new_page()
     page.goto(base_url, wait_until="domcontentloaded")
-    expect(rail_entry(page, "artifacts")).to_be_attached(timeout=_HUB_READY_TIMEOUT_MS)
-    expect(page.locator(".dv-groupview").first).to_be_visible(timeout=_HUB_READY_TIMEOUT_MS)
+    wait_for_hub_ready(page)
     return page

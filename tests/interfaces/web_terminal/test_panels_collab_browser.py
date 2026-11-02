@@ -43,6 +43,7 @@ import pytest
 import requests
 
 from osprey.interfaces._serving import run_app_server
+from tests.interfaces._browser import wait_for_hub_ready
 from tests.interfaces._hub import hub_app
 from tests.interfaces._panel_launch import unserved_url
 
@@ -206,14 +207,11 @@ def _wait_for_fetch_quiescence(page: Page, *, timeout: float = 10.0) -> None:
 
 
 def _open_page(browser, base_url: str) -> Page:
-    """Open a page and wait for the rail and the dock grid to be up."""
+    """Open a page with the fetch counter installed and wait until the hub is ready."""
     page = browser.new_page()
     page.add_init_script(_FETCH_COUNTER_JS)
     page.goto(base_url, wait_until="domcontentloaded")
-    expect(page.locator('button.panel-rail-button[data-panel-id="artifacts"]')).to_be_attached(
-        timeout=15_000
-    )
-    expect(page.locator(".dv-groupview").first).to_be_visible(timeout=15_000)
+    wait_for_hub_ready(page)
     return page
 
 
