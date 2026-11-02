@@ -2153,18 +2153,6 @@ keys:
       unset, or a template that does not format, emits no `entry_url` (the
       second is logged once) and the read itself never fails.
     default: null
-  ariel.embedded_search:
-    rendered: false
-    evidence: 'config_dict\.get\("embedded_search"\)'
-    note: >-
-      Whether the ARIEL panel embedded in the web terminal offers its Search
-      view and opens on it. Off by default: embedded, the agent searches the
-      logbook, so the panel opens on Browse and redirects a `#search` hash
-      there. The standalone page always offers Search. Commented in the
-      preset that ships an `ariel:` block; parsed by ARIELConfig.from_dict and
-      reported to the page as `embedded_search` in GET /api/capabilities. A
-      value that is not a boolean is refused at config parse.
-    default: false
   ariel.entry_text:
     rendered: false
     evidence: 'config_dict\.get\("entry_text"\)'
@@ -3486,6 +3474,9 @@ deleted:
 - ariel.reasoning
 - ariel.default_max_results
 - ariel.cache_embeddings
+  # Search is always offered in the ARIEL panel; a config that still sets the
+  # switch loads and logs one retirement warning.
+- ariel.embedded_search
   # Ledger 79 / 80 — loader identity blocks
 - applications
 - current_application

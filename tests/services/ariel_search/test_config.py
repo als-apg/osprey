@@ -1,5 +1,6 @@
 """Tests for ARIEL configuration classes."""
 
+import logging
 from pathlib import Path
 
 import pytest
@@ -1280,21 +1281,49 @@ def _entry_text_config(entry_text: object) -> ARIELConfig:
     )
 
 
-class TestEmbeddedSearch:
-    """Tests for the ``ariel.embedded_search`` switch."""
+class TestEmbeddedSearchRetired:
+    """``ariel.embedded_search`` is retired: it loads, warns once and does nothing."""
 
     _DB = {"database": {"uri": "postgresql://localhost:5432/ariel"}}
+    _LOGGER = "osprey.services.ariel_search.config"
 
-    def test_off_when_absent(self) -> None:
-        assert ARIELConfig.from_dict(dict(self._DB)).embedded_search is False
+    @pytest.fixture(autouse=True)
+    def _fresh_warning(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        import osprey.services.ariel_search.config as config_module
 
-    def test_read_when_set(self) -> None:
-        assert ARIELConfig.from_dict({**self._DB, "embedded_search": True}).embedded_search
+        monkeypatch.setattr(config_module, "_embedded_search_warned", False)
 
-    @pytest.mark.parametrize("value", ["true", 1, 0.0])
-    def test_a_value_that_is_not_a_boolean_is_refused_by_name(self, value: object) -> None:
-        with pytest.raises(ValueError, match=r"ariel\.embedded_search"):
-            ARIELConfig.from_dict({**self._DB, "embedded_search": value})
+    def _retirement_warnings(self, caplog: pytest.LogCaptureFixture) -> list[logging.LogRecord]:
+        return [
+            r
+            for r in caplog.records
+            if r.levelno == logging.WARNING and "ariel.embedded_search" in r.getMessage()
+        ]
+
+    def test_the_field_is_gone(self) -> None:
+        assert not hasattr(ARIELConfig.from_dict(dict(self._DB)), "embedded_search")
+
+    @pytest.mark.parametrize("value", [True, False, "true", 1, None])
+    def test_any_value_loads_and_warns_once(
+        self, value: object, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        with caplog.at_level(logging.WARNING, logger=self._LOGGER):
+            config = ARIELConfig.from_dict({**self._DB, "embedded_search": value})
+        assert not hasattr(config, "embedded_search")
+        warnings = self._retirement_warnings(caplog)
+        assert len(warnings) == 1
+        assert "retired" in warnings[0].getMessage()
+
+    def test_warns_once_per_process(self, caplog: pytest.LogCaptureFixture) -> None:
+        with caplog.at_level(logging.WARNING, logger=self._LOGGER):
+            for _ in range(3):
+                ARIELConfig.from_dict({**self._DB, "embedded_search": True})
+        assert len(self._retirement_warnings(caplog)) == 1
+
+    def test_absent_key_is_quiet(self, caplog: pytest.LogCaptureFixture) -> None:
+        with caplog.at_level(logging.WARNING, logger=self._LOGGER):
+            ARIELConfig.from_dict(dict(self._DB))
+        assert not self._retirement_warnings(caplog)
 
 
 class TestEntryTextConfig:
