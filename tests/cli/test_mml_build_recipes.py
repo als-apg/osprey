@@ -42,6 +42,7 @@ import yaml
 from click.testing import CliRunner, Result
 
 from osprey.cli.main import cli
+from osprey.facility import DEFAULT_ROLE
 from osprey.facility.records import FacilityRecords
 from osprey_connectors import yaml_loader
 from tests.cli._lifecycle_build import rendered_config
@@ -68,6 +69,9 @@ MIDDLE_LAYER_SETTINGS = (
     "agents=[channel-finder]",
     "config.claude_code.servers.channel-finder.enabled=true",
 )
+
+#: The remedy of the stop a preset's start set meets once an import replaced its facility.
+NO_START_SET = "config.simulation.default_scenarios=[]"
 
 #: The supported trees ``osprey build`` is claimed to accept, from the registry.
 BUILT_TREES = names("builds")
@@ -144,20 +148,6 @@ def import_facility(runner: CliRunner, repo: Path, exports: Sequence[str], mappi
     target.parent.mkdir(parents=True, exist_ok=True)
     shutil.copyfile(mapping, target)
     return invoke(runner, "facility", "import", "mml", *exports, "--repo", str(repo))
-
-
-def imported_probe(repo: Path) -> str:
-    """The first readback by address of the import's channels.
-
-    The rule the build's served-probe stop names its remedy by: a channel whose
-    role is ``readback`` or states none.
-    """
-    channels = yaml_loader.safe_load(
-        (repo / FACILITY_DIR / "imported/mml/channels.yaml").read_text(encoding="utf-8")
-    )
-    return min(
-        str(channel["id"]) for channel in channels if channel.get("role", "readback") == "readback"
-    )
 
 
 def seed_stops(stderr: str) -> dict[str, tuple[str, float]]:
@@ -384,14 +374,7 @@ def drive_served_recipe(tree: str, workdir: Path) -> dict[str, Any]:
 
     invoke(runner, "init", str(repo), "--preset", "control-assistant", "--no-git")
     imported = import_facility(runner, repo, exports, facility_mapping(fixture))
-    invoke(
-        runner,
-        "set",
-        "--repo",
-        str(repo),
-        f"config.control_system.connector.virtual_accelerator.probe_channel={imported_probe(repo)}",
-    )
-    invoke(runner, "set", "--repo", str(repo), *MIDDLE_LAYER_SETTINGS)
+    invoke(runner, "set", "--repo", str(repo), NO_START_SET, *MIDDLE_LAYER_SETTINGS)
 
     validate = invoke(runner, "validate", "--repo", str(repo), "--drift=warn")
     stopped, remedied, build = build_past_the_seed_stops(
@@ -477,6 +460,15 @@ class TestHelloWorldMiddleLayer:
             rendered_config(middle_layer_repo["repo"])["channel_finder"]["pipeline_mode"]
             == "middle_layer"
         )
+
+
+def test_the_rendered_probe_is_a_readback_of_the_imported_tree(served_repo: dict) -> None:
+    repo = served_repo["repo"]
+    config = yaml_loader.safe_load((repo / "build" / "config.yml").read_text(encoding="utf-8"))
+    probe = config["control_system"]["connector"]["virtual_accelerator"]["probe_channel"]
+    channels = json.loads((repo / "build" / "facility.json").read_text(encoding="utf-8"))
+    (channel,) = [record for record in channels["channels"] if record["id"] == probe]
+    assert channel.get("role", DEFAULT_ROLE) == "readback"
 
 
 class TestServedFromATwoZeroExport:
