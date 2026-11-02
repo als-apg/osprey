@@ -465,8 +465,33 @@ def test_the_review_spends_what_the_budget_leaves_the_prompt(deployment, argv, c
     deployment.run(EXECUTE, _execute(), argv=argv)
 
     (call,) = deployment.stub.calls
-    assert call["settings"].time_limit == limit
+    # Less the instant the stubbed switch read took.
+    assert call["settings"].time_limit == pytest.approx(limit, abs=0.05)
+    assert call["settings"].time_limit <= limit
     assert call["settings"].level == "block"
+
+
+def _slow_switch():
+    time.sleep(0.3)
+
+
+def test_the_switch_read_spends_the_budget_before_the_review(deployment):
+    deployment.configure({"enabled": True, "level": "block", "time_limit": 60})
+    deployment.monkeypatch.setattr("osprey.services.code_review.switch.switched_off", _slow_switch)
+
+    deployment.run(EXECUTE, _execute(), argv=("--budget", "15"))
+
+    (call,) = deployment.stub.calls
+    assert call["settings"].time_limit <= 10 - 0.3
+
+
+def test_a_switch_read_that_spends_the_budget_leaves_the_review_to_the_executor(deployment):
+    deployment.configure({"enabled": True, "level": "block", "time_limit": 60})
+    deployment.monkeypatch.setattr("osprey.services.code_review.switch.switched_off", _slow_switch)
+
+    output = deployment.run(EXECUTE, _execute(), argv=("--budget", "5.2"))
+
+    _assert_asked_unreviewed(deployment, output)
 
 
 def test_a_reason_is_kept_to_one_line_on_the_prompt(deployment):

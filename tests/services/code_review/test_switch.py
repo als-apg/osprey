@@ -8,11 +8,14 @@ agent standing in for the terminal and must leave the review running.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
+import socket
 import subprocess
 import sys
 import threading
+import time
 from collections import namedtuple
 from collections.abc import Iterator
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -29,6 +32,7 @@ OFF = {"on": False, "off_by": "alice", "off_at": 1700000000.5}
 
 #: Run in a child: ask the switch and print what came back.
 _ASK = """
+import contextlib
 import json
 from osprey.services.code_review.switch import switched_off
 off = switched_off()
@@ -190,6 +194,43 @@ def test_a_terminal_too_slow_to_answer_reviews(terminal, monkeypatch):
     monkeypatch.setattr(http_module, "fetch_code_review_switch", lambda: real(timeout=0.1))
 
     assert switched_off() is None
+
+
+@pytest.mark.parametrize("stage", ["status", "headers", "body"])
+def test_an_answer_dripped_slower_than_the_deadline_reviews_in_time(monkeypatch, stage):
+    """Every byte arrives well inside the timeout, yet the whole read gives up at it."""
+    answer = json.dumps(OFF).encode().ljust(4096)
+    head = f"HTTP/1.1 200 OK\r\nContent-Length: {len(answer)}\r\n\r\n".encode()
+    fast, drip = {
+        "status": (b"", head + answer),
+        "headers": (head[:20], head[20:] + answer),
+        "body": (head, answer),
+    }[stage]
+    listener = socket.create_server(("127.0.0.1", 0))
+    stop = threading.Event()
+
+    def serve() -> None:
+        conn, _ = listener.accept()
+        with conn:
+            conn.recv(4096)
+            conn.sendall(fast)
+            for byte in drip:
+                if stop.wait(0.05):
+                    return
+                with contextlib.suppress(OSError):
+                    conn.sendall(bytes([byte]))
+
+    server = threading.Thread(target=serve, daemon=True)
+    server.start()
+    monkeypatch.setenv("OSPREY_WEB_PORT", str(listener.getsockname()[1]))
+    try:
+        started = time.monotonic()
+        assert http_module.fetch_code_review_switch(timeout=0.5) is None
+        assert time.monotonic() - started < 1.5
+    finally:
+        stop.set()
+        server.join(timeout=5)
+        listener.close()
 
 
 def test_an_unreachable_terminal_reviews(terminal, monkeypatch):

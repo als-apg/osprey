@@ -2,6 +2,8 @@
 
 import contextlib
 import logging
+import socket
+import time
 
 logger = logging.getLogger("osprey.mcp_server.http")
 
@@ -337,7 +339,9 @@ def fetch_code_review_switch(timeout: float = 2) -> dict | None:
     asking, so an answer from anywhere else is no answer.
 
     .. warning::
-        A **blocking** call bounded by ``timeout``; async callers run it in a thread.
+        A **blocking** call bounded by ``timeout`` from the dial to the last byte read,
+        however the answer trickles in (:class:`_DeadlineSocket`); async callers run it
+        in a thread.
 
     Returns:
         The parsed JSON object, or ``None`` when no terminal is named, it cannot
@@ -351,8 +355,11 @@ def fetch_code_review_switch(timeout: float = 2) -> dict | None:
     port = os.environ.get("OSPREY_WEB_PORT", "").strip()
     if not port.isdigit():
         return None
+    deadline = time.monotonic() + timeout
     conn = http.client.HTTPConnection("127.0.0.1", int(port), timeout=timeout)
     try:
+        conn.connect()
+        conn.sock = _DeadlineSocket.adopt(conn.sock, deadline)
         conn.request("GET", CODE_REVIEW_SWITCH_ROUTE, headers=_panel_auth_headers())
         resp = conn.getresponse()
         body = resp.read(_SWITCH_BODY_LIMIT)
@@ -373,6 +380,43 @@ def fetch_code_review_switch(timeout: float = 2) -> dict | None:
 
 #: The most of a switch answer read; the real one is a few dozen bytes.
 _SWITCH_BODY_LIMIT = 4096
+
+
+class _DeadlineSocket(socket.socket):
+    """A socket whose every send and receive shares one wall-clock deadline.
+
+    A socket timeout bounds each operation alone, so a server dripping one byte
+    at a time keeps a reader waiting for as long as it likes. Here each call gets
+    only what is left of the deadline, and a call made after it has passed fails
+    at once with :class:`TimeoutError`.
+    """
+
+    _deadline: float
+
+    @classmethod
+    def adopt(cls, sock: socket.socket, deadline: float) -> "_DeadlineSocket":
+        """Take over *sock*'s connection, which must not be read through *sock* again."""
+        adopted = cls(sock.family, sock.type, sock.proto, fileno=sock.detach())
+        adopted._deadline = deadline
+        return adopted
+
+    def _arm(self) -> None:
+        remaining = self._deadline - time.monotonic()
+        if remaining <= 0:
+            raise TimeoutError("the code review switch read ran out of time")
+        self.settimeout(remaining)
+
+    def recv_into(self, buffer, nbytes=0, flags=0):
+        self._arm()
+        return super().recv_into(buffer, nbytes, flags)
+
+    def recv(self, bufsize, flags=0):
+        self._arm()
+        return super().recv(bufsize, flags)
+
+    def sendall(self, data, flags=0):
+        self._arm()
+        return super().sendall(data, flags)
 
 
 def _served_by_an_ancestor(ours: tuple[str, int], theirs: tuple[str, int]) -> bool:

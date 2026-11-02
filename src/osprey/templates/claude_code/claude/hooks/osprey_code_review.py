@@ -93,6 +93,7 @@ import dataclasses
 import json
 import os
 import sys
+import time
 import urllib.request
 from pathlib import Path
 
@@ -331,13 +332,13 @@ def _review(hook_input, tool_input, notebook_file, subject):
         )
         if request is None:
             return None
+        # The switch read spends the harness's deadline too, so the review gets what it left.
+        asked = time.monotonic()
         off = switched_off()
         if off is not None:
             return _conclude(hook_input, skip_switched_off(off, settings.level), request)
-        capped = dataclasses.replace(
-            settings,
-            time_limit=min(settings.time_limit, _parse_deadline(sys.argv) - HOOK_OVERHEAD_S),
-        )
+        left = _parse_deadline(sys.argv) - HOOK_OVERHEAD_S - (time.monotonic() - asked)
+        capped = dataclasses.replace(settings, time_limit=min(settings.time_limit, left))
         outcome = asyncio.run(
             review_code(
                 request,

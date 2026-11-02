@@ -468,6 +468,28 @@ def test_the_deadline_caps_the_review(env):
     assert env.audits[0]["detail"] == f"review=failure level=block kind=timeout {DIGEST}"
 
 
+def test_the_switch_read_spends_the_deadline_before_the_review(env):
+    env.config({"enabled": True, "level": "block", "time_limit": 600})
+    env.stub("pass")
+
+    def slow_switch():
+        time.sleep(0.3)
+
+    limits: list[float] = []
+    real = review_module.review_code
+
+    async def recording(request, settings, **kwargs):
+        limits.append(settings.time_limit)
+        return await real(request, settings, **kwargs)
+
+    env.monkeypatch.setattr("osprey.services.code_review.switch.switched_off", slow_switch)
+    env.monkeypatch.setattr(review_module, "review_code", recording)
+
+    assert env.run(env.notebook(), argv=("--deadline", str(HOOK_OVERHEAD_S + 10))) is None
+    [limit] = limits
+    assert limit <= 10 - 0.3
+
+
 def test_the_deadline_never_extends_the_time_limit(env):
     env.config({"enabled": True, "level": "block", "time_limit": 0.05})
     env.stub("pass", delay=5)

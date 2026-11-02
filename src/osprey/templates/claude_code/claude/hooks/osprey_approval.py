@@ -3104,9 +3104,15 @@ def _review_before_ask(hook_input, tool_name, short_name, tool_input):
             mode=mode,
             script_args=script_args,
         )
+        asked = time.monotonic()
         off = switched_off()
+        # The switch read spends the budget too; the review gets what it left, and
+        # with nothing left the executor reviews before the launch.
+        time_limit -= time.monotonic() - asked
         if off is not None:
             outcome = skip_switched_off(off, settings.level)
+        elif time_limit <= 0:
+            return nothing
         else:
             outcome = asyncio.run(
                 review_code(
