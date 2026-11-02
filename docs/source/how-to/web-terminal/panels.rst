@@ -63,7 +63,9 @@ Dragging sidebar rows
 
 Drag a Tools row up or down to change the order. The order is the same for
 everyone on the same terminal, and it stays after a reload. Drag a row onto
-the work pane instead to open the panel as a new tile where you drop it.
+the work pane instead to open the panel as a new tile where you drop it: on a
+tile's edge, or along an edge of the work pane (see
+:ref:`web-terminal-tiles`).
 
 Taking panels out of the sidebar
 --------------------------------
@@ -224,6 +226,26 @@ Two boundaries are worth saying out loud:
   headers that would act on the terminal's address on the way back — see the
   note under `Adding your own panel`_. A service that authenticates its own
   callers that way cannot be driven as a panel, themed or not.
+
+Handing keyboard focus back
+---------------------------
+
+A frame cannot move focus in the page around it, so a panel whose own Tab
+order runs out would trap the keyboard inside it. A panel hands focus back by
+posting to its parent when Tab (or Shift+Tab) leaves its last (or first)
+element:
+
+.. code-block:: javascript
+
+   window.parent.postMessage(
+     { type: 'osprey-focus-exit', direction: 'forward' },  // or 'backward'
+     window.location.origin,
+   );
+
+The terminal focuses the next (or previous) element of its own page, in
+document order relative to the panel's tile — after ``backward``, that is the
+tile's header. It acts only on a message from its own origin and from the
+frame of a panel it shows.
 
 The Bluesky panel
 -----------------

@@ -586,30 +586,6 @@ describe('the holder state', () => {
     expect(holder.resized(back)).toBe(true);
   });
 
-  test('adopt takes a tree of another shape as the layout, without an apply', () => {
-    const { api } = mountDock();
-    const holder = holderFor(api);
-    holder.restore(TWO_TILES);
-    holder.ack(1);
-    const fromJSON = vi.spyOn(api, 'fromJSON');
-    // dockview moved the terminal to the left on its own.
-    const moved = {
-      split: 'row',
-      items: [
-        { tile: 't2', tabs: ['terminal'], showing: 'terminal', size: 0.4 },
-        { tile: 't1', tabs: ['alpha', 'beta'], showing: 'alpha', size: 0.6 },
-      ],
-    };
-    expect(holder.adopt(/** @type {any} */ (moved))).toBe(true);
-    expect(shapeOf(holder.layout)).toEqual(shapeOf(moved));
-    expect(holder.dirty).toBe(true);
-    expect(fromJSON).not.toHaveBeenCalled();
-    // A same-shape tree is sizes only; an invalid one is refused.
-    expect(holder.adopt(/** @type {any} */ (moved))).toBe(true);
-    expect(holder.adopt(/** @type {any} */ ({ tile: 't1', tabs: [], showing: 'x' }))).toBe(false);
-    expect(shapeOf(holder.layout)).toEqual(shapeOf(moved));
-  });
-
   test('focused and last-service tiles follow show, focus and closes', () => {
     const holder = createLayoutHolder({ dockPx: DEFAULT_PX });
     holder.restore(TWO_TILES);

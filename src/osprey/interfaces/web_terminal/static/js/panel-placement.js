@@ -7,7 +7,8 @@
  * comes to exist and stay alive, and panel-sse.js owns the server→client
  * frame dispatcher that drives this module's applyAgentSwitch and
  * applyArrange. This module owns the tile geometry those states are applied
- * onto — the open-beside verb behind the rail's ⊞ corner and drag-and-drop,
+ * onto — the open-beside verb behind the rail's ⊞ corner, the landing of a
+ * sidebar row's drop,
  * the polite agent switch, and the whole-workspace rebuild a `panel_arrange`
  * frame requests.
  *
@@ -159,14 +160,13 @@ export function openPanelBeside(panelId) {
 }
 
 /**
- * Open (or move) a panel at an explicit drop position — the rail's
- * drag-and-drop landing, the precise half of the open-beside verb.
+ * Reveal a panel a sidebar row's drop has just placed (rail-drag.js's landing):
+ * the engine put its tab where the row was dropped and the holder has applied
+ * it; what is left is the activation tail every other open uses.
  * @param {string} panelId
- * @param {{referenceGroup?: any, direction: string} | null} position
+ * @param {{ wasOnScreen: boolean }} info  whether the panel held a tab before the drop
  */
-export function dropPanelAt(panelId, position) {
-  const wasOnScreen = hasDockedTile(panelId);
-  dockPanelAt(panelId, ctx().label(panelId), position);
+export function landDroppedPanel(panelId, { wasOnScreen }) {
   revealOpenedPanel(panelId, wasOnScreen);
 }
 

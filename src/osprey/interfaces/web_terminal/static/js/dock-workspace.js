@@ -16,7 +16,9 @@ import {
   initLayoutHolder,
   keyOfPanelId,
   panelIdOf,
+  sameShape,
 } from './dock-apply.js';
+import { initDockDrop } from './dock-drop.js';
 import { closeKey, defaultLayout, reopenTerminal } from './dock-open.js';
 import { withEchoSuppressed } from './dock-sync.js';
 import { onPopoutChange } from './popout.js';
@@ -266,17 +268,16 @@ export function initDockWorkspace() {
       if (options.name === PANEL_TERMINAL) return terminalRenderer;
       return { element: document.createElement('div'), init() {} };
     },
-    // Every tile's tab renders as the host header bar (title/actions) — see
-    // dock-tab.js. defaultTabComponent routes panels with no explicit
-    // tabComponent (i.e. all of them, including restored layouts) through
-    // createTabComponent.
+    // Every tile's tab renders as the host header bar (identity, tabs,
+    // actions) — see dock-tab.js. defaultTabComponent routes panels with no
+    // explicit tabComponent (i.e. all of them, including restored layouts)
+    // through createTabComponent. Of a tile's tabs only the showing one is on
+    // screen (dockview-overrides.css hides the inactive ones), so the bar
+    // spans its tile and the close control anchors at the tile's right edge;
+    // with one tab dockview's own full-width mode does the same stretching
+    // and collapses the void container (its empty-space drag surface).
     createTabComponent: (/** @type {{ id: string }} */ options) => createTileTab(options.id),
     defaultTabComponent: OSPREY_TAB_COMPONENT,
-    // One panel per tile means every tab is a lone tab: stretch it across the
-    // whole strip so the bar spans its tile, the close control anchors at the
-    // tile's right edge, and the void container (dockview's empty-space drag
-    // surface) collapses to zero. Without this the tab is sized to its
-    // content and two thirds of the "bar" is void painted a different color.
     singleTabMode: 'fullwidth',
   });
 
@@ -297,25 +298,16 @@ export function initDockWorkspace() {
   // a correct light/dark default.
   wireDockTheme(root);
 
-  // One panel per tile: the sidebar is the workspace's tab system, so no drop may
-  // create a tab stack. Veto every drop geometry that would stack — onto a
-  // tile's tab strip, its empty header space, or its center — leaving edge
-  // drops (splits) as the only accepted targets. The veto MUST be subscribed
-  // on each GROUP MODEL: that is the emitter whose defaultPrevented the group's
-  // handleDropEvent checks before applying a drop — this dockview build routes
-  // group willDrop/willShowOverlay only to an internal dnd service, never to
-  // the api-level events, so an api.onWillDrop veto would see nothing.
-  // onWillDrop is the hard gate (checked on every dnd strategy immediately
-  // before the move); onWillShowOverlay gets the same predicate so a doomed
-  // target never even paints a drop highlight.
-  wireStackingVeto(dockApi);
+  // The engine decides every drop (dock-drop.js): dockview's overlays and
+  // drops are all prevented, and the drag shield is raised from the drag
+  // sources' own start hooks.
+  initDockDrop(dockApi, root);
 
   wireHolderSync(dockApi, layoutHolder);
 
   arrangeDefaultLayout();
 
   wireTerminalRefit(dockApi);
-  wirePointerShield(dockApi, root);
 
   // Fire-and-forget: the default layout above is already usable, so a slow or
   // failed /api/panels fetch just means "no persistence this session". A stored
@@ -324,61 +316,26 @@ export function initDockWorkspace() {
 }
 
 /**
- * A drop geometry that would stack panels as tabs in one tile: onto a tab, the
- * tab strip's empty header space, or a tile's center. Edge drops (splits) are
- * the only accepted geometry under the one-panel-per-tile model.
- * @param {any} e  a dockview WillShowOverlay / WillDrop event
- * @returns {boolean}
- */
-function isStackingDrop(e) {
-  return (
-    e.kind === 'tab' ||
-    e.kind === 'header_space' ||
-    (e.kind === 'content' && e.position === 'center')
-  );
-}
-
-/**
- * Subscribe the stacking veto on every group's model — current groups and every
- * group dockview creates later. Group models are where dockview checks
- * defaultPrevented before applying a drop (see the call-site comment in
- * initDockWorkspace). Subscriptions live as long as their group; dockview
- * disposes the model's emitters with the group, so no manual teardown.
- * @param {any} api
- */
-function wireStackingVeto(api) {
-  const veto = (/** @type {any} */ e) => {
-    if (isStackingDrop(e)) e.preventDefault();
-  };
-  const wireGroup = (/** @type {any} */ group) => {
-    const model = group?.model;
-    if (typeof model?.onWillDrop !== 'function') return;
-    model.onWillDrop(veto);
-    if (typeof model.onWillShowOverlay === 'function') model.onWillShowOverlay(veto);
-  };
-  api.onDidAddGroup(wireGroup);
-  for (const group of api.groups ?? []) wireGroup(group);
-}
-
-/**
- * Keep the holder in step with what dockview does on its own.
+ * Keep the holder in step with the one change dockview makes by itself.
  *
- * dockview still owns two gestures the holder does not compute: its
- * drag-and-drop of a tile (a split elsewhere in the grid) and a sash drag. Both
- * settle in onDidLayoutChange, where the grid is read back: a tree of the held
- * shape carries new sizes, any other tree is the one dockview built, and the
- * holder follows it without re-applying. An apply of the holder's own lands
- * here too, as the same tree it just wrote, and changes nothing.
+ * Every open, close and drop is a holder operation (dock-drop.js prevents
+ * dockview's own drops), so dockview changes only SIZES on its own: a sash
+ * drag, or the dock itself changing size. Both settle in onDidLayoutChange,
+ * where the grid is read back and, when it is the held tree up to sizes, its
+ * sizes are taken — never re-applied. An apply of the holder's own lands here
+ * too, as the same tree it just wrote, and changes nothing; a tree of another
+ * shape is dockview mid-rebuild and says nothing.
  *
  * The focused tile follows dockview's active panel (a tab click, the focus of
- * a rebuilt group); applies are held while a drag is live; and a panel moving
- * to or from its own pop-out window is recorded on the holder, which is the
- * layout the agent reads.
+ * a rebuilt group), and a panel moving to or from its own pop-out window is
+ * recorded on the holder, which is the layout the agent reads.
  * @param {any} api
  * @param {LayoutHolder} holder
  */
 function wireHolderSync(api, holder) {
   api.onDidActivePanelChange(() => {
+    // The rebuild activates each panel it adds; only the layout says what shows.
+    if (holder.applying) return;
     const active = api.activePanel;
     const key = keyOfPanelId(active?.id);
     const tile = active?.group?.id;
@@ -391,12 +348,9 @@ function wireHolderSync(api, holder) {
     } catch {
       return;
     }
-    if (next === null && holder.layout !== null) return; // a grid mid-rebuild says nothing
-    holder.adopt(next);
-  });
-  onDragGesture(api, {
-    onStart: () => holder.setDragLive(true),
-    onEnd: () => holder.setDragLive(false),
+    if (next !== null && holder.layout !== null && sameShape(holder.layout, next)) {
+      holder.resized(next);
+    }
   });
   onPopoutChange((panelId, poppedOut) => holder.setPoppedOut(panelId, poppedOut));
 }
@@ -440,64 +394,6 @@ function wireTerminalRefit(api) {
   const refit = () => fitTerminal();
   api.onDidLayoutChange(refit);
   api.onDidActivePanelChange(refit);
-}
-
-/**
- * Pointer-shield for dockview drags. During an HTML5 tab/group drag, an iframe
- * (a separate browsing context) swallows the pointer/drag events that pass over
- * it, which would break dockview's drop-target detection over any panel hosting
- * one. dockview neutralizes iframe pointer-capture internally for its own
- * draggables; this mirrors and widens that guarantee across the whole drag
- * lifecycle by toggling a `.dock-dragging` state class on .main-container, under
- * which panel iframes get `pointer-events: none` (see terminal.css).
- *
- * A covering pointer-events overlay is deliberately NOT used: dockview attaches
- * its dragenter/dragover/drop listeners on each GROUP element, so a layer opaque
- * to pointers sitting above the groups would intercept those events and break
- * docking. Neutralizing the iframes — not the dockview chrome — is the shield.
- * @param {any} api
- * @param {HTMLElement} root
- */
-function wirePointerShield(api, root) {
-  const container = root.closest('.main-container');
-  if (!(container instanceof HTMLElement)) return;
-  onDragGesture(api, {
-    onStart: () => container.classList.add('dock-dragging'),
-    onEnd: () => container.classList.remove('dock-dragging'),
-  });
-}
-
-// The gesture's natural terminators: dockview exposes no explicit drag-END api
-// event, so both shields watch the document for these (covers completed AND
-// cancelled drags, and both the HTML5 and pointer dnd strategies).
-const DRAG_TERMINATORS = ['dragend', 'drop', 'mouseup', 'pointerup'];
-
-/**
- * Run onStart when a dockview drag gesture begins (onWillDrag{Panel,Group}) and
- * onEnd when it ends. The end is inferred from DRAG_TERMINATORS on the document
- * since dockview emits no drag-END event; the terminator listeners are capture-
- * phase and self-removing. Re-entrancy-guarded so a gesture is raised at most
- * once. The single drag-boundary both drag shields share — this module's
- * `.dock-dragging` class toggle and dock-iframe.js's inline iframe pointer-events
- * (which the class rule can't reach past their inline style).
- * @param {any} api
- * @param {{ onStart: () => void, onEnd: () => void }} handlers
- * @returns {any[]} the onWillDrag disposables
- */
-export function onDragGesture(api, { onStart, onEnd }) {
-  let active = false;
-  const raise = () => {
-    if (active) return;
-    active = true;
-    onStart();
-    const lower = () => {
-      active = false;
-      onEnd();
-      for (const type of DRAG_TERMINATORS) document.removeEventListener(type, lower, true);
-    };
-    for (const type of DRAG_TERMINATORS) document.addEventListener(type, lower, true);
-  };
-  return [api.onWillDragPanel(raise), api.onWillDragGroup(raise)];
 }
 
 /**

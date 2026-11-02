@@ -381,3 +381,34 @@ describe('sash drags — dockview owns the iframe shield (#638)', () => {
     expect(iframe.style.pointerEvents).toBe('auto');
   });
 });
+
+describe('panelFocusAnchor — where a panel sits in the host tab order', () => {
+  test("dock mode: the placeholder group's content container, with the overlay to skip", async () => {
+    const { mod, api } = await freshAdapter(row(tile('t1', ['ariel']), TERMINAL));
+    const iframe = open(mod, 'ariel');
+    const found = mod.panelFocusAnchor(iframe.contentWindow);
+    const group = api.getPanel('iframe:ariel').group;
+    expect(found?.anchor).toBe(group.element.querySelector('.dv-content-container'));
+    expect(found?.skip(iframe)).toBe(true);
+    expect(found?.skip(group.element)).toBe(false);
+  });
+
+  test('a window that is no managed frame anchors nowhere', async () => {
+    const { mod } = await freshAdapter(row(tile('t1', ['ariel']), TERMINAL));
+    open(mod, 'ariel');
+    expect(mod.panelFocusAnchor(/** @type {any} */ ({}))).toBeNull();
+    expect(mod.panelFocusAnchor(null)).toBeNull();
+  });
+
+  test('fallback mount: the iframe itself', async () => {
+    const mod = await import(ADAPTER);
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    mod.initDockIframeAdapter({ fallbackHost: host });
+    const iframe = makeIframe();
+    mod.adoptIframe('ariel', iframe, { title: 'ARIEL' });
+    const found = mod.panelFocusAnchor(iframe.contentWindow);
+    expect(found?.anchor).toBe(iframe);
+    expect(found?.skip(iframe)).toBe(false);
+  });
+});

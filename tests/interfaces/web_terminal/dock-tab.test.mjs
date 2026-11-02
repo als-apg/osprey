@@ -2,10 +2,11 @@
  * Contract tests for the tile-tab renderer (dock-tab.js): the custom dockview
  * tab that IS each tile's header bar. Every tile gets the same bar — identity
  * on the left, actions right-anchored; the bar itself is the drag handle.
- * Service tiles carry a visible `.tile-tab-title` and a Pop out button; the
+ * Service tiles carry a visible `.tile-tab-title` and a Pop out button, and a
+ * TAB STRIP in place of the title once the tile holds several tabs; the
  * Agent tile adopts a live bar instead — the chat console's `.op-session-bar`
  * in chat, the `.terminal-header` on the terminal surface. Run:
- *   npx vitest run tests/interfaces/web_terminal/tile-tab.test.mjs
+ *   npx vitest run tests/interfaces/web_terminal/dock-tab.test.mjs
  */
 import { test, expect, describe, beforeEach, afterEach, vi } from 'vitest';
 
@@ -672,5 +673,332 @@ describe('tile header context menu', () => {
     expect(id).toBe('terminal');
     expect(opts.anchorEl).toBe(bar);
     document.documentElement.removeAttribute('data-agent-surface');
+  });
+});
+
+/**
+ * A dockview group with `entries` as its panels: `[id, title]` pairs, the one
+ * at `activeIndex` showing. Its model emits the three panel events the bar
+ * follows, each panel's api answers `setActive` by making it the group's
+ * active panel, and `rename` fires the panel's title change.
+ * @param {[string, string][]} entries
+ * @param {number} [activeIndex]
+ */
+function fakeGroup(entries, activeIndex = 0) {
+  /** @type {Record<string, Array<(e: any) => void>>} */
+  const listeners = { add: [], remove: [], active: [] };
+  /** @param {Array<(e: any) => void>} list */
+  const emitter = (list) =>
+    vi.fn((/** @type {(e: any) => void} */ fn) => {
+      list.push(fn);
+      return {
+        dispose: () => {
+          const i = list.indexOf(fn);
+          if (i >= 0) list.splice(i, 1);
+        },
+      };
+    });
+  /** @type {any} */
+  const group = {
+    id: 't1',
+    model: {
+      onDidAddPanel: emitter(listeners.add),
+      onDidRemovePanel: emitter(listeners.remove),
+      onDidActivePanelChange: emitter(listeners.active),
+    },
+    panels: [],
+    activePanel: null,
+  };
+  /** @param {string} id @param {string} title */
+  const panelOf = (id, title) => {
+    /** @type {Array<(e: any) => void>} */
+    const titleListeners = [];
+    /** @type {any} */
+    const panel = {
+      id,
+      title,
+      api: {
+        setActive: vi.fn(() => {
+          group.activePanel = panel;
+          for (const fn of [...listeners.active]) fn({});
+        }),
+        onDidTitleChange: vi.fn((/** @type {(e: any) => void} */ fn) => {
+          titleListeners.push(fn);
+          return { dispose: vi.fn() };
+        }),
+        onDidGroupChange: vi.fn(() => ({ dispose: vi.fn() })),
+        close: vi.fn(),
+        get group() {
+          return group;
+        },
+      },
+      /** @param {string} next */
+      rename(next) {
+        panel.title = next;
+        for (const fn of [...titleListeners]) fn({ title: next });
+      },
+    };
+    return panel;
+  };
+  group.panels = entries.map(([id, title]) => panelOf(id, title));
+  group.activePanel = group.panels[activeIndex] ?? null;
+  /** @param {string} id @param {string} title */
+  group.add = (id, title) => {
+    const panel = panelOf(id, title);
+    group.panels.push(panel);
+    for (const fn of [...listeners.add]) fn({});
+    return panel;
+  };
+  /** @param {string} id */
+  group.remove = (id) => {
+    group.panels = group.panels.filter((/** @type {any} */ p) => p.id !== id);
+    if (group.activePanel?.id === id) group.activePanel = group.panels[0] ?? null;
+    for (const fn of [...listeners.remove]) fn({});
+  };
+  return group;
+}
+
+/**
+ * The bar of `panel` in `group`, built and initialised as dockview does, and
+ * mounted inside a `.dv-tab` (active unless `inactive`) under `.dv-groupview`.
+ * @param {any} mod  the dock-tab module
+ * @param {any} panel
+ * @param {{ inactive?: boolean, header?: HTMLElement }} [opts]
+ */
+function mountBar(mod, panel, { inactive = false, header } = {}) {
+  const tab = mod.createTileTab(panel.id);
+  tab.init({ title: panel.title, params: {}, api: panel.api });
+  const host = header ?? document.createElement('div');
+  if (!header) {
+    host.className = 'dv-groupview';
+    document.body.appendChild(host);
+  }
+  let strip = host.querySelector('.dv-tabs-and-actions-container');
+  if (!strip) {
+    strip = document.createElement('div');
+    strip.className = 'dv-tabs-and-actions-container';
+    host.appendChild(strip);
+  }
+  const dvTab = document.createElement('div');
+  dvTab.className = inactive ? 'dv-tab dv-inactive-tab' : 'dv-tab dv-active-tab';
+  dvTab.appendChild(tab.element);
+  strip.appendChild(dvTab);
+  return { tab, host };
+}
+
+/** @param {HTMLElement} root */
+const items = (root) =>
+  [...root.querySelectorAll('.tile-tab-item')].map((el) => ({
+    key: el.getAttribute('data-panel-key'),
+    text: el.textContent,
+    showing: el.classList.contains('tile-tab-item--showing'),
+    selected: el.getAttribute('aria-selected'),
+  }));
+
+describe('a tile with tabs', () => {
+  beforeEach(() => {
+    vi.resetModules();
+    document.body.innerHTML = '';
+    closeDockPanel.mockClear();
+  });
+
+  test('one tab renders the title, no strip, a tile close, and the tile and key stamps', async () => {
+    const mod = await import(MOD);
+    const group = fakeGroup([['iframe:ariel', 'ARIEL']]);
+    const { tab } = mountBar(mod, group.panels[0]);
+    const root = tab.element;
+    expect(root.dataset.tile).toBe('t1');
+    expect(root.getAttribute('data-panel-key')).toBe('ariel');
+    const title = /** @type {HTMLElement} */ (root.querySelector('.tile-tab-title'));
+    const strip = /** @type {HTMLElement} */ (root.querySelector('.tile-tab-tabs'));
+    expect(title.hidden).toBe(false);
+    expect(title.textContent).toBe('Ariel');
+    expect(strip.hidden).toBe(true);
+    expect(strip.children).toHaveLength(0);
+    expect(root.querySelector('.tile-tab-close')?.getAttribute('aria-label')).toBe('Close tile');
+  });
+
+  test('two tabs render the strip in bar order, the showing one marked, and a tab close', async () => {
+    const mod = await import(MOD);
+    const group = fakeGroup(
+      [
+        ['iframe:ariel', 'ARIEL'],
+        ['iframe:okf', 'KNOWLEDGE'],
+      ],
+      1
+    );
+    const { tab } = mountBar(mod, group.panels[1]);
+    const root = tab.element;
+    const title = /** @type {HTMLElement} */ (root.querySelector('.tile-tab-title'));
+    const strip = /** @type {HTMLElement} */ (root.querySelector('.tile-tab-tabs'));
+    expect(title.hidden).toBe(true);
+    expect(strip.hidden).toBe(false);
+    expect(strip.getAttribute('role')).toBe('tablist');
+    expect(strip.tabIndex).toBe(0);
+    expect(items(root)).toEqual([
+      { key: 'ariel', text: 'Ariel', showing: false, selected: 'false' },
+      { key: 'okf', text: 'Knowledge', showing: true, selected: 'true' },
+    ]);
+    expect(strip.getAttribute('aria-activedescendant')).toBe('tile-tab-item-t1-okf');
+    for (const item of strip.querySelectorAll('.tile-tab-item')) {
+      expect(item.getAttribute('role')).toBe('tab');
+      expect(/** @type {HTMLElement} */ (item).draggable).toBe(true);
+      expect(/** @type {HTMLElement} */ (item).tabIndex).toBe(-1);
+    }
+    expect(root.querySelector('.tile-tab-close')?.getAttribute('aria-label')).toBe('Close tab');
+    // The root still names its own panel, the one it was built for.
+    expect(root.getAttribute('aria-label')).toBe('Knowledge');
+  });
+
+  test('a panel joining or leaving the tile re-renders the strip; a rename renames its item', async () => {
+    const mod = await import(MOD);
+    const group = fakeGroup([['iframe:ariel', 'ARIEL']]);
+    const { tab } = mountBar(mod, group.panels[0]);
+    const root = tab.element;
+    const strip = /** @type {HTMLElement} */ (root.querySelector('.tile-tab-tabs'));
+    const okf = group.add('iframe:okf', 'KNOWLEDGE');
+    expect(strip.hidden).toBe(false);
+    expect(items(root).map((i) => i.key)).toEqual(['ariel', 'okf']);
+    // A title change on a sibling the bar was built before it joined still
+    // reaches the strip: the title subscriptions are re-made on every change.
+    okf.rename('WIKI');
+    expect(items(root).map((i) => i.text)).toEqual(['Ariel', 'Wiki']);
+    group.remove('iframe:okf');
+    expect(strip.hidden).toBe(true);
+    expect(/** @type {HTMLElement} */ (root.querySelector('.tile-tab-title')).hidden).toBe(false);
+  });
+
+  test('a click on an item shows that tab in dockview', async () => {
+    const mod = await import(MOD);
+    const group = fakeGroup([
+      ['iframe:ariel', 'ARIEL'],
+      ['iframe:okf', 'KNOWLEDGE'],
+    ]);
+    const { tab } = mountBar(mod, group.panels[0]);
+    const okfItem = /** @type {HTMLElement} */ (
+      tab.element.querySelector('.tile-tab-item[data-panel-key="okf"]')
+    );
+    okfItem.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    expect(group.panels[1].api.setActive).toHaveBeenCalledTimes(1);
+    expect(group.panels[0].api.setActive).not.toHaveBeenCalled();
+    // dockview answered: the strip now marks the new showing tab.
+    expect(items(tab.element).find((i) => i.showing)?.key).toBe('okf');
+  });
+
+  test('arrow keys, Home and End on the strip move the showing tab, wrapping; Delete closes it', async () => {
+    const mod = await import(MOD);
+    const group = fakeGroup([
+      ['iframe:a', 'A'],
+      ['iframe:b', 'B'],
+      ['iframe:c', 'C'],
+    ]);
+    const { tab } = mountBar(mod, group.panels[0]);
+    const strip = /** @type {HTMLElement} */ (tab.element.querySelector('.tile-tab-tabs'));
+    /** @param {string} key */
+    const press = (key) =>
+      strip.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }));
+    press('ArrowLeft');
+    expect(group.activePanel.id).toBe('iframe:c');
+    press('ArrowRight');
+    expect(group.activePanel.id).toBe('iframe:a');
+    press('End');
+    expect(group.activePanel.id).toBe('iframe:c');
+    press('Home');
+    expect(group.activePanel.id).toBe('iframe:a');
+    press('Delete');
+    expect(closeDockPanel).toHaveBeenCalledExactlyOnceWith('a');
+  });
+
+  test('an item dragstart records {tab: key} for the drop bridge until the gesture ends', async () => {
+    const mod = await import(MOD);
+    const group = fakeGroup([
+      ['iframe:ariel', 'ARIEL'],
+      ['iframe:okf', 'KNOWLEDGE'],
+    ]);
+    const { tab } = mountBar(mod, group.panels[0]);
+    const seen = vi.fn();
+    const off = mod.onDockDragStart(seen);
+    /** @type {Record<string, string>} */
+    const store = {};
+    const dataTransfer = {
+      setData: (/** @type {string} */ t, /** @type {string} */ v) => {
+        store[t] = v;
+      },
+      effectAllowed: 'all',
+    };
+    const okfItem = /** @type {HTMLElement} */ (
+      tab.element.querySelector('.tile-tab-item[data-panel-key="okf"]')
+    );
+    const start = new MouseEvent('dragstart', { bubbles: true, cancelable: true });
+    Object.defineProperty(start, 'dataTransfer', { value: dataTransfer });
+    okfItem.dispatchEvent(start);
+    expect(mod.dockDragSource()).toEqual({ tab: 'okf' });
+    expect(seen).toHaveBeenCalledExactlyOnceWith({ tab: 'okf' });
+    expect(JSON.parse(store[mod.DOCK_SOURCE_MIME])).toEqual({ tab: 'okf' });
+    expect(store['text/plain']).toBe('okf');
+    expect(dataTransfer.effectAllowed).toBe('move');
+    document.dispatchEvent(new MouseEvent('dragend', { bubbles: true }));
+    expect(mod.dockDragSource()).toBeNull();
+    off();
+  });
+
+  test('a right-click on an item opens the menu for that tab, elsewhere for the showing one', async () => {
+    const mod = await import(MOD);
+    /** @type {import('vitest').Mock<(id: string, opts: any) => boolean>} */
+    const handler = vi.fn(() => true);
+    mod.setTileContextMenuHandler(handler);
+    const group = fakeGroup([
+      ['iframe:ariel', 'ARIEL'],
+      ['iframe:okf', 'KNOWLEDGE'],
+    ]);
+    const { tab } = mountBar(mod, group.panels[0]);
+    const okfItem = /** @type {HTMLElement} */ (
+      tab.element.querySelector('.tile-tab-item[data-panel-key="okf"]')
+    );
+    okfItem.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }));
+    expect(handler.mock.calls[0][0]).toBe('okf');
+    /** @type {HTMLElement} */ (tab.element.querySelector('.tile-tab-contrib')).dispatchEvent(
+      new MouseEvent('contextmenu', { bubbles: true, cancelable: true })
+    );
+    expect(handler.mock.calls[1][0]).toBe('ariel');
+    mod.setTileContextMenuHandler(null);
+  });
+
+  test('measureTabRects keys the showing bars by tile: the items of a strip, the lone title, none for the Agent tile', async () => {
+    const mod = await import(MOD);
+    mod.setTerminalHeaderSource(detachedTerminalHeader());
+    const two = fakeGroup([
+      ['iframe:ariel', 'ARIEL'],
+      ['iframe:okf', 'KNOWLEDGE'],
+    ]);
+    const { host } = mountBar(mod, two.panels[0]);
+    // The hidden sibling's bar renders the same strip but is not on screen.
+    mountBar(mod, two.panels[1], { inactive: true, header: host });
+    const one = fakeGroup([['iframe:lattice', 'LATTICE']]);
+    one.id = 't2';
+    mountBar(mod, one.panels[0]);
+    const agent = fakeGroup([['terminal', 'Agent']]);
+    agent.id = 't3';
+    mountBar(mod, agent.panels[0]);
+    const rects = mod.measureTabRects(document);
+    expect(Object.keys(rects).sort()).toEqual(['t1', 't2', 't3']);
+    expect(rects.t1.tabRects).toHaveLength(2);
+    expect(rects.t2.tabRects).toHaveLength(1);
+    expect(rects.t3.tabRects).toHaveLength(0);
+    for (const tile of Object.values(rects)) {
+      expect(Object.keys(tile.barRect).sort()).toEqual(['height', 'width', 'x', 'y']);
+    }
+  });
+
+  test('the Agent tile renders no strip, whatever its group holds', async () => {
+    const mod = await import(MOD);
+    mod.setTerminalHeaderSource(detachedTerminalHeader());
+    const group = fakeGroup([
+      ['terminal', 'Agent'],
+      ['iframe:ariel', 'ARIEL'],
+    ]);
+    const { tab } = mountBar(mod, group.panels[0]);
+    expect(tab.element.querySelector('.tile-tab-tabs')).toBeNull();
+    expect(tab.element.dataset.tile).toBe('t1');
   });
 });

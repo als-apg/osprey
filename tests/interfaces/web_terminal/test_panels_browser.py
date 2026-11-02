@@ -7,11 +7,11 @@ turns human dock gestures into the same server POSTs the agent's MCP calls make.
 These tests drive that stack through a real browser and a live SSE stream — the
 parts the FastAPI TestClient cannot reach.
 
-One panel per tile is a workspace invariant: the rail is the tab system, so an
-activation REPLACES the focused service tile's panel (the evicted panel closes
-server-side and dims on the rail), the "+" add menu and the rail entry's
-"Open in a new tile" are the verbs that open a NEW tile beside the current one,
-and no drop geometry may stack tabs.
+An activation REPLACES the focused service tile's panel (the evicted panel
+closes server-side and dims on the rail); the "+" add menu and the rail entry's
+"Open in a new tile" are the verbs that open a NEW tile beside the current one.
+A tile holds tabs: the dock engine (``dock-drop.js``) decides every drop, a
+tab dropped on another tile's header or centre joins it, an edge splits it.
 
 What is proven here, grouped:
 
@@ -23,8 +23,8 @@ What is proven here, grouped:
     exactly once, a human tab-close POSTs visibility(false), and a server-driven
     SSE focus is applied WITHOUT POSTing back (no feedback loop).
   * Drag rearrange via real Playwright drags — a tile moves to a new edge
-    position, and a drop that would stack (onto another tile's tab bar) is
-    vetoed — asserted with getBoundingClientRect geometry, and the overlay
+    position, and a tab dropped on another service tile's header joins it as
+    a tab — asserted with getBoundingClientRect geometry, and the overlay
     iframe re-following the dragged panel's new rectangle.
   * Layout persistence keyed by project_key: an arrangement survives a
     reload, two project cwds keep distinct layouts on one origin, reset restores
@@ -922,10 +922,10 @@ def test_open_beside_moves_docked_panel_instead_of_duplicating(tmp_path, chromiu
 # onUnhandledDragOver (accepted by rail-drag.js) and then onDidDrop. The drop
 # only registers once a dragover has been PROCESSED — dockview settles its
 # overlay state asynchronously and needs more than one dragover to resolve a
-# target — so each attempt polls for dockview's own drop-target overlay before
-# dropping rather than sleeping a fixed budget: a drop dispatched before that
-# overlay exists is silently ignored, a no-op the assertions can only report
-# as a missing tab. How long the whole gesture takes is load-dependent, so it
+# target — so each attempt polls for the drop bridge's split highlight before
+# dropping rather than sleeping a fixed budget: a drop dispatched before the
+# bridge has hit-tested the point is a no-op the assertions can only report as
+# a missing tab. How long the whole gesture takes is load-dependent, so it
 # is also RETRIED until the dock actually happened. The landing signal is the
 # tile bar dock-tab.js stamps for the placeholder
 # (`.tile-tab[data-panel-id="iframe:<id>"]`), the same DOM the caller's tab
@@ -942,34 +942,32 @@ _RAIL_DRAG_DROP_JS = """async (panelId) => {
         g.querySelector('.tile-tab-terminal'));
     const content = term.querySelector('.dv-content-container');
     const r = content.getBoundingClientRect();
-    // Just inside the grid's bottom edge band → dockview resolves
-    // { target: 'edge', position: 'bottom' } — a split against the grid edge
-    // (the group-targeted variant is covered by the ⊞ tests + unit suite;
-    // points deeper inside the content resolve 'center', which is refused).
+    // Just inside the dock's bottom strip → the engine resolves an outer
+    // bottom target: a new tile along the dock's bottom (points deeper inside
+    // the content are the tile's edge band or its centre, which a row never
+    // lands on).
     const x = r.left + r.width / 2;
     const y = r.bottom - 5;
     const opts = { bubbles: true, cancelable: true, dataTransfer: dt,
                    clientX: x, clientY: y };
     const target = document.elementFromPoint(x, y) ?? content;
-    // dockview paints .dv-drop-target-selection once it has resolved the drop
-    // position; the '-bottom' modifier is the edge split this drag intends, so
-    // gating each drop on it proves the geometry resolved the way the test
-    // claims. 20 attempts with a 500ms overlay budget each — an unloaded
+    // The bridge paints its split highlight once it has hit-tested the point,
+    // so gating each drop on it proves the geometry resolved the way the test
+    // claims. 20 attempts with a 500ms highlight budget each — an unloaded
     // machine lands on the first attempt in ~150ms, a loaded one gets an order
     // of magnitude more slack than any single hardcoded wait could give it.
     const ATTEMPTS = 20;
     const OVERLAY_BUDGET_MS = 500;
     const SETTLE_MS = 80;
-    const overlay = () => document.querySelector(
-        '.dv-drop-target-selection.dv-drop-target-bottom');
+    const overlay = () => document.querySelector('.dock-drop-preview__rect--split');
     const landed = () => !!document.querySelector(
         `.dv-groupview .dv-tab .tile-tab[data-panel-id="iframe:${panelId}"]`);
     let tries = 0;
     while (tries < ATTEMPTS && !landed()) {
         tries += 1;
-        // dockview clears its drop target on drop, so each attempt re-arms it
-        // with a fresh dragenter, then holds the dragover until dockview has
-        // painted the bottom-edge overlay before dispatching the drop.
+        // The bridge clears its highlight on drop, so each attempt re-arms it
+        // with a fresh dragenter, then holds the dragover until the split
+        // highlight is painted before dispatching the drop.
         target.dispatchEvent(new DragEvent('dragenter', opts));
         const deadline = performance.now() + OVERLAY_BUDGET_MS;
         while (!overlay() && performance.now() < deadline) {
@@ -986,8 +984,8 @@ _RAIL_DRAG_DROP_JS = """async (panelId) => {
     if (!landed()) {
         throw new Error(
             `RailDropNeverSettled: no tile appeared for 'iframe:${panelId}' after ` +
-            `${tries} overlay-gated drop attempts — the rail drop was never ` +
-            `accepted by dockview.`);
+            `${tries} highlight-gated drop attempts — the rail drop was never ` +
+            `accepted by the drop bridge.`);
     }
     return tries;
 }"""
@@ -997,9 +995,9 @@ def test_drag_rail_entry_to_tile_edge_opens_split(tmp_path, chromium_browser):
     """Dragging a rail entry onto a tile edge opens the panel as a new tile there.
 
     The precise half of the open-beside verb (rail-drag.js): the entry's HTML5
-    drag carries the panel id; dropping it near the bottom edge of the terminal
-    tile splits that tile and the panel fills the new half, then the normal
-    reveal tail focuses it.
+    drag carries the panel id; dropping it in the dock's bottom strip under the
+    terminal tile opens the panel as a new tile along the dock's bottom, then
+    the normal reveal tail focuses it.
     """
     workspace = tmp_path / "_agent_data"
     workspace.mkdir()
@@ -1216,8 +1214,7 @@ def test_drag_moves_tile_to_new_edge_position(tmp_path, chromium_browser):
 
     The artifacts tile starts left of the terminal. Dragging its tab to the
     right edge of the terminal group moves the tile to the far right; its
-    overlay iframe re-follows to the new rectangle. (Edge drops are the only
-    accepted drop geometry — see the veto test below.)
+    overlay iframe re-follows to the new rectangle.
     """
     workspace = tmp_path / "_agent_data"
     workspace.mkdir()
@@ -1269,20 +1266,17 @@ def test_drag_moves_tile_to_new_edge_position(tmp_path, chromium_browser):
         page.close()
 
 
-# Hold an HTML5 drag of one service tab over three targets and report what
-# dockview painted. The drag starts on the source tab's real dragstart handler
-# (dockview records the panel being dragged there). The first target is the
-# terminal group's right-edge band: an accepted split, so dockview paints its
-# `.dv-drop-target-selection` overlay — the proof that the synthetic drag is
-# one dockview recognises at all. The other two are the stacking geometries
-# on the target service tile: its tab title (the old restack gesture) and the
-# centre of its content. The stacking veto (dock-workspace.js
-# wireStackingVeto) must keep the overlay from painting on either, and the
-# drop dispatched on the title must not move anything. Each target is held
-# with repeated dragovers for a fixed budget, because dockview resolves its
-# overlay only after a dragover has been processed. Events go to the element
-# under the pointer, as a real drag would deliver them: dockview's tab drop
-# target does not answer events dispatched on the outer `.dv-tab`.
+# Hold an HTML5 drag of one service tab over three targets and report what the
+# drop bridge (dock-drop.js) painted. The drag starts on the source tab's real
+# dragstart handler (dockview's own tab drag, which the bridge records as the
+# tile). The first target is the terminal group's right-edge band: a split, so
+# the bridge paints its `.dock-drop-preview__rect--split` highlight — the proof
+# that the synthetic drag is one the bridge recognises at all. The other two
+# are the target service tile's title and the centre of its content: both add
+# a tab, so each paints the `--tab` highlight, and the drop dispatched on the
+# title joins the two panels in one tile. Each target is held with repeated
+# dragovers for a fixed budget. Events go to the element under the pointer, as
+# a real drag would deliver them.
 _TAB_DRAG_PROBE_JS = r"""async ({ source, target }) => {
     const tabOf = (label) => [...document.querySelectorAll('.dv-tab')].find(t =>
         t.querySelector(`.tile-tab[aria-label="${label}"]`));
@@ -1294,17 +1288,20 @@ _TAB_DRAG_PROBE_JS = r"""async ({ source, target }) => {
     const dt = new DataTransfer();
     src.dispatchEvent(new DragEvent('dragstart',
         { bubbles: true, cancelable: true, dataTransfer: dt }));
-    const overlay = () => !!document.querySelector('.dv-drop-target-selection');
+    const kind = () => {
+        const box = document.querySelector('.dock-drop-preview__rect');
+        return box ? [...box.classList].find((c) => c.startsWith('dock-drop-preview__rect--'))?.slice(25) ?? null : null;
+    };
     const hold = async (el, x, y) => {
         const opts = { bubbles: true, cancelable: true, dataTransfer: dt,
                        clientX: x, clientY: y };
         el.dispatchEvent(new DragEvent('dragenter', opts));
-        let painted = false;
+        let painted = null;
         const deadline = performance.now() + 600;
         while (performance.now() < deadline) {
             el.dispatchEvent(new DragEvent('dragover', opts));
             await new Promise((res) => setTimeout(res, 50));
-            painted = painted || overlay();
+            painted = kind() ?? painted;
         }
         return { painted, opts };
     };
@@ -1313,9 +1310,9 @@ _TAB_DRAG_PROBE_JS = r"""async ({ source, target }) => {
     const ex = c.right - 5, ey = c.top + c.height / 2;
     const edgeEl = document.elementFromPoint(ex, ey) ?? content;
     const edge = await hold(edgeEl, ex, ey);
-    edgeEl.dispatchEvent(new DragEvent('dragleave', edge.opts));
+    edgeEl.dispatchEvent(new DragEvent('dragleave', { ...edge.opts, relatedTarget: document.body }));
     await new Promise((res) => setTimeout(res, 100));
-    const clearedAfterEdge = !overlay();
+    const clearedAfterEdge = kind() === null;
     const at = async (el) => {
         const r = el.getBoundingClientRect();
         const x = r.left + r.width / 2, y = r.top + r.height / 2;
@@ -1323,8 +1320,6 @@ _TAB_DRAG_PROBE_JS = r"""async ({ source, target }) => {
         return { hit, ...(await hold(hit, x, y)) };
     };
     const centre = await at(dst.closest('.dv-groupview').querySelector('.dv-content-container'));
-    centre.hit.dispatchEvent(new DragEvent('dragleave', centre.opts));
-    await new Promise((res) => setTimeout(res, 100));
     // The artifacts tile hides its title behind the shell's breadcrumb root.
     const titleEl = [...dst.querySelectorAll('.osprey-crumb-root, .tile-tab-title')]
         .find((el) => el.getClientRects().length > 0);
@@ -1336,14 +1331,14 @@ _TAB_DRAG_PROBE_JS = r"""async ({ source, target }) => {
 }"""
 
 
-def test_drag_onto_tab_bar_is_vetoed_no_stack(tmp_path, chromium_browser):
-    """A drop that would stack two panels into one tile is vetoed.
+def test_drag_onto_a_tile_header_adds_a_tab(tmp_path, chromium_browser):
+    """A tab dropped on another service tile's header or centre joins it as a tab.
 
-    One panel per tile: dragging the data-viz tab onto the artifacts tile's tab
-    (the old restack gesture) or its centre never paints a drop target, and
-    the drop leaves every tile holding exactly one panel. The same drag held
-    over the terminal's right edge DOES paint one, so a drag dockview never
-    recognised cannot pass as a veto.
+    Dragging the data-viz tab over the artifacts tile's title or its centre
+    paints the add-as-tab highlight, and the drop on the title leaves one tile
+    holding both panels with the dropped one in front. The same drag held over
+    the terminal's right edge paints a split, so a drag the bridge never
+    recognised cannot pass as a tab drop.
     """
     workspace = tmp_path / "_agent_data"
     workspace.mkdir()
@@ -1360,21 +1355,28 @@ def test_drag_onto_tab_bar_is_vetoed_no_stack(tmp_path, chromium_browser):
         before = _dock_groups(page)
         assert all(len(g["tabs"]) == 1 for g in before), before
 
-        # Act — the restack gesture, with an accepted edge target as contrast.
+        # Act — the tab drop, with a split target as contrast.
         probe = page.evaluate(
             _TAB_DRAG_PROBE_JS, {"source": _title_case("DATA VIZ"), "target": "Artifacts"}
         )
         assert "error" not in probe, probe
-        assert probe["edgePainted"] is True, f"dockview never recognised the drag: {probe}"
+        assert probe["edgePainted"] == "split", f"the bridge never recognised the drag: {probe}"
         assert probe["clearedAfterEdge"] is True, probe
-        assert probe["centrePainted"] is False, f"a tile centre painted a drop overlay: {probe}"
-        assert probe["titlePainted"] is False, f"a tab title painted a drop overlay: {probe}"
-        page.wait_for_timeout(500)
+        assert probe["centrePainted"] == "tab", f"a tile centre painted no tab highlight: {probe}"
+        assert probe["titlePainted"] == "tab", f"a tile title painted no tab highlight: {probe}"
 
-        # Assert — vetoed: no group holds two tabs, arrangement unchanged.
+        # Assert — one tile holds both, the dropped tab in front and its header shown.
+        page.wait_for_function(
+            "() => [...document.querySelectorAll('.dv-groupview')]"
+            ".some(g => g.querySelectorAll('.dv-tab').length === 2)",
+            timeout=5_000,
+        )
         after = _dock_groups(page)
-        assert all(len(g["tabs"]) == 1 for g in after), (
-            f"a drop stacked two panels into one tile: {after}"
+        joined = [g for g in after if len(g["tabs"]) == 2]
+        assert len(joined) == 1 and sorted(joined[0]["tabs"]) == ["Artifacts", "Data Viz"], after
+        expect(_service_tab(page, "DATA VIZ").locator(".tile-tab-tabs")).to_be_visible()
+        expect(_service_tab(page, "DATA VIZ").locator(".tile-tab-item--showing")).to_have_attribute(
+            "data-panel-key", "data-viz"
         )
         assert sorted(t for g in after for t in g["tabs"]) == sorted(
             t for g in before for t in g["tabs"]

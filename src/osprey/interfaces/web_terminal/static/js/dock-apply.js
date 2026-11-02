@@ -10,8 +10,6 @@
  *
  *   - `run(op)`        an engine operation (open, close, move, ...);
  *   - `restore(l)`     a saved dock (validated, normalised, no undo record);
- *   - `adopt(l)`       a layout read back from dockview after a change dockview
- *                      made on its own (its drag-and-drop), never re-applied;
  *   - `show(tile, k)`  a person showed a tab: dockview already shows it, so
  *                      the holder records it and does NOT re-apply;
  *   - `resized(l, px)` a sash gesture or a dock size change: sizes only, from a
@@ -541,6 +539,7 @@ export function createLayoutHolder(deps = {}) {
   let dockPx = deps.dockPx ? { ...deps.dockPx } : null;
   let dragLive = false;
   let pending = false;
+  let applying = false;
 
   /** @returns {DockSize} */
   const px = () => dockPx ?? { width: api?.width ?? 0, height: api?.height ?? 0 };
@@ -575,11 +574,14 @@ export function createLayoutHolder(deps = {}) {
       newPanel: recordOf,
       activeTile: focusedTile,
     });
+    applying = true;
     try {
       guard(() => api.fromJSON(serialized));
     } catch (err) {
       console.error('dock: fromJSON failed', err);
       return Promise.resolve(false);
+    } finally {
+      applying = false;
     }
     return saved ? restoreFocus(api, saved, layout) : Promise.resolve(false);
   };
@@ -611,6 +613,11 @@ export function createLayoutHolder(deps = {}) {
     },
     get dragLive() {
       return dragLive;
+    },
+    /** Whether the holder is inside its own `fromJSON`: the active-panel
+     *  changes dockview fires while it rebuilds are not a person's. */
+    get applying() {
+      return applying;
     },
     /** The engine's dock argument for the current px. */
     dock,
@@ -664,26 +671,6 @@ export function createLayoutHolder(deps = {}) {
       dirty = true;
       track();
       void holder.apply();
-      return true;
-    },
-
-    /**
-     * Take a layout read back from dockview after a change dockview made on its
-     * own — its drag-and-drop moved a group. The screen is the truth then; the
-     * holder follows it and never re-applies. Sizes alone go through
-     * {@link resized}; a same-shape read-back is the same thing as that.
-     * False (and nothing changes) for an invalid layout.
-     * @param {Layout|null} next
-     * @returns {boolean}
-     */
-    adopt(next) {
-      if (next !== null && !validateLayout(next, { form: 'dock' }).valid) return false;
-      if (layout !== null && next !== null && sameShape(layout, next)) {
-        return holder.resized(next);
-      }
-      layout = next === null ? null : normalize(structuredClone(next));
-      dirty = true;
-      track();
       return true;
     },
 

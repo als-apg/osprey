@@ -67,7 +67,8 @@
  * export for the exact signature its consumer wires against.
  */
 
-import { getDockApi, onDragGesture, setServiceRedock } from './dock-workspace.js';
+import { getDockApi, setServiceRedock } from './dock-workspace.js';
+import { setDragShield } from './dock-drop.js';
 import {
   PLACEHOLDER_COMPONENT,
   PLACEHOLDER_PREFIX,
@@ -142,7 +143,9 @@ function ensureDock() {
     ensureOverlay();
     if (overlayEl) {
       disposers.push(api.onDidLayoutChange(syncGeometry), api.onDidActivePanelChange(syncGeometry));
-      wireDragShield(api);
+      // The drop bridge raises the drag shield over the overlay iframes for
+      // every dock drag (a header tab, a tile, a sidebar row).
+      setDragShield(setIframePointerShield);
       window.addEventListener('resize', syncGeometry);
       // After a default-layout rebuild (reset / restore-fallback) the grid holds
       // only the terminal — re-dock every visible managed panel's placeholder so
@@ -178,17 +181,8 @@ function ensureOverlay() {
  * Toggle the inline pointer shield over every managed overlay iframe. The
  * shared `.main-container.dock-dragging iframe { pointer-events:none }` rule
  * can't win against the inline `pointer-events:auto` these iframes carry, so
- * the toggle must be inline. Exported for rail-drag.js, whose HTML5 drags
- * start outside dockview and therefore outside onDragGesture's coverage.
- * @param {boolean} on
- */
-export function setIframePointerShield(on) {
-  for (const e of managed.values()) e.iframe.style.pointerEvents = on ? 'none' : 'auto';
-}
-
-/**
- * Re-apply dock-workspace.js's pointer shield to the overlay iframes across
- * every dockview-initiated drag gesture (start → any natural terminator).
+ * the toggle must be inline. Registered with the drop bridge (dock-drop.js),
+ * which raises it for every dock drag and lowers it at the drag's end.
  *
  * SASH drags need no shield here — and must not get one. dockview-core's own
  * sash handling already disables pointer-events on every iframe in the
@@ -200,15 +194,10 @@ export function setIframePointerShield(on) {
  * re-freezes every overlay iframe after the drag — permanently, since each
  * further drag re-snapshots the poisoned value. That was the issue-638
  * panel freeze; dock-iframe.test.mjs pins the gesture contract.
- * @param {any} api
+ * @param {boolean} on
  */
-function wireDragShield(api) {
-  disposers.push(
-    ...onDragGesture(api, {
-      onStart: () => setIframePointerShield(true),
-      onEnd: () => setIframePointerShield(false),
-    })
-  );
+export function setIframePointerShield(on) {
+  for (const e of managed.values()) e.iframe.style.pointerEvents = on ? 'none' : 'auto';
 }
 
 /**
@@ -808,4 +797,40 @@ function clearFallbackShown(panelId) {
   if (fallbackShownId !== panelId) return;
   fallbackShownId = null;
   paintFallbackNotice();
+}
+
+// ---- Focus exit -------------------------------------------------------------
+
+/**
+ * Where a panel sits in the host's TAB ORDER, for a panel that hands keyboard
+ * focus back to the host (`osprey-focus-exit`, handled in app.js).
+ *
+ * An overlay iframe lives in the overlay layer, whose place in the document has
+ * nothing to do with where its tile is drawn, so the iframe itself cannot say
+ * what comes before or after the panel. Its placeholder can: the placeholder
+ * group's content container sits in the dock exactly where the tile is, after
+ * that tile's header bar. That container is the anchor in dock mode. In
+ * fallback mount the iframe is in the panel host in normal flow and is its own
+ * anchor.
+ *
+ * `skip` is true for anything in the overlay layer, which a host walk must
+ * step over: other panels' overlay iframes are tabbable in the DOM but drawn
+ * somewhere else, so stopping on one would send focus to another tile. (In
+ * fallback mount the other panels' iframes are display:none, so not tabbable.)
+ *
+ * @param {MessageEventSource | null} source  the `event.source` of the message
+ * @returns {{ anchor: Element, skip: (el: Element) => boolean } | null}
+ *   null when the source is not a managed panel's frame, or the panel has no
+ *   live placeholder to anchor on
+ */
+export function panelFocusAnchor(source) {
+  const entry = source && [...managed.values()].find((e) => e.iframe.contentWindow === source);
+  if (!entry) return null;
+  const skip = (/** @type {Element} */ el) => !!overlayEl?.contains(el);
+  if (getDockApi() && overlayEl && entry.iframe.parentElement === overlayEl) {
+    const group = getDockApi().getPanel(entry.placeholderId)?.group;
+    const anchor = group?.element?.querySelector('.dv-content-container') ?? group?.element;
+    return anchor ? { anchor, skip } : null;
+  }
+  return entry.iframe.isConnected ? { anchor: entry.iframe, skip } : null;
 }

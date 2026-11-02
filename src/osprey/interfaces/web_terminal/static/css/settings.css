@@ -512,23 +512,6 @@
   color: var(--text-secondary);
 }
 
-.hook-debug-toast {
-  font-family: var(--font-mono);
-  font-size: var(--text-sm);
-  color: var(--color-accent-light);
-  margin-left: var(--space-3);
-  animation: hookToastFade 2.5s ease-out forwards; /* hygiene-allow-scale: decorative animation timing, not interaction-transition scale */
-}
-
-.hook-debug-toast.error {
-  color: var(--color-error);
-}
-
-@keyframes hookToastFade {
-  0%, 70% { opacity: 1; }
-  100% { opacity: 0; }
-}
-
 /* ---- Runtime safety switches (rows reuse the hook-debug bar) ---- */
 
 .safety-switch-row {

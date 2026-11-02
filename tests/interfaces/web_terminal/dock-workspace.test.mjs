@@ -427,7 +427,7 @@ describe('reset and the terminal go through the holder', () => {
   });
 });
 
-describe('what dockview does on its own is read back into the holder', () => {
+describe('what dockview does on its own is read back into the holder (sizes only)', () => {
   test('a tab click records the focused tile', async () => {
     localStorage.setItem(KEY, v2(SERVICE_AND_TERMINAL));
     const { api, holder } = await boot(null);
@@ -437,23 +437,6 @@ describe('what dockview does on its own is read back into the holder', () => {
     api.getPanel('iframe:ariel').api.setActive();
     expect(holder.focusedTile).toBe('t1');
     expect(holder.lastServiceTile).toBe('t1');
-  });
-
-  test('a tree dockview rebuilt itself is adopted, not re-applied', async () => {
-    localStorage.setItem(KEY, v2(SERVICE_AND_TERMINAL));
-    const { api, holder } = await boot(null);
-    const fromJSON = vi.spyOn(api, 'fromJSON');
-
-    // dockview moves the terminal's group to the left, as its own drag would.
-    api
-      .getPanel('terminal')
-      .group.api.moveTo({ group: api.getPanel('iframe:ariel').group, position: 'left' });
-    await settle();
-
-    expect(fromJSON).not.toHaveBeenCalled();
-    const items = holder.layout && 'items' in holder.layout ? holder.layout.items : [];
-    expect(items.map((/** @type {any} */ i) => i.tile)).toEqual(['t2', 't1']);
-    expect(items[0].tabs).toEqual(['terminal']);
   });
 
   test("a sash drag's sizes reach the holder", async () => {

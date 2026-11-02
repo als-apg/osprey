@@ -59,7 +59,7 @@ import {
   setPlaceholdersAppliedHandler,
   PLACEHOLDER_PREFIX,
 } from './dock-iframe.js';
-import { initPanelPlacement, dropPanelAt } from './panel-placement.js';
+import { initPanelPlacement, landDroppedPanel } from './panel-placement.js';
 import { createPanelIframe, framePanel } from './panel-iframe-factory.js';
 import { PANELS, TERMINAL_RAIL_ID, DEFAULT_PANEL_FALLBACK, titleCase } from './panel-catalog.js';
 import {
@@ -403,11 +403,11 @@ export async function initPanelManager(panelId) {
   subscribeTheme(() => broadcastToPopouts(sendThemeToWindow));
   onSessionChange(() => broadcastToPopouts(sendSessionToWindow));
 
-  // Rail drag-and-drop: a rail entry dropped on a tile edge opens (or moves)
-  // that panel as a new tile at the drop position, then reveals it through the
-  // same activate/show tail every other open path uses. Wires lazily like
-  // initDockSync; no-ops without a dock shell.
-  initRailDrag({ onDropPanel: dropPanelAt });
+  // Rail drag-and-drop: a sidebar row dropped on a tile edge or a dock edge
+  // opens (or moves) that panel as a new tile there — the drop bridge places
+  // it through the engine and the holder — and the landing reveals it through
+  // the same activate/show tail every other open path uses.
+  initRailDrag({ onRailDrop: landDroppedPanel, labelOf });
 
   // Fetch panel config and filter PANELS before rendering
   let panelConfig = null;
