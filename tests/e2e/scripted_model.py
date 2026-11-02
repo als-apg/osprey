@@ -25,6 +25,8 @@ from dataclasses import dataclass, field
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 
+from osprey.services.code_review.contract import SURFACE_EXECUTE, ReviewRequest, render_request
+
 #: The text turn that ends a run once the script is used up.
 FINAL_TEXT = "Scripted run complete."
 
@@ -33,9 +35,12 @@ FINAL_TEXT = "Scripted run complete."
 #: that to the endpoint and load that account's connectors into the session.
 SCRIPTED_AUTH_TOKEN = "scripted-model-token"
 
-#: How a code reviewer's message opens and the heading that closes it. The CLI's title
-#: request quotes the same text, but inside a ``<session>`` wrapper, so it opens otherwise.
-REVIEW_OPENING = "## Surface"
+#: How a code reviewer's message opens and the heading that closes it, taken from the message
+#: the reviewer is really sent. The CLI's title request quotes the same text, but inside a
+#: ``<session>`` wrapper, so it opens otherwise.
+REVIEW_OPENING = render_request(
+    ReviewRequest(surface=SURFACE_EXECUTE, code="", subject="")
+).splitlines()[0]
 REVIEW_REPLY_HEADING = "## Required reply"
 
 _MESSAGES_ROUTE = "/v1/messages"
