@@ -224,6 +224,7 @@ async def serialize_entries(
             file_source=file_source,
             full_captions=full_captions,
             view_enabled=view_enabled,
+            facility_records=getattr(repository, "facility_records", None),
         )
         for entry in entries
     ]

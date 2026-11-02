@@ -4,6 +4,7 @@ import inspect
 from datetime import UTC, datetime
 from unittest.mock import patch
 
+from osprey.facility.records import FacilityRecords
 from osprey.mcp_server.ariel import server
 from osprey.mcp_server.ariel.server import serialize_entry
 
@@ -228,3 +229,63 @@ def test_a_partial_keyword_hit_names_its_matched_and_missing_terms():
         )
     assert out["matched_terms"] == ["hp", "prep"]
     assert out["missing_terms"] == ["oct"]
+
+
+def _serialize_with_references(spans, *, records=None, text="TWIN then GONE", limit=100) -> dict:
+    entry = {**_entry(text), "facility_refs": spans}
+    with patch("osprey_connectors.config.get_config_value", _no_template):
+        return serialize_entry(
+            entry,
+            text_limit=limit,
+            attachment_limit=0,
+            attachment_rows=None,
+            model_id=None,
+            file_source=False,
+            facility_records=records,
+        )
+
+
+_SPANS = [
+    {"start": 0, "end": 4, "target": "TWIN", "kinds": ["channel", "device"]},
+    {"start": 10, "end": 14, "target": "GONE", "kinds": ["channel"]},
+]
+
+
+def test_an_entry_carries_its_facility_references_with_their_records():
+    records = FacilityRecords(
+        {"channels": [{"id": "TWIN", "unit": "A"}], "devices": [{"id": "TWIN"}]}
+    )
+
+    out = _serialize_with_references(_SPANS, records=records)
+
+    assert out["facility_references"] == [
+        {
+            "start": 0,
+            "end": 4,
+            "target": "TWIN",
+            "kinds": ["channel", "device"],
+            "label": None,
+            "records": [
+                {"kind": "channel", "id": "TWIN", "unit": "A"},
+                {"kind": "device", "id": "TWIN"},
+            ],
+        },
+        {"start": 10, "end": 14, "target": "GONE", "kinds": [], "label": None, "records": []},
+    ]
+
+
+def test_a_truncated_entry_lists_only_the_references_it_shows():
+    out = _serialize_with_references(_SPANS, records=FacilityRecords({}), limit=4)
+
+    assert [found["target"] for found in out["facility_references"]] == ["TWIN"]
+
+
+def test_an_unchecked_entry_carries_no_facility_references():
+    assert "facility_references" not in _serialize_with_references(None)
+
+
+def test_a_checked_entry_without_a_facility_file_at_read_time_has_null_records():
+    (first, _second) = _serialize_with_references(_SPANS)["facility_references"]
+
+    assert first["records"] is None
+    assert first["kinds"] == ["channel", "device"]
