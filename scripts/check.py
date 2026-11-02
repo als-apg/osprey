@@ -51,9 +51,11 @@ moved away touches the scope it left. The test runners get only the tests the
 changed paths map to. A path the mapping cannot place widens that runner to its
 whole selection; scoping never narrows. A script a check runs through, and a
 checks module, selects ``tests/scripts/``; a file under ``tests/<dir>/`` selects
-that directory when it holds a test module and widens otherwise. Each widening
-prints ``check: <id>: widened by <path>: <rule>`` before any check runs. A base
-also arms the checks that judge a range. Paths after ``--`` are test files, pytest node ids
+that directory when it holds a test module and widens otherwise; a conftest
+below ``tests/<dir>/`` selects its own directory unless a module outside imports
+it or it defines a hook. Each widening prints ``check: <id>: widened by
+<path>: <rule>`` before any check runs. A base also arms the checks that judge
+a range. Paths after ``--`` are test files, pytest node ids
 or test directories added to what the range selects.
 
 ``list --changed BASE`` adds which checks and CI lanes the range ``BASE...HEAD``

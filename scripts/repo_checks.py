@@ -12,6 +12,7 @@ Standard library only, for the reason ``scripts/check.py`` gives.
 
 from __future__ import annotations
 
+import ast
 import dataclasses
 import glob
 import importlib.util
@@ -22,7 +23,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
-from collections.abc import Callable, Iterable, Sequence
+from collections.abc import Callable, Iterable, Iterator, Sequence
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from types import ModuleType
@@ -378,7 +379,10 @@ def _holds_test_module(directory: str, files: Sequence[str]) -> bool:
 
 
 #: Why a change widens a runner to its whole selection, one rule per cause.
-WIDENS_CONFTEST = "a conftest reaches every test below it"
+WIDENS_ROOT_CONFTEST = "a root conftest reaches every test below it"
+WIDENS_UNREADABLE = "cannot read what it reaches"
+WIDENS_HOOK = "defines {hook}, which acts on the whole session"
+WIDENS_IMPORTED = "imported by {importer}"
 WIDENS_UNMIRRORED = "a Python file outside the test mirrors"
 WIDENS_PROJECT = "the project's dependencies reach every test"
 WIDENS_NO_TEST_MODULE = "its test directory holds no test module"
@@ -392,6 +396,70 @@ WIDENS_WIDE_INPUT = "a shared JavaScript input reaches every test"
 
 def _whole(path: str, rule: str) -> Selection:
     return Selection(WHOLE, reason=f"{path}: {rule}")
+
+
+def _imported_modules(path: str, tree: ast.Module) -> Iterator[str]:
+    """The files *tree*, read from *path*, may import, as repository paths."""
+    parts = PurePosixPath(path).parts
+    roots = [""] if parts[0] != "packages" or len(parts) < 2 else ["", f"packages/{parts[1]}/"]
+    here = PurePosixPath(path).parent
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                yield from (root + alias.name.replace(".", "/") + ".py" for root in roots)
+        elif isinstance(node, ast.ImportFrom):
+            module = (node.module or "").replace(".", "/")
+            if node.level:
+                base = here
+                for _ in range(node.level - 1):
+                    base = base.parent
+                bases = [(base / module).as_posix() if module else base.as_posix()]
+            else:
+                bases = [root + module for root in roots]
+            for base in bases:
+                yield base + ".py"
+                yield from (f"{base}/{alias.name}.py" for alias in node.names)
+
+
+def _conftest_selection(path: str, files: Sequence[str]) -> str | Selection:
+    """The directory a changed *path* conftest reaches, or why it reaches the sweep.
+
+    pytest scopes a conftest to its own subtree, so one that only serves fixtures
+    to it selects that directory. One that a module outside imports, or that
+    defines a hook, acts beyond it.
+    """
+    directory = path.rsplit("/", 1)[0]
+    if not path.startswith("tests/") or len(PurePosixPath(path).parts) < 3:
+        return _whole(path, WIDENS_ROOT_CONFTEST)
+    try:
+        tree = ast.parse((kit.ROOT / path).read_text(encoding="utf-8"))
+    except (OSError, SyntaxError, UnicodeDecodeError, ValueError):
+        return _whole(path, WIDENS_UNREADABLE)
+    for node in tree.body:
+        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef) and node.name.startswith(
+            "pytest_"
+        ):
+            return _whole(path, WIDENS_HOOK.format(hook=node.name))
+    for importer in files:
+        if not importer.endswith(".py") or not importer.startswith(("tests/", "packages/")):
+            continue
+        if importer.startswith(directory + "/"):
+            continue
+        try:
+            text = (kit.ROOT / importer).read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue
+        if "conftest" not in text:
+            continue
+        try:
+            reached = set(_imported_modules(importer, ast.parse(text)))
+        except (SyntaxError, ValueError):
+            continue
+        if path in reached:
+            return _whole(path, WIDENS_IMPORTED.format(importer=importer))
+    if not _holds_test_module(directory, files):
+        return _whole(path, WIDENS_NO_TEST_MODULE)
+    return directory
 
 
 def _mirror_root(path: str) -> tuple[str, str] | None:
@@ -444,7 +512,11 @@ def _select_pytest(
                 chosen.append("tests/scripts")
                 continue
             if name == "conftest.py":
-                return _whole(path, WIDENS_CONFTEST)
+                reached = _conftest_selection(path, files)
+                if isinstance(reached, Selection):
+                    return reached
+                chosen.append(reached)
+                continue
             if _mirror_root(path) is None:
                 return _whole(path, WIDENS_UNMIRRORED)
         elif name in ("pyproject.toml", "uv.lock"):
