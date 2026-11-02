@@ -1,5 +1,40 @@
 {
   "videos": {
+    "code-review": {
+      "release": null,
+      "themes": {
+        "dark": {
+          "duration_s": 57.52,
+          "mp4": {
+            "name": "code-review-dark.mp4",
+            "sha256": "65271ccfbfa0e581702912fb20d89ad73713c69065bc8a09a724469be8189dc3"
+          },
+          "osprey_version": "2026.9.0b3.post4887+g512ef509b.d20261102",
+          "poster": {
+            "name": "code-review-dark-poster.jpg",
+            "sha256": "7bf8436ef25962ac123529a8c941f553e097f76564517aaac8ef3509979d192e"
+          },
+          "real_session_s": 110.6,
+          "recorded_at": "2026-11-02T01:16:30.198174+00:00",
+          "speed": 2.83
+        },
+        "light": {
+          "duration_s": 57.52,
+          "mp4": {
+            "name": "code-review-light.mp4",
+            "sha256": "94f4afce5e5c8b35d17caa764aa799eb8632e9b2eef35c087bb3fb05fd5b4e80"
+          },
+          "osprey_version": "2026.9.0b3.post4887+g512ef509b.d20261102",
+          "poster": {
+            "name": "code-review-light-poster.jpg",
+            "sha256": "76668f4aba9ed2771145ad7cbafbfe3625cab2d14bad8feb9985d41933818411"
+          },
+          "real_session_s": 136.0,
+          "recorded_at": "2026-11-02T01:42:35.948375+00:00",
+          "speed": 3.8
+        }
+      }
+    },
     "landing": {
       "release": "docs-media-v2026.9.0b4",
       "themes": {

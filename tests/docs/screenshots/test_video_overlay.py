@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pytest
 from docs.screenshots import video_overlay
-from docs.screenshots.video_overlay import OVERLAY_JS, move_cursor, set_caption
+from docs.screenshots.video_overlay import OVERLAY_JS, move_cursor, set_caption, set_spotlight
 
 
 class _FakeMouse:
@@ -163,3 +163,18 @@ def test_move_cursor_nonpositive_steps_moves_once(steps):
 
 def test_overlay_module_never_sleeps():
     assert "time.sleep" not in Path(video_overlay.__file__).read_text(encoding="utf-8")
+
+
+def test_overlay_js_draws_and_clears_a_spotlight():
+    assert "window.__demoSpotlight =" in OVERLAY_JS
+    assert 'kind === "spotlight"' in OVERLAY_JS
+    assert '"__demo-spotlight"' in OVERLAY_JS
+
+
+def test_set_spotlight_passes_the_box_and_none_clears():
+    page = _FakePage()
+    box = {"x": 1.0, "y": 2.0, "width": 3.0, "height": 4.0}
+    set_spotlight(page, box)
+    set_spotlight(page, None)
+    [(_, expr, first), (_, _, second)] = page.log
+    assert "__demoSpotlight" in expr and first == box and second is None

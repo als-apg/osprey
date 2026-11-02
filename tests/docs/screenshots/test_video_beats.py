@@ -6,7 +6,17 @@ from contextlib import contextmanager
 
 import pytest
 from docs.screenshots import video_beats, video_probes
-from docs.screenshots.video_beats import Beat, click, focus, hold, prompt, wait_for, wait_gone
+from docs.screenshots.video_beats import (
+    Beat,
+    click,
+    focus,
+    hold,
+    prompt,
+    spotlight,
+    wait_for,
+    wait_gone,
+    wait_until,
+)
 from docs.screenshots.video_probes import ProbeFailed
 
 
@@ -19,6 +29,12 @@ class FakeLocator:
     def filter(self, has_text=None):  # noqa: ARG002 - the text match is shown()'s job
         return self
 
+    def scroll_into_view_if_needed(self):
+        self.page.scrolled.append(self.selector)
+
+    def bounding_box(self):
+        return self.page.boxes.get(self.selector)
+
 
 class FakePage:
     """``visible`` maps a selector to its text; ``schedule`` maps a tick to a change."""
@@ -28,8 +44,14 @@ class FakePage:
         self.schedule = dict(schedule or {})
         self.ticks = 0
         self.waits: list[int] = []
+        self.scrolled: list[str] = []
+        self.boxes: dict[str, dict] = {}
+        self.spotlights: list = []
 
     def evaluate(self, js, arg=None):
+        if "__demoSpotlight" in js:
+            self.spotlights.append(arg)
+            return None
         if js == video_beats._SHOWN_JS:
             selector, text = arg
             return selector in self.visible and (not text or text in self.visible[selector])
@@ -177,3 +199,59 @@ def test_focus_hold_and_click_act_on_the_take() -> None:
     click("continue", None, ".go", text="Continue")(take)
     assert ("focus",) in take.log and ("click", ".go") in take.log
     assert page.waits == [7_000]
+
+
+# --- spotlight ----------------------------------------------------------------
+
+BOX = {"x": 10.0, "y": 20.0, "width": 300.0, "height": 40.0}
+
+
+def test_spotlight_outlines_the_element_for_its_hold_then_clears() -> None:
+    page = FakePage(visible={"li": "read SR:BEAM:USER_MODE"})
+    page.boxes["li"] = BOX
+    take = FakeTake(page)
+    spotlight("rule", "The rule", "li", text="SR:BEAM:USER_MODE", ms=4_000)(take)
+    assert page.scrolled == ["li"]
+    assert page.spotlights == [BOX, None]
+    assert page.waits == [4_000]
+    assert take.log[0] == ("enter", "rule", "The rule", False)
+
+
+def test_spotlight_with_nothing_visible_fails_its_beat_and_draws_nothing() -> None:
+    page = FakePage(visible={"li": "another rule"})
+    failed = _failure(spotlight("rule", None, "li", text="USER_MODE", ms=1), FakeTake(page))
+    assert failed.step == "rule" and "li" in failed.detail
+    assert page.spotlights == []
+
+
+def test_spotlight_without_a_box_fails_its_beat() -> None:
+    page = FakePage(visible={"li": "x"})
+    failed = _failure(spotlight("rule", None, "li", ms=1), FakeTake(page))
+    assert failed.step == "rule" and page.spotlights == []
+
+
+def test_spotlight_clears_even_when_the_hold_is_interrupted() -> None:
+    page = FakePage(visible={"li": "x"})
+    page.boxes["li"] = BOX
+
+    def interrupted(_ms):
+        raise RuntimeError("take aborted")
+
+    page.wait_for_timeout = interrupted
+    with pytest.raises(RuntimeError):
+        spotlight("rule", None, "li", ms=1)(FakeTake(page))
+    assert page.spotlights == [BOX, None]
+
+
+def test_wait_until_returns_once_its_check_of_the_take_holds() -> None:
+    take = FakeTake()
+    beat = wait_until("hook", None, lambda t: t.page.ticks >= 2, what="no record", budget_ms=60_000)
+    beat.run(take)
+    assert take.page.ticks == 2
+
+
+def test_wait_until_timeout_names_what_never_happened() -> None:
+    take = FakeTake()
+    beat = wait_until("hook", None, lambda _t: False, what="no record", budget_ms=1_000)
+    failed = _failure(beat, take)
+    assert failed.step == "hook" and failed.detail.startswith("no record within 1000 ms")

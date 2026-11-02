@@ -20,6 +20,7 @@ from unittest.mock import Mock
 import pytest
 from docs.screenshots import (
     capture,
+    video_beats,
     video_chat,
     video_landing,
     video_layout,
@@ -1860,3 +1861,40 @@ def test_the_write_switch_moves_before_the_history(env) -> None:
     assert request.full_url.endswith("/api/terminal/posture")
     assert json.loads(request.data) == {"target": "va", "state": "asked", "epoch": None}
     assert request.get_header("Content-type") == "application/json"
+
+
+def test_before_record_runs_on_the_take_after_the_history_and_before_the_screencast(env) -> None:
+    seen = []
+
+    def before_record(take) -> None:
+        seen.append(take)
+        env.log.append(("before-record",))
+
+    take = start_take(
+        FakeBrowser(env.log),
+        env.stack,
+        "dark",
+        CHAT_LAYOUT,
+        history=("p",),
+        before_record=before_record,
+    )
+    assert seen == [take]
+    assert env.log.index(("fill", "p")) < env.log.index(("before-record",))
+    assert env.log.index(("before-record",)) < _screencast_at(env.log)
+
+
+def _captions(log: list) -> list:
+    return [e[1] for e in log if e[0] == "caption"]
+
+
+def test_a_caption_stays_up_across_beats_that_share_it_and_clears_at_the_end(env) -> None:
+    take = start_take(FakeBrowser(env.log), env.stack, "dark", CHAT_LAYOUT)
+    env.log.clear()
+    storyboard = (
+        video_beats.hold("a", "One", 1),
+        video_beats.hold("b", "One", 1),
+        video_beats.hold("c", None, 1),
+        video_beats.hold("d", "Two", 1),
+    )
+    record_take(take, Timeline(theme="dark", version="x"), storyboard)
+    assert _captions(env.log) == ["One", None, "Two", None]

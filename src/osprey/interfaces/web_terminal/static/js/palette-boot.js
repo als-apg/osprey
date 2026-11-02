@@ -8,7 +8,7 @@
  * thin init dispatcher and the palette's app-facing wiring lives beside the
  * palette itself.
  *
- * The palette offers settings search, the panel verbs including "Open … in a
+ * The palette offers settings search, the Settings drawer's files, the panel verbs including "Open … in a
  * new tile", the Layouts group, popping a panel out to its own window, the
  * drawer tabs, the safety reference and opening the activity log in a new tab.
  * It has no terminal entries: the terminal is reached from the Agent tile alone.
@@ -30,6 +30,7 @@ import { openPanelBeside } from './panel-placement.js';
 import { resetDockLayout } from './dock-workspace.js';
 import { openDrawerTab, revealSetting } from './settings.js';
 import { CONFIG_TAB_ID } from './config-tab.js';
+import { scaffoldGalleryMounted, listGalleryEntries, revealArtifact } from './scaffold-gallery.js';
 import { startTour } from './tour.js';
 import { openPalette, closePalette, isOpen } from './palette.js';
 import { confirmSignOut } from './sign-out.js';
@@ -135,6 +136,14 @@ function buildPaletteDeps() {
   // than rendering rows that jump nowhere against a surface answering 403.
   // Omitting the dep is what drops the rows.
   if (configTabPresent()) deps.revealSetting = revealSetting;
+
+  // The Settings files group (a row per gallery card) reaches the drawer's
+  // galleries; where none mounted, both deps are withheld and the group and
+  // its /api/scaffold read go with them.
+  if (scaffoldGalleryMounted()) {
+    deps.loadArtifacts = listGalleryEntries;
+    deps.revealArtifact = revealArtifact;
+  }
 
   // "Open … in a new tile" and the Layouts group place tiles; both views hold
   // as many tiles as the operator wants, so both are offered in both.

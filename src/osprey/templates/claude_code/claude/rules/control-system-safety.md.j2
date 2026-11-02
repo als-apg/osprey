@@ -222,10 +222,11 @@ a sequence nobody approved.
 - **Multi-setting measurements** — use the Bluesky queue. Anything that sets the
   machine to more than one value is a plan; see below.
 {%- else %}
-- **Multi-setting measurements** — no queue is configured in this deployment. Do
-  not stand in for one with a loop of `channel_write` calls or an `execute`
-  script that steps the setpoint — tell the operator what the measurement
-  would require.
+- **Multi-setting measurements** — no queue is configured in this deployment.
+  Pick the form that fits the work: a few writes can be separate `channel_write`
+  calls; a longer sequence of settings and reads, such as a scan, is usually
+  clearer as one `execute` script through `osprey.runtime`, which the operator
+  reviews and approves as a whole.
 {%- endif %}
 
 The two write paths handle a write the machine did not confirm differently:

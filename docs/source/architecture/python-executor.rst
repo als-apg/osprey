@@ -46,6 +46,11 @@ The ``execute``, ``execute_file``, ``pyaml_measure`` and
 ``model_response_matrix`` tool parameters and the JSON they return are
 documented in :doc:`/reference/contracts/python-executor`.
 
+A deployment can also turn on code review: a second AI agent reads the code before the
+operator is asked to approve it, following instructions the deployment writes, and can stop
+it. That review is not one of the layers on this page, which hold whatever it says: see
+:ref:`Code review <architecture-safety-chain-code-review>`.
+
 Where Code Runs
 ===============
 

@@ -177,7 +177,7 @@
   flex: 1;
 }
 
-/* ---- Group heading (Recent / Settings / Panels / Layouts / Actions) ----
+/* ---- Group heading (Recent / Settings files / Settings / Panels / Layouts / Actions) ----
    "Recent" is not a registry group — palette.js builds that section at
    render time when the query is empty — but it is a heading over rows like
    any other, so it borrows this style rather than introducing its own. */

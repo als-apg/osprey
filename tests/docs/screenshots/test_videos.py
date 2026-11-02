@@ -247,3 +247,27 @@ def test_the_landing_layout_is_what_its_take_has_always_shown() -> None:
 def test_history_is_refused_on_the_terminal() -> None:
     with pytest.raises(ValueError, match="history needs the chat"):
         validate_videos([dataclasses.replace(LANDING, history=("p",))])
+
+
+def test_the_code_review_video_shows_the_rule_before_the_mark_and_the_prompt() -> None:
+    """Channels, ⌘K to the rules, spotlit, then the drawer closes before the arm."""
+    beats = [b.name for b in video_named("code-review").storyboard]
+    opening = [
+        "palette",
+        "search",
+        "row",
+        "rest",
+        "reveal",
+        "settings-open",
+        "rules-shown",
+    ]
+    assert beats[: len(opening)] == opening
+    order = ["rule", "close", "settings-closed", "arm", "ask"]
+    order += ["review", "blocked", "resubmit", "verdict", "allow", "ran", "result"]
+    assert [beats.index(name) for name in order] == sorted(beats.index(name) for name in order)
+
+
+def test_the_code_review_warning_is_acknowledged_before_recording() -> None:
+    from docs.screenshots.video_code_review import acknowledge_settings
+
+    assert video_named("code-review").before_record is acknowledge_settings

@@ -2,10 +2,11 @@
 /* OSPREY Web Terminal — Command Palette Registry Builder
  *
  * Pure, dependency-injected builder that turns live app data into a flat,
- * grouped list of command-palette items (Settings / Panels / Layouts /
- * Actions, in that order). Everything it needs — the /api/config snapshot,
- * panel/preset getters, action closures, and the navigation callbacks
- * (revealSetting / showPanel / focusPanel / applyPreset) — is passed in via
+ * grouped list of command-palette items (Settings files / Settings / Panels /
+ * Layouts / Actions, in that order). Everything it needs — the /api/config
+ * snapshot, the Settings drawer's file list, panel/preset getters, action
+ * closures, and the navigation callbacks (revealArtifact / revealSetting /
+ * showPanel / focusPanel / applyPreset) — is passed in via
  * `deps`, so this module imports nothing, touches no DOM, and is unit-testable
  * in isolation. The caller (palette.js) rebuilds the registry each time the
  * palette opens, then fuzzy-filters the returned items by their `searchText`.
@@ -20,7 +21,7 @@
  *
  * @typedef {(
  *   {
- *     group: 'Settings' | 'Panels' | 'Layouts' | 'Actions',
+ *     group: 'Settings files' | 'Settings' | 'Panels' | 'Layouts' | 'Actions',
  *     label: string,
  *     detail?: string,
  *     searchText: string,
@@ -28,7 +29,7 @@
  *   }
  *   |
  *   {
- *     group: 'Settings',
+ *     group: 'Settings files' | 'Settings',
  *     status: 'loading' | 'error',
  *     label: string,
  *   }
@@ -46,6 +47,11 @@
  *     | { state: 'loading' }
  *     | { state: 'error' }
  *   ),
+ *   artifacts?: (
+ *     { state: 'ok', entries: Array<SettingsFile> }
+ *     | { state: 'loading' }
+ *     | { state: 'error' }
+ *   ),
  *   getHiddenPanels?: () => Array<{ id: string, label: string }>,
  *   getVisiblePanels?: () => Array<{ id: string, label: string }>,
  *   getPopoutPanels?: () => Array<{ id: string, label: string }>,
@@ -58,7 +64,21 @@
  *   applyPreset?: (name: string) => void,
  *   resetLayout?: () => void,
  *   revealSetting?: (dotKey: string) => void,
+ *   revealArtifact?: (name: string, tabId: string) => void,
+ *   loadArtifacts?: () => Promise<Array<SettingsFile>>,
  * }} PaletteDeps
+ */
+
+/**
+ * One file the Settings drawer's galleries show, as the gallery labels it.
+ * @typedef {{
+ *   name: string,
+ *   label: string,
+ *   category: string,
+ *   tabId: string,
+ *   tabLabel: string,
+ *   description: string,
+ * }} SettingsFile
  */
 
 /**
@@ -180,6 +200,41 @@ function buildSettings(deps) {
         revealSetting(dotKey);
       }
     },
+  }));
+}
+
+/**
+ * Build the Settings files group: one row per file the drawer's galleries
+ * show, labelled as its card is, whose `run` opens it through the injected
+ * `revealArtifact`. Absent `revealArtifact` (no galleries to land in) there is
+ * no group at all; loading/error emit a single decoration like Settings.
+ *
+ * searchText leads with the canonical name: the matcher's word boundaries are
+ * `.`, `_` and `-`, so `code-review/rules` first is what ranks the rules row
+ * top for "code review".
+ *
+ * @param {PaletteDeps} deps
+ * @returns {Item[]}
+ */
+function buildSettingsFiles(deps) {
+  const revealArtifact = deps.revealArtifact;
+  if (typeof revealArtifact !== 'function') return [];
+  const artifacts = deps.artifacts;
+  if (!artifacts || artifacts.state === 'loading') {
+    return [{ group: 'Settings files', status: 'loading', label: 'Loading settings files…' }];
+  }
+  if (artifacts.state === 'error') {
+    return [{ group: 'Settings files', status: 'error', label: 'Settings files unavailable' }];
+  }
+  const entries = Array.isArray(artifacts.entries) ? artifacts.entries : [];
+  return entries.map((entry) => ({
+    group: /** @type {const} */ ('Settings files'),
+    label: entry.label,
+    detail: [entry.tabLabel, entry.category].filter(Boolean).join(' · '),
+    searchText: [entry.name, entry.label, entry.category, entry.tabLabel, entry.description]
+      .filter(Boolean)
+      .join(' '),
+    run: () => revealArtifact(entry.name, entry.tabId),
   }));
 }
 
@@ -336,14 +391,21 @@ function buildActions(deps) {
 
 /**
  * Build the full command-palette registry from injected app data. Returns a
- * flat array grouped Settings → Panels → Layouts → Actions; within each group,
- * source order is preserved. Deterministic for a given input, and never throws
- * on absent optional deps (missing getters default to empty).
+ * flat array grouped Settings files → Settings → Panels → Layouts → Actions;
+ * within each group, source order is preserved. Deterministic for a given
+ * input, and never throws on absent optional deps (missing getters default to
+ * empty).
  *
  * @param {PaletteDeps} deps
  * @returns {Item[]}
  */
 export function buildRegistry(deps) {
   const d = deps || {};
-  return [...buildSettings(d), ...buildPanels(d), ...buildLayouts(d), ...buildActions(d)];
+  return [
+    ...buildSettingsFiles(d),
+    ...buildSettings(d),
+    ...buildPanels(d),
+    ...buildLayouts(d),
+    ...buildActions(d),
+  ];
 }

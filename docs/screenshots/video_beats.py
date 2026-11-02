@@ -10,7 +10,7 @@ a failed take says where it failed.
 A wait on the screen (:func:`wait_for`, :func:`wait_gone`) also watches the
 agent while it polls: an API error ending the turn, an unanswered terminal
 dialog and a stall each fail the beat at once, and so does any selector named
-in ``refuse``. A probe only one video needs is a custom beat: a
+in ``refuse``; :func:`wait_until` waits the same way on a check of the take. A probe only one video needs is a custom beat: a
 ``Beat(name, caption, run)`` with the video's own ``run(take)``, or a plain
 ``run(take)`` callable that opens its own steps.
 """
@@ -21,7 +21,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
-from docs.screenshots import video_check_stall, video_probes
+from docs.screenshots import video_check_stall, video_overlay, video_probes
 from docs.screenshots.video_probes import ProbeFailed
 
 if TYPE_CHECKING:
@@ -83,10 +83,39 @@ def click(name: str, caption: str | None, selector: str, *, text: str | None = N
     return Beat(name, caption, run)
 
 
+def spotlight(
+    name: str, caption: str | None, selector: str, *, text: str | None = None, ms: int
+) -> Beat:
+    """Outline the first visible *selector* (holding *text*) for *ms* milliseconds.
+
+    The outline is the video's own overlay, drawn over the page and cleared when
+    the beat ends; the page under it is not touched.
+    """
+
+    def run(take: Take) -> None:
+        if not shown(take.page, selector, text):
+            raise ProbeFailed(name, f"nothing to spotlight: no visible {selector}")
+        locator = take.page.locator(selector)
+        if text is not None:
+            locator = locator.filter(has_text=text)
+        target = locator.first
+        target.scroll_into_view_if_needed()
+        box = target.bounding_box()
+        if not box:
+            raise ProbeFailed(name, f"{selector} has no box on screen")
+        video_overlay.set_spotlight(take.page, box)
+        try:
+            take.page.wait_for_timeout(ms)
+        finally:
+            video_overlay.set_spotlight(take.page, None)
+
+    return Beat(name, caption, run)
+
+
 def _wait(
     name: str,
     caption: str | None,
-    done: Callable[[Any], bool],
+    done: Callable[[Take], bool],
     what: str,
     budget_ms: int,
     fast_forward: bool,
@@ -96,7 +125,7 @@ def _wait(
     def run(take: Take) -> None:
         watch = take.watch(name, dialogs)
         for _ in range(max(1, -(-budget_ms // video_probes.POLL_MS))):
-            if done(take.page):
+            if done(take):
                 return
             for selector, why in refuse:
                 if shown(take.page, selector):
@@ -105,7 +134,7 @@ def _wait(
                 raise ProbeFailed(name, "the agent's turn ended in an API error")
             watch()
             take.page.wait_for_timeout(video_probes.POLL_MS)
-        if done(take.page):
+        if done(take):
             return
         raise ProbeFailed(
             name,
@@ -135,7 +164,7 @@ def wait_for(
     return _wait(
         name,
         caption,
-        lambda page: shown(page, selector, text),
+        lambda take: shown(take.page, selector, text),
         what,
         budget_ms,
         fast_forward,
@@ -156,10 +185,29 @@ def wait_gone(
     return _wait(
         name,
         caption,
-        lambda page: not shown(page, selector),
+        lambda take: not shown(take.page, selector),
         f"{selector} still on screen",
         budget_ms,
         False,
         (),
         dialogs,
     )
+
+
+def wait_until(
+    name: str,
+    caption: str | None,
+    done: Callable[[Take], bool],
+    *,
+    what: str,
+    budget_ms: int,
+    fast_forward: bool = False,
+    refuse: tuple[tuple[str, str], ...] = (),
+    dialogs: tuple[str, ...] = video_check_stall.NOTICE_DIALOGS,
+) -> Beat:
+    """Wait until ``done(take)``, watching the agent as :func:`wait_for` does.
+
+    For a witness that is not on screen, such as a hook's own record; *what*
+    names what never happened when the budget runs out.
+    """
+    return _wait(name, caption, done, what, budget_ms, fast_forward, refuse, dialogs)

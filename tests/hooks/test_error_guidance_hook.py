@@ -431,6 +431,7 @@ EXPECTED_ERROR_CLASSES = {
     "invalid_item": "Validation",
     "figure_not_current": "Validation",
     "figure_unavailable": "Validation",
+    "review_blocked": "Validation",
     # Data
     "not_found": "Data",
     "no_results": "Data",
@@ -487,6 +488,7 @@ EXPECTED_ERROR_CLASSES = {
     "gallery_error": "Internal",
     "config_unreadable": "Internal",
     "manager_not_configured": "Internal",
+    "review_unavailable": "Internal",
 }
 
 #: The taxonomy documented in ``.claude/rules/error-handling.md``. Every class
