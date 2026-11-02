@@ -473,6 +473,45 @@ def test_the_card_reads_the_renders_own_gate_predicates(
     assert "event_dispatcher" not in servers
 
 
+def test_a_panel_served_mcp_server_is_listed_only_with_its_panel(monkeypatch) -> None:
+    """A server derived from a sidecar panel follows each render's enabled panels.
+
+    The card holds profiles, not rendered configs, so it asks the question the
+    render asks of ``web.panels`` of each render's projected panel blocks: the
+    host's selection, and each layer's on top of it.
+    """
+    from osprey.cli.profile_card import _enabled_mcp_servers
+    from osprey.profiles.sidecar_panels import SidecarPanel
+    from osprey.registry.mcp import FRAMEWORK_SERVERS, derive_panel_servers
+
+    panel = SidecarPanel(
+        "Synthetic screens",
+        "tests.synthetic:Sidecar",
+        mcp_path="/mcp",
+        agent_hop=True,
+        mcp_ask=("push_screen",),
+    )
+    monkeypatch.setitem(
+        FRAMEWORK_SERVERS, "screens", derive_panel_servers({"screens": panel})["screens"]
+    )
+
+    with_panel = BuildProfile(name="with", web_panels=["jupyter", "screens"])
+    without_panel = BuildProfile(name="without", web_panels=["jupyter"])
+    forced = BuildProfile(
+        name="forced",
+        web_panels=["jupyter"],
+        config={"claude_code": {"servers": {"screens": {"enabled": True}}}},
+    )
+
+    assert "screens" in _enabled_mcp_servers(with_panel, {})
+    assert "screens" not in _enabled_mcp_servers(without_panel, {})
+    assert "screens" not in _enabled_mcp_servers(forced, {})
+    assert "screens" in line_with(format_profile_card(with_panel, {}), "mcp ")
+    assert "controls" in _enabled_mcp_servers(without_panel, {})
+    # A layer that adds the panel ships the server for that render.
+    assert "screens" in _enabled_mcp_servers(without_panel, {"ops": {"web_panels": ["screens"]}})
+
+
 def test_the_model_row_names_the_provider_default_when_the_profile_names_none(
     exemplar_lines: list[str],
 ) -> None:

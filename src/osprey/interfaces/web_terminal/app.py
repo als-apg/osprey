@@ -37,6 +37,7 @@ from osprey.interfaces.common_middleware import (
 )
 from osprey.interfaces.vendor import vendor_url
 from osprey.interfaces.web_terminal.control_context_owner import start_control_context_owner
+from osprey.interfaces.web_terminal.dock_layout import layout_keys
 from osprey.interfaces.web_terminal.feedback_destination import (
     DEFAULT_DOCS_URL,
     osprey_version,
@@ -51,6 +52,7 @@ from osprey.interfaces.web_terminal.file_watcher import (
 )
 from osprey.interfaces.web_terminal.operator_session import OperatorRegistry
 from osprey.interfaces.web_terminal.ownership import OwnershipStoreError
+from osprey.interfaces.web_terminal.presets import preset_refusal, prune_preset_layout
 from osprey.interfaces.web_terminal.pty_manager import PtyRegistry
 from osprey.interfaces.web_terminal.routes import router
 from osprey.interfaces.web_terminal.routes.agent_activity import ACTIVITY_BUFFER_MAX
@@ -80,6 +82,7 @@ from osprey.profiles.web_panels import (
     UNIVERSAL_PANELS,
     panel_id_refusal,
     panel_spec_enabled,
+    sidecar_panel_descriptors,
 )
 from osprey.registry.web import PANEL_ID_TO_REGISTRY_KEY, panel_url_state_attr
 from osprey.services.watchdog.definitions import load_watchdogs
@@ -899,25 +902,32 @@ def _load_panel_runtime_config(
 def _load_panel_presets(enabled_panels: set[str], custom_panels: list[dict]) -> list[dict]:
     """Read ``web.presets`` and resolve each named layout against the live panel set.
 
-    A preset is a facility-curated, named list of panel ids a human applies in one
-    click (the "Layouts" section of the "+" popover). This resolves the raw config
-    into the shape the frontend consumes, mirroring how :func:`_load_panel_config`
-    turns ``web.panels`` into concrete ids.
+    A preset is a facility-curated, named arrangement a human applies in one click
+    (the "Layouts" section of the "+" popover) or the agent applies by name. Its
+    value is a dock layout in collection form with panel ids in ``tabs``
+    (:mod:`osprey.interfaces.web_terminal.presets`). This resolves the raw config
+    into the shape the frontend and the arrangement op consume, mirroring how
+    :func:`_load_panel_config` turns ``web.panels`` into concrete ids.
 
-    Each preset's members are intersected with the set of known ids (enabled
-    built-ins plus custom panel ids); unknown members are dropped with a warning
-    (a typo or a disabled panel must not strand the user), and a preset that
-    resolves to no known members is dropped entirely. Config insertion order is
-    preserved (pyyaml keeps mapping order on 3.7+), so config order == menu order.
+    A value that is not a valid preset (the retired list form included) is skipped
+    with a warning. Each preset's tabs are pruned to the known ids (enabled built-ins
+    plus custom panel ids) with a warning per dropped id (a typo or a disabled panel
+    must not strand the user), emptied tiles leave the tree, and the result is
+    normalised; a preset with no known tab left is dropped entirely. Config insertion
+    order is preserved (pyyaml keeps mapping order on 3.7+), so config order == menu
+    order.
 
     Args:
         enabled_panels: Enabled built-in panel ids (from :func:`_load_panel_config`).
         custom_panels: Custom panel dicts (from :func:`_load_panel_config`).
 
     Returns:
-        A list of ``{"name": str, "panels": [id, ...]}`` dicts in config order — a
-        list (not a dict) so JSON serialization preserves ordering in the
-        ``GET /api/panels`` payload. Fails open to ``[]`` on any config-read error.
+        A list of ``{"name": str, "panels": [id, ...], "layout": dict}`` dicts in
+        config order — a list (not a dict) so JSON serialization preserves ordering
+        in the ``GET /api/panels`` payload. ``layout`` is the pruned, normalised
+        preset (panel-id tabs, fractions, every ``showing`` filled in) and
+        ``panels`` its tabs in reading order. Fails open to ``[]`` on any
+        config-read error.
     """
     known: set[str] = set(enabled_panels) | {cp["id"] for cp in custom_panels}
     presets: list[dict] = []
@@ -931,22 +941,21 @@ def _load_panel_presets(enabled_panels: set[str], custom_panels: list[dict]) -> 
     if not isinstance(raw_presets, dict):
         return []
 
-    for name, members in raw_presets.items():
-        if not isinstance(members, list):
-            logger.warning("web.presets[%r] is not a list of panel ids; skipping.", name)
+    for name, layout in raw_presets.items():
+        refusal = preset_refusal(layout)
+        if refusal is not None:
+            logger.warning("web.presets[%r] %s; skipping.", name, refusal)
             continue
-        resolved: list[str] = []
-        for member in members:
-            if member in known:
-                resolved.append(member)
-            else:
+        for key in layout_keys(layout):
+            if key not in known:
                 logger.warning(
-                    "web.presets[%r] references unknown panel id %r; dropping it.", name, member
+                    "web.presets[%r] references unknown panel id %r; dropping it.", name, key
                 )
-        if resolved:
-            presets.append({"name": str(name), "panels": resolved})
-        else:
+        pruned = prune_preset_layout(layout, lambda key: key in known)
+        if pruned is None:
             logger.warning("web.presets[%r] has no known panel members; dropping the preset.", name)
+            continue
+        presets.append({"name": str(name), "panels": layout_keys(pruned), "layout": pruned})
     return presets
 
 
@@ -2071,6 +2080,9 @@ def create_app(
                 # answers for the ENABLED panels only and resolves after that
                 # module's array is built, so it cannot seed the roster.
                 "builtin_panel_labels": BUILTIN_PANEL_LABELS,
+                # The sidecar panels' descriptors, from the same registry: the
+                # catalog builds one row and tab per entry, so it lists none itself.
+                "sidecar_panels": sidecar_panel_descriptors(),
             },
         )
 
@@ -2106,6 +2118,7 @@ def create_app(
                 # words panel actions with, so the pop-out page carries the
                 # same roster stamp the index does.
                 "builtin_panel_labels": BUILTIN_PANEL_LABELS,
+                "sidecar_panels": sidecar_panel_descriptors(),
             },
         )
 

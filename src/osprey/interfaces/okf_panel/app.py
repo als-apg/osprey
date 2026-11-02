@@ -23,8 +23,9 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-from fastapi import FastAPI
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse, Response
+from fastapi.templating import Jinja2Templates
 
 from osprey.interfaces._app_setup import configure_interface_app
 from osprey.interfaces.okf_panel.helpers import (
@@ -38,10 +39,18 @@ from osprey.interfaces.okf_panel.validation import (
     log_validation_summary,
     validate_bundle,
 )
+from osprey.interfaces.vendor import vendor_url
 
 logger = logging.getLogger(__name__)
 
 STATIC_DIR = Path(__file__).parent / "static"
+
+# ``index.html`` is rendered rather than served verbatim so it can name
+# DOMPurify through ``vendor_url()``: the CDN by default, the locally fetched
+# ``static/vendor/`` copy under ``OSPREY_OFFLINE``. Only a template can make
+# that choice at request time.
+templates = Jinja2Templates(directory=str(STATIC_DIR))
+templates.env.globals["vendor_url"] = vendor_url
 
 # Returned by every data endpoint when the panel has no bundle (unconfigured or
 # unopenable path). HTTP 503 = the service is up but cannot serve data yet.
@@ -214,11 +223,11 @@ def create_app(bundle_path=None) -> FastAPI:
         }
 
     @app.get("/")
-    async def root():
-        """Serve the SPA shell, or a placeholder until the SPA task lands."""
+    async def root(request: Request) -> Response:
+        """Serve the SPA shell, or a placeholder when it is not installed."""
         index_html = STATIC_DIR / "index.html"
         if index_html.exists():
-            return FileResponse(index_html)
+            return templates.TemplateResponse(request, "index.html", {})
         return JSONResponse(
             {
                 "service": "okf-panel",

@@ -327,7 +327,15 @@ class TestResolveServers:
         allow = set(workspace["permissions_allow"])
         ask = set(workspace["permissions_ask"])
         gated = {"add_panel_to_rail", "remove_panel_from_rail", "register_panel"}
-        assert {"list_panels", "open_panel", "close_panel", "arrange_workspace"} <= allow
+        assert {
+            "list_panels",
+            "open_panel",
+            "open_panel_set",
+            "arrange_workspace",
+            "drop_panel",
+            "close_panel_tab",
+            "close_panel_tile",
+        } <= allow
         assert allow.isdisjoint(gated)
         assert gated <= ask
         # A literal matcher per tool: the approval hook and the SDK's disallow
@@ -1931,6 +1939,68 @@ class TestEventDispatcherServer:
         assert EVENT_DISPATCHER_PROXY_URL == (
             f"http://127.0.0.1:${{{WEB_PORT_ENV}:-}}/panel/{EVENTS_PANEL_ID}{DISPATCHER_MCP_PATH}"
         )
+
+    def test_the_proxy_origin_is_the_dispatcher_urls_own_prefix(self):
+        """Panel-derived entries dial the same terminal the dispatcher entry does."""
+        from osprey.registry.mcp import EVENT_DISPATCHER_PROXY_URL, PANEL_PROXY_ORIGIN
+
+        assert EVENT_DISPATCHER_PROXY_URL == f"{PANEL_PROXY_ORIGIN}/panel/events/mcp"
+
+    @pytest.mark.parametrize(
+        "spec",
+        [
+            {"url": "http://elsewhere.example/mcp"},
+            {"command": "other-mcp"},
+            {"url": "http://elsewhere.example/mcp", "command": "other-mcp"},
+        ],
+        ids=["url", "command", "both"],
+    )
+    def test_a_spec_cannot_repoint_a_framework_server(self, caplog, spec):
+        """``url`` / ``command`` on a framework name are ignored, and said to be.
+
+        Read silently, they would let a facility believe it had moved a
+        framework server while the render kept dialing the framework's own
+        definition — the same trap ``extends`` on a framework name is.
+        """
+        ctx = _base_ctx(event_dispatcher_wired=True)
+        with caplog.at_level(logging.WARNING):
+            entry = [
+                s
+                for s in resolve_servers({"servers": {"event_dispatcher": spec}}, ctx)
+                if s["name"] == "event_dispatcher"
+            ][0]
+
+        assert entry["url"] == "http://127.0.0.1:${OSPREY_WEB_PORT:-}/panel/events/mcp"
+        assert entry["command"] == ""
+        (warning,) = [
+            r.message
+            for r in caplog.records
+            if "event_dispatcher" in r.message and "cannot be shadowed" in r.message
+        ]
+        for key in spec:
+            assert repr(key) in warning
+
+    def test_enabled_alone_on_a_framework_server_warns_about_nothing(self, caplog):
+        with caplog.at_level(logging.WARNING):
+            resolve_servers({"servers": {"controls": {"enabled": True}}}, _base_ctx())
+
+        assert not [r for r in caplog.records if "cannot be shadowed" in r.message]
+
+    def test_enabled_true_still_overrides_the_dispatchers_condition(self):
+        """Only a panel-derived server is held to a false condition.
+
+        The dispatcher keeps the override it has always had; see
+        ``tests/registry/test_panel_servers.py`` for the entries that do not.
+        """
+        entry = [
+            s
+            for s in resolve_servers(
+                {"servers": {"event_dispatcher": {"enabled": True}}}, _base_ctx()
+            )
+            if s["name"] == "event_dispatcher"
+        ][0]
+
+        assert entry["enabled"] is True
 
     def test_extends_of_the_dispatcher_is_refused(self, caplog):
         """A second instance cannot be cloned out of the conditioned entry.

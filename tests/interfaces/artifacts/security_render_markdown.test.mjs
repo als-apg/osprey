@@ -154,7 +154,7 @@ describe('MARKDOWN path (md-render.js / preview-content.js) — script-bearing m
       path.join(REPO_ROOT, 'src/osprey/interfaces/artifacts/static/index.html'),
       'utf8'
     );
-    const tag = page.indexOf("vendor_url('DOMPurify', '/static/js/vendor/purify.min.js')");
+    const tag = page.indexOf("vendor_script('DOMPurify')");
     expect(tag).toBeGreaterThan(-1);
     expect(tag).toBeLessThan(page.indexOf('type="module"'));
   });

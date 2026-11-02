@@ -1576,10 +1576,14 @@ def test_session_lifetime_default_is_defined_exactly_once() -> None:
 #: agreeing with itself.
 _EXPECTED_PANEL_ROUTES = {
     ("GET", "/api/panels"),
-    ("POST", "/api/panel-focus"),
     ("POST", "/api/panel-visibility"),
-    ("POST", "/api/panel-close"),
-    ("POST", "/api/panel-arrange"),
+    # The agent dock-op write routes: the only agent dock-write path.
+    ("POST", "/api/panel-op/drop"),
+    ("POST", "/api/panel-op/close-tab"),
+    ("POST", "/api/panel-op/close-tile"),
+    ("POST", "/api/panel-op/open"),
+    ("POST", "/api/panel-op/open-set"),
+    ("POST", "/api/panel-op/open-arrangement"),
     ("POST", "/api/agent-activity"),
     ("POST", "/api/agent-turn"),
     # The trigger hook's door. Reading and answering flags stay operator tier.
@@ -1620,6 +1624,19 @@ _EXPECTED_OPERATOR_ROUTES = [
     ("POST", "/api/terminal/restart"),
     ("POST", "/api/terminal/logout"),
     ("POST", "/api/panel-layout"),
+    # The dock client's answer to an agent op records the layout and mints its
+    # rev, so it is a browser-session act like the report above.
+    ("POST", "/api/panel-op-result"),
+    # A person's tab-switch report; the agent's focus form is retired.
+    ("POST", "/api/panel-focus"),
+    # The retired agent routes, which no longer exist, stay out of the tier.
+    ("POST", "/api/panel-close"),
+    ("POST", "/api/panel-arrange"),
+    # Exact match: no other spelling under the op prefix is opened.
+    ("POST", "/api/panel-op"),
+    ("POST", "/api/panel-op/"),
+    ("POST", "/api/panel-op/open/"),
+    ("GET", "/api/panel-op/open"),
     ("GET", "/api/files/tree"),
     ("GET", "/api/hooks/debug-log"),
     ("GET", "/api/session-log"),
@@ -1707,9 +1724,9 @@ def test_panels_listing_is_panel_tier_only_for_get(method: str) -> None:
 def test_reading_panel_focus_is_operator_only() -> None:
     """``GET /api/panel-focus`` is a real route the plan did not grant.
 
-    Pinned because the ``POST`` sibling *is* panel-tier, which makes this the
-    likeliest place for a future edit to widen the tier by pattern-matching on
-    the path alone.
+    Pinned because the path once had a panel-tier ``POST`` sibling (the
+    retired agent focus), which made this the likeliest place for a future edit
+    to widen the tier by pattern-matching on the path alone.
     """
     assert web_auth.classify("GET", "/api/panel-focus", False) is web_auth.Tier.OPERATOR
 

@@ -2484,3 +2484,75 @@ describe('request plumbing', () => {
     for (const call of fetchCalls) expect(call.url.startsWith('/u/alice/')).toBe(true);
   });
 });
+
+describe('a landed switch', () => {
+  test('says where the deployment went, under the chip, and leaves the popover standing', async () => {
+    localStorage.setItem('osprey-ctc-skip-confirm:switch', '1');
+    await bootOpen();
+    postAnswers.push({ ok: true, body: { request_id: 'req-1', target: 'va', generation: 7 } });
+    switchEl('va')?.click();
+    await flush();
+    expect(isOpen()).toBe(true);
+    expect(outcomes('va')).toContain('switching…');
+
+    served = viewOf({
+      control_target: 'va',
+      generation: 7,
+      last_switch: {
+        request_id: 'req-1',
+        target: 'va',
+        status: 'applied',
+        generation: 7,
+        reason: null,
+        age_s: 1,
+      },
+    });
+    await chipModule.refetch();
+    await flush();
+
+    expect(isOpen()).toBe(true);
+    expect(outcomes('va')).not.toContain('switching…');
+    const toast = document.querySelector('.ctc-anchor .osprey-toast');
+    expect(toast?.textContent).toBe('Switched to Simulator');
+    expect(toast?.getAttribute('role')).toBe('status');
+  });
+
+  test("an earlier request's terminus settles nothing: the row keeps waiting for its own", async () => {
+    localStorage.setItem('osprey-ctc-skip-confirm:switch', '1');
+    await bootOpen();
+    postAnswers.push({ ok: true, body: { request_id: 'req-2', target: 'va', generation: 8 } });
+    switchEl('va')?.click();
+    await flush();
+    served = viewOf({
+      last_switch: { request_id: 'req-1', target: 'va', status: 'applied', reason: null, age_s: 9 },
+    });
+    await chipModule.refetch();
+    await flush();
+    expect(isOpen()).toBe(true);
+    expect(outcomes('va')).toContain('switching…');
+    expect(document.querySelector('.ctc-anchor .osprey-toast')).toBeNull();
+  });
+
+  test('a refused switch keeps the popover open, with the outcome on its row and no toast', async () => {
+    localStorage.setItem('osprey-ctc-skip-confirm:switch', '1');
+    await bootOpen();
+    postAnswers.push({ ok: true, body: { request_id: 'req-1', target: 'va', generation: 7 } });
+    switchEl('va')?.click();
+    await flush();
+    served = viewOf({
+      last_switch: {
+        request_id: 'req-1',
+        target: 'va',
+        status: 'refused',
+        generation: null,
+        reason: 'target_unavailable',
+        age_s: 1,
+      },
+    });
+    await chipModule.refetch();
+    await flush();
+    expect(isOpen()).toBe(true);
+    expect(outcomes('va')).not.toContain('switching…');
+    expect(document.querySelector('.ctc-anchor .osprey-toast')).toBeNull();
+  });
+});

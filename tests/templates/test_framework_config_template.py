@@ -83,7 +83,7 @@ def _fully_loaded_ctx(mode: str = "hierarchical") -> dict[str, Any]:
         "ariel_server_on": True,
         "selected_web_panels": [*_SELECTED_BUILTINS, "events"],
         "default_panel": "channel-finder",
-        "panel_presets": {"Machine setup": ["channel-finder", "artifacts"]},
+        "panel_presets": {"Machine setup": {"tabs": ["channel-finder", "artifacts"]}},
         "environment_python": "/usr/bin/python3",
         "environment_packages": ["numpy"],
         "environment_inherit_exclude": ["osprey"],
@@ -356,11 +356,19 @@ def test_default_panel_is_the_profile_field():
 
 
 def test_panel_presets_are_the_profile_field():
+    """A preset renders as the layout it is, whatever its depth."""
+    layout = {
+        "split": "row",
+        "items": [
+            {"tabs": ["ariel", "artifacts"], "showing": "artifacts", "size": 2},
+            {"tabs": ["okf"]},
+        ],
+    }
     config = _config(
-        selected_web_panels=["ariel"],
-        panel_presets={"Logbook review": ["ariel", "artifacts"]},
+        selected_web_panels=["ariel", "okf"],
+        panel_presets={"Logbook review": layout},
     )
-    assert config["web"]["presets"] == {"Logbook review": ["ariel", "artifacts"]}
+    assert config["web"]["presets"] == {"Logbook review": layout}
 
 
 def test_web_renders_an_explicit_empty_panels_map_when_a_field_opens_it():
@@ -369,7 +377,7 @@ def test_web_renders_an_explicit_empty_panels_map_when_a_field_opens_it():
     `panels: {}` is a tab strip with nothing on it; the absent header the
     minimal render produces is a config the panel loader skips entirely.
     """
-    config = _config(panel_presets={"Empty": ["artifacts"]})
+    config = _config(panel_presets={"Empty": {"tabs": ["artifacts"]}})
     assert config["web"]["panels"] == {}
 
 

@@ -45,7 +45,7 @@ from osprey.mcp_server.control_system.target_banner import (
     prepend_line,
 )
 from osprey.mcp_server.errors import make_error
-from osprey.mcp_server.http import notify_panel_focus
+from osprey.mcp_server.http import panel_op
 from osprey.mcp_server.phoebus import plt_generator
 from osprey.mcp_server.phoebus.models import (
     AnnotationConfig,
@@ -373,10 +373,10 @@ async def phoebus_open_databrowser(
     focused = False
     panel_id = os.environ.get("OSPREY_SERVER_NAME", "phoebus")
     try:
-        await anyio.to_thread.run_sync(notify_panel_focus, panel_id)
-        focused = True
+        opened = await anyio.to_thread.run_sync(panel_op, "open", {"member": panel_id})
+        focused = bool(opened["ok"])
     except Exception as exc:
-        logger.debug("panel focus notification failed (non-fatal): %s", exc)
+        logger.debug("panel open failed (non-fatal): %s", exc)
 
     return prepend_line(
         baseline_pinned_line(PHOEBUS_SUBJECT),

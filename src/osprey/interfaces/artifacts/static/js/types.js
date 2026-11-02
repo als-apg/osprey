@@ -156,8 +156,8 @@ export function typeColor(type) {
 }
 
 /**
- * Thumbnail markup for an artifact card: an image/iframe preview for
- * displayable types, a summary-field dump, or a generic type icon fallback.
+ * Thumbnail markup for an artifact card: an image preview for image types,
+ * a summary-field dump, or a generic type icon fallback.
  * @param {any} a
  * @returns {string}
  */
@@ -168,15 +168,10 @@ export function thumbnailHtml(a) {
     case 'image':
       return `<img src="${url}" alt="" loading="lazy"
                onerror="this.parentElement.classList.add('img-error')" />`;
-    case 'plot_html':
-    case 'table_html':
-    case 'dashboard_html':
-    case 'html':
-      return `<iframe src="${url}"${sandboxAttr(a)}
-               loading="lazy" tabindex="-1"></iframe>`;
-    case 'notebook':
-      return `<iframe src="/api/notebooks/${encodeURIComponent(a.id)}/rendered"${sandboxAttr(a)}
-               loading="lazy" tabindex="-1"></iframe>`;
+    // HTML-family and notebook cards load no live page: each would be a
+    // sandboxed full document (a plot one carrying the 4.8 MB Plotly bundle
+    // inline), once per card. They show the summary or the type placeholder,
+    // and the full view lives in the preview pane.
     default:
       if (a.summary && Object.keys(a.summary).length > 0) {
         const text = Object.entries(a.summary)

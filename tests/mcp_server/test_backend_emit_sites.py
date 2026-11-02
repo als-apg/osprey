@@ -511,7 +511,7 @@ async def test_ariel_entry_create_direct_does_not_steal_focus(_ariel_context):
     with (
         _patch_ariel_service(mock_service),
         patch(f"{_ARIEL_ENTRY_MOD}.notify_agent_activity_async"),
-        patch("osprey.mcp_server.http.notify_panel_focus") as focus,
+        patch("osprey.mcp_server.http.panel_op") as focus,
     ):
         await _get_ariel_tool("entry", "entry_create")(
             subject="Beam lost", details="Injector trip at 03:12", draft=False

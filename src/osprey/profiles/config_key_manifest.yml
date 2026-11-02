@@ -3985,7 +3985,7 @@ render_contexts:
     web_selection:
     - panels: all          # every builtin the registry declares
       default_panel: ariel
-      panel_presets: {Operations: [ariel, channel-finder]}
+      panel_presets: {Operations: {split: row, items: [{tabs: [ariel]}, {tabs: [channel-finder]}]}}
     - panels: []
       default_panel: null
       panel_presets: null
@@ -4030,7 +4030,7 @@ render_contexts:
     panels_on: web.panels.channel-finder.enabled
     default_panel_set: web.default_panel
     panel_presets_set: web.presets
-  expected_union_size: 367
+  expected_union_size: 369
   note_union_size: >-
     An assertion: the guard derives the union on every run and fails when this
     figure disagrees with it, or when it is missing. It moves whenever the
