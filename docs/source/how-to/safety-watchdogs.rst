@@ -71,6 +71,24 @@ To go through OpenRouter instead, set ``OPENROUTER_API_KEY`` and choose the rout
    the deployment's configured LLM provider, so its data goes where the main agent's goes.
    Confirm this is acceptable before you enable one.
 
+.. list-table::
+   :header-rows: 1
+
+   * - Route
+     - Model
+     - Per judged prompt
+     - Per 1,000 prompts
+     - Latency (p50)
+   * - TypeSafe
+     - ``jev-1.13.0``
+     - $0.00006–$0.0008
+     - $0.06–$0.76
+     - 0.1 s
+
+List price, measured 2026-11 on 20 prompts; cost grows with the session history sent, up to the
+cap. On OpenRouter the call is billed at OpenRouter's price. ``osprey watchdog replay`` prints
+the cost for your own prompts.
+
 **2. Label some prompts.** Replay needs prompts from your own facility, both risky ones and
 ordinary ones that look similar. Each fixture is one ``.jsonl`` file: a header line, then the
 session before the prompt, oldest first, if it matters.
@@ -226,7 +244,7 @@ Cost per prompt
 Every enabled watchdog runs on every operator prompt, so the costs add up:
 
 - **Decision engine:** at the default ``api.jev`` price of $0.042 per million tokens, at most
-  about $0.0013 per watchdog per prompt.
+  about $0.0008 per watchdog per prompt, at the history cap.
 - **Agent engine:** up to ``max_cost_usd`` per run, $0.25 by default, and it reads the machine.
   One run per watchdog and session is in flight, with one waiting. A newer prompt replaces the
   waiting one, and the replaced prompt shows the watchdog unavailable.
