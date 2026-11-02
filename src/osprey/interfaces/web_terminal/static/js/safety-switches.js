@@ -1,6 +1,8 @@
 /* OSPREY Web Terminal — runtime safety switches in the Settings drawer's Safety tab */
 
 import { apiRequest, fetchJSON } from './api.js';
+import { postChatNotice } from './chat-events.js';
+import { dismissConfirm, isConfirmUp, showConfirm } from './posture-confirm.js';
 import { showUndoNotice } from './undo-notice.js';
 
 /**
@@ -65,13 +67,21 @@ export async function refreshSafetySwitches() {
   for (const sw of switches) {
     const before = lastSeen.get(sw.name);
     if (!sw.on && before !== false) {
-      showUndoNotice({ message: offSentence(sw), durationMs: NOTICE_MS });
+      announce(offSentence(sw));
     } else if (sw.on && before === false) {
-      showUndoNotice({ message: `${sw.label} is back on.`, durationMs: NOTICE_MS });
+      announce(`${sw.label} is back on.`);
     }
     lastSeen.set(sw.name, sw.on);
   }
   if (section) render(section, switches, data?.can_change === true);
+}
+
+/**
+ * Tell the operator in the chat when the chat is on screen, else in a notice.
+ * @param {string} message
+ */
+function announce(message) {
+  if (!postChatNotice(message)) showUndoNotice({ message, durationMs: NOTICE_MS });
 }
 
 /**
@@ -107,6 +117,7 @@ function row(sw, canChange) {
   bar.dataset.switch = sw.name;
 
   const text = document.createElement('div');
+  text.className = 'safety-switch-text';
   const label = document.createElement('span');
   label.className = 'hook-debug-label';
   label.textContent = sw.label;
@@ -139,23 +150,70 @@ function row(sw, canChange) {
  */
 async function move(sw, input) {
   const on = input.checked;
-  if (!on && !confirm(`Turn ${sw.label} off for this terminal until it restarts?`)) {
-    input.checked = true;
+  if (on) {
+    try {
+      await post(sw, true);
+    } catch (err) {
+      input.checked = false;
+      showUndoNotice({ message: /** @type {Error} */ (err).message, durationMs: NOTICE_MS });
+      return;
+    }
+    await refreshSafetySwitches();
     return;
   }
+  // Off waits for the dialog; until it is confirmed the toggle shows on.
+  input.checked = true;
+  /** @param {KeyboardEvent} event */
+  const onKey = (event) => {
+    if (event.key === 'Escape' && isConfirmUp()) {
+      event.preventDefault();
+      dismissConfirm();
+    }
+  };
+  showConfirm({
+    title: `Turn ${sw.label} off?`,
+    body: [['It stays off for this terminal until it restarts. Open holds stay open.']],
+    live: null,
+    confirmLabel: 'Turn off',
+    focus: 'cancel',
+    onConfirm: (ui) => void confirmOff(sw, ui),
+    onDismiss: () => document.removeEventListener('keydown', onKey, true),
+  });
+  document.addEventListener('keydown', onKey, true);
+}
+
+/**
+ * Post a confirmed off. A refusal stays in the dialog, so the operator reads it
+ * where they asked.
+ * @param {SafetySwitch} sw
+ * @param {import('./posture-confirm.js').ConfirmUi} ui
+ */
+async function confirmOff(sw, ui) {
+  ui.confirm.disabled = ui.cancel.disabled = true;
+  ui.error.hidden = true;
   try {
-    await apiRequest(`/api/safety-switches/${encodeURIComponent(sw.name)}`, {
-      method: 'POST',
-      json: { state: on ? 'on' : 'off' },
-      errorPrefix: `Could not turn ${sw.label} ${on ? 'on' : 'off'}`,
-    });
+    await post(sw, false);
   } catch (err) {
-    input.checked = !on;
-    showUndoNotice({ message: /** @type {Error} */ (err).message, durationMs: NOTICE_MS });
+    ui.error.textContent = /** @type {Error} */ (err).message;
+    ui.error.hidden = false;
+    ui.confirm.disabled = ui.cancel.disabled = false;
     return;
   }
+  ui.done();
   // The frame re-renders every tab; this one re-reads at once.
   await refreshSafetySwitches();
+}
+
+/**
+ * @param {SafetySwitch} sw
+ * @param {boolean} on
+ */
+async function post(sw, on) {
+  await apiRequest(`/api/safety-switches/${encodeURIComponent(sw.name)}`, {
+    method: 'POST',
+    json: { state: on ? 'on' : 'off' },
+    errorPrefix: `Could not turn ${sw.label} ${on ? 'on' : 'off'}`,
+  });
 }
 
 /** Forget what was seen; for tests. */

@@ -247,4 +247,5 @@ The off reaches the sessions of that terminal only. In a multi-user deployment e
 own terminal, so it does not pause anyone else's watchdog; for that, set ``enabled: false``. While it
 is off, prompts there are not judged and no new hold opens, unless the terminal cannot take a prompt
 and the hook judges it itself. Open holds stay until an operator answers. The move is audited, and
-a restart turns the watchdogs back on.
+a restart turns the watchdogs back on. The control-assistant preset's readonly dispatch tier refuses
+``web.config_panel.enabled``, so no terminal there can move the switch yet (`#2278 <https://github.com/als-apg/osprey/issues/2278>`__).

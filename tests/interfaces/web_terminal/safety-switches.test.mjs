@@ -15,6 +15,8 @@ import {
   isSafetySwitchFrame,
   refreshSafetySwitches,
 } from '../../../src/osprey/interfaces/web_terminal/static/js/safety-switches.js';
+import { setChatNoticeSink } from '../../../src/osprey/interfaces/web_terminal/static/js/chat-events.js';
+import { dismissConfirm } from '../../../src/osprey/interfaces/web_terminal/static/js/posture-confirm.js';
 
 const ON = { name: 'watchdog', label: 'Safety watchdog', on: true, off_by: null, off_at: null };
 const OFF = { ...ON, on: false, off_by: 'alice', off_at: 1_700_000_000 };
@@ -40,6 +42,8 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  dismissConfirm();
+  setChatNoticeSink(null);
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
 });
@@ -51,6 +55,23 @@ function toggle() {
 
 function notice() {
   return document.querySelector('.undo-notice-text')?.textContent ?? '';
+}
+
+/** The in-app confirm the off raises, while it is up. */
+function dialog() {
+  return document.querySelector('.posture-modal-overlay:not([data-closing]) .posture-modal');
+}
+
+/** @param {'confirm' | 'cancel'} which */
+function press(which) {
+  const button = dialog()?.querySelector(`.posture-modal-${which}`);
+  if (!(button instanceof HTMLButtonElement)) throw new Error(`no ${which} button`);
+  button.click();
+}
+
+function switchOff() {
+  toggle().checked = false;
+  toggle().dispatchEvent(new Event('change'));
 }
 
 test('the frame type is recognised', () => {
@@ -82,37 +103,37 @@ test('a feature newly seen off is announced once, naming who turned it off', asy
   expect(notice()).toBe('');
 });
 
-test('turning it off asks first, then posts the move', async () => {
+test('turning it off asks in the app dialog first, then posts the move', async () => {
   await refreshSafetySwitches();
-  vi.stubGlobal(
-    'confirm',
-    vi.fn(() => true)
-  );
-  toggle().checked = false;
-  toggle().dispatchEvent(new Event('change'));
+  switchOff();
+  expect(dialog()?.textContent).toContain('Turn Safety watchdog off?');
+  expect(toggle().checked).toBe(true);
+  expect(posts).toHaveLength(0);
+  press('confirm');
   await vi.waitFor(() => expect(posts).toHaveLength(1));
   expect(posts[0].url).toContain('/api/safety-switches/watchdog');
   expect(JSON.parse(posts[0].init.body)).toEqual({ state: 'off' });
 });
 
-test('a declined confirm leaves it on and posts nothing', async () => {
+test('a cancelled confirm leaves it on and posts nothing', async () => {
   await refreshSafetySwitches();
-  vi.stubGlobal(
-    'confirm',
-    vi.fn(() => false)
-  );
-  toggle().checked = false;
-  toggle().dispatchEvent(new Event('change'));
+  switchOff();
+  press('cancel');
+  expect(dialog()).toBeNull();
   expect(toggle().checked).toBe(true);
   expect(posts).toHaveLength(0);
 });
 
-test('a refused move reverts the toggle and shows the server detail', async () => {
+test('Escape closes the confirm and posts nothing', async () => {
   await refreshSafetySwitches();
-  vi.stubGlobal(
-    'confirm',
-    vi.fn(() => true)
-  );
+  switchOff();
+  document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+  expect(dialog()).toBeNull();
+  expect(posts).toHaveLength(0);
+});
+
+test('a refused off stays on and shows the server detail in the dialog', async () => {
+  await refreshSafetySwitches();
   vi.stubGlobal(
     'fetch',
     vi.fn(async () => ({
@@ -122,10 +143,51 @@ test('a refused move reverts the toggle and shows the server detail', async () =
       json: async () => ({ detail: 'the Config panel is disabled' }),
     }))
   );
-  toggle().checked = false;
+  switchOff();
+  press('confirm');
+  await vi.waitFor(() =>
+    expect(dialog()?.querySelector('.posture-modal-error')?.textContent).toContain(
+      'the Config panel is disabled'
+    )
+  );
+  expect(toggle().checked).toBe(true);
+});
+
+test('a refused on reverts the toggle and shows the server detail', async () => {
+  payload = { switches: [OFF], can_change: true };
+  await refreshSafetySwitches();
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () => ({
+      ok: false,
+      status: 403,
+      statusText: 'Forbidden',
+      json: async () => ({ detail: 'the Config panel is disabled' }),
+    }))
+  );
+  toggle().checked = true;
   toggle().dispatchEvent(new Event('change'));
   await vi.waitFor(() => expect(notice()).toContain('the Config panel is disabled'));
-  expect(toggle().checked).toBe(true);
+  expect(toggle().checked).toBe(false);
+});
+
+test('with the chat on screen the notice goes in the chat, not a toast', async () => {
+  /** @type {string[]} */
+  const chat = [];
+  setChatNoticeSink((text) => (chat.push(text), true));
+  payload = { switches: [OFF], can_change: false };
+  await refreshSafetySwitches();
+  expect(chat).toEqual([
+    expect.stringContaining('Safety watchdog is off in this terminal by alice'),
+  ]);
+  expect(notice()).toBe('');
+});
+
+test('with the chat off screen the notice is a toast', async () => {
+  setChatNoticeSink(() => false);
+  payload = { switches: [OFF], can_change: false };
+  await refreshSafetySwitches();
+  expect(notice()).toContain('It returns at the next restart.');
 });
 
 test('a feature seen back on is announced', async () => {
