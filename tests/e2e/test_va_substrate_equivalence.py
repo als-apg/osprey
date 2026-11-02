@@ -325,7 +325,7 @@ def _select_sp_echo_pairs(repo: Path, count: int) -> list[tuple[str, str]]:
         and isinstance(nominal := (channel.get("simulation") or {}).get("nominal"), int | float)
         and low <= nominal <= high
     }
-    document = bluesky_document(facility)
+    document = bluesky_document(FacilityRecords(facility))
     pairs = sorted(
         (entry["setpoint"], entry["readback"])
         for entry in document[SETTABLES_KEY]
@@ -359,7 +359,7 @@ def _select_stuck_corrector(repo: Path, limits: dict[str, Any]) -> tuple[str, st
     facility = build_facility(repo / "data" / "facility", project_name=repo.name)
     readback_of = {
         entry["setpoint"]: entry["readback"]
-        for entry in bluesky_document(facility)[SETTABLES_KEY]
+        for entry in bluesky_document(FacilityRecords(facility))[SETTABLES_KEY]
         if "readback" in entry
     }
     candidates = []
