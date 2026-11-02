@@ -85,7 +85,6 @@ from .build_injectors import (
     _inject_teams_bridge,
     _inject_va,
     _inject_va_archiver,
-    _locate_pkg_services,
     graphdb_corpus_fill,
 )
 from .build_lifecycle import (
@@ -104,6 +103,7 @@ from .build_persistence import (
     _register_convention_artifacts,
     _resolve_context_roster,
 )
+from .build_profile_presets import bundled_services_dir
 from .repo_resolver import PROFILE_FILENAME, find_repo_root, repo_option
 from .templates.manager import TemplateManager
 
@@ -148,7 +148,6 @@ __all__ = [
     "_inject_teams_bridge",
     "_inject_va",
     "_inject_va_archiver",
-    "_locate_pkg_services",
     "_persist_artifact_server",
     "_persist_mcp_servers",
     "_plan_project_venv",
@@ -158,6 +157,7 @@ __all__ = [
     "_resolve_osprey_spec",
     "_run_lifecycle_phase",
     "build",
+    "bundled_services_dir",
     "report_provider_credentials",
 ]
 
@@ -1076,7 +1076,7 @@ def _bundled_service_names() -> frozenset[str]:
     A second instance of a bundled service (``live_standin``) is bundled too:
     it renders the template of the service it shares.
     """
-    root = _locate_pkg_services()
+    root = bundled_services_dir()
     if not root.is_dir():
         return frozenset()
     templates = {

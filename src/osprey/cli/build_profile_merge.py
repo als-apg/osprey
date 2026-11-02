@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import copy
 import logging
-import re
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
@@ -40,6 +39,7 @@ from .build_profile_presets import (
     _preset_exists,
     is_bundled_preset_dir,
     list_presets,
+    resolve_service_template,
     resolve_triggers_path,
 )
 from .derived_keys import derived_key_errors
@@ -1848,17 +1848,6 @@ def profile_triggers_material(
     return PurePosixPath(triggers).as_posix(), source.path
 
 
-def bundled_service_template(template: str) -> str | None:
-    """The framework template a service ``template:`` selects, or ``None``.
-
-    ``osprey.<name>`` names the template the framework ships as ``<name>``,
-    which holds only letters, digits, underscores and hyphens; every other
-    spelling is a directory relative to the profile root.
-    """
-    match = re.fullmatch(r"osprey\.([A-Za-z0-9_-]+)", template)
-    return match.group(1) if match else None
-
-
 def _fold_profile_material(digest: Any, inputs: Iterable[ProfileInput]) -> None:
     """Fold the *file* inputs of a profile into ``digest``, in enumeration order.
 
@@ -2082,13 +2071,14 @@ def profile_inputs(
             template = service.get("template") if isinstance(service, dict) else None
             if not isinstance(template, str) or not template:
                 continue
-            if bundled_service_template(template) is not None:
+            template_source = resolve_service_template(root, template)
+            if template_source.bundled:
                 continue
             entries.append(
                 ProfileInput(
                     f"{PurePosixPath(template).as_posix()}/",
                     f"services.{name}.template",
-                    root / template,
+                    template_source.path,
                     ProfileInputRole.MATERIAL,
                 )
             )

@@ -46,8 +46,11 @@ from .build_profile_archiver import (
 )
 from .build_profile_deploy import DeployConfig
 from .build_profile_health import health_url_key_errors
-from .build_profile_merge import bundled_service_template
-from .build_profile_presets import is_bundled_preset_dir, resolve_triggers_path
+from .build_profile_presets import (
+    is_bundled_preset_dir,
+    resolve_service_template,
+    resolve_triggers_path,
+)
 from .build_profile_schema import (
     SECOND_LANE_PORT_STRIDE,
     BlueskyConfig,
@@ -1547,15 +1550,17 @@ class BuildProfile:
         for name, svc in self.services.items():
             if not svc.template:
                 errors.append(f"Service '{name}' missing 'template'")
-            elif bundled_service_template(svc.template) is not None:
-                # A bundled template names a directory the framework ships; the
-                # injector resolves it, so there is no profile-dir file to check.
-                continue
             else:
-                tmpl_path = profile_dir / svc.template
-                if not tmpl_path.is_dir():
-                    errors.append(f"Service '{name}' template dir not found: {tmpl_path}")
-                elif not (tmpl_path / "docker-compose.yml.j2").exists():
+                source = resolve_service_template(profile_dir, svc.template)
+                if source.exists:
+                    continue
+                if source.bundled:
+                    errors.append(
+                        f"Service '{name}' template '{svc.template}' names no template OSPREY ships"
+                    )
+                elif not source.path.is_dir():
+                    errors.append(f"Service '{name}' template dir not found: {source.path}")
+                else:
                     errors.append(f"Service '{name}' template dir missing docker-compose.yml.j2")
 
         # Validate the per-service axes across both authoring surfaces, after

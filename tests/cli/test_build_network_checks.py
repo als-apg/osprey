@@ -346,10 +346,10 @@ def test_the_pair_address_contract_is_what_the_bridge_templates_render() -> None
     assume a parity nothing enforces.
     """
     from osprey.cli.build_cmd import _DISPATCH_PAIR_ADDRESS_VARS
-    from osprey.cli.build_injectors import _locate_pkg_services
+    from osprey.cli.build_profile_presets import bundled_services_dir
 
     for bridge in ("gchat_bridge", "nextcloud_bridge", "teams_bridge"):
-        template = (_locate_pkg_services() / bridge / "docker-compose.yml.j2").read_text(
+        template = (bundled_services_dir() / bridge / "docker-compose.yml.j2").read_text(
             encoding="utf-8"
         )
         for variable in _DISPATCH_PAIR_ADDRESS_VARS:

@@ -18,15 +18,14 @@ from typing import Any, NoReturn
 import pytest
 from click.testing import CliRunner
 
-from osprey.cli.build_injectors import _locate_pkg_services
 from osprey.cli.build_profile_document import _read_profile_document
 from osprey.cli.build_profile_merge import (
     OutsideInput,
-    bundled_service_template,
     inputs_outside_repository,
     profile_inputs,
     resolve_profile_document,
 )
+from osprey.cli.build_profile_presets import bundled_service_template, bundled_services_dir
 from osprey.cli.main import cli
 from osprey.utils.workspace import PROFILE_FILENAME
 from osprey_connectors.errors import BuildProfileError
@@ -301,7 +300,7 @@ def test_an_in_repo_service_template_builds_and_is_imaged(repo: Path) -> None:
 
 def _shipped_services() -> Path:
     """The directory the framework's service templates ship in."""
-    return _locate_pkg_services().resolve()
+    return bundled_services_dir().resolve()
 
 
 def _abs_path_spelling(outside: Path) -> str:

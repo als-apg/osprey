@@ -10,6 +10,7 @@ without importing the profile parser in :mod:`osprey.cli.build_profile_load`.
 from __future__ import annotations
 
 import importlib.resources
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -125,6 +126,76 @@ def resolve_triggers_path(profile_dir: Path, triggers: str) -> TriggersSource | 
     if packaged.is_file():
         return TriggersSource(path=packaged, bundled=True)
     return None
+
+
+_SERVICE_TEMPLATE_FILE = "docker-compose.yml.j2"
+
+
+def bundled_services_dir() -> Path:
+    """Locate the OSPREY package's bundled ``templates/services`` directory.
+
+    Prefers the installed ``osprey.templates`` package's location; falls back to
+    a path relative to this module for source/editable checkouts where the
+    package metadata is unavailable. Callers check ``.is_dir()`` on the result,
+    since the directory may be absent in a stripped-down install.
+    """
+    try:
+        import osprey.templates
+
+        return Path(osprey.templates.__file__).parent / "services"
+    except (ImportError, AttributeError):
+        return Path(__file__).parent.parent / "templates" / "services"
+
+
+def bundled_service_template(template: str) -> str | None:
+    """The framework template a service ``template:`` selects, or ``None``.
+
+    ``osprey.<name>`` names the template the framework ships as ``<name>``,
+    which holds only letters, digits, underscores and hyphens; every other
+    spelling is a directory relative to the profile root.
+    """
+    match = re.fullmatch(r"osprey\.([A-Za-z0-9_-]+)", template)
+    return match.group(1) if match else None
+
+
+@dataclass(frozen=True)
+class ServiceTemplateSource:
+    """The directory a service ``template:`` value resolves to.
+
+    Attributes:
+        path: The template directory on disk.
+        bundled: True when the value names a template the framework ships
+            rather than a directory beside the profile.
+    """
+
+    path: Path
+    bundled: bool
+
+    @property
+    def exists(self) -> bool:
+        """Whether ``path`` is a service template: a directory holding its compose template."""
+        return self.path.is_dir() and (self.path / _SERVICE_TEMPLATE_FILE).is_file()
+
+
+def resolve_service_template(profile_dir: Path, template: str) -> ServiceTemplateSource:
+    """Resolve a service ``template:`` value to its source directory.
+
+    ``osprey.<name>`` resolves into :func:`bundled_services_dir`; every other
+    value is a directory relative to ``profile_dir``. The result says where the
+    source is, not whether it is there: :attr:`ServiceTemplateSource.exists`
+    answers that, by one rule for both kinds.
+
+    Args:
+        profile_dir: Directory holding the profile.
+        template: The service's ``template:`` value.
+
+    Returns:
+        The resolved source.
+    """
+    bundled = bundled_service_template(template)
+    if bundled is not None:
+        return ServiceTemplateSource(path=bundled_services_dir() / bundled, bundled=True)
+    return ServiceTemplateSource(path=profile_dir / template, bundled=False)
 
 
 def _preset_exists(name: str) -> Path | None:
