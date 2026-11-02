@@ -23,6 +23,7 @@ from osprey.cli.templates import claude_code
 from osprey.cli.templates.manager import TemplateManager
 from osprey.facility import TEXTURE
 from osprey.facility.build import build_facility
+from osprey.facility.records import FacilityRecords
 from osprey.facility.render import render_facility_outputs
 from osprey.facility.validate import FACILITY_HEADER, vocabulary
 from osprey.facility.views.facts import (
@@ -505,13 +506,13 @@ def test_the_measurement_block_reads_each_view_the_facts_record(tmp_path: Path) 
     assert block == {
         "LINE": {
             "kinds": {"orm": {"hcor": "LINE_HCM", "vcor": "LINE_VCM"}},
-            "groups": measurement_groups(document, "LINE"),
+            "groups": measurement_groups(FacilityRecords(document), "LINE"),
             "rf": [],
             "view_sha256": facts["measurement_models"]["LINE"]["sha256"],
         },
         "SR": {
             "kinds": {"trm": {"quad": "SR_Q"}},
-            "groups": measurement_groups(document, "SR"),
+            "groups": measurement_groups(FacilityRecords(document), "SR"),
             "rf": [],
             "view_sha256": facts["measurement_models"]["SR"]["sha256"],
         },

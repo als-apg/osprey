@@ -18,6 +18,7 @@ import numpy as np
 import pytest
 import yaml
 
+from osprey.facility.records import FacilityRecords
 from osprey.facility.views.pyaml import CONFIGURATION_FILE, LATTICE_FILE, measurement_groups
 from tests.facility._pyaml_trees import (
     _setting,
@@ -82,7 +83,7 @@ def test_a_design_corrector_step_moves_the_orbit_the_served_kick_does(
     from pyaml.accelerator import Accelerator
 
     document = built_control_assistant.facility
-    address = measurement_groups(document, "SR")[role][4]
+    address = measurement_groups(FacilityRecords(document), "SR")[role][4]
     view = _view(built_control_assistant)
     bpms = _bpm_elements(view)
     design = Accelerator.load(str(view / CONFIGURATION_FILE)).design
@@ -108,7 +109,7 @@ def test_the_lattice_is_the_deck_with_its_driven_kicks_as_polynomials(
     from osprey.simulation.engines.pyat import polynomial_kicks
 
     view = _view(built_control_assistant)
-    groups = measurement_groups(built_control_assistant.facility, "SR")
+    groups = measurement_groups(FacilityRecords(built_control_assistant.facility), "SR")
     elements = [
         _element_of(built_control_assistant.facility, address)
         for address in groups["hcor"] + groups["vcor"]
