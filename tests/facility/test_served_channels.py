@@ -25,7 +25,12 @@ from osprey.facility.served import (
     resolve_served,
     served_channel_fill,
 )
-from osprey_connectors.types import LIVE_STANDIN, VIRTUAL_ACCELERATOR
+from osprey_connectors.types import (
+    LIVE_STANDIN,
+    TARGET_STANDIN,
+    VIRTUAL_ACCELERATOR,
+    configured_targets,
+)
 from tests._builds import BuiltProject, init_project, run_build
 
 VA_PROBE_KEY = SERVED_PROBE_KEYS[0]
@@ -211,7 +216,10 @@ def test_the_profile_states_the_served_models_over_the_render() -> None:
     assert fill[VA_PROBE_KEY] == "Z:RB"
 
 
-def test_hello_world_derives_its_probe_and_no_health_check(tmp_path: Path) -> None:
+def test_hello_world_derives_its_simulator_probe_and_declares_no_stand_in(
+    tmp_path: Path,
+) -> None:
+    """A render with no stand-in gets the probe on the simulator's block alone; no leaf declares a machine the profile did not."""
     repo = init_project(tmp_path, "hello-world", "demo")
     result = run_build(repo)
     assert result.exit_code == 0, result.output
@@ -222,3 +230,5 @@ def test_hello_world_derives_its_probe_and_no_health_check(tmp_path: Path) -> No
     readbacks = [str(c["id"]) for c in facility["channels"] if _is_readback(c)]
     assert probe == min(readbacks)
     assert "archiver" not in ((config.get("health") or {}).get("categories") or {})
+    assert LIVE_STANDIN not in config["control_system"]["connector"]
+    assert TARGET_STANDIN not in configured_targets(config["control_system"])
