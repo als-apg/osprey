@@ -1454,7 +1454,7 @@ def render_document(
     can judge an app as the tier merge it never is.
 
     * ``legacy`` — a file in the retired layer directory keeps its old
-      meaning, ``exclude:`` included, for the one release it is still read
+      meaning, ``exclude:`` included, for as long as it is still read
       (``osprey init --revalidate`` rewrites it into ``tiers/``);
     * an app is composed from the host and its complete file
       (:func:`compose_app_render`);

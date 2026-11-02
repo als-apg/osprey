@@ -96,7 +96,7 @@ def _normalize_empty_collections(raw: dict[str, Any]) -> dict[str, Any]:
 # The roster's access level is a *tier*: ``users[].tier``, ``default_tier`` and
 # ``authorization.roles.<r>.tier`` name a file in ``tiers/``, and the build
 # derives every render from the files themselves. The ``persona`` spellings and
-# the ``personas:`` catalog that preceded them are read for one release window
+# the ``personas:`` catalog that preceded them are read until ``RETIRED_ROSTER_KEYS_REFUSED_FROM``
 # by rewriting them here, at the single parse point, so nothing downstream ever
 # sees them: the merge, the hash and the render all read the new spelling.
 
