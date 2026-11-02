@@ -70,30 +70,23 @@ To go through OpenRouter instead, set ``OPENROUTER_API_KEY`` and choose the rout
    config:
      api.jev.route: openrouter
 
+To keep the data on site, serve a model yourself with vLLM and point the route at it; no key
+is needed:
+
+.. code-block:: yaml
+
+   config:
+     api.jev.route: TODO           # final key names from the route change
+     api.jev.base_url: http://gpu-host:8000/v1
+     api.jev.model: Qwen/Qwen3-32B
+
 .. warning::
 
    A decision-engine watchdog sends the session's prompts, answers, tool calls and tool
-   results to **TypeSafe, hosted in the US, or to OpenRouter**. An agent-engine watchdog uses
-   the deployment's configured LLM provider, so its data goes where the main agent's goes.
-   Confirm this is acceptable before you enable one.
-
-.. list-table::
-   :header-rows: 1
-
-   * - Route
-     - Model
-     - Per judged prompt
-     - Per 1,000 prompts
-     - Latency (p50)
-   * - TypeSafe
-     - ``jev-1.13.0``
-     - $0.00006–$0.0008
-     - $0.06–$0.76
-     - 0.1 s
-
-List price, measured 2026-11 on 20 prompts; cost grows with the session history sent, up to the
-cap. On OpenRouter the call is billed at OpenRouter's price. ``osprey watchdog replay`` prints
-the cost for your own prompts.
+   results to **TypeSafe, hosted in the US, or to OpenRouter**, unless you host the model. An
+   agent-engine watchdog uses the deployment's configured LLM provider, so its data goes where
+   the main agent's goes. Confirm this is acceptable before you enable one.
+   :ref:`Cost and performance <how-to-watchdogs-cost>` compares the routes.
 
 **2. Test it on your own prompts** (recommended before enabling). Replay runs the watchdog over
 test sessions you wrote and labelled, and reports how often it catches the risky ones and
@@ -267,16 +260,28 @@ the session's oldest entries to fit. Each entry is also truncated at 4,000 chara
 cut is recorded as ``entries_cut``. A risky setup early in a long session is therefore invisible
 to it. An agent watchdog reads further back, if the risk is worth its cost.
 
-Cost per prompt
----------------
+.. _how-to-watchdogs-cost:
 
-Every enabled watchdog runs on every operator prompt, so the costs add up:
+Cost and performance
+--------------------
 
-- **Decision engine:** at the default ``api.jev`` price of $0.042 per million tokens, at most
-  about $0.0008 per watchdog per prompt, at the history cap.
-- **Agent engine:** up to ``max_cost_usd`` per run, $0.25 by default, and it reads the machine.
-  One run per watchdog and session is in flight, with one waiting. A newer prompt replaces the
-  waiting one, and the replaced prompt shows the watchdog unavailable.
+=========================================  ==================  ================  ====================  =============
+Decision route                             Per prompt          Per 1,000         Latency p50 / p95     Data goes to
+=========================================  ==================  ================  ====================  =============
+TypeSafe, ``jev-1.13.0``                   $0.00006–$0.0008    $0.06–$0.76       0.10 s / 0.16–0.24 s  TypeSafe, US
+OpenRouter                                 OpenRouter's price  not measured      not measured          OpenRouter
+Self-hosted ``Qwen3-32B``, one H200, vLLM  $0                  $0, plus the GPU  0.125 s / 0.130 s     stays on site
+=========================================  ==================  ================  ====================  =============
+
+Measured 2026-11 with replay on the same 20 test sessions: both measured routes caught all 10
+risky ones and flagged none of the 10 ordinary ones. Those sessions are easy, so this shows the
+routes work, not how well they judge hard cases. TypeSafe is at list price, and its cost grows
+with the session history sent, up to the cap. vLLM takes about 90 s to be ready after a start.
+
+Every enabled watchdog runs on every operator prompt, so the costs add up. An agent watchdog
+costs up to ``max_cost_usd`` per run, $0.25 by default, and it reads the machine. One run per
+watchdog and session is in flight, with one waiting. A newer prompt replaces the waiting one,
+and the replaced prompt shows the watchdog unavailable.
 
 Replay reports what each engine actually cost on your test sessions. An agent watchdog needs a built
 project to replay against:
