@@ -1,3 +1,4 @@
+# Bundled with OSPREY: the example facility. Delete this line to make the file yours.
 - id: SR
   level: machine
   description: 'Storage Ring (SR): Main synchrotron light source. 12-sector electron storage ring operating at 2.0 GeV. Contains magnets, diagnostics, vacuum, and RF systems for stable beam circulation and photon production.'

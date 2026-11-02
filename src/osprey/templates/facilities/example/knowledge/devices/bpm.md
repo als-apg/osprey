@@ -1,4 +1,5 @@
 ---
+# Bundled with OSPREY: the example facility. Delete this line to make the file yours.
 type: Device
 title: Beam Position Monitor (BPM)
 description: Electromagnetic pickup measuring beam centroid position in horizontal and vertical planes with sub-millimetre resolution.
