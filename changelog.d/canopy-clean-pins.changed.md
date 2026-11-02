@@ -1,0 +1,1 @@
+The CANOPY panel follows the CANOPY that went upstream: the screen report is `LIBRARY-REPORT.*` (schema `canopy-library-report/1`), the collection check is `canopy_mcp.collections_cli`, the sidecar sets `CANOPY_URL_PREFIX`, `CANOPY_PROXY_MARK_HEADERS` and `CANOPY_LIBRARY_IGNORED_NAMES`, and the mount stamps `data-canopy-storage-scope`.

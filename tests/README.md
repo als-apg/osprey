@@ -16,7 +16,7 @@ new tests.
 
 ```bash
 # Parallel — what CI runs, and what your change has to pass
-pytest tests/ --ignore=tests/e2e packages/osprey-connectors/tests -m "not pty and not wallclock" -n 4 --dist loadgroup
+pytest tests/ --ignore=tests/e2e packages/osprey-connectors/tests -m "not pty and not wallclock and not canopy" -n 4 --dist loadgroup
 
 # Serial — for debugging one failure, or reading full output in order
 pytest tests/ --ignore=tests/e2e packages/osprey-connectors/tests
@@ -24,7 +24,7 @@ pytest tests/ --ignore=tests/e2e packages/osprey-connectors/tests
 
 The `pty` and `wallclock` markers are run serially by the full tier of
 `scripts/check.py` (its `pytest-pty` and `pytest-wallclock` checks) and by their
-own CI steps.
+own CI steps; the `canopy` marker by the CANOPY contract's own check and CI job.
 
 Both must pass. Parallel is the real gate; serial is the one that gives you
 readable output when something is wrong.
@@ -274,7 +274,7 @@ Markers are declared in `pyproject.toml` under `[tool.pytest.ini_options]`.
 when you pass it on the command line yourself: in a normal run an undeclared
 marker is a `PytestUnknownMarkWarning`, not an error. So declare your marker, and
 run `pytest --strict-markers …` when you want a typo to fail collection rather
-than scroll past in the warnings summary. Four groups matter day to day:
+than scroll past in the warnings summary. Five groups matter day to day:
 
 - **`requires_<resource>`** (`requires_ollama`, `requires_als_apg`, …) — declares
   an external dependency. `pytest_collection_modifyitems` in `tests/conftest.py`
@@ -283,6 +283,18 @@ than scroll past in the warnings summary. Four groups matter day to day:
   and declare the marker in `pyproject.toml`.
 - **`slow`** — deselected by `scripts/check.py quick` (`-m "not slow"`). Mark a
   test slow if it would make the fast loop annoying to run; it still runs in CI.
+- **`canopy`** — a test that needs CANOPY; its rule is the marker's text in
+  pyproject.toml (`pytest --markers`). To run the contract, install CANOPY and
+  PyDMConverter at the commits `python3 src/osprey/integrations/canopy/proven.py --pins`
+  prints and run `uv run python scripts/check.py run canopy-contract`.
+  `tests/integrations/canopy/fixtures/canopy-copies.json` is the one record of
+  every CANOPY file copied into this repository (the three fixtures beside it and
+  the bundled `canopy-panel-builder` `SKILL.md`), and a test holds its commit
+  equal to the canopy pin and each copy equal to its recorded blob. When the pin
+  moves, regenerate each copy with one line per entry,
+  `git -C <canopy> show <pin>:<canopy_path> > <osprey_path>`, taking `<pin>` from
+  `python3 src/osprey/integrations/canopy/proven.py --pins`, then write the new
+  commit and blob ids (`git hash-object <osprey_path>`) into the record.
 - **`xdist_group`** — the worker pin from section 1. Self-registered by xdist, so
   it needs no declaration.
 - **`real_<seam>`** (`real_workspace_watcher`, `real_http_posters`,
