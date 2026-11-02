@@ -899,24 +899,11 @@ def test_an_unrelated_health_category_is_left_alone() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_the_control_assistant_preset_names_a_canary() -> None:
-    """The tutorial deployment gets the freshness check, not just the machinery
-    to derive one. A preset that shipped the store and opted out of checking it
-    would under-deliver the feature it exists to demonstrate."""
-    from osprey.cli.build_profile import resolve_build_profile
-
-    profile, _ = resolve_build_profile(None, "control-assistant")
-
-    assert profile.va_archiver is not None
-    assert profile.va_archiver.freshness_channel
-
-
 @pytest.mark.slow
-def test_the_presets_canary_is_a_channel_the_virtual_accelerator_serves(
+def test_the_derived_canary_is_a_channel_the_virtual_accelerator_serves(
     built_control_assistant: BuiltProject,
 ) -> None:
-    """Same standard the L0 e2e holds its own canary to, applied where the
-    choice is actually made.
+    """Same standard the L0 e2e holds its own canary to, applied to the derived one.
 
     A canary the IOC does not serve is never recorded, so the check would report
     "no samples" forever — a permanently yellow health row that says nothing
@@ -924,15 +911,14 @@ def test_the_presets_canary_is_a_channel_the_virtual_accelerator_serves(
     address list the VA serves, so a facility change that drops this channel
     fails here rather than in a deployed operator's face.
     """
-    from osprey.cli.build_profile import resolve_build_profile
-
-    profile, _ = resolve_build_profile(None, "control-assistant")
-    assert profile.va_archiver is not None
-    canary = profile.va_archiver.freshness_channel
+    config = yaml.safe_load(
+        (built_control_assistant.repo / "build" / "config.yml").read_text(encoding="utf-8")
+    )
+    (check,) = config["health"]["categories"]["archiver"]["checks"]
+    canary = check["channel"]
 
     served = set(json.loads(built_control_assistant.outputs[0].files[SERVED_ADDRESSES])["channels"])
     assert canary in served, (
-        f"the control-assistant preset's freshness_channel {canary!r} is not served by the "
-        f"built facility, so the derived check could never see a sample. Pick a channel "
-        f"the simulator view lists."
+        f"the derived freshness channel {canary!r} is not served by the built facility, "
+        f"so the check could never see a sample."
     )

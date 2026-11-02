@@ -151,7 +151,6 @@ va_archiver:
   # machine does. Naming it here is what derives the `archiver_freshness`
   # check — including its staleness threshold, which follows the recorder's
   # cadence rather than being a second number to keep in step.
-  freshness_channel: SR:DIAG:DCCT:01:CURRENT:RB
 
 # ── Facility-owned compose services ──────────────────────────────────────────
 # One entry per directory under `services/`. `template:` is profile-relative
@@ -312,7 +311,6 @@ config:
   # control_system.connector.virtual_accelerator.response_delay_ms: 10
   # Channel the target switch reads to prove this target is reachable before
   # making it active. The simulator serves it from the built facility.
-  control_system.connector.virtual_accelerator.probe_channel: SR:VAC:GAUGE:SR01:PRESSURE:RB
   # Gateways in CA name-server (TCP) mode against localhost, the one
   # host-to-container configuration that works across container runtimes. No
   # port is written: the connector follows `services.virtual_accelerator.port`,

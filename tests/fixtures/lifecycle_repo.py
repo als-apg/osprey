@@ -345,10 +345,8 @@ va_archiver:
   hot_cadence_sec: 10      # seconds between samples inside the hot span
   tail_cadence_sec: 60     # and outside it (must be a whole multiple of the above)
   recorder_cadence_sec: 10  # how often the recorder samples the machine
-  # A channel `osprey health` watches to check the archive is still recording:
-  # if this stops moving, history has quietly stopped. Point it at something on
-  # your machine that always changes; delete the key for no check at all.
-  freshness_channel: SR:DIAG:DCCT:01:CURRENT:RB
+  # The build derives `freshness_channel`, the channel `osprey health` watches,
+  # from the facility file; a stated line is an override checked against it.
 
 # ── Agent record ─────────────────────────────────────────────────────────────
 # Every prompt, answer, tool call and decision, kept once. `clickhouse` keeps
@@ -492,9 +490,8 @@ config:
   # control_system.connector.virtual_accelerator.serving: served
   # Milliseconds each read and write takes when the simulator is served in process; unread when served.
   # control_system.connector.virtual_accelerator.response_delay_ms: 10
-  # Channel the target switch reads to prove this target is reachable before
-  # making it active. The simulator serves it from the built facility.
-  control_system.connector.virtual_accelerator.probe_channel: SR:VAC:GAUGE:SR01:PRESSURE:RB
+  # The build derives `probe_channel`, the channel the target switch reads, from
+  # the facility file; a stated line is an override checked against it.
   # Gateways in CA name-server (TCP) mode against localhost, the one
   # host-to-container configuration that works across container runtimes. No
   # port is written: the connector follows `services.virtual_accelerator.port`,
@@ -1369,6 +1366,7 @@ config:
   # Scenarios a deployment that never chose a set starts in, by name from
   # the facility's scenarios; `osprey sim apply` replaces the set.
   # Absent or [] starts in nominal alone.
+  # A stated start set is checked against the file at build.
   simulation.default_scenarios: [rf-thermal]
 
 # ── Record archive ─────────────────────────────────────────────────────────
@@ -3009,6 +3007,7 @@ BASE_SOURCE_FILES: Mapping[str, str] = {
     "data/facility/records/places.yaml": FACILITY_PLACES_YAML,
     "data/facility/records/devices.yaml": FACILITY_DEVICES_YAML,
     "data/facility/records/channels.yaml": FACILITY_CHANNELS_YAML,
+    "data/facility/scenarios/rf-thermal.yaml": "{}\n",
     "data/facility/knowledge/index.md": FK_INDEX_MD,
     "data/facility/knowledge/subsystems/index.md": FK_SUBSYSTEMS_INDEX_MD,
     "data/facility/knowledge/subsystems/vacuum.md": FK_VACUUM_MD,

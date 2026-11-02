@@ -49,10 +49,11 @@ may touch.
        name from the facility's scenarios. ``osprey up`` activates them
        the way ``osprey sim apply`` would, before it seeds the archive and the
        logbook, and only while no set has been chosen. Absent, ``null`` or
-       ``[]`` starts in ``nominal`` alone. The control-assistant preset sets
-       ``[rf-thermal]``; the other presets leave it out. A value that is not a
-       list of non-empty names stops the build with a ``profile-invalid`` line
-       naming the key.
+       ``[]`` starts in ``nominal`` alone, which is the default: the build
+       derives no start set. The control-assistant preset sets ``[rf-thermal]``;
+       the other presets leave it out. A value that is not a list of non-empty
+       names, or a name that is not a scenario of the facility file, stops the
+       build with a ``profile-invalid`` line naming the key.
 
 ``texture`` is always served, and always last. A name the facility file does
 not hold stops the build with a ``profile-invalid`` line that lists the valid
