@@ -272,25 +272,26 @@ REAL_BLOCKS = ("epics", "tango", "doocs")
 LOOPBACK_HOST = "127.0.0.1"
 
 
-def isolation_settings(port: int, probe: str) -> list[str]:
+def isolation_settings(port: int) -> list[str]:
     """The ``osprey set`` arguments that point a deployment at the VA alone.
 
     The connector table is stated whole, so every block the preset or the
     profile carried -- the facility's own among them -- is replaced by one
-    ``virtual_accelerator`` block on ``127.0.0.1:<port>`` that probes *probe*,
-    a channel of the imported facility. The stand-in is a second machine with
-    an address the build derives, so it is switched off.
+    ``virtual_accelerator`` block on ``127.0.0.1:<port>``, whose probe the build
+    derives from the imported facility. The stand-in is a second machine with an
+    address the build derives, so it is switched off. The preset's start set
+    names the demo's scenarios, so it is emptied.
     """
     gateway = {"address": LOOPBACK_HOST, "port": port, "use_name_server": True}
     connector = {
         "virtual_accelerator": {
             "gateways": {"read_only": gateway, "write_access": gateway},
-            "probe_channel": probe,
         }
     }
     return [
         "connector=virtual_accelerator",
         "config.control_system.writes=never",
+        "config.simulation.default_scenarios=[]",
         f"config.control_system.connector={json.dumps(connector)}",
         f"virtual_accelerator.port={port}",
         "virtual_accelerator.live_standin=null",
@@ -475,20 +476,6 @@ class Install:
         return list(dict.fromkeys(str(record["address"]) for record in entry.get("wiring") or []))
 
 
-def imported_probe(repo: Path) -> str:
-    """The first readback by address of the import's channels.
-
-    The rule the build's served-probe stop names its remedy by: a channel whose
-    role is ``readback`` or states none.
-    """
-    channels = yaml.safe_load(
-        (repo / FACILITY_DIR / "imported" / "mml" / "channels.yaml").read_text(encoding="utf-8")
-    )
-    return min(
-        str(channel["id"]) for channel in channels if channel.get("role", "readback") == "readback"
-    )
-
-
 def install(lane: Lane, repo: Path, port: int) -> Install:
     """Install *lane* into *repo* through ``facility import mml`` and build it."""
     runner = CliRunner()
@@ -501,7 +488,7 @@ def install(lane: Lane, repo: Path, port: int) -> Install:
 
     _ok(runner, "facility", "import", "mml", *exports, "--repo", str(repo))
 
-    _ok(runner, "set", "--repo", str(repo), *isolation_settings(port, imported_probe(repo)))
+    _ok(runner, "set", "--repo", str(repo), *isolation_settings(port))
 
     where = ["--repo", str(repo)]
     first = _invoke(runner, *BUILD, *where)
@@ -865,10 +852,9 @@ def test_a_normalized_allowed_render_fails_the_preflight() -> None:
 
 
 def test_the_isolation_settings_state_the_connector_table_whole() -> None:
-    settings = dict(argument.split("=", 1) for argument in isolation_settings(45123, "A:RB"))
+    settings = dict(argument.split("=", 1) for argument in isolation_settings(45123))
     table = json.loads(settings["config.control_system.connector"])
     assert sorted(table) == ["virtual_accelerator"]
-    assert table["virtual_accelerator"]["probe_channel"] == "A:RB"
     for lane_name in ("read_only", "write_access"):
         gateway = table["virtual_accelerator"]["gateways"][lane_name]
         assert (gateway["address"], gateway["port"]) == (LOOPBACK_HOST, 45123)

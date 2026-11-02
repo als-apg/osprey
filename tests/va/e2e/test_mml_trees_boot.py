@@ -434,14 +434,7 @@ def harvest_and_build(name: str, destination: Path) -> BuiltTree:
         "set",
         "--repo",
         str(repo),
-        "config.control_system.connector.virtual_accelerator.probe_channel="
-        + recipes.imported_probe(repo),
-    )
-    recipes.invoke(
-        runner,
-        "set",
-        "--repo",
-        str(repo),
+        recipes.NO_START_SET,
         *recipes.MIDDLE_LAYER_SETTINGS,
     )
     recipes.invoke(runner, "validate", "--repo", str(repo), "--drift=warn")
