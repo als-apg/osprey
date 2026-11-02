@@ -157,7 +157,7 @@ control_system:
           address: localhost
           port: 10090
           use_name_server: true
-      probe_channel: SR:VAC:GAUGE:SR01:PRESSURE:RB
+      probe_channel: BR:DIAG:BPM:01:POSITION:X
     virtual_accelerator:
       gateways:
         read_only:
@@ -166,7 +166,7 @@ control_system:
         write_access:
           address: localhost
           use_name_server: true
-      probe_channel: SR:VAC:GAUGE:SR01:PRESSURE:RB
+      probe_channel: BR:DIAG:BPM:01:POSITION:X
       timeout_s: 5.0
   limits_checking:
     database_path: data/channel_limits.json
@@ -207,7 +207,7 @@ health:
   categories:
     archiver:
       checks:
-      - channel: SR:DIAG:DCCT:01:CURRENT:RB
+      - channel: BR:DIAG:BPM:01:POSITION:X
         max_age_s: 60
         name: archiver_freshness
         type: archiver_freshness

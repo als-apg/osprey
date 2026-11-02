@@ -1033,7 +1033,8 @@ keys:
       Per-preset: control-assistant alone states it ([rf-thermal]), the one
       preset whose facility tree ships scenarios. Read at deploy time by
       `simulation.apply.activate_default_scenarios`, only while the deployment
-      has no scenario state.
+      has no scenario state. Never derived: the build derives no start set from
+      the facility file, and a stated name is an override checked against it.
     default: []
 
   # ── Control system ──────────────────────────────────────────────────
@@ -1283,12 +1284,13 @@ keys:
     evidence: 'use_name_server'
     default: false
   control_system.connector.virtual_accelerator.probe_channel:
-    forward-declared: true
+    rendered: false
+    evidence: 'PROBE_CHANNEL_KEY'
     note: >-
       The channel the target switch reads to prove this target is reachable
-      before it becomes the active one. Written by the presets ahead of the
-      switch's own reader (this branch); a target without one is ineligible,
-      which is why the VA block ships it set and the epics block does not.
+      before it becomes the active one; a target without one is ineligible.
+      Derived from the facility file at build for the VA block; a stated value
+      is an override checked against the file.
     default: ''
   control_system.connector.live_standin:
     rendered: false
@@ -2764,8 +2766,9 @@ keys:
     evidence: 'FRESHNESS_CATEGORY = "archiver"'
     note: >-
       The one category name under `health.categories` that is not free-form: it
-      is the archive-freshness category `osprey build` DERIVES when a profile's
-      `va_archiver:` block names a `freshness_channel`, written out as
+      is the archive-freshness category `osprey build` DERIVES for a profile's
+      `va_archiver:` block, from the facility file or from a stated
+      `freshness_channel` (an override checked against the file), written out as
       `health.categories.archiver.checks`. Declaring it by hand while
       `freshness_channel` is set is refused at build time, so the name is
       effectively reserved and the reference documents it as such. Evidence
@@ -4024,7 +4027,7 @@ render_contexts:
     panels_on: web.panels.channel-finder.enabled
     default_panel_set: web.default_panel
     panel_presets_set: web.presets
-  expected_union_size: 367
+  expected_union_size: 366
   note_union_size: >-
     An assertion: the guard derives the union on every run and fails when this
     figure disagrees with it, or when it is missing. It moves whenever the

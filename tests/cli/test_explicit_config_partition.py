@@ -82,6 +82,7 @@ from osprey.deployment.web_terminals.render_naming import (
     RENDER_KIND_TIER,
     RENDERS_KEY,
 )
+from osprey.facility.served import SERVED_PROBE_KEYS
 from osprey.port_layout import DEFAULT_PORT_BASE
 from osprey.profiles.providers import load_provider_catalog
 from tests.cli.test_explicit_config_equivalence import (
@@ -301,6 +302,7 @@ def _partition(render: Mapping[str, Any], document: Mapping[str, Any]) -> dict[s
         "B": set(),
         "Ports": set(),
         "Corpus": set(),
+        "Fill": set(),
         "W": set(),
         "C": set(),
     }
@@ -317,6 +319,8 @@ def _partition(render: Mapping[str, Any], document: Mapping[str, Any]) -> dict[s
             sets["Ports"].add(key)
         elif key in corpus:
             sets["Corpus"].add(key)
+        elif key in SERVED_PROBE_KEYS and key not in config:
+            sets["Fill"].add(key)
         elif _WRITTEN_BY_BUILD_PATTERN.match(key) and key not in config:
             sets["W"].add(key)
         elif key in config:
@@ -497,6 +501,7 @@ def test_render_stays_inside_the_partition(stem: str, preset: str, directory: st
             is_derived_key(key)
             or _WRITTEN_BY_BUILD_PATTERN.match(key)
             or key in corpus
+            or key in SERVED_PROBE_KEYS
             or key == _PROVIDERS_KEY
             or key in panel_switches
             or _PORT_LEAF.match(key)

@@ -36,6 +36,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import pytest
+import yaml
 
 import osprey.templates
 from osprey.cli.build_profile_archiver import _expand_dotted
@@ -136,16 +137,11 @@ def test_no_gateway_port_example_can_steer_an_operator_onto_the_standin():
 # ── probe_channel on every switchable target ────────────────────────────────
 
 
-def test_va_target_ships_a_probe_channel():
-    va = _control_system()["connector"]["virtual_accelerator"]
-    assert va.get("probe_channel"), "a target with no probe_channel is ineligible to switch to"
-
-
 @pytest.mark.slow
 def test_control_assistant_probe_channel_is_served_by_its_own_facility(
     built_control_assistant: BuiltProject,
 ):
-    """The preset's probe channel must exist in what its VA actually serves.
+    """The derived probe channel must exist in what the VA actually serves.
 
     The Control Assistant VA serves the simulator view its build writes, so a
     probe channel that view does not list would fail every switch to va on a
@@ -153,7 +149,8 @@ def test_control_assistant_probe_channel_is_served_by_its_own_facility(
     answer and therefore must get it right.
     """
     view = json.loads(built_control_assistant.outputs[0].files["data/simulator/addresses.json"])
-    va = _control_system()["connector"]["virtual_accelerator"]
+    config = yaml.safe_load((built_control_assistant.repo / "build" / "config.yml").read_text())
+    va = config["control_system"]["connector"]["virtual_accelerator"]
     assert va["probe_channel"] in view["channels"]
 
 
@@ -164,12 +161,10 @@ def test_live_target_documents_probe_channel_without_guessing_one():
     a channel no facility serves; leaving it unset makes the target simply
     un-switchable-to until an operator names a real channel.
 
-    The VA block does ship a placeholder, and the asymmetry is deliberate: the
-    VA is not hardware, and probing a channel it does not serve fails the switch
-    at run time and leaves the session where it was — a placeholder there costs
-    a failed switch. The same placeholder on epics would advertise the LIVE
-    machine as switch-ready on the strength of a channel name nobody checked,
-    which is the direction that must never fail open.
+    The VA block's probe is derived from the facility file the simulator serves.
+    No such file describes the live machine's reachability, and a placeholder on
+    epics would advertise it as switch-ready on the strength of a channel name
+    nobody checked, which is the direction that must never fail open.
     """
     epics = _control_system()["connector"]["epics"]
     assert "probe_channel" not in epics, "no guessed live probe channel"
