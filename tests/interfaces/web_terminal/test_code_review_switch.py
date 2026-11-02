@@ -13,6 +13,7 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
+from osprey.interfaces._serving import WEB_HOST_ENV
 from osprey.interfaces.web_auth import Tier, classify
 from osprey.interfaces.web_terminal.app import create_app
 from osprey.interfaces.web_terminal.routes.code_review import SWITCH_ROUTE
@@ -163,7 +164,21 @@ def _names(config: Path) -> list[str]:
         return [s["name"] for s in client.get("/api/safety-switches").json()["switches"]]
 
 
-@pytest.mark.usefixtures("web_config")
+@pytest.fixture
+def bound(monkeypatch):
+    """Bind the terminal as ``osprey web`` publishes it; loopback unless a test says otherwise."""
+
+    def bind(host: str | None) -> None:
+        if host is None:
+            monkeypatch.delenv(WEB_HOST_ENV, raising=False)
+        else:
+            monkeypatch.setenv(WEB_HOST_ENV, host)
+
+    bind("127.0.0.1")
+    return bind
+
+
+@pytest.mark.usefixtures("web_config", "bound")
 def test_a_profile_with_code_review_on_registers_the_switch_on(tmp_path):
     config = _render(tmp_path, {"enabled": True})
     with TestClient(create_app(config_path=config, shell_command=["echo"])) as client:
@@ -178,7 +193,26 @@ def test_a_profile_with_code_review_on_registers_the_switch_on(tmp_path):
     [None, {"enabled": False}, {"enabled": "yes"}],
     ids=["no-section", "off", "unreadable"],
 )
-@pytest.mark.usefixtures("web_config")
+@pytest.mark.usefixtures("web_config", "bound")
 def test_a_profile_without_code_review_on_registers_nothing(tmp_path, section):
     """Off is the only widening: nothing is registered that could turn review on."""
     assert _names(_render(tmp_path, section)) == []
+
+
+@pytest.mark.parametrize("host", ["127.0.0.1", "127.0.0.2", "localhost", "0.0.0.0", "::"])
+@pytest.mark.usefixtures("web_config")
+def test_a_terminal_its_reviews_can_reach_registers_the_switch(tmp_path, bound, host):
+    bound(host)
+    assert _names(_render(tmp_path, {"enabled": True})) == [CODE_REVIEW_SWITCH]
+
+
+@pytest.mark.parametrize("host", ["192.168.1.20", "::1", "terminal.example.org", None])
+@pytest.mark.usefixtures("web_config")
+def test_a_terminal_its_reviews_cannot_reach_registers_nothing_and_says_why(
+    tmp_path, bound, host, caplog
+):
+    """The reviews dial 127.0.0.1; an off switch there would never be heard, yet read 'Off'."""
+    bound(host)
+    with caplog.at_level("WARNING", logger="osprey.interfaces.web_terminal.app"):
+        assert _names(_render(tmp_path, {"enabled": True})) == []
+    assert any("127.0.0.1" in r.getMessage() for r in caplog.records)

@@ -1205,7 +1205,7 @@ def web(
 
     # -- foreground (original behavior) ------------------------------------
 
-    from osprey.interfaces._serving import listening_socket
+    from osprey.interfaces._serving import WEB_HOST_ENV, listening_socket
 
     # The server's own socket, bound before anything names a port: the URL,
     # OSPREY_WEB_PORT and the startup line all read the port from it.
@@ -1236,6 +1236,7 @@ def web(
     # --port differs — reporting success while the real terminal never hears
     # the event.
     os.environ["OSPREY_WEB_PORT"] = str(port)
+    os.environ[WEB_HOST_ENV] = host
 
     # The agent record, held until the server returns: every session this
     # terminal starts writes to it and reads from it.

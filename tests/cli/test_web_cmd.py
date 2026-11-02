@@ -1852,6 +1852,8 @@ class TestPortZero:
         # Recorded for undo, then absent: the launch publishes the port here.
         monkeypatch.setenv("OSPREY_WEB_PORT", "unset-by-test")
         monkeypatch.delenv("OSPREY_WEB_PORT")
+        monkeypatch.setenv("OSPREY_WEB_HOST", "unset-by-test")
+        monkeypatch.delenv("OSPREY_WEB_HOST")
 
     def test_port_zero_serves_on_the_announced_port(self, runner, monkeypatch, deployment):
         served: dict = {}
@@ -1869,6 +1871,8 @@ class TestPortZero:
         assert served["port"] == bound
         assert f"{_STARTUP_LINE} http://127.0.0.1:{bound}\n" in result.output
         assert os.environ["OSPREY_WEB_PORT"] == str(bound)
+        # The address too: the terminal reads it to tell whether its sessions reach it.
+        assert os.environ["OSPREY_WEB_HOST"] == "127.0.0.1"
         secret = os.environ["OSPREY_TERMINAL_SECRET"]
         assert f"http://127.0.0.1:{bound}/?token={secret}" in result.output
 
