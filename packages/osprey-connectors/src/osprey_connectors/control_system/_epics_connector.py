@@ -1670,6 +1670,14 @@ class EPICSConnector(ControlSystemConnector):
                 ),
             )
 
+        # One name for the whole write. ``X``, ``ca://X`` and a spelling with
+        # surrounding whitespace are one record, and the limits database, the
+        # current-value read, the refusals, the put and the result must all
+        # judge and name that one record; a lookup on the raw spelling would
+        # pick a different limits entry than the one the put targets. The
+        # PVAccess check above stays on the raw address by its own contract.
+        channel_address = normalise_address(channel_address.strip())
+
         # Step 0b: the verdict allowed this write (the guard asked it first), but
         # the gateway this connector selected at connect() may predate the
         # switch. Refused before limits validation reads anything.
@@ -1720,9 +1728,7 @@ class EPICSConnector(ControlSystemConnector):
         # charged to it as well.
         put_deadline = (time.time() + timeout,)
         put_result, payload = await self._ca.run(
-            self._put_ca(
-                normalise_address(channel_address), value, wait=bool(confirm), deadline=put_deadline
-            )
+            self._put_ca(channel_address, value, wait=bool(confirm), deadline=put_deadline)
         )
 
         if put_result == "cs_refused":
