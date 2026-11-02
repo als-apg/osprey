@@ -90,15 +90,11 @@ from osprey.interfaces.common_middleware import (
 )
 from osprey.interfaces.opaque_origin import document_headers
 from osprey.interfaces.web_auth import get_web_credentials, panel_registry_of
+from osprey.interfaces.web_terminal.config_view import login_tier, rendered_config, section_of
 from osprey.interfaces.web_terminal.operator_session import session_hold_root_of
 from osprey.interfaces.web_terminal.panel_cap import opaque_panel_kind, verify_request_cap
 from osprey.interfaces.web_terminal.panel_sandbox import apply_panel_sandbox, builtin_entry_pages
 from osprey.interfaces.web_terminal.routes.watchdog import session_is_live
-from osprey.interfaces.web_terminal.routes.websocket import (
-    _login_tier,
-    _rendered_config,
-    _section_of,
-)
 from osprey.interfaces.web_terminal.routes.workspace_activity import observe_set_workspace
 from osprey.profiles.web_panels import SIDECAR_PANELS, ApplicationPanel
 from osprey.registry.web import FRAMEWORK_WEB_SERVERS, panel_url_state_attr
@@ -306,15 +302,15 @@ def application_panels(custom_panels: list[dict]) -> dict[str, ApplicationPanel]
 def _login_arms_writes(config_path: Path | None) -> bool:
     """Whether the acting login's ``control_system.writes`` tier arms writes here.
 
-    The same per-login tier the header chip shows (``_login_tier``): the
+    The same per-login tier the header chip shows (``login_tier``): the
     deployment's tier, then the login's own rung. ``asked`` and ``allowed``
     arm; ``never`` and ``unknown`` do not. The owner's per-machine switch is
     not read here: the write itself meets it downstream, where the position
     decides whether a person is asked. Blocking (it reads the render); call it
     off the loop.
     """
-    section = _section_of(_rendered_config(config_path))
-    return _login_tier(section, acting_identity()) in ("asked", "allowed")
+    section = section_of(rendered_config(config_path))
+    return login_tier(section, acting_identity()) in ("asked", "allowed")
 
 
 async def _unarmed_application(scope: Request | WebSocket, panel_id: str) -> str | None:
