@@ -354,6 +354,7 @@ def start_take(
     history: Sequence[str] = (),
     write_switch: tuple[str, str] | None = None,
     clock: Callable[[], float] | None = None,
+    before_record: Callable[[TakeContext], None] | None = None,
 ) -> TakeContext:
     """Bootstrap one take in ``theme`` on *layout* and return it with the screencast running.
 
@@ -362,7 +363,8 @@ def start_take(
     context (a new tab has no session pointer) and waits for the composer.
     Either way the layout's sidebar entry and tiles are applied before the
     console takes focus. *write_switch* (target, position) is then set and
-    *history* played off camera, chat only. The screencast starts last,
+    *history* played off camera, chat only, and *before_record* runs on the
+    take for any other off-camera setup. The screencast starts last,
     once every tile has rendered and a short settle has passed, so the first frame
     already shows the finished screen. The new take becomes ``stack.current`` as soon as its
     context exists, so a take that fails part-way is still closed by the next
@@ -426,6 +428,8 @@ def start_take(
     if history:
         _play_history(take, history, clock)
         video_layout.apply(page, layout)
+    if before_record is not None:
+        before_record(take)
     video_layout.await_tiles(page, layout)
     page.wait_for_timeout(SETTLE_MS)
 
@@ -482,6 +486,7 @@ class Take:
         self.transcript: Path | None = None
         self.submitted_at = 0.0
         self.memo: dict[str, Any] = {}
+        self.caption: str | None = None
         layout = ctx.layout
         self.chat = layout is not None and layout.surface == "chat"
 
@@ -489,11 +494,20 @@ class Take:
 
     def _enter(self, current: Step) -> None:
         print(f"{self.ctx.theme}: {current.name}", flush=True)
-        video_overlay.set_caption(self.page, current.caption)
+        # Consecutive beats of one caption keep it up: clearing it between them
+        # would flash an empty bar into the frames.
+        if current.caption != self.caption:
+            video_overlay.set_caption(self.page, current.caption)
+            self.caption = current.caption
 
     def _exit(self, _current: Step) -> None:
-        video_overlay.set_caption(self.page, None)
         self.ctx.sink.flush()
+
+    def end(self) -> None:
+        """Clear the last beat's caption."""
+        if self.caption is not None:
+            video_overlay.set_caption(self.page, None)
+            self.caption = None
 
     def step(self, name: str, caption: str | None, fast_forward: bool = False) -> Any:
         return step(
@@ -615,6 +629,7 @@ def record_take(ctx: TakeContext, timeline: Timeline, storyboard: Storyboard) ->
     take = Take(ctx, timeline)
     for beat in storyboard:
         beat(take)
+    take.end()
 
 
 class ThemeFailed(Exception):
@@ -637,6 +652,7 @@ def record_theme(
     clock: Callable[[], float] | None = None,
     history: Sequence[str] = (),
     write_switch: tuple[str, str] | None = None,
+    before_record: Callable[[TakeContext], None] | None = None,
 ) -> tuple[TakeContext, Timeline]:
     """Record one take of *storyboard* in ``theme`` on ``stack``, set up on *layout*.
 
@@ -658,6 +674,7 @@ def record_theme(
             history=history,
             write_switch=write_switch,
             clock=timeline.clock,
+            before_record=before_record,
         )
         record_take(take, timeline, storyboard)
     except (ProbeFailed, PlaywrightError) as exc:

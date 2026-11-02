@@ -10,7 +10,8 @@ highlight the target of the agent's attention in real time.
 The payload shape is a fixed interface contract shared with the frontend::
 
     request:   {"tool": str, "target": {"kind": "panel"|"channel"|"run"
-                                                |"artifact"|"config"|"ui",
+                                                |"artifact"|"config"|"ui"
+                                                |"review",
                                         "panel"?: str, "detail"?: str}}
     broadcast: {"type": "agent_activity", "tool": ..., "target": {...}, "ts": ...}
 
@@ -57,7 +58,7 @@ ACTIVITY_BUFFER_MAX = 50
 class AgentActivityTarget(BaseModel):
     """The surface the agent is acting on."""
 
-    kind: Literal["panel", "channel", "run", "artifact", "config", "ui"]
+    kind: Literal["panel", "channel", "run", "artifact", "config", "ui", "review"]
     panel: str | None = Field(default=None, max_length=_MAX_NAME_LEN)
     detail: str | None = Field(default=None, max_length=_MAX_DETAIL_LEN)
 

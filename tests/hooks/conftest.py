@@ -137,6 +137,7 @@ _HOOK_PACKAGE = "osprey.templates.claude_code.claude.hooks"
 _SEAM_IMPORTABLE_HOOKS = frozenset(
     {
         "osprey_approval",
+        "osprey_code_review",
         "osprey_config_drift",
         "osprey_error_guidance",
         "osprey_focus_validate",
@@ -415,7 +416,7 @@ def _hook_root_never_the_checkout(_throwaway_repo, monkeypatch):
     """Anchor every hook run on a throwaway repo rather than this checkout.
 
     ``CLAUDE_PROJECT_DIR`` is the top rung of ``osprey_hook_log.get_project_dir``,
-    not of ``get_repo_root``: the repo root asks ``_config_path`` first, taking
+    not of ``get_repo_root``: the repo root asks ``locate_osprey_config`` first, taking
     ``project_root`` out of that config and then the config's own directory, and
     only walks for ``profile.yml`` and falls back to the project dir when no
     config file is there. The stamp therefore decides the answer whenever

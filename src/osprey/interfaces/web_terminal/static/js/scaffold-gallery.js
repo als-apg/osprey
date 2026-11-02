@@ -19,6 +19,8 @@
  */
 
 import { el as _el } from '/design-system/js/dom.js';
+import { fetchJSON } from './api.js';
+import { openDrawerTab } from './settings.js';
 import {
   BEHAVIOR_CATEGORIES,
   BEHAVIOR_OUTPUTS,
@@ -26,9 +28,11 @@ import {
   BEHAVIOR_CATEGORY_REMAPS,
   BEHAVIOR_PINNED_CATEGORIES,
   SAFETY_CATEGORIES,
+  SAFETY_PINNED_CATEGORIES,
   CONFIG_NAMES,
+  cardDisplayName,
 } from './scaffold/utils.js';
-import { resetFetchCache, createScaffoldDataActions } from './scaffold/data.js';
+import { resetFetchCache, createScaffoldDataActions, displayCategoryOf } from './scaffold/data.js';
 import { createScaffoldGalleryView } from './scaffold/view.js';
 import { createScaffoldGalleryDetail } from './scaffold/detail.js';
 import { createScaffoldGalleryEditForm } from './scaffold/edit-form.js';
@@ -416,6 +420,86 @@ class ArtifactGallery {
 // ---- Public Exports ---- //
 
 /**
+ * The galleries initScaffoldGallery mounted, each with the drawer tab that
+ * holds it. Their categoryFilters are the one record of which tab shows which
+ * file, so the command palette's rows and reveal read them from here.
+ * @type {Array<{ tabId: string, gallery: ArtifactGallery }>}
+ */
+let mounted = [];
+
+/**
+ * A scaffold file as the command palette lists it.
+ * @typedef {{
+ *   name: string,
+ *   label: string,
+ *   category: string,
+ *   tabId: string,
+ *   tabLabel: string,
+ *   description: string,
+ * }} GalleryEntry
+ */
+
+/** @returns {boolean} whether the Settings drawer carries the file galleries */
+export function scaffoldGalleryMounted() {
+  return mounted.length > 0;
+}
+
+/**
+ * List every file a mounted gallery shows, labelled as its card is. A fresh
+ * read rather than the galleries' shared cache, which lives until the drawer
+ * closes and would serve a stale list into the next drawer open.
+ * @returns {Promise<GalleryEntry[]>}
+ */
+export async function listGalleryEntries() {
+  const data = await fetchJSON('/api/scaffold');
+  /** @type {GalleryEntry[]} */
+  const entries = [];
+  for (const artifact of (data && data.artifacts) || []) {
+    const home = mounted.find((m) => m.gallery.categoryFilter(artifact));
+    if (!home) continue;
+    const tab = document.querySelector(`#settings-drawer .drawer-tab[data-tab="${home.tabId}"]`);
+    entries.push({
+      name: artifact.name,
+      label: cardDisplayName(artifact),
+      category: displayCategoryOf(home.gallery, artifact),
+      tabId: home.tabId,
+      tabLabel: (tab && tab.textContent && tab.textContent.trim()) || '',
+      description: artifact.summary || artifact.description || '',
+    });
+  }
+  return entries;
+}
+
+// revealArtifact waits this long for the tab's gallery to load before leaving
+// the tab open on its card grid.
+const REVEAL_POLL_MS = 100;
+const REVEAL_MAX_POLLS = 50;
+
+/**
+ * Open the Settings drawer on `tabId` and that file's Preview. Routes through
+ * openDrawerTab, hence the first-time warning gate. Degrades quietly -- the
+ * tab left open on its grid -- when the gate is declined, the switch is
+ * vetoed, the gallery does not load, or the file is not in it.
+ * @param {string} name   canonical artifact name, e.g. 'code-review/rules'
+ * @param {string} tabId  the drawer tab whose gallery shows it
+ * @returns {Promise<void>}
+ */
+export async function revealArtifact(name, tabId) {
+  const home = mounted.find((m) => m.tabId === tabId);
+  if (!home || !(await openDrawerTab(tabId))) return;
+  const { gallery } = home;
+  // Activating the tab started the gallery's load; wait for it to land.
+  for (let polls = 0; !gallery.loaded; polls++) {
+    if (polls >= REVEAL_MAX_POLLS) return;
+    await new Promise((r) => setTimeout(r, REVEAL_POLL_MS));
+  }
+  const artifact = gallery.artifacts.find((a) => a.name === name);
+  if (!artifact) return;
+  if (gallery.editDirty && !confirm('You have unsaved changes. Discard them?')) return;
+  gallery.openDetail(artifact);
+}
+
+/**
  * Initialize the Prompt Gallery. Call once on DOMContentLoaded.
  * Creates three ArtifactGallery instances for the Behavior, Safety, and Config tabs.
  */
@@ -457,6 +541,9 @@ export function initScaffoldGallery() {
   const safetyGallery = new ArtifactGallery({
     container: safetyGalleryContainer,
     categoryFilter: (a) => SAFETY_CATEGORIES.has(a.category),
+    // Pinned so neither section opens collapsed: two short sections are the
+    // whole tab, and the reviewer's rules are short enough to lead it.
+    options: { pinnedCategories: SAFETY_PINNED_CATEGORIES },
   });
 
   const configGallery = configGallerySection
@@ -478,6 +565,12 @@ export function initScaffoldGallery() {
         },
       })
     : null;
+
+  mounted = [
+    { tabId: 'tab-behavior', gallery: behaviorGallery },
+    { tabId: 'tab-safety', gallery: safetyGallery },
+  ];
+  if (configGallery) mounted.push({ tabId: 'tab-config', gallery: configGallery });
 
   // Load galleries when their tab becomes active
   behaviorPanel.addEventListener('drawer:tab-activate', () => {

@@ -2010,6 +2010,7 @@ def _render_project(
     from .build_posture_check import (
         check_approval_enabled,
         check_approval_hook_selected,
+        check_code_review,
         missing_posture_errors,
     )
     from .build_profile_archiver import va_archiver_config_overrides
@@ -2366,6 +2367,9 @@ def _render_project(
         # off, or on, by truthiness; the render states a bool or nothing.
         check_approval_enabled(_rendered_config(render_dir))
         check_approval_hook_selected(_rendered_config(render_dir), selected_hooks)
+        # A malformed review section would reach a session, and an enabled one
+        # needs its hooks and a prompt the agent cannot have written.
+        check_code_review(_rendered_config(render_dir), selected_hooks, repo_root)
         if unrunnable:
             raise BuildProfileError("Profile validation failed:\n  " + "\n  ".join(unrunnable))
         # And the runtime, for the same reason once more: the verbs that stop,

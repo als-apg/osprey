@@ -415,6 +415,7 @@ def _video(videos: list[DocVideo], themes: list[str], out_dir: Path) -> int:
                                 layout=video.layout,
                                 history=video.history,
                                 write_switch=video.write_switch,
+                                before_record=video.before_record,
                             )
                     except video_take.ProbeFailed as exc:
                         last = exc

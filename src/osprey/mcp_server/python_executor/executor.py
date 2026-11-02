@@ -205,6 +205,29 @@ FAILURE_KIND_APPROVAL_CONFIG_INVALID = APPROVAL_CONFIG_INVALID
 #: submitted code ran; the error message names the holder's pid and start time.
 #: Spelled like the sandbox wrapper's failure kind for the same refusal.
 FAILURE_KIND_GUARDED_RUN_BUSY = "guarded_run_busy"
+#: :attr:`ExecutionResult.failure_kind` for a run admitted after its code review
+#: was skipped: the review was spared because :func:`admission_refusal` saw the
+#: run declined, and by the launch the decline no longer held (a switch landed,
+#: the target moved). Nothing ran, and calling again reviews it.
+FAILURE_KIND_UNREVIEWED = "unreviewed"
+
+#: The refusal for :data:`FAILURE_KIND_UNREVIEWED`.
+UNREVIEWED_REFUSAL = (
+    "not run: the code review was skipped because this run was about to be declined, and "
+    "by the launch it no longer was (unreviewed). Call the tool again so the review can run."
+)
+
+#: Every :attr:`ExecutionResult.failure_kind` of a run whose submitted code never started.
+NOT_STARTED_FAILURE_KINDS = frozenset(
+    {
+        FAILURE_KIND_SETUP,
+        FAILURE_KIND_SWITCH_IN_PROGRESS,
+        FAILURE_KIND_APPROVAL_MISSING,
+        FAILURE_KIND_APPROVAL_CONFIG_INVALID,
+        FAILURE_KIND_GUARDED_RUN_BUSY,
+        FAILURE_KIND_UNREVIEWED,
+    }
+)
 
 #: Upper bound, in seconds, on winding down a cancelled run that has no finite
 #: deadline: how long its child gets to exit after ``SIGINT`` before it is
@@ -246,8 +269,9 @@ class ExecutionResult:
     #: :data:`FAILURE_KIND_SETUP`, :data:`FAILURE_KIND_TIMEOUT`,
     #: :data:`FAILURE_KIND_SWITCH_IN_PROGRESS`,
     #: :data:`FAILURE_KIND_APPROVAL_MISSING`,
-    #: :data:`FAILURE_KIND_APPROVAL_CONFIG_INVALID` or
-    #: :data:`FAILURE_KIND_GUARDED_RUN_BUSY`. ``None`` for
+    #: :data:`FAILURE_KIND_APPROVAL_CONFIG_INVALID`,
+    #: :data:`FAILURE_KIND_GUARDED_RUN_BUSY` or
+    #: :data:`FAILURE_KIND_UNREVIEWED`. ``None`` for
     #: a run that started and whose own code raised — the only failure the
     #: submitted code can be blamed for. The response builder reads this to
     #: class the error envelope: a dead backend is an infrastructure outage,
@@ -266,6 +290,9 @@ class ExecutionResult:
     #: The process id of the sandbox child this run started; ``None`` for a
     #: run that never started its child.
     pid: int | None = None
+    #: What the code review said to the agent about a run it let proceed; ``None``
+    #: when no review ran or it had nothing to say.
+    code_review: str | None = None
 
 
 def execution_timeout_seconds(value: object) -> float:
@@ -910,6 +937,69 @@ def _check_store_path(code: str, osprey_config: Mapping[str, Any], tool: str) ->
     return None
 
 
+def _admission(
+    code: str,
+    mode: str,
+    osprey_config: Mapping[str, Any],
+    tool: str,
+    approved: Mapping[str, str | None],
+    sandbox_env: dict[str, str],
+) -> tuple[str, Refusal | None]:
+    """Run the checks that decide whether a launch may spawn its child.
+
+    Args:
+        code: The code the launch would receive.
+        mode: ``"readonly"`` or ``"readwrite"``.
+        osprey_config: The deployment's config.
+        tool: The tool's short name, as ``approval.tools`` keys it.
+        approved: The call's approved fields, ``None`` for an absent one.
+        sandbox_env: Receives the control target's stamp.
+
+    Returns:
+        ``(control target, the refusal if there is one)``.
+
+    Raises:
+        _SwitchInProgress: When the deployment is mid-switch.
+    """
+    control_target = _apply_target_stamp(sandbox_env)
+    refusal = _check_store_path(code, osprey_config, tool) or _check_approved_call(
+        mode, osprey_config, tool, approved, control_target=control_target
+    )
+    return control_target, refusal
+
+
+def admission_refusal(code: str, mode: str, tool: str, approved: Mapping[str, str | None]) -> bool:
+    """Whether :func:`_execute_via_local` would decline this run before spawning it.
+
+    :func:`_admission` with no effect: the stamp goes into a throwaway dict, and the control
+    context, the config and the ask stamp are only read. The caller uses the answer to spare a
+    review, then still calls :func:`execute_code`, which runs these checks again and produces
+    the decline itself. The two reads can disagree (a switch lands between them), so a caller
+    that spared a review on ``True`` says so to the launch, which then refuses a run it admits.
+
+    Args:
+        code: The code the launch would receive.
+        mode: ``"readonly"`` or ``"readwrite"``.
+        tool: The tool's short name, as ``approval.tools`` keys it.
+        approved: The call's approved fields, ``None`` for an absent one.
+
+    Returns:
+        ``True`` when the run would be declined. ``False`` otherwise, including when a check
+        could not answer: the review then still runs, because declining here on an unknown
+        would launch the code unreviewed if :func:`execute_code` then admitted it.
+    """
+    from osprey_connectors.workspace import load_osprey_config
+
+    try:
+        _, refusal = _admission(code, mode, load_osprey_config(), tool, approved, {})
+    except _SwitchInProgress:
+        return True
+    except Exception:
+        logger.warning("Could not pre-check admission; reviewing anyway", exc_info=True)
+        return False
+    return refusal is not None
+
+
 def _guarded_run_name(target: str) -> str | None:
     """The guarded-run directory name *target* resolves to, ``None`` when it names none."""
     from osprey.runtime.guarded_run import guarded_run_target
@@ -1065,6 +1155,7 @@ async def _execute_via_local(
     tool: str = "execute",
     approved_target: str | None = None,
     approved_view_sha256: str | None = None,
+    expect_declined: bool = False,
 ) -> ExecutionResult:
     """Execute code in a host subprocess with the ExecutionWrapper.
 
@@ -1072,7 +1163,9 @@ async def _execute_via_local(
     view digest it is checked against the call the approval hook recorded
     (:func:`_check_approved_call`). A call that should have been asked and was
     not, or was approved for another target, is refused before anything is
-    spawned.
+    spawned. *expect_declined* says a code review was skipped on the word of
+    :func:`admission_refusal`, so a run admitted here after all is refused
+    (:data:`FAILURE_KIND_UNREVIEWED`) instead of launched unreviewed.
     """
     from osprey.services.python_executor.execution.wrapper import ExecutionWrapper
     from osprey_connectors.workspace import load_osprey_config
@@ -1112,8 +1205,20 @@ async def _execute_via_local(
     # spawned: the refusal is a fact about the fleet rather than about the
     # submitted code, so it comes back as a failed result naming the servers
     # to wait for, not as a traceback out of the sandbox.
+    #
+    # Whether this call was put to a human is decided here too, by the process
+    # that launches the script, from the record the approval hook left for
+    # this tool call; the sandbox is handed nothing of it. Code that names the
+    # posture store is checked first, readonly runs included.
     try:
-        control_target = _apply_target_stamp(sandbox_env)
+        control_target, refusal = _admission(
+            code,
+            execution_mode,
+            osprey_config,
+            tool,
+            {"approved_target": approved_target, "approved_view_sha256": approved_view_sha256},
+            sandbox_env,
+        )
     except _SwitchInProgress as in_flight:
         return ExecutionResult(
             success=False,
@@ -1124,17 +1229,6 @@ async def _execute_via_local(
             error_message=str(in_flight),
             failure_kind=FAILURE_KIND_SWITCH_IN_PROGRESS,
         )
-    # Whether this call was put to a human is decided here, by the process
-    # that launches the script, from the record the approval hook left for
-    # this tool call; the sandbox is handed nothing of it. Code that names the
-    # posture store is checked first, readonly runs included.
-    refusal = _check_store_path(code, osprey_config, tool) or _check_approved_call(
-        execution_mode,
-        osprey_config,
-        tool,
-        {"approved_target": approved_target, "approved_view_sha256": approved_view_sha256},
-        control_target=control_target,
-    )
     if refusal is not None:
         return ExecutionResult(
             success=False,
@@ -1145,6 +1239,17 @@ async def _execute_via_local(
             error_message=refusal.message,
             control_target=control_target,
             failure_kind=refusal.error_type,
+        )
+    if expect_declined:
+        return ExecutionResult(
+            success=False,
+            stdout="",
+            stderr=UNREVIEWED_REFUSAL,
+            execution_method_used=EXECUTION_METHOD_SUBPROCESS,
+            execution_time_seconds=0.0,
+            error_message=UNREVIEWED_REFUSAL,
+            control_target=control_target,
+            failure_kind=FAILURE_KIND_UNREVIEWED,
         )
     limits_validator = _load_limits_validator(target=control_target)
 
@@ -1500,6 +1605,7 @@ async def execute_code(
     tool: str = "execute",
     approved_target: str | None = None,
     approved_view_sha256: str | None = None,
+    expect_declined: bool = False,
 ) -> ExecutionResult:
     """Execute Python code in a host subprocess.
 
@@ -1519,6 +1625,9 @@ async def execute_code(
             call; ``None`` when the call carries none.
         approved_view_sha256: The pyAML view digest the approval hook put into
             the call; ``None`` when the call carries none.
+        expect_declined: The caller skipped a blocking code review because
+            :func:`admission_refusal` said this run would be declined; a run
+            admitted after all is refused rather than launched unreviewed.
 
     Returns:
         :class:`ExecutionResult` with stdout, stderr, success status, figures,
@@ -1536,6 +1645,7 @@ async def execute_code(
             tool=tool,
             approved_target=approved_target,
             approved_view_sha256=approved_view_sha256,
+            expect_declined=expect_declined,
         )
     except Exception as exc:
         logger.error(

@@ -19,7 +19,7 @@
  * @module scaffold/cards
  */
 
-import { iconForCategory, markReadOnlyCard } from './utils.js';
+import { cardDisplayName, iconForCategory, markReadOnlyCard } from './utils.js';
 
 /**
  * The subset of an ArtifactGallery instance these card templates call into.
@@ -54,10 +54,7 @@ export function createScaffoldGalleryCards(gallery) {
 
     const nameEl = document.createElement('div');
     nameEl.className = 'prompts-card-name';
-    const displayName = artifact.name.includes('/')
-      ? artifact.name.split('/').slice(1).join('/')
-      : artifact.name;
-    nameEl.textContent = displayName;
+    nameEl.textContent = cardDisplayName(artifact);
 
     const descEl = document.createElement('div');
     descEl.className = 'prompts-card-desc';
@@ -81,7 +78,7 @@ export function createScaffoldGalleryCards(gallery) {
     // The class tints the card's existing left border (10-prompt-gallery.css)
     // so a reserved file is separable at a glance down a long grid.
     if (artifact.read_only) {
-      markReadOnlyCard(card);
+      markReadOnlyCard(card, artifact);
     }
 
     card.addEventListener('click', () => gallery.openDetail(artifact));

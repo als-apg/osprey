@@ -316,6 +316,16 @@ def _get_default_artifacts() -> list[BuildArtifact]:
             requires=("hooks/hook-log",),
         ),
         BuildArtifact(
+            canonical_name="hooks/code-review",
+            template_path="claude/hooks/osprey_code_review.py",
+            output_path=".claude/hooks/osprey_code_review.py",
+            description=(
+                "PreToolUse review of the code cells an agent writes with NotebookEdit, "
+                "under the code_review config section"
+            ),
+            requires=("hooks/hook-log",),
+        ),
+        BuildArtifact(
             canonical_name="hooks/focus-validate",
             template_path="claude/hooks/osprey_focus_validate.py",
             output_path=".claude/hooks/osprey_focus_validate.py",

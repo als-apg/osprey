@@ -196,6 +196,13 @@ keys:
   agent_record.clickhouse: {rendered: false, evidence: 'class ClickHouseConfig', default: {}}
   agent_record.clickhouse.image: {rendered: false, evidence: '"agent_record\.clickhouse\.image"', default: 'clickhouse/clickhouse-server:26.8.18.2'}
   agent_record.clickhouse.memory: {rendered: false, evidence: '"agent_record\.clickhouse\.memory"', default: 2g}
+  # ── Code review ─────────────────────────────────────────────────────
+  # Read uncached from the rendered file by osprey.services.code_review.settings.
+  code_review.enabled: {rendered: false, evidence: 'code_review\.enabled must be', default: false}
+  code_review.level: {rendered: false, evidence: 'code_review\.level must be', default: block}
+  code_review.prompt: {rendered: false, evidence: 'code_review\.prompt must be', default: data/code_review/reviewer.md}
+  code_review.modes: {rendered: false, evidence: 'code_review\.modes must be', default: [readwrite]}
+  code_review.time_limit: {rendered: false, evidence: 'code_review\.time_limit must be', default: 60.0}
   deployment.port_base:
     rendered: false
     evidence: 'deployment\.get\("port_base"\)'

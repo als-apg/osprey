@@ -614,6 +614,9 @@ def build_agent_options(
     pre_tool_use_hooks: Sequence[HookCallback] = (),
     stderr: Callable[[str], None] | None = None,
     include_partial_messages: bool = False,
+    tools: Sequence[str] | None = None,
+    cwd: Path | None = None,
+    env_overrides: Mapping[str, str] | None = None,
 ) -> ClaudeAgentOptions:
     """Build ``ClaudeAgentOptions`` for a run in *project_dir*.
 
@@ -671,6 +674,14 @@ def build_agent_options(
         stderr: Sink for each line the agent process writes to stderr.
         include_partial_messages: Stream text and reasoning as it is generated
             (``DeltaEvent`` records) ahead of each whole block.
+        tools: The toolset the agent is offered; empty for none. ``None`` leaves
+            the CLI's default set.
+        cwd: The agent process's working directory, when it is not *project_dir*.
+            Only the working directory: the config, provider, launcher and secrets
+            still resolve from *project_dir*.
+        env_overrides: Variables set over the finished environment, whoever routed
+            the run; an empty string is set, not dropped. Unlike *env*, this leaves
+            provider routing, the model and the proxy start as they were.
 
     Returns:
         Configured ``ClaudeAgentOptions`` ready to open a ``ClaudeSDKClient``.
@@ -737,6 +748,8 @@ def build_agent_options(
     # Over the caller's environment as well as the routed one: the SDK overlays
     # this dict on the parent's, so the switch has to be in it to hold.
     run_env.update(TASK_TOOLS_ENV)
+    if env_overrides is not None:
+        run_env.update(env_overrides)
 
     sources: list[SettingSource] = ["project"] if setting_sources is None else list(setting_sources)
     run_mcp_servers: dict[str, McpServerConfig] | str
@@ -752,7 +765,7 @@ def build_agent_options(
 
     options = ClaudeAgentOptions(
         model=resolved_model,
-        cwd=str(project_dir),
+        cwd=str(cwd if cwd is not None else project_dir),
         permission_mode=permission_mode,
         max_turns=max_turns,
         max_budget_usd=max_budget_usd,
@@ -762,6 +775,7 @@ def build_agent_options(
         strict_mcp_config=True,
         disallowed_tools=list(disallowed_tools),
         allowed_tools=list(allowed_tools),
+        tools=list(tools) if tools is not None else None,
         system_prompt=system_prompt,
         session_id=session_id,
         resume=resume,

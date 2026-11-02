@@ -66,6 +66,11 @@ DIRECTORY_ENTRY_FILE = "SKILL.md"
 #: tell a gallery refusal from a config-route one.
 REFUSAL_SURFACE = SURFACE_SCAFFOLD_GALLERY
 
+#: Gallery name of the code reviewer's rules. Not a build artifact: the file is
+#: deployment data the profile holds, so it is listed read-only, with no
+#: framework copy to diff against and no claim to take.
+REVIEWER_RULES_NAME = "code-review/rules"
+
 
 class ProtectedArtifactError(PermissionError):
     """A gallery write or delete aimed at the protected set, refused.
@@ -588,12 +593,66 @@ class ScaffoldGalleryService:
                 }
             )
 
+        rules = self._reviewer_rules()
+        if rules is not None:
+            result.append(
+                {
+                    "name": REVIEWER_RULES_NAME,
+                    "category": "code-review",
+                    "summary": "The rules the code reviewer judges the agent's code against",
+                    "description": "The code reviewer's instructions, read for every review",
+                    "output_path": rules[0],
+                    "status": "user-owned",
+                    "custom": True,
+                    "read_only": True,
+                    "kind": "data",
+                    "language": self._infer_language(rules[0]),
+                }
+            )
+
         return result
+
+    def _reviewer_rules(self) -> tuple[str, str] | None:
+        """The code reviewer's prompt as ``(path, text)``, or ``None`` when it reviews nothing.
+
+        Read through the reviewer's own resolver, so the panel shows the file a
+        review reads and refuses the files a review would refuse. Off, or not
+        usable, is ``None``: an entry for a reviewer that is not running would
+        tell the operator their code is reviewed when it is not.
+        """
+        from osprey.services.code_review.settings import (
+            ReviewConfigError,
+            load_review_settings,
+            read_review_config,
+            resolve_prompt,
+        )
+        from osprey_connectors.workspace import repo_root_for_config
+
+        config_path = self.project_dir / "config.yml"
+        try:
+            config = read_review_config(config_path)
+            settings = load_review_settings(config)
+            if not settings.enabled:
+                return None
+            text = resolve_prompt(settings, repo_root_for_config(config_path), config)
+        except ReviewConfigError as exc:
+            logger.warning("Code reviewer's rules not listed: %s", exc)
+            return None
+        return settings.prompt, text
 
     # ── Content retrieval ─────────────────────────────────────────────
 
     def get_content(self, name: str) -> dict[str, Any]:
         """Get the active content for an artifact (always reads from disk)."""
+        if name == REVIEWER_RULES_NAME:
+            rules = self._reviewer_rules()
+            if rules is None:
+                raise KeyError(f"Unknown artifact: '{name}' (code review is off)")
+            return {
+                "content": rules[1],
+                "source": "user-owned",
+                "language": self._infer_language(rules[0]),
+            }
         art = self._registry.get(name)
         if art is None:
             return self._get_custom_content(name)

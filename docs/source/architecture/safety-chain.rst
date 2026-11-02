@@ -52,9 +52,9 @@ drive meet the first and the last:
    position decides: at *asked* the operator answers a prompt at the terminal, at *allowed*
    the write runs unprompted on a record naming the switch. Every other tool keeps its own
    policy: ``always``, ``selective``, or ``skip``. When a Python run
-   needs approval, the exact code is saved as a **Pre-Execution Review** notebook in the
+   needs approval, the exact code is saved as an **Approval preview** notebook in the
    artifact gallery and linked from the prompt, so the operator can read what is about to run.
-   The approval is the terminal prompt; the gallery only shows the code.
+   The approval is the terminal prompt; the preview only shows the code.
 
    **What a prompt guarantees (stage 1).** A governed write, and a Phoebus drive where its
    policy asks, go ahead only on the record the hook left for that call; a call the hook
@@ -192,11 +192,15 @@ in it. The Python executor takes over from there. Before the code runs, it is re
 patterns are refused, code that writes into the deployment's own files is refused, and
 read-only code may neither import a control-system client library nor spell a write;
 read-write code that plainly spells a client library's own put is refused by the approval hook
-before anyone is asked to approve it. Before a read-write run starts, the executor
+before anyone is asked to approve it. A deployment can also turn on code review: a second
+AI agent then reads the code before the operator is asked, following instructions the
+deployment writes itself, and says whether it is safe to run. Depending on how the deployment
+set it up, unsafe code is either stopped or allowed through with a warning
+(:ref:`architecture-safety-chain-code-review`). Before a read-write run starts, the executor
 checks that the approval prompt recorded this call and that what the call carries matches
 what it recorded; otherwise nothing runs. This check runs beside the script on one host, not
-out of the script's reach. Then the code runs in its own process with guards in
-place: read-only code cannot write even if it tries, read-write code writes through the
+out of the script's reach. Then the code
+runs in its own process with guards in place: read-only code cannot write even if it tries, read-write code writes through the
 connector only because a client library's own put is refused (a PVAccess put, which the
 connector cannot carry yet, is limits-checked instead), it cannot write into the
 deployment's own files, and it is stopped after a time limit. When the code finishes, its result is saved to a record and the process ends at once,
@@ -273,7 +277,10 @@ cooperative, and its gaps are listed with the others on this page. A refused
 write is shown in the cell, with a line saying what to do where something in the notebook
 would change it. The agent may edit notebooks only in the ``notebooks`` and ``artifacts``
 folders under the agent-data root, held there by a file-write guard that protects the host's
-files, not the machine. See :doc:`/how-to/web-terminal/notebooks`.
+files, not the machine. With code review turned on, the same reviewing agent reads a code cell
+the OSPREY agent writes into a notebook before it is saved, and can stop it or warn about it
+the same way; cells a person writes are never reviewed
+(:ref:`architecture-safety-chain-code-review`). See :doc:`/how-to/web-terminal/notebooks`.
 
 .. _architecture-safety-chain-guarded-run:
 
@@ -324,6 +331,57 @@ call that was allowed, is written down as one ``audit`` entry in the agent recor
 check, the server or the Python executor that made the decision; the
 connector writes none itself, the path that called it does. Each line records the write
 posture in force and who acted, or which kernel. See :ref:`reference-audit-trail`.
+
+.. _architecture-safety-chain-code-review:
+
+Code review
+===========
+
+Everything above checks code by its spelling: a client library's own put, the name of the
+store that holds the switch, a pattern on a list. None of it can tell whether a write makes
+sense --- whether it belongs to the task the agent was given, whether the step is reasonable
+for the magnet it moves, whether a loop will ever end. Code review lets a deployment close that
+gap: a second AI agent reads the code and judges it against the deployment's rules. (The approval preview is
+something else: there the operator reads the code at the prompt; here a machine does the
+reading.)
+
+A deployment turns it on in its profile (:doc:`/how-to/control-systems/code-review`). From
+then on the reviewer reads two things: a Python run the OSPREY agent sends to the executor,
+before the operator is asked to approve it, and a code cell the agent writes into a
+notebook, before it is saved. Nothing else is reviewed: channel writes, plans and
+pyAML tools carry no code of the agent's, and cells a person writes are the person's own.
+
+The reviewer judges by rules the deployment writes itself, in a Markdown file in the project
+(``data/code_review/reviewer.md``): which channels must never be written, when writes need
+extra care, which procedures a write has to follow. OSPREY ships that file with one worked
+rule for the demo facility and nothing more, so a deployment gets the checks it wrote and
+pays only for those. The reviewer has no tools and takes one turn, and anything
+the code says to it is treated as evidence, never as an instruction.
+
+Its answer is *pass*, *concern* or *block*, with the reasons and, where a small change would
+fix it, a corrected version. All of that goes back to the OSPREY agent, which revises its code
+and tries again. Under the shipped rule, a scan that moves a storage-ring corrector without
+first reading the beam mode is a block, and the same scan with the check passes. The deployment
+chooses what a block does. In blocking mode (``level: block``, the default) the code is
+stopped. In advisory mode (``level: flag``) the code runs and the agent is told what the
+reviewer found. A concern never stops code; it only comes with an explanation.
+
+Three things are worth knowing. First, the review happens *before* the operator's approval.
+In blocking mode, code the reviewer stops never reaches the operator; otherwise the answer and
+the reasons stand on the approval prompt and in the approval preview, so the operator decides
+knowing what the reviewer found. A run no prompt sees --- the write switch at *allowed*, a
+read-only run --- is reviewed by the executor just before it starts.
+Second, the operator sees a *code review* line in the activity log whenever the reviewer found
+something --- what was reviewed, the answer, and whether the code ran; the reasons go to the
+agent, and on a run they are on the prompt too; the audit trail keeps a record that a review
+happened and how it ended (:ref:`reference-audit-trail`). Third, if the reviewer cannot
+answer --- the model is unreachable, or the time limit runs out --- blocking mode stops the
+code and the agent is told to report the problem rather than retry, while advisory mode lets
+the code run unreviewed and says so. The reviewer is never a safety boundary: every gate on
+this page holds whatever it answers.
+
+.. raw:: html
+   :file: ../_diagrams/code-review.html
 
 .. _architecture-safety-chain-phoebus-drive:
 
