@@ -50,6 +50,7 @@ if TYPE_CHECKING:
     from psycopg import AsyncConnection
     from psycopg_pool import AsyncConnectionPool
 
+    from osprey.facility.records import FacilityRecords
     from osprey.services.ariel_search.config import ARIELConfig
 
 logger = get_logger("ariel")
@@ -538,17 +539,27 @@ class ARIELRepository:
     Attributes:
         pool: Database connection pool
         config: ARIEL configuration
+        facility_records: The facility records entries are checked against, or
+            None when no facility file was read
     """
 
-    def __init__(self, pool: "AsyncConnectionPool", config: "ARIELConfig") -> None:
+    def __init__(
+        self,
+        pool: "AsyncConnectionPool",
+        config: "ARIELConfig",
+        *,
+        facility_records: "FacilityRecords | None" = None,
+    ) -> None:
         """Initialize the repository.
 
         Args:
             pool: Database connection pool
             config: ARIEL configuration
+            facility_records: The facility records entries are checked against
         """
         self.pool = pool
         self.config = config
+        self.facility_records = facility_records
         self._schema_facts: SchemaFacts | None = None
         self._schema_probed_at: float | None = None
         #: Monotonic clock the negative-probe TTL is measured on; tests replace it.
@@ -685,6 +696,14 @@ class ARIELRepository:
                 query=f"SELECT entry_ids=ANY([{len(entry_ids)} ids])",
             ) from e
 
+    def _facility_refs(self, raw_text: str) -> list[dict[str, Any]] | None:
+        """The ids ``raw_text`` quotes as stored JSON; None without facility records."""
+        if self.facility_records is None:
+            return None
+        from osprey.facility.references import find_facility_references
+
+        return [ref.to_json() for ref in find_facility_references(raw_text, self.facility_records)]
+
     async def upsert_entry(self, entry: EnhancedLogbookEntry) -> None:
         """Insert or update an entry.
 
@@ -697,6 +716,8 @@ class ARIELRepository:
             entry: The entry to upsert
         """
         incoming = entry.get("attachments") or []
+        facility_refs = self._facility_refs(entry["raw_text"])
+        entry["facility_refs"] = facility_refs
         try:
             async with self.pool.connection() as conn, conn.transaction():
                 previous = (
@@ -708,9 +729,9 @@ class ARIELRepository:
                     """
                     INSERT INTO enhanced_entries (
                         entry_id, source_system, timestamp, author, raw_text,
-                        attachments, metadata, enhancement_status
+                        attachments, metadata, enhancement_status, facility_refs
                     ) VALUES (
-                        %s, %s, %s, %s, %s, %s, %s, %s
+                        %s, %s, %s, %s, %s, %s, %s, %s, %s
                     )
                     ON CONFLICT (entry_id) DO UPDATE SET
                         source_system = EXCLUDED.source_system,
@@ -729,7 +750,8 @@ class ARIELRepository:
                             THEN enhanced_entries.attachments
                             ELSE EXCLUDED.attachments
                         END,
-                        metadata = EXCLUDED.metadata
+                        metadata = EXCLUDED.metadata,
+                        facility_refs = EXCLUDED.facility_refs
                     """,
                     [
                         entry["entry_id"],
@@ -740,6 +762,7 @@ class ARIELRepository:
                         json.dumps(entry.get("attachments", [])),
                         json.dumps(entry.get("metadata", {})),
                         json.dumps(entry.get("enhancement_status", {})),
+                        None if facility_refs is None else json.dumps(facility_refs),
                     ],
                 )
                 if previous:
@@ -832,12 +855,14 @@ class ARIELRepository:
             conn: Optional caller connection; the transaction nests as a savepoint.
 
         Returns:
-            The stored ``attachments``, ``attachment_text`` and
-            ``attachment_captions`` after the write.
+            The stored ``attachments``, ``attachment_text``,
+            ``attachment_captions`` and ``facility_refs`` after the write.
         """
         from psycopg.rows import dict_row
 
         query = f"UPSERT RETURNING entry_id={entry['entry_id']}"
+        facility_refs = self._facility_refs(entry["raw_text"])
+        entry["facility_refs"] = facility_refs
         params = {
             "entry_id": entry["entry_id"],
             "source_system": entry["source_system"],
@@ -847,6 +872,7 @@ class ARIELRepository:
             "attachments": json.dumps(entry.get("attachments", [])),
             "metadata": json.dumps(entry.get("metadata", {})),
             "enhancement_status": json.dumps(entry.get("enhancement_status", {})),
+            "facility_refs": None if facility_refs is None else json.dumps(facility_refs),
         }
         incoming = entry.get("attachments") or []
         replaced: list[str] = []
@@ -860,11 +886,11 @@ class ARIELRepository:
                         """
                         INSERT INTO enhanced_entries (
                             entry_id, source_system, timestamp, author, raw_text,
-                            attachments, metadata, enhancement_status
+                            attachments, metadata, enhancement_status, facility_refs
                         ) VALUES (
                             %(entry_id)s, %(source_system)s, %(timestamp)s, %(author)s,
                             %(raw_text)s, %(attachments)s, %(metadata)s,
-                            %(enhancement_status)s
+                            %(enhancement_status)s, %(facility_refs)s
                         )
                         ON CONFLICT (entry_id) DO UPDATE SET
                             source_system = EXCLUDED.source_system,
@@ -893,8 +919,9 @@ class ARIELRepository:
                                     )
                                 ), '[]'::jsonb)
                             END,
-                            metadata = EXCLUDED.metadata
-                        RETURNING attachments, attachment_text, attachment_captions
+                            metadata = EXCLUDED.metadata,
+                            facility_refs = EXCLUDED.facility_refs
+                        RETURNING attachments, attachment_text, attachment_captions, facility_refs
                         """,
                         params,
                     )
@@ -927,6 +954,7 @@ class ARIELRepository:
             "attachments": row["attachments"],
             "attachment_text": row["attachment_text"],
             "attachment_captions": row["attachment_captions"],
+            "facility_refs": row["facility_refs"],
         }
 
     async def search_by_time_range(
