@@ -369,7 +369,11 @@ def test_zero_sources_write_the_same_view_set_with_no_channel(build_project: Bui
         {
             "name": "still",
             "description": "Every reading serves without drift, couplings or noise.",
-            "still": "all",
+            "still": [
+                channel["address"]
+                for channel in view["variables.json"]["channels"]
+                if channel["value_type"] == "float"
+            ],
         }
     ]
 
