@@ -8,64 +8,57 @@ ARIEL ships with a browser-based search interface that provides the same search 
    :file: ../../_diagrams/ariel-web-interface.html
 
 
-Views
-=====
+The Screen
+==========
 
-The interface has four views, accessible via the navigation bar. All views are rendered client-side using hash-based routing (``#search``, ``#browse``, ``#create``, ``#status``).
+The interface is one screen of three panes: a **rail** of mailboxes (All
+entries, Drafts, Mine, and your saved searches), the **list** of entries
+newest first with the search box and mode chip on top, and the **reader** showing the
+selected entry. Drag the rail's edge to resize it; released narrow, it snaps
+to an icon strip. Below 640 px the list and reader stack and the reader gets a
+Back button. **Compose** opens the new-entry form in place of the list; the
+**Status and settings** button in the header opens those drawers.
 
-.. tab-set::
+.. figure:: /_static/screenshots/ariel_screen.png
+   :alt: ARIEL rail, entry list and reader
+   :align: center
+   :width: 90%
 
-   .. tab-item:: Search
+   Captured with OSPREY |captured_ariel| from the ``control-assistant``
+   tutorial's seeded logbook.
 
-      The primary view. A search bar with mode tabs (Keyword, Semantic --- only enabled modes are shown) and an expandable advanced options panel. Results display as entry cards with relevance scores and highlights. Press ``Enter`` to submit a query; searches always include the current advanced options and filters.
+The address records the screen as ``#q=&mode=&box=&sel=&att=``, so a link
+reopens the same search, mailbox, entry and attachment. Old links still work:
+``#entry?id=…&attachment=…``, ``#create``, ``#status``, ``#search`` and
+``#browse`` are rewritten to that form.
 
-      .. figure:: /_static/screenshots/ariel_search.png
-         :alt: ARIEL Search View
-         :align: center
-         :width: 90%
+When the logbook adapter is read-only (the common case for the standalone
+interface), new entries are saved locally with ``source_system: "ARIEL Web"``
+and an ``entry_id`` of the form ``ariel-<12-hex>``; a write-capable facility
+adapter publishes them to that logbook. Created entries are searchable
+immediately.
 
-         Search view with Hybrid mode selected.
+.. list-table:: Keyboard
+   :header-rows: 1
+   :widths: 15 85
 
-   .. tab-item:: Browse
-
-      Chronological, paginated listing of logbook entries (newest first) -- use Previous/Next to page back through older entries. Each entry shows its timestamp, author, and a text preview. Click an entry to view its full content.
-
-      .. figure:: /_static/screenshots/ariel_browse.png
-         :alt: ARIEL Browse View
-         :align: center
-         :width: 90%
-
-         Browse view showing paginated entries sorted newest-first.
-
-   .. tab-item:: New Entry
-
-      Form for creating new logbook entries directly from the interface. Fields include subject, details, author, logbook, shift, and tags. When the configured logbook adapter is read-only (the common case for the standalone interface), entries are saved locally with ``source_system: "ARIEL Web"`` and a generated ``entry_id`` of the form ``ariel-<12-hex>``. When a write-capable facility adapter is configured, the entry is published to that logbook and takes the facility's ``source_system`` and ``entry_id``. Created entries are searchable immediately.
-
-      .. figure:: /_static/screenshots/ariel_create.png
-         :alt: ARIEL New Entry View
-         :align: center
-         :width: 90%
-
-         New entry form for creating logbook entries from the web interface.
-
-   .. tab-item:: Status
-
-      Dashboard showing service health, database connection, entry count, embedding tables, enabled modules, and last ingestion timestamp. The dashboard polls ``/api/status`` on load, making it useful for verifying that the service is configured correctly after deployment.
-
-      .. figure:: /_static/screenshots/ariel_status.png
-         :alt: ARIEL Status View
-         :align: center
-         :width: 90%
-
-         Status dashboard showing service health and configuration.
-
-The four ARIEL views above were captured with OSPREY |captured_ariel| from the
-``control-assistant`` tutorial's seeded logbook.
+   * - Key
+     - Action
+   * - ``j`` / ``k``
+     - Select the next / previous entry
+   * - ``Enter``
+     - Open the selected entry in the reader
+   * - ``/``
+     - Focus the search box (standalone)
+   * - ``[``
+     - Collapse or expand the rail
+   * - ``Esc``
+     - Close the picture, then the compose form, then go Back when stacked
 
 Advanced Options
 ================
 
-The **Filters & Options** panel is built from whatever the enabled search
+The filters panel, opened from the mode chip, is built from whatever the enabled search
 modules declare, so the controls in it depend on the deployment. Two things
 about how it behaves are worth knowing before you tune anything.
 
@@ -112,9 +105,8 @@ reranked.
 Display Preferences
 ===================
 
-The button at the top right of the header --- the one drawn as three sliders
---- opens a small card holding everything about how the interface looks, plus
-the way in to its settings:
+The rightmost button in the header opens a small card holding everything
+about how the interface looks, plus the way in to its settings:
 
 **Appearance**
    Light or Dark. It flips the shade without changing which theme you are in.
@@ -144,23 +136,14 @@ purpose. The terminal passes its own theme to the panel in the page
 address, and an address always outranks the remembered preference, so an
 embedded panel matches the terminal it sits in no matter what was set
 elsewhere. The embedded panel has no header of its own either --- the
-terminal's tile bar is the one header --- so the sliders button does not
+terminal's tile bar is the one header --- so the display button does not
 appear there.
 
-The embedded panel's tile bar offers Browse and New Entry, and opens on
-Browse: inside the terminal, the agent searches the logbook. A deployment that
-wants the Search view there too turns it on in its profile's ``config:`` block:
-
-.. code-block:: yaml
-
-   ariel.embedded_search: true
-
-The embedded panel then opens on Search, with Search ahead of Browse and New
-Entry. Keyword search works immediately against the ARIEL full-text index;
-semantic and hybrid choices are shown only when their configured services are
-available. The standalone interface always offers Search. Opening a stored,
-viewable picture from an entry also offers **Use in Workspace**. It copies the
-prepared rendition into the local Workspace gallery with its logbook
+Embedded, the tile bar carries the search box, **Compose**, and a menu to
+hide the rail or save the search; the rail starts collapsed. Keyword search
+works immediately; semantic and hybrid choices appear only when their services
+are available. Opening a stored, viewable picture from an entry also offers
+**Use in Workspace**. It copies the prepared rendition into the local Workspace gallery with its logbook
 provenance, then activates Workspace in the browser that clicked it. Ask the
 agent about that Workspace artifact; it resolves the provenance and reads the
 same stored attachment pixels rather than an external logbook URL.
@@ -204,7 +187,7 @@ Running the Web Interface
 .. admonition:: Collaboration Welcome
    :class: outreach
 
-   The web interface is a great place to contribute --- whether that is a new view, improved accessibility, mobile-responsive layouts, or better error handling. If you build something useful, we encourage you to open a pull request so it becomes part of Osprey.
+   The web interface is a great place to contribute --- whether that is improved accessibility, mobile-responsive layouts, or better error handling. If you build something useful, we encourage you to open a pull request so it becomes part of Osprey.
 
 
 See Also
