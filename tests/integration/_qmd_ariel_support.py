@@ -24,6 +24,9 @@ import requests
 
 from osprey.port_layout import default_port
 from tests._container_support import (
+    CONTAINER_START_ATTEMPTS,
+    CONTAINER_START_BACKOFF_S,
+    CONTAINER_STATE_TIMEOUT,
     is_docker_available,
     is_image_present,
     start_or_fail,
@@ -155,6 +158,67 @@ SIDECAR_REINDEX_TIMEOUT = 180.0
 
 #: Seconds the whole re-index wait may take, however much progress the log shows.
 SIDECAR_REINDEX_CEILING = 1200.0
+
+#: Seconds one ``/health`` probe may take.
+SIDECAR_PROBE_TIMEOUT = 5.0
+
+#: Seconds between the rounds of a sidecar wait.
+SIDECAR_POLL_INTERVAL = 1.0
+
+
+def _indexed_probe_bound() -> float:
+    """Seconds one round of :func:`wait_for_indexed`'s probe may take.
+
+    The probe reads the whole sidecar log through testcontainers' docker client
+    and makes one ``status`` call on the qmd client, each bounded by its
+    client's default timeout.
+    """
+    import docker.constants
+
+    from osprey.services.qmd.client import DEFAULT_TIMEOUT_SECONDS
+
+    return DEFAULT_TIMEOUT_SECONDS + docker.constants.DEFAULT_TIMEOUT_SECONDS
+
+
+#: The longest one round of a sidecar wait can take once its ceiling has
+#: passed: the slower of the two waits' probes, the pause between rounds, and
+#: the liveness read's two daemon calls.
+SIDECAR_ROUND_S = (
+    max(SIDECAR_PROBE_TIMEOUT, _indexed_probe_bound())
+    + SIDECAR_POLL_INTERVAL
+    + 2 * CONTAINER_STATE_TIMEOUT
+)
+
+
+def _postgres_start_bound() -> float:
+    """Seconds the lane's Postgres start may take before it fails.
+
+    :func:`~tests._container_support.start_or_fail` retries the start, and each
+    attempt runs testcontainers' own readiness wait, bounded by its configured
+    timeout, with a pause between attempts.
+    """
+    from testcontainers.core.config import testcontainers_config
+
+    return (
+        CONTAINER_START_ATTEMPTS * testcontainers_config.timeout
+        + (CONTAINER_START_ATTEMPTS - 1) * CONTAINER_START_BACKOFF_S
+    )
+
+
+#: Seconds each test of the ARIEL sidecar module may take, setup included. The
+#: first test to request the shared sidecar world pays for the longest chain of
+#: waits one test can hit: the Postgres start, the sidecar's ``/health`` wait
+#: (:data:`SIDECAR_HEALTH_CEILING`), the world's own re-index wait and one more
+#: in the test body (:data:`SIDECAR_REINDEX_CEILING` each). Each of the three
+#: ``wait_until_ready`` waits may run one :data:`SIDECAR_ROUND_S` past its
+#: ceiling, so the wait's own failure, with the container's log, lands before
+#: this mark kills the test.
+SIDECAR_ARIEL_TEST_TIMEOUT = (
+    _postgres_start_bound()
+    + SIDECAR_HEALTH_CEILING
+    + 2 * SIDECAR_REINDEX_CEILING
+    + 3 * SIDECAR_ROUND_S
+)
 
 #: The entrypoint's log line for the update a marker touch causes.
 _MARKER_UPDATE_LINE = "update triggered by corpus marker"
@@ -319,14 +383,14 @@ def wait_for_health(container, port: int) -> None:
         "qmd sidecar",
         container=container,
         timeout=SIDECAR_HEALTH_TIMEOUT,
-        interval=1.0,
+        interval=SIDECAR_POLL_INTERVAL,
         ceiling=SIDECAR_HEALTH_CEILING,
     )
 
 
 def _probe_health(port: int) -> None:
     """Raise unless the sidecar's ``/health`` answers ``ok``."""
-    response = requests.get(f"http://127.0.0.1:{port}/health", timeout=5)
+    response = requests.get(f"http://127.0.0.1:{port}/health", timeout=SIDECAR_PROBE_TIMEOUT)
     if not (response.ok and '"ok"' in response.text):
         raise AssertionError(f"HTTP {response.status_code}: {response.text[:200]}")
 
@@ -424,7 +488,7 @@ def wait_for_indexed(
         "qmd re-index",
         container=container,
         timeout=SIDECAR_REINDEX_TIMEOUT,
-        interval=1.0,
+        interval=SIDECAR_POLL_INTERVAL,
         ceiling=SIDECAR_REINDEX_CEILING,
     )
 

@@ -63,6 +63,7 @@ from tests._container_support import is_docker_available
 from tests.integration._qmd_ariel_support import (
     DEFAULT_QMD_SIDECAR_IMAGE,
     QMD_IMAGE_ENV,
+    SIDECAR_ARIEL_TEST_TIMEOUT,
     VOCABULARY_AUTHOR,
     VOCABULARY_DISTRACTOR_ROWS,
     VOCABULARY_ENTRY_ID,
@@ -85,11 +86,13 @@ from tests.integration._qmd_ariel_support import (
 
 # xdist_group("docker") pins every container-starting module onto one worker: a
 # run must have a single testcontainers session and a single ryuk reaper, because
-# concurrent reaper starts race the Docker daemon's port mapper.
+# concurrent reaper starts race the Docker daemon's port mapper. The timeout
+# mark lets the sidecar's own waits fail before the check's per-test cap would.
 pytestmark = [
     pytest.mark.dockerbuild,
     pytest.mark.asyncio,
     pytest.mark.xdist_group("docker"),
+    pytest.mark.timeout(SIDECAR_ARIEL_TEST_TIMEOUT),
 ]
 
 #: Token shared by the encoding-safe entries, so one query retrieves that whole
