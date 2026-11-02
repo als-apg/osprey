@@ -166,15 +166,16 @@ Open with the idea: a layout is a task. "Machine setup" and "logbook review" wan
 different surfaces on the rail.
 
 1. Read `presets` from `list_panels`.
-2. **If the deployment defines presets** — pick one, name it, and apply it by
-   composing `add_panel_to_rail` / `remove_panel_from_rail` so the member panels are on the rail and
-   the others are not — the audience watches entries appear and vanish, one glow
-   at a time. Say the line that lands: this is exactly what a human's click on
-   that layout resolves to — same primitive, same result, just reached by asking.
+2. **If the deployment defines presets** — pick one, name it, and apply it with
+   `arrange_workspace(preset=...)`: its tiles replace the service tiles and the
+   rail holds its members. Say the line that lands: this is exactly what a
+   human's click on that layout does — same operation, same result, just
+   reached by asking.
 3. **If it defines none** — compose a plausible one from the panels that exist
-   (e.g. logbook review = the logbook panel plus the workspace) and mention the
-   deployment can name it in the profile's `config:` block under `config.web.presets`,
-   then `osprey build`, so it becomes one click for everyone.
+   (e.g. logbook review = the logbook panel plus the workspace) with
+   `arrange_workspace(layout=...)`, and mention the deployment can name it in
+   the profile's `panel_presets:` field as that layout, then `osprey build`, so
+   it becomes one click for everyone.
 4. **Restore** the starting rail membership, tiles and showing tabs.
 
 ## 4. Grand tour

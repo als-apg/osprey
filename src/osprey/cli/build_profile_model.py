@@ -11,7 +11,7 @@ from __future__ import annotations
 import contextlib
 import os
 import warnings
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -32,6 +32,8 @@ from osprey.deployment.qmd_service import (
     QMD_SERVICE_NAME,
     resolve_qmd_service_config,
 )
+from osprey.interfaces.web_terminal.dock_layout import layout_keys
+from osprey.interfaces.web_terminal.presets import preset_refusal
 from osprey.port_layout import LAYOUT, WORKER_MAX, PortSlot, default_port, resolve_port_base
 from osprey.profiles.providers import PROVIDERS_FILENAME
 from osprey.profiles.web_panels import BUILTIN_PANELS, UNIVERSAL_PANELS
@@ -321,6 +323,43 @@ def render_key_errors(config: Any) -> list[str]:
     ]
 
 
+def _preset_rewrite(name: str, members: list[Any]) -> str:
+    """How to write a ``label: [ids]`` preset as a dock layout."""
+    ids = [str(member) for member in members] or ["<panel id>"]
+    if len(ids) == 1:
+        return f"rewrite it as a layout, e.g. {name!r}: {{tabs: [{ids[0]}]}}"
+    tiles = ", ".join(f"{{tabs: [{pid}]}}" for pid in ids)
+    return (
+        f"rewrite it as a layout, e.g. {name!r}: {{split: row, items: [{tiles}]}} "
+        f"(side by side), or {name!r}: {{tabs: [{', '.join(ids)}]}} (tabs of one tile)"
+    )
+
+
+def panel_preset_errors(name: str, layout: Any, is_known: Callable[[str], bool]) -> list[str]:
+    """Refuse a ``panel_presets`` entry that is not a dock layout over shown panels.
+
+    The layout rules are :func:`osprey.interfaces.web_terminal.presets.preset_refusal`,
+    the ones the terminal applies to ``web.presets`` at startup; the build adds
+    that every tab must be a panel this render shows (``is_known``). The retired
+    ``label: [ids]`` list form is refused with the layout to write instead.
+
+    Returns:
+        One error per problem with the entry; empty when it is a valid preset.
+    """
+    where = f"panel_presets[{name!r}]"
+    refusal = preset_refusal(layout)
+    if refusal is not None:
+        if isinstance(layout, list):
+            refusal = f"is the retired list-of-panel-ids form; {_preset_rewrite(name, layout)}"
+        return [f"{where} {refusal}"]
+    return [
+        f"Unknown {where} member {key!r}: not in web_panels (the selection is what "
+        f"shows a tab) and not universal ({sorted(UNIVERSAL_PANELS)})"
+        for key in layout_keys(layout)
+        if not is_known(key)
+    ]
+
+
 # VALID_CHANNEL_FINDER_MODES is imported from the build-time kernel
 # (osprey.build.modes) so the validators below can use it while the definition
 # lives below the cli layer.
@@ -418,13 +457,16 @@ class BuildProfile:
     output_styles: list[str] = field(default_factory=list)
     web_panels: list[str] = field(default_factory=list)
     default_panel: str | None = None
-    panel_presets: dict[str, list[str]] = field(default_factory=dict)
+    panel_presets: dict[str, dict[str, Any]] = field(default_factory=dict)
     """Named panel layouts ("presets") rendered into ``web.presets``. Each key is
-    the display label, each value a list of member panel ids (built-ins or
-    custom ``web.panels.<id>.url``-backed ids). A human applies one from the
-    Web Terminal "+" popover's "Layouts" section. Empty (the default) renders no
-    ``web.presets`` block. Members are typo-validated at build time, mirroring
-    :attr:`default_panel`.
+    the display label, each value a dock layout in collection form: a tile
+    ``{tabs: [<panel id>, ...], showing?, size?}`` or a split ``{split: row|column,
+    items: [...], size?}`` whose tabs are panel ids (built-ins or custom
+    ``web.panels.<id>.url``-backed ids, never the terminal). A human applies one
+    from the Web Terminal "+" popover's "Layouts" section; the agent applies one
+    by name. Empty (the default) renders no ``web.presets`` block. Validated at
+    build time by :func:`panel_preset_errors`; the retired list-of-ids form is
+    refused with the layout to write instead.
     """
     claude_md_template: str | None = None
     """Bundled `templates/claude_code/<filename>` to render as CLAUDE.md
@@ -1817,24 +1859,11 @@ class BuildProfile:
                 f"({sorted(UNIVERSAL_PANELS)})"
             )
 
-        # Validate panel_presets: each member id must resolve the same way a
-        # default_panel does (selected, or universal). Catches typos in a
-        # preset's member list at build time so a facility author gets the same
-        # fail-fast feedback as default_panel.
-        for preset_name, members in self.panel_presets.items():
-            if not isinstance(members, list):
-                errors.append(
-                    f"panel_presets[{preset_name!r}] must be a list of panel ids "
-                    f"(got {type(members).__name__})"
-                )
-                continue
-            errors.extend(
-                f"Unknown panel_presets[{preset_name!r}] member {member!r}: not in "
-                f"web_panels (the selection is what shows a tab) and not universal "
-                f"({sorted(UNIVERSAL_PANELS)})"
-                for member in members
-                if not self._is_known_panel_id(member)
-            )
+        # Validate panel_presets: each is a dock layout whose tabs resolve the
+        # same way a default_panel does (selected, or universal). Catches typos
+        # and the retired list form at build time, with the layout to write.
+        for preset_name, layout in self.panel_presets.items():
+            errors.extend(panel_preset_errors(preset_name, layout, self._is_known_panel_id))
 
         # Validate the artifact_server override block (gallery server settings
         # + custom category definitions)

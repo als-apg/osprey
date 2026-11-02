@@ -1443,7 +1443,7 @@ provenance:
   providers_hash: @PROVIDERS_HASH@
 # true builds its own services stack; false attaches to another project's.
 deploy_services: true
-# Named web-terminal layouts, as label -> list of panel ids.
+# Named web-terminal layouts, as label -> tiles of panel-id tabs.
 panel_presets: {}
 
 # --- Default web-terminal panel ----------------------------------------------

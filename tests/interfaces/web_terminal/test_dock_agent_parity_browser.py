@@ -1044,6 +1044,74 @@ def test_a_set_of_three_opens_as_tabs_side_and_layout_leaving_the_terminal(
         assert hub.errors == []
 
 
+def test_a_preset_with_tabs_loads_in_one_call(tmp_path, chromium_browser):
+    """``arrange_workspace(preset=...)`` puts the preset's tabbed tiles on screen in one call."""
+    with _hub(tmp_path) as hub:
+        page = _open(chromium_browser, hub)
+        _open_services(page, "a")
+        a, b, c, d = (S(x) for x in "abcd")
+        hub.app.state.panel_presets = [
+            {
+                "name": "Injection",
+                "panels": [b, c, d],
+                "layout": {
+                    "split": "row",
+                    "items": [{"tabs": [b, c], "showing": c, "size": 2}, {"tabs": [d]}],
+                },
+            }
+        ]
+        assert [p["name"] for p in _tool("list_panels")["presets"]] == ["Injection"]
+        before = _restore(page, hub, ONE_SERVICE)
+        posts: list[str] = []
+        page.on(
+            "request", lambda r: posts.append(r.url) if "/api/panel-op-result" in r.url else None
+        )
+        result = _tool("arrange_workspace", preset="Injection")
+        assert result["preset"] == "Injection"
+        after = _settle(page)
+        _assert_returned_is_shown(result, after, "preset")
+        _assert_terminal_untouched(before, after, "preset")
+        assert len(posts) == 1, posts
+        held = {tuple(t["tabs"]): t for t in after["held"]}
+        assert (b, c) in held and held[(b, c)]["showing"] == c, after["shape"]
+        assert (d,) in held, after["shape"]
+        assert a not in _keys(after), after["shape"]
+        expect(_iframe(page, c)).to_be_visible(timeout=5_000)
+        expect(_iframe(page, b)).to_be_hidden()
+        # The b|c tile has twice d's width (weights 2:1).
+        assert _rect(after, b)["width"] > 1.8 * _rect(after, d)["width"], after["tiles"]
+        # Like the operator's Layouts click, the rail now holds exactly the preset's panels.
+        for key in (b, c, d):
+            expect(rail_entry(page, key)).to_have_count(1, timeout=5_000)
+        expect(rail_entry(page, a)).to_have_count(0, timeout=5_000)
+        assert hub.errors == []
+
+
+def test_an_old_shape_panel_presets_fails_the_profile_build(tmp_path, caplog):
+    """``osprey build`` on a profile with a list-shaped preset fails and says how to rewrite."""
+    from click.testing import CliRunner
+
+    from osprey.cli.build_cmd import build
+    from tests.fixtures.lifecycle_repo import build_exemplar_repo
+
+    repo = build_exemplar_repo(tmp_path / "repo")
+    profile = repo / "profile.yml"
+    text = profile.read_text()
+    assert "panel_presets: {}" in text, "the exemplar no longer spells an empty panel_presets"
+    profile.write_text(
+        text.replace("panel_presets: {}", "panel_presets:\n  Ops: [okf, channel-finder]")
+    )
+    caplog.set_level("ERROR")
+    result = CliRunner().invoke(build, ["--repo", str(repo), "--skip-deps", "--skip-lifecycle"])
+    assert result.exit_code != 0, result.output
+    # The build reports through its logger, then aborts.
+    output = result.output + caplog.text
+    assert "panel_presets['Ops'] is the retired list-of-panel-ids form" in output, output
+    assert "{split: row, items: [{tabs: [okf]}, {tabs: [channel-finder]}]}" in output, output
+    assert "{tabs: [okf, channel-finder]}" in output, output
+    assert not (repo / "build" / "config.yml").exists(), "a refused profile still rendered"
+
+
 def test_an_agent_open_while_typing_never_covers_the_terminal(tmp_path, chromium_browser):
     """``open_panel`` (with and without ``url``) lands mid-typing; every key reaches the shell.
 

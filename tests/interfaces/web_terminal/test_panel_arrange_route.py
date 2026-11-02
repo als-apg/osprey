@@ -5,7 +5,8 @@ agent write (see ``test_panel_op_route.py`` for the transport). These tests pin
 what the server itself decides for the two arrangement ops: the members and
 layout it relays, the terminal invariant, and the rail effect once the dock
 shows the result. A preset in ``app.state.panel_presets`` is what the app's
-loader resolves from ``web.presets``: ``{name, panels}``, the panels it names.
+loader resolves from ``web.presets``: ``{name, panels, layout}``, the layout over
+panel ids it opens.
 """
 
 from __future__ import annotations
@@ -166,14 +167,17 @@ class TestOpenSet:
         assert frame is None
 
 
-def _preset(name: str, *panels: str) -> dict:
-    """A preset as the app's loader resolves it: its name and the panels it lists."""
-    return {"name": name, "panels": list(panels)}
+def _preset(name: str, *panels: str, layout: dict | None = None) -> dict:
+    """A preset as the app's loader resolves it: its name, panels and layout (one tile each)."""
+    if layout is None:
+        tiles = [{"tabs": [pid], "showing": pid} for pid in panels]
+        layout = tiles[0] if len(tiles) == 1 else {"split": "row", "items": tiles}
+    return {"name": name, "panels": list(panels), "layout": layout}
 
 
 class TestOpenArrangement:
-    async def test_relays_the_known_members_side_by_side(self):
-        """A panel the deployment does not serve now is pruned; the rest open as tiles."""
+    async def test_relays_the_known_members_and_the_layout_over_them(self):
+        """A panel the deployment does not serve now is pruned from the layout; the rest open as configured."""
         app = _app(panel_presets=[_preset("L1", "lattice", "nope", "ariel", "grafana")])
         resp, frame, _ = await _arrange(
             app,
@@ -185,19 +189,66 @@ class TestOpenArrangement:
         assert frame["args"] == {
             "name": "L1",
             "members": ["lattice", "ariel", "grafana"],
-            "as": "side",
+            "layout": {
+                "split": "row",
+                "items": [
+                    {"tabs": [0], "showing": 0, "size": pytest.approx(1 / 3)},
+                    {"tabs": [1], "showing": 1, "size": pytest.approx(1 / 3)},
+                    {"tabs": [2], "showing": 2, "size": pytest.approx(1 / 3)},
+                ],
+            },
         }
         assert resp.status_code == 200
         assert [(r["tool"], r["target"]["panel"]) for r in app.state.agent_activity_buffer] == [
             ("arrange_workspace", "L1")
         ]
 
-    async def test_the_terminal_is_never_a_member(self):
-        app = _app(panel_presets=[_preset("L1", "terminal", "ariel")])
+    async def test_a_tabbed_layout_keeps_its_showing_and_weights(self):
+        """The members are the layout's tabs in reading order; showing and sizes carry over by index."""
+        layout = {
+            "split": "column",
+            "items": [
+                {"tabs": ["ariel", "lattice"], "showing": "lattice", "size": 3},
+                {"tabs": ["grafana"]},
+            ],
+        }
+        app = _app(panel_presets=[_preset("L1", "ariel", "lattice", "grafana", layout=layout)])
         _, frame, _ = await _arrange(
-            app, "/api/panel-op/open-arrangement", {"name": "L1"}, _side_by_side("ariel")
+            app,
+            "/api/panel-op/open-arrangement",
+            {"name": "L1"},
+            _side_by_side("lattice", "grafana"),
         )
-        assert frame["args"]["members"] == ["ariel"]
+        assert frame["args"]["members"] == ["ariel", "lattice", "grafana"]
+        assert frame["args"]["layout"] == {
+            "split": "column",
+            "items": [
+                {"tabs": [0, 1], "showing": 1, "size": 0.75},
+                {"tabs": [2], "showing": 2, "size": 0.25},
+            ],
+        }
+
+    async def test_a_layout_naming_the_terminal_is_refused(self):
+        app = _app(panel_presets=[_preset("L1", "terminal", "ariel")])
+        resp, frame, _ = await _arrange(app, "/api/panel-op/open-arrangement", {"name": "L1"})
+        assert resp.status_code == 422
+        assert resp.json()["reason"] == "terminal_in_layout"
+        assert frame is None
+
+    async def test_an_entry_without_a_layout_is_refused(self):
+        """An entry in the retired ``{name, panels}`` shape opens nothing."""
+        app = _app(panel_presets=[{"name": "L1", "panels": ["ariel"]}])
+        resp, frame, _ = await _arrange(app, "/api/panel-op/open-arrangement", {"name": "L1"})
+        assert resp.status_code == 422
+        assert resp.json()["reason"] == "invalid_layout"
+        assert frame is None
+
+    async def test_a_preset_left_with_no_known_member_is_refused(self):
+        app = _app(panel_presets=[_preset("L1", "nope")])
+        resp, frame, _ = await _arrange(app, "/api/panel-op/open-arrangement", {"name": "L1"})
+        assert resp.status_code == 422
+        assert resp.json()["reason"] == "unknown_member"
+        assert frame is None
 
     async def test_as_is_relayed_when_given(self):
         app = _app(panel_presets=[_preset("L1", "ariel")])
@@ -233,7 +284,7 @@ class TestOpenArrangement:
         [
             ([], "unknown_arrangement"),
             ([_preset("L1", "nope")], "unknown_member"),
-            ([_preset("L1", "terminal")], "unknown_member"),
+            ([_preset("L1", "terminal")], "terminal_in_layout"),
         ],
         ids=["unknown-name", "no-known-member", "terminal-only"],
     )

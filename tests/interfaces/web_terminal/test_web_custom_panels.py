@@ -528,40 +528,80 @@ class TestLoadPanelPresets:
             assert _load_panel_presets({"artifacts"}, []) == []
 
     def test_drops_unknown_members_keeps_known(self):
-        """Unknown member ids are dropped; the known members are kept in order."""
-        cfg = {"web": {"presets": {"Setup": ["artifacts", "ghost", "ariel"]}}}
+        """Unknown tabs are pruned; the known tabs keep their tiles, normalised."""
+        cfg = {
+            "web": {
+                "presets": {
+                    "Setup": {
+                        "split": "row",
+                        "items": [
+                            {"tabs": ["artifacts", "ghost"], "showing": "ghost", "size": 3},
+                            {"tabs": ["ariel"]},
+                        ],
+                    }
+                }
+            }
+        }
         with patch("osprey_connectors.workspace.load_osprey_config", return_value=cfg):
             presets = _load_panel_presets({"artifacts", "ariel"}, [])
-        assert presets == [{"name": "Setup", "panels": ["artifacts", "ariel"]}]
+        assert presets == [
+            {
+                "name": "Setup",
+                "panels": ["artifacts", "ariel"],
+                "layout": {
+                    "split": "row",
+                    "items": [
+                        {"tabs": ["artifacts"], "showing": "artifacts", "size": 0.75},
+                        {"tabs": ["ariel"], "showing": "ariel", "size": 0.25},
+                    ],
+                },
+            }
+        ]
 
     def test_drops_preset_that_resolves_empty(self):
-        """A preset whose members are all unknown is dropped entirely."""
-        cfg = {"web": {"presets": {"Empty": ["ghost"], "Good": ["artifacts"]}}}
+        """A preset whose tabs are all unknown is dropped entirely."""
+        cfg = {"web": {"presets": {"Empty": {"tabs": ["ghost"]}, "Good": {"tabs": ["artifacts"]}}}}
         with patch("osprey_connectors.workspace.load_osprey_config", return_value=cfg):
             presets = _load_panel_presets({"artifacts"}, [])
-        assert presets == [{"name": "Good", "panels": ["artifacts"]}]
+        assert presets == [
+            {
+                "name": "Good",
+                "panels": ["artifacts"],
+                "layout": {"tabs": ["artifacts"], "showing": "artifacts"},
+            }
+        ]
 
     def test_preserves_config_order(self):
         """Preset order follows config insertion order (pyyaml preserves it)."""
-        cfg = {"web": {"presets": {"B": ["artifacts"], "A": ["ariel"]}}}
+        cfg = {"web": {"presets": {"B": {"tabs": ["artifacts"]}, "A": {"tabs": ["ariel"]}}}}
         with patch("osprey_connectors.workspace.load_osprey_config", return_value=cfg):
             presets = _load_panel_presets({"artifacts", "ariel"}, [])
         assert [p["name"] for p in presets] == ["B", "A"]
 
     def test_custom_panel_ids_are_known_members(self):
-        """Custom panel ids (not just built-ins) count as known preset members."""
-        cfg = {"web": {"presets": {"Dash": ["my-dash", "artifacts"]}}}
+        """Custom panel ids (not just built-ins) count as known preset tabs."""
+        cfg = {"web": {"presets": {"Dash": {"tabs": ["my-dash", "artifacts"]}}}}
         custom = [{"id": "my-dash", "label": "DASH", "url": "http://x:9000"}]
         with patch("osprey_connectors.workspace.load_osprey_config", return_value=cfg):
             presets = _load_panel_presets({"artifacts"}, custom)
-        assert presets == [{"name": "Dash", "panels": ["my-dash", "artifacts"]}]
+        assert [p["panels"] for p in presets] == [["my-dash", "artifacts"]]
 
-    def test_non_list_preset_value_skipped(self):
-        """A preset whose value is not a list is skipped, not crashed on."""
-        cfg = {"web": {"presets": {"Bad": "artifacts", "Good": ["artifacts"]}}}
+    @pytest.mark.parametrize(
+        "bad",
+        [
+            pytest.param("artifacts", id="string"),
+            pytest.param(["artifacts"], id="retired-list-form"),
+            pytest.param({"tabs": ["terminal", "artifacts"]}, id="names-the-terminal"),
+            pytest.param({"tabs": [0]}, id="member-index"),
+            pytest.param({"slot": 0}, id="not-a-layout"),
+        ],
+    )
+    def test_a_value_that_is_not_a_preset_is_skipped(self, bad):
+        """A value that is not a dock layout over panel ids is skipped, never crashed on."""
+        cfg = {"web": {"presets": {"Bad": bad, "Good": {"tabs": ["artifacts"]}}}}
         with patch("osprey_connectors.workspace.load_osprey_config", return_value=cfg):
             presets = _load_panel_presets({"artifacts"}, [])
-        assert presets == [{"name": "Good", "panels": ["artifacts"]}]
+        assert [p["name"] for p in presets] == ["Good"]
 
 
 # ---- API endpoint tests ----

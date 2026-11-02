@@ -389,19 +389,35 @@ panel declares; panels OSPREY ships, and URL-backed panels declared under
 Panel layouts ("presets")
 -------------------------
 
-A **layout** is a named set of panels an operator applies in one click — "the
-machine-setup view is these four panels." Define them under ``web.presets``, where
-each key is the menu label and each value is the exact set of panels to show:
+A **layout** is a named arrangement of panels an operator applies in one click
+— "the machine-setup view is these panels, in these tiles." Define them under
+``web.presets`` (``panel_presets`` in a build profile), where each key is the
+menu label and each value is the tiles:
 
 .. code-block:: yaml
 
    web:
      presets:
-       "Machine setup": [channel-finder, lattice, artifacts, okf]
-       "Logbook review": [ariel, artifacts]
+       "Machine setup":
+         split: row
+         items:
+           - tabs: [channel-finder, lattice]
+             showing: lattice
+             size: 2
+           - tabs: [artifacts, okf]
+       "Logbook review":
+         tabs: [ariel, artifacts]
+
+A tile is ``tabs``, its panel ids in bar order, with an optional ``showing``
+(the tab in front, by default the first) and ``size`` (a positive weight
+against its siblings). A split is ``split: row`` or ``split: column`` with
+``items``, which are tiles or splits. A layout never names the Agent pane. The
+list form ``"Logbook review": [ariel, artifacts]`` is not read: the profile
+build refuses it and says what to write instead.
 
 Each layout appears under a **Layouts** section at the top of the panel ``+``
-menu. Picking one is *exclusive*: its panels open and every other panel closes.
+menu. Picking one replaces the service tiles with the layout's and leaves the
+Agent pane where it is; every panel not in the layout leaves the sidebar.
 Members must be enabled built-in panels or custom panels you have declared; an
 unknown id is dropped with a warning, and a layout with no valid members is
 skipped. When no ``web.presets`` are configured — the default — the ``+`` menu is

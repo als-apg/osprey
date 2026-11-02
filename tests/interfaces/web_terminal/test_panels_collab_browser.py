@@ -861,9 +861,21 @@ def test_arrange_with_unhealthy_member_focuses_elsewhere_and_docks_no_empty_tile
 # (e) Preset parity: the human click and the agent call are one operation
 # ===========================================================================
 
-#: web.presets in the loader's entry shape: a name and its members, which open
-#: side by side (an open member keeps its tile, a closed one gets a tile beside).
-_PRESETS = [{"name": "Injection", "panels": ["data-viz", "artifacts"]}]
+#: web.presets in the loader's entry shape: a name, its members and its layout —
+#: here two tiles side by side.
+_PRESETS = [
+    {
+        "name": "Injection",
+        "panels": ["artifacts", "data-viz"],
+        "layout": {
+            "split": "row",
+            "items": [
+                {"tabs": ["artifacts"], "showing": "artifacts", "size": 0.5},
+                {"tabs": ["data-viz"], "showing": "data-viz", "size": 0.5},
+            ],
+        },
+    }
+]
 
 
 def _workspace_signature(page: Page) -> dict:
@@ -971,9 +983,9 @@ def test_preset_click_and_agent_preset_call_are_the_same_operation(tmp_path, chr
     human_result = {k: v for k, v in human.items() if k != "commands"}
     agent_result = {k: v for k, v in agent.items() if k != "commands"}
     assert human_result == agent_result, f"preset paths diverged\nhuman: {human}\nagent: {agent}"
-    # And the shared result is the preset's own semantics: its members open
-    # side by side (artifacts kept its tile, data-viz got one beside it), the
-    # rail pruned to them (plus the terminal anchor).
+    # And the shared result is the preset's own layout: its two tiles side by
+    # side, left of the terminal, the rail pruned to them (plus the terminal
+    # anchor).
     assert human["shape"] == "row[artifacts,data-viz,terminal]", human
     assert human["server_shape"] == human["shape"], human
     assert "scope" not in human["rail"], human

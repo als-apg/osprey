@@ -289,7 +289,7 @@ async def get_panels(request: Request):
             "active":   str|None,       # currently focused panel id
             "labels":   {id: label},    # display labels for enabled built-in panels
             "allow_runtime_panels": bool,  # whether the human "+" may add a URL panel
-            "presets":  [...],          # config-defined layouts: [{"name", "panels": [id,...]}]
+            "presets":  [...],          # config-defined layouts: [{"name", "panels", "layout"}]
             "project_key": str,         # stable 16-hex per-project key (layout persistence)
             "layout":   {...}|None,     # the current dock client's dock layout (None = no dock reports)
             "popouts":  [...],          # panels in their own windows, per that client
@@ -312,7 +312,10 @@ async def get_panels(request: Request):
     ``presets`` is the config-defined "Layouts" list (``web.presets``), resolved
     at startup against the live panel set and carried in config order. It is
     empty unless a deployment opts in, so the "+" popover renders unchanged by
-    default. Each entry is ``{"name": <label>, "panels": [<member id>, ...]}``.
+    default. Each entry is ``{"name": <label>, "panels": [<member id>, ...],
+    "layout": <dock layout>}``: ``layout`` is the collection form with panel-id
+    tabs, pruned to the panels known now and normalised, and ``panels`` its tabs
+    in reading order.
 
     ``allow_runtime_panels`` mirrors the config gate the ``POST /api/panels/register``
     route enforces, so the frontend can show or hide the "new panel from URL" input

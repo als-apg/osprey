@@ -65,7 +65,8 @@ def test_project_key_does_not_disturb_existing_fields(tmp_path):
     app.state.visible_panels = ["ariel"]
     app.state.active_panel = "ariel"
     app.state.allow_runtime_panels = True
-    app.state.panel_presets = [{"name": "L1", "panels": ["ariel"]}]
+    preset = {"name": "L1", "panels": ["ariel"], "layout": {"tabs": ["ariel"], "showing": "ariel"}}
+    app.state.panel_presets = [preset]
 
     body = _panels(app)
 
@@ -75,7 +76,7 @@ def test_project_key_does_not_disturb_existing_fields(tmp_path):
     assert body["visible"] == ["ariel"]
     assert body["active"] == "ariel"
     assert body["allow_runtime_panels"] is True
-    assert body["presets"] == [{"name": "L1", "panels": ["ariel"]}]
+    assert body["presets"] == [preset]
     # The additive key sits alongside the established shape.
     assert set(body) == {
         "enabled",

@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import re
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Literal
 
@@ -28,6 +29,7 @@ from osprey.interfaces.web_terminal.dock_layout import (
     layout_refusal,
     normalize_layout,
 )
+from osprey.interfaces.web_terminal.presets import preset_refusal, prune_preset_layout
 from osprey.interfaces.web_terminal.routes.panels import (
     _TERMINAL_PANEL_ID,
     _checked_dock_layout,
@@ -133,16 +135,14 @@ class _Prepared:
 
 @dataclass(frozen=True)
 class PresetArrangement:
-    """A configured preset resolved for the dock client: its members, and how they open.
+    """A configured preset resolved for the dock client: its members and its layout over them.
 
-    ``layout`` is the preset's own collection-form layout over the members (by
-    index), or ``None`` for a preset that names only its panels; such a preset
-    opens its members side by side, the arrangement a "Layouts" click has always
-    produced.
+    ``layout`` is the preset's collection-form layout with the members' indexes
+    in its tabs: the form every arrangement frame carries.
     """
 
     members: list[str]
-    layout: dict | None = None
+    layout: dict
 
 
 def _pending_ops(state) -> dict[str, _PendingOp]:
@@ -300,16 +300,30 @@ def _set_members(request: Request, members: list[str]) -> list[str]:
     return list(members)
 
 
+def _member_index_layout(node: Mapping, index: dict[str, int]) -> dict:
+    """A panel-id preset layout rewritten with member indexes in its tabs."""
+    if "split" in node:
+        return {**node, "items": [_member_index_layout(item, index) for item in node["items"]]}
+    out = {**node, "tabs": [index[key] for key in node["tabs"]]}
+    if "showing" in out:
+        out["showing"] = index[out["showing"]]
+    return out
+
+
 def resolve_preset(request: Request, name: str) -> PresetArrangement:
     """A configured preset by name, resolved against the panels known now.
 
     The one place a preset's configuration (``app.state.panel_presets``, the
-    entries ``GET /api/panels`` serves) is read for an arrangement. An entry
-    names its panels; a panel unknown now, and the terminal, are dropped, so a
-    stale or mistyped member skips rather than breaks the layout.
+    entries ``GET /api/panels`` serves) is read for an arrangement. An entry's
+    ``layout`` names panel ids; a panel unknown now is pruned from it
+    (:func:`~osprey.interfaces.web_terminal.presets.prune_preset_layout`), so a
+    stale or mistyped member skips rather than breaks the layout, and the
+    members are what is left, in reading order.
 
     Raises:
         OpRefused: ``unknown_arrangement`` for a name no preset carries,
+            ``terminal_in_layout`` for a layout naming the terminal,
+            ``invalid_layout`` for an entry without a valid layout,
             ``unknown_member`` for a preset left with no member.
     """
     presets: list[dict] = list(getattr(request.app.state, "panel_presets", []))
@@ -317,11 +331,18 @@ def resolve_preset(request: Request, name: str) -> PresetArrangement:
     if match is None:
         available = [p.get("name") for p in presets]
         raise OpRefused("unknown_arrangement", f"unknown preset {name!r}; presets: {available}")
+    layout = match.get("layout")
+    if _names_terminal(layout):
+        raise OpRefused("terminal_in_layout")
+    if preset_refusal(layout) is not None:
+        raise OpRefused("invalid_layout", f"preset {name!r} has no valid layout")
     known = _known_panel_ids(request)
-    members = [pid for pid in match.get("panels", []) if pid in known and pid != _TERMINAL_PANEL_ID]
-    if not members:
+    pruned = prune_preset_layout(layout, lambda key: key in known)  # type: ignore[arg-type]
+    if pruned is None:
         raise OpRefused("unknown_member", f"preset {name!r} has no known members")
-    return PresetArrangement(members)
+    members = layout_keys(pruned)
+    index = {pid: n for n, pid in enumerate(members)}
+    return PresetArrangement(members, _member_index_layout(pruned, index))
 
 
 def _refusal_response(request: Request, refused: OpRefused) -> JSONResponse:
@@ -565,24 +586,20 @@ async def op_open_set(body: OpenSetOpRequest, request: Request):
 async def op_open_arrangement(body: OpenArrangementOpRequest, request: Request):
     """The ``open_arrangement {name, as?}`` op for a configured preset.
 
-    The members are resolved here (:func:`resolve_preset`), so the dock client
-    needs no preset table. A preset opens as it is configured unless ``as``
-    says otherwise; a preset that names only its panels opens them side by
-    side. Presets keep their prune-to-members rail behaviour: once the dock
-    shows the arrangement, the rail holds its members.
+    The members and layout are resolved here (:func:`resolve_preset`), so the
+    dock client needs no preset table. A preset opens as its layout says unless
+    ``as`` asks for its panels as tabs or side by side instead. Presets keep
+    their prune-to-members rail behaviour: once the dock shows the arrangement,
+    the rail holds its members.
     """
 
     def prepare() -> _Prepared:
         preset = resolve_preset(request, body.name)
         members = _set_members(request, preset.members)
         args: dict = {"name": body.name, "members": members}
-        layout = _set_layout(members, preset.layout)
+        args["layout"] = _set_layout(members, preset.layout)
         if body.as_ is not None:
             args["as"] = body.as_
-        elif layout is None:
-            args["as"] = "side"
-        if layout is not None:
-            args["layout"] = layout
         return _Prepared(args, body.name, members, rail_prune=True)
 
     return await _run_op(request, "open_arrangement", body.request_id, None, prepare)
