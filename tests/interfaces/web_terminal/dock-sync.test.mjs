@@ -16,15 +16,17 @@
  *     (echo) focus POSTs never;
  *   - the human tab-CLOSE click fires the registered tile-close handler, never a
  *     POST;
- *   - dockPanelBesideActive appends a placeholder beside the active group under
- *     the same guard;
+ *   - the OCCUPANCY REPORT reads the layout holder (never dockview's toJSON);
+ *   - dockPanelBesideActive and dockPanelAt run one engine op on the layout
+ *     holder, which applies it under the same guard;
  *   - the listeners wire idempotently and tolerate late DockviewApi arrival.
  *
- * dockview and the two collaborators are stubbed at the module boundary: getDockApi
- * (dock-workspace.js) yields a hand-built fake api, and setPanelFocus /
- * setPanelVisibility (panel-commands.js) are spies. Each test re-imports dock-sync
- * fresh (vi.resetModules) so its module-scoped guard/wire state never leaks across
- * tests.
+ * dockview and the collaborators are stubbed at the module boundary: getDockApi
+ * (dock-workspace.js) yields a hand-built fake api, getLayoutHolder (dock-apply.js)
+ * a fake holder (or a real one over the fake api, for the placement verbs), and
+ * setPanelFocus / setPanelVisibility (panel-commands.js) are spies. Each test
+ * re-imports dock-sync fresh (vi.resetModules) so its module-scoped guard/wire
+ * state never leaks across tests.
  */
 
 import { test, expect, describe, beforeEach, afterEach, vi } from 'vitest';
@@ -42,7 +44,11 @@ const {
   setLayoutRestoredHook,
   state,
 } = vi.hoisted(() => ({
-  state: { api: /** @type {any} */ (null), restoreHook: /** @type {any} */ (null) },
+  state: {
+    api: /** @type {any} */ (null),
+    restoreHook: /** @type {any} */ (null),
+    holder: /** @type {any} */ (null),
+  },
   getDockApi: vi.fn(() => /** @type {any} */ (null)),
   setLayoutRestoredHook: vi.fn(),
   setPanelFocus: vi.fn(),
@@ -73,6 +79,17 @@ vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/panel-commands.js
   setPanelVisibility,
   reportPanelLayout,
 }));
+// The layout holder is the one thing the reporter and the placement verbs
+// read; the page's holder is swapped per test (a fake with just a layout for
+// the reporter, a real one over the fake api for the verbs).
+const DOCK_APPLY = '../../../src/osprey/interfaces/web_terminal/static/js/dock-apply.js';
+vi.mock(
+  '../../../src/osprey/interfaces/web_terminal/static/js/dock-apply.js',
+  async (importOriginal) => ({
+    .../** @type {object} */ (await importOriginal()),
+    getLayoutHolder: () => state.holder,
+  })
+);
 // The one question dock-sync asks the pop-out seam: whether a panel lives in
 // its own window. The seam's own behaviour is popout.test.mjs's contract.
 const { isPoppedOut } = vi.hoisted(() => ({
@@ -95,6 +112,7 @@ beforeEach(() => {
       Promise.resolve({ status: 'ok', tiles, dock, updated: true })
   );
   state.api = null;
+  state.holder = null;
   document.body.innerHTML = '';
 });
 
@@ -104,23 +122,22 @@ beforeEach(() => {
  * dock-sync registered (dockview fires it synchronously for both a human tab
  * click and a programmatic setActive — the ambiguity the echo guard resolves);
  * `fireLayout()` invokes the onDidLayoutChange listener the occupancy reporter
- * registered.
+ * registered. A layout holder applies a whole layout at once through
+ * `fromJSON` (and reads the stored panel entries through `toJSON`).
  *
- * Deliberately has NO toJSON: an api that cannot serialize its grid reports
- * nothing, which keeps the settle timer wiring arms at boot inert in every test
- * that is not about the reporter. Reporter tests opt in via {@link withGrid}.
+ * The occupancy report reads the holder, never this api; `state.holder` is
+ * null by default, which keeps the settle timer wiring arms at boot inert in
+ * every test that is not about the reporter. Reporter tests opt in via
+ * {@link withGrid}.
  * @returns {any}
  */
 function makeApi() {
   /** @type {any} */
   const api = {
     activePanel: null,
-    activeGroup: null,
     groups: [],
-    _panels: /** @type {Record<string, any>} */ ({}),
-    _added: /** @type {any[]} */ ([]),
-    /** Panel dockview auto-activates when the active one is removed (null = none). */
-    _activateOnRemove: /** @type {any} */ (null),
+    width: 1600,
+    height: 900,
     /** @type {null | (() => void)} */
     _activeCb: null,
     /** @type {null | (() => void)} */
@@ -141,19 +158,21 @@ function makeApi() {
     api._layoutCb = cb;
     return { dispose() {} };
   });
-  api.getPanel = vi.fn((/** @type {string} */ id) => api._panels[id] ?? null);
-  api.addPanel = vi.fn((/** @type {any} */ opts) => {
-    api._added.push(opts);
-  });
-  // dockview removes the panel; if a stacked neighbor exists it becomes active and
-  // onDidActivePanelChange fires SYNCHRONOUSLY — the echo the guard must cover.
-  api.removePanel = vi.fn(() => {
-    if (api._activateOnRemove) {
-      api.activePanel = api._activateOnRemove;
-      api.fireActive();
-    }
-  });
+  api.getPanel = vi.fn(() => null);
+  api.toJSON = vi.fn(() => ({ panels: {} }));
+  api.fromJSON = vi.fn();
   return api;
+}
+
+/**
+ * A dock layout row of tiles, one per tab list (tile ids '1', '2', ...; each
+ * tile shows its first tab); a single list is a root tile.
+ * @param {...string[]} tabLists
+ * @returns {any}
+ */
+function row(...tabLists) {
+  const tiles = tabLists.map((tabs, i) => ({ tile: String(i + 1), tabs, showing: tabs[0] }));
+  return tiles.length === 1 ? tiles[0] : { split: 'row', items: tiles };
 }
 
 /** The tile-close vacate handler panel-manager registers in production —
@@ -213,192 +232,111 @@ function buildGroup(root, api, panelIds) {
 }
 
 /**
- * A serialized grid LEAF (one tile) in the shape `api.toJSON()` emits — `views`
- * is the tile's tab order, one entry under the one-panel-per-tile invariant.
+ * A dock layout TILE holding `views` as its tabs, named by dockview id
+ * (`terminal`, or an `iframe:` placeholder) the way the old grid helpers
+ * were; the first view shows.
  * @param {...string} views
  */
 function leaf(...views) {
-  return {
-    type: 'leaf',
-    data: { views, activeView: views[0], id: `group-${views.join('+') || 'empty'}` },
-    size: 500,
-  };
+  const tabs = views.map((v) => (v.startsWith('iframe:') ? v.slice('iframe:'.length) : v));
+  return { tile: `group-${views.join('+')}`, tabs, showing: tabs[0] };
 }
 
 /**
- * A serialized grid BRANCH: children in spatial order along the branch's own
- * axis — left-to-right for a horizontal branch, top-to-bottom for a vertical
- * one (the root's axis is `grid.orientation`, nested branches alternate).
+ * A dock layout SPLIT: a row of its children in spatial order (a column at the
+ * next depth, as the engine alternates). One child is that child; none is the
+ * empty dock (null).
  * @param {...any} children
  */
 function branch(...children) {
-  return { type: 'branch', data: children, size: 1000 };
+  if (children.length === 0) return null;
+  if (children.length === 1) return children[0];
+  return { split: 'row', items: children.map((item) => ({ ...item, size: 1 / children.length })) };
 }
 
 /**
- * A serialized dockview layout carrying `root` as its grid tree.
- * @param {any} root  the grid tree, or undefined for a layout with no grid
+ * A fake layout holder with the surface the reporter reads: `layout`,
+ * `dirty`, `ackedRev` and `ack(rev)` (dock-apply.js's createLayoutHolder).
+ * @param {any} layout
  */
-function gridPayload(root) {
-  return {
-    grid:
-      root === undefined
-        ? undefined
-        : { root, width: 1600, height: 900, orientation: 'HORIZONTAL' },
-    panels: {},
-    activeGroup: 'group-1',
-  };
+function makeHolder(layout) {
+  /** @type {any} */
+  const holder = { layout, dirty: true, ackedRev: null };
+  holder.ack = vi.fn((/** @type {number} */ rev) => {
+    holder.ackedRev = rev;
+    holder.dirty = false;
+  });
+  return holder;
 }
 
 /**
- * A minimal api stub exposing only toJSON — serializeOpenTiles takes the api as
- * an argument, so these tests need no wiring, no DOM, and no dockview.
- * @param {any} root
- */
-function apiWithGrid(root) {
-  return { toJSON: () => gridPayload(root) };
-}
-
-/**
- * Teach a {@link makeApi} stub to serialize `root`, opting that api into the
- * occupancy reporter. Returns the api for chaining; call again to model the
- * operator rearranging tiles before firing the next layout change.
+ * Give the page a holder holding `root`, opting the reporter in. Returns the
+ * api for chaining; call again to model the operator rearranging tiles before
+ * firing the next layout change.
  * @param {any} api
  * @param {any} root
  */
 function withGrid(api, root) {
-  api.toJSON = () => gridPayload(root);
+  state.holder = makeHolder(root);
   return api;
 }
 
-describe('serializeOpenTiles — occupancy in spatial reading order', () => {
-  test('returns null with no api at all (fallback mode — never an empty report)', async () => {
-    const { serializeOpenTiles } = await import(SYNC);
-    expect(serializeOpenTiles(null)).toBeNull();
-    expect(serializeOpenTiles(undefined)).toBeNull();
-  });
-
-  test('returns null for an api that cannot serialize (no toJSON)', async () => {
-    const { serializeOpenTiles } = await import(SYNC);
-    expect(serializeOpenTiles({})).toBeNull();
-  });
-
-  test('returns null when toJSON throws — the layout is unknown, not empty', async () => {
-    const { serializeOpenTiles } = await import(SYNC);
-    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-    const api = {
-      toJSON: () => {
-        throw new Error('dockview mid-rebuild');
-      },
-    };
-
-    expect(serializeOpenTiles(api)).toBeNull();
-    expect(errSpy).toHaveBeenCalled();
-    errSpy.mockRestore();
-  });
-
-  test('returns null when the payload carries no grid tree', async () => {
-    const { serializeOpenTiles } = await import(SYNC);
-    expect(serializeOpenTiles(apiWithGrid(undefined))).toBeNull();
-    expect(serializeOpenTiles(apiWithGrid(null))).toBeNull();
+describe('openServiceTiles — occupancy in reading order, from the holder', () => {
+  test('returns null with no holder (fallback mode — never an empty report)', async () => {
+    const { openServiceTiles } = await import(SYNC);
+    expect(openServiceTiles()).toBeNull();
   });
 
   test('an EMPTY dock reports an empty list (distinct from the unknown null)', async () => {
-    const { serializeOpenTiles } = await import(SYNC);
-    expect(serializeOpenTiles(apiWithGrid(branch()))).toEqual([]);
+    const { openServiceTiles } = await import(SYNC);
+    withGrid(makeApi(), branch());
+    expect(openServiceTiles()).toEqual([]);
   });
 
   test('a dock holding only the terminal reports no tiles', async () => {
-    const { serializeOpenTiles } = await import(SYNC);
-    expect(serializeOpenTiles(apiWithGrid(branch(leaf('terminal'))))).toEqual([]);
+    const { openServiceTiles } = await import(SYNC);
+    withGrid(makeApi(), branch(leaf('terminal')));
+    expect(openServiceTiles()).toEqual([]);
   });
 
-  test('a horizontal split reports left-to-right, terminal excluded from the order', async () => {
-    const { serializeOpenTiles } = await import(SYNC);
-    const root = branch(leaf('iframe:ariel'), leaf('iframe:bluesky'), leaf('terminal'));
-
-    expect(serializeOpenTiles(apiWithGrid(root))).toEqual(['ariel', 'bluesky']);
+  test('a row reports left-to-right, terminal excluded from the order', async () => {
+    const { openServiceTiles } = await import(SYNC);
+    withGrid(makeApi(), branch(leaf('iframe:ariel'), leaf('terminal'), leaf('iframe:bluesky')));
+    expect(openServiceTiles()).toEqual(['ariel', 'bluesky']);
   });
 
-  test('a single group holding several placeholders reports them in tab order', async () => {
-    // The one-panel-per-tile invariant makes this a pre-strict-model layout, but
-    // the serializer must still describe it rather than drop the stack.
-    const { serializeOpenTiles } = await import(SYNC);
-    const root = branch(leaf('iframe:ariel', 'iframe:bluesky', 'iframe:okf'));
-
-    expect(serializeOpenTiles(apiWithGrid(root))).toEqual(['ariel', 'bluesky', 'okf']);
+  test('a tile holding several tabs reports them in tab order', async () => {
+    const { openServiceTiles } = await import(SYNC);
+    withGrid(makeApi(), branch(leaf('iframe:ariel', 'iframe:bluesky'), leaf('iframe:okf')));
+    expect(openServiceTiles()).toEqual(['ariel', 'bluesky', 'okf']);
   });
 
   test('a 2D arrangement flattens column-first: a stacked pair before its neighbor', async () => {
-    // ariel over bluesky on the left, okf full-height on the right. Flattened,
-    // not raster-scanned — pixel geometry is out of scope for the report.
-    const { serializeOpenTiles } = await import(SYNC);
-    const root = branch(
-      branch(leaf('iframe:ariel'), leaf('iframe:bluesky')),
-      leaf('iframe:okf'),
-      leaf('terminal')
-    );
-
-    expect(serializeOpenTiles(apiWithGrid(root))).toEqual(['ariel', 'bluesky', 'okf']);
+    const { openServiceTiles } = await import(SYNC);
+    const column = {
+      split: 'column',
+      items: [
+        { ...leaf('iframe:ariel'), size: 0.5 },
+        { ...leaf('iframe:bluesky'), size: 0.5 },
+      ],
+    };
+    withGrid(makeApi(), branch(column, leaf('iframe:okf')));
+    expect(openServiceTiles()).toEqual(['ariel', 'bluesky', 'okf']);
   });
 
-  test('nests to arbitrary depth', async () => {
-    const { serializeOpenTiles } = await import(SYNC);
-    const root = branch(
-      leaf('iframe:a'),
-      branch(leaf('iframe:b'), branch(leaf('iframe:c'), leaf('terminal'))),
-      leaf('iframe:d')
-    );
-
-    expect(serializeOpenTiles(apiWithGrid(root))).toEqual(['a', 'b', 'c', 'd']);
+  test('a root tile is read too', async () => {
+    const { openServiceTiles } = await import(SYNC);
+    withGrid(makeApi(), leaf('iframe:ariel'));
+    expect(openServiceTiles()).toEqual(['ariel']);
   });
 
-  test('a leaf with a bare (non-branch) root is walked too', async () => {
-    // dockview requires a branch root on fromJSON, but toJSON is read here
-    // without that assumption.
-    const { serializeOpenTiles } = await import(SYNC);
-    expect(serializeOpenTiles(apiWithGrid(leaf('iframe:ariel')))).toEqual(['ariel']);
-  });
-
-  test('an UNRECOGNIZED ROOT is unreadable (null), never an affirmative empty workspace', async () => {
-    // The whole tree is unreadable, so there is nothing to assert about
-    // occupancy — distinct from an inner node, whose siblings still describe
-    // real tiles and which is therefore skipped rather than fatal.
-    const { serializeOpenTiles } = await import(SYNC);
-
-    expect(serializeOpenTiles(apiWithGrid({ type: 'mystery', data: [] }))).toBeNull();
-    expect(serializeOpenTiles(apiWithGrid({ data: [] }))).toBeNull();
-    expect(serializeOpenTiles(apiWithGrid({ type: 'leaf', data: { views: [] } }))).toEqual([]);
-  });
-
-  test('malformed nodes are skipped, not thrown on', async () => {
-    const { serializeOpenTiles } = await import(SYNC);
-    const root = branch(
-      null,
-      { type: 'leaf' },
-      { type: 'leaf', data: { views: 'not-an-array' } },
-      { type: 'mystery', data: [leaf('iframe:ignored')] },
-      leaf('iframe:ariel')
-    );
-
-    expect(serializeOpenTiles(apiWithGrid(root))).toEqual(['ariel']);
-  });
-
-  test('a panel referenced twice by a malformed tree is reported once', async () => {
-    const { serializeOpenTiles } = await import(SYNC);
-    const root = branch(leaf('iframe:ariel'), leaf('iframe:bluesky'), leaf('iframe:ariel'));
-
-    expect(serializeOpenTiles(apiWithGrid(root))).toEqual(['ariel', 'bluesky']);
-  });
-
-  test('does not mutate the serialized layout it reads', async () => {
-    const { serializeOpenTiles } = await import(SYNC);
-    const root = branch(branch(leaf('iframe:ariel'), leaf('terminal')), leaf('iframe:okf'));
+  test('does not mutate the layout it reads', async () => {
+    const { openServiceTiles } = await import(SYNC);
+    const root = branch(leaf('iframe:ariel'), leaf('terminal'));
     const before = JSON.stringify(root);
-
-    serializeOpenTiles(apiWithGrid(root));
-
-    expect(JSON.stringify(root)).toBe(before);
+    withGrid(makeApi(), root);
+    openServiceTiles();
+    expect(JSON.stringify(state.holder.layout)).toBe(before);
   });
 });
 
@@ -641,15 +579,15 @@ describe('occupancy reporter — settle debounce, content dedupe, capability', (
     expect(reportPanelLayout).toHaveBeenCalledTimes(1);
   });
 
-  test('an api that cannot serialize reports nothing and leaves the baseline intact', async () => {
-    const api = makeApi(); // no toJSON — occupancy is unknown, not empty
+  test('no holder yet reports nothing and leaves the baseline intact', async () => {
+    const api = makeApi(); // no holder — occupancy is unknown, not empty
     await wire(api);
     state.restoreHook();
 
     await vi.advanceTimersByTimeAsync(SETTLE);
     expect(reportPanelLayout).not.toHaveBeenCalled();
 
-    // Once it can serialize, the first real report still goes out.
+    // Once the holder is there, the first real report still goes out.
     withGrid(api, branch(leaf('iframe:ariel')));
     api.fireLayout();
     await vi.advanceTimersByTimeAsync(SETTLE);
@@ -660,6 +598,7 @@ describe('occupancy reporter — settle debounce, content dedupe, capability', (
     const { api } = await wireReporting(branch(leaf('iframe:ariel')));
     api.fireLayout();
     state.api = null; // shell gone before the window expires
+    state.holder = null;
 
     await vi.advanceTimersByTimeAsync(SETTLE);
     expect(reportPanelLayout).not.toHaveBeenCalled();
@@ -1028,94 +967,156 @@ describe('human tab close → local vacate handler (never a POST)', () => {
   });
 });
 
-describe('dockPanelBesideActive — placeholder append (register/open path)', () => {
-  test('adds a placeholder by the adapter id + component, positioned right of the active group', async () => {
+/**
+ * A REAL layout holder (dock-apply.js's createLayoutHolder, loaded past the
+ * module mock) over `api`, published as the page's holder and seeded with
+ * `layout`; `focus` (a tile id) is the tile a person last focused. Its applies
+ * call `api.fromJSON` under the guard the page passes in — dock-sync's own echo
+ * guard here, as in production. Call after `wire()` so the holder shares the
+ * freshly imported dock-sync.
+ * @param {any} api
+ * @param {any} layout
+ * @param {string} [focus]
+ * @returns {Promise<any>}
+ */
+async function seedHolder(api, layout, focus) {
+  const actual = /** @type {any} */ (await vi.importActual(DOCK_APPLY));
+  const sync = await import(SYNC);
+  const holder = actual.createLayoutHolder({
+    api,
+    guard: sync.withEchoSuppressed,
+    dockPx: { width: 1600, height: 900 },
+  });
+  expect(holder.restore(layout)).toBe(true);
+  if (focus) {
+    const tile = tilesIn(holder.layout).find((t) => t.tile === focus);
+    expect(holder.show(focus, tile.showing)).toBe(true);
+  }
+  api.fromJSON.mockClear();
+  state.holder = holder;
+  return holder;
+}
+
+/**
+ * Every tile of a dock layout in reading order.
+ * @param {any} layout
+ * @returns {any[]}
+ */
+function tilesIn(layout) {
+  if (!layout) return [];
+  return 'tile' in layout ? [layout] : layout.items.flatMap(tilesIn);
+}
+
+/**
+ * A dock layout reduced to its shape: a tile is its tab list, a split is
+ * `{split, items}` (tile ids and sizes dropped).
+ * @param {any} layout
+ * @returns {any}
+ */
+function shapeOf(layout) {
+  if ('tile' in layout) return layout.tabs;
+  return { split: layout.split, items: layout.items.map(shapeOf) };
+}
+
+describe('dockPanelBesideActive — a new tile right of the focused tile (register/open path)', () => {
+  test('adds a placeholder by the adapter id + component, in a new tile right of the focused tile', async () => {
     const api = makeApi();
-    const activeGroup = { id: 'group-1' };
-    api.activeGroup = activeGroup;
     const { mod } = await wire(api);
+    const holder = await seedHolder(api, row(['terminal'], ['bluesky']), '2');
 
     mod.dockPanelBesideActive('ariel', 'ARIEL');
 
-    expect(api.addPanel).toHaveBeenCalledTimes(1);
-    expect(api._added[0]).toEqual({
+    expect(shapeOf(holder.layout)).toEqual({
+      split: 'row',
+      items: [['terminal'], ['bluesky'], ['ariel']],
+    });
+    // One whole-layout apply, carrying the placeholder under the adapter id.
+    expect(api.fromJSON).toHaveBeenCalledTimes(1);
+    const serialized = api.fromJSON.mock.calls[0][0];
+    expect(serialized.panels['iframe:ariel']).toMatchObject({
       id: 'iframe:ariel',
-      component: 'dock-iframe-placeholder',
+      contentComponent: 'dock-iframe-placeholder',
       title: 'ARIEL',
-      position: { referenceGroup: activeGroup, direction: 'right' },
     });
   });
 
   test('defaults the tab title to the service id when none is given', async () => {
     const api = makeApi();
     const { mod } = await wire(api);
+    await seedHolder(api, row(['terminal'], ['bluesky']), '2');
 
     mod.dockPanelBesideActive('okf');
 
-    expect(api._added[0].title).toBe('okf');
-    expect(api._added[0].id).toBe('iframe:okf');
+    const serialized = api.fromJSON.mock.calls[0][0];
+    expect(serialized.panels['iframe:okf'].title).toBe('okf');
+    expect(serialized.panels['iframe:okf'].id).toBe('iframe:okf');
   });
 
-  test('omits the position when there is no active group', async () => {
+  test('with no focused tile the panel opens as the first service tile, left of the terminal', async () => {
     const api = makeApi();
-    api.activeGroup = null;
     const { mod } = await wire(api);
+    const holder = await seedHolder(api, row(['terminal']));
 
     mod.dockPanelBesideActive('ariel');
 
-    expect(api._added[0].position).toBeUndefined();
+    expect(shapeOf(holder.layout)).toEqual({ split: 'row', items: [['ariel'], ['terminal']] });
   });
 
-  test("a move is echo-guarded — the removal's auto-activation does not POST a focus", async () => {
+  test('already docked with NO focused tile: a no-op (no meaningful target)', async () => {
     const api = makeApi();
-    api.activeGroup = { id: 'group-1' };
-    api._panels['iframe:ariel'] = { id: 'iframe:ariel', group: { id: 'group-0' } };
-    api._activateOnRemove = { id: 'iframe:bluesky' };
     const { mod } = await wire(api);
+    const holder = await seedHolder(api, row(['terminal'], ['ariel']));
+    const before = holder.layout;
 
     mod.dockPanelBesideActive('ariel');
 
+    expect(api.fromJSON).not.toHaveBeenCalled();
+    expect(holder.layout).toBe(before);
+  });
+
+  test("a move is echo-guarded — the rebuild's active change does not POST a focus", async () => {
+    const api = makeApi();
+    const { mod } = await wire(api);
+    await seedHolder(api, row(['terminal'], ['ariel'], ['bluesky']), '3');
+    // Model dockview activating a panel synchronously on apply.
+    api.fromJSON = vi.fn(() => {
+      api.activePanel = { id: 'iframe:bluesky' };
+      api.fireActive();
+    });
+
+    mod.dockPanelBesideActive('ariel');
+
+    expect(api.fromJSON).toHaveBeenCalledTimes(1);
     expect(setPanelFocus).not.toHaveBeenCalled();
-  });
-
-  test('already docked with NO active group: a no-op (no meaningful target)', async () => {
-    const api = makeApi();
-    api.activeGroup = null;
-    api._panels['iframe:ariel'] = { id: 'iframe:ariel', group: { id: 'group-0' } };
-    const { mod } = await wire(api);
-
-    mod.dockPanelBesideActive('ariel');
-
-    expect(api.removePanel).not.toHaveBeenCalled();
-    expect(api.addPanel).not.toHaveBeenCalled();
   });
 
   test('the add is wrapped in the echo guard — its own active change does not POST a focus', async () => {
     const api = makeApi();
-    api.activeGroup = { id: 'group-1' };
-    // Model dockview activating the freshly-added panel synchronously on add.
-    api.addPanel = vi.fn((/** @type {any} */ opts) => {
-      api._added.push(opts);
-      api.activePanel = { id: opts.id };
+    const { mod } = await wire(api);
+    await seedHolder(api, row(['terminal'], ['bluesky']), '2');
+    // Model dockview activating the freshly-added panel synchronously on apply.
+    api.fromJSON = vi.fn(() => {
+      api.activePanel = { id: 'iframe:ariel' };
       api.fireActive();
     });
-    const { mod } = await wire(api);
 
     mod.dockPanelBesideActive('ariel');
 
-    expect(api.addPanel).toHaveBeenCalledTimes(1);
+    expect(api.fromJSON).toHaveBeenCalledTimes(1);
     expect(setPanelFocus).not.toHaveBeenCalled(); // the add-menu's show path owns the focus POST
   });
 
-  test('a failing addPanel is caught and does not propagate', async () => {
+  test('a failing apply is caught and does not propagate', async () => {
     const api = makeApi();
-    api.addPanel = vi.fn(() => {
-      throw new Error('dockview rejected');
-    });
     const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     const { mod } = await wire(api);
+    await seedHolder(api, row(['terminal'], ['bluesky']), '2');
+    api.fromJSON = vi.fn(() => {
+      throw new Error('dockview rejected');
+    });
 
     expect(() => mod.dockPanelBesideActive('ariel')).not.toThrow();
+    expect(api.fromJSON).toHaveBeenCalledTimes(1);
     expect(errSpy).toHaveBeenCalled();
     errSpy.mockRestore();
   });
@@ -1129,57 +1130,102 @@ describe('dockPanelBesideActive — placeholder append (register/open path)', ()
 });
 
 describe('dockPanelAt — placement at an explicit dock position (rail drag / drop routing)', () => {
-  test('adds a fresh placeholder at the given group + direction', async () => {
+  test('adds a fresh placeholder split off the given tile on the given side', async () => {
     const api = makeApi();
-    const target = { id: 'group-2' };
     const { mod } = await wire(api);
+    const holder = await seedHolder(api, row(['terminal'], ['bluesky']));
 
-    mod.dockPanelAt('okf', 'KNOWLEDGE', { referenceGroup: target, direction: 'bottom' });
+    mod.dockPanelAt('okf', 'KNOWLEDGE', { referenceGroup: { id: '2' }, direction: 'bottom' });
 
-    expect(api._added[0]).toEqual({
-      id: 'iframe:okf',
-      component: 'dock-iframe-placeholder',
-      title: 'KNOWLEDGE',
-      position: { referenceGroup: target, direction: 'bottom' },
+    expect(shapeOf(holder.layout)).toEqual({
+      split: 'row',
+      items: [['terminal'], { split: 'column', items: [['bluesky'], ['okf']] }],
+    });
+    expect(api.fromJSON.mock.calls[0][0].panels['iframe:okf'].title).toBe('KNOWLEDGE');
+  });
+
+  test("dockview's own words for the vertical sides are taken (the rail's drop routing)", async () => {
+    const api = makeApi();
+    const { mod } = await wire(api);
+    const holder = await seedHolder(api, row(['terminal'], ['bluesky']));
+
+    mod.dockPanelAt('okf', 'KNOWLEDGE', { referenceGroup: { id: '1' }, direction: 'below' });
+    mod.dockPanelAt('ariel', 'ARIEL', { referenceGroup: { id: '2' }, direction: 'above' });
+
+    expect(shapeOf(holder.layout)).toEqual({
+      split: 'row',
+      items: [
+        { split: 'column', items: [['terminal'], ['okf']] },
+        { split: 'column', items: [['ariel'], ['bluesky']] },
+      ],
     });
   });
 
-  test('moves an existing placeholder to the given position', async () => {
+  test('a tile may be named by id as well as by its dockview group', async () => {
     const api = makeApi();
-    const target = { id: 'group-2' };
-    const existing = { id: 'iframe:okf', group: { id: 'group-0' } };
-    api._panels['iframe:okf'] = existing;
     const { mod } = await wire(api);
+    const holder = await seedHolder(api, row(['terminal'], ['bluesky']));
 
-    mod.dockPanelAt('okf', 'KNOWLEDGE', { referenceGroup: target, direction: 'left' });
+    mod.dockPanelAt('okf', 'KNOWLEDGE', { referenceTile: '1', direction: 'left' });
 
-    expect(api.removePanel).toHaveBeenCalledExactlyOnceWith(existing);
-    expect(api._added[0].position).toEqual({ referenceGroup: target, direction: 'left' });
+    expect(shapeOf(holder.layout)).toEqual({
+      split: 'row',
+      items: [['okf'], ['terminal'], ['bluesky']],
+    });
   });
 
-  test('dropping a panel onto its OWN group is a no-op (would destroy the tile mid-move)', async () => {
+  test('no tile named: split against the grid edge', async () => {
     const api = makeApi();
-    const home = { id: 'group-0' };
-    api._panels['iframe:okf'] = { id: 'iframe:okf', group: home };
     const { mod } = await wire(api);
+    const holder = await seedHolder(api, row(['terminal'], ['bluesky']));
 
-    mod.dockPanelAt('okf', 'KNOWLEDGE', { referenceGroup: home, direction: 'right' });
+    mod.dockPanelAt('okf', 'KNOWLEDGE', { direction: 'right' });
 
-    expect(api.removePanel).not.toHaveBeenCalled();
-    expect(api.addPanel).not.toHaveBeenCalled();
+    expect(shapeOf(holder.layout)).toEqual({
+      split: 'row',
+      items: [['terminal'], ['bluesky'], ['okf']],
+    });
+  });
+
+  test('moves an existing placeholder to the given position, never duplicating it', async () => {
+    const api = makeApi();
+    const { mod } = await wire(api);
+    const holder = await seedHolder(api, row(['okf'], ['terminal'], ['bluesky']));
+
+    mod.dockPanelAt('okf', 'KNOWLEDGE', { referenceGroup: { id: '3' }, direction: 'right' });
+
+    expect(shapeOf(holder.layout)).toEqual({
+      split: 'row',
+      items: [['terminal'], ['bluesky'], ['okf']],
+    });
+  });
+
+  test('dropping a panel onto its OWN tile is a no-op', async () => {
+    const api = makeApi();
+    const { mod } = await wire(api);
+    const holder = await seedHolder(api, row(['okf'], ['terminal']));
+    const before = holder.layout;
+
+    mod.dockPanelAt('okf', 'KNOWLEDGE', { referenceGroup: { id: '1' }, direction: 'right' });
+
+    expect(api.fromJSON).not.toHaveBeenCalled();
+    expect(holder.layout).toBe(before);
   });
 
   test('a panel living in its own pop-out window never gets a placeholder, by any placement verb', async () => {
     const api = makeApi();
-    api.activeGroup = { id: 'group-1' };
     const { mod } = await wire(api);
+    const holder = await seedHolder(api, row(['terminal'], ['bluesky']), '2');
     isPoppedOut.mockImplementation((/** @type {string} */ id) => id === 'okf');
 
-    mod.dockPanelAt('okf', 'KNOWLEDGE', { referenceGroup: { id: 'group-2' }, direction: 'right' });
+    mod.dockPanelAt('okf', 'KNOWLEDGE', { referenceGroup: { id: '2' }, direction: 'right' });
     mod.dockPanelBesideActive('okf', 'KNOWLEDGE');
     mod.dockPanelBesideActive('ariel', 'ARIEL');
 
-    expect(api._added.map((/** @type {any} */ p) => p.id)).toEqual(['iframe:ariel']);
+    expect(shapeOf(holder.layout)).toEqual({
+      split: 'row',
+      items: [['terminal'], ['bluesky'], ['ariel']],
+    });
     isPoppedOut.mockImplementation(() => false);
   });
 });

@@ -41,14 +41,14 @@ import { stderr } from 'node:process';
 // panel-catalog.js reads the built-in panel labels off <html> at module
 // load, so the roster has to be stamped before freshImport() reaches it —
 // otherwise every panel here is labelled by its id.
-import { FakeResizeObserver } from './_dock-fake.mjs';
+import { FakeResizeObserver, TERMINAL_LAYOUT, makeDockApi, rowOf } from './_dock-fake.mjs';
 import { stampPanelLabels } from './panel-labels-fixture.mjs';
 import { stubEventSource } from '../_support/event-source.mjs';
 import { FACILITY_ZONE, stampFacilityZone } from '../_support/facility-zone.mjs';
 
 // dock-workspace.js is stubbed at the module boundary so a test can publish a
-// hand-built DockviewApi (see makeDockApi) and exercise the real placement
-// engine in dock-iframe.js / dock-sync.js. `dockState.api` stays null by
+// hand-built DockviewApi (_dock-fake.mjs) and a real layout holder over it,
+// and exercise the real placement engine in dock-iframe.js / dock-sync.js. `dockState.api` stays null by
 // default, which is exactly what the real getDockApi returns with no dockview
 // shell — every test that does not opt in keeps running in fallback mode.
 const {
@@ -76,7 +76,6 @@ vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/dock-workspace.js
   resetDockLayout,
   // Pulled in by dock-iframe.js on the transitive import chain; a mock must
   // supply them or they resolve to undefined.
-  defaultServiceWidth: () => 600,
   // Captured, so a test can replay "a layout was applied" the way
   // dock-workspace does after a stored-layout restore.
   setServiceRedock: (/** @type {() => void} */ fn) => {
@@ -1146,110 +1145,6 @@ describe('rail membership (launcher model: entry ⇔ member, never dimmed)', () 
   });
 });
 
-/**
- * A hand-built DockviewApi stand-in modeling the group bookkeeping the placement
- * engine relies on: an add with `direction: 'within'` joins the reference group
- * (dockview's stacking — the evicting 'replace' placement), anything else opens
- * a fresh group. Activation is tracked on both `activePanel` and `activeGroup`
- * (the anchor dockPanelBesideActive splits against) and fires the active-panel
- * listeners synchronously, as dockview does — that synchronicity is what makes
- * the echo guard work.
- * @returns {any}
- */
-function makeDockApi() {
-  let groupSeq = 0;
-  /** @type {any} */
-  const api = {
-    activePanel: null,
-    activeGroup: null,
-    groups: /** @type {any[]} */ ([]),
-    panels: /** @type {any[]} */ ([]),
-    _added: /** @type {any[]} */ ([]),
-    _activeCbs: /** @type {(() => void)[]} */ ([]),
-    onDidLayoutChange: vi.fn(() => ({ dispose() {} })),
-    // rail-drag.js wires these two; HTML5 rail drags are not under test here.
-    onUnhandledDragOver: vi.fn(() => ({ dispose() {} })),
-    onDidDrop: vi.fn(() => ({ dispose() {} })),
-    onDidActivePanelChange: vi.fn((/** @type {() => void} */ cb) => {
-      api._activeCbs.push(cb);
-      return { dispose() {} };
-    }),
-    getPanel: (/** @type {string} */ id) =>
-      api.panels.find((/** @type {any} */ p) => p.id === id) ?? null,
-    addPanel: (/** @type {any} */ opts) => {
-      api._added.push(opts);
-      const group =
-        opts.position?.referenceGroup && opts.position.direction === 'within'
-          ? opts.position.referenceGroup
-          : makeGroup();
-      /** @type {any} */
-      const panel = { id: opts.id, title: opts.title, group };
-      panel.api = { setActive: () => activate(panel) };
-      group.panels.push(panel);
-      api.panels.push(panel);
-      activate(panel);
-      return panel;
-    },
-    removePanel: (/** @type {any} */ panel) => {
-      api.panels = api.panels.filter((/** @type {any} */ p) => p !== panel);
-      const group = panel.group;
-      group.panels = group.panels.filter((/** @type {any} */ p) => p !== panel);
-      if (group.panels.length === 0) {
-        api.groups = api.groups.filter((/** @type {any} */ g) => g !== group);
-      } else if (group.activePanel === panel) {
-        group.activePanel = group.panels[0];
-      }
-      if (api.activePanel === panel) {
-        const next = group.panels[0] ?? api.panels[0] ?? null;
-        api.activePanel = next;
-        api.activeGroup = next?.group ?? null;
-        if (next) for (const cb of api._activeCbs) cb();
-      }
-    },
-    /** The dock's own view of its layout — what serializeOpenTiles walks. */
-    toJSON: () => ({
-      grid: {
-        root: {
-          type: 'branch',
-          data: api.groups.map((/** @type {any} */ g) => ({
-            type: 'leaf',
-            data: { views: g.panels.map((/** @type {any} */ p) => p.id) },
-          })),
-        },
-      },
-    }),
-  };
-  /** @param {any} panel */
-  function activate(panel) {
-    panel.group.activePanel = panel;
-    api.activePanel = panel;
-    api.activeGroup = panel.group;
-    for (const cb of api._activeCbs) cb();
-  }
-  function makeGroup() {
-    const element = document.createElement('div');
-    const content = document.createElement('div');
-    content.className = 'dv-content-container';
-    element.appendChild(content);
-    /** @type {any} */
-    const group = { id: `group-${++groupSeq}`, panels: [], activePanel: null, element };
-    api.groups.push(group);
-    return group;
-  }
-  /** Seed the native terminal card in its own group (the first split's anchor). */
-  api._addTerminal = () => {
-    const group = makeGroup();
-    /** @type {any} */
-    const terminal = { id: 'terminal', group };
-    terminal.api = { setActive: () => activate(terminal) };
-    group.panels.push(terminal);
-    api.panels.push(terminal);
-    activate(terminal);
-    return terminal;
-  };
-  return api;
-}
-
 /** Catalog config endpoints for the panels these suites boot (panel-catalog.js).
  *  @type {Record<string, string>} */
 const CONFIG_ENDPOINT = {
@@ -1261,14 +1156,30 @@ const CONFIG_ENDPOINT = {
 };
 
 /**
- * The service ids holding a dock tile, in the order the fake api added them —
- * a set membership check, NOT spatial order. Left-to-right placement is pinned
- * by the `position` an add carried, which is what dockview actually lays out on.
+ * The service ids holding a dock tile, in the order the dock lays them out —
+ * the fake rebuilds its groups from the holder's tree in reading order, so
+ * left-to-right placement is what this lists.
  */
 const dockedTiles = (/** @type {any} */ api) =>
   api.panels
     .filter((/** @type {any} */ p) => p.id.startsWith('iframe:'))
     .map((/** @type {any} */ p) => p.id.slice('iframe:'.length));
+
+const DOCK_APPLY_PATH = '../../../src/osprey/interfaces/web_terminal/static/js/dock-apply.js';
+
+/** The page's layout holder (the one the booted module graph shares). */
+async function pageHolder() {
+  const apply = await import(DOCK_APPLY_PATH);
+  const holder = apply.getLayoutHolder();
+  if (!holder) throw new Error('no layout holder');
+  return holder;
+}
+
+/** Each tile's first tab, in reading order. @param {any} layout @returns {string[]} */
+const tileOrder = (layout) => {
+  if (!layout) return [];
+  return 'tile' in layout ? [layout.tabs[0]] : layout.items.flatMap(tileOrder);
+};
 
 /** The open context-menu popover, or null when none is open. */
 const contextMenu = () =>
@@ -1387,13 +1298,19 @@ async function bootWorkspace({
   const { emit } = stubEventSource();
 
   const api = makeDockApi();
-  api._addTerminal();
-  for (const id of restored) {
-    api.addPanel({ id: `iframe:${id}`, component: 'dock-iframe-placeholder', title: id });
-  }
   dockState.api = api;
 
   const mod = await freshImport();
+  // The page's holder over the fake dock, showing the terminal and every
+  // restored tile — what dock-workspace builds before the manager boots.
+  const apply = await import(DOCK_APPLY_PATH);
+  apply
+    .initLayoutHolder({ api, guard: (/** @type {() => any} */ fn) => fn() })
+    .restore(
+      restored.length
+        ? rowOf(...restored.map((id) => [id]), { tile: 'tt', tabs: ['terminal'] })
+        : TERMINAL_LAYOUT
+    );
   await phase('initPanelManager', () => mod.initPanelManager('panel-manager'));
   // The configEndpoint fetches settle after initPanelManager's own promise: a
   // healthy panel resolves its url on that settle, an unhealthy one never does
@@ -1433,10 +1350,8 @@ describe("agent open_panel (panel_focus source:'agent') — focus or open BESIDE
     // The operator's tile survives, untouched (same panel object, same group).
     expect(api.getPanel('iframe:artifacts')).toBe(artifactsTile);
     expect(artifactsTile.group).toBe(artifactsGroup);
-    // ariel arrived as its own tile, split off the active group.
-    const added = api._added.filter((/** @type {any} */ o) => o.id === 'iframe:ariel');
-    expect(added).toHaveLength(1);
-    expect(added[0].position).toMatchObject({ referenceGroup: artifactsGroup, direction: 'right' });
+    // ariel arrived as its own tile, split off the active service tile.
+    expect(tileOrder((await pageHolder()).layout)).toEqual(['artifacts', 'ariel', 'terminal']);
     expect(api.getPanel('iframe:ariel').group).not.toBe(artifactsGroup);
     // ...and holds the focus, without echoing it back to the server.
     expect(document.getElementById('panel-manager')?.dataset.activePanel).toBe('ariel');
@@ -1448,11 +1363,11 @@ describe("agent open_panel (panel_focus source:'agent') — focus or open BESIDE
     emit({ type: 'panel_focus', panel: 'ariel', source: 'agent' });
     const arielTile = api.getPanel('iframe:ariel');
     const artifactsTile = api.getPanel('iframe:artifacts');
-    const addsBefore = api._added.length;
+    const appliesBefore = api._applied.length;
 
     emit({ type: 'panel_focus', panel: 'artifacts', source: 'agent' });
 
-    expect(api._added).toHaveLength(addsBefore);
+    expect(api._applied).toHaveLength(appliesBefore);
     expect(api.getPanel('iframe:artifacts')).toBe(artifactsTile);
     expect(api.getPanel('iframe:ariel')).toBe(arielTile);
     expect(api.activePanel).toBe(artifactsTile);
@@ -1481,23 +1396,23 @@ describe("agent open_panel (panel_focus source:'agent') — focus or open BESIDE
 
   test('an UNHEALTHY target opens no tile — a tile it could never fill would linger empty', async () => {
     const { api, emit } = await bootWorkspace({ unhealthy: ['ariel'] });
-    const addsBefore = api._added.length;
+    const appliesBefore = api._applied.length;
 
     emit({ type: 'panel_focus', panel: 'ariel', source: 'agent' });
 
     expect(api.getPanel('iframe:ariel')).toBeNull();
-    expect(api._added).toHaveLength(addsBefore);
+    expect(api._applied).toHaveLength(appliesBefore);
     // The activation refuses too, exactly as before — artifacts keeps the focus.
     expect(document.getElementById('panel-manager')?.dataset.activePanel).toBe('artifacts');
   });
 
   test('an unknown panel id touches neither the rail nor the grid', async () => {
     const { api, emit } = await bootWorkspace();
-    const addsBefore = api._added.length;
+    const appliesBefore = api._applied.length;
 
     emit({ type: 'panel_focus', panel: 'no-such-panel', source: 'agent' });
 
-    expect(api._added).toHaveLength(addsBefore);
+    expect(api._applied).toHaveLength(appliesBefore);
     expect(api.getPanel('iframe:no-such-panel')).toBeNull();
     expect(document.querySelector('.panel-rail-button[data-panel-id="no-such-panel"]')).toBeNull();
   });
@@ -1532,12 +1447,11 @@ describe("agent open_panel (panel_focus source:'agent') — focus or open BESIDE
 
     emit({ type: 'panel_focus', panel: 'ariel', source: 'agent' });
 
-    // The first tile rule wins: left of the terminal at the classic width, not
-    // a default-width split off the terminal's own group.
-    const added = api._added.filter((/** @type {any} */ o) => o.id === 'iframe:ariel');
-    expect(added).toHaveLength(1);
-    expect(added[0].position).toMatchObject({ referencePanel: 'terminal', direction: 'left' });
-    expect(added[0].initialWidth).toBeGreaterThan(0);
+    // The first tile rule wins: left of the terminal at the classic share, not
+    // a half split off the terminal's own tile.
+    const layout = (await pageHolder()).layout;
+    expect(tileOrder(layout)).toEqual(['ariel', 'terminal']);
+    expect(layout.items[0].size).toBeCloseTo(0.6, 2);
     expect(document.getElementById('panel-manager')?.dataset.activePanel).toBe('ariel');
   });
 
@@ -1630,14 +1544,7 @@ describe('panel_arrange — the declarative whole-workspace rebuild', () => {
     expect(dockedTiles(api)).toEqual(['channel-finder', 'ariel']);
     // The first tile splits against the grid's left edge (services sit left of
     // the terminal); each next one lands to the RIGHT of the one before it.
-    const adds = api._added.filter((/** @type {any} */ o) => o.id.startsWith('iframe:'));
-    const cf = adds.at(-2);
-    const ariel = adds.at(-1);
-    expect(cf).toMatchObject({ id: 'iframe:channel-finder', position: { direction: 'left' } });
-    expect(ariel.position).toMatchObject({
-      referenceGroup: api.getPanel('iframe:channel-finder').group,
-      direction: 'right',
-    });
+    expect(tileOrder((await pageHolder()).layout)).toEqual(['channel-finder', 'ariel', 'terminal']);
   });
 
   test('converges from a DIFFERENT start layout to the same end state', async () => {
@@ -1653,10 +1560,7 @@ describe('panel_arrange — the declarative whole-workspace rebuild', () => {
     expect(dockedTiles(api)).toEqual(['channel-finder', 'ariel']);
     // Same end state as the clean-start case, positions included: the region is
     // rebuilt, not diffed, so a differing start layout cannot leave order behind.
-    expect(api._added.at(-1).position).toMatchObject({
-      referenceGroup: api.getPanel('iframe:channel-finder').group,
-      direction: 'right',
-    });
+    expect(tileOrder((await pageHolder()).layout)).toEqual(['channel-finder', 'ariel', 'terminal']);
     // The dropped tile keeps its rail membership — a tile close is not a hide.
     expect(entry('artifacts')).not.toBeNull();
   });
@@ -1707,9 +1611,6 @@ describe('panel_arrange — the declarative whole-workspace rebuild', () => {
     // A tile it could never fill would sit empty for as long as anything else
     // holds focus, and nothing comes back for it.
     expect(api.getPanel('iframe:channel-finder')).toBeNull();
-    expect(
-      api._added.filter((/** @type {any} */ o) => o.id === 'iframe:channel-finder')
-    ).toHaveLength(0);
     expect(dockedTiles(api)).toEqual(['ariel']);
     // Membership still applied, so it stays one rail click away.
     expect(entry('channel-finder')).not.toBeNull();
@@ -1722,8 +1623,7 @@ describe('panel_arrange — the declarative whole-workspace rebuild', () => {
     // pointing at a tile that does not exist and split ariel off the terminal.
     emit({ type: 'panel_arrange', tiles: ['channel-finder', 'ariel'] });
 
-    const added = api._added.filter((/** @type {any} */ o) => o.id === 'iframe:ariel').at(-1);
-    expect(added.position).toEqual({ direction: 'left' });
+    expect(tileOrder((await pageHolder()).layout)).toEqual(['ariel', 'terminal']);
     expect(api.getPanel('iframe:ariel').group).not.toBe(api.getPanel('terminal').group);
   });
 
@@ -2864,7 +2764,9 @@ describe('rail context menu — the entry’s verbs in words (railOptions onCont
     // The stored layout lands after the landing panel's activation, as
     // dock-workspace restores it after its /api/panels round trip: a
     // placeholder for every tile that was open, then the layout-applied seam.
-    api.addPanel({ id: 'iframe:ariel', component: 'dock-iframe-placeholder', title: 'ARIEL' });
+    (await pageHolder()).restore(
+      rowOf(['artifacts'], ['ariel'], { tile: 'tt', tabs: ['terminal'] })
+    );
     dockState.redock?.();
 
     const iframe = /** @type {HTMLElement | null} */ (
@@ -2896,7 +2798,9 @@ describe('rail context menu — the entry’s verbs in words (railOptions onCont
 
     // A layout apply brings the placeholder back (a layout stored before the
     // pop-out); the adapter prunes it and the manager leaves the iframe hidden.
-    api.addPanel({ id: 'iframe:ariel', component: 'dock-iframe-placeholder', title: 'ARIEL' });
+    (await pageHolder()).restore(
+      rowOf(['artifacts'], ['ariel'], { tile: 'tt', tabs: ['terminal'] })
+    );
     dockState.redock?.();
 
     expect(api.getPanel('iframe:ariel')).toBeNull();

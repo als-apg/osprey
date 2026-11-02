@@ -32,9 +32,12 @@
 
 import { test, expect, describe, beforeEach, afterEach, vi } from 'vitest';
 
-import { makeDockApi as makeApi, addTerminal, FakeResizeObserver } from './_dock-fake.mjs';
+import { makeDockApi as makeApi, FakeResizeObserver, TERMINAL_LAYOUT } from './_dock-fake.mjs';
 
-const ADAPTER = '../../../src/osprey/interfaces/web_terminal/static/js/dock-iframe.js';
+const JS = '../../../src/osprey/interfaces/web_terminal/static/js';
+const ADAPTER = `${JS}/dock-iframe.js`;
+const DOCK_APPLY = `${JS}/dock-apply.js`;
+const DOCK_OPEN = `${JS}/dock-open.js`;
 
 const { getDockApi, state, redock } = vi.hoisted(() => ({
   state: { api: /** @type {any} */ (null) },
@@ -85,12 +88,37 @@ function makeIframe() {
   return document.createElement('iframe');
 }
 
-/** @param {any} api */
+/**
+ * A fresh adapter over `api` and a fresh layout holder showing the terminal
+ * alone (no holder at all for a null api: fallback mode).
+ * @param {any} api
+ */
 async function freshAdapter(api) {
   state.api = api;
+  if (api) {
+    const apply = await import(DOCK_APPLY);
+    apply
+      .initLayoutHolder({ api, guard: (/** @type {() => any} */ fn) => fn() })
+      .restore(TERMINAL_LAYOUT);
+  }
   const mod = await import(ADAPTER);
   mod.initDockIframeAdapter({ fallbackHost: null });
   return mod;
+}
+
+/**
+ * Open `id` as a tile of its own beside the service tile, through the holder —
+ * what the "+" menu does before the adapter adopts the panel's iframe.
+ * @param {string} id
+ */
+async function openTile(id) {
+  const apply = await import(DOCK_APPLY);
+  const open = await import(DOCK_OPEN);
+  const holder = apply.getLayoutHolder();
+  if (!holder) throw new Error('no holder');
+  holder.run((/** @type {any} */ layout, /** @type {any} */ ctx) =>
+    open.openBeside(layout, id, ctx)
+  );
 }
 
 /**
@@ -116,7 +144,6 @@ function glowEls() {
 describe('glowPanel — the tile body carries the agent attribution', () => {
   test('a dedicated .tile-glow element takes the flash, sized to the tile rectangle', async () => {
     const api = makeApi();
-    addTerminal(api);
     const mod = await freshAdapter(api);
     const frame = makeIframe();
     mod.adoptIframe('ariel', frame, { title: 'ARIEL' });
@@ -141,7 +168,6 @@ describe('glowPanel — the tile body carries the agent attribution', () => {
     // A glow usually follows the activation that created the tile; dockview's
     // geometry only lands once the layout settles.
     const api = makeApi();
-    addTerminal(api);
     const mod = await freshAdapter(api);
     mod.adoptIframe('ariel', makeIframe(), { title: 'ARIEL' });
     stubTileRect(api, 'iframe:ariel', { left: 340, top: 90, width: 620, height: 480 });
@@ -155,7 +181,6 @@ describe('glowPanel — the tile body carries the agent attribution', () => {
 
   test('repeated activity reuses the one element and re-fires the flash', async () => {
     const api = makeApi();
-    addTerminal(api);
     const mod = await freshAdapter(api);
     mod.adoptIframe('ariel', makeIframe(), { title: 'ARIEL' });
     stubTileRect(api, 'iframe:ariel', { left: 340, top: 90, width: 620, height: 480 });
@@ -176,14 +201,9 @@ describe('glowPanel — the tile body carries the agent attribution', () => {
 
   test('two panels glow independently — one element per tile', async () => {
     const api = makeApi();
-    addTerminal(api);
     const mod = await freshAdapter(api);
     mod.adoptIframe('ariel', makeIframe(), { title: 'ARIEL' });
-    api.addPanel({
-      id: 'iframe:artifacts',
-      component: 'dock-iframe-placeholder',
-      title: 'WORKSPACE',
-    });
+    await openTile('artifacts');
     mod.adoptIframe('artifacts', makeIframe(), { title: 'WORKSPACE' });
     stubTileRect(api, 'iframe:ariel', { left: 340, top: 90, width: 300, height: 480 });
     stubTileRect(api, 'iframe:artifacts', { left: 640, top: 90, width: 300, height: 480 });
@@ -202,7 +222,6 @@ describe('glowPanel — the tile body carries the agent attribution', () => {
 describe('glowPanel — no-op unless the panel is genuinely on screen', () => {
   test('a panel the adapter never adopted glows nothing', async () => {
     const api = makeApi();
-    addTerminal(api);
     const mod = await freshAdapter(api);
 
     mod.glowPanel('ghost');
@@ -213,7 +232,6 @@ describe('glowPanel — no-op unless the panel is genuinely on screen', () => {
 
   test('a panel closed between the call and the frame glows nothing', async () => {
     const api = makeApi();
-    addTerminal(api);
     const mod = await freshAdapter(api);
     mod.adoptIframe('ariel', makeIframe(), { title: 'ARIEL' });
     stubTileRect(api, 'iframe:ariel', { left: 340, top: 90, width: 620, height: 480 });
@@ -227,7 +245,6 @@ describe('glowPanel — no-op unless the panel is genuinely on screen', () => {
 
   test('a panel sitting behind another tab glows nothing — that tile is not showing it', async () => {
     const api = makeApi();
-    addTerminal(api);
     const mod = await freshAdapter(api);
     mod.adoptIframe('ariel', makeIframe(), { title: 'ARIEL' });
     stubTileRect(api, 'iframe:ariel', { left: 340, top: 90, width: 620, height: 480 });

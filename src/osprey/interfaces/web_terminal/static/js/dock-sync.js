@@ -97,16 +97,15 @@
  * WHY CLOSE USES A CLICK, NOT onDidRemovePanel
  * --------------------------------------------
  * A placeholder panel is removed both when a human closes its tab AND during
- * every programmatic layout rebuild (reset, stored-layout restore —
- * all api.clear()/fromJSON in dock-workspace.js, a file this module does not own
- * and cannot wrap in the suppress guard). onDidRemovePanel therefore cannot tell
- * a human close from a rebuild, and treating a rebuild's removals as closes would
- * silently hide every panel on the server. A capture-phase click on the tile
- * bar's close control (`.tile-tab-close`, dock-tab.js — `.dv-default-tab-action`
+ * every layout apply (the holder rebuilds the dock with one fromJSON on every
+ * change, dock-apply.js). onDidRemovePanel therefore cannot tell a human close
+ * from a rebuild, and treating a rebuild's removals as closes would silently
+ * hide every panel on the server. A capture-phase click on the tile bar's
+ * close control (`.tile-tab-close`, dock-tab.js — `.dv-default-tab-action`
  * kept as a fallback for any dockview-rendered default tab) fires ONLY on a
  * genuine human gesture, never during a rebuild, so it is the unambiguous close
- * signal. Capture phase resolves the panel id before dockview's own handler
- * removes the panel.
+ * signal. Capture phase resolves the panel id before the bar's own handler
+ * takes the panel out through the holder.
  *
  * Only SERVICE panels participate: their dock ids carry the adapter's `iframe:`
  * placeholder prefix. The native terminal/workspace panels have no server-side
@@ -125,10 +124,15 @@
 import { getDockApi, setLayoutRestoredHook } from './dock-workspace.js';
 import { setPanelFocus, reportPanelLayout } from './panel-commands.js';
 import { isPoppedOut } from './popout.js';
-// dock-iframe.js owns the placeholder lifecycle and resolves panels by these ids;
-// dockPanelBesideActive() below pre-creates a placeholder the adapter then adopts
-// by the same id, so both modules share the single source of truth for them.
-import { PLACEHOLDER_PREFIX, PLACEHOLDER_COMPONENT } from './dock-iframe.js';
+// The layout holder keeps the dock's layout and resolves panels by these ids;
+// dockPanelAt() below places a placeholder the adapter then adopts by the same
+// id, so both modules share the single source of truth for them.
+import { PLACEHOLDER_PREFIX, TERMINAL_KEY, getLayoutHolder, tilesOf } from './dock-apply.js';
+import { openAt } from './dock-open.js';
+
+/** dockview's names for the vertical sides, as its drop events and the rail's
+ *  drop routing spell them, to the engine's. */
+const SIDE_OF_DIRECTION = /** @type {Record<string, string>} */ ({ above: 'top', below: 'bottom' });
 
 /** Depth of nested server-apply windows; >0 means "this dock change is an echo". */
 let suppressDepth = 0;
@@ -162,75 +166,31 @@ function serviceIdOf(panelId) {
  * reads them off the screen — the single source of truth for "left-to-right
  * order" behind the server-side occupancy report (`open_tiles`).
  *
- * Read from the SERIALIZED grid (`api.toJSON().grid.root`) rather than from the
- * live panel/group collections: only the serialized tree carries the spatial
- * arrangement, and its child arrays are already ordered along each branch's own
- * axis — a horizontal branch left-to-right, a vertical one top-to-bottom (the
- * same node shape dock-reconcile.js repairs). A depth-first pre-order walk of
- * those arrays therefore flattens the grid the way it reads: tiles stacked in a
- * column are reported top-to-bottom before the walk moves on to what sits
- * beside them. Pixel geometry is deliberately not reconstructed, so a genuinely
- * 2D arrangement is reported flattened, not raster-scanned.
+ * Read from the layout holder (dock-apply.js), never from dockview: the
+ * holder's tree is the arrangement, and a split's items are already ordered
+ * along its own axis — a row left-to-right, a column top-to-bottom. A
+ * depth-first walk of the tiles therefore flattens the grid the way it reads:
+ * tiles stacked in a column are reported top-to-bottom before the walk moves
+ * on to what sits beside them; a tile's tabs are reported in tab order. Pixel
+ * geometry is deliberately not reconstructed, so a genuinely 2D arrangement is
+ * reported flattened, not raster-scanned.
  *
- * The native terminal/workspace tiles have no server-side panel state and are
- * dropped; `iframe:` placeholders map back to their rail ids via
- * {@link serviceIdOf}. Reads the api and mutates nothing — neither the dock nor
- * the payload it hands back.
+ * The terminal has no server-side panel state and is dropped. Mutates nothing.
  *
- * @param {any} api  a DockviewApi, or a nullish value in fallback mode
  * @returns {string[] | null}  service ids in reading order — `[]` when the dock
- *   holds no service tile — or null when the layout could not be read at all
- *   (no api, no dock shell, a toJSON that threw). Callers report nothing on
- *   null rather than asserting an empty workspace.
+ *   holds no service tile — or null when there is no layout to read (no
+ *   holder: fallback mode, or a dock shell not yet up). Callers report nothing
+ *   on null rather than asserting an empty workspace.
  */
-export function serializeOpenTiles(api) {
-  if (!api || typeof api.toJSON !== 'function') return null;
-  let root;
-  try {
-    root = api.toJSON()?.grid?.root;
-  } catch (err) {
-    console.error('dock-sync: layout serialization failed', err);
-    return null;
-  }
-  if (!root || typeof root !== 'object') return null;
-  // An unrecognized ROOT leaves the whole tree unreadable, which is not the same
-  // as a dock holding no service tile: collapsing it to [] would assert an empty
-  // workspace the layout never described. An unrecognized INNER node is skipped
-  // instead — its siblings still describe real tiles.
-  if (root.type !== 'branch' && root.type !== 'leaf') return null;
+export function openServiceTiles() {
+  const holder = getLayoutHolder();
+  if (!holder) return null;
   /** @type {string[]} */
   const tiles = [];
-  collectTiles(root, tiles, new Set());
+  for (const tile of tilesOf(holder.layout)) {
+    for (const key of tile.tabs) if (key !== TERMINAL_KEY && !tiles.includes(key)) tiles.push(key);
+  }
   return tiles;
-}
-
-/**
- * Depth-first pre-order walk collecting service ids off a serialized grid node.
- * A leaf's `views` is its tab order (one entry per tile under the one-panel-per-
- * tile invariant, several only for a layout persisted before it); a branch's
- * `data` is its children in spatial order. `seen` keeps the result a sequence of
- * distinct ids even if a malformed tree references one panel from two groups.
- * @param {any} node
- * @param {string[]} out
- * @param {Set<string>} seen
- */
-function collectTiles(node, out, seen) {
-  if (!node || typeof node !== 'object') return;
-  if (node.type === 'leaf') {
-    const views = node.data?.views;
-    if (!Array.isArray(views)) return;
-    for (const view of views) {
-      const id = serviceIdOf(view);
-      if (id && !seen.has(id)) {
-        seen.add(id);
-        out.push(id);
-      }
-    }
-    return;
-  }
-  if (node.type === 'branch' && Array.isArray(node.data)) {
-    for (const child of node.data) collectTiles(child, out, seen);
-  }
 }
 
 /**
@@ -324,7 +284,7 @@ function flushLayoutReport() {
     scheduleLayoutReport();
     return;
   }
-  const tiles = serializeOpenTiles(getDockApi());
+  const tiles = openServiceTiles();
   if (!tiles) return;
   if (JSON.stringify(tiles) === lastReported) return;
   reportInFlight = true;
@@ -447,68 +407,67 @@ function panelIdForTab(tab) {
 /**
  * Dock a service panel's placeholder at an explicit position as its own tile —
  * the shared placement verb behind "open beside" (rail ⊞ / "+" add-menu) and
- * the rail drag-and-drop drop routing. Creates the placeholder by the
- * adapter's own id + component so the adapter adopts it in place (its
- * ensurePlaceholder no-ops when the id already exists), keeping this position.
+ * the rail drag-and-drop drop routing. One operation on the layout holder
+ * (dock-open.js's openAt), placing the placeholder by the adapter's own id so
+ * the adapter adopts it in place.
  *
- * An ALREADY-DOCKED placeholder is MOVED to the position (remove + re-add —
- * safe because placeholders are empty; the overlay iframe simply re-follows
- * its new rectangle), never duplicated. Two guarded no-op cases: the target
- * group is the placeholder's own group (removing a tile's sole panel destroys
- * the group the re-add would reference), and an already-docked panel with no
- * position at all (nothing meaningful to do).
+ * An ALREADY-DOCKED placeholder is MOVED to the position, never duplicated.
+ * Two guarded no-op cases: the target is the placeholder's own tile, and an
+ * already-docked panel with no position at all (nothing meaningful to do).
  *
  * No-op in fallback mode (no dock to place into).
  * No-op too for a panel living in its own pop-out window — every placement
  * verb lands here (open beside, drag-and-drop, the agent switch, the arrange
  * rebuild), and a placeholder for it would be an empty tile: the panel comes
  * back through popout.js when its window closes.
- * Wrapped in the echo guard so neither the removal's auto-activation nor the
- * add's active-panel change is read as a human focus — the caller's show path
+ * The holder applies the layout inside the echo guard, so the rebuild's
+ * active-panel change is never read as a human focus — the caller's show path
  * owns the focus POST.
  * @param {string} serviceId  panel-manager rail id
  * @param {string} [title]    dock tab title (defaults to the id)
- * @param {{referenceGroup?: any, direction: string} | null} [position]
- *   referenceGroup omitted = split against the grid edge in `direction`
+ * @param {{referenceGroup?: any, referenceTile?: string, direction: string} | null} [position]
+ *   the tile to split — by id, or by its dockview group — on `direction`'s
+ *   side, in the engine's words (`top`, `bottom`) or dockview's (`above`,
+ *   `below`); neither tile = split against the grid edge in `direction`
  */
 export function dockPanelAt(serviceId, title = serviceId, position = null) {
-  const api = getDockApi();
-  if (!api || isPoppedOut(serviceId)) return;
-  const placeholderId = PLACEHOLDER_PREFIX + serviceId;
-  const existing = api.getPanel(placeholderId);
-  if (existing) {
-    if (!position) return;
-    if (existing.group && existing.group === position.referenceGroup) return;
+  const holder = getLayoutHolder();
+  if (!getDockApi() || !holder || isPoppedOut(serviceId)) return;
+  holder.setPanelRecord(serviceId, { title });
+  /** @type {import('./dock-open.js').Position | null} */
+  let at = null;
+  if (position) {
+    const referenceTile = position.referenceTile ?? position.referenceGroup?.id;
+    at = {
+      ...(typeof referenceTile === 'string' ? { referenceTile } : {}),
+      direction: /** @type {any} */ (SIDE_OF_DIRECTION[position.direction] ?? position.direction),
+    };
   }
-  /** @type {any} */
-  const opts = { id: placeholderId, component: PLACEHOLDER_COMPONENT, title };
-  if (position) opts.position = position;
   withEchoSuppressed(() => {
     try {
-      if (existing) api.removePanel(existing);
-      api.addPanel(opts);
+      holder.run((layout, ctx) => openAt(layout, serviceId, at, ctx));
     } catch (err) {
-      console.error('dock-sync: dockPanelAt failed for', placeholderId, err);
+      console.error('dock-sync: dockPanelAt failed for', PLACEHOLDER_PREFIX + serviceId, err);
     }
   });
 }
 
 /**
- * Dock a service panel's placeholder BESIDE the currently-active group as a
- * NEW tile, so a panel opened from the rail's ⊞ corner or the "+" add-menu
- * splits where the operator is working — the discoverable half of the
- * open-beside verb (rail drag-and-drop is the precise half; both land in
- * {@link dockPanelAt}, so an already-open panel is moved, not duplicated). A
- * rail click on the entry itself still REPLACES the focused tile's panel
- * instead (the adapter's ensurePlaceholder).
+ * Dock a service panel's placeholder BESIDE the focused tile as a NEW tile, so
+ * a panel opened from the rail's ⊞ corner or the "+" add-menu splits where
+ * the operator is working — the discoverable half of the open-beside verb
+ * (rail drag-and-drop is the precise half; both land in {@link dockPanelAt},
+ * so an already-open panel is moved, not duplicated). A rail click on the
+ * entry itself still REPLACES the focused tile's panel instead (the adapter's
+ * activation placement).
  * @param {string} serviceId  panel-manager rail id
  * @param {string} [title]    dock tab title (defaults to the id)
  */
 export function dockPanelBesideActive(serviceId, title = serviceId) {
-  const api = getDockApi();
-  if (!api) return;
-  const position = api.activeGroup ? { referenceGroup: api.activeGroup, direction: 'right' } : null;
-  dockPanelAt(serviceId, title, position);
+  const holder = getLayoutHolder();
+  if (!getDockApi() || !holder) return;
+  const focused = holder.focusedTile;
+  dockPanelAt(serviceId, title, focused ? { referenceTile: focused, direction: 'right' } : null);
 }
 
 /**

@@ -242,31 +242,39 @@ _GROUPS_JS = r"""() => [...document.querySelectorAll('.dv-groupview')].map(g => 
 _OPEN_TILES_JS = r"""async () => {
   const sync = await import('/static/js/dock-sync.js');
   const dock = await import('/static/js/dock-workspace.js');
-  return sync.serializeOpenTiles(dock.getDockApi());
+  return sync.openServiceTiles();
 }"""
 
-# Stamp / read a marker on the dockview panel OBJECT behind a service tile.
-# dockPanelAt MOVES an already-docked placeholder by remove+re-add, so a
-# surviving stamp is proof the tile was left strictly alone — a stronger claim
+# Stamp / read a marker on what a service tile is to the operator: the overlay
+# IFRAME holding the panel's live document (the adapter never rebuilds it), and
+# the tile id the layout holder keeps it under. Every layout change rebuilds
+# dockview's own panel objects, so a surviving stamp here — same iframe, same
+# tile id — is the proof the tile was left strictly alone: a stronger claim
 # than "a tab with that label is still on screen".
 _STAMP_TILES_JS = r"""async (ids) => {
-  const dock = await import('/static/js/dock-workspace.js');
-  const api = dock.getDockApi();
+  const apply = await import('/static/js/dock-apply.js');
+  const holder = apply.getLayoutHolder();
+  const tiles = (node) => node === null ? [] : ('tabs' in node ? [node] : node.items.flatMap(tiles));
   const out = {};
   for (const id of ids) {
-    const panel = api && api.getPanel('iframe:' + id);
-    if (panel) { panel.__collabStamp = 'stamped:' + id; out[id] = true; } else out[id] = false;
+    const iframe = document.querySelector(`.dock-iframe-overlay iframe[data-panel-id="${id}"]`);
+    const tile = holder && tiles(holder.layout).find((t) => t.tabs.includes(id));
+    if (iframe && tile) { iframe.__collabStamp = 'stamped:' + id + '@' + tile.tile; out[id] = true; }
+    else out[id] = false;
   }
   return out;
 }"""
 
 _READ_STAMPS_JS = r"""async (ids) => {
-  const dock = await import('/static/js/dock-workspace.js');
-  const api = dock.getDockApi();
+  const apply = await import('/static/js/dock-apply.js');
+  const holder = apply.getLayoutHolder();
+  const tiles = (node) => node === null ? [] : ('tabs' in node ? [node] : node.items.flatMap(tiles));
   const out = {};
   for (const id of ids) {
-    const panel = api && api.getPanel('iframe:' + id);
-    out[id] = panel ? (panel.__collabStamp ?? null) : null;
+    const iframe = document.querySelector(`.dock-iframe-overlay iframe[data-panel-id="${id}"]`);
+    const tile = holder && tiles(holder.layout).find((t) => t.tabs.includes(id));
+    const stamp = iframe ? (iframe.__collabStamp ?? null) : null;
+    out[id] = stamp !== null && tile && stamp === 'stamped:' + id + '@' + tile.tile ? stamp : null;
   }
   return out;
 }"""
@@ -291,7 +299,7 @@ def _wait_for_client_tiles(page: Page, expected: list[str], timeout: float = 10_
         """async (want) => {
             const sync = await import('/static/js/dock-sync.js');
             const dock = await import('/static/js/dock-workspace.js');
-            return JSON.stringify(sync.serializeOpenTiles(dock.getDockApi())) === want;
+            return JSON.stringify(sync.openServiceTiles()) === want;
         }""",
         arg=json.dumps(expected),
         timeout=timeout,
@@ -537,12 +545,11 @@ def test_agent_switch_opens_beside_and_posts_nothing_back(tmp_path, chromium_bro
             page.locator('button.panel-rail-button[data-panel-id="scope"].active')
         ).to_have_count(1, timeout=10_000)
 
-        # …and neither prior tile was disturbed: same tabs, same panel objects.
+        # …and neither prior tile was disturbed: same tabs, same iframes, same tiles.
         survived = page.evaluate(_READ_STAMPS_JS, ["artifacts", "data-viz"])
-        assert survived == {
-            "artifacts": "stamped:artifacts",
-            "data-viz": "stamped:data-viz",
-        }, f"an agent switch replaced an operator's tile: {survived}"
+        assert all(
+            isinstance(v, str) and v.startswith(f"stamped:{k}@") for k, v in survived.items()
+        ), f"an agent switch replaced an operator's tile: {survived}"
         expect(_service_tab(page, "Artifacts")).to_have_count(1)
         expect(_service_tab(page, "DATA VIZ")).to_have_count(1)
 

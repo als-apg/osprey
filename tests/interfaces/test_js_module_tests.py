@@ -110,7 +110,6 @@ WITHOUT_OWN_TEST: tuple[str, ...] = (
     "src/osprey/interfaces/web_terminal/static/js/control-target-popover-switch.js",
     "src/osprey/interfaces/web_terminal/static/js/diff-utils.js",
     "src/osprey/interfaces/web_terminal/static/js/dock-tab.js",
-    "src/osprey/interfaces/web_terminal/static/js/dock-workspace.js",
     "src/osprey/interfaces/web_terminal/static/js/logout.js",
     "src/osprey/interfaces/web_terminal/static/js/modal-overlay.js",
     "src/osprey/interfaces/web_terminal/static/js/palette-boot.js",

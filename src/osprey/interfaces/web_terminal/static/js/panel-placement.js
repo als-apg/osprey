@@ -42,7 +42,7 @@ import {
   withEchoSuppressed,
   dockPanelAt,
   dockPanelBesideActive,
-  serializeOpenTiles,
+  openServiceTiles,
 } from './dock-sync.js';
 import { hidePanel, PLACEHOLDER_PREFIX } from './dock-iframe.js';
 import { getDockApi } from './dock-workspace.js';
@@ -241,7 +241,7 @@ function rebuildTiles(tiles) {
   const wanted = new Set(tiles);
   // A layout the serializer cannot read is not the same as an empty workspace:
   // drop nothing rather than assert tiles that may still be there.
-  const open = serializeOpenTiles(api) ?? [];
+  const open = openServiceTiles() ?? [];
   withEchoSuppressed(() => {
     for (const id of open) if (!wanted.has(id)) hidePanel(id);
     /** @type {string | null} */

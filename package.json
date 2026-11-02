@@ -20,6 +20,7 @@
     "globals": "^17",
     "marked": "12.0.2",
     "dompurify": "3.4.16",
+    "dockview-core": "7.0.2",
     "jsdom": "^30.1.2",
     "prettier": "3.9.9"
   }

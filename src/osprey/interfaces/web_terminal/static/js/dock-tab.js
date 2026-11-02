@@ -32,9 +32,9 @@
 
 import { TERMINAL_RAIL_ID, titleCase } from './panel-catalog.js';
 import { registerContribHost, unregisterContribHost } from './tile-header-contrib.js';
-import { PLACEHOLDER_PREFIX } from './dock-reconcile.js';
+import { PLACEHOLDER_PREFIX } from './dock-apply.js';
 import { withEchoSuppressed } from './dock-sync.js';
-import { closeTerminalPanel } from './dock-workspace.js';
+import { closeDockPanel, closeTerminalPanel } from './dock-workspace.js';
 import { popOutPanel, canPopOut } from './popout.js';
 import { isTerminalSurface, onSurfaceChange } from './agent-surface.js';
 import { icon } from '/design-system/js/icons.js';
@@ -327,12 +327,15 @@ class TileTab {
     close.addEventListener('click', (e) => {
       if (e.defaultPrevented) return;
       e.preventDefault();
-      // The removal makes dockview auto-activate a surviving tile; that is a
-      // side effect of the close, not a human focus gesture, so it must not
-      // reach the focus reporter — the same suppression retireTile applies to
-      // its own removal. The Agent tile closes through dock-workspace so the
-      // closed state reaches `html[data-agent]` and the sidebar.
-      withEchoSuppressed(() => (terminal ? closeTerminalPanel() : this._api?.close?.()));
+      // Both closes go through dock-workspace, i.e. the layout holder: the
+      // rebuild makes dockview activate a surviving tile, and that is a side
+      // effect of the close, not a human focus gesture, so it must not reach
+      // the focus reporter — the same suppression retireTile applies to its
+      // own removal. The Agent tile's close also puts the closed state on
+      // `html[data-agent]` for the sidebar.
+      withEchoSuppressed(() =>
+        terminal ? closeTerminalPanel() : closeDockPanel(this._servicePanelId ?? this._panelId)
+      );
     });
     actions.appendChild(close);
     root.appendChild(actions);

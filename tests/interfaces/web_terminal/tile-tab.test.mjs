@@ -13,7 +13,10 @@ import { buildConsole } from '../../../src/osprey/interfaces/web_terminal/static
 
 const MOD = '../../../src/osprey/interfaces/web_terminal/static/js/dock-tab.js';
 
-const { closeTerminalPanel } = vi.hoisted(() => ({ closeTerminalPanel: vi.fn(() => true) }));
+const { closeTerminalPanel, closeDockPanel } = vi.hoisted(() => ({
+  closeTerminalPanel: vi.fn(() => true),
+  closeDockPanel: vi.fn(() => true),
+}));
 const { popOutPanel, canPopOut } = vi.hoisted(() => ({
   popOutPanel: vi.fn(() => true),
   canPopOut: vi.fn(() => true),
@@ -26,14 +29,14 @@ vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/popout.js', () =>
   canPopOut,
 }));
 
-// dock-tab closes the Agent pane through dock-workspace; the rest of that
-// module (dockview itself) is out of scope here. The doubles cover what the
-// modules dock-tab imports read from it.
+// dock-tab closes every tile through dock-workspace (the layout holder); the
+// rest of that module (dockview itself) is out of scope here. The doubles
+// cover what the modules dock-tab imports read from it.
 vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/dock-workspace.js', () => ({
   closeTerminalPanel,
+  closeDockPanel,
   getDockApi: () => null,
   setLayoutRestoredHook: () => {},
-  defaultServiceWidth: () => 600,
   setServiceRedock: () => {},
   onDragGesture: () => [],
 }));
@@ -100,6 +103,7 @@ describe('tile-tab renderer', () => {
     document.body.innerHTML = '';
     vi.restoreAllMocks();
     closeTerminalPanel.mockClear();
+    closeDockPanel.mockClear();
     popOutPanel.mockClear();
     canPopOut.mockReset().mockReturnValue(true);
   });
@@ -117,7 +121,7 @@ describe('tile-tab renderer', () => {
     expect(tab.element.querySelector('.tile-tab-actions')).toBeTruthy();
   });
 
-  test('service close click calls api.close()', async () => {
+  test('a service close click closes the tile through the holder, never the bare api.close()', async () => {
     const { createTileTab } = await import(MOD);
     const api = fakeApi();
     const tab = createTileTab('iframe:ariel');
@@ -125,7 +129,8 @@ describe('tile-tab renderer', () => {
     /** @type {HTMLElement} */ (tab.element.querySelector('.tile-tab-close')).dispatchEvent(
       new MouseEvent('click', { bubbles: true, cancelable: true })
     );
-    expect(api.close).toHaveBeenCalledTimes(1);
+    expect(closeDockPanel).toHaveBeenCalledExactlyOnceWith('ariel');
+    expect(api.close).not.toHaveBeenCalled();
     expect(closeTerminalPanel).not.toHaveBeenCalled();
   });
 
@@ -139,6 +144,7 @@ describe('tile-tab renderer', () => {
     expect(close.getAttribute('aria-label')).toBe('Close Agent pane');
     close.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
     expect(closeTerminalPanel).toHaveBeenCalledTimes(1);
+    expect(closeDockPanel).not.toHaveBeenCalled();
     expect(api.close).not.toHaveBeenCalled();
   });
 
