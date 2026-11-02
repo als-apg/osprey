@@ -617,6 +617,28 @@ results to <strong>TypeSafe, hosted in the US, or to OpenRouter</strong>. An age
 the deployment’s configured LLM provider, so its data goes where the main agent’s goes.
 Confirm this is acceptable before you enable one.</p>
 </div>
+<div class="pst-scrollable-table-container"><table class="table">
+<thead>
+<tr class="row-odd"><th class="head"><p>Route</p></th>
+<th class="head"><p>Model</p></th>
+<th class="head"><p>Per judged prompt</p></th>
+<th class="head"><p>Per 1,000 prompts</p></th>
+<th class="head"><p>Latency (p50)</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>TypeSafe</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">jev-1.13.0</span></code></p></td>
+<td><p>$0.00006–$0.0008</p></td>
+<td><p>$0.06–$0.76</p></td>
+<td><p>0.1 s</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>List price, measured 2026-11 on 20 prompts; cost grows with the session history sent, up to the
+cap. On OpenRouter the call is billed at OpenRouter’s price. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">watchdog</span> <span class="pre">replay</span></code> prints
+the cost for your own prompts.</p>
 <p><strong>2. Label some prompts.</strong> Replay needs prompts from your own facility, both risky ones and
 ordinary ones that look similar. Each fixture is one <code class="docutils literal notranslate"><span class="pre">.jsonl</span></code> file: a header line, then the
 session before the prompt, oldest first, if it matters.</p>
@@ -760,7 +782,7 @@ to it. An agent watchdog reads further back, if the risk is worth its cost.</p>
 <p>Every enabled watchdog runs on every operator prompt, so the costs add up:</p>
 <ul class="simple">
 <li><p><strong>Decision engine:</strong> at the default <code class="docutils literal notranslate"><span class="pre">api.jev</span></code> price of $0.042 per million tokens, at most
-about $0.0013 per watchdog per prompt.</p></li>
+about $0.0008 per watchdog per prompt, at the history cap.</p></li>
 <li><p><strong>Agent engine:</strong> up to <code class="docutils literal notranslate"><span class="pre">max_cost_usd</span></code> per run, $0.25 by default, and it reads the machine.
 One run per watchdog and session is in flight, with one waiting. A newer prompt replaces the
 waiting one, and the replaced prompt shows the watchdog unavailable.</p></li>
