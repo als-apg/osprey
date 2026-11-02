@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING, Any
 import pytest
 import yaml
 
+from osprey.facility.records import FacilityRecords
 from osprey.facility.views.bluesky import (
     BLUESKY_DEVICES_FILE,
     BLUESKY_DEVICES_SCHEMA,
@@ -43,7 +44,7 @@ def _inputs(channels: list[dict[str, Any]], services: dict[str, Any] | None = No
     from osprey.facility.views import ViewInputs
 
     return ViewInputs(
-        doc={"channels": channels},  # type: ignore[arg-type]
+        records=FacilityRecords({"channels": channels}),  # type: ignore[arg-type]
         rendered_config={"services": services or {}},
         facility_dir=Path("."),
         served=[],
@@ -158,7 +159,7 @@ def _rendered(
     from osprey.facility.views import ViewInputs
 
     return ViewInputs(
-        doc=doc,  # type: ignore[arg-type]
+        records=FacilityRecords(doc),  # type: ignore[arg-type]
         rendered_config={"services": services, "control_system": {"type": system}},
         facility_dir=Path("."),
         served=[],

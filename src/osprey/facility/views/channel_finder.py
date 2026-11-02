@@ -243,7 +243,7 @@ def write_in_context(root: Path, inputs: ViewInputs) -> list[Path]:
     """
     from osprey.facility.views import view_bytes
 
-    document = in_context_document(inputs.doc)
+    document = in_context_document(inputs.records.document)
     if not document["channels"]:
         raise _mode_unsupported(
             f"selects {IN_CONTEXT_MODE} and the facility has no channel",
@@ -577,7 +577,7 @@ def write_hierarchical(root: Path, inputs: ViewInputs) -> list[Path]:
     """
     from osprey.facility.views import view_bytes
 
-    document = hierarchical_document(inputs.doc)
+    document = hierarchical_document(inputs.records.document)
     root.mkdir(parents=True, exist_ok=True)
     target = root / HIERARCHICAL_FILE
     target.write_bytes(view_bytes(document))
@@ -1031,7 +1031,7 @@ def write_middle_layer(root: Path, inputs: ViewInputs) -> list[Path]:
     from osprey.facility.views import report_note, view_bytes
     from osprey.services.channel_finder.databases.middle_layer import DOCUMENT_KEYS
 
-    document, left_out, by_address = middle_layer_document(inputs.doc)
+    document, left_out, by_address = middle_layer_document(inputs.records.document)
     if not document.keys() - DOCUMENT_KEYS:
         raise _mode_unsupported(
             f"selects {MIDDLE_LAYER_MODE} and no device of the facility is in a group "

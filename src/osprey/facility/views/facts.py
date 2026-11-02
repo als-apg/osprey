@@ -551,7 +551,7 @@ def write_facts_view(root: Path, inputs: ViewInputs) -> list[Path]:
     """
     project_name = inputs.rendered_config.get("project_name")
     facts = facts_document(
-        inputs.doc,
+        inputs.records.document,
         inputs.served,
         str(project_name) if project_name else None,
         measurement_records(root),

@@ -290,6 +290,7 @@ if source:
     shutil.copytree(Path(source) / "simulator", view)
 else:
     from osprey.facility.build import build_facility
+    from osprey.facility.records import FacilityRecords
     from osprey.facility.served import resolve_served
     from osprey.facility.views import ViewInputs
     from osprey.facility.views.simulator import write_simulator_view
@@ -305,7 +306,7 @@ else:
     write_simulator_view(
         view,
         ViewInputs(
-            doc=doc,
+            records=FacilityRecords(doc),
             rendered_config=config,
             facility_dir=facility,
             served=resolve_served(config, doc),

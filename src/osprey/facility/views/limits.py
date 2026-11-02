@@ -77,6 +77,8 @@ def write_limits_view(root: Path, inputs: ViewInputs) -> list[Path]:
 
     root.mkdir(parents=True, exist_ok=True)
     target = root / LIMITS_FILE
-    text = json.dumps(limits_document(inputs.doc), indent=2, ensure_ascii=False, allow_nan=False)
+    text = json.dumps(
+        limits_document(inputs.records.document), indent=2, ensure_ascii=False, allow_nan=False
+    )
     target.write_bytes((text + "\n").encode("utf-8"))
     return [target]

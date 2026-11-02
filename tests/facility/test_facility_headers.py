@@ -24,6 +24,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
+from osprey.facility.records import FacilityRecords
 from osprey.facility.validate import FACILITY_HEADER
 
 if TYPE_CHECKING:
@@ -113,7 +114,7 @@ def test_the_in_context_index_is_checked(
     from osprey.facility.views.channel_finder import write_in_context
 
     inputs = ViewInputs(
-        doc=built_control_assistant.facility,
+        records=FacilityRecords(built_control_assistant.facility),
         rendered_config={"channel_finder": {"pipeline_mode": "in_context"}},
         facility_dir=built_control_assistant.facility_dir,
         served=[],
@@ -137,7 +138,7 @@ def test_the_hierarchical_index_is_checked(
     from osprey.facility.views.channel_finder import write_hierarchical
 
     inputs = ViewInputs(
-        doc=built_control_assistant.facility,
+        records=FacilityRecords(built_control_assistant.facility),
         rendered_config={"channel_finder": {"pipeline_mode": "hierarchical"}},
         facility_dir=built_control_assistant.facility_dir,
         served=[],
@@ -152,7 +153,7 @@ def _middle_layer_render(built: BuiltProject, root: Path) -> dict[str, bytes]:
     from osprey.facility.views.channel_finder import write_middle_layer
 
     inputs = ViewInputs(
-        doc=built.facility,
+        records=FacilityRecords(built.facility),
         rendered_config={"channel_finder": {"pipeline_mode": "middle_layer"}},
         facility_dir=built.facility_dir,
         served=[],

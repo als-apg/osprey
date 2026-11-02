@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING, Any
 import pytest
 
 from osprey.facility.errors import FacilityBuildError
+from osprey.facility.records import FacilityRecords
 from osprey.facility.views.channel_finder import (
     CHANNEL_FINDER_SCHEMA,
     IN_CONTEXT_FILE,
@@ -35,7 +36,7 @@ def _inputs(doc: dict[str, Any], rendered_config: dict[str, Any] | None = None) 
     from osprey.facility.views import ViewInputs
 
     return ViewInputs(
-        doc=doc,
+        records=FacilityRecords(doc),
         rendered_config=rendered_config or {},
         facility_dir=Path("."),
         served=[],

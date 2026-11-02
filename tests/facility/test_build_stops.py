@@ -29,6 +29,7 @@ import osprey.facility
 from osprey.cli.main import cli
 from osprey.facility.build import build_facility
 from osprey.facility.errors import KINDS
+from osprey.facility.records import FacilityRecords
 from osprey.facility.views import VIEWS, ViewInputs
 from osprey.utils.workspace import TIERS_DIRNAME
 from tests._builds import init_project, run_build
@@ -2728,7 +2729,9 @@ VIEW_STAGE: frozenset[str] = frozenset(
 )
 
 #: The view inputs of a render whose config sets nothing.
-_NO_CONFIG = ViewInputs(doc={}, rendered_config={}, facility_dir=Path(), served=[])
+_NO_CONFIG = ViewInputs(
+    records=FacilityRecords({}), rendered_config={}, facility_dir=Path(), served=[]
+)
 
 #: The lines a build may print before a stop in a render: the main render has
 #: written its views and noted, once each, the views it omits that no mode selects.

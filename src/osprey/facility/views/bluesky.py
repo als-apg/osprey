@@ -179,12 +179,12 @@ def write_bluesky_view(root: Path, inputs: ViewInputs) -> list[Path]:
     target = root / BLUESKY_DEVICES_FILE
     write_devices_file(
         target,
-        _records(inputs.doc, facility_file),
+        _records(inputs.records.document, facility_file),
         source=_source(facility_file),
         schema=BLUESKY_DEVICES_SCHEMA,
-        tolerances=_tolerances(inputs.doc),
-        motion_bands=_motion_bands(inputs.doc),
+        tolerances=_tolerances(inputs.records.document),
+        motion_bands=_motion_bands(inputs.records.document),
     )
-    for warning in tolerance_warnings(inputs.doc, _lanes(inputs)):
+    for warning in tolerance_warnings(inputs.records.document, _lanes(inputs)):
         _warn_once(inputs, warning)
     return [target]
