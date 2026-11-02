@@ -111,7 +111,7 @@ Run the import
 
 The first run finds no mapping, writes a draft to
 ``data/facility/imported/mml/mapping.yaml`` and stops with
-``import mml: mapping-draft``. Nothing else is written. Review the draft, then
+``import mml: mapping-draft``. No record is written. Review the draft, then
 run the same command again.
 
 The import takes every export the mapping names: a run given a subset is
@@ -281,19 +281,22 @@ whose conversion curves the pass cut, and
 whose supplies feed several devices. Both go to stdout and never stop the
 import.
 
-The import refuses to run while ``data/facility/`` holds a record source of
-your own that would merge against the imported records. It prints
-``import mml: authored-present: <n> files`` and one ``rm <path>`` line per
-file. Corrections belong in ``fixes.yaml``, which is never in the way.
+Before it reads an export, the import looks at ``data/facility/``:
 
-Scenario files never stop the import. After a clean run it prints
-``these scenario files name channels that no longer exist:`` and one
-``rm <path>`` line for each scenario file that names a channel or model the
-imported facility does not have, followed by an ``rm -r <folder>/`` line when
-the scenario keeps a folder of attached files beside it. The import deletes
-nothing, and
-``osprey build`` stops while one is left: remove each listed file, or point it
-at the imported channels.
+* Hand-written records of a kind this format writes refuse the import, which
+  names each file, changes nothing and exits 1. The mml format writes channel,
+  device, group, model, deck, seed, limit, identity and measurement records; the
+  list format writes channel and device records. A file is hand-written once its
+  bundled-origin line is gone. Corrections belong in ``fixes.yaml``.
+* Bundled files are replaced, and one line says so:
+  ``import mml: replaced the bundled example facility (<n> files)``. The line
+  prints before the export is read, so a stop that follows it, such as a mapping
+  draft, comes after the replacement.
+* Everything else of your own stays, such as ``fixes.yaml``, your knowledge pages
+  and hand-written records of other kinds.
+
+When no ``knowledge/index.md`` exists, the import seeds a stub for your
+documentation.
 
 A deployment that began as a preset states
 ``control_system.connector.virtual_accelerator.probe_channel`` for the demo's
