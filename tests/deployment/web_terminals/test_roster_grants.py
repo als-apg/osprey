@@ -21,8 +21,6 @@ from osprey.deployment.web_terminals.auth_credentials import terminal_secret_var
 from osprey.deployment.web_terminals.roster import (
     BLUESKY_PANEL_ID,
     PanelRosterGrant,
-    bluesky_panel_roster_owners,
-    bluesky_panel_secret_env_vars,
     panel_roster_grant_table,
     service_panel_grant,
 )
@@ -121,32 +119,34 @@ def test_a_projected_panels_grant_follows_each_users_own_render(tmp_path: Path) 
     config = _deployment(tmp_path, {"operator": ("knob-demo",)})
     alice = terminal_secret_var("alice")
     assert service_panel_grant(config, tmp_path, "knob-demo") == {
-        "secret_env_vars": [alice],
-        "roster_owners": f"{alice.removeprefix('OSPREY_TERMINAL_SECRET_')}=alice",
-        "secret_aliases": {},
+        "credentials": [{"var": alice, "source": alice, "owner": "alice", "required": False}]
     }
 
 
 def test_every_other_service_gets_the_empty_grant(tmp_path: Path) -> None:
     config = _deployment(tmp_path, {"operator": ("knob-demo", BLUESKY_PANEL_ID)})
-    empty = {"secret_env_vars": [], "roster_owners": "", "secret_aliases": {}}
+    empty = {"credentials": []}
     assert service_panel_grant(config, tmp_path, "plain") == empty
     assert service_panel_grant(config, tmp_path, "bluesky") == empty
 
 
 def test_the_bluesky_grant_is_the_tables_row(tmp_path: Path) -> None:
-    """The legacy names are views of the same grant the table gives bluesky_web."""
+    """The bluesky_web sidecar's grant is the built-in row, walked like any other."""
     config = _deployment(tmp_path, {"operator": (BLUESKY_PANEL_ID,)})
     config["modules"]["web_terminals"]["default_tier"] = "operator"
     grant = service_panel_grant(config, tmp_path, "bluesky_web")
 
-    assert grant["secret_env_vars"] == [terminal_secret_var("alice"), terminal_secret_var("carol")]
-    assert bluesky_panel_secret_env_vars(config, tmp_path) == grant["secret_env_vars"]
-    assert bluesky_panel_roster_owners(config, tmp_path) == grant["roster_owners"]
-    assert service_panel_grant(config, tmp_path, "knob-demo")["secret_env_vars"] == []
+    assert grant["credentials"] == [
+        {"var": var, "source": var, "owner": name, "required": False}
+        for name, var in (
+            ("alice", terminal_secret_var("alice")),
+            ("carol", terminal_secret_var("carol")),
+        )
+    ]
+    assert service_panel_grant(config, tmp_path, "knob-demo")["credentials"] == []
 
 
-_EMPTY = {"secret_env_vars": [], "roster_owners": "", "secret_aliases": {}}
+_EMPTY = {"credentials": []}
 
 
 def test_a_deployment_with_no_roster_grants_nothing(tmp_path: Path) -> None:
@@ -167,9 +167,9 @@ def test_an_alias_panel_with_no_roster_accepts_the_deployment_secret_as_the_buil
     config = {"services": {"knob-demo": _projected(single_user_alias=True)}}
     var = terminal_secret_var("ops")
     assert service_panel_grant(config, tmp_path, "knob-demo", build_account=lambda: "ops") == {
-        "secret_env_vars": [],
-        "roster_owners": f"{var.removeprefix('OSPREY_TERMINAL_SECRET_')}=ops",
-        "secret_aliases": {var: "OSPREY_TERMINAL_SECRET"},
+        "credentials": [
+            {"var": var, "source": "OSPREY_TERMINAL_SECRET", "owner": "ops", "required": True}
+        ]
     }
 
 
@@ -177,8 +177,10 @@ def test_an_alias_panel_on_a_roster_gets_only_the_roster_grant(tmp_path: Path) -
     config = _deployment(tmp_path, {"operator": ("knob-demo",)})
     config["services"]["knob-demo"] = _projected(single_user_alias=True)
     grant = service_panel_grant(config, tmp_path, "knob-demo", build_account=lambda: "ops")
-    assert grant["secret_env_vars"] == [terminal_secret_var("alice")]
-    assert grant["secret_aliases"] == {}
+    alice = terminal_secret_var("alice")
+    assert grant["credentials"] == [
+        {"var": alice, "source": alice, "owner": "alice", "required": False}
+    ]
 
 
 def test_an_alias_panel_on_a_disabled_roster_accepts_the_deployment_secret(

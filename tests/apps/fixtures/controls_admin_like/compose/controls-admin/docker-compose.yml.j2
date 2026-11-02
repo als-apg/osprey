@@ -2,6 +2,7 @@
     osprey.deployment.compose_generator.FRAGMENT_CONTEXT and nothing else. -#}
 {%- import "services/_network_axis.j2" as net -%}
 {%- import "services/_env_axis.j2" as hostenv -%}
+{%- import "services/_panel_grant.j2" as panel -%}
 services:
   {{ service_key }}:
     image: {{ service.image }}
@@ -27,16 +28,7 @@ services:
       TZ: {{ system.timezone }}
       EPICS_CA_ADDR_LIST: "{{ control_system.connector.epics.gateways.read_only.address }}"
       EPICS_CA_SERVER_PORT: "{{ control_system.connector.epics.gateways.read_only.port }}"
-{%- if panel_grant.secret_env_vars or panel_grant.secret_aliases %}
-      OSPREY_TERMINAL_ACCEPT_ROSTER_SECRETS: "1"
-{%- for var in panel_grant.secret_env_vars %}
-      {{ var }}: ${{ "{" }}{{ var }}:-}
-{%- endfor %}
-{%- for var, source in panel_grant.secret_aliases.items() %}
-      {{ var }}: ${{ "{" }}{{ source }}}
-{%- endfor %}
-      OSPREY_TERMINAL_ROSTER_OWNERS: "{{ panel_grant.roster_owners }}"
-{%- endif %}
+{{- panel.env(panel_grant.credentials) }}
 {{- hostenv.passthrough(service) }}
 {{- net.ports(service, ['127.0.0.1:' ~ service.port ~ ':' ~ service.port]) }}
     # `service.config_file` is build-relative; bind sources resolve against the

@@ -46,7 +46,7 @@ def repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     repo = tmp_path / "repo"
     shutil.copytree(FIXTURE, repo / "apps" / APP)
     (repo / "services").mkdir()
-    for partial in ("_network_axis.j2", "_env_axis.j2"):
+    for partial in ("_network_axis.j2", "_env_axis.j2", "_panel_grant.j2"):
         shutil.copy(PARTIALS / partial, repo / "services" / partial)
     shutil.copytree(repo / "apps" / APP / "compose" / KEY, repo / "services" / KEY)
     project = repo / "build" / "demo-operator"
@@ -191,6 +191,9 @@ def test_the_bind_address_is_always_defined(repo: Path) -> None:
         "osprey_control_tree_mount_source",
         "control_identity_staged",
         "bluesky_panel_roster_owners",
+        "panel_grant.secret_env_vars",
+        "panel_grant.roster_owners",
+        "panel_grant.secret_aliases",
     ],
 )
 @pytest.mark.parametrize("entry_point", ENTRY_POINTS)
@@ -232,20 +235,15 @@ def test_a_sibling_template_of_a_fragment_renders_from_the_same_list(repo: Path)
     assert not (Path("build") / "services" / KEY / "docker-compose.yml").exists()
 
 
-GRANT_NAMES: tuple[str, ...] = (
-    "panel_grant.secret_env_vars",
-    "panel_grant.roster_owners",
-    "panel_grant.secret_aliases",
-)
+GRANT_NAMES: tuple[str, ...] = ("_panel_grant.j2", "panel_grant.credentials")
 
 
 @pytest.mark.parametrize("constant", [FRAGMENT_CONTEXT, APP_RUNTIME_CONTEXT])
-def test_both_lists_state_the_three_grant_keys(constant: dict[str, str]) -> None:
+def test_both_lists_state_the_grant(constant: dict[str, str]) -> None:
     assert set(GRANT_NAMES) <= set(constant)
-    assert constant["panel_grant.secret_aliases"] == (
-        "a variable the panel's gate accepts, mapped to the deploy variable it reads; "
-        "`{}` on every render but the panel's service"
-    )
+    assert constant["_panel_grant.j2"] == "the panel grant's environment macro, imported"
+    for word in ("var", "source", "owner", "required", "`[]`"):
+        assert word in constant["panel_grant.credentials"]
 
 
 def test_the_fragment_list_is_the_contract() -> None:
