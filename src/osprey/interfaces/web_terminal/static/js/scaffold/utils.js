@@ -114,6 +114,17 @@ export function iconForCategory(cat) {
 }
 
 /**
+ * The name an artifact's card shows: its canonical name without the category
+ * prefix (`code-review/rules` -> `rules`). The command palette labels its
+ * Settings-files rows with the same words.
+ * @param {{ name: string }} artifact
+ * @returns {string}
+ */
+export function cardDisplayName(artifact) {
+  return artifact.name.includes('/') ? artifact.name.split('/').slice(1).join('/') : artifact.name;
+}
+
+/**
  * Parse YAML front matter (between --- delimiters) from markdown content.
  * @param {string} content
  * @returns {{frontMatter: Record<string, string>|null, body: string}}
