@@ -955,6 +955,11 @@ FILES = [
     "tests/cli/test_main.py",
     "src/osprey/lonely/__init__.py",
     "src/osprey/lonely/thing.py",
+    "src/osprey/cli/sub/__init__.py",
+    "src/osprey/cli/sub/thing.py",
+    "src/osprey/cli/bundled/pyproject.toml",
+    "src/osprey/cli/bundled/bundled/__init__.py",
+    "src/osprey/cli/bundled/bundled/server.py",
     "tests/scripts/test_scenario_plots.py",
 ]
 
@@ -1089,6 +1094,7 @@ def test_a_reason_does_not_change_what_a_selection_is() -> None:
         ("pytest", "tests/fixtures/config.yml", fw.WIDENS_NO_TEST_MODULE),
         ("pytest", "tests/README.md", fw.WIDENS_UNPLACED),
         ("pytest", "src/osprey/lonely/thing.py", fw.WIDENS_NO_MIRROR),
+        ("pytest", "src/osprey/cli/bundled/bundled/server.py", fw.WIDENS_BUNDLED_PROJECT),
         ("vitest", "package.json", fw.WIDENS_NO_MAPPING),
         pytest.param(
             "vitest",
@@ -1251,6 +1257,39 @@ def test_the_shared_conftests_of_this_tree_widen(monkeypatch: pytest.MonkeyPatch
         importer = got.reason.removeprefix(f"{path}: imported by ")
         assert importer in files
         assert not importer.startswith(path.rsplit("/", 1)[0] + "/")
+
+
+def test_a_source_file_walks_up_to_the_nearest_tested_package() -> None:
+    files = [
+        "src/osprey/cli/__init__.py",
+        "src/osprey/cli/sub/__init__.py",
+        "src/osprey/cli/sub/deep/__init__.py",
+        "src/osprey/cli/sub/deep/thing.py",
+        "tests/cli/test_main.py",
+        "tests/cli/sub/deep/data.json",
+    ]
+    got = fw._select_pytest(["src/osprey/cli/sub/deep/thing.py"], files)
+    assert got == check.Selection(check.PATHS, ("tests/cli",))
+    assert selected("quick", "src/osprey/cli/sub/thing.py")["pytest"] == check.Selection(
+        check.PATHS, ("tests/cli",)
+    )
+
+
+def test_a_package_with_no_tested_ancestor_widens() -> None:
+    got = selected("quick", "src/osprey/lonely/thing.py")["pytest"]
+    assert got.state == check.WHOLE
+    assert got.reason == f"src/osprey/lonely/thing.py: {fw.WIDENS_NO_MIRROR}"
+
+
+def test_a_bundled_project_below_the_source_tree_widens(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(kit, "ROOT", REPO_ROOT)
+    files = check.repository_files()
+    project = "src/osprey/profiles/presets/apps/knob-example"
+    path = f"{project}/knob_example/server.py"
+    assert f"{project}/pyproject.toml" in files
+    got = fw._select_pytest([path], files)
+    assert got.state == check.WHOLE
+    assert got.reason == f"{path}: {fw.WIDENS_BUNDLED_PROJECT}"
 
 
 def test_a_helper_script_selects_only_its_mirror() -> None:
