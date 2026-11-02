@@ -1,0 +1,1 @@
+A web terminal no longer follows a control-context record whose owner PID now belongs to another user's process. After an upgrade that put an init process at PID 1 of the container, the record left by the previous container still named PID 1 as its owning terminal; the new terminal read root's init as a live owner and refused every target switch with `context_owned_elsewhere`.
