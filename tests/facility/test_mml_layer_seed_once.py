@@ -35,6 +35,7 @@ from osprey.facility.layers.mml.importer import (
 )
 from osprey.facility.layers.mml.mapping import MAPPING_FILE, read_mapping
 from osprey.facility.layers.mml.seed import READOUT_FILE, TUNING, band
+from osprey.facility.records import FacilityRecords
 from osprey.facility.sources import group_families
 from osprey.facility.validate import known_classes, run_stages
 from tests.facility._mml_built import (
@@ -653,7 +654,7 @@ def _served_and_model_readings(
     from osprey.simulation.engines import pyat as engine
 
     (model,) = [entry for entry in document["models"] if entry["name"] == model_name]
-    wiring = simulator_wiring(document, model_name)
+    wiring = simulator_wiring(FacilityRecords(document), model_name)
     deck = facility / model["deck"]
     monitors = {
         record["address"]
@@ -699,7 +700,7 @@ def test_the_middle_layer_correction_of_a_served_spear3_reading_is_the_model_pos
     facility = imports("spear3").copy(tmp_path)
     widen(facility, WIDENED["spear3"])
     document = build_facility(facility, project_name="demo")
-    wiring = simulator_wiring(document, "StorageRing")
+    wiring = simulator_wiring(FacilityRecords(document), "StorageRing")
     monitors = {
         record["address"]: record
         for record in wiring

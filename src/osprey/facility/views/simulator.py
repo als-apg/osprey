@@ -59,7 +59,7 @@ from pathlib import Path
 from typing import Any
 
 from osprey.facility import DEFAULT_ROLE, TEXTURE
-from osprey.facility.build import FacilityDocument
+from osprey.facility.records import FacilityRecords
 from osprey.facility.scenarios import scenario_logbook
 from osprey.facility.views import ViewInputs, view_bytes
 from osprey_connectors.simulation import STILL_ALL, STILL_SCENARIO
@@ -147,17 +147,15 @@ _WIRING_ENTRY_KEYS = (
 )
 
 #: The channels and models last wired and each model's wiring of them, keyed on
-#: the model: every render of one build hands in the same document and asks for
-#: the same models from several views, so each model is wired once per build.
-#: Keyed on the two lists the wiring reads rather than on the document, because
-#: the pyAML view hands in a shallow copy of it, which shares them. Two slots: a
-#: render's views wire the build's document while its approval hook wires the
-#: render's own ``facility.json``, and the two alternate in every render.
+#: the model: every render of one build hands in the same document, and a render
+#: whose served set or configuration differs writes this view again, so each model
+#: is wired once per build. Keyed on the two lists the wiring reads, which every
+#: read model of one document shares. One slot: the view reads one build's document
+#: at a time.
 _wired: list[tuple[Any, Any, dict[str, list[dict[str, Any]]]]] = []
-_WIRED_SLOTS = 2
 
 
-def simulator_wiring(facility: FacilityDocument, model: str) -> list[dict[str, Any]]:
+def simulator_wiring(records: FacilityRecords, model: str) -> list[dict[str, Any]]:
     """The wiring entries of one model, in the facility file's record order.
 
     Each entry holds the keys of ``_WIRING_ENTRY_KEYS`` the wiring record
@@ -166,39 +164,34 @@ def simulator_wiring(facility: FacilityDocument, model: str) -> list[dict[str, A
     from its entry.
 
     Args:
-        facility: The in-memory facility file.
+        records: The facility file's records.
         model: The model's name.
 
     Returns:
         One entry per wiring record of the model; empty for a model without
-        wiring. The entries share no objects with ``facility``.
+        wiring. The entries share no objects with the facility file.
 
     Raises:
-        KeyError: ``facility`` has no model named ``model``.
+        KeyError: The facility file has no model named ``model``.
     """
-    for entry in facility.get("models", []):
-        if entry["name"] == model:
-            break
-    else:
-        raise KeyError(f"the facility file has no model {model!r}")
-    channels, models = facility.get("channels"), facility.get("models")
+    entry = records.require("model", model)
+    channels, models = records.document.get("channels"), records.document.get("models")
     slot = next((s for s in _wired if s[0] is channels and s[1] is models), None)
     if slot is None:
         slot = (channels, models, {})
-        _wired[:] = [slot, *_wired[: _WIRED_SLOTS - 1]]
+        _wired[:] = [slot]
     wiring = slot[2].get(model)
     if wiring is None:
-        wiring = slot[2][model] = _wire(facility, entry)
+        wiring = slot[2][model] = _wire(records, entry)
     return copy.deepcopy(wiring)
 
 
-def _wire(facility: FacilityDocument, entry: Mapping[str, Any]) -> list[dict[str, Any]]:
+def _wire(records: FacilityRecords, entry: Mapping[str, Any]) -> list[dict[str, Any]]:
     """Compute :func:`simulator_wiring` of ``entry`` without the per-build memo."""
-    channels = {str(channel["id"]): channel for channel in facility.get("channels", [])}
     return [
         {
             **{key: copy.deepcopy(record[key]) for key in _WIRING_ENTRY_KEYS if key in record},
-            **_waveform(channels.get(str(record["address"]), {})),
+            **_waveform(records.record("channel", str(record["address"])) or {}),
         }
         for record in entry.get("wiring", [])
     ]
@@ -262,7 +255,7 @@ def _variables_document(inputs: ViewInputs) -> dict[str, Any]:
     for model in models:
         for record in model.get("wiring", []):
             owners.setdefault(str(record["address"]), str(model["name"]))
-    limits = limits_document(doc)
+    limits = limits_document(inputs.records)
     unlisted_writable = _unlisted_setpoints_writable(inputs.rendered_config)
 
     channels: list[dict[str, Any]] = []
@@ -304,7 +297,7 @@ def _variables_document(inputs: ViewInputs) -> dict[str, Any]:
                 "served": model["name"] in inputs.served,
                 "settings": copy.deepcopy(model.get("settings") or {}),
                 "deck": served_deck_path(model),
-                "wiring": simulator_wiring(doc, str(model["name"])),
+                "wiring": simulator_wiring(inputs.records, str(model["name"])),
             }
             for model in models
         ],
@@ -312,7 +305,7 @@ def _variables_document(inputs: ViewInputs) -> dict[str, Any]:
     }
 
 
-def _seeds_document(doc: FacilityDocument) -> dict[str, Any]:
+def _seeds_document(doc: Mapping[str, Any]) -> dict[str, Any]:
     seeds = {
         str(channel["id"]): copy.deepcopy(channel["simulation"])
         for channel in doc.get("channels", [])

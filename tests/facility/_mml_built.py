@@ -22,6 +22,7 @@ from typing import Any
 import pytest
 import yaml
 
+from osprey.facility.records import FacilityRecords
 from tests.fixtures.mml._trees import SUPPORTED, names
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -170,7 +171,7 @@ def mml_built(tmp_path_factory: pytest.TempPathFactory) -> Callable[[str, str], 
             document=document,
             facility=facility,
             record=record,
-            wiring=simulator_wiring(document, name),
+            wiring=simulator_wiring(FacilityRecords(document), name),
         )
 
     return model
