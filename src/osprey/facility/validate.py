@@ -47,6 +47,7 @@ from osprey.facility.errors import (
     exact_number,
     quoted_slots,
 )
+from osprey.facility.records import FacilityRecords
 from osprey.facility.scenarios import FaultRoster, fault_roster, map_fault_errors
 from osprey.facility.sources import Sources, group_families, load_sources
 from osprey_connectors.settle import declared_tolerance
@@ -2040,6 +2041,7 @@ def _measurement_stops(document: dict[str, Any]) -> Iterator[FacilityBuildError]
         tune_references,
     )
 
+    records = FacilityRecords(document)
     for model in sorted(document.get("models", []), key=lambda record: str(record["name"])):
         measurement = model.get("measurement")
         if not isinstance(measurement, dict):
@@ -2067,7 +2069,7 @@ def _measurement_stops(document: dict[str, Any]) -> Iterator[FacilityBuildError]
                 record_kind="measurement",
                 detail=(f"`groups.{first}` and `groups.{second}` both name group {shared[0]}"),
             )
-        grouped = measurement_groups(document, name)
+        grouped = measurement_groups(records, name)
         for kind in measurement.get("kinds") or []:
             if kind not in SINGLE_PASS_KINDS and _single_pass(model):
                 yield _measurement_missing(
@@ -2108,7 +2110,7 @@ def _measurement_stops(document: dict[str, Any]) -> Iterator[FacilityBuildError]
                         f"kind {kind} needs `{slot}`; model {name} does not wire {named}",
                         f"wire {named} in model {name}, or name a channel it wires as `{slot}`",
                     )
-                elif member == "tune" and tune_references(document, name, str(named)) is None:
+                elif member == "tune" and tune_references(records, name, str(named)) is None:
                     yield _measurement_missing(
                         name,
                         f"kind {kind} needs `{slot}`; {named} reads one plane and model {name} "

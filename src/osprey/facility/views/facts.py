@@ -49,6 +49,7 @@ from pathlib import Path
 from typing import Any
 
 from osprey.facility import DEFAULT_ROLE, TEXTURE
+from osprey.facility.records import FacilityRecords
 from osprey.facility.views import ViewInputs, view_bytes
 
 __all__ = [
@@ -471,7 +472,7 @@ def _measurement_block(
         arrays = {str(a["name"]): list(a["elements"]) for a in configuration.get("arrays") or []}
         devices = {str(d["name"]): d for d in configuration.get("devices") or []}
         measurement = models[str(model)].get("measurement") or {}
-        names = view_names(doc, str(model))
+        names = view_names(FacilityRecords(doc), str(model))
         array_of = {
             str(role): names.array_name(str(role))
             for role in measurement.get("groups") or {}

@@ -43,6 +43,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from osprey.facility import TEXTURE
+from osprey.facility.records import FacilityRecords
 from osprey.facility.views import ViewInputs, report_note
 
 if TYPE_CHECKING:
@@ -235,9 +236,7 @@ def measured_models(inputs: ViewInputs) -> tuple[list[str], dict[str, str]]:
     """
     written: list[str] = []
     omitted: dict[str, str] = {}
-    for model in sorted(
-        inputs.records.document.get("models", []), key=lambda record: str(record["name"])
-    ):
+    for model in sorted(inputs.records.of_kind("model"), key=lambda record: str(record["name"])):
         name = str(model["name"])
         if name == TEXTURE:
             continue
@@ -278,41 +277,21 @@ def _omitted_note(model: str, reason: str) -> str:
 # --- groups -------------------------------------------------------------------
 
 
-def _model_record(doc: Mapping[str, Any], model: str) -> Mapping[str, Any]:
-    for record in doc.get("models", []):
-        if record["name"] == model:
-            found: Mapping[str, Any] = record
-            return found
-    raise KeyError(f"the facility file has no model {model!r}")
-
-
-def _device_order(doc: Mapping[str, Any], members: Iterable[str]) -> list[str]:
+def _device_order(records: FacilityRecords, members: Iterable[str]) -> list[str]:
     """``members`` in ``(s, id)`` order; a device with no ``s`` after every placed one."""
-    placed = {str(device["id"]): device.get("s") for device in doc.get("devices", [])}
 
     def key(device: str) -> tuple[float, str]:
-        s = placed.get(device)
+        s = (records.record("device", device) or {}).get("s")
         return (float(s) if isinstance(s, int | float) else _UNPLACED, device)
 
     return sorted(dict.fromkeys(str(member) for member in members), key=key)
-
-
-def _channels_of(doc: Mapping[str, Any]) -> dict[str, list[str]]:
-    """Each device id to the addresses of the channels on it or naming it an endpoint."""
-    held: dict[str, list[str]] = {}
-    for channel in doc.get("channels", []):
-        devices = [(channel.get("on") or {}).get("device"), *(channel.get("endpoint_of") or [])]
-        for device in dict.fromkeys(devices):
-            if device is not None:
-                held.setdefault(str(device), []).append(str(channel["id"]))
-    return held
 
 
 #: The plane each corrector role steers; a role not named here takes every plane.
 ROLE_PLANES: dict[str, str] = {"hcor": "x", "vcor": "y"}
 
 
-def measurement_groups(doc: Mapping[str, Any], model: str) -> dict[str, list[str]]:
+def measurement_groups(records: FacilityRecords, model: str) -> dict[str, list[str]]:
     """The addresses each group role of a model's measurement file stands for.
 
     ``bpm`` is the readbacks the model wires as monitors, in both planes;
@@ -327,7 +306,7 @@ def measurement_groups(doc: Mapping[str, Any], model: str) -> dict[str, list[str
     ``hcor`` and ``vcor`` share no address.
 
     Args:
-        doc: The facility file.
+        records: The facility file's records.
         model: The model's name.
 
     Returns:
@@ -340,11 +319,11 @@ def measurement_groups(doc: Mapping[str, Any], model: str) -> dict[str, list[str
     from osprey.facility.sources import group_families
     from osprey.facility.views.simulator import simulator_wiring
 
-    record = _model_record(doc, model)
+    record = records.require("model", model)
     groups_named = (record.get("measurement") or {}).get("groups") or {}
-    groups = {str(group["id"]): group for group in doc.get("groups", [])}
-    wiring = {str(entry["address"]): entry for entry in simulator_wiring(dict(doc), model)}
-    on_device = _channels_of(doc)
+    wiring = {
+        str(entry["address"]): entry for entry in simulator_wiring(dict(records.document), model)
+    }
     found: dict[str, list[str]] = {}
     for role in GROUP_ROLES:
         if groups_named.get(role) is None:
@@ -354,11 +333,11 @@ def measurement_groups(doc: Mapping[str, Any], model: str) -> dict[str, list[str
         members = [
             member
             for group_id in group_families(groups_named.get(role))
-            for member in (groups.get(group_id) or {}).get("members") or []
+            for member in (records.record("group", group_id) or {}).get("members") or []
         ]
         addresses: dict[str, None] = {}
-        for device in _device_order(doc, members):
-            for address in sorted(set(on_device.get(device, ()))):
+        for device in _device_order(records, members):
+            for address in sorted({str(c["id"]) for c in records.channels_on(device)}):
                 entry = wiring.get(address)
                 if entry is None or entry.get("role") != wanted:
                     continue
@@ -549,14 +528,13 @@ def _bound(limit: Mapping[str, Any], key: str, default: float) -> float:
     return float(value)
 
 
-def _magnets(doc: Mapping[str, Any], model: str, groups: Mapping[str, list[str]]) -> list[_Magnet]:
+def _magnets(
+    records: FacilityRecords, model: str, groups: Mapping[str, list[str]]
+) -> list[_Magnet]:
     from osprey.facility.views.simulator import simulator_wiring
 
-    wiring = {str(entry["address"]): entry for entry in simulator_wiring(dict(doc), model)}
-    pairs = {
-        str(channel["id"]): channel.get("pair")
-        for channel in doc.get("channels", [])
-        if channel.get("pair") is not None
+    wiring = {
+        str(entry["address"]): entry for entry in simulator_wiring(dict(records.document), model)
     }
     magnets: list[_Magnet] = []
     for role in MAGNET_TYPES:
@@ -564,24 +542,22 @@ def _magnets(doc: Mapping[str, Any], model: str, groups: Mapping[str, list[str]]
             if any(magnet.address == address for magnet in magnets):
                 continue
             entry = dict(wiring[address])
-            entry["readback"] = pairs.get(address)
+            entry["readback"] = (records.record("channel", address) or {}).get("pair")
             magnets.append(_Magnet(address, role, entry))
     return magnets
 
 
-def _bpms(doc: Mapping[str, Any], model: str, addresses: Sequence[str]) -> list[_Bpm]:
+def _bpms(records: FacilityRecords, model: str, addresses: Sequence[str]) -> list[_Bpm]:
     """The BPM devices the ``bpm`` readbacks are on, in the readbacks' order."""
     from osprey.facility.views.simulator import simulator_wiring
 
-    wiring = {str(entry["address"]): entry for entry in simulator_wiring(dict(doc), model)}
-    device_of = {
-        str(channel["id"]): str((channel.get("on") or {}).get("device"))
-        for channel in doc.get("channels", [])
+    wiring = {
+        str(entry["address"]): entry for entry in simulator_wiring(dict(records.document), model)
     }
     bpms: dict[str, dict[str, Any]] = {}
     for address in addresses:
         entry = wiring[address]
-        device = device_of[address]
+        device = str((records.require("channel", address).get("on") or {}).get("device"))
         held = bpms.setdefault(device, {"element": _slice_elements(entry)[0][0], "planes": {}})
         held["planes"].setdefault(str(entry.get("plane")), address)
     return [
@@ -589,15 +565,13 @@ def _bpms(doc: Mapping[str, Any], model: str, addresses: Sequence[str]) -> list[
     ]
 
 
-def _units(doc: Mapping[str, Any]) -> dict[str, str]:
-    return {
-        str(channel["id"]): str(channel["unit"])
-        for channel in doc.get("channels", [])
-        if channel.get("unit")
-    }
+def _unit(records: FacilityRecords, address: str) -> str | None:
+    """The unit the channel at ``address`` states, if any."""
+    unit = (records.record("channel", address) or {}).get("unit")
+    return str(unit) if unit else None
 
 
-def tune_references(doc: Mapping[str, Any], model: str, address: str) -> tuple[str, str] | None:
+def tune_references(records: FacilityRecords, model: str, address: str) -> tuple[str, str] | None:
     """The horizontal and vertical tune references the ``tune`` instrument stands for.
 
     A waveform reading the whole tune output is read by element: ``@0`` and
@@ -607,7 +581,7 @@ def tune_references(doc: Mapping[str, Any], model: str, address: str) -> tuple[s
     """
     from osprey.facility.views.simulator import simulator_wiring
 
-    entries = simulator_wiring(dict(doc), model)
+    entries = simulator_wiring(dict(records.document), model)
     wired = {str(entry["address"]): entry for entry in entries}
     entry = wired.get(address)
     if entry is None:
@@ -787,11 +761,11 @@ def _names(
     )
 
 
-def view_names(doc: Mapping[str, Any], model: str) -> ViewNames:
+def view_names(records: FacilityRecords, model: str) -> ViewNames:
     """The names a model's pyAML view gives its magnets, BPMs, arrays and RF plant.
 
     Args:
-        doc: The facility file.
+        records: The facility file's records.
         model: A model with a measurement file.
 
     Returns:
@@ -802,12 +776,12 @@ def view_names(doc: Mapping[str, Any], model: str) -> ViewNames:
         KeyError: The facility file has no model ``model``.
         ValueError: Two addresses or ids of the view would share a name.
     """
-    record = _model_record(doc, model)
+    record = records.require("model", model)
     measurement = record.get("measurement") or {}
-    groups = measurement_groups(doc, model)
+    groups = measurement_groups(records, model)
     return _names(
-        _magnets(doc, model, groups),
-        _bpms(doc, model, groups.get("bpm", ())),
+        _magnets(records, model, groups),
+        _bpms(records, model, groups.get("bpm", ())),
         measurement.get("groups") or {},
         (measurement.get("instruments") or {}).get("rf"),
     )
@@ -838,21 +812,21 @@ def _configuration(
         TUNE_MONITOR_NAME,
     )
 
-    doc = inputs.records.document
-    record = _model_record(doc, model)
+    records = inputs.records
+    record = records.require("model", model)
     measurement = record.get("measurement") or {}
     solve = ((record.get("settings") or {}).get(str(record["engine"])) or {}).get("solve")
     periodic = solve != _SINGLE_PASS
     deck = _load_deck(inputs.facility_dir / str(record["deck"]))
-    groups = measurement_groups(doc, model)
+    groups = measurement_groups(records, model)
     groups_named = measurement.get("groups") or {}
     instruments = measurement.get("instruments") or {}
     kinds = list(measurement.get("kinds") or [])
-    units = _units(doc)
-    limits = {str(row["address"]): row for row in (doc.get("limits") or {}).get("records") or []}
+    limit_rows = (records.document.get("limits") or {}).get("records") or []
+    limits = {str(row["address"]): row for row in limit_rows}
 
-    magnets = _magnets(doc, model, groups)
-    bpms = _bpms(doc, model, groups.get("bpm", ()))
+    magnets = _magnets(records, model, groups)
+    bpms = _bpms(records, model, groups.get("bpm", ()))
     rf = instruments.get("rf")
     names = _names(magnets, bpms, groups_named, rf)
     models = {magnet.address: _magnet_model(magnet, deck, limits) for magnet in magnets}
@@ -876,7 +850,7 @@ def _configuration(
 
     configuration: dict[str, Any] = {
         "type": ACCELERATOR_TYPE,
-        "facility": str(doc["identity"]["code"]),
+        "facility": str(records.document["identity"]["code"]),
         "machine": model,
         "energy": deck.energy_ev,
     }
@@ -936,18 +910,18 @@ def _configuration(
         for plane in ("x", "y"):
             if plane in bpm.planes:
                 address = bpm.planes[plane]
-                section[f"{plane}_pos"] = _reference(address, units.get(address))
+                section[f"{plane}_pos"] = _reference(address, _unit(records, address))
         devices.append(section)
     if rf is not None:
         devices.append(
             {
                 "type": RF_PLANT_TYPE,
                 "name": names.rf_plant_name(str(rf)),
-                "masterclock": _reference(str(rf), units.get(str(rf))),
+                "masterclock": _reference(str(rf), _unit(records, str(rf))),
             }
         )
     tune = instruments.get("tune")
-    tunes = tune_references(doc, model, str(tune)) if tune is not None else None
+    tunes = tune_references(records, model, str(tune)) if tune is not None else None
     if tunes is not None:
         monitor: dict[str, Any] = {
             "type": TUNE_MONITOR_TYPE,
