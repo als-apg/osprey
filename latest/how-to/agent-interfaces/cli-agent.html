@@ -609,7 +609,11 @@ from a database it never declared. Unlike <code class="docutils literal notransl
 here, because chat opens companions as browser tabs rather than as a panel
 rail.</p>
 <p>The servers run as background threads and stop automatically when you exit
-the OSPREY agent.</p>
+the OSPREY agent. Once the agent’s screen is up, what they log goes to a file
+rather than over that screen: <code class="docutils literal notranslate"><span class="pre">var/logs/chat-&lt;timestamp&gt;.log</span></code> in the
+deployment repo, named in the line before the launch. A health check that
+passes late or a database that times out is recorded there; only an error
+still reaches the terminal.</p>
 </section>
 <section id="when-to-use-cli-vs-web-terminal">
 <h3>When to Use CLI vs. Web Terminal<a class="headerlink" href="#when-to-use-cli-vs-web-terminal" title="Link to this heading">#</a></h3>
