@@ -377,6 +377,23 @@ def _holds_test_module(directory: str, files: Sequence[str]) -> bool:
     )
 
 
+#: Why a change widens a runner to its whole selection, one rule per cause.
+WIDENS_CONFTEST = "a conftest reaches every test below it"
+WIDENS_UNMIRRORED = "a Python file outside the test mirrors"
+WIDENS_PROJECT = "the project's dependencies reach every test"
+WIDENS_NO_TEST_MODULE = "its test directory holds no test module"
+WIDENS_UNPLACED = "a file under packages/ or tests/ that no rule places"
+WIDENS_NO_MIRROR = "no tested package mirrors it"
+WIDENS_NO_MAPPING = "no JavaScript module-to-test mapping in this tree"
+WIDENS_SHARED_INTERFACE = "the shared interface reaches every interface"
+WIDENS_UNTESTED_INTERFACE = "its interface has no tests"
+WIDENS_WIDE_INPUT = "a shared JavaScript input reaches every test"
+
+
+def _whole(path: str, rule: str) -> Selection:
+    return Selection(WHOLE, reason=f"{path}: {rule}")
+
+
 def _mirror_root(path: str) -> tuple[str, str] | None:
     """The ``TEST_MIRRORS`` entry whose source root holds *path*, if any."""
     return next((entry for entry in TEST_MIRRORS if path.startswith(entry[0])), None)
@@ -426,25 +443,27 @@ def _select_pytest(
             if path in shaping:
                 chosen.append("tests/scripts")
                 continue
-            if name == "conftest.py" or _mirror_root(path) is None:
-                return Selection(WHOLE)
+            if name == "conftest.py":
+                return _whole(path, WIDENS_CONFTEST)
+            if _mirror_root(path) is None:
+                return _whole(path, WIDENS_UNMIRRORED)
         elif name in ("pyproject.toml", "uv.lock"):
-            return Selection(WHOLE)
+            return _whole(path, WIDENS_PROJECT)
         elif suffix in JS_SUFFIXES or suffix in INERT_SUFFIXES:
             continue
         elif path.startswith("tests/") and len(PurePosixPath(path).parts) > 2:
             directory = "tests/" + PurePosixPath(path).parts[1]
             if not _holds_test_module(directory, files):
-                return Selection(WHOLE)
+                return _whole(path, WIDENS_NO_TEST_MODULE)
             chosen.append(directory)
             continue
         elif path.startswith(("packages/", "tests/")):
-            return Selection(WHOLE)
+            return _whole(path, WIDENS_UNPLACED)
         elif not path.startswith("src/osprey/"):
             continue
         mirror = _mirror(path, files)
         if mirror is None:
-            return Selection(WHOLE)
+            return _whole(path, WIDENS_NO_MIRROR)
         chosen.append(mirror)
     return _paths(chosen)
 
@@ -456,13 +475,17 @@ def _select_vitest(
     if guard is None:
         # Without the mapping no JavaScript change can be placed, so any one
         # widens Vitest to its whole selection.
-        reaches = any(
-            path.endswith(JS_SUFFIXES)
-            or path.rsplit("/", 1)[-1] in VITEST_WIDE_NAMES
-            or path == VITEST_SETUP
-            for path in paths
+        reaches = next(
+            (
+                path
+                for path in paths
+                if path.endswith(JS_SUFFIXES)
+                or path.rsplit("/", 1)[-1] in VITEST_WIDE_NAMES
+                or path == VITEST_SETUP
+            ),
+            None,
         )
-        return Selection(WHOLE) if reaches else Selection(NOT_TOUCHED)
+        return Selection(NOT_TOUCHED) if reaches is None else _whole(reaches, WIDENS_NO_MAPPING)
     chosen: list[str] = []
     for path in paths:
         name = path.rsplit("/", 1)[-1]
@@ -472,14 +495,14 @@ def _select_vitest(
         elif guard.modules([path]):
             interface = guard.interface_of(path)
             if interface == SHARED_INTERFACE:
-                return Selection(WHOLE)
+                return _whole(path, WIDENS_SHARED_INTERFACE)
             own = guard.covering_tests(path, files)
             if own:
                 chosen += own
                 continue
             fallback = f"{guard.TESTS_ROOT}{interface}/"
             if not any(f.startswith(fallback) and f.endswith(guard.TEST_SUFFIXES) for f in files):
-                return Selection(WHOLE)
+                return _whole(path, WIDENS_UNTESTED_INTERFACE)
             chosen.append(fallback)
         elif (
             name in VITEST_WIDE_NAMES
@@ -487,7 +510,7 @@ def _select_vitest(
             or path.endswith(JS_SUFFIXES)
             and path.startswith(("tests/", "src/"))
         ):
-            return Selection(WHOLE)
+            return _whole(path, WIDENS_WIDE_INPUT)
     return _paths(chosen)
 
 
