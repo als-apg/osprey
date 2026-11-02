@@ -1,7 +1,7 @@
 {
   "videos": {
     "code-review": {
-      "release": null,
+      "release": "docs-media-v2026.9.0b4",
       "themes": {
         "dark": {
           "duration_s": 57.52,
