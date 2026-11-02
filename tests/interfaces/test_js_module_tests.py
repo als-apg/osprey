@@ -117,9 +117,7 @@ WITHOUT_OWN_TEST: tuple[str, ...] = (
     "src/osprey/interfaces/web_terminal/static/js/panel-health.js",
     "src/osprey/interfaces/web_terminal/static/js/panel-lifecycle.js",
     "src/osprey/interfaces/web_terminal/static/js/panel-menu-policy.js",
-    "src/osprey/interfaces/web_terminal/static/js/panel-placement.js",
     "src/osprey/interfaces/web_terminal/static/js/panel-queries.js",
-    "src/osprey/interfaces/web_terminal/static/js/panel-sse.js",
     "src/osprey/interfaces/web_terminal/static/js/scaffold-gallery.js",
     "src/osprey/interfaces/web_terminal/static/js/scaffold/cards.js",
     "src/osprey/interfaces/web_terminal/static/js/scaffold/detail-content.js",
@@ -131,7 +129,6 @@ WITHOUT_OWN_TEST: tuple[str, ...] = (
     "src/osprey/interfaces/web_terminal/static/js/settings-protected.js",
     "src/osprey/interfaces/web_terminal/static/js/svg-icons.js",
     "src/osprey/interfaces/web_terminal/static/js/terminal.js",
-    "src/osprey/interfaces/web_terminal/static/js/undo-notice.js",
 )
 
 

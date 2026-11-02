@@ -27,7 +27,8 @@ together are the broken chain:
    scrub regression that leaked it would let the write through and turn this
    assertion green-to-red.
 2. **Panel coordination still works.** The same sandbox process reaches
-   ``POST /api/panel-focus`` with the panel token and is admitted ``200``. Note
+   ``POST /api/panel-op/open`` with the panel token and is admitted past the
+   gate (the op answers ``409``, no browser showing the workspace here). Note
    that ``OSPREY_PANEL_TOKEN`` is *also* scrubbed from the sandbox env (it joins
    ``OSPREY_TERMINAL_SECRET`` in ``sensitive_env.SENSITIVE_ENV_EXACT``; the
    sandbox asserts both are absent). The token is therefore supplied to the
@@ -200,12 +201,14 @@ config_status = _status(
     b'{"updates": {"control_system.writes": "allowed"}}',
 )
 
-# (2) Panel coordination with the panel token -> admitted 200.
+# (2) Panel coordination with the panel token: the open op is admitted past the
+# gate. No browser shows the workspace here, so the op itself answers 409
+# (no dock client); the gate's refusal would be 401.
 panel_status = _status(
     "POST",
-    "/api/panel-focus",
+    "/api/panel-op/open",
     {"Content-Type": "application/json", "Authorization": "Bearer " + PANEL_TOKEN},
-    b'{"panel": "artifacts"}',
+    b'{"request_id": "e2e-auth-probe", "member": "artifacts"}',
 )
 
 print(
@@ -421,9 +424,10 @@ def test_escalation_chain_is_broken_end_to_end(tmp_path: Path, record_port: int)
             "sandbox PATCH /api/config was not refused 401 (got "
             f"{sandbox['config_status']}) — agent-spawned code can rewrite safety config"
         )
-        assert sandbox["panel_status"] == 200, (
-            "sandbox POST /api/panel-focus with the panel token was not admitted 200 "
-            f"(got {sandbox['panel_status']}) — panel coordination is broken"
+        assert sandbox["panel_status"] == 409, (
+            "sandbox POST /api/panel-op/open with the panel token was not admitted "
+            f"(expected the op's own 409 for a workspace no browser shows, got "
+            f"{sandbox['panel_status']}) — panel coordination is broken"
         )
 
         # -- 3. The operator exchanges the login URL for a session cookie and

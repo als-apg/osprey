@@ -20,18 +20,31 @@
  *     tile") splits where the gesture said, and moves a panel that already
  *     holds a tab ({@link openAt}) — the one way to make a new tile on purpose;
  *   - the terminal reopens at the dock's right edge, its home side
- *     ({@link reopenTerminal}), and closes as its tile ({@link closeKey}).
+ *     ({@link reopenTerminal}), and closes as its tile ({@link closeKey});
+ *   - a SET of panels opens as tabs of one new tile or side by side beside the
+ *     service tile the operator used last ({@link openPanelSet}), and an
+ *     ARRANGEMENT replaces the service tiles with a given layout while the
+ *     agent pane keeps its tile, place and size ({@link arrange}) — the one
+ *     place an arrangement is computed, for a person's preset click and an
+ *     agent's op alike.
  */
 
 import {
   findTile,
+  geometry,
   isTile,
   itemFractions,
+  keysOf,
+  minimumSize,
   mintTileId,
+  normalize,
+  openSet,
   planDrop,
   removeTab,
   tileIdsOf,
   tileOf,
+  validateLayout,
+  LAYOUT_REASONS,
 } from '/static/vendor/dock-engine.mjs';
 import { TERMINAL_KEY } from './dock-apply.js';
 
@@ -39,8 +52,29 @@ import { TERMINAL_KEY } from './dock-apply.js';
 /** @typedef {import('/static/vendor/dock-engine.mjs').Tile} Tile */
 /** @typedef {import('/static/vendor/dock-engine.mjs').DockPx} DockPx */
 /** @typedef {import('/static/vendor/dock-engine.mjs').Side} Side */
+/** @typedef {import('/static/vendor/dock-engine.mjs').OpenContext} OpenContext */
+/** @typedef {import('/static/vendor/dock-engine.mjs').OpenResult} OpenResult */
+/** @typedef {import('/static/vendor/dock-engine.mjs').CollectionLayout<string>} PanelCollection */
 /** @typedef {import('./dock-apply.js').OpResult} OpResult */
 /** @typedef {import('./dock-apply.js').OpContext} OpContext */
+
+/**
+ * What a set or an arrangement is opened with: the holder's context plus the
+ * health check (absent: every panel is healthy) and the members the dock
+ * cannot open.
+ * @typedef {OpContext & {isHealthy?: (key: string) => boolean, skip?: string[]}} SetContext
+ */
+
+/**
+ * A set's or an arrangement's result: the engine's, plus the open services an
+ * arrangement removed (`pruned`, so a preset can keep its prune-to-members rail
+ * behaviour) and the members skipped as unhealthy (`skipped`).
+ * @typedef {OpResult & {refusal?: string, notice?: string, skipped?: string[], pruned?: string[]}} SetResult
+ */
+
+/** Refusals (named, and they change nothing). */
+export const TERMINAL_IN_LAYOUT = 'terminal_in_layout';
+export const PANEL_UNHEALTHY = 'panel_unhealthy';
 
 /**
  * Where a panel is placed relative to a tile, or to the dock when no tile is
@@ -64,6 +98,17 @@ const SIDES = new Set(['left', 'right', 'top', 'bottom']);
  */
 function unchanged(layout) {
   return { layout, changed: false };
+}
+
+/**
+ * A fresh tree with every tile passed through `fn`.
+ * @param {Layout} node
+ * @param {(tile: Tile) => Tile} fn
+ * @returns {Layout}
+ */
+function mapTiles(node, fn) {
+  if (isTile(node)) return fn(node);
+  return { ...node, items: node.items.map((item) => mapTiles(item, fn)) };
 }
 
 /**
@@ -153,6 +198,24 @@ export function openTab(layout, key, ctx) {
   const out = planDrop(layout, { new: key }, { tile: target.tile, zone: 'centre' }, ctx.dock);
   if (!out.changed || !tileOf(out.layout, key)) return unchanged(layout);
   return { layout: out.layout, changed: true, focus: target.tile };
+}
+
+/**
+ * Show `key` where it already is: its tile brings it forward and takes the
+ * focus; a key not in the dock changes nothing. The open rule for a panel that
+ * is already open — nothing moves.
+ * @param {Layout|null} layout
+ * @param {string} key
+ * @returns {OpResult}
+ */
+export function showTab(layout, key) {
+  const home = tileOf(layout, key);
+  if (!home || layout === null) return unchanged(layout);
+  if (home.showing === key) return { layout, changed: false, focus: home.tile };
+  const next = mapTiles(layout, (tile) =>
+    tile.tile === home.tile ? { ...tile, tabs: [...tile.tabs], showing: key } : tile
+  );
+  return { layout: next, changed: true, focus: home.tile };
 }
 
 /**
@@ -251,4 +314,217 @@ export function closeKeys(layout, keys) {
 export function defaultLayout() {
   const tile = mintTileId(null);
   return { tile, tabs: [TERMINAL_KEY], showing: TERMINAL_KEY };
+}
+
+// ---- sets and arrangements ----
+
+/** @param {string} key */
+function isService(key) {
+  return key !== TERMINAL_KEY;
+}
+
+/**
+ * @param {SetContext} ctx
+ * @param {string} key
+ */
+function healthy(ctx, key) {
+  return ctx.isHealthy === undefined || ctx.isHealthy(key);
+}
+
+/**
+ * `ctx.skip` plus every member that is not open and not healthy.
+ * @param {Layout|null} layout
+ * @param {string[]} members
+ * @param {SetContext} ctx
+ */
+function skipOf(layout, members, ctx) {
+  const unhealthy = members.filter((key) => !tileOf(layout, key) && !healthy(ctx, key));
+  return [...new Set([...(ctx.skip ?? []), ...unhealthy])];
+}
+
+/**
+ * Tile `id` with `keys` appended as tabs, showing `showing`.
+ * @param {Layout} layout
+ * @param {string} id
+ * @param {string[]} keys
+ * @param {string} showing
+ * @returns {Layout}
+ */
+function withTabs(layout, id, keys, showing) {
+  return mapTiles(layout, (tile) =>
+    tile.tile === id ? { ...tile, tabs: [...tile.tabs, ...keys], showing } : tile
+  );
+}
+
+/**
+ * The engine context of a set: anchored on the service tile the operator used
+ * last, with the agent pane never the anchor.
+ * @param {Layout|null} layout
+ * @param {SetContext} ctx
+ * @param {string[]} skip
+ * @returns {OpenContext}
+ */
+function setContext(layout, ctx, skip) {
+  return {
+    focusedTile: serviceTileTarget(layout, ctx)?.tile ?? null,
+    dock: ctx.dock,
+    skip,
+  };
+}
+
+/**
+ * The first-tile case of a set: its first member opens as the first service
+ * tile ({@link firstTile}), the rest join it as tabs or share its span side by
+ * side.
+ * @param {Layout} layout
+ * @param {string[]} fresh  members to open: none open, all healthy
+ * @param {'tabs' | 'side'} as
+ * @param {SetContext} ctx
+ * @returns {SetResult}
+ */
+function firstTileSet(layout, fresh, as, ctx) {
+  const first = firstTile(layout, fresh[0], ctx.dock);
+  if (!first.changed || !first.focus || first.layout === null) return { layout, changed: false };
+  const id = first.focus;
+  const base = first.layout;
+  const rest = fresh.slice(1);
+  if (as === 'side' && rest.length > 0) {
+    const side = openSet(base, rest, 'side', undefined, {
+      focusedTile: id,
+      dock: ctx.dock,
+    });
+    if (side.refusal !== undefined) return { layout, changed: false, refusal: side.refusal };
+    if (side.notice === undefined) return { ...side, focus: id };
+    return {
+      layout: withTabs(base, id, rest, fresh[0]),
+      changed: true,
+      focus: id,
+      notice: side.notice,
+    };
+  }
+  return { layout: withTabs(base, id, rest, fresh[0]), changed: true, focus: id };
+}
+
+/**
+ * Open a set of panels `as` tabs of one new tile or side by side, beside the
+ * service tile the operator used last; `as: 'layout'` is {@link arrange}. With
+ * no service tile the set opens as the first service tile beside the agent
+ * pane. Members not open and not healthy are skipped (`skipped`); a set naming
+ * the agent pane is refused.
+ * @param {Layout|null} layout
+ * @param {string[]} members
+ * @param {'tabs' | 'side' | 'layout'} as
+ * @param {PanelCollection | undefined} given
+ * @param {SetContext} ctx
+ * @returns {SetResult}
+ */
+export function openPanelSet(layout, members, as, given, ctx) {
+  if (members.includes(TERMINAL_KEY)) {
+    return { layout, changed: false, refusal: TERMINAL_IN_LAYOUT };
+  }
+  if (as === 'layout' && given !== undefined) return arrange(layout, given, ctx);
+  const skip = skipOf(layout, members, ctx);
+  const engine = setContext(layout, ctx, skip);
+  const open = new Set(keysOf(layout));
+  const fresh = members.filter((key) => !skip.includes(key) && !open.has(key));
+  const terminal = tileOf(layout, TERMINAL_KEY);
+  if (layout === null || terminal === null || fresh.length === 0 || engine.focusedTile !== null) {
+    return openSet(layout, members, as, given, engine);
+  }
+  const skipped = members.filter((key) => skip.includes(key));
+  const out = firstTileSet(layout, fresh, as === 'side' ? 'side' : 'tabs', ctx);
+  return skipped.length > 0 ? { ...out, skipped } : out;
+}
+
+/**
+ * `services` with any tile whose id the agent pane's tile holds re-taken from
+ * the engine's minter, so the composite never repeats an id.
+ * @param {Layout} services
+ * @param {string} keep
+ * @returns {Layout}
+ */
+function avoidId(services, keep) {
+  if (!tileIdsOf(services).includes(keep)) return services;
+  const fresh = mintTileId(services);
+  return mapTiles(services, (tile) => (tile.tile === keep ? { ...tile, tile: fresh } : tile));
+}
+
+/**
+ * The arrangement with the agent pane's tile `terminal` kept in place and size:
+ * a two-item split of the services and the agent pane along the axis it spans
+ * fully (else the root's), on its side, giving it its old extent. An agent
+ * pane that was the whole dock gets the classic split, services left.
+ * @param {Layout} layout
+ * @param {Tile} terminal
+ * @param {Layout} services
+ * @param {DockPx} dock
+ * @returns {Layout}
+ */
+function compose(layout, terminal, services, dock) {
+  const term = { tile: terminal.tile, tabs: [TERMINAL_KEY], showing: TERMINAL_KEY };
+  if (isTile(layout)) {
+    return normalize({
+      split: 'row',
+      items: [
+        { ...services, size: SERVICE_SHARE },
+        { ...term, size: TERMINAL_SHARE },
+      ],
+    });
+  }
+  const { width, height } = dock.px;
+  const rect = geometry(layout, { x: 0, y: 0, width, height }, dock.minPx).tiles[terminal.tile];
+  const fullHeight = rect.height >= height - 1;
+  const fullWidth = rect.width >= width - 1;
+  const split = fullHeight ? 'row' : fullWidth ? 'column' : layout.split;
+  const axis = split === 'row' ? 'width' : 'height';
+  const span = axis === 'width' ? width : height;
+  const offset = axis === 'width' ? rect.x : rect.y;
+  const room = span - minimumSize(services, axis, dock.minPx);
+  const share = Math.min(Math.max(rect[axis], dock.minPx), Math.max(room, dock.minPx)) / span;
+  const before = offset + rect[axis] / 2 < span / 2;
+  const items = [
+    { ...services, size: 1 - share },
+    { ...term, size: share },
+  ];
+  return normalize({ split, items: before ? items.reverse() : items });
+}
+
+/**
+ * The arrange composer: a service-only collection layout of panel ids replaces
+ * the dock's service tiles. The agent pane's tile keeps its place and size (it
+ * is always its own tile, so service tabs never share it); with no service
+ * tile the layout goes beside it at the classic split; with no agent pane it
+ * is the whole dock. Members not open and not healthy are skipped; open
+ * services the layout does not name leave the dock and are listed in `pruned`.
+ * @param {Layout|null} layout
+ * @param {PanelCollection} given
+ * @param {SetContext} ctx
+ * @returns {SetResult}
+ */
+export function arrange(layout, given, ctx) {
+  const check = validateLayout(given, { form: 'collection' });
+  if (!check.valid) return { layout, changed: false, refusal: check.reason };
+  const wanted = keysOf(given);
+  if (wanted.some((key) => typeof key !== 'string')) {
+    return { layout, changed: false, refusal: LAYOUT_REASONS.badKey };
+  }
+  if (wanted.includes(TERMINAL_KEY)) return { layout, changed: false, refusal: TERMINAL_IN_LAYOUT };
+  const skip = skipOf(layout, wanted, ctx);
+  const built = openSet(null, wanted, 'layout', given, { focusedTile: null, dock: ctx.dock, skip });
+  const skipped = built.skipped ?? [];
+  if (!built.changed || built.layout === null) return { layout, changed: false, skipped };
+  const terminal = tileOf(layout, TERMINAL_KEY);
+  const services = terminal === null ? built.layout : avoidId(built.layout, terminal.tile);
+  const next =
+    terminal === null || layout === null ? services : compose(layout, terminal, services, ctx.dock);
+  const kept = new Set(keysOf(next));
+  const pruned = keysOf(layout).filter((key) => isService(key) && !kept.has(key));
+  return {
+    layout: next,
+    changed: JSON.stringify(next) !== JSON.stringify(layout),
+    focus: tileIdsOf(services)[0],
+    record: { kind: 'layout', layout },
+    skipped,
+    pruned,
+  };
 }

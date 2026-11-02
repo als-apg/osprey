@@ -50,6 +50,7 @@ from __future__ import annotations
 
 import os
 import re
+import time
 from contextlib import contextmanager
 from typing import TYPE_CHECKING
 from unittest.mock import patch
@@ -233,6 +234,30 @@ def _post_panel(base_url: str, path: str, body: dict) -> requests.Response:
     resp = requests.post(f"{base_url}{path}", json=body, timeout=10)
     assert resp.status_code == 200, resp.text
     return resp
+
+
+def _post_agent_open(base_url: str, member: str, request_id: str) -> requests.Response:
+    """The agent's ``open`` op (``POST /api/panel-op/open``), required to succeed.
+
+    The op is relayed to the current dock client, which a page becomes only once
+    its first layout report lands; until then the route answers
+    ``no_dock_client``. That refusal is the readiness barrier, so it alone is
+    retried, briefly; any other answer is final.
+    """
+    deadline = time.monotonic() + 10
+    while True:
+        resp = requests.post(
+            f"{base_url}/api/panel-op/open",
+            json={"member": member, "request_id": request_id},
+            timeout=15,
+        )
+        if resp.status_code == 409 and resp.json().get("reason") == "no_dock_client":
+            if time.monotonic() < deadline:
+                time.sleep(0.1)
+                continue
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["status"] == "ok", resp.text
+        return resp
 
 
 def _reload_hub_page(page: Page) -> None:
@@ -566,8 +591,9 @@ def test_agent_switch_glows_the_tile_body_not_only_the_rail(tmp_path, chromium_b
         assert page.evaluate("(window.__flashLog || []).length") == 0
         expect(page.locator(".dock-iframe-overlay .tile-glow")).to_have_count(0)
 
-        # The agent switches to the very same panel.
-        _post_panel(base_url, "/api/panel-focus", {"panel": "data-viz", "source": "agent"})
+        # The agent switches to the very same panel, through its open op (the
+        # `source: "agent"` form of /api/panel-focus is retired).
+        _post_agent_open(base_url, "data-viz", "glow-tile-body")
 
         # The tile body glowed — the class is caught by the document-start
         # MutationObserver, since it self-cleans well before a poll could see it.
@@ -662,10 +688,8 @@ def test_acknowledged_badge_stays_cleared_across_reload_and_a_newer_one_returns(
     reload compares ring rows against what the operator actually cleared —
     never against a browser clock.
 
-    Focus is deliberately handed back to artifacts before each reload: a badge
-    restored onto the panel that is already surfaced needs two rail clicks to
-    clear (the first retires the tile), a known and accepted limit that this
-    test stays clear of rather than fights.
+    Focus is deliberately handed back to artifacts before each reload, so the
+    badge under test is never restored onto the panel that is already surfaced.
     """
     workspace = tmp_path / "_agent_data"
     workspace.mkdir()

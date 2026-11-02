@@ -382,9 +382,10 @@ def _command_posts(posts: list[str]) -> list[str]:
     invariant these tests guard is what a gesture *commands* (focus/visibility,
     the calls that move every client's workspace), so reports are filtered out
     before the assertion. A report is safe here precisely because the server
-    stores it last-writer-wins and broadcasts nothing.
+    stores it last-writer-wins and broadcasts nothing. ``/api/panel-op-result``
+    is the page's answer to an op the server relayed to it, not a command.
     """
-    return [p for p in posts if p != "panel-layout"]
+    return [p for p in posts if p not in ("panel-layout", "panel-op-result")]
 
 
 # ---------------------------------------------------------------------------
@@ -1103,14 +1104,13 @@ def test_drag_along_the_rail_reorders_it_for_every_client_and_survives_reload(
 
 
 def test_server_sse_focus_is_applied_without_posting_back(tmp_path, chromium_browser):
-    """A server-originated panel_focus re-activates an already-docked panel silently.
+    """An agent's open of an already-docked panel brings it forward silently.
 
-    Posting /api/panel-focus directly (as an agent MCP call would) drives the SSE
-    handler, which applies the focus through the echo guard. When the target is
-    already docked (its placeholder exists), the applied focus is a pure setActive
-    the guard suppresses — the client emits no POST of its own. (First-dock of a
-    panel legitimately emits one benign idempotent focus POST as its placeholder
-    is created; that quirk is isolated out here by pre-docking data-viz.)
+    Posting /api/panel-op/open directly (as the agent's ``open_panel`` does)
+    relays a ``panel_op`` frame to this page, which shows the panel and answers
+    the op (/api/panel-op-result, the op's own answer). It commands nothing of
+    its own: the surfaced focus runs under the echo guard, so no focus POST
+    goes back out.
     """
     workspace = tmp_path / "_agent_data"
     workspace.mkdir()
@@ -1134,13 +1134,14 @@ def test_server_sse_focus_is_applied_without_posting_back(tmp_path, chromium_bro
         page.wait_for_timeout(800)
 
         posts = _track_panel_posts(page)
-        # Server-driven focus back to the already-docked data-viz. The source
-        # tag is what makes the server broadcast at all — a source-less human
-        # report is mirrored without a frame.
+        # The agent's open of the already-docked data-viz: relayed to this page
+        # as an op, answered with the layout it shows.
         r = requests.post(
-            f"{base_url}/api/panel-focus", json={"panel": "data-viz", "source": "agent"}
+            f"{base_url}/api/panel-op/open",
+            json={"request_id": "panels-open-1", "member": "data-viz"},
+            timeout=10,
         )
-        assert r.status_code == 200
+        assert r.status_code == 200, r.text
 
         # It is applied — data-viz's tile takes the active focus (artifacts keeps
         # its own tile and overlay: side-by-side tiles are both on screen)...
@@ -1148,9 +1149,9 @@ def test_server_sse_focus_is_applied_without_posting_back(tmp_path, chromium_bro
         expect(
             page.locator('button.panel-rail-button[data-panel-id="data-viz"].active')
         ).to_have_count(1, timeout=5_000)
-        # ...with zero POSTs echoed back out (the guard suppressed the setActive).
+        # ...with zero POSTs commanded back out (the guard suppressed the setActive).
         page.wait_for_timeout(600)
-        assert _command_posts(posts) == [], f"server-driven focus POSTed back: {posts}"
+        assert _command_posts(posts) == [], f"an agent open POSTed a command back: {posts}"
 
         page.close()
 

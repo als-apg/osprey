@@ -132,13 +132,9 @@ import { onSessionChange } from './terminal.js';
 /**
  * SSE payloads broadcast on /api/files/events, discriminated on `type`.
  * `source: 'agent'` marks a frame as agent-originated (absent = human/browser
- * origin); absent optional keys are omitted by the server, never null.
- * @typedef {object} PanelFocusEvent
- * @property {'panel_focus'} type
- * @property {string} panel
- * @property {string} [url]
- * @property {'agent'} [source]
- *
+ * origin); absent optional keys are omitted by the server, never null. The
+ * agent's dock changes are not broadcast: they arrive as `panel_op` frames
+ * addressed to one dock client (panel-placement.js's PanelOpFrame).
  * @typedef {object} PanelVisibilityEvent
  * @property {'panel_visibility'} type
  * @property {string} panel
@@ -151,11 +147,6 @@ import { onSessionChange } from './terminal.js';
  * @property {'rail_order'} type
  * @property {string[]} order - every rail member, top to bottom (Agent not included)
  *
- * @typedef {object} PanelCloseEvent
- * @property {'panel_close'} type
- * @property {string} panel
- * @property {'agent'} [source]
- *
  * @typedef {object} PanelRegisterEvent
  * @property {'panel_register'} type
  * @property {string} id
@@ -165,13 +156,6 @@ import { onSessionChange } from './terminal.js';
  * @property {string} [path]
  * @property {'agent'} [source]
  *
- * @typedef {object} PanelArrangeEvent
- * @property {'panel_arrange'} type
- * @property {string[]} tiles      - the service tiles to have open, left to right
- * @property {string} [focus]      - requested focus target, one of `tiles`
- * @property {boolean} [prune_rail] - preset path: rail membership becomes exactly `tiles`
- * @property {'agent'} [source]
- *
  * @typedef {object} AgentActivityEvent
  * @property {typeof import('./activity-format.js').AGENT_ACTIVITY_FRAME} type
  * @property {string} tool
@@ -179,8 +163,7 @@ import { onSessionChange } from './terminal.js';
  *   panel?: string, detail?: string }} target
  * @property {number} [ts]
  *
- * @typedef {PanelFocusEvent | PanelVisibilityEvent | RailOrderEvent | PanelCloseEvent
- *   | PanelRegisterEvent | PanelArrangeEvent | AgentActivityEvent} PanelSSEEvent
+ * @typedef {PanelVisibilityEvent | RailOrderEvent | PanelRegisterEvent | AgentActivityEvent} PanelSSEEvent
  */
 
 // ---- State ----
@@ -620,6 +603,9 @@ export async function initPanelManager(panelId) {
     resetActive: () => {
       activeTabId = null;
     },
+    // Forget the surfaced panel AND its rail accent: an op that took the
+    // viewed panel away and could surface nothing in its place.
+    clearActive: clearActivePanel,
     renderEmpty: renderEmptyState,
     // Closure, not the value: onAgentActivity is reassigned whenever the
     // activity strip registers (setActivityStripHandler), and the dispatcher
@@ -899,9 +885,10 @@ export function showPanel(panelId) {
 
 /**
  * Apply a config-defined preset ("Layout") by name — the "+" menu's and the
- * command palette's Layouts action. One arrange request; the panel_arrange echo
- * opens exactly the preset's tiles and prunes the rail to its members on every
- * client, so nothing is applied locally ahead of it.
+ * command palette's Layouts action. One open-arrangement op through the same
+ * route an agent uses; the current dock client's op runner applies it and the
+ * server prunes the rail to the preset's members, so nothing is applied locally
+ * ahead of it.
  * @param {string} name
  */
 export function applyMenuPreset(name) {
@@ -919,7 +906,7 @@ function navigatePanel(panelId, url) {
   if (!state) return;
 
   // Store the target URL so that createIframe() picks it up if the iframe
-  // hasn't been lazy-loaded yet (e.g. first panel_focus SSE before the user
+  // hasn't been lazy-loaded yet (e.g. an agent open before the user
   // has ever clicked the tab).
   state.pendingUrl = url;
 
@@ -942,7 +929,7 @@ function navigatePanel(panelId, url) {
   state.pendingUrl = null;
 }
 
-/** Human-local twin of the panel_focus SSE path: navigate a panel to `url`
+/** Human-local twin of an agent's open with a url: navigate a panel to `url`
  *  and plain-activate it. No agent glow, no server broadcast.
  *  @param {string} panelId
  *  @param {string} url */

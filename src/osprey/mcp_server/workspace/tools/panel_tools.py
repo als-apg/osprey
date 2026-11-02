@@ -4,86 +4,86 @@ A panel sits on two independent axes, and each verb here names the one it moves:
 
 - **rail membership** — can the operator launch this panel in one click?
   ``add_panel_to_rail`` / ``remove_panel_from_rail``.
-- **on screen** — is the panel's tile actually in front of the operator?
-  ``open_panel`` / ``close_panel``.
+- **on screen** — is the panel a tab of a tile in front of the operator?
+  ``open_panel``, ``open_panel_set``, ``arrange_workspace``, ``drop_panel``,
+  ``close_panel_tab`` and ``close_panel_tile``.
 
-Keeping the axes apart is the whole point of the names. The pairs used to be
-``show_panel``/``hide_panel``/``switch_panel``, where ``show_panel`` moved rail
-membership despite its name, ``hide_panel`` moved both axes at once, and the
-only verb that put anything on screen was the one named for switching. Nothing
-could close a tile without also making the panel unlaunchable, and the
-docstrings spent more lines redirecting to each other than describing what they
-did.
+The on-screen verbs are the dock ops in OSPREY's naming style (``open``,
+``open_set``, ``open_arrangement``, ``drop``, ``close_tab``, ``close_tile``). Every one goes through :func:`osprey.mcp_server.http.panel_op`,
+the one agent dock-write path: the web terminal relays the op to the browser
+that holds the dock, and the tool answers with the resulting layout and its
+``rev`` — or with a named refusal, in which case nothing changed.
 
-``list_panels`` reports both axes. ``register_panel`` adds a panel the
-deployment did not ship (requires opt-in). ``arrange_workspace`` sets a whole
-tile layout in one declarative call.
+``list_panels`` reports both axes, the full layout and the ``rev`` the
+tile-naming verbs take as ``base_rev``. ``register_panel`` adds a panel the
+deployment did not ship (requires opt-in).
 """
 
 import functools
 import json
+from typing import Any, Literal
 
 import anyio
 
 from osprey.mcp_server.errors import make_error
 from osprey.mcp_server.http import (
+    NO_WEB_TERMINAL,
     fetch_panels,
-    notify_panel_arrange,
-    notify_panel_close,
-    notify_panel_focus,
     notify_panel_register,
     notify_panel_visibility,
+    panel_op,
 )
 from osprey.mcp_server.workspace.server import mcp
 
 
 @mcp.tool()
 async def list_panels() -> str:
-    """List the panels available in the Web Terminal, and what is on screen.
+    """List the panels available in the Web Terminal, and the dock's layout.
 
     Two different things, easy to confuse:
 
     - ``visible`` — the panel has an entry in the **launcher rail**, so the
       operator can open it in one click.  It says nothing about whether the
       panel is on screen right now.
-    - ``open_tiles`` — the service tiles **actually on screen**, in
-      left-to-right reading order.  This is what the operator is looking at.
+    - ``layout`` — what is **actually on screen**: the dock's tiles, each with
+      its tabs and the tab it is showing (the terminal included).
+
+    ``layout`` is a tree.  A tile is ``{tile, tabs, showing, size, from?}``:
+    ``tile`` is its id, ``tabs`` the panel ids in it in bar order, ``showing``
+    the one in front.  A split is ``{split: "row"|"column", items, size?}``;
+    ``size`` is a fraction of the parent.  ``popouts`` lists the panels the
+    operator moved into windows of their own: they are on screen but in no
+    tile, and no write tool moves or closes them (``popped_out``) — an
+    ``open_panel`` brings the window forward.  ``layout`` is null when no
+    browser with the dock has reported.  ``rev`` is the layout's revision: pass it as
+    ``base_rev`` to ``drop_panel`` and ``close_panel_tile``, which name tile ids
+    — a write against an older ``rev`` is refused ``stale_base``.  Every write
+    tool returns the new layout and ``rev``, so two steps in a row need no
+    second read.
+
+    How far to trust ``layout``:
+
+    - ``layout_dock: true`` — a real report.
+    - ``layout: null`` with ``layout_dock: false`` — someone is watching
+      without a dock shell: occupancy is unknown, not empty.
+    - ``layout_dock: null`` (with a null age) — no client ever reported.
+
+    ``layout_age_s`` counts seconds since the arrangement last *changed*.
 
     Covers the enabled built-in panels (e.g. artifacts, ariel, channel-finder,
-    lattice, okf, events) and any custom panels defined in config.yml.  The
-    inventory is provided in your context at session start; call this tool to
-    refresh the live state, or when you need to know what is on screen before
-    rearranging it.  Panel IDs vary between deployments — do not guess them.
-
-    How far to trust ``open_tiles``: it is whatever a browser last reported,
-    and three cases read differently.
-
-    - A list with ``open_tiles_dock: true`` is a real report — including an
-      empty list, which means the operator closed every service tile.
-    - ``open_tiles: null`` with ``open_tiles_dock: false`` means someone is
-      watching but their client has no dock shell and cannot report tile
-      order: occupancy is unknown, not empty.
-    - ``open_tiles_dock: null`` (with a null age) means no client has ever
-      reported — nobody is watching.
-
-    ``open_tiles_age_s`` counts seconds since the arrangement last *changed*,
-    so a large age means either that the operator has not moved a tile in a
-    while or that their browser is gone; the two are indistinguishable from
-    here.  Treat an old report as a hint, not as fact.
+    lattice, okf, events) and any custom panels defined in config.yml.  Panel
+    IDs vary between deployments — do not guess them.
 
     To honor a request like "set up for machine setup", look up the named
     layout in ``presets`` and apply it with ``arrange_workspace(preset=...)``
     — the same operation a human's "Layouts" click performs.
 
     Returns:
-        JSON with ``status``, ``active`` (the last focus the server recorded —
-        an operator's tab click, an ``open_panel``, or the focus an arrange
-        resolved to; it is an intent, so a client that could not honor it may
-        be showing something else), ``panels``, ``open_tiles``,
-        ``open_tiles_age_s``,
-        ``open_tiles_dock``, and ``presets`` (config-defined layouts — each
-        ``{name, panels: [id, ...]}``; empty unless the deployment defines
-        any).  Each panel entry has ``id``, ``label`` and ``visible``.
+        JSON with ``status``, ``active`` (the last focus the server recorded),
+        ``panels`` (each ``id``, ``label``, ``visible``), ``layout``,
+        ``popouts``, ``rev``, ``layout_age_s``, ``layout_dock`` and ``presets``
+        (config-defined layouts, each with a ``name`` and its ``panels``; empty
+        unless the deployment defines any).
     """
     data = await anyio.to_thread.run_sync(fetch_panels)
     if data is None:
@@ -121,9 +121,11 @@ async def list_panels() -> str:
             "status": "success",
             "active": data.get("active"),
             "panels": panels,
-            "open_tiles": data.get("open_tiles"),
-            "open_tiles_age_s": data.get("open_tiles_age_s"),
-            "open_tiles_dock": data.get("open_tiles_dock"),
+            "layout": data.get("layout"),
+            "popouts": data.get("popouts", []),
+            "rev": data.get("rev"),
+            "layout_age_s": data.get("layout_age_s"),
+            "layout_dock": data.get("layout_dock"),
             "presets": data.get("presets", []),
         }
     )
@@ -205,7 +207,7 @@ async def remove_panel_from_rail(panel_id: str) -> str:
 
     Any tile of it also closes on every connected client — a panel the operator
     cannot launch must not be left stranded on screen.  To clear the screen
-    while keeping the panel one click away, use ``close_panel`` instead.
+    while keeping the panel one click away, use ``close_panel_tab`` instead.
 
     Use when the user asks to remove a panel or get rid of it for good.
 
@@ -288,6 +290,144 @@ async def register_panel(
     )
 
 
+#: Next steps per named refusal; a reason not listed gets :data:`_DEFAULT_HINT`.
+_REFUSAL_HINTS: dict[str, str] = {
+    "stale_base": (
+        "The layout changed since your read: call list_panels for the current layout "
+        "and rev, then retry with that rev as base_rev."
+    ),
+    "no_dock_client": (
+        "No browser with the dock is answering: ask the operator to open the Web "
+        "Terminal, or continue without the workspace."
+    ),
+    NO_WEB_TERMINAL: "Continue without the workspace, or ask the operator to start it.",
+    "terminal_not_agent_movable": (
+        "The Agent pane is always its own tile: move or close service panels "
+        "instead, and drop beside its tile (an edge), never into it."
+    ),
+    "terminal_in_layout": (
+        "Leave the terminal out of the layout: arrangements place service panels "
+        "and leave the terminal where it is."
+    ),
+    "too_many_for_side": (
+        "The panels do not fit side by side: open them as tabs, or give an exact layout."
+    ),
+}
+_DEFAULT_HINT = "Call list_panels for the current layout, rev, panel ids and presets."
+
+#: Which tool reports a refusal of each op.
+_OP_TOOLS = {
+    "drop": "drop_panel",
+    "close_tab": "close_panel_tab",
+    "close_tile": "close_panel_tile",
+    "open": "open_panel",
+    "open_set": "open_panel_set",
+    "open_arrangement": "arrange_workspace",
+}
+
+#: How ``open_panel_set`` opens its panels (the dock op's ``as``).
+OpenSetAs = Literal["tabs", "side"]
+
+#: How ``arrange_workspace`` opens a preset's panels: as tabs, side by side, or
+#: by the preset's own layout.
+OpenAs = Literal["tabs", "side", "layout"]
+
+
+def _refuse(op: str, reason: str, detail: str, rev: int | None = None) -> None:
+    """Raise the structured error for an op refused for a named ``reason``.
+
+    The ``error_type`` is the reason itself (``stale_base``,
+    ``terminal_not_agent_movable``, ...), so an agent can branch on it.
+    """
+    details: dict[str, Any] = {"op": op, "reason": reason, "detail": detail}
+    if rev is not None:
+        details["rev"] = rev
+    make_error(
+        reason,
+        f"{_OP_TOOLS[op]} refused ({reason}): {detail} Nothing changed.",
+        [_REFUSAL_HINTS.get(reason, _DEFAULT_HINT)],
+        details,
+    )
+
+
+async def _run_panel_op(
+    op: str, args: dict, *, base_rev: int | None = None, echo: dict | None = None
+) -> str:
+    """Run one dock op through :func:`panel_op`; the shared body of the write tools.
+
+    Returns:
+        JSON ``{"status": "success", **echo, "layout", "popouts", "rev"}`` once
+        the dock applied the op.
+
+    Raises:
+        ToolError: The op was refused (or the web terminal is unreachable); the
+            envelope's ``error_type`` is the named reason.
+    """
+    result = await anyio.to_thread.run_sync(
+        functools.partial(panel_op, op, args, base_rev=base_rev)
+    )
+    if not result.get("ok"):
+        _refuse(
+            op,
+            str(result.get("reason") or "invalid_request"),
+            str(result.get("detail") or ""),
+            result.get("rev"),
+        )
+    return json.dumps(
+        {
+            "status": "success",
+            **(echo or {}),
+            "layout": result.get("layout"),
+            "popouts": result.get("popouts", []),
+            "rev": result.get("rev"),
+        }
+    )
+
+
+def _layout_members(layout: object) -> list[str]:
+    """The panel ids a panel-id layout names, in reading order, each once."""
+    found: list[str] = []
+
+    def walk(node: object) -> None:
+        if not isinstance(node, dict):
+            return
+        tabs = node.get("tabs")
+        if isinstance(tabs, list):
+            found.extend(tab for tab in tabs if isinstance(tab, str) and tab not in found)
+        items = node.get("items")
+        if isinstance(items, list):
+            for item in items:
+                walk(item)
+
+    walk(layout)
+    return found
+
+
+def _indexed_layout(layout: object, members: list[str]) -> object:
+    """*layout* with every tab (and ``showing``) naming a member replaced by its index.
+
+    The op routes take a collection-form layout whose keys are member indexes;
+    agents write panel ids. Anything that names no member is left as it is, so
+    the route refuses it under its own named reason (``terminal_in_layout``,
+    ``bad_key``, ...).
+    """
+    index = {member: position for position, member in enumerate(members)}
+
+    def key(value: object) -> object:
+        return index.get(value, value) if isinstance(value, str) else value
+
+    if not isinstance(layout, dict):
+        return layout
+    out = dict(layout)
+    if isinstance(out.get("tabs"), list):
+        out["tabs"] = [key(tab) for tab in out["tabs"]]
+    if "showing" in out:
+        out["showing"] = key(out["showing"])
+    if isinstance(out.get("items"), list):
+        out["items"] = [_indexed_layout(item, members) for item in out["items"]]
+    return out
+
+
 @mcp.tool()
 async def open_panel(panel_id: str, url: str | None = None) -> str:
     """Put a panel on screen in front of the operator.
@@ -298,17 +438,20 @@ async def open_panel(panel_id: str, url: str | None = None) -> str:
 
     Additive — nothing on screen is evicted or resized:
 
-    - the panel is already on screen → it is brought forward where it is;
-    - the panel is on the rail but has no tab → it opens as a new tab, in
-      front, in the service tile the operator used last;
-    - the panel is not on the rail → it is added to the rail, then opened the
-      same way.
+    - the panel is already open → its tab is brought forward where it is;
+    - otherwise it becomes a new tab, in front, of the service tile the
+      operator used last — the terminal's tile is never the target;
+    - with no service tile open it opens as the first service tile beside the
+      terminal;
+    - a panel not on the rail is added to it once it is on screen.
 
-    A panel whose backend is unhealthy does not open: nothing appears and focus
-    is unchanged.
+    A panel whose backend is unhealthy does not open, and a panel living in its
+    own pop-out window is brought to the front there, with the layout unchanged.
 
-    One panel.  For an explicit multi-tile end state ("lattice next to
-    artifacts", "set up for injection") use ``arrange_workspace`` instead.
+    One panel.  For several at once use ``open_panel_set``; for an exact
+    arrangement or a configured preset use ``arrange_workspace``; to put a panel
+    at a specific place (beside a tile, as a tab of a given tile) use
+    ``drop_panel``.
 
     Panel IDs are provided in your context at session start; call
     ``list_panels`` to refresh the live state if needed.  Do NOT guess
@@ -317,121 +460,204 @@ async def open_panel(panel_id: str, url: str | None = None) -> str:
     Args:
         panel_id: Panel identifier returned by list_panels (e.g.
             'artifacts', 'events', 'ariel', 'lattice', etc.).
-        url: Optional URL to navigate the panel iframe to before opening it.
+        url: Optional URL to navigate the panel iframe to as it opens: a
+            root-relative path (``/panel/ariel/#/draft/7``) or an
+            ``http(s)://`` URL.
 
     Returns:
-        JSON with status confirmation.
+        JSON with ``status``, ``panel``, the resulting ``layout`` and its
+        ``rev``; or a structured error whose ``error_type`` names the refusal
+        (``unknown_member``, ``no_dock_client``, ...).
     """
-    await anyio.to_thread.run_sync(functools.partial(notify_panel_focus, panel_id, url=url))
-    return json.dumps({"status": "success", "panel": panel_id})
+    args: dict[str, Any] = {"member": panel_id}
+    if url is not None:
+        args["url"] = url
+    return await _run_panel_op("open", args, echo={"panel": panel_id})
 
 
 @mcp.tool()
-async def close_panel(panel_id: str) -> str:
-    """Take a panel's tile off the screen, leaving it one click away on the rail.
+async def drop_panel(source: dict[str, Any], target: dict[str, Any], base_rev: int) -> str:
+    """Put a panel, a tab or a whole tile at a specific place in the dock.
 
-    The operator can reopen it from the rail with its state intact.  Use when
-    the user asks to close, dismiss, or clear a panel but keep it available.  To
-    take it off the rail as well use ``remove_panel_from_rail``; to state a whole
-    layout at once use ``arrange_workspace``.
+    The agent's version of a person's drag, with the same result: every drop a
+    person can make, you can make, plus the ``border`` target, which a drag
+    has no pointer zone for.  Read the layout first (``list_panels``) and pass
+    its ``rev`` as ``base_rev``.
 
-    Closing a panel with no tile open is a no-op, not an error.
+    ``source`` — what moves:
 
-    Panel IDs are provided in your context at session start; call
-    ``list_panels`` to refresh the live state if needed.  Do NOT guess
-    panel IDs — they vary between deployments.
+    - ``{"new": {"panel": "<panel id>"}}`` — a panel that is not open yet;
+    - ``{"tab": "<panel id>"}`` — an open tab (it leaves its tile; a tile left
+      with no tab disappears and its space goes to one neighbour); a panel in
+      a pop-out window is not a tab and is refused ``popped_out``;
+    - ``{"tile": "<tile id>"}`` — a whole tile with all its tabs.
+
+    ``target`` — where it lands (tile ids come from ``layout``):
+
+    - ``{"tile": id, "zone": "centre"}`` — a new tab of that tile, shown;
+    - ``{"tile": id, "zone": "tab", "index": n}`` — a tab at position ``n``;
+    - ``{"tile": id, "edge": "left"|"right"|"top"|"bottom"}`` — split that
+      tile into two equal halves, the item on that side;
+    - ``{"border": {"tile": id, "side": "left"|"right"|"top"|"bottom"}}`` — a
+      new tile inserted between that tile and its neighbour on that side,
+      taking an equal share of the row or column;
+    - ``{"outer": "left"|"right"|"top"|"bottom"}`` — a tile spanning the full
+      height or width of the dock, taking one third of it.
+
+    The terminal tab, and a tile holding it, is never a source (refused
+    ``terminal_not_agent_movable``); dropping services beside the
+    terminal's tile is allowed.  A drop onto itself changes nothing.
 
     Args:
-        panel_id: Panel identifier (e.g. 'artifacts', 'ariel', 'lattice').
+        source: What moves, as above.
+        target: Where it lands, as above.
+        base_rev: The ``rev`` of the layout the tile ids were read from.
 
     Returns:
-        JSON with status confirmation.
+        JSON with ``status``, the resulting ``layout`` and its ``rev``; or a
+        structured error whose ``error_type`` names the refusal
+        (``stale_base``, ``unknown_tile``, ``invalid_source``,
+        ``invalid_target``, ...).
     """
-    await anyio.to_thread.run_sync(notify_panel_close, panel_id)
-    return json.dumps({"status": "success", "panel": panel_id})
+    return await _run_panel_op("drop", {"source": source, "target": target}, base_rev=base_rev)
+
+
+@mcp.tool()
+async def close_panel_tab(panel_id: str) -> str:
+    """Close a panel's tab, leaving the panel one click away on the rail.
+
+    Use when the user asks to close, dismiss or clear a panel but keep it
+    available.  Closing a tile's last tab removes the tile; its space goes to
+    one neighbour.  To close a whole tile with all its tabs use
+    ``close_panel_tile``; to take the panel off the rail as well use
+    ``remove_panel_from_rail``.  The terminal is never closed by an agent, and a
+    panel in a pop-out window is refused ``popped_out``: the operator closes
+    that window.
+
+    Args:
+        panel_id: The tab's panel id (e.g. 'artifacts', 'ariel', 'lattice').
+
+    Returns:
+        JSON with ``status``, ``panel``, the resulting ``layout`` and its
+        ``rev``; or a structured error whose ``error_type`` names the refusal.
+    """
+    return await _run_panel_op("close_tab", {"key": panel_id}, echo={"panel": panel_id})
+
+
+@mcp.tool()
+async def close_panel_tile(tile: str, base_rev: int) -> str:
+    """Close a whole tile with every tab in it; its space goes to one neighbour.
+
+    The panels stay on the rail.  A tile that holds the terminal is never
+    closed by an agent (``terminal_not_agent_movable``) — close its service
+    tabs with ``close_panel_tab`` instead.
+
+    Args:
+        tile: The tile id, from ``list_panels``' ``layout``.
+        base_rev: The ``rev`` of the layout the tile id was read from.
+
+    Returns:
+        JSON with ``status``, ``tile``, the resulting ``layout`` and its
+        ``rev``; or a structured error whose ``error_type`` names the refusal
+        (``stale_base``, ``unknown_tile``, ...).
+    """
+    return await _run_panel_op("close_tile", {"tile": tile}, base_rev=base_rev, echo={"tile": tile})
+
+
+@mcp.tool()
+async def open_panel_set(panels: list[str], open_as: OpenSetAs = "side") -> str:
+    """Open several panels in one call, as tabs or side by side.
+
+    - ``open_as="tabs"`` — one new tile holding all of them as tabs, beside the
+      tile the operator is on;
+    - ``open_as="side"`` — one tile each, in a row after the focused tile,
+      sharing its space equally (a near-square grid when a row is too narrow;
+      refused ``too_many_for_side`` when even that does not fit).
+
+    For an exact arrangement use ``arrange_workspace(layout=...)``.  The
+    terminal is never part of a set and is left where it is.
+
+    Args:
+        panels: The panel ids, each once, never ``terminal``.
+        open_as: ``"tabs"`` or ``"side"`` (default).
+
+    Returns:
+        JSON with ``status``, ``panels``, the resulting ``layout`` and its
+        ``rev``; or a structured error whose ``error_type`` names the refusal
+        (``unknown_member``, ``duplicate_member``, ``terminal_in_layout``,
+        ``member_missing``, ...).
+    """
+    args: dict[str, Any] = {"members": list(panels), "as": open_as}
+    return await _run_panel_op("open_set", args, echo={"panels": list(panels)})
 
 
 @mcp.tool()
 async def arrange_workspace(
-    tiles: list[str] | None = None,
-    focus: str | None = None,
     preset: str | None = None,
+    layout: dict[str, Any] | None = None,
+    open_as: OpenAs | None = None,
 ) -> str:
-    """Lay out the whole workspace: exactly these tiles on screen, in this order.
+    """Lay out the service panels: a configured preset, or an exact layout.
 
     Use this when the user describes an arrangement rather than a single panel
-    — "put lattice next to artifacts", "just the orbit tools", "set up for
-    injection".  For putting one panel on screen, use ``open_panel`` instead.
+    — "put lattice next to artifacts", "ariel and logbook as tabs on the left",
+    "set up for injection".  For one panel use ``open_panel``; for a small move
+    (one panel beside a tile) use ``drop_panel``.
 
-    This is a declarative end state, not a set of steps.  After it is applied:
+    Pass exactly one of:
 
-    - exactly the listed panels have a tile, left to right in the order given;
-    - panels not listed have their tiles closed; with ``tiles`` they **keep**
-      their launcher-rail entry so the operator can reopen them, while a
-      ``preset`` also drops non-members from the rail;
-    - listed panels that were not in the rail are added to it;
-    - the terminal tile is never moved, closed, or reordered.
+    - ``preset`` — the name of a configured layout (``list_panels`` reports
+      them in ``presets``).  It opens as configured; ``open_as`` (``"tabs"``,
+      ``"side"`` or ``"layout"``) overrides that.  Like the operator's
+      "Layouts" click, the rail then holds exactly the preset's panels.
+    - ``layout`` — an exact arrangement: a tree whose tiles list panel ids,
+      e.g. ``{"split": "row", "items": [{"tabs": ["ariel", "lattice"]},
+      {"tabs": ["artifacts"], "size": 2}]}`` (no tile ids; ``size`` is a
+      relative weight; ``showing`` defaults to the first tab).  Listed panels
+      that are not on the rail join it.
 
-    Pass either ``tiles`` or ``preset``, never both.  A ``preset`` names a
-    layout from the deployment's config (``list_panels`` reports the available
-    ones); pruning the rail to its members is exactly what an operator gets
-    from clicking that layout in "Layouts".
-
-    Focus is applied with a health fallback in the browser: the requested panel
-    if it is healthy, otherwise the first healthy tile in the list, otherwise
-    focus is left where it is — unless the arrangement closed the focused tile,
-    in which case nothing is focused.  Health is only observable client-side,
-    so the response echoes the focus that was *requested*, which may not be the
-    one the operator ends up on.
+    The result replaces the current service tiles.  The terminal is never part
+    of a layout (refused ``terminal_in_layout``) and keeps its tile, place and
+    size; service tabs that shared its tile move into the new arrangement.
 
     Args:
-        tiles: Panel ids to leave open, in left-to-right order.  Must name at
-            least one panel — an arrangement never empties the workspace.
-        focus: Optional panel to focus; must be one of the resulting tiles.
-        preset: Name of a configured layout to apply instead of ``tiles``.
+        preset: Name of a configured layout.
+        layout: An exact arrangement, as above.
+        open_as: With ``preset`` only: open its panels as ``"tabs"``,
+            ``"side"`` or by its ``"layout"`` instead of the configured way.
 
     Returns:
-        JSON with ``status``, the applied ``tiles`` and requested ``focus``,
-        ``preset`` when one was applied, and ``open_tiles_age_s`` /
-        ``open_tiles_dock``.  Those last two describe the *last layout report*,
-        not the arrangement just requested — usually the state from before this
-        call, since the client reports back on its own schedule.  A null
-        ``open_tiles_dock`` means no client has ever reported, so there may be
-        nobody there to apply this.  The age counts from the last time the
-        arrangement *changed*, so a large value does not by itself mean the
-        browser is gone.  Read the result back with ``list_panels`` if you need
-        to confirm what landed.
+        JSON with ``status``, ``preset`` or ``panels``, the resulting
+        ``layout`` and its ``rev``; or a structured error whose ``error_type``
+        names the refusal (``unknown_arrangement``, ``unknown_member``,
+        ``terminal_in_layout``, ``member_missing``, ``no_dock_client``, ...).
     """
-    result = await anyio.to_thread.run_sync(
-        functools.partial(notify_panel_arrange, tiles=tiles, preset=preset, focus=focus)
-    )
-
-    if not result["ok"]:
-        if result.get("status") is None:
-            return make_error(
-                "web_terminal_unreachable",
-                "Web Terminal is not running — the workspace cannot be arranged.",
-                ["Continue without the workspace, or ask the operator to start it."],
-            )
-        return make_error(
-            "arrange_rejected",
-            f"The arrangement was rejected: {result.get('detail', '')}",
-            [
-                "Call list_panels for the valid panel ids and the configured presets.",
-                "Pass exactly one of 'tiles' or 'preset'.",
-                "A focus target must be one of the arranged tiles.",
-            ],
+    if (preset is None) == (layout is None):
+        _refuse(
+            "open_arrangement",
+            "invalid_request",
+            "pass exactly one of 'preset' or 'layout'.",
         )
-
-    data = result.get("data", {})
-    panels = await anyio.to_thread.run_sync(fetch_panels) or {}
-    response: dict = {
-        "status": "success",
-        "tiles": data.get("tiles", tiles),
-        "focus": data.get("focus", focus),
-        "open_tiles_age_s": panels.get("open_tiles_age_s"),
-        "open_tiles_dock": panels.get("open_tiles_dock"),
-    }
-    if data.get("preset") is not None:
-        response["preset"] = data["preset"]
-    return json.dumps(response)
+    if preset is not None:
+        args: dict[str, Any] = {"name": preset}
+        if open_as is not None:
+            args["as"] = open_as
+        return await _run_panel_op("open_arrangement", args, echo={"preset": preset})
+    if open_as not in (None, "layout"):
+        _refuse(
+            "open_arrangement",
+            "invalid_request",
+            "open_as applies to a preset; a layout opens as that layout.",
+        )
+    members = _layout_members(layout)
+    if not members:
+        _refuse(
+            "open_arrangement",
+            "invalid_layout",
+            "the layout names no panel; a tile lists panel ids in 'tabs'.",
+        )
+    return await _run_panel_op(
+        "open_set",
+        {"members": members, "as": "layout", "layout": _indexed_layout(layout, members)},
+        echo={"panels": members},
+    )

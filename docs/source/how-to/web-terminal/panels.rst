@@ -407,29 +407,40 @@ unknown id is dropped with a warning, and a layout with no valid members is
 skipped. When no ``web.presets`` are configured — the default — the ``+`` menu is
 unchanged, so layouts never add clutter to a deployment that has not opted in.
 
-Layouts are just a shortcut over adding and removing rail entries, so the OSPREY
-agent can reach the same end state either way — but not with the same prompting.
-Applying a layout with ``arrange_workspace`` does not ask; the
-``add_panel_to_rail`` / ``remove_panel_from_rail`` tools ask the operator to
-approve each call on a stock build.
+The OSPREY agent applies the same layouts with ``arrange_workspace``, by name
+and without asking; the ``add_panel_to_rail`` / ``remove_panel_from_rail``
+tools ask the operator to approve each call on a stock build.
 ``list_panels`` reports the configured layouts so the agent can honor a request
 like "set up for machine setup."
 
 Panel tools the agent uses
 --------------------------
 
-The panel tools come in two kinds: the ones that say what is on screen, which
-are auto-allowed, and the ones that change rail membership, which ask the
-operator first.
+The agent changes the dock the way you do, with the same rules: every drop you
+can make, it can make. The panel tools come in two kinds: the ones that say
+what is on screen, which are auto-allowed, and the ones that change rail
+membership, which ask the operator first.
 
 What is on screen:
 
-- ``list_panels`` — the panels this deployment has, which of them are on
-  screen, and the configured layouts.
-- ``open_panel`` — put a panel on screen; it joins the rail if it was off it.
-- ``close_panel`` — take a panel's tile off screen, leaving it on the rail.
-- ``arrange_workspace`` — state a whole layout: exactly these tiles, in this
-  order.
+- ``list_panels`` — the panels this deployment has, the dock's tiles with
+  their tabs and the tab in front of each (the terminal included), the panels
+  in pop-out windows, and the configured layouts.
+- ``open_panel`` — put a panel on screen by the opening rule: a new tab in
+  front of the service tile used last. It joins the rail if it was off it.
+- ``open_panel_set`` — open several panels in one call: as tabs of one tile,
+  or side by side.
+- ``arrange_workspace`` — apply a configured layout, or an exact one, in place
+  of the service tiles; the terminal keeps its place.
+- ``drop_panel`` — drop a new panel, an open tab or a whole tile on a tile's
+  centre, a tab position or an edge, along a whole side of the dock, or
+  between two tiles.
+- ``close_panel_tab`` — close a panel's tab, leaving it on the rail.
+- ``close_panel_tile`` — close a whole tile with its tabs.
+
+The agent never moves or closes the terminal, and never moves or closes a
+panel you put in a window of its own; ``open_panel`` brings that window
+forward.
 
 Rail membership, each one approved by the operator:
 

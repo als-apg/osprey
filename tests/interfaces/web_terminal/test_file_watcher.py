@@ -24,6 +24,8 @@ from watchdog.events import (
 from watchdog.observers.polling import PollingObserver
 
 from osprey.interfaces.web_terminal.file_watcher import (
+    RELIABLE_CAP,
+    STREAM_END,
     FileEventBroadcaster,
     WorkspaceWatcher,
     _WorkspaceHandler,
@@ -106,6 +108,48 @@ class TestFileEventBroadcaster:
         assert q.qsize() == 64
         assert q.get_nowait()["path"] == "file_0.py"
         assert late.get_nowait()["path"] == "after.py"
+
+    def test_a_reliable_frame_is_queued_past_the_ordinary_cap(self):
+        broadcaster = FileEventBroadcaster()
+        q = broadcaster.subscribe("page")
+        for i in range(70):
+            broadcaster.broadcast({"type": "modified", "path": f"file_{i}.py"})
+
+        broadcaster.broadcast({"type": "panel_report_request"}, reliable=True)
+
+        assert q.qsize() == 65
+        assert broadcaster.has_client("page")
+
+    def test_a_stream_at_the_reliable_cap_is_dropped_and_ended(self):
+        broadcaster = FileEventBroadcaster()
+        stalled = broadcaster.subscribe("stalled")
+        live = broadcaster.subscribe("live")
+        for _ in range(RELIABLE_CAP):
+            broadcaster.broadcast({"type": "panel_report_request"}, reliable=True)
+            live.get_nowait()
+
+        broadcaster.broadcast({"type": "panel_report_request"}, reliable=True)
+
+        assert stalled.qsize() == 1
+        assert stalled.get_nowait() is STREAM_END
+        assert not broadcaster.has_client("stalled")
+        assert live.get_nowait()["type"] == "panel_report_request"
+        broadcaster.broadcast({"type": "modified", "path": "after.py"})
+        assert stalled.empty()
+
+    def test_send_to_reaches_only_the_named_clients_streams(self):
+        broadcaster = FileEventBroadcaster()
+        first = broadcaster.subscribe("dock")
+        second = broadcaster.subscribe("dock")
+        other = broadcaster.subscribe("other")
+        anonymous = broadcaster.subscribe()
+
+        broadcaster.send_to("dock", {"type": "panel_op", "request_id": "r1"}, reliable=True)
+
+        assert first.get_nowait()["request_id"] == "r1"
+        assert second.get_nowait()["request_id"] == "r1"
+        assert other.empty()
+        assert anonymous.empty()
 
 
 class TestWorkspaceWatcher:

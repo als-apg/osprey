@@ -333,6 +333,35 @@ def normalize_layout(layout: Mapping[str, Any], form: LayoutForm = "dock") -> di
     return _with_size(_normalize_node(layout, form, tiles), None)
 
 
+def same_layout(a: Mapping[str, Any] | None, b: Mapping[str, Any] | None) -> bool:
+    """Whether two dock layouts describe the same workspace, up to size rounding.
+
+    The same tree of splits and tiles, the same tabs in the same order and the
+    same showing tab in every tile, with every size equal to within
+    :data:`SIZE_TOLERANCE` (the engine's own fraction tolerance). The browser
+    compares its reports this way (``sameReport`` in ``dock-sync.js``): the
+    read-back of a tree the dock just applied differs from what was applied by
+    a pixel's worth of fraction, and a server that compared exactly would mint
+    a revision for a workspace nobody changed. A transient ``from`` marker is
+    not part of the comparison.
+    """
+    if a is None or b is None:
+        return a is b
+    if abs(float(a.get("size") or 0) - float(b.get("size") or 0)) > SIZE_TOLERANCE:
+        return False
+    if ("split" in a) != ("split" in b):
+        return False
+    if "split" in a:
+        if a["split"] != b["split"] or len(a["items"]) != len(b["items"]):
+            return False
+        return all(same_layout(x, y) for x, y in zip(a["items"], b["items"], strict=True))
+    return (
+        a.get("tile") == b.get("tile")
+        and list(a["tabs"]) == list(b["tabs"])
+        and a.get("showing") == b.get("showing")
+    )
+
+
 def layout_keys(layout: Mapping[str, Any] | None) -> list[str]:
     """Every tab key of a valid dock ``layout`` in reading order (tiles depth-first, tabs in order)."""
     out: list[str] = []

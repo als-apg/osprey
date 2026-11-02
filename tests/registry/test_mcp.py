@@ -327,7 +327,15 @@ class TestResolveServers:
         allow = set(workspace["permissions_allow"])
         ask = set(workspace["permissions_ask"])
         gated = {"add_panel_to_rail", "remove_panel_from_rail", "register_panel"}
-        assert {"list_panels", "open_panel", "close_panel", "arrange_workspace"} <= allow
+        assert {
+            "list_panels",
+            "open_panel",
+            "open_panel_set",
+            "arrange_workspace",
+            "drop_panel",
+            "close_panel_tab",
+            "close_panel_tile",
+        } <= allow
         assert allow.isdisjoint(gated)
         assert gated <= ask
         # A literal matcher per tool: the approval hook and the SDK's disallow

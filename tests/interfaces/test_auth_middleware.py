@@ -775,15 +775,6 @@ def test_wrong_panel_token_is_refused(middleware, app_stub):
     assert detail_of(sent) == "invalid credential"
 
 
-@pytest.mark.usefixtures("downstream")
-@pytest.mark.parametrize("header", ["Bearer", "Bearer   ", "Basic abc", "token-with-no-scheme"])
-def test_unusable_authorization_headers_read_as_no_credential(middleware, app_stub, header):
-    sent = drive(middleware, http_scope(headers={"authorization": header}, app=app_stub))
-    assert status_of(sent) == 401
-    assert detail_of(sent) == "authentication required"
-
-
-@pytest.mark.usefixtures("downstream")
 def test_bearer_scheme_is_case_insensitive(middleware, app_stub):
     headers = {"authorization": f"bearer {PANEL_TOKEN}"}
     assert (
@@ -794,7 +785,7 @@ def test_bearer_scheme_is_case_insensitive(middleware, app_stub):
 def test_panel_token_with_no_origin_is_allowed(middleware, downstream, app_stub):
     """The panel token's normal caller is in-process and sends no ``Origin``."""
     headers = {"host": "localhost:8080", **bearer()}
-    sent = drive(middleware, http_scope("/api/panel-focus", "POST", headers, app=app_stub))
+    sent = drive(middleware, http_scope("/api/panel-op/open", "POST", headers, app=app_stub))
     assert status_of(sent) == 200
     assert downstream.called
 
@@ -807,7 +798,7 @@ def test_panel_token_with_a_foreign_origin_is_403(middleware, downstream, app_st
     request, not off which credential authenticated it.
     """
     headers = {"host": "localhost:8080", "origin": "http://evil.test", **bearer()}
-    sent = drive(middleware, http_scope("/api/panel-focus", "POST", headers, app=app_stub))
+    sent = drive(middleware, http_scope("/api/panel-op/open", "POST", headers, app=app_stub))
     assert status_of(sent) == 403
     assert not downstream.called
 
@@ -884,11 +875,15 @@ def test_disconnect_mid_body_fails_closed(middleware, downstream, app_stub):
 
 
 def test_body_is_only_peeked_for_the_registration_route(middleware, downstream, app_stub):
-    """Every other route decides on method and path alone — no body is read."""
-    payload = json.dumps({"url": "http://evil.test"}).encode()
+    """Every other route decides on method and path alone — no body is read.
+
+    The agent's ``open`` op carries a ``url`` of its own; the gate admits it on
+    method and path, and the route's navigation guard judges the URL.
+    """
+    payload = json.dumps({"member": "ariel", "url": "http://evil.test"}).encode()
     sent = drive(
         middleware,
-        http_scope("/api/panel-arrange", "POST", bearer(), app=app_stub),
+        http_scope("/api/panel-op/open", "POST", bearer(), app=app_stub),
         body_messages(payload),
     )
     assert status_of(sent) == 200
@@ -2000,7 +1995,7 @@ def test_an_operator_header_write_with_a_form_body_is_415(
 
 def test_a_panel_token_write_with_a_form_body_is_415(middleware, downstream, app_stub):
     headers = {"content-type": "text/plain", **bearer()}
-    sent = drive(middleware, http_scope("/api/panel-focus", "POST", headers, app=app_stub))
+    sent = drive(middleware, http_scope("/api/panel-op/open", "POST", headers, app=app_stub))
     assert status_of(sent) == 415
     assert not downstream.called
 

@@ -2,20 +2,20 @@
 /* OSPREY Web Terminal — Dock State Sync
  *
  * The bridge between the dockview workspace and the server-owned panel state.
- * The server is authoritative: every panel show/hide/focus lives on the server
- * and is broadcast over the panel_visibility / panel_focus / panel_register SSE
- * echo, so an agent MCP call and a human dock gesture are indistinguishable
- * downstream (see panel-commands.js / panel-manager.js). This module carries the
- * REVERSE half — turning a human's dockview gestures back into the same
- * server POSTs — without letting the server's own echo bounce back out again.
+ * The server is authoritative for the rail: every panel show/hide lives on the
+ * server and is broadcast over the panel_visibility / panel_register SSE echo,
+ * so an agent MCP call and a human rail gesture are indistinguishable downstream
+ * (see panel-commands.js / panel-manager.js). This module carries the REVERSE
+ * half — turning a human's dockview gestures back into the same server POSTs —
+ * without letting the server's own echo bounce back out again.
  *
  * TWO DIRECTIONS
  * --------------
- *  - Server → dock: panel-sse's frame dispatcher already drives the dock
- *    (activateTab → focusPanel, the visibility fallback → hidePanel, register →
- *    panel-lifecycle's addPanel, all via the dock-iframe adapter). This module
- *    does NOT duplicate
- *    that; it only guarantees those applied changes never POST back.
+ *  - Server → dock: panel-sse's frame dispatcher already drives the dock (an
+ *    agent's `panel_op` through the op runner and the layout holder, the
+ *    visibility fallback → hidePanel, register → panel-lifecycle's addPanel,
+ *    all via the dock-iframe adapter). This module does NOT duplicate that; it
+ *    only guarantees those applied changes never POST back.
  *  - Dock → server: a human focusing a dock tab POSTs setPanelFocus — the only
  *    new POST source the docked model introduces. A human CLOSING a dock tab is
  *    deliberately NOT a server change: tile occupancy is per-client layout
@@ -23,8 +23,8 @@
  *    and closing a tile does not remove the panel from the rail), so the close
  *    is routed to a locally-registered vacate handler instead.
  *
- * …plus one channel that is neither: the OCCUPANCY REPORT below tells the
- * server what is on screen without commanding anything.
+ * …plus one channel that is neither: the LAYOUT REPORT below tells the server
+ * what is on screen without commanding anything.
  *
  * THE ECHO GUARD (core correctness property)
  * ------------------------------------------
@@ -36,21 +36,30 @@
  * echo of an applied focus is recognised and never re-POSTed. (dockview's
  * Emitter.fire is synchronous, so the suppressed window covers the echo.)
  *
- * THE OCCUPANCY REPORT (deliberately NOT echo-guarded)
- * ----------------------------------------------------
+ * THE LAYOUT REPORT (deliberately NOT echo-guarded)
+ * -------------------------------------------------
  * Rail membership says which panels an operator can reach; it does not say what
- * is actually on screen. So this module also REPORTS the open service tiles in
- * reading order (POST /api/panel-layout), letting the agent read real occupancy
- * instead of inferring it. A report is not a command: the server stores it
- * last-writer-wins and broadcasts nothing.
+ * is actually on screen. So this module also REPORTS the dock's layout (POST
+ * /api/panel-layout): the layout holder's tree — tiles, their tabs, each tile's
+ * showing tab and the terminal — plus the panels living in pop-out windows and
+ * this page's `client_id`, letting the agent read the real workspace instead
+ * of inferring it. It is read from the holder (dock-apply.js), never serialized
+ * from dockview's toJSON: the holder is the dock's single source of truth, and
+ * the one producer of what the agent reads. A report is not a command: the
+ * server stores it last-writer-wins, records this page as the current dock
+ * client, mints a `rev` and broadcasts nothing. The ack's `rev` goes back to
+ * the holder (`ack(rev)`: kept as `ackedRev`, `dirty` cleared) — but only while
+ * the holder still holds what was acked; a layout that moved on while the
+ * report was in flight stays dirty and is reported next.
  *
  * Unlike the focus POST, the reporter is NOT gated on the echo guard — it must
  * not be. dockview emits onDidLayoutChange on a microtask, so the event lands
  * AFTER the synchronous withEchoSuppressed window has already closed; a guard
  * check there would read 0, suppress nothing, and merely look correct.
  * Convergence comes from CONTENT DEDUPE on both ends instead: this module skips
- * a POST whose tile list matches the last one the server ACKNOWLEDGED, and the
- * route treats a report equal to stored state as a no-op. A server-applied
+ * a POST whose layout and pop-outs match the last ones the server ACKNOWLEDGED
+ * (the `rev` an ack carries is not part of the comparison), and the route
+ * treats a report equal to stored state as a no-op. A server-applied
  * arrangement therefore settles after at most one no-op round-trip rather than
  * looping. The baseline tracks acknowledgements, not attempts, so a report that
  * never landed is retried on the next layout change instead of being deduped
@@ -73,10 +82,10 @@
  * re-reporting. Serializing reports (above) makes the race unreachable in the
  * first place; this rule is what keeps it unreachable if that ever changes.
  *
- * Each report is serialized at FLUSH time from the live api, once a settle
- * debounce has expired — so a rebuild that removes and re-adds panels one at a
- * time (reset, fromJSON restore) reports only the arrangement it
- * settles on, never an intermediate one. Note the debounce RESTARTS on every
+ * Each report is read at FLUSH time from the holder, once a settle debounce has
+ * expired — so a rebuild that removes and re-adds panels one at a time (reset,
+ * fromJSON restore) reports only the arrangement it settles on, never an
+ * intermediate one. Note the debounce RESTARTS on every
  * event, unlike dock-workspace's schedulePersist (which fires a fixed delay
  * after the FIRST event of a burst) — settling on the final state is the whole
  * point here, so the two are deliberately not the same shape.
@@ -122,12 +131,13 @@
  */
 
 import { getDockApi, setLayoutRestoredHook } from './dock-workspace.js';
-import { setPanelFocus, reportPanelLayout } from './panel-commands.js';
-import { isPoppedOut } from './popout.js';
+import { setPanelFocus } from './panel-commands.js';
+import { withPrefix, getPageClientId } from './api.js';
+import { isPoppedOut, onPopoutChange } from './popout.js';
 // The layout holder keeps the dock's layout and resolves panels by these ids;
 // dockPanelAt() below places a placeholder the adapter then adopts by the same
 // id, so both modules share the single source of truth for them.
-import { PLACEHOLDER_PREFIX, TERMINAL_KEY, getLayoutHolder, tilesOf } from './dock-apply.js';
+import { PLACEHOLDER_PREFIX, getLayoutHolder, sameShape, sameSizes } from './dock-apply.js';
 import { openAt } from './dock-open.js';
 
 /** dockview's names for the vertical sides, as its drop events and the rail's
@@ -162,42 +172,10 @@ function serviceIdOf(panelId) {
 }
 
 /**
- * The service panels currently occupying dock tiles, in the order an operator
- * reads them off the screen — the single source of truth for "left-to-right
- * order" behind the server-side occupancy report (`open_tiles`).
- *
- * Read from the layout holder (dock-apply.js), never from dockview: the
- * holder's tree is the arrangement, and a split's items are already ordered
- * along its own axis — a row left-to-right, a column top-to-bottom. A
- * depth-first walk of the tiles therefore flattens the grid the way it reads:
- * tiles stacked in a column are reported top-to-bottom before the walk moves
- * on to what sits beside them; a tile's tabs are reported in tab order. Pixel
- * geometry is deliberately not reconstructed, so a genuinely 2D arrangement is
- * reported flattened, not raster-scanned.
- *
- * The terminal has no server-side panel state and is dropped. Mutates nothing.
- *
- * @returns {string[] | null}  service ids in reading order — `[]` when the dock
- *   holds no service tile — or null when there is no layout to read (no
- *   holder: fallback mode, or a dock shell not yet up). Callers report nothing
- *   on null rather than asserting an empty workspace.
- */
-export function openServiceTiles() {
-  const holder = getLayoutHolder();
-  if (!holder) return null;
-  /** @type {string[]} */
-  const tiles = [];
-  for (const tile of tilesOf(holder.layout)) {
-    for (const key of tile.tabs) if (key !== TERMINAL_KEY && !tiles.includes(key)) tiles.push(key);
-  }
-  return tiles;
-}
-
-/**
- * How long the dock must sit still before its occupancy is reported. Long
+ * How long the dock must sit still before its layout is reported. Long
  * enough that a multi-step rebuild (reset, fromJSON restore) settles
  * inside one window and reports once, short enough that an agent reading
- * `open_tiles` right after a human gesture sees the new arrangement.
+ * the layout right after a human gesture sees the new arrangement.
  */
 const REPORT_SETTLE_MS = 250;
 
@@ -210,7 +188,7 @@ const REPORT_SETTLE_MS = 250;
  */
 const BOOT_DEADLINE_MS = 10000;
 
-/** Pending settle timer for the occupancy report, or null when none is armed.
+/** Pending settle timer for the layout report, or null when none is armed.
  *  @type {ReturnType<typeof setTimeout> | null} */
 let reportHandle = null;
 
@@ -225,21 +203,27 @@ let bootReportArmed = false;
  *  server applied" the same thing — see the module header. */
 let reportInFlight = false;
 
-/** The last tile list the server ACKNOWLEDGED, serialized for comparison; null
- *  before the first acknowledgement. The client half of the dedupe contract (see
- *  the module header). Set from the response rather than optimistically at POST
- *  time: a report that never landed must not be remembered as sent, or the
- *  layout it described would be deduped away and never reach the server. A
- *  deduped no-op (`updated: false`) is still an acknowledgement — the server
- *  demonstrably holds that list — so it updates the baseline too. */
-let lastReported = /** @type {string | null} */ (null);
+/**
+ * One report's content: the layout and the pop-outs beside it.
+ * @typedef {{layout: unknown, popouts: string[]}} Report
+ */
+
+/** The last report the server ACKNOWLEDGED; null before the first
+ *  acknowledgement. The client half of the dedupe contract (see the module
+ *  header), compared with `sameReport`. Set from the response rather than
+ *  optimistically at POST time: a report that never landed must not be
+ *  remembered as sent, or the layout it described would be deduped away and
+ *  never reach the server. A deduped no-op (`updated: false`) is still an
+ *  acknowledgement — the server demonstrably holds that layout — so it updates
+ *  the baseline too. */
+let lastReported = /** @type {Report | null} */ (null);
 
 /** True once the no-dock capability report has been sent, so the give-up branch
  *  of initDockSync reports at most once however often it is re-entered. */
 let capabilityReported = false;
 
 /**
- * Arm (or re-arm) the settle window before the next occupancy report. Every
+ * Arm (or re-arm) the settle window before the next layout report. Every
  * layout change restarts it, so a burst of changes reports once, from the
  * arrangement the dock ends up in. Silent until the boot layout is final —
  * before that there is no arrangement worth describing.
@@ -263,12 +247,86 @@ function armBootReport() {
 }
 
 /**
- * Serialize the CURRENT occupancy and POST it unless it matches the last report.
- * Reads the live api at flush time (not at event time), so an intermediate
- * arrangement is never what gets reported. An unreadable layout — the dock shell
- * torn down mid-window, a toJSON that threw — reports nothing and leaves the
- * dedupe baseline untouched: silence is honest, an invented empty workspace is
- * not.
+ * Whether two same-shape layouts show the same tab in every tile.
+ * @param {any} a
+ * @param {any} b
+ * @returns {boolean}
+ */
+function sameShowing(a, b) {
+  if ('tile' in a) return a.showing === b.showing;
+  return a.items.every((/** @type {any} */ item, /** @type {number} */ i) =>
+    sameShowing(item, b.items[i])
+  );
+}
+
+/**
+ * Whether two reports describe the same workspace: the same pop-outs, and the
+ * same layout tree, showing tabs and sizes up to dockview's size rounding (the
+ * holder's own notion of "not a change", `resized`). The read-back of a tree
+ * the holder just applied differs from what it applied by a pixel's worth of
+ * fraction, so an exact comparison would report — and revise — a workspace
+ * nobody changed.
+ * @param {Report | null} a
+ * @param {Report | null} b
+ * @returns {boolean}
+ */
+export function sameReport(a, b) {
+  if (!a || !b) return false;
+  if (a.popouts.length !== b.popouts.length) return false;
+  if (a.popouts.some((key, i) => key !== b.popouts[i])) return false;
+  if (a.layout === null || b.layout === null) return a.layout === b.layout;
+  const x = /** @type {any} */ (a.layout);
+  const y = /** @type {any} */ (b.layout);
+  return sameShape(x, y) && sameShowing(x, y) && sameSizes(x, y);
+}
+
+/**
+ * Record a layout the server acknowledged through another path than this
+ * module's own scheduled report — an agent op's answer (/api/panel-op-result)
+ * or a forced report (`panel_report_request`) — as the dedupe baseline. The
+ * server holds that layout now, so it is what a later change is compared with:
+ * without this, a person undoing an agent's open would land on the stale
+ * baseline, be deduped away as already reported, and leave the server holding
+ * the panel open.
+ * @param {Report} sent  the acknowledged report
+ */
+export function noteReported(sent) {
+  lastReported = sent;
+}
+
+/**
+ * POST one layout report with this page's client id — the one poster for
+ * /api/panel-layout. It sends what it is given: the dedupe against the last
+ * acknowledged layout belongs to the scheduled report (flushLayoutReport), so
+ * a forced report (panel-sse.js's answer to `panel_report_request`) calls this
+ * directly. Resolves the server's acknowledgement (`{status, layout, popouts,
+ * dock, rev, updated}` — `updated: false` marks a deduped no-op, still an
+ * acknowledgement) or null when the report did not land. Never rejects.
+ * @param {unknown} layout  the holder's dock layout, or null for a dock-less report
+ * @param {string[]} [popouts]  the panels in windows of their own
+ * @param {boolean} [dock]  whether this client has a dock shell
+ * @returns {Promise<{rev?: number} | null>}
+ */
+export async function postLayoutReport(layout, popouts = [], dock = true) {
+  try {
+    const resp = await fetch(withPrefix('/api/panel-layout'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ layout, popouts, dock, client_id: getPageClientId() }),
+    });
+    if (!resp.ok) return null;
+    return await resp.json();
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Read the holder's CURRENT layout and pop-outs and POST them unless they match
+ * the last acknowledged report. Read at flush time (not at event time), so an
+ * intermediate arrangement is never what gets reported. No holder, or a holder
+ * with no layout yet, reports nothing and leaves the dedupe baseline untouched:
+ * silence is honest, an invented empty workspace is not.
  *
  * One report at a time: a flush that lands while another is in flight re-arms
  * instead of overlapping it. Two concurrent reports could be applied by the
@@ -276,7 +334,7 @@ function armBootReport() {
  * rule can tell which write actually stuck — so the overlap is prevented rather
  * than reasoned about. The cost is bounded (a settle window of extra latency
  * while a report is outstanding); the benefit is that the baseline always names
- * a list the server demonstrably holds.
+ * a layout the server demonstrably holds.
  */
 function flushLayoutReport() {
   reportHandle = null;
@@ -284,20 +342,35 @@ function flushLayoutReport() {
     scheduleLayoutReport();
     return;
   }
-  const tiles = openServiceTiles();
-  if (!tiles) return;
-  if (JSON.stringify(tiles) === lastReported) return;
+  const holder = getLayoutHolder();
+  const layout = holder?.layout ?? null;
+  if (!holder || !layout) return;
+  const popouts = holder.popouts;
+  const sent = { layout, popouts };
+  if (sameReport(sent, lastReported)) {
+    // Already acknowledged; a dirty flag left by a no-op write settles here.
+    if (holder.dirty && holder.ackedRev !== null) holder.ack(holder.ackedRev);
+    return;
+  }
   reportInFlight = true;
-  void reportPanelLayout(tiles, true)
+  void postLayoutReport(layout, popouts)
     .then((ack) => {
-      if (ack) lastReported = JSON.stringify(ack.tiles ?? tiles);
+      if (!ack) return;
+      lastReported = sent;
+      if (typeof ack.rev !== 'number') return;
+      // Only the layout that was sent is acked; one that moved on meanwhile
+      // stays dirty and goes out on the next flush.
+      if (sameReport({ layout: holder.layout, popouts: holder.popouts }, sent)) {
+        holder.ack(ack.rev);
+      } else {
+        scheduleLayoutReport();
+      }
     })
-    // reportPanelLayout resolves null on failure rather than rejecting, so this
-    // clause should be unreachable — but nothing enforces that across the module
-    // boundary, and a rejection escaping it would strand reportInFlight and kill
-    // reporting for the rest of the session. Settling the flag unconditionally
-    // costs nothing and keeps a broken contract merely lossy: the baseline is
-    // left untouched, so the next layout change re-reports.
+    // postLayoutReport resolves null on failure rather than rejecting, so this
+    // clause should be unreachable — but a rejection escaping it would strand
+    // reportInFlight and kill reporting for the rest of the session. Settling
+    // the flag unconditionally keeps a broken contract merely lossy: the
+    // baseline is left untouched, so the next layout change re-reports.
     .catch((err) => {
       console.error('dock-sync: layout report failed', err);
     })
@@ -498,6 +571,9 @@ export function initDockSync() {
   if (api && root) {
     api.onDidActivePanelChange(onActivePanelChange);
     api.onDidLayoutChange(scheduleLayoutReport);
+    // A panel leaving for its own window, or coming back, is a change the
+    // agent reads (the report's `popouts`), whether or not dockview's tree moved.
+    onPopoutChange(scheduleLayoutReport);
     root.addEventListener('click', onDockClickCapture, true);
     wired = true;
     setLayoutRestoredHook(armBootReport);
@@ -509,7 +585,7 @@ export function initDockSync() {
     // ~4.5s at 150ms — the shell is late or absent
     if (!capabilityReported) {
       capabilityReported = true;
-      reportPanelLayout([], false);
+      void postLayoutReport(null, [], false);
     }
     // Keep watching, slowly and finitely: a shell arriving after the fast budget
     // must be able to correct the dock:false record, but a page that genuinely

@@ -36,7 +36,10 @@ const PANEL_VERBS = {
   remove_panel_from_rail: 'agent removed',
   add_panel_to_rail: 'agent made available',
   open_panel: 'agent opened',
-  close_panel: 'agent closed',
+  open_panel_set: 'agent opened',
+  drop_panel: 'agent moved',
+  close_panel_tab: 'agent closed',
+  close_panel_tile: 'agent closed tile',
   register_panel: 'agent added',
 };
 

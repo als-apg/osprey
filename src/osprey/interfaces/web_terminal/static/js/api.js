@@ -276,6 +276,34 @@ export function createWebSocket(url, { onOpen, onMessage, onClose, onError, onRe
 }
 
 /**
+ * This page's client id: minted once per page load. It names the page on its
+ * `/api/files/events` socket (the server addresses dock ops to the page whose
+ * layout report is current, and notices when that page's stream closes) and in
+ * the dock's layout reports (dock-sync.js reads it through `getPageClientId`).
+ * One id per page, so every module on the page names the same socket.
+ */
+const PAGE_CLIENT_ID =
+  typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+    ? crypto.randomUUID()
+    : `c-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+
+/** @returns {string} this page's client id */
+export function getPageClientId() {
+  return PAGE_CLIENT_ID;
+}
+
+/**
+ * The page's `/api/files/events` URL (unprefixed), tagged with its client id.
+ * Every subscriber on the page uses exactly this URL, so createEventSource
+ * shares one socket among them: a subscriber that spelled the path without the
+ * id would key a second socket of its own.
+ * @returns {string}
+ */
+export function pageEventsUrl() {
+  return `/api/files/events?client_id=${encodeURIComponent(PAGE_CLIENT_ID)}`;
+}
+
+/**
  * The live shared streams, keyed by the caller's (unprefixed) URL. One entry
  * per distinct URL for as long as it has at least one subscriber; the last
  * `stop()` closes the socket and drops the entry. See createEventSource.

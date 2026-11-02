@@ -1191,7 +1191,9 @@ def test_an_open_lands_as_a_tab_in_front_of_the_service_tile_used_last(tmp_path,
         # The agent's open lands the same way as the row click.
         start = _restore(page, MATRIX_START)
         r = requests.post(
-            f"{hub.base_url}/api/panel-focus", json={"panel": d, "source": "agent"}, timeout=10
+            f"{hub.base_url}/api/panel-op/open",
+            json={"request_id": "tiles-open-1", "member": d},
+            timeout=10,
         )
         assert r.status_code == 200, r.text
         expect(_item(page, d)).to_have_count(1, timeout=10_000)

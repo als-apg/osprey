@@ -1486,10 +1486,13 @@ class Tier(Enum):
 PANEL_TIER_ROUTES: frozenset[tuple[str, str]] = frozenset(
     {
         ("GET", "/api/panels"),
-        ("POST", "/api/panel-focus"),
         ("POST", "/api/panel-visibility"),
-        ("POST", "/api/panel-close"),
-        ("POST", "/api/panel-arrange"),
+        ("POST", "/api/panel-op/drop"),
+        ("POST", "/api/panel-op/close-tab"),
+        ("POST", "/api/panel-op/close-tile"),
+        ("POST", "/api/panel-op/open"),
+        ("POST", "/api/panel-op/open-set"),
+        ("POST", "/api/panel-op/open-arrangement"),
         ("POST", "/api/agent-activity"),
         ("POST", "/api/agent-turn"),
         ("POST", "/api/watchdog/prompt"),

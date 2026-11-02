@@ -3,10 +3,12 @@
 ``GET /api/panels`` carries the whole panel state, including a stable, opaque
 ``project_key`` — a truncated sha256 of the resolved project directory — that
 the client uses as the ``osprey-dock-layout-<project_key>`` localStorage suffix
-for per-project dock-layout persistence. The focus, visibility, close and
-register routes mutate that state and broadcast the frames every client
-applies; agent-origin requests carry ``source: "agent"`` on their frames,
-human ones carry no ``source`` key at all.
+for per-project dock-layout persistence. The visibility and register routes
+mutate that state and broadcast the frames every client applies; agent-origin
+requests carry ``source: "agent"`` on their frames, human ones carry no
+``source`` key at all. The focus route is a person's report and broadcasts
+nothing; agent dock writes are the ``/api/panel-op/*`` routes
+(``test_panel_op_route.py``).
 """
 
 from __future__ import annotations
@@ -85,9 +87,11 @@ def test_project_key_does_not_disturb_existing_fields(tmp_path):
         "allow_runtime_panels",
         "presets",
         "project_key",
-        "open_tiles",
-        "open_tiles_age_s",
-        "open_tiles_dock",
+        "layout",
+        "popouts",
+        "rev",
+        "layout_age_s",
+        "layout_dock",
         "docs_url",
         "feedback_trackers",
         "feedback_email",
@@ -164,7 +168,7 @@ def test_a_flagless_app_advertises_no_gated_surface(tmp_path):
     assert body["scaffold_write_enabled"] is False
 
 
-# ---- Focus adds rail membership ---- #
+# ---- Focus is a person's report ---- #
 
 
 def _make_focus_app(visible: list[str] | None = None) -> FastAPI:
@@ -188,37 +192,27 @@ def _frames(app: FastAPI) -> list[dict]:
     return [call.args[0] for call in app.state.broadcaster.broadcast.call_args_list]
 
 
-def test_focus_on_non_member_is_consistent_on_read_back():
-    """list_panels must agree with the tool's promise that the panel is visible."""
-    app = _make_focus_app(visible=["ariel"])
-    with TestClient(app) as client:
-        client.post("/api/panel-focus", json={"panel": "grafana", "source": "agent"})
-        body = client.get("/api/panels").json()
-    assert body["visible"] == ["ariel", "grafana"]
-    assert body["active"] == "grafana"
+@pytest.mark.parametrize(
+    "body",
+    [
+        {"panel": "grafana", "source": "agent"},
+        {"panel": "grafana", "url": "/x"},
+    ],
+    ids=["agent-source", "url"],
+)
+def test_the_retired_agent_focus_form_is_refused(body):
+    """An agent opens a panel through ``/api/panel-op/open``; this route is a person's report.
 
-
-def test_focus_on_non_member_broadcasts_visibility_before_focus():
-    """Ordering is load-bearing: clients add the rail entry, then focus it."""
-    app = _make_focus_app(visible=["ariel"])
-    with TestClient(app) as client:
-        client.post("/api/panel-focus", json={"panel": "grafana", "source": "agent"})
-    frames = _frames(app)
-    assert [f["type"] for f in frames] == ["panel_visibility", "panel_focus"]
-    assert frames[0] == {
-        "type": "panel_visibility",
-        "panel": "grafana",
-        "visible": True,
-        "source": "agent",
-    }
-
-
-def test_focus_on_member_emits_only_a_focus_frame():
-    """An agent switch to a member panel: focus frame only, no visibility traffic."""
+    The old ``source``/``url`` body is refused rather than read as a person's
+    switch, and changes nothing.
+    """
     app = _make_focus_app(visible=["ariel", "grafana"])
     with TestClient(app) as client:
-        client.post("/api/panel-focus", json={"panel": "grafana", "source": "agent"})
-    assert _frames(app) == [{"type": "panel_focus", "panel": "grafana", "source": "agent"}]
+        resp = client.post("/api/panel-focus", json=body)
+    assert resp.status_code == 422
+    assert getattr(app.state, "active_panel", None) is None
+    assert app.state.broadcaster.broadcast.call_count == 0
+    assert list(app.state.agent_activity_buffer) == []
 
 
 def test_focus_without_explicit_membership_treats_enabled_as_the_rail():
@@ -282,22 +276,11 @@ def test_focus_on_unknown_panel_changes_nothing():
     app.state.broadcaster.broadcast.assert_not_called()
 
 
-def test_focus_with_url_keeps_the_url_on_the_focus_frame_only():
-    """The visibility frame is membership-only; the url rides the focus frame."""
-    app = _make_focus_app(visible=["ariel"])
-    with TestClient(app) as client:
-        client.post("/api/panel-focus", json={"panel": "grafana", "url": "/x", "source": "agent"})
-    visibility, focus = _frames(app)
-    assert "url" not in visibility
-    assert focus["url"].endswith("/x")
-
-
 # ---- Human focus is a report, not a command ---- #
 #
 # panel-commands.js states the contract: a user-initiated tab switch is
 # REPORTED "so the server mirrors the active panel (and does not echo a focus
-# event back)". Only agent-attributed focus is a command that must reach every
-# client. These tests pin the split.
+# event back)". Agent opens are ``/api/panel-op/open``, never this route.
 
 
 def test_human_focus_mirrors_active_panel_without_broadcast():
@@ -313,7 +296,7 @@ def test_human_focus_mirrors_active_panel_without_broadcast():
     app.state.broadcaster.broadcast.assert_not_called()
 
 
-# ---- Visibility, close and register frames ---- #
+# ---- Visibility and register frames ---- #
 #
 # Each route stamps ``source`` onto its frame only when the request carried
 # it; a human request's frame has no ``source`` key at all (never null).
@@ -355,18 +338,6 @@ def _make_command_app() -> FastAPI:
             {"type": "panel_visibility", "panel": "ariel", "visible": True, "source": "agent"},
             id="visibility-agent",
         ),
-        pytest.param(
-            "/api/panel-close",
-            {"panel": "ariel"},
-            {"type": "panel_close", "panel": "ariel"},
-            id="close-human",
-        ),
-        pytest.param(
-            "/api/panel-close",
-            {"panel": "ariel", "source": "agent"},
-            {"type": "panel_close", "panel": "ariel", "source": "agent"},
-            id="close-agent",
-        ),
         pytest.param("/api/panels/register", _REGISTER_BODY, _REGISTER_FRAME, id="register-human"),
         pytest.param(
             "/api/panels/register",
@@ -378,20 +349,12 @@ def _make_command_app() -> FastAPI:
 )
 def test_panel_command_frames(path, body, expected_frame):
     """Exactly one frame per command, carrying the browser-facing URL and the
-    request's own attribution — closing never emits a visibility frame."""
+    request's own attribution."""
     app = _make_command_app()
     with patch(_GETADDRINFO_TARGET, return_value=_LAN_ADDR), TestClient(app) as client:
         resp = client.post(path, json=body)
     assert resp.status_code == 200
     app.state.broadcaster.broadcast.assert_called_once_with(expected_frame)
-
-
-def test_panel_close_unknown_panel_is_rejected():
-    app = _make_command_app()
-    with TestClient(app) as client:
-        resp = client.post("/api/panel-close", json={"panel": "nope", "source": "agent"})
-    assert resp.status_code == 422
-    app.state.broadcaster.broadcast.assert_not_called()
 
 
 # ---- Positioned rail additions (the Undo of a removal) ---- #

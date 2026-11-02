@@ -528,7 +528,7 @@ describe('reads', () => {
     // subscriber here, and a second EventSource would count against the
     // browser's six-connection cap for every tab the operator has open.
     expect(FakeEventSource.opened.length).toBe(1);
-    expect(FakeEventSource.opened[0].url).toBe('/api/files/events');
+    expect(FakeEventSource.opened[0].url).toMatch(/^\/api\/files\/events\?client_id=[^&]+$/);
 
     barModule.initControlTargetLabBar();
     await flush();

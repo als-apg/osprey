@@ -463,7 +463,7 @@ export function sameShape(a, b) {
  * @param {Layout} b
  * @returns {boolean}
  */
-function sameSizes(a, b) {
+export function sameSizes(a, b) {
   if (Math.abs((a.size ?? 0) - (b.size ?? 0)) > SIZE_TOLERANCE) return false;
   if (isTile(a) || isTile(b)) return true;
   return a.items.every((item, i) => sameSizes(item, /** @type {any} */ (b).items[i]));
