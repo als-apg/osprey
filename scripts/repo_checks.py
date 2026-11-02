@@ -122,8 +122,9 @@ DOCS_DIR = "docs"
 QUICK_PYTEST_BOUND_S = 1800
 
 #: Where the parallel sweep finds the tests of a changed source file, first match
-#: wins. ``package`` maps the nearest package to its directory under ``tests/``;
-#: ``file`` maps a top-level ``scripts/<name>.py`` to ``tests/scripts/test_<name>.py``.
+#: wins. ``package`` maps the nearest package, or failing that its nearest parent,
+#: whose directory under ``tests/`` holds a test module; ``file`` maps a top-level
+#: ``scripts/<name>.py`` to ``tests/scripts/test_<name>.py``.
 #: A source file under a root whose rule finds nothing widens the sweep.
 TEST_MIRRORS: tuple[tuple[str, str], ...] = (
     ("src/osprey/", "package"),
@@ -484,10 +485,12 @@ def _mirror(path: str, files: Sequence[str]) -> str | None:
     package = PurePosixPath(path).parent
     while package.as_posix() != top and f"{package}/__init__.py" not in known:
         package = package.parent
-    if package.as_posix() == top:
-        return None
-    mirror = "tests/" + package.relative_to(top).as_posix()
-    return mirror if any(name.startswith(mirror + "/") for name in files) else None
+    while package.as_posix() != top:
+        mirror = "tests/" + package.relative_to(top).as_posix()
+        if _holds_test_module(mirror, files):
+            return mirror
+        package = package.parent
+    return None
 
 
 def _paths(chosen: Iterable[str]) -> Selection:

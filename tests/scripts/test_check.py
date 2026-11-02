@@ -955,6 +955,8 @@ FILES = [
     "tests/cli/test_main.py",
     "src/osprey/lonely/__init__.py",
     "src/osprey/lonely/thing.py",
+    "src/osprey/cli/sub/__init__.py",
+    "src/osprey/cli/sub/thing.py",
     "tests/scripts/test_scenario_plots.py",
 ]
 
@@ -1251,6 +1253,28 @@ def test_the_shared_conftests_of_this_tree_widen(monkeypatch: pytest.MonkeyPatch
         importer = got.reason.removeprefix(f"{path}: imported by ")
         assert importer in files
         assert not importer.startswith(path.rsplit("/", 1)[0] + "/")
+
+
+def test_a_source_file_walks_up_to_the_nearest_tested_package() -> None:
+    files = [
+        "src/osprey/cli/__init__.py",
+        "src/osprey/cli/sub/__init__.py",
+        "src/osprey/cli/sub/deep/__init__.py",
+        "src/osprey/cli/sub/deep/thing.py",
+        "tests/cli/test_main.py",
+        "tests/cli/sub/deep/data.json",
+    ]
+    got = fw._select_pytest(["src/osprey/cli/sub/deep/thing.py"], files)
+    assert got == check.Selection(check.PATHS, ("tests/cli",))
+    assert selected("quick", "src/osprey/cli/sub/thing.py")["pytest"] == check.Selection(
+        check.PATHS, ("tests/cli",)
+    )
+
+
+def test_a_package_with_no_tested_ancestor_widens() -> None:
+    got = selected("quick", "src/osprey/lonely/thing.py")["pytest"]
+    assert got.state == check.WHOLE
+    assert got.reason == f"src/osprey/lonely/thing.py: {fw.WIDENS_NO_MIRROR}"
 
 
 def test_a_helper_script_selects_only_its_mirror() -> None:
