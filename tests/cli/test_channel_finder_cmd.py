@@ -38,7 +38,7 @@ def _hierarchical_index(tmp_path: Path) -> Path:
         ],
     }
     path = tmp_path / "hierarchical.json"
-    path.write_text(json.dumps(hierarchical_document(doc)), encoding="utf-8")
+    path.write_text(json.dumps(hierarchical_document(FacilityRecords(doc))), encoding="utf-8")
     return path
 
 

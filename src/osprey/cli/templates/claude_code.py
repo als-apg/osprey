@@ -623,10 +623,11 @@ def _middle_layer_families(facility: dict[str, Any]) -> dict[str, list[dict[str,
         Class name -> ``[{"name", "system"}]``, ``system`` ``None`` where the
         cell does not name it; a class no family holds is absent.
     """
+    from osprey.facility.records import FacilityRecords
     from osprey.facility.views.channel_finder import middle_layer_families
 
     out: dict[str, list[dict[str, str | None]]] = {}
-    for name, pairs in middle_layer_families(facility).items():
+    for name, pairs in middle_layer_families(FacilityRecords(facility)).items():
         qualified = len({system for system, _family in pairs}) > 1
         out[name] = [
             {"name": family, "system": system if qualified else None} for system, family in pairs
