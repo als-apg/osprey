@@ -428,48 +428,35 @@ def _document_with(**sections: Any) -> str:
     return yaml.safe_dump({"services": {"controls-admin-web": {"image": "demo"}}, **sections})
 
 
-LIMITS_CONFIG = "configs.limits.file"
-LIMITS_SECRET = "secrets.limits.file"
-
-
+@pytest.mark.parametrize("section", ["configs", "secrets"])
 @pytest.mark.parametrize(
-    ("sections", "path"),
+    "value",
     [
-        pytest.param({"configs": {"limits": {"file": "./data/limits.json"}}}, LIMITS_CONFIG),
-        pytest.param({"secrets": {"limits": {"file": "./data/limits.json"}}}, LIMITS_SECRET),
-        pytest.param({"secrets": {"limits": {"file": "./var/$$x/../guarded_run"}}}, LIMITS_SECRET),
+        pytest.param({"limits": {"file": "./data/limits.json"}}, id="limits-file"),
+        pytest.param({"limits": {"file": "${DATA}/limits"}}, id="variable-file"),
+        pytest.param({"site": {"file": "./site.yml"}}, id="plain-file"),
+        pytest.param(
+            {"inline": {"content": "a: 1"}, "token": {"environment": "TOKEN"}},
+            id="inline-and-environment",
+        ),
+        pytest.param(["a"], id="a-list"),
+        pytest.param(5, id="a-number"),
     ],
 )
 @pytest.mark.parametrize("entry_point", ENTRY_POINTS)
-def test_a_protected_path_refuses_through_a_top_level_section(
-    repo: Path, entry_point: str, sections: dict[str, Any], path: str
+def test_a_top_level_configs_or_secrets_refuses_with_the_migration(
+    repo: Path, entry_point: str, section: str, value: Any
 ) -> None:
-    _write_fragment(_document_with(**sections))
+    """A file a container needs is a bind on the service; a per-deploy value is an env axis."""
+    _write_fragment(_document_with(**{section: value}))
     config = _config(repo)
     config["limits_mount"] = {"source": "./data/limits.json", "target": "/limits.json"}
     with pytest.raises(DeploymentPreconditionError, match=KEY) as refused:
         _render(entry_point, config)
-    assert path in refused.value.reason
-    assert "exposes" in refused.value.reason
+    assert f"{section}:" in refused.value.reason
+    for part in ("volumes:", "./build/", "env axis"):
+        assert part in refused.value.remedy
     assert not (Path("build") / "services" / KEY / "docker-compose.yml").exists()
-
-
-@pytest.mark.parametrize(
-    ("sections", "path"),
-    [
-        pytest.param({"configs": {"limits": {"file": "${DATA}/limits"}}}, LIMITS_CONFIG),
-        pytest.param({"secrets": {"limits": {"file": "${DATA}/limits"}}}, LIMITS_SECRET),
-    ],
-)
-@pytest.mark.parametrize("entry_point", ENTRY_POINTS)
-def test_a_top_level_source_spelled_with_a_variable_refuses(
-    repo: Path, entry_point: str, sections: dict[str, Any], path: str
-) -> None:
-    _write_fragment(_document_with(**sections))
-    with pytest.raises(DeploymentPreconditionError, match=KEY) as refused:
-        _render(entry_point, _config(repo))
-    assert path in refused.value.reason
-    assert "unknown at render time" in refused.value.reason
 
 
 @pytest.mark.parametrize(
@@ -645,16 +632,6 @@ def test_an_env_file_that_exposes_nothing_renders(repo: Path) -> None:
     assert _render("full", _config(repo))["services"]["controls-admin-web"]["env_file"] == env_file
 
 
-def test_a_bare_config_file_in_a_top_level_section_refuses_with_the_build_spelling(
-    repo: Path,
-) -> None:
-    source = f"./services/{KEY}/app-config.yml"
-    _write_fragment(_document_with(configs={"site": {"file": source}}))
-    with pytest.raises(DeploymentPreconditionError, match="configs.site.file") as refused:
-        _render("full", _config(repo))
-    assert f"./build/services/{KEY}/app-config.yml" in refused.value.remedy
-
-
 def test_top_level_sections_that_expose_no_protected_path_render(repo: Path) -> None:
     sections = {
         "volumes": {
@@ -662,8 +639,6 @@ def test_top_level_sections_that_expose_no_protected_path_render(repo: Path) -> 
             "named": {"name": "elsewhere"},
             "shared": {"external": True},
         },
-        "configs": {"site": {"file": "./site.yml"}, "inline": {"content": "a: 1"}},
-        "secrets": {"token": {"environment": "TOKEN"}, "local": {"file": "./data$$token"}},
     }
     _write_fragment(_document_with(**sections))
     document = _render("full", _config(repo))
@@ -845,10 +820,7 @@ def test_a_sibling_output_of_any_yaml_shape_or_another_format_renders(repo: Path
             id="env-file-no-path",
         ),
         pytest.param("volumes: foo\n", "volumes", id="volumes-a-string"),
-        pytest.param("configs: [a]\n", "configs", id="configs-a-list"),
-        pytest.param("secrets: 5\n", "secrets", id="secrets-a-number"),
         pytest.param("volumes:\n  data: foo\n", "volumes.data", id="volume-a-string"),
-        pytest.param("configs:\n  site: foo\n", "configs.site", id="config-a-string"),
     ],
 )
 @pytest.mark.parametrize("entry_point", ENTRY_POINTS)
@@ -1070,7 +1042,7 @@ def test_a_malformed_network_refuses_naming_the_section(
 
 
 def test_the_schema_is_the_contract() -> None:
-    assert set(FRAGMENT_TOP_LEVEL_KEYS) == {"services", "volumes", "networks", "configs", "secrets"}
+    assert set(FRAGMENT_TOP_LEVEL_KEYS) == {"services", "volumes", "networks"}
     assert set(FRAGMENT_SERVICE_KEYS) == {
         "image",
         "container_name",
