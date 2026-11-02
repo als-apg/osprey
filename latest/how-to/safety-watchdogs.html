@@ -794,6 +794,14 @@ project to replay against:</p>
 </div>
 <p>Turn one off by setting <code class="docutils literal notranslate"><span class="pre">enabled:</span> <span class="pre">false</span></code> and rebuilding. A disabled watchdog leaves no trace
 in the render, and with none enabled sessions behave as if the feature were not there.</p>
+<p>To pause the watchdogs without a rebuild, turn <strong>Safety watchdog</strong> off in <strong>Settings &gt; Safety</strong>
+of an admin-tier web terminal (<code class="docutils literal notranslate"><span class="pre">web.config_panel.enabled</span></code>, on by default outside the tier presets).
+The off reaches the sessions of that terminal only. In a multi-user deployment each login has its
+own terminal, so it does not pause anyone else’s watchdog; for that, set <code class="docutils literal notranslate"><span class="pre">enabled:</span> <span class="pre">false</span></code>. While it
+is off, prompts there are not judged and no new hold opens, unless the terminal cannot take a prompt
+and the hook judges it itself. Open holds stay until an operator answers. The move is audited, and
+a restart turns the watchdogs back on. The control-assistant preset’s readonly dispatch tier refuses
+<code class="docutils literal notranslate"><span class="pre">web.config_panel.enabled</span></code>, so no terminal there can move the switch yet (<a class="reference external" href="https://github.com/als-apg/osprey/issues/2278">#2278</a>).</p>
 </section>
 </section>
 </section>
