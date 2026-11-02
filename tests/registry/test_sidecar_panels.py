@@ -23,6 +23,7 @@ import sys
 import pytest
 
 from osprey.deployment.web_terminals.ports import FAMILY_BASE_FIELDS
+from osprey.profiles import sidecar_panels, web_panels
 from osprey.profiles.web_panels import (
     BUILTIN_PANEL_LABELS,
     BUILTIN_PANELS,
@@ -38,6 +39,19 @@ def test_the_notebooks_panel_is_the_registered_sidecar():
     """The one entry, pinned so the id and its label cannot drift apart."""
     assert SIDECAR_IDS == ["jupyter"]
     assert BUILTIN_PANEL_LABELS["jupyter"] == "JUPYTER"
+
+
+def test_the_notebooks_panel_keeps_the_first_row():
+    """Registry order is sidebar order: a sidecar added later sits after the notebooks."""
+    assert list(SIDECAR_PANELS)[0] == "jupyter"
+
+
+@pytest.mark.parametrize("name", ["SidecarPanel", "SIDECAR_PANELS", "JUPYTER_PANEL_ID"])
+def test_the_panel_module_re_exports_the_leaf_registry(name):
+    """One registry under two names. A test that adds a panel through
+    ``web_panels.SIDECAR_PANELS`` has to reach a reader that imported the leaf,
+    which a copy of the mapping would not."""
+    assert getattr(web_panels, name) is getattr(sidecar_panels, name)
 
 
 @pytest.mark.parametrize("panel_id", SIDECAR_IDS)

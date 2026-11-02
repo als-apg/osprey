@@ -634,10 +634,12 @@ def _terminal_secret_header(
 ) -> dict[str, str]:
     """The terminal-secret header to send upstream, or ``{}`` for no injection.
 
-    When the backend does not earn it (:func:`_backend_earns_credentials`) — or
-    the process cannot produce credentials at all — nothing is injected and the
-    panel simply loads unauthenticated. That is the failure an operator can see
-    and act on; the alternative failure, a leaked secret, is silent.
+    When the backend does not earn it (:func:`_backend_earns_credentials`), when
+    it is a sidecar whose registry entry declines it
+    (``SidecarPanel.operator_secret``), or when the process cannot produce
+    credentials at all, nothing is injected and the panel simply loads
+    unauthenticated. That is the failure an operator can see and act on; the
+    alternative failure, a leaked secret, is silent.
 
     Args:
         scope: The request or websocket being proxied.
@@ -649,6 +651,12 @@ def _terminal_secret_header(
         empty mapping when this backend must not receive the secret.
     """
     if not _backend_earns_credentials(scope, panel_id, backend_url):
+        return {}
+
+    # A sidecar that authenticates with its own launch credential alone opts
+    # out of the operator secret in its registry entry, on both legs.
+    sidecar = SIDECAR_PANELS.get(panel_id)
+    if sidecar is not None and not sidecar.operator_secret:
         return {}
 
     try:

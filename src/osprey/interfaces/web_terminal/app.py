@@ -82,6 +82,7 @@ from osprey.profiles.web_panels import (
     UNIVERSAL_PANELS,
     panel_id_refusal,
     panel_spec_enabled,
+    sidecar_panel_descriptors,
 )
 from osprey.registry.web import PANEL_ID_TO_REGISTRY_KEY, panel_url_state_attr
 from osprey.services.watchdog.definitions import load_watchdogs
@@ -2079,6 +2080,9 @@ def create_app(
                 # answers for the ENABLED panels only and resolves after that
                 # module's array is built, so it cannot seed the roster.
                 "builtin_panel_labels": BUILTIN_PANEL_LABELS,
+                # The sidecar panels' descriptors, from the same registry: the
+                # catalog builds one row and tab per entry, so it lists none itself.
+                "sidecar_panels": sidecar_panel_descriptors(),
             },
         )
 
@@ -2114,6 +2118,7 @@ def create_app(
                 # words panel actions with, so the pop-out page carries the
                 # same roster stamp the index does.
                 "builtin_panel_labels": BUILTIN_PANEL_LABELS,
+                "sidecar_panels": sidecar_panel_descriptors(),
             },
         )
 

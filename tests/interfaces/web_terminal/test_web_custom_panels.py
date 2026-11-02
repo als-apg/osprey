@@ -7,7 +7,7 @@ import ipaddress
 import json
 import threading
 import time
-from contextlib import nullcontext, suppress
+from contextlib import ExitStack, contextmanager, nullcontext, suppress
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from types import SimpleNamespace
@@ -26,7 +26,7 @@ from osprey.interfaces.web_terminal.app import (
 )
 from osprey.interfaces.web_terminal.operator_session import resolve_agent_data_root
 from osprey.interfaces.web_terminal.routes import panels as panels_module
-from osprey.profiles.web_panels import BUILTIN_PANEL_LABELS, SIDECAR_PANELS
+from osprey.profiles.web_panels import BUILTIN_PANEL_LABELS, JUPYTER_PANEL_ID, SIDECAR_PANELS
 from tests._live import wait_until
 from tests.interfaces.web_terminal._started_app import terminal_client
 
@@ -38,11 +38,30 @@ from .conftest import HOST_ADDRS_TARGET, StubWorkspaceWatcher
 _real_host_interface_addresses = panels_module._host_interface_addresses
 
 
-#: The panel id of the sidecar under test, and the dotted path of the class the
-#: lifespan imports for it. Both read off the registry so this module pins the
-#: launch path rather than a spelling.
-SIDECAR_ID = next(iter(sorted(SIDECAR_PANELS)))
+#: The panel id of the sidecar under test — the notebooks panel, the one that
+#: also answers on the older ``/api/<id>-server`` route these tests read — and
+#: the dotted path of the class the lifespan imports for it, read off the
+#: registry so this module pins the launch path rather than a spelling.
+SIDECAR_ID = JUPYTER_PANEL_ID
 _SIDECAR_FACTORY_TARGET = SIDECAR_PANELS[SIDECAR_ID].factory_path.replace(":", ".")
+
+#: Every other registered sidecar's class. A fixture that enables all builtin
+#: panels launches each of them, and none may start a real process here, so
+#: these are stubbed to fail preflight wherever the sidecar under test is.
+_OTHER_SIDECAR_FACTORY_TARGETS = sorted(
+    panel.factory_path.replace(":", ".")
+    for panel_id, panel in SIDECAR_PANELS.items()
+    if panel_id != SIDECAR_ID
+)
+
+
+@contextmanager
+def _other_sidecars_stubbed():
+    """Replace every other sidecar class with a stub that never launches."""
+    with ExitStack() as stack:
+        for target in _OTHER_SIDECAR_FACTORY_TARGETS:
+            stack.enter_context(patch(target, _stub_sidecar_class(SidecarScript())))
+        yield
 
 
 class SidecarScript:
@@ -166,6 +185,7 @@ def _make_client(
     )
     with (
         config_patch,
+        _other_sidecars_stubbed(),
         patch(_SIDECAR_FACTORY_TARGET, _stub_sidecar_class(sidecar_script or SidecarScript())),
         patch(
             "osprey.interfaces.web_terminal.app._load_web_config",

@@ -24,7 +24,7 @@ Three rules decide, and every one of them fails toward the sandbox:
 * **Entry pages.** A panel's own application documents must stay same-origin to
   drive their API, so a response whose path matches one of the panel's declared
   entry-page templates is exempt. The templates are declared per panel:
-  :attr:`~osprey.profiles.web_panels.SidecarPanel.entry_pages` for a
+  :attr:`~osprey.profiles.sidecar_panels.SidecarPanel.entry_pages` for a
   sidecar, :data:`FRAMEWORK_ENTRY_PAGES` for a companion server, and a
   config-declared panel's own ``path`` (an operator declaration). A runtime
   registration and ``/panel-static`` declare none, ever.

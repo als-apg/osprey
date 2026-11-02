@@ -44,6 +44,7 @@ from osprey.interfaces.web_terminal.routes.proxy import _backend_is_loopback, _r
 from osprey.profiles.web_panels import (
     BUILTIN_PANEL_LABELS,
     BUILTIN_PANELS,
+    JUPYTER_PANEL_ID,
     SIDECAR_PANELS,
     panel_id_refusal,
 )
@@ -173,7 +174,23 @@ def _sidecar_panel_config(request: Request, panel_id: str) -> dict:
 @router.get("/api/jupyter-server")
 async def jupyter_server_config(request: Request):
     """Return the notebook sidecar URL for iframe embedding, and its start outcome."""
-    return _sidecar_panel_config(request, "jupyter")
+    return _sidecar_panel_config(request, JUPYTER_PANEL_ID)
+
+
+@router.get("/api/panels/{panel_id}/server")
+async def sidecar_server_config(panel_id: str, request: Request):
+    """Return a sidecar panel's URL for iframe embedding, and its start outcome.
+
+    One route for every panel in ``SIDECAR_PANELS``, so a sidecar added to the
+    registry needs no config route of its own. A sidecar that is switched off
+    answers unavailable, as a companion panel's config route does; an id that
+    names no sidecar is a 404.
+    """
+    if panel_id not in SIDECAR_PANELS:
+        raise HTTPException(
+            status_code=404, detail=f"{panel_id} is not a panel this terminal starts"
+        )
+    return _sidecar_panel_config(request, panel_id)
 
 
 @router.post("/api/panels/{panel_id}/start")
