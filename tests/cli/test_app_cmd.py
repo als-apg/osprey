@@ -320,6 +320,9 @@ def test_the_js_tools_never_see_a_secret_of_the_parent_environment(
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-parent")
     monkeypatch.setenv("LAB_TOKEN", "parent-token")
     monkeypatch.setenv("HTTPS_PROXY", "http://proxy.example.org:3128")
+    monkeypatch.setenv("UV_PUBLISH_TOKEN", "pypi-parent")
+    monkeypatch.setenv("UV_INDEX_URL", "https://user:parent@index.example.org/simple")
+    monkeypatch.setenv("PIP_INDEX_URL", "https://user:parent@index.example.org/simple")
     app_dir = _app(lifecycle_repo)
     _write(app_dir, "panel/main.js", "")
     _write(app_dir, "tests/main.test.js", "")
@@ -329,7 +332,14 @@ def test_the_js_tools_never_see_a_secret_of_the_parent_environment(
     assert result.exit_code == 0, result.output
     for tool in ("eslint", "vitest"):
         _argv, _cwd, env = js.call(tool)
-        assert {"ANTHROPIC_API_KEY", "LAB_TOKEN", "HTTPS_PROXY"}.isdisjoint(env)
+        assert {
+            "ANTHROPIC_API_KEY",
+            "LAB_TOKEN",
+            "HTTPS_PROXY",
+            "UV_PUBLISH_TOKEN",
+            "UV_INDEX_URL",
+            "PIP_INDEX_URL",
+        }.isdisjoint(env)
         assert env["PATH"] == os.environ["PATH"]
     _argv, _cwd, npm_env = js.call("npm")
     assert npm_env["HTTPS_PROXY"] == "http://proxy.example.org:3128"
