@@ -138,12 +138,18 @@ function buildPaletteDeps() {
   // Omitting the dep is what drops the rows.
   if (configTabPresent()) deps.revealSetting = revealSetting;
 
-  // The Settings files group (a row per gallery card) reaches the drawer's
-  // galleries; where none mounted, both deps are withheld and the group and
-  // its /api/scaffold read go with them. The Review tab adds its rules row,
-  // which opens that tab rather than a gallery card.
-  if (scaffoldGalleryMounted()) {
-    deps.loadArtifacts = async () => [...(await listGalleryEntries()), ...reviewPaletteEntries()];
+  // The Settings files group holds a row per gallery card, which reaches the
+  // drawer's galleries, and the Review tab's rules row, which opens that tab.
+  // The gallery rows and their /api/scaffold read come only where a gallery
+  // mounted, the rules row only while the Review tab is in the drawer; with
+  // neither, both deps are withheld and the group goes with them.
+  const galleries = scaffoldGalleryMounted();
+  const reviewRows = reviewPaletteEntries();
+  if (galleries || reviewRows.length) {
+    deps.loadArtifacts = async () => [
+      ...(galleries ? await listGalleryEntries() : []),
+      ...reviewRows,
+    ];
     deps.revealArtifact = (name, tabId) => {
       if (tabId === REVIEW_TAB_ID) void openDrawerTab(tabId);
       else void revealArtifact(name, tabId);
