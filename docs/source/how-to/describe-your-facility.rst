@@ -408,6 +408,30 @@ The build checks both keys and stops with ``value-invalid`` when:
 A ``pulse`` or ``gate`` input that names no channel stops the build with
 ``reference-missing``.
 
+``topoff`` makes a float channel a stored current under top-off: it starts
+each ``period_s`` at ``ceiling`` and decays with the lifetime ``lifetime_h``
+until the next refill. ``topoff_lifetime`` makes a channel read that lifetime,
+named by the channel that carries the ``topoff`` seed, so current and lifetime
+always agree.
+
+.. code-block:: yaml
+
+   SR:DIAG:DCCT:01:CURRENT:RB:
+     topoff:
+       ceiling: 500.0
+       lifetime_h: 7.0
+       period_s: 31.0
+   SR:DIAG:DCCT:01:LIFETIME:RB:
+     topoff_lifetime:
+       of: SR:DIAG:DCCT:01:CURRENT:RB
+
+The channel holds the sawtooth's mean, which is what its limits and the
+archive's start state see. The build stops with ``value-invalid`` when
+``topoff`` sits on a channel that is not float or ``lifetime_h`` or
+``period_s`` is not above zero, and with ``seed-invalid`` when ``topoff`` has
+a ``nominal`` beside it or ``topoff_lifetime.of`` names no channel with a
+``topoff`` seed. Live reads and the archive show the same sawtooth.
+
 At run time the ``gate`` acts on the channel's held value, after a ``linear``
 sum; ``drift`` and ``noise`` are added on top and ``clamp`` applied. A gated
 float reads its value
