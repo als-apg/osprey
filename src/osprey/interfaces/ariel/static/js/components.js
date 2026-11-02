@@ -118,25 +118,9 @@ export function renderScoreBadge(score) {
 }
 
 /**
- * Render a status indicator.
- * @param {boolean} healthy - Health status
- * @param {string} label - Status label
- * @returns {string} HTML string
- */
-export function renderStatusIndicator(healthy, label) {
-  const status = healthy ? 'healthy' : 'error';
-  return `
-    <span class="status-indicator">
-      <span class="status-dot ${status}"></span>
-      <span>${label}</span>
-    </span>
-  `;
-}
-
-/**
  * Render a tag list.
  * @param {string[]} tags - Tag values
- * @param {string} type - Tag type (default, accent, accent-secondary)
+ * @param {string} type - Tag type (default, accent)
  * @returns {string} HTML string
  */
 export function renderTags(tags, type = '') {
@@ -171,102 +155,118 @@ export function sanitizeHighlight(html) {
 }
 
 /**
- * Render an entry card.
- * @param {Entry} entry - Entry data
- * @param {boolean} isCited - Whether this entry was cited in the answer
- * @returns {string} HTML string
+ * One list row: subject, time, author, score badge, highlights or preview,
+ * attachment count, picture-match marker and keywords — what today's card
+ * shows. Every interpolated value is escaped; the entry id is carried only as
+ * a `data-*` attribute.
+ * @param {Entry} entry
+ * @param {string|null} [selected] - The selected entry id
+ * @returns {string}
  */
-export function renderEntryCard(entry, isCited = false) {
-  const score = entry.score !== null ? renderScoreBadge(entry.score) : '';
+export function renderListRow(entry, selected = null) {
+  const id = String(entry.entry_id ?? '');
+  const isSelected = selected !== null && selected === id;
+  const score = renderScoreBadge(entry.score);
   const attachmentCount = entry.attachments?.length || 0;
   const keywords = entry.keywords?.slice(0, 5) || [];
-  const citedClass = isCited ? ' entry-card-cited' : '';
   const pictureMatch = Array.isArray(entry.matched_via) && entry.matched_via.includes('image');
+  const { subject, details } = parseEntryText(entry.raw_text);
 
-  // Extract preview from raw_text
-  const { details: preview } = parseEntryText(entry.raw_text);
-
-  // Use highlighted snippet if available, otherwise fall back to plain-text preview
   const highlights = entry.highlights || [];
-  let contentHtml;
-  if (highlights.length > 0) {
-    contentHtml = highlights.map((h) => sanitizeHighlight(h)).join(' &hellip; ');
-  } else {
-    contentHtml = `${escapeHtml(preview).slice(0, 300)}${preview.length > 300 ? '...' : ''}`;
-  }
+  const preview =
+    highlights.length > 0
+      ? highlights.map((/** @type {string} */ h) => sanitizeHighlight(h)).join(' &hellip; ')
+      : `${escapeHtml(details.slice(0, 300))}${details.length > 300 ? '...' : ''}`;
+
+  const foot = [
+    attachmentCount > 0
+      ? `<span class="text-muted" data-attachment-count="${attachmentCount}">📎 ${attachmentCount}</span>`
+      : '',
+    pictureMatch
+      ? '<span class="text-muted" data-match-marker="image" title="Matched through a picture in this entry">🖼️ picture match</span>'
+      : '',
+    keywords.length > 0
+      ? `<span class="keyword-list">🏷️ ${keywords
+          .map((/** @type {string} */ kw) => `<span class="keyword-tag">${escapeHtml(kw)}</span>`)
+          .join('')}</span>`
+      : '',
+  ].join('');
 
   return `
-    <article class="entry-card${citedClass}" data-entry-id="${escapeHtml(entry.entry_id)}">
-      <div class="entry-card-header">
-        <div class="entry-card-meta">
-          <span class="entry-id">${escapeHtml(entry.entry_id)}</span>
-          <span class="timestamp">${formatTimestamp(entry.timestamp)}</span>
-          <span>${escapeHtml(entry.author || 'Unknown')}</span>
-          <span class="text-muted">${escapeHtml(entry.source_system)}</span>
-        </div>
+    <div class="osprey-list-row multiline ariel-row" role="option" tabindex="-1"
+         data-entry-id="${escapeHtml(id)}" aria-selected="${isSelected}">
+      <div class="ariel-row-top">
+        <span class="osprey-list-title ariel-row-subject">${escapeHtml(subject)}</span>
+        <time class="ariel-row-time" datetime="${escapeHtml(entry.timestamp || '')}">${escapeHtml(formatTimestamp(entry.timestamp))}</time>
+      </div>
+      <div class="ariel-row-meta">
+        <span class="ariel-row-author">${escapeHtml(entry.author || 'Unknown')}</span>
+        <span class="text-muted">${escapeHtml(entry.source_system || '')}</span>
         ${score}
       </div>
-      <div class="entry-card-content">
-        ${contentHtml}
-      </div>
-      <div class="entry-card-footer">
-        ${attachmentCount > 0 ? `<span class="text-muted">📎 ${attachmentCount}</span>` : ''}
-        ${pictureMatch ? '<span class="text-muted" data-match-marker="image" title="Matched through a picture in this entry">🖼️ picture match</span>' : ''}
-        ${
-          keywords.length > 0
-            ? `<span class="keyword-list">🏷️ ${keywords
-                .map((kw) => `<span class="keyword-tag">${escapeHtml(kw)}</span>`)
-                .join('')}</span>`
-            : ''
-        }
-      </div>
-    </article>
+      <div class="ariel-row-preview">${preview}</div>
+      ${foot ? `<div class="ariel-row-foot">${foot}</div>` : ''}
+    </div>
   `;
 }
 
 /**
- * Render the answer box with mode and tool labels.
- * @param {string} answer - Generated answer
- * @param {string[]} sources - Source entry IDs
- * @param {string} mode - Search mode used ('keyword', 'semantic')
- * @param {string[]} toolsUsed - Search tools invoked
- * @returns {string} HTML string
+ * The calendar day an entry falls on in the facility time zone; the day
+ * separator's label and the key consecutive rows are grouped by.
+ * @param {string} timestamp
+ * @returns {string}
  */
-export function renderAnswerBox(answer, sources = [], mode = 'keyword', toolsUsed = []) {
-  if (!answer) return '';
+function dayLabel(timestamp) {
+  if (!timestamp) return '';
+  return (
+    formatFacilityTime(timestamp, {
+      weekday: 'short',
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+    }) || ''
+  );
+}
 
-  /** @type {Object<string, string>} */
-  const modeLabels = { keyword: 'Keyword', semantic: 'Semantic' };
-  const modeName = modeLabels[mode] || 'Answer';
-  const tools = toolsUsed.filter((t) => t !== mode);
-  const toolsSuffix = tools.length > 0 ? ` (${tools.join(', ')})` : '';
-  const label = `${modeName} Answer${toolsSuffix}`;
+/**
+ * Rows for a page of listing entries, with a day separator wherever the day
+ * changes — including against the last row already on screen (`lastDay`).
+ * @param {any[]} entries
+ * @param {string|null} lastDay
+ * @param {string|null} selected
+ * @returns {{html: string, lastDay: string|null}}
+ */
+export function renderDayGroupedRows(entries, lastDay, selected) {
+  let html = '';
+  let day = lastDay;
+  for (const entry of entries) {
+    const label = dayLabel(entry.timestamp);
+    if (label !== day) {
+      html += `<div class="ariel-day-sep" role="presentation" data-day="${escapeHtml(label)}">${escapeHtml(label)}</div>`;
+      day = label;
+    }
+    html += renderListRow(entry, selected);
+  }
+  return { html, lastDay: day };
+}
 
-  const sourceLinks = sources
-    .map((id) => `<a href="#" data-entry-id="${escapeHtml(id)}">${escapeHtml(id)}</a>`)
-    .join(', ');
+/** The rerank status line's text per driver status. */
+export const RERANK_STATUS_TEXT = {
+  reranking: 'Search complete — reranking with LLM…',
+  updated: 'Results updated after reranking',
+  fallback: 'Could not improve the ranking — showing fast results',
+};
 
+/**
+ * The rerank status line, or nothing.
+ * @param {'reranking'|'updated'|'fallback'|null} status
+ * @returns {string}
+ */
+export function renderRerankStatus(status) {
+  if (!status) return '';
   return `
-    <div class="answer-box animate-fade-in">
-      <div class="answer-box-header">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <circle cx="12" cy="12" r="10"/>
-          <path d="M12 16v-4M12 8h.01"/>
-        </svg>
-        <span>${escapeHtml(label)}</span>
-      </div>
-      <div class="answer-box-content">
-        ${escapeHtml(answer).replace(/\n/g, '<br>')}
-      </div>
-      ${
-        sources.length > 0
-          ? `
-        <div class="answer-box-sources">
-          <strong>Sources:</strong> ${sourceLinks}
-        </div>
-      `
-          : ''
-      }
+    <div class="results-modes" data-testid="rerank-status" role="status" aria-live="polite">
+      ${escapeHtml(RERANK_STATUS_TEXT[status])}
     </div>
   `;
 }
@@ -306,8 +306,8 @@ export function renderEmptyState(title, text) {
 /**
  * Render an error state for a failed load, matching renderEmptyState's markup
  * minus the icon, with the message sourced from a caught error via messageOf().
- * Shared by every module's load-failure catch block (dashboard, search, entries,
- * entries-detail) so they render identical markup instead of four copies of it.
+ * Shared by every module's load-failure catch block (dashboard, list, reader)
+ * so they render identical markup.
  * @param {string} title - Error heading
  * @param {unknown} error - The caught error
  * @returns {string} HTML string
@@ -326,7 +326,7 @@ export function renderErrorState(title, error) {
  * @param {string} title - Stat title
  * @param {string|number} value - Stat value
  * @param {string} subtitle - Stat subtitle
- * @param {string|null} status - Status (healthy, warning, error)
+ * @param {string|null} status - Status (healthy, error)
  * @returns {string} HTML string
  */
 export function renderStatCard(title, value, subtitle = '', status = null) {
@@ -457,40 +457,6 @@ export function renderConfigBanner(configErrors, remedy, blocking = false) {
   `;
 }
 
-// Re-exported from the shared design-system dom module. The import above creates
-// a real local binding, so internal call sites and the `export default {…}`
-// object below keep resolving `escapeHtml`, and importer files (dashboard.js,
-// search.js, entries.js) continue to get it from './components.js'.
+// Re-exported from the shared design-system dom module, so the panes import it
+// with the rest of their rendering helpers.
 export { escapeHtml };
-
-/**
- * Create an element from HTML string.
- * @param {string} html - HTML string
- * @returns {ChildNode|null} DOM node
- */
-export function createElement(html) {
-  const template = document.createElement('template');
-  template.innerHTML = html.trim();
-  return template.content.firstChild;
-}
-
-export default {
-  formatTimestamp,
-  formatRelativeTime,
-  getScoreClass,
-  renderScoreBadge,
-  renderStatusIndicator,
-  renderTags,
-  sanitizeHighlight,
-  renderEntryCard,
-  renderAnswerBox,
-  renderDiagnosticsBar,
-  renderExpansionBanner,
-  renderConfigBanner,
-  renderLoading,
-  renderEmptyState,
-  renderErrorState,
-  renderStatCard,
-  escapeHtml,
-  createElement,
-};

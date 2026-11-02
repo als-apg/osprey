@@ -49,8 +49,6 @@ WITHOUT_OWN_TEST: tuple[str, ...] = (
     "src/osprey/interfaces/ariel/static/js/api.js",
     "src/osprey/interfaces/ariel/static/js/app.js",
     "src/osprey/interfaces/ariel/static/js/components.js",
-    "src/osprey/interfaces/ariel/static/js/dashboard.js",
-    "src/osprey/interfaces/ariel/static/js/entries-detail.js",
     "src/osprey/interfaces/ariel/static/js/entries-form.js",
     "src/osprey/interfaces/ariel/static/js/entries.js",
     "src/osprey/interfaces/ariel/static/js/search.js",

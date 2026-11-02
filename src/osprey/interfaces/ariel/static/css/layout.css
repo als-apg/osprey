@@ -1,8 +1,8 @@
 /**
  * ARIEL Layout Styles
  *
- * Page structure and responsive layouts for the
- * ARIEL search interface.
+ * Page structure for ARIEL's one screen: header, rail | list | reader,
+ * and the reader, status-drawer and compose content inside it.
  *
  * Layout is ARIEL's own, but every control and surface inside it uses the
  * ladder components.css sets out: chips at --radius-sm, card surfaces at
@@ -12,10 +12,13 @@
  */
 
 /* === Main Layout === */
+/* The panel is one viewport-high screen: the header (standalone only) over
+   the pane row. Panes scroll inside themselves, never the page. */
 .app-container {
   display: flex;
   flex-direction: column;
-  min-height: 100vh;
+  height: 100vh;
+  overflow: hidden;
 }
 
 /* === Header === */
@@ -67,39 +70,6 @@
   background-clip: text;
 }
 
-.nav {
-  display: flex;
-  gap: var(--space-1);
-}
-
-.nav-link {
-  display: inline-flex;
-  align-items: center;
-  min-height: 28px;
-  padding: var(--space-1) var(--space-3);
-  font-size: var(--text-md);
-  font-weight: var(--weight-medium);
-  color: var(--text-secondary);
-  border-radius: var(--radius-sm);
-  transition: color var(--duration-instant) ease,
-    background-color var(--duration-instant) ease;
-  text-decoration: none;
-}
-
-/* Hover stays neutral so it reads as "you could go here"; only the tab you
-   are actually on takes the accent wash, matching how the product marks the
-   active surface everywhere else. */
-.nav-link:hover {
-  color: var(--text-primary);
-  background: var(--ariel-surface-hover);
-  text-decoration: none;
-}
-
-.nav-link.active {
-  color: var(--color-accent-light);
-  background: var(--accent-tint-10);
-}
-
 .header-right {
   display: flex;
   align-items: center;
@@ -107,102 +77,16 @@
 }
 
 /* Embedded in web terminal: the host tile header bar IS this panel's header —
- * it carries the panel name, the hub's theming, and (via app.js) the Search /
- * Browse / New Entry nav contributed into it. The
+ * it carries the panel name, the hub's theming, and (via header.js) the items
+ * the panel contributes into it. The
  * panel's own header would be a second bar, so it goes away wholesale. The
  * display menu needs no rule here: the component injects its own
  * body.embedded hide rule. */
-body.embedded .header { display: none; }
-
-/* Embedded, each view's title row goes too: the tile bar already names the
- * panel and its nav marks the active view, so "Search the Logbook",
- * "Browse Entries" and "New Entry" would be a second title inside the body.
- * Standalone keeps them as the page's view headings. */
-body.embedded .search-hero,
-body.embedded .dashboard-header { display: none; }
-
-/* === Main Content === */
-.main {
-  flex: 1;
-  max-width: var(--container-max);
-  width: 100%;
-  margin: 0 auto;
-  padding: var(--space-5);
+body.embedded .header {
+  display: none;
 }
 
-/* === Search View === */
-.search-view {
-  max-width: 900px;
-  margin: 0 auto;
-}
-
-.search-hero {
-  text-align: center;
-  padding: var(--space-6) 0 var(--space-5);
-}
-
-.search-hero h1 {
-  margin-bottom: var(--space-2);
-  background: linear-gradient(90deg, var(--text-primary), var(--text-secondary));
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
-}
-
-.search-hero p {
-  font-size: var(--text-xl);
-  max-width: 600px;
-  margin: 0 auto;
-}
-
-.search-form {
-  margin-bottom: var(--space-5);
-}
-
-.search-input-wrapper {
-  position: relative;
-  margin-bottom: var(--space-4);
-}
-
-/* The hero field keeps its height and body-size type — that is the deliberate
-   "start here" treatment — but its frame is a normal 1px field border, and
-   focus states it the way every other field does. */
-.search-input-wrapper .input {
-  padding-left: var(--space-7);
-  padding-right: 180px;
-  height: 56px;
-  font-size: var(--text-xl);
-  background: var(--bg-secondary);
-}
-
-.search-input-wrapper .input:focus {
-  border-color: var(--color-accent);
-}
-
-.search-input-wrapper .search-icon {
-  position: absolute;
-  left: var(--space-4);
-  top: 50%;
-  transform: translateY(-50%);
-  width: 24px;
-  height: 24px;
-  color: var(--text-muted);
-}
-
-.search-input-actions {
-  position: absolute;
-  right: var(--space-3);
-  top: 50%;
-  transform: translateY(-50%);
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-}
-
-/* === Results Section === */
-.results-section {
-  margin-top: var(--space-5);
-}
+/* === List pane: results header === */
 
 .results-header {
   display: flex;
@@ -230,19 +114,7 @@ body.embedded .dashboard-header { display: none; }
   color: var(--text-muted);
 }
 
-.results-list {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-4);
-}
-
-.load-more {
-  display: flex;
-  justify-content: center;
-  padding: var(--space-5);
-}
-
-/* === Entry Detail View === */
+/* === Reader: entry detail === */
 .entry-detail {
   max-width: 900px;
   margin: 0 auto;
@@ -345,15 +217,7 @@ body.embedded .dashboard-header { display: none; }
   text-align: right;
 }
 
-/* === Dashboard View === */
-.dashboard-view {
-  max-width: 1200px;
-  margin: 0 auto;
-}
-
-.dashboard-header {
-  margin-bottom: var(--space-5);
-}
+/* === Status drawer: service cards === */
 
 .dashboard-grid {
   display: grid;
@@ -396,11 +260,7 @@ body.embedded .dashboard-header { display: none; }
   margin-top: var(--space-1);
 }
 
-/* === Create Entry View === */
-.create-entry-view {
-  max-width: 800px;
-  margin: 0 auto;
-}
+/* === Compose: entry form === */
 
 .create-entry-form {
   background: var(--ariel-surface-card);
@@ -449,74 +309,11 @@ body.embedded .dashboard-header { display: none; }
   border-top: 1px solid var(--neutral-tint-10);
 }
 
-/* === Activity Log === */
-.activity-log {
-  background: var(--ariel-surface-card);
-  border: 1px solid var(--neutral-tint-10);
-  border-radius: var(--radius-md);
-  overflow: hidden;
-}
-
-.activity-item {
-  display: flex;
-  align-items: flex-start;
-  gap: var(--space-3);
-  padding: var(--space-2) var(--space-3);
-  border-bottom: 1px solid var(--neutral-tint-10);
-  font-size: var(--text-md);
-}
-
-.activity-item:last-child {
-  border-bottom: none;
-}
-
-.activity-time {
-  color: var(--text-muted);
-  font-family: var(--font-mono);
-  white-space: nowrap;
-}
-
-.activity-text {
-  color: var(--text-secondary);
-}
-
 /* === Responsive Adjustments === */
 @media (max-width: 640px) {
   .header-inner {
     padding: 0 var(--space-4);
   }
-
-  .main {
-    padding: var(--space-4);
-  }
-
-  .nav {
-    display: none;
-  }
-
-  .search-hero {
-    padding: var(--space-4) 0;
-  }
-
-  .search-input-wrapper .input {
-    height: 48px;
-    padding-right: 120px;
-    font-size: var(--text-xl);
-  }
-
-  .filters-grid {
-    grid-template-columns: 1fr;
-  }
-}
-
-/* === View transitions === */
-.view {
-  display: none;
-}
-
-.view.active {
-  display: block;
-  animation: fadeIn var(--duration-fast) ease;
 }
 
 /* === Loading overlay === */
@@ -530,4 +327,208 @@ body.embedded .dashboard-header { display: none; }
 .loading-text {
   margin-top: var(--space-4);
   color: var(--text-secondary);
+}
+
+/* === The one screen: rail | list | reader ===
+ *
+ * layout.js stamps three attributes on .app-container and every delta below
+ * keys off them, never off a media query, so the screen follows the panel's
+ * own width inside a hub tile:
+ *   data-rail-collapsed  the rail is the icon strip
+ *   data-stacked         list and reader share one column (panel < 640px)
+ *   data-narrow-view     which of the two shows while stacked (list|reader)
+ * Pane widths are written inline by the shared splitter (flex-basis +
+ * max-width); the stylesheet only seeds them.
+ */
+.ariel-shell {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  background: var(--bg-primary);
+}
+
+.ariel-pane {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.ariel-rail {
+  flex: 0 0 208px;
+  max-width: 208px;
+  overflow-y: auto;
+  padding: var(--space-2) 0;
+  background: var(--bg-secondary);
+}
+
+/* Icon strip: rows keep their icons; row names and the saved-search caption go.
+   Reached through ARIEL's own containers so no design-system primitive is restyled. */
+.app-container[data-rail-collapsed] .ariel-rail :is([data-box] > span, .ariel-rail-saved-head > div) {
+  display: none;
+}
+
+.ariel-list-col {
+  position: relative;
+  flex: 0 0 380px;
+  max-width: 380px;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.ariel-list {
+  flex: 1;
+}
+
+.ariel-reader {
+  flex: 1 1 0;
+}
+
+.ariel-pane-title {
+  font-size: var(--text-md);
+  font-weight: var(--weight-semibold);
+  color: var(--text-primary);
+}
+
+/* Back exists only while stacked; side by side the list is always there. */
+.ariel-back-btn {
+  display: none;
+}
+
+.app-container[data-stacked] .ariel-back-btn {
+  display: inline-flex;
+}
+
+.ariel-reader-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--space-4) var(--space-5);
+}
+
+/* List pane head: the search box takes what the mode control and compose leave. */
+.ariel-list-search {
+  flex: 1;
+  min-width: 0;
+}
+
+.ariel-list-banners {
+  flex: none;
+}
+
+.ariel-list-body {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden auto;
+}
+
+.ariel-rows {
+  display: flex;
+  flex-direction: column;
+  padding: 0 var(--space-2);
+}
+
+/* One list row: subject and time, author and source, one line of preview, and
+   the optional attachment/keyword foot. Every line clips inside the row. */
+.ariel-row-top,
+.ariel-row-meta,
+.ariel-row-foot {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.ariel-row-time {
+  flex: none;
+}
+
+.ariel-row-meta,
+.ariel-row-preview,
+.ariel-row-foot {
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+}
+
+.ariel-row-author {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--text-secondary);
+}
+
+.ariel-row-preview {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.ariel-row-foot .keyword-list {
+  flex-wrap: nowrap;
+}
+
+.ariel-load-older-row {
+  display: flex;
+  justify-content: center;
+  padding: var(--space-3) var(--space-2);
+}
+
+/* Day separators between list rows. */
+.ariel-day-sep {
+  padding: var(--space-3) var(--space-4) var(--space-1);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+/* === Compose host: a sheet over the list pane, never over the reader === */
+.ariel-compose {
+  position: absolute;
+  inset: 0;
+  z-index: var(--z-sticky);
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-secondary);
+}
+
+.ariel-compose[hidden] {
+  display: none;
+}
+
+.ariel-compose-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--space-4);
+}
+
+/* === Stacked: one column, Back returns from the reader === */
+.app-container[data-stacked] #ariel-list-splitter {
+  display: none;
+}
+
+.app-container[data-stacked] .ariel-list-col {
+  flex: 1 1 0 !important;
+  max-width: none !important;
+}
+
+.app-container[data-stacked][data-narrow-view='list'] .ariel-reader,
+.app-container[data-stacked][data-narrow-view='reader'] .ariel-list-col {
+  display: none;
+}
+
+/* === Status drawer === */
+.ariel-status-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
 }

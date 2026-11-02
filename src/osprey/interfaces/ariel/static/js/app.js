@@ -1,341 +1,133 @@
 // @ts-check
 /**
- * ARIEL Web Application
+ * ARIEL panel bootstrap.
  *
- * Main application entry point and routing.
+ * Boot order is load-bearing: frame kind and theme role first, capabilities
+ * once, the facility time zone before anything renders a time, then the
+ * panes and their hosts, and the router last so the initial hash reaches
+ * every store subscriber. `initSettings` runs before `initLayout` because it
+ * may remove `#settings-drawer`, which the gear menu then leaves out.
+ *
+ * The reader is store-free, so its wiring lives here: it reads `sel` and
+ * `att`, and writes `att` from the lightbox callbacks.
  */
 
 import { initTheme } from '/design-system/js/theme-manager.js';
-import { applyEmbedded } from '/design-system/js/frame-params.js';
-import { contributeHeader, onHeaderAction } from '/design-system/js/header-contrib.js';
-import { capabilitiesApi } from './api.js';
-import { applyFacilityTimezone } from './components.js';
-import { initSearch, performSearch, clearSearch } from './search.js';
-import {
-  initEntries,
-  loadEntries,
-  showEntry,
-  openEntry,
-  closeEntryModal,
-  loadDraft,
-  showImageLightbox,
-} from './entries.js';
-import { initDashboard, loadStatus, startAutoRefresh, stopAutoRefresh } from './dashboard.js';
-import { initAdvancedOptions } from './advanced-options.js';
+import { applyEmbedded, isEmbedded } from '/design-system/js/frame-params.js';
 import '/design-system/js/components/osprey-drawer.js';
 import '/design-system/js/components/osprey-display-menu.js';
+import { capabilitiesApi } from './api.js';
+import { applyFacilityTimezone } from './components.js';
 import { initSettings } from './settings.js';
+import { initLayout } from './layout.js';
+import { initRail } from './rail.js';
+import { initList } from './list.js';
+import { showInReader, clearReader, closeLightbox } from './reader.js';
+import { initEntries } from './entries.js';
+import { initDashboard } from './dashboard.js';
+import { initKeyboard } from './keyboard.js';
+import { initHeader } from './header.js';
+import { initRouter } from './router.js';
+import { getState, setState, subscribe } from './store.js';
 
-// Embedded mode — drops the panel's own header entirely (the host tile bar is
-// the one header) when loaded inside the web terminal iframe. Applied before
-// initTheme() below, which needs to know which surface this is.
+// Embedded, the host tile bar is the one header; applied before initTheme,
+// which needs to know which surface this is.
 applyEmbedded();
 
-// Standalone ARIEL owns theming: the display menu is the operator's control
-// and its pick must persist (hub role). Embedded, the hub is that control and
-// this panel only follows its broadcasts. theme-boot.js already applied
-// data-theme pre-paint either way.
+// Standalone ARIEL owns theming (hub: the display menu's pick persists);
+// embedded, it only follows the hub's broadcasts.
 initTheme({ role: isEmbedded() ? 'follower' : 'hub' });
 
-// Current view
-let currentView = 'search';
-
 /**
- * Whether the app runs embedded in the web terminal iframe.
- * Reads the `embedded` body class set by the applyEmbedded() call at module
- * scope above — which is why the theme role can already read it there.
- * @returns {boolean}
+ * Map `sel` / `att` onto the reader pane.
+ *
+ * A thumbnail click opens the lightbox inside the reader, which reports it
+ * through `onAttachmentOpen`; `shownAtt` records that so the resulting `att`
+ * write is not answered by loading the entry again. `att:null` from outside
+ * (Esc, the router) closes the lightbox without a callback, so nothing is
+ * written back.
+ * @param {HTMLElement} container - `#ariel-reader-body`
  */
-function isEmbedded() {
-  return document.body.classList.contains('embedded');
-}
+function wireReader(container) {
+  /** @type {string|null} */
+  let shownAtt = null;
 
-/**
- * Whether the embedded panel offers Search, from the deployment's
- * `ariel.embedded_search` switch. Off unless the capabilities payload says
- * otherwise: embedded, the agent searches the logbook. Standalone ignores it.
- */
-let embeddedSearch = false;
-
-/**
- * Whether the Search view is offered in this page.
- * @returns {boolean}
- */
-function searchOffered() {
-  return !isEmbedded() || embeddedSearch;
-}
-
-/**
- * Default view when no hash is present: Search wherever it is offered,
- * Browse otherwise.
- * @returns {string}
- */
-function defaultView() {
-  return searchOffered() ? 'search' : 'browse';
-}
-
-/**
- * Views the tile bar's nav offers when embedded. Status remains standalone
- * because the terminal owns service health; Search is there only when the
- * deployment turns it on.
- * @returns {{ id: string, label: string }[]}
- */
-function headerViews() {
-  return [
-    ...(searchOffered() ? [{ id: 'search', label: 'Search' }] : []),
-    { id: 'browse', label: 'Browse' },
-    { id: 'create', label: 'New Entry' },
-  ];
-}
-
-/**
- * Publish this panel's tile-bar contribution for the current view. The hub
- * renders only what the last contribution says, so the WHOLE nav goes out
- * again on every view change. No-op standalone.
- */
-function publishHeaderContribution() {
-  contributeHeader([
-    {
-      kind: 'nav',
-      id: 'view',
-      items: headerViews().map((v) => ({ id: v.id, label: v.label, active: v.id === currentView })),
+  const callbacks = {
+    onAttachmentOpen: (/** @type {string|null} */ id) => {
+      shownAtt = id;
+      if (getState().att !== id) setState({ att: id });
     },
-  ]);
+    onAttachmentClose: () => {
+      shownAtt = null;
+      setState({ att: null });
+    },
+  };
+
+  /** @param {string|null} sel @param {string|null} att */
+  const show = (sel, att) => {
+    closeLightbox(container);
+    shownAtt = null;
+    if (sel) showInReader(container, sel, { attachmentId: att, ...callbacks });
+    else clearReader(container);
+  };
+
+  subscribe((next, _prev, changed) => {
+    if (changed.has('sel')) {
+      show(next.sel, next.att);
+    } else if (changed.has('att')) {
+      if (next.att === null) {
+        closeLightbox(container);
+        shownAtt = null;
+      } else if (next.att !== shownAtt && next.sel) {
+        show(next.sel, next.att);
+      }
+    }
+  });
+
+  const { sel, att } = getState();
+  if (sel) show(sel, att);
 }
 
 /**
- * Initialize the application.
+ * Boot the panel. Module init is non-fatal so the router still runs, and the
+ * page still navigates, without a backend.
  */
 async function init() {
-  // Initialize modules — wrapped in try/catch so navigation always works
-  // even if the backend is unavailable (degraded mode).
+  /** @type {any} */
+  let capabilities = null;
   try {
-    let capabilities = null;
-    try {
-      capabilities = await capabilitiesApi.get();
-    } catch (e) {
-      console.warn('Failed to fetch capabilities, using fallback:', e);
-    }
-    embeddedSearch = capabilities?.embedded_search === true;
+    capabilities = await capabilitiesApi.get();
+  } catch (e) {
+    console.warn('Failed to fetch capabilities, using fallback:', e);
+  }
 
-    // Before anything renders a time: entry times read in the facility zone.
+  try {
     applyFacilityTimezone(capabilities);
-
-    // Search first, and with the payload: a degraded-configuration banner has
-    // to be on screen before anything else renders.
-    initSearch(capabilities);
-    initEntries();
-    initDashboard();
-    initAdvancedOptions(capabilities);
     initSettings(capabilities);
+    initLayout(document);
+
+    const rail = document.getElementById('ariel-rail');
+    if (rail) initRail(rail);
+    const list = document.getElementById('ariel-list');
+    if (list) initList(list, { capabilities });
+    const reader = document.getElementById('ariel-reader-body');
+    if (reader) wireReader(reader);
+
+    initEntries(document);
+    initDashboard(document);
+    initKeyboard(document, { embedded: isEmbedded() });
+    initHeader({ capabilities });
   } catch (e) {
     console.error('Module initialization failed (non-fatal):', e);
   }
 
-  // Navigation and routing must always run
-  setupNavigation();
-  setupModals();
-  setupCreateFormReset();
-
-  const hash = window.location.hash.slice(1) || defaultView();
-  navigateTo(hash);
-
-  // Expose app API to window for onclick handlers
-  /** @type {any} */ (window).app = {
-    navigateTo,
-    performSearch,
-    clearSearch,
-    showEntry,
-    closeEntryModal: closeEntry,
-    showImageLightbox,
-    loadEntriesPage: (/** @type {number} */ page) => loadEntries({ page }),
-    loadStatus,
-  };
+  initRouter();
 
   console.log('ARIEL Web Interface initialized');
 }
 
-/**
- * Set up navigation handling.
- */
-function setupNavigation() {
-  // Handle nav link clicks
-  document.querySelectorAll('.nav-link[data-view]').forEach((link) => {
-    link.addEventListener('click', (e) => {
-      e.preventDefault();
-      const view = /** @type {HTMLElement} */ (link).dataset.view;
-      if (view) navigateTo(view);
-    });
-  });
-
-  // Handle hash changes
-  window.addEventListener('hashchange', () => {
-    const hash = window.location.hash.slice(1) || defaultView();
-    navigateTo(hash);
-  });
-
-  // Embedded: the same nav lives in the host tile bar. The hub posts the
-  // clicked entry's id back here and navigateTo re-publishes the active state.
-  onHeaderAction((id, value) => {
-    if (id === 'view' && value) navigateTo(value);
-  });
-}
-
-/**
- * Wire the New Entry form's Cancel button: clear the fields and the staged
- * file thumbnails (a native form reset leaves the previews behind, since it
- * fires no change event for handleFilePreview to see).
- */
-function setupCreateFormReset() {
-  const cancelBtn = document.getElementById('create-cancel-btn');
-  cancelBtn?.addEventListener('click', () => {
-    /** @type {HTMLFormElement|null} */ (document.getElementById('create-entry-form'))?.reset();
-    const preview = document.getElementById('file-preview');
-    if (preview) preview.innerHTML = '';
-  });
-}
-
-/**
- * Set up modal close handlers.
- */
-function setupModals() {
-  // Entry modal
-  const entryModal = document.getElementById('entry-modal');
-  const entryModalClose = document.getElementById('entry-modal-close');
-
-  entryModalClose?.addEventListener('click', () => closeEntry());
-
-  // Close on overlay click
-  entryModal?.addEventListener('click', (e) => {
-    if (e.target === entryModal) {
-      closeEntry();
-    }
-  });
-
-  // Close on Escape
-  document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') {
-      if (!entryModal?.classList.contains('hidden')) {
-        closeEntry();
-      }
-    }
-  });
-}
-
-/**
- * Close the entry detail card. A card opened by the `entry` route hands the
- * hash back to Browse, the view it was drawn over, so the same `#entry?...`
- * link opens it again the next time it is followed.
- */
-function closeEntry() {
-  closeEntryModal();
-  if (parseHash(window.location.hash.slice(1)).viewName === 'entry') {
-    navigateTo('browse');
-  }
-}
-
-/**
- * Parse a hash string into view name and query parameters.
- * E.g. "create?draft=abc" -> { viewName: "create", params: URLSearchParams }
- * @param {string} hash - Hash string (without leading #)
- * @returns {{ viewName: string, params: URLSearchParams }}
- */
-function parseHash(hash) {
-  const qIdx = hash.indexOf('?');
-  if (qIdx === -1) {
-    return { viewName: hash, params: new URLSearchParams() };
-  }
-  return {
-    viewName: hash.substring(0, qIdx),
-    params: new URLSearchParams(hash.substring(qIdx + 1)),
-  };
-}
-
-/**
- * Navigate to a view.
- *
- * `entry?id=<entry_id>` is not a view of its own: it shows Browse with that
- * entry's detail card open over it, and `&attachment=<attachment_id>` also
- * enlarges that picture when it is one of the entry's viewable pictures.
- * @param {string} hash - Full hash string (view name, optionally with query params)
- */
-function navigateTo(hash) {
-  const { viewName: routeName, params } = parseHash(hash);
-  const viewName = routeName === 'entry' ? 'browse' : routeName;
-
-  // Status is standalone-only: the terminal's ARIEL dot reports service
-  // health. Search is embedded only where the deployment turns it on.
-  // Redirecting stray hashes keeps a view that is not offered from activating
-  // (and the status auto-refresh interval, started only there, off).
-  if (isEmbedded() && (viewName === 'status' || (viewName === 'search' && !searchOffered()))) {
-    navigateTo('browse');
-    return;
-  }
-
-  // Update URL hash
-  window.location.hash = hash;
-
-  // Update nav links (match on view name only, not query params)
-  document.querySelectorAll('.nav-link').forEach((link) => {
-    link.classList.toggle('active', /** @type {HTMLElement} */ (link).dataset.view === viewName);
-  });
-
-  // Hide all views
-  document.querySelectorAll('.view').forEach((v) => {
-    v.classList.remove('active');
-  });
-
-  // Show target view
-  const viewEl = document.getElementById(`view-${viewName}`);
-  if (viewEl) {
-    viewEl.classList.add('active');
-  }
-
-  // Handle view-specific initialization
-  const viewChanged = viewName !== currentView;
-
-  if (viewChanged) {
-    // Cleanup previous view
-    if (currentView === 'status') {
-      stopAutoRefresh();
-    }
-  }
-
-  // Initialize new view (or reload draft for same-view navigation)
-  switch (viewName) {
-    case 'browse':
-      if (viewChanged) loadEntries();
-      break;
-    case 'create': {
-      const draftId = params.get('draft');
-      if (draftId) {
-        loadDraft(draftId);
-      }
-      break;
-    }
-    case 'status':
-      if (viewChanged) {
-        loadStatus();
-        startAutoRefresh();
-      }
-      break;
-  }
-
-  currentView = viewName;
-
-  publishHeaderContribution();
-
-  if (routeName === 'entry') {
-    const entryId = params.get('id');
-    if (entryId) openEntry(entryId, params.get('attachment'));
-  }
-}
-
-// Initialize when DOM is ready
 if (document.readyState === 'loading') {
   document.addEventListener('DOMContentLoaded', init);
 } else {
   init();
 }
-
-export { navigateTo, currentView };

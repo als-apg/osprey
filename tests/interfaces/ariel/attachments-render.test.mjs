@@ -3,11 +3,11 @@
  * Attachment rendering in the ARIEL web UI:
  *   npx vitest run tests/interfaces/ariel/attachments-render.test.mjs
  *
- * The entry detail view draws an <img> only for attachments the server marks
+ * The reader (reader.js) draws an <img> only for attachments the server marks
  * `viewable: true`, always from `display_url`, and every href/src built from
  * attachment data passes `safeHref` (http(s), or an attachment route relative
  * to the API base, joined to that base).
- * Everything else is a file card. The entry card shows a "picture match"
+ * Everything else is a file card. A list row (components.js renderListRow) shows a "picture match"
  * marker only when the search matched through an image.
  */
 
@@ -22,13 +22,8 @@ vi.mock('../../../src/osprey/interfaces/ariel/static/js/api.js', async (importOr
 });
 
 import { entriesApi } from '../../../src/osprey/interfaces/ariel/static/js/api.js';
-import {
-  showEntry,
-  openEntry,
-  initEntryDetail,
-  safeHref,
-} from '../../../src/osprey/interfaces/ariel/static/js/entries-detail.js';
-import { renderEntryCard } from '../../../src/osprey/interfaces/ariel/static/js/components.js';
+import { showInReader, safeHref } from '../../../src/osprey/interfaces/ariel/static/js/reader.js';
+import { renderListRow } from '../../../src/osprey/interfaces/ariel/static/js/components.js';
 
 /** `display_url` values as the server sends them: routes relative to the API base. */
 const RENDITION = '/attachments/att-0123456789ab/rendition';
@@ -37,10 +32,15 @@ const ORIGINAL = '/attachments/att-0123456789ab';
 const RENDITION_SRC = '/api/attachments/att-0123456789ab/rendition';
 const ORIGINAL_SRC = '/api/attachments/att-0123456789ab';
 
+/** @returns {HTMLElement} The reader body showInReader renders into. */
+function readerBody() {
+  return /** @type {HTMLElement} */ (document.getElementById('ariel-reader-body'));
+}
+
 /**
- * Render one entry with the given attachments into the detail modal.
+ * Render one entry with the given attachments into the reader body.
  * @param {any[]} attachments
- * @returns {Promise<HTMLElement>} the modal body
+ * @returns {Promise<HTMLElement>} the reader body
  */
 async function renderDetail(attachments) {
   vi.mocked(entriesApi.get).mockResolvedValueOnce({
@@ -52,15 +52,12 @@ async function renderDetail(attachments) {
     keywords: [],
     attachments,
   });
-  await showEntry('entry-1');
-  return /** @type {HTMLElement} */ (document.getElementById('entry-modal-body'));
+  await showInReader(readerBody(), 'entry-1');
+  return readerBody();
 }
 
 beforeEach(() => {
-  document.body.innerHTML = `
-    <div id="entry-modal" class="hidden"><div id="entry-modal-body"></div></div>
-  `;
-  initEntryDetail();
+  document.body.innerHTML = '<div id="ariel-reader-body"></div>';
   vi.clearAllMocks();
 });
 
@@ -303,8 +300,9 @@ describe('entry detail attachments', () => {
     expect(body.querySelector('[data-skip-reason]')).toBeNull();
   });
 
-  test('a delegated click on a hand-made thumbnail with an unsafe url opens no lightbox', () => {
-    const body = /** @type {HTMLElement} */ (document.getElementById('entry-modal-body'));
+  test('a delegated click on a hand-made thumbnail with an unsafe url opens no lightbox', async () => {
+    // Bind the reader's delegation to the body, then hand-make a thumbnail.
+    const body = await renderDetail([]);
     body.innerHTML = '<div data-lightbox-url="javascript:alert(1)" data-lightbox-name="x"></div>';
     /** @type {HTMLElement} */ (body.firstElementChild).dispatchEvent(
       new MouseEvent('click', { bubbles: true })
@@ -313,7 +311,7 @@ describe('entry detail attachments', () => {
   });
 });
 
-describe('openEntry (the #entry?id=...&attachment=... route)', () => {
+describe('showInReader with an attachment (the #entry?id=...&attachment=... route)', () => {
   /** @param {any[]} attachments */
   const serve = (attachments) =>
     vi.mocked(entriesApi.get).mockResolvedValueOnce({
@@ -335,25 +333,27 @@ describe('openEntry (the #entry?id=...&attachment=... route)', () => {
 
   afterEach(() => document.getElementById('image-lightbox')?.remove());
 
-  test('opens the detail card and enlarges the named viewable picture', async () => {
+  test('opens the entry in the reader and enlarges the named viewable picture', async () => {
     serve([{ ...PIC, attachment_id: 'att-other', filename: 'other.png' }, PIC]);
 
-    expect(await openEntry('entry-1', 'att-0123456789ab')).toBe(true);
+    expect(
+      await showInReader(readerBody(), 'entry-1', { attachmentId: 'att-0123456789ab' })
+    ).not.toBeNull();
 
     expect(entriesApi.get).toHaveBeenCalledWith('entry-1');
-    expect(document.getElementById('entry-modal')?.classList.contains('hidden')).toBe(false);
+    expect(readerBody().textContent, 'the entry is in the reader').toContain('subject');
     const overlay = /** @type {HTMLElement} */ (document.getElementById('image-lightbox'));
     expect(overlay.querySelector('img')?.getAttribute('src')).toBe(RENDITION_SRC);
     expect(overlay.textContent).toContain('beam.png');
     expect(overlay.querySelector('a[data-original]')?.getAttribute('href')).toBe(ORIGINAL_SRC);
   });
 
-  test('without an attachment only the detail card opens', async () => {
+  test('without an attachment only the entry opens', async () => {
     serve([PIC]);
 
-    expect(await openEntry('entry-1')).toBe(false);
+    expect(await showInReader(readerBody(), 'entry-1')).not.toBeNull();
 
-    expect(document.getElementById('entry-modal')?.classList.contains('hidden')).toBe(false);
+    expect(readerBody().textContent, 'the entry is in the reader').toContain('subject');
     expect(document.getElementById('image-lightbox')).toBeNull();
   });
 
@@ -364,37 +364,44 @@ describe('openEntry (the #entry?id=...&attachment=... route)', () => {
   ])('an attachment %s enlarges nothing', async (_why, attachments, attachmentId) => {
     serve(/** @type {any[]} */ (attachments));
 
-    expect(await openEntry('entry-1', /** @type {string} */ (attachmentId))).toBe(false);
+    await showInReader(readerBody(), 'entry-1', {
+      attachmentId: /** @type {string} */ (attachmentId),
+    });
 
-    expect(document.getElementById('entry-modal')?.classList.contains('hidden')).toBe(false);
+    expect(readerBody().textContent, 'the entry is in the reader').toContain('subject');
     expect(document.getElementById('image-lightbox')).toBeNull();
   });
 
   test('an unknown entry shows the not-found message and enlarges nothing', async () => {
     vi.mocked(entriesApi.get).mockRejectedValueOnce(new Error('Entry not found: nope'));
 
-    expect(await openEntry('nope', 'att-0123456789ab')).toBe(false);
+    expect(
+      await showInReader(readerBody(), 'nope', { attachmentId: 'att-0123456789ab' })
+    ).toBeNull();
 
-    const body = /** @type {HTMLElement} */ (document.getElementById('entry-modal-body'));
+    const body = readerBody();
     expect(body.textContent).toContain('Failed to Load Entry');
     expect(document.getElementById('image-lightbox')).toBeNull();
   });
 });
 
-describe('entry card picture-match marker', () => {
+describe('list row picture-match marker', () => {
   /** @param {any} extra */
   const card = (extra) => {
     const host = document.createElement('div');
-    host.innerHTML = renderEntryCard({
-      entry_id: 'e-1',
-      timestamp: '2026-01-01T00:00:00Z',
-      author: 'a',
-      source_system: 's',
-      raw_text: 'subject\nbody',
-      score: null,
-      attachments: [{ filename: 'a.png' }, { filename: 'b.pdf' }],
-      ...extra,
-    });
+    host.innerHTML = renderListRow(
+      {
+        entry_id: 'e-1',
+        timestamp: '2026-01-01T00:00:00Z',
+        author: 'a',
+        source_system: 's',
+        raw_text: 'subject\nbody',
+        score: null,
+        attachments: [{ filename: 'a.png' }, { filename: 'b.pdf' }],
+        ...extra,
+      },
+      null
+    );
     return host;
   };
 
