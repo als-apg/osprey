@@ -1008,8 +1008,74 @@ class TestStillRules:
         files = _tree(**{"scenarios/s.yaml": {"still": still}})
         error = _rule(tmp_path, files, "value-invalid")
         assert (error.record_kind, error.record_id) == ("scenario", "s")
-        assert error.detail == f"`still` is {still!r}, neither `all` nor a list of addresses"
-        assert error.remedy == "write `still: all` or a list of addresses"
+        assert error.detail == (
+            f"`still` is {still!r}, neither `all` nor a list of addresses and selections"
+        )
+        assert error.remedy == "write `still: all` or a list of addresses and selections"
+
+    def test_a_still_entry_may_be_a_scoped_selection(self, tmp_path: Path) -> None:
+        files = _tree(
+            **{
+                "models.yaml": [{"name": "optics", "engine": "texture"}],
+                "scenarios/s.yaml": {
+                    "still": [
+                        "BPM1:X",
+                        {"model": "optics", "role": "monitor", "plane": "x"},
+                        {"model": "optics", "signal": "current"},
+                    ]
+                },
+            },
+        )
+        report = _run(tmp_path, files)
+        assert report.ok, _lines(report)
+
+    @pytest.mark.parametrize(
+        ("entry", "detail"),
+        [
+            ({"model": "optics", "kind": "bpm"}, "has no key `kind`"),
+            ({"role": "monitor"}, "a selection names a model or a place"),
+            ({}, "a selection names a model or a place"),
+            ({"model": "optics", "role": "sensor"}, "a wiring role, not 'sensor'"),
+            ({"model": "optics", "plane": "z"}, "a wiring plane, not 'z'"),
+            ({"model": 7}, "a selection's values are strings, not 7"),
+        ],
+        ids=["unknown-key", "unscoped", "empty", "bad-role", "bad-plane", "non-string"],
+    )
+    def test_a_refused_still_selection_stops_with_its_reason(
+        self, tmp_path: Path, entry: dict[str, Any], detail: str
+    ) -> None:
+        files = _tree(
+            **{
+                "models.yaml": [{"name": "optics", "engine": "texture"}],
+                "scenarios/s.yaml": {"still": [entry]},
+            }
+        )
+        error = _rule(tmp_path, files, "value-invalid")
+        assert (error.record_kind, error.record_id) == ("scenario", "s")
+        assert detail in error.detail
+        assert error.remedy
+
+    @pytest.mark.parametrize(
+        ("entry", "kind", "named"),
+        [
+            ({"model": "GONE"}, "model", "GONE"),
+            ({"place": "GONE"}, "place", "GONE"),
+            ({"model": "optics", "group": "GONE"}, "group", "GONE"),
+        ],
+        ids=["model", "place", "group"],
+    )
+    def test_a_still_selection_names_records_of_the_file(
+        self, tmp_path: Path, entry: dict[str, Any], kind: str, named: str
+    ) -> None:
+        files = _tree(
+            **{
+                "models.yaml": [{"name": "optics", "engine": "texture"}],
+                "scenarios/s.yaml": {"still": [entry]},
+            }
+        )
+        error = _one(tmp_path, files, "references")
+        assert error.kind == "reference-missing"
+        assert f"`still` names {kind} {named}" in error.format_message()
 
     def test_still_lists_only_float_readings(self, tmp_path: Path) -> None:
         files = _with_channels(
