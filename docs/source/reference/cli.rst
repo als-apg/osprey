@@ -1086,7 +1086,14 @@ up`` seeds the store from that view. See
 osprey app
 ==========
 
-Check a deployment's applications without building anything.
+Make and check a deployment's applications without building anything.
+
+``osprey app new NAME [--force] [--repo DIRECTORY]``
+   Copy the shipped example application into ``apps/NAME/``, its names rewritten
+   to ``NAME`` (the Python package to ``NAME`` with underscores), and list it as
+   ``NAME: {}`` in the ``apps:`` block of ``profile.yml``; ``.gitignore`` gains
+   ``/apps/*/panel/vendor/`` when it lacks it. No port is pinned. An existing
+   ``apps/NAME/`` is refused unless ``--force`` replaces it.
 
 ``osprey app check [--repo DIRECTORY]``
    Run what ``osprey build`` checks of the applications the ``apps:`` block of
