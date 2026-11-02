@@ -424,6 +424,39 @@ A render that switches the controls server off — every bundled app
 does — is asked for neither control-system key: it has no
 control system to state a type for.
 
+.. _profile-code-review:
+
+Code review
+===========
+
+.. list-table::
+   :header-rows: 1
+   :widths: 30 25 45
+
+   * - Key
+     - Default
+     - Value
+   * - ``code_review.enabled``
+     - ``false``
+     - ``true`` or ``false``; a present section with no ``enabled`` key reads as off
+   * - ``code_review.level``
+     - ``block``
+     - ``flag`` or ``block``
+   * - ``code_review.prompt``
+     - ``data/code_review/reviewer.md``
+     - The reviewer's prompt file; a relative path is anchored at the repository root
+   * - ``code_review.modes``
+     - ``[readwrite]``
+     - The execution modes reviewed on a Python run
+   * - ``code_review.time_limit``
+     - ``60``
+     - Seconds one review may take
+
+The feature requires the ``code-review`` and ``memory-guard`` hooks in the profile's ``hooks:``
+list. A change in the rendered ``config.yml`` applies on the next call, and only ``time_limit``
+needs ``osprey build`` and a session reload. :doc:`/how-to/control-systems/code-review` sets
+it up; :ref:`architecture-safety-chain-code-review` says what it does.
+
 .. _profile-preset-drift:
 
 Preset drift

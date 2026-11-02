@@ -509,7 +509,35 @@ def config_derived_context(config: dict, project_dir: Path) -> dict[str, Any]:
         # renders it as `showThinkingSummaries`, true unless the deployment
         # sets `claude_code.thinking.display: omitted`.
         "show_thinking_summaries": _thinking_display(config) == "summarized",
+        # The code-review hook's deadline — _build_framework_hook_rules renders it
+        # as both the rule's timeout and the command's --deadline.
+        "code_review_deadline_s": _code_review_deadline_s(config),
     }
+
+
+def _code_review_deadline_s(config: dict) -> int:
+    """The deadline of the ``code-review`` hook rule this config asks for.
+
+    A malformed ``code_review`` section renders the default deadline: refusing it is
+    the build's check, and the render path that has no such check must still complete.
+
+    Args:
+        config: Parsed ``config.yml`` mapping.
+
+    Returns:
+        Seconds, a whole number.
+    """
+    from osprey.services.code_review.settings import (
+        ReviewConfigError,
+        ReviewSettings,
+        hook_deadline_s,
+        load_review_settings,
+    )
+
+    try:
+        return hook_deadline_s(load_review_settings(config))
+    except ReviewConfigError:
+        return hook_deadline_s(ReviewSettings())
 
 
 def _read_facility(project_dir: Path) -> dict[str, Any]:
@@ -1398,11 +1426,18 @@ def auto_register_user_owned(project_dir: Path, canonical_name: str):
 
 def _build_framework_hook_rules(
     selected_hooks: list[str],
+    code_review_deadline_s: int | None = None,
 ) -> tuple[list[dict], list[dict]]:
     """Build HookRule dicts for standalone framework hooks.
 
     Resolves each selected hook name to its file path, parses frontmatter,
     and builds wiring entries for hooks that declare ``wiring: standalone``.
+
+    Args:
+        selected_hooks: The profile's selected hook names.
+        code_review_deadline_s: The ``code-review`` rule's deadline, rendered as its
+            timeout and its ``--deadline`` argument. ``None`` takes the default from
+            the hook's frontmatter.
 
     Returns:
         ``(pre_rules, post_rules)`` — same dict shape as server hook rules.
@@ -1422,6 +1457,12 @@ def _build_framework_hook_rules(
         if meta is None:
             continue
 
+        command = f'python3 "$CLAUDE_PROJECT_DIR/.claude/hooks/{hook_path.name}"'
+        timeout = meta["timeout"]
+        if hook_name == _CODE_REVIEW_HOOK:
+            timeout = timeout if code_review_deadline_s is None else code_review_deadline_s
+            command = f"{command} --deadline {timeout}"
+
         rule = {
             "matcher": meta["tools"],
             "hooks": [
@@ -1434,8 +1475,8 @@ def _build_framework_hook_rules(
                     # (approval, writes kill-switch, feedback capture) goes dark.
                     # settings.json.j2 rewrites this ``python3`` token to the
                     # project's resolved venv interpreter (``current_python_env``).
-                    "command": f'python3 "$CLAUDE_PROJECT_DIR/.claude/hooks/{hook_path.name}"',
-                    "timeout": meta["timeout"],
+                    "command": command,
+                    "timeout": timeout,
                 }
             ],
         }
@@ -1511,6 +1552,9 @@ WRITE_GATE_HOOKS: frozenset[str] = frozenset({"approval", "writes-check", "limit
 
 #: The hook script inside a wired command, however the command is spelled.
 _HOOK_COMMAND_SCRIPT = re.compile(r"/\.claude/hooks/(?P<stem>[A-Za-z0-9_.-]+)\.py")
+
+#: The short name of the hook that reviews a notebook's code before an edit lands.
+_CODE_REVIEW_HOOK = "code-review"
 
 
 def _hook_name_of_command(command: str) -> str | None:
@@ -1690,6 +1734,62 @@ def _servers_with_selected_hooks(ctx: dict) -> list[dict]:
             narrowed[key] = kept_rules
         wired.append(narrowed)
     return wired
+
+
+#: The executor tools whose approval prompt reviews the code ahead of the ask.
+_REVIEWED_EXECUTE_TOOLS: tuple[str, ...] = ("execute", "execute_file")
+
+#: The template the executor server and its ``extends`` clones come from.
+_EXECUTOR_TEMPLATE = "python"
+
+#: The approval hook's ``--budget N`` argument, as the registry spells it.
+_BUDGET_FLAG = re.compile(r"--budget (\d+)")
+
+
+def _with_review_budget(hook: dict, deadline_s: int) -> dict:
+    """*hook* given *deadline_s* more seconds, in its ``timeout`` and its ``--budget`` alike."""
+    timeout = int(hook.get("timeout") or 0) + deadline_s
+    command = str(hook.get("command") or "")
+    if _BUDGET_FLAG.search(command):
+        command = _BUDGET_FLAG.sub(f"--budget {timeout}", command, count=1)
+    else:
+        command = f"{command} --budget {timeout}"
+    return {**hook, "command": command, "timeout": timeout}
+
+
+def _extend_execute_approval_budget(wired_servers: list[dict], deadline_s: int | None) -> None:
+    """Give the approval entry on the reviewed executor tools the review's deadline too.
+
+    The approval hook reviews the code of an ``execute`` or ``execute_file`` ask before it
+    puts the call to the operator, in the time its ``--budget`` leaves after the prompt's own
+    needs. So on those two rules the entry's budget and timeout grow by the deadline the
+    ``code-review`` rule renders, whether or not the review is on, for the reason that rule
+    renders its deadline regardless: a deployment that turns the review on in ``config.yml``
+    reaches its next call with the time it needs, and a hook with the review off spends none
+    of it. ``None`` leaves every rule as the registry wrote it.
+
+    Edits the rule dicts in place: they are the copies :func:`_servers_with_selected_hooks`
+    made, never the resolved servers.
+
+    Args:
+        wired_servers: The servers as :func:`_servers_with_selected_hooks` returns them.
+        deadline_s: The ``code_review_deadline_s`` of the render context.
+    """
+    if deadline_s is None:
+        return
+    for server in wired_servers:
+        if (server.get("extends_of") or server.get("name")) != _EXECUTOR_TEMPLATE:
+            continue
+        reviewed = {f"mcp__{server['name']}__{tool}" for tool in _REVIEWED_EXECUTE_TOOLS}
+        for rule in server.get("hooks_pre") or []:
+            if rule.get("matcher") not in reviewed:
+                continue
+            rule["hooks"] = [
+                _with_review_budget(hook, deadline_s)
+                if _hook_name_of_command(hook.get("command", "")) == "approval"
+                else hook
+                for hook in rule["hooks"]
+            ]
 
 
 def _lint_write_gates_are_selected(ctx: dict, control_system: dict) -> None:
@@ -2152,6 +2252,10 @@ def _pretooluse_matchers(ctx: dict, fw_pre_rules: list[dict]) -> list[tuple[str,
     ``PreToolUse`` wiring. Every rule is a plain dict carrying a ``"matcher"``
     key, so access is uniform.
 
+    A rule that runs nothing but the ``code-review`` hook is left out, whatever its
+    source: that hook allows the edit whenever review is off, so its ``NotebookEdit``
+    matcher is not a gate.
+
     Each matcher is paired with where it came from — :data:`_MATCHER_FRAMEWORK`
     for the first two sources, :data:`_MATCHER_PROFILE` for the third — because
     the lint treats the two differently: see
@@ -2165,23 +2269,33 @@ def _pretooluse_matchers(ctx: dict, fw_pre_rules: list[dict]) -> list[tuple[str,
     Returns:
         ``(matcher, provenance)`` pairs, in render order.
     """
-    matchers: list[tuple[str, str]] = [
-        (rule.get("matcher", ""), _MATCHER_FRAMEWORK) for rule in (fw_pre_rules or [])
-    ]
+    matchers = _gating_matchers(fw_pre_rules, _MATCHER_FRAMEWORK)
     # The narrowed list, when the render has one: what settings.json wires is
     # what gates a tool, and a rule whose hook the profile leaves out is not a
     # gate. Falls back to the unnarrowed servers for a caller that has none.
     for srv in ctx.get("wired_servers") or ctx.get("servers", []) or []:
         if srv.get("enabled"):
-            matchers.extend(
-                (rule.get("matcher", ""), _MATCHER_FRAMEWORK)
-                for rule in (srv.get("hooks_pre") or [])
-            )
+            matchers.extend(_gating_matchers(srv.get("hooks_pre"), _MATCHER_FRAMEWORK))
     declared = ctx.get("declared_hooks") or {}
-    matchers.extend(
-        (rule.get("matcher", ""), _MATCHER_PROFILE) for rule in (declared.get("PreToolUse") or [])
-    )
+    matchers.extend(_gating_matchers(declared.get("PreToolUse"), _MATCHER_PROFILE))
     return matchers
+
+
+def _gating_matchers(rules: list[dict] | None, provenance: str) -> list[tuple[str, str]]:
+    """Pair each rule's matcher with *provenance*, leaving out a ``code-review``-only rule."""
+    return [
+        (rule.get("matcher", ""), provenance)
+        for rule in (rules or [])
+        if not _runs_only_code_review(rule)
+    ]
+
+
+def _runs_only_code_review(rule: dict) -> bool:
+    """Whether every hook a ``PreToolUse`` rule runs is the ``code-review`` hook."""
+    hooks = rule.get("hooks") or []
+    return bool(hooks) and all(
+        _hook_name_of_command(hook.get("command", "")) == _CODE_REVIEW_HOOK for hook in hooks
+    )
 
 
 #: Characters whose presence makes Claude Code read a hook matcher as a regular
@@ -2259,7 +2373,9 @@ def _lint_write_tools_are_gated(ctx: dict, fw_pre_rules: list[dict]) -> None:
     :data:`~osprey.agent_runner.tool_names.DENY_DEFAULTS`; the lint is what
     makes removing them from that floor via
     ``claude_code.permissions.remove_deny`` a build failure rather than a silent
-    widening.
+    widening. The ``code-review`` rule matches ``NotebookEdit`` and does not count:
+    with review off its hook allows every edit, and :func:`_pretooluse_matchers`
+    leaves it out.
 
     An empty rendered deny floor is itself the hazard this guards against: a
     context missing ``deny_defaults`` renders an EMPTY ``permissions.deny`` array
@@ -2446,7 +2562,9 @@ def create_claude_code_integration(
     apply_agent_data_root(ctx, project_dir)
 
     # Build framework hook rules from selected hooks' frontmatter
-    fw_pre, fw_post = _build_framework_hook_rules(ctx.get("selected_hooks", []))
+    fw_pre, fw_post = _build_framework_hook_rules(
+        ctx.get("selected_hooks", []), ctx.get("code_review_deadline_s")
+    )
     ctx["framework_pre_hooks"] = fw_pre
     ctx["framework_post_hooks"] = fw_post
 
@@ -2455,6 +2573,7 @@ def create_claude_code_integration(
     # hook sources: a hook this deployment does not install is wired to nothing.
     ctx["framework_event_hooks"] = _build_framework_event_rules(ctx.get("selected_hooks", []))
     ctx["wired_servers"] = _servers_with_selected_hooks(ctx)
+    _extend_execute_approval_budget(ctx["wired_servers"], ctx.get("code_review_deadline_s"))
     ctx["approval_outcome_hooks"] = _approval_outcome_rules(ctx["wired_servers"])
 
     # Build-time safety lint: refuse to render a profile in which any

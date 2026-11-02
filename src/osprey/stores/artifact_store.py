@@ -342,7 +342,7 @@ gallery, hidden from every agent-facing listing (``exclude_examples``)."""
 
 RUN_RECORD_KEY = "run_record"
 """``metadata`` key, set to True, on an artifact that records a script run rather
-than holding its result: the approval hook's Pre-Execution Review notebook, and the
+than holding its result: the approval hook's approval preview, and the
 executor's notebook and result record. Plots and files the script saves carry no
 such key. The web terminal's sidebar lists these under "Script runs" (it asks the
 gallery for them through ``GET /api/artifacts?run=true``) and keeps them out of its

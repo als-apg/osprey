@@ -221,6 +221,9 @@ async def run_query(
     pre_tool_use_hooks: Sequence[HookCallback] = (),
     stderr: Callable[[str], None] | None = None,
     await_mcp_servers: Collection[str] | None = None,
+    tools: Sequence[str] | None = None,
+    cwd: Path | None = None,
+    env_overrides: Mapping[str, str] | None = None,
 ) -> SDKWorkflowResult:
     """Run a single-turn agent query via the Claude Agent SDK.
 
@@ -278,6 +281,9 @@ async def run_query(
         can_use_tool=can_use_tool,
         pre_tool_use_hooks=pre_tool_use_hooks,
         stderr=stderr,
+        tools=tools,
+        cwd=cwd,
+        env_overrides=env_overrides,
     )
     _stamp_watchdog_skip(options)
 

@@ -634,6 +634,9 @@ PROTECTED_CONFIG_KEYS: dict[str, tuple[str, ...]] = {
         # agent that could reach either could disable or blind its own watchdog.
         "watchdogs.*",
         "api.jev.*",
+        # The review of the agent's own code gates writes: these keys switch it
+        # off, downgrade its verdict, repoint its prompt or shrink its modes.
+        "code_review.*",
         *RUNTIME_WRITE_PATH_KEYS,
     ),
     ".mcp.json": (

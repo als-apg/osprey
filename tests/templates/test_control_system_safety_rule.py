@@ -364,10 +364,10 @@ def test_routing_section_states_the_write_path_asymmetry(tmp_path):
     assert f"`{OUTCOME_KEY}`" in WRITE_PATH_SENTENCE
 
 
-def test_routing_section_without_bluesky_refuses_the_write_loop(tmp_path):
+def test_routing_section_without_bluesky_leaves_the_form_to_the_agent(tmp_path):
     """The scaffolded hello_world project runs only the ``controls`` server, so
     this is the shape a real queue-less deployment renders: the multi-setting
-    case still appears, and it forbids substituting a loop of writes.
+    case still appears, and it names both forms without forbidding either.
 
     hello-world rather than control-assistant: the latter's preset arms the
     Bluesky lane, so a project built from it has a queue and cannot reach this
@@ -377,9 +377,10 @@ def test_routing_section_without_bluesky_refuses_the_write_loop(tmp_path):
 
     prose = " ".join(content.split())
     assert "**Multi-setting measurements** — no queue is configured in this deployment." in prose
-    assert "Do not stand in for one with a loop of `channel_write` calls" in prose
-    assert "an `execute` script that steps the setpoint" in prose
-    assert "tell the operator what the measurement would require" in prose
+    assert "Pick the form that fits the work" in prose
+    assert "separate `channel_write` calls" in prose
+    assert "one `execute` script through `osprey.runtime`" in prose
+    assert "Do not stand in for one" not in prose
 
     # Nothing may point at a queue this deployment does not have.
     assert "Bluesky" not in content

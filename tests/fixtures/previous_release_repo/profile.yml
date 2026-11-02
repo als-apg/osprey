@@ -69,6 +69,7 @@ hooks:
   - control-context   # Tell the agent the active control target and each target's write state
   - turn-state        # Tell the web terminal when a turn starts and ends
   # Available — uncomment to enable:
+  # - code-review  # PreToolUse review of the code cells an agent writes with NotebookEdit, under the code_review config section
   # - watchdog-trigger  # UserPromptSubmit hook that hands each prompt to the deployment's watchdogs; ships whenever a watchdog is enabled
 
 rules:

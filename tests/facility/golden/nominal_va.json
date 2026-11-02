@@ -11,7 +11,7 @@
       "still"
     ],
     "addresses": {
-      "count": 3341,
+      "count": 3342,
       "excluded": "the suite's synthetic string channel and every waveform"
     },
     "nominal": "Channel Access read, repeated every 3 s until two snapshots agree exactly; a bool or enum as its label, a string as its text"
@@ -1759,6 +1759,9 @@
     },
     "LTB:MAG:VCM:07:STATUS:ON": {
       "nominal": "TRUE"
+    },
+    "SR:BEAM:USER_MODE": {
+      "nominal": "FALSE"
     },
     "SR:DIAG:BPM:01:GOLDEN:X": {
       "nominal": 100.0

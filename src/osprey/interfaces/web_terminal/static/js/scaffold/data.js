@@ -59,6 +59,21 @@ export function resetFetchCache() {
  */
 
 /**
+ * The section heading an artifact sits under in a gallery: an output-path
+ * override first, then a category remap, else its own category.
+ * @param {Pick<ArtifactFilterState, 'categoryOverrides' | 'categoryRemaps'>} state
+ * @param {{ category: string, output_path?: string }} artifact
+ * @returns {string}
+ */
+export function displayCategoryOf(state, artifact) {
+  return (
+    (artifact.output_path && state.categoryOverrides[artifact.output_path]) ||
+    state.categoryRemaps[artifact.category] ||
+    artifact.category
+  );
+}
+
+/**
  * Fetch artifacts + untracked files and filter/map them to a gallery's
  * domain, computing the summary counts. Shared by the gallery's `load()`
  * (initial load, uses the shared cache) and `reloadFull()` (post-action
@@ -77,13 +92,9 @@ export async function loadArtifacts(state, opts = {}) {
   ]);
 
   const allArtifacts = data.artifacts || [];
-  const artifacts = allArtifacts.filter(state.categoryFilter).map(
-    /** @param {any} a */ (a) => ({
-      ...a,
-      displayCategory:
-        state.categoryOverrides[a.output_path] || state.categoryRemaps[a.category] || a.category,
-    })
-  );
+  const artifacts = allArtifacts
+    .filter(state.categoryFilter)
+    .map(/** @param {any} a */ (a) => ({ ...a, displayCategory: displayCategoryOf(state, a) }));
 
   const allUntracked = untrackedData.untracked || [];
   const untrackedFiles = allUntracked.filter(

@@ -45,6 +45,14 @@ rehearsal, the real hardware for production.
       Let the agent open, read and drive live Phoebus displays through the
       agent bridge.
 
+   .. grid-item-card:: Review the Agent's Code
+      :link: code-review
+      :link-type: doc
+      :shadow: md
+
+      Have a model read the Python the agent writes for what it would do to
+      the machine, under rules you write, before it runs.
+
 .. toctree::
    :hidden:
 
@@ -52,3 +60,4 @@ rehearsal, the real hardware for production.
    use-virtual-accelerator
    switch-control-target
    phoebus-bridge
+   code-review

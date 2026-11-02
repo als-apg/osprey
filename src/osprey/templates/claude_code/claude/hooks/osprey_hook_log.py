@@ -242,7 +242,7 @@ _INLINE_COMMENT = re.compile(r"\s+#")
 _NULL_SCALARS = frozenset({"~", "null", "true", "false"})
 
 
-def _config_path(hook_input=None):
+def locate_osprey_config(hook_input=None):
     """The config.yml a hook should read: ``OSPREY_CONFIG``, else the project's.
 
     One reader for the question "which config file", so the config *loader*, the
@@ -301,7 +301,7 @@ def get_repo_root(hook_input=None):
 
     Resolution order, mirroring the framework's:
 
-    1. ``project_root`` in the config :func:`_config_path` names, WHEN it names a
+    1. ``project_root`` in the config :func:`locate_osprey_config` names, WHEN it names a
        directory that exists here. The qualifier is the rule, not a safety net:
        a deployed service reads a config STAGED on the host, whose
        ``project_root`` is a host path naming nothing inside the container, and
@@ -337,7 +337,7 @@ def get_repo_root(hook_input=None):
     """
     project_dir = get_project_dir(hook_input)
     base = Path(project_dir) if project_dir else Path.cwd()
-    config_path = _config_path(hook_input)
+    config_path = locate_osprey_config(hook_input)
 
     configured = _project_root_from_config(config_path)
     recorded = Path(configured).expanduser() if configured else None
@@ -369,7 +369,7 @@ def load_osprey_config(hook_input=None):
     try:
         import yaml
 
-        config_path = _config_path(hook_input)
+        config_path = locate_osprey_config(hook_input)
         if config_path.exists():
             with open(config_path) as f:
                 _osprey_config_cache = yaml.safe_load(f) or {}
@@ -504,7 +504,7 @@ def _is_debug_enabled(hook_input):
     try:
         import yaml
 
-        config_path = _config_path(hook_input)
+        config_path = locate_osprey_config(hook_input)
         if config_path.exists():
             with open(config_path) as f:
                 cfg = yaml.safe_load(f) or {}

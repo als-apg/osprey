@@ -144,6 +144,7 @@ async def execute_file(
         project_root=project_root,
         notify=notify_agent_activity_async,
         approved_target=approved_target,
+        script_args=script_args or (),
     )
 
     # Build response using original code (not augmented) for metadata/notebook

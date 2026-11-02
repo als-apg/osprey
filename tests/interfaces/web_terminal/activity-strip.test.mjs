@@ -310,6 +310,38 @@ describe('config and ui kinds', () => {
   });
 });
 
+describe('review kind', () => {
+  test('a review frame reads as a code review of the notice text', () => {
+    const strip = makeStrip();
+    strip.handleActivity(frame({ kind: 'review', detail: 'blocked: writes to /etc' }, 'execute'));
+
+    expect(mount.querySelector('.activity-strip-verb')?.textContent).toBe('code review');
+    expect(mount.querySelector('.activity-strip-subject')?.textContent).toBe(
+      'blocked: writes to /etc'
+    );
+  });
+
+  test('a review frame names neither a write nor a launched run', () => {
+    expect(formatActivity(frame({ kind: 'review', detail: 'passed' }, 'execute'))).toEqual({
+      verb: 'code review',
+      subject: 'passed',
+    });
+  });
+
+  test('a detail-less review frame names the tool instead', () => {
+    expect(formatActivity(frame({ kind: 'review' }, 'execute'))).toEqual({
+      verb: 'code review',
+      subject: 'execute',
+    });
+  });
+
+  test('an unknown kind still falls through to the generic branch', () => {
+    expect(
+      formatActivity(frame(/** @type {any} */ ({ kind: 'reviews', detail: 'ignored' }), 'execute'))
+    ).toEqual({ verb: 'agent activity', subject: 'execute' });
+  });
+});
+
 describe('panel action verbs', () => {
   /** @type {[string, string][]} tool → verb */
   const cases = [

@@ -168,7 +168,7 @@ import { onSessionChange } from './terminal.js';
  * @typedef {object} AgentActivityEvent
  * @property {typeof import('./activity-format.js').AGENT_ACTIVITY_FRAME} type
  * @property {string} tool
- * @property {{ kind: 'panel' | 'channel' | 'run' | 'artifact' | 'config' | 'ui',
+ * @property {{ kind: 'panel' | 'channel' | 'run' | 'artifact' | 'config' | 'ui' | 'review',
  *   panel?: string, detail?: string }} target
  * @property {number} [ts]
  *

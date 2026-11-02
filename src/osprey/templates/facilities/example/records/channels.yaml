@@ -3992,6 +3992,11 @@
   signal: power_on_status
   value_type: bool
   description: 'Linac-to-booster line vertical corrector 07 on status (read-only): the corrector supply is on.'
+- id: SR:BEAM:USER_MODE
+  'on':
+    place: SR
+  value_type: bool
+  description: Storage ring user beam mode. True while beam is being delivered to users; false during machine development.
 - id: SR:DIAG:BPM:01:GOLDEN:X
   'on':
     device: SR/BPM01
