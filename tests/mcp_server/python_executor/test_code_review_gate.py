@@ -178,10 +178,10 @@ def _a_recorded_call(request, monkeypatch):
     """Each call carries the record a prompt, or the switch at ``allowed``, leaves for it.
 
     ``execute`` and ``execute_file`` are governed, so no policy spares them the record, and a
-    call without one is declined before the review. These cases are about the review;
-    ``TestAdmissionRefusal`` keeps the real check.
+    call without one is declined before the review. These cases are about the review; the one
+    about that decline and ``TestAdmissionRefusal`` keep the real check.
     """
-    if request.cls is not TestAdmissionRefusal:
+    if request.cls is not TestAdmissionRefusal and "missing_its_approval" not in request.node.name:
         monkeypatch.setattr(executor, "_check_approved_call", lambda *args, **kwargs: None)
 
 

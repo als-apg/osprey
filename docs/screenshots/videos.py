@@ -21,6 +21,7 @@ from typing import TYPE_CHECKING
 
 from docs.screenshots import video_layout
 from docs.screenshots.video_beats import Beat, click, focus, hold, prompt, wait_for, wait_gone
+from docs.screenshots.video_code_review import CODE_REVIEW, INIT_SETS
 from docs.screenshots.video_landing import LANDING
 from docs.screenshots.video_layout import Layout
 
@@ -142,6 +143,16 @@ VIDEOS: tuple[DocVideo, ...] = (
         needs_env=("TYPESAFE_API_KEY",),
         history=WATCHDOG_HISTORY,
         write_switch=("va", "asked"),
+    ),
+    DocVideo(
+        name="code-review",
+        stem="code-review",
+        storyboard=CODE_REVIEW,
+        layout=Layout(view="simple", active="artifacts", tiles=("artifacts",)),
+        pages=("how-to/control-systems/code-review.rst",),
+        poster_step="verdict",
+        window_s=(30.0, 70.0),
+        init_sets=INIT_SETS,
     ),
 )
 
