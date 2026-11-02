@@ -2968,6 +2968,11 @@ FRAGMENT_SERVICE_KEYS: tuple[str, ...] = (
     "stop_grace_period",
 )
 
+#: The ``type`` a long-form ``volumes:`` entry of such a compose service states,
+#: spelled literally: a variable has no value at render time. Only ``bind``
+#: reaches a host path.
+FRAGMENT_VOLUME_TYPES: tuple[str, ...] = ("bind", "volume", "tmpfs")
+
 #: The keys a ``build:`` mapping of such a compose service may carry.
 FRAGMENT_BUILD_KEYS: tuple[str, ...] = (
     "context",
@@ -3125,8 +3130,8 @@ def _bind_sources(compose_service):
     """The host paths a rendered compose service may bind, as spelled.
 
     Compose interpolates before it parses, so an entry whose first field holds a
-    variable may be a bind whatever it looks like now, and so may a long form of
-    a variable type. Otherwise a short-form entry binds a path when it has a
+    variable may be a bind whatever it looks like now. A long form binds when its
+    stated type is ``bind``. Otherwise a short-form entry binds a path when it has a
     target and its source starts ``.``, ``/`` or ``~``; anything else names a
     volume.
 
@@ -3136,8 +3141,7 @@ def _bind_sources(compose_service):
     """
     for volume in compose_service.get("volumes") or []:
         if isinstance(volume, Mapping):
-            kind = volume.get("type")
-            if (kind == "bind" or _interpolates(kind)) and volume.get("source"):
+            if volume.get("type") == "bind" and volume.get("source"):
                 yield str(volume["source"])
         elif isinstance(volume, str):
             fields = _compose_fields(volume)
@@ -3249,7 +3253,9 @@ def _refuse_fragment_sections(document, key):
 
 
 def _refuse_service_schema(compose_service, where, config):
-    """Refuse a rendered service's keys outside the stated schema, and unasked host networking.
+    """Refuse a rendered service's keys and volume types outside the stated schema.
+
+    Host networking the service's network axis did not ask for refuses too.
 
     :param compose_service: One well-formed entry of a rendered ``services:``
     :type compose_service: dict
@@ -3260,6 +3266,17 @@ def _refuse_service_schema(compose_service, where, config):
     :raises DeploymentPreconditionError: A rule is broken
     """
     _refuse_unstated_keys(compose_service, FRAGMENT_SERVICE_KEYS, where)
+    for volume in compose_service.get("volumes") or []:
+        if isinstance(volume, Mapping) and volume.get("type") not in FRAGMENT_VOLUME_TYPES:
+            kind = volume.get("type")
+            stated = "states no type" if kind is None else f"is of type {kind}"
+            raise DeploymentPreconditionError(
+                reason=f"{where} renders a long-form volume that {stated}.",
+                remedy=(
+                    f"State its type as one of {', '.join(FRAGMENT_VOLUME_TYPES)}, spelled "
+                    "literally."
+                ),
+            )
     build = compose_service.get("build")
     if isinstance(build, Mapping):
         _refuse_unstated_keys(build, FRAGMENT_BUILD_KEYS, where, "build.")
