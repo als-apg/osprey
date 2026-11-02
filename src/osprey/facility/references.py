@@ -2,8 +2,9 @@
 
 A :class:`FacilityReference` is one span of a text that names a channel id or a
 device id of the facility file, with the kinds of record that id resolves to.
-A finder turns text into references; :func:`find_facility_links` is the finder
-for the markup an author writes on a knowledge page. :func:`resolved_references`
+A finder turns text into references: :func:`find_facility_links` for the markup
+an author writes on a knowledge page, :func:`find_facility_references` for a
+quoted id in logbook prose, looked up in the facility file. :func:`resolved_references`
 turns references into the list every surface shows: each span with the records
 its target resolves to.
 
@@ -22,7 +23,7 @@ read as a facility name.
 from __future__ import annotations
 
 import re
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, get_args
 
@@ -31,7 +32,13 @@ from osprey.facility.records import RecordKind
 if TYPE_CHECKING:
     from osprey.facility.records import FacilityRecords
 
-__all__ = ["LINK_SCHEME", "FacilityReference", "find_facility_links", "resolved_references"]
+__all__ = [
+    "LINK_SCHEME",
+    "FacilityReference",
+    "find_facility_links",
+    "find_facility_references",
+    "resolved_references",
+]
 
 #: The URI scheme of a facility link's destination.
 LINK_SCHEME = "facility"
@@ -66,7 +73,9 @@ class FacilityReference:
         kinds: The kinds of record ``target`` resolves to, sorted and
             distinct; empty when it resolves to none or was not looked up.
         label: The text an author gave a facility link, with its backslash
-            escapes undone; ``None`` for a mention that is not a link.
+            escapes undone; ``None`` for a mention that is not a link. A mention
+            spans exactly its target (``end - start == len(target)``); a link
+            spans its whole markup.
 
     Raises:
         ValueError: A field breaks one of the invariants above.
@@ -83,12 +92,47 @@ class FacilityReference:
             raise ValueError(f"a reference spans start < end, not {self.start}..{self.end}")
         if not self.target:
             raise ValueError("a reference names a target")
+        if self.label is None and self.end - self.start != len(self.target):
+            raise ValueError(
+                f"a mention spans its target {self.target!r}, not {self.start}..{self.end}"
+            )
         kinds = tuple(self.kinds)
         if any(kind not in get_args(RecordKind) for kind in kinds):
             raise ValueError(f"a reference resolves to channels or devices, not {kinds!r}")
         if kinds != tuple(sorted(set(kinds))):
             raise ValueError(f"a reference's kinds are sorted and distinct, not {kinds!r}")
         object.__setattr__(self, "kinds", kinds)
+
+    def to_json(self) -> dict[str, Any]:
+        """This reference as a JSON object; ``label`` appears only on a link."""
+        document: dict[str, Any] = {
+            "start": self.start,
+            "end": self.end,
+            "target": self.target,
+            "kinds": list(self.kinds),
+        }
+        if self.label is not None:
+            document["label"] = self.label
+        return document
+
+    @classmethod
+    def from_json(cls, document: Mapping[str, Any]) -> FacilityReference:
+        """The reference :meth:`to_json` wrote.
+
+        Args:
+            document: A JSON object :meth:`to_json` returned.
+
+        Returns:
+            The reference.
+
+        Raises:
+            TypeError: A field is missing or unknown.
+            ValueError: A field breaks one of the type's invariants.
+        """
+        fields: dict[str, Any] = {
+            key: tuple(val) if key == "kinds" else val for key, val in document.items()
+        }
+        return cls(**fields)
 
 
 def _blank_code(markdown: str) -> str:
@@ -153,6 +197,56 @@ def find_facility_links(
             )
         )
     return found
+
+
+def _is_identifier_character(character: str) -> bool:
+    return character.isalnum() or character == "_"
+
+
+def find_facility_references(text: str, records: FacilityRecords) -> list[FacilityReference]:
+    """Every id of the facility file that ``text`` quotes, as references in text order.
+
+    A quote is a target of ``records`` with no identifier character (alphanumeric
+    or ``_``) directly before or after it; the longest target wins at a position.
+    The text is not markdown: a quoted id is a reference wherever it stands.
+
+    Args:
+        text: Logbook prose.
+        records: The facility records whose ids are looked for.
+
+    Returns:
+        One :class:`FacilityReference` per quote, with code-point offsets, no
+        label, and the kinds its target resolves to in the order
+        :meth:`~osprey.facility.records.FacilityRecords.resolve` lists them.
+    """
+    targets = records.targets()
+    lengths = sorted({len(target) for target in targets if target}, reverse=True)
+    found: list[FacilityReference] = []
+    position = 0
+    while position < len(text):
+        target = None
+        if position == 0 or not _is_identifier_character(text[position - 1]):
+            target = _longest_quote(text, position, targets, lengths)
+        if target is None:
+            position += 1
+            continue
+        kinds = tuple(dict.fromkeys(record.kind for record in records.resolve(target)))
+        found.append(FacilityReference(position, position + len(target), target, kinds))
+        position += len(target)
+    return found
+
+
+def _longest_quote(
+    text: str, position: int, targets: frozenset[str], lengths: list[int]
+) -> str | None:
+    """The longest target at ``position`` with no identifier character right after it."""
+    for length in lengths:
+        end = position + length
+        if end > len(text) or text[position:end] not in targets:
+            continue
+        if end == len(text) or not _is_identifier_character(text[end]):
+            return text[position:end]
+    return None
 
 
 def resolved_references(
