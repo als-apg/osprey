@@ -198,6 +198,66 @@ def test_a_name_that_is_no_application_name_is_refused(
     assert list(_listed(lifecycle_repo)) == [EXAMPLE]
 
 
+@pytest.mark.parametrize("name", ["class", "osprey", "osprey-connectors", "json"])
+def test_a_name_whose_package_would_not_be_its_own_is_refused(
+    runner: CliRunner, lifecycle_repo: Path, name: str
+) -> None:
+    result = _new(runner, lifecycle_repo, name)
+
+    assert result.exit_code == 2
+    assert "Python package" in result.output
+    assert not (lifecycle_repo / "apps" / name).exists()
+    assert list(_listed(lifecycle_repo)) == [EXAMPLE]
+
+
+@pytest.mark.parametrize("profile", ["apps: [\n", "apps: [demo-x]\n", "- a\n"])
+def test_force_over_an_unreadable_profile_leaves_the_application_alone(
+    runner: CliRunner, lifecycle_repo: Path, profile: str
+) -> None:
+    target = lifecycle_repo / "apps" / "demo-x"
+    target.mkdir(parents=True)
+    (target / "notes.txt").write_text("mine\n", encoding="utf-8")
+    (lifecycle_repo / "profile.yml").write_text(profile, encoding="utf-8")
+
+    result = _new(runner, lifecycle_repo, "demo-x", "--force")
+
+    assert result.exit_code == 2
+    assert "profile.yml" in result.output
+    assert (target / "notes.txt").read_text(encoding="utf-8") == "mine\n"
+    assert (lifecycle_repo / "profile.yml").read_text(encoding="utf-8") == profile
+
+
+def test_a_plain_file_at_the_target_is_refused_then_replaced_by_force(
+    runner: CliRunner, lifecycle_repo: Path
+) -> None:
+    target = lifecycle_repo / "apps" / "demo-x"
+    target.write_text("mine\n", encoding="utf-8")
+
+    refused = _new(runner, lifecycle_repo, "demo-x")
+    assert refused.exit_code == 2
+    assert target.read_text(encoding="utf-8") == "mine\n"
+
+    forced = _new(runner, lifecycle_repo, "demo-x", "--force")
+    assert forced.exit_code == 0, forced.output
+    assert (target / "app.yml").is_file()
+
+
+def test_force_over_a_symlink_replaces_the_link_and_not_what_it_names(
+    runner: CliRunner, lifecycle_repo: Path, tmp_path: Path
+) -> None:
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    (elsewhere / "notes.txt").write_text("mine\n", encoding="utf-8")
+    target = lifecycle_repo / "apps" / "demo-x"
+    target.symlink_to(elsewhere)
+
+    result = _new(runner, lifecycle_repo, "demo-x", "--force")
+
+    assert result.exit_code == 0, result.output
+    assert not target.is_symlink() and (target / "app.yml").is_file()
+    assert (elsewhere / "notes.txt").read_text(encoding="utf-8") == "mine\n"
+
+
 def test_a_directory_outside_any_repo_is_refused(runner: CliRunner, tmp_path: Path) -> None:
     result = _new(runner, tmp_path, "demo-x")
 

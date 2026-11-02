@@ -1092,8 +1092,9 @@ Make and check a deployment's applications without building anything.
    Copy the shipped example application into ``apps/NAME/``, its names rewritten
    to ``NAME`` (the Python package to ``NAME`` with underscores), and list it as
    ``NAME: {}`` in the ``apps:`` block of ``profile.yml``; ``.gitignore`` gains
-   ``/apps/*/panel/vendor/`` when it lacks it. No port is pinned. An existing
-   ``apps/NAME/`` is refused unless ``--force`` replaces it.
+   ``/apps/*/panel/vendor/`` when it lacks it. No port is pinned. A name whose
+   package would be a Python keyword or shadow a standard-library or OSPREY module
+   is refused, and an existing ``apps/NAME/`` unless ``--force`` replaces it.
 
 ``osprey app check [--repo DIRECTORY]``
    Run what ``osprey build`` checks of the applications the ``apps:`` block of

@@ -16,10 +16,12 @@ from __future__ import annotations
 
 import dataclasses
 import hashlib
+import keyword
 import os
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
 from collections.abc import Iterable, Mapping, Sequence
 from pathlib import Path
@@ -42,6 +44,8 @@ _OSPREY_DIR = Path(__file__).resolve().parents[1]
 EXAMPLE_APP_DIR = _OSPREY_DIR / "profiles" / "presets" / APPS_DIRNAME / "knob-example"
 #: Every app-scoped identifier of the example is its name in one of these two forms.
 _EXAMPLE_NAMES = ("knob-example", "knob_example")
+#: Packages an application's own may not be named: a copy would shadow them or fail its check.
+_TAKEN_PACKAGES = sys.stdlib_module_names | {"osprey", "osprey_connectors"}
 #: The anchored ``.gitignore`` entry for the files a build fetches into a panel.
 _VENDOR_IGNORE = f"/{APPS_DIRNAME}/*/panel/vendor/"
 #: The pinned toolchain's manifest, lockfile and configs, copied beside its ``node_modules``.
@@ -73,8 +77,9 @@ def new(name: str, repo: Path | None, force: bool) -> None:
 
     Every app-scoped name of the example is rewritten to NAME (its Python package to
     NAME with underscores); no port is pinned. The profile's apps: block gains
-    NAME: {}, and .gitignore the entry that keeps fetched panel files out of git. An
-    existing apps/NAME/ is left alone unless --force replaces it.
+    NAME: {}, and .gitignore the entry that keeps fetched panel files out of git. A name
+    whose package would be a Python keyword or shadow a standard-library or OSPREY module
+    is refused. An existing apps/NAME/ is left alone unless --force replaces it.
     """
     from .build_profile import write_back_cli_overrides
 
@@ -83,23 +88,43 @@ def new(name: str, repo: Path | None, force: bool) -> None:
         raise click.BadParameter(
             "lower-case letters, digits and dashes, starting with a letter", param_hint="NAME"
         )
+    if keyword.iskeyword(package) or package in _TAKEN_PACKAGES:
+        raise click.BadParameter(
+            f"the Python package {package} would be a keyword or shadow an existing module",
+            param_hint="NAME",
+        )
     root = find_repo_root(repo)
+    profile_path = root / PROFILE_FILENAME
+    listed = _listed_apps(profile_path)
     target = root / APPS_DIRNAME / name
-    if target.exists():
+    if os.path.lexists(target):
         if not force:
             raise click.UsageError(f"{APPS_DIRNAME}/{name}/ exists; --force replaces it.")
-        shutil.rmtree(target)
+        if target.is_dir() and not target.is_symlink():
+            shutil.rmtree(target)
+        else:
+            target.unlink()
     shutil.copytree(
         EXAMPLE_APP_DIR, target, ignore=shutil.ignore_patterns("__pycache__", "*.py[co]")
     )
     _rename(target, dict(zip(_EXAMPLE_NAMES, (name, package), strict=True)))
 
-    profile_path = root / PROFILE_FILENAME
-    listed = (yaml.safe_load(profile_path.read_text(encoding="utf-8")) or {}).get("apps") or {}
     if name not in listed:
         write_back_cli_overrides(profile_path, (f"apps.{name}={{}}",))
     _ignore_vendor_files(root / ".gitignore")
     report(f"✓ {APPS_DIRNAME}/{name}/ written and listed; run `osprey app check`.")
+
+
+def _listed_apps(profile_path: Path) -> Mapping[str, object]:
+    """The profile's ``apps:`` block, refused before anything on disk changes."""
+    try:
+        profile = yaml.safe_load(profile_path.read_text(encoding="utf-8")) or {}
+    except (yaml.YAMLError, UnicodeDecodeError) as error:
+        raise click.UsageError(f"{PROFILE_FILENAME} does not parse: {error}") from error
+    listed = profile.get("apps") or {} if isinstance(profile, dict) else None
+    if not isinstance(listed, dict):
+        raise click.UsageError(f"{PROFILE_FILENAME} has no mapping to list an application in.")
+    return listed
 
 
 def _rename(root: Path, names: Mapping[str, str]) -> None:
