@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import contextlib
 import errno
+import os
 import shutil
 import signal
 import subprocess
@@ -256,6 +257,75 @@ class TestSwapRecovery:
 
         assert str(stuck) in str(raised.value)
         assert "Directory not empty" in str(raised.value)
+
+
+class TestServedFilesSurviveABuild:
+    """A build never removes what a running stack is serving from ``build/``.
+
+    The web-terminal artifacts (``build/nginx/``, ``build/docker-compose.web.yml``)
+    are written by ``osprey up`` and the roster verbs, not by the build, so a
+    swap that only brought the build's own render across left the running nginx
+    bind-mounting paths that no longer existed.
+    """
+
+    @staticmethod
+    def _serve(repo: Path) -> dict[Path, tuple[str, int]]:
+        nginx = repo / "build" / "nginx"
+        (nginx / "templates").mkdir(parents=True)
+        (nginx / "landing.html").write_text("<h1>landing</h1>\n", encoding="utf-8")
+        (nginx / "nginx.conf").write_text("server {}\n", encoding="utf-8")
+        (nginx / "templates" / "secret-alice.conf.template").write_text("x\n", encoding="utf-8")
+        compose = repo / "build" / "docker-compose.web.yml"
+        compose.write_text("services: {}\n", encoding="utf-8")
+        return {
+            path: (path.read_text(encoding="utf-8") if path.is_file() else "", path.stat().st_ino)
+            for path in (
+                nginx,
+                nginx / "templates",
+                nginx / "landing.html",
+                nginx / "nginx.conf",
+                nginx / "templates" / "secret-alice.conf.template",
+                compose,
+            )
+        }
+
+    def test_the_served_files_are_intact_after_a_build(self, runner, lifecycle_repo):
+        assert _build(runner, lifecycle_repo).exit_code == 0
+        served = self._serve(lifecycle_repo)
+
+        result = _build(runner, lifecycle_repo)
+
+        assert result.exit_code == 0, result.output
+        for path, (content, inode) in served.items():
+            assert path.exists(), f"the build removed {path.relative_to(lifecycle_repo)}"
+            assert path.stat().st_ino == inode, "the mounted file was replaced, not carried over"
+            if path.is_file():
+                assert path.read_text(encoding="utf-8") == content
+
+    def test_the_served_files_are_there_while_the_old_render_is_replaced(
+        self, runner, lifecycle_repo, monkeypatch
+    ):
+        """Checked at the swap's last rename, where the old tree is about to go."""
+        assert _build(runner, lifecycle_repo).exit_code == 0
+        self._serve(lifecycle_repo)
+        real_replace = os.replace
+        seen: list[bool] = []
+
+        def replace(src, dst):
+            if Path(dst) == lifecycle_repo / "build" and Path(src).name == (
+                build_cmd._INCOMING_DIRNAME
+            ):
+                seen.append((Path(src) / "nginx" / "landing.html").is_file())
+            return real_replace(src, dst)
+
+        monkeypatch.setattr(build_cmd.os, "replace", replace)
+
+        assert _build(runner, lifecycle_repo).exit_code == 0
+        assert seen == [True]
+
+    def test_a_first_build_has_nothing_to_carry(self, runner, lifecycle_repo):
+        assert _build(runner, lifecycle_repo).exit_code == 0
+        assert not (lifecycle_repo / "build" / "nginx").exists()
 
 
 @pytest.mark.slow
