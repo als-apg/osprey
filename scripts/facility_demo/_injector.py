@@ -810,7 +810,8 @@ def _merge_seeds(
         for address in sorted(committed)
         if committed[address]
     }
-    path.write_text(yaml.safe_dump(document, sort_keys=False), encoding="utf-8")
+    text = _line.origin_line() + yaml.safe_dump(document, sort_keys=False)
+    path.write_text(text, encoding="utf-8")
 
 
 def write_sources(tree: Path) -> None:
