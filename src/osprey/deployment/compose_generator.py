@@ -3819,6 +3819,7 @@ def render_template(template_path, config, out_dir):
 
     output_filepath = os.path.join(out_dir, output_filename)
     os.makedirs(out_dir, exist_ok=True)
+    _refuse_retired_grant_names(env, template_path, output_filepath)
     if fragment:
         _write_fragment_output(template, template_path, config_dict, output_filepath)
     else:
@@ -3826,6 +3827,47 @@ def render_template(template_path, config, out_dir):
         with open(output_filepath, "w") as f:
             f.write(rendered_content)
     return output_filepath
+
+
+#: Context names a service template no longer receives, each read from its source
+#: before rendering: the lenient bundled context would render them as nothing.
+_RETIRED_GRANT_NAMES: tuple[str, ...] = (
+    "bluesky_panel_secret_env_vars",
+    "bluesky_panel_roster_owners",
+)
+
+
+def _refuse_retired_grant_names(env, template_path, output_filepath):
+    """Refuse a template that still reads a retired roster-grant name.
+
+    Under the lenient context such a template renders no grant at all, and
+    every roster user is refused at the panel's gate with nothing raised. A
+    refused render also clears the file an earlier render left.
+
+    :param env: The Environment the template is rendered through
+    :param template_path: The template's path under that Environment's loader
+    :param output_filepath: Where its render goes
+    :raises DeploymentPreconditionError: The template names a retired name.
+    """
+    source, _, _ = env.loader.get_source(env, template_path)
+    retired = [name for name in _RETIRED_GRANT_NAMES if name in source]
+    if retired:
+        with contextlib.suppress(FileNotFoundError):
+            os.unlink(output_filepath)
+        raise DeploymentPreconditionError(
+            reason=(
+                f"{template_path} reads {', '.join(f'`{n}`' for n in retired)}, which this "
+                "version no longer renders: a panel's roster grant is "
+                "`panel_grant.credentials`. Rendered as it is, the service would accept no "
+                "roster user's secret."
+            ),
+            remedy=(
+                "Replace the template with this version's bundled "
+                "services/bluesky_web/docker-compose.yml.j2, or render the grant with "
+                '`{% import "services/_panel_grant.j2" as panel %}` and '
+                "`{{- panel.env(panel_grant.credentials) }}`, then run `osprey build`."
+            ),
+        )
 
 
 def _site_image_args_for_context(config, out_dir):

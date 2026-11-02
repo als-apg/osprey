@@ -21,6 +21,7 @@ from osprey.deployment.compose_generator import (
     service_render_context,
     setup_build_dir,
 )
+from osprey.deployment.errors import DeploymentPreconditionError
 from osprey.deployment.web_terminals.auth_credentials import terminal_secret_var
 from tests._renders import tier_render
 
@@ -167,6 +168,19 @@ def test_the_bluesky_sidecar_reads_its_grant_from_panel_grant(repo: Path) -> Non
 
     plain = service_render_context(config, "services/plain", str(out_dir), service_key="plain")
     assert plain["panel_grant"] == {"credentials": []}
+
+
+@pytest.mark.parametrize("name", ["bluesky_panel_secret_env_vars", "bluesky_panel_roster_owners"])
+def test_a_template_reading_a_retired_grant_name_is_refused(repo: Path, name: str) -> None:
+    """A hand-kept template still reading an old name fails the build, never renders empty."""
+    template = Path("services/plain/docker-compose.yml.j2")
+    template.write_text(
+        _TEMPLATE + f"{{%- if {name} | default([]) %}}\n      X: '1'\n{{%- endif %}}\n"
+    )
+    with pytest.raises(DeploymentPreconditionError, match=name) as refused:
+        setup_build_dir(str(template), _config(repo), {})
+    assert "panel_grant.credentials" in refused.value.reason
+    assert "services/bluesky_web/docker-compose.yml.j2" in refused.value.remedy
 
 
 @pytest.mark.parametrize("entry_point", _ENTRY_POINTS)
