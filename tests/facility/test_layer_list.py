@@ -9,6 +9,7 @@ import pytest
 import yaml
 from click.testing import CliRunner, Result
 
+from osprey.cli.facility_cmd import KNOWLEDGE_PLACEHOLDER_LINE
 from osprey.facility.layers import LayerSourceInvalid
 from osprey.facility.layers.list import LAYER_DIR, import_list
 
@@ -276,6 +277,7 @@ class TestCommand:
         assert result.exit_code == 0, result.output
         assert result.stdout == (
             "wrote data/facility/knowledge/index.md\n"
+            f"{KNOWLEDGE_PLACEHOLDER_LINE}\n"
             f"wrote data/facility/{LAYER_DIR}/channels.yaml\n"
         )
         assert _channels(repo / "data" / "facility") == [{"id": "LAB:TEMP:01"}]

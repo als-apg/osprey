@@ -468,6 +468,10 @@ def _shown(path: Path, repo_root: Path) -> str:
         return path.as_posix()
 
 
+#: The line an import prints when it seeds the blank knowledge index.
+KNOWLEDGE_PLACEHOLDER_LINE = "Put your facility's documentation here: one page per topic."
+
+
 def _writes() -> dict[str, tuple[tuple[str, str], ...]]:
     """Per import verb, what it writes under ``data/facility/``: (file or directory, kind)."""
     from osprey.facility.layers.mml.seed import (
@@ -502,18 +506,15 @@ def _named_together(names: list[str]) -> str:
 
 
 def _remove_bundled(facility_dir: Path, bundled: tuple[str, ...]) -> None:
-    """Remove the bundled files, the knowledge indexes they leave alone and the empty directories.
+    """Remove the bundled files, regenerate the knowledge indexes, remove the empty directories.
 
-    An index goes once it is the only file left under its directory, deepest first,
-    so the root index goes when every page does.
+    The kept pages are indexed; an index whose directory holds no page goes.
     """
+    from osprey.services.facility_knowledge.okf.index import regenerate_indexes
+
     for relative in bundled:
         (facility_dir / relative).unlink()
-    knowledge = facility_dir / "knowledge"
-    indexes = sorted(knowledge.rglob("index.md"), key=lambda path: -len(path.parts))
-    for index in indexes:
-        if [path for path in index.parent.rglob("*") if path.is_file()] == [index]:
-            index.unlink()
+    regenerate_indexes(facility_dir / "knowledge")
     directories = (path for path in facility_dir.rglob("*") if path.is_dir())
     for directory in sorted(directories, key=lambda path: -len(path.parts)):
         if not any(directory.iterdir()):
@@ -526,8 +527,8 @@ def _replace_or_refuse(ctx: click.Context, verb: str, facility_dir: Path, repo_r
     Refuses only on overlap: hand-written records of the kinds this verb writes
     exit 1 with nothing changed. Otherwise bundled files are replaced, and the
     line that says so prints at once, so a later stop of the format never hides
-    the deletion. Everything else stays, and the knowledge stub is seeded when no
-    index exists.
+    the deletion. Everything else stays, and a blank knowledge index is seeded when
+    none exists.
     """
     from osprey.facility.bundled import classify
     from osprey.facility.layers import _seed_knowledge_index
@@ -564,6 +565,7 @@ def _replace_or_refuse(ctx: click.Context, verb: str, facility_dir: Path, repo_r
     seeded = _seed_knowledge_index(facility_dir)
     if seeded is not None:
         report(f"wrote {_shown(seeded, repo_root)}")
+        report(KNOWLEDGE_PLACEHOLDER_LINE)
 
 
 def _print_exporter(ctx: click.Context, _param: click.Parameter, value: bool) -> None:

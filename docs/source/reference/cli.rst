@@ -1172,7 +1172,8 @@ an export into it. See :doc:`/how-to/import-mml-export` for the import end to en
    import writes:``, each file, and a remedy, then exit 1 with nothing changed.
    Otherwise bundled files are replaced, printing
    ``import mml: replaced the bundled <name> facility (<n> files)``, everything
-   else stays, and ``knowledge/index.md`` is seeded when absent. The mml format
+   else stays, the knowledge indexes are regenerated, and a blank
+   ``knowledge/index.md`` is left when no page remains. The mml format
    writes channel, device, group, model, deck, seed, limit, identity and
    measurement records.
 

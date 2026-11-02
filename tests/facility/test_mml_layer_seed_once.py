@@ -24,7 +24,6 @@ import pytest
 import yaml
 
 from osprey.facility.build import LATER_STAGES, build_facility
-from osprey.facility.bundled import _is_seeded
 from osprey.facility.errors import FacilityBuildError
 from osprey.facility.layers import HEADER, _seed_knowledge_index
 from osprey.facility.layers.mml.importer import (
@@ -188,17 +187,9 @@ def test_the_knowledge_index_is_seeded_once(tmp_path: Path) -> None:
     index = facility / "knowledge" / "index.md"
     assert written == index
     validate_index(index, bundle_root=index.parent)
-    assert index.read_text(encoding="utf-8").splitlines() == [
-        "---",
-        HEADER,
-        "---",
-        "",
-        "Put your facility's documentation here: one page per topic.",
-    ]
-    assert _is_seeded(index)
-    before = index.read_bytes()
+    assert index.read_bytes() == b""
     assert _seed_knowledge_index(facility) is None
-    assert index.read_bytes() == before
+    assert index.read_bytes() == b""
 
 
 def test_the_import_returns_each_file_it_seeded(imports: Callable[[str], _Imported]) -> None:

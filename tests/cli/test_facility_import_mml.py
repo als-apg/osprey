@@ -17,7 +17,7 @@ from click.testing import CliRunner, Result
 
 from osprey.cli import build_profile_resolve
 from osprey.cli.build_profile_model import BuildProfile
-from osprey.cli.facility_cmd import _writes, import_group
+from osprey.cli.facility_cmd import KNOWLEDGE_PLACEHOLDER_LINE, _writes, import_group
 from osprey.cli.main import cli
 from osprey.facility.bundled import classify
 from osprey.facility.layers import HEADER
@@ -151,7 +151,7 @@ def test_a_wholly_bundled_facility_is_replaced_in_one_line(cleared: Path) -> Non
 
 def test_a_wholly_bundled_facility_is_replaced_and_builds(repo: Path) -> None:
     pytest.importorskip("at")
-    from tests.cli.test_mml_build_recipes import imported_probe, invoke
+    from tests.cli.test_mml_build_recipes import NO_START_SET, invoke
 
     tree = REPO_ROOT / "tests" / "fixtures" / "mml" / "nsls2"
     target = _facility(repo) / MAPPING_FILE
@@ -161,13 +161,7 @@ def test_a_wholly_bundled_facility_is_replaced_and_builds(repo: Path) -> None:
     exports = sorted(str(path) for path in tree.glob("*.ao.json"))
 
     invoke(runner, "facility", "import", "mml", *exports, "--repo", str(repo))
-    invoke(
-        runner,
-        "set",
-        "--repo",
-        str(repo),
-        f"config.control_system.connector.virtual_accelerator.probe_channel={imported_probe(repo)}",
-    )
+    invoke(runner, "set", "--repo", str(repo), NO_START_SET)
 
     invoke(runner, "build", "--repo", str(repo), "--skip-deps", "--skip-lifecycle")
 
@@ -319,7 +313,7 @@ def test_a_mapping_that_fails_its_check_stops_before_any_record(cleared: Path) -
     assert lines[-1] == (
         f"{len(lines) - 2} problems in data/facility/{MAPPING_FILE}; fix each and check again."
     )
-    assert result.stdout == f"wrote data/facility/{INDEX}\n"
+    assert result.stdout == f"wrote data/facility/{INDEX}\n{KNOWLEDGE_PLACEHOLDER_LINE}\n"
     assert sorted(path.name for path in (_facility(cleared) / LAYER_DIR).iterdir()) == [
         "mapping.yaml"
     ]
@@ -339,7 +333,7 @@ def test_a_mapping_with_the_wrong_structure_stops_with_its_key(cleared: Path) ->
         f"✗ data/facility/{MAPPING_FILE} is not a valid mapping document.",
         "  directions: required key is missing",
     ]
-    assert result.stdout == f"wrote data/facility/{INDEX}\n"
+    assert result.stdout == f"wrote data/facility/{INDEX}\n{KNOWLEDGE_PLACEHOLDER_LINE}\n"
     assert sorted(path.name for path in (_facility(cleared) / LAYER_DIR).iterdir()) == [
         "mapping.yaml"
     ]
@@ -414,3 +408,28 @@ def test_the_seeded_readout_scenario_passes_a_second_import_unchanged(cleared: P
     assert second.exit_code == 0, second.output
     assert "hand-written" not in second.output
     assert readout.read_bytes() == seeded
+
+
+def test_the_knowledge_bundle_validates_after_an_import_that_keeps_a_page(cleared: Path) -> None:
+    pytest.importorskip("at")
+    knowledge = _facility(cleared) / "knowledge"
+    (knowledge / "note.md").write_text(
+        "---\ntype: Note\ntitle: A note\ndescription: Kept.\n---\n\nA note.\n", encoding="utf-8"
+    )
+
+    assert _import(cleared).exit_code == 0
+
+    assert "/note.md" in (knowledge / "index.md").read_text(encoding="utf-8")
+    result = CliRunner().invoke(cli, ["knowledge", "validate", str(knowledge)])
+    assert result.exit_code == 0, result.output
+
+
+def test_the_knowledge_bundle_validates_after_an_import_that_leaves_no_page(cleared: Path) -> None:
+    pytest.importorskip("at")
+
+    assert _import(cleared).exit_code == 0
+
+    index = _facility(cleared) / INDEX
+    assert index.read_bytes() == b""
+    result = CliRunner().invoke(cli, ["knowledge", "validate", str(index.parent)])
+    assert result.exit_code == 0, result.output
