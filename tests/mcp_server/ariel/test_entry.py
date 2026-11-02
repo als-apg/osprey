@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
+from osprey.facility.records import FacilityRecords
 from osprey.mcp_server.ariel.server import ARIEL_NATIVE_SOURCE_SYSTEM
 from osprey.mcp_server.ariel.server_context import initialize_ariel_context
 from osprey.port_layout import default_port
@@ -57,6 +58,34 @@ async def test_entry_get_existing(ariel_registry):
     assert data["entry_id"] == "e1"
     assert data["raw_text"] == "Test content"
     assert data["author"] == "Alice"
+
+
+async def test_entry_get_carries_facility_references(ariel_registry):
+    """The whole entry lists its references with the records they name."""
+    ariel_registry()
+
+    entry = make_mock_entry(entry_id="e1", raw_text="DEV-7 swapped")
+    entry["facility_refs"] = [{"start": 0, "end": 5, "target": "DEV-7", "kinds": ["device"]}]
+
+    mock_service = AsyncMock()
+    attach_fake_attachment_reader(mock_service)
+    mock_service.repository.get_entry.return_value = entry
+    mock_service.repository.facility_records = FacilityRecords({"devices": [{"id": "DEV-7"}]})
+
+    with patch_ariel_service(mock_service):
+        fn = _get_entry_get()
+        result = await fn(entry_id="e1")
+
+    assert json.loads(result)["facility_references"] == [
+        {
+            "start": 0,
+            "end": 5,
+            "target": "DEV-7",
+            "kinds": ["device"],
+            "label": None,
+            "records": [{"kind": "device", "id": "DEV-7"}],
+        }
+    ]
 
 
 async def test_entry_get_nonexistent(ariel_registry):

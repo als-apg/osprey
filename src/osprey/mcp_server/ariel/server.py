@@ -24,6 +24,8 @@ if TYPE_CHECKING:
     import mcp.types as mt
     from fastmcp.tools import Tool
 
+    from osprey.facility.records import FacilityRecords
+
 logger = logging.getLogger("osprey.mcp_server.ariel")
 
 #: The tool that shows the agent a stored picture.
@@ -100,7 +102,10 @@ mcp = FastMCP(
         "never construct, guess, or reuse another host to build a logbook "
         "entry URL yourself. "
         "An entry with `raw_text_truncated` shows only the start of its text; "
-        "`raw_text_length` is the full length, and `entry_get` returns the whole entry."
+        "`raw_text_length` is the full length, and `entry_get` returns the whole entry. "
+        "`facility_references` lists each channel address or device id the entry quotes, "
+        "with its position in `raw_text` and the facility records it names; an empty "
+        "`records` list means the current facility file no longer holds it."
     ),
 )
 mcp.add_middleware(AttachmentViewOfferMiddleware())
@@ -208,6 +213,7 @@ def serialize_entry(
     file_source: bool,
     full_captions: bool = False,
     view_enabled: bool = True,
+    facility_records: FacilityRecords | None = None,
 ) -> dict[str, Any]:
     """Serialize an EnhancedLogbookEntry dict into a compact response dict.
 
@@ -218,6 +224,9 @@ def serialize_entry(
     ``matched_terms``/``missing_terms``.
     With ``view_enabled`` false the entry carries no attachment keys at all
     (no ``attachments``, ``attachment_count`` or ``matched_attachment_ids``).
+    An entry checked against a facility file carries ``facility_references``,
+    limited to the references inside the text it shows; an unchecked entry
+    carries no such key.
 
     Args:
         entry: EnhancedLogbookEntry TypedDict (plain dict).
@@ -232,10 +241,13 @@ def serialize_entry(
         file_source: Whether the entry's source resolves relative attachment paths.
         full_captions: Emit captions and visible text uncut.
         view_enabled: ``ariel.attachments.view.enabled``.
+        facility_records: The records the references resolve in, or None when no
+            facility file was read.
 
     Returns:
         Serialized dict suitable for JSON response.
     """
+    from osprey.facility.references import FacilityReference, resolved_references
     from osprey.services.ariel_search.attachments.summaries import build_attachment_summaries
     from osprey.services.ariel_search.models import entry_text_fields
     from osprey.utils.facility import to_facility_iso
@@ -260,6 +272,14 @@ def serialize_entry(
     for key in ("matched_terms", "missing_terms"):
         if f"_{key}" in entry:
             result[key] = list(entry[f"_{key}"])
+    spans = entry.get("facility_refs")
+    if isinstance(spans, list):
+        shown = len(result["raw_text"])
+        references = [FacilityReference.from_json(span) for span in spans]
+        result["facility_references"] = resolved_references(
+            [reference for reference in references if reference.end <= shown],
+            facility_records,
+        )
     if not view_enabled:
         return result
     if "_matched_attachment_ids" in entry:
