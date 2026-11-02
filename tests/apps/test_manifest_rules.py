@@ -640,3 +640,45 @@ def test_an_audit_identity_a_roster_user_holds_is_refused() -> None:
     err = _refused([_manifest()], reserved=reserved)
     assert _rules(err) == ["audit_identity_roster"]
     assert "roster" in str(err)
+
+
+def test_an_environment_package_an_unlisted_directory_declares_is_refused(
+    tmp_path: Path,
+) -> None:
+    _pyproject(tmp_path / "apps" / "helper")
+
+    with pytest.raises(AppManifestError) as info:
+        refuse_shadowed_packages(tmp_path, [], apps=[], environment_packages=["numpy", "helper"])
+
+    assert _rules(info.value) == ["shadowed_package"]
+    assert info.value.field == "environment.packages.1"
+
+
+def test_a_built_packages_optional_requirement_an_unlisted_directory_declares_is_refused(
+    tmp_path: Path,
+) -> None:
+    _pyproject(tmp_path / "apps" / "helper")
+    path = _pyproject(tmp_path / "apps" / "knob")
+    path.write_text(
+        path.read_text() + '[project.optional-dependencies]\nplot = ["numpy", "helper"]\n'
+    )
+
+    err = _shadow_refused(tmp_path, [], ["knob"])
+
+    assert _rules(err) == ["shadowed_package"]
+    assert err.app == "knob"
+    assert err.field == "project.optional-dependencies.plot.1"
+
+
+def test_a_built_packages_build_requirement_an_unlisted_directory_declares_is_refused(
+    tmp_path: Path,
+) -> None:
+    _pyproject(tmp_path / "apps" / "helper")
+    path = _pyproject(tmp_path / "apps" / "knob")
+    path.write_text(path.read_text() + '[build-system]\nrequires = ["hatchling", "helper"]\n')
+
+    err = _shadow_refused(tmp_path, [], ["knob"])
+
+    assert _rules(err) == ["shadowed_package"]
+    assert err.app == "knob"
+    assert err.field == "build-system.requires.1"

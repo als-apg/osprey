@@ -158,7 +158,12 @@ def check_deployment(root: Path) -> DeploymentApps:
         _refuse_unbuildable_services(root, manifests, host)
     dependencies = list(host.dependencies or [])
     check_pins(deployment_packages(root, dependencies, apps=host.apps), framework_pins())
-    refuse_shadowed_packages(root, dependencies, apps=host.apps)
+    refuse_shadowed_packages(
+        root,
+        dependencies,
+        apps=host.apps,
+        environment_packages=list(host.environment.packages or []),
+    )
     return DeploymentApps(
         manifests=manifests,
         logins=logins,

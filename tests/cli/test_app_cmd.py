@@ -124,6 +124,21 @@ def test_a_requirement_only_an_unlisted_directory_holds_is_reported(
     assert "[shadowed_package]" in result.output
 
 
+def test_an_environment_package_only_an_unlisted_directory_holds_is_reported(
+    runner: CliRunner, lifecycle_repo: Path
+) -> None:
+    _write(lifecycle_repo / "apps" / "helper", "pyproject.toml", '[project]\nname = "lab-helper"\n')
+    profile = yaml.safe_load((lifecycle_repo / "profile.yml").read_text(encoding="utf-8"))
+    profile.setdefault("environment", {})["packages"] = ["lab-helper"]
+    (lifecycle_repo / "profile.yml").write_text(yaml.safe_dump(profile), encoding="utf-8")
+
+    result = _check(runner, lifecycle_repo)
+
+    assert result.exit_code == 1
+    assert "environment.packages.0" in result.output
+    assert "[shadowed_package]" in result.output
+
+
 def test_a_profile_that_does_not_resolve_is_named(runner: CliRunner, lifecycle_repo: Path) -> None:
     (lifecycle_repo / "profile.yml").write_text("config: [\n", encoding="utf-8")
 
