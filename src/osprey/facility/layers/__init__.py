@@ -2,18 +2,26 @@
 
 Each layer reads one outside format and writes record sources under
 ``data/facility/imported/<layer>/``; the build merges them with the authored
-sources field by field.
+sources field by field. A seed-once file an import creates opens with
+:data:`HEADER`, whichever format wrote it, and is a person's from then on.
 """
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 import click
 
 from osprey.facility.errors import FacilityBuildError
 
-__all__ = ["LayerSourceInvalid"]
+__all__ = ["HEADER", "LayerSourceInvalid"]
+
+#: The first line of every file an import seeds, in every format.
+HEADER = "# Seeded once by the facility import; edit this file by hand."
+
+#: The body of the knowledge index an import seeds.
+_KNOWLEDGE_INDEX_BODY = "Put your facility's documentation here: one page per topic."
 
 
 class LayerSourceInvalid(click.ClickException):
@@ -38,3 +46,23 @@ class LayerSourceInvalid(click.ClickException):
         """
         for error in self.errors:
             error.show(file)
+
+
+def _seed_knowledge_index(facility_dir: Path) -> Path | None:
+    """Write the knowledge index when it is absent, and never rewrite one.
+
+    The header sits inside a frontmatter block because a ``#`` line in a Markdown
+    body is a heading.
+
+    Args:
+        facility_dir: The ``data/facility`` directory.
+
+    Returns:
+        The path written, or ``None`` when an index already exists.
+    """
+    index = facility_dir / "knowledge" / "index.md"
+    if index.exists():
+        return None
+    index.parent.mkdir(parents=True, exist_ok=True)
+    index.write_text(f"---\n{HEADER}\n---\n\n{_KNOWLEDGE_INDEX_BODY}\n", encoding="utf-8")
+    return index
