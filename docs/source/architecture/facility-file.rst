@@ -93,6 +93,10 @@ filters the file's own channel records and names a model or a place.
      - The channels whose ``on.device`` names the device or that list it in ``endpoint_of``.
      - Document order, each once.
      - Empty, also for an unknown id.
+   * - ``wired(address)``
+     - The one wiring record naming an address, as the file holds it.
+     -
+     - ``None`` for an address no model wires.
    * - ``resolve(target)``
      - The channel and device records a reference target names, by exact id.
      - ``LINK_KINDS``: channel, then device.
