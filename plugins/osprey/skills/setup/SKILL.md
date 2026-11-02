@@ -248,9 +248,10 @@ ships `code:` only.
      proposes each model's `wiring` block; its open slots are answered in a review
      sized to the model, with the MODEL WIRING card in `references/cards.md`
      (`## MODEL WIRING`) as its overview. The import refuses while one is open.
-   - `osprey facility import mml` refuses while `data/facility/` holds record sources
-     of its own — on this base, hello-world's demo records — and prints one `rm` line
-     per file. Run those lines as printed, then import again.
+   - `osprey facility import mml` replaces the bundled facility in one line
+     (`import mml: replaced the bundled <name> facility (<n> files)`) and refuses only
+     hand-written records of the kinds it writes, naming each file with the new-repo
+     remedy.
 8. `osprey validate --drift=warn` after every change. Drift from the preset is expected.
 9. Core four, hardwired, resolved before wrap-up. **Provider, its key, and each agent's
    model**: the list is `providers.yml` beside the profile; `osprey init` writes

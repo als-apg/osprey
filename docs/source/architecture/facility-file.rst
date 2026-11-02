@@ -20,6 +20,12 @@ about what the build makes of them.
 The facility file
 =================
 
+A facility ``osprey init`` copies from a preset is bundled: every copied text file
+opens with the bundled-origin line, except the knowledge indexes, which
+``osprey knowledge regen-index`` writes. Delete the line to make a file yours. The
+import, in every format, replaces the bundled files and refuses only hand-written
+records of the kinds that format writes.
+
 ``build/facility.json`` is every record of the facility in one document,
 under a ``schema`` header: ``identity``, ``classes``, ``places``, ``devices``,
 ``channels``, ``groups``, ``models`` with their wiring, ``limits`` and

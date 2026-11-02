@@ -253,10 +253,8 @@ rewritten by every run; ``mapping.yaml`` is yours and is only drafted when
 absent. The import also creates ``limits.yaml``, ``seeds.yaml``,
 ``identity.yaml``, ``classes.yaml``, ``measurement/<model>.yaml`` and
 ``scenarios/readout.yaml`` when they do not exist, and never rewrites them
-afterwards. It refuses to run while
-authored record sources are present: every file of ``records/`` and
-``decks/``, ``models.yaml``, and a ``limits.yaml``, ``seeds.yaml``,
-``identity.yaml`` or measurement file it did not create itself.
+afterwards. It replaces a bundled facility, saying so in one line, and refuses
+only hand-written records of the kinds it writes, naming each file.
 
 A channel list
 --------------
@@ -276,9 +274,9 @@ address per line.
 The files under ``imported/list/`` belong to the import and are replaced by
 each run, so they are never edited by hand: a correction goes into the CSV or
 into ``fixes.yaml``. A run whose list states no ``s`` leaves no
-``devices.yaml``. The list import runs beside authored records and merges with
-them field by field, where the mml import refuses while authored record
-sources are present.
+``devices.yaml``. The list import runs the same step as every format: it
+replaces a bundled facility and refuses only hand-written channel and device
+lists, so it still positions a list against your own deck, models and places.
 
 Fixes
 =====
