@@ -51,9 +51,10 @@ The approval path
 
 An application write is judged by the one chain: the login's ``control_system.writes`` ceiling
 (``never``, ``asked`` or ``allowed``), the owner's per-machine switch position, then the approval
-record. In code that is ``posture_store.write_verdict``, with its stdlib twin in the hooks
-(``osprey_target_state.py``), and ``approval_record.require_approval_record``. The write targets
-whichever machine the session points at.
+record. In code that is ``posture_store.execution_verdict`` (the write verdict, plus the session's
+hold), with its stdlib twin in the hooks (``osprey_target_state.py``), and
+``approval_record.require_approval_record``. The write targets whichever machine the session points
+at.
 
 The switch's position decides whether a person is asked. The application's declaration only
 describes and binds the call: what the prompt shows, and which fields of the call and of the

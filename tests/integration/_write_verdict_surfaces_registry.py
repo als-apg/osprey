@@ -948,6 +948,14 @@ SURFACES: tuple[Surface, ...] = (
         project=_held(_middleware_clamp),
     ),
     Surface(
+        "app-tool-call-held",
+        "osprey.apps.sdk._approval",
+        "write",
+        stage1=False,
+        reports_reason=True,
+        project=_held(_app_tool_call),
+    ),
+    Surface(
         "approval-position",
         f"{_HOOKS}.osprey_approval",
         "write",
