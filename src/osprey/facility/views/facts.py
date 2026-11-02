@@ -395,8 +395,7 @@ def measurement_records(data_root: Path) -> dict[str, dict[str, Any]]:
 
 
 #: The most recent measurement blocks, keyed by the digests of the bytes each was
-#: read from and the ``entry_points`` its engines' descriptions came from: a
-#: replaced ``entry_points`` (a test registering an engine) reads the block afresh.
+#: read from.
 _MEASUREMENT_MEMO: OrderedDict[tuple[Any, ...], dict[str, dict[str, Any]]] = OrderedDict()
 _MEASUREMENT_MEMO_KEYS = 8
 
@@ -407,9 +406,8 @@ def hook_measurement(facts: Mapping[str, Any], render_root: Path) -> dict[str, d
     Read from each pyAML view the facts record: its arrays and the addresses
     their members stand for, through the view's one name mapping. A render
     whose facts record no view reads no file. The block is a function of the
-    bytes it reads and of the engines that describe its models' wiring, so it
-    is computed once per distinct content and registry; each caller gets its
-    own copy.
+    bytes it reads, so it is computed once per distinct content; each caller
+    gets its own copy.
 
     Args:
         facts: The facts document.
@@ -427,8 +425,6 @@ def hook_measurement(facts: Mapping[str, Any], render_root: Path) -> dict[str, d
     recorded = facts.get("measurement_models") or {}
     if not recorded:
         return {}
-    from importlib import metadata
-
     from osprey.facility import FACILITY_FILE
 
     facility_file = render_root / FACILITY_FILE
@@ -438,7 +434,6 @@ def hook_measurement(facts: Mapping[str, Any], render_root: Path) -> dict[str, d
         for model, record in recorded.items()
     }
     key = (
-        metadata.entry_points,
         hashlib.sha256(facility).hexdigest(),
         tuple(
             (model, record["path"], record.get("sha256"), hashlib.sha256(view).hexdigest())
