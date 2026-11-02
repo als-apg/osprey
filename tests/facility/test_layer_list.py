@@ -252,6 +252,17 @@ class TestPositions:
         ]
 
 
+def _replaced(verb: str, name: str, count: int) -> str:
+    return f"import {verb}: replaced the bundled {name} facility ({count} files)"
+
+
+def _refused_first_line(verb: str, kinds: str) -> str:
+    return (
+        f"import {verb}: data/facility/ holds hand-written {kinds} records, "
+        "which this import writes:"
+    )
+
+
 class TestCommand:
     def test_import_list_writes_the_layer_under_the_repo(self, tmp_path: Path) -> None:
         from osprey.cli.main import cli
@@ -263,24 +274,67 @@ class TestCommand:
         result = _invoke(cli, listing, repo)
 
         assert result.exit_code == 0, result.output
-        assert result.stdout == f"wrote data/facility/{LAYER_DIR}/channels.yaml\n"
+        assert result.stdout == (
+            "wrote data/facility/knowledge/index.md\n"
+            f"wrote data/facility/{LAYER_DIR}/channels.yaml\n"
+        )
         assert _channels(repo / "data" / "facility") == [{"id": "LAB:TEMP:01"}]
+
+    def test_import_list_replaces_a_wholly_bundled_facility_in_one_line(
+        self, tmp_path: Path
+    ) -> None:
+        from osprey.cli.main import cli
+        from tests._builds import init_project
+
+        repo = init_project(tmp_path, "hello-world", "demo")
+        facility = repo / "data" / "facility"
+        count = sum(1 for path in facility.rglob("*") if path.is_file())
+        listing = _csv(tmp_path, "address\nLAB:TEMP:01\n")
+
+        result = _invoke(cli, listing, repo)
+
+        assert result.exit_code == 0, result.output
+        assert result.stderr.splitlines()[0] == _replaced("list", "hello_world", count)
+        assert sorted(path.name for path in facility.iterdir()) == ["imported", "knowledge"]
+
+    def test_import_list_refuses_a_hand_written_channel_list(self, tmp_path: Path) -> None:
+        from osprey.cli.main import cli
+        from tests._builds import init_project
+
+        repo = init_project(tmp_path, "hello-world", "demo")
+        channels = repo / "data" / "facility" / "records" / "channels.yaml"
+        channels.write_text(
+            channels.read_text(encoding="utf-8").split("\n", 1)[1], encoding="utf-8"
+        )
+        listing = _csv(tmp_path, "address\nLAB:TEMP:01\n")
+
+        result = _invoke(cli, listing, repo)
+
+        assert result.exit_code == 1
+        lines = result.stderr.splitlines()
+        assert lines[0] == _refused_first_line("list", "channel")
+        assert lines[1] == "data/facility/records/channels.yaml"
+        assert lines[2].startswith("move corrections into fixes.yaml")
+        assert not (repo / "data" / "facility" / LAYER_DIR).exists()
 
     def test_import_list_prints_each_refusal_and_exits_1(self, tmp_path: Path) -> None:
         from osprey.cli.main import cli
         from tests._builds import init_project
 
         repo = init_project(tmp_path, "hello-world", "demo")
+        facility = repo / "data" / "facility"
+        count = sum(1 for path in facility.rglob("*") if path.is_file())
         listing = _csv(tmp_path, "address,device,place\nQ1:SP,SR/Q1,SR\n", name="two.csv")
 
         result = _invoke(cli, listing, repo)
 
         assert result.exit_code == 1
         assert result.stderr == (
+            f"{_replaced('list', 'hello_world', count)}\n"
             "facility: source-invalid: channel Q1:SP — two.csv row 2 names both a device and "
             "a place; fix: keep one of `device` and `place` in two.csv\n"
         )
-        assert not (repo / "data" / "facility" / LAYER_DIR).exists()
+        assert not (facility / LAYER_DIR).exists()
 
 
 def _invoke(cli: Any, listing: Path, repo: Path) -> Result:

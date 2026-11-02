@@ -506,7 +506,7 @@ class TestTheDeckBesideAnExport:
             f"holds elements 3510 and the export states 876; {REMEDY}"
         ]
         facility = tmp_path / "data" / "facility"
-        assert sorted(_files(facility, facility)) == [MAPPING_FILE]
+        assert sorted(_files(facility, facility)) == sorted([MAPPING_FILE, "knowledge/index.md"])
 
     def test_an_export_that_differs_in_energy_alone_imports_with_a_warning(
         self, tmp_path: Path
