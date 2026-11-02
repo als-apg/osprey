@@ -238,6 +238,44 @@ def test_require_names_the_kind_and_the_id() -> None:
         records.require("device", "NO/SUCH")
 
 
+# --- wiring ------------------------------------------------------------------------
+
+
+def _wiring(doc: Mapping[str, Any]) -> list[tuple[str, dict[str, Any]]]:
+    """Every wiring record of the document with its model's name."""
+    return [
+        (model["name"], entry) for model in doc["models"] for entry in model.get("wiring") or []
+    ]
+
+
+def test_wired_is_the_wiring_record_naming_an_address(built_control_assistant: Any) -> None:
+    doc = built_control_assistant.facility
+    records = FacilityRecords(doc)
+
+    wiring = _wiring(doc)
+    assert wiring
+    for _model, entry in wiring:
+        assert records.wired(entry["address"]) is entry
+
+
+def test_an_address_no_model_wires_has_no_wiring_record(built_control_assistant: Any) -> None:
+    doc = built_control_assistant.facility
+    records = FacilityRecords(doc)
+
+    addresses = {entry["address"] for _model, entry in _wiring(doc)}
+    unwired = _channels_by(doc, lambda channel: channel["id"] not in addresses)
+    assert unwired
+    for address in unwired:
+        assert records.wired(address) is None
+    assert records.wired("NOT-A-CHANNEL") is None
+
+
+def test_a_model_without_a_wiring_list_has_no_wiring_records() -> None:
+    records = FacilityRecords({"models": [{"name": "A"}, {"name": "B", "wiring": None}]})
+
+    assert records.wired("X") is None
+
+
 # --- selection ---------------------------------------------------------------------
 
 

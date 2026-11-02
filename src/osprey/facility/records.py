@@ -165,6 +165,12 @@ class FacilityRecords:
                     channels_on.setdefault(str(device), []).append(channel)
         self._channels_on = {device: tuple(held) for device, held in channels_on.items()}
         self._targets = frozenset(id_ for kind in LINK_KINDS for id_ in self._by_kind[kind])
+        self._wiring: dict[str, tuple[str, Mapping[str, Any]]] = {}
+        for name, model in self._by_kind["model"].items():
+            wiring = model.get("wiring")
+            for entry in wiring if isinstance(wiring, list) else ():
+                if isinstance(entry, Mapping) and entry.get("address") is not None:
+                    self._wiring.setdefault(str(entry["address"]), (name, entry))
 
     @classmethod
     def from_file(cls, path: Path) -> FacilityRecords | None:
@@ -245,6 +251,22 @@ class FacilityRecords:
             and for an unknown id.
         """
         return self._channels_on.get(device_id, ())
+
+    def wired(self, address: str) -> Mapping[str, Any] | None:
+        """The one wiring record naming an address.
+
+        An address is wired at most once: the ``compute`` stage stops on a second
+        wiring record (``compute.py`` ``_addresses_wired_twice``, ``wiring-conflict``).
+
+        Args:
+            address: A channel's address.
+
+        Returns:
+            The wiring record as the facility file holds it; ``None`` for an
+            address no model wires.
+        """
+        held = self._wiring.get(address)
+        return None if held is None else held[1]
 
     def select_channels(self, selection: ChannelSelection) -> tuple[Mapping[str, Any], ...]:
         """The channel records a selection matches, in document order.
