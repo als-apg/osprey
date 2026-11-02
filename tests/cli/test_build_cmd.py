@@ -2555,6 +2555,52 @@ def test_lint_accepts_a_declared_matcher_but_warns_that_it_proves_nothing(
     assert any("/panel/events/mcp" in message for message in gate_warnings), (
         f"the Bash warning must name the dispatcher wire the shell reaches: got {gate_warnings}"
     )
+    # No shipped sidecar panel opens a transport to the agent, so the
+    # dispatcher's wire is the only one named.
+    assert all(message.count("/panel/") == 1 for message in gate_warnings), gate_warnings
+
+
+def test_the_declared_gate_warning_names_every_panel_hop_the_shell_reaches(
+    tmp_path: Path, caplog, monkeypatch
+) -> None:
+    """A panel that opens its MCP transport to the agent is one more wire the
+    panel token reaches from a shell, so the Bash warning names its path too —
+    read off the registry, beside the dispatcher's.
+    """
+    import logging
+
+    from osprey.profiles.sidecar_panels import SidecarPanel
+    from osprey.registry.mcp import FRAMEWORK_SERVERS, derive_panel_servers
+
+    panel = SidecarPanel(
+        "Synthetic screens",
+        "tests.synthetic:Sidecar",
+        mcp_path="/mcp",
+        agent_hop=True,
+        mcp_ask=("push_screen",),
+    )
+    monkeypatch.setitem(
+        FRAMEWORK_SERVERS, "screens", derive_panel_servers({"screens": panel})["screens"]
+    )
+
+    manager, project = _project_with_permissions(
+        tmp_path, "declared-bash-gate-hop", {"remove_deny": ["Bash"]}
+    )
+    _ship_declared_pre_hook(project, "facility_bash_gate.py", "Bash")
+
+    with caplog.at_level(logging.WARNING):
+        manager.regenerate_claude_code(project)
+
+    gate_warnings = [
+        record.message
+        for record in caplog.records
+        if "Bash" in record.message and "permissionDecision" in record.message
+    ]
+    assert gate_warnings
+    assert any(
+        "/panel/events/mcp" in message and "/panel/screens/mcp" in message
+        for message in gate_warnings
+    ), gate_warnings
 
 
 @pytest.mark.parametrize("tool", ["Monitor", "EnterWorktree"])

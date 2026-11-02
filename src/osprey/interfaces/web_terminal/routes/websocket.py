@@ -515,7 +515,10 @@ def _build_extra_env(
     narrow panel tier (:data:`~osprey.interfaces.web_auth.PANEL_TIER_ROUTES`)
     — panel arrangement and activity, plus the proxy hop to the event
     dispatcher's MCP transport, which is what lets the agent in a session fire
-    a dispatch job under that session's own chip — and nothing else. The
+    a dispatch job under that session's own chip, and the hop each sidecar
+    panel declares as its ``agent_hop`` at its ``mcp_path`` (see
+    :func:`~osprey.interfaces.web_auth.panel_tier_routes`) — and nothing
+    else. The
     operator secret is never put back.
     """
     extra_env: dict[str, str] = {}

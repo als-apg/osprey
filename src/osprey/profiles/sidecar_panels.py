@@ -52,6 +52,27 @@ class SidecarPanel:
             authenticates with its own launch credential alone sets it false,
             so the operator's proof never reaches a process that has no use
             for it. The launch credential is injected either way.
+        mcp_path: The absolute upstream path of an MCP transport this sidecar
+            serves, or ``None``. A sidecar that declares one has that path
+            refused by the panel proxy for every caller, along with any
+            spelling that could be resolved to it past the proxy. Declaring
+            ``agent_hop`` as well is the only thing that changes that.
+        agent_hop: Whether the agent in a terminal session may reach
+            ``mcp_path`` through that terminal's own panel proxy. Off by
+            default, and meaningless without an ``mcp_path``: a transport is
+            opened to the agent by saying so, never by being declared.
+        mcp_allow: The names of the tools on that transport the agent may call
+            without being asked, bare (no ``mcp__<server>__`` prefix).
+        mcp_ask: The names of the tools on that transport that need the
+            operator's approval for each call, bare. A tool in neither tuple
+            is not offered to the agent. On the hop, a call to one of these
+            is refused while the calling session is held, like a job fired on
+            the dispatcher hop.
+        mcp_writes: The subset of ``mcp_ask`` that writes the machine. Such a
+            tool is governed: its hook rule carries the writes check ahead of
+            the approval prompt, so the write switch's position decides it.
+            Every other ask tool keeps its approval policy and is never held
+            back by the switch.
         entry_pages: The panel's own application documents, as route
             templates below ``/panel/<id>`` (``/``, ``/lab``, ``/s/*`` — a final
             ``*`` segment matches the rest of the path). The panel proxy serves
@@ -73,6 +94,11 @@ class SidecarPanel:
     description: str = ""
     health_endpoint: str | None = None
     operator_secret: bool = True
+    mcp_path: str | None = None
+    agent_hop: bool = False
+    mcp_allow: tuple[str, ...] = ()
+    mcp_ask: tuple[str, ...] = ()
+    mcp_writes: tuple[str, ...] = ()
     entry_pages: tuple[str, ...] = ()
     image_checks: tuple[str, ...] = ()
 

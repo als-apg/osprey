@@ -95,6 +95,126 @@ def project_dir(tmp_path: Path) -> Path:
 
 
 # ---------------------------------------------------------------------------
+# expected_mcp_servers: what the readiness barrier waits for
+# ---------------------------------------------------------------------------
+
+_PANEL_BEARER = {"Authorization": "Bearer ${OSPREY_PANEL_TOKEN:-}"}
+
+
+def _write_mcp_json(project: Path, servers: dict) -> Path:
+    import json
+
+    (project / ".mcp.json").write_text(json.dumps({"mcpServers": servers}))
+    return project
+
+
+def _panel_token_project(tmp_path: Path) -> Path:
+    return _write_mcp_json(
+        tmp_path,
+        {
+            "controls": {"command": "osprey-controls-mcp"},
+            "event_dispatcher": {
+                "type": "http",
+                "url": "http://127.0.0.1:${OSPREY_WEB_PORT:-}/panel/events/mcp",
+                "headers": _PANEL_BEARER,
+            },
+            "screens": {
+                "type": "http",
+                "url": "http://127.0.0.1:${OSPREY_WEB_PORT:-}/panel/screens/mcp",
+                "headers": _PANEL_BEARER,
+            },
+            "facility": {
+                "type": "http",
+                "url": "https://mcp.example/",
+                "headers": {"Authorization": "Bearer ${FACILITY_TOKEN:-}"},
+            },
+        },
+    )
+
+
+@pytest.mark.parametrize("token", [None, ""], ids=["unset", "empty"])
+def test_expected_servers_leave_out_panel_token_entries_without_a_token(
+    tmp_path: Path, monkeypatch, token
+) -> None:
+    """Outside a web terminal no panel token exists, so those servers cannot register.
+
+    Waiting for them would spend the readiness budget and then fail the run on
+    a server this session was never going to have. Covers the dispatcher and
+    every panel-derived entry alike; a URL server with its own bearer is still
+    expected.
+    """
+    from osprey.agent_runner.primitives import expected_mcp_servers
+
+    if token is None:
+        monkeypatch.delenv("OSPREY_PANEL_TOKEN", raising=False)
+    else:
+        monkeypatch.setenv("OSPREY_PANEL_TOKEN", token)
+
+    assert expected_mcp_servers(_panel_token_project(tmp_path)) == {"controls", "facility"}
+
+
+def test_expected_servers_keep_panel_token_entries_with_a_token(
+    tmp_path: Path, monkeypatch
+) -> None:
+    from osprey.agent_runner.primitives import expected_mcp_servers
+
+    monkeypatch.setenv("OSPREY_PANEL_TOKEN", "minted-by-the-terminal")
+
+    assert expected_mcp_servers(_panel_token_project(tmp_path)) == {
+        "controls",
+        "event_dispatcher",
+        "screens",
+        "facility",
+    }
+
+
+def test_expected_servers_read_the_placeholder_under_any_header_name(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """The test is on what the header presents, not on what it is called."""
+    from osprey.agent_runner.primitives import expected_mcp_servers
+
+    monkeypatch.delenv("OSPREY_PANEL_TOKEN", raising=False)
+    project = _write_mcp_json(
+        tmp_path,
+        {
+            "bare": {"url": "http://x/", "headers": {"X-Token": "${OSPREY_PANEL_TOKEN}"}},
+            "mentions-it": {"url": "http://x/", "headers": {"X-Note": "OSPREY_PANEL_TOKEN"}},
+            "no-headers": {"url": "http://x/"},
+            "odd-headers": {"url": "http://x/", "headers": ["${OSPREY_PANEL_TOKEN:-}"]},
+            "odd-value": {"url": "http://x/", "headers": {"X-N": 5}},
+            "not-a-mapping": "${OSPREY_PANEL_TOKEN:-}",
+        },
+    )
+
+    assert expected_mcp_servers(project) == {
+        "mentions-it",
+        "no-headers",
+        "odd-headers",
+        "odd-value",
+        "not-a-mapping",
+    }
+
+
+def test_expected_servers_of_an_unreadable_project_are_empty(tmp_path: Path) -> None:
+    from osprey.agent_runner.primitives import expected_mcp_servers
+
+    assert expected_mcp_servers(tmp_path / "absent") == set()
+    (tmp_path / ".mcp.json").write_text("{not json")
+    assert expected_mcp_servers(tmp_path) == set()
+
+
+def test_the_rendered_dispatcher_entry_is_the_shape_the_filter_reads() -> None:
+    """The filter keys on the registry's own header text, not on a second spelling."""
+    from osprey.agent_runner.primitives import _presents_panel_token
+    from osprey.registry.mcp import FRAMEWORK_SERVERS
+
+    headers = FRAMEWORK_SERVERS["event_dispatcher"].headers
+
+    assert _presents_panel_token({"type": "http", "url": "http://x/", "headers": headers})
+
+
+# ---------------------------------------------------------------------------
 # Helper: build a mock ClaudeSDKClient async context manager
 # ---------------------------------------------------------------------------
 

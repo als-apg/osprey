@@ -55,6 +55,7 @@ import logging
 import os
 import re
 import secrets
+from collections.abc import Collection
 from pathlib import Path
 from urllib.parse import ParseResult, urljoin, urlparse, urlunsplit
 
@@ -74,6 +75,7 @@ from osprey.interfaces.common_middleware import (
     FACILITY_TIMEZONE_ATTRIBUTE,
     FIRST_PARTY_PANEL_STATIC,
     MOUNT_SEGMENT_RE,
+    PANEL_ADMISSION_STATE_KEY,
     PANEL_ASSET_SUBPATHS,
     PANEL_CAP_SEGMENT,
     STORAGE_SCOPE_ATTRIBUTE,
@@ -313,17 +315,18 @@ def _is_dispatcher_mcp_hop(panel_id: str, path: str) -> bool:
 #: The dispatcher tools that start a job; its other tools only read.
 _JOB_FIRING_TOOLS = frozenset({"manual_fire"})
 
-#: The header naming the calling session on the dispatcher's MCP server entry. The
-#: panel token is shared, so it is honest-path: it answers which session is asking,
-#: and is no proof of it.
+#: The header naming the calling session on an agent hop's MCP server entry
+#: (the dispatcher's, and each opted-in sidecar's). The panel token is shared,
+#: so it is honest-path: it answers which session is asking, and is no proof
+#: of it.
 _SESSION_HEADER = "x-osprey-session"
 
 #: JSON-RPC's implementation-defined server error, for a call refused before it left.
 _JSONRPC_REFUSED = -32000
 
 
-def _job_firing_messages(body: bytes) -> list[dict] | None:
-    """The JSON-RPC requests of *body*, when one of them fires a job; else ``None``.
+def _acting_messages(body: bytes, acting_tools: Collection[str]) -> list[dict] | None:
+    """The JSON-RPC requests of *body*, when one of them calls an acting tool; else ``None``.
 
     A body that does not parse is the transport's to answer.
     """
@@ -338,35 +341,48 @@ def _job_firing_messages(body: bytes) -> list[dict] | None:
         if (
             message.get("method") == "tools/call"
             and isinstance(params, dict)
-            and params.get("name") in _JOB_FIRING_TOOLS
+            and params.get("name") in acting_tools
         ):
             return requests
     return None
 
 
-async def _refuse_job_firing(request: Request) -> Response | None:
-    """Refuse a job-firing call from a held session; ``None`` lets the request through.
+async def _refuse_held_call(
+    request: Request, acting_tools: Collection[str], *, hop: str
+) -> Response | None:
+    """Refuse an acting call from a held session; ``None`` lets the request through.
+
+    The one hold on every agent hop. The dispatcher's acting tools fire a job
+    (:data:`_JOB_FIRING_TOOLS`); an opted-in sidecar's are the tools it asks
+    the operator about (``SidecarPanel.mcp_ask``). A watchdog hold pauses the
+    session's writes by every route the agent has, and these hops are routes
+    the agent has.
 
     Under a hold store the session must be named and live, so a key nobody runs
-    cannot fire past a hold it has no record of. With no store nothing is read.
+    cannot act past a hold it has no record of. With no store nothing is read.
     A JSON-RPC error rather than an HTTP status, because the agent's client reads
     the words of one and reports only a transport failure for the other. A batch
-    with a firing call in it is refused whole.
+    with an acting call in it is refused whole.
+
+    Args:
+        request: The proxied ``POST``.
+        acting_tools: The bare tool names on this hop that act.
+        hop: What the log names when a call is refused.
     """
     root = session_hold_root_of(request.app)
     if root is None:
         return None
-    messages = _job_firing_messages(await request.body())
+    messages = _acting_messages(await request.body(), acting_tools)
     if messages is None:
         return None
     key = request.headers.get(_SESSION_HEADER, "")
     if not is_safe_session_key(key) or not session_is_live(request.app, key):
-        text = "Firing a job needs a live session; this call names none."
+        text = "This call needs a live session; it names none."
     elif await asyncio.to_thread(is_held, key, root=root):
-        text = refusal_text("session_held", detail="Firing a job is refused while held.")
+        text = refusal_text("session_held", detail="The call is refused while held.")
     else:
         return None
-    logger.warning("Refused a job-firing call on the dispatcher hop")
+    logger.warning("Refused a call on the %s while the session is held or unnamed", hop)
     errors = [
         {
             "jsonrpc": "2.0",
@@ -670,6 +686,110 @@ def _terminal_secret_header(
 
     secret = credentials.operator_secret
     return {TERMINAL_SECRET_HEADER: secret} if secret else {}
+
+
+#: A percent escape of ``.``, ``/`` or ``\\``, encoded any number of times over
+#: (``%2f``, ``%252f``, ...). In a path the server has already decoded it is
+#: the mark of a double encoding; in the raw request path it is a separator or
+#: a dot spelled so that this hop and the next can disagree about where the
+#: segments are. Matching every depth keeps the answer the same however many
+#: times the server in front of this route decoded the path.
+_PATH_ESCAPE_RE = re.compile(r"%(?:25)*(?:2e|2f|5c)", re.IGNORECASE)
+
+_REPEATED_SLASHES_RE = re.compile(r"/{2,}")
+
+
+def _is_admitted_agent_hop(scope: Request | WebSocket, panel_id: str, path: str) -> bool:
+    """Whether this request is a sidecar's declared agent hop, admitted as one.
+
+    True only when every one of these holds:
+
+    * the panel is a sidecar that declares an MCP transport
+      (``SidecarPanel.mcp_path``) **and** opts in (``SidecarPanel.agent_hop``);
+    * the path below the panel id is that transport's path, exactly;
+    * the request arrived spelled that way. The path a route is handed is
+      percent-decoded, so ``%6dcp`` reads as ``mcp`` there and at the terminal's
+      gate alike; the raw request path is the only place the two differ, and it
+      must end in the literal ``/panel/<id><mcp_path>``. A scope with no raw
+      path is not the hop;
+    * the terminal's gate admitted the request on the panel token
+      (:data:`~osprey.interfaces.common_middleware.PANEL_ADMISSION_STATE_KEY`).
+      A browser session and the operator secret never carry that mark, and
+      neither does any websocket.
+
+    Args:
+        scope: The request or websocket being proxied.
+        panel_id: The panel id from the proxied URL.
+        path: The decoded path below the panel id, without a leading slash.
+    """
+    sidecar = SIDECAR_PANELS.get(panel_id)
+    if sidecar is None or not sidecar.agent_hop or not sidecar.mcp_path:
+        return False
+    if f"/{path}" != sidecar.mcp_path:
+        return False
+    asgi_scope = scope.scope
+    state = asgi_scope.get("state") or {}
+    if state.get(PANEL_ADMISSION_STATE_KEY) is not True:
+        return False
+    raw_path = asgi_scope.get("raw_path") or b""
+    return raw_path.endswith(f"/panel/{panel_id}{sidecar.mcp_path}".encode("latin-1"))
+
+
+def _mcp_path_refusal(
+    scope: Request | WebSocket, panel_id: str, path: str, target: str
+) -> int | None:
+    """The status to refuse this request with, or ``None`` to forward it.
+
+    Applies to a sidecar that declares an MCP transport
+    (``SidecarPanel.mcp_path``) and to no other panel. That transport is not a
+    page: this hop carries it for one caller only — the agent's own client, on
+    a sidecar that opted in (:func:`_is_admitted_agent_hop`) — and nothing
+    below the panel may be spelled so that an upstream resolves it to the
+    transport after this check has passed.
+
+    Two refusals, both decided before any upstream call:
+
+    * **404** for a path below ``/panel/<id>/`` that has a ``.`` or ``..``
+      segment, or a percent escape of ``.``, ``/`` or ``\\`` at any depth of
+      encoding — either left in the decoded path (a double encoding) or
+      present in the raw request path (an encoded separator, which the decoded
+      path can no longer tell from a real one).
+    * **403** when the upstream path of the built target, with ``;params``
+      dropped from every segment and repeated slashes collapsed, is the
+      declared ``mcp_path`` or lies below it — unless the request is the
+      declared hop of a sidecar that opted in, spelled exactly, and the gate
+      admitted it on the panel token. A browser session or the operator
+      secret is refused there like any other caller, and so is every other
+      spelling the panel token arrives on.
+
+    Args:
+        scope: The request or websocket being proxied.
+        panel_id: The panel id from the proxied URL.
+        path: The decoded path below the panel id, without a leading slash.
+        target: The upstream URL this request would be forwarded to.
+    """
+    sidecar = SIDECAR_PANELS.get(panel_id)
+    if sidecar is None or not sidecar.mcp_path:
+        return None
+
+    if any(segment in (".", "..") for segment in path.split("/")):
+        return 404
+    raw_path = scope.scope.get("raw_path") or b""
+    if _PATH_ESCAPE_RE.search(path) or _PATH_ESCAPE_RE.search(raw_path.decode("latin-1")):
+        return 404
+
+    try:
+        upstream_path = httpx.URL(target).path
+    except httpx.InvalidURL:
+        return 404
+    without_params = "/".join(segment.partition(";")[0] for segment in upstream_path.split("/"))
+    normalised = _REPEATED_SLASHES_RE.sub("/", without_params)
+    mcp_path = sidecar.mcp_path
+    if normalised == mcp_path and _is_admitted_agent_hop(scope, panel_id, path):
+        return None
+    if normalised == mcp_path or normalised.startswith(f"{mcp_path}/"):
+        return 403
+    return None
 
 
 def _panel_auth_header(
@@ -1225,8 +1345,10 @@ async def proxy_panel_terminal_static(
     Relative imports (``./api.js``) need no rewrite — they already resolve
     inside this route's own directory.
 
-    The tier is operator, like every path under ``/panel/`` but the dispatcher
-    MCP hop, and ``PANEL_TIER_ROUTES`` is untouched. Unlike its design-system
+    The tier is operator, like every path under ``/panel/`` but the agent hops
+    — the dispatcher MCP hop and each sidecar panel's declared ``agent_hop`` at
+    its ``mcp_path`` (see :func:`~osprey.interfaces.web_auth.panel_tier_routes`)
+    — and ``PANEL_TIER_ROUTES`` is untouched. Unlike its design-system
     neighbour this route is not a C-ASSETS path
     (:func:`~osprey.interfaces.common_middleware.is_panel_asset_path`),
     so it stays behind the auth gate. That is the right level — the page
@@ -1856,7 +1978,7 @@ async def _forward_to_panel(
     # rebuilt the path from the request would answer to none of them.
     dispatcher_mcp = _is_dispatcher_mcp_hop(panel_id, path)
     if dispatcher_mcp and request.method == "POST":
-        refusal = await _refuse_job_firing(request)
+        refusal = await _refuse_held_call(request, _JOB_FIRING_TOOLS, hop="dispatcher hop")
         if refusal is not None:
             return refusal
     if dispatcher_mcp:
@@ -1865,6 +1987,25 @@ async def _forward_to_panel(
         target = f"{backend_url.rstrip('/')}/{path}"
     if request.url.query:
         target = f"{target}?{request.url.query}"
+
+    path_status = _mcp_path_refusal(request, panel_id, path, target)
+    if path_status is not None:
+        return Response(
+            content="Not found" if path_status == 404 else "Forbidden",
+            status_code=path_status,
+        )
+
+    # A sidecar's declared agent hop, admitted on the panel token. Like the
+    # dispatcher hop it carries a JSON-RPC conversation, not a page, and like
+    # the dispatcher hop it is held with the calling session: the tools the
+    # sidecar asks the operator about are the ones that act.
+    agent_hop = _is_admitted_agent_hop(request, panel_id, path)
+    if agent_hop and request.method == "POST":
+        refusal = await _refuse_held_call(
+            request, SIDECAR_PANELS[panel_id].mcp_ask, hop=f"{panel_id} panel hop"
+        )
+        if refusal is not None:
+            return refusal
 
     client: httpx.AsyncClient = request.app.state.proxy_client
 
@@ -1902,8 +2043,14 @@ async def _forward_to_panel(
     # Re-issue the operator secret, but only toward a backend that is both
     # config-declared and on loopback. This runs after the strip above, so a
     # header the browser sent can never masquerade as an injected one.
-    secret_header = _terminal_secret_header(request, panel_id, backend_url)
-    fwd_headers.update(secret_header)
+    #
+    # Never on a sidecar's agent hop. That caller holds the panel token, and
+    # sending the upstream the operator secret on its behalf would hand a
+    # backend the strong credential for a call the weak one made. The
+    # transport authenticates the hop by the sidecar's own launch credential,
+    # injected below.
+    if not agent_hop:
+        fwd_headers.update(_terminal_secret_header(request, panel_id, backend_url))
 
     # The event-dispatcher dashboard endpoints and its MCP transport are both
     # bearer-gated. Inject the dispatcher token server-side for the EVENTS panel
@@ -2041,7 +2188,9 @@ async def _forward_to_panel(
     # rewrite, which a panel's own configuration could otherwise aim at this
     # path. Nothing on this hop is addressed by a browser, so there is no
     # root-absolute path here that would need moving under the panel prefix.
-    if dispatcher_mcp:
+    # A sidecar's agent hop is the same kind of conversation and is relayed
+    # the same way.
+    if dispatcher_mcp or agent_hop:
         return Response(
             content=resp.content,
             status_code=resp.status_code,
@@ -2206,6 +2355,15 @@ async def proxy_panel_ws(panel_id: str, path: str, websocket: WebSocket):
     # what the HTTP leg forwards.
     if websocket.url.query:
         target = f"{target}?{websocket.url.query}"
+
+    # Refused before the browser's handshake is answered and before any
+    # upstream connect, with the HTTP status spelled as a 4xxx close code.
+    refusal = _mcp_path_refusal(websocket, panel_id, path, target)
+    if refusal is not None:
+        await websocket.close(
+            code=4000 + refusal, reason="Not found" if refusal == 404 else "Forbidden"
+        )
+        return
 
     try:
         import websockets

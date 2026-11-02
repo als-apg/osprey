@@ -51,7 +51,32 @@ class TestRegistryEntry:
         assert (panel.label, panel.icon, panel.description) == ("", "", "")
         assert panel.health_endpoint is None
         assert panel.operator_secret is True
+        assert panel.mcp_path is None
+        assert panel.agent_hop is False
+        assert (panel.mcp_allow, panel.mcp_ask, panel.mcp_writes) == ((), (), ())
         assert (panel.entry_pages, panel.image_checks) == ((), ())
+
+    def test_an_mcp_path_alone_does_not_opt_the_panel_into_the_agent_hop(self):
+        panel = SidecarPanel("One line", "module:Class", mcp_path="/mcp")
+
+        assert panel.mcp_path == "/mcp"
+        assert panel.agent_hop is False
+
+    def test_the_agent_fields_are_declared_by_keyword(self):
+        panel = SidecarPanel(
+            "One line",
+            "module:Class",
+            mcp_path="/mcp",
+            agent_hop=True,
+            mcp_allow=("read_one",),
+            mcp_ask=("write_one", "write_two"),
+            mcp_writes=("write_one",),
+        )
+
+        assert panel.agent_hop is True
+        assert panel.mcp_allow == ("read_one",)
+        assert panel.mcp_ask == ("write_one", "write_two")
+        assert panel.mcp_writes == ("write_one",)
 
     def test_an_entry_is_hashable_with_its_tuples(self):
         """Tuples, not lists: the entry is frozen and one registry object is
@@ -68,6 +93,7 @@ class TestRegistryEntry:
         assert panel.description
         assert panel.health_endpoint == "/api/status"
         assert panel.operator_secret is True
+        assert panel.mcp_path is None
 
     @pytest.mark.parametrize("panel_id", sorted(SIDECAR_PANELS))
     def test_the_label_table_takes_a_sidecar_label_from_its_entry(self, panel_id):
@@ -124,8 +150,9 @@ class TestDescriptors:
         assert described[PROBE_ID]["healthEndpoint"] == "/health"
 
     def test_no_credential_posture_reaches_the_browser(self, monkeypatch):
-        """``operator_secret`` and ``entry_pages`` are the proxy's to act on,
-        and the image's checks are the build's."""
+        """``operator_secret``, ``mcp_path`` and ``entry_pages`` are the proxy's
+        to act on, the agent's tool lists are the build's, and so are the
+        image's checks."""
         monkeypatch.setitem(
             web_panels.SIDECAR_PANELS,
             PROBE_ID,
@@ -133,6 +160,10 @@ class TestDescriptors:
                 "a probe",
                 "module:Class",
                 operator_secret=False,
+                mcp_path="/mcp",
+                agent_hop=True,
+                mcp_allow=("read_one",),
+                mcp_ask=("write_one",),
                 entry_pages=("/lab",),
                 image_checks=("python -I -m probe --check",),
             ),
@@ -149,7 +180,7 @@ class TestDescriptors:
             "startEndpoint",
         }
         stamped = json.dumps(described[PROBE_ID])
-        for declared in ("/lab", "probe --check", "operator"):
+        for declared in ("/mcp", "read_one", "write_one", "/lab", "probe --check", "operator"):
             assert declared not in stamped
 
 

@@ -54,6 +54,16 @@ def test_the_panel_module_re_exports_the_leaf_registry(name):
     assert getattr(web_panels, name) is getattr(sidecar_panels, name)
 
 
+def test_the_notebooks_panel_declares_no_agent_surface():
+    """It serves no MCP transport, so every field a panel opts in with is at
+    its default."""
+    panel = SIDECAR_PANELS["jupyter"]
+
+    assert panel.mcp_path is None
+    assert panel.agent_hop is False
+    assert (panel.mcp_allow, panel.mcp_ask, panel.mcp_writes) == ((), (), ())
+
+
 @pytest.mark.parametrize("panel_id", SIDECAR_IDS)
 class TestSidecarIsABuiltinPanel:
     """Everything keyed on a panel id covers a sidecar without a second lookup."""

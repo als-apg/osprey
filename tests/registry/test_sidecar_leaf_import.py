@@ -44,6 +44,23 @@ def _top_level(modules: set[str]) -> set[str]:
     return {name.partition(".")[0] for name in modules}
 
 
+def test_the_mcp_registry_reads_the_leaf_without_the_web_stack():
+    loaded = _modules_after_importing("osprey.registry.mcp")
+
+    assert LEAF in loaded, "the MCP registry no longer imports the sidecar panel leaf"
+    assert "starlette" not in _top_level(loaded)
+    assert "osprey.interfaces.web_auth" not in loaded
+    assert "osprey.profiles.web_panels" not in loaded
+
+
+def test_the_credential_module_reads_the_leaf_without_the_web_stack():
+    loaded = _modules_after_importing("osprey.interfaces.web_auth")
+
+    assert LEAF in loaded, "the credential module no longer imports the sidecar panel leaf"
+    assert "starlette" not in _top_level(loaded)
+    assert "osprey.profiles.web_panels" not in loaded
+
+
 @pytest.mark.parametrize(
     "module",
     [

@@ -79,6 +79,7 @@ __all__ = [
     "MOUNT_SEGMENT_RE",
     "OPERATOR_SECRET_HEADER",
     "OWNER_STATE_KEY",
+    "PANEL_ADMISSION_STATE_KEY",
     "PANEL_ASSET_SUBPATHS",
     "PANEL_CAP_ROOTS",
     "PANEL_CAP_SEGMENT",
@@ -1349,6 +1350,20 @@ _OWNER_HEADER_WIRE = OWNER_HEADER.lower().encode("latin-1")
 #: owner-less and nothing says so.
 OWNER_STATE_KEY = "osprey_owner"
 
+#: Where the gate records that a request was admitted on the panel token and on
+#: nothing stronger. Read downstream as ``scope["state"]`` — the dict behind
+#: ``request.state`` — by the one route that answers differently for that
+#: credential: the terminal proxy's hop to an opted-in sidecar's MCP transport,
+#: which forwards a panel-token call and refuses an operator's. The value is
+#: ``True`` and the key is otherwise absent.
+#:
+#: Written in :meth:`WebAuthMiddleware._authenticate_panel` and nowhere else.
+#: The gate also drops any value already on the scope before it looks at a
+#: credential, so a request admitted any other way never carries one. Exported
+#: for the same reason as :data:`OWNER_STATE_KEY`: reader and writer must share
+#: one spelling.
+PANEL_ADMISSION_STATE_KEY = "osprey_panel_token_admitted"
+
 
 def _stamp_owner(scope: Scope, account: str | None) -> None:
     """Record who this admitted connection belongs to — or that it names nobody.
@@ -1520,6 +1535,12 @@ class WebAuthMiddleware:
             await self.app(scope, receive, send)
             return
 
+        # Nothing upstream of the gate may vouch for a panel-token admission:
+        # the mark exists only once ``_authenticate_panel`` has set it.
+        inbound_state = scope.get("state")
+        if inbound_state:
+            inbound_state.pop(PANEL_ADMISSION_STATE_KEY, None)
+
         path = scope.get("path") or ""
         # A hub-local C-ASSETS path under /panel/<id>/ is exempt for a plain
         # GET/HEAD only: those are the methods its local route answers, and
@@ -1689,8 +1710,9 @@ class WebAuthMiddleware:
         left to the route table. A websocket carries a live channel — the
         terminal's sockets carry keystrokes into a shell — so the panel token,
         which exists for the narrow set of arrangement calls an in-process
-        companion makes and for the terminal proxy's HTTP hop to the event
-        dispatcher's MCP transport, must never open one. Deciding this structurally means a
+        companion makes and for the terminal proxy's HTTP hops to the event
+        dispatcher's MCP transport and to an opted-in sidecar's, must never
+        open one. Deciding this structurally means a
         future ``("GET", "/api/...")`` panel-tier route cannot accidentally
         become reachable over a websocket handshake that synthesises ``GET``.
         """
@@ -1720,6 +1742,9 @@ class WebAuthMiddleware:
         # The panel token is one shared value held by every in-process
         # companion, so it identifies a component and never a person.
         _stamp_owner(scope, None)
+        # The one place this mark is set. A route that must tell this
+        # credential from an operator's reads it; see the constant.
+        scope.setdefault("state", {})[PANEL_ADMISSION_STATE_KEY] = True
         await self._admit(scope, receive, send, headers)
 
     async def _admit(
