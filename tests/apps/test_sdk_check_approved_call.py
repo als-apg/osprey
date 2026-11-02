@@ -21,7 +21,7 @@ import yaml
 from osprey.apps.sdk import ApprovalRefused, BoundState, check_approved_call
 from osprey.apps.sdk._approval import input_digest
 from osprey.audit.posture import POSTURE_SESSION_ENV_VAR
-from osprey_connectors import control_context, posture_store
+from osprey_connectors import control_context, posture_store, session_hold
 from osprey_connectors.refusals import refusal_phrase
 from osprey_connectors.workspace import reset_config_cache
 from osprey_connectors_tests._harness import (
@@ -215,8 +215,51 @@ def test_unreachable_verdict_refuses_as_record_unavailable(monkeypatch):
     def broken(*_args, **_kwargs):
         raise OSError("record store gone")
 
-    monkeypatch.setattr(_approval, "write_verdict", broken)
+    monkeypatch.setattr(_approval, "execution_verdict", broken)
     assert _refused({**VALUE}).reason == "record_unavailable"
+
+
+HOLD_KEY = "6c1d9e2a-4b7f-4a30-8e55-2f9b0c3d7a14"  # gitleaks:allow - a test session id
+HOLD_SOURCE = "watchdog:scope"
+
+
+def _hold(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The session's hold record, with one flag open from the watchdog."""
+    monkeypatch.setenv(session_hold.HOLD_DIR_ENV_VAR, str(tmp_path / "holds"))
+    monkeypatch.setenv("OSPREY_SESSION_ID", HOLD_KEY)
+    session_hold.ensure_session(HOLD_KEY)
+    assert session_hold.open_flag(
+        HOLD_KEY,
+        flag_id="f1",
+        source=HOLD_SOURCE,
+        reason="off the plan",
+        prompt_ref="record:f1",
+        prompt_excerpt="set the knob",
+    )
+
+
+@pytest.mark.usefixtures("deployment")
+def test_a_held_session_refuses_before_the_record(tmp_path, monkeypatch):
+    _hold(tmp_path, monkeypatch)
+    from osprey.mcp_server import approval_record
+
+    def no_stamp_read(_tool_use_id):
+        raise AssertionError("the stamp was read after a held verdict")
+
+    monkeypatch.setattr(approval_record, "approval_ask_stamp", no_stamp_read)
+    refusal = _refused({**VALUE, "approved_target": "va", "approved_digest": DIGEST})
+    assert refusal.reason == "session_held"
+    assert refusal_phrase("session_held") in refusal.message
+    assert HOLD_SOURCE in refusal.message
+    assert refusal.message.endswith("[osprey-refusal: session_held]")
+
+
+@pytest.mark.usefixtures("deployment")
+def test_a_released_hold_lets_the_call_reach_the_record(tmp_path, monkeypatch):
+    _hold(tmp_path, monkeypatch)
+    session_hold.answer_flags(HOLD_KEY, ["f1"], answer="continue", operator="op")
+    refusal = _refused({**VALUE, "approved_target": "va", "approved_digest": DIGEST})
+    assert refusal.reason == "approval_missing"
 
 
 @pytest.mark.usefixtures("deployment")
