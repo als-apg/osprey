@@ -46,6 +46,7 @@ from typing import Any
 
 import pytest
 
+from osprey.facility.bundled import header_line
 from osprey.facility.sources import read_yaml
 from tests.facility.test_cf_view_parity import fingerprint_rows
 
@@ -93,6 +94,9 @@ RECORDS = [
 MERGED = [*RECORDS, "seeds.yaml"]
 
 
+_ORIGIN = f"{header_line('example')}\n"
+
+
 def _is_septum(record_id: str) -> bool:
     return record_id.startswith(("SR:MAG:SEPTUM:", "SR/SEPTUM"))
 
@@ -132,7 +136,7 @@ def _is_generated(record_id: str) -> bool:
 def _chunks(text: str) -> list[str]:
     """A top-level YAML list's items, each as its exact text."""
     chunks: list[str] = []
-    for line in text.splitlines(keepends=True):
+    for line in text.removeprefix(_ORIGIN).splitlines(keepends=True):
         if line.startswith("- ") or not chunks:
             chunks.append(line)
         else:
@@ -158,7 +162,7 @@ def _stripped(text: str) -> str:
             kept.append(f"- id: {key}\n  description: stub\n")
         elif not _is_generated(key):
             kept.append(chunk)
-    return "".join(kept)
+    return _ORIGIN + "".join(kept)
 
 
 def _run_injector(tree: Path) -> None:
