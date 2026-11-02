@@ -799,8 +799,11 @@ classes:
       still:
         range: Any
         description: >-
-          `all`, or a list of addresses: while the scenario is active, those
-          readings serve without drift, couplings or noise.
+          `all`, or a list of addresses and selections: while the scenario is
+          active, those readings serve without drift, couplings or noise. A
+          selection is `{model|place, group, signal, role, plane}` and names a
+          model or a place; its `role` is the wiring record's role
+          (`setpoint|readback|monitor|output`), not the channel's.
 
   Any:
     class_uri: linkml:Any
