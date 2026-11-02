@@ -106,7 +106,6 @@ def test_every_key_the_projection_writes_is_a_manifest_row(guard) -> None:
         "apps.<app>.approval.<tool>.bind.state_fields",
         "apps.<app>.approval.<tool>.bind.input_digests",
         "apps.<app>.approval.<tool>.require.all_of",
-        "apps.<app>.approval.<tool>.require.one_of",
         "apps.<app>.approval.<tool>.errors.refused",
     } <= added
     assert not sorted(path for path in added if not _is_row(path, rows))

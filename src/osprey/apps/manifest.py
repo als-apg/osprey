@@ -199,10 +199,20 @@ class Bind(_Strict):
 
 
 class Require(_Strict):
-    """Stamp fields a call needs: all of ``all_of``, exactly one of each ``one_of`` group."""
+    """Stamp fields a call needs: every name in ``all_of``."""
 
     all_of: list[NonEmpty] = Field(default_factory=list)
-    one_of: list[Annotated[list[NonEmpty], Field(min_length=1)]] = Field(default_factory=list)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _one_of_is_retired(cls, value: Any) -> Any:
+        if isinstance(value, dict) and "one_of" in value:
+            raise PydanticCustomError(
+                "require_one_of",
+                "require.one_of is retired: name the field in require.all_of; a tool that "
+                "takes two input shapes is two tools, each with its own all_of",
+            )
+        return value
 
 
 class Approval(_Strict):

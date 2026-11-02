@@ -33,6 +33,4 @@ tools:
         input_digests:
           - {field: approved_inputs, over: [value]}
       require:
-        all_of: [approved_target, approved_inputs]
-        one_of:
-          - [approved_setpoint]
+        all_of: [approved_target, approved_inputs, approved_setpoint]

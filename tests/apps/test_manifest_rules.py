@@ -61,8 +61,7 @@ KNOB: dict[str, Any] = {
                     "input_digests": [{"field": "approved_digest", "over": ["value"]}],
                 },
                 "require": {
-                    "all_of": ["approved_target", "approved_digest"],
-                    "one_of": [["approved_readback"]],
+                    "all_of": ["approved_target", "approved_digest", "approved_readback"],
                 },
             }
         ],
@@ -309,14 +308,13 @@ def test_a_tool_that_binds_fetched_state_may_not_spell_deny_in_jobs_false() -> N
 def test_require_names_approved_target_or_a_bound_field() -> None:
     m = _manifest(
         tools__approval__0__require={
-            "all_of": ["approved_target", "approved_digest", "approved_setpoint"],
-            "one_of": [["approved_readback", "approved_other"]],
+            "all_of": ["approved_target", "approved_digest", "approved_setpoint", "approved_other"],
         }
     )
     err = _refused([m])
     assert [v.field for v in err.violations] == [
         "tools.approval.0.require.all_of.2",
-        "tools.approval.0.require.one_of.0",
+        "tools.approval.0.require.all_of.3",
     ]
     assert set(_rules(err)) == {"approved_fields"}
     assert "approved_setpoint" in err.message
@@ -326,7 +324,7 @@ def test_a_bound_field_is_named_approved() -> None:
     m = _manifest(tools__approval__0__bind__state_fields__0__field="readback")
     m2 = _manifest(
         tools__approval__0__bind__state_fields__0__field="readback",
-        tools__approval__0__require__one_of=[["approved_digest"]],
+        tools__approval__0__require={"all_of": ["approved_target", "approved_digest"]},
     )
     assert "approved_fields" in _rules(_refused([m]))
     err = _refused([m2])
@@ -350,12 +348,7 @@ def test_a_field_is_bound_once() -> None:
 
 
 def test_every_bound_digest_is_required() -> None:
-    m = _manifest(
-        tools__approval__0__require={
-            "all_of": ["approved_target"],
-            "one_of": [["approved_digest", "approved_readback"]],
-        }
-    )
+    m = _manifest(tools__approval__0__require={"all_of": ["approved_target"]})
     err = _refused([m])
     assert _rules(err) == ["digest_required"]
     assert err.field == "tools.approval.0.bind.input_digests.0.field"

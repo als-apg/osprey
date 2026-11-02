@@ -409,11 +409,6 @@ def _check_tools(m: AppManifest, reserved: Reserved) -> list[Violation]:
                 )
             produced.add(name)
         required = [(f"{at}.require.all_of.{i}", f) for i, f in enumerate(entry.require.all_of)]
-        required += [
-            (f"{at}.require.one_of.{i}", f)
-            for i, group in enumerate(entry.require.one_of)
-            for f in group
-        ]
         for i, digest in enumerate(entry.bind.input_digests):
             if digest.field not in entry.require.all_of:
                 refuse(

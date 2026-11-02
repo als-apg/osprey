@@ -61,8 +61,7 @@ KNOB: dict[str, Any] = {
                     "input_digests": [{"field": "approved_digest", "over": ["value"]}],
                 },
                 "require": {
-                    "all_of": ["approved_target", "approved_digest"],
-                    "one_of": [["approved_state_sha"]],
+                    "all_of": ["approved_target", "approved_digest", "approved_state_sha"],
                 },
             },
             {
@@ -173,13 +172,7 @@ def test_each_approval_tool_gets_its_full_entry_under_its_short_name() -> None:
     }
     assert approval["knob_zero"]["state_path"] is None
     assert approval["knob_zero"]["bind"] == {"state_fields": [], "input_digests": []}
-    assert approval["knob_zero"]["require"] == {"all_of": ["approved_target"], "one_of": []}
-
-
-def test_no_projected_one_of_group_holds_a_digest_field() -> None:
-    for entry in _project()["apps"]["knob"]["approval"].values():
-        digests = {d["field"] for d in entry["bind"]["input_digests"]}
-        assert all(not digests & set(group) for group in entry["require"]["one_of"])
+    assert approval["knob_zero"]["require"] == {"all_of": ["approved_target"]}
 
 
 def test_the_declared_read_surface_and_errors_are_written_beside_the_approvals() -> None:

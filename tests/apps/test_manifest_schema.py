@@ -62,8 +62,7 @@ FULL: dict[str, Any] = {
                     "input_digests": [{"field": "approved_digest", "over": ["value"]}],
                 },
                 "require": {
-                    "all_of": ["approved_target", "approved_digest"],
-                    "one_of": [["approved_readback"]],
+                    "all_of": ["approved_target", "approved_digest", "approved_readback"],
                 },
             }
         ],
@@ -124,8 +123,7 @@ def test_full_manifest_parses() -> None:
     assert entry.bind.state_fields[0].field == "approved_readback"
     assert entry.bind.state_fields[0].key == "readback"
     assert entry.bind.input_digests[0].over == ["value"]
-    assert entry.require.all_of == ["approved_target", "approved_digest"]
-    assert entry.require.one_of == [["approved_readback"]]
+    assert entry.require.all_of == ["approved_target", "approved_digest", "approved_readback"]
     assert m.containers["knob-demo"].env == ["KNOB_DEMO_MODE"]
     assert m.containers["knob-cache"].fragment == "compose/knob-cache/"
     assert m.panel is not None and m.panel.entry == "/ui/"
@@ -256,6 +254,18 @@ def test_unknown_keys_are_refused_at_every_level(path: str) -> None:
     err = _refusal(data)
     assert err.field == field
     assert err.rule == "extra_forbidden"
+
+
+@pytest.mark.parametrize(
+    "one_of", [pytest.param([], id="empty"), pytest.param([["approved_readback"]], id="a-group")]
+)
+def test_require_one_of_is_refused_naming_the_all_of_rewrite(one_of: list) -> None:
+    data = copy.deepcopy(FULL)
+    data["tools"]["approval"][0]["require"]["one_of"] = one_of
+    err = _refusal(data)
+    assert err.field == "tools.approval.0.require"
+    assert err.rule == "require_one_of"
+    assert "one_of" in err.message and "all_of" in err.message
 
 
 def test_pre_amendment_keys_are_refused() -> None:
