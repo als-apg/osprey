@@ -1134,7 +1134,7 @@ class TestRefuseAndAudit:
         expected = (
             f"channel={CHANNEL} screen=sr/overview rev=r7 "
             f"ca_user={stamps.get('ca_user', '-')} ca_host={stamps.get('ca_host', '-')} "
-            f"value_len=300 value={'v' * 256}"
+            f'value_len=300 value="{"v" * 256}"'
         )
         for record in (attempt, landed):
             assert record["surface"] == "panel"
@@ -1157,7 +1157,7 @@ class TestRefuseAndAudit:
         details = [r["detail"] for r in records(audit_dir)]
         assert " screen=- rev=- " in details[0]
         assert " screen=sr/overview rev=- " in details[2]
-        assert details[0].endswith("value_len=1 value=2")
+        assert details[0].endswith('value_len=1 value="2"')
         await session.close()
 
 
@@ -1171,5 +1171,66 @@ async def test_long_identifiers_never_push_the_value_out_of_the_detail(va, audit
 
     detail = records(audit_dir)[-1]["detail"]
     assert detail.startswith(f"channel={'C' * 256} screen={'s' * 128} rev={'r' * 128} ")
-    assert detail.endswith(f"value_len=300 value={'v' * 256}")
+    assert detail.endswith(f'value_len=300 value="{"v" * 256}"')
+    await session.close()
+
+
+def parse_detail(detail: str) -> dict[str, str]:
+    """A session-write ``detail`` read back: whitespace-split ``key=value`` tokens."""
+    return dict(token.partition("=")[::2] for token in detail.split())
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "1 position=allowed",
+        "a=b\tscreen=forged\nrev=x",
+        'nbsp\u00a0line\u2028sep "quoted" \\back',
+    ],
+)
+async def test_a_value_cannot_forge_a_detail_token(va, audit_dir, monkeypatch, value):
+    import json
+
+    connector_answers(monkeypatch, returns(WriteOutcome.CONFIRMED))
+    write_record(va)
+    session = await opened()
+
+    await session.write(CHANNEL, value, origin=ORIGIN)
+
+    for record in records(audit_dir):
+        tokens = record["detail"].split()
+        assert [t.partition("=")[0] for t in tokens] == [
+            "channel",
+            "screen",
+            "rev",
+            "ca_user",
+            "ca_host",
+            "value_len",
+            "value",
+        ]
+        parsed = parse_detail(record["detail"])
+        assert parsed["screen"] == "sr/overview"
+        assert parsed["value_len"] == str(len(value))
+        assert json.loads(parsed["value"]) == value
+    await session.close()
+
+
+async def test_an_escaped_value_is_cut_whole_inside_the_detail_bound(va, audit_dir, monkeypatch):
+    import json
+
+    from osprey.audit.envelope import MAX_DETAIL_CHARS
+
+    connector_answers(monkeypatch, returns(WriteOutcome.CONFIRMED))
+    write_record(va)
+    session = await opened()
+
+    value = "\u00e9 " * 400
+    await session.write("C" * 2000, value, origin={"screen": "s" * 2000, "rev": "r" * 2000})
+
+    detail = records(audit_dir)[-1]["detail"]
+    assert len(detail) <= MAX_DETAIL_CHARS
+    parsed = parse_detail(detail)
+    assert parsed["value_len"] == "800"
+    decoded = json.loads(parsed["value"])
+    assert decoded and value.startswith(decoded)
     await session.close()

@@ -19,7 +19,9 @@ therefore refused on every other surface (:data:`SURFACE_EXECUTOR`).
 The second documented exception is a control-session write
 (:class:`osprey.runtime.session.ControlSession`, recorded under the surface its
 caller names): it records the value it sent, as the last two ``detail`` tokens
-``value_len=<n> value=<text>`` (the text cut at :data:`SESSION_VALUE_CHARS`).
+``value_len=<n> value=<text>`` (the text cut at :data:`SESSION_VALUE_CHARS`,
+then written as a JSON string with no whitespace, so a value cannot forge a
+token).
 Such a write is one operator click with no tool call behind it, so there is no
 ``tool_call`` record to hold the value, and an audit of a machine write that
 cannot say what was written is not one. The tokens are named in

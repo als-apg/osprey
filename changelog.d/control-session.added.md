@@ -20,4 +20,5 @@ verdict's phrase, and a hold on the session pauses its writes in place
 without a restart. `writes` states the verdict's own terms (`allowed`,
 `position`, `reason`, `kind`). A session write's audit records carry the
 value written as `value_len=` and `value=` detail tokens, the one exception
-to the envelope's rule.
+to the envelope's rule; `value=` is a JSON string, so a value cannot forge a
+token.

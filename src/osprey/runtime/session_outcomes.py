@@ -168,28 +168,53 @@ def identifier_token(value: Any, limit: int = IDENTIFIER_TOKEN_CHARS) -> str:
     return text or ABSENT
 
 
+def value_token(text: str, room: int) -> str:
+    """*text* as one ``value=`` token value: a JSON string with no whitespace.
+
+    ``json.dumps`` escapes every control and non-ASCII character; the one
+    whitespace it leaves, the plain space, is written as ``\\u0020``. So a value
+    holding spaces or ``=`` cannot split into tokens of its own, and
+    ``json.loads`` gives the text back. The text is cut, never the encoding,
+    so the token stays well-formed when it is longer than *room* characters.
+    """
+    import json
+
+    parts: list[str] = []
+    used = 2  # the quotes
+    for char in text:
+        piece = json.dumps(char)[1:-1].replace(" ", "\\u0020")
+        if used + len(piece) > room:
+            break
+        parts.append(piece)
+        used += len(piece)
+    return '"' + "".join(parts) + '"'
+
+
 def detail_tokens(address: str, value: Any, origin: Any) -> str:
     """The audit record's ``detail``: ``channel= screen= rev= ca_user= ca_host= value_len= value=``.
 
-    ``value=`` comes last and is cut at
-    :data:`~osprey.audit.envelope.SESSION_VALUE_CHARS`, so a long value never
-    hides ``screen=`` and ``rev=`` (the envelope's documented exception for
-    the session-write value tokens).
+    Every token but ``value=`` is an identifier (:func:`identifier_token`).
+    ``value=`` comes last and is the written text cut at
+    :data:`~osprey.audit.envelope.SESSION_VALUE_CHARS`, encoded by
+    :func:`value_token` so a long value never hides ``screen=`` and ``rev=``
+    (the envelope's documented exception for the session-write value tokens)
+    and a value can never forge a token. ``value_len=`` is the length of the
+    whole text.
     """
     from osprey.audit.call import write_stamps
-    from osprey.audit.envelope import SESSION_VALUE_CHARS
+    from osprey.audit.envelope import MAX_DETAIL_CHARS, SESSION_VALUE_CHARS
 
     stamps = write_stamps()
     text = str(value)
-    channel = identifier_token(address, CHANNEL_TOKEN_CHARS)
-    return " ".join(
+    head = " ".join(
         (
-            f"channel={channel}",
+            f"channel={identifier_token(address, CHANNEL_TOKEN_CHARS)}",
             f"screen={origin_token(origin, 'screen')}",
             f"rev={origin_token(origin, 'rev')}",
-            f"ca_user={stamps.get('ca_user') or ABSENT}",
-            f"ca_host={stamps.get('ca_host') or ABSENT}",
+            f"ca_user={identifier_token(stamps.get('ca_user') or ABSENT)}",
+            f"ca_host={identifier_token(stamps.get('ca_host') or ABSENT)}",
             f"value_len={len(text)}",
-            f"value={text[:SESSION_VALUE_CHARS]}",
+            "value=",
         )
     )
+    return head + value_token(text[:SESSION_VALUE_CHARS], MAX_DETAIL_CHARS - len(head))
