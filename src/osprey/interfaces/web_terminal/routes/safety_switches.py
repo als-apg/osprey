@@ -15,7 +15,10 @@ what watches it.
 
 Every move, refused or taken, files one audit line under its own subject, and
 a move that changed something broadcasts a ``safety_switch`` frame so open tabs
-re-read the list.
+re-read the list. That line stands in for the audit middleware's, so it carries
+what the middleware's would: the forwarded account and role beside the mover.
+The mover is the owner the gate minted from the credential it matched, which is
+what the watchdog's answer route names too; the process identity only without one.
 """
 
 from __future__ import annotations
@@ -26,7 +29,12 @@ from typing import Any, Literal
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
-from osprey.interfaces.common_middleware import HTTP_MUTATION_POSTURE, HTTP_MUTATION_SURFACE
+from osprey.interfaces.common_middleware import (
+    HTTP_MUTATION_POSTURE,
+    HTTP_MUTATION_SURFACE,
+    OWNER_STATE_KEY,
+    forwarded_identity,
+)
 from osprey.interfaces.web_terminal.routes.config import _require_config_panel
 from osprey.interfaces.web_terminal.safety_switches import switches_of
 from osprey_connectors.identity import acting_identity
@@ -48,9 +56,19 @@ class SwitchMove(BaseModel):
     state: Literal["on", "off"]
 
 
-def _record(decision: str, reason: str, detail: str) -> None:
+def _mover(request: Request) -> str:
+    """Who is moving the switch: the gate-minted owner, else this process's identity."""
+    owner = getattr(request.state, OWNER_STATE_KEY, None)
+    return owner if isinstance(owner, str) and owner else acting_identity()
+
+
+def _record(request: Request, decision: str, reason: str, detail: str) -> None:
     """File the move's audit line and claim the decision. Never raises."""
     try:
+        forwarded = forwarded_identity(request.headers)
+        account = forwarded.account if forwarded.account is not None else forwarded.subject
+        if account is not None:
+            detail = f"{detail} account={account}"
         from osprey.audit.dedup import record_and_mark
         from osprey.audit.envelope import POSTURE_SOURCE_APP
 
@@ -63,6 +81,7 @@ def _record(decision: str, reason: str, detail: str) -> None:
             session=None,
             subject=AUDIT_SUBJECT_SAFETY_SWITCH,
             detail=detail,
+            role=forwarded.role,
         )
     except Exception:  # the audit trail degrades; the move does not
         logger.warning("Could not record a safety-switch move for audit", exc_info=True)
@@ -88,20 +107,22 @@ async def set_switch(name: str, body: SwitchMove, request: Request) -> dict[str,
     """
     from osprey.audit.envelope import DECISION_ALLOWED, DECISION_REFUSED
 
-    login = acting_identity()
+    login = _mover(request)
     gesture = f"switch={name} state={body.state} by={login}"
     try:
         _require_config_panel(request)
     except HTTPException:
-        _record(DECISION_REFUSED, "not_admin_tier", f"{gesture} outcome=not_admin_tier")
+        _record(request, DECISION_REFUSED, "not_admin_tier", f"{gesture} outcome=not_admin_tier")
         raise
     switches = switches_of(request.app)
     if switches is None or name not in switches:
-        _record(DECISION_REFUSED, "unknown_switch", f"{gesture} outcome=unknown_switch")
+        _record(request, DECISION_REFUSED, "unknown_switch", f"{gesture} outcome=unknown_switch")
         raise HTTPException(status_code=404, detail="unknown_switch")
     on = body.state == "on"
     changed = switches.set(name, on=on, by=login)
-    _record(DECISION_ALLOWED, "switch_set", f"{gesture} outcome=switch_set changed={changed}")
+    _record(
+        request, DECISION_ALLOWED, "switch_set", f"{gesture} outcome=switch_set changed={changed}"
+    )
     if changed:
         logger.warning("Safety feature %r turned %s by %s", name, body.state, login)
         broadcaster = getattr(request.app.state, "broadcaster", None)

@@ -75,7 +75,7 @@ test('a non-admin tier sees the state but cannot move it', async () => {
 test('a feature newly seen off is announced once, naming who turned it off', async () => {
   payload = { switches: [OFF], can_change: false };
   await refreshSafetySwitches();
-  expect(notice()).toContain('Safety watchdog is off by alice');
+  expect(notice()).toContain('Safety watchdog is off in this terminal by alice');
 
   document.querySelector('.undo-notice')?.remove();
   await refreshSafetySwitches();
@@ -105,6 +105,35 @@ test('a declined confirm leaves it on and posts nothing', async () => {
   toggle().dispatchEvent(new Event('change'));
   expect(toggle().checked).toBe(true);
   expect(posts).toHaveLength(0);
+});
+
+test('a refused move reverts the toggle and shows the server detail', async () => {
+  await refreshSafetySwitches();
+  vi.stubGlobal(
+    'confirm',
+    vi.fn(() => true)
+  );
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () => ({
+      ok: false,
+      status: 403,
+      statusText: 'Forbidden',
+      json: async () => ({ detail: 'the Config panel is disabled' }),
+    }))
+  );
+  toggle().checked = false;
+  toggle().dispatchEvent(new Event('change'));
+  await vi.waitFor(() => expect(notice()).toContain('the Config panel is disabled'));
+  expect(toggle().checked).toBe(true);
+});
+
+test('a feature seen back on is announced', async () => {
+  payload = { switches: [OFF], can_change: true };
+  await refreshSafetySwitches();
+  payload = { switches: [ON], can_change: true };
+  await refreshSafetySwitches();
+  expect(notice()).toBe('Safety watchdog is back on.');
 });
 
 test('no switches hides the section', async () => {

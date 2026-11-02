@@ -6,12 +6,14 @@ The hold record is the real one on disk and engines are stubbed at the runner's
 
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from osprey.interfaces.common_middleware import HttpAuditMiddleware
 from osprey.interfaces.web_auth import Tier, classify
 from osprey.interfaces.web_terminal.app import create_app
 from osprey.interfaces.web_terminal.routes.safety_switches import (
@@ -74,6 +76,18 @@ def engine() -> StubEngine:
     return StubEngine()
 
 
+class _Owner:
+    """Stamp the owner the gate would mint, as ``WebAuthMiddleware`` does."""
+
+    def __init__(self, app, owner: str) -> None:
+        self.app, self.owner = app, owner
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] == "http":
+            scope.setdefault("state", {})["osprey_owner"] = self.owner
+        await self.app(scope, receive, send)
+
+
 def _app(root: Path, engine: StubEngine, *, admin: bool) -> FastAPI:
     switches = SafetySwitches()
     switches.register(WATCHDOG_SWITCH, "Safety watchdog")
@@ -95,6 +109,9 @@ def _app(root: Path, engine: StubEngine, *, admin: bool) -> FastAPI:
         engines={ENGINE_DECISION: engine},
         may_hold=lambda: feature_is_on(app, WATCHDOG_SWITCH),
     )
+    # The shipped order: the audit layer innermost, the gate's owner stamp outside it.
+    app.add_middleware(HttpAuditMiddleware)
+    app.add_middleware(_Owner, owner="alice")
     return app
 
 
@@ -163,6 +180,32 @@ def test_every_operator_can_read_the_switches_and_who_turned_one_off(admin, oper
     assert operator.get("/api/safety-switches").json()["can_change"] is False
 
 
+@pytest.mark.parametrize(
+    ("fixture", "url", "body", "status"),
+    [
+        ("admin", SWITCH_URL, {"state": "off"}, 200),
+        ("admin", "/api/safety-switches/nope", {"state": "off"}, 404),
+        ("operator", SWITCH_URL, {"state": "off"}, 403),
+        ("admin", SWITCH_URL, {"state": "sideways"}, 422),
+    ],
+)
+def test_every_move_files_exactly_one_audit_line(request, audit, fixture, url, body, status):
+    client = request.getfixturevalue(fixture)
+    audit.clear()
+
+    assert client.post(url, json=body).status_code == status
+    assert len(audit) == 1
+
+
+def test_the_line_and_the_state_name_the_gate_minted_owner(admin, audit):
+    admin.post(SWITCH_URL, json={"state": "off"})
+
+    [line] = _switch_lines(audit)
+    assert "by=alice" in line["detail"]
+    [switch] = admin.get("/api/safety-switches").json()["switches"]
+    assert switch["off_by"] == "alice"
+
+
 # ---- The admin's off ----
 
 
@@ -205,22 +248,28 @@ def test_a_repeated_off_changes_nothing_and_sends_no_frame(admin):
     admin.app.state.broadcaster.broadcast.assert_not_called()
 
 
-def test_a_run_in_flight_when_switched_off_records_and_does_not_hold(root, engine):
-    """``may_hold`` is read when the verdict lands, not when the run started."""
+def test_a_run_in_flight_when_switched_off_records_and_does_not_hold(root):
+    """``may_hold`` is read when the verdict lands: the switch moves mid-run."""
+    switch = {"on": True}
+
+    class SwitchedOffMidRun(StubEngine):
+        async def judge(self, defn, nodes, prompt, *, deadline, **ids):
+            switch["on"] = False  # the admin's off lands while the judge runs
+            return await super().judge(defn, nodes, prompt, deadline=deadline, **ids)
+
     verdicts: list = []
-    held = {"may": False}
     definition = WatchdogDefinition(name="wd", engine=ENGINE_DECISION, enabled=True, threshold=0.5)
     runner = WatchdogRunner(
         [definition],
         recorder=verdicts.append,
         hold_root=root,
         notify=lambda _frame: None,
-        engines={ENGINE_DECISION: engine},
-        may_hold=lambda: held["may"],
+        engines={ENGINE_DECISION: SwitchedOffMidRun()},
+        may_hold=lambda: switch["on"],
     )
 
     async def run():
-        task = runner.on_nodes(
+        return await runner.on_nodes(
             session_key=KEY,
             record_session_id="0f6d7c2e-1a2b-4c3d-8e9f-0123456789ab",
             submission_id="9a8b7c6d-5e4f-4a3b-9c2d-1e0f9a8b7c6d",
@@ -229,14 +278,12 @@ def test_a_run_in_flight_when_switched_off_records_and_does_not_hold(root, engin
             deadline=10**12,
             can_hold=True,
         )
-        return await task
-
-    import asyncio
 
     [verdict] = asyncio.run(run())
     assert verdict.flagged
     assert verdicts == [verdict]
     assert open_flags(KEY, root=root) == []
+    assert not is_held(KEY, root=root)
 
 
 def test_no_registry_means_no_runtime_off():

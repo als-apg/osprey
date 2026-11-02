@@ -82,7 +82,7 @@ export async function refreshSafetySwitches() {
 export function offSentence(sw) {
   const by = sw.off_by ? ` by ${sw.off_by}` : '';
   const at = sw.off_at ? ` at ${new Date(sw.off_at * 1000).toLocaleTimeString()}` : '';
-  return `${sw.label} is off${by}${at}. It returns at the next restart.`;
+  return `${sw.label} is off in this terminal${by}${at}. It returns at the next restart.`;
 }
 
 /**
