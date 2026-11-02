@@ -36,7 +36,7 @@ from osprey.agent_runner import (
     ToolUseEvent,
     agent_session,
 )
-from osprey.agent_runner.clean_env import build_clean_env
+from osprey.agent_runner.clean_env import add_panel_token, build_clean_env
 from osprey.agent_runner.sdk_context import (
     PermissionResultAllow,
     PermissionResultDeny,
@@ -47,7 +47,7 @@ from osprey.agent_runner.write_tools import load_approval_prefixes, read_only_di
 from osprey.audit.posture import OSPREY_AGENT_DATA_ROOT
 from osprey.build.claude_code_telemetry import terminal_session_env
 from osprey.deployment.process_table import ProcessRow
-from osprey.interfaces.web_auth import PANEL_TOKEN_ENV, get_web_credentials
+from osprey.interfaces.web_auth import get_web_credentials
 from osprey.interfaces.web_terminal import process_tree
 from osprey.interfaces.web_terminal.chat_session_pool import ChatSessionPool
 from osprey.interfaces.web_terminal.process_tree import ProcessGroup
@@ -276,7 +276,7 @@ def build_operator_child_env(
         )
 
     env = build_clean_env(project_cwd=project_cwd)
-    env[PANEL_TOKEN_ENV] = get_web_credentials().panel_token
+    add_panel_token(env, get_web_credentials().panel_token)
 
     # The audit pair, stamped after the strip (build_clean_env would drop it)
     # and outside the sandbox branch below — see the rules in the docstring.
@@ -2241,6 +2241,10 @@ class OperatorRegistry:
 
     def get_chat_session(self, chat_id: str) -> OperatorSession | None:
         return self.chats.get(chat_id)
+
+    def session_keys(self) -> list[str]:
+        """Every operator session's id and every chat id the pool answers to now."""
+        return [*self._sessions, *self.chats.keys()]
 
     def has_chat_key(self, chat_id: str) -> bool:
         """Pass-through to :meth:`ChatSessionPool.has_key`.

@@ -105,6 +105,23 @@ def session_is_live(app: Any, session_key: str) -> bool:
     return registry.has_chat_key(session_key) or registry.get_session(session_key) is not None
 
 
+def live_session_keys(app: Any) -> list[str]:
+    """Every session key this process runs now, sorted: the keys :func:`session_is_live` accepts.
+
+    Read from another thread too (a sidecar's own watcher), so a registry that
+    changes size under the read raises ``RuntimeError``; the caller retries.
+    """
+    state = app.state
+    keys: set[str] = set()
+    pty_registry = getattr(state, "pty_registry", None)
+    if pty_registry is not None:
+        keys.update(pty_registry.session_keys())
+    registry = getattr(state, "operator_registry", None)
+    if registry is not None:
+        keys.update(registry.session_keys())
+    return sorted(key for key in keys if key)
+
+
 def make_notifier(app: Any) -> Callable[[dict[str, Any]], Awaitable[None]]:
     """The runner's and the answer route's notifier: the broadcaster and the chat feed."""
 

@@ -17,7 +17,7 @@ from collections import deque
 from contextlib import asynccontextmanager, suppress
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, NamedTuple
+from typing import TYPE_CHECKING, Any, NamedTuple
 
 import httpx
 import yaml
@@ -266,14 +266,29 @@ async def _launch_sidecar(app: FastAPI, panel_id: str) -> None:
     _record_sidecar_status(app, panel_id, SidecarStatus.starting())
     sidecar = None
     try:
-        from osprey.interfaces.web_terminal.operator_session import resolve_agent_data_root
+        from osprey.interfaces.web_terminal.operator_session import (
+            resolve_agent_data_root,
+            session_hold_root_of,
+        )
+        from osprey.interfaces.web_terminal.routes.watchdog import live_session_keys
 
-        module_path, _, attribute = SIDECAR_PANELS[panel_id].factory_path.partition(":")
+        entry = SIDECAR_PANELS[panel_id]
+        module_path, _, attribute = entry.factory_path.partition(":")
         factory = getattr(importlib.import_module(module_path), attribute)
+        # A sidecar that writes for the terminal's sessions is held with them.
+        session_context: dict[str, Any] = (
+            {
+                "hold_root": session_hold_root_of(app),
+                "live_sessions": lambda: live_session_keys(app),
+            }
+            if entry.session_writes
+            else {}
+        )
         sidecar = factory(
             Path(resolve_agent_data_root(app)),
             compute_url_prefix(),
             getattr(app.state, "web_theme_mode", None),
+            **session_context,
         )
         app.state.sidecars[panel_id] = sidecar
         await asyncio.to_thread(sidecar.preflight)
