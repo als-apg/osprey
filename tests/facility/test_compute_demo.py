@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING, Any
 
 import pytest
 
+from osprey.facility.records import FacilityRecords
 from osprey.services.channel_finder.databases.middle_layer import DOCUMENT_KEYS
 
 if TYPE_CHECKING:
@@ -73,7 +74,9 @@ def facility(built_control_assistant: BuiltProject) -> dict[str, Any]:
 def middle_layer(built_control_assistant: BuiltProject) -> dict[str, Any]:
     from osprey.facility.views.channel_finder import middle_layer_document
 
-    document, _left_out, _keyed = middle_layer_document(built_control_assistant.facility)
+    document, _left_out, _keyed = middle_layer_document(
+        FacilityRecords(built_control_assistant.facility)
+    )
     return document
 
 

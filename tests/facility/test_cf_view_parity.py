@@ -37,6 +37,8 @@ from typing import TYPE_CHECKING, Any
 
 import pytest
 
+from osprey.facility.records import FacilityRecords
+
 if TYPE_CHECKING:
     from tests.facility.conftest import BuiltProject
 
@@ -541,14 +543,16 @@ def test_in_context_queries_target_in_context_golden_addresses() -> None:
 def hierarchical_view(built_control_assistant: BuiltProject) -> dict[str, Any]:
     from osprey.facility.views.channel_finder import hierarchical_document
 
-    return hierarchical_document(built_control_assistant.facility)
+    return hierarchical_document(FacilityRecords(built_control_assistant.facility))
 
 
 @pytest.fixture(scope="module")
 def middle_layer_view(built_control_assistant: BuiltProject) -> dict[str, Any]:
     from osprey.facility.views.channel_finder import middle_layer_document
 
-    document, _left_out, _keyed = middle_layer_document(built_control_assistant.facility)
+    document, _left_out, _keyed = middle_layer_document(
+        FacilityRecords(built_control_assistant.facility)
+    )
     return document
 
 
@@ -556,7 +560,7 @@ def middle_layer_view(built_control_assistant: BuiltProject) -> dict[str, Any]:
 def in_context_view(built_control_assistant: BuiltProject) -> dict[str, Any]:
     from osprey.facility.views.channel_finder import in_context_document
 
-    return in_context_document(built_control_assistant.facility)
+    return in_context_document(FacilityRecords(built_control_assistant.facility))
 
 
 def test_the_pre_line_copies_hold_the_fingerprint_addresses() -> None:
@@ -859,7 +863,7 @@ def test_the_in_context_view_rows_the_septum_waveform_once_it_is_tagged(
     (sek,) = [c for c in built_control_assistant.facility["channels"] if c["id"] == SEK_WAVEFORM]
     tagged = {"channels": [sek | {"tags": [IN_CONTEXT_TAG]}]}
 
-    assert in_context_document(tagged)["channels"] == [
+    assert in_context_document(FacilityRecords(tagged))["channels"] == [
         {"channel": SEK_WAVEFORM, "address": SEK_WAVEFORM, "description": sek["description"]}
     ]
     assert "500 samples" in sek["description"]

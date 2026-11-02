@@ -336,7 +336,9 @@ def test_two_level_words_at_one_depth_stop_with_view_unsupported() -> None:
 
     with pytest.raises(FacilityBuildError) as caught:
         hierarchical_document(
-            {"places": [{"id": "A", "level": "machine"}, {"id": "B", "level": "line"}]}
+            FacilityRecords(
+                {"places": [{"id": "A", "level": "machine"}, {"id": "B", "level": "line"}]}
+            )
         )
 
     assert caught.value.kind == "view-unsupported"
@@ -349,7 +351,7 @@ def test_a_level_word_that_is_a_tail_level_stops_with_view_unsupported() -> None
     from osprey.facility.views.channel_finder import hierarchical_document
 
     with pytest.raises(FacilityBuildError) as caught:
-        hierarchical_document({"places": [{"id": "A", "level": "device"}]})
+        hierarchical_document(FacilityRecords({"places": [{"id": "A", "level": "device"}]}))
 
     assert caught.value.kind == "view-unsupported"
 
@@ -417,7 +419,7 @@ def test_a_tree_key_beginning_with_an_underscore_stops_with_view_unsupported(
     from osprey.facility.views.channel_finder import hierarchical_document
 
     with pytest.raises(FacilityBuildError) as caught:
-        hierarchical_document(doc)
+        hierarchical_document(FacilityRecords(doc))
 
     assert caught.value.kind == "view-unsupported"
     message = caught.value.format_message()
@@ -463,7 +465,7 @@ def test_two_channels_on_one_leaf_key_stop_with_view_unsupported(
     from osprey.facility.views.channel_finder import hierarchical_document
 
     with pytest.raises(FacilityBuildError) as caught:
-        hierarchical_document(_shared_leaf_key(device))
+        hierarchical_document(FacilityRecords(_shared_leaf_key(device)))
 
     assert caught.value.format_message() == (
         f"{line}fix: give one of them a signal or address that differs, "
@@ -649,7 +651,7 @@ def test_a_view_stop_names_the_file_that_states_its_record(
     document = build_facility(write_tree(tmp_path / "facility", tree), project_name="demo")
 
     with pytest.raises(FacilityBuildError) as caught:
-        hierarchical_document(document)
+        hierarchical_document(FacilityRecords(document))
 
     assert (caught.value.kind, caught.value.record_id) == ("view-unsupported", "_LAB:TEMP")
     assert caught.value.sources == sources

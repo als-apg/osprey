@@ -47,6 +47,7 @@ from typing import Any
 import pytest
 
 from osprey.facility.bundled import header_line
+from osprey.facility.records import FacilityRecords
 from osprey.facility.sources import read_yaml
 from tests.facility.test_cf_view_parity import fingerprint_rows
 
@@ -410,7 +411,10 @@ def test_the_middle_layer_view_keys_both_septa_under_the_septum_family() -> None
         "devices": _committed("records/devices.yaml"),
         "groups": _committed("records/groups.yaml"),
     }
-    assert middle_layer_families(doc)["Septum"] == [("BR", "SEPTUM"), ("SR", "SEPTUM")]
+    assert middle_layer_families(FacilityRecords(doc))["Septum"] == [
+        ("BR", "SEPTUM"),
+        ("SR", "SEPTUM"),
+    ]
 
 
 # --- the build ---------------------------------------------------------------------
