@@ -610,7 +610,10 @@ def freshness_max_age_s(va_archiver: VAArchiverConfig) -> int:
 
 
 def freshness_check_override(va_archiver: VAArchiverConfig | None) -> dict[str, Any]:
-    """The ``health:`` entry the block contributes, when it names a canary.
+    """The ``health:`` entry the block contributes, when it holds a canary.
+
+    The canary is the block's stated ``freshness_channel``, or a copy of the
+    block carrying the channel the build derives from the facility file.
 
     Scoped to the block's presence on purpose, and that scope is what makes it
     right on both sides of the control-system flip. A deployment carrying the

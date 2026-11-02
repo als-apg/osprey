@@ -29,6 +29,7 @@ import yaml
 from click.testing import CliRunner, Result
 
 from osprey.facility import TEXTURE
+from osprey.facility.served import NO_READBACK_WARNING
 from osprey_connectors.errors import ChannelNotFoundError
 from osprey_connectors_tests._write_fakes import arm_switch, writes_enabled_config
 
@@ -329,6 +330,7 @@ def test_zero_sources_under_in_context_stop_with_view_unsupported(build_project:
 
     assert result.exit_code == 1, result.output
     assert result.stderr == (
+        f"{NO_READBACK_WARNING}\n"
         "  view pyaml not written: no served model names a deck\n"
         "facility: view-unsupported: path channel_finder.pipeline_mode — selects in_context "
         "and the facility has no channel; fix: add a channel, or select another "
