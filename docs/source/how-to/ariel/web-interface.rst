@@ -14,7 +14,11 @@ The Screen
 The interface is one screen of three panes: a **rail** of mailboxes (All
 entries, Drafts, Mine, and your saved searches), the **list** of entries
 newest first with the search box and mode chip on top, and the **reader** showing the
-selected entry. Drag the rail's edge to resize it; released narrow, it snaps
+selected entry. Below the mailboxes the rail counts the list's entries per
+author, source, tag, declared facet field and enhancement, with a day
+histogram; click a value or a day to filter by it. The search box also takes
+``author:bob``, ``author:"a b"`` or ``date:2026-10`` (or a full day), and
+**Load more** at the end of the list fetches the next page. Drag the rail's edge to resize it; released narrow, it snaps
 to an icon strip. Below 640 px the list and reader stack and the reader gets a
 Back button. **Compose** opens the new-entry form in place of the list; the
 **Status and settings** button in the header opens those drawers.
@@ -27,8 +31,8 @@ Back button. **Compose** opens the new-entry form in place of the list; the
    Captured with OSPREY |captured_ariel| from the ``control-assistant``
    tutorial's seeded logbook.
 
-The address records the screen as ``#q=&mode=&box=&sel=&att=``, so a link
-reopens the same search, mailbox, entry and attachment. Old links still work:
+The address records the screen as ``#q=&mode=&box=&f=&sel=&att=``, so a link
+reopens the same search, mailbox, filter, entry and attachment. Old links still work:
 ``#entry?id=…&attachment=…``, ``#create``, ``#status``, ``#search`` and
 ``#browse`` are rewritten to that form.
 
@@ -58,7 +62,7 @@ immediately.
 Advanced Options
 ================
 
-The filters panel, opened from the mode chip, is built from whatever the enabled search
+The Filters & Options popover, opened from the mode chip, is built from whatever the enabled search
 modules declare, so the controls in it depend on the deployment. Two things
 about how it behaves are worth knowing before you tune anything.
 
@@ -115,6 +119,10 @@ about how the interface looks, plus the way in to its settings:
    One button per theme family: Main, DESY, High Contrast, and Retro. Picking
    a family keeps whichever appearance you are already in, so a switch from
    Main to High Contrast in dark stays dark.
+
+**Badges**
+   Shows or hides the enhancement badges on list rows. Embedded, the tile
+   bar's menu carries it, and it starts off when the panel is narrow.
 
 **Settings**
    Opens the settings drawer, where you can read and edit ARIEL's

@@ -229,6 +229,8 @@ take their values as a ``fields`` object keyed by field name.
    * - ``depends_on``
      - Present when non-empty: the static fields whose values decide a
        ``dynamic_select``'s choices
+   * - ``facet``
+     - Present (``true``) when the field is a filter dimension
 
 The list is empty when no ingestion adapter is configured or the adapter
 declares no fields. When the declarations are broken, ``entry_fields`` is
@@ -287,6 +289,10 @@ agent:
    * - ``diagnostics``
      - ``tuple[SearchDiagnostic, ...]``
      - Structured diagnostics (level, source, message) from search execution
+   * - ``total``, ``total_exact``, ``has_more``
+     - ``int | None``, ``bool``, ``bool``
+     - Matches across all pages (capped at 1000), whether that count is
+       exact, and whether a later page exists
 
 
 Service Factory
@@ -351,10 +357,16 @@ The web interface discovers its search modes and tunable parameters dynamically 
               - Get distinct values for a filterable field (``authors``, ``source_systems``)
             * - POST
               - ``/api/search``
-              - Execute a search query (body: :class:`~osprey.interfaces.ariel.api.schemas.SearchRequest`)
+              - Execute a search query (body: :class:`~osprey.interfaces.ariel.api.schemas.SearchRequest`;
+                ``filters``, ``offset`` and ``view`` as below)
             * - GET
               - ``/api/entries``
-              - List entries with pagination and filtering
+              - List entries newest first: ``filters``, ``view``, and ``cursor``
+                (or the legacy ``page``) with ``page_size``
+            * - GET
+              - ``/api/facets``
+              - Value counts per filter dimension and a day histogram for
+                ``q``, ``mode``, ``filters`` and ``advanced_params``
             * - GET
               - ``/api/entries/{entry_id}``
               - Get a single entry by ID
@@ -439,6 +451,33 @@ The web interface discovers its search modes and tunable parameters dynamically 
          is 500: the adapter declares its fields wrongly, and only a change to
          the adapter fixes it.
 
+         **Filters and paging.** ``filters`` is a JSON object
+         ``{"<dimension>": [values], "time": {"start": ..., "end": ...}}``: OR
+         within a dimension, AND across, exact match ignoring case. The
+         dimensions are ``author``, ``source_system``, ``tags``, each entry field
+         declared ``facet: true``, and ``enhancement`` (enabled enhancement
+         modules); ``capabilities.filter_dimensions`` lists them. On
+         ``/api/search`` the filter is ANDed with the legacy author, source and
+         date fields. ``/api/entries`` pages by an opaque ``cursor``: each page
+         returns ``next_cursor``, null on the last; ``page`` keeps offset paging
+         and returns no cursor. ``/api/search`` pages by ``offset`` with
+         ``max_results`` as the page size and returns ``total``, ``total_exact``
+         and ``has_more`` (``total_results`` equals ``total``). A refused
+         filter or cursor, or ``page`` with ``cursor``, is 422
+         ``{"detail": {"field": ..., "reason": ...}}``. ``/api/facets`` counts
+         over the filter alone when ``q`` is blank, else over the mode's
+         matches; it returns ``{available, dimensions, histogram, exact, tier}``
+         and ``available: false`` when it cannot count.
+
+         **Entry shapes.** An entry carries ``subject``, ``entry_url`` (null for
+         an entry that exists only in ARIEL, or with no
+         ``ariel.entry_url_template``) and ``enhancement_status``, where each
+         enabled module also gets a ``state`` of ``pending``, ``stale``,
+         ``failed``, ``complete`` or ``n/a``. ``view=row`` returns list rows
+         instead (:class:`~osprey.interfaces.ariel.api.schemas.RowResponse`):
+         no ``raw_text``, a ``snippet``, the entry's ``facets`` values and its
+         ``enhancements`` states.
+
          ``GET /health`` at the root level is the one route the sign-in gate leaves open. It
          reports ``status`` (``healthy`` or ``degraded``), a fixed ``message``, ``config_status``,
          and a ``service`` object carrying ``entry_count``, ``last_ingestion``,
@@ -483,6 +522,9 @@ The web interface discovers its search modes and tunable parameters dynamically 
               ],
               "search_modes_used": ["keyword", "semantic"],
               "total_results": 1,
+              "total": 1,
+              "total_exact": true,
+              "has_more": false,
               "execution_time_ms": 340
             }
 
@@ -547,6 +589,12 @@ The web interface discovers its search modes and tunable parameters dynamically 
                 {"name": "author", "type": "text"},
                 {"name": "source_system", "type": "dynamic_select",
                  "options_endpoint": "/api/filter-options/source_systems"}
+              ],
+              "filter_dimensions": [
+                {"name": "author", "label": "Author", "kind": "builtin"}
+              ],
+              "enhancement_modules": [
+                {"name": "image_caption", "label": "Image caption"}
               ]
             }
 
@@ -604,6 +652,12 @@ The web interface discovers its search modes and tunable parameters dynamically 
             * - ``rail.js``, ``list.js``, ``reader.js``
               - The three panes: mailboxes and saved searches, the entry list
                 with search box and mode chip, the entry and picture viewer
+            * - ``facets.js``, ``paging.js``
+              - The rail's facet counts and day histogram; Load more
+            * - ``filter-state.js``, ``query-ops.js``
+              - The filter object, and ``dim:value`` operators in the search box
+            * - ``saved-searches.js``, ``display-prefs.js``
+              - Saved searches in browser storage; the badge-strip preference
             * - ``keyboard.js``, ``header.js``
               - Key bindings; the embedded tile-bar contribution
             * - ``api.js``
@@ -664,9 +718,9 @@ The web interface discovers its search modes and tunable parameters dynamically 
          defined per page — they come from the shared design system's
          ``/design-system/css/tokens.css``.
 
-         **Routing:** The hash is the screen's state, ``#q=&mode=&box=&sel=&att=``
+         **Routing:** The hash is the screen's state, ``#q=&mode=&box=&f=&sel=&att=``
          (empty keys omitted; ``box`` is ``all``, ``drafts``, ``mine`` or
-         ``saved:<name>``), kept in step with ``history.replaceState``. Legacy
+         ``saved:<name>``; ``f`` is the filter as JSON), kept in step with ``history.replaceState``. Legacy
          aliases are applied and then rewritten canonical: ``#entry?id=&attachment=``
          selects the entry and opens the picture, ``#create[?draft=]`` opens
          compose, ``#status`` opens the Status drawer (embedded: the list), and
@@ -711,6 +765,9 @@ Core Tables
    * - ``raw_text``
      - ``TEXT``
      - Full entry text (subject + details)
+   * - ``subject``
+     - ``TEXT``
+     - Subject line derived from the entry (``''`` when it has none)
    * - ``summary``
      - ``TEXT``
      - LLM-generated summary (from semantic processor)
@@ -775,7 +832,7 @@ Core Tables
 Migration System
 ----------------
 
-Migrations are run via ``osprey ariel migrate`` and managed by the ``run_migrations()`` function in ``database/migrations.py``. When ``text_embedding`` is enabled, ``migrate`` creates an embedding table for each model listed in ``enhancement_modules.text_embedding.models`` (falling back to ``nomic-embed-text``, 768, if none is configured); ``osprey ariel reembed`` (re)creates and backfills a single model's table on demand.
+Migrations are run via ``osprey ariel migrate`` and managed by the ``run_migrations()`` function in ``database/migrations.py``. When ``text_embedding`` is enabled, ``migrate`` creates an embedding table for each model listed in ``enhancement_modules.text_embedding.models`` (falling back to ``nomic-embed-text``, 768, if none is configured); ``osprey ariel reembed`` (re)creates and backfills a single model's table on demand. ``migrate`` also adds the ``subject`` column and fills it for existing entries.
 
 .. admonition:: Schema Evolution
    :class: outreach
