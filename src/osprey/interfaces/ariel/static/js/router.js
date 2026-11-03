@@ -3,12 +3,17 @@
  * ARIEL panel router: maps the location hash onto the store and keeps the
  * hash canonical.
  *
- * Canonical form: `#q=<query>&mode=<mode>&box=<all|drafts|mine|saved:<name>>&f=<filter>&sel=<id>&att=<id>`,
+ * Canonical form: `#q=<query>&mode=<mode>&box=<all|drafts|mine|saved:<name>>&f=<filter>&sel=<id>&att=<id>&compose=draft:<id>`,
  * URL-encoded, keys omitted when empty. `f` is the store's C-FILTER `filter`
  * as compact JSON with sorted keys. Under a `saved:` box `q` and `f` are always
  * written, even empty (`q=&f={}`), so a reload never brings back a query or
  * filter the user cleared: a saved box restores, from its record, only the
- * fields whose hash key is absent (a hash `f` always wins). Every parsed filter
+ * fields whose hash key is absent (a hash `f` always wins). `compose` is written
+ * only for an open draft; a new entry or follow-up never reaches the hash, so a
+ * canonical hash without `compose` leaves the sheet alone, except that hash
+ * navigation (Back/Forward) away from a `compose=draft:` hash closes it. A
+ * `compose` value without the `draft:` prefix or with an empty id is ignored;
+ * the id's format is the server's to check. Every parsed filter
  * goes through `sanitizeFilter` against the deployment's dimensions; the names
  * it drops become the store's `notice`. Legacy aliases (`#entry?id=X&attachment=Y`,
  * `#create`, `#create?draft=ID`, `#search`, `#browse`, `#status`) are an
@@ -44,6 +49,19 @@ function readFilterParam(raw) {
   } catch {
     return {};
   }
+}
+
+const DRAFT_PREFIX = 'draft:';
+
+/**
+ * The draft id a `compose` value names, or null when it is absent or malformed
+ * (no `draft:` prefix, or an empty id).
+ * @param {string|null} raw
+ * @returns {string|null}
+ */
+function composeDraft(raw) {
+  if (!raw || !raw.startsWith(DRAFT_PREFIX)) return null;
+  return raw.slice(DRAFT_PREFIX.length) || null;
 }
 
 /**
@@ -125,6 +143,8 @@ export function parseHash(hash) {
     };
     // The knobs have no hash key: a saved box always restores them.
     if (saved) patch.filters = structuredClone(saved.filters);
+    const draft = composeDraft(params.get('compose'));
+    if (draft !== null) patch.compose = { draft };
     if (sel) patch.narrowView = 'reader';
     return patch;
   }
@@ -140,7 +160,7 @@ export function parseHash(hash) {
       };
     }
     case 'create':
-      return { compose: { draft: params.get('draft') || null }, narrowView: 'list', rerank: 'now' };
+      return { compose: { draft: params.get('draft') || null }, rerank: 'now' };
     case 'status':
       // Status is hidden in an embedded frame, so the link shows the list there.
       return isEmbedded() ? listPatch() : { drawer: 'status', rerank: 'now' };
@@ -166,6 +186,7 @@ export function serializeState(state) {
     ['f', Object.keys(filter).length ? JSON.stringify(filter) : saved ? '{}' : '', saved],
     ['sel', state.sel, false],
     ['att', state.att, false],
+    ['compose', state.compose?.draft ? DRAFT_PREFIX + state.compose.draft : null, false],
   ];
   const parts = pairs
     .filter(
@@ -177,17 +198,31 @@ export function serializeState(state) {
 
 let applying = false;
 let started = false;
+/**
+ * The hash as the router last left it, i.e. the one a `hashchange` navigates
+ * away from; null before the first apply.
+ * @type {string|null}
+ */
+let lastHash = null;
 
 /** Write the canonical hash for the current state, when it differs. */
 function writeHash() {
   const next = serializeState(getState());
   if (window.location.hash !== next) history.replaceState(history.state, '', next);
+  lastHash = window.location.hash;
 }
 
 /** Apply the current location hash to the store, then write the canonical hash once. */
 function applyLocationHash() {
   const hash = window.location.hash;
   const patch = parseHash(hash);
+  // Back/Forward away from an open draft closes it; nothing else does.
+  if (!('compose' in patch) && lastHash !== null) {
+    const left = classify(lastHash);
+    if (left.alias === null && composeDraft(left.params.get('compose')) !== null) {
+      patch.compose = null;
+    }
+  }
   applying = true;
   try {
     if (Object.keys(patch).length > 0) {

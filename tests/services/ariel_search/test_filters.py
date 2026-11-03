@@ -141,6 +141,25 @@ class TestAlwaysPresent:
             filter_dimensions(ARIELConfig.from_dict({"database": {"uri": "postgresql://test"}}))
         )
 
+    def test_follows_up_never_appears(self, example_entry_fields, monkeypatch):
+        """``follows_up`` is a reserved field: declared as a facet it is refused, never a dimension."""
+        _declare(
+            monkeypatch,
+            example_entry_fields,
+            [*example_descriptors(), _field("follows_up", facet=True)],
+        )
+
+        assert "follows_up" not in _names(filter_dimensions(example_config()))
+        assert "follows_up" not in _names(
+            filter_dimensions(ARIELConfig.from_dict({"database": {"uri": "postgresql://test"}}))
+        )
+
+    def test_a_follows_up_facet_is_a_declaration_error(self):
+        with pytest.raises(EntryFieldDeclarationError) as info:
+            check_declarations([_field("follows_up", facet=True)], adapter="Example")
+
+        assert info.value.field == "follows_up"
+
 
 class TestEnhancementDimension:
     def test_values_are_the_enabled_modules_only_in_registry_order(self):

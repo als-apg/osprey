@@ -77,6 +77,12 @@ export default [
     },
   },
 
+  // (4c) P-4: ARIEL reports through toasts (C-TOAST), never a blocking alert().
+  {
+    files: ['src/osprey/interfaces/ariel/static/js/**/*.js'],
+    rules: { 'no-alert': 'error' },
+  },
+
   // (5) Root config files: node globals.
   {
     files: ['vitest.config.js', 'eslint.config.js'],

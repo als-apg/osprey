@@ -247,6 +247,22 @@ def _subject_upsert_sql(has_subject: bool, placeholder: str) -> tuple[str, str, 
     )
 
 
+#: The ON CONFLICT metadata update shared by both upserts. The incoming metadata
+#: replaces the stored one, except that a stored ``follows_up`` is kept when the
+#: incoming metadata has no such key: a facility read-back or re-ingest that cannot
+#: store the link must not erase the one ARIEL wrote. A present key, even ``null``,
+#: wins. Consequence: deleting the key upstream never clears a stored value.
+_METADATA_UPSERT_SQL = """metadata = CASE
+        WHEN jsonb_typeof(EXCLUDED.metadata) = 'object'
+            AND jsonb_typeof(enhanced_entries.metadata) = 'object'
+            AND NOT (EXCLUDED.metadata ? 'follows_up')
+            AND enhanced_entries.metadata ? 'follows_up'
+        THEN EXCLUDED.metadata
+            || jsonb_build_object('follows_up', enhanced_entries.metadata -> 'follows_up')
+        ELSE EXCLUDED.metadata
+    END"""
+
+
 class SchemaFacts(NamedTuple):
     """Optional schema objects a pool's database carries, probed once per pool.
 
@@ -752,6 +768,43 @@ class ARIELRepository:
                 query=f"SELECT entry_id={entry_id}",
             ) from e
 
+    async def get_follow_ups(self, entry_id: str) -> list[EnhancedLogbookEntry]:
+        """List the entries whose ``metadata.follows_up`` names ``entry_id``.
+
+        Oldest first (``timestamp``, then ``entry_id``), with the same columns as
+        the entry list. An entry naming itself is not its own follow-up. The
+        predicate matches the ``follows_up_index`` expression index.
+
+        Args:
+            entry_id: The parent entry ID
+
+        Returns:
+            The follow-ups, empty when there are none or the ID is unknown
+
+        Raises:
+            DatabaseQueryError: If the query fails
+        """
+        from psycopg.rows import dict_row
+
+        try:
+            images = await self._has_images_select()
+            async with (
+                self.pool.connection() as conn,
+                conn.cursor(row_factory=dict_row) as cur,
+            ):
+                await cur.execute(
+                    f"SELECT e.*, {images} AS has_images FROM enhanced_entries e"
+                    " WHERE e.metadata->>'follows_up' = %s AND e.entry_id <> %s"
+                    " ORDER BY e.timestamp ASC, e.entry_id ASC",
+                    [entry_id, entry_id],
+                )
+                return [enhanced_entry_from_row(row) for row in await cur.fetchall()]
+        except Exception as e:
+            raise DatabaseQueryError(
+                f"Failed to get follow-ups of {entry_id}: {e}",
+                query=f"SELECT follows_up={entry_id}",
+            ) from e
+
     async def get_entries_by_ids(self, entry_ids: list[str]) -> list[EnhancedLogbookEntry]:
         """Get multiple entries by their IDs.
 
@@ -843,7 +896,7 @@ class ARIELRepository:
                             THEN enhanced_entries.attachments
                             ELSE EXCLUDED.attachments
                         END,
-                        metadata = EXCLUDED.metadata{subject_set}
+                        {_METADATA_UPSERT_SQL}{subject_set}
                     """,
                     params,
                 )
@@ -1004,7 +1057,7 @@ class ARIELRepository:
                                     )
                                 ), '[]'::jsonb)
                             END,
-                            metadata = EXCLUDED.metadata{subject_set}
+                            {_METADATA_UPSERT_SQL}{subject_set}
                         RETURNING attachments, attachment_text, attachment_captions
                         """,
                         params,

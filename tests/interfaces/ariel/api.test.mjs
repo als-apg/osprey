@@ -12,7 +12,13 @@
  *   - an AbortSignal reaches fetch on GET and POST, and an aborted request
  *     rejects with an AbortError, never an ApiError;
  *   - a refused filter's 422 `detail: {field, reason}` becomes an ApiError
- *     with that reason and field.
+ *     with that reason and field;
+ *   - the drafts listing (C-DRAFTS-LIST) and the thread (C-THREAD) are plain
+ *     GETs returning the body; a draft delete (C-DRAFT-DELETE) resolves
+ *     `undefined` on 204 without reading the empty body, and a 404 stays
+ *     distinguishable from a 422;
+ *   - create sends `metadata.follows_up` unchanged on the JSON and the upload
+ *     path and returns `attachments_published` (C-CREATE-RESULT).
  *
  *   npx vitest run tests/interfaces/ariel/api.test.mjs
  */
@@ -21,6 +27,7 @@ import { test, expect, describe, beforeEach, afterEach, vi } from 'vitest';
 import {
   ApiError,
   api,
+  draftsApi,
   entriesApi,
   facetsApi,
   searchApi,
@@ -199,5 +206,141 @@ describe('errors', () => {
     const err = await searchApi.search({ query: 'q' }).catch((e) => e);
     expect(err.message).toBe('Unknown mode');
     expect(err.code).toBe('bad_mode');
+  });
+});
+
+describe('draftsApi', () => {
+  test('list GETs /drafts and returns the body', async () => {
+    const body = {
+      drafts: [
+        {
+          draft_id: 'draft-0123456789ab',
+          subject: 'RF trip',
+          author: 'bob',
+          logbook: 'ops',
+          created_at: '2026-11-03T10:00:00Z',
+          staged_by: 'ariel-mcp',
+          attachment_count: 1,
+        },
+      ],
+    };
+    answer(body);
+    await expect(draftsApi.list()).resolves.toEqual(body);
+    expect(new URL(fetchMock.mock.calls[0][0], window.location.origin).pathname).toBe(
+      '/api/drafts'
+    );
+  });
+
+  test('delete sends DELETE and resolves undefined on a 204 with an empty body', async () => {
+    const response = new Response(null, { status: 204 });
+    const json = vi.spyOn(response, 'json');
+    const text = vi.spyOn(response, 'text');
+    fetchMock = vi.fn(async () => response);
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(draftsApi.delete('draft-0123456789ab')).resolves.toBeUndefined();
+    expect(fetchMock.mock.calls[0][0]).toBe('/api/drafts/draft-0123456789ab');
+    expect(fetchMock.mock.calls[0][1].method).toBe('DELETE');
+    expect(json).not.toHaveBeenCalled();
+    expect(text).not.toHaveBeenCalled();
+  });
+
+  test('delete encodes the id into the path', async () => {
+    fetchMock = vi.fn(async () => new Response(null, { status: 204 }));
+    vi.stubGlobal('fetch', fetchMock);
+    await draftsApi.delete('a/b c');
+    expect(fetchMock.mock.calls[0][0]).toBe('/api/drafts/a%2Fb%20c');
+  });
+
+  test('a delete of a missing draft throws a 404 ApiError', async () => {
+    fetchMock = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ detail: 'Draft not found' }), {
+          status: 404,
+          headers: { 'Content-Type': 'application/json' },
+        })
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    const err = await draftsApi.delete('draft-0123456789ab').catch((e) => e);
+    expect(err).toBeInstanceOf(ApiError);
+    expect(err.status).toBe(404);
+    expect(err.message).toBe('Draft not found');
+  });
+
+  test('a delete with a malformed id throws a 422 ApiError, not a 404', async () => {
+    answer({ detail: 'Invalid draft id' }, { ok: false, status: 422 });
+    const err = await draftsApi.delete('nope').catch((e) => e);
+    expect(err).toBeInstanceOf(ApiError);
+    expect(err.status).toBe(422);
+  });
+
+  test('a list failure throws an ApiError', async () => {
+    answer({ detail: 'boom' }, { ok: false, status: 500 });
+    const err = await draftsApi.list().catch((e) => e);
+    expect(err).toBeInstanceOf(ApiError);
+    expect(err.status).toBe(500);
+  });
+});
+
+describe('entriesApi.thread', () => {
+  test('GETs /entries/{id}/thread and returns the body', async () => {
+    const body = { parent_id: 'p1', parent: { entry_id: 'p1' }, children: [{ entry_id: 'c1' }] };
+    answer(body);
+    await expect(entriesApi.thread('e 1')).resolves.toEqual(body);
+    expect(new URL(fetchMock.mock.calls[0][0], window.location.origin).pathname).toBe(
+      '/api/entries/e%201/thread'
+    );
+  });
+
+  test('an unknown entry throws a 404 ApiError', async () => {
+    answer({ detail: 'Entry not found' }, { ok: false, status: 404 });
+    const err = await entriesApi.thread('missing').catch((e) => e);
+    expect(err).toBeInstanceOf(ApiError);
+    expect(err.status).toBe(404);
+    expect(err.message).toBe('Entry not found');
+  });
+});
+
+describe('entriesApi create with follows_up', () => {
+  const metadata = { follows_up: 'parent-42', other: { x: 1 } };
+
+  test('the JSON path sends metadata.follows_up unchanged and returns attachments_published', async () => {
+    const result = {
+      entry_id: 'e9',
+      message: 'ok',
+      sync_status: 'synced',
+      source_system: 'elog',
+      attachment_count: 0,
+      attachments_published: null,
+    };
+    answer(result);
+    await expect(entriesApi.create({ subject: 's', details: 'd', metadata })).resolves.toEqual(
+      result
+    );
+    expect(sentBody().metadata).toEqual(metadata);
+  });
+
+  test('the upload path sends metadata.follows_up unchanged and returns attachments_published', async () => {
+    const result = { entry_id: 'e9', attachment_count: 1, attachments_published: false };
+    answer(result);
+    const file = new File(['x'], 'a.txt', { type: 'text/plain' });
+    const out = await entriesApi.createWithAttachments({ subject: 's', details: 'd', metadata }, [
+      file,
+    ]);
+    expect(out.attachments_published).toBe(false);
+    const form = /** @type {FormData} */ (fetchMock.mock.calls[0][1].body);
+    expect(JSON.parse(/** @type {string} */ (form.get('metadata')))).toEqual(metadata);
+  });
+
+  test('a refused follows_up surfaces its 422 field', async () => {
+    answer(
+      { detail: 'parent not found', code: 'invalid_entry_field', field: 'follows_up' },
+      { ok: false, status: 422 }
+    );
+    const err = await entriesApi.create({ subject: 's', details: 'd', metadata }).catch((e) => e);
+    expect(err).toBeInstanceOf(ApiError);
+    expect(err.status).toBe(422);
+    expect(err.code).toBe('invalid_entry_field');
+    expect(err.field).toBe('follows_up');
   });
 });

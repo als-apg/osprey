@@ -8,8 +8,12 @@
  *   Enter   open the selection in the reader (`narrowView:'reader'`)
  *   /       focus the search box (standalone only; embedded it is the host's)
  *   [       toggle `railCollapsed`
- *   Esc     close one layer: the lightbox (`att:null`), else compose
- *           (`compose:null`), else Back in the stacked layout
+ *   c       open the compose sheet on a new entry (`compose:{draft:null}`)
+ *   r       open the compose sheet on a follow-up of the selection
+ *           (`compose:{draft:null, followsUp:sel}`); nothing without a `sel`
+ *   Esc     close one layer: the lightbox (`att:null`), else the compose sheet
+ *           (`compose:null`; its autosaved draft is kept), else Back in the
+ *           stacked layout
  *
  * The design system already closes popovers and drawers on `Esc` from its own
  * bubble-phase listeners, without `preventDefault`. So whether a popover or
@@ -37,7 +41,9 @@ function isTyping(target) {
   const el = /** @type {HTMLElement|null} */ (target);
   if (!el || typeof el.closest !== 'function') return false;
   if (el.isContentEditable) return true;
-  return el.closest('input, textarea, select') !== null;
+  return (
+    el.closest('input, textarea, select, [contenteditable]:not([contenteditable="false"])') !== null
+  );
 }
 
 /**
@@ -135,6 +141,17 @@ export function initKeyboard(doc = document, options = {}) {
         setState({ railCollapsed: !getState().railCollapsed });
         event.preventDefault();
         break;
+      case 'c':
+        setState({ compose: { draft: null } });
+        event.preventDefault();
+        break;
+      case 'r': {
+        const sel = getState().sel;
+        if (sel === null) return;
+        setState({ compose: { draft: null, followsUp: sel } });
+        event.preventDefault();
+        break;
+      }
       default:
     }
   };

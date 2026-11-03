@@ -94,7 +94,7 @@ def _action(page: Page, item_id: str, value: str | None = None) -> None:
     """Post a tile-bar action the way the hub does."""
     page.evaluate(
         "([id, value]) => window.postMessage("
-        "{type: 'osprey-header-action', id, value}, location.origin)",
+        "{type: 'canopy-host-header-action', id, value}, location.origin)",
         [item_id, value],
     )
 
@@ -106,6 +106,8 @@ def test_embedded_hides_header_and_contributes_search_compose_and_menu(
     page, _ = _open_embedded(chromium_browser, f"{ariel_url}/?embedded=true")
 
     expect(page.locator(".header")).to_be_hidden()
+    # The header module has run: it has contributed, so its removals are done too.
+    page.wait_for_function("window.__contributions.length > 0")
     # The box and the compose button belong to the host now.
     expect(page.locator("#ariel-search-input")).to_have_count(0)
     expect(page.locator("#ariel-compose-btn")).to_have_count(0)
@@ -165,14 +167,18 @@ def test_a_panel_set_query_re_keys_the_search_item(
 def test_tile_bar_compose_opens_the_form_over_the_list(
     ariel_url: str, chromium_browser: Browser
 ) -> None:
-    """Compose from the tile bar opens the create form; Cancel returns to the list."""
-    page, _ = _open_embedded(chromium_browser, f"{ariel_url}/?embedded=true")
+    """Compose from the tile bar opens the sheet beside the reader; Discard closes it."""
+    page, _ = _open_embedded(chromium_browser, f"{ariel_url}/?embedded=true{canonical(sel='E1')}")
+    expect(reader_title(page)).to_have_text("Beam dump at injection")
 
     _action(page, "ariel-compose")
     expect(page.locator("#ariel-compose")).to_be_visible()
+    expect(page.locator("#ariel-compose-title")).to_have_text("New entry")
     expect(page.locator("#entry-subject")).to_be_visible()
+    expect(reader_title(page)).to_have_text("Beam dump at injection")
     page.click("#create-cancel-btn")
     expect(page.locator("#ariel-compose")).to_be_hidden()
+    expect(row(page, "E1")).to_be_visible()
     page.close()
 
 
@@ -239,7 +245,13 @@ def test_invalid_configuration_omits_the_search_item(
 def test_slash_is_left_to_the_host(ariel_url: str, chromium_browser: Browser) -> None:
     """Embedded, ``/`` moves no focus: the search box is the host's."""
     page, _ = _open_embedded(chromium_browser, f"{ariel_url}/?embedded=true")
+    # A bubbling window listener runs after the panel's document handler, so
+    # seeing the key there proves the panel has processed it.
+    page.evaluate(
+        "window.__keys = []; window.addEventListener('keydown', (e) => window.__keys.push(e.key))"
+    )
     page.keyboard.press("/")
+    page.wait_for_function("window.__keys.includes('/')")
     assert page.evaluate("document.activeElement === document.body")
     page.close()
 
@@ -280,10 +292,11 @@ def test_embedded_unknown_entry_shows_the_reader_error(
 def test_embedded_create_alias_opens_compose(
     ariel_url: str, chromium_browser: Browser, alias: str, subject: str
 ) -> None:
-    """``#create`` and ``#create?draft=`` open the form embedded."""
+    """``#create`` and ``#create?draft=`` open the form embedded, the draft in the address."""
     page, _ = _open_embedded(chromium_browser, f"{ariel_url}/?embedded=true{alias}")
     expect(page.locator("#ariel-compose")).to_be_visible()
     expect(page.locator("#entry-subject")).to_have_value(subject)
+    wait_for_hash(page, canonical(compose="draft:D1" if subject else None))
     page.close()
 
 
@@ -294,9 +307,10 @@ def test_embedded_list_aliases_show_the_list(
     """``#search``, ``#browse`` and (embedded) ``#status`` all land on the list."""
     page, _ = _open_embedded(chromium_browser, f"{ariel_url}/?embedded=true{alias}")
     expect(page.locator("#ariel-list [data-entry-id]")).to_have_count(3)
+    # The canonical hash is written back once the alias is applied.
+    wait_for_hash(page, canonical())
     expect(page.locator("osprey-drawer#status-drawer[open]")).to_have_count(0)
     expect(page.locator("osprey-drawer#settings-drawer[open]")).to_have_count(0)
-    wait_for_hash(page, canonical())
     page.close()
 
 
@@ -314,6 +328,11 @@ def test_standalone_keeps_its_header_and_contributes_nothing(
     expect(page.locator("#ariel-search-input")).to_be_visible()
     expect(page.locator("#ariel-compose-btn")).to_be_visible()
     expect(row(page, "E1")).to_be_visible()
+    # A query the panel sets itself re-contributes when embedded; wait until
+    # this one has run before checking that nothing was sent.
+    page.evaluate("location.hash = '#q=beam'")
+    expect(page.locator("#ariel-list .results-count")).to_be_visible()
+    wait_for_hash(page, canonical(q="beam"))
     assert page.evaluate("window.__contributions.length") == 0
     page.close()
 

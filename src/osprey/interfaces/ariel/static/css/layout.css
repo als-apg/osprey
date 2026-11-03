@@ -129,6 +129,77 @@ body.embedded .header {
   margin-bottom: var(--space-3);
 }
 
+.entry-detail-title-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.entry-detail-title-row .entry-detail-title {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.entry-follow-up {
+  flex-shrink: 0;
+}
+
+/* C-THREAD: "Follows up" and "Follow-ups (n)" below the entry's content. */
+.entry-thread {
+  margin-top: var(--space-5);
+}
+
+.entry-thread h4 {
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+  letter-spacing: var(--tracking-wide);
+  margin: var(--space-3) 0 var(--space-2);
+}
+
+.entry-thread-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.entry-thread-link {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-3);
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
+  border: 0;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.entry-thread-link:hover,
+.entry-thread-link:focus-visible {
+  background: var(--neutral-tint-10);
+}
+
+.entry-thread-subject {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.entry-thread-meta,
+.entry-thread-missing {
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+}
+
+.entry-thread-missing {
+  padding: var(--space-2) var(--space-3);
+}
+
 .entry-detail-meta {
   display: flex;
   flex-wrap: wrap;
@@ -300,15 +371,6 @@ body.embedded .header {
   gap: var(--space-4);
 }
 
-.form-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: var(--space-2);
-  margin-top: var(--space-5);
-  padding-top: var(--space-4);
-  border-top: 1px solid var(--neutral-tint-10);
-}
-
 /* === Responsive Adjustments === */
 @media (max-width: 640px) {
   .header-inner {
@@ -341,6 +403,7 @@ body.embedded .header {
  * max-width); the stylesheet only seeds them.
  */
 .ariel-shell {
+  position: relative; /* the compose sheet's containing block */
   flex: 1;
   min-height: 0;
   display: flex;
@@ -549,18 +612,62 @@ body.embedded .header {
   letter-spacing: 0.04em;
 }
 
-/* === Compose host: a sheet over the list pane, never over the reader === */
+/* === Compose sheet (Decisions 10, 11) ===
+ *
+ * A child of .ariel-shell, never of .ariel-list-col, so neither that column's
+ * containing block nor its stacked display:none reaches it. By default it sits
+ * over the list column (entries.js writes the column's box into the two custom
+ * properties) and the reader stays visible beside it; .max spans the panel;
+ * stacked, it overlays the whole tile (rules below the stacked block).
+ */
 .ariel-compose {
   position: absolute;
-  inset: 0;
+  top: var(--space-3);
+  bottom: 0;
+  left: var(--ariel-compose-left, 0px);
+  width: var(--ariel-compose-width, 380px);
+  max-width: 100%;
   z-index: var(--z-sticky);
   display: flex;
   flex-direction: column;
-  background: var(--bg-secondary);
+  min-height: 0;
+  background: var(--bg-panel);
+  border: 1px solid var(--border-default);
+  border-bottom: 0;
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  box-shadow: var(--shadow-dialog);
 }
 
 .ariel-compose[hidden] {
   display: none;
+}
+
+.ariel-compose.max {
+  left: var(--space-3);
+  right: var(--space-3);
+  width: auto;
+}
+
+.ariel-compose-head {
+  gap: var(--space-2);
+  background: var(--bg-elevated);
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+}
+
+.ariel-compose-spacer {
+  flex: 1;
+}
+
+/* The sheet is the card: the form inside it drops the card chrome. */
+.ariel-compose-form {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: none;
 }
 
 .ariel-compose-body {
@@ -568,6 +675,76 @@ body.embedded .header {
   min-height: 0;
   overflow-y: auto;
   padding: var(--space-4);
+}
+
+.ariel-compose-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border-top: 1px solid var(--border-default);
+}
+
+.ariel-compose-saved {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+
+.ariel-compose-dest {
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+}
+
+/* Provenance banner (a draft that records who staged it). */
+.ariel-compose-banner {
+  margin-bottom: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border-left: 2px solid var(--border-accent);
+  border-radius: var(--radius-sm);
+  background: var(--surface-well);
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+
+.ariel-compose-banner[hidden],
+.ariel-compose-parent[hidden] {
+  display: none;
+}
+
+/* The read-only parent row of a follow-up. */
+.ariel-compose-parent {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+  padding: var(--space-1) 0;
+  border-bottom: 1px solid var(--surface-hairline);
+  font-size: var(--text-sm);
+}
+
+.ariel-compose-parent-label {
+  flex: none;
+  color: var(--text-muted);
+}
+
+.ariel-compose-parent-ref {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: var(--text-primary);
+}
+
+/* Picked files and a draft's staged files, previewed together. */
+.ariel-compose-preview {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  margin-top: var(--space-3);
+}
+
+.ariel-compose-preview:empty {
+  margin-top: 0;
 }
 
 /* === Stacked: one column, Back returns from the reader === */
@@ -582,6 +759,26 @@ body.embedded .header {
 
 .app-container[data-stacked][data-narrow-view='list'] .ariel-reader,
 .app-container[data-stacked][data-narrow-view='reader'] .ariel-list-col {
+  display: none;
+}
+
+/* Stacked, the compose sheet covers the whole tile, whichever pane is showing,
+ * so closing it shows that pane again; .max changes nothing here. */
+.app-container[data-stacked] .ariel-compose,
+.app-container[data-stacked] .ariel-compose.max {
+  inset: 0;
+  width: auto;
+  max-width: none;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.app-container[data-stacked] .ariel-compose-head {
+  border-radius: 0;
+}
+
+.app-container[data-stacked] .ariel-compose-max {
   display: none;
 }
 

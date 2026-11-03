@@ -191,6 +191,19 @@ class EntriesListResponse(BaseModel):
     next_cursor: str | None = None
 
 
+class ThreadResponse(BaseModel):
+    """The thread around one entry (C-THREAD).
+
+    ``parent`` is the row the entry follows up, null when it follows nothing or
+    the parent is not held; ``parent_id`` stays set in the latter case.
+    ``children`` are the entry's follow-ups as list rows, oldest first.
+    """
+
+    parent_id: str | None = None
+    parent: RowResponse | None = None
+    children: list[RowResponse] = []
+
+
 class FacetValueResponse(BaseModel):
     """One value of a facet dimension and how many entries it selects."""
 
@@ -253,6 +266,9 @@ class EntryCreateResponse(BaseModel):
     sync_status: str | None = None
     source_system: str | None = None
     attachment_count: int = 0
+    #: ``None`` when the entry carries no attachments; otherwise whether the
+    #: facility logbook took them (``False``: they were kept in ARIEL only).
+    attachments_published: bool | None = None
 
 
 class EmbeddingTableStatus(BaseModel):

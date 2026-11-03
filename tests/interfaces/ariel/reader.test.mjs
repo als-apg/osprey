@@ -16,7 +16,7 @@ vi.mock('../../../src/osprey/interfaces/ariel/static/js/api.js', async (importOr
   const actual = /** @type {any} */ (await importOriginal());
   return {
     ...actual,
-    entriesApi: { ...actual.entriesApi, get: vi.fn() },
+    entriesApi: { ...actual.entriesApi, get: vi.fn(), thread: vi.fn() },
   };
 });
 
@@ -417,5 +417,154 @@ describe('Use in Workspace', () => {
     } finally {
       vi.unstubAllGlobals();
     }
+  });
+});
+
+/**
+ * @param {string} id
+ * @param {string} [subject]
+ * @returns {any} A C-THREAD row
+ */
+function row(id, subject = `subject of ${id}`) {
+  return {
+    entry_id: id,
+    timestamp: '2026-01-02T00:00:00Z',
+    author: 'a',
+    source_system: 's',
+    subject,
+  };
+}
+
+/** @returns {HTMLElement|null} */
+const threadSection = () => container.querySelector('[data-entry-thread]');
+
+describe('the thread section (C-THREAD)', () => {
+  test('shows the parent link and the follow-ups, oldest first, after the body', async () => {
+    vi.mocked(entriesApi.get).mockResolvedValueOnce(entry('e-1'));
+    vi.mocked(entriesApi.thread).mockResolvedValueOnce({
+      parent_id: 'p-1',
+      parent: row('p-1'),
+      children: [row('c-1'), row('c-2')],
+    });
+    await showInReader(container, 'e-1');
+    expect(entriesApi.thread).toHaveBeenCalledWith('e-1');
+    const section = threadSection();
+    expect(section).not.toBeNull();
+    expect(section?.textContent).toContain('Follows up');
+    expect(section?.textContent).toContain('Follow-ups (2)');
+    const links = [...(section?.querySelectorAll('[data-thread-entry]') ?? [])].map(
+      (a) => /** @type {HTMLElement} */ (a).dataset.threadEntry
+    );
+    expect(links).toEqual(['p-1', 'c-1', 'c-2']);
+    expect(section?.textContent).toContain('subject of p-1');
+    // The body is still there.
+    expect(container.querySelector('.entry-detail-title')?.textContent).toBe('subject of e-1');
+  });
+
+  test('an unresolved parent shows the bare id, not a link', async () => {
+    vi.mocked(entriesApi.get).mockResolvedValueOnce(entry('e-1'));
+    vi.mocked(entriesApi.thread).mockResolvedValueOnce({
+      parent_id: 'gone-9',
+      parent: null,
+      children: [],
+    });
+    await showInReader(container, 'e-1');
+    const section = threadSection();
+    expect(section?.textContent).toContain('Follows up');
+    expect(section?.textContent).toContain('gone-9');
+    expect(section?.querySelector('[data-thread-entry]')).toBeNull();
+    expect(section?.textContent).not.toContain('Follow-ups (');
+  });
+
+  test('an entry with no thread shows no section', async () => {
+    vi.mocked(entriesApi.get).mockResolvedValueOnce(entry('e-1'));
+    vi.mocked(entriesApi.thread).mockResolvedValueOnce({
+      parent_id: null,
+      parent: null,
+      children: [],
+    });
+    await showInReader(container, 'e-1');
+    expect(threadSection()).toBeNull();
+  });
+
+  test('a failed thread fetch omits the section and keeps the entry', async () => {
+    vi.mocked(entriesApi.get).mockResolvedValueOnce(entry('e-1'));
+    vi.mocked(entriesApi.thread).mockRejectedValueOnce(new Error('500'));
+    const shown = await showInReader(container, 'e-1');
+    expect(shown.entry_id).toBe('e-1');
+    expect(threadSection()).toBeNull();
+    expect(container.querySelector('.entry-detail-title')?.textContent).toBe('subject of e-1');
+    expect(container.textContent).not.toContain('Failed');
+  });
+
+  test('a late thread response for a superseded entry renders nothing', async () => {
+    const late = deferred();
+    vi.mocked(entriesApi.get)
+      .mockResolvedValueOnce(entry('old'))
+      .mockResolvedValueOnce(entry('new'));
+    vi.mocked(entriesApi.thread)
+      .mockReturnValueOnce(late.promise)
+      .mockResolvedValueOnce({ parent_id: null, parent: null, children: [] });
+    const p1 = showInReader(container, 'old');
+    await vi.waitFor(() => expect(entriesApi.thread).toHaveBeenCalledTimes(1));
+    await showInReader(container, 'new');
+    late.resolve({ parent_id: 'p-1', parent: row('p-1'), children: [row('c-1')] });
+    await p1;
+    expect(threadSection()).toBeNull();
+    expect(container.querySelector('.entry-detail-title')?.textContent).toBe('subject of new');
+  });
+
+  test('a thread link selects that entry through onSelectEntry', async () => {
+    vi.mocked(entriesApi.get).mockResolvedValueOnce(entry('e-1'));
+    vi.mocked(entriesApi.thread).mockResolvedValueOnce({
+      parent_id: 'p-1',
+      parent: row('p-1'),
+      children: [row('c-1')],
+    });
+    const onSelectEntry = vi.fn();
+    await showInReader(container, 'e-1', { onSelectEntry });
+    /** @type {HTMLElement} */ (container.querySelector('[data-thread-entry="c-1"]')).click();
+    expect(onSelectEntry).toHaveBeenCalledWith('c-1');
+  });
+
+  test('thread text is escaped', async () => {
+    vi.mocked(entriesApi.get).mockResolvedValueOnce(entry('e-1'));
+    vi.mocked(entriesApi.thread).mockResolvedValueOnce({
+      parent_id: '<img src=x onerror=alert(1)>',
+      parent: null,
+      children: [row('c"><b>x</b>', '<script>alert(1)</script>')],
+    });
+    await showInReader(container, 'e-1');
+    const section = threadSection();
+    expect(section?.querySelector('img, script, b')).toBeNull();
+    expect(section?.textContent).toContain('<script>alert(1)</script>');
+    expect(section?.textContent).toContain('<img src=x onerror=alert(1)>');
+    const link = /** @type {HTMLElement} */ (section?.querySelector('[data-thread-entry]'));
+    expect(link.dataset.threadEntry).toBe('c"><b>x</b>');
+  });
+});
+
+describe('the Follow up action', () => {
+  test('renders in the entry and calls onFollowUp with the entry id', async () => {
+    vi.mocked(entriesApi.get).mockResolvedValueOnce(entry('e-7'));
+    vi.mocked(entriesApi.thread).mockRejectedValueOnce(new Error('offline'));
+    const onFollowUp = vi.fn();
+    await showInReader(container, 'e-7', { onFollowUp });
+    const button = /** @type {HTMLButtonElement} */ (container.querySelector('[data-follow-up]'));
+    expect(button).not.toBeNull();
+    expect(button.textContent).toContain('Follow up');
+    button.click();
+    expect(onFollowUp).toHaveBeenCalledWith('e-7');
+  });
+
+  test('the newest call owns the callbacks', async () => {
+    vi.mocked(entriesApi.get).mockResolvedValueOnce(entry('a')).mockResolvedValueOnce(entry('b'));
+    const first = vi.fn();
+    const second = vi.fn();
+    await showInReader(container, 'a', { onFollowUp: first });
+    await showInReader(container, 'b', { onFollowUp: second });
+    /** @type {HTMLElement} */ (container.querySelector('[data-follow-up]')).click();
+    expect(first).not.toHaveBeenCalled();
+    expect(second).toHaveBeenCalledWith('b');
   });
 });

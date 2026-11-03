@@ -1292,6 +1292,8 @@ class ARIELSearchService:
         set is checked in full, live choices included. The adapter receives the
         declared values only; ARIEL's own keys are rebuilt, never copied. The
         local copy keeps the stored ``created_via`` and ``session_metadata``.
+        A stored ``follows_up`` is checked before any facility write and carried
+        into both the local and the adapter metadata.
         With no declared fields the request is the one built without them. An
         adapter that declares ``supports_attachments`` also receives the files
         ARIEL stores natively for the entry.
@@ -1310,13 +1312,15 @@ class ARIELSearchService:
             KeyError: If entry_id not found in ARIEL database
             NotImplementedError: If the adapter doesn't support writes
             EntryFieldError: If a merged value is missing, invalid or
-                undeclared, naming the field
+                undeclared, naming the field; or naming ``follows_up`` when the
+                stored parent is not an entry ARIEL holds
             EntryFieldOptionsUnavailable: If a live choice check cannot list
                 the choices
             IngestionError: If a native file of the entry has no stored copy
                 to publish; nothing is written
         """
         from osprey.services.ariel_search.entry_fields import (
+            check_follows_up,
             entry_field_descriptors,
             resolve_entry_write,
             validate_entry_fields,
@@ -1334,6 +1338,7 @@ class ARIELSearchService:
             )
 
         stored: dict[str, Any] = entry.get("metadata") or {}
+        follows_up = await check_follows_up(stored, self.repository.get_entry, entry_id=entry_id)
         descriptors = entry_field_descriptors(self.config)
         names = {descriptor.name for descriptor in descriptors}
 
@@ -1358,6 +1363,7 @@ class ARIELSearchService:
             tags=stored.get("tags", []),
             created_via=stored.get("created_via") or None,
             session_metadata=stored.get("session_metadata"),
+            follows_up=follows_up,
         )
 
         from osprey.services.ariel_search.subject import entry_subject

@@ -78,148 +78,6 @@
 
       <div class="ariel-list-col" id="ariel-list-col">
         <section class="ariel-pane ariel-list" id="ariel-list" aria-label="Entries"></section>
-
-        <!-- Compose host: covers the list pane, never the reader. -->
-        <section class="ariel-compose" id="ariel-compose" aria-label="New entry" hidden>
-          <div class="osprey-pane-head ariel-compose-head">
-            <span class="ariel-pane-title">New Entry</span>
-          </div>
-          <div class="ariel-compose-body">
-        <form id="create-entry-form" class="create-entry-form">
-          <div class="form-section">
-            <div class="input-group">
-              <label class="input-label" for="entry-subject">Subject *</label>
-              <input
-                type="text"
-                id="entry-subject"
-                name="subject"
-                class="input"
-                placeholder="Brief summary of this entry"
-                required
-              >
-            </div>
-          </div>
-
-          <div class="form-section">
-            <div class="input-group">
-              <label class="input-label" for="entry-details">Details *</label>
-              <textarea
-                id="entry-details"
-                name="details"
-                class="input"
-                placeholder="Full description of events, observations, or procedures..."
-                rows="8"
-                required
-              ></textarea>
-            </div>
-          </div>
-
-          <div class="form-section">
-            <div class="form-section-title">Metadata</div>
-            <div class="form-row">
-              <div class="input-group">
-                <label class="input-label" for="entry-author">Author</label>
-                <input
-                  type="text"
-                  id="entry-author"
-                  name="author"
-                  class="input"
-                  placeholder="Your name"
-                >
-              </div>
-              <div class="input-group">
-                <label class="input-label" for="entry-logbook">Logbook</label>
-                <input
-                  type="text"
-                  id="entry-logbook"
-                  name="logbook"
-                  class="input"
-                  placeholder="Logbook to file under"
-                >
-              </div>
-              <div class="input-group">
-                <label class="input-label" for="entry-shift">Shift</label>
-                <input
-                  type="text"
-                  id="entry-shift"
-                  name="shift"
-                  class="input"
-                  placeholder="Shift or run block"
-                >
-              </div>
-            </div>
-          </div>
-
-          <div id="entry-fields"></div>
-
-          <div class="form-section">
-            <div class="form-section-title">Tags</div>
-            <div class="input-group">
-              <div id="entry-tags" style="display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 8px;"></div>
-              <input
-                type="text"
-                id="entry-tags-input"
-                class="input"
-                placeholder="Type a tag and press Enter"
-              >
-            </div>
-          </div>
-
-          <div class="form-section">
-            <div class="form-section-title">Logbook Publishing</div>
-            <div id="publish-helper" class="text-xs text-muted" style="margin-bottom: 8px;">Credentials may be required to publish, depending on the configured logbook.</div>
-            <div id="publish-credentials">
-              <div class="input-group">
-                <label for="entry-auth-user">Logbook Username</label>
-                <input
-                  type="text"
-                  id="entry-auth-user"
-                  name="auth_user"
-                  class="input"
-                  placeholder="Username (required to publish)"
-                  autocomplete="username"
-                >
-              </div>
-              <div class="input-group">
-                <label for="entry-auth-password">Logbook Password</label>
-                <input
-                  type="password"
-                  id="entry-auth-password"
-                  name="auth_password"
-                  class="input"
-                  placeholder="Password"
-                  autocomplete="current-password"
-                >
-              </div>
-            </div>
-          </div>
-
-          <div class="form-section">
-            <div class="form-section-title">Attachments</div>
-            <div class="input-group">
-              <input
-                type="file"
-                id="entry-files"
-                class="input"
-                multiple
-                style="padding: 8px;"
-              >
-              <div class="text-xs text-muted" style="margin-top: 4px;">Max 10 MB per file. Images will show previews.</div>
-              <div id="file-preview" style="display: flex; flex-wrap: wrap; gap: 12px; margin-top: 12px;"></div>
-            </div>
-          </div>
-
-          <div class="form-actions">
-            <button type="button" class="btn btn-secondary" id="create-cancel-btn">
-              Cancel
-            </button>
-            <button type="submit" class="btn btn-primary">
-              Submit Entry
-            </button>
-          </div>
-        </form>
-          </div>
-        </section>
       </div>
       <div class="osprey-splitter" id="ariel-list-splitter" role="separator"
            aria-orientation="vertical" aria-label="Resize entry list" tabindex="0"></div>
@@ -232,6 +90,163 @@
         <!-- The reader body is the container entries render into; it is
              never re-created. -->
         <div class="ariel-reader-body" id="ariel-reader-body"></div>
+      </section>
+
+      <!-- Compose sheet (Decisions 10, 11): a sibling of the panes, not a child
+           of .ariel-list-col, so it escapes that column's containing block and
+           its stacked display:none. It sits over the list column (entries.js
+           places it), spans the panel when maximised, and covers the whole
+           tile when stacked. -->
+      <section class="ariel-compose" id="ariel-compose" aria-label="New entry" hidden>
+        <div class="osprey-pane-head ariel-compose-head">
+          <span class="ariel-pane-title" id="ariel-compose-title">New entry</span>
+          <span class="ariel-compose-spacer"></span>
+          <button type="button" class="osprey-icon-btn ariel-compose-max" id="ariel-compose-max"
+                  aria-pressed="false" aria-label="Expand" title="Expand">&#x2922;</button>
+          <button type="button" class="osprey-icon-btn ariel-compose-close" id="ariel-compose-close"
+                  aria-label="Close" title="Close (Esc)">&#x2715;</button>
+        </div>
+        <form id="create-entry-form" class="create-entry-form ariel-compose-form">
+          <div class="ariel-compose-body">
+            <!-- Filled by the draft fill when the draft records who staged it. -->
+            <div class="ariel-compose-banner" id="ariel-compose-banner" hidden></div>
+            <!-- Filled by the follow-up fill: the parent entry, read-only. -->
+            <div class="ariel-compose-parent" id="ariel-compose-parent" hidden>
+              <span class="ariel-compose-parent-label">Follows up</span>
+              <span class="ariel-compose-parent-ref" id="ariel-compose-parent-ref"></span>
+            </div>
+            <div class="form-section">
+              <div class="input-group">
+                <label class="input-label" for="entry-subject">Subject *</label>
+                <input
+                  type="text"
+                  id="entry-subject"
+                  name="subject"
+                  class="input"
+                  placeholder="Brief summary of this entry"
+                  required
+                >
+              </div>
+            </div>
+
+            <div class="form-section">
+              <div class="input-group">
+                <label class="input-label" for="entry-details">Details *</label>
+                <textarea
+                  id="entry-details"
+                  name="details"
+                  class="input"
+                  placeholder="Full description of events, observations, or procedures..."
+                  rows="8"
+                  required
+                ></textarea>
+              </div>
+            </div>
+
+            <div class="form-section">
+              <div class="form-section-title">Metadata</div>
+              <div class="form-row">
+                <div class="input-group">
+                  <label class="input-label" for="entry-author">Author</label>
+                  <input
+                    type="text"
+                    id="entry-author"
+                    name="author"
+                    class="input"
+                    placeholder="Your name"
+                  >
+                </div>
+                <div class="input-group">
+                  <label class="input-label" for="entry-logbook">Logbook</label>
+                  <input
+                    type="text"
+                    id="entry-logbook"
+                    name="logbook"
+                    class="input"
+                    placeholder="Logbook to file under"
+                  >
+                </div>
+                <div class="input-group">
+                  <label class="input-label" for="entry-shift">Shift</label>
+                  <input
+                    type="text"
+                    id="entry-shift"
+                    name="shift"
+                    class="input"
+                    placeholder="Shift or run block"
+                  >
+                </div>
+              </div>
+            </div>
+
+            <div id="entry-fields"></div>
+
+            <div class="form-section">
+              <div class="form-section-title">Tags</div>
+              <div class="input-group">
+                <div id="entry-tags" style="display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 8px;"></div>
+                <input
+                  type="text"
+                  id="entry-tags-input"
+                  class="input"
+                  placeholder="Type a tag and press Enter"
+                >
+              </div>
+            </div>
+
+            <div class="form-section">
+              <div class="form-section-title">Logbook Publishing</div>
+              <div id="publish-helper" class="text-xs text-muted" style="margin-bottom: 8px;">Credentials may be required to publish, depending on the configured logbook.</div>
+              <div id="publish-credentials">
+                <div class="input-group">
+                  <label for="entry-auth-user">Logbook Username</label>
+                  <input
+                    type="text"
+                    id="entry-auth-user"
+                    name="auth_user"
+                    class="input"
+                    placeholder="Username (required to publish)"
+                    autocomplete="username"
+                  >
+                </div>
+                <div class="input-group">
+                  <label for="entry-auth-password">Logbook Password</label>
+                  <input
+                    type="password"
+                    id="entry-auth-password"
+                    name="auth_password"
+                    class="input"
+                    placeholder="Password"
+                    autocomplete="current-password"
+                  >
+                </div>
+              </div>
+            </div>
+
+            <div class="form-section">
+              <div class="form-section-title">Attachments</div>
+              <div class="input-group">
+                <input
+                  type="file"
+                  id="entry-files"
+                  class="input"
+                  multiple
+                  style="padding: 8px;"
+                >
+                <div class="text-xs text-muted" style="margin-top: 4px;">Max 10 MB per file. Images will show previews.</div>
+                <div id="file-preview" class="ariel-compose-preview"></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="ariel-compose-foot">
+            <button type="submit" class="btn btn-primary">Submit</button>
+            <button type="button" class="btn btn-secondary" id="create-cancel-btn">Discard</button>
+            <span class="ariel-compose-spacer"></span>
+            <span class="ariel-compose-saved" id="ariel-compose-saved" aria-live="polite"></span>
+            <span class="ariel-compose-dest" id="ariel-compose-dest"></span>
+          </div>
+        </form>
       </section>
     </div>
   </div>

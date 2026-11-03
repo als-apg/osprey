@@ -116,6 +116,10 @@ function renderAttachmentCard(att) {
  * @property {(attachmentId: string) => void} [onAttachmentMissing] - Called
  *   when `showInReader`'s `attachmentId` names no viewable, safe picture of
  *   the entry, so nothing opened
+ * @property {(entryId: string) => void} [onSelectEntry] - Called when a
+ *   thread link (the parent or a follow-up) is clicked, with its entry id
+ * @property {(entryId: string) => void} [onFollowUp] - Called when the
+ *   entry's Follow up action is clicked, with the shown entry's id
  */
 
 /**
@@ -183,6 +187,7 @@ function bindDelegation(container) {
   state.delegated = true;
   container.addEventListener('click', (e) => {
     const target = /** @type {HTMLElement|null} */ (e.target);
+    if (handleThreadClick(container, target)) return;
     const thumb = /** @type {HTMLElement|null} */ (
       target?.closest?.('[data-lightbox-url]') ?? null
     );
@@ -194,6 +199,94 @@ function bindDelegation(container) {
       thumb.dataset.attachmentId || null
     );
   });
+}
+
+/**
+ * Route a click on a thread link or the Follow up action to the newest call's
+ * callbacks.
+ * @param {HTMLElement} container
+ * @param {HTMLElement|null} target - The click target
+ * @returns {boolean} whether the click was one of these
+ */
+function handleThreadClick(container, target) {
+  const { callbacks } = readerState(container);
+  const link = /** @type {HTMLElement|null} */ (target?.closest?.('[data-thread-entry]') ?? null);
+  if (link && container.contains(link)) {
+    callbacks.onSelectEntry?.(link.dataset.threadEntry || '');
+    return true;
+  }
+  const follow = /** @type {HTMLElement|null} */ (target?.closest?.('[data-follow-up]') ?? null);
+  if (follow && container.contains(follow)) {
+    callbacks.onFollowUp?.(follow.dataset.followUp || '');
+    return true;
+  }
+  return false;
+}
+
+/**
+ * One thread row as a link that selects the entry.
+ * @param {any} row - A C-THREAD `RowResponse`
+ * @returns {string} HTML string
+ */
+function renderThreadLink(row) {
+  const id = String(row.entry_id ?? '');
+  const subject = row.subject || id;
+  return `
+    <li>
+      <button type="button" class="entry-thread-link" data-thread-entry="${escapeHtml(id)}">
+        <span class="entry-thread-subject">${escapeHtml(subject)}</span>
+        <span class="entry-thread-meta font-mono">${escapeHtml(formatTimestamp(row.timestamp))}</span>
+        <span class="entry-thread-meta">${escapeHtml(row.author || '')}</span>
+      </button>
+    </li>`;
+}
+
+/**
+ * The C-THREAD section: "Follows up" (the parent link, or the bare id when the
+ * parent is not held) and "Follow-ups (n)". Empty when the entry has neither.
+ * @param {any} thread - `{parent_id, parent, children}`
+ * @returns {string} HTML string
+ */
+export function renderThreadSection(thread) {
+  const parentId = thread?.parent_id;
+  const children = Array.isArray(thread?.children) ? thread.children : [];
+  const parts = [];
+  if (parentId) {
+    const parent = thread.parent
+      ? `<ul class="entry-thread-list">${renderThreadLink(thread.parent)}</ul>`
+      : `<div class="entry-thread-missing font-mono">${escapeHtml(parentId)}</div>`;
+    parts.push(`<h4>Follows up</h4>${parent}`);
+  }
+  if (children.length > 0) {
+    parts.push(
+      `<h4>Follow-ups (${children.length})</h4>
+      <ul class="entry-thread-list">${children.map(renderThreadLink).join('')}</ul>`
+    );
+  }
+  if (parts.length === 0) return '';
+  return `<div class="entry-detail-content entry-thread" data-entry-thread>${parts.join('')}</div>`;
+}
+
+/**
+ * Fetch the entry's thread and append its section to the rendered entry, when
+ * this is still the newest call. A failed fetch leaves the entry as it is.
+ * @param {HTMLElement} container
+ * @param {string} entryId
+ * @param {number} seq - The call's sequence number
+ */
+async function renderThread(container, entryId, seq) {
+  const state = readerState(container);
+  /** @type {any} */
+  let thread;
+  try {
+    thread = await entriesApi.thread(entryId);
+  } catch {
+    return;
+  }
+  if (seq !== state.seq || !thread || typeof thread !== 'object') return;
+  const html = renderThreadSection(thread);
+  if (!html) return;
+  container.querySelector('.entry-detail-main')?.insertAdjacentHTML('beforeend', html);
 }
 
 /**
@@ -209,10 +302,17 @@ function bindDelegation(container) {
  *   superseded)
  */
 export async function showInReader(container, entryId, options = {}) {
-  const { attachmentId = null, onAttachmentOpen, onAttachmentClose, onAttachmentMissing } = options;
+  const {
+    attachmentId = null,
+    onAttachmentOpen,
+    onAttachmentClose,
+    onAttachmentMissing,
+    onSelectEntry,
+    onFollowUp,
+  } = options;
   const state = readerState(container);
   const seq = ++state.seq;
-  state.callbacks = { onAttachmentOpen, onAttachmentClose };
+  state.callbacks = { onAttachmentOpen, onAttachmentClose, onSelectEntry, onFollowUp };
   bindDelegation(container);
   container.innerHTML = renderLoading('Loading entry...');
 
@@ -244,6 +344,7 @@ export async function showInReader(container, entryId, options = {}) {
       );
     if (!opened) onAttachmentMissing?.(attachmentId);
   }
+  await renderThread(container, entry.entry_id || entryId, seq);
   return entry;
 }
 
@@ -359,7 +460,11 @@ export function renderEntryDetail(container, entry) {
   container.innerHTML = `
     <div class="entry-detail">
       <div class="entry-detail-header">
-        <h2 class="entry-detail-title">${escapeHtml(subject)}</h2>
+        <div class="entry-detail-title-row">
+          <h2 class="entry-detail-title">${escapeHtml(subject)}</h2>
+          <button type="button" class="btn btn-secondary btn-sm entry-follow-up"
+                  data-follow-up="${escapeHtml(entry.entry_id)}">\u21a9 Follow up</button>
+        </div>
         <div class="entry-detail-meta">
           <span class="entry-id font-mono text-accent-secondary">${escapeHtml(entry.entry_id)}</span>
           <span class="timestamp font-mono">${escapeHtml(time)}</span>

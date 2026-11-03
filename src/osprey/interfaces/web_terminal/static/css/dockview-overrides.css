@@ -307,7 +307,7 @@
 
 /* ---- Contribution region: subtitle + the panel-controls slot ----
  * Rendered by tile-header-contrib.js from an embedded panel's
- * `osprey-header-contribution`. Fills the bar between the tile name and the
+ * `canopy-host-header-contribution`. Fills the bar between the tile name and the
  * close button, with no divider fence: inert `text` items are the tile's
  * SUBTITLE and read left, beside the name (they are identity, not a
  * control), while every interactive control right-anchors toward the

@@ -2229,7 +2229,7 @@ def test_overlay_iframe_follows_live_sash_drag(tmp_path, chromium_browser):
 #
 # An embedded panel contributes its toolbar controls INTO the tile bar via
 # postMessage (design_system/js/header-contrib.js → tile-header-contrib.js);
-# clicks round-trip back as osprey-header-action. Proven here with a custom
+# clicks round-trip back as canopy-host-header-action. Proven here with a custom
 # panel whose (proxied, same-origin) page contributes a nav + a button on
 # load and records incoming actions — the full pipeline the unit suites can
 # only cover in halves.
@@ -2238,12 +2238,12 @@ _CONTRIB_PANEL_HTML = b"""<!doctype html>
 <html><body><script>
   window.__actions = [];
   window.addEventListener('message', (e) => {
-    if (e.data && e.data.type === 'osprey-header-action') {
+    if (e.data && e.data.type === 'canopy-host-header-action') {
       window.__actions.push([e.data.id, e.data.value ?? null]);
     }
   });
   parent.postMessage({
-    type: 'osprey-header-contribution',
+    type: 'canopy-host-header-contribution',
     version: 1,
     items: [
       { kind: 'nav', id: 'view', priority: 1, items: [
@@ -2304,7 +2304,7 @@ def test_header_contribution_renders_and_round_trips(reserve_port, tmp_path, chr
 
     The custom panel's page (reverse-proxied same-origin) posts a nav + button
     contribution on load; the bar must render them beside the tile title, a
-    bar click must deliver osprey-header-action back into the iframe, and the
+    bar click must deliver canopy-host-header-action back into the iframe, and the
     artifacts tile (which contributes nothing) must keep an empty region.
     """
     workspace = tmp_path / "_agent_data"
@@ -2347,7 +2347,7 @@ def test_header_contribution_renders_and_round_trips(reserve_port, tmp_path, chr
             expect(ws.locator(".contrib-nav-link")).to_have_count(0)
             expect(ws.locator(".contrib-btn")).to_have_count(0)
 
-            # Round-trip: bar clicks land in the panel as osprey-header-action.
+            # Round-trip: bar clicks land in the panel as canopy-host-header-action.
             tab.locator(".contrib-nav-link", has_text="New Entry").click()
             tab.locator(".contrib-btn", has_text="Refresh").click()
             frame = page.frame_locator('.dock-iframe-overlay iframe[data-panel-id="contrib-demo"]')
@@ -2438,7 +2438,7 @@ _SEARCH_MENU_PANEL_HTML = b"""<!doctype html>
   window.__actions = [];
   function contribution() {
     return {
-      type: 'osprey-header-contribution',
+      type: 'canopy-host-header-contribution',
       version: 1,
       items: [
         // Higher priority survives a narrow tile longer: the filter outranks
@@ -2452,7 +2452,7 @@ _SEARCH_MENU_PANEL_HTML = b"""<!doctype html>
     };
   }
   window.addEventListener('message', (e) => {
-    if (e.data && e.data.type === 'osprey-header-action') {
+    if (e.data && e.data.type === 'canopy-host-header-action') {
       window.__actions.push([e.data.id, e.data.value ?? null]);
       // A real panel reacts and re-sends the WHOLE contribution.
       parent.postMessage(contribution(), window.location.origin);

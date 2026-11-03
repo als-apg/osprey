@@ -32,7 +32,7 @@ vi.mock('../../../src/osprey/interfaces/ariel/static/js/rail.js', () => ({
 function contributions() {
   return postMessage.mock.calls
     .map((c) => c[0])
-    .filter((m) => m && m.type === 'osprey-header-contribution')
+    .filter((m) => m && m.type === 'canopy-host-header-contribution')
     .map((m) => m.items);
 }
 
@@ -52,7 +52,7 @@ function itemOf(items, kind) {
 function hubAction(id, value) {
   window.dispatchEvent(
     new MessageEvent('message', {
-      data: { type: 'osprey-header-action', id, value },
+      data: { type: 'canopy-host-header-action', id, value },
       origin: window.location.origin,
     })
   );
@@ -238,7 +238,7 @@ describe('header actions', () => {
     await boot();
     window.dispatchEvent(
       new MessageEvent('message', {
-        data: { type: 'osprey-header-action', id: 'ariel-compose' },
+        data: { type: 'canopy-host-header-action', id: 'ariel-compose' },
         origin: 'https://evil.example',
       })
     );
