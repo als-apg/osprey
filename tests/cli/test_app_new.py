@@ -210,7 +210,18 @@ def test_a_name_whose_package_would_not_be_its_own_is_refused(
     assert list(_listed(lifecycle_repo)) == [EXAMPLE]
 
 
-@pytest.mark.parametrize("profile", ["apps: [\n", "apps: [demo-x]\n", "- a\n"])
+@pytest.mark.parametrize(
+    "profile",
+    [
+        "apps: [\n",
+        "apps: [demo-x]\n",
+        "- a\n",
+        "[]\n",
+        "false\n",
+        "0\n",
+        "apps: {}\napps: {}\n",
+    ],
+)
 def test_force_over_an_unreadable_profile_leaves_the_application_alone(
     runner: CliRunner, lifecycle_repo: Path, profile: str
 ) -> None:
