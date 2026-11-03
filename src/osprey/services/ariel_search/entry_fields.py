@@ -14,6 +14,8 @@ Public surface:
 * :class:`EntryFieldOptionsUnavailable` -- the adapter could not list the
   choices of a ``dynamic_select`` field.
 * :func:`check_declarations` -- refuse a broken set of declarations.
+* :func:`check_follows_up` -- check the ``follows_up`` id an entry write
+  carries, and return it.
 * :func:`coerce_entry_value` -- turn one submitted value into its JSON-native
   form, or refuse it.
 * :func:`entry_field_descriptors` -- the configured adapter's checked
@@ -33,7 +35,7 @@ import copy
 import datetime
 import math
 import re
-from collections.abc import Callable, Sequence
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
@@ -57,6 +59,7 @@ __all__ = [
     "OPTIONS_TIMEOUT_SECONDS",
     "ResolvedEntryWrite",
     "check_declarations",
+    "check_follows_up",
     "coerce_entry_value",
     "entry_field_descriptors",
     "fetch_entry_field_options",
@@ -73,10 +76,14 @@ ALL_PARAM_TYPES: frozenset[str] = STATIC_PARAM_TYPES | {"dynamic_select"}
 
 #: Names an entry field may not take, because the entry already carries them.
 #: ``logbook`` and ``shift`` are deliberately absent: declaring them replaces
-#: the built-in input.
+#: the built-in input. ``follows_up`` is the id of the entry this one follows
+#: up (see :func:`check_follows_up`).
 RESERVED_FIELD_NAMES: frozenset[str] = frozenset(
-    {"tags", "sync_status", "created_via", "session_metadata", "title"}
+    {"tags", "sync_status", "created_via", "session_metadata", "title", "follows_up"}
 )
+
+#: Metadata key naming the ARIEL entry an entry follows up.
+FOLLOWS_UP_KEY = "follows_up"
 
 #: Filter-dimension names a ``facet: true`` field may not take, because the
 #: filter model already has a dimension (or the ``time`` window) by that name.
@@ -368,11 +375,11 @@ class ResolvedEntryWrite:
         shift: Value for the request's ``shift`` field.
         adapter_metadata: Metadata handed to the facility adapter: the declared
             values only, plus the resolved ``logbook``/``shift`` when any field
-            is declared; empty when none is.
+            is declared, plus ``follows_up`` when given; otherwise empty.
         local_metadata: Metadata of ARIEL's own copy of the entry: the declared
-            values, ``session_metadata`` when given, then ``logbook``, ``shift``,
-            ``tags`` and ``created_via`` (when given), which no submitted value
-            overrides.
+            values, ``session_metadata`` and ``follows_up`` when given, then
+            ``logbook``, ``shift``, ``tags`` and ``created_via`` (when given),
+            which no submitted value overrides.
             ``sync_status`` is never set here; the store that keeps the copy
             sets it.
     """
@@ -381,6 +388,47 @@ class ResolvedEntryWrite:
     shift: str | None
     adapter_metadata: dict[str, Any] = field(default_factory=dict)
     local_metadata: dict[str, Any] = field(default_factory=dict)
+
+
+async def check_follows_up(
+    metadata: Mapping[str, Any] | None,
+    get_entry: Callable[[str], Awaitable[Any]],
+    *,
+    entry_id: str | None = None,
+) -> str | None:
+    """Check the ``follows_up`` id an entry write carries, and return it.
+
+    A missing key, ``None`` or ``""`` means the entry follows up nothing. Any
+    other value must be the string id of an entry ARIEL holds, and not the
+    writing entry's own id. Called by every write path before any facility
+    write; ingest never calls it.
+
+    Args:
+        metadata: The metadata the write carries, or ``None``.
+        get_entry: Looks one entry up by id, returning ``None`` when ARIEL does
+            not hold it (``ARIELRepository.get_entry``).
+        entry_id: The writing entry's own id, when it already has one.
+
+    Returns:
+        The parent's id, or ``None`` when the entry follows up nothing.
+
+    Raises:
+        EntryFieldError: Naming ``follows_up``, when the value is not a string,
+            is the entry's own id, or names an entry ARIEL does not hold.
+    """
+    value = (metadata or {}).get(FOLLOWS_UP_KEY)
+    if value is None or value == "":
+        return None
+    if not isinstance(value, str):
+        raise EntryFieldError(
+            FOLLOWS_UP_KEY,
+            f"follows_up must be an entry id (a string), got {type(value).__name__}",
+        )
+    if entry_id is not None and value == entry_id:
+        raise EntryFieldError(FOLLOWS_UP_KEY, f"entry '{value}' cannot follow up itself")
+    if await get_entry(value) is None:
+        raise EntryFieldError(FOLLOWS_UP_KEY, f"follows_up names no known entry: '{value}'")
+    return value
 
 
 def resolve_entry_write(
@@ -392,6 +440,7 @@ def resolve_entry_write(
     tags: Sequence[str],
     created_via: str | None,
     session_metadata: dict[str, Any] | None = None,
+    follows_up: str | None = None,
 ) -> ResolvedEntryWrite:
     """Turn the inputs of one entry write into the request fields and metadata it uses.
 
@@ -414,6 +463,9 @@ def resolve_entry_write(
             ``None`` leaves the key out of the local metadata.
         session_metadata: Provenance of the writing session, kept in the local
             copy only.
+        follows_up: The checked id of the entry this one follows up (see
+            :func:`check_follows_up`), copied into both metadata dicts;
+            ``None`` leaves the key out of both.
 
     Returns:
         The resolved write; its dictionaries share nothing with the inputs.
@@ -449,10 +501,14 @@ def resolve_entry_write(
                 adapter_metadata[name] = value
             else:
                 adapter_metadata.pop(name, None)
+    if follows_up is not None:
+        adapter_metadata[FOLLOWS_UP_KEY] = follows_up
 
     local_metadata: dict[str, Any] = copy.deepcopy(values)
     if session_metadata is not None:
         local_metadata["session_metadata"] = copy.deepcopy(session_metadata)
+    if follows_up is not None:
+        local_metadata[FOLLOWS_UP_KEY] = follows_up
     local_metadata["logbook"] = resolved["logbook"]
     local_metadata["shift"] = resolved["shift"]
     local_metadata["tags"] = list(tags)

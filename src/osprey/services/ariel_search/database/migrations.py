@@ -496,6 +496,12 @@ KNOWN_MIGRATIONS: list[tuple[str, str, str, str | None]] = [
         "EntrySubjectBackfillMigration",
         None,  # Always runs
     ),
+    (
+        "follows_up_index",
+        "osprey.services.ariel_search.database.follows_up_migration",
+        "FollowsUpIndexMigration",
+        None,  # Always runs
+    ),
 ]
 
 
