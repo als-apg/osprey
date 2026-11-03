@@ -511,7 +511,7 @@ async def test_ariel_entry_create_direct_does_not_steal_focus(_ariel_context):
     with (
         _patch_ariel_service(mock_service),
         patch(f"{_ARIEL_ENTRY_MOD}.notify_agent_activity_async"),
-        patch("osprey.mcp_server.http.notify_panel_focus") as focus,
+        patch("osprey.mcp_server.http.panel_op") as focus,
     ):
         await _get_ariel_tool("entry", "entry_create")(
             subject="Beam lost", details="Injector trip at 03:12", draft=False
@@ -1567,23 +1567,23 @@ async def test_setup_patch_safety_prefix_is_exact_case():
     )
 
 
+@pytest.mark.parametrize(
+    ("file", "key_path", "value"),
+    [
+        # A file outside the whitelist was never opened — emit nothing.
+        pytest.param("settings.json", "permissions.deny", "[]", id="unpatchable-file"),
+        # A rejected key path changed nothing — emit nothing.
+        pytest.param("config.yml", "", "1", id="empty-key-path"),
+        pytest.param("config.yml", "../../etc/passwd", "1", id="traversal-key-path"),
+        pytest.param("config.yml", "/abs/path", "1", id="absolute-key-path"),
+        pytest.param("config.yml", "has space", "1", id="key-path-with-space"),
+    ],
+)
 @pytest.mark.usefixtures("setup_project")
-async def test_setup_patch_unpatchable_file_no_emit():
-    """A file outside the whitelist was never opened — emit nothing."""
+async def test_setup_patch_rejected_patch_no_emit(file, key_path, value):
     with patch(f"{_SETUP_MOD}.notify_agent_activity_async") as notify:
         with assert_raises_error(error_type="validation_error"):
-            await _get_setup_patch()(file="settings.json", key_path="permissions.deny", value="[]")
-
-    notify.assert_not_called()
-
-
-@pytest.mark.parametrize("key_path", ["", "../../etc/passwd", "/abs/path", "has space"])
-@pytest.mark.usefixtures("setup_project")
-async def test_setup_patch_invalid_key_path_no_emit(key_path):
-    """A rejected key path changed nothing — emit nothing."""
-    with patch(f"{_SETUP_MOD}.notify_agent_activity_async") as notify:
-        with assert_raises_error(error_type="validation_error"):
-            await _get_setup_patch()(file="config.yml", key_path=key_path, value="1")
+            await _get_setup_patch()(file=file, key_path=key_path, value=value)
 
     notify.assert_not_called()
 

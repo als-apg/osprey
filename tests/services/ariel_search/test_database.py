@@ -264,7 +264,15 @@ class TestMigrationTopologicalSort:
 class TestRequiresModule:
     """Tests for requires_module decorator."""
 
-    def test_module_not_enabled_raises(self) -> None:
+    @pytest.mark.parametrize(
+        ("module_type", "module_name"),
+        [
+            pytest.param("enhancement", "text_embedding", id="disabled-module"),
+            # An unknown module type is treated as disabled.
+            pytest.param("unknown_type", "some_module", id="unknown-module-type"),
+        ],
+    )
+    def test_module_not_enabled_raises(self, module_type: str, module_name: str) -> None:
         """Test that disabled module raises ModuleNotEnabledError."""
         from osprey.services.ariel_search.database.repository import (
             ARIELRepository,
@@ -279,11 +287,11 @@ class TestRequiresModule:
 
         repo = ARIELRepository(MockPool(), config)  # type: ignore[arg-type]
 
-        @requires_module("enhancement", "text_embedding")
+        @requires_module(module_type, module_name)
         def test_method(self: ARIELRepository) -> str:  # noqa: ARG001 - the decorator reads the receiver
             return "success"
 
-        with pytest.raises(ModuleNotEnabledError, match="text_embedding"):
+        with pytest.raises(ModuleNotEnabledError, match=module_name):
             test_method(repo)
 
     def test_module_enabled_succeeds(self) -> None:
@@ -342,28 +350,6 @@ class TestRequiresModule:
             return "success"
 
         with pytest.raises(ModuleNotEnabledError, match="keyword"):
-            test_method(repo)
-
-    def test_unknown_module_type_disabled(self) -> None:
-        """Test unknown module type is treated as disabled."""
-        from osprey.services.ariel_search.database.repository import (
-            ARIELRepository,
-            requires_module,
-        )
-        from osprey.services.ariel_search.exceptions import ModuleNotEnabledError
-
-        config = ARIELConfig(database=DatabaseConfig(uri="postgresql://localhost:5432/test"))
-
-        class MockPool:
-            pass
-
-        repo = ARIELRepository(MockPool(), config)  # type: ignore[arg-type]
-
-        @requires_module("unknown_type", "some_module")
-        def test_method(self: ARIELRepository) -> str:  # noqa: ARG001 - the decorator reads the receiver
-            return "success"
-
-        with pytest.raises(ModuleNotEnabledError, match="some_module"):
             test_method(repo)
 
 

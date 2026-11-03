@@ -72,12 +72,20 @@ def test_a_blank_tree_bind_is_not_a_bound_tree(monkeypatch):
 
 
 @pytest.mark.parametrize("bound", [False, True], ids=["host", "tree"])
-def test_an_owner_missing_from_the_map_is_unknown(monkeypatch, tmp_path, bound):
+@pytest.mark.parametrize(
+    ("tiers", "term"),
+    [
+        pytest.param({"bob": "allowed"}, "unknown", id="owner-missing-from-the-map"),
+        pytest.param({"alice": "never"}, "never", id="mapped-never"),
+        pytest.param({"alice": "asked"}, "asked", id="mapped-asked"),
+    ],
+)
+def test_an_owner_reads_as_the_tier_the_map_gives_them(monkeypatch, tmp_path, bound, tiers, term):
     if bound:
         monkeypatch.setenv(TREE_ENV, str(tmp_path))
     else:
         monkeypatch.delenv(TREE_ENV, raising=False)
-    assert owner_tier_term(_section({"bob": "allowed"}), "alice") == "unknown"
+    assert owner_tier_term(_section(tiers), "alice") == term
 
 
 @pytest.mark.usefixtures("no_tree")
@@ -85,27 +93,9 @@ def test_an_empty_map_knows_no_owner():
     assert owner_tier_term(_section({}), "alice") == "unknown"
 
 
-@pytest.mark.parametrize("bound", [False, True], ids=["host", "tree"])
-def test_a_mapped_never_is_never(monkeypatch, tmp_path, bound):
-    if bound:
-        monkeypatch.setenv(TREE_ENV, str(tmp_path))
-    else:
-        monkeypatch.delenv(TREE_ENV, raising=False)
-    assert owner_tier_term(_section({"alice": "never"}), "alice") == "never"
-
-
 @pytest.mark.usefixtures("tree")
 def test_a_mapped_allowed_is_allowed():
     assert owner_tier_term(_section({"alice": "allowed"}), "alice") == "allowed"
-
-
-@pytest.mark.parametrize("bound", [False, True], ids=["host", "tree"])
-def test_a_mapped_asked_is_asked(monkeypatch, tmp_path, bound):
-    if bound:
-        monkeypatch.setenv(TREE_ENV, str(tmp_path))
-    else:
-        monkeypatch.delenv(TREE_ENV, raising=False)
-    assert owner_tier_term(_section({"alice": "asked"}), "alice") == "asked"
 
 
 @pytest.mark.usefixtures("no_tree")

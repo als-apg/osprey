@@ -459,19 +459,19 @@ class TestConfigRead:
 
 
 class TestEdgeCases:
-    def test_empty_file(self, tmp_path):
-        p = tmp_path / "empty.yml"
-        p.write_text("", encoding="utf-8")
-        config_update_fields(p, {"key": "value"})
+    @pytest.mark.parametrize(
+        ("filename", "content", "new_value"),
+        [
+            pytest.param("empty.yml", "", "value", id="empty-file"),
+            pytest.param("minimal.yml", "key: value\n", "new_value", id="minimal-file"),
+        ],
+    )
+    def test_update_fields_on_a_small_file(self, tmp_path, filename, content, new_value):
+        p = tmp_path / filename
+        p.write_text(content, encoding="utf-8")
+        config_update_fields(p, {"key": new_value})
         data = config_read(p)
-        assert data["key"] == "value"
-
-    def test_minimal_file(self, tmp_path):
-        p = tmp_path / "minimal.yml"
-        p.write_text("key: value\n", encoding="utf-8")
-        config_update_fields(p, {"key": "new_value"})
-        data = config_read(p)
-        assert data["key"] == "new_value"
+        assert data["key"] == new_value
 
     def test_idempotent_update(self, config_file):
         """Updating to the same value should not change the file."""

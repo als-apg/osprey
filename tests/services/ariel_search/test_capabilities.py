@@ -340,23 +340,27 @@ class TestGetCapabilities:
         assert params["author"]["type"] == "text"
         assert params["source_system"]["type"] == "dynamic_select"
 
-    def test_author_param_has_placeholder(self):
-        """Author parameter includes placeholder."""
+    @pytest.mark.parametrize(
+        ("param", "field", "expected"),
+        [
+            # Author parameter includes placeholder.
+            pytest.param("author", "placeholder", "Filter by author...", id="author-placeholder"),
+            # Source system parameter includes options_endpoint.
+            pytest.param(
+                "source_system",
+                "options_endpoint",
+                "/api/filter-options/source_systems",
+                id="source-system-options-endpoint",
+            ),
+        ],
+    )
+    def test_shared_param_declares_its_extra_field(self, param, field, expected):
         config = self._make_config()
         result = get_capabilities(config)
         params = {p["name"]: p for p in result["shared_parameters"]}
 
-        assert "placeholder" in params["author"]
-        assert params["author"]["placeholder"] == "Filter by author..."
-
-    def test_source_system_param_has_options_endpoint(self):
-        """Source system parameter includes options_endpoint."""
-        config = self._make_config()
-        result = get_capabilities(config)
-        params = {p["name"]: p for p in result["shared_parameters"]}
-
-        assert "options_endpoint" in params["source_system"]
-        assert params["source_system"]["options_endpoint"] == "/api/filter-options/source_systems"
+        assert field in params[param]
+        assert params[param][field] == expected
 
     def test_no_search_modules_returns_empty_direct(self):
         """No search modules produces empty direct modes list."""

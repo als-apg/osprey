@@ -56,11 +56,23 @@ def test_a_profile_without_pva_port_validates(tmp_path: Path) -> None:
     profile.validate(tmp_path)
 
 
-def test_pva_port_out_of_range_is_refused(tmp_path: Path) -> None:
-    """The pvAccess port must be a usable TCP port."""
-    assert validation_errors(_va_profile({"pva_port": 70000}), tmp_path) == [
-        "virtual_accelerator.pva_port must be in 1..65535 (got 70000)"
-    ]
+@pytest.mark.parametrize(
+    ("port", "message"),
+    [
+        # The pvAccess port must be a usable TCP port.
+        (70000, "virtual_accelerator.pva_port must be in 1..65535 (got 70000)"),
+        # Both servers bind TCP in one container, so they cannot share a number.
+        (
+            5064,
+            "virtual_accelerator.pva_port must differ from virtual_accelerator.port (both 5064)",
+        ),
+    ],
+    ids=["out-of-range", "channel-access-port"],
+)
+def test_pva_port_that_no_server_can_use_is_refused(
+    tmp_path: Path, port: int, message: str
+) -> None:
+    assert validation_errors(_va_profile({"pva_port": port}), tmp_path) == [message]
 
 
 @pytest.mark.parametrize("value", ["5085", True])
@@ -68,13 +80,6 @@ def test_pva_port_that_is_not_a_number_is_refused(tmp_path: Path, value: Any) ->
     """A string or a boolean names no port, and is refused as such."""
     assert validation_errors(_va_profile({"pva_port": value}), tmp_path) == [
         f"virtual_accelerator.pva_port must be a port number (got {value!r})"
-    ]
-
-
-def test_pva_port_on_the_channel_access_port_is_refused(tmp_path: Path) -> None:
-    """Both servers bind TCP in one container, so they cannot share a number."""
-    assert validation_errors(_va_profile({"pva_port": 5064}), tmp_path) == [
-        "virtual_accelerator.pva_port must differ from virtual_accelerator.port (both 5064)"
     ]
 
 

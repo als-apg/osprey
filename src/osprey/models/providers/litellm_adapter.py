@@ -413,11 +413,7 @@ def _handle_structured_output(
 
     else:
         # Prompt-based fallback for models without native support
-        schema_instruction = (
-            f"\n\nYou must respond with valid JSON that matches this schema:\n"
-            f"{json.dumps(schema, indent=2)}\n\n"
-            f"Respond ONLY with the JSON object, no additional text or markdown formatting."
-        )
+        schema_instruction = "\n\n" + schema_instruction_for(schema)
 
         if chat_request is not None:
             # Append schema instruction to the last user message
@@ -476,6 +472,66 @@ def _supports_native_structured_output(litellm_model: str, provider: str) -> boo
         return False
 
 
+def schema_instruction_for(schema: dict[str, Any]) -> str:
+    """The instruction a prompt-fallback request appends to ask for *schema*.
+
+    The schema is shown so the model knows the fields and their types, and the
+    instruction says the reply is an instance of it: a model shown a bare
+    schema and told to "match" it can answer with the schema itself, its
+    values tucked under ``properties``.
+    """
+    fields = ", ".join(schema.get("properties", {})) or "(none)"
+    return (
+        "You must respond with valid JSON: one object that is an INSTANCE of the "
+        "schema below, "
+        f"not the schema itself: its top-level keys are the field names ({fields}), "
+        "each holding that field's value.\n"
+        f"{json.dumps(schema, indent=2)}\n\n"
+        "Respond ONLY with the JSON object, no additional text or markdown formatting."
+    )
+
+
+class StructuredReplySchemaEchoError(ValueError):
+    """A structured reply repeated the schema's shape instead of an instance of it.
+
+    Its message starts like every other unparsed structured reply
+    (``Failed to parse structured output from <source>``), so a caller that
+    matches that prefix treats it the same way.
+    """
+
+
+#: Top-level keys of a JSON schema that are never a field of an instance.
+_SCHEMA_ECHO_KEY = "properties"
+_SCHEMA_ECHO_PAIR = frozenset({"type", "title"})
+
+
+def _schema_echo(text: str, output_format: type[BaseModel]) -> str | None:
+    """Name the schema keys *text* repeats at its top level, or ``None``.
+
+    A reply shaped like the schema -- a top-level ``properties``, or a
+    ``type``/``title`` pair -- that the model does not itself define as fields
+    would otherwise validate: unknown keys are ignored, so a model whose fields
+    are all optional comes back with every field unset.
+    """
+    try:
+        data = json.loads(text, strict=False)
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(data, dict):
+        return None
+    defined: set[str] = set()
+    for name, field in output_format.model_fields.items():
+        defined.add(name)
+        if field.alias:
+            defined.add(field.alias)
+    undefined = set(data) - defined
+    if _SCHEMA_ECHO_KEY in undefined:
+        return _SCHEMA_ECHO_KEY
+    if undefined >= _SCHEMA_ECHO_PAIR:
+        return "/".join(sorted(_SCHEMA_ECHO_PAIR))
+    return None
+
+
 #: How many replies a structured request is given. A model samples a reply
 #: that is not the JSON it was asked for on some fraction of calls, so one
 #: bad reply is asked past; a second is reported, so a caller never waits on
@@ -495,7 +551,13 @@ def _parse_structured_reply(text: str, output_format: type[BaseModel]) -> BaseMo
     :param output_format: Pydantic model the reply must become
     :return: Validated model instance
     :raises ValidationError: The reply is not JSON, or breaks the schema
+    :raises StructuredReplySchemaEchoError: The reply repeats the schema's shape
     """
+    echo = _schema_echo(text, output_format)
+    if echo is not None:
+        raise StructuredReplySchemaEchoError(
+            f"the reply is the schema's shape (top-level {echo!r}), not an instance of it"
+        )
     try:
         return output_format.model_validate_json(text)
     except ValidationError as error:
@@ -532,6 +594,7 @@ def _structured_reply(
     :param snippet: Characters of the reply quoted in the error message
     :return: Validated model instance or dict
     :raises ValueError: The reply does not become the model
+    :raises StructuredReplySchemaEchoError: Both replies repeated the schema's shape
     """
     for attempt in range(1, _STRUCTURED_REPLY_ASKS + 1):
         text = ask()
@@ -541,7 +604,12 @@ def _structured_reply(
             result = _parse_structured_reply(text, output_format)
         except ValueError as error:
             if attempt == _STRUCTURED_REPLY_ASKS:
-                raise ValueError(
+                failure = (
+                    StructuredReplySchemaEchoError
+                    if isinstance(error, StructuredReplySchemaEchoError)
+                    else ValueError
+                )
+                raise failure(
                     f"Failed to parse structured output from {source}: {error}\n"
                     f"Response: {text[:snippet]}"
                 ) from error
@@ -719,12 +787,7 @@ def _execute_ollama_structured_output(
     schema = output_format.model_json_schema()
 
     # Build prompt with schema instruction
-    structured_message = f"""{message}
-
-You must respond with valid JSON that matches this schema:
-{json.dumps(schema, indent=2)}
-
-Respond ONLY with the JSON object, no additional text."""
+    structured_message = f"{message}\n\n{schema_instruction_for(schema)}"
 
     def ask() -> str:
         # Direct Ollama API call - bypasses LiteLLM's broken response handling

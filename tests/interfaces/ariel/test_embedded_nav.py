@@ -112,7 +112,7 @@ def test_embedded_nav_carries_browse(tmp_path, monkeypatch, chromium_browser):
         # The hub posts the clicked entry back; the panel switches and re-publishes.
         page.evaluate(
             "window.postMessage("
-            "{type: 'osprey-header-action', id: 'view', value: 'browse'}, location.origin)"
+            "{type: 'canopy-host-header-action', id: 'view', value: 'browse'}, location.origin)"
         )
 
         expect(page.locator("#view-browse.active")).to_have_count(1)

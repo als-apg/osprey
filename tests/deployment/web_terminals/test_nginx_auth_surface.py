@@ -511,26 +511,23 @@ def test_every_proxying_location_claims_every_identity_header_without_a_login_wa
         )
 
 
-def test_the_internal_verify_target_clears_every_identity_header() -> None:
-    """Called out on its own because the reason is not the same as everywhere
-    else: an auth subrequest INHERITS the parent request's headers, so without
-    a clear here a client's forged subject arrives at the sidecar looking like
-    something the perimeter established."""
+@pytest.mark.parametrize(
+    "location",
+    [
+        # Called out on its own because the reason is not the same as everywhere
+        # else: an auth subrequest INHERITS the parent request's headers, so without
+        # a clear here a client's forged subject arrives at the sidecar looking like
+        # something the perimeter established.
+        pytest.param("= /_osprey_auth/alice", id="internal-verify-target"),
+        # `/auth/` is the one location deliberately outside `auth_request` — it is
+        # where a session comes from. That makes it reachable by anyone, so it is the
+        # one an unauthenticated client would forge into.
+        pytest.param("/auth/", id="public-auth-prefix"),
+    ],
+)
+def test_the_unvouched_locations_clear_every_identity_header(location: str) -> None:
     # Arrange / Act
-    body = _location_body(render_nginx(_auth_config(_ONE_USER)), "= /_osprey_auth/alice")
-
-    # Assert
-    assert _clear(SUBJECT_HEADER) in body
-    assert _clear(ROLE_HEADER) in body
-    assert _clear(ROLE_SOURCE_HEADER) in body
-
-
-def test_the_public_auth_prefix_clears_every_identity_header() -> None:
-    """`/auth/` is the one location deliberately outside `auth_request` — it is
-    where a session comes from. That makes it reachable by anyone, so it is the
-    one an unauthenticated client would forge into."""
-    # Arrange / Act
-    body = _location_body(render_nginx(_auth_config(_ONE_USER)), "/auth/")
+    body = _location_body(render_nginx(_auth_config(_ONE_USER)), location)
 
     # Assert
     assert _clear(SUBJECT_HEADER) in body

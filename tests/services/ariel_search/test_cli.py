@@ -96,17 +96,18 @@ class TestARIELCLIGroup:
         assert "keyword" in result.output
         assert "semantic" in result.output
 
-    def test_reembed_requires_model(self, runner):
-        """reembed command requires --model option."""
-        result = runner.invoke(ariel_group, ["reembed", "--dimension", "768"])
+    @pytest.mark.parametrize(
+        ("argv", "option"),
+        [
+            pytest.param(["reembed", "--dimension", "768"], "--model", id="model"),
+            pytest.param(["reembed", "--model", "nomic-embed-text"], "--dimension", id="dimension"),
+        ],
+    )
+    def test_reembed_requires_its_options(self, runner, argv, option):
+        """reembed command requires the --model and --dimension options."""
+        result = runner.invoke(ariel_group, argv)
         assert result.exit_code != 0
-        assert "Missing option" in result.output or "--model" in result.output
-
-    def test_reembed_requires_dimension(self, runner):
-        """reembed command requires --dimension option."""
-        result = runner.invoke(ariel_group, ["reembed", "--model", "nomic-embed-text"])
-        assert result.exit_code != 0
-        assert "Missing option" in result.output or "--dimension" in result.output
+        assert "Missing option" in result.output or option in result.output
 
     def test_ingest_tracks_runs(self, runner, tmp_path, monkeypatch):
         """ingest command calls start_ingestion_run and complete_ingestion_run."""
@@ -1081,31 +1082,32 @@ class TestVocabCheckCommand:
         assert "Vocabulary OK: 2 concepts" in flat(result.stdout)
 
     @pytest.mark.usefixtures("no_config")
-    def test_vocab_check_canonical_empty_after_stripping(self, runner, tmp_path):
-        path = self._write(
-            tmp_path, "concepts:\n  - canonical: '...'\n    kind: shorthand\n    forms: ['x']\n"
-        )
+    @pytest.mark.parametrize(
+        ("vocab", "message"),
+        [
+            pytest.param(
+                "concepts:\n  - canonical: '...'\n    kind: shorthand\n    forms: ['x']\n",
+                "concepts[0] ('...'): 'canonical' must be a non-empty string",
+                id="canonical-empty-after-stripping",
+            ),
+            pytest.param(
+                "concepts:\n  - canonical: vert orbit\n    kind: shorthand\n    forms: ['vo']\n"
+                "  - canonical: 'vert. orbit'\n    kind: shorthand\n    forms: ['v.o']\n",
+                "concepts[1] ('vert. orbit'): duplicate canonical 'vert orbit' after "
+                "normalization — already defined by concepts[0]",
+                id="canonicals-colliding-after-stripping",
+            ),
+        ],
+    )
+    def test_vocab_check_refuses_a_canonical_broken_by_stripping(
+        self, runner, tmp_path, vocab, message
+    ):
+        path = self._write(tmp_path, vocab)
 
         result = runner.invoke(ariel_group, ["vocab-check", str(path)])
 
         assert result.exit_code == 1
-        assert "concepts[0] ('...'): 'canonical' must be a non-empty string" in flat(result.stderr)
-
-    @pytest.mark.usefixtures("no_config")
-    def test_vocab_check_canonicals_colliding_after_stripping(self, runner, tmp_path):
-        path = self._write(
-            tmp_path,
-            "concepts:\n  - canonical: vert orbit\n    kind: shorthand\n    forms: ['vo']\n"
-            "  - canonical: 'vert. orbit'\n    kind: shorthand\n    forms: ['v.o']\n",
-        )
-
-        result = runner.invoke(ariel_group, ["vocab-check", str(path)])
-
-        assert result.exit_code == 1
-        assert (
-            "concepts[1] ('vert. orbit'): duplicate canonical 'vert orbit' after "
-            "normalization — already defined by concepts[0]"
-        ) in flat(result.stderr)
+        assert message in flat(result.stderr)
 
     @pytest.mark.usefixtures("no_config")
     def test_clean_file_reports_the_concept_count(self, runner, tmp_path):
@@ -1542,14 +1544,21 @@ class TestModuleConfigRefusal:
 
         self._assert_refused(result, "ariel.vocabulary.path", self.VOCAB_REMEDY)
 
-    def test_sync_refusal_on_a_broken_vocabulary_prints_the_vocabulary_remedy(
-        self, runner, monkeypatch
+    @pytest.mark.parametrize(
+        ("operation", "command"),
+        [
+            pytest.param("run_sync", "sync", id="sync"),
+            pytest.param("run_quickstart", "quickstart", id="quickstart"),
+        ],
+    )
+    def test_refusal_on_a_broken_vocabulary_prints_the_vocabulary_remedy(
+        self, runner, monkeypatch, operation, command
     ):
         from osprey.services.ariel_search import cli_operations
 
-        monkeypatch.setattr(cli_operations, "run_sync", self._raising(self._vocab_error()))
+        monkeypatch.setattr(cli_operations, operation, self._raising(self._vocab_error()))
 
-        result = runner.invoke(ariel_group, ["sync"])
+        result = runner.invoke(ariel_group, [command])
 
         self._assert_refused(result, "vocab.yml does not exist", self.VOCAB_REMEDY)
 
@@ -1609,17 +1618,6 @@ class TestModuleConfigRefusal:
 
         self._assert_refused(result, "vocab.yml does not exist", self.VOCAB_REMEDY)
         assert "mirror_path" not in result.stderr
-
-    def test_quickstart_refusal_on_a_broken_vocabulary_prints_the_vocabulary_remedy(
-        self, runner, monkeypatch
-    ):
-        from osprey.services.ariel_search import cli_operations
-
-        monkeypatch.setattr(cli_operations, "run_quickstart", self._raising(self._vocab_error()))
-
-        result = runner.invoke(ariel_group, ["quickstart"])
-
-        self._assert_refused(result, "vocab.yml does not exist", self.VOCAB_REMEDY)
 
     def test_enhance_refusal_on_a_provider_key_prints_no_remedy(self, runner, monkeypatch):
         from osprey.services.ariel_search import cli_operations

@@ -47,15 +47,14 @@ repos:
         # and trimming it rewrites the thing the fixture exists to preserve.
         # The demo element table is tab-separated with a fixed column count,
         # so a row whose last cells are empty ends in tabs.
-        # The dock engine's built dist/ and its C-CASES fixtures are checked
-        # byte for byte (dist/ by its manifest hashes and `build.mjs --check`,
-        # each case by checkCase in cases.test.ts); a byte rewritten here is a
-        # file those gates refuse. A formatter added later must skip them too.
+        # The vendored dock engine and its copied cases are pinned by git blob
+        # (tests/dock_engine/test_cases_pin.py); a byte rewritten here fails
+        # the pin. A formatter added later must skip them too.
         exclude: |
           (?x)^(
             .*\.min\.(js|css)|
-            packages/dock-engine/dist/.*|
-            packages/dock-engine/cases/.*|
+            src/osprey/interfaces/web_terminal/static/vendor/dock-engine\.(mjs|d\.mts)|
+            tests/dock_engine/cases/.*|
             scripts/facility_demo/injector_elements\.tsv|
             tests/deployment/web_terminals/golden/.*|
             tests/deployment/fixtures/.*\.log|
@@ -67,8 +66,8 @@ repos:
         exclude: |
           (?x)^(
             .*\.min\.(js|css)|
-            packages/dock-engine/dist/.*|
-            packages/dock-engine/cases/.*|
+            src/osprey/interfaces/web_terminal/static/vendor/dock-engine\.(mjs|d\.mts)|
+            tests/dock_engine/cases/.*|
             tests/deployment/web_terminals/golden/.*|
             tests/deployment/fixtures/.*\.log|
             tests/templates/render_defaults/.*|

@@ -16,17 +16,27 @@ class TestSessionReportRegistry:
     def registry(self):
         return BuildArtifactCatalog.default()
 
-    def test_session_report_registered(self, registry):
-        art = registry.get("skills/session-report")
+    @pytest.mark.parametrize(
+        ("name", "output_path", "template_path"),
+        [
+            (
+                "skills/session-report",
+                ".claude/skills/session-report/SKILL.md",
+                "claude/skills/session-report/SKILL.md",
+            ),
+            (
+                "skills/session-report/reference",
+                ".claude/skills/session-report/reference.md",
+                "claude/skills/session-report/reference.md",
+            ),
+        ],
+        ids=["skill", "reference"],
+    )
+    def test_session_report_artifact_registered(self, registry, name, output_path, template_path):
+        art = registry.get(name)
         assert art is not None
-        assert art.output_path == ".claude/skills/session-report/SKILL.md"
-        assert art.template_path == "claude/skills/session-report/SKILL.md"
-
-    def test_session_report_reference_registered(self, registry):
-        art = registry.get("skills/session-report/reference")
-        assert art is not None
-        assert art.output_path == ".claude/skills/session-report/reference.md"
-        assert art.template_path == "claude/skills/session-report/reference.md"
+        assert art.output_path == output_path
+        assert art.template_path == template_path
 
 
 class TestSessionReportTemplateExists:

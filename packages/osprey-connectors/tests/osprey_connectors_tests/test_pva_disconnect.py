@@ -348,6 +348,11 @@ async def _wait_for(predicate, timeout: float = LIVE_TIMEOUT_S) -> None:
         await asyncio.sleep(0.02)
 
 
+def _has_value(events: list, value: float) -> bool:
+    """Whether *value* arrived as a value: ``True == 1.0``, so a connection event never counts."""
+    return any(e == value and not isinstance(e, bool) for e in events)
+
+
 class TestLiveDisconnect:
     async def test_server_drop_reports_false_then_true_on_the_same_monitor(
         self, live_pvs, live_connector
@@ -371,7 +376,7 @@ class TestLiveDisconnect:
         finally:
             del context.monitor
         try:
-            await _wait_for(lambda: 1.0 in events)
+            await _wait_for(lambda: _has_value(events, 1.0))
             assert events[:2] == [True, 1.0]
 
             pv.close(destroy=True)  # the server drops every client of this PV
@@ -379,7 +384,7 @@ class TestLiveDisconnect:
             assert all(isinstance(e, bool) for e in events[events.index(False) :])
 
             pv.open(_live_initial(_live_nt(), 3.0))
-            await _wait_for(lambda: 3.0 in events)
+            await _wait_for(lambda: _has_value(events, 3.0))
 
             after_drop = events[events.index(False) :]
             assert after_drop[after_drop.index(True) + 1 :][-1] == 3.0

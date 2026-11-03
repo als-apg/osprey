@@ -226,16 +226,18 @@ class TestPhrases:
 class TestEmptyAndDegenerate:
     """Shapes that must mirror `build_tsquery`."""
 
-    def test_empty_query_mirrors_build_tsquery(self):
-        """No search text and no phrases yields the empty tsquery with no params."""
-        sql, params = build_expanded_tsquery(parsed(""), expansion())
-
-        assert sql == "plainto_tsquery('english', '')"
-        assert params == []
-
-    def test_whitespace_only_search_text_is_empty(self):
-        """Whitespace normalizes away, leaving no legs."""
-        sql, params = build_expanded_tsquery(parsed("   "), expansion())
+    @pytest.mark.parametrize(
+        "text",
+        [
+            # No search text and no phrases yields the empty tsquery with no params.
+            pytest.param("", id="empty-query"),
+            # Whitespace normalizes away, leaving no legs.
+            pytest.param("   ", id="whitespace-only-search-text"),
+        ],
+    )
+    def test_empty_search_text_mirrors_build_tsquery(self, text):
+        """Search text with nothing in it yields the empty tsquery."""
+        sql, params = build_expanded_tsquery(parsed(text), expansion())
 
         assert sql == "plainto_tsquery('english', '')"
         assert params == []

@@ -167,25 +167,29 @@ def test_normalize_users_omits_optional_keys_when_absent() -> None:
     assert normalize_users([{"name": "bob", "index": 1}]) == [{"name": "bob", "index": 1}]
 
 
-def test_normalize_users_drops_non_string_display_name() -> None:
-    """A non-string `display_name` (a config typo) is dropped defensively; the rest
-    of a well-formed entry still normalizes."""
-    # Arrange
-    users_raw = [{"name": "alice", "index": 0, "display_name": 123}]
-
-    # Act
-    result = normalize_users(users_raw)
-
-    # Assert — entry survives (name/index valid), display_name omitted
-    assert result == [{"name": "alice", "index": 0}]
-
-
 @pytest.mark.parametrize(
-    ("key", "value"), [("theme", ["desy"]), ("oidc_subject", ["alice@example.org"])]
+    ("key", "value"),
+    [
+        pytest.param("display_name", 123, id="display_name-int"),
+        pytest.param("theme", ["desy"], id="theme-list"),
+        pytest.param("oidc_subject", ["alice@example.org"], id="oidc_subject-list"),
+        pytest.param("tour", True, id="tour-bool"),
+        pytest.param("oidc_subject", "", id="oidc_subject-empty"),
+        pytest.param("control_identity", "", id="control_identity-empty"),
+        pytest.param("control_identity", None, id="control_identity-none"),
+        pytest.param("control_identity", 1000, id="control_identity-int"),
+        pytest.param("control_identity", ["alice"], id="control_identity-list"),
+        pytest.param("control_identity", {"name": "alice"}, id="control_identity-dict"),
+        pytest.param("control_identity", True, id="control_identity-bool"),
+    ],
 )
-def test_normalize_users_drops_a_non_string_optional_key(key: str, value: object) -> None:
-    """A non-string optional key (a config typo) is dropped defensively; the rest
-    of a well-formed entry still normalizes."""
+def test_normalize_users_drops_an_empty_or_non_string_optional_key(key: str, value: object) -> None:
+    """An empty or non-string optional key (a config typo) is dropped defensively; the
+    rest of a well-formed entry still normalizes.
+
+    An empty `oidc_subject` must never become a mapping, and a carried empty
+    `control_identity` would render an identity switch that names nobody.
+    """
     # Arrange
     users_raw = [{"name": "alice", "index": 0, key: value}]
 
@@ -193,19 +197,6 @@ def test_normalize_users_drops_a_non_string_optional_key(key: str, value: object
     result = normalize_users(users_raw)
 
     # Assert — entry survives (name/index valid), the key omitted
-    assert result == [{"name": "alice", "index": 0}]
-
-
-def test_normalize_users_drops_non_string_tour() -> None:
-    """A non-string `tour` (a config typo) is dropped defensively; the rest of
-    a well-formed entry still normalizes."""
-    # Arrange
-    users_raw = [{"name": "alice", "index": 0, "tour": True}]
-
-    # Act
-    result = normalize_users(users_raw)
-
-    # Assert — entry survives (name/index valid), tour omitted
     assert result == [{"name": "alice", "index": 0}]
 
 
@@ -255,20 +246,29 @@ def test_normalize_users_does_not_mutate_input_entries() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_freeze_user_indices_keeps_the_render_normalize_users_drops() -> None:
-    """The whole point: the roster that goes BACK to config.yml keeps `render`.
-
-    normalize_users projects it away, and a roster written from that projection
-    re-resolves every entry onto `default_tier`.
-    """
+@pytest.mark.parametrize(
+    ("key", "value"),
+    [
+        # normalize_users projects the render away, and a roster written from that
+        # projection re-resolves every entry onto `default_tier`.
+        pytest.param("tier", "readonly", id="render"),
+        # normalize_users drops a non-string ``display_name`` because the render
+        # cannot use it. Removing one user must not quietly repair — or delete —
+        # another user's config line: the value round-trips and lint keeps reporting
+        # it.
+        pytest.param("display_name", 123, id="malformed-display-name"),
+    ],
+)
+def test_freeze_user_indices_keeps_what_normalize_users_drops(key: str, value: object) -> None:
+    """The roster that goes BACK to config.yml keeps what `normalize_users` projects away."""
     # Arrange
-    users_raw = [{"name": "alice", "index": 0, "tier": "readonly"}]
+    users_raw = [{"name": "alice", "index": 0, key: value}]
 
     # Act
     result = freeze_user_indices(users_raw)
 
     # Assert
-    assert result == [{"name": "alice", "index": 0, "tier": "readonly"}]
+    assert result == [{"name": "alice", "index": 0, key: value}]
     assert normalize_users(users_raw) == [{"name": "alice", "index": 0}]
 
 
@@ -393,25 +393,6 @@ def test_freeze_user_indices_duplicate_name_gives_both_the_last_entrys_extras() 
     assert [entry["index"] for entry in result] == [0, 4]
     # ...but both carry the last authored entry's render.
     assert [entry["tier"] for entry in result] == ["readwrite", "readwrite"]
-
-
-def test_freeze_user_indices_carries_values_normalize_users_drops_as_malformed() -> None:
-    """A malformed optional value goes back to the file as the author wrote it.
-
-    normalize_users drops a non-string ``display_name`` because the render
-    cannot use it. Removing one user must not quietly repair — or delete —
-    another user's config line: the value round-trips and lint keeps reporting
-    it.
-    """
-    # Arrange
-    users_raw = [{"name": "alice", "index": 0, "display_name": 123}]
-
-    # Act
-    result = freeze_user_indices(users_raw)
-
-    # Assert
-    assert result == [{"name": "alice", "index": 0, "display_name": 123}]
-    assert normalize_users(users_raw) == [{"name": "alice", "index": 0}]
 
 
 def test_freeze_user_indices_does_not_mutate_input_entries() -> None:
@@ -1107,56 +1088,35 @@ def test_resolve_cards_seed_base_defaults_true_for_catalog_entry() -> None:
     assert result[0]["seed_base"] is True
 
 
-def test_resolve_cards_seed_base_false_is_carried_through() -> None:
-    """`seed_base: false` on a catalog entry resolves to False for its users."""
+@pytest.mark.parametrize(
+    ("seed_base", "expected"),
+    [
+        # `seed_base: false` on a catalog entry resolves to False for its users.
+        pytest.param(False, False, id="false-is-carried-through"),
+        # A non-bool `seed_base` (a config typo lint reports separately) must not
+        # propagate — it defensively coerces to the safe default, True.
+        pytest.param("false", True, id="non-bool-coerces-to-true"),
+    ],
+)
+def test_resolve_cards_seed_base_resolves_to_a_bool(seed_base: object, expected: bool) -> None:
+    """A catalog entry's `seed_base` resolves to a bool for its users."""
     # Arrange
     web_terminals = {
         "users": [{"name": "alice", "index": 0, "tier": "gui"}],
         "default_tier": "gui",
-        "renders": {"gui": tier_render("gui", "demo-project-gui", seed_base=False)},
+        "renders": {"gui": tier_render("gui", "demo-project-gui", seed_base=seed_base)},
     }
 
     # Act
     result = resolve_cards(web_terminals, _REGISTRY)
 
     # Assert
-    assert result[0]["seed_base"] is False
-
-
-def test_resolve_cards_seed_base_non_bool_coerces_to_true() -> None:
-    """A non-bool `seed_base` (a config typo lint reports separately) must not
-    propagate — it defensively coerces to the safe default, True."""
-    # Arrange
-    web_terminals = {
-        "users": [{"name": "alice", "index": 0, "tier": "gui"}],
-        "default_tier": "gui",
-        "renders": {"gui": tier_render("gui", "demo-project-gui", seed_base="false")},
-    }
-
-    # Act
-    result = resolve_cards(web_terminals, _REGISTRY)
-
-    # Assert
-    assert result[0]["seed_base"] is True
+    assert result[0]["seed_base"] is expected
 
 
 # ---------------------------------------------------------------------------
 # Roster OIDC identity mapping (normalize_users / resolve_cards passthrough)
 # ---------------------------------------------------------------------------
-
-
-def test_normalize_users_drops_empty_oidc_subject() -> None:
-    """An empty `oidc_subject` must never become a mapping: an identity whose
-    claim is missing or empty would otherwise match this roster user. Dropping
-    it leaves the user unmapped, which the OIDC callback answers with 403."""
-    # Arrange
-    users_raw = [{"name": "alice", "index": 0, "oidc_subject": ""}]
-
-    # Act
-    result = normalize_users(users_raw)
-
-    # Assert
-    assert result == [{"name": "alice", "index": 0}]
 
 
 def test_normalize_users_oidc_subject_is_independent_of_the_cosmetic_fields() -> None:
@@ -1442,18 +1402,38 @@ def test_resolve_access_principals_lowercases_a_domain_and_leaves_a_user_byte_ex
     assert resolved == frozenset({"domain:example.com", "user:Alice@Example.com"})
 
 
-@pytest.mark.parametrize("member", ["domain:MÜ.de", "domain:münchen.de", "domain:example.cöm"])
-def test_resolve_access_principals_refuses_a_non_ascii_domain(member: str) -> None:
-    """An IdP asserts an internationalised domain in punycode, and nothing on
-    either side translates between the two spellings — so a Unicode-authored
-    domain is a rule that could never admit anybody. Refused at author time
-    rather than deployed as a grant that silently never fires."""
+@pytest.mark.parametrize(
+    ("member", "reason"),
+    [
+        # An IdP asserts an internationalised domain in punycode, and nothing on
+        # either side translates between the two spellings — so a Unicode-authored
+        # domain is a rule that could never admit anybody. Refused at author time
+        # rather than deployed as a grant that silently never fires.
+        ("domain:MÜ.de", "punycode"),
+        ("domain:münchen.de", "punycode"),
+        ("domain:example.cöm", "punycode"),
+        # The resolved member is written into the deployment's compose file, where
+        # docker compose substitutes `$NAME`/`${NAME}` before the sidecar ever reads
+        # it — the card would then admit something other than what the roster says.
+        # Refused at the one parser, so lint and `osprey init` say the same thing.
+        ("user:alice$@example.com", "'$'"),
+        ("user:$ALICE", "'$'"),
+        ("user:${ALICE}", "'$'"),
+        ("domain:example$.com", "'$'"),
+        ("domain:$SITE.com", "'$'"),
+    ],
+)
+def test_resolve_access_principals_refuses_a_principal_the_deployment_would_misread(
+    member: str, reason: str
+) -> None:
+    """A principal that would be deployed as something other than what the author
+    wrote is refused at author time, with the reason named."""
     with pytest.raises(ValueError, match="'control'") as excinfo:
         resolve_access_principals({"name": "control", "index": 3, "access": [member]})
 
     message = str(excinfo.value)
     assert repr(member) in message
-    assert "punycode" in message
+    assert reason in message
 
 
 def test_resolve_access_principals_accepts_a_punycode_domain_and_folds_its_ascii() -> None:
@@ -1529,29 +1509,6 @@ def test_resolve_access_principals_refuses_a_non_string_member(member: Any) -> N
         resolve_access_principals({"name": "control", "index": 3, "access": [member]})
 
     assert "not a string" in str(excinfo.value)
-
-
-@pytest.mark.parametrize(
-    "member",
-    [
-        "user:alice$@example.com",
-        "user:$ALICE",
-        "user:${ALICE}",
-        "domain:example$.com",
-        "domain:$SITE.com",
-    ],
-)
-def test_resolve_access_principals_refuses_a_dollar_in_a_principal(member: str) -> None:
-    """The resolved member is written into the deployment's compose file, where
-    docker compose substitutes `$NAME`/`${NAME}` before the sidecar ever reads
-    it — the card would then admit something other than what the roster says.
-    Refused at the one parser, so lint and `osprey init` say the same thing."""
-    with pytest.raises(ValueError, match="'control'") as excinfo:
-        resolve_access_principals({"name": "control", "index": 3, "access": [member]})
-
-    message = str(excinfo.value)
-    assert repr(member) in message
-    assert "'$'" in message
 
 
 def test_resolve_access_principals_names_group_as_not_supported_yet() -> None:
@@ -2187,17 +2144,21 @@ def test_config_needs_launch_token_denies_when_the_bluesky_server_is_absent() ->
     assert config_needs_launch_token(_launch_config(writes="allowed")) is False
 
 
-def test_config_needs_launch_token_denies_when_the_bluesky_server_is_off() -> None:
-    """Writes alone entitle nothing: with no bluesky server there is no consumer."""
+@pytest.mark.parametrize(
+    ("writes", "bluesky_enabled"),
+    [
+        # Writes alone entitle nothing: with no bluesky server there is no consumer.
+        pytest.param("allowed", False, id="bluesky-server-off"),
+        # The read-only tier is `writes: never` and still runs the bluesky
+        # server for browsing -- the server alone must never arm a queue start.
+        pytest.param("never", True, id="readonly-tier"),
+    ],
+)
+def test_config_needs_launch_token_denies_either_half_of_the_capability_alone(
+    writes: str, bluesky_enabled: bool
+) -> None:
     # Assert
-    assert config_needs_launch_token(_launch_config("allowed", False)) is False
-
-
-def test_config_needs_launch_token_denies_the_readonly_tier() -> None:
-    """The read-only tier is `writes: never` and still runs the bluesky
-    server for browsing -- the server alone must never arm a queue start."""
-    # Assert
-    assert config_needs_launch_token(_launch_config("never", True)) is False
+    assert config_needs_launch_token(_launch_config(writes, bluesky_enabled)) is False
 
 
 def test_config_needs_launch_token_requires_the_allowed_tier_explicitly() -> None:
@@ -2642,14 +2603,26 @@ def test_settings_json_denies_for_bash_false_when_bash_absent_from_a_well_formed
     assert settings_json_denies(tmp_path / "open", (BASH_DENY_ENTRY,)) is False
 
 
-def test_settings_json_denies_for_bash_ignores_a_scoped_bash_deny(tmp_path) -> None:
-    """`Bash(rm:*)` constrains one command family and leaves the shell usable, so it
-    is not a wholesale deny -- only the exact literal counts."""
+@pytest.mark.parametrize(
+    ("name", "settings"),
+    [
+        # `Bash(rm:*)` constrains one command family and leaves the shell usable, so it
+        # is not a wholesale deny -- only the exact literal counts.
+        pytest.param("scoped", {"permissions": {"deny": ["Bash(rm:*)"]}}, id="scoped-bash-deny"),
+        # A permissions block with an allow list but no deny list denies nothing.
+        pytest.param(
+            "allow-only", {"permissions": {"allow": ["Read(/x/**)"]}}, id="deny-list-missing"
+        ),
+    ],
+)
+def test_settings_json_denies_for_bash_is_false_without_a_wholesale_bash_deny(
+    tmp_path, name, settings
+) -> None:
     # Arrange
-    _write_settings_json(tmp_path, "scoped", {"permissions": {"deny": ["Bash(rm:*)"]}})
+    _write_settings_json(tmp_path, name, settings)
 
     # Act / Assert
-    assert settings_json_denies(tmp_path / "scoped", (BASH_DENY_ENTRY,)) is False
+    assert settings_json_denies(tmp_path / name, (BASH_DENY_ENTRY,)) is False
 
 
 def test_settings_json_denies_for_bash_fails_closed_on_a_missing_file(tmp_path) -> None:
@@ -2683,15 +2656,6 @@ def test_settings_json_denies_for_bash_fails_closed_when_permissions_is_missing(
 
     # Act / Assert
     assert settings_json_denies(tmp_path / "bare", (BASH_DENY_ENTRY,)) is False
-
-
-def test_settings_json_denies_for_bash_fails_closed_when_deny_is_missing(tmp_path) -> None:
-    """A permissions block with an allow list but no deny list denies nothing."""
-    # Arrange
-    _write_settings_json(tmp_path, "allow-only", {"permissions": {"allow": ["Read(/x/**)"]}})
-
-    # Act / Assert
-    assert settings_json_denies(tmp_path / "allow-only", (BASH_DENY_ENTRY,)) is False
 
 
 def test_settings_json_denies_for_bash_fails_closed_when_deny_is_not_a_list(tmp_path) -> None:
@@ -3215,14 +3179,25 @@ def test_renders_needing_archiver_ca_bundles_skips_unrendered_render_projects(
 _ROLES = {"operator": "console", "expert": "physicist"}
 
 
-def test_effective_tier_without_a_role_prefers_the_entrys_own_pin() -> None:
-    """An entry carrying no `role` resolves exactly as it did before roles
-    existed — which is what keeps every pre-roles deployment byte-identical."""
+@pytest.mark.parametrize(
+    ("key", "value", "expected"),
+    [
+        # An entry carrying no `role` resolves exactly as it did before roles
+        # existed — which is what keeps every pre-roles deployment byte-identical.
+        pytest.param("tier", "gui", "gui", id="own-pin-without-a-role"),
+        # The whole point: a role names the catalog render its entries run as, and
+        # it outranks the deployment default the entry would otherwise have taken.
+        pytest.param("role", "expert", "physicist", id="role-through-the-authorization-table"),
+    ],
+)
+def test_effective_tier_resolves_the_render_the_entry_is_bound_to(
+    key: str, value: str, expected: str
+) -> None:
     # Arrange
-    entry = {"name": "alice", "index": 0, "tier": "gui"}
+    entry = {"name": "alice", "index": 0, key: value}
 
     # Act / Assert
-    assert effective_tier(entry, _ROLES, "cli") == "gui"
+    assert effective_tier(entry, _ROLES, "cli") == expected
 
 
 def test_effective_tier_without_a_role_or_pin_falls_back_to_the_default() -> None:
@@ -3235,16 +3210,6 @@ def test_effective_tier_with_no_render_system_in_effect_is_none() -> None:
     """No pin, no role, no default: no render, a roster strict resolution refuses."""
     # Assert
     assert effective_tier({"name": "alice"}, {}, None) is None
-
-
-def test_effective_tier_resolves_a_role_through_the_authorization_table() -> None:
-    """The whole point: a role names the catalog render its entries run as, and
-    it outranks the deployment default the entry would otherwise have taken."""
-    # Arrange
-    entry = {"name": "alice", "index": 0, "role": "expert"}
-
-    # Act / Assert
-    assert effective_tier(entry, _ROLES, "cli") == "physicist"
 
 
 def test_effective_tier_raises_on_a_role_that_is_not_declared() -> None:
@@ -3472,20 +3437,6 @@ def test_role_bound_render_counts_as_referenced_for_entitlements(tmp_path) -> No
 # ---------------------------------------------------------------------------
 # control_identity (the per-card name the control system sees this user write as)
 # ---------------------------------------------------------------------------
-
-
-@pytest.mark.parametrize("value", ["", None, 1000, ["alice"], {"name": "alice"}, True])
-def test_normalize_users_drops_empty_or_non_string_control_identity(value: Any) -> None:
-    """An empty or non-string `control_identity` is dropped: a carried `""` would
-    render an identity switch that names nobody. The entry itself survives."""
-    # Arrange
-    users_raw = [{"name": "alice", "index": 0, "control_identity": value}]
-
-    # Act
-    result = normalize_users(users_raw)
-
-    # Assert
-    assert result == [{"name": "alice", "index": 0}]
 
 
 def test_normalize_users_control_identity_is_independent_of_the_other_optional_fields() -> None:

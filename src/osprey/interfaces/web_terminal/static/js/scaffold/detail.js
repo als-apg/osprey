@@ -31,7 +31,7 @@ import { escapeHtml } from '/design-system/js/dom.js';
 import { apiRequest } from '../api.js';
 import { resetFetchCache } from './data.js';
 import { createScaffoldGalleryDetailContent } from './detail-content.js';
-import { createReadOnlyBadge, readOnlyReason } from './utils.js';
+import { READ_ONLY_REASON, createReadOnlyBadge } from './utils.js';
 import { scaffoldWritesEnabled, writesDisabledReason } from './write-gate.js';
 
 /**
@@ -171,14 +171,13 @@ export function createScaffoldGalleryDetail(gallery) {
 
     const isOwned = gallery.selectedArtifact.status === 'user-owned';
     const readOnly = Boolean(gallery.selectedArtifact.read_only);
-    const reason = readOnlyReason(gallery.selectedArtifact);
 
     const badge = document.createElement('span');
     badge.className = `prompts-badge ${isOwned ? 'user-owned' : 'framework'}`;
     badge.textContent = isOwned ? 'PROJECT-OWNED' : 'FRAMEWORK';
     row1.appendChild(badge);
 
-    if (readOnly) row1.appendChild(createReadOnlyBadge(gallery.selectedArtifact));
+    if (readOnly) row1.appendChild(createReadOnlyBadge());
 
     // Claiming an artifact (POST .../claim) and releasing one (DELETE
     // .../override) are both writes, refused with 403 where the deployment
@@ -186,9 +185,8 @@ export function createScaffoldGalleryDetail(gallery) {
     // rather than a disabled button: unlike the mode tabs below, nothing about
     // the header reads as broken without it, and absence keeps it out of the
     // tab order. Everything else in the header is a fact about the artifact
-    // and survives. A deployment data file has no framework copy, so there is
-    // no ownership to take or release.
-    if (scaffoldWritesEnabled() && gallery.selectedArtifact.kind !== 'data') {
+    // and survives.
+    if (scaffoldWritesEnabled()) {
       const ownerBtn = document.createElement('button');
       ownerBtn.className = 'prompts-ownership-btn';
       // Taking ownership of a reserved artifact is a claim the server refuses:
@@ -198,7 +196,7 @@ export function createScaffoldGalleryDetail(gallery) {
       // than anything the operator did wrong.
       if (readOnly) {
         ownerBtn.disabled = true;
-        ownerBtn.title = reason;
+        ownerBtn.title = READ_ONLY_REASON;
       }
       if (isOwned) {
         ownerBtn.textContent = 'Release to Framework';
@@ -237,7 +235,7 @@ export function createScaffoldGalleryDetail(gallery) {
     if (readOnly) {
       const note = document.createElement('div');
       note.className = 'prompts-readonly-note';
-      note.textContent = reason;
+      note.textContent = READ_ONLY_REASON;
       gallery.detailHeaderEl.appendChild(note);
     }
   }
@@ -260,7 +258,6 @@ export function createScaffoldGalleryDetail(gallery) {
     modes.push({ key: 'edit', label: 'Edit' });
 
     const readOnly = Boolean(gallery.selectedArtifact.read_only);
-    const reason = readOnlyReason(gallery.selectedArtifact);
 
     for (const mode of modes) {
       const btn = document.createElement('button');
@@ -279,7 +276,7 @@ export function createScaffoldGalleryDetail(gallery) {
         // Preview and Diff stay open — reading a reserved file is fine, and
         // seeing what it holds is most of why the panel lists it at all.
         btn.disabled = true;
-        btn.title = reason;
+        btn.title = READ_ONLY_REASON;
       }
       btn.addEventListener('click', () => {
         if (gallery.detailMode === mode.key) return;
@@ -326,7 +323,7 @@ export function createScaffoldGalleryDetail(gallery) {
         // already disabled for a reserved artifact, and this is the second gate
         // in case anything else puts the panel into edit mode.
         saveBtn.disabled = !gallery.editDirty || readOnly;
-        if (readOnly) saveBtn.title = reason;
+        if (readOnly) saveBtn.title = READ_ONLY_REASON;
         saveBtn.addEventListener('click', () => gallery.saveOverride());
         right.appendChild(saveBtn);
       }

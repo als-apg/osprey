@@ -97,6 +97,7 @@ export function freshPanelState() {
     pollTimer: null,
     polling: false,
     configLoaded: false,
+    settled: false,
     misses: 0,
     missSince: null,
   };
@@ -310,6 +311,7 @@ export async function initPanel(panel) {
     // read: this one is unavailable until a retry is answered.
     if (!state.configLoaded) {
       state.configLoaded = true;
+      state.settled = true;
       c.ensureActive();
     }
     await new Promise((resolve) => setTimeout(resolve, delay));
@@ -327,6 +329,9 @@ export async function initPanel(panel) {
   if (config?.state === 'failed') showFailed(panel, config.message);
   else if (config?.state === 'starting') followStart(panel);
   else if (state.url) followLiveness(panel);
+  // No address and no start to follow: there is nothing to ask, so the first
+  // verdict is in.
+  else state.settled = true;
   // Re-evaluate on every settle, including the no-url case: this panel may be
   // the default that another panel's health poll was waiting on.
   c.ensureActive();
@@ -420,6 +425,8 @@ const MISSES_BEFORE_UNREACHABLE = 2;
 function onHealthSettled(panel, wasHealthy) {
   const c = ctx();
   const state = c.panelState[panel.id];
+  // The first answer, healthy or not, is the verdict the landing waits on.
+  state.settled = true;
   if (state.healthy) {
     if (state.misses >= MISSES_BEFORE_UNREACHABLE) setEntryReachable(c.getRailEl(), panel.id, true);
     // Unconditional: showFailed resets misses while the tile keeps its notice,
@@ -477,6 +484,7 @@ function showFailed(panel, message) {
   const c = ctx();
   const state = c.panelState[panel.id];
   state.failedMessage = message;
+  state.settled = true;
   // The failed entry names the reason; an unreachable notice would hide it.
   if (state.misses >= MISSES_BEFORE_UNREACHABLE) setEntryReachable(c.getRailEl(), panel.id, true);
   state.misses = 0;
@@ -567,5 +575,6 @@ function settleStart(panel, answer, lastMessage) {
 export function assumeHealthy(panel) {
   const c = ctx();
   c.panelState[panel.id].healthy = true;
+  c.panelState[panel.id].settled = true;
   setEntryEnabled(c.getRailEl(), panel.id, true);
 }

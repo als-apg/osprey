@@ -7,6 +7,7 @@ import contextlib
 import hashlib
 import ipaddress
 import logging
+import re
 import socket
 import time
 from collections.abc import Iterable
@@ -15,9 +16,10 @@ from typing import Literal
 from urllib.parse import urlparse
 
 from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import FileResponse, JSONResponse, Response
-from pydantic import BaseModel, Field
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
+from pydantic import BaseModel, ConfigDict, Field
 
+from osprey.interfaces.artifacts.inline_assets import self_contained
 from osprey.interfaces.common_middleware import (
     ASSET_CORS_HEADERS,
     MOUNT_SEGMENT_RE,
@@ -26,13 +28,31 @@ from osprey.interfaces.common_middleware import (
     compute_url_prefix,
 )
 from osprey.interfaces.opaque_origin import document_headers
+from osprey.interfaces.panel_urls import (
+    Origin,
+    agent_hop_panel_ids,
+    agent_hop_url_refusal,
+    canonical_origin,
+    navigation_url_refusal,
+    normalise_navigation_url,
+    same_place,
+)
 from osprey.interfaces.web_terminal import panel_cap
+from osprey.interfaces.web_terminal.dock_layout import (
+    REASON_TEXT,
+    layout_keys,
+    layout_refusal,
+    normalize_layout,
+    same_layout,
+)
 from osprey.interfaces.web_terminal.feedback_destination import resolve_feedback_destination
+from osprey.interfaces.web_terminal.panel_sandbox import apply_panel_sandbox
 from osprey.interfaces.web_terminal.routes.agent_activity import record_activity
 from osprey.interfaces.web_terminal.routes.proxy import _backend_is_loopback, _resolve_panel_url
 from osprey.profiles.web_panels import (
     BUILTIN_PANEL_LABELS,
     BUILTIN_PANELS,
+    JUPYTER_PANEL_ID,
     SIDECAR_PANELS,
     panel_id_refusal,
 )
@@ -162,7 +182,23 @@ def _sidecar_panel_config(request: Request, panel_id: str) -> dict:
 @router.get("/api/jupyter-server")
 async def jupyter_server_config(request: Request):
     """Return the notebook sidecar URL for iframe embedding, and its start outcome."""
-    return _sidecar_panel_config(request, "jupyter")
+    return _sidecar_panel_config(request, JUPYTER_PANEL_ID)
+
+
+@router.get("/api/panels/{panel_id}/server")
+async def sidecar_server_config(panel_id: str, request: Request):
+    """Return a sidecar panel's URL for iframe embedding, and its start outcome.
+
+    One route for every panel in ``SIDECAR_PANELS``, so a sidecar added to the
+    registry needs no config route of its own. A sidecar that is switched off
+    answers unavailable, as a companion panel's config route does; an id that
+    names no sidecar is a 404.
+    """
+    if panel_id not in SIDECAR_PANELS:
+        raise HTTPException(
+            status_code=404, detail=f"{panel_id} is not a panel this terminal starts"
+        )
+    return _sidecar_panel_config(request, panel_id)
 
 
 @router.post("/api/panels/{panel_id}/start")
@@ -282,11 +318,13 @@ async def get_panels(request: Request):
             "active":   str|None,       # currently focused panel id
             "labels":   {id: label},    # display labels for enabled built-in panels
             "allow_runtime_panels": bool,  # whether the human "+" may add a URL panel
-            "presets":  [...],          # config-defined layouts: [{"name", "panels": [id,...]}]
+            "presets":  [...],          # config-defined layouts: [{"name", "panels", "layout"}]
             "project_key": str,         # stable 16-hex per-project key (layout persistence)
-            "open_tiles": [...]|None,   # last-reported service tiles, reading order
-            "open_tiles_age_s": float|None,   # seconds since that report (None = never)
-            "open_tiles_dock": bool|None,     # reporting client had a dock shell (None = never)
+            "layout":   {...}|None,     # the current dock client's dock layout (None = no dock reports)
+            "popouts":  [...],          # panels in their own windows, per that client
+            "rev":      int,            # its revision, minted per changed report (0 = never)
+            "layout_age_s": float|None,  # seconds since that report (None = never)
+            "layout_dock": bool|None,    # reporting client had a dock shell (None = never)
             "docs_url": str,            # target of the sidebar's Documentation control
             "feedback_trackers": [...],  # [{"kind", "label", "repo"|"url"}], render order
             "feedback_email": str,      # recipient of the prefilled mailto: draft
@@ -303,7 +341,10 @@ async def get_panels(request: Request):
     ``presets`` is the config-defined "Layouts" list (``web.presets``), resolved
     at startup against the live panel set and carried in config order. It is
     empty unless a deployment opts in, so the "+" popover renders unchanged by
-    default. Each entry is ``{"name": <label>, "panels": [<member id>, ...]}``.
+    default. Each entry is ``{"name": <label>, "panels": [<member id>, ...],
+    "layout": <dock layout>}``: ``layout`` is the collection form with panel-id
+    tabs, pruned to the panels known now and normalised, and ``panels`` its tabs
+    in reading order.
 
     ``allow_runtime_panels`` mirrors the config gate the ``POST /api/panels/register``
     route enforces, so the frontend can show or hide the "new panel from URL" input
@@ -319,12 +360,13 @@ async def get_panels(request: Request):
     ``labels`` covers only the enabled built-in panels; custom panels carry
     their own ``label`` field in the ``custom`` list.
 
-    ``open_tiles`` is what a browser last reported through
-    ``POST /api/panel-layout``: the service tiles actually on screen, in spatial
-    reading order. It is distinct from ``visible`` — that is launcher-rail
-    membership, this is occupancy. ``open_tiles_age_s`` is the seconds elapsed
-    since the occupancy last *changed* (a deduped repeat report does not reset
-    it) and ``open_tiles_dock`` is whether the reporting client had a dock
+    ``layout`` is what a browser last reported through
+    ``POST /api/panel-layout``: the tiles actually on screen. It is distinct
+    from ``visible`` — that is launcher-rail membership, this is occupancy.
+    ``popouts`` names the panels that client shows in windows of their own;
+    they are not in ``layout``. ``layout_age_s`` is the seconds elapsed since
+    the layout or the pop-outs last *changed* (a deduped repeat report does not
+    reset it) and ``layout_dock`` is whether the reporting client had a dock
     shell.
 
     Read together, the three fields carry three distinct states, and a
@@ -332,15 +374,13 @@ async def get_panels(request: Request):
 
     - **Never reported** — all three ``null``. No client has ever checked in;
       nothing is known about the screen. Not the same as an empty workspace.
-    - **Unknown occupancy** — ``open_tiles: null`` with a numeric
-      ``open_tiles_age_s`` and ``open_tiles_dock: false``. A client is watching
-      but runs without the dock shell, so it cannot report tile order.
-    - **Known occupancy** — ``open_tiles`` is a list (possibly ``[]``, meaning
-      the operator genuinely closed every service tile) with a numeric age and
-      ``open_tiles_dock: true``.
+    - **Unknown occupancy** — ``layout: null`` with a numeric ``layout_age_s``
+      and ``layout_dock: false``. A client is watching but runs without the
+      dock shell, so it cannot report tiles.
+    - **Known occupancy** — ``layout`` is a tree (possibly holding only the
+      terminal) with a numeric age and ``layout_dock: true``.
 
-    So ``[]`` always means known-empty and ``null`` always means unknown; the
-    age tells the two flavours of unknown apart.
+    So the age tells the two flavours of a null ``layout`` apart.
 
     ``docs_url``, ``feedback_trackers`` and ``feedback_email`` are the resolved
     ``web.docs_url`` / ``web.feedback.*`` values that address the two utility
@@ -391,14 +431,12 @@ async def get_panels(request: Request):
     allow_runtime = bool(getattr(request.app.state, "allow_runtime_panels", False))
     presets = list(getattr(request.app.state, "panel_presets", []))
     project_key = _project_key(getattr(request.app.state, "project_cwd", None))
-    # Tile occupancy as last reported by a browser, with its freshness. The
-    # timestamp is never exposed raw: an age is what a consumer can reason
-    # about without knowing the server's clock. ``None`` survives untouched —
-    # it is the "unknown occupancy" state, distinct from a known-empty list.
-    open_tiles = getattr(request.app.state, "open_tiles", None)
-    open_tiles_ts = getattr(request.app.state, "open_tiles_ts", None)
-    open_tiles_age = None if open_tiles_ts is None else time.time() - open_tiles_ts
-    open_tiles_dock = getattr(request.app.state, "open_tiles_dock", None)
+    # The dock layout as last reported by a browser (``layout``/``rev`` below)
+    # and its freshness. The timestamp is never exposed raw: an age is what a
+    # consumer can reason about without knowing the server's clock.
+    layout_ts = getattr(request.app.state, "layout_ts", None)
+    layout_age = None if layout_ts is None else time.time() - layout_ts
+    layout_dock = getattr(request.app.state, "layout_dock", None)
     # Utility-cluster targets. The fallbacks come from the same resolver the
     # lifespan runs, called with nothing — which is the deployment that
     # configured nothing, i.e. the one the OSPREY project owns. No default is
@@ -440,9 +478,11 @@ async def get_panels(request: Request):
         "allow_runtime_panels": allow_runtime,
         "presets": presets,
         "project_key": project_key,
-        "open_tiles": open_tiles,
-        "open_tiles_age_s": open_tiles_age,
-        "open_tiles_dock": open_tiles_dock,
+        "layout": getattr(request.app.state, "dock_layout", None),
+        "popouts": list(getattr(request.app.state, "dock_popouts", [])),
+        "rev": getattr(request.app.state, "dock_layout_rev", 0),
+        "layout_age_s": layout_age,
+        "layout_dock": layout_dock,
         "docs_url": docs_url,
         "feedback_trackers": [dict(tracker) for tracker in feedback_trackers],
         "feedback_email": feedback_email,
@@ -456,6 +496,14 @@ async def get_panels(request: Request):
             str(p) if (p := getattr(request.app.state, "config_unreadable_path", None)) else None
         ),
         "tour": tour,
+        # Whether this deployment lets a user run on a personal Claude login,
+        # and whether this terminal's user has one: the browser's nudge
+        # ("/login here and your usage bills to you") shows on allowed-and-absent
+        # and never on a guess. Both decided at startup in app.py.
+        "personal_login": {
+            "allowed": bool(getattr(request.app.state, "personal_login_allowed", False)),
+            "present": bool(getattr(request.app.state, "personal_login_present", False)),
+        },
         "loopback_ports": _loopback_backend_ports(
             request, [*enabled, *(cp["id"] for cp in custom if cp.get("id"))]
         ),
@@ -471,6 +519,40 @@ def _known_panel_ids(request: Request) -> set[str]:
     known: set[str] = set(getattr(request.app.state, "enabled_panels", set()))
     known |= {p["id"] for p in getattr(request.app.state, "custom_panels", [])}
     return known
+
+
+def agent_hop_refusal(request: Request, member: str, url: str) -> str | None:
+    """Why *url* may not reach panel *member*, judged against this terminal's panels; or ``None``.
+
+    :func:`~osprey.interfaces.panel_urls.agent_hop_url_refusal`, where an
+    agent-hop panel's process is any listener its configured backend names, in
+    any spelling the browser reads as that listener (``127.1``,
+    ``0x7f.0.0.1``, ``[::ffff:127.0.0.1]``, ``localhost.``, ...:
+    :func:`~osprey.interfaces.panel_urls.same_place`). That much names the
+    refusal. What fails closed is the check after it: an op admits an http(s)
+    URL only on the member's own configured backend
+    (:func:`~osprey.interfaces.panel_urls.member_navigation_url`, exact origin),
+    and a registration admits no loopback URL at all, so an address this rule
+    does not recognise is refused there, never admitted by guessing.
+
+    Args:
+        request: The request; its app's state holds the panels' backends.
+        member: The panel the url is for (the id being registered, for a
+            registration).
+        url: The url, already passed through ``normalise_navigation_url``.
+    """
+    hop_ids = agent_hop_panel_ids(SIDECAR_PANELS)
+    hop_origins = [
+        origin
+        for panel_id in hop_ids
+        if (backend := _resolve_panel_url(request, panel_id))
+        and (origin := canonical_origin(backend)) is not None
+    ]
+
+    def is_hop_origin(origin: Origin) -> bool:
+        return any(same_place(origin, hop) for hop in hop_origins)
+
+    return agent_hop_url_refusal(member, url, hop_ids=hop_ids, is_hop_origin=is_hop_origin)
 
 
 #: Panel id of the Config surface. It is not a built-in dock panel — the Config
@@ -490,7 +572,7 @@ _TERMINAL_PANEL_ID = "terminal"
 def _mirror_agent_panel_activity(request: Request, tool: str, panel: str) -> None:
     """Record an agent-origin panel command in the agent-activity history buffer.
 
-    Panel commands reach the browser as their own SSE frames (``panel_focus``,
+    Panel commands reach the browser as their own SSE frames (``panel_op``,
     ``panel_visibility``, ...), never through ``POST /api/agent-activity``, so
     without this they are invisible to a client that reads
     ``GET /api/agent-activity/recent`` after connecting late.  The row goes in
@@ -498,10 +580,10 @@ def _mirror_agent_panel_activity(request: Request, tool: str, panel: str) -> Non
     through the handler it already uses for the SSE ``agent_activity`` stream.
 
     ``tool`` is synthetic: the panel routes carry no tool name of their own, so
-    the caller supplies the MCP verb the action corresponds to (``open_panel``,
-    ``close_panel``, ``add_panel_to_rail``, ``remove_panel_from_rail``,
-    ``arrange_workspace``, ``register_panel``) and the frontend words the entry
-    from it.
+    the caller supplies the MCP verb the action corresponds to (one of
+    :data:`~osprey.interfaces.web_terminal.routes.panel_ops.OP_ACTIVITY_TOOLS`,
+    ``add_panel_to_rail``, ``remove_panel_from_rail``
+    or ``register_panel``) and the frontend words the entry from it.
 
     Nothing is broadcast — this is history only.  Callers must invoke it for
     agent-origin requests exactly once per action, and never for human ones: a
@@ -516,9 +598,16 @@ def _mirror_agent_panel_activity(request: Request, tool: str, panel: str) -> Non
 
 
 class PanelFocusRequest(BaseModel):
+    """A person's tab switch, reported by ``panel-commands.js``.
+
+    Extra fields are refused: the agent's ``source``/``url`` form of this body is
+    retired (an agent opens a panel through ``POST /api/panel-op/open``), and an
+    old caller must hear so rather than be read as a person's report.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
     panel: str
-    url: str | None = None
-    source: Literal["agent"] | None = None
 
 
 @router.get("/api/panel-focus")
@@ -530,96 +619,41 @@ async def get_panel_focus(request: Request):
 
 @router.post("/api/panel-focus")
 async def set_panel_focus(body: PanelFocusRequest, request: Request):
-    """Set the active panel; broadcast a focus event only for agent switches.
+    """Mirror a person's tab switch as ``active_panel``; broadcast nothing.
 
-    Attribution decides the frame's fate. An ``source: "agent"`` switch is a
-    command every client must apply, so it broadcasts. A source-less POST is a
-    human gesture REPORT (panel-commands.js's ``setPanelFocus``): the server
-    mirrors ``active_panel`` for the agent's gaze and broadcasts nothing —
-    one operator's tab switches never move another client's workspace, and
-    the gesturing client applies its own focus locally rather than riding an
-    echo.
+    This is a gesture REPORT, not a command: the server records the active
+    panel for the agent's gaze, and one operator's tab switches never move
+    another client's workspace. The gesturing client applies its own focus.
 
-    ``body.url`` (e.g. from an agent-invoked ``open_panel`` MCP call) is
-    run through ``_prefix_path()`` before broadcast so a root-absolute path
-    lands inside the user's own mount; an already-absolute URL is left
-    untouched.
-
-    An **agent** focus on a panel that is **not** in the launcher rail also
-    adds it there, emitting a ``panel_visibility`` frame *before* the focus
-    frame. An agent's ``open_panel`` may name a panel the operator took off
-    the rail; without the membership update the rail entry would exist only on
-    the client that happened to apply the focus, so ``list_panels`` would keep
-    reporting the panel invisible, a reload would drop both the entry and the
-    agent-opened tile, and a late-connecting client would never see it at all.
-    Ordering is deliberate: clients add the rail entry, then apply focus to it.
-
-    A panel already in the rail — which is the only kind a human can click —
-    changes nothing and emits no visibility frame. A **source-less** focus on
-    a non-member is dropped whole: a human can only gesture at a panel already
-    on the rail, so such a report is always a fire-and-forget straggler that a
-    concurrent arrange overtook, and applying it would resurrect the panel the
-    arrange just pruned.
-
-    An agent switch is also mirrored into the activity history buffer as one
-    ``open_panel`` row. When the open additionally adds rail membership,
-    only the focus is mirrored: the pair of frames is one agent action, and
-    history counts actions, not frames.
+    A report naming a panel that is not on the launcher rail is dropped whole:
+    a person can only gesture at a panel already on the rail, so such a report
+    is a fire-and-forget straggler that a concurrent arrangement overtook, and
+    applying it would put the panel the arrangement just pruned back in the
+    active slot. Membership is resolved the way ``get_panels`` resolves
+    ``visible`` (an unset list means the enabled built-ins are the rail).
 
     Args:
-        body: ``panel`` (panel id), optional ``url`` to load, and optional
-            ``source`` attribution.
+        body: ``panel`` (panel id).
         request: Incoming FastAPI request carrying ``app.state``.
 
     Returns:
-        ``{"status": "ok", "active_panel": <id>}``
+        ``{"status": "ok", "active_panel": <id|None>}``
 
     Raises:
-        HTTPException: 422 when ``panel`` is not a known enabled or custom id.
+        HTTPException: 422 when ``panel`` is not a known enabled or custom id,
+            or the body carries any other field.
     """
     if body.panel not in _known_panel_ids(request):
         raise HTTPException(status_code=422, detail=f"Unknown panel: {body.panel}")
-
-    # Membership, resolved the same way ``get_panels`` resolves ``visible`` —
-    # an unset list means "the enabled built-ins are the rail", so a panel the
-    # read route calls visible is never treated here as a non-member.
     stored_visible = getattr(request.app.state, "visible_panels", None)
     if stored_visible is None:
         visible_panels = list(getattr(request.app.state, "enabled_panels", set()))
     else:
         visible_panels = list(stored_visible)
-    adds_membership = body.panel not in visible_panels
-    if adds_membership and body.source != "agent":
-        # A source-less focus is a human gesture report, and a human can only
-        # gesture at a panel already on the rail — new membership arrives via
-        # ``/api/panels/register`` or an agent ``open_panel``, never a human
-        # focus. A source-less report naming a non-member is therefore a
-        # fire-and-forget straggler that a concurrent arrange overtook;
-        # applying it would resurrect the pruned panel on every client's rail
-        # and steal the active slot, so the whole write is dropped.
+    if body.panel not in visible_panels:
         active = getattr(request.app.state, "active_panel", None)
         return {"status": "ok", "active_panel": active}
-    if adds_membership:
-        visible_panels.append(body.panel)
-        request.app.state.visible_panels = visible_panels
-
     request.app.state.active_panel = body.panel
-    if adds_membership:
-        visibility_event: dict = {
-            "type": "panel_visibility",
-            "panel": body.panel,
-            "visible": True,
-        }
-        if body.source:
-            visibility_event["source"] = body.source
-        request.app.state.broadcaster.broadcast(visibility_event)
-
-    if body.source == "agent":
-        event: dict = {"type": "panel_focus", "panel": body.panel, "source": body.source}
-        if body.url:
-            event["url"] = _prefix_path(body.url)
-        _mirror_agent_panel_activity(request, "open_panel", body.panel)
-        request.app.state.broadcaster.broadcast(event)
     return {"status": "ok", "active_panel": body.panel}
 
 
@@ -742,331 +776,143 @@ async def set_rail_order(body: RailOrderRequest, request: Request):
     return {"status": "ok", "order": order}
 
 
-class PanelCloseRequest(BaseModel):
-    panel: str
-    source: Literal["agent"] | None = None
-
-
-@router.post("/api/panel-close")
-async def close_panel(body: PanelCloseRequest, request: Request):
-    """Close a panel's tile on every connected client, leaving the rail alone.
-
-    The on-screen counterpart to ``/api/panel-focus``, and deliberately not a
-    flag on ``/api/panel-visibility``: rail membership is server-owned state
-    that this route must not touch, while which tiles are open is per-client
-    layout. A panel with no tile open closes to a no-op in the browser rather
-    than an error here — the server does not track per-client tile occupancy
-    closely enough to tell the two apart, and refusing would make the verb
-    depend on a stale report.
-
-    Args:
-        body: ``panel`` (panel id) and the optional ``source`` marker.
-        request: Incoming FastAPI request carrying ``app.state``.
-
-    Returns:
-        ``{"status": "ok", "panel": <id>}``
-
-    Raises:
-        HTTPException: 422 when ``panel`` is not a known enabled or custom id.
-    """
-    if body.panel not in _known_panel_ids(request):
-        raise HTTPException(status_code=422, detail=f"Unknown panel: {body.panel}")
-    event: dict = {"type": "panel_close", "panel": body.panel}
-    if body.source:
-        event["source"] = body.source
-    if body.source == "agent":
-        _mirror_agent_panel_activity(request, "close_panel", body.panel)
-    request.app.state.broadcaster.broadcast(event)
-    return {"status": "ok", "panel": body.panel}
-
-
-class PanelArrangeRequest(BaseModel):
-    tiles: list[str] | None = None
-    preset: str | None = None
-    focus: str | None = None
-    source: Literal["agent"] | None = None
-
-
-def _resolve_preset_tiles(request: Request, name: str, known: set[str]) -> list[str]:
-    """Resolve a preset name to its member panel ids, fail-safe filtered.
-
-    Members are filtered to the known ids (and the terminal id is dropped) so a
-    typo'd or disabled member in config is skipped rather than breaking the
-    whole layout. Config order is preserved — it is the left-to-right tile order
-    clients apply.
-
-    Args:
-        request: Incoming request carrying ``app.state.panel_presets``.
-        name: The requested preset name.
-        known: Valid panel ids from :func:`_known_panel_ids`.
-
-    Returns:
-        The preset's surviving member ids, in config order.
-
-    Raises:
-        HTTPException: 422 when no preset carries ``name``, or when none of its
-            members survives filtering (applying it would strand an empty
-            workspace).
-    """
-    presets: list[dict] = list(getattr(request.app.state, "panel_presets", []))
-    match = next((p for p in presets if p.get("name") == name), None)
-    if match is None:
-        available = [p.get("name") for p in presets]
-        raise HTTPException(
-            status_code=422,
-            detail=f"Unknown preset: {name!r}. Available presets: {available}",
-        )
-    members = [pid for pid in match.get("panels", []) if pid in known and pid != _TERMINAL_PANEL_ID]
-    if not members:
-        raise HTTPException(
-            status_code=422,
-            detail=(f"Preset {name!r} has no known members. Valid panel ids: {sorted(known)}"),
-        )
-    return members
-
-
-def _resolve_requested_tiles(tiles: list[str], known: set[str]) -> list[str]:
-    """Validate an explicitly requested tile list, preserving its order.
-
-    Explicit tiles are validated strictly — unlike preset members, which are
-    config-authored and filtered fail-safe. An agent that names a panel that
-    does not exist gets told so rather than silently receiving a different
-    workspace than it asked for, matching the focus and visibility routes.
-
-    Args:
-        tiles: Requested panel ids, in the left-to-right order to apply.
-        known: Valid panel ids from :func:`_known_panel_ids`.
-
-    Returns:
-        ``tiles`` with duplicates collapsed (first occurrence wins).
-
-    Raises:
-        HTTPException: 422 when ``tiles`` is empty, names the terminal tile, or
-            names any id outside ``known``.
-    """
-    if not tiles:
-        raise HTTPException(
-            status_code=422,
-            detail="tiles must not be empty — an arrangement must leave at least one tile open",
-        )
-    if _TERMINAL_PANEL_ID in tiles:
-        raise HTTPException(
-            status_code=422,
-            detail=(
-                f"The terminal tile ({_TERMINAL_PANEL_ID!r}) is not a service panel "
-                "and cannot be arranged"
-            ),
-        )
-    unknown = [pid for pid in tiles if pid not in known]
-    if unknown:
-        raise HTTPException(
-            status_code=422,
-            detail=f"Unknown panel ids: {unknown}. Valid panel ids: {sorted(known)}",
-        )
-    deduped: list[str] = []
-    for pid in tiles:
-        if pid not in deduped:
-            deduped.append(pid)
-    return deduped
-
-
-@router.post("/api/panel-arrange")
-async def arrange_panels(body: PanelArrangeRequest, request: Request):
-    """Request a whole-workspace tile arrangement and broadcast it via SSE.
-
-    Declarative end state: exactly the resolved tiles are open, left to right,
-    in the order given. Clients apply it as a deterministic rebuild of the
-    service-tile region; the terminal tile is never touched.
-
-    Exactly one of ``tiles`` and ``preset`` must be supplied. ``preset`` names
-    an entry of ``web.presets`` (``app.state.panel_presets``); its members are
-    resolved here so the human "Layouts" click and an agent preset call are one
-    server operation. A preset additionally sets ``prune_rail`` on the
-    broadcast, giving presets membership-exclusive semantics
-    (non-members leave the launcher rail); a ``tiles`` request never removes
-    rail membership, it only adds any listed non-member.
-
-    Focus caveat: the server records the *requested* focus in
-    ``app.state.active_panel`` and passes it through the broadcast unchanged.
-    Panel health is only observable in the browser, so clients apply the
-    healthy-fallback rule (requested panel if healthy, else the first healthy
-    listed tile, else no focus change). A read-back of ``active`` therefore
-    reports what was asked for, which may differ from what a client could
-    actually focus.
-
-    With no ``focus`` given — every human "Layouts" click, and any agent
-    arrangement that does not name one — the first resolved tile is recorded
-    instead. An arrangement always lands focus somewhere, and ``tiles[0]`` is
-    what the client's healthy-fallback rule picks in the common case. Leaving
-    ``active_panel`` untouched would strand it on a panel the arrangement just
-    closed, so a preset click could leave ``active`` naming a panel that the
-    very same ``GET /api/panels`` response omits from ``visible``. The
-    broadcast still carries ``focus`` only when one was requested, leaving the
-    client's fallback rule in charge of what is actually focused on screen.
-
-    An agent arrangement is mirrored into the activity history buffer as a single
-    ``arrange_workspace`` row targeting the recorded focus panel.
-
-    Args:
-        body: ``tiles`` (explicit ids, left-to-right) **or** ``preset`` (a
-            configured layout name), an optional ``focus`` target that must be
-            one of the resolved tiles, and an optional ``source`` attribution.
-        request: Incoming FastAPI request carrying ``app.state``.
-
-    Returns:
-        ``{"status": "ok", "tiles": [...], "focus": <id|None>,
-        "preset": <name|None>, "prune_rail": <bool>}``
-
-    Raises:
-        HTTPException: 422 when neither or both of ``tiles``/``preset`` are
-            given, when ``tiles`` is empty, when any requested id is unknown or
-            is the terminal tile, when the preset name is unknown or resolves
-            to no known member, or when ``focus`` is not one of the resolved
-            tiles.
-    """
-    if (body.tiles is None) == (body.preset is None):
-        raise HTTPException(
-            status_code=422,
-            detail="Provide exactly one of 'tiles' or 'preset'",
-        )
-
-    known = _known_panel_ids(request)
-    if body.preset is not None:
-        tiles = _resolve_preset_tiles(request, body.preset, known)
-        prune_rail = True
-    else:
-        tiles = _resolve_requested_tiles(body.tiles or [], known)
-        prune_rail = False
-
-    if body.focus is not None and body.focus not in tiles:
-        raise HTTPException(
-            status_code=422,
-            detail=f"Focus target {body.focus!r} is not among the arranged tiles: {tiles}",
-        )
-
-    # Rail membership. A tiles request is additive (a panel the operator can
-    # still reach from the rail keeps its entry); a preset prunes to its
-    # members, keeping the existing rail order for the ones that survive.
-    visible_panels: list[str] = list(getattr(request.app.state, "visible_panels", []))
-    if prune_rail:
-        visible_panels = [pid for pid in visible_panels if pid in tiles]
-    visible_panels += [pid for pid in tiles if pid not in visible_panels]
-    request.app.state.visible_panels = visible_panels
-
-    # An arrangement always lands focus somewhere, so the recorded active panel
-    # must move with it. Leaving it alone would let ``active`` name a panel the
-    # same response no longer lists as visible — the state consumers read.
-    request.app.state.active_panel = body.focus or tiles[0]
-
-    event: dict = {"type": "panel_arrange", "tiles": tiles}
-    if body.focus is not None:
-        event["focus"] = body.focus
-    if prune_rail:
-        event["prune_rail"] = True
-    if body.source:
-        event["source"] = body.source
-    if body.source == "agent":
-        # One row for the whole arrangement, targeting the panel focus lands on
-        # — the same id recorded as ``active_panel`` above, so the history entry
-        # names the tile the operator's eye is sent to.
-        _mirror_agent_panel_activity(request, "arrange_workspace", body.focus or tiles[0])
-    request.app.state.broadcaster.broadcast(event)
-    return {
-        "status": "ok",
-        "tiles": tiles,
-        "focus": body.focus,
-        "preset": body.preset,
-        "prune_rail": prune_rail,
-    }
-
-
 class PanelLayoutRequest(BaseModel):
-    tiles: list[str]
+    layout: dict | None
     dock: bool
+    client_id: str = Field(min_length=1, max_length=128)
+    popouts: list[str] = Field(default_factory=list)
 
 
 @router.post("/api/panel-layout")
 async def report_panel_layout(body: PanelLayoutRequest, request: Request):
-    """Record which service tiles a client currently has on screen.
+    """Record the dock layout a client currently shows, and who that client is.
 
-    This is the reporter's endpoint, not a command: it is how the browser tells
-    the server what the operator's workspace actually looks like, so the agent
-    stops guessing tile occupancy from rail membership. Nothing is broadcast —
-    a human's tile gestures are never pushed to other clients (report-only,
-    last-writer-wins), and reports are agent-facing state only.
+    This is the reporter's endpoint, not a command: it is how the browser's dock
+    tells the server what the operator's workspace actually looks like. The body
+    is the holder's dock layout tree (tiles, their tabs, each tile's showing tab and
+    the terminal tile, keyed ``"terminal"``), the panels that client shows in
+    pop-out windows of their own (``popouts``, which the tree never names), the
+    page's ``client_id`` and the client's ``dock`` capability flag. Nothing is
+    broadcast — a human's tile gestures are never pushed to other clients
+    (report-only, last-writer-wins).
 
-    ``tiles`` is the service-tile list in spatial reading order (rows
-    top-then-left); the terminal tile is never part of it. An empty list is a
-    valid report from a dock client — it means the operator closed every
-    service tile.
+    A ``dock: true`` report must carry a layout that passes
+    :func:`~osprey.interfaces.web_terminal.dock_layout.layout_refusal` and whose
+    every key other than the terminal is a known panel id; a pop-out is a known
+    panel id that is not in the tree. The layout is stored normalised, its
+    ``client_id`` becomes the current dock client, and a changed layout or
+    pop-out set mints the next ``rev``. A client running without the dock
+    shell cannot see the layout, so ``dock: false`` records the layout as
+    **unknown** (``None``) with no current client while still stamping the
+    timestamp — "someone is watching but cannot report tiles".
 
-    ``dock`` is the reporting client's capability flag, and it decides how the
-    report is *recorded*. A client running without the dock shell cannot see
-    tile order, so the ``{"tiles": [], "dock": false}`` it sends is a presence
-    signal, not an observation of an empty workspace. Recording that ``[]``
-    verbatim would let a fallback client clobber a dock client's live list with
-    a confident "nothing is open". So ``dock: false`` stores occupancy as
-    **unknown** (``open_tiles = None``) while still stamping the timestamp and
-    the flag — ``GET /api/panels`` then reports ``open_tiles: null`` with a
-    numeric age, meaning "a client is watching but cannot report tile order".
-    The mapping happens here, not on the wire. ``dock: true`` records the list
-    verbatim.
-
-    Content dedupe: a report whose *recorded* occupancy and ``dock`` flag both
-    equal the stored state is a no-op — the stored timestamp is deliberately
-    *not* bumped, so ``open_tiles_age_s`` keeps measuring when the layout last
-    **changed**. This is the server half of the convergence contract: the
-    client also skips posting a report equal to its last acknowledged one, so
-    an applied arrangement settles after at most one extra round-trip instead
-    of looping. Two successive dock-less reports therefore dedupe against each
-    other, since both record the same unknown occupancy.
-
-    Args:
-        body: ``tiles`` (service panel ids in reading order) and ``dock``
-            (whether the reporting client has a dock shell).
-        request: Incoming FastAPI request carrying ``app.state``.
+    Content dedupe: a report whose recorded layout, pop-outs and ``dock`` flag
+    equal the stored state is a no-op — neither ``rev`` nor the timestamp moves (a
+    different ``client_id`` still becomes current). This is the server half of
+    the convergence contract: the client also skips posting a layout equal to
+    its last acknowledged one, so an applied arrangement settles instead of
+    looping.
 
     Returns:
-        ``{"status": "ok", "tiles": [...]|None, "dock": <bool>,
-        "updated": <bool>}`` — ``tiles`` echoes what was *recorded*, so it is
-        ``None`` for a dock-less report, and ``updated`` is ``False`` when the
-        report was deduped.
+        ``{"status": "ok", "layout": {...}|None, "popouts": [...], "dock": <bool>,
+        "rev": <int>, "updated": <bool>}`` — ``layout`` and ``popouts`` echo what
+        was *recorded* and ``rev`` is the stored revision, which the client
+        keeps as its ``ackedRev``.
 
     Raises:
-        HTTPException: 422 when a reported id is unknown or is the terminal
-            tile.
+        HTTPException: 422 when the layout breaks a dock layout rule, a key or
+            a pop-out is unknown, a pop-out is also in the tree, or a dock
+            report carries no layout.
     """
+    layout = _checked_dock_layout(request, body.layout) if body.dock else None
+    popouts = _checked_popouts(request, body.popouts, layout) if body.dock else []
+    rev, updated = _record_dock_report(
+        request.app.state, body.client_id, layout, body.dock, popouts
+    )
+    return {
+        "status": "ok",
+        "layout": layout,
+        "popouts": popouts,
+        "dock": body.dock,
+        "rev": rev,
+        "updated": updated,
+    }
+
+
+def _checked_dock_layout(request: Request, layout: dict | None) -> dict:
+    """``layout`` normalised, once it passes the dock layout rules and names only known panels.
+
+    Raises:
+        HTTPException: 422 when the layout is missing, breaks a dock layout rule or
+            names a key that is neither the terminal nor a known panel id.
+    """
+    if layout is None:
+        raise HTTPException(status_code=422, detail="A dock report must carry its layout")
+    refusal = layout_refusal(layout)
+    if refusal is not None:
+        reason, where = refusal
+        raise HTTPException(status_code=422, detail=f"{where}: {reason}: {REASON_TEXT[reason]}")
     known = _known_panel_ids(request)
-    if _TERMINAL_PANEL_ID in body.tiles:
-        raise HTTPException(
-            status_code=422,
-            detail=(
-                f"The terminal tile ({_TERMINAL_PANEL_ID!r}) is not a service panel "
-                "and must not be reported"
-            ),
-        )
-    unknown = [pid for pid in body.tiles if pid not in known]
+    unknown = [key for key in layout_keys(layout) if key != _TERMINAL_PANEL_ID and key not in known]
     if unknown:
         raise HTTPException(
             status_code=422,
             detail=f"Unknown panel ids: {unknown}. Valid panel ids: {sorted(known)}",
         )
+    return normalize_layout(layout)
 
-    # A dock-less client cannot see tile order, so its report says only "someone
-    # is watching" — the occupancy it carries is recorded as unknown (``None``)
-    # rather than as a confident empty list that consumers would read as
-    # "the operator closed everything".
-    occupancy: list[str] | None = list(body.tiles) if body.dock else None
 
-    stored_tiles = getattr(request.app.state, "open_tiles", None)
-    stored_dock = getattr(request.app.state, "open_tiles_dock", None)
-    if stored_tiles == occupancy and stored_dock == body.dock:
-        return {"status": "ok", "tiles": stored_tiles, "dock": stored_dock, "updated": False}
+def _checked_popouts(request: Request, popouts: list[str], layout: dict | None) -> list[str]:
+    """``popouts`` sorted and deduplicated, once each names a known panel outside ``layout``.
 
-    request.app.state.open_tiles = occupancy
-    request.app.state.open_tiles_dock = body.dock
-    request.app.state.open_tiles_ts = time.time()
-    return {"status": "ok", "tiles": occupancy, "dock": body.dock, "updated": True}
+    Raises:
+        HTTPException: 422 when a pop-out is the terminal or an unknown id, or is
+            also a tab of the tree (a panel is in a window or in a tile, never both).
+    """
+    known = _known_panel_ids(request)
+    bad = [key for key in popouts if key == _TERMINAL_PANEL_ID or key not in known]
+    if bad:
+        raise HTTPException(status_code=422, detail=f"Unknown pop-out panel ids: {bad}")
+    docked = set(layout_keys(layout))
+    both = sorted(set(popouts) & docked)
+    if both:
+        raise HTTPException(
+            status_code=422, detail=f"A pop-out cannot also be a tab of the layout: {both}"
+        )
+    return sorted(set(popouts))
+
+
+def _record_dock_report(
+    state, client_id: str, layout: dict | None, dock: bool, popouts: list[str]
+) -> tuple[int, bool]:
+    """Store a client's report as the current one; return ``(rev, updated)``.
+
+    The reporting client becomes the current dock client (none for a
+    ``dock: false`` report). A report equal to the stored layout, pop-outs and
+    ``dock`` flag changes neither ``rev`` nor the timestamp; any other report
+    mints the next ``rev`` — a panel leaving for its own window, or coming
+    back, is a change the agent reads. Layouts are compared the way the browser
+    compares its own reports (:func:`~osprey.interfaces.web_terminal.dock_layout.same_layout`,
+    sizes up to the engine's tolerance), so the read-back of a tree the dock
+    just applied is the same report and never a revision of its own. Shared by
+    the report route and the op-result route, so an agent op's result and a
+    person's report move the same revision.
+    """
+    state.dock_client_id = client_id if dock else None
+    rev = getattr(state, "dock_layout_rev", 0)
+    if (
+        same_layout(getattr(state, "dock_layout", None), layout)
+        and list(getattr(state, "dock_popouts", [])) == popouts
+        and getattr(state, "layout_dock", None) == dock
+    ):
+        return rev, False
+    rev += 1
+    state.dock_layout = layout
+    state.dock_popouts = list(popouts)
+    state.dock_layout_rev = rev
+    state.layout_dock = dock
+    state.layout_ts = time.time()
+    return rev, True
 
 
 # ---- Runtime panel registration ---- #
@@ -1363,8 +1209,11 @@ async def register_panel(body: PanelRegisterRequest, request: Request):
     """Dynamically register a custom panel at runtime.
 
     Requires ``web.allow_runtime_panels: true`` in config.  The supplied URL
-    is validated to reject loopback, link-local, and cloud-metadata targets,
-    and is stored raw server-side so the proxy can forward to it.  The URL
+    is normalised as the browser's URL parser reads it
+    (:func:`~osprey.interfaces.panel_urls.normalise_navigation_url`, the
+    navigation guard), validated to reject non-http(s) schemes and loopback,
+    link-local, and cloud-metadata targets, and is stored in that normalised
+    form server-side so the proxy can forward to it.  The URL
     exposed to the browser (in broadcasts and ``GET /api/panels``) is rewritten
     to ``<prefix>/panel/{id}`` (``<prefix>`` is the empty string outside
     multi-user deployments).
@@ -1433,8 +1282,18 @@ async def register_panel(body: PanelRegisterRequest, request: Request):
             ),
         )
 
-    allowlist: list[str] | None = getattr(request.app.state, "runtime_panel_allowlist", None)
-    url_error = await _validate_panel_url(body.url, allowlist)
+    # Judged and stored in the form a browser (and the proxy) will read it: a
+    # raw string the checks below would misread (a tab inside the scheme, a
+    # ``\`` for a ``/``) is normalised first, so what is validated is what is
+    # used (the navigation guard).
+    panel_url = normalise_navigation_url(body.url)
+    url_error = navigation_url_refusal(panel_url)
+    if url_error is None:
+        hop_refusal = agent_hop_refusal(request, body.id, panel_url)
+        if hop_refusal is not None:
+            raise HTTPException(status_code=422, detail=f"agent_hop_panel_url: {hop_refusal}")
+        allowlist: list[str] | None = getattr(request.app.state, "runtime_panel_allowlist", None)
+        url_error = await _validate_panel_url(panel_url, allowlist)
     if url_error:
         raise HTTPException(status_code=422, detail=url_error)
 
@@ -1446,7 +1305,7 @@ async def register_panel(body: PanelRegisterRequest, request: Request):
         {
             "id": body.id,
             "label": body.label,
-            "url": body.url,  # stored RAW; proxy reads this for forwarding
+            "url": panel_url,  # stored normalised; proxy reads this for forwarding
             "healthEndpoint": body.health_endpoint,
             "path": body.path,
         }
@@ -1564,9 +1423,30 @@ async def serve_discovered_panel(panel_id: str, path: str, request: Request):
         path: Path within the bundle; empty serves the manifest entry.
         request: Incoming request carrying ``app.state.discovered_panel_dirs``.
 
+    Every document this route answers — the entry page included, on every
+    status — goes out in an opaque sandbox origin (``panel_sandbox``): a
+    discovered bundle is files on disk that an agent may have written, so it
+    declares no entry page and never runs with the terminal's own origin. This
+    route is never allowlisted.
+
+    A sandboxed page carries no cookie, so on a gated deployment any
+    subresource it asks the terminal for answers 401. The panel contract
+    (``design_system.panels.validator``) has every page reference the shared
+    theme by the same canonical tags, so an HTML page is served with exactly
+    those made self-contained (:func:`_self_contained_page`); everything else a
+    panel needs must be inline in the page itself, as in the design-system
+    reference panel.
+
     Returns:
         A :class:`FileResponse` for the requested asset, or a 404 ``Response``.
     """
+    response = _discovered_panel_file(panel_id, path, request)
+    apply_panel_sandbox(response, path, ())
+    return response
+
+
+def _discovered_panel_file(panel_id: str, path: str, request: Request) -> Response:
+    """The bundle file :func:`serve_discovered_panel` answers with, or its 404."""
     panels = getattr(request.app.state, "discovered_panel_dirs", {})
     if panels.get(panel_id) is None:
         return Response(content=f"Panel '{panel_id}' is not available", status_code=404)
@@ -1575,9 +1455,39 @@ async def serve_discovered_panel(panel_id: str, path: str, request: Request):
     if target is None:
         return Response(content="Not found", status_code=404)
 
+    page = _self_contained_page(target)
+    if page is not None:
+        return HTMLResponse(page, headers=document_headers("text/html"))
     response = FileResponse(target)
     response.headers.update(document_headers(response.media_type))
     return response
+
+
+#: The shared web-font stylesheet link the panel contract requires. Its fonts
+#: are ~1.5 MB of TrueType, too heavy to inline into every page, so a sandboxed
+#: page drops the link and renders in the tokens' system-font fallbacks.
+_SHARED_FONTS_LINK_RE = re.compile(
+    r"""<link\b[^>]*\bhref\s*=\s*["']/static/fonts/fonts\.css["'][^>]*>""", re.IGNORECASE
+)
+
+
+def _self_contained_page(target: Path) -> str | None:
+    """A discovered panel's HTML page with its canonical shared-theme references inlined.
+
+    The design-system scripts and stylesheets become inline blocks, first-party
+    module imports become ``data:`` modules (``artifacts.inline_assets``, the
+    artifact pages' inliner), and the shared-font link is dropped. ``None`` for
+    a file that is not HTML, and for a page that names a design-system asset
+    that does not exist — that page is served as written.
+    """
+    if target.suffix.lower() not in {".html", ".htm"}:
+        return None
+    try:
+        page = target.read_text(encoding="utf-8")
+        return self_contained(_SHARED_FONTS_LINK_RE.sub("", page))
+    except (OSError, UnicodeDecodeError, ValueError):
+        logger.warning("discovered panel page %s served as written", target, exc_info=True)
+        return None
 
 
 @router.post("/api/terminal/restart")

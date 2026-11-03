@@ -9,6 +9,11 @@
  * math-placeholder strategy, the code-highlighting renderer, and the
  * KaTeX error fallback cannot drift between the two surfaces.
  *
+ * It is also the one place rendered markdown reaches the DOM:
+ * `renderMarkdownInto` sanitises with DOMPurify before its single
+ * `innerHTML` assignment (the web terminal's chat-render.js precedent).
+ * Artifact markdown is agent-authored, so marked's output is untrusted HTML.
+ *
  * Stateless aside from `configureMarked`'s one-time idempotency flag.
  * `marked`, `hljs`, `katex` and `DOMPurify` are page globals loaded via
  * classic vendor <script> tags before this module runs; every use is
@@ -162,4 +167,42 @@ function renderUnsanitized(text) {
   }
 
   return html;
+}
+
+/**
+ * The page's DOMPurify, if loaded (a vendored classic-script global with no
+ * ambient declaration).
+ * @returns {any}
+ */
+function purifier() {
+  return /** @type {any} */ (globalThis).DOMPurify;
+}
+
+/**
+ * Render markdown (with math) into `el` as sanitised HTML.
+ *
+ * The one innerHTML sink for rendered artifact markdown: the gallery's
+ * preview pane and the standalone rendered page both call it. HTML is
+ * produced only when both `marked` and `DOMPurify` are present, and only
+ * DOMPurify's output is assigned; without either, or if either throws, the
+ * source is written as inert `textContent` -- never as markup.
+ * @param {HTMLElement} el - target element; its contents are replaced
+ * @param {string} text - raw markdown (agent-authored)
+ * @returns {void}
+ */
+export function renderMarkdownInto(el, text) {
+  const DOMPurify = purifier();
+  if (typeof marked === 'undefined' || !DOMPurify || typeof DOMPurify.sanitize !== 'function') {
+    el.textContent = text;
+    return;
+  }
+  configureMarked();
+  let clean;
+  try {
+    clean = DOMPurify.sanitize(renderMathInMarkdown(text));
+  } catch {
+    el.textContent = text;
+    return;
+  }
+  el.innerHTML = clean;
 }

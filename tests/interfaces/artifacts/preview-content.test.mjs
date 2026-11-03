@@ -239,6 +239,7 @@ describe('renderMarkdownView', () => {
       use: vi.fn(),
       parse: vi.fn((t) => `<p>${t}</p>`),
     });
+    // Only DOMPurify's output reaches innerHTML (md-render.js's one sink).
     vi.stubGlobal(
       'fetch',
       vi.fn().mockResolvedValue({ ok: true, text: () => Promise.resolve('# Hi') })
@@ -250,8 +251,8 @@ describe('renderMarkdownView', () => {
     const rendered = container.querySelector('.osprey-md-rendered');
     expect(rendered).not.toBeNull();
     if (rendered === null) throw new Error('unreachable: rendered container missing');
-    expect(rendered.innerHTML).toBe('<p># Hi</p>');
     expect(sanitize).toHaveBeenCalledWith('<p># Hi</p>');
+    expect(rendered.innerHTML).toBe('<p># Hi</p>');
   });
 
   test('falls back to plain textContent when marked is unavailable', async () => {

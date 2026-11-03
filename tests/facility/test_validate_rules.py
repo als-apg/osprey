@@ -1184,28 +1184,23 @@ class TestPulseRules:
         assert error.detail == "`pulse.driver` SEK:SP is wired"
 
     @pytest.mark.parametrize(
-        ("driver", "detail"),
+        ("driver", "enable", "detail"),
         [
-            ("SEK:STATUS:ON", "`pulse.driver` SEK:STATUS:ON is bool, not float"),
-            ("PADDLES:IN", "`pulse.driver` PADDLES:IN is int, not float"),
+            (
+                "SEK:STATUS:ON",
+                "SEK:STATUS:ON",
+                "`pulse.driver` SEK:STATUS:ON is bool, not float",
+            ),
+            ("PADDLES:IN", "SEK:STATUS:ON", "`pulse.driver` PADDLES:IN is int, not float"),
+            ("SEK:SP", "SEK:SP", "`pulse.enable` SEK:SP is float, not bool"),
+            ("SEK:SP", "GUN:MODE", "`pulse.enable` GUN:MODE is enum, not bool"),
         ],
-        ids=["bool", "int"],
+        ids=["bool-driver", "int-driver", "float-enable", "enum-enable"],
     )
-    def test_a_non_float_driver(self, tmp_path: Path, driver: str, detail: str) -> None:
-        seeds = {"SEK:TRACE": {"pulse": {"driver": driver, "enable": "SEK:STATUS:ON"}}}
-        error = _rule(tmp_path, _pulse_tree(seeds=seeds), "value-invalid")
-        assert error.detail == detail
-
-    @pytest.mark.parametrize(
-        ("enable", "detail"),
-        [
-            ("SEK:SP", "`pulse.enable` SEK:SP is float, not bool"),
-            ("GUN:MODE", "`pulse.enable` GUN:MODE is enum, not bool"),
-        ],
-        ids=["float", "enum"],
-    )
-    def test_a_non_bool_enable(self, tmp_path: Path, enable: str, detail: str) -> None:
-        seeds = {"SEK:TRACE": {"pulse": {"driver": "SEK:SP", "enable": enable}}}
+    def test_a_pulse_channel_of_the_wrong_type(
+        self, tmp_path: Path, driver: str, enable: str, detail: str
+    ) -> None:
+        seeds = {"SEK:TRACE": {"pulse": {"driver": driver, "enable": enable}}}
         error = _rule(tmp_path, _pulse_tree(seeds=seeds), "value-invalid")
         assert error.detail == detail
 

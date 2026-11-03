@@ -285,7 +285,6 @@ export const REASON_PHRASES = {
   connector_not_switchable: 'switching not supported',
   target_unresolvable: 'unavailable',
   operator_ack_missing: 'needs gateway ack',
-  archive_belongs_to_standin: 'archive conflict',
   invented_history: 'no archive',
   standin_not_deployed: 'stand-in not deployed',
   reaches_live_machine: 'points at the live machine',

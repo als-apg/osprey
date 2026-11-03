@@ -1,6 +1,6 @@
 """The panel rename-map script: structural edits, then binding sites.
 
-``scripts/facility_demo/panel_rename.py`` edits the GTLView/BTSView CANOPY
+``scripts/facility_demo/panel_rename.py`` edits the GTL and BTS CANOPY
 panels (``_panel_edits``) and rewrites them from legacy names to the demo
 grammar, driven by the element table, and checks that a built
 ``facility.json`` holds every element-table name. These tests run it on a
@@ -38,14 +38,11 @@ _SPEC.loader.exec_module(panel_rename)
 import _panel_edits  # noqa: E402  (on sys.path once the script is loaded)
 from _elements import load_elements  # noqa: E402
 
-GTL = "gtb/GTLView.screen.json"
-BTS = "bts/BTSView.screen.json"
+GTL = "gtl/GTL.screen.json"
+BTS = "bts/BTS.screen.json"
 PANELS = (GTL, BTS)
-EMBEDDED = tuple(
-    f"{section}/embedded/{name}.screen.json"
-    for section in ("gtb", "bts")
-    for name in ("_tv", "_KnobDevice", "_bpm")
-)
+EMBEDDED = tuple(f"common/embedded/{name}.screen.json" for name in ("_tv", "_KnobDevice", "_bpm"))
+TV = "common/embedded/_tv.screen.json"
 #: Legacy name patterns no macro value may keep.
 LEGACY_PATTERNS = ("irm:", "EG___", "LTB___", "BTS___", "ALS:")
 
@@ -103,12 +100,10 @@ def test_apply_rewrites_every_binding_site(library: Path) -> None:
     changed = panel_rename.apply(library, ROWS)
 
     assert {p.relative_to(library).as_posix() for p in changed} == {
-        "screens/gtb/GTLView.screen.json",
-        "screens/gtb/embedded/_tv.screen.json",
-        "screens/gtb/embedded/_KnobDevice.screen.json",
-        "screens/bts/BTSView.screen.json",
-        "screens/bts/embedded/_tv.screen.json",
-        "screens/bts/embedded/_KnobDevice.screen.json",
+        "screens/gtl/GTL.screen.json",
+        "screens/bts/BTS.screen.json",
+        "screens/common/embedded/_tv.screen.json",
+        "screens/common/embedded/_KnobDevice.screen.json",
         "screens/common/KnobPanel.screen.json",
     }
     main = _load(library, GTL)
@@ -170,7 +165,7 @@ def test_free_text_local_channels_and_macro_references_are_untouched(library: Pa
     main = _load(library, GTL)
 
     assert _node(main, "w-002")["props"]["pv"] == "loc://tv1?type=float&init=0"
-    assert _node(main, "w-003")["props"]["pv"] == "fox://f-001"
+    assert _node(main, "w-003")["props"]["pv"] == "formula://f-001"
     assert _node(main, "w-004")["props"]["text"] == "XX:Q1:Set"
     assert _node(main, "w-008")["props"]["macros"]["TV"] == "XX:TV1:Paddle"
     assert _node(main, "w-008")["props"]["macros"]["loctv"] == "loc://tv1<VDouble>(0)"
@@ -179,11 +174,10 @@ def test_free_text_local_channels_and_macro_references_are_untouched(library: Pa
     assert _node(main, "w-013")["props"]["curves"][0]["name"] == "XX:BPM1:X"
     assert _node(main, "w-014")["props"]["pv"] == "${S}Q1:Set"
     assert main["macros"] == [m for m in before["macros"] if m["name"] not in ("P", "R")]
-    for section in ("gtb", "bts"):
-        tv = _load(library, f"{section}/embedded/_tv.screen.json")
-        loc = _node(tv, "w-004")
-        assert loc["meta"]["comment"].endswith("$(paddle_in), $(light_on)]")
-        assert loc["props"] == {"pv": "${loctv}", "readbackPV": "${loctv}", "buttonType": "toggle"}
+    tv = _load(library, TV)
+    loc = _node(tv, "w-004")
+    assert loc["meta"]["comment"].endswith("$(paddle_in), $(light_on)]")
+    assert loc["props"] == {"pv": "${loctv}", "readbackPV": "${loctv}", "buttonType": "toggle"}
 
 
 def test_only_binding_values_change_after_the_structural_edits(library: Path) -> None:
@@ -219,11 +213,10 @@ def test_screens_outside_the_panel_directories_are_not_read(library: Path) -> No
 # --- apply: structural edits -------------------------------------------------------
 
 
-@pytest.mark.parametrize("section", ["gtb", "bts"])
-def test_both_tv_copies_split_the_paddle_and_light_the_lamp(library: Path, section: str) -> None:
+def test_the_tv_screen_splits_the_paddle_and_lights_the_lamp(library: Path) -> None:
     panel_rename.apply(library, ROWS)
 
-    tv = _load(library, f"{section}/embedded/_tv.screen.json")
+    tv = _load(library, TV)
     assert [m["name"] for m in tv["macros"]] == ["TV", "light", "loctv", "paddle", "paddle_rb"]
     paddle = _node(tv, "w-005")
     assert paddle["type"] == "pv-button"
@@ -243,7 +236,7 @@ def test_every_write_targets_a_setpoint_and_every_toggle_reads_its_readback(
     channels = {c["id"] for c in json.loads(FACILITY.read_text(encoding="utf-8"))["channels"]}
 
     def is_facility(value: str) -> bool:
-        return not value.startswith(("loc://", "fox://")) and "${" not in value
+        return not value.startswith(("loc://", "formula://")) and "${" not in value
 
     writes: list[str] = []
     toggles: list[tuple[str, str]] = []
@@ -312,11 +305,11 @@ def test_cut_widgets_and_their_references_are_gone(library: Path) -> None:
 @pytest.mark.parametrize(
     ("panel", "target", "label", "geometry"),
     [
-        # GTLView's KnobPanel button sat far from the TV banks: the link takes the
-        # free slot under the BTS TV PADDLES bank (D5), at these coordinates.
-        (GTL, "../bts/BTSView.screen.json", "Open BTSView", (1960, 490, 130, 24)),
-        # BTSView's link takes the slot of its cut "Open KnobPanel" button (w-195).
-        (BTS, "../gtb/GTLView.screen.json", "Open GTLView", (910, 830, 120, 55)),
+        # GTL's KnobPanel button sat far from the TV banks: the link takes the
+        # free slot under the BTS TV PADDLES bank, at these coordinates.
+        (GTL, "../bts/BTS.screen.json", "Open BTS", (1960, 490, 130, 24)),
+        # BTS's link takes the slot of its cut "Open KnobPanel" button (w-195).
+        (BTS, "../gtl/GTL.screen.json", "Open GTL", (910, 830, 120, 55)),
     ],
 )
 def test_each_panel_has_one_document_relative_cross_link(
@@ -418,7 +411,7 @@ def test_apply_is_idempotent(library: Path) -> None:
 
 def test_an_unknown_legacy_name_fails_lists_every_site_and_writes_nothing(library: Path) -> None:
     _edit(library, GTL, "w-010", pv="XX:Nope:1")
-    _edit(library, "bts/embedded/_tv.screen.json", "w-005", pv="XX:Nope:2")
+    _edit(library, TV, "w-005", pv="XX:Nope:2")
     before = _snapshot(library)
 
     with pytest.raises(panel_rename.RenameError) as raised:
@@ -427,7 +420,7 @@ def test_an_unknown_legacy_name_fails_lists_every_site_and_writes_nothing(librar
     message = str(raised.value)
     assert "'XX:Nope:1' is not in the element table" in message
     assert "'XX:Nope:2' is not in the element table" in message
-    assert "screens/gtb/GTLView.screen.json: root.children[7].props.pv" in message
+    assert "screens/gtl/GTL.screen.json: root.children[7].props.pv" in message
     assert _snapshot(library) == before
 
 
@@ -443,7 +436,7 @@ def test_a_panel_without_an_edit_site_fails_and_writes_nothing(library: Path) ->
         panel_rename.apply(library, ROWS)
 
     message = str(raised.value)
-    assert "no w-195 to take the slot of 'Open GTLView'" in message
+    assert "no w-195 to take the slot of 'Open GTL'" in message
     assert "w-157 macros.BPM is 'BTS BPM9'" in message
     assert _snapshot(library) == before
 
@@ -502,7 +495,7 @@ def test_cli_apply_exits_zero_then_non_zero_on_an_unknown_name(
 ) -> None:
     assert panel_rename.main(["--table", str(TABLE), "apply", "--library", str(library)]) == 0
     out = capsys.readouterr().out
-    assert "re-mapped 6 screen(s)" in out
+    assert "re-mapped 4 screen(s)" in out
     assert "deleted screens/common/KnobPanel.screen.json" in out
 
     _edit(library, GTL, "w-010", pv="XX:Nope:1")

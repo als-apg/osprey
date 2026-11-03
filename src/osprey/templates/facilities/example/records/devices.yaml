@@ -1138,6 +1138,132 @@
   - VCM07
   label: VCM 07
   place: LTB
+- id: SR/AHU01
+  class: AirHandler
+  description: Air-handling unit of storage-ring sector 1.
+  names:
+  - AHU01
+  - air handler
+  - air handling unit
+  label: AHU 01
+  place: SR/SECT1
+- id: SR/AHU03
+  class: AirHandler
+  description: Air-handling unit of storage-ring sector 3.
+  names:
+  - AHU03
+  - air handler
+  - air handling unit
+  label: AHU 03
+  place: SR/SECT3
+- id: SR/AHU04
+  class: AirHandler
+  description: Air-handling unit of storage-ring sector 4.
+  names:
+  - AHU04
+  - air handler
+  - air handling unit
+  label: AHU 04
+  place: SR/SECT4
+- id: SR/AHU06
+  class: AirHandler
+  description: Air-handling unit of storage-ring sector 6.
+  names:
+  - AHU06
+  - air handler
+  - air handling unit
+  label: AHU 06
+  place: SR/SECT6
+- id: SR/AHU12
+  class: AirHandler
+  description: Air-handling unit of storage-ring sector 12.
+  names:
+  - AHU12
+  - air handler
+  - air handling unit
+  label: AHU 12
+  place: SR/SECT12
+- id: SR/AIR01
+  class: TemperatureSensor
+  description: Tunnel air-temperature sensor of storage-ring sector 1.
+  names:
+  - AIR01
+  - tunnel air temperature
+  - tunnel temperature
+  label: AIR 01
+  place: SR/SECT1
+- id: SR/AIR03
+  class: TemperatureSensor
+  description: Tunnel air-temperature sensor of storage-ring sector 3.
+  names:
+  - AIR03
+  - tunnel air temperature
+  - tunnel temperature
+  label: AIR 03
+  place: SR/SECT3
+- id: SR/AIR04
+  class: TemperatureSensor
+  description: Tunnel air-temperature sensor of storage-ring sector 4.
+  names:
+  - AIR04
+  - tunnel air temperature
+  - tunnel temperature
+  label: AIR 04
+  place: SR/SECT4
+- id: SR/AIR06
+  class: TemperatureSensor
+  description: Tunnel air-temperature sensor of storage-ring sector 6.
+  names:
+  - AIR06
+  - tunnel air temperature
+  - tunnel temperature
+  label: AIR 06
+  place: SR/SECT6
+- id: SR/AIR07
+  class: TemperatureSensor
+  description: Tunnel air-temperature sensor of storage-ring sector 7.
+  names:
+  - AIR07
+  - tunnel air temperature
+  - tunnel temperature
+  label: AIR 07
+  place: SR/SECT7
+- id: SR/AIR08
+  class: TemperatureSensor
+  description: Tunnel air-temperature sensor of storage-ring sector 8.
+  names:
+  - AIR08
+  - tunnel air temperature
+  - tunnel temperature
+  label: AIR 08
+  place: SR/SECT8
+- id: SR/AIR09
+  class: TemperatureSensor
+  description: Tunnel air-temperature sensor of storage-ring sector 9.
+  names:
+  - AIR09
+  - tunnel air temperature
+  - tunnel temperature
+  label: AIR 09
+  place: SR/SECT9
+- id: SR/AIR11
+  class: TemperatureSensor
+  description: Tunnel air-temperature sensor of storage-ring sector 11.
+  names:
+  - AIR11
+  - tunnel air temperature
+  - tunnel temperature
+  label: AIR 11
+  place: SR/SECT11
+- id: SR/AIR12
+  class: TemperatureSensor
+  description: Tunnel air-temperature sensor of storage-ring sector 12.
+  names:
+  - AIR12
+  - tunnel air temperature
+  - tunnel temperature
+  label: AIR 12
+  place: SR/SECT12
 - id: SR/BPM01
   class: BeamPositionMonitor
   names:
@@ -1576,7 +1702,9 @@
   class: Dipole
   names:
   - DIPOLE11
+  - superbend
   label: DIPOLE 11
+  description: 'Superbend: the superconducting dipole in the middle of arc 4, whose high field serves hard X-ray bend ports.'
 - id: SR/DIPOLE12
   class: Dipole
   names:
@@ -1636,7 +1764,9 @@
   class: Dipole
   names:
   - DIPOLE23
+  - superbend
   label: DIPOLE 23
+  description: 'Superbend: the superconducting dipole in the middle of arc 8, whose high field serves hard X-ray bend ports.'
 - id: SR/DIPOLE24
   class: Dipole
   names:
@@ -1696,7 +1826,9 @@
   class: Dipole
   names:
   - DIPOLE35
+  - superbend
   label: DIPOLE 35
+  description: 'Superbend: the superconducting dipole in the middle of arc 12, whose high field serves hard X-ray bend ports.'
 - id: SR/DIPOLE36
   class: Dipole
   names:
@@ -1709,7 +1841,7 @@
   - GAMMA01
   - gamma detector
   label: GAMMA 01
-  place: SR
+  place: SR/SECT1
 - id: SR/GAMMA02
   class: BeamLossMonitor
   description: 'Gamma Radiation Monitors: Detect gamma ray radiation levels around accelerator. Essential for personnel safety.'
@@ -1717,7 +1849,7 @@
   - GAMMA02
   - gamma detector
   label: GAMMA 02
-  place: SR
+  place: SR/SECT4
 - id: SR/GAMMA03
   class: BeamLossMonitor
   description: 'Gamma Radiation Monitors: Detect gamma ray radiation levels around accelerator. Essential for personnel safety.'
@@ -1725,7 +1857,7 @@
   - GAMMA03
   - gamma detector
   label: GAMMA 03
-  place: SR
+  place: SR/SECT7
 - id: SR/GAMMA04
   class: BeamLossMonitor
   description: 'Gamma Radiation Monitors: Detect gamma ray radiation levels around accelerator. Essential for personnel safety.'
@@ -1733,13 +1865,14 @@
   - GAMMA04
   - gamma detector
   label: GAMMA 04
-  place: SR
+  place: SR/SECT10
 - id: SR/GAUGESR01
   class: Gauge
   description: Cold cathode ionization gauges, one per storage-ring sector.
   names:
   - GAUGESR01
   - vacuum gauge
+  - ion gauge
   label: GAUGE SR01
   place: SR/SECT1
 - id: SR/GAUGESR02
@@ -1748,6 +1881,7 @@
   names:
   - GAUGESR02
   - vacuum gauge
+  - ion gauge
   label: GAUGE SR02
   place: SR/SECT2
 - id: SR/GAUGESR03
@@ -1756,6 +1890,7 @@
   names:
   - GAUGESR03
   - vacuum gauge
+  - ion gauge
   label: GAUGE SR03
   place: SR/SECT3
 - id: SR/GAUGESR04
@@ -1764,6 +1899,7 @@
   names:
   - GAUGESR04
   - vacuum gauge
+  - ion gauge
   label: GAUGE SR04
   place: SR/SECT4
 - id: SR/GAUGESR05
@@ -1772,6 +1908,7 @@
   names:
   - GAUGESR05
   - vacuum gauge
+  - ion gauge
   label: GAUGE SR05
   place: SR/SECT5
 - id: SR/GAUGESR06
@@ -1780,6 +1917,7 @@
   names:
   - GAUGESR06
   - vacuum gauge
+  - ion gauge
   label: GAUGE SR06
   place: SR/SECT6
 - id: SR/GAUGESR07
@@ -1788,6 +1926,7 @@
   names:
   - GAUGESR07
   - vacuum gauge
+  - ion gauge
   label: GAUGE SR07
   place: SR/SECT7
 - id: SR/GAUGESR08
@@ -1796,6 +1935,7 @@
   names:
   - GAUGESR08
   - vacuum gauge
+  - ion gauge
   label: GAUGE SR08
   place: SR/SECT8
 - id: SR/GAUGESR09
@@ -1804,6 +1944,7 @@
   names:
   - GAUGESR09
   - vacuum gauge
+  - ion gauge
   label: GAUGE SR09
   place: SR/SECT9
 - id: SR/GAUGESR10
@@ -1812,6 +1953,7 @@
   names:
   - GAUGESR10
   - vacuum gauge
+  - ion gauge
   label: GAUGE SR10
   place: SR/SECT10
 - id: SR/GAUGESR11
@@ -1820,6 +1962,7 @@
   names:
   - GAUGESR11
   - vacuum gauge
+  - ion gauge
   label: GAUGE SR11
   place: SR/SECT11
 - id: SR/GAUGESR12
@@ -1828,8 +1971,189 @@
   names:
   - GAUGESR12
   - vacuum gauge
+  - ion gauge
   label: GAUGE SR12
   place: SR/SECT12
+- id: SR/GAUGEST01A
+  class: Gauge
+  description: Cold cathode ionization gauge in straight 1; a trip removes the sector valves' permission to open.
+  names:
+  - GAUGEST01A
+  - vacuum gauge
+  - ion gauge
+  label: GAUGE ST01A
+  place: SR/SECT1
+- id: SR/GAUGEST01B
+  class: Gauge
+  description: Cold cathode ionization gauge in straight 1; a trip removes the sector valves' permission to open.
+  names:
+  - GAUGEST01B
+  - vacuum gauge
+  - ion gauge
+  label: GAUGE ST01B
+  place: SR/SECT1
+- id: SR/GAUGEST02A
+  class: Gauge
+  description: Cold cathode ionization gauge in straight 2; a trip removes the sector valves' permission to open.
+  names:
+  - GAUGEST02A
+  - vacuum gauge
+  - ion gauge
+  label: GAUGE ST02A
+  place: SR/SECT2
+- id: SR/GAUGEST03A
+  class: Gauge
+  description: Cold cathode ionization gauge in straight 3; a trip removes the sector valves' permission to open.
+  names:
+  - GAUGEST03A
+  - vacuum gauge
+  - ion gauge
+  label: GAUGE ST03A
+  place: SR/SECT3
+- id: SR/GAUGEST03B
+  class: Gauge
+  description: Cold cathode ionization gauge in straight 3; a trip removes the sector valves' permission to open.
+  names:
+  - GAUGEST03B
+  - vacuum gauge
+  - ion gauge
+  label: GAUGE ST03B
+  place: SR/SECT3
+- id: SR/GAUGEST04A
+  class: Gauge
+  description: Cold cathode ionization gauge in straight 4; a trip removes the sector valves' permission to open.
+  names:
+  - GAUGEST04A
+  - vacuum gauge
+  - ion gauge
+  label: GAUGE ST04A
+  place: SR/SECT4
+- id: SR/GAUGEST04B
+  class: Gauge
+  description: Cold cathode ionization gauge in straight 4; a trip removes the sector valves' permission to open.
+  names:
+  - GAUGEST04B
+  - vacuum gauge
+  - ion gauge
+  label: GAUGE ST04B
+  place: SR/SECT4
+- id: SR/GAUGEST05A
+  class: Gauge
+  description: Cold cathode ionization gauge in straight 5; a trip removes the sector valves' permission to open.
+  names:
+  - GAUGEST05A
+  - vacuum gauge
+  - ion gauge
+  label: GAUGE ST05A
+  place: SR/SECT5
+- id: SR/GAUGEST06A
+  class: Gauge
+  description: Cold cathode ionization gauge in straight 6; a trip removes the sector valves' permission to open.
+  names:
+  - GAUGEST06A
+  - vacuum gauge
+  - ion gauge
+  label: GAUGE ST06A
+  place: SR/SECT6
+- id: SR/GAUGEST06B
+  class: Gauge
+  description: Cold cathode ionization gauge in straight 6; a trip removes the sector valves' permission to open.
+  names:
+  - GAUGEST06B
+  - vacuum gauge
+  - ion gauge
+  label: GAUGE ST06B
+  place: SR/SECT6
+- id: SR/GAUGEST07A
+  class: Gauge
+  description: Cold cathode ionization gauge in straight 7; a trip removes the sector valves' permission to open.
+  names:
+  - GAUGEST07A
+  - vacuum gauge
+  - ion gauge
+  label: GAUGE ST07A
+  place: SR/SECT7
+- id: SR/GAUGEST08A
+  class: Gauge
+  description: Cold cathode ionization gauge in straight 8; a trip removes the sector valves' permission to open.
+  names:
+  - GAUGEST08A
+  - vacuum gauge
+  - ion gauge
+  label: GAUGE ST08A
+  place: SR/SECT8
+- id: SR/GAUGEST09A
+  class: Gauge
+  description: Cold cathode ionization gauge in straight 9; a trip removes the sector valves' permission to open.
+  names:
+  - GAUGEST09A
+  - vacuum gauge
+  - ion gauge
+  label: GAUGE ST09A
+  place: SR/SECT9
+- id: SR/GAUGEST10A
+  class: Gauge
+  description: Cold cathode ionization gauge in straight 10; a trip removes the sector valves' permission to open.
+  names:
+  - GAUGEST10A
+  - vacuum gauge
+  - ion gauge
+  label: GAUGE ST10A
+  place: SR/SECT10
+- id: SR/GAUGEST11A
+  class: Gauge
+  description: Cold cathode ionization gauge in straight 11; a trip removes the sector valves' permission to open.
+  names:
+  - GAUGEST11A
+  - vacuum gauge
+  - ion gauge
+  label: GAUGE ST11A
+  place: SR/SECT11
+- id: SR/GAUGEST11B
+  class: Gauge
+  description: Cold cathode ionization gauge in straight 11; a trip removes the sector valves' permission to open.
+  names:
+  - GAUGEST11B
+  - vacuum gauge
+  - ion gauge
+  label: GAUGE ST11B
+  place: SR/SECT11
+- id: SR/GAUGEST12A
+  class: Gauge
+  description: Cold cathode ionization gauge in straight 12; a trip removes the sector valves' permission to open.
+  names:
+  - GAUGEST12A
+  - vacuum gauge
+  - ion gauge
+  label: GAUGE ST12A
+  place: SR/SECT12
+- id: SR/HARMONIC01
+  class: HarmonicCavity
+  description: 'Passive third-harmonic cavity 1 in straight 2: the stored beam drives it, and its tuner sets how much it lengthens the bunches.'
+  names:
+  - HARMONIC01
+  - harmonic cavity
+  - third harmonic cavity
+  label: HARMONIC 01
+  place: SR/SECT2
+- id: SR/HARMONIC02
+  class: HarmonicCavity
+  description: 'Passive third-harmonic cavity 2 in straight 2: the stored beam drives it, and its tuner sets how much it lengthens the bunches.'
+  names:
+  - HARMONIC02
+  - harmonic cavity
+  - third harmonic cavity
+  label: HARMONIC 02
+  place: SR/SECT2
+- id: SR/HARMONIC03
+  class: HarmonicCavity
+  description: 'Passive third-harmonic cavity 3 in straight 2: the stored beam drives it, and its tuner sets how much it lengthens the bunches.'
+  names:
+  - HARMONIC03
+  - harmonic cavity
+  - third harmonic cavity
+  label: HARMONIC 03
+  place: SR/SECT2
 - id: SR/HCM01
   class: HCorrector
   names:
@@ -2190,6 +2514,160 @@
   names:
   - HCM72
   label: HCM 72
+- id: SR/ID01
+  class: InsertionDevice
+  description: 'Undulator 1 (U1): undulator with a 50 mm period in straight 2. Its gap (and an elliptically polarising one''s row offset) sets the photon energy and polarisation of the beamline it serves; the beamline holds the gap while control is granted to it, operations otherwise.'
+  names:
+  - ID01
+  - U1
+  - Undulator 1
+  - U50
+  - undulator
+  label: U1 (50 mm)
+  place: SR/SECT2
+- id: SR/ID02
+  class: InsertionDevice
+  description: 'EPU 2 (EPU2): elliptically polarising undulator with a 50 mm period in straight 4. Its gap (and an elliptically polarising one''s row offset) sets the photon energy and polarisation of the beamline it serves; the beamline holds the gap while control is granted to it, operations otherwise.'
+  names:
+  - ID02
+  - EPU2
+  - EPU 2
+  - EPU50
+  - elliptically polarising undulator
+  label: EPU2 (50 mm)
+  place: SR/SECT4
+- id: SR/ID03
+  class: InsertionDevice
+  description: 'EPU 3 (EPU3): elliptically polarising undulator with a 90 mm period in straight 4. Its gap (and an elliptically polarising one''s row offset) sets the photon energy and polarisation of the beamline it serves; the beamline holds the gap while control is granted to it, operations otherwise.'
+  names:
+  - ID03
+  - EPU3
+  - EPU 3
+  - EPU90
+  - elliptically polarising undulator
+  label: EPU3 (90 mm)
+  place: SR/SECT4
+- id: SR/ID04
+  class: InsertionDevice
+  description: 'Wiggler 4 (W4): wiggler with a 114 mm period in straight 5. Its gap (and an elliptically polarising one''s row offset) sets the photon energy and polarisation of the beamline it serves; the beamline holds the gap while control is granted to it, operations otherwise.'
+  names:
+  - ID04
+  - W4
+  - Wiggler 4
+  - W114
+  - wiggler
+  label: W4 (114 mm)
+  place: SR/SECT5
+- id: SR/ID05
+  class: InsertionDevice
+  description: 'In-vacuum undulator 5 (IVU5): in-vacuum undulator with a 23 mm period in straight 6. Its gap (and an elliptically polarising one''s row offset) sets the photon energy and polarisation of the beamline it serves; the beamline holds the gap while control is granted to it, operations otherwise.'
+  names:
+  - ID05
+  - IVU5
+  - In-vacuum undulator 5
+  - IVU23
+  - in-vacuum undulator
+  label: IVU5 (23 mm)
+  place: SR/SECT6
+- id: SR/ID06
+  class: InsertionDevice
+  description: 'EPU 6 (EPU6): elliptically polarising undulator with a 50 mm period in straight 6. Its gap (and an elliptically polarising one''s row offset) sets the photon energy and polarisation of the beamline it serves; the beamline holds the gap while control is granted to it, operations otherwise.'
+  names:
+  - ID06
+  - EPU6
+  - EPU 6
+  - EPU50
+  - elliptically polarising undulator
+  label: EPU6 (50 mm)
+  place: SR/SECT6
+- id: SR/ID07
+  class: InsertionDevice
+  description: 'EPU 7 (EPU7): elliptically polarising undulator with a 50 mm period in straight 7. Its gap (and an elliptically polarising one''s row offset) sets the photon energy and polarisation of the beamline it serves; the beamline holds the gap while control is granted to it, operations otherwise.'
+  names:
+  - ID07
+  - EPU7
+  - EPU 7
+  - EPU50
+  - elliptically polarising undulator
+  label: EPU7 (50 mm)
+  place: SR/SECT7
+- id: SR/ID08
+  class: InsertionDevice
+  description: 'EPU 8 (EPU8): elliptically polarising undulator with a 50 mm period in straight 7. Its gap (and an elliptically polarising one''s row offset) sets the photon energy and polarisation of the beamline it serves; the beamline holds the gap while control is granted to it, operations otherwise.'
+  names:
+  - ID08
+  - EPU8
+  - EPU 8
+  - EPU50
+  - elliptically polarising undulator
+  label: EPU8 (50 mm)
+  place: SR/SECT7
+- id: SR/ID09
+  class: InsertionDevice
+  description: 'Undulator 9 (U9): undulator with a 80 mm period in straight 8. Its gap (and an elliptically polarising one''s row offset) sets the photon energy and polarisation of the beamline it serves; the beamline holds the gap while control is granted to it, operations otherwise.'
+  names:
+  - ID09
+  - U9
+  - Undulator 9
+  - U80
+  - undulator
+  label: U9 (80 mm)
+  place: SR/SECT8
+- id: SR/ID10
+  class: InsertionDevice
+  description: 'Undulator 10 (U10): undulator with a 100 mm period in straight 9. Its gap (and an elliptically polarising one''s row offset) sets the photon energy and polarisation of the beamline it serves; the beamline holds the gap while control is granted to it, operations otherwise.'
+  names:
+  - ID10
+  - U10
+  - Undulator 10
+  - U100
+  - undulator
+  label: U10 (100 mm)
+  place: SR/SECT9
+- id: SR/ID11
+  class: InsertionDevice
+  description: 'Undulator 11 (U11): undulator with a 50 mm period in straight 10. Its gap (and an elliptically polarising one''s row offset) sets the photon energy and polarisation of the beamline it serves; the beamline holds the gap while control is granted to it, operations otherwise.'
+  names:
+  - ID11
+  - U11
+  - Undulator 11
+  - U50
+  - undulator
+  label: U11 (50 mm)
+  place: SR/SECT10
+- id: SR/ID12
+  class: InsertionDevice
+  description: 'EPU 12 (EPU12): elliptically polarising undulator with a 50 mm period in straight 11. Its gap (and an elliptically polarising one''s row offset) sets the photon energy and polarisation of the beamline it serves; the beamline holds the gap while control is granted to it, operations otherwise.'
+  names:
+  - ID12
+  - EPU12
+  - EPU 12
+  - EPU50
+  - elliptically polarising undulator
+  label: EPU12 (50 mm)
+  place: SR/SECT11
+- id: SR/ID13
+  class: InsertionDevice
+  description: 'EPU 13 (EPU13): elliptically polarising undulator with a 50 mm period in straight 11. Its gap (and an elliptically polarising one''s row offset) sets the photon energy and polarisation of the beamline it serves; the beamline holds the gap while control is granted to it, operations otherwise.'
+  names:
+  - ID13
+  - EPU13
+  - EPU 13
+  - EPU50
+  - elliptically polarising undulator
+  label: EPU13 (50 mm)
+  place: SR/SECT11
+- id: SR/ID14
+  class: InsertionDevice
+  description: 'Undulator 14 (U14): undulator with a 50 mm period in straight 12. Its gap (and an elliptically polarising one''s row offset) sets the photon energy and polarisation of the beamline it serves; the beamline holds the gap while control is granted to it, operations otherwise.'
+  names:
+  - ID14
+  - U14
+  - Undulator 14
+  - U50
+  - undulator
+  label: U14 (50 mm)
+  place: SR/SECT12
 - id: SR/ION-PUMP01
   class: Pump
   description: 'Ion Pumps: Sputter-ion pumps that provide UHV pumping in the storage ring. No moving parts, clean operation, excellent for UHV. Use high voltage (kV range) to ionize and trap gas molecules.'
@@ -2197,7 +2675,7 @@
   - ION-PUMP01
   - ion pump
   label: ION-PUMP 01
-  place: SR
+  place: SR/SECT1
 - id: SR/ION-PUMP02
   class: Pump
   description: 'Ion Pumps: Sputter-ion pumps that provide UHV pumping in the storage ring. No moving parts, clean operation, excellent for UHV. Use high voltage (kV range) to ionize and trap gas molecules.'
@@ -2205,7 +2683,7 @@
   - ION-PUMP02
   - ion pump
   label: ION-PUMP 02
-  place: SR
+  place: SR/SECT1
 - id: SR/ION-PUMP03
   class: Pump
   description: 'Ion Pumps: Sputter-ion pumps that provide UHV pumping in the storage ring. No moving parts, clean operation, excellent for UHV. Use high voltage (kV range) to ionize and trap gas molecules.'
@@ -2213,7 +2691,7 @@
   - ION-PUMP03
   - ion pump
   label: ION-PUMP 03
-  place: SR
+  place: SR/SECT1
 - id: SR/ION-PUMP04
   class: Pump
   description: 'Ion Pumps: Sputter-ion pumps that provide UHV pumping in the storage ring. No moving parts, clean operation, excellent for UHV. Use high voltage (kV range) to ionize and trap gas molecules.'
@@ -2221,7 +2699,7 @@
   - ION-PUMP04
   - ion pump
   label: ION-PUMP 04
-  place: SR
+  place: SR/SECT1
 - id: SR/ION-PUMP05
   class: Pump
   description: 'Ion Pumps: Sputter-ion pumps that provide UHV pumping in the storage ring. No moving parts, clean operation, excellent for UHV. Use high voltage (kV range) to ionize and trap gas molecules.'
@@ -2229,7 +2707,7 @@
   - ION-PUMP05
   - ion pump
   label: ION-PUMP 05
-  place: SR
+  place: SR/SECT1
 - id: SR/ION-PUMP06
   class: Pump
   description: 'Ion Pumps: Sputter-ion pumps that provide UHV pumping in the storage ring. No moving parts, clean operation, excellent for UHV. Use high voltage (kV range) to ionize and trap gas molecules.'
@@ -2237,7 +2715,535 @@
   - ION-PUMP06
   - ion pump
   label: ION-PUMP 06
-  place: SR
+  place: SR/SECT1
+- id: SR/ION-PUMP07
+  class: Pump
+  description: 'Ion Pumps: Sputter-ion pumps that provide UHV pumping in the storage ring. No moving parts, clean operation, excellent for UHV. Use high voltage (kV range) to ionize and trap gas molecules.'
+  names:
+  - ION-PUMP07
+  - ion pump
+  label: ION-PUMP 07
+  place: SR/SECT2
+- id: SR/ION-PUMP08
+  class: Pump
+  description: 'Ion Pumps: Sputter-ion pumps that provide UHV pumping in the storage ring. No moving parts, clean operation, excellent for UHV. Use high voltage (kV range) to ionize and trap gas molecules.'
+  names:
+  - ION-PUMP08
+  - ion pump
+  label: ION-PUMP 08
+  place: SR/SECT2
+- id: SR/ION-PUMP09
+  class: Pump
+  description: 'Ion Pumps: Sputter-ion pumps that provide UHV pumping in the storage ring. No moving parts, clean operation, excellent for UHV. Use high voltage (kV range) to ionize and trap gas molecules.'
+  names:
+  - ION-PUMP09
+  - ion pump
+  label: ION-PUMP 09
+  place: SR/SECT2
+- id: SR/ION-PUMP10
+  class: Pump
+  description: 'Ion Pumps: Sputter-ion pumps that provide UHV pumping in the storage ring. No moving parts, clean operation, excellent for UHV. Use high voltage (kV range) to ionize and trap gas molecules.'
+  names:
+  - ION-PUMP10
+  - ion pump
+  label: ION-PUMP 10
+  place: SR/SECT2
+- id: SR/ION-PUMP11
+  class: Pump
+  description: 'Ion Pumps: Sputter-ion pumps that provide UHV pumping in the storage ring. No moving parts, clean operation, excellent for UHV. Use high voltage (kV range) to ionize and trap gas molecules.'
+  names:
+  - ION-PUMP11
+  - ion pump
+  label: ION-PUMP 11
+  place: SR/SECT2
+- id: SR/ION-PUMP12
+  class: Pump
+  description: 'Ion Pumps: Sputter-ion pumps that provide UHV pumping in the storage ring. No moving parts, clean operation, excellent for UHV. Use high voltage (kV range) to ionize and trap gas molecules.'
+  names:
+  - ION-PUMP12
+  - ion pump
+  label: ION-PUMP 12
+  place: SR/SECT2
+- id: SR/ION-PUMP13
+  class: Pump
+  description: 'Ion Pumps: Sputter-ion pumps that provide UHV pumping in the storage ring. No moving parts, clean operation, excellent for UHV. Use high voltage (kV range) to ionize and trap gas molecules.'
+  names:
+  - ION-PUMP13
+  - ion pump
+  label: ION-PUMP 13
+  place: SR/SECT3
+- id: SR/ION-PUMP14
+  class: Pump
+  description: 'Ion Pumps: Sputter-ion pumps that provide UHV pumping in the storage ring. No moving parts, clean operation, excellent for UHV. Use high voltage (kV range) to ionize and trap gas molecules.'
+  names:
+  - ION-PUMP14
+  - ion pump
+  label: ION-PUMP 14
+  place: SR/SECT3
+- id: SR/ION-PUMP15
+  class: Pump
+  description: 'Ion Pumps: Sputter-ion pumps that provide UHV pumping in the storage ring. No moving parts, clean operation, excellent for UHV. Use high voltage (kV range) to ionize and trap gas molecules.'
+  names:
+  - ION-PUMP15
+  - ion pump
+  label: ION-PUMP 15
+  place: SR/SECT3
+- id: SR/ION-PUMP16
+  class: Pump
+  description: 'Ion Pumps: Sputter-ion pumps that provide UHV pumping in the storage ring. No moving parts, clean operation, excellent for UHV. Use high voltage (kV range) to ionize and trap gas molecules.'
+  names:
+  - ION-PUMP16
+  - ion pump
+  label: ION-PUMP 16
+  place: SR/SECT3
+- id: SR/ION-PUMP17
+  class: Pump
+  description: 'Ion Pumps: Sputter-ion pumps that provide UHV pumping in the storage ring. No moving parts, clean operation, excellent for UHV. Use high voltage (kV range) to ionize and trap gas molecules.'
+  names:
+  - ION-PUMP17
+  - ion pump
+  label: ION-PUMP 17
+  place: SR/SECT3
+- id: SR/ION-PUMP18
+  class: Pump
+  description: 'Ion Pumps: Sputter-ion pumps that provide UHV pumping in the storage ring. No moving parts, clean operation, excellent for UHV. Use high voltage (kV range) to ionize and trap gas molecules.'
+  names:
+  - ION-PUMP18
+  - ion pump
+  label: ION-PUMP 18
+  place: SR/SECT3
+- id: SR/ION-PUMP19
+  class: Pump
+  description: 'Ion Pumps: Sputter-ion pumps that provide UHV pumping in the storage ring. No moving parts, clean operation, excellent for UHV. Use high voltage (kV range) to ionize and trap gas molecules.'
+  names:
+  - ION-PUMP19
+  - ion pump
+  label: ION-PUMP 19
+  place: SR/SECT4
+- id: SR/ION-PUMP20
+  class: Pump
+  description: 'Ion Pumps: Sputter-ion pumps that provide UHV pumping in the storage ring. No moving parts, clean operation, excellent for UHV. Use high voltage (kV range) to ionize and trap gas molecules.'
+  names:
+  - ION-PUMP20
+  - ion pump
+  label: ION-PUMP 20
+  place: SR/SECT4
+- id: SR/ION-PUMP21
+  class: Pump
+  description: 'Ion Pumps: Sputter-ion pumps that provide UHV pumping in the storage ring. No moving parts, clean operation, excellent for UHV. Use high voltage (kV range) to ionize and trap gas molecules.'
+  names:
+  - ION-PUMP21
+  - ion pump
+  label: ION-PUMP 21
+  place: SR/SECT4
+- id: SR/ION-PUMP22
+  class: Pump
+  description: 'Ion Pumps: Sputter-ion pumps that provide UHV pumping in the storage ring. No moving parts, clean operation, excellent for UHV. Use high voltage (kV range) to ionize and trap gas molecules.'
+  names:
+  - ION-PUMP22
+  - ion pump
+  label: ION-PUMP 22
+  place: SR/SECT4
+- id: SR/ION-PUMP23
+  class: Pump
+  description: 'Ion Pumps: Sputter-ion pumps that provide UHV pumping in the storage ring. No moving parts, clean operation, excellent for UHV. Use high voltage (kV range) to ionize and trap gas molecules.'
+  names:
+  - ION-PUMP23
+  - ion pump
+  label: ION-PUMP 23
+  place: SR/SECT4
+- id: SR/ION-PUMP24
+  class: Pump
+  description: 'Ion Pumps: Sputter-ion pumps that provide UHV pumping in the storage ring. No moving parts, clean operation, excellent for UHV. Use high voltage (kV range) to ionize and trap gas molecules.'
+  names:
+  - ION-PUMP24
+  - ion pump
+  label: ION-PUMP 24
+  place: SR/SECT4
+- id: SR/ION-PUMP25
+  class: Pump
+  description: 'Ion Pumps: Sputter-ion pumps that provide UHV pumping in the storage ring. No moving parts, clean operation, excellent for UHV. Use high voltage (kV range) to ionize and trap gas molecules.'
+  names:
+  - ION-PUMP25
+  - ion pump
+  label: ION-PUMP 25
+  place: SR/SECT5
+- id: SR/ION-PUMP26
+  class: Pump
+  description: 'Ion Pumps: Sputter-ion pumps that provide UHV pumping in the storage ring. No moving parts, clean operation, excellent for UHV. Use high voltage (kV range) to ionize and trap gas molecules.'
+  names:
+  - ION-PUMP26
+  - ion pump
+  label: ION-PUMP 26
+  place: SR/SECT5
+- id: SR/ION-PUMP27
+  class: Pump
+  description: 'Ion Pumps: Sputter-ion pumps that provide UHV pumping in the storage ring. No moving parts, clean operation, excellent for UHV. Use high voltage (kV range) to ionize and trap gas molecules.'
+  names:
+  - ION-PUMP27
+  - ion pump
+  label: ION-PUMP 27
+  place: SR/SECT5
+- id: SR/ION-PUMP28
+  class: Pump
+  description: 'Ion Pumps: Sputter-ion pumps that provide UHV pumping in the storage ring. No moving parts, clean operation, excellent for UHV. Use high voltage (kV range) to ionize and trap gas molecules.'
+  names:
+  - ION-PUMP28
+  - ion pump
+  label: ION-PUMP 28
+  place: SR/SECT5
+- id: SR/ION-PUMP29
+  class: Pump
+  description: 'Ion Pumps: Sputter-ion pumps that provide UHV pumping in the storage ring. No moving parts, clean operation, excellent for UHV. Use high voltage (kV range) to ionize and trap gas molecules.'
+  names:
+  - ION-PUMP29
+  - ion pump
+  label: ION-PUMP 29
+  place: SR/SECT5
+- id: SR/ION-PUMP30
+  class: Pump
+  description: 'Ion Pumps: Sputter-ion pumps that provide UHV pumping in the storage ring. No moving parts, clean operation, excellent for UHV. Use high voltage (kV range) to ionize and trap gas molecules.'
+  names:
+  - ION-PUMP30
+  - ion pump
+  label: ION-PUMP 30
+  place: SR/SECT5
+- id: SR/ION-PUMP31
+  class: Pump
+  description: 'Ion Pumps: Sputter-ion pumps that provide UHV pumping in the storage ring. No moving parts, clean operation, excellent for UHV. Use high voltage (kV range) to ionize and trap gas molecules.'
+  names:
+  - ION-PUMP31
+  - ion pump
+  label: ION-PUMP 31
+  place: SR/SECT6
+- id: SR/ION-PUMP32
+  class: Pump
+  description: 'Ion Pumps: Sputter-ion pumps that provide UHV pumping in the storage ring. No moving parts, clean operation, excellent for UHV. Use high voltage (kV range) to ionize and trap gas molecules.'
+  names:
+  - ION-PUMP32
+  - ion pump
+  label: ION-PUMP 32
+  place: SR/SECT6
+- id: SR/ION-PUMP33
+  class: Pump
+  description: 'Ion Pumps: Sputter-ion pumps that provide UHV pumping in the storage ring. No moving parts, clean operation, excellent for UHV. Use high voltage (kV range) to ionize and trap gas molecules.'
+  names:
+  - ION-PUMP33
+  - ion pump
+  label: ION-PUMP 33
+  place: SR/SECT6
+- id: SR/ION-PUMP34
+  class: Pump
+  description: 'Ion Pumps: Sputter-ion pumps that provide UHV pumping in the storage ring. No moving parts, clean operation, excellent for UHV. Use high voltage (kV range) to ionize and trap gas molecules.'
+  names:
+  - ION-PUMP34
+  - ion pump
+  label: ION-PUMP 34
+  place: SR/SECT6
+- id: SR/ION-PUMP35
+  class: Pump
+  description: 'Ion Pumps: Sputter-ion pumps that provide UHV pumping in the storage ring. No moving parts, clean operation, excellent for UHV. Use high voltage (kV range) to ionize and trap gas molecules.'
+  names:
+  - ION-PUMP35
+  - ion pump
+  label: ION-PUMP 35
+  place: SR/SECT6
+- id: SR/ION-PUMP36
+  class: Pump
+  description: 'Ion Pumps: Sputter-ion pumps that provide UHV pumping in the storage ring. No moving parts, clean operation, excellent for UHV. Use high voltage (kV range) to ionize and trap gas molecules.'
+  names:
+  - ION-PUMP36
+  - ion pump
+  label: ION-PUMP 36
+  place: SR/SECT6
+- id: SR/ION-PUMP37
+  class: Pump
+  description: 'Ion Pumps: Sputter-ion pumps that provide UHV pumping in the storage ring. No moving parts, clean operation, excellent for UHV. Use high voltage (kV range) to ionize and trap gas molecules.'
+  names:
+  - ION-PUMP37
+  - ion pump
+  label: ION-PUMP 37
+  place: SR/SECT7
+- id: SR/ION-PUMP38
+  class: Pump
+  description: 'Ion Pumps: Sputter-ion pumps that provide UHV pumping in the storage ring. No moving parts, clean operation, excellent for UHV. Use high voltage (kV range) to ionize and trap gas molecules.'
+  names:
+  - ION-PUMP38
+  - ion pump
+  label: ION-PUMP 38
+  place: SR/SECT7
+- id: SR/ION-PUMP39
+  class: Pump
+  description: 'Ion Pumps: Sputter-ion pumps that provide UHV pumping in the storage ring. No moving parts, clean operation, excellent for UHV. Use high voltage (kV range) to ionize and trap gas molecules.'
+  names:
+  - ION-PUMP39
+  - ion pump
+  label: ION-PUMP 39
+  place: SR/SECT7
+- id: SR/ION-PUMP40
+  class: Pump
+  description: 'Ion Pumps: Sputter-ion pumps that provide UHV pumping in the storage ring. No moving parts, clean operation, excellent for UHV. Use high voltage (kV range) to ionize and trap gas molecules.'
+  names:
+  - ION-PUMP40
+  - ion pump
+  label: ION-PUMP 40
+  place: SR/SECT7
+- id: SR/ION-PUMP41
+  class: Pump
+  description: 'Ion Pumps: Sputter-ion pumps that provide UHV pumping in the storage ring. No moving parts, clean operation, excellent for UHV. Use high voltage (kV range) to ionize and trap gas molecules.'
+  names:
+  - ION-PUMP41
+  - ion pump
+  label: ION-PUMP 41
+  place: SR/SECT7
+- id: SR/ION-PUMP42
+  class: Pump
+  description: 'Ion Pumps: Sputter-ion pumps that provide UHV pumping in the storage ring. No moving parts, clean operation, excellent for UHV. Use high voltage (kV range) to ionize and trap gas molecules.'
+  names:
+  - ION-PUMP42
+  - ion pump
+  label: ION-PUMP 42
+  place: SR/SECT7
+- id: SR/ION-PUMP43
+  class: Pump
+  description: 'Ion Pumps: Sputter-ion pumps that provide UHV pumping in the storage ring. No moving parts, clean operation, excellent for UHV. Use high voltage (kV range) to ionize and trap gas molecules.'
+  names:
+  - ION-PUMP43
+  - ion pump
+  label: ION-PUMP 43
+  place: SR/SECT8
+- id: SR/ION-PUMP44
+  class: Pump
+  description: 'Ion Pumps: Sputter-ion pumps that provide UHV pumping in the storage ring. No moving parts, clean operation, excellent for UHV. Use high voltage (kV range) to ionize and trap gas molecules.'
+  names:
+  - ION-PUMP44
+  - ion pump
+  label: ION-PUMP 44
+  place: SR/SECT8
+- id: SR/ION-PUMP45
+  class: Pump
+  description: 'Ion Pumps: Sputter-ion pumps that provide UHV pumping in the storage ring. No moving parts, clean operation, excellent for UHV. Use high voltage (kV range) to ionize and trap gas molecules.'
+  names:
+  - ION-PUMP45
+  - ion pump
+  label: ION-PUMP 45
+  place: SR/SECT8
+- id: SR/ION-PUMP46
+  class: Pump
+  description: 'Ion Pumps: Sputter-ion pumps that provide UHV pumping in the storage ring. No moving parts, clean operation, excellent for UHV. Use high voltage (kV range) to ionize and trap gas molecules.'
+  names:
+  - ION-PUMP46
+  - ion pump
+  label: ION-PUMP 46
+  place: SR/SECT8
+- id: SR/ION-PUMP47
+  class: Pump
+  description: 'Ion Pumps: Sputter-ion pumps that provide UHV pumping in the storage ring. No moving parts, clean operation, excellent for UHV. Use high voltage (kV range) to ionize and trap gas molecules.'
+  names:
+  - ION-PUMP47
+  - ion pump
+  label: ION-PUMP 47
+  place: SR/SECT8
+- id: SR/ION-PUMP48
+  class: Pump
+  description: 'Ion Pumps: Sputter-ion pumps that provide UHV pumping in the storage ring. No moving parts, clean operation, excellent for UHV. Use high voltage (kV range) to ionize and trap gas molecules.'
+  names:
+  - ION-PUMP48
+  - ion pump
+  label: ION-PUMP 48
+  place: SR/SECT8
+- id: SR/ION-PUMP49
+  class: Pump
+  description: 'Ion Pumps: Sputter-ion pumps that provide UHV pumping in the storage ring. No moving parts, clean operation, excellent for UHV. Use high voltage (kV range) to ionize and trap gas molecules.'
+  names:
+  - ION-PUMP49
+  - ion pump
+  label: ION-PUMP 49
+  place: SR/SECT9
+- id: SR/ION-PUMP50
+  class: Pump
+  description: 'Ion Pumps: Sputter-ion pumps that provide UHV pumping in the storage ring. No moving parts, clean operation, excellent for UHV. Use high voltage (kV range) to ionize and trap gas molecules.'
+  names:
+  - ION-PUMP50
+  - ion pump
+  label: ION-PUMP 50
+  place: SR/SECT9
+- id: SR/ION-PUMP51
+  class: Pump
+  description: 'Ion Pumps: Sputter-ion pumps that provide UHV pumping in the storage ring. No moving parts, clean operation, excellent for UHV. Use high voltage (kV range) to ionize and trap gas molecules.'
+  names:
+  - ION-PUMP51
+  - ion pump
+  label: ION-PUMP 51
+  place: SR/SECT9
+- id: SR/ION-PUMP52
+  class: Pump
+  description: 'Ion Pumps: Sputter-ion pumps that provide UHV pumping in the storage ring. No moving parts, clean operation, excellent for UHV. Use high voltage (kV range) to ionize and trap gas molecules.'
+  names:
+  - ION-PUMP52
+  - ion pump
+  label: ION-PUMP 52
+  place: SR/SECT9
+- id: SR/ION-PUMP53
+  class: Pump
+  description: 'Ion Pumps: Sputter-ion pumps that provide UHV pumping in the storage ring. No moving parts, clean operation, excellent for UHV. Use high voltage (kV range) to ionize and trap gas molecules.'
+  names:
+  - ION-PUMP53
+  - ion pump
+  label: ION-PUMP 53
+  place: SR/SECT9
+- id: SR/ION-PUMP54
+  class: Pump
+  description: 'Ion Pumps: Sputter-ion pumps that provide UHV pumping in the storage ring. No moving parts, clean operation, excellent for UHV. Use high voltage (kV range) to ionize and trap gas molecules.'
+  names:
+  - ION-PUMP54
+  - ion pump
+  label: ION-PUMP 54
+  place: SR/SECT9
+- id: SR/ION-PUMP55
+  class: Pump
+  description: 'Ion Pumps: Sputter-ion pumps that provide UHV pumping in the storage ring. No moving parts, clean operation, excellent for UHV. Use high voltage (kV range) to ionize and trap gas molecules.'
+  names:
+  - ION-PUMP55
+  - ion pump
+  label: ION-PUMP 55
+  place: SR/SECT10
+- id: SR/ION-PUMP56
+  class: Pump
+  description: 'Ion Pumps: Sputter-ion pumps that provide UHV pumping in the storage ring. No moving parts, clean operation, excellent for UHV. Use high voltage (kV range) to ionize and trap gas molecules.'
+  names:
+  - ION-PUMP56
+  - ion pump
+  label: ION-PUMP 56
+  place: SR/SECT10
+- id: SR/ION-PUMP57
+  class: Pump
+  description: 'Ion Pumps: Sputter-ion pumps that provide UHV pumping in the storage ring. No moving parts, clean operation, excellent for UHV. Use high voltage (kV range) to ionize and trap gas molecules.'
+  names:
+  - ION-PUMP57
+  - ion pump
+  label: ION-PUMP 57
+  place: SR/SECT10
+- id: SR/ION-PUMP58
+  class: Pump
+  description: 'Ion Pumps: Sputter-ion pumps that provide UHV pumping in the storage ring. No moving parts, clean operation, excellent for UHV. Use high voltage (kV range) to ionize and trap gas molecules.'
+  names:
+  - ION-PUMP58
+  - ion pump
+  label: ION-PUMP 58
+  place: SR/SECT10
+- id: SR/ION-PUMP59
+  class: Pump
+  description: 'Ion Pumps: Sputter-ion pumps that provide UHV pumping in the storage ring. No moving parts, clean operation, excellent for UHV. Use high voltage (kV range) to ionize and trap gas molecules.'
+  names:
+  - ION-PUMP59
+  - ion pump
+  label: ION-PUMP 59
+  place: SR/SECT10
+- id: SR/ION-PUMP60
+  class: Pump
+  description: 'Ion Pumps: Sputter-ion pumps that provide UHV pumping in the storage ring. No moving parts, clean operation, excellent for UHV. Use high voltage (kV range) to ionize and trap gas molecules.'
+  names:
+  - ION-PUMP60
+  - ion pump
+  label: ION-PUMP 60
+  place: SR/SECT10
+- id: SR/ION-PUMP61
+  class: Pump
+  description: 'Ion Pumps: Sputter-ion pumps that provide UHV pumping in the storage ring. No moving parts, clean operation, excellent for UHV. Use high voltage (kV range) to ionize and trap gas molecules.'
+  names:
+  - ION-PUMP61
+  - ion pump
+  label: ION-PUMP 61
+  place: SR/SECT11
+- id: SR/ION-PUMP62
+  class: Pump
+  description: 'Ion Pumps: Sputter-ion pumps that provide UHV pumping in the storage ring. No moving parts, clean operation, excellent for UHV. Use high voltage (kV range) to ionize and trap gas molecules.'
+  names:
+  - ION-PUMP62
+  - ion pump
+  label: ION-PUMP 62
+  place: SR/SECT11
+- id: SR/ION-PUMP63
+  class: Pump
+  description: 'Ion Pumps: Sputter-ion pumps that provide UHV pumping in the storage ring. No moving parts, clean operation, excellent for UHV. Use high voltage (kV range) to ionize and trap gas molecules.'
+  names:
+  - ION-PUMP63
+  - ion pump
+  label: ION-PUMP 63
+  place: SR/SECT11
+- id: SR/ION-PUMP64
+  class: Pump
+  description: 'Ion Pumps: Sputter-ion pumps that provide UHV pumping in the storage ring. No moving parts, clean operation, excellent for UHV. Use high voltage (kV range) to ionize and trap gas molecules.'
+  names:
+  - ION-PUMP64
+  - ion pump
+  label: ION-PUMP 64
+  place: SR/SECT11
+- id: SR/ION-PUMP65
+  class: Pump
+  description: 'Ion Pumps: Sputter-ion pumps that provide UHV pumping in the storage ring. No moving parts, clean operation, excellent for UHV. Use high voltage (kV range) to ionize and trap gas molecules.'
+  names:
+  - ION-PUMP65
+  - ion pump
+  label: ION-PUMP 65
+  place: SR/SECT11
+- id: SR/ION-PUMP66
+  class: Pump
+  description: 'Ion Pumps: Sputter-ion pumps that provide UHV pumping in the storage ring. No moving parts, clean operation, excellent for UHV. Use high voltage (kV range) to ionize and trap gas molecules.'
+  names:
+  - ION-PUMP66
+  - ion pump
+  label: ION-PUMP 66
+  place: SR/SECT11
+- id: SR/ION-PUMP67
+  class: Pump
+  description: 'Ion Pumps: Sputter-ion pumps that provide UHV pumping in the storage ring. No moving parts, clean operation, excellent for UHV. Use high voltage (kV range) to ionize and trap gas molecules.'
+  names:
+  - ION-PUMP67
+  - ion pump
+  label: ION-PUMP 67
+  place: SR/SECT12
+- id: SR/ION-PUMP68
+  class: Pump
+  description: 'Ion Pumps: Sputter-ion pumps that provide UHV pumping in the storage ring. No moving parts, clean operation, excellent for UHV. Use high voltage (kV range) to ionize and trap gas molecules.'
+  names:
+  - ION-PUMP68
+  - ion pump
+  label: ION-PUMP 68
+  place: SR/SECT12
+- id: SR/ION-PUMP69
+  class: Pump
+  description: 'Ion Pumps: Sputter-ion pumps that provide UHV pumping in the storage ring. No moving parts, clean operation, excellent for UHV. Use high voltage (kV range) to ionize and trap gas molecules.'
+  names:
+  - ION-PUMP69
+  - ion pump
+  label: ION-PUMP 69
+  place: SR/SECT12
+- id: SR/ION-PUMP70
+  class: Pump
+  description: 'Ion Pumps: Sputter-ion pumps that provide UHV pumping in the storage ring. No moving parts, clean operation, excellent for UHV. Use high voltage (kV range) to ionize and trap gas molecules.'
+  names:
+  - ION-PUMP70
+  - ion pump
+  label: ION-PUMP 70
+  place: SR/SECT12
+- id: SR/ION-PUMP71
+  class: Pump
+  description: 'Ion Pumps: Sputter-ion pumps that provide UHV pumping in the storage ring. No moving parts, clean operation, excellent for UHV. Use high voltage (kV range) to ionize and trap gas molecules.'
+  names:
+  - ION-PUMP71
+  - ion pump
+  label: ION-PUMP 71
+  place: SR/SECT12
+- id: SR/ION-PUMP72
+  class: Pump
+  description: 'Ion Pumps: Sputter-ion pumps that provide UHV pumping in the storage ring. No moving parts, clean operation, excellent for UHV. Use high voltage (kV range) to ionize and trap gas molecules.'
+  names:
+  - ION-PUMP72
+  - ion pump
+  label: ION-PUMP 72
+  place: SR/SECT12
 - id: SR/KLYSTRON01
   class: Modulator
   description: 'Klystron RF Amplifiers: High-power vacuum tube amplifiers that provide RF power to accelerating cavities. Typically 100-500 kW output power.'
@@ -2261,7 +3267,7 @@
   - NEUTRON01
   - neutron detector
   label: NEUTRON 01
-  place: SR
+  place: SR/SECT1
 - id: SR/NEUTRON02
   class: BeamLossMonitor
   description: 'Neutron Radiation Monitors: Detect neutron radiation levels around accelerator. Real-time monitoring for personnel safety.'
@@ -2269,7 +3275,7 @@
   - NEUTRON02
   - neutron detector
   label: NEUTRON 02
-  place: SR
+  place: SR/SECT4
 - id: SR/NEUTRON03
   class: BeamLossMonitor
   description: 'Neutron Radiation Monitors: Detect neutron radiation levels around accelerator. Real-time monitoring for personnel safety.'
@@ -2277,7 +3283,7 @@
   - NEUTRON03
   - neutron detector
   label: NEUTRON 03
-  place: SR
+  place: SR/SECT7
 - id: SR/NEUTRON04
   class: BeamLossMonitor
   description: 'Neutron Radiation Monitors: Detect neutron radiation levels around accelerator. Real-time monitoring for personnel safety.'
@@ -2285,7 +3291,7 @@
   - NEUTRON04
   - neutron detector
   label: NEUTRON 04
-  place: SR
+  place: SR/SECT10
 - id: SR/QD01
   class: Quadrupole
   names:
@@ -2646,6 +3652,96 @@
   names:
   - QFA24
   label: QFA 24
+- id: SR/SCRAPER01
+  class: Aperture
+  description: 'Top scraper: blade inserted from above, at position 1 of storage-ring sector 1; the depth at which it starts to intercept beam measures the halo.'
+  names:
+  - SCRAPER01
+  - top scraper
+  - scraper
+  - straight scraper
+  label: SCRAPER 01 (top)
+  place: SR/SECT1
+- id: SR/SCRAPER02
+  class: Aperture
+  description: 'Bottom scraper: blade inserted from below, at position 1 of storage-ring sector 1; the depth at which it starts to intercept beam measures the halo.'
+  names:
+  - SCRAPER02
+  - bottom scraper
+  - scraper
+  - straight scraper
+  label: SCRAPER 02 (bottom)
+  place: SR/SECT1
+- id: SR/SCRAPER03
+  class: Aperture
+  description: 'Top scraper: blade inserted from above, at position 4 of storage-ring sector 1; the depth at which it starts to intercept beam measures the halo.'
+  names:
+  - SCRAPER03
+  - top scraper
+  - scraper
+  - mid-arc scraper
+  label: SCRAPER 03 (top)
+  place: SR/SECT1
+- id: SR/SCRAPER04
+  class: Aperture
+  description: 'Bottom scraper: blade inserted from below, at position 4 of storage-ring sector 1; the depth at which it starts to intercept beam measures the halo.'
+  names:
+  - SCRAPER04
+  - bottom scraper
+  - scraper
+  - mid-arc scraper
+  label: SCRAPER 04 (bottom)
+  place: SR/SECT1
+- id: SR/SCRAPER05
+  class: Aperture
+  description: 'Top scraper: blade inserted from above, at position 6 of storage-ring sector 2; the depth at which it starts to intercept beam measures the halo.'
+  names:
+  - SCRAPER05
+  - top scraper
+  - scraper
+  - arc-end scraper
+  label: SCRAPER 05 (top)
+  place: SR/SECT2
+- id: SR/SCRAPER06
+  class: Aperture
+  description: 'Top scraper: blade inserted from above, at position 1 of storage-ring sector 3; the depth at which it starts to intercept beam measures the halo.'
+  names:
+  - SCRAPER06
+  - top scraper
+  - scraper
+  - straight scraper
+  label: SCRAPER 06 (top)
+  place: SR/SECT3
+- id: SR/SCRAPER07
+  class: Aperture
+  description: 'Bottom scraper: blade inserted from below, at position 1 of storage-ring sector 3; the depth at which it starts to intercept beam measures the halo.'
+  names:
+  - SCRAPER07
+  - bottom scraper
+  - scraper
+  - straight scraper
+  label: SCRAPER 07 (bottom)
+  place: SR/SECT3
+- id: SR/SCRAPER08
+  class: Aperture
+  description: 'Inside scraper: horizontal blade inserted from the inner side, at position 1 of storage-ring sector 3; the depth at which it starts to intercept beam measures the halo.'
+  names:
+  - SCRAPER08
+  - inside scraper
+  - scraper
+  - straight scraper
+  label: SCRAPER 08 (inside)
+  place: SR/SECT3
+- id: SR/SCRAPER09
+  class: Aperture
+  description: 'Top scraper: blade inserted from above, at position 6 of storage-ring sector 12; the depth at which it starts to intercept beam measures the halo.'
+  names:
+  - SCRAPER09
+  - top scraper
+  - scraper
+  - arc-end scraper
+  label: SCRAPER 09 (top)
+  place: SR/SECT12
 - id: SR/SD01
   class: Sextupole
   names:
@@ -3142,6 +4238,2195 @@
   names:
   - SHF24
   label: SHF 24
+- id: SR/SHUTTER01
+  class: PhotonShutter
+  description: Front-end photon shutter of a insertion device port in storage-ring sector 2.
+  names:
+  - SHUTTER01
+  - photon shutter
+  - front-end shutter
+  - insertion device port
+  label: SHUTTER 01
+  place: SR/SECT2
+- id: SR/SHUTTER02
+  class: PhotonShutter
+  description: Front-end photon shutter of a bend port in storage-ring sector 2.
+  names:
+  - SHUTTER02
+  - photon shutter
+  - front-end shutter
+  - bend port
+  label: SHUTTER 02
+  place: SR/SECT2
+- id: SR/SHUTTER03
+  class: PhotonShutter
+  description: Front-end photon shutter of a insertion device port in storage-ring sector 4.
+  names:
+  - SHUTTER03
+  - photon shutter
+  - front-end shutter
+  - insertion device port
+  label: SHUTTER 03
+  place: SR/SECT4
+- id: SR/SHUTTER04
+  class: PhotonShutter
+  description: Front-end photon shutter of a insertion device port in storage-ring sector 4.
+  names:
+  - SHUTTER04
+  - photon shutter
+  - front-end shutter
+  - insertion device port
+  label: SHUTTER 04
+  place: SR/SECT4
+- id: SR/SHUTTER05
+  class: PhotonShutter
+  description: Front-end photon shutter of a insertion device port in storage-ring sector 5.
+  names:
+  - SHUTTER05
+  - photon shutter
+  - front-end shutter
+  - insertion device port
+  label: SHUTTER 05
+  place: SR/SECT5
+- id: SR/SHUTTER06
+  class: PhotonShutter
+  description: Front-end photon shutter of a bend port in storage-ring sector 5.
+  names:
+  - SHUTTER06
+  - photon shutter
+  - front-end shutter
+  - bend port
+  label: SHUTTER 06
+  place: SR/SECT5
+- id: SR/SHUTTER07
+  class: PhotonShutter
+  description: Front-end photon shutter of a bend port in storage-ring sector 5.
+  names:
+  - SHUTTER07
+  - photon shutter
+  - front-end shutter
+  - bend port
+  label: SHUTTER 07
+  place: SR/SECT5
+- id: SR/SHUTTER08
+  class: PhotonShutter
+  description: Front-end photon shutter of a bend port in storage-ring sector 5.
+  names:
+  - SHUTTER08
+  - photon shutter
+  - front-end shutter
+  - bend port
+  label: SHUTTER 08
+  place: SR/SECT5
+- id: SR/SHUTTER09
+  class: PhotonShutter
+  description: Front-end photon shutter of a bend port in storage-ring sector 5.
+  names:
+  - SHUTTER09
+  - photon shutter
+  - front-end shutter
+  - bend port
+  label: SHUTTER 09
+  place: SR/SECT5
+- id: SR/SHUTTER10
+  class: PhotonShutter
+  description: Front-end photon shutter of a bend port in storage-ring sector 5.
+  names:
+  - SHUTTER10
+  - photon shutter
+  - front-end shutter
+  - bend port
+  label: SHUTTER 10
+  place: SR/SECT5
+- id: SR/SHUTTER11
+  class: PhotonShutter
+  description: Front-end photon shutter of a bend port in storage-ring sector 5.
+  names:
+  - SHUTTER11
+  - photon shutter
+  - front-end shutter
+  - bend port
+  label: SHUTTER 11
+  place: SR/SECT5
+- id: SR/SHUTTER12
+  class: PhotonShutter
+  description: Front-end photon shutter of a bend port in storage-ring sector 5.
+  names:
+  - SHUTTER12
+  - photon shutter
+  - front-end shutter
+  - bend port
+  label: SHUTTER 12
+  place: SR/SECT5
+- id: SR/SHUTTER13
+  class: PhotonShutter
+  description: Front-end photon shutter of a bend port in storage-ring sector 5.
+  names:
+  - SHUTTER13
+  - photon shutter
+  - front-end shutter
+  - bend port
+  label: SHUTTER 13
+  place: SR/SECT5
+- id: SR/SHUTTER14
+  class: PhotonShutter
+  description: Front-end photon shutter of a bend port in storage-ring sector 5.
+  names:
+  - SHUTTER14
+  - photon shutter
+  - front-end shutter
+  - bend port
+  label: SHUTTER 14
+  place: SR/SECT5
+- id: SR/SHUTTER15
+  class: PhotonShutter
+  description: Front-end photon shutter of a bend port in storage-ring sector 5.
+  names:
+  - SHUTTER15
+  - photon shutter
+  - front-end shutter
+  - bend port
+  label: SHUTTER 15
+  place: SR/SECT5
+- id: SR/SHUTTER16
+  class: PhotonShutter
+  description: Front-end photon shutter of a insertion device port in storage-ring sector 6.
+  names:
+  - SHUTTER16
+  - photon shutter
+  - front-end shutter
+  - insertion device port
+  label: SHUTTER 16
+  place: SR/SECT6
+- id: SR/SHUTTER17
+  class: PhotonShutter
+  description: Front-end photon shutter of a insertion device port in storage-ring sector 6.
+  names:
+  - SHUTTER17
+  - photon shutter
+  - front-end shutter
+  - insertion device port
+  label: SHUTTER 17
+  place: SR/SECT6
+- id: SR/SHUTTER18
+  class: PhotonShutter
+  description: Front-end photon shutter of a bend port in storage-ring sector 6.
+  names:
+  - SHUTTER18
+  - photon shutter
+  - front-end shutter
+  - bend port
+  label: SHUTTER 18
+  place: SR/SECT6
+- id: SR/SHUTTER19
+  class: PhotonShutter
+  description: Front-end photon shutter of a bend port in storage-ring sector 6.
+  names:
+  - SHUTTER19
+  - photon shutter
+  - front-end shutter
+  - bend port
+  label: SHUTTER 19
+  place: SR/SECT6
+- id: SR/SHUTTER20
+  class: PhotonShutter
+  description: Front-end photon shutter of a bend port in storage-ring sector 6.
+  names:
+  - SHUTTER20
+  - photon shutter
+  - front-end shutter
+  - bend port
+  label: SHUTTER 20
+  place: SR/SECT6
+- id: SR/SHUTTER21
+  class: PhotonShutter
+  description: Front-end photon shutter of a bend port in storage-ring sector 6.
+  names:
+  - SHUTTER21
+  - photon shutter
+  - front-end shutter
+  - bend port
+  label: SHUTTER 21
+  place: SR/SECT6
+- id: SR/SHUTTER22
+  class: PhotonShutter
+  description: Front-end photon shutter of a insertion device port in storage-ring sector 7.
+  names:
+  - SHUTTER22
+  - photon shutter
+  - front-end shutter
+  - insertion device port
+  label: SHUTTER 22
+  place: SR/SECT7
+- id: SR/SHUTTER23
+  class: PhotonShutter
+  description: Front-end photon shutter of a insertion device port in storage-ring sector 7.
+  names:
+  - SHUTTER23
+  - photon shutter
+  - front-end shutter
+  - insertion device port
+  label: SHUTTER 23
+  place: SR/SECT7
+- id: SR/SHUTTER24
+  class: PhotonShutter
+  description: Front-end photon shutter of a bend port in storage-ring sector 7.
+  names:
+  - SHUTTER24
+  - photon shutter
+  - front-end shutter
+  - bend port
+  label: SHUTTER 24
+  place: SR/SECT7
+- id: SR/SHUTTER25
+  class: PhotonShutter
+  description: Front-end photon shutter of a bend port in storage-ring sector 7.
+  names:
+  - SHUTTER25
+  - photon shutter
+  - front-end shutter
+  - bend port
+  label: SHUTTER 25
+  place: SR/SECT7
+- id: SR/SHUTTER26
+  class: PhotonShutter
+  description: Front-end photon shutter of a bend port in storage-ring sector 7.
+  names:
+  - SHUTTER26
+  - photon shutter
+  - front-end shutter
+  - bend port
+  label: SHUTTER 26
+  place: SR/SECT7
+- id: SR/SHUTTER27
+  class: PhotonShutter
+  description: Front-end photon shutter of a bend port in storage-ring sector 7.
+  names:
+  - SHUTTER27
+  - photon shutter
+  - front-end shutter
+  - bend port
+  label: SHUTTER 27
+  place: SR/SECT7
+- id: SR/SHUTTER28
+  class: PhotonShutter
+  description: Front-end photon shutter of a insertion device port in storage-ring sector 8.
+  names:
+  - SHUTTER28
+  - photon shutter
+  - front-end shutter
+  - insertion device port
+  label: SHUTTER 28
+  place: SR/SECT8
+- id: SR/SHUTTER29
+  class: PhotonShutter
+  description: Front-end photon shutter of a bend port in storage-ring sector 8.
+  names:
+  - SHUTTER29
+  - photon shutter
+  - front-end shutter
+  - bend port
+  label: SHUTTER 29
+  place: SR/SECT8
+- id: SR/SHUTTER30
+  class: PhotonShutter
+  description: Front-end photon shutter of a bend port in storage-ring sector 8.
+  names:
+  - SHUTTER30
+  - photon shutter
+  - front-end shutter
+  - bend port
+  label: SHUTTER 30
+  place: SR/SECT8
+- id: SR/SHUTTER31
+  class: PhotonShutter
+  description: Front-end photon shutter of a bend port in storage-ring sector 8.
+  names:
+  - SHUTTER31
+  - photon shutter
+  - front-end shutter
+  - bend port
+  label: SHUTTER 31
+  place: SR/SECT8
+- id: SR/SHUTTER32
+  class: PhotonShutter
+  description: Front-end photon shutter of a bend port in storage-ring sector 8.
+  names:
+  - SHUTTER32
+  - photon shutter
+  - front-end shutter
+  - bend port
+  label: SHUTTER 32
+  place: SR/SECT8
+- id: SR/SHUTTER33
+  class: PhotonShutter
+  description: Front-end photon shutter of a bend port in storage-ring sector 8.
+  names:
+  - SHUTTER33
+  - photon shutter
+  - front-end shutter
+  - bend port
+  label: SHUTTER 33
+  place: SR/SECT8
+- id: SR/SHUTTER34
+  class: PhotonShutter
+  description: Front-end photon shutter of a bend port in storage-ring sector 8.
+  names:
+  - SHUTTER34
+  - photon shutter
+  - front-end shutter
+  - bend port
+  label: SHUTTER 34
+  place: SR/SECT8
+- id: SR/SHUTTER35
+  class: PhotonShutter
+  description: Front-end photon shutter of a bend port in storage-ring sector 8.
+  names:
+  - SHUTTER35
+  - photon shutter
+  - front-end shutter
+  - bend port
+  label: SHUTTER 35
+  place: SR/SECT8
+- id: SR/SHUTTER36
+  class: PhotonShutter
+  description: Front-end photon shutter of a bend port in storage-ring sector 8.
+  names:
+  - SHUTTER36
+  - photon shutter
+  - front-end shutter
+  - bend port
+  label: SHUTTER 36
+  place: SR/SECT8
+- id: SR/SHUTTER37
+  class: PhotonShutter
+  description: Front-end photon shutter of a bend port in storage-ring sector 8.
+  names:
+  - SHUTTER37
+  - photon shutter
+  - front-end shutter
+  - bend port
+  label: SHUTTER 37
+  place: SR/SECT8
+- id: SR/SHUTTER38
+  class: PhotonShutter
+  description: Front-end photon shutter of a insertion device port in storage-ring sector 9.
+  names:
+  - SHUTTER38
+  - photon shutter
+  - front-end shutter
+  - insertion device port
+  label: SHUTTER 38
+  place: SR/SECT9
+- id: SR/SHUTTER39
+  class: PhotonShutter
+  description: Front-end photon shutter of a bend port in storage-ring sector 9.
+  names:
+  - SHUTTER39
+  - photon shutter
+  - front-end shutter
+  - bend port
+  label: SHUTTER 39
+  place: SR/SECT9
+- id: SR/SHUTTER40
+  class: PhotonShutter
+  description: Front-end photon shutter of a bend port in storage-ring sector 9.
+  names:
+  - SHUTTER40
+  - photon shutter
+  - front-end shutter
+  - bend port
+  label: SHUTTER 40
+  place: SR/SECT9
+- id: SR/SHUTTER41
+  class: PhotonShutter
+  description: Front-end photon shutter of a bend port in storage-ring sector 9.
+  names:
+  - SHUTTER41
+  - photon shutter
+  - front-end shutter
+  - bend port
+  label: SHUTTER 41
+  place: SR/SECT9
+- id: SR/SHUTTER42
+  class: PhotonShutter
+  description: Front-end photon shutter of a insertion device port in storage-ring sector 10.
+  names:
+  - SHUTTER42
+  - photon shutter
+  - front-end shutter
+  - insertion device port
+  label: SHUTTER 42
+  place: SR/SECT10
+- id: SR/SHUTTER43
+  class: PhotonShutter
+  description: Front-end photon shutter of a bend port in storage-ring sector 10.
+  names:
+  - SHUTTER43
+  - photon shutter
+  - front-end shutter
+  - bend port
+  label: SHUTTER 43
+  place: SR/SECT10
+- id: SR/SHUTTER44
+  class: PhotonShutter
+  description: Front-end photon shutter of a bend port in storage-ring sector 10.
+  names:
+  - SHUTTER44
+  - photon shutter
+  - front-end shutter
+  - bend port
+  label: SHUTTER 44
+  place: SR/SECT10
+- id: SR/SHUTTER45
+  class: PhotonShutter
+  description: Front-end photon shutter of a insertion device port in storage-ring sector 11.
+  names:
+  - SHUTTER45
+  - photon shutter
+  - front-end shutter
+  - insertion device port
+  label: SHUTTER 45
+  place: SR/SECT11
+- id: SR/SHUTTER46
+  class: PhotonShutter
+  description: Front-end photon shutter of a insertion device port in storage-ring sector 11.
+  names:
+  - SHUTTER46
+  - photon shutter
+  - front-end shutter
+  - insertion device port
+  label: SHUTTER 46
+  place: SR/SECT11
+- id: SR/SHUTTER47
+  class: PhotonShutter
+  description: Front-end photon shutter of a bend port in storage-ring sector 11.
+  names:
+  - SHUTTER47
+  - photon shutter
+  - front-end shutter
+  - bend port
+  label: SHUTTER 47
+  place: SR/SECT11
+- id: SR/SHUTTER48
+  class: PhotonShutter
+  description: Front-end photon shutter of a bend port in storage-ring sector 11.
+  names:
+  - SHUTTER48
+  - photon shutter
+  - front-end shutter
+  - bend port
+  label: SHUTTER 48
+  place: SR/SECT11
+- id: SR/SHUTTER49
+  class: PhotonShutter
+  description: Front-end photon shutter of a bend port in storage-ring sector 11.
+  names:
+  - SHUTTER49
+  - photon shutter
+  - front-end shutter
+  - bend port
+  label: SHUTTER 49
+  place: SR/SECT11
+- id: SR/SHUTTER50
+  class: PhotonShutter
+  description: Front-end photon shutter of a bend port in storage-ring sector 11.
+  names:
+  - SHUTTER50
+  - photon shutter
+  - front-end shutter
+  - bend port
+  label: SHUTTER 50
+  place: SR/SECT11
+- id: SR/SHUTTER51
+  class: PhotonShutter
+  description: Front-end photon shutter of a insertion device port in storage-ring sector 12.
+  names:
+  - SHUTTER51
+  - photon shutter
+  - front-end shutter
+  - insertion device port
+  label: SHUTTER 51
+  place: SR/SECT12
+- id: SR/SHUTTER52
+  class: PhotonShutter
+  description: Front-end photon shutter of a bend port in storage-ring sector 12.
+  names:
+  - SHUTTER52
+  - photon shutter
+  - front-end shutter
+  - bend port
+  label: SHUTTER 52
+  place: SR/SECT12
+- id: SR/SHUTTER53
+  class: PhotonShutter
+  description: Front-end photon shutter of a bend port in storage-ring sector 12.
+  names:
+  - SHUTTER53
+  - photon shutter
+  - front-end shutter
+  - bend port
+  label: SHUTTER 53
+  place: SR/SECT12
+- id: SR/SHUTTER54
+  class: PhotonShutter
+  description: Front-end photon shutter of a bend port in storage-ring sector 12.
+  names:
+  - SHUTTER54
+  - photon shutter
+  - front-end shutter
+  - bend port
+  label: SHUTTER 54
+  place: SR/SECT12
+- id: SR/SHUTTER55
+  class: PhotonShutter
+  description: Front-end photon shutter of a bend port in storage-ring sector 12.
+  names:
+  - SHUTTER55
+  - photon shutter
+  - front-end shutter
+  - bend port
+  label: SHUTTER 55
+  place: SR/SECT12
+- id: SR/SHUTTER56
+  class: PhotonShutter
+  description: Front-end photon shutter of a bend port in storage-ring sector 12.
+  names:
+  - SHUTTER56
+  - photon shutter
+  - front-end shutter
+  - bend port
+  label: SHUTTER 56
+  place: SR/SECT12
+- id: SR/TC02L01
+  class: TemperatureSensor
+  description: 'Absorber thermocouple 1 of the lower row in straight 2: watches the photon absorber for mis-steered light.'
+  names:
+  - TC02L01
+  - absorber thermocouple
+  - thermocouple
+  label: TC 02L01
+  place: SR/SECT2
+- id: SR/TC02L02
+  class: TemperatureSensor
+  description: 'Absorber thermocouple 2 of the lower row in straight 2: watches the photon absorber for mis-steered light.'
+  names:
+  - TC02L02
+  - absorber thermocouple
+  - thermocouple
+  label: TC 02L02
+  place: SR/SECT2
+- id: SR/TC02L03
+  class: TemperatureSensor
+  description: 'Absorber thermocouple 3 of the lower row in straight 2: watches the photon absorber for mis-steered light.'
+  names:
+  - TC02L03
+  - absorber thermocouple
+  - thermocouple
+  label: TC 02L03
+  place: SR/SECT2
+- id: SR/TC02L04
+  class: TemperatureSensor
+  description: 'Absorber thermocouple 4 of the lower row in straight 2: watches the photon absorber for mis-steered light.'
+  names:
+  - TC02L04
+  - absorber thermocouple
+  - thermocouple
+  label: TC 02L04
+  place: SR/SECT2
+- id: SR/TC02L05
+  class: TemperatureSensor
+  description: 'Absorber thermocouple 5 of the lower row in straight 2: watches the photon absorber for mis-steered light.'
+  names:
+  - TC02L05
+  - absorber thermocouple
+  - thermocouple
+  label: TC 02L05
+  place: SR/SECT2
+- id: SR/TC02L06
+  class: TemperatureSensor
+  description: 'Absorber thermocouple 6 of the lower row in straight 2: watches the photon absorber for mis-steered light.'
+  names:
+  - TC02L06
+  - absorber thermocouple
+  - thermocouple
+  label: TC 02L06
+  place: SR/SECT2
+- id: SR/TC02L07
+  class: TemperatureSensor
+  description: 'Absorber thermocouple 7 of the lower row in straight 2: watches the photon absorber for mis-steered light.'
+  names:
+  - TC02L07
+  - absorber thermocouple
+  - thermocouple
+  label: TC 02L07
+  place: SR/SECT2
+- id: SR/TC02L08
+  class: TemperatureSensor
+  description: 'Absorber thermocouple 8 of the lower row in straight 2: watches the photon absorber for mis-steered light.'
+  names:
+  - TC02L08
+  - absorber thermocouple
+  - thermocouple
+  label: TC 02L08
+  place: SR/SECT2
+- id: SR/TC02L09
+  class: TemperatureSensor
+  description: 'Absorber thermocouple 9 of the lower row in straight 2: watches the photon absorber for mis-steered light.'
+  names:
+  - TC02L09
+  - absorber thermocouple
+  - thermocouple
+  label: TC 02L09
+  place: SR/SECT2
+- id: SR/TC02L10
+  class: TemperatureSensor
+  description: 'Absorber thermocouple 10 of the lower row in straight 2: watches the photon absorber for mis-steered light.'
+  names:
+  - TC02L10
+  - absorber thermocouple
+  - thermocouple
+  label: TC 02L10
+  place: SR/SECT2
+- id: SR/TC02U01
+  class: TemperatureSensor
+  description: 'Absorber thermocouple 1 of the upper row in straight 2: watches the photon absorber for mis-steered light.'
+  names:
+  - TC02U01
+  - absorber thermocouple
+  - thermocouple
+  label: TC 02U01
+  place: SR/SECT2
+- id: SR/TC02U02
+  class: TemperatureSensor
+  description: 'Absorber thermocouple 2 of the upper row in straight 2: watches the photon absorber for mis-steered light.'
+  names:
+  - TC02U02
+  - absorber thermocouple
+  - thermocouple
+  label: TC 02U02
+  place: SR/SECT2
+- id: SR/TC02U03
+  class: TemperatureSensor
+  description: 'Absorber thermocouple 3 of the upper row in straight 2: watches the photon absorber for mis-steered light.'
+  names:
+  - TC02U03
+  - absorber thermocouple
+  - thermocouple
+  label: TC 02U03
+  place: SR/SECT2
+- id: SR/TC02U04
+  class: TemperatureSensor
+  description: 'Absorber thermocouple 4 of the upper row in straight 2: watches the photon absorber for mis-steered light.'
+  names:
+  - TC02U04
+  - absorber thermocouple
+  - thermocouple
+  label: TC 02U04
+  place: SR/SECT2
+- id: SR/TC02U05
+  class: TemperatureSensor
+  description: 'Absorber thermocouple 5 of the upper row in straight 2: watches the photon absorber for mis-steered light.'
+  names:
+  - TC02U05
+  - absorber thermocouple
+  - thermocouple
+  label: TC 02U05
+  place: SR/SECT2
+- id: SR/TC02U06
+  class: TemperatureSensor
+  description: 'Absorber thermocouple 6 of the upper row in straight 2: watches the photon absorber for mis-steered light.'
+  names:
+  - TC02U06
+  - absorber thermocouple
+  - thermocouple
+  label: TC 02U06
+  place: SR/SECT2
+- id: SR/TC02U07
+  class: TemperatureSensor
+  description: 'Absorber thermocouple 7 of the upper row in straight 2: watches the photon absorber for mis-steered light.'
+  names:
+  - TC02U07
+  - absorber thermocouple
+  - thermocouple
+  label: TC 02U07
+  place: SR/SECT2
+- id: SR/TC02U08
+  class: TemperatureSensor
+  description: 'Absorber thermocouple 8 of the upper row in straight 2: watches the photon absorber for mis-steered light.'
+  names:
+  - TC02U08
+  - absorber thermocouple
+  - thermocouple
+  label: TC 02U08
+  place: SR/SECT2
+- id: SR/TC02U09
+  class: TemperatureSensor
+  description: 'Absorber thermocouple 9 of the upper row in straight 2: watches the photon absorber for mis-steered light.'
+  names:
+  - TC02U09
+  - absorber thermocouple
+  - thermocouple
+  label: TC 02U09
+  place: SR/SECT2
+- id: SR/TC02U10
+  class: TemperatureSensor
+  description: 'Absorber thermocouple 10 of the upper row in straight 2: watches the photon absorber for mis-steered light.'
+  names:
+  - TC02U10
+  - absorber thermocouple
+  - thermocouple
+  label: TC 02U10
+  place: SR/SECT2
+- id: SR/TC04U01
+  class: TemperatureSensor
+  description: 'Absorber thermocouple 1 of the upper row in straight 4: watches the photon absorber for mis-steered light.'
+  names:
+  - TC04U01
+  - absorber thermocouple
+  - thermocouple
+  label: TC 04U01
+  place: SR/SECT4
+- id: SR/TC05L01
+  class: TemperatureSensor
+  description: 'Absorber thermocouple 1 of the lower row in straight 5: watches the photon absorber for mis-steered light.'
+  names:
+  - TC05L01
+  - absorber thermocouple
+  - thermocouple
+  label: TC 05L01
+  place: SR/SECT5
+- id: SR/TC05L02
+  class: TemperatureSensor
+  description: 'Absorber thermocouple 2 of the lower row in straight 5: watches the photon absorber for mis-steered light.'
+  names:
+  - TC05L02
+  - absorber thermocouple
+  - thermocouple
+  label: TC 05L02
+  place: SR/SECT5
+- id: SR/TC05L03
+  class: TemperatureSensor
+  description: 'Absorber thermocouple 3 of the lower row in straight 5: watches the photon absorber for mis-steered light.'
+  names:
+  - TC05L03
+  - absorber thermocouple
+  - thermocouple
+  label: TC 05L03
+  place: SR/SECT5
+- id: SR/TC05L04
+  class: TemperatureSensor
+  description: 'Absorber thermocouple 4 of the lower row in straight 5: watches the photon absorber for mis-steered light.'
+  names:
+  - TC05L04
+  - absorber thermocouple
+  - thermocouple
+  label: TC 05L04
+  place: SR/SECT5
+- id: SR/TC05L05
+  class: TemperatureSensor
+  description: 'Absorber thermocouple 5 of the lower row in straight 5: watches the photon absorber for mis-steered light.'
+  names:
+  - TC05L05
+  - absorber thermocouple
+  - thermocouple
+  label: TC 05L05
+  place: SR/SECT5
+- id: SR/TC05L06
+  class: TemperatureSensor
+  description: 'Absorber thermocouple 6 of the lower row in straight 5: watches the photon absorber for mis-steered light.'
+  names:
+  - TC05L06
+  - absorber thermocouple
+  - thermocouple
+  label: TC 05L06
+  place: SR/SECT5
+- id: SR/TC05L07
+  class: TemperatureSensor
+  description: 'Absorber thermocouple 7 of the lower row in straight 5: watches the photon absorber for mis-steered light.'
+  names:
+  - TC05L07
+  - absorber thermocouple
+  - thermocouple
+  label: TC 05L07
+  place: SR/SECT5
+- id: SR/TC05L08
+  class: TemperatureSensor
+  description: 'Absorber thermocouple 8 of the lower row in straight 5: watches the photon absorber for mis-steered light.'
+  names:
+  - TC05L08
+  - absorber thermocouple
+  - thermocouple
+  label: TC 05L08
+  place: SR/SECT5
+- id: SR/TC05L09
+  class: TemperatureSensor
+  description: 'Absorber thermocouple 9 of the lower row in straight 5: watches the photon absorber for mis-steered light.'
+  names:
+  - TC05L09
+  - absorber thermocouple
+  - thermocouple
+  label: TC 05L09
+  place: SR/SECT5
+- id: SR/TC05L10
+  class: TemperatureSensor
+  description: 'Absorber thermocouple 10 of the lower row in straight 5: watches the photon absorber for mis-steered light.'
+  names:
+  - TC05L10
+  - absorber thermocouple
+  - thermocouple
+  label: TC 05L10
+  place: SR/SECT5
+- id: SR/TC05U01
+  class: TemperatureSensor
+  description: 'Absorber thermocouple 1 of the upper row in straight 5: watches the photon absorber for mis-steered light.'
+  names:
+  - TC05U01
+  - absorber thermocouple
+  - thermocouple
+  label: TC 05U01
+  place: SR/SECT5
+- id: SR/TC05U02
+  class: TemperatureSensor
+  description: 'Absorber thermocouple 2 of the upper row in straight 5: watches the photon absorber for mis-steered light.'
+  names:
+  - TC05U02
+  - absorber thermocouple
+  - thermocouple
+  label: TC 05U02
+  place: SR/SECT5
+- id: SR/TC05U03
+  class: TemperatureSensor
+  description: 'Absorber thermocouple 3 of the upper row in straight 5: watches the photon absorber for mis-steered light.'
+  names:
+  - TC05U03
+  - absorber thermocouple
+  - thermocouple
+  label: TC 05U03
+  place: SR/SECT5
+- id: SR/TC05U04
+  class: TemperatureSensor
+  description: 'Absorber thermocouple 4 of the upper row in straight 5: watches the photon absorber for mis-steered light.'
+  names:
+  - TC05U04
+  - absorber thermocouple
+  - thermocouple
+  label: TC 05U04
+  place: SR/SECT5
+- id: SR/TC05U05
+  class: TemperatureSensor
+  description: 'Absorber thermocouple 5 of the upper row in straight 5: watches the photon absorber for mis-steered light.'
+  names:
+  - TC05U05
+  - absorber thermocouple
+  - thermocouple
+  label: TC 05U05
+  place: SR/SECT5
+- id: SR/TC05U06
+  class: TemperatureSensor
+  description: 'Absorber thermocouple 6 of the upper row in straight 5: watches the photon absorber for mis-steered light.'
+  names:
+  - TC05U06
+  - absorber thermocouple
+  - thermocouple
+  label: TC 05U06
+  place: SR/SECT5
+- id: SR/TC05U07
+  class: TemperatureSensor
+  description: 'Absorber thermocouple 7 of the upper row in straight 5: watches the photon absorber for mis-steered light.'
+  names:
+  - TC05U07
+  - absorber thermocouple
+  - thermocouple
+  label: TC 05U07
+  place: SR/SECT5
+- id: SR/TC05U08
+  class: TemperatureSensor
+  description: 'Absorber thermocouple 8 of the upper row in straight 5: watches the photon absorber for mis-steered light.'
+  names:
+  - TC05U08
+  - absorber thermocouple
+  - thermocouple
+  label: TC 05U08
+  place: SR/SECT5
+- id: SR/TC05U09
+  class: TemperatureSensor
+  description: 'Absorber thermocouple 9 of the upper row in straight 5: watches the photon absorber for mis-steered light.'
+  names:
+  - TC05U09
+  - absorber thermocouple
+  - thermocouple
+  label: TC 05U09
+  place: SR/SECT5
+- id: SR/TC05U10
+  class: TemperatureSensor
+  description: 'Absorber thermocouple 10 of the upper row in straight 5: watches the photon absorber for mis-steered light.'
+  names:
+  - TC05U10
+  - absorber thermocouple
+  - thermocouple
+  label: TC 05U10
+  place: SR/SECT5
+- id: SR/TC06L01
+  class: TemperatureSensor
+  description: 'Absorber thermocouple 1 of the lower row in straight 6: watches the photon absorber for mis-steered light.'
+  names:
+  - TC06L01
+  - absorber thermocouple
+  - thermocouple
+  label: TC 06L01
+  place: SR/SECT6
+- id: SR/TC06L02
+  class: TemperatureSensor
+  description: 'Absorber thermocouple 2 of the lower row in straight 6: watches the photon absorber for mis-steered light.'
+  names:
+  - TC06L02
+  - absorber thermocouple
+  - thermocouple
+  label: TC 06L02
+  place: SR/SECT6
+- id: SR/TC06L03
+  class: TemperatureSensor
+  description: 'Absorber thermocouple 3 of the lower row in straight 6: watches the photon absorber for mis-steered light.'
+  names:
+  - TC06L03
+  - absorber thermocouple
+  - thermocouple
+  label: TC 06L03
+  place: SR/SECT6
+- id: SR/TC06L04
+  class: TemperatureSensor
+  description: 'Absorber thermocouple 4 of the lower row in straight 6: watches the photon absorber for mis-steered light.'
+  names:
+  - TC06L04
+  - absorber thermocouple
+  - thermocouple
+  label: TC 06L04
+  place: SR/SECT6
+- id: SR/TC06L05
+  class: TemperatureSensor
+  description: 'Absorber thermocouple 5 of the lower row in straight 6: watches the photon absorber for mis-steered light.'
+  names:
+  - TC06L05
+  - absorber thermocouple
+  - thermocouple
+  label: TC 06L05
+  place: SR/SECT6
+- id: SR/TC06L06
+  class: TemperatureSensor
+  description: 'Absorber thermocouple 6 of the lower row in straight 6: watches the photon absorber for mis-steered light.'
+  names:
+  - TC06L06
+  - absorber thermocouple
+  - thermocouple
+  label: TC 06L06
+  place: SR/SECT6
+- id: SR/TC06L07
+  class: TemperatureSensor
+  description: 'Absorber thermocouple 7 of the lower row in straight 6: watches the photon absorber for mis-steered light.'
+  names:
+  - TC06L07
+  - absorber thermocouple
+  - thermocouple
+  label: TC 06L07
+  place: SR/SECT6
+- id: SR/TC06L08
+  class: TemperatureSensor
+  description: 'Absorber thermocouple 8 of the lower row in straight 6: watches the photon absorber for mis-steered light.'
+  names:
+  - TC06L08
+  - absorber thermocouple
+  - thermocouple
+  label: TC 06L08
+  place: SR/SECT6
+- id: SR/TC06L09
+  class: TemperatureSensor
+  description: 'Absorber thermocouple 9 of the lower row in straight 6: watches the photon absorber for mis-steered light.'
+  names:
+  - TC06L09
+  - absorber thermocouple
+  - thermocouple
+  label: TC 06L09
+  place: SR/SECT6
+- id: SR/TC06L10
+  class: TemperatureSensor
+  description: 'Absorber thermocouple 10 of the lower row in straight 6: watches the photon absorber for mis-steered light.'
+  names:
+  - TC06L10
+  - absorber thermocouple
+  - thermocouple
+  label: TC 06L10
+  place: SR/SECT6
+- id: SR/TC06U01
+  class: TemperatureSensor
+  description: 'Absorber thermocouple 1 of the upper row in straight 6: watches the photon absorber for mis-steered light.'
+  names:
+  - TC06U01
+  - absorber thermocouple
+  - thermocouple
+  label: TC 06U01
+  place: SR/SECT6
+- id: SR/TC06U02
+  class: TemperatureSensor
+  description: 'Absorber thermocouple 2 of the upper row in straight 6: watches the photon absorber for mis-steered light.'
+  names:
+  - TC06U02
+  - absorber thermocouple
+  - thermocouple
+  label: TC 06U02
+  place: SR/SECT6
+- id: SR/TC06U03
+  class: TemperatureSensor
+  description: 'Absorber thermocouple 3 of the upper row in straight 6: watches the photon absorber for mis-steered light.'
+  names:
+  - TC06U03
+  - absorber thermocouple
+  - thermocouple
+  label: TC 06U03
+  place: SR/SECT6
+- id: SR/TC06U04
+  class: TemperatureSensor
+  description: 'Absorber thermocouple 4 of the upper row in straight 6: watches the photon absorber for mis-steered light.'
+  names:
+  - TC06U04
+  - absorber thermocouple
+  - thermocouple
+  label: TC 06U04
+  place: SR/SECT6
+- id: SR/TC06U05
+  class: TemperatureSensor
+  description: 'Absorber thermocouple 5 of the upper row in straight 6: watches the photon absorber for mis-steered light.'
+  names:
+  - TC06U05
+  - absorber thermocouple
+  - thermocouple
+  label: TC 06U05
+  place: SR/SECT6
+- id: SR/TC06U06
+  class: TemperatureSensor
+  description: 'Absorber thermocouple 6 of the upper row in straight 6: watches the photon absorber for mis-steered light.'
+  names:
+  - TC06U06
+  - absorber thermocouple
+  - thermocouple
+  label: TC 06U06
+  place: SR/SECT6
+- id: SR/TC06U07
+  class: TemperatureSensor
+  description: 'Absorber thermocouple 7 of the upper row in straight 6: watches the photon absorber for mis-steered light.'
+  names:
+  - TC06U07
+  - absorber thermocouple
+  - thermocouple
+  label: TC 06U07
+  place: SR/SECT6
+- id: SR/TC06U08
+  class: TemperatureSensor
+  description: 'Absorber thermocouple 8 of the upper row in straight 6: watches the photon absorber for mis-steered light.'
+  names:
+  - TC06U08
+  - absorber thermocouple
+  - thermocouple
+  label: TC 06U08
+  place: SR/SECT6
+- id: SR/TC06U09
+  class: TemperatureSensor
+  description: 'Absorber thermocouple 9 of the upper row in straight 6: watches the photon absorber for mis-steered light.'
+  names:
+  - TC06U09
+  - absorber thermocouple
+  - thermocouple
+  label: TC 06U09
+  place: SR/SECT6
+- id: SR/TC06U10
+  class: TemperatureSensor
+  description: 'Absorber thermocouple 10 of the upper row in straight 6: watches the photon absorber for mis-steered light.'
+  names:
+  - TC06U10
+  - absorber thermocouple
+  - thermocouple
+  label: TC 06U10
+  place: SR/SECT6
+- id: SR/TC07L01
+  class: TemperatureSensor
+  description: 'Absorber thermocouple 1 of the lower row in straight 7: watches the photon absorber for mis-steered light.'
+  names:
+  - TC07L01
+  - absorber thermocouple
+  - thermocouple
+  label: TC 07L01
+  place: SR/SECT7
+- id: SR/TC07L02
+  class: TemperatureSensor
+  description: 'Absorber thermocouple 2 of the lower row in straight 7: watches the photon absorber for mis-steered light.'
+  names:
+  - TC07L02
+  - absorber thermocouple
+  - thermocouple
+  label: TC 07L02
+  place: SR/SECT7
+- id: SR/TC07L03
+  class: TemperatureSensor
+  description: 'Absorber thermocouple 3 of the lower row in straight 7: watches the photon absorber for mis-steered light.'
+  names:
+  - TC07L03
+  - absorber thermocouple
+  - thermocouple
+  label: TC 07L03
+  place: SR/SECT7
+- id: SR/TC07L04
+  class: TemperatureSensor
+  description: 'Absorber thermocouple 4 of the lower row in straight 7: watches the photon absorber for mis-steered light.'
+  names:
+  - TC07L04
+  - absorber thermocouple
+  - thermocouple
+  label: TC 07L04
+  place: SR/SECT7
+- id: SR/TC07L05
+  class: TemperatureSensor
+  description: 'Absorber thermocouple 5 of the lower row in straight 7: watches the photon absorber for mis-steered light.'
+  names:
+  - TC07L05
+  - absorber thermocouple
+  - thermocouple
+  label: TC 07L05
+  place: SR/SECT7
+- id: SR/TC07L06
+  class: TemperatureSensor
+  description: 'Absorber thermocouple 6 of the lower row in straight 7: watches the photon absorber for mis-steered light.'
+  names:
+  - TC07L06
+  - absorber thermocouple
+  - thermocouple
+  label: TC 07L06
+  place: SR/SECT7
+- id: SR/TC07L07
+  class: TemperatureSensor
+  description: 'Absorber thermocouple 7 of the lower row in straight 7: watches the photon absorber for mis-steered light.'
+  names:
+  - TC07L07
+  - absorber thermocouple
+  - thermocouple
+  label: TC 07L07
+  place: SR/SECT7
+- id: SR/TC07L08
+  class: TemperatureSensor
+  description: 'Absorber thermocouple 8 of the lower row in straight 7: watches the photon absorber for mis-steered light.'
+  names:
+  - TC07L08
+  - absorber thermocouple
+  - thermocouple
+  label: TC 07L08
+  place: SR/SECT7
+- id: SR/TC07L09
+  class: TemperatureSensor
+  description: 'Absorber thermocouple 9 of the lower row in straight 7: watches the photon absorber for mis-steered light.'
+  names:
+  - TC07L09
+  - absorber thermocouple
+  - thermocouple
+  label: TC 07L09
+  place: SR/SECT7
+- id: SR/TC07L10
+  class: TemperatureSensor
+  description: 'Absorber thermocouple 10 of the lower row in straight 7: watches the photon absorber for mis-steered light.'
+  names:
+  - TC07L10
+  - absorber thermocouple
+  - thermocouple
+  label: TC 07L10
+  place: SR/SECT7
+- id: SR/TC07U01
+  class: TemperatureSensor
+  description: 'Absorber thermocouple 1 of the upper row in straight 7: watches the photon absorber for mis-steered light.'
+  names:
+  - TC07U01
+  - absorber thermocouple
+  - thermocouple
+  label: TC 07U01
+  place: SR/SECT7
+- id: SR/TC07U02
+  class: TemperatureSensor
+  description: 'Absorber thermocouple 2 of the upper row in straight 7: watches the photon absorber for mis-steered light.'
+  names:
+  - TC07U02
+  - absorber thermocouple
+  - thermocouple
+  label: TC 07U02
+  place: SR/SECT7
+- id: SR/TC07U03
+  class: TemperatureSensor
+  description: 'Absorber thermocouple 3 of the upper row in straight 7: watches the photon absorber for mis-steered light.'
+  names:
+  - TC07U03
+  - absorber thermocouple
+  - thermocouple
+  label: TC 07U03
+  place: SR/SECT7
+- id: SR/TC07U04
+  class: TemperatureSensor
+  description: 'Absorber thermocouple 4 of the upper row in straight 7: watches the photon absorber for mis-steered light.'
+  names:
+  - TC07U04
+  - absorber thermocouple
+  - thermocouple
+  label: TC 07U04
+  place: SR/SECT7
+- id: SR/TC07U05
+  class: TemperatureSensor
+  description: 'Absorber thermocouple 5 of the upper row in straight 7: watches the photon absorber for mis-steered light.'
+  names:
+  - TC07U05
+  - absorber thermocouple
+  - thermocouple
+  label: TC 07U05
+  place: SR/SECT7
+- id: SR/TC07U06
+  class: TemperatureSensor
+  description: 'Absorber thermocouple 6 of the upper row in straight 7: watches the photon absorber for mis-steered light.'
+  names:
+  - TC07U06
+  - absorber thermocouple
+  - thermocouple
+  label: TC 07U06
+  place: SR/SECT7
+- id: SR/TC07U07
+  class: TemperatureSensor
+  description: 'Absorber thermocouple 7 of the upper row in straight 7: watches the photon absorber for mis-steered light.'
+  names:
+  - TC07U07
+  - absorber thermocouple
+  - thermocouple
+  label: TC 07U07
+  place: SR/SECT7
+- id: SR/TC07U08
+  class: TemperatureSensor
+  description: 'Absorber thermocouple 8 of the upper row in straight 7: watches the photon absorber for mis-steered light.'
+  names:
+  - TC07U08
+  - absorber thermocouple
+  - thermocouple
+  label: TC 07U08
+  place: SR/SECT7
+- id: SR/TC07U09
+  class: TemperatureSensor
+  description: 'Absorber thermocouple 9 of the upper row in straight 7: watches the photon absorber for mis-steered light.'
+  names:
+  - TC07U09
+  - absorber thermocouple
+  - thermocouple
+  label: TC 07U09
+  place: SR/SECT7
+- id: SR/TC07U10
+  class: TemperatureSensor
+  description: 'Absorber thermocouple 10 of the upper row in straight 7: watches the photon absorber for mis-steered light.'
+  names:
+  - TC07U10
+  - absorber thermocouple
+  - thermocouple
+  label: TC 07U10
+  place: SR/SECT7
+- id: SR/TC08L01
+  class: TemperatureSensor
+  description: 'Absorber thermocouple 1 of the lower row in straight 8: watches the photon absorber for mis-steered light.'
+  names:
+  - TC08L01
+  - absorber thermocouple
+  - thermocouple
+  label: TC 08L01
+  place: SR/SECT8
+- id: SR/TC08L02
+  class: TemperatureSensor
+  description: 'Absorber thermocouple 2 of the lower row in straight 8: watches the photon absorber for mis-steered light.'
+  names:
+  - TC08L02
+  - absorber thermocouple
+  - thermocouple
+  label: TC 08L02
+  place: SR/SECT8
+- id: SR/TC08L03
+  class: TemperatureSensor
+  description: 'Absorber thermocouple 3 of the lower row in straight 8: watches the photon absorber for mis-steered light.'
+  names:
+  - TC08L03
+  - absorber thermocouple
+  - thermocouple
+  label: TC 08L03
+  place: SR/SECT8
+- id: SR/TC08L04
+  class: TemperatureSensor
+  description: 'Absorber thermocouple 4 of the lower row in straight 8: watches the photon absorber for mis-steered light.'
+  names:
+  - TC08L04
+  - absorber thermocouple
+  - thermocouple
+  label: TC 08L04
+  place: SR/SECT8
+- id: SR/TC08L05
+  class: TemperatureSensor
+  description: 'Absorber thermocouple 5 of the lower row in straight 8: watches the photon absorber for mis-steered light.'
+  names:
+  - TC08L05
+  - absorber thermocouple
+  - thermocouple
+  label: TC 08L05
+  place: SR/SECT8
+- id: SR/TC08L06
+  class: TemperatureSensor
+  description: 'Absorber thermocouple 6 of the lower row in straight 8: watches the photon absorber for mis-steered light.'
+  names:
+  - TC08L06
+  - absorber thermocouple
+  - thermocouple
+  label: TC 08L06
+  place: SR/SECT8
+- id: SR/TC08L07
+  class: TemperatureSensor
+  description: 'Absorber thermocouple 7 of the lower row in straight 8: watches the photon absorber for mis-steered light.'
+  names:
+  - TC08L07
+  - absorber thermocouple
+  - thermocouple
+  label: TC 08L07
+  place: SR/SECT8
+- id: SR/TC08L08
+  class: TemperatureSensor
+  description: 'Absorber thermocouple 8 of the lower row in straight 8: watches the photon absorber for mis-steered light.'
+  names:
+  - TC08L08
+  - absorber thermocouple
+  - thermocouple
+  label: TC 08L08
+  place: SR/SECT8
+- id: SR/TC08L09
+  class: TemperatureSensor
+  description: 'Absorber thermocouple 9 of the lower row in straight 8: watches the photon absorber for mis-steered light.'
+  names:
+  - TC08L09
+  - absorber thermocouple
+  - thermocouple
+  label: TC 08L09
+  place: SR/SECT8
+- id: SR/TC08L10
+  class: TemperatureSensor
+  description: 'Absorber thermocouple 10 of the lower row in straight 8: watches the photon absorber for mis-steered light.'
+  names:
+  - TC08L10
+  - absorber thermocouple
+  - thermocouple
+  label: TC 08L10
+  place: SR/SECT8
+- id: SR/TC08U01
+  class: TemperatureSensor
+  description: 'Absorber thermocouple 1 of the upper row in straight 8: watches the photon absorber for mis-steered light.'
+  names:
+  - TC08U01
+  - absorber thermocouple
+  - thermocouple
+  label: TC 08U01
+  place: SR/SECT8
+- id: SR/TC08U02
+  class: TemperatureSensor
+  description: 'Absorber thermocouple 2 of the upper row in straight 8: watches the photon absorber for mis-steered light.'
+  names:
+  - TC08U02
+  - absorber thermocouple
+  - thermocouple
+  label: TC 08U02
+  place: SR/SECT8
+- id: SR/TC08U03
+  class: TemperatureSensor
+  description: 'Absorber thermocouple 3 of the upper row in straight 8: watches the photon absorber for mis-steered light.'
+  names:
+  - TC08U03
+  - absorber thermocouple
+  - thermocouple
+  label: TC 08U03
+  place: SR/SECT8
+- id: SR/TC08U04
+  class: TemperatureSensor
+  description: 'Absorber thermocouple 4 of the upper row in straight 8: watches the photon absorber for mis-steered light.'
+  names:
+  - TC08U04
+  - absorber thermocouple
+  - thermocouple
+  label: TC 08U04
+  place: SR/SECT8
+- id: SR/TC08U05
+  class: TemperatureSensor
+  description: 'Absorber thermocouple 5 of the upper row in straight 8: watches the photon absorber for mis-steered light.'
+  names:
+  - TC08U05
+  - absorber thermocouple
+  - thermocouple
+  label: TC 08U05
+  place: SR/SECT8
+- id: SR/TC08U06
+  class: TemperatureSensor
+  description: 'Absorber thermocouple 6 of the upper row in straight 8: watches the photon absorber for mis-steered light.'
+  names:
+  - TC08U06
+  - absorber thermocouple
+  - thermocouple
+  label: TC 08U06
+  place: SR/SECT8
+- id: SR/TC08U07
+  class: TemperatureSensor
+  description: 'Absorber thermocouple 7 of the upper row in straight 8: watches the photon absorber for mis-steered light.'
+  names:
+  - TC08U07
+  - absorber thermocouple
+  - thermocouple
+  label: TC 08U07
+  place: SR/SECT8
+- id: SR/TC08U08
+  class: TemperatureSensor
+  description: 'Absorber thermocouple 8 of the upper row in straight 8: watches the photon absorber for mis-steered light.'
+  names:
+  - TC08U08
+  - absorber thermocouple
+  - thermocouple
+  label: TC 08U08
+  place: SR/SECT8
+- id: SR/TC08U09
+  class: TemperatureSensor
+  description: 'Absorber thermocouple 9 of the upper row in straight 8: watches the photon absorber for mis-steered light.'
+  names:
+  - TC08U09
+  - absorber thermocouple
+  - thermocouple
+  label: TC 08U09
+  place: SR/SECT8
+- id: SR/TC08U10
+  class: TemperatureSensor
+  description: 'Absorber thermocouple 10 of the upper row in straight 8: watches the photon absorber for mis-steered light.'
+  names:
+  - TC08U10
+  - absorber thermocouple
+  - thermocouple
+  label: TC 08U10
+  place: SR/SECT8
+- id: SR/TC09L01
+  class: TemperatureSensor
+  description: 'Absorber thermocouple 1 of the lower row in straight 9: watches the photon absorber for mis-steered light.'
+  names:
+  - TC09L01
+  - absorber thermocouple
+  - thermocouple
+  label: TC 09L01
+  place: SR/SECT9
+- id: SR/TC09L02
+  class: TemperatureSensor
+  description: 'Absorber thermocouple 2 of the lower row in straight 9: watches the photon absorber for mis-steered light.'
+  names:
+  - TC09L02
+  - absorber thermocouple
+  - thermocouple
+  label: TC 09L02
+  place: SR/SECT9
+- id: SR/TC09L03
+  class: TemperatureSensor
+  description: 'Absorber thermocouple 3 of the lower row in straight 9: watches the photon absorber for mis-steered light.'
+  names:
+  - TC09L03
+  - absorber thermocouple
+  - thermocouple
+  label: TC 09L03
+  place: SR/SECT9
+- id: SR/TC09L04
+  class: TemperatureSensor
+  description: 'Absorber thermocouple 4 of the lower row in straight 9: watches the photon absorber for mis-steered light.'
+  names:
+  - TC09L04
+  - absorber thermocouple
+  - thermocouple
+  label: TC 09L04
+  place: SR/SECT9
+- id: SR/TC09L05
+  class: TemperatureSensor
+  description: 'Absorber thermocouple 5 of the lower row in straight 9: watches the photon absorber for mis-steered light.'
+  names:
+  - TC09L05
+  - absorber thermocouple
+  - thermocouple
+  label: TC 09L05
+  place: SR/SECT9
+- id: SR/TC09L06
+  class: TemperatureSensor
+  description: 'Absorber thermocouple 6 of the lower row in straight 9: watches the photon absorber for mis-steered light.'
+  names:
+  - TC09L06
+  - absorber thermocouple
+  - thermocouple
+  label: TC 09L06
+  place: SR/SECT9
+- id: SR/TC09L07
+  class: TemperatureSensor
+  description: 'Absorber thermocouple 7 of the lower row in straight 9: watches the photon absorber for mis-steered light.'
+  names:
+  - TC09L07
+  - absorber thermocouple
+  - thermocouple
+  label: TC 09L07
+  place: SR/SECT9
+- id: SR/TC09L08
+  class: TemperatureSensor
+  description: 'Absorber thermocouple 8 of the lower row in straight 9: watches the photon absorber for mis-steered light.'
+  names:
+  - TC09L08
+  - absorber thermocouple
+  - thermocouple
+  label: TC 09L08
+  place: SR/SECT9
+- id: SR/TC09L09
+  class: TemperatureSensor
+  description: 'Absorber thermocouple 9 of the lower row in straight 9: watches the photon absorber for mis-steered light.'
+  names:
+  - TC09L09
+  - absorber thermocouple
+  - thermocouple
+  label: TC 09L09
+  place: SR/SECT9
+- id: SR/TC09L10
+  class: TemperatureSensor
+  description: 'Absorber thermocouple 10 of the lower row in straight 9: watches the photon absorber for mis-steered light.'
+  names:
+  - TC09L10
+  - absorber thermocouple
+  - thermocouple
+  label: TC 09L10
+  place: SR/SECT9
+- id: SR/TC09U01
+  class: TemperatureSensor
+  description: 'Absorber thermocouple 1 of the upper row in straight 9: watches the photon absorber for mis-steered light.'
+  names:
+  - TC09U01
+  - absorber thermocouple
+  - thermocouple
+  label: TC 09U01
+  place: SR/SECT9
+- id: SR/TC09U02
+  class: TemperatureSensor
+  description: 'Absorber thermocouple 2 of the upper row in straight 9: watches the photon absorber for mis-steered light.'
+  names:
+  - TC09U02
+  - absorber thermocouple
+  - thermocouple
+  label: TC 09U02
+  place: SR/SECT9
+- id: SR/TC09U03
+  class: TemperatureSensor
+  description: 'Absorber thermocouple 3 of the upper row in straight 9: watches the photon absorber for mis-steered light.'
+  names:
+  - TC09U03
+  - absorber thermocouple
+  - thermocouple
+  label: TC 09U03
+  place: SR/SECT9
+- id: SR/TC09U04
+  class: TemperatureSensor
+  description: 'Absorber thermocouple 4 of the upper row in straight 9: watches the photon absorber for mis-steered light.'
+  names:
+  - TC09U04
+  - absorber thermocouple
+  - thermocouple
+  label: TC 09U04
+  place: SR/SECT9
+- id: SR/TC09U05
+  class: TemperatureSensor
+  description: 'Absorber thermocouple 5 of the upper row in straight 9: watches the photon absorber for mis-steered light.'
+  names:
+  - TC09U05
+  - absorber thermocouple
+  - thermocouple
+  label: TC 09U05
+  place: SR/SECT9
+- id: SR/TC09U06
+  class: TemperatureSensor
+  description: 'Absorber thermocouple 6 of the upper row in straight 9: watches the photon absorber for mis-steered light.'
+  names:
+  - TC09U06
+  - absorber thermocouple
+  - thermocouple
+  label: TC 09U06
+  place: SR/SECT9
+- id: SR/TC09U07
+  class: TemperatureSensor
+  description: 'Absorber thermocouple 7 of the upper row in straight 9: watches the photon absorber for mis-steered light.'
+  names:
+  - TC09U07
+  - absorber thermocouple
+  - thermocouple
+  label: TC 09U07
+  place: SR/SECT9
+- id: SR/TC09U08
+  class: TemperatureSensor
+  description: 'Absorber thermocouple 8 of the upper row in straight 9: watches the photon absorber for mis-steered light.'
+  names:
+  - TC09U08
+  - absorber thermocouple
+  - thermocouple
+  label: TC 09U08
+  place: SR/SECT9
+- id: SR/TC09U09
+  class: TemperatureSensor
+  description: 'Absorber thermocouple 9 of the upper row in straight 9: watches the photon absorber for mis-steered light.'
+  names:
+  - TC09U09
+  - absorber thermocouple
+  - thermocouple
+  label: TC 09U09
+  place: SR/SECT9
+- id: SR/TC09U10
+  class: TemperatureSensor
+  description: 'Absorber thermocouple 10 of the upper row in straight 9: watches the photon absorber for mis-steered light.'
+  names:
+  - TC09U10
+  - absorber thermocouple
+  - thermocouple
+  label: TC 09U10
+  place: SR/SECT9
+- id: SR/TC10L01
+  class: TemperatureSensor
+  description: 'Absorber thermocouple 1 of the lower row in straight 10: watches the photon absorber for mis-steered light.'
+  names:
+  - TC10L01
+  - absorber thermocouple
+  - thermocouple
+  label: TC 10L01
+  place: SR/SECT10
+- id: SR/TC10L02
+  class: TemperatureSensor
+  description: 'Absorber thermocouple 2 of the lower row in straight 10: watches the photon absorber for mis-steered light.'
+  names:
+  - TC10L02
+  - absorber thermocouple
+  - thermocouple
+  label: TC 10L02
+  place: SR/SECT10
+- id: SR/TC10L03
+  class: TemperatureSensor
+  description: 'Absorber thermocouple 3 of the lower row in straight 10: watches the photon absorber for mis-steered light.'
+  names:
+  - TC10L03
+  - absorber thermocouple
+  - thermocouple
+  label: TC 10L03
+  place: SR/SECT10
+- id: SR/TC10L04
+  class: TemperatureSensor
+  description: 'Absorber thermocouple 4 of the lower row in straight 10: watches the photon absorber for mis-steered light.'
+  names:
+  - TC10L04
+  - absorber thermocouple
+  - thermocouple
+  label: TC 10L04
+  place: SR/SECT10
+- id: SR/TC10L05
+  class: TemperatureSensor
+  description: 'Absorber thermocouple 5 of the lower row in straight 10: watches the photon absorber for mis-steered light.'
+  names:
+  - TC10L05
+  - absorber thermocouple
+  - thermocouple
+  label: TC 10L05
+  place: SR/SECT10
+- id: SR/TC10L06
+  class: TemperatureSensor
+  description: 'Absorber thermocouple 6 of the lower row in straight 10: watches the photon absorber for mis-steered light.'
+  names:
+  - TC10L06
+  - absorber thermocouple
+  - thermocouple
+  label: TC 10L06
+  place: SR/SECT10
+- id: SR/TC10L07
+  class: TemperatureSensor
+  description: 'Absorber thermocouple 7 of the lower row in straight 10: watches the photon absorber for mis-steered light.'
+  names:
+  - TC10L07
+  - absorber thermocouple
+  - thermocouple
+  label: TC 10L07
+  place: SR/SECT10
+- id: SR/TC10L08
+  class: TemperatureSensor
+  description: 'Absorber thermocouple 8 of the lower row in straight 10: watches the photon absorber for mis-steered light.'
+  names:
+  - TC10L08
+  - absorber thermocouple
+  - thermocouple
+  label: TC 10L08
+  place: SR/SECT10
+- id: SR/TC10L09
+  class: TemperatureSensor
+  description: 'Absorber thermocouple 9 of the lower row in straight 10: watches the photon absorber for mis-steered light.'
+  names:
+  - TC10L09
+  - absorber thermocouple
+  - thermocouple
+  label: TC 10L09
+  place: SR/SECT10
+- id: SR/TC10L10
+  class: TemperatureSensor
+  description: 'Absorber thermocouple 10 of the lower row in straight 10: watches the photon absorber for mis-steered light.'
+  names:
+  - TC10L10
+  - absorber thermocouple
+  - thermocouple
+  label: TC 10L10
+  place: SR/SECT10
+- id: SR/TC10U01
+  class: TemperatureSensor
+  description: 'Absorber thermocouple 1 of the upper row in straight 10: watches the photon absorber for mis-steered light.'
+  names:
+  - TC10U01
+  - absorber thermocouple
+  - thermocouple
+  label: TC 10U01
+  place: SR/SECT10
+- id: SR/TC10U02
+  class: TemperatureSensor
+  description: 'Absorber thermocouple 2 of the upper row in straight 10: watches the photon absorber for mis-steered light.'
+  names:
+  - TC10U02
+  - absorber thermocouple
+  - thermocouple
+  label: TC 10U02
+  place: SR/SECT10
+- id: SR/TC10U03
+  class: TemperatureSensor
+  description: 'Absorber thermocouple 3 of the upper row in straight 10: watches the photon absorber for mis-steered light.'
+  names:
+  - TC10U03
+  - absorber thermocouple
+  - thermocouple
+  label: TC 10U03
+  place: SR/SECT10
+- id: SR/TC10U04
+  class: TemperatureSensor
+  description: 'Absorber thermocouple 4 of the upper row in straight 10: watches the photon absorber for mis-steered light.'
+  names:
+  - TC10U04
+  - absorber thermocouple
+  - thermocouple
+  label: TC 10U04
+  place: SR/SECT10
+- id: SR/TC10U05
+  class: TemperatureSensor
+  description: 'Absorber thermocouple 5 of the upper row in straight 10: watches the photon absorber for mis-steered light.'
+  names:
+  - TC10U05
+  - absorber thermocouple
+  - thermocouple
+  label: TC 10U05
+  place: SR/SECT10
+- id: SR/TC10U06
+  class: TemperatureSensor
+  description: 'Absorber thermocouple 6 of the upper row in straight 10: watches the photon absorber for mis-steered light.'
+  names:
+  - TC10U06
+  - absorber thermocouple
+  - thermocouple
+  label: TC 10U06
+  place: SR/SECT10
+- id: SR/TC10U07
+  class: TemperatureSensor
+  description: 'Absorber thermocouple 7 of the upper row in straight 10: watches the photon absorber for mis-steered light.'
+  names:
+  - TC10U07
+  - absorber thermocouple
+  - thermocouple
+  label: TC 10U07
+  place: SR/SECT10
+- id: SR/TC10U08
+  class: TemperatureSensor
+  description: 'Absorber thermocouple 8 of the upper row in straight 10: watches the photon absorber for mis-steered light.'
+  names:
+  - TC10U08
+  - absorber thermocouple
+  - thermocouple
+  label: TC 10U08
+  place: SR/SECT10
+- id: SR/TC10U09
+  class: TemperatureSensor
+  description: 'Absorber thermocouple 9 of the upper row in straight 10: watches the photon absorber for mis-steered light.'
+  names:
+  - TC10U09
+  - absorber thermocouple
+  - thermocouple
+  label: TC 10U09
+  place: SR/SECT10
+- id: SR/TC10U10
+  class: TemperatureSensor
+  description: 'Absorber thermocouple 10 of the upper row in straight 10: watches the photon absorber for mis-steered light.'
+  names:
+  - TC10U10
+  - absorber thermocouple
+  - thermocouple
+  label: TC 10U10
+  place: SR/SECT10
+- id: SR/TC11L01
+  class: TemperatureSensor
+  description: 'Absorber thermocouple 1 of the lower row in straight 11: watches the photon absorber for mis-steered light.'
+  names:
+  - TC11L01
+  - absorber thermocouple
+  - thermocouple
+  label: TC 11L01
+  place: SR/SECT11
+- id: SR/TC11L02
+  class: TemperatureSensor
+  description: 'Absorber thermocouple 2 of the lower row in straight 11: watches the photon absorber for mis-steered light.'
+  names:
+  - TC11L02
+  - absorber thermocouple
+  - thermocouple
+  label: TC 11L02
+  place: SR/SECT11
+- id: SR/TC11L03
+  class: TemperatureSensor
+  description: 'Absorber thermocouple 3 of the lower row in straight 11: watches the photon absorber for mis-steered light.'
+  names:
+  - TC11L03
+  - absorber thermocouple
+  - thermocouple
+  label: TC 11L03
+  place: SR/SECT11
+- id: SR/TC11L04
+  class: TemperatureSensor
+  description: 'Absorber thermocouple 4 of the lower row in straight 11: watches the photon absorber for mis-steered light.'
+  names:
+  - TC11L04
+  - absorber thermocouple
+  - thermocouple
+  label: TC 11L04
+  place: SR/SECT11
+- id: SR/TC11L05
+  class: TemperatureSensor
+  description: 'Absorber thermocouple 5 of the lower row in straight 11: watches the photon absorber for mis-steered light.'
+  names:
+  - TC11L05
+  - absorber thermocouple
+  - thermocouple
+  label: TC 11L05
+  place: SR/SECT11
+- id: SR/TC11L06
+  class: TemperatureSensor
+  description: 'Absorber thermocouple 6 of the lower row in straight 11: watches the photon absorber for mis-steered light.'
+  names:
+  - TC11L06
+  - absorber thermocouple
+  - thermocouple
+  label: TC 11L06
+  place: SR/SECT11
+- id: SR/TC11L07
+  class: TemperatureSensor
+  description: 'Absorber thermocouple 7 of the lower row in straight 11: watches the photon absorber for mis-steered light.'
+  names:
+  - TC11L07
+  - absorber thermocouple
+  - thermocouple
+  label: TC 11L07
+  place: SR/SECT11
+- id: SR/TC11L08
+  class: TemperatureSensor
+  description: 'Absorber thermocouple 8 of the lower row in straight 11: watches the photon absorber for mis-steered light.'
+  names:
+  - TC11L08
+  - absorber thermocouple
+  - thermocouple
+  label: TC 11L08
+  place: SR/SECT11
+- id: SR/TC11L09
+  class: TemperatureSensor
+  description: 'Absorber thermocouple 9 of the lower row in straight 11: watches the photon absorber for mis-steered light.'
+  names:
+  - TC11L09
+  - absorber thermocouple
+  - thermocouple
+  label: TC 11L09
+  place: SR/SECT11
+- id: SR/TC11L10
+  class: TemperatureSensor
+  description: 'Absorber thermocouple 10 of the lower row in straight 11: watches the photon absorber for mis-steered light.'
+  names:
+  - TC11L10
+  - absorber thermocouple
+  - thermocouple
+  label: TC 11L10
+  place: SR/SECT11
+- id: SR/TC11U01
+  class: TemperatureSensor
+  description: 'Absorber thermocouple 1 of the upper row in straight 11: watches the photon absorber for mis-steered light.'
+  names:
+  - TC11U01
+  - absorber thermocouple
+  - thermocouple
+  label: TC 11U01
+  place: SR/SECT11
+- id: SR/TC11U02
+  class: TemperatureSensor
+  description: 'Absorber thermocouple 2 of the upper row in straight 11: watches the photon absorber for mis-steered light.'
+  names:
+  - TC11U02
+  - absorber thermocouple
+  - thermocouple
+  label: TC 11U02
+  place: SR/SECT11
+- id: SR/TC11U03
+  class: TemperatureSensor
+  description: 'Absorber thermocouple 3 of the upper row in straight 11: watches the photon absorber for mis-steered light.'
+  names:
+  - TC11U03
+  - absorber thermocouple
+  - thermocouple
+  label: TC 11U03
+  place: SR/SECT11
+- id: SR/TC11U04
+  class: TemperatureSensor
+  description: 'Absorber thermocouple 4 of the upper row in straight 11: watches the photon absorber for mis-steered light.'
+  names:
+  - TC11U04
+  - absorber thermocouple
+  - thermocouple
+  label: TC 11U04
+  place: SR/SECT11
+- id: SR/TC11U05
+  class: TemperatureSensor
+  description: 'Absorber thermocouple 5 of the upper row in straight 11: watches the photon absorber for mis-steered light.'
+  names:
+  - TC11U05
+  - absorber thermocouple
+  - thermocouple
+  label: TC 11U05
+  place: SR/SECT11
+- id: SR/TC11U06
+  class: TemperatureSensor
+  description: 'Absorber thermocouple 6 of the upper row in straight 11: watches the photon absorber for mis-steered light.'
+  names:
+  - TC11U06
+  - absorber thermocouple
+  - thermocouple
+  label: TC 11U06
+  place: SR/SECT11
+- id: SR/TC11U07
+  class: TemperatureSensor
+  description: 'Absorber thermocouple 7 of the upper row in straight 11: watches the photon absorber for mis-steered light.'
+  names:
+  - TC11U07
+  - absorber thermocouple
+  - thermocouple
+  label: TC 11U07
+  place: SR/SECT11
+- id: SR/TC11U08
+  class: TemperatureSensor
+  description: 'Absorber thermocouple 8 of the upper row in straight 11: watches the photon absorber for mis-steered light.'
+  names:
+  - TC11U08
+  - absorber thermocouple
+  - thermocouple
+  label: TC 11U08
+  place: SR/SECT11
+- id: SR/TC11U09
+  class: TemperatureSensor
+  description: 'Absorber thermocouple 9 of the upper row in straight 11: watches the photon absorber for mis-steered light.'
+  names:
+  - TC11U09
+  - absorber thermocouple
+  - thermocouple
+  label: TC 11U09
+  place: SR/SECT11
+- id: SR/TC11U10
+  class: TemperatureSensor
+  description: 'Absorber thermocouple 10 of the upper row in straight 11: watches the photon absorber for mis-steered light.'
+  names:
+  - TC11U10
+  - absorber thermocouple
+  - thermocouple
+  label: TC 11U10
+  place: SR/SECT11
+- id: SR/TC12L01
+  class: TemperatureSensor
+  description: 'Absorber thermocouple 1 of the lower row in straight 12: watches the photon absorber for mis-steered light.'
+  names:
+  - TC12L01
+  - absorber thermocouple
+  - thermocouple
+  label: TC 12L01
+  place: SR/SECT12
+- id: SR/TC12L02
+  class: TemperatureSensor
+  description: 'Absorber thermocouple 2 of the lower row in straight 12: watches the photon absorber for mis-steered light.'
+  names:
+  - TC12L02
+  - absorber thermocouple
+  - thermocouple
+  label: TC 12L02
+  place: SR/SECT12
+- id: SR/TC12L03
+  class: TemperatureSensor
+  description: 'Absorber thermocouple 3 of the lower row in straight 12: watches the photon absorber for mis-steered light.'
+  names:
+  - TC12L03
+  - absorber thermocouple
+  - thermocouple
+  label: TC 12L03
+  place: SR/SECT12
+- id: SR/TC12L04
+  class: TemperatureSensor
+  description: 'Absorber thermocouple 4 of the lower row in straight 12: watches the photon absorber for mis-steered light.'
+  names:
+  - TC12L04
+  - absorber thermocouple
+  - thermocouple
+  label: TC 12L04
+  place: SR/SECT12
+- id: SR/TC12L05
+  class: TemperatureSensor
+  description: 'Absorber thermocouple 5 of the lower row in straight 12: watches the photon absorber for mis-steered light.'
+  names:
+  - TC12L05
+  - absorber thermocouple
+  - thermocouple
+  label: TC 12L05
+  place: SR/SECT12
+- id: SR/TC12L06
+  class: TemperatureSensor
+  description: 'Absorber thermocouple 6 of the lower row in straight 12: watches the photon absorber for mis-steered light.'
+  names:
+  - TC12L06
+  - absorber thermocouple
+  - thermocouple
+  label: TC 12L06
+  place: SR/SECT12
+- id: SR/TC12L07
+  class: TemperatureSensor
+  description: 'Absorber thermocouple 7 of the lower row in straight 12: watches the photon absorber for mis-steered light.'
+  names:
+  - TC12L07
+  - absorber thermocouple
+  - thermocouple
+  label: TC 12L07
+  place: SR/SECT12
+- id: SR/TC12L08
+  class: TemperatureSensor
+  description: 'Absorber thermocouple 8 of the lower row in straight 12: watches the photon absorber for mis-steered light.'
+  names:
+  - TC12L08
+  - absorber thermocouple
+  - thermocouple
+  label: TC 12L08
+  place: SR/SECT12
+- id: SR/TC12L09
+  class: TemperatureSensor
+  description: 'Absorber thermocouple 9 of the lower row in straight 12: watches the photon absorber for mis-steered light.'
+  names:
+  - TC12L09
+  - absorber thermocouple
+  - thermocouple
+  label: TC 12L09
+  place: SR/SECT12
+- id: SR/TC12L10
+  class: TemperatureSensor
+  description: 'Absorber thermocouple 10 of the lower row in straight 12: watches the photon absorber for mis-steered light.'
+  names:
+  - TC12L10
+  - absorber thermocouple
+  - thermocouple
+  label: TC 12L10
+  place: SR/SECT12
+- id: SR/TC12U01
+  class: TemperatureSensor
+  description: 'Absorber thermocouple 1 of the upper row in straight 12: watches the photon absorber for mis-steered light.'
+  names:
+  - TC12U01
+  - absorber thermocouple
+  - thermocouple
+  label: TC 12U01
+  place: SR/SECT12
+- id: SR/TC12U02
+  class: TemperatureSensor
+  description: 'Absorber thermocouple 2 of the upper row in straight 12: watches the photon absorber for mis-steered light.'
+  names:
+  - TC12U02
+  - absorber thermocouple
+  - thermocouple
+  label: TC 12U02
+  place: SR/SECT12
+- id: SR/TC12U03
+  class: TemperatureSensor
+  description: 'Absorber thermocouple 3 of the upper row in straight 12: watches the photon absorber for mis-steered light.'
+  names:
+  - TC12U03
+  - absorber thermocouple
+  - thermocouple
+  label: TC 12U03
+  place: SR/SECT12
+- id: SR/TC12U04
+  class: TemperatureSensor
+  description: 'Absorber thermocouple 4 of the upper row in straight 12: watches the photon absorber for mis-steered light.'
+  names:
+  - TC12U04
+  - absorber thermocouple
+  - thermocouple
+  label: TC 12U04
+  place: SR/SECT12
+- id: SR/TC12U05
+  class: TemperatureSensor
+  description: 'Absorber thermocouple 5 of the upper row in straight 12: watches the photon absorber for mis-steered light.'
+  names:
+  - TC12U05
+  - absorber thermocouple
+  - thermocouple
+  label: TC 12U05
+  place: SR/SECT12
+- id: SR/TC12U06
+  class: TemperatureSensor
+  description: 'Absorber thermocouple 6 of the upper row in straight 12: watches the photon absorber for mis-steered light.'
+  names:
+  - TC12U06
+  - absorber thermocouple
+  - thermocouple
+  label: TC 12U06
+  place: SR/SECT12
+- id: SR/TC12U07
+  class: TemperatureSensor
+  description: 'Absorber thermocouple 7 of the upper row in straight 12: watches the photon absorber for mis-steered light.'
+  names:
+  - TC12U07
+  - absorber thermocouple
+  - thermocouple
+  label: TC 12U07
+  place: SR/SECT12
+- id: SR/TC12U08
+  class: TemperatureSensor
+  description: 'Absorber thermocouple 8 of the upper row in straight 12: watches the photon absorber for mis-steered light.'
+  names:
+  - TC12U08
+  - absorber thermocouple
+  - thermocouple
+  label: TC 12U08
+  place: SR/SECT12
+- id: SR/TC12U09
+  class: TemperatureSensor
+  description: 'Absorber thermocouple 9 of the upper row in straight 12: watches the photon absorber for mis-steered light.'
+  names:
+  - TC12U09
+  - absorber thermocouple
+  - thermocouple
+  label: TC 12U09
+  place: SR/SECT12
+- id: SR/TC12U10
+  class: TemperatureSensor
+  description: 'Absorber thermocouple 10 of the upper row in straight 12: watches the photon absorber for mis-steered light.'
+  names:
+  - TC12U10
+  - absorber thermocouple
+  - thermocouple
+  label: TC 12U10
+  place: SR/SECT12
 - id: SR/VALVE01
   class: Valve
   description: 'Vacuum Valves: Isolation and control valves for vacuum system. Gate valves or all-metal valves for UHV compatibility. Used to isolate sectors during maintenance.'
@@ -3237,6 +6522,102 @@
   - VALVE12
   - gate valve
   label: VALVE 12
+  place: SR/SECT12
+- id: SR/VALVE13
+  class: Valve
+  description: 'Vacuum Valves: Isolation and control valves for vacuum system. Gate valves or all-metal valves for UHV compatibility. Used to isolate sectors during maintenance. This one sits at the downstream end of arc 1.'
+  names:
+  - VALVE13
+  - gate valve
+  label: VALVE 13
+  place: SR/SECT1
+- id: SR/VALVE14
+  class: Valve
+  description: 'Vacuum Valves: Isolation and control valves for vacuum system. Gate valves or all-metal valves for UHV compatibility. Used to isolate sectors during maintenance. This one sits at the downstream end of arc 2.'
+  names:
+  - VALVE14
+  - gate valve
+  label: VALVE 14
+  place: SR/SECT2
+- id: SR/VALVE15
+  class: Valve
+  description: 'Vacuum Valves: Isolation and control valves for vacuum system. Gate valves or all-metal valves for UHV compatibility. Used to isolate sectors during maintenance. This one sits at the downstream end of arc 3.'
+  names:
+  - VALVE15
+  - gate valve
+  label: VALVE 15
+  place: SR/SECT3
+- id: SR/VALVE16
+  class: Valve
+  description: 'Vacuum Valves: Isolation and control valves for vacuum system. Gate valves or all-metal valves for UHV compatibility. Used to isolate sectors during maintenance. This one sits at the downstream end of arc 4.'
+  names:
+  - VALVE16
+  - gate valve
+  label: VALVE 16
+  place: SR/SECT4
+- id: SR/VALVE17
+  class: Valve
+  description: 'Vacuum Valves: Isolation and control valves for vacuum system. Gate valves or all-metal valves for UHV compatibility. Used to isolate sectors during maintenance. This one sits at the downstream end of arc 5.'
+  names:
+  - VALVE17
+  - gate valve
+  label: VALVE 17
+  place: SR/SECT5
+- id: SR/VALVE18
+  class: Valve
+  description: 'Vacuum Valves: Isolation and control valves for vacuum system. Gate valves or all-metal valves for UHV compatibility. Used to isolate sectors during maintenance. This one sits at the downstream end of arc 6.'
+  names:
+  - VALVE18
+  - gate valve
+  label: VALVE 18
+  place: SR/SECT6
+- id: SR/VALVE19
+  class: Valve
+  description: 'Vacuum Valves: Isolation and control valves for vacuum system. Gate valves or all-metal valves for UHV compatibility. Used to isolate sectors during maintenance. This one sits at the downstream end of arc 7.'
+  names:
+  - VALVE19
+  - gate valve
+  label: VALVE 19
+  place: SR/SECT7
+- id: SR/VALVE20
+  class: Valve
+  description: 'Vacuum Valves: Isolation and control valves for vacuum system. Gate valves or all-metal valves for UHV compatibility. Used to isolate sectors during maintenance. This one sits at the downstream end of arc 8.'
+  names:
+  - VALVE20
+  - gate valve
+  label: VALVE 20
+  place: SR/SECT8
+- id: SR/VALVE21
+  class: Valve
+  description: 'Vacuum Valves: Isolation and control valves for vacuum system. Gate valves or all-metal valves for UHV compatibility. Used to isolate sectors during maintenance. This one sits at the downstream end of arc 9.'
+  names:
+  - VALVE21
+  - gate valve
+  label: VALVE 21
+  place: SR/SECT9
+- id: SR/VALVE22
+  class: Valve
+  description: 'Vacuum Valves: Isolation and control valves for vacuum system. Gate valves or all-metal valves for UHV compatibility. Used to isolate sectors during maintenance. This one sits at the downstream end of arc 10.'
+  names:
+  - VALVE22
+  - gate valve
+  label: VALVE 22
+  place: SR/SECT10
+- id: SR/VALVE23
+  class: Valve
+  description: 'Vacuum Valves: Isolation and control valves for vacuum system. Gate valves or all-metal valves for UHV compatibility. Used to isolate sectors during maintenance. This one sits at the downstream end of arc 11.'
+  names:
+  - VALVE23
+  - gate valve
+  label: VALVE 23
+  place: SR/SECT11
+- id: SR/VALVE24
+  class: Valve
+  description: 'Vacuum Valves: Isolation and control valves for vacuum system. Gate valves or all-metal valves for UHV compatibility. Used to isolate sectors during maintenance. This one sits at the downstream end of arc 12.'
+  names:
+  - VALVE24
+  - gate valve
+  label: VALVE 24
   place: SR/SECT12
 - id: SR/VCM01
   class: VCorrector

@@ -5,7 +5,10 @@ The hook injects two independent context parts:
 1. a web-surface line derived from ``OSPREY_WEB_UX`` (``chat`` | ``terminal``),
    set per session by the web terminal's launchers — the chat line carries
    the "open_panel('artifacts') when you produce an artifact" instruction;
-2. the panel inventory fetched from ``GET /api/panels``.
+2. the panel inventory fetched from ``GET /api/panels``;
+3. the open-tiles line built from that payload's ``layout`` — every tile with
+   its tabs and showing tab, the terminal included — omitted when no dock
+   client has reported.
 
 Either part may be present alone: the surface line must survive a down web
 terminal (it is env-only), and inventory-only output is the pre-existing
@@ -31,11 +34,14 @@ PANELS_PAYLOAD = {
 
 @pytest.fixture
 def panels_server():
-    """Stub web terminal serving GET /api/panels on an ephemeral port."""
+    """Stub web terminal serving GET /api/panels on an ephemeral port.
+
+    Yields the server; a test may set ``server.payload`` to serve another body.
+    """
 
     class Handler(BaseHTTPRequestHandler):
         def do_GET(self):  # http.server API
-            body = json.dumps(PANELS_PAYLOAD).encode()
+            body = json.dumps(getattr(self.server, "payload", PANELS_PAYLOAD)).encode()
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(body)))
@@ -49,7 +55,7 @@ def panels_server():
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     try:
-        yield server.server_address[1]
+        yield server
     finally:
         server.shutdown()
         server.server_close()
@@ -63,7 +69,7 @@ def _context(result):
 
 
 def test_chat_surface_with_inventory(hook_runner, monkeypatch, panels_server):
-    monkeypatch.setenv("OSPREY_WEB_PORT", str(panels_server))
+    monkeypatch.setenv("OSPREY_WEB_PORT", str(panels_server.server_address[1]))
     monkeypatch.setenv("OSPREY_WEB_UX", "chat")
 
     context = _context(hook_runner(HOOK, "", {}))
@@ -76,7 +82,7 @@ def test_chat_surface_with_inventory(hook_runner, monkeypatch, panels_server):
 
 
 def test_terminal_surface_with_inventory(hook_runner, monkeypatch, panels_server):
-    monkeypatch.setenv("OSPREY_WEB_PORT", str(panels_server))
+    monkeypatch.setenv("OSPREY_WEB_PORT", str(panels_server.server_address[1]))
     monkeypatch.setenv("OSPREY_WEB_UX", "terminal")
 
     context = _context(hook_runner(HOOK, "", {}))
@@ -103,7 +109,7 @@ def test_no_marker_and_down_web_terminal_is_silent(reserve_port, hook_runner, mo
 
 
 def test_no_marker_keeps_inventory_only_behavior(hook_runner, monkeypatch, panels_server):
-    monkeypatch.setenv("OSPREY_WEB_PORT", str(panels_server))
+    monkeypatch.setenv("OSPREY_WEB_PORT", str(panels_server.server_address[1]))
     monkeypatch.delenv("OSPREY_WEB_UX", raising=False)
 
     context = _context(hook_runner(HOOK, "", {}))
@@ -116,3 +122,38 @@ def test_unknown_marker_is_ignored(reserve_port, hook_runner, monkeypatch):
     monkeypatch.setenv("OSPREY_WEB_UX", "bogus")
 
     assert hook_runner(HOOK, "", {}) is None
+
+
+def test_tile_line_from_reported_layout(hook_runner, monkeypatch, panels_server):
+    """A real hook process turns the reported dock layout into one tile line."""
+    panels_server.payload = dict(
+        PANELS_PAYLOAD,
+        layout={
+            "split": "row",
+            "items": [
+                {"tile": "t1", "tabs": ["terminal"], "showing": "terminal", "size": 0.5},
+                {
+                    "tile": "t2",
+                    "tabs": ["ariel", "artifacts"],
+                    "showing": "artifacts",
+                    "size": 0.5,
+                },
+            ],
+        },
+        rev=2,
+        layout_dock=True,
+    )
+    monkeypatch.setenv("OSPREY_WEB_PORT", str(panels_server.server_address[1]))
+    monkeypatch.delenv("OSPREY_WEB_UX", raising=False)
+
+    context = _context(hook_runner(HOOK, "", {}))
+    assert "Open tiles: [terminal], [ariel, artifacts (showing)]; active artifacts." in context
+
+
+def test_no_tile_line_before_any_dock_report(hook_runner, monkeypatch, panels_server):
+    panels_server.payload = dict(PANELS_PAYLOAD, layout=None, rev=0, layout_dock=None)
+    monkeypatch.setenv("OSPREY_WEB_PORT", str(panels_server.server_address[1]))
+    monkeypatch.delenv("OSPREY_WEB_UX", raising=False)
+
+    context = _context(hook_runner(HOOK, "", {}))
+    assert "Open tiles" not in context

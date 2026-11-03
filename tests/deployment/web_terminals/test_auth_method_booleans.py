@@ -170,6 +170,11 @@ def test_an_unknown_method_is_refused_by_name_with_the_supported_set() -> None:
         ("token", False),
         ("password", True),
         ("oidc", True),
+        # Fail-walled on the input `_auth_tls_context` raises for. The config is
+        # already being rejected by lint for the unknown method; answering False here
+        # would add a second, more alarming finding about a deployment that will never
+        # be built.
+        ("basic", True),
     ],
 )
 def test_auth_is_enforced_reports_the_walled_boolean(method: str, enforced: bool) -> None:
@@ -183,14 +188,6 @@ def test_auth_is_enforced_reports_the_walled_boolean(method: str, enforced: bool
     operator running a privileged unauthenticated terminal needs to see.
     """
     assert auth_is_enforced({"auth": {"method": method}}) is enforced
-
-
-def test_auth_is_enforced_reads_an_unparseable_stanza_as_walled() -> None:
-    """Fail-walled on the input `_auth_tls_context` raises for. The config is
-    already being rejected by lint for the unknown method; answering False here
-    would add a second, more alarming finding about a deployment that will never
-    be built."""
-    assert auth_is_enforced({"auth": {"method": "basic"}}) is True
 
 
 # ---------------------------------------------------------------------------

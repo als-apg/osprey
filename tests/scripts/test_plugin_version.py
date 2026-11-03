@@ -115,18 +115,18 @@ class TestBump:
         assert versions(root) == ["2026.9.1", "2026.9.1"]
         assert capsys.readouterr().out == "2026.9.0 -> 2026.9.1\n"
 
-    def test_a_new_month_resets_the_serial_to_zero(self, root):
-        assert run(root, "bump", "--today", "2026-10-01") == 0
-        assert versions(root) == ["2026.10.0", "2026.10.0"]
-
-    def test_a_new_year_resets_the_serial_to_zero(self, root):
-        assert run(root, "bump", "--today", "2027-01-20") == 0
-        assert versions(root) == ["2027.1.0", "2027.1.0"]
-
-    def test_the_month_is_never_zero_padded(self, root):
-        """`2027.3.0`, not `2027.03.0` — the CI gate compares the string, not a tuple."""
-        assert run(root, "bump", "--today", "2027-03-09") == 0
-        assert versions(root) == ["2027.3.0", "2027.3.0"]
+    @pytest.mark.parametrize(
+        ("today", "version"),
+        [
+            pytest.param("2026-10-01", "2026.10.0", id="new-month"),
+            pytest.param("2027-01-20", "2027.1.0", id="new-year"),
+            # `2027.3.0`, not `2027.03.0` — the CI gate compares the string, not a tuple.
+            pytest.param("2027-03-09", "2027.3.0", id="month-never-zero-padded"),
+        ],
+    )
+    def test_a_bump_into_a_later_month_resets_the_serial_to_zero(self, root, today, version):
+        assert run(root, "bump", "--today", today) == 0
+        assert versions(root) == [version, version]
 
     def test_repeated_bumps_keep_counting_within_the_month(self, root):
         for _ in range(3):
@@ -385,6 +385,14 @@ class TestCheck:
         assert run(repo, "bump", "--today", "2026-09-15") == 0
         git(repo, "add", "-A")
         assert run(repo, "check", "--base", "main", "--worktree") == 0
+
+    def test_an_unstaged_plugin_edit_with_a_bump_passes_under_worktree(self, repo, capsys):
+        git(repo, "checkout", "-q", "-b", "work")
+        write(repo, SKILL, "changed\n")
+        assert run(repo, "bump", "--today", "2026-09-15") == 0
+        capsys.readouterr()
+        assert run(repo, "check", "--base", "main", "--worktree") == 0
+        assert capsys.readouterr().out == "plugin version 2026.9.0 -> 2026.9.1\n"
 
     def test_an_untracked_plugin_file_counts_under_worktree(self, repo):
         git(repo, "checkout", "-q", "-b", "work")

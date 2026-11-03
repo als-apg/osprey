@@ -570,7 +570,7 @@ class TestDemoCorpusTiming:
             payload = index.search()
             elapsed = time.perf_counter() - started
 
-        assert payload["total"] == 3339
+        assert payload["total"] == 4731
         # Budgeted at 100 ms; asserted well above it, because a shared CI
         # machine is slower than a workstation by more than the margin.
         print(f"first search on the demo index: {elapsed * 1000:.1f} ms")

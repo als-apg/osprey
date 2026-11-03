@@ -338,20 +338,23 @@ def test_session_lifetime_defaults_when_nothing_configures_it() -> None:
     assert get_web_credentials().session_ttl_seconds == DEFAULT_SESSION_LIFETIME
 
 
+@pytest.mark.parametrize(
+    ("configured", "expected"),
+    [
+        # The launcher resolves env > config > default and publishes it here.
+        pytest.param("3600", 3600, id="read-from-the-environment"),
+        # A value out of a ``.env`` may carry surrounding whitespace.
+        pytest.param(" 60 ", 60, id="stripped"),
+        # End to end: the environment value reaches the process's own holder.
+        pytest.param("3600", 3600, id="a-populated-holder-carries-it"),
+    ],
+)
 def test_session_lifetime_is_read_from_the_environment(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, configured: str, expected: int
 ) -> None:
-    """The launcher resolves env > config > default and publishes it here."""
-    monkeypatch.setenv(SESSION_LIFETIME_ENV, "3600")
+    monkeypatch.setenv(SESSION_LIFETIME_ENV, configured)
 
-    assert get_web_credentials().session_ttl_seconds == 3600
-
-
-def test_session_lifetime_is_stripped(monkeypatch: pytest.MonkeyPatch) -> None:
-    """A value out of a ``.env`` may carry surrounding whitespace."""
-    monkeypatch.setenv(SESSION_LIFETIME_ENV, " 60 ")
-
-    assert get_web_credentials().session_ttl_seconds == 60
+    assert get_web_credentials().session_ttl_seconds == expected
 
 
 @pytest.mark.parametrize("blank", ["", "   ", "\n\t "])
@@ -982,15 +985,6 @@ def test_an_explicit_ttl_overrides_the_configured_one(credentials: WebCredential
     assert credentials.sessions[_digest(session_id)] <= time.time() + 1000
 
 
-def test_a_populated_holder_carries_the_configured_lifetime(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """End to end: the environment value reaches the process's own holder."""
-    monkeypatch.setenv(SESSION_LIFETIME_ENV, "3600")
-
-    assert get_web_credentials().session_ttl_seconds == 3600
-
-
 def test_the_holder_default_is_the_module_default(credentials: WebCredentials) -> None:
     """A directly-constructed holder is not a second opinion on the lifetime."""
     assert credentials.session_ttl_seconds == DEFAULT_SESSION_LIFETIME
@@ -1458,40 +1452,31 @@ def test_a_slow_load_does_not_block_another_holders_verification(
     assert elapsed < 0.2, f"verify_session waited {elapsed:.2f}s on a blocked store read"
 
 
+@pytest.mark.parametrize(
+    ("port", "store_file"),
+    [
+        # Two terminals on one host each keep their own sessions. The port is
+        # derived exactly as the session cookie's name is, so the browser holding
+        # a cookie named for one port finds its session in the store named for
+        # the same one.
+        pytest.param("8080", "sessions-8080.json", id="served-port"),
+        # A stray value names no port, and must not name a file either. The same
+        # fallback :func:`session_cookie_name` takes: an unset compose variable
+        # or a hostname left in the carrier would otherwise produce a store file
+        # the next start does not look for.
+        pytest.param("not-a-port", "sessions.json", id="non-numeric-port-gives-the-bare-file"),
+    ],
+)
 def test_the_store_file_is_named_for_the_served_port(
-    monkeypatch: pytest.MonkeyPatch, tmp_path
+    monkeypatch: pytest.MonkeyPatch, tmp_path, port: str, store_file: str
 ) -> None:
-    """Two terminals on one host each keep their own sessions.
-
-    The port is derived exactly as the session cookie's name is, so the browser
-    holding a cookie named for one port finds its session in the store named
-    for the same one.
-    """
     monkeypatch.setenv(SESSION_STORE_DIR_ENV, str(tmp_path / "web_terminal"))
-    monkeypatch.setenv(WEB_PORT_ENV, "8080")
+    monkeypatch.setenv(WEB_PORT_ENV, port)
 
     store = get_web_credentials().store
 
     assert store is not None
-    assert store.path == tmp_path / "web_terminal" / "sessions-8080.json"
-
-
-def test_a_non_numeric_port_gives_the_bare_store_file(
-    monkeypatch: pytest.MonkeyPatch, tmp_path
-) -> None:
-    """A stray value names no port, and must not name a file either.
-
-    The same fallback :func:`session_cookie_name` takes: an unset compose
-    variable or a hostname left in the carrier would otherwise produce a store
-    file the next start does not look for.
-    """
-    monkeypatch.setenv(SESSION_STORE_DIR_ENV, str(tmp_path / "web_terminal"))
-    monkeypatch.setenv(WEB_PORT_ENV, "not-a-port")
-
-    store = get_web_credentials().store
-
-    assert store is not None
-    assert store.path == tmp_path / "web_terminal" / "sessions.json"
+    assert store.path == tmp_path / "web_terminal" / store_file
 
 
 def test_the_store_carriers_are_read_never_popped(
@@ -1576,10 +1561,14 @@ def test_session_lifetime_default_is_defined_exactly_once() -> None:
 #: agreeing with itself.
 _EXPECTED_PANEL_ROUTES = {
     ("GET", "/api/panels"),
-    ("POST", "/api/panel-focus"),
     ("POST", "/api/panel-visibility"),
-    ("POST", "/api/panel-close"),
-    ("POST", "/api/panel-arrange"),
+    # The agent dock-op write routes: the only agent dock-write path.
+    ("POST", "/api/panel-op/drop"),
+    ("POST", "/api/panel-op/close-tab"),
+    ("POST", "/api/panel-op/close-tile"),
+    ("POST", "/api/panel-op/open"),
+    ("POST", "/api/panel-op/open-set"),
+    ("POST", "/api/panel-op/open-arrangement"),
     ("POST", "/api/agent-activity"),
     ("POST", "/api/agent-turn"),
     # The trigger hook's door. Reading and answering flags stay operator tier.
@@ -1591,6 +1580,15 @@ _EXPECTED_PANEL_ROUTES = {
     ("GET", "/panel/events/mcp"),
     ("POST", "/panel/events/mcp"),
     ("DELETE", "/panel/events/mcp"),
+}
+
+#: What the sidecar panels that opt in to an agent hop add to the tier: the
+#: CANOPY panel's MCP transport, and that one path only. Spelled out for the
+#: same reason, so a second panel opting in fails this file.
+_EXPECTED_PANEL_HOP_ROUTES = {
+    ("GET", "/panel/canopy/mcp"),
+    ("POST", "/panel/canopy/mcp"),
+    ("DELETE", "/panel/canopy/mcp"),
 }
 
 #: Routes that must stay operator-only. Each is a real route in the tree (see
@@ -1620,6 +1618,19 @@ _EXPECTED_OPERATOR_ROUTES = [
     ("POST", "/api/terminal/restart"),
     ("POST", "/api/terminal/logout"),
     ("POST", "/api/panel-layout"),
+    # The dock client's answer to an agent op records the layout and mints its
+    # rev, so it is a browser-session act like the report above.
+    ("POST", "/api/panel-op-result"),
+    # A person's tab-switch report; the agent's focus form is retired.
+    ("POST", "/api/panel-focus"),
+    # The retired agent routes, which no longer exist, stay out of the tier.
+    ("POST", "/api/panel-close"),
+    ("POST", "/api/panel-arrange"),
+    # Exact match: no other spelling under the op prefix is opened.
+    ("POST", "/api/panel-op"),
+    ("POST", "/api/panel-op/"),
+    ("POST", "/api/panel-op/open/"),
+    ("GET", "/api/panel-op/open"),
     ("GET", "/api/files/tree"),
     ("GET", "/api/hooks/debug-log"),
     ("GET", "/api/session-log"),
@@ -1652,6 +1663,11 @@ def test_route_tiers() -> None:
     against a hand-written set rather than a membership check.
     """
     assert set(web_auth.PANEL_TIER_ROUTES) == _EXPECTED_PANEL_ROUTES
+    # The effective table — what ``classify`` consults — adds a hop only for a
+    # sidecar panel that opts in: CANOPY's, and no other.
+    assert set(web_auth.panel_tier_routes()) == (
+        _EXPECTED_PANEL_ROUTES | _EXPECTED_PANEL_HOP_ROUTES
+    )
 
     for method, path in _EXPECTED_PANEL_ROUTES:
         assert web_auth.classify(method, path, False) is web_auth.Tier.PANEL, (
@@ -1667,10 +1683,34 @@ def test_route_tiers() -> None:
 
 @pytest.mark.parametrize(
     ("method", "path"),
-    [("GET", "/api/watchdog/flags"), ("POST", "/api/watchdog/flags/answer")],
+    [
+        # An agent holds the panel token, so these tiers are what keep its hold on it.
+        pytest.param("GET", "/api/watchdog/flags", id="flags-cannot-be-read"),
+        pytest.param("POST", "/api/watchdog/flags/answer", id="flags-cannot-be-answered"),
+        # The table keys on the method too: only ``GET /api/panels`` is readable-tier.
+        pytest.param("POST", "/api/panels", id="panels-listing-POST"),
+        pytest.param("PUT", "/api/panels", id="panels-listing-PUT"),
+        pytest.param("PATCH", "/api/panels", id="panels-listing-PATCH"),
+        pytest.param("DELETE", "/api/panels", id="panels-listing-DELETE"),
+        pytest.param("HEAD", "/api/panels", id="panels-listing-HEAD"),
+        pytest.param("OPTIONS", "/api/panels", id="panels-listing-OPTIONS"),
+        # ``GET /api/panel-focus`` is a real route the plan did not grant. Pinned
+        # because the path once had a panel-tier ``POST`` sibling (the retired
+        # agent focus), the likeliest place for a future edit to widen the tier.
+        pytest.param("GET", "/api/panel-focus", id="panel-focus-is-not-readable"),
+        # A scope missing either field is refused rather than trusted. A websocket
+        # scope carries no ``method``; the middleware supplies one, and if it ever
+        # supplies nothing the answer must be the strong credential.
+        pytest.param(None, "/api/panels", id="missing-method"),
+        pytest.param("GET", None, id="missing-path"),
+        pytest.param(None, None, id="missing-both"),
+        pytest.param("", "/api/panels", id="empty-method"),
+        pytest.param("GET", "", id="empty-path"),
+    ],
 )
-def test_a_panel_token_can_neither_read_nor_answer_flags(method: str, path: str) -> None:
-    """An agent holds the panel token, so these tiers are what keep its hold on it."""
+def test_a_request_outside_the_panel_tier_table_is_operator_only(
+    method: str | None, path: str | None
+) -> None:
     assert web_auth.classify(method, path, False) is web_auth.Tier.OPERATOR
 
 
@@ -1693,25 +1733,6 @@ def test_panel_register_route_is_not_in_the_unconditional_set() -> None:
     registration — URL-backed included — would clear the panel tier.
     """
     assert web_auth.PANEL_REGISTER_ROUTE not in web_auth.PANEL_TIER_ROUTES
-
-
-@pytest.mark.parametrize(
-    "method",
-    ["POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"],
-)
-def test_panels_listing_is_panel_tier_only_for_get(method: str) -> None:
-    """The table keys on the method too: only ``GET /api/panels`` is readable-tier."""
-    assert web_auth.classify(method, "/api/panels", False) is web_auth.Tier.OPERATOR
-
-
-def test_reading_panel_focus_is_operator_only() -> None:
-    """``GET /api/panel-focus`` is a real route the plan did not grant.
-
-    Pinned because the ``POST`` sibling *is* panel-tier, which makes this the
-    likeliest place for a future edit to widen the tier by pattern-matching on
-    the path alone.
-    """
-    assert web_auth.classify("GET", "/api/panel-focus", False) is web_auth.Tier.OPERATOR
 
 
 @pytest.mark.parametrize(
@@ -1747,19 +1768,6 @@ def test_near_miss_paths_fail_closed(path: str) -> None:
 def test_method_case_is_normalised(method: str) -> None:
     """ASGI promises an uppercase method; normalising costs nothing and fails safe."""
     assert web_auth.classify(method, "/api/panels", False) is web_auth.Tier.PANEL
-
-
-@pytest.mark.parametrize(
-    ("method", "path"),
-    [(None, "/api/panels"), ("GET", None), (None, None), ("", "/api/panels"), ("GET", "")],
-)
-def test_missing_method_or_path_is_operator_only(method: str | None, path: str | None) -> None:
-    """A scope missing either field is refused rather than trusted.
-
-    A websocket scope carries no ``method``; the middleware supplies one, and
-    if it ever supplies nothing the answer must be the strong credential.
-    """
-    assert web_auth.classify(method, path, False) is web_auth.Tier.OPERATOR
 
 
 def test_body_has_url_has_no_default() -> None:
@@ -2261,12 +2269,26 @@ class TestAnnouncedOriginFollowsTheConfiguredOne:
     from that URL would be refused.
     """
 
-    def test_configured_origin_wins(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setenv(common_middleware.EXTERNAL_ORIGIN_ENV, "https://terminals.example.org")
+    @pytest.mark.parametrize(
+        ("value", "prefix"),
+        [
+            pytest.param(
+                "https://terminals.example.org",
+                "https://terminals.example.org/?token=",
+                id="configured-origin-wins",
+            ),
+            pytest.param("", "http://127.0.0.1:8765/?token=", id="empty-falls-back-to-the-bind"),
+            pytest.param("   ", "http://127.0.0.1:8765/?token=", id="blank-falls-back-to-the-bind"),
+        ],
+    )
+    def test_the_announced_url_is_built_from_the_declared_origin_or_else_the_bind(
+        self, monkeypatch: pytest.MonkeyPatch, value: str, prefix: str
+    ) -> None:
+        monkeypatch.setenv(common_middleware.EXTERNAL_ORIGIN_ENV, value)
 
         url = web_auth.mint_and_announce("127.0.0.1", 8765)
 
-        assert url.startswith("https://terminals.example.org/?token=")
+        assert url.startswith(prefix)
 
     def test_the_path_is_kept(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv(
@@ -2276,16 +2298,6 @@ class TestAnnouncedOriginFollowsTheConfiguredOne:
         url = web_auth.mint_and_announce("127.0.0.1", 8765, path="static/session.html")
 
         assert url.startswith("https://terminals.example.org:8443/static/session.html?token=")
-
-    @pytest.mark.parametrize("value", ["", "   "])
-    def test_an_empty_declaration_falls_back_to_the_bind(
-        self, monkeypatch: pytest.MonkeyPatch, value: str
-    ) -> None:
-        monkeypatch.setenv(common_middleware.EXTERNAL_ORIGIN_ENV, value)
-
-        url = web_auth.mint_and_announce("127.0.0.1", 8765)
-
-        assert url.startswith("http://127.0.0.1:8765/?token=")
 
     def test_unset_falls_back_to_the_bind(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.delenv(common_middleware.EXTERNAL_ORIGIN_ENV, raising=False)

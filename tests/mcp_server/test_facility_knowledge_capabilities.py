@@ -140,33 +140,31 @@ class TestCapabilities:
             await get_tool_fn(capabilities)()
 
     @pytest.mark.asyncio
-    async def test_an_unconfigured_bundle_names_the_config_key(self, monkeypatch):
-        """ "Start the server" is the wrong remedy for a config that names no bundle.
-
-        The server IS started; what is missing is `facility_knowledge.bundle_path`.
-        One error code for three causes sent the operator to restart something
-        that was already running.
-        """
-        import osprey.mcp_server.facility_knowledge.server as srv
-        from osprey.mcp_server.facility_knowledge.server import capabilities
-
-        monkeypatch.setattr(srv, "_bundle", None)
-        monkeypatch.setattr(
-            srv,
-            "_bundle_error",
-            (
+    @pytest.mark.parametrize(
+        ("error_type", "message", "remedies"),
+        [
+            # "Start the server" is the wrong remedy for a config that names no bundle.
+            # The server IS started; what is missing is `facility_knowledge.bundle_path`.
+            # One error code for three causes sent the operator to restart something
+            # that was already running.
+            pytest.param(
                 "bundle_not_configured",
                 "This deployment names no facility knowledge bundle.",
                 ["Set `facility_knowledge.bundle_path` ..."],
+                id="unconfigured-bundle-names-the-config-key",
             ),
-        )
-
-        with assert_raises_error(error_type="bundle_not_configured"):
-            await get_tool_fn(capabilities)()
-
-    @pytest.mark.asyncio
-    async def test_a_failed_load_names_the_resolved_path(self, monkeypatch):
-        """A bundle that would not load is a third fault with a third fix."""
+            # A bundle that would not load is a third fault with a third fix.
+            pytest.param(
+                "bundle_load_failed",
+                "The facility knowledge bundle at /srv/okf could not be loaded: no index.md",
+                ["Check that /srv/okf exists ..."],
+                id="failed-load-names-the-resolved-path",
+            ),
+        ],
+    )
+    async def test_a_bundle_fault_reports_the_error_type_of_its_own_cause(
+        self, monkeypatch, error_type, message, remedies
+    ):
         import osprey.mcp_server.facility_knowledge.server as srv
         from osprey.mcp_server.facility_knowledge.server import capabilities
 
@@ -175,13 +173,13 @@ class TestCapabilities:
             srv,
             "_bundle_error",
             (
-                "bundle_load_failed",
-                "The facility knowledge bundle at /srv/okf could not be loaded: no index.md",
-                ["Check that /srv/okf exists ..."],
+                error_type,
+                message,
+                remedies,
             ),
         )
 
-        with assert_raises_error(error_type="bundle_load_failed"):
+        with assert_raises_error(error_type=error_type):
             await get_tool_fn(capabilities)()
 
     @pytest.mark.asyncio

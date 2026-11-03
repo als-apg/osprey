@@ -63,22 +63,28 @@ def test_checker_rejects_a_non_list_naming_the_type() -> None:
     ]
 
 
-def test_checker_tells_a_bare_string_to_become_a_one_item_list() -> None:
-    """A scalar would iterate as characters; the message says what to write."""
-    (message,) = env_names_errors("EPICS_CA_ADDR_LIST", "services.x.env")
-    assert message.startswith(
-        "services.x.env must be a list of environment variable names (got str)"
-    )
-    assert "write it as [EPICS_CA_ADDR_LIST]" in message
-
-
-def test_checker_names_the_yaml_resolver_for_a_boolean_list() -> None:
-    """`env: on` arrives as a bool; the message says why, not just 'bool'."""
-    (message,) = env_names_errors(True, "services.x.env")
-    assert message.startswith(
-        "services.x.env must be a list of environment variable names (got bool)"
-    )
-    assert "parses as a boolean" in message
+@pytest.mark.parametrize(
+    ("value", "prefix", "hint"),
+    [
+        # A scalar would iterate as characters; the message says what to write.
+        (
+            "EPICS_CA_ADDR_LIST",
+            "services.x.env must be a list of environment variable names (got str)",
+            "write it as [EPICS_CA_ADDR_LIST]",
+        ),
+        # `env: on` arrives as a bool; the message says why, not just 'bool'.
+        (
+            True,
+            "services.x.env must be a list of environment variable names (got bool)",
+            "parses as a boolean",
+        ),
+    ],
+    ids=["bare-string", "boolean"],
+)
+def test_checker_tells_a_scalar_what_to_write_instead(value, prefix, hint) -> None:
+    (message,) = env_names_errors(value, "services.x.env")
+    assert message.startswith(prefix)
+    assert hint in message
 
 
 @pytest.mark.parametrize(

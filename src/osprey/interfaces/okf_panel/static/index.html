@@ -66,9 +66,14 @@
        Provenance: marked v12.0.2 (MIT), https://github.com/markedjs/marked —
        vendored verbatim; the pinned file carries its own license header. -->
   <script src="/static/vendor/marked.min.js"></script>
+  <!-- DOMPurify must load before app.js too: bundle markdown is files an agent
+       can write, so app.js writes marked's output only through
+       DOMPurify.sanitize. The CDN copy by default, the copy `osprey vendor
+       fetch` places in static/vendor/ when the deployment is offline. -->
+  <script src="{{ vendor_url('DOMPurify', '/static/vendor/purify.min.js') }}"></script>
   <!-- ES module: imports the theme-manager follower + shared dom helpers.
-       Deferred by nature, so it runs after the non-module marked script above
-       (marked stays a global). -->
+       Deferred by nature, so it runs after the non-module scripts above
+       (marked and DOMPurify stay globals). -->
   <script type="module" src="/static/js/app.js"></script>
 </body>
 </html>

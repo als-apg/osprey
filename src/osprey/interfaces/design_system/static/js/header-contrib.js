@@ -7,7 +7,7 @@
  * a second bar when embedded — it describes those controls to the hub with
  * {@link contributeHeader} and the hub renders them in the tile bar, between
  * the tile's name and its close button. User interaction round-trips back as
- * an `osprey-header-action` message (see {@link onHeaderAction}); the panel
+ * an `canopy-host-header-action` message (see {@link onHeaderAction}); the panel
  * reacts internally and re-sends the WHOLE contribution with its new state.
  * The hub renders only what the last contribution says — it never mutates
  * item state locally, so a contribution is an idempotent replace, not a diff.
@@ -120,7 +120,7 @@ export function contributeHeader(items) {
   if (!isEmbedded()) return;
   try {
     window.parent.postMessage(
-      { type: 'osprey-header-contribution', version: HEADER_CONTRACT_VERSION, items },
+      { type: 'canopy-host-header-contribution', version: HEADER_CONTRACT_VERSION, items },
       window.location.origin
     );
   } catch {
@@ -138,7 +138,7 @@ export function onHeaderAction(callback) {
   window.addEventListener('message', (e) => {
     if (e.origin !== window.location.origin) return;
     const data = e.data;
-    if (!data || data.type !== 'osprey-header-action' || typeof data.id !== 'string') return;
+    if (!data || data.type !== 'canopy-host-header-action' || typeof data.id !== 'string') return;
     callback(data.id, typeof data.value === 'string' ? data.value : undefined);
   });
 }

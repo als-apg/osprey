@@ -10,7 +10,7 @@ would hand it write access to a machine nobody re-consented to while it works.
 So the executor pins what it launched under. ``OSPREY_LAUNCH_POSTURE`` is
 stamped into the sandbox environment and recorded in the in-flight marker, and
 inside that sandbox the write verdict reads it as its last term
-(``launch_pin_term``):
+(``_launch_pin_term``):
 
 * the switch goes OFF -> the record read refuses on the next write (immediate);
 * the switch goes ON -> the pin still refuses (the run stays off until it ends).
@@ -84,7 +84,7 @@ class TestStampFormat:
 
         assert stamp == f"{posture_store.LAUNCH_POSTURE_ALL_TARGETS}=sandbox"
         for target in posture_store.CONTROL_TARGETS:
-            assert posture_store.launch_pin_term(target) == "pinned", target
+            assert posture_store._launch_pin_term(target) == "pinned", target
 
 
 # ---------------------------------------------------------------------------
@@ -99,15 +99,21 @@ class TestExecutorStampsThePin:
     def _tier(self, monkeypatch):
         monkeypatch.setattr(posture, "control_system_section", lambda: dict(ARMED_TIER))
 
-    def test_a_switched_on_target_launches_writes(self, data_root):
-        write_control_context(data_root, target="standin", switch={"standin": "asked"})
+    @pytest.mark.parametrize(
+        ("switch", "launch_target", "expected"),
+        [
+            pytest.param({"standin": "asked"}, "standin", "standin=writes", id="switched-on"),
+            pytest.param({"va": "asked"}, "standin", "standin=sandbox", id="switched-off"),
+            # No machine to ask the verdict about: every target, sandboxed.
+            pytest.param({"standin": "asked"}, None, "*=sandbox", id="unknowable-target"),
+        ],
+    )
+    def test_the_launch_posture_follows_the_switch_and_the_target(
+        self, data_root, switch, launch_target, expected
+    ):
+        write_control_context(data_root, target="standin", switch=switch)
 
-        assert host_executor._launch_posture("standin") == "standin=writes"
-
-    def test_a_switched_off_target_launches_sandboxed(self, data_root):
-        write_control_context(data_root, target="standin", switch={"va": "asked"})
-
-        assert host_executor._launch_posture("standin") == "standin=sandbox"
+        assert host_executor._launch_posture(launch_target) == expected
 
     @pytest.mark.usefixtures("data_root")
     def test_no_record_launches_sandboxed(self):
@@ -146,12 +152,6 @@ class TestExecutorStampsThePin:
         assert state_dir.name == identity
         assert (state_dir / control_context.RECORD_FILENAME).exists()
         assert stamp == posture_store.launch_posture_stamp("standin", posture_store.POSTURE_WRITES)
-
-    def test_an_unknowable_target_is_pinned_sandboxed_everywhere(self, data_root):
-        """No machine to ask the verdict about: every target, sandboxed."""
-        write_control_context(data_root, target="standin", switch={"standin": "asked"})
-
-        assert host_executor._launch_posture(None) == "*=sandbox"
 
     @pytest.mark.usefixtures("data_root")
     def test_an_unreachable_verdict_fails_closed(self, monkeypatch):

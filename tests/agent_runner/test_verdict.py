@@ -11,6 +11,7 @@ Covers:
 
 from __future__ import annotations
 
+import pytest
 from claude_agent_sdk import ResultMessage
 
 from osprey.agent_runner import SDKWorkflowResult
@@ -102,9 +103,20 @@ def test_expected_server_not_connected_returns_fail() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_result_is_error_returns_fail() -> None:
-    """ResultMessage with is_error=True → EXIT_VERDICT_FAIL."""
-    wf = _workflow(_error_result("error_during_execution"), ["controls"])
+@pytest.mark.parametrize(
+    "subtype",
+    [
+        # ResultMessage with is_error=True
+        pytest.param("error_during_execution", id="result-is-error"),
+        # ResultMessage with subtype='error_max_budget_usd'
+        pytest.param("error_max_budget_usd", id="budget-exceeded"),
+        # ResultMessage with subtype='error_max_turns'
+        pytest.param("error_max_turns", id="turn-limit-exceeded"),
+    ],
+)
+def test_an_error_result_returns_fail(subtype: str) -> None:
+    """The ResultMessage is an error → EXIT_VERDICT_FAIL."""
+    wf = _workflow(_error_result(subtype), ["controls"])
     assert evaluate_verdict(wf, {"controls"}) == EXIT_VERDICT_FAIL
 
 
@@ -117,18 +129,6 @@ def test_result_none_returns_fail() -> None:
 # ---------------------------------------------------------------------------
 # Budget / turn-limit exceeded
 # ---------------------------------------------------------------------------
-
-
-def test_budget_exceeded_returns_fail() -> None:
-    """ResultMessage with subtype='error_max_budget_usd' → EXIT_VERDICT_FAIL."""
-    wf = _workflow(_error_result("error_max_budget_usd"), ["controls"])
-    assert evaluate_verdict(wf, {"controls"}) == EXIT_VERDICT_FAIL
-
-
-def test_turn_limit_exceeded_returns_fail() -> None:
-    """ResultMessage with subtype='error_max_turns' → EXIT_VERDICT_FAIL."""
-    wf = _workflow(_error_result("error_max_turns"), ["controls"])
-    assert evaluate_verdict(wf, {"controls"}) == EXIT_VERDICT_FAIL
 
 
 def test_budget_subtype_without_error_flag_returns_fail() -> None:

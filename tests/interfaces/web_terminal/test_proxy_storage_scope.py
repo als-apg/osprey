@@ -19,6 +19,7 @@ import pytest
 
 from osprey.interfaces.common_middleware import STORAGE_SCOPE_ATTRIBUTE
 from osprey.interfaces.web_terminal.routes.proxy import _stamp_storage_scope
+from osprey.profiles.sidecar_panels import CANOPY_PANEL_ID, SIDECAR_PANELS
 from tests.interfaces.web_terminal._proxy_fakes import (
     PANEL_DOCUMENT,
     relay_panel_response,
@@ -40,6 +41,13 @@ _DESIGN_SYSTEM_JS = (
 
 
 class TestStampStorageScope:
+    def test_the_canopy_mount_stamps_the_attribute_its_viewer_reads(self):
+        attribute = SIDECAR_PANELS[CANOPY_PANEL_ID].storage_scope_attribute
+        assert attribute == "data-canopy-storage-scope"
+        out = _stamp_storage_scope(PANEL_DOCUMENT, "text/html", "alice", attribute)
+        assert '<html data-canopy-storage-scope="alice" lang="en"' in out
+        assert STORAGE_SCOPE_ATTRIBUTE not in out
+
     def test_the_scope_is_the_first_attribute_of_the_root_tag(self):
         out = _stamp_storage_scope(PANEL_DOCUMENT, "text/html", "alice")
         assert '<html data-osprey-storage-scope="alice" lang="en" data-browse-orient="row">' in out

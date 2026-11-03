@@ -336,7 +336,15 @@ class TestGetDataErrorHandling:
             await connector.disconnect()
 
     @pytest.mark.asyncio
-    async def test_timeout_raises_timeout_error(self):
+    @pytest.mark.parametrize(
+        ("connect_timeout", "match", "timeout"),
+        [
+            pytest.param(0.01, "timed out", 0.01, id="short-timeout"),
+            # timeout=0 should trigger immediate timeout, not fall back to self._timeout=60
+            pytest.param(60, "after 0s", 0, id="zero-is-respected-not-falsy"),
+        ],
+    )
+    async def test_an_elapsed_timeout_raises_timeout_error(self, connect_timeout, match, timeout):
         """Test that asyncio timeout raises TimeoutError."""
         import asyncio
 
@@ -345,14 +353,16 @@ class TestGetDataErrorHandling:
 
         with patch("asyncio.to_thread", side_effect=slow_fetch):
             connector = EPICSArchiverConnector()
-            await connector.connect({"url": "https://archiver.example.com", "timeout_s": 0.01})
+            await connector.connect(
+                {"url": "https://archiver.example.com", "timeout_s": connect_timeout}
+            )
 
-            with pytest.raises(TimeoutError, match="timed out"):
+            with pytest.raises(TimeoutError, match=match):
                 await connector.get_data(
                     channels=["BEAM:CURRENT"],
                     start_date=datetime(2024, 1, 1),
                     end_date=datetime(2024, 1, 2),
-                    timeout=0.01,
+                    timeout=timeout,
                 )
 
             await connector.disconnect()
@@ -412,29 +422,6 @@ class TestGetDataErrorHandling:
                     channels=["CAM:IMAGE"],
                     start_date=datetime(2024, 1, 1),
                     end_date=datetime(2024, 1, 2),
-                )
-
-            await connector.disconnect()
-
-    @pytest.mark.asyncio
-    async def test_timeout_zero_respected_not_falsy(self):
-        """Test that timeout=0 is respected and treated as zero, not as falsy."""
-        import asyncio
-
-        async def slow_fetch(*args, **kwargs):
-            await asyncio.sleep(10)
-
-        with patch("asyncio.to_thread", side_effect=slow_fetch):
-            connector = EPICSArchiverConnector()
-            await connector.connect({"url": "https://archiver.example.com", "timeout_s": 60})
-
-            # timeout=0 should trigger immediate timeout, not fall back to self._timeout=60
-            with pytest.raises(TimeoutError, match="after 0s"):
-                await connector.get_data(
-                    channels=["BEAM:CURRENT"],
-                    start_date=datetime(2024, 1, 1),
-                    end_date=datetime(2024, 1, 2),
-                    timeout=0,
                 )
 
             await connector.disconnect()

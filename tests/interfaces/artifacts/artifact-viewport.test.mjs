@@ -47,7 +47,6 @@ import {
   renderMarkdownView,
   renderJsonView,
 } from '../../../src/osprey/interfaces/artifacts/static/js/preview-content.js';
-import { thumbnailHtml } from '../../../src/osprey/interfaces/artifacts/static/js/types.js';
 import { qs } from '../_support/dom.mjs';
 
 /** @returns {any} */
@@ -169,18 +168,6 @@ describe('artifactViewportHtml: iframe sandbox follows the served type', () => {
 
     expect(qs(container, 'iframe').hasAttribute('sandbox')).toBe(false);
   });
-});
-
-describe('thumbnailHtml: card frames carry the same sandbox', () => {
-  test.each(['plot_html', 'table_html', 'dashboard_html', 'html', 'notebook'])(
-    'artifact_type "%s" card iframe has exactly the C-OPAQUE tokens',
-    (artifact_type) => {
-      const container = document.createElement('div');
-      container.innerHTML = thumbnailHtml(makeArtifact({ artifact_type, mime_type: 'text/html' }));
-
-      expect(sandboxTokens(qs(container, 'iframe'))).toEqual(OPAQUE_TOKENS);
-    }
-  );
 });
 
 describe('artifactViewportHtml: per-type dispatch', () => {

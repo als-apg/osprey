@@ -113,9 +113,10 @@ machine until you arm that machine from the chip
 own ``writes_permitted``.
 
 The archive does not follow the switch — archive reads keep the deployment's one
-configured archiver, and are stamped with the control target and the archiver
-that served them, so which machine a set of history is about is never
-ambiguous.
+configured archiver, answer only for the machines whose past it holds (see
+`Rehearse on a stand-in live machine`_), and are stamped with the control
+target and the archiver that served them, so which machine a set of history is
+about is never ambiguous.
 
 Rehearse on the virtual accelerator
 -----------------------------------
@@ -192,19 +193,16 @@ check could tell an operator's answer from a placeholder. It is the live
 machine's gate alone — the stand-in's equivalent was said in the build profile,
 by the line that stood the stand-in up.
 
-**An archive that is not the stand-in's** (``archive_belongs_to_standin``).
-A deployment that runs a stand-in *and* records its own archive store is
-recording the stand-in, so the history in that store is the stand-in's.
-Selecting the live machine would splice a real machine's readings onto a
-stand-in's past in one store, with nothing afterwards able to tell them apart.
-Clear it by stopping one of the two — take ``archiver_recorder`` out of the
-deployment's services, or drop ``virtual_accelerator.live_standin`` from the
-build profile — and rebuild. The archive belongs to the machine it records.
+The archive is not a gate. The deployment's own store is the virtual
+accelerator's — the recorder samples the simulator and nothing else — and the
+live machine and its stand-in share the facility's archiver appliance, so no
+switch can put one machine's readings into another machine's past. See
+`Rehearse on a stand-in live machine`_ for whose history each target is shown.
 
 There is one exemption. A deployment can always come **home** to its own
 baseline — whichever of the three that is — with none of the gates above
-applied: not the acknowledgment, not the archive gate,
-and not the gateway and probe-channel checks either. Stranding a deployment away
+applied: not the acknowledgment, and not the gateway and probe-channel checks
+either. Stranding a deployment away
 from the machine it was built for is the less safe outcome of the two, and a
 baseline whose block is half authored — no gateways yet, the probe channel still
 commented out, a machine reached over something other than Channel Access —
@@ -507,9 +505,8 @@ not usable right now".
        which makes history up at read time. The pairing would put a made-up past
        next to a modelled present with nothing linking them. See "The honesty
        rule" in :doc:`use-virtual-accelerator`.
-   * - **The live machine's gates**
-     - The operator acknowledgment, or the archive that belongs to the stand-in.
-       Both are the live machine's alone. See `Go live`_.
+   * - **The live machine's gate**
+     - The operator acknowledgment, the live machine's alone. See `Go live`_.
 
 Two more refusals arrive *after* a switch rather than instead of one, and both
 exist for the same reason: something was approved for one machine and must not
@@ -667,10 +664,11 @@ writes ``control_system.type: live_standin`` into the profile, and from the next
 deployment that is not yet wired to its facility, or whose machine is down.
 
 Flipping it back is three settings, not one, because the archive goes with the
-machine. The ``va_archiver:`` block records *this* deployment's history from
-the stand-in, and the build refuses to serve that store as the facility's past
-— so the recorded store is dropped and the archiver pointed at the one that
-records the facility's machine, in the same step:
+machine. The ``va_archiver:`` block is the virtual accelerator's store — the
+simulator's seeded and recorded history — and the build refuses to serve a
+simulated store as the facility's past, so the store is dropped and the
+archiver pointed at the one that records the facility's machine, in the same
+step:
 
 .. code-block:: bash
 
@@ -698,13 +696,16 @@ and the stand-in carries no errors of its own. The two machines are told apart
 by a write to the sandbox not showing on the stand-in and by the model RPC
 status naming its instance (``virtual_accelerator`` or ``live_standin``).
 
-**The archive belongs to the machine.** The history seeded on the first deploy
-is the composite's history over the shared active set, the same samples
-whichever machine the archive belongs to, and the recorder then records the
-stand-in — so its past and its present describe one machine, the way a real
-machine's do. That is also why the live machine is gated while both are running:
-see `Go live`_. ``osprey sim apply`` reaches both machines: a scenario changes
-the world, not one lane.
+**The archive belongs to the machine.** The stand-in rehearses your real
+machine, so the past it is shown is the real machine's: the
+``epics_archiver`` appliance when the deployment names one (a ``mya_archiver``
+or ``doocs_archiver`` block is the facility's archive in the same way), and no
+archive otherwise — never the simulator's store. That store stays the virtual
+accelerator's: the recorder samples the simulator, and the history seeded on
+the first deploy is the simulator's own. A trend read on the stand-in and one
+read on the live machine therefore come from one archive, the way a rehearsal
+should. ``osprey sim apply`` reaches both machines: a scenario changes the
+world, not one lane.
 
 On a laptop the second container is a real cost — a second simulator runs
 for the life of the deployment. Delete the line when the rehearsal is over.
