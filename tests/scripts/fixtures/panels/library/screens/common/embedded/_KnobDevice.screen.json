@@ -1,7 +1,7 @@
 {
   "schemaVersion": "1.1",
   "kind": "screen",
-  "id": "gtb/embedded/_KnobDevice",
+  "id": "common/embedded/_KnobDevice",
   "metadata": {
     "title": "_KnobDevice",
     "size": {

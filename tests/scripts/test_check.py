@@ -2938,7 +2938,7 @@ def test_a_third_party_import_is_not_followed() -> None:
     assert canopy._imported_files("tests/integrations/canopy/x.py", tree, known) == set()
 
 
-def test_the_contract_runs_in_both_tiers_as_one_whole_directory() -> None:
+def test_the_contract_runs_in_both_tiers_as_whole_directories() -> None:
     contract = BY_ID["canopy-contract"]
     assert contract.tiers == check.BOTH and contract.scope == ()
     (line,) = check.resolve(["run", "canopy-contract", "--", "-v"])
@@ -2946,7 +2946,15 @@ def test_the_contract_runs_in_both_tiers_as_one_whole_directory() -> None:
         *("uv", "run", "--frozen", "--no-sync", "python", "scripts/run_bounded.py", "1800")
     ]
     assert line[line.index("--") + 1 :] == [
-        *("uv", "run", "--frozen", "--no-sync", "pytest", "tests/integrations/canopy"),
+        *(
+            "uv",
+            "run",
+            "--frozen",
+            "--no-sync",
+            "pytest",
+            "tests/integrations/canopy",
+            "tests/templates/canopy",
+        ),
         *("-p", "no:randomly", "--timeout=600", "-v"),
     ]
     assert "-m" not in line and "-k" not in line
@@ -3062,7 +3070,9 @@ def test_the_contract_runs_only_against_the_proven_install(
     captured = capsys.readouterr()
     line = (captured.err if code == 2 else captured.out).strip().splitlines()[-1]
     assert line.startswith(last) if last.endswith(": ") else line == last
-    assert recorder.ran("pytest tests/integrations/canopy -p") is (status == 0)
+    assert recorder.ran("pytest tests/integrations/canopy tests/templates/canopy -p") is (
+        status == 0
+    )
     if code == 2:
         assert recorder.calls == []
 

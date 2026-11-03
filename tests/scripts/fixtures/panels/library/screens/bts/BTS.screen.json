@@ -1,9 +1,9 @@
 {
   "schemaVersion": "1.1",
   "kind": "screen",
-  "id": "bts/BTSView",
+  "id": "bts/BTS",
   "metadata": {
-    "title": "BTSView",
+    "title": "BTS",
     "size": {
       "width": 2000,
       "height": 910
@@ -37,7 +37,7 @@
         "id": "w-002",
         "type": "embedded-display",
         "props": {
-          "file": "embedded/_KnobDevice.screen.json",
+          "file": "../common/embedded/_KnobDevice.screen.json",
           "macros": {
             "CNTL_PV": "XX:Q3:Set",
             "COLOR_CODE": "3",
@@ -60,7 +60,7 @@
         "id": "w-003",
         "type": "embedded-display",
         "props": {
-          "file": "embedded/_tv.screen.json",
+          "file": "../common/embedded/_tv.screen.json",
           "macros": {
             "TV": "TV2",
             "light": "XX:TV2:Light",
@@ -81,7 +81,7 @@
         "id": "w-157",
         "type": "embedded-display",
         "props": {
-          "file": "embedded/_bpm.screen.json",
+          "file": "../common/embedded/_bpm.screen.json",
           "macros": {
             "BPM": "BTS BPM1",
             "BPM_X": "XX:BPM5:X",
@@ -99,7 +99,7 @@
         "id": "w-184",
         "type": "embedded-display",
         "props": {
-          "file": "embedded/_KnobDevice.screen.json",
+          "file": "../common/embedded/_KnobDevice.screen.json",
           "macros": {
             "CNTL_PV": "XX:Q6:Both",
             "COLOR_CODE": "3",

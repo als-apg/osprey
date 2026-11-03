@@ -12537,7 +12537,6 @@ def test_every_nightly_checkout_drops_its_credentials(nightly: dict[str, Any]) -
 # on a job that did not run the contract.
 
 CANOPY_CONTRACT_JOB = "canopy-contract"
-CANOPY_CONTRACT_TESTS = "tests/integrations/canopy"
 CANOPY_CONTRACT_GATE_FAILURE = "❌ CANOPY contract failed"
 _CANOPY_ALWAYS_ON_CHECK_RE = re.compile(
     r'if \[\[ "\$\{\{\s*needs\.'
@@ -12589,6 +12588,27 @@ def _canopy_git_configuration_writes(wf: dict[str, Any]) -> list[str]:
 
 def test_canopy_contract_job_exists(workflow: dict[str, Any]) -> None:
     assert CANOPY_CONTRACT_JOB in _jobs(workflow)
+
+
+def _outside_the_contract(members: Iterator[str], paths: tuple[str, ...]) -> list[str]:
+    """The *members* (paths under ``tests/``) no directory in *paths* holds."""
+    return sorted(m for m in members if not any(f"tests/{m}".startswith(f"{p}/") for p in paths))
+
+
+def test_every_canopy_marked_module_is_in_the_contract_job() -> None:
+    """The unit lane deselects ``canopy``; a marked module the contract does not run, no lane runs."""
+    from tests._canopy_contract import contract_members
+
+    members = contract_members(REPO_ROOT / "tests")
+    assert members
+    assert _outside_the_contract(iter(members), canopy_checks.CONTRACT_TESTS) == []
+
+
+def test_every_canopy_marked_module_is_in_the_contract_job__mutation_drops_a_directory() -> None:
+    from tests._canopy_contract import contract_members
+
+    members = contract_members(REPO_ROOT / "tests")
+    assert _outside_the_contract(iter(members), canopy_checks.CONTRACT_TESTS[:1])
 
 
 def test_canopy_contract_job_exists__mutation_drops_job() -> None:

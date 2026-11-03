@@ -1,9 +1,9 @@
 {
   "schemaVersion": "1.1",
   "kind": "screen",
-  "id": "gtb/GTLView",
+  "id": "gtl/GTL",
   "metadata": {
-    "title": "GTLView",
+    "title": "GTL",
     "size": {
       "width": 2410,
       "height": 900
@@ -64,7 +64,7 @@
         "id": "w-003",
         "type": "pv-label",
         "props": {
-          "pv": "fox://f-001"
+          "pv": "formula://f-001"
         },
         "geometry": {
           "x": 0,
@@ -90,7 +90,7 @@
         "id": "w-005",
         "type": "embedded-display",
         "props": {
-          "file": "embedded/_KnobDevice.screen.json",
+          "file": "../common/embedded/_KnobDevice.screen.json",
           "macros": {
             "CNTL_PV": "XX:Q1:Set",
             "COLOR_CODE": "3",
@@ -113,7 +113,7 @@
         "id": "w-007",
         "type": "embedded-display",
         "props": {
-          "file": "embedded/_bpm.screen.json",
+          "file": "../common/embedded/_bpm.screen.json",
           "macros": {
             "BPM": "XX:BPM1",
             "BPM_X": "XX:BPM1:X",
@@ -131,7 +131,7 @@
         "id": "w-008",
         "type": "embedded-display",
         "props": {
-          "file": "embedded/_tv.screen.json",
+          "file": "../common/embedded/_tv.screen.json",
           "macros": {
             "TV": "XX:TV1:Paddle",
             "light": "XX:TV1:Light",
@@ -425,7 +425,7 @@
         "id": "w-408",
         "type": "embedded-display",
         "props": {
-          "file": "embedded/_KnobDevice.screen.json",
+          "file": "../common/embedded/_KnobDevice.screen.json",
           "macros": {
             "CNTL_PV": "XX:Q4:Both",
             "COLOR_CODE": "3",
@@ -448,7 +448,7 @@
         "id": "w-409",
         "type": "embedded-display",
         "props": {
-          "file": "embedded/_KnobDevice.screen.json",
+          "file": "../common/embedded/_KnobDevice.screen.json",
           "macros": {
             "CNTL_PV": "XX:Q2:Both",
             "COLOR_CODE": "3",
@@ -471,7 +471,7 @@
         "id": "w-410",
         "type": "embedded-display",
         "props": {
-          "file": "embedded/_KnobDevice.screen.json",
+          "file": "../common/embedded/_KnobDevice.screen.json",
           "macros": {
             "CNTL_PV": "XX:Q5:Set",
             "COLOR_CODE": "3",

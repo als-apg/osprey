@@ -1,7 +1,7 @@
 {
   "schemaVersion": "1.1",
   "kind": "screen",
-  "id": "gtb/embedded/_tv",
+  "id": "common/embedded/_tv",
   "metadata": {
     "title": "_tv",
     "size": {

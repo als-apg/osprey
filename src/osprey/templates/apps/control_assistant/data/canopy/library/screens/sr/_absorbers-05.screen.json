@@ -1,0 +1,4026 @@
+{
+  "schemaVersion": "1.1",
+  "kind": "screen",
+  "id": "sr/_absorbers-05",
+  "metadata": {
+    "title": "SR straight 05 \u00b7 absorbers",
+    "source": {
+      "type": "native"
+    },
+    "size": {
+      "width": 1200,
+      "height": 382
+    },
+    "description": "Detail of storage-ring sector 05 of the control-assistant facility: every absorber thermocouple's temperature, limit and over-temperature flag."
+  },
+  "macros": [],
+  "formulas": [],
+  "root": {
+    "id": "w-001",
+    "type": "absolute-canvas",
+    "props": {
+      "width": 1200,
+      "height": 382,
+      "backgroundColor": {
+        "$role": "Page_Background",
+        "fallback": "#f4f5f5",
+        "fallbackDark": "#111217"
+      }
+    },
+    "geometry": {
+      "x": 0,
+      "y": 0,
+      "width": 1200,
+      "height": 382
+    },
+    "children": [
+      {
+        "id": "w-002",
+        "type": "text-label",
+        "props": {
+          "text": "SR straight 05 \u00b7 absorbers",
+          "fontSize": 22,
+          "align": "left",
+          "foregroundColor": {
+            "$role": "Page_Text",
+            "fallback": "#24292e",
+            "fallbackDark": "#ccccdc"
+          },
+          "backgroundColor": {
+            "$role": "Page_Background",
+            "fallback": "#f4f5f5",
+            "fallbackDark": "#111217"
+          }
+        },
+        "geometry": {
+          "x": 16,
+          "y": 10,
+          "width": 520,
+          "height": 30
+        }
+      },
+      {
+        "id": "w-003",
+        "type": "text-label",
+        "props": {
+          "text": "SR sector 05 \u203a",
+          "fontSize": 12,
+          "align": "right",
+          "foregroundColor": {
+            "$role": "Beam",
+            "fallback": "#1f62c4",
+            "fallbackDark": "#6e9fff"
+          },
+          "backgroundColor": {
+            "$role": "Page_Background",
+            "fallback": "#f4f5f5",
+            "fallbackDark": "#111217"
+          }
+        },
+        "geometry": {
+          "x": 900,
+          "y": 16,
+          "width": 280,
+          "height": 20
+        }
+      },
+      {
+        "id": "w-004",
+        "type": "rectangle",
+        "props": {
+          "lineColor": {
+            "$role": "Page_Background",
+            "fallback": "#f4f5f5",
+            "fallbackDark": "#111217"
+          },
+          "lineWidth": 0,
+          "fill": false,
+          "hoverLabel": "Open SR sector 05",
+          "actions": [
+            {
+              "type": "open_display",
+              "file": "../sr/sector-05.screen.json",
+              "target": "tab"
+            }
+          ]
+        },
+        "geometry": {
+          "x": 900,
+          "y": 16,
+          "width": 280,
+          "height": 20
+        }
+      },
+      {
+        "id": "w-005",
+        "type": "group-box",
+        "props": {
+          "title": "Upper row"
+        },
+        "geometry": {
+          "x": 16,
+          "y": 60,
+          "width": 1168,
+          "height": 148
+        },
+        "children": [
+          {
+            "id": "w-006",
+            "type": "text-label",
+            "props": {
+              "text": "Upper row",
+              "fontSize": 15,
+              "align": "left",
+              "foregroundColor": {
+                "$role": "Page_Text",
+                "fallback": "#24292e",
+                "fallbackDark": "#ccccdc"
+              },
+              "backgroundColor": {
+                "$role": "Page_Background",
+                "fallback": "#f4f5f5",
+                "fallbackDark": "#111217"
+              }
+            },
+            "geometry": {
+              "x": 16,
+              "y": 64,
+              "width": 1168,
+              "height": 24
+            }
+          },
+          {
+            "id": "w-008",
+            "type": "text-label",
+            "props": {
+              "text": "T degC",
+              "fontSize": 12,
+              "align": "left",
+              "foregroundColor": {
+                "$role": "Page_Text",
+                "fallback": "#24292e",
+                "fallbackDark": "#ccccdc"
+              },
+              "backgroundColor": {
+                "$role": "Page_Background",
+                "fallback": "#f4f5f5",
+                "fallbackDark": "#111217"
+              }
+            },
+            "geometry": {
+              "x": 30,
+              "y": 122,
+              "width": 110,
+              "height": 22
+            }
+          },
+          {
+            "id": "w-009",
+            "type": "text-label",
+            "props": {
+              "text": "Limit degC",
+              "fontSize": 12,
+              "align": "left",
+              "foregroundColor": {
+                "$role": "Page_Text",
+                "fallback": "#24292e",
+                "fallbackDark": "#ccccdc"
+              },
+              "backgroundColor": {
+                "$role": "Page_Background",
+                "fallback": "#f4f5f5",
+                "fallbackDark": "#111217"
+              }
+            },
+            "geometry": {
+              "x": 30,
+              "y": 148,
+              "width": 110,
+              "height": 22
+            }
+          },
+          {
+            "id": "w-010",
+            "type": "text-label",
+            "props": {
+              "text": "Over",
+              "fontSize": 12,
+              "align": "left",
+              "foregroundColor": {
+                "$role": "Page_Text",
+                "fallback": "#24292e",
+                "fallbackDark": "#ccccdc"
+              },
+              "backgroundColor": {
+                "$role": "Page_Background",
+                "fallback": "#f4f5f5",
+                "fallbackDark": "#111217"
+              }
+            },
+            "geometry": {
+              "x": 30,
+              "y": 174,
+              "width": 110,
+              "height": 22
+            }
+          },
+          {
+            "id": "w-011",
+            "type": "rectangle",
+            "props": {
+              "lineColor": {
+                "$role": "Page_Background",
+                "fallback": "#f4f5f5",
+                "fallbackDark": "#111217"
+              },
+              "lineWidth": 1,
+              "fill": true,
+              "fillColor": {
+                "$role": "DISCONNECTED",
+                "fallback": "#86878f",
+                "fallbackDark": "#6e6e77"
+              },
+              "tooltip": "SR/TC05U01"
+            },
+            "geometry": {
+              "x": 148,
+              "y": 100,
+              "width": 98.8,
+              "height": 14
+            },
+            "rules": [
+              {
+                "id": "r-001",
+                "name": "tc 05U01 heat",
+                "targetProperty": "fillColor",
+                "pvs": [
+                  {
+                    "name": "SR:VAC:TC:05U01:TEMPERATURE:RB",
+                    "trigger": true
+                  }
+                ],
+                "conditions": [
+                  {
+                    "expression": "{0} < 50",
+                    "value": {
+                      "$role": "OK",
+                      "fallback": "#56a64b",
+                      "fallbackDark": "#73bf69"
+                    }
+                  },
+                  {
+                    "expression": "{0} < 65",
+                    "value": {
+                      "$role": "MINOR",
+                      "fallback": "#e0b400",
+                      "fallbackDark": "#f2cc0c"
+                    }
+                  },
+                  {
+                    "expression": "{0} < 80",
+                    "value": {
+                      "$role": "Dipole",
+                      "fallback": "#e08e00",
+                      "fallbackDark": "#f5b73d"
+                    }
+                  },
+                  {
+                    "expression": "{0} >= 80",
+                    "value": {
+                      "$role": "MAJOR",
+                      "fallback": "#c4162a",
+                      "fallbackDark": "#e05454"
+                    }
+                  }
+                ],
+                "default": {
+                  "$role": "DISCONNECTED",
+                  "fallback": "#86878f",
+                  "fallbackDark": "#6e6e77"
+                }
+              }
+            ]
+          },
+          {
+            "id": "w-012",
+            "type": "text-label",
+            "props": {
+              "text": "01",
+              "fontSize": 9,
+              "align": "center",
+              "foregroundColor": {
+                "$role": "Page_Text",
+                "fallback": "#24292e",
+                "fallbackDark": "#ccccdc"
+              },
+              "backgroundColor": {
+                "$role": "Page_Background",
+                "fallback": "#f4f5f5",
+                "fallbackDark": "#111217"
+              }
+            },
+            "geometry": {
+              "x": 146,
+              "y": 94,
+              "width": 102.8,
+              "height": 14
+            }
+          },
+          {
+            "id": "w-013",
+            "type": "pv-label",
+            "props": {
+              "pv": "SR:VAC:TC:05U01:TEMPERATURE:RB",
+              "showUnits": false,
+              "alarmSensitive": true,
+              "alarmBorder": true,
+              "precision": 2,
+              "align": "right",
+              "foregroundColor": {
+                "$role": "Page_Text",
+                "fallback": "#24292e",
+                "fallbackDark": "#ccccdc"
+              },
+              "backgroundColor": {
+                "$role": "Field_Background",
+                "fallback": "#fafbfc",
+                "fallbackDark": "#181b1f"
+              }
+            },
+            "geometry": {
+              "x": 148,
+              "y": 122,
+              "width": 98.8,
+              "height": 22
+            }
+          },
+          {
+            "id": "w-014",
+            "type": "pv-label",
+            "props": {
+              "pv": "SR:VAC:TC:05U01:LIMIT:RB",
+              "showUnits": false,
+              "alarmSensitive": true,
+              "alarmBorder": true,
+              "precision": 2,
+              "align": "right",
+              "foregroundColor": {
+                "$role": "Page_Text",
+                "fallback": "#24292e",
+                "fallbackDark": "#ccccdc"
+              },
+              "backgroundColor": {
+                "$role": "Field_Background",
+                "fallback": "#fafbfc",
+                "fallbackDark": "#181b1f"
+              }
+            },
+            "geometry": {
+              "x": 148,
+              "y": 148,
+              "width": 98.8,
+              "height": 22
+            }
+          },
+          {
+            "id": "w-015",
+            "type": "pv-led",
+            "props": {
+              "pv": "SR:VAC:TC:05U01:STATUS:OVERTEMP",
+              "onColor": {
+                "$role": "Led_On",
+                "fallback": "#56a64b",
+                "fallbackDark": "#73bf69"
+              },
+              "offColor": {
+                "$role": "Led_Off",
+                "fallback": "#ecedef",
+                "fallbackDark": "#22252b"
+              }
+            },
+            "geometry": {
+              "x": 190.4,
+              "y": 178,
+              "width": 14,
+              "height": 14
+            }
+          },
+          {
+            "id": "w-016",
+            "type": "rectangle",
+            "props": {
+              "lineColor": {
+                "$role": "Page_Background",
+                "fallback": "#f4f5f5",
+                "fallbackDark": "#111217"
+              },
+              "lineWidth": 1,
+              "fill": true,
+              "fillColor": {
+                "$role": "DISCONNECTED",
+                "fallback": "#86878f",
+                "fallbackDark": "#6e6e77"
+              },
+              "tooltip": "SR/TC05U02"
+            },
+            "geometry": {
+              "x": 250.8,
+              "y": 100,
+              "width": 98.8,
+              "height": 14
+            },
+            "rules": [
+              {
+                "id": "r-002",
+                "name": "tc 05U02 heat",
+                "targetProperty": "fillColor",
+                "pvs": [
+                  {
+                    "name": "SR:VAC:TC:05U02:TEMPERATURE:RB",
+                    "trigger": true
+                  }
+                ],
+                "conditions": [
+                  {
+                    "expression": "{0} < 50",
+                    "value": {
+                      "$role": "OK",
+                      "fallback": "#56a64b",
+                      "fallbackDark": "#73bf69"
+                    }
+                  },
+                  {
+                    "expression": "{0} < 65",
+                    "value": {
+                      "$role": "MINOR",
+                      "fallback": "#e0b400",
+                      "fallbackDark": "#f2cc0c"
+                    }
+                  },
+                  {
+                    "expression": "{0} < 80",
+                    "value": {
+                      "$role": "Dipole",
+                      "fallback": "#e08e00",
+                      "fallbackDark": "#f5b73d"
+                    }
+                  },
+                  {
+                    "expression": "{0} >= 80",
+                    "value": {
+                      "$role": "MAJOR",
+                      "fallback": "#c4162a",
+                      "fallbackDark": "#e05454"
+                    }
+                  }
+                ],
+                "default": {
+                  "$role": "DISCONNECTED",
+                  "fallback": "#86878f",
+                  "fallbackDark": "#6e6e77"
+                }
+              }
+            ]
+          },
+          {
+            "id": "w-017",
+            "type": "text-label",
+            "props": {
+              "text": "02",
+              "fontSize": 9,
+              "align": "center",
+              "foregroundColor": {
+                "$role": "Page_Text",
+                "fallback": "#24292e",
+                "fallbackDark": "#ccccdc"
+              },
+              "backgroundColor": {
+                "$role": "Page_Background",
+                "fallback": "#f4f5f5",
+                "fallbackDark": "#111217"
+              }
+            },
+            "geometry": {
+              "x": 248.8,
+              "y": 94,
+              "width": 102.8,
+              "height": 14
+            }
+          },
+          {
+            "id": "w-018",
+            "type": "pv-label",
+            "props": {
+              "pv": "SR:VAC:TC:05U02:TEMPERATURE:RB",
+              "showUnits": false,
+              "alarmSensitive": true,
+              "alarmBorder": true,
+              "precision": 2,
+              "align": "right",
+              "foregroundColor": {
+                "$role": "Page_Text",
+                "fallback": "#24292e",
+                "fallbackDark": "#ccccdc"
+              },
+              "backgroundColor": {
+                "$role": "Field_Background",
+                "fallback": "#fafbfc",
+                "fallbackDark": "#181b1f"
+              }
+            },
+            "geometry": {
+              "x": 250.8,
+              "y": 122,
+              "width": 98.8,
+              "height": 22
+            }
+          },
+          {
+            "id": "w-019",
+            "type": "pv-label",
+            "props": {
+              "pv": "SR:VAC:TC:05U02:LIMIT:RB",
+              "showUnits": false,
+              "alarmSensitive": true,
+              "alarmBorder": true,
+              "precision": 2,
+              "align": "right",
+              "foregroundColor": {
+                "$role": "Page_Text",
+                "fallback": "#24292e",
+                "fallbackDark": "#ccccdc"
+              },
+              "backgroundColor": {
+                "$role": "Field_Background",
+                "fallback": "#fafbfc",
+                "fallbackDark": "#181b1f"
+              }
+            },
+            "geometry": {
+              "x": 250.8,
+              "y": 148,
+              "width": 98.8,
+              "height": 22
+            }
+          },
+          {
+            "id": "w-020",
+            "type": "pv-led",
+            "props": {
+              "pv": "SR:VAC:TC:05U02:STATUS:OVERTEMP",
+              "onColor": {
+                "$role": "Led_On",
+                "fallback": "#56a64b",
+                "fallbackDark": "#73bf69"
+              },
+              "offColor": {
+                "$role": "Led_Off",
+                "fallback": "#ecedef",
+                "fallbackDark": "#22252b"
+              }
+            },
+            "geometry": {
+              "x": 293.2,
+              "y": 178,
+              "width": 14,
+              "height": 14
+            }
+          },
+          {
+            "id": "w-021",
+            "type": "rectangle",
+            "props": {
+              "lineColor": {
+                "$role": "Page_Background",
+                "fallback": "#f4f5f5",
+                "fallbackDark": "#111217"
+              },
+              "lineWidth": 1,
+              "fill": true,
+              "fillColor": {
+                "$role": "DISCONNECTED",
+                "fallback": "#86878f",
+                "fallbackDark": "#6e6e77"
+              },
+              "tooltip": "SR/TC05U03"
+            },
+            "geometry": {
+              "x": 353.6,
+              "y": 100,
+              "width": 98.8,
+              "height": 14
+            },
+            "rules": [
+              {
+                "id": "r-003",
+                "name": "tc 05U03 heat",
+                "targetProperty": "fillColor",
+                "pvs": [
+                  {
+                    "name": "SR:VAC:TC:05U03:TEMPERATURE:RB",
+                    "trigger": true
+                  }
+                ],
+                "conditions": [
+                  {
+                    "expression": "{0} < 50",
+                    "value": {
+                      "$role": "OK",
+                      "fallback": "#56a64b",
+                      "fallbackDark": "#73bf69"
+                    }
+                  },
+                  {
+                    "expression": "{0} < 65",
+                    "value": {
+                      "$role": "MINOR",
+                      "fallback": "#e0b400",
+                      "fallbackDark": "#f2cc0c"
+                    }
+                  },
+                  {
+                    "expression": "{0} < 80",
+                    "value": {
+                      "$role": "Dipole",
+                      "fallback": "#e08e00",
+                      "fallbackDark": "#f5b73d"
+                    }
+                  },
+                  {
+                    "expression": "{0} >= 80",
+                    "value": {
+                      "$role": "MAJOR",
+                      "fallback": "#c4162a",
+                      "fallbackDark": "#e05454"
+                    }
+                  }
+                ],
+                "default": {
+                  "$role": "DISCONNECTED",
+                  "fallback": "#86878f",
+                  "fallbackDark": "#6e6e77"
+                }
+              }
+            ]
+          },
+          {
+            "id": "w-022",
+            "type": "text-label",
+            "props": {
+              "text": "03",
+              "fontSize": 9,
+              "align": "center",
+              "foregroundColor": {
+                "$role": "Page_Text",
+                "fallback": "#24292e",
+                "fallbackDark": "#ccccdc"
+              },
+              "backgroundColor": {
+                "$role": "Page_Background",
+                "fallback": "#f4f5f5",
+                "fallbackDark": "#111217"
+              }
+            },
+            "geometry": {
+              "x": 351.6,
+              "y": 94,
+              "width": 102.8,
+              "height": 14
+            }
+          },
+          {
+            "id": "w-023",
+            "type": "pv-label",
+            "props": {
+              "pv": "SR:VAC:TC:05U03:TEMPERATURE:RB",
+              "showUnits": false,
+              "alarmSensitive": true,
+              "alarmBorder": true,
+              "precision": 2,
+              "align": "right",
+              "foregroundColor": {
+                "$role": "Page_Text",
+                "fallback": "#24292e",
+                "fallbackDark": "#ccccdc"
+              },
+              "backgroundColor": {
+                "$role": "Field_Background",
+                "fallback": "#fafbfc",
+                "fallbackDark": "#181b1f"
+              }
+            },
+            "geometry": {
+              "x": 353.6,
+              "y": 122,
+              "width": 98.8,
+              "height": 22
+            }
+          },
+          {
+            "id": "w-024",
+            "type": "pv-label",
+            "props": {
+              "pv": "SR:VAC:TC:05U03:LIMIT:RB",
+              "showUnits": false,
+              "alarmSensitive": true,
+              "alarmBorder": true,
+              "precision": 2,
+              "align": "right",
+              "foregroundColor": {
+                "$role": "Page_Text",
+                "fallback": "#24292e",
+                "fallbackDark": "#ccccdc"
+              },
+              "backgroundColor": {
+                "$role": "Field_Background",
+                "fallback": "#fafbfc",
+                "fallbackDark": "#181b1f"
+              }
+            },
+            "geometry": {
+              "x": 353.6,
+              "y": 148,
+              "width": 98.8,
+              "height": 22
+            }
+          },
+          {
+            "id": "w-025",
+            "type": "pv-led",
+            "props": {
+              "pv": "SR:VAC:TC:05U03:STATUS:OVERTEMP",
+              "onColor": {
+                "$role": "Led_On",
+                "fallback": "#56a64b",
+                "fallbackDark": "#73bf69"
+              },
+              "offColor": {
+                "$role": "Led_Off",
+                "fallback": "#ecedef",
+                "fallbackDark": "#22252b"
+              }
+            },
+            "geometry": {
+              "x": 396,
+              "y": 178,
+              "width": 14,
+              "height": 14
+            }
+          },
+          {
+            "id": "w-026",
+            "type": "rectangle",
+            "props": {
+              "lineColor": {
+                "$role": "Page_Background",
+                "fallback": "#f4f5f5",
+                "fallbackDark": "#111217"
+              },
+              "lineWidth": 1,
+              "fill": true,
+              "fillColor": {
+                "$role": "DISCONNECTED",
+                "fallback": "#86878f",
+                "fallbackDark": "#6e6e77"
+              },
+              "tooltip": "SR/TC05U04"
+            },
+            "geometry": {
+              "x": 456.4,
+              "y": 100,
+              "width": 98.8,
+              "height": 14
+            },
+            "rules": [
+              {
+                "id": "r-004",
+                "name": "tc 05U04 heat",
+                "targetProperty": "fillColor",
+                "pvs": [
+                  {
+                    "name": "SR:VAC:TC:05U04:TEMPERATURE:RB",
+                    "trigger": true
+                  }
+                ],
+                "conditions": [
+                  {
+                    "expression": "{0} < 50",
+                    "value": {
+                      "$role": "OK",
+                      "fallback": "#56a64b",
+                      "fallbackDark": "#73bf69"
+                    }
+                  },
+                  {
+                    "expression": "{0} < 65",
+                    "value": {
+                      "$role": "MINOR",
+                      "fallback": "#e0b400",
+                      "fallbackDark": "#f2cc0c"
+                    }
+                  },
+                  {
+                    "expression": "{0} < 80",
+                    "value": {
+                      "$role": "Dipole",
+                      "fallback": "#e08e00",
+                      "fallbackDark": "#f5b73d"
+                    }
+                  },
+                  {
+                    "expression": "{0} >= 80",
+                    "value": {
+                      "$role": "MAJOR",
+                      "fallback": "#c4162a",
+                      "fallbackDark": "#e05454"
+                    }
+                  }
+                ],
+                "default": {
+                  "$role": "DISCONNECTED",
+                  "fallback": "#86878f",
+                  "fallbackDark": "#6e6e77"
+                }
+              }
+            ]
+          },
+          {
+            "id": "w-027",
+            "type": "text-label",
+            "props": {
+              "text": "04",
+              "fontSize": 9,
+              "align": "center",
+              "foregroundColor": {
+                "$role": "Page_Text",
+                "fallback": "#24292e",
+                "fallbackDark": "#ccccdc"
+              },
+              "backgroundColor": {
+                "$role": "Page_Background",
+                "fallback": "#f4f5f5",
+                "fallbackDark": "#111217"
+              }
+            },
+            "geometry": {
+              "x": 454.4,
+              "y": 94,
+              "width": 102.8,
+              "height": 14
+            }
+          },
+          {
+            "id": "w-028",
+            "type": "pv-label",
+            "props": {
+              "pv": "SR:VAC:TC:05U04:TEMPERATURE:RB",
+              "showUnits": false,
+              "alarmSensitive": true,
+              "alarmBorder": true,
+              "precision": 2,
+              "align": "right",
+              "foregroundColor": {
+                "$role": "Page_Text",
+                "fallback": "#24292e",
+                "fallbackDark": "#ccccdc"
+              },
+              "backgroundColor": {
+                "$role": "Field_Background",
+                "fallback": "#fafbfc",
+                "fallbackDark": "#181b1f"
+              }
+            },
+            "geometry": {
+              "x": 456.4,
+              "y": 122,
+              "width": 98.8,
+              "height": 22
+            }
+          },
+          {
+            "id": "w-029",
+            "type": "pv-label",
+            "props": {
+              "pv": "SR:VAC:TC:05U04:LIMIT:RB",
+              "showUnits": false,
+              "alarmSensitive": true,
+              "alarmBorder": true,
+              "precision": 2,
+              "align": "right",
+              "foregroundColor": {
+                "$role": "Page_Text",
+                "fallback": "#24292e",
+                "fallbackDark": "#ccccdc"
+              },
+              "backgroundColor": {
+                "$role": "Field_Background",
+                "fallback": "#fafbfc",
+                "fallbackDark": "#181b1f"
+              }
+            },
+            "geometry": {
+              "x": 456.4,
+              "y": 148,
+              "width": 98.8,
+              "height": 22
+            }
+          },
+          {
+            "id": "w-030",
+            "type": "pv-led",
+            "props": {
+              "pv": "SR:VAC:TC:05U04:STATUS:OVERTEMP",
+              "onColor": {
+                "$role": "Led_On",
+                "fallback": "#56a64b",
+                "fallbackDark": "#73bf69"
+              },
+              "offColor": {
+                "$role": "Led_Off",
+                "fallback": "#ecedef",
+                "fallbackDark": "#22252b"
+              }
+            },
+            "geometry": {
+              "x": 498.8,
+              "y": 178,
+              "width": 14,
+              "height": 14
+            }
+          },
+          {
+            "id": "w-031",
+            "type": "rectangle",
+            "props": {
+              "lineColor": {
+                "$role": "Page_Background",
+                "fallback": "#f4f5f5",
+                "fallbackDark": "#111217"
+              },
+              "lineWidth": 1,
+              "fill": true,
+              "fillColor": {
+                "$role": "DISCONNECTED",
+                "fallback": "#86878f",
+                "fallbackDark": "#6e6e77"
+              },
+              "tooltip": "SR/TC05U05"
+            },
+            "geometry": {
+              "x": 559.2,
+              "y": 100,
+              "width": 98.8,
+              "height": 14
+            },
+            "rules": [
+              {
+                "id": "r-005",
+                "name": "tc 05U05 heat",
+                "targetProperty": "fillColor",
+                "pvs": [
+                  {
+                    "name": "SR:VAC:TC:05U05:TEMPERATURE:RB",
+                    "trigger": true
+                  }
+                ],
+                "conditions": [
+                  {
+                    "expression": "{0} < 50",
+                    "value": {
+                      "$role": "OK",
+                      "fallback": "#56a64b",
+                      "fallbackDark": "#73bf69"
+                    }
+                  },
+                  {
+                    "expression": "{0} < 65",
+                    "value": {
+                      "$role": "MINOR",
+                      "fallback": "#e0b400",
+                      "fallbackDark": "#f2cc0c"
+                    }
+                  },
+                  {
+                    "expression": "{0} < 80",
+                    "value": {
+                      "$role": "Dipole",
+                      "fallback": "#e08e00",
+                      "fallbackDark": "#f5b73d"
+                    }
+                  },
+                  {
+                    "expression": "{0} >= 80",
+                    "value": {
+                      "$role": "MAJOR",
+                      "fallback": "#c4162a",
+                      "fallbackDark": "#e05454"
+                    }
+                  }
+                ],
+                "default": {
+                  "$role": "DISCONNECTED",
+                  "fallback": "#86878f",
+                  "fallbackDark": "#6e6e77"
+                }
+              }
+            ]
+          },
+          {
+            "id": "w-032",
+            "type": "text-label",
+            "props": {
+              "text": "05",
+              "fontSize": 9,
+              "align": "center",
+              "foregroundColor": {
+                "$role": "Page_Text",
+                "fallback": "#24292e",
+                "fallbackDark": "#ccccdc"
+              },
+              "backgroundColor": {
+                "$role": "Page_Background",
+                "fallback": "#f4f5f5",
+                "fallbackDark": "#111217"
+              }
+            },
+            "geometry": {
+              "x": 557.2,
+              "y": 94,
+              "width": 102.8,
+              "height": 14
+            }
+          },
+          {
+            "id": "w-033",
+            "type": "pv-label",
+            "props": {
+              "pv": "SR:VAC:TC:05U05:TEMPERATURE:RB",
+              "showUnits": false,
+              "alarmSensitive": true,
+              "alarmBorder": true,
+              "precision": 2,
+              "align": "right",
+              "foregroundColor": {
+                "$role": "Page_Text",
+                "fallback": "#24292e",
+                "fallbackDark": "#ccccdc"
+              },
+              "backgroundColor": {
+                "$role": "Field_Background",
+                "fallback": "#fafbfc",
+                "fallbackDark": "#181b1f"
+              }
+            },
+            "geometry": {
+              "x": 559.2,
+              "y": 122,
+              "width": 98.8,
+              "height": 22
+            }
+          },
+          {
+            "id": "w-034",
+            "type": "pv-label",
+            "props": {
+              "pv": "SR:VAC:TC:05U05:LIMIT:RB",
+              "showUnits": false,
+              "alarmSensitive": true,
+              "alarmBorder": true,
+              "precision": 2,
+              "align": "right",
+              "foregroundColor": {
+                "$role": "Page_Text",
+                "fallback": "#24292e",
+                "fallbackDark": "#ccccdc"
+              },
+              "backgroundColor": {
+                "$role": "Field_Background",
+                "fallback": "#fafbfc",
+                "fallbackDark": "#181b1f"
+              }
+            },
+            "geometry": {
+              "x": 559.2,
+              "y": 148,
+              "width": 98.8,
+              "height": 22
+            }
+          },
+          {
+            "id": "w-035",
+            "type": "pv-led",
+            "props": {
+              "pv": "SR:VAC:TC:05U05:STATUS:OVERTEMP",
+              "onColor": {
+                "$role": "Led_On",
+                "fallback": "#56a64b",
+                "fallbackDark": "#73bf69"
+              },
+              "offColor": {
+                "$role": "Led_Off",
+                "fallback": "#ecedef",
+                "fallbackDark": "#22252b"
+              }
+            },
+            "geometry": {
+              "x": 601.6,
+              "y": 178,
+              "width": 14,
+              "height": 14
+            }
+          },
+          {
+            "id": "w-036",
+            "type": "rectangle",
+            "props": {
+              "lineColor": {
+                "$role": "Page_Background",
+                "fallback": "#f4f5f5",
+                "fallbackDark": "#111217"
+              },
+              "lineWidth": 1,
+              "fill": true,
+              "fillColor": {
+                "$role": "DISCONNECTED",
+                "fallback": "#86878f",
+                "fallbackDark": "#6e6e77"
+              },
+              "tooltip": "SR/TC05U06"
+            },
+            "geometry": {
+              "x": 662,
+              "y": 100,
+              "width": 98.8,
+              "height": 14
+            },
+            "rules": [
+              {
+                "id": "r-006",
+                "name": "tc 05U06 heat",
+                "targetProperty": "fillColor",
+                "pvs": [
+                  {
+                    "name": "SR:VAC:TC:05U06:TEMPERATURE:RB",
+                    "trigger": true
+                  }
+                ],
+                "conditions": [
+                  {
+                    "expression": "{0} < 50",
+                    "value": {
+                      "$role": "OK",
+                      "fallback": "#56a64b",
+                      "fallbackDark": "#73bf69"
+                    }
+                  },
+                  {
+                    "expression": "{0} < 65",
+                    "value": {
+                      "$role": "MINOR",
+                      "fallback": "#e0b400",
+                      "fallbackDark": "#f2cc0c"
+                    }
+                  },
+                  {
+                    "expression": "{0} < 80",
+                    "value": {
+                      "$role": "Dipole",
+                      "fallback": "#e08e00",
+                      "fallbackDark": "#f5b73d"
+                    }
+                  },
+                  {
+                    "expression": "{0} >= 80",
+                    "value": {
+                      "$role": "MAJOR",
+                      "fallback": "#c4162a",
+                      "fallbackDark": "#e05454"
+                    }
+                  }
+                ],
+                "default": {
+                  "$role": "DISCONNECTED",
+                  "fallback": "#86878f",
+                  "fallbackDark": "#6e6e77"
+                }
+              }
+            ]
+          },
+          {
+            "id": "w-037",
+            "type": "text-label",
+            "props": {
+              "text": "06",
+              "fontSize": 9,
+              "align": "center",
+              "foregroundColor": {
+                "$role": "Page_Text",
+                "fallback": "#24292e",
+                "fallbackDark": "#ccccdc"
+              },
+              "backgroundColor": {
+                "$role": "Page_Background",
+                "fallback": "#f4f5f5",
+                "fallbackDark": "#111217"
+              }
+            },
+            "geometry": {
+              "x": 660,
+              "y": 94,
+              "width": 102.8,
+              "height": 14
+            }
+          },
+          {
+            "id": "w-038",
+            "type": "pv-label",
+            "props": {
+              "pv": "SR:VAC:TC:05U06:TEMPERATURE:RB",
+              "showUnits": false,
+              "alarmSensitive": true,
+              "alarmBorder": true,
+              "precision": 2,
+              "align": "right",
+              "foregroundColor": {
+                "$role": "Page_Text",
+                "fallback": "#24292e",
+                "fallbackDark": "#ccccdc"
+              },
+              "backgroundColor": {
+                "$role": "Field_Background",
+                "fallback": "#fafbfc",
+                "fallbackDark": "#181b1f"
+              }
+            },
+            "geometry": {
+              "x": 662,
+              "y": 122,
+              "width": 98.8,
+              "height": 22
+            }
+          },
+          {
+            "id": "w-039",
+            "type": "pv-label",
+            "props": {
+              "pv": "SR:VAC:TC:05U06:LIMIT:RB",
+              "showUnits": false,
+              "alarmSensitive": true,
+              "alarmBorder": true,
+              "precision": 2,
+              "align": "right",
+              "foregroundColor": {
+                "$role": "Page_Text",
+                "fallback": "#24292e",
+                "fallbackDark": "#ccccdc"
+              },
+              "backgroundColor": {
+                "$role": "Field_Background",
+                "fallback": "#fafbfc",
+                "fallbackDark": "#181b1f"
+              }
+            },
+            "geometry": {
+              "x": 662,
+              "y": 148,
+              "width": 98.8,
+              "height": 22
+            }
+          },
+          {
+            "id": "w-040",
+            "type": "pv-led",
+            "props": {
+              "pv": "SR:VAC:TC:05U06:STATUS:OVERTEMP",
+              "onColor": {
+                "$role": "Led_On",
+                "fallback": "#56a64b",
+                "fallbackDark": "#73bf69"
+              },
+              "offColor": {
+                "$role": "Led_Off",
+                "fallback": "#ecedef",
+                "fallbackDark": "#22252b"
+              }
+            },
+            "geometry": {
+              "x": 704.4,
+              "y": 178,
+              "width": 14,
+              "height": 14
+            }
+          },
+          {
+            "id": "w-041",
+            "type": "rectangle",
+            "props": {
+              "lineColor": {
+                "$role": "Page_Background",
+                "fallback": "#f4f5f5",
+                "fallbackDark": "#111217"
+              },
+              "lineWidth": 1,
+              "fill": true,
+              "fillColor": {
+                "$role": "DISCONNECTED",
+                "fallback": "#86878f",
+                "fallbackDark": "#6e6e77"
+              },
+              "tooltip": "SR/TC05U07"
+            },
+            "geometry": {
+              "x": 764.8,
+              "y": 100,
+              "width": 98.8,
+              "height": 14
+            },
+            "rules": [
+              {
+                "id": "r-007",
+                "name": "tc 05U07 heat",
+                "targetProperty": "fillColor",
+                "pvs": [
+                  {
+                    "name": "SR:VAC:TC:05U07:TEMPERATURE:RB",
+                    "trigger": true
+                  }
+                ],
+                "conditions": [
+                  {
+                    "expression": "{0} < 50",
+                    "value": {
+                      "$role": "OK",
+                      "fallback": "#56a64b",
+                      "fallbackDark": "#73bf69"
+                    }
+                  },
+                  {
+                    "expression": "{0} < 65",
+                    "value": {
+                      "$role": "MINOR",
+                      "fallback": "#e0b400",
+                      "fallbackDark": "#f2cc0c"
+                    }
+                  },
+                  {
+                    "expression": "{0} < 80",
+                    "value": {
+                      "$role": "Dipole",
+                      "fallback": "#e08e00",
+                      "fallbackDark": "#f5b73d"
+                    }
+                  },
+                  {
+                    "expression": "{0} >= 80",
+                    "value": {
+                      "$role": "MAJOR",
+                      "fallback": "#c4162a",
+                      "fallbackDark": "#e05454"
+                    }
+                  }
+                ],
+                "default": {
+                  "$role": "DISCONNECTED",
+                  "fallback": "#86878f",
+                  "fallbackDark": "#6e6e77"
+                }
+              }
+            ]
+          },
+          {
+            "id": "w-042",
+            "type": "text-label",
+            "props": {
+              "text": "07",
+              "fontSize": 9,
+              "align": "center",
+              "foregroundColor": {
+                "$role": "Page_Text",
+                "fallback": "#24292e",
+                "fallbackDark": "#ccccdc"
+              },
+              "backgroundColor": {
+                "$role": "Page_Background",
+                "fallback": "#f4f5f5",
+                "fallbackDark": "#111217"
+              }
+            },
+            "geometry": {
+              "x": 762.8,
+              "y": 94,
+              "width": 102.8,
+              "height": 14
+            }
+          },
+          {
+            "id": "w-043",
+            "type": "pv-label",
+            "props": {
+              "pv": "SR:VAC:TC:05U07:TEMPERATURE:RB",
+              "showUnits": false,
+              "alarmSensitive": true,
+              "alarmBorder": true,
+              "precision": 2,
+              "align": "right",
+              "foregroundColor": {
+                "$role": "Page_Text",
+                "fallback": "#24292e",
+                "fallbackDark": "#ccccdc"
+              },
+              "backgroundColor": {
+                "$role": "Field_Background",
+                "fallback": "#fafbfc",
+                "fallbackDark": "#181b1f"
+              }
+            },
+            "geometry": {
+              "x": 764.8,
+              "y": 122,
+              "width": 98.8,
+              "height": 22
+            }
+          },
+          {
+            "id": "w-044",
+            "type": "pv-label",
+            "props": {
+              "pv": "SR:VAC:TC:05U07:LIMIT:RB",
+              "showUnits": false,
+              "alarmSensitive": true,
+              "alarmBorder": true,
+              "precision": 2,
+              "align": "right",
+              "foregroundColor": {
+                "$role": "Page_Text",
+                "fallback": "#24292e",
+                "fallbackDark": "#ccccdc"
+              },
+              "backgroundColor": {
+                "$role": "Field_Background",
+                "fallback": "#fafbfc",
+                "fallbackDark": "#181b1f"
+              }
+            },
+            "geometry": {
+              "x": 764.8,
+              "y": 148,
+              "width": 98.8,
+              "height": 22
+            }
+          },
+          {
+            "id": "w-045",
+            "type": "pv-led",
+            "props": {
+              "pv": "SR:VAC:TC:05U07:STATUS:OVERTEMP",
+              "onColor": {
+                "$role": "Led_On",
+                "fallback": "#56a64b",
+                "fallbackDark": "#73bf69"
+              },
+              "offColor": {
+                "$role": "Led_Off",
+                "fallback": "#ecedef",
+                "fallbackDark": "#22252b"
+              }
+            },
+            "geometry": {
+              "x": 807.2,
+              "y": 178,
+              "width": 14,
+              "height": 14
+            }
+          },
+          {
+            "id": "w-046",
+            "type": "rectangle",
+            "props": {
+              "lineColor": {
+                "$role": "Page_Background",
+                "fallback": "#f4f5f5",
+                "fallbackDark": "#111217"
+              },
+              "lineWidth": 1,
+              "fill": true,
+              "fillColor": {
+                "$role": "DISCONNECTED",
+                "fallback": "#86878f",
+                "fallbackDark": "#6e6e77"
+              },
+              "tooltip": "SR/TC05U08"
+            },
+            "geometry": {
+              "x": 867.6,
+              "y": 100,
+              "width": 98.8,
+              "height": 14
+            },
+            "rules": [
+              {
+                "id": "r-008",
+                "name": "tc 05U08 heat",
+                "targetProperty": "fillColor",
+                "pvs": [
+                  {
+                    "name": "SR:VAC:TC:05U08:TEMPERATURE:RB",
+                    "trigger": true
+                  }
+                ],
+                "conditions": [
+                  {
+                    "expression": "{0} < 50",
+                    "value": {
+                      "$role": "OK",
+                      "fallback": "#56a64b",
+                      "fallbackDark": "#73bf69"
+                    }
+                  },
+                  {
+                    "expression": "{0} < 65",
+                    "value": {
+                      "$role": "MINOR",
+                      "fallback": "#e0b400",
+                      "fallbackDark": "#f2cc0c"
+                    }
+                  },
+                  {
+                    "expression": "{0} < 80",
+                    "value": {
+                      "$role": "Dipole",
+                      "fallback": "#e08e00",
+                      "fallbackDark": "#f5b73d"
+                    }
+                  },
+                  {
+                    "expression": "{0} >= 80",
+                    "value": {
+                      "$role": "MAJOR",
+                      "fallback": "#c4162a",
+                      "fallbackDark": "#e05454"
+                    }
+                  }
+                ],
+                "default": {
+                  "$role": "DISCONNECTED",
+                  "fallback": "#86878f",
+                  "fallbackDark": "#6e6e77"
+                }
+              }
+            ]
+          },
+          {
+            "id": "w-047",
+            "type": "text-label",
+            "props": {
+              "text": "08",
+              "fontSize": 9,
+              "align": "center",
+              "foregroundColor": {
+                "$role": "Page_Text",
+                "fallback": "#24292e",
+                "fallbackDark": "#ccccdc"
+              },
+              "backgroundColor": {
+                "$role": "Page_Background",
+                "fallback": "#f4f5f5",
+                "fallbackDark": "#111217"
+              }
+            },
+            "geometry": {
+              "x": 865.6,
+              "y": 94,
+              "width": 102.8,
+              "height": 14
+            }
+          },
+          {
+            "id": "w-048",
+            "type": "pv-label",
+            "props": {
+              "pv": "SR:VAC:TC:05U08:TEMPERATURE:RB",
+              "showUnits": false,
+              "alarmSensitive": true,
+              "alarmBorder": true,
+              "precision": 2,
+              "align": "right",
+              "foregroundColor": {
+                "$role": "Page_Text",
+                "fallback": "#24292e",
+                "fallbackDark": "#ccccdc"
+              },
+              "backgroundColor": {
+                "$role": "Field_Background",
+                "fallback": "#fafbfc",
+                "fallbackDark": "#181b1f"
+              }
+            },
+            "geometry": {
+              "x": 867.6,
+              "y": 122,
+              "width": 98.8,
+              "height": 22
+            }
+          },
+          {
+            "id": "w-049",
+            "type": "pv-label",
+            "props": {
+              "pv": "SR:VAC:TC:05U08:LIMIT:RB",
+              "showUnits": false,
+              "alarmSensitive": true,
+              "alarmBorder": true,
+              "precision": 2,
+              "align": "right",
+              "foregroundColor": {
+                "$role": "Page_Text",
+                "fallback": "#24292e",
+                "fallbackDark": "#ccccdc"
+              },
+              "backgroundColor": {
+                "$role": "Field_Background",
+                "fallback": "#fafbfc",
+                "fallbackDark": "#181b1f"
+              }
+            },
+            "geometry": {
+              "x": 867.6,
+              "y": 148,
+              "width": 98.8,
+              "height": 22
+            }
+          },
+          {
+            "id": "w-050",
+            "type": "pv-led",
+            "props": {
+              "pv": "SR:VAC:TC:05U08:STATUS:OVERTEMP",
+              "onColor": {
+                "$role": "Led_On",
+                "fallback": "#56a64b",
+                "fallbackDark": "#73bf69"
+              },
+              "offColor": {
+                "$role": "Led_Off",
+                "fallback": "#ecedef",
+                "fallbackDark": "#22252b"
+              }
+            },
+            "geometry": {
+              "x": 910,
+              "y": 178,
+              "width": 14,
+              "height": 14
+            }
+          },
+          {
+            "id": "w-051",
+            "type": "rectangle",
+            "props": {
+              "lineColor": {
+                "$role": "Page_Background",
+                "fallback": "#f4f5f5",
+                "fallbackDark": "#111217"
+              },
+              "lineWidth": 1,
+              "fill": true,
+              "fillColor": {
+                "$role": "DISCONNECTED",
+                "fallback": "#86878f",
+                "fallbackDark": "#6e6e77"
+              },
+              "tooltip": "SR/TC05U09"
+            },
+            "geometry": {
+              "x": 970.4,
+              "y": 100,
+              "width": 98.8,
+              "height": 14
+            },
+            "rules": [
+              {
+                "id": "r-009",
+                "name": "tc 05U09 heat",
+                "targetProperty": "fillColor",
+                "pvs": [
+                  {
+                    "name": "SR:VAC:TC:05U09:TEMPERATURE:RB",
+                    "trigger": true
+                  }
+                ],
+                "conditions": [
+                  {
+                    "expression": "{0} < 50",
+                    "value": {
+                      "$role": "OK",
+                      "fallback": "#56a64b",
+                      "fallbackDark": "#73bf69"
+                    }
+                  },
+                  {
+                    "expression": "{0} < 65",
+                    "value": {
+                      "$role": "MINOR",
+                      "fallback": "#e0b400",
+                      "fallbackDark": "#f2cc0c"
+                    }
+                  },
+                  {
+                    "expression": "{0} < 80",
+                    "value": {
+                      "$role": "Dipole",
+                      "fallback": "#e08e00",
+                      "fallbackDark": "#f5b73d"
+                    }
+                  },
+                  {
+                    "expression": "{0} >= 80",
+                    "value": {
+                      "$role": "MAJOR",
+                      "fallback": "#c4162a",
+                      "fallbackDark": "#e05454"
+                    }
+                  }
+                ],
+                "default": {
+                  "$role": "DISCONNECTED",
+                  "fallback": "#86878f",
+                  "fallbackDark": "#6e6e77"
+                }
+              }
+            ]
+          },
+          {
+            "id": "w-052",
+            "type": "text-label",
+            "props": {
+              "text": "09",
+              "fontSize": 9,
+              "align": "center",
+              "foregroundColor": {
+                "$role": "Page_Text",
+                "fallback": "#24292e",
+                "fallbackDark": "#ccccdc"
+              },
+              "backgroundColor": {
+                "$role": "Page_Background",
+                "fallback": "#f4f5f5",
+                "fallbackDark": "#111217"
+              }
+            },
+            "geometry": {
+              "x": 968.4,
+              "y": 94,
+              "width": 102.8,
+              "height": 14
+            }
+          },
+          {
+            "id": "w-053",
+            "type": "pv-label",
+            "props": {
+              "pv": "SR:VAC:TC:05U09:TEMPERATURE:RB",
+              "showUnits": false,
+              "alarmSensitive": true,
+              "alarmBorder": true,
+              "precision": 2,
+              "align": "right",
+              "foregroundColor": {
+                "$role": "Page_Text",
+                "fallback": "#24292e",
+                "fallbackDark": "#ccccdc"
+              },
+              "backgroundColor": {
+                "$role": "Field_Background",
+                "fallback": "#fafbfc",
+                "fallbackDark": "#181b1f"
+              }
+            },
+            "geometry": {
+              "x": 970.4,
+              "y": 122,
+              "width": 98.8,
+              "height": 22
+            }
+          },
+          {
+            "id": "w-054",
+            "type": "pv-label",
+            "props": {
+              "pv": "SR:VAC:TC:05U09:LIMIT:RB",
+              "showUnits": false,
+              "alarmSensitive": true,
+              "alarmBorder": true,
+              "precision": 2,
+              "align": "right",
+              "foregroundColor": {
+                "$role": "Page_Text",
+                "fallback": "#24292e",
+                "fallbackDark": "#ccccdc"
+              },
+              "backgroundColor": {
+                "$role": "Field_Background",
+                "fallback": "#fafbfc",
+                "fallbackDark": "#181b1f"
+              }
+            },
+            "geometry": {
+              "x": 970.4,
+              "y": 148,
+              "width": 98.8,
+              "height": 22
+            }
+          },
+          {
+            "id": "w-055",
+            "type": "pv-led",
+            "props": {
+              "pv": "SR:VAC:TC:05U09:STATUS:OVERTEMP",
+              "onColor": {
+                "$role": "Led_On",
+                "fallback": "#56a64b",
+                "fallbackDark": "#73bf69"
+              },
+              "offColor": {
+                "$role": "Led_Off",
+                "fallback": "#ecedef",
+                "fallbackDark": "#22252b"
+              }
+            },
+            "geometry": {
+              "x": 1012.8,
+              "y": 178,
+              "width": 14,
+              "height": 14
+            }
+          },
+          {
+            "id": "w-056",
+            "type": "rectangle",
+            "props": {
+              "lineColor": {
+                "$role": "Page_Background",
+                "fallback": "#f4f5f5",
+                "fallbackDark": "#111217"
+              },
+              "lineWidth": 1,
+              "fill": true,
+              "fillColor": {
+                "$role": "DISCONNECTED",
+                "fallback": "#86878f",
+                "fallbackDark": "#6e6e77"
+              },
+              "tooltip": "SR/TC05U10"
+            },
+            "geometry": {
+              "x": 1073.2,
+              "y": 100,
+              "width": 98.8,
+              "height": 14
+            },
+            "rules": [
+              {
+                "id": "r-010",
+                "name": "tc 05U10 heat",
+                "targetProperty": "fillColor",
+                "pvs": [
+                  {
+                    "name": "SR:VAC:TC:05U10:TEMPERATURE:RB",
+                    "trigger": true
+                  }
+                ],
+                "conditions": [
+                  {
+                    "expression": "{0} < 50",
+                    "value": {
+                      "$role": "OK",
+                      "fallback": "#56a64b",
+                      "fallbackDark": "#73bf69"
+                    }
+                  },
+                  {
+                    "expression": "{0} < 65",
+                    "value": {
+                      "$role": "MINOR",
+                      "fallback": "#e0b400",
+                      "fallbackDark": "#f2cc0c"
+                    }
+                  },
+                  {
+                    "expression": "{0} < 80",
+                    "value": {
+                      "$role": "Dipole",
+                      "fallback": "#e08e00",
+                      "fallbackDark": "#f5b73d"
+                    }
+                  },
+                  {
+                    "expression": "{0} >= 80",
+                    "value": {
+                      "$role": "MAJOR",
+                      "fallback": "#c4162a",
+                      "fallbackDark": "#e05454"
+                    }
+                  }
+                ],
+                "default": {
+                  "$role": "DISCONNECTED",
+                  "fallback": "#86878f",
+                  "fallbackDark": "#6e6e77"
+                }
+              }
+            ]
+          },
+          {
+            "id": "w-057",
+            "type": "text-label",
+            "props": {
+              "text": "10",
+              "fontSize": 9,
+              "align": "center",
+              "foregroundColor": {
+                "$role": "Page_Text",
+                "fallback": "#24292e",
+                "fallbackDark": "#ccccdc"
+              },
+              "backgroundColor": {
+                "$role": "Page_Background",
+                "fallback": "#f4f5f5",
+                "fallbackDark": "#111217"
+              }
+            },
+            "geometry": {
+              "x": 1071.2,
+              "y": 94,
+              "width": 102.8,
+              "height": 14
+            }
+          },
+          {
+            "id": "w-058",
+            "type": "pv-label",
+            "props": {
+              "pv": "SR:VAC:TC:05U10:TEMPERATURE:RB",
+              "showUnits": false,
+              "alarmSensitive": true,
+              "alarmBorder": true,
+              "precision": 2,
+              "align": "right",
+              "foregroundColor": {
+                "$role": "Page_Text",
+                "fallback": "#24292e",
+                "fallbackDark": "#ccccdc"
+              },
+              "backgroundColor": {
+                "$role": "Field_Background",
+                "fallback": "#fafbfc",
+                "fallbackDark": "#181b1f"
+              }
+            },
+            "geometry": {
+              "x": 1073.2,
+              "y": 122,
+              "width": 98.8,
+              "height": 22
+            }
+          },
+          {
+            "id": "w-059",
+            "type": "pv-label",
+            "props": {
+              "pv": "SR:VAC:TC:05U10:LIMIT:RB",
+              "showUnits": false,
+              "alarmSensitive": true,
+              "alarmBorder": true,
+              "precision": 2,
+              "align": "right",
+              "foregroundColor": {
+                "$role": "Page_Text",
+                "fallback": "#24292e",
+                "fallbackDark": "#ccccdc"
+              },
+              "backgroundColor": {
+                "$role": "Field_Background",
+                "fallback": "#fafbfc",
+                "fallbackDark": "#181b1f"
+              }
+            },
+            "geometry": {
+              "x": 1073.2,
+              "y": 148,
+              "width": 98.8,
+              "height": 22
+            }
+          },
+          {
+            "id": "w-060",
+            "type": "pv-led",
+            "props": {
+              "pv": "SR:VAC:TC:05U10:STATUS:OVERTEMP",
+              "onColor": {
+                "$role": "Led_On",
+                "fallback": "#56a64b",
+                "fallbackDark": "#73bf69"
+              },
+              "offColor": {
+                "$role": "Led_Off",
+                "fallback": "#ecedef",
+                "fallbackDark": "#22252b"
+              }
+            },
+            "geometry": {
+              "x": 1115.6,
+              "y": 178,
+              "width": 14,
+              "height": 14
+            }
+          }
+        ]
+      },
+      {
+        "id": "w-007",
+        "type": "line",
+        "props": {
+          "lineColor": {
+            "$role": "Box_Border",
+            "fallback": "#d8d9da",
+            "fallbackDark": "#2c3235"
+          },
+          "lineWidth": 1,
+          "points": [
+            {
+              "x": 2,
+              "y": 2
+            },
+            {
+              "x": 1170,
+              "y": 2
+            }
+          ],
+          "arrowStart": false,
+          "arrowEnd": false
+        },
+        "geometry": {
+          "x": 14,
+          "y": 89,
+          "width": 1172,
+          "height": 4
+        }
+      },
+      {
+        "id": "w-061",
+        "type": "group-box",
+        "props": {
+          "title": "Lower row"
+        },
+        "geometry": {
+          "x": 16,
+          "y": 218,
+          "width": 1168,
+          "height": 148
+        },
+        "children": [
+          {
+            "id": "w-062",
+            "type": "text-label",
+            "props": {
+              "text": "Lower row",
+              "fontSize": 15,
+              "align": "left",
+              "foregroundColor": {
+                "$role": "Page_Text",
+                "fallback": "#24292e",
+                "fallbackDark": "#ccccdc"
+              },
+              "backgroundColor": {
+                "$role": "Page_Background",
+                "fallback": "#f4f5f5",
+                "fallbackDark": "#111217"
+              }
+            },
+            "geometry": {
+              "x": 16,
+              "y": 222,
+              "width": 1168,
+              "height": 24
+            }
+          },
+          {
+            "id": "w-064",
+            "type": "text-label",
+            "props": {
+              "text": "T degC",
+              "fontSize": 12,
+              "align": "left",
+              "foregroundColor": {
+                "$role": "Page_Text",
+                "fallback": "#24292e",
+                "fallbackDark": "#ccccdc"
+              },
+              "backgroundColor": {
+                "$role": "Page_Background",
+                "fallback": "#f4f5f5",
+                "fallbackDark": "#111217"
+              }
+            },
+            "geometry": {
+              "x": 30,
+              "y": 280,
+              "width": 110,
+              "height": 22
+            }
+          },
+          {
+            "id": "w-065",
+            "type": "text-label",
+            "props": {
+              "text": "Limit degC",
+              "fontSize": 12,
+              "align": "left",
+              "foregroundColor": {
+                "$role": "Page_Text",
+                "fallback": "#24292e",
+                "fallbackDark": "#ccccdc"
+              },
+              "backgroundColor": {
+                "$role": "Page_Background",
+                "fallback": "#f4f5f5",
+                "fallbackDark": "#111217"
+              }
+            },
+            "geometry": {
+              "x": 30,
+              "y": 306,
+              "width": 110,
+              "height": 22
+            }
+          },
+          {
+            "id": "w-066",
+            "type": "text-label",
+            "props": {
+              "text": "Over",
+              "fontSize": 12,
+              "align": "left",
+              "foregroundColor": {
+                "$role": "Page_Text",
+                "fallback": "#24292e",
+                "fallbackDark": "#ccccdc"
+              },
+              "backgroundColor": {
+                "$role": "Page_Background",
+                "fallback": "#f4f5f5",
+                "fallbackDark": "#111217"
+              }
+            },
+            "geometry": {
+              "x": 30,
+              "y": 332,
+              "width": 110,
+              "height": 22
+            }
+          },
+          {
+            "id": "w-067",
+            "type": "rectangle",
+            "props": {
+              "lineColor": {
+                "$role": "Page_Background",
+                "fallback": "#f4f5f5",
+                "fallbackDark": "#111217"
+              },
+              "lineWidth": 1,
+              "fill": true,
+              "fillColor": {
+                "$role": "DISCONNECTED",
+                "fallback": "#86878f",
+                "fallbackDark": "#6e6e77"
+              },
+              "tooltip": "SR/TC05L01"
+            },
+            "geometry": {
+              "x": 148,
+              "y": 258,
+              "width": 98.8,
+              "height": 14
+            },
+            "rules": [
+              {
+                "id": "r-011",
+                "name": "tc 05L01 heat",
+                "targetProperty": "fillColor",
+                "pvs": [
+                  {
+                    "name": "SR:VAC:TC:05L01:TEMPERATURE:RB",
+                    "trigger": true
+                  }
+                ],
+                "conditions": [
+                  {
+                    "expression": "{0} < 50",
+                    "value": {
+                      "$role": "OK",
+                      "fallback": "#56a64b",
+                      "fallbackDark": "#73bf69"
+                    }
+                  },
+                  {
+                    "expression": "{0} < 65",
+                    "value": {
+                      "$role": "MINOR",
+                      "fallback": "#e0b400",
+                      "fallbackDark": "#f2cc0c"
+                    }
+                  },
+                  {
+                    "expression": "{0} < 80",
+                    "value": {
+                      "$role": "Dipole",
+                      "fallback": "#e08e00",
+                      "fallbackDark": "#f5b73d"
+                    }
+                  },
+                  {
+                    "expression": "{0} >= 80",
+                    "value": {
+                      "$role": "MAJOR",
+                      "fallback": "#c4162a",
+                      "fallbackDark": "#e05454"
+                    }
+                  }
+                ],
+                "default": {
+                  "$role": "DISCONNECTED",
+                  "fallback": "#86878f",
+                  "fallbackDark": "#6e6e77"
+                }
+              }
+            ]
+          },
+          {
+            "id": "w-068",
+            "type": "text-label",
+            "props": {
+              "text": "01",
+              "fontSize": 9,
+              "align": "center",
+              "foregroundColor": {
+                "$role": "Page_Text",
+                "fallback": "#24292e",
+                "fallbackDark": "#ccccdc"
+              },
+              "backgroundColor": {
+                "$role": "Page_Background",
+                "fallback": "#f4f5f5",
+                "fallbackDark": "#111217"
+              }
+            },
+            "geometry": {
+              "x": 146,
+              "y": 252,
+              "width": 102.8,
+              "height": 14
+            }
+          },
+          {
+            "id": "w-069",
+            "type": "pv-label",
+            "props": {
+              "pv": "SR:VAC:TC:05L01:TEMPERATURE:RB",
+              "showUnits": false,
+              "alarmSensitive": true,
+              "alarmBorder": true,
+              "precision": 2,
+              "align": "right",
+              "foregroundColor": {
+                "$role": "Page_Text",
+                "fallback": "#24292e",
+                "fallbackDark": "#ccccdc"
+              },
+              "backgroundColor": {
+                "$role": "Field_Background",
+                "fallback": "#fafbfc",
+                "fallbackDark": "#181b1f"
+              }
+            },
+            "geometry": {
+              "x": 148,
+              "y": 280,
+              "width": 98.8,
+              "height": 22
+            }
+          },
+          {
+            "id": "w-070",
+            "type": "pv-label",
+            "props": {
+              "pv": "SR:VAC:TC:05L01:LIMIT:RB",
+              "showUnits": false,
+              "alarmSensitive": true,
+              "alarmBorder": true,
+              "precision": 2,
+              "align": "right",
+              "foregroundColor": {
+                "$role": "Page_Text",
+                "fallback": "#24292e",
+                "fallbackDark": "#ccccdc"
+              },
+              "backgroundColor": {
+                "$role": "Field_Background",
+                "fallback": "#fafbfc",
+                "fallbackDark": "#181b1f"
+              }
+            },
+            "geometry": {
+              "x": 148,
+              "y": 306,
+              "width": 98.8,
+              "height": 22
+            }
+          },
+          {
+            "id": "w-071",
+            "type": "pv-led",
+            "props": {
+              "pv": "SR:VAC:TC:05L01:STATUS:OVERTEMP",
+              "onColor": {
+                "$role": "Led_On",
+                "fallback": "#56a64b",
+                "fallbackDark": "#73bf69"
+              },
+              "offColor": {
+                "$role": "Led_Off",
+                "fallback": "#ecedef",
+                "fallbackDark": "#22252b"
+              }
+            },
+            "geometry": {
+              "x": 190.4,
+              "y": 336,
+              "width": 14,
+              "height": 14
+            }
+          },
+          {
+            "id": "w-072",
+            "type": "rectangle",
+            "props": {
+              "lineColor": {
+                "$role": "Page_Background",
+                "fallback": "#f4f5f5",
+                "fallbackDark": "#111217"
+              },
+              "lineWidth": 1,
+              "fill": true,
+              "fillColor": {
+                "$role": "DISCONNECTED",
+                "fallback": "#86878f",
+                "fallbackDark": "#6e6e77"
+              },
+              "tooltip": "SR/TC05L02"
+            },
+            "geometry": {
+              "x": 250.8,
+              "y": 258,
+              "width": 98.8,
+              "height": 14
+            },
+            "rules": [
+              {
+                "id": "r-012",
+                "name": "tc 05L02 heat",
+                "targetProperty": "fillColor",
+                "pvs": [
+                  {
+                    "name": "SR:VAC:TC:05L02:TEMPERATURE:RB",
+                    "trigger": true
+                  }
+                ],
+                "conditions": [
+                  {
+                    "expression": "{0} < 50",
+                    "value": {
+                      "$role": "OK",
+                      "fallback": "#56a64b",
+                      "fallbackDark": "#73bf69"
+                    }
+                  },
+                  {
+                    "expression": "{0} < 65",
+                    "value": {
+                      "$role": "MINOR",
+                      "fallback": "#e0b400",
+                      "fallbackDark": "#f2cc0c"
+                    }
+                  },
+                  {
+                    "expression": "{0} < 80",
+                    "value": {
+                      "$role": "Dipole",
+                      "fallback": "#e08e00",
+                      "fallbackDark": "#f5b73d"
+                    }
+                  },
+                  {
+                    "expression": "{0} >= 80",
+                    "value": {
+                      "$role": "MAJOR",
+                      "fallback": "#c4162a",
+                      "fallbackDark": "#e05454"
+                    }
+                  }
+                ],
+                "default": {
+                  "$role": "DISCONNECTED",
+                  "fallback": "#86878f",
+                  "fallbackDark": "#6e6e77"
+                }
+              }
+            ]
+          },
+          {
+            "id": "w-073",
+            "type": "text-label",
+            "props": {
+              "text": "02",
+              "fontSize": 9,
+              "align": "center",
+              "foregroundColor": {
+                "$role": "Page_Text",
+                "fallback": "#24292e",
+                "fallbackDark": "#ccccdc"
+              },
+              "backgroundColor": {
+                "$role": "Page_Background",
+                "fallback": "#f4f5f5",
+                "fallbackDark": "#111217"
+              }
+            },
+            "geometry": {
+              "x": 248.8,
+              "y": 252,
+              "width": 102.8,
+              "height": 14
+            }
+          },
+          {
+            "id": "w-074",
+            "type": "pv-label",
+            "props": {
+              "pv": "SR:VAC:TC:05L02:TEMPERATURE:RB",
+              "showUnits": false,
+              "alarmSensitive": true,
+              "alarmBorder": true,
+              "precision": 2,
+              "align": "right",
+              "foregroundColor": {
+                "$role": "Page_Text",
+                "fallback": "#24292e",
+                "fallbackDark": "#ccccdc"
+              },
+              "backgroundColor": {
+                "$role": "Field_Background",
+                "fallback": "#fafbfc",
+                "fallbackDark": "#181b1f"
+              }
+            },
+            "geometry": {
+              "x": 250.8,
+              "y": 280,
+              "width": 98.8,
+              "height": 22
+            }
+          },
+          {
+            "id": "w-075",
+            "type": "pv-label",
+            "props": {
+              "pv": "SR:VAC:TC:05L02:LIMIT:RB",
+              "showUnits": false,
+              "alarmSensitive": true,
+              "alarmBorder": true,
+              "precision": 2,
+              "align": "right",
+              "foregroundColor": {
+                "$role": "Page_Text",
+                "fallback": "#24292e",
+                "fallbackDark": "#ccccdc"
+              },
+              "backgroundColor": {
+                "$role": "Field_Background",
+                "fallback": "#fafbfc",
+                "fallbackDark": "#181b1f"
+              }
+            },
+            "geometry": {
+              "x": 250.8,
+              "y": 306,
+              "width": 98.8,
+              "height": 22
+            }
+          },
+          {
+            "id": "w-076",
+            "type": "pv-led",
+            "props": {
+              "pv": "SR:VAC:TC:05L02:STATUS:OVERTEMP",
+              "onColor": {
+                "$role": "Led_On",
+                "fallback": "#56a64b",
+                "fallbackDark": "#73bf69"
+              },
+              "offColor": {
+                "$role": "Led_Off",
+                "fallback": "#ecedef",
+                "fallbackDark": "#22252b"
+              }
+            },
+            "geometry": {
+              "x": 293.2,
+              "y": 336,
+              "width": 14,
+              "height": 14
+            }
+          },
+          {
+            "id": "w-077",
+            "type": "rectangle",
+            "props": {
+              "lineColor": {
+                "$role": "Page_Background",
+                "fallback": "#f4f5f5",
+                "fallbackDark": "#111217"
+              },
+              "lineWidth": 1,
+              "fill": true,
+              "fillColor": {
+                "$role": "DISCONNECTED",
+                "fallback": "#86878f",
+                "fallbackDark": "#6e6e77"
+              },
+              "tooltip": "SR/TC05L03"
+            },
+            "geometry": {
+              "x": 353.6,
+              "y": 258,
+              "width": 98.8,
+              "height": 14
+            },
+            "rules": [
+              {
+                "id": "r-013",
+                "name": "tc 05L03 heat",
+                "targetProperty": "fillColor",
+                "pvs": [
+                  {
+                    "name": "SR:VAC:TC:05L03:TEMPERATURE:RB",
+                    "trigger": true
+                  }
+                ],
+                "conditions": [
+                  {
+                    "expression": "{0} < 50",
+                    "value": {
+                      "$role": "OK",
+                      "fallback": "#56a64b",
+                      "fallbackDark": "#73bf69"
+                    }
+                  },
+                  {
+                    "expression": "{0} < 65",
+                    "value": {
+                      "$role": "MINOR",
+                      "fallback": "#e0b400",
+                      "fallbackDark": "#f2cc0c"
+                    }
+                  },
+                  {
+                    "expression": "{0} < 80",
+                    "value": {
+                      "$role": "Dipole",
+                      "fallback": "#e08e00",
+                      "fallbackDark": "#f5b73d"
+                    }
+                  },
+                  {
+                    "expression": "{0} >= 80",
+                    "value": {
+                      "$role": "MAJOR",
+                      "fallback": "#c4162a",
+                      "fallbackDark": "#e05454"
+                    }
+                  }
+                ],
+                "default": {
+                  "$role": "DISCONNECTED",
+                  "fallback": "#86878f",
+                  "fallbackDark": "#6e6e77"
+                }
+              }
+            ]
+          },
+          {
+            "id": "w-078",
+            "type": "text-label",
+            "props": {
+              "text": "03",
+              "fontSize": 9,
+              "align": "center",
+              "foregroundColor": {
+                "$role": "Page_Text",
+                "fallback": "#24292e",
+                "fallbackDark": "#ccccdc"
+              },
+              "backgroundColor": {
+                "$role": "Page_Background",
+                "fallback": "#f4f5f5",
+                "fallbackDark": "#111217"
+              }
+            },
+            "geometry": {
+              "x": 351.6,
+              "y": 252,
+              "width": 102.8,
+              "height": 14
+            }
+          },
+          {
+            "id": "w-079",
+            "type": "pv-label",
+            "props": {
+              "pv": "SR:VAC:TC:05L03:TEMPERATURE:RB",
+              "showUnits": false,
+              "alarmSensitive": true,
+              "alarmBorder": true,
+              "precision": 2,
+              "align": "right",
+              "foregroundColor": {
+                "$role": "Page_Text",
+                "fallback": "#24292e",
+                "fallbackDark": "#ccccdc"
+              },
+              "backgroundColor": {
+                "$role": "Field_Background",
+                "fallback": "#fafbfc",
+                "fallbackDark": "#181b1f"
+              }
+            },
+            "geometry": {
+              "x": 353.6,
+              "y": 280,
+              "width": 98.8,
+              "height": 22
+            }
+          },
+          {
+            "id": "w-080",
+            "type": "pv-label",
+            "props": {
+              "pv": "SR:VAC:TC:05L03:LIMIT:RB",
+              "showUnits": false,
+              "alarmSensitive": true,
+              "alarmBorder": true,
+              "precision": 2,
+              "align": "right",
+              "foregroundColor": {
+                "$role": "Page_Text",
+                "fallback": "#24292e",
+                "fallbackDark": "#ccccdc"
+              },
+              "backgroundColor": {
+                "$role": "Field_Background",
+                "fallback": "#fafbfc",
+                "fallbackDark": "#181b1f"
+              }
+            },
+            "geometry": {
+              "x": 353.6,
+              "y": 306,
+              "width": 98.8,
+              "height": 22
+            }
+          },
+          {
+            "id": "w-081",
+            "type": "pv-led",
+            "props": {
+              "pv": "SR:VAC:TC:05L03:STATUS:OVERTEMP",
+              "onColor": {
+                "$role": "Led_On",
+                "fallback": "#56a64b",
+                "fallbackDark": "#73bf69"
+              },
+              "offColor": {
+                "$role": "Led_Off",
+                "fallback": "#ecedef",
+                "fallbackDark": "#22252b"
+              }
+            },
+            "geometry": {
+              "x": 396,
+              "y": 336,
+              "width": 14,
+              "height": 14
+            }
+          },
+          {
+            "id": "w-082",
+            "type": "rectangle",
+            "props": {
+              "lineColor": {
+                "$role": "Page_Background",
+                "fallback": "#f4f5f5",
+                "fallbackDark": "#111217"
+              },
+              "lineWidth": 1,
+              "fill": true,
+              "fillColor": {
+                "$role": "DISCONNECTED",
+                "fallback": "#86878f",
+                "fallbackDark": "#6e6e77"
+              },
+              "tooltip": "SR/TC05L04"
+            },
+            "geometry": {
+              "x": 456.4,
+              "y": 258,
+              "width": 98.8,
+              "height": 14
+            },
+            "rules": [
+              {
+                "id": "r-014",
+                "name": "tc 05L04 heat",
+                "targetProperty": "fillColor",
+                "pvs": [
+                  {
+                    "name": "SR:VAC:TC:05L04:TEMPERATURE:RB",
+                    "trigger": true
+                  }
+                ],
+                "conditions": [
+                  {
+                    "expression": "{0} < 50",
+                    "value": {
+                      "$role": "OK",
+                      "fallback": "#56a64b",
+                      "fallbackDark": "#73bf69"
+                    }
+                  },
+                  {
+                    "expression": "{0} < 65",
+                    "value": {
+                      "$role": "MINOR",
+                      "fallback": "#e0b400",
+                      "fallbackDark": "#f2cc0c"
+                    }
+                  },
+                  {
+                    "expression": "{0} < 80",
+                    "value": {
+                      "$role": "Dipole",
+                      "fallback": "#e08e00",
+                      "fallbackDark": "#f5b73d"
+                    }
+                  },
+                  {
+                    "expression": "{0} >= 80",
+                    "value": {
+                      "$role": "MAJOR",
+                      "fallback": "#c4162a",
+                      "fallbackDark": "#e05454"
+                    }
+                  }
+                ],
+                "default": {
+                  "$role": "DISCONNECTED",
+                  "fallback": "#86878f",
+                  "fallbackDark": "#6e6e77"
+                }
+              }
+            ]
+          },
+          {
+            "id": "w-083",
+            "type": "text-label",
+            "props": {
+              "text": "04",
+              "fontSize": 9,
+              "align": "center",
+              "foregroundColor": {
+                "$role": "Page_Text",
+                "fallback": "#24292e",
+                "fallbackDark": "#ccccdc"
+              },
+              "backgroundColor": {
+                "$role": "Page_Background",
+                "fallback": "#f4f5f5",
+                "fallbackDark": "#111217"
+              }
+            },
+            "geometry": {
+              "x": 454.4,
+              "y": 252,
+              "width": 102.8,
+              "height": 14
+            }
+          },
+          {
+            "id": "w-084",
+            "type": "pv-label",
+            "props": {
+              "pv": "SR:VAC:TC:05L04:TEMPERATURE:RB",
+              "showUnits": false,
+              "alarmSensitive": true,
+              "alarmBorder": true,
+              "precision": 2,
+              "align": "right",
+              "foregroundColor": {
+                "$role": "Page_Text",
+                "fallback": "#24292e",
+                "fallbackDark": "#ccccdc"
+              },
+              "backgroundColor": {
+                "$role": "Field_Background",
+                "fallback": "#fafbfc",
+                "fallbackDark": "#181b1f"
+              }
+            },
+            "geometry": {
+              "x": 456.4,
+              "y": 280,
+              "width": 98.8,
+              "height": 22
+            }
+          },
+          {
+            "id": "w-085",
+            "type": "pv-label",
+            "props": {
+              "pv": "SR:VAC:TC:05L04:LIMIT:RB",
+              "showUnits": false,
+              "alarmSensitive": true,
+              "alarmBorder": true,
+              "precision": 2,
+              "align": "right",
+              "foregroundColor": {
+                "$role": "Page_Text",
+                "fallback": "#24292e",
+                "fallbackDark": "#ccccdc"
+              },
+              "backgroundColor": {
+                "$role": "Field_Background",
+                "fallback": "#fafbfc",
+                "fallbackDark": "#181b1f"
+              }
+            },
+            "geometry": {
+              "x": 456.4,
+              "y": 306,
+              "width": 98.8,
+              "height": 22
+            }
+          },
+          {
+            "id": "w-086",
+            "type": "pv-led",
+            "props": {
+              "pv": "SR:VAC:TC:05L04:STATUS:OVERTEMP",
+              "onColor": {
+                "$role": "Led_On",
+                "fallback": "#56a64b",
+                "fallbackDark": "#73bf69"
+              },
+              "offColor": {
+                "$role": "Led_Off",
+                "fallback": "#ecedef",
+                "fallbackDark": "#22252b"
+              }
+            },
+            "geometry": {
+              "x": 498.8,
+              "y": 336,
+              "width": 14,
+              "height": 14
+            }
+          },
+          {
+            "id": "w-087",
+            "type": "rectangle",
+            "props": {
+              "lineColor": {
+                "$role": "Page_Background",
+                "fallback": "#f4f5f5",
+                "fallbackDark": "#111217"
+              },
+              "lineWidth": 1,
+              "fill": true,
+              "fillColor": {
+                "$role": "DISCONNECTED",
+                "fallback": "#86878f",
+                "fallbackDark": "#6e6e77"
+              },
+              "tooltip": "SR/TC05L05"
+            },
+            "geometry": {
+              "x": 559.2,
+              "y": 258,
+              "width": 98.8,
+              "height": 14
+            },
+            "rules": [
+              {
+                "id": "r-015",
+                "name": "tc 05L05 heat",
+                "targetProperty": "fillColor",
+                "pvs": [
+                  {
+                    "name": "SR:VAC:TC:05L05:TEMPERATURE:RB",
+                    "trigger": true
+                  }
+                ],
+                "conditions": [
+                  {
+                    "expression": "{0} < 50",
+                    "value": {
+                      "$role": "OK",
+                      "fallback": "#56a64b",
+                      "fallbackDark": "#73bf69"
+                    }
+                  },
+                  {
+                    "expression": "{0} < 65",
+                    "value": {
+                      "$role": "MINOR",
+                      "fallback": "#e0b400",
+                      "fallbackDark": "#f2cc0c"
+                    }
+                  },
+                  {
+                    "expression": "{0} < 80",
+                    "value": {
+                      "$role": "Dipole",
+                      "fallback": "#e08e00",
+                      "fallbackDark": "#f5b73d"
+                    }
+                  },
+                  {
+                    "expression": "{0} >= 80",
+                    "value": {
+                      "$role": "MAJOR",
+                      "fallback": "#c4162a",
+                      "fallbackDark": "#e05454"
+                    }
+                  }
+                ],
+                "default": {
+                  "$role": "DISCONNECTED",
+                  "fallback": "#86878f",
+                  "fallbackDark": "#6e6e77"
+                }
+              }
+            ]
+          },
+          {
+            "id": "w-088",
+            "type": "text-label",
+            "props": {
+              "text": "05",
+              "fontSize": 9,
+              "align": "center",
+              "foregroundColor": {
+                "$role": "Page_Text",
+                "fallback": "#24292e",
+                "fallbackDark": "#ccccdc"
+              },
+              "backgroundColor": {
+                "$role": "Page_Background",
+                "fallback": "#f4f5f5",
+                "fallbackDark": "#111217"
+              }
+            },
+            "geometry": {
+              "x": 557.2,
+              "y": 252,
+              "width": 102.8,
+              "height": 14
+            }
+          },
+          {
+            "id": "w-089",
+            "type": "pv-label",
+            "props": {
+              "pv": "SR:VAC:TC:05L05:TEMPERATURE:RB",
+              "showUnits": false,
+              "alarmSensitive": true,
+              "alarmBorder": true,
+              "precision": 2,
+              "align": "right",
+              "foregroundColor": {
+                "$role": "Page_Text",
+                "fallback": "#24292e",
+                "fallbackDark": "#ccccdc"
+              },
+              "backgroundColor": {
+                "$role": "Field_Background",
+                "fallback": "#fafbfc",
+                "fallbackDark": "#181b1f"
+              }
+            },
+            "geometry": {
+              "x": 559.2,
+              "y": 280,
+              "width": 98.8,
+              "height": 22
+            }
+          },
+          {
+            "id": "w-090",
+            "type": "pv-label",
+            "props": {
+              "pv": "SR:VAC:TC:05L05:LIMIT:RB",
+              "showUnits": false,
+              "alarmSensitive": true,
+              "alarmBorder": true,
+              "precision": 2,
+              "align": "right",
+              "foregroundColor": {
+                "$role": "Page_Text",
+                "fallback": "#24292e",
+                "fallbackDark": "#ccccdc"
+              },
+              "backgroundColor": {
+                "$role": "Field_Background",
+                "fallback": "#fafbfc",
+                "fallbackDark": "#181b1f"
+              }
+            },
+            "geometry": {
+              "x": 559.2,
+              "y": 306,
+              "width": 98.8,
+              "height": 22
+            }
+          },
+          {
+            "id": "w-091",
+            "type": "pv-led",
+            "props": {
+              "pv": "SR:VAC:TC:05L05:STATUS:OVERTEMP",
+              "onColor": {
+                "$role": "Led_On",
+                "fallback": "#56a64b",
+                "fallbackDark": "#73bf69"
+              },
+              "offColor": {
+                "$role": "Led_Off",
+                "fallback": "#ecedef",
+                "fallbackDark": "#22252b"
+              }
+            },
+            "geometry": {
+              "x": 601.6,
+              "y": 336,
+              "width": 14,
+              "height": 14
+            }
+          },
+          {
+            "id": "w-092",
+            "type": "rectangle",
+            "props": {
+              "lineColor": {
+                "$role": "Page_Background",
+                "fallback": "#f4f5f5",
+                "fallbackDark": "#111217"
+              },
+              "lineWidth": 1,
+              "fill": true,
+              "fillColor": {
+                "$role": "DISCONNECTED",
+                "fallback": "#86878f",
+                "fallbackDark": "#6e6e77"
+              },
+              "tooltip": "SR/TC05L06"
+            },
+            "geometry": {
+              "x": 662,
+              "y": 258,
+              "width": 98.8,
+              "height": 14
+            },
+            "rules": [
+              {
+                "id": "r-016",
+                "name": "tc 05L06 heat",
+                "targetProperty": "fillColor",
+                "pvs": [
+                  {
+                    "name": "SR:VAC:TC:05L06:TEMPERATURE:RB",
+                    "trigger": true
+                  }
+                ],
+                "conditions": [
+                  {
+                    "expression": "{0} < 50",
+                    "value": {
+                      "$role": "OK",
+                      "fallback": "#56a64b",
+                      "fallbackDark": "#73bf69"
+                    }
+                  },
+                  {
+                    "expression": "{0} < 65",
+                    "value": {
+                      "$role": "MINOR",
+                      "fallback": "#e0b400",
+                      "fallbackDark": "#f2cc0c"
+                    }
+                  },
+                  {
+                    "expression": "{0} < 80",
+                    "value": {
+                      "$role": "Dipole",
+                      "fallback": "#e08e00",
+                      "fallbackDark": "#f5b73d"
+                    }
+                  },
+                  {
+                    "expression": "{0} >= 80",
+                    "value": {
+                      "$role": "MAJOR",
+                      "fallback": "#c4162a",
+                      "fallbackDark": "#e05454"
+                    }
+                  }
+                ],
+                "default": {
+                  "$role": "DISCONNECTED",
+                  "fallback": "#86878f",
+                  "fallbackDark": "#6e6e77"
+                }
+              }
+            ]
+          },
+          {
+            "id": "w-093",
+            "type": "text-label",
+            "props": {
+              "text": "06",
+              "fontSize": 9,
+              "align": "center",
+              "foregroundColor": {
+                "$role": "Page_Text",
+                "fallback": "#24292e",
+                "fallbackDark": "#ccccdc"
+              },
+              "backgroundColor": {
+                "$role": "Page_Background",
+                "fallback": "#f4f5f5",
+                "fallbackDark": "#111217"
+              }
+            },
+            "geometry": {
+              "x": 660,
+              "y": 252,
+              "width": 102.8,
+              "height": 14
+            }
+          },
+          {
+            "id": "w-094",
+            "type": "pv-label",
+            "props": {
+              "pv": "SR:VAC:TC:05L06:TEMPERATURE:RB",
+              "showUnits": false,
+              "alarmSensitive": true,
+              "alarmBorder": true,
+              "precision": 2,
+              "align": "right",
+              "foregroundColor": {
+                "$role": "Page_Text",
+                "fallback": "#24292e",
+                "fallbackDark": "#ccccdc"
+              },
+              "backgroundColor": {
+                "$role": "Field_Background",
+                "fallback": "#fafbfc",
+                "fallbackDark": "#181b1f"
+              }
+            },
+            "geometry": {
+              "x": 662,
+              "y": 280,
+              "width": 98.8,
+              "height": 22
+            }
+          },
+          {
+            "id": "w-095",
+            "type": "pv-label",
+            "props": {
+              "pv": "SR:VAC:TC:05L06:LIMIT:RB",
+              "showUnits": false,
+              "alarmSensitive": true,
+              "alarmBorder": true,
+              "precision": 2,
+              "align": "right",
+              "foregroundColor": {
+                "$role": "Page_Text",
+                "fallback": "#24292e",
+                "fallbackDark": "#ccccdc"
+              },
+              "backgroundColor": {
+                "$role": "Field_Background",
+                "fallback": "#fafbfc",
+                "fallbackDark": "#181b1f"
+              }
+            },
+            "geometry": {
+              "x": 662,
+              "y": 306,
+              "width": 98.8,
+              "height": 22
+            }
+          },
+          {
+            "id": "w-096",
+            "type": "pv-led",
+            "props": {
+              "pv": "SR:VAC:TC:05L06:STATUS:OVERTEMP",
+              "onColor": {
+                "$role": "Led_On",
+                "fallback": "#56a64b",
+                "fallbackDark": "#73bf69"
+              },
+              "offColor": {
+                "$role": "Led_Off",
+                "fallback": "#ecedef",
+                "fallbackDark": "#22252b"
+              }
+            },
+            "geometry": {
+              "x": 704.4,
+              "y": 336,
+              "width": 14,
+              "height": 14
+            }
+          },
+          {
+            "id": "w-097",
+            "type": "rectangle",
+            "props": {
+              "lineColor": {
+                "$role": "Page_Background",
+                "fallback": "#f4f5f5",
+                "fallbackDark": "#111217"
+              },
+              "lineWidth": 1,
+              "fill": true,
+              "fillColor": {
+                "$role": "DISCONNECTED",
+                "fallback": "#86878f",
+                "fallbackDark": "#6e6e77"
+              },
+              "tooltip": "SR/TC05L07"
+            },
+            "geometry": {
+              "x": 764.8,
+              "y": 258,
+              "width": 98.8,
+              "height": 14
+            },
+            "rules": [
+              {
+                "id": "r-017",
+                "name": "tc 05L07 heat",
+                "targetProperty": "fillColor",
+                "pvs": [
+                  {
+                    "name": "SR:VAC:TC:05L07:TEMPERATURE:RB",
+                    "trigger": true
+                  }
+                ],
+                "conditions": [
+                  {
+                    "expression": "{0} < 50",
+                    "value": {
+                      "$role": "OK",
+                      "fallback": "#56a64b",
+                      "fallbackDark": "#73bf69"
+                    }
+                  },
+                  {
+                    "expression": "{0} < 65",
+                    "value": {
+                      "$role": "MINOR",
+                      "fallback": "#e0b400",
+                      "fallbackDark": "#f2cc0c"
+                    }
+                  },
+                  {
+                    "expression": "{0} < 80",
+                    "value": {
+                      "$role": "Dipole",
+                      "fallback": "#e08e00",
+                      "fallbackDark": "#f5b73d"
+                    }
+                  },
+                  {
+                    "expression": "{0} >= 80",
+                    "value": {
+                      "$role": "MAJOR",
+                      "fallback": "#c4162a",
+                      "fallbackDark": "#e05454"
+                    }
+                  }
+                ],
+                "default": {
+                  "$role": "DISCONNECTED",
+                  "fallback": "#86878f",
+                  "fallbackDark": "#6e6e77"
+                }
+              }
+            ]
+          },
+          {
+            "id": "w-098",
+            "type": "text-label",
+            "props": {
+              "text": "07",
+              "fontSize": 9,
+              "align": "center",
+              "foregroundColor": {
+                "$role": "Page_Text",
+                "fallback": "#24292e",
+                "fallbackDark": "#ccccdc"
+              },
+              "backgroundColor": {
+                "$role": "Page_Background",
+                "fallback": "#f4f5f5",
+                "fallbackDark": "#111217"
+              }
+            },
+            "geometry": {
+              "x": 762.8,
+              "y": 252,
+              "width": 102.8,
+              "height": 14
+            }
+          },
+          {
+            "id": "w-099",
+            "type": "pv-label",
+            "props": {
+              "pv": "SR:VAC:TC:05L07:TEMPERATURE:RB",
+              "showUnits": false,
+              "alarmSensitive": true,
+              "alarmBorder": true,
+              "precision": 2,
+              "align": "right",
+              "foregroundColor": {
+                "$role": "Page_Text",
+                "fallback": "#24292e",
+                "fallbackDark": "#ccccdc"
+              },
+              "backgroundColor": {
+                "$role": "Field_Background",
+                "fallback": "#fafbfc",
+                "fallbackDark": "#181b1f"
+              }
+            },
+            "geometry": {
+              "x": 764.8,
+              "y": 280,
+              "width": 98.8,
+              "height": 22
+            }
+          },
+          {
+            "id": "w-100",
+            "type": "pv-label",
+            "props": {
+              "pv": "SR:VAC:TC:05L07:LIMIT:RB",
+              "showUnits": false,
+              "alarmSensitive": true,
+              "alarmBorder": true,
+              "precision": 2,
+              "align": "right",
+              "foregroundColor": {
+                "$role": "Page_Text",
+                "fallback": "#24292e",
+                "fallbackDark": "#ccccdc"
+              },
+              "backgroundColor": {
+                "$role": "Field_Background",
+                "fallback": "#fafbfc",
+                "fallbackDark": "#181b1f"
+              }
+            },
+            "geometry": {
+              "x": 764.8,
+              "y": 306,
+              "width": 98.8,
+              "height": 22
+            }
+          },
+          {
+            "id": "w-101",
+            "type": "pv-led",
+            "props": {
+              "pv": "SR:VAC:TC:05L07:STATUS:OVERTEMP",
+              "onColor": {
+                "$role": "Led_On",
+                "fallback": "#56a64b",
+                "fallbackDark": "#73bf69"
+              },
+              "offColor": {
+                "$role": "Led_Off",
+                "fallback": "#ecedef",
+                "fallbackDark": "#22252b"
+              }
+            },
+            "geometry": {
+              "x": 807.2,
+              "y": 336,
+              "width": 14,
+              "height": 14
+            }
+          },
+          {
+            "id": "w-102",
+            "type": "rectangle",
+            "props": {
+              "lineColor": {
+                "$role": "Page_Background",
+                "fallback": "#f4f5f5",
+                "fallbackDark": "#111217"
+              },
+              "lineWidth": 1,
+              "fill": true,
+              "fillColor": {
+                "$role": "DISCONNECTED",
+                "fallback": "#86878f",
+                "fallbackDark": "#6e6e77"
+              },
+              "tooltip": "SR/TC05L08"
+            },
+            "geometry": {
+              "x": 867.6,
+              "y": 258,
+              "width": 98.8,
+              "height": 14
+            },
+            "rules": [
+              {
+                "id": "r-018",
+                "name": "tc 05L08 heat",
+                "targetProperty": "fillColor",
+                "pvs": [
+                  {
+                    "name": "SR:VAC:TC:05L08:TEMPERATURE:RB",
+                    "trigger": true
+                  }
+                ],
+                "conditions": [
+                  {
+                    "expression": "{0} < 50",
+                    "value": {
+                      "$role": "OK",
+                      "fallback": "#56a64b",
+                      "fallbackDark": "#73bf69"
+                    }
+                  },
+                  {
+                    "expression": "{0} < 65",
+                    "value": {
+                      "$role": "MINOR",
+                      "fallback": "#e0b400",
+                      "fallbackDark": "#f2cc0c"
+                    }
+                  },
+                  {
+                    "expression": "{0} < 80",
+                    "value": {
+                      "$role": "Dipole",
+                      "fallback": "#e08e00",
+                      "fallbackDark": "#f5b73d"
+                    }
+                  },
+                  {
+                    "expression": "{0} >= 80",
+                    "value": {
+                      "$role": "MAJOR",
+                      "fallback": "#c4162a",
+                      "fallbackDark": "#e05454"
+                    }
+                  }
+                ],
+                "default": {
+                  "$role": "DISCONNECTED",
+                  "fallback": "#86878f",
+                  "fallbackDark": "#6e6e77"
+                }
+              }
+            ]
+          },
+          {
+            "id": "w-103",
+            "type": "text-label",
+            "props": {
+              "text": "08",
+              "fontSize": 9,
+              "align": "center",
+              "foregroundColor": {
+                "$role": "Page_Text",
+                "fallback": "#24292e",
+                "fallbackDark": "#ccccdc"
+              },
+              "backgroundColor": {
+                "$role": "Page_Background",
+                "fallback": "#f4f5f5",
+                "fallbackDark": "#111217"
+              }
+            },
+            "geometry": {
+              "x": 865.6,
+              "y": 252,
+              "width": 102.8,
+              "height": 14
+            }
+          },
+          {
+            "id": "w-104",
+            "type": "pv-label",
+            "props": {
+              "pv": "SR:VAC:TC:05L08:TEMPERATURE:RB",
+              "showUnits": false,
+              "alarmSensitive": true,
+              "alarmBorder": true,
+              "precision": 2,
+              "align": "right",
+              "foregroundColor": {
+                "$role": "Page_Text",
+                "fallback": "#24292e",
+                "fallbackDark": "#ccccdc"
+              },
+              "backgroundColor": {
+                "$role": "Field_Background",
+                "fallback": "#fafbfc",
+                "fallbackDark": "#181b1f"
+              }
+            },
+            "geometry": {
+              "x": 867.6,
+              "y": 280,
+              "width": 98.8,
+              "height": 22
+            }
+          },
+          {
+            "id": "w-105",
+            "type": "pv-label",
+            "props": {
+              "pv": "SR:VAC:TC:05L08:LIMIT:RB",
+              "showUnits": false,
+              "alarmSensitive": true,
+              "alarmBorder": true,
+              "precision": 2,
+              "align": "right",
+              "foregroundColor": {
+                "$role": "Page_Text",
+                "fallback": "#24292e",
+                "fallbackDark": "#ccccdc"
+              },
+              "backgroundColor": {
+                "$role": "Field_Background",
+                "fallback": "#fafbfc",
+                "fallbackDark": "#181b1f"
+              }
+            },
+            "geometry": {
+              "x": 867.6,
+              "y": 306,
+              "width": 98.8,
+              "height": 22
+            }
+          },
+          {
+            "id": "w-106",
+            "type": "pv-led",
+            "props": {
+              "pv": "SR:VAC:TC:05L08:STATUS:OVERTEMP",
+              "onColor": {
+                "$role": "Led_On",
+                "fallback": "#56a64b",
+                "fallbackDark": "#73bf69"
+              },
+              "offColor": {
+                "$role": "Led_Off",
+                "fallback": "#ecedef",
+                "fallbackDark": "#22252b"
+              }
+            },
+            "geometry": {
+              "x": 910,
+              "y": 336,
+              "width": 14,
+              "height": 14
+            }
+          },
+          {
+            "id": "w-107",
+            "type": "rectangle",
+            "props": {
+              "lineColor": {
+                "$role": "Page_Background",
+                "fallback": "#f4f5f5",
+                "fallbackDark": "#111217"
+              },
+              "lineWidth": 1,
+              "fill": true,
+              "fillColor": {
+                "$role": "DISCONNECTED",
+                "fallback": "#86878f",
+                "fallbackDark": "#6e6e77"
+              },
+              "tooltip": "SR/TC05L09"
+            },
+            "geometry": {
+              "x": 970.4,
+              "y": 258,
+              "width": 98.8,
+              "height": 14
+            },
+            "rules": [
+              {
+                "id": "r-019",
+                "name": "tc 05L09 heat",
+                "targetProperty": "fillColor",
+                "pvs": [
+                  {
+                    "name": "SR:VAC:TC:05L09:TEMPERATURE:RB",
+                    "trigger": true
+                  }
+                ],
+                "conditions": [
+                  {
+                    "expression": "{0} < 50",
+                    "value": {
+                      "$role": "OK",
+                      "fallback": "#56a64b",
+                      "fallbackDark": "#73bf69"
+                    }
+                  },
+                  {
+                    "expression": "{0} < 65",
+                    "value": {
+                      "$role": "MINOR",
+                      "fallback": "#e0b400",
+                      "fallbackDark": "#f2cc0c"
+                    }
+                  },
+                  {
+                    "expression": "{0} < 80",
+                    "value": {
+                      "$role": "Dipole",
+                      "fallback": "#e08e00",
+                      "fallbackDark": "#f5b73d"
+                    }
+                  },
+                  {
+                    "expression": "{0} >= 80",
+                    "value": {
+                      "$role": "MAJOR",
+                      "fallback": "#c4162a",
+                      "fallbackDark": "#e05454"
+                    }
+                  }
+                ],
+                "default": {
+                  "$role": "DISCONNECTED",
+                  "fallback": "#86878f",
+                  "fallbackDark": "#6e6e77"
+                }
+              }
+            ]
+          },
+          {
+            "id": "w-108",
+            "type": "text-label",
+            "props": {
+              "text": "09",
+              "fontSize": 9,
+              "align": "center",
+              "foregroundColor": {
+                "$role": "Page_Text",
+                "fallback": "#24292e",
+                "fallbackDark": "#ccccdc"
+              },
+              "backgroundColor": {
+                "$role": "Page_Background",
+                "fallback": "#f4f5f5",
+                "fallbackDark": "#111217"
+              }
+            },
+            "geometry": {
+              "x": 968.4,
+              "y": 252,
+              "width": 102.8,
+              "height": 14
+            }
+          },
+          {
+            "id": "w-109",
+            "type": "pv-label",
+            "props": {
+              "pv": "SR:VAC:TC:05L09:TEMPERATURE:RB",
+              "showUnits": false,
+              "alarmSensitive": true,
+              "alarmBorder": true,
+              "precision": 2,
+              "align": "right",
+              "foregroundColor": {
+                "$role": "Page_Text",
+                "fallback": "#24292e",
+                "fallbackDark": "#ccccdc"
+              },
+              "backgroundColor": {
+                "$role": "Field_Background",
+                "fallback": "#fafbfc",
+                "fallbackDark": "#181b1f"
+              }
+            },
+            "geometry": {
+              "x": 970.4,
+              "y": 280,
+              "width": 98.8,
+              "height": 22
+            }
+          },
+          {
+            "id": "w-110",
+            "type": "pv-label",
+            "props": {
+              "pv": "SR:VAC:TC:05L09:LIMIT:RB",
+              "showUnits": false,
+              "alarmSensitive": true,
+              "alarmBorder": true,
+              "precision": 2,
+              "align": "right",
+              "foregroundColor": {
+                "$role": "Page_Text",
+                "fallback": "#24292e",
+                "fallbackDark": "#ccccdc"
+              },
+              "backgroundColor": {
+                "$role": "Field_Background",
+                "fallback": "#fafbfc",
+                "fallbackDark": "#181b1f"
+              }
+            },
+            "geometry": {
+              "x": 970.4,
+              "y": 306,
+              "width": 98.8,
+              "height": 22
+            }
+          },
+          {
+            "id": "w-111",
+            "type": "pv-led",
+            "props": {
+              "pv": "SR:VAC:TC:05L09:STATUS:OVERTEMP",
+              "onColor": {
+                "$role": "Led_On",
+                "fallback": "#56a64b",
+                "fallbackDark": "#73bf69"
+              },
+              "offColor": {
+                "$role": "Led_Off",
+                "fallback": "#ecedef",
+                "fallbackDark": "#22252b"
+              }
+            },
+            "geometry": {
+              "x": 1012.8,
+              "y": 336,
+              "width": 14,
+              "height": 14
+            }
+          },
+          {
+            "id": "w-112",
+            "type": "rectangle",
+            "props": {
+              "lineColor": {
+                "$role": "Page_Background",
+                "fallback": "#f4f5f5",
+                "fallbackDark": "#111217"
+              },
+              "lineWidth": 1,
+              "fill": true,
+              "fillColor": {
+                "$role": "DISCONNECTED",
+                "fallback": "#86878f",
+                "fallbackDark": "#6e6e77"
+              },
+              "tooltip": "SR/TC05L10"
+            },
+            "geometry": {
+              "x": 1073.2,
+              "y": 258,
+              "width": 98.8,
+              "height": 14
+            },
+            "rules": [
+              {
+                "id": "r-020",
+                "name": "tc 05L10 heat",
+                "targetProperty": "fillColor",
+                "pvs": [
+                  {
+                    "name": "SR:VAC:TC:05L10:TEMPERATURE:RB",
+                    "trigger": true
+                  }
+                ],
+                "conditions": [
+                  {
+                    "expression": "{0} < 50",
+                    "value": {
+                      "$role": "OK",
+                      "fallback": "#56a64b",
+                      "fallbackDark": "#73bf69"
+                    }
+                  },
+                  {
+                    "expression": "{0} < 65",
+                    "value": {
+                      "$role": "MINOR",
+                      "fallback": "#e0b400",
+                      "fallbackDark": "#f2cc0c"
+                    }
+                  },
+                  {
+                    "expression": "{0} < 80",
+                    "value": {
+                      "$role": "Dipole",
+                      "fallback": "#e08e00",
+                      "fallbackDark": "#f5b73d"
+                    }
+                  },
+                  {
+                    "expression": "{0} >= 80",
+                    "value": {
+                      "$role": "MAJOR",
+                      "fallback": "#c4162a",
+                      "fallbackDark": "#e05454"
+                    }
+                  }
+                ],
+                "default": {
+                  "$role": "DISCONNECTED",
+                  "fallback": "#86878f",
+                  "fallbackDark": "#6e6e77"
+                }
+              }
+            ]
+          },
+          {
+            "id": "w-113",
+            "type": "text-label",
+            "props": {
+              "text": "10",
+              "fontSize": 9,
+              "align": "center",
+              "foregroundColor": {
+                "$role": "Page_Text",
+                "fallback": "#24292e",
+                "fallbackDark": "#ccccdc"
+              },
+              "backgroundColor": {
+                "$role": "Page_Background",
+                "fallback": "#f4f5f5",
+                "fallbackDark": "#111217"
+              }
+            },
+            "geometry": {
+              "x": 1071.2,
+              "y": 252,
+              "width": 102.8,
+              "height": 14
+            }
+          },
+          {
+            "id": "w-114",
+            "type": "pv-label",
+            "props": {
+              "pv": "SR:VAC:TC:05L10:TEMPERATURE:RB",
+              "showUnits": false,
+              "alarmSensitive": true,
+              "alarmBorder": true,
+              "precision": 2,
+              "align": "right",
+              "foregroundColor": {
+                "$role": "Page_Text",
+                "fallback": "#24292e",
+                "fallbackDark": "#ccccdc"
+              },
+              "backgroundColor": {
+                "$role": "Field_Background",
+                "fallback": "#fafbfc",
+                "fallbackDark": "#181b1f"
+              }
+            },
+            "geometry": {
+              "x": 1073.2,
+              "y": 280,
+              "width": 98.8,
+              "height": 22
+            }
+          },
+          {
+            "id": "w-115",
+            "type": "pv-label",
+            "props": {
+              "pv": "SR:VAC:TC:05L10:LIMIT:RB",
+              "showUnits": false,
+              "alarmSensitive": true,
+              "alarmBorder": true,
+              "precision": 2,
+              "align": "right",
+              "foregroundColor": {
+                "$role": "Page_Text",
+                "fallback": "#24292e",
+                "fallbackDark": "#ccccdc"
+              },
+              "backgroundColor": {
+                "$role": "Field_Background",
+                "fallback": "#fafbfc",
+                "fallbackDark": "#181b1f"
+              }
+            },
+            "geometry": {
+              "x": 1073.2,
+              "y": 306,
+              "width": 98.8,
+              "height": 22
+            }
+          },
+          {
+            "id": "w-116",
+            "type": "pv-led",
+            "props": {
+              "pv": "SR:VAC:TC:05L10:STATUS:OVERTEMP",
+              "onColor": {
+                "$role": "Led_On",
+                "fallback": "#56a64b",
+                "fallbackDark": "#73bf69"
+              },
+              "offColor": {
+                "$role": "Led_Off",
+                "fallback": "#ecedef",
+                "fallbackDark": "#22252b"
+              }
+            },
+            "geometry": {
+              "x": 1115.6,
+              "y": 336,
+              "width": 14,
+              "height": 14
+            }
+          }
+        ]
+      },
+      {
+        "id": "w-063",
+        "type": "line",
+        "props": {
+          "lineColor": {
+            "$role": "Box_Border",
+            "fallback": "#d8d9da",
+            "fallbackDark": "#2c3235"
+          },
+          "lineWidth": 1,
+          "points": [
+            {
+              "x": 2,
+              "y": 2
+            },
+            {
+              "x": 1170,
+              "y": 2
+            }
+          ],
+          "arrowStart": false,
+          "arrowEnd": false
+        },
+        "geometry": {
+          "x": 14,
+          "y": 247,
+          "width": 1172,
+          "height": 4
+        }
+      }
+    ]
+  }
+}
