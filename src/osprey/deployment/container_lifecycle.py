@@ -89,6 +89,7 @@ from osprey.deployment.runtime_helper import (
     copy_transcripts_once,
     detect_compose_provider,
     get_runtime_command,
+    podman_compose_platform_refusal,
     podman_compose_provider_advisory,
     runtime_env,
     verify_runtime_is_running,
@@ -4466,6 +4467,33 @@ def _preflight_podman_compose_provider(config: dict, provider: ComposeProvider) 
     )
 
 
+def _preflight_podman_compose_platform(config: dict, provider: ComposeProvider | None) -> None:
+    """Refuse a stated ``images.platform`` that this podman-compose would not build for.
+
+    See :func:`~osprey.deployment.runtime_helper.podman_compose_platform_refusal`.
+    An unset platform asks the host nothing. Prebuilt images are never
+    compose-built, and ``podman create`` honours ``platform:`` on every
+    supported podman-compose, so they pass.
+
+    :param config: Raw deploy config, for the runtime, the platform and the
+        prebuilt switch.
+    :param provider: The compose provider the start sequence already detected.
+    :raises UnsupportedComposeProviderError: podman-compose is older than the
+        version that passes ``platform:`` to its builds.
+    """
+    if provider is not ComposeProvider.PODMAN_COMPOSE:
+        return
+    platform = resolve_image_platform(config)
+    if not platform or _resolve_prebuilt_images(config):
+        return
+
+    # Memoized: the probe `_compose_provider` just ran for this argv.
+    info = detect_compose_provider(get_runtime_command(config), config)
+    refusal = podman_compose_platform_refusal(info, platform)
+    if refusal is not None:
+        raise UnsupportedComposeProviderError(refusal)
+
+
 def _web_terminals_enabled(config: dict) -> bool:
     """True if ``modules.web_terminals.enabled`` is set on ``config``.
 
@@ -6662,6 +6690,9 @@ def _start_stack(
     # of the refusals that read only this deployment's own files. Still well above
     # the image build, which is the only thing it is trying to get ahead of.
     _preflight_podman_compose_provider(config, provider)
+
+    # Refusal; needs the host's answer, so below the own-file refusals, above every build.
+    _preflight_podman_compose_platform(config, provider)
 
     # Asks the host too, so it sits below the own-file refusals for the same
     # reason; above every build, which is what it exists to get ahead of.
