@@ -3061,7 +3061,7 @@ INSTALL_ROWS = [
         2,
         PROBE_ABSENT,
         0,
-        f"check: clean; not run here: canopy-contract ({PROBE_ABSENT}); not run, no base given: ",
+        f"check: clean; not run here: canopy-contract ({PROBE_ABSENT}: {CANOPY_INSTALL}); not run, no base given: ",
     ),
     (
         ["run", "canopy-contract"],
@@ -3216,7 +3216,10 @@ def test_without_chromium_the_full_tier_names_the_browser_suites_and_runs_the_re
     recorder.answers[fw.CHROMIUM_PROBE] = (kit.ABSENT_EXIT, CHROMIUM_ABSENT)
     assert check.main(["full"]) == 0
     verdict = last_line(capsys)
-    assert f"not run here: pytest-browser ({CHROMIUM_ABSENT})" in verdict
+    assert (
+        f"not run here: pytest-browser ({CHROMIUM_ABSENT}: run uv run playwright install chromium)"
+        in verdict
+    )
     assert BROWSER_ATTESTED not in verdict
     assert not recorder.ran("-m browser")
     assert recorder.ran("--dist loadgroup") and recorder.ran("tests/pty/ -m pty")

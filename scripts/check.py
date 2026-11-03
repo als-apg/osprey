@@ -813,6 +813,8 @@ def _fact(outcome: Outcome) -> str:
     if outcome.reason == OFF_VENUE and declared and declared.venue:
         return VENUES[declared.venue].words
     if outcome.reason == NOT_INSTALLED:
+        if declared is not None and declared.install is not None:
+            return f"{outcome.attestation}: {declared.install.instruction()}"
         return outcome.attestation
     if outcome.reason == DESELECTED and outcome.hosts:
         checks = [host for host in outcome.hosts if host in by_id]
