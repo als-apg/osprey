@@ -2,7 +2,7 @@
 
 Six verbs have a ``--json`` path: ``audit``, ``health``, ``query``,
 ``ariel status``, ``ariel search`` and ``facility show``, whose two documents
-(the facility, and one record under an ID) have a golden each; ``facility
+(the facility, and the records under an ID) have a golden each; ``facility
 show`` is captured in ``test_facility_show.py``, over a real build. The
 output-hierarchy work reroutes each verb's *human* output through a single
 renderer; none of it is allowed to move a key in the *machine* output. These
@@ -110,7 +110,7 @@ _NESTED: dict[str, tuple[str, ...]] = {
     ),
     "ariel_search": ("entries[]",),
     "facility_show": ("counts", "models[]"),
-    "facility_show_record": (),
+    "facility_show_record": ("records[]",),
 }
 
 

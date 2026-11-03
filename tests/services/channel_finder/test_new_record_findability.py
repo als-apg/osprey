@@ -29,9 +29,12 @@ ASKED_FOR = {
 
 
 def _inputs(doc: dict[str, Any]) -> Any:
+    from osprey.facility.records import FacilityRecords
     from osprey.facility.views import ViewInputs
 
-    return ViewInputs(doc=doc, rendered_config={}, facility_dir=Path("."), served=[])
+    return ViewInputs(
+        records=FacilityRecords(doc), rendered_config={}, facility_dir=Path("."), served=[]
+    )
 
 
 @pytest.fixture(scope="module")
