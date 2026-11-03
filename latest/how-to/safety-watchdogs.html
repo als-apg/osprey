@@ -403,6 +403,22 @@
 <li class="toctree-l2"><a class="reference internal" href="web-terminal/panels.html">Panels</a></li>
 <li class="toctree-l2"><a class="reference internal" href="web-terminal/lattice-dashboard.html">Lattice Dashboard</a></li>
 <li class="toctree-l2"><a class="reference internal" href="web-terminal/notebooks.html">Notebooks</a></li>
+<li class="toctree-l2"><a class="reference internal" href="web-terminal/canopy.html">CANOPY</a></li>
+
+
+
+
+
+
+
+<li class="toctree-l2"><a class="reference internal" href="web-terminal/canopy-library.html">Share CANOPY Screens</a></li>
+
+
+
+
+
+
+
 <li class="toctree-l2"><a class="reference internal" href="web-terminal/send-feedback.html">Send and Retrieve Feedback</a></li>
 <li class="toctree-l2 has-children"><a class="reference internal" href="web-terminal/multi-user/index.html">Multi-User Support</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l3"><a class="reference internal" href="web-terminal/multi-user/tiers.html">Privilege Tiers</a></li>
@@ -694,7 +710,8 @@ osprey<span class="w"> </span>up<span class="w"> </span>-d
 </div>
 <p><strong>5. See it work.</strong> In a web-terminal session, type one of your risky test prompts; the dialog
 in the video at the top of this page appears.</p>
-<p>Until you answer, the agent’s writes in that session are refused with <code class="docutils literal notranslate"><span class="pre">session_held</span></code>. The
+<p>Until you answer, the agent’s writes in that session are refused with <code class="docutils literal notranslate"><span class="pre">session_held</span></code>, and so
+are clicks on that terminal’s CANOPY screens (<a class="reference internal" href="web-terminal/canopy.html"><span class="doc">CANOPY</span></a>). The
 verdict and your answer are both in the audit trail, on the <code class="docutils literal notranslate"><span class="pre">safety_watchdog</span></code> surface.</p>
 <p>If a line saying <code class="docutils literal notranslate"><span class="pre">Watchdog</span> <span class="pre">guard-circumvention:</span> <span class="pre">unavailable</span></code> appears instead, the watchdog
 could not decide: look for <code class="docutils literal notranslate"><span class="pre">error_type</span></code> in its audit entry. <code class="docutils literal notranslate"><span class="pre">missing_key</span></code> means the key in

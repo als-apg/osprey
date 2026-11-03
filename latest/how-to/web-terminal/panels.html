@@ -403,6 +403,22 @@
 <li class="toctree-l2 current active"><a class="current reference internal" href="#">Panels</a></li>
 <li class="toctree-l2"><a class="reference internal" href="lattice-dashboard.html">Lattice Dashboard</a></li>
 <li class="toctree-l2"><a class="reference internal" href="notebooks.html">Notebooks</a></li>
+<li class="toctree-l2"><a class="reference internal" href="canopy.html">CANOPY</a></li>
+
+
+
+
+
+
+
+<li class="toctree-l2"><a class="reference internal" href="canopy-library.html">Share CANOPY Screens</a></li>
+
+
+
+
+
+
+
 <li class="toctree-l2"><a class="reference internal" href="send-feedback.html">Send and Retrieve Feedback</a></li>
 <li class="toctree-l2 has-children"><a class="reference internal" href="multi-user/index.html">Multi-User Support</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l3"><a class="reference internal" href="multi-user/tiers.html">Privilege Tiers</a></li>
@@ -617,7 +633,7 @@ left exactly as it was, stays readable, and can still be scrolled and clicked,
 because a slow backend often still serves what is loaded. Both clear on the
 next answer. A panel that has not answered since the page loaded keeps its
 greyed-out entry and does not open.</p>
-<p>This applies to panels that have a health check: Jupyter, SYSTEM, and any
+<p>This applies to panels that have a health check: Jupyter, CANOPY, SYSTEM, and any
 URL-backed panel whose entry names a <code class="docutils literal notranslate"><span class="pre">health_endpoint</span></code>.</p>
 <p>Clicking a dimmed entry closes its tile as usual, but the panel cannot be
 opened again until its backend answers.
@@ -739,12 +755,13 @@ order runs out would trap the keyboard inside it. A panel hands focus back by
 posting to its parent when Tab (or Shift+Tab) leaves its last (or first)
 element:</p>
 <div class="highlight-javascript notranslate"><div class="highlight"><pre><span></span><span class="nb">window</span><span class="p">.</span><span class="nx">parent</span><span class="p">.</span><span class="nx">postMessage</span><span class="p">(</span>
-<span class="w">  </span><span class="p">{</span><span class="w"> </span><span class="nx">type</span><span class="o">:</span><span class="w"> </span><span class="s1">&#39;osprey-focus-exit&#39;</span><span class="p">,</span><span class="w"> </span><span class="nx">direction</span><span class="o">:</span><span class="w"> </span><span class="s1">&#39;forward&#39;</span><span class="w"> </span><span class="p">},</span><span class="w">  </span><span class="c1">// or &#39;backward&#39;</span>
+<span class="w">  </span><span class="p">{</span><span class="w"> </span><span class="nx">type</span><span class="o">:</span><span class="w"> </span><span class="s1">&#39;canopy-host-focus-exit&#39;</span><span class="p">,</span><span class="w"> </span><span class="nx">direction</span><span class="o">:</span><span class="w"> </span><span class="s1">&#39;forward&#39;</span><span class="w"> </span><span class="p">},</span><span class="w">  </span><span class="c1">// or &#39;backward&#39;</span>
 <span class="w">  </span><span class="nb">window</span><span class="p">.</span><span class="nx">location</span><span class="p">.</span><span class="nx">origin</span><span class="p">,</span>
 <span class="p">);</span>
 </pre></div>
 </div>
-<p>The terminal focuses the next (or previous) element of its own page, in
+<p>The terminal also reads the older <code class="docutils literal notranslate"><span class="pre">osprey-focus-exit</span></code> for one release. It then
+focuses the next (or previous) element of its own page, in
 document order relative to the panel’s tile — after <code class="docutils literal notranslate"><span class="pre">backward</span></code>, that is the
 tile’s header. It acts only on a message from its own origin and from the
 frame of a panel it shows.</p>

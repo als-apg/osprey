@@ -403,6 +403,22 @@
 <li class="toctree-l2"><a class="reference internal" href="../web-terminal/panels.html">Panels</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../web-terminal/lattice-dashboard.html">Lattice Dashboard</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../web-terminal/notebooks.html">Notebooks</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../web-terminal/canopy.html">CANOPY</a></li>
+
+
+
+
+
+
+
+<li class="toctree-l2"><a class="reference internal" href="../web-terminal/canopy-library.html">Share CANOPY Screens</a></li>
+
+
+
+
+
+
+
 <li class="toctree-l2"><a class="reference internal" href="../web-terminal/send-feedback.html">Send and Retrieve Feedback</a></li>
 <li class="toctree-l2 has-children"><a class="reference internal" href="../web-terminal/multi-user/index.html">Multi-User Support</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l3"><a class="reference internal" href="../web-terminal/multi-user/tiers.html">Privilege Tiers</a></li>
@@ -812,16 +828,19 @@ does that only for the events backend the configuration declares, and only when
 that backend answers on loopback — an EVENTS panel pointed at a dashboard
 elsewhere receives neither the bearer nor your name.</p>
 </section>
-<section id="a-shell-reaches-the-same-route">
-<h3>A shell reaches the same route<a class="headerlink" href="#a-shell-reaches-the-same-route" title="Link to this heading">#</a></h3>
-<p>The panel token sits in the agent process’s environment, so a tier whose
-file lifts the <code class="docutils literal notranslate"><span class="pre">Bash</span></code> deny — a build failure unless that file also
-declares its own <code class="docutils literal notranslate"><span class="pre">PreToolUse</span></code> gate covering the shell — can post to the proxy
-route from a shell command and fire a job with no approval prompt. What that
-skips is the prompt, not the rest: such a job still carries your name from the
-proxy, still meets your chip at every write, and still runs under the worker’s
-denylist. Code running in a sandbox holds neither the panel token nor the
-terminal’s port, so it cannot make this call.</p>
+<section id="a-shell-can-still-reach-the-route">
+<h3>A shell can still reach the route<a class="headerlink" href="#a-shell-can-still-reach-the-route" title="Link to this heading">#</a></h3>
+<p>The panel token is meant for the agent’s MCP tools and hooks. Claude Code
+starts every <code class="docutils literal notranslate"><span class="pre">Bash</span></code> and <code class="docutils literal notranslate"><span class="pre">Monitor</span></code> command with the token removed from its
+environment, but the agent process itself keeps it, and a shell running as the
+same user can read it from that process (<code class="docutils literal notranslate"><span class="pre">/proc/$PPID/environ</span></code> on Linux). So
+a tier whose file lifts the <code class="docutils literal notranslate"><span class="pre">Bash</span></code> deny — a build failure unless that file
+also declares its own <code class="docutils literal notranslate"><span class="pre">PreToolUse</span></code> gate covering the shell — can fire a job
+from a shell command with no approval prompt. What that skips is the prompt,
+not the rest: such a job still carries your name from the proxy, still meets
+your chip at every write, and still runs under the worker’s denylist. Code
+running in a sandbox holds neither the panel token nor the terminal’s port, so
+it cannot make this call.</p>
 </section>
 </section>
 <section id="authoring-triggers">
@@ -1218,7 +1237,7 @@ handoff.</p>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#the-job-runs-as-you">The job runs as you</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#where-the-tools-work">Where the tools work</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#how-the-call-is-authorized">How the call is authorized</a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#a-shell-reaches-the-same-route">A shell reaches the same route</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#a-shell-can-still-reach-the-route">A shell can still reach the route</a></li>
 </ul>
 </li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#authoring-triggers">Authoring Triggers</a><ul class="visible nav section-nav flex-column">

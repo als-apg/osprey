@@ -462,22 +462,22 @@ harness itself and expose no network port of their own, so nothing reaches one w
 passing the checks first. That guarantee belongs to the harness: a process on the host that
 starts a server by hand sits outside it, which is why access to the host is part of the trust
 boundary.</p>
-<p>The checks are the first gate, not the only one. There are five ways a value reaches a
+<p>The checks are the first gate, not the only one. There are six ways a value reaches a
 machine through the connector — a single channel write, Python the agent wrote, a pyAML tool
-the executor runs, a Bluesky plan, and a notebook cell — and each has gates of its own below
-the checks. Two of them can also be driven by a person, from the BLUESKY panel or a Jupyter
-cell, and a person’s action goes through none of the checks. All five end at the same
-connector and leave the same audit record. A deployment that enables the <code class="docutils literal notranslate"><span class="pre">phoebus</span></code> server
-and sets <code class="docutils literal notranslate"><span class="pre">phoebus.agent_access:</span> <span class="pre">read_write</span></code> has one more: <code class="docutils literal notranslate"><span class="pre">phoebus_drive</span></code> passes the checks and then
-the Phoebus product writes the value through its own connections, not through the connector
-— see <a class="reference internal" href="#architecture-safety-chain-phoebus-drive"><span class="std std-ref">A Phoebus drive</span></a>.</p>
+the executor runs, a Bluesky plan, a notebook cell, and a panel write — and each has gates of
+its own below the checks. Three of them can be driven by a person, from the BLUESKY panel, a
+Jupyter cell or a screen of a panel that writes, and a person’s action goes through none of the
+checks. All six end at the same connector and leave the same audit record. A deployment that
+enables the <code class="docutils literal notranslate"><span class="pre">phoebus</span></code> server and sets <code class="docutils literal notranslate"><span class="pre">phoebus.agent_access:</span> <span class="pre">read_write</span></code> has one more:
+<code class="docutils literal notranslate"><span class="pre">phoebus_drive</span></code> passes the checks and then the Phoebus product writes the value through its
+own connections, not through the connector — see <a class="reference internal" href="#architecture-safety-chain-phoebus-drive"><span class="std std-ref">A Phoebus drive</span></a>.</p>
 <p>A write also carries a name — whose write it is. A machine’s write switch is one login’s,
 so the name decides whose tier and whose switch a write is judged against. <a class="reference internal" href="#architecture-safety-chain-owner"><span class="std std-ref">Whose write is it</span></a>, at the foot of
 this page, says where the name comes from and what it does not cover.</p>
 <div class="osprey-diagram">
-<svg viewBox="0 0 1496 1079" role="img" aria-labelledby="safety-chain-title safety-chain-desc">
-  <title id="safety-chain-title">Five ways to change something on the machine through the connector, and what stands in the way of each</title>
-  <desc id="safety-chain-desc">The deployment's settings — which machine it points at, the login's tier, and that login's write switch for each machine, one record per login — are read by the gates. An operator asks the OSPREY agent in plain language; every tool call that could write then passes the checks: may this login write to this machine (tier, owner, and the switch's position: off, asked or allowed), and does a human approve — at asked the operator answers the terminal prompt, at allowed the write runs without one; a channel write also passes a limits check on the way, which the other tools do not. Once approved, the call reaches its server: a channel write goes to the control-system server, which checks the limits once more; a Python run has its code read before it runs and then runs in its own guarded process, holding the machine's lock while it runs; a pyAML tool — one of pyAML's tuning routines, code OSPREY ships rather than code the agent wrote — runs on the Python server too: its prompt lists every setpoint the call steps, and it runs as a guarded run, holding the machine's lock, and its result lists each setpoint it moved with its value before the call; a run that stops leaves the machine where it stopped; queueing a plan reaches the Bluesky queue, which the operator can also drive from the panel without those checks, which needs a launch token to start or to take work while running, and where a start is bound to the queue the approver looked at and is refused if that queue changed; before and during a run every channel the plan declares must answer first, each write is checked as it happens, and the name on the queued item rides into the plan's task so each of its writes is judged against that person's tier and switch; a Jupyter cell is run by the operator directly, and its kernel re-reads the settings before every cell; a cell may not load a control-system client library, for reads as for writes, and reads and writes through osprey.runtime instead. All five end at the connector, which asks the write verdict on every put — read-only run, tier, target, owner, record, switch, launch pin, first refusal wins — and every refusal ends in an osprey-refusal trailer naming its reason; a run started with writes held off is told to run again. The connector then checks the value against the limits where limits checking is on, sends the value, and, where the channel's policy asks for it, waits for the machine and reads the channel back. A Phoebus drive, possible only where a deployment enables the phoebus server and sets phoebus.agent_access to read_write, is not drawn: it passes the write verdict and the approval prompt, and the Phoebus product then writes the value through its own connections rather than through the connector, so the connector's verdict, its limits and its read-back do not apply to it. A request is named at two doors only, in the X-Osprey-Owner header: the terminal's proxy, and the sidecar's own login gate, each taking the name from the credential that got the request in rather than from what the request claimed. A job the agent fires leaves through the terminal's panel proxy, the one place that holds the dispatcher's key: it adds the key, stamps the same name, and the job's own writes re-enter at the top of the picture as tool calls. Three gaps are documented rather than closed: a plan added straight to the queue from inside a container, under any name it claims or none, a tier allowed a shell reaching the panel's dispatcher address, and a direct login at the panel's own address, which names nobody. The approval prompt attributes a write to a person and does not contain code already running in the container; the terminal's server and the dispatch worker keep their credentials out of that code's reach, so it cannot answer the prompt in the operator's name. A name that arrived by a door OSPREY does not mint at is unvouched, and it binds all the same, so the plan is judged against whoever it names. A plan nobody is named on writes nothing; an external-worker lane runs on the facility's own RunEngine and devices, outside the tier and the switch, where the name on an item is attribution.</desc>
+<svg viewBox="0 0 1692 1079" role="img" aria-labelledby="safety-chain-title safety-chain-desc">
+  <title id="safety-chain-title">Six ways to change something on the machine through the connector, and what stands in the way of each</title>
+  <desc id="safety-chain-desc">The deployment's settings — which machine it points at, the login's tier, and that login's write switch for each machine, one record per login — are read by the gates. An operator asks the OSPREY agent in plain language; every tool call that could write then passes the checks: may this login write to this machine (tier, owner, and the switch's position: off, asked or allowed), and does a human approve — at asked the operator answers the terminal prompt, at allowed the write runs without one; a channel write also passes a limits check on the way, which the other tools do not. Once approved, the call reaches its server: a channel write goes to the control-system server, which checks the limits once more; a Python run has its code read before it runs and then runs in its own guarded process, holding the machine's lock while it runs; a pyAML tool — one of pyAML's tuning routines, code OSPREY ships rather than code the agent wrote — runs on the Python server too: its prompt lists every setpoint the call steps, and it runs as a guarded run, holding the machine's lock, and its result lists each setpoint it moved with its value before the call; a run that stops leaves the machine where it stopped; queueing a plan reaches the Bluesky queue, which the operator can also drive from the panel without those checks, which needs a launch token to start or to take work while running, and where a start is bound to the queue the approver looked at and is refused if that queue changed; before and during a run every channel the plan declares must answer first, each write is checked as it happens, and the name on the queued item rides into the plan's task so each of its writes is judged against that person's tier and switch; a Jupyter cell is run by the operator directly, and its kernel re-reads the settings before every cell; a cell may not load a control-system client library, for reads as for writes, and reads and writes through osprey.runtime instead. A click on a CANOPY screen skips the checks too: at asked the panel asks for a confirm on every run and the write carries it, at allowed there is no dialog; its data process's session is bound to one machine, a new machine starts a new process, and each write is judged by the same verdict, held while any live session of the terminal is flagged. All six end at the connector, which asks the write verdict on every put — read-only run, tier, session hold, target, owner, record, switch, launch pin, first refusal wins — and every refusal ends in an osprey-refusal trailer naming its reason; a run started with writes held off is told to run again. The connector then checks the value against the limits where limits checking is on, sends the value, and, where the channel's policy asks for it, waits for the machine and reads the channel back. A Phoebus drive, possible only where a deployment enables the phoebus server and sets phoebus.agent_access to read_write, is not drawn: it passes the write verdict and the approval prompt, and the Phoebus product then writes the value through its own connections rather than through the connector, so the connector's verdict, its limits and its read-back do not apply to it. A request is named at two doors only, in the X-Osprey-Owner header: the terminal's proxy, and the sidecar's own login gate, each taking the name from the credential that got the request in rather than from what the request claimed. A job the agent fires leaves through the terminal's panel proxy, the one place that holds the dispatcher's key: it adds the key, stamps the same name, and the job's own writes re-enter at the top of the picture as tool calls. Three gaps are documented rather than closed: a plan added straight to the queue from inside a container, under any name it claims or none, a tier allowed a shell reaching the panel's dispatcher address, and a direct login at the panel's own address, which names nobody. The approval prompt attributes a write to a person and does not contain code already running in the container; the terminal's server and the dispatch worker keep their credentials out of that code's reach, so it cannot answer the prompt in the operator's name. A name that arrived by a door OSPREY does not mint at is unvouched, and it binds all the same, so the plan is judged against whoever it names. A plan nobody is named on writes nothing; an external-worker lane runs on the facility's own RunEngine and devices, outside the tier and the switch, where the name on an item is attribution.</desc>
   <defs>
     <marker id="safety-chain-arr" viewBox="0 0 8 6" refX="7" refY="3" markerWidth="8" markerHeight="6" orient="auto-start-reverse">
       <polygon points="0,0 8,3 0,6" style="fill: var(--od-muted)"/>
@@ -488,8 +488,8 @@ this page, says where the name comes from and what it does not cover.</p>
   </defs>
 
   <!-- settings band -->
-  <rect class="mask" x="40" y="40" width="1416" height="64" rx="6"/>
-  <rect class="nb-st" x="40" y="40" width="1416" height="64" rx="6"/>
+  <rect class="mask" x="40" y="40" width="1612" height="64" rx="6"/>
+  <rect class="nb-st" x="40" y="40" width="1612" height="64" rx="6"/>
   <text class="tn" x="60" y="62">Deployment settings, read by the gates below</text>
   <text class="ts" x="60" y="80">which machine the deployment points at · the login's tier · that login's write switch per machine, one record per login</text>
   <text class="ts" x="60" y="94">the machine and the switch are read fresh by the next check, the next cell, the next write · the tier in config.yml takes a rebuild</text>
@@ -520,13 +520,14 @@ this page, says where the name comes from and what it does not cover.</p>
   <text class="ta ta-acc" x="1318" y="215">approves or refuses</text>
 
   <!-- operator → direct actions, below the checks -->
-  <path class="e-acc" d="M1456,138 H1476 V400 H1057 V412" marker-end="url(#safety-chain-arr-acc)"/>
+  <path class="e-acc" d="M1456,138 H1672 V400 H1057 V412" marker-end="url(#safety-chain-arr-acc)"/>
   <line class="e-acc" x1="1301" y1="400" x2="1301" y2="412" marker-end="url(#safety-chain-arr-acc)"/>
+  <line class="e-acc" x1="1562" y1="400" x2="1562" y2="412" marker-end="url(#safety-chain-arr-acc)"/>
   <rect class="mask" x="1316" y="394" width="142" height="12" rx="2"/>
   <text class="ta ta-acc" x="1387" y="403" text-anchor="middle">acts directly · no checks</text>
 
   <!-- checks zone -->
-  <rect class="zone" x="40" y="224" width="1416" height="152" rx="6"/>
+  <rect class="zone" x="40" y="224" width="1612" height="152" rx="6"/>
   <text class="te" x="56" y="242">CHECKS BEFORE A TOOL THAT COULD WRITE RUNS</text>
 
   <!-- channel write: through the limits check -->
@@ -545,7 +546,7 @@ this page, says where the name comes from and what it does not cover.</p>
   <rect class="nb" x="40" y="252" width="340" height="64" rx="6"/>
   <text class="tn" x="210" y="274" text-anchor="middle">May this login write?</text>
   <text class="ts" x="210" y="290" text-anchor="middle">the write verdict</text>
-  <text class="ts" x="210" y="303" text-anchor="middle">tier never, no owner, or switch off: refused</text>
+  <text class="ts" x="210" y="303" text-anchor="middle">tier never, session held, no owner, switch off: refused</text>
 
   <rect class="mask" x="578" y="252" width="340" height="64" rx="6"/>
   <rect class="nb" x="578" y="252" width="340" height="64" rx="6"/>
@@ -690,11 +691,37 @@ this page, says where the name comes from and what it does not cover.</p>
   <rect class="mask" x="1162" y="605" width="278" height="14" rx="2"/>
   <text class="ts" x="1301" y="615" text-anchor="middle">agent edits stay in notebooks/ and artifacts/</text>
 
+  <!-- column F · CANOPY panel -->
+  <rect class="mask" x="1472" y="416" width="180" height="56" rx="6"/>
+  <rect class="nb nb-acc-stroke" x="1472" y="416" width="180" height="56" rx="6"/>
+  <text class="tn" x="1562" y="434" text-anchor="middle">CANOPY panel</text>
+  <text class="ts" x="1562" y="449" text-anchor="middle">the operator clicks</text>
+  <text class="ts" x="1562" y="462" text-anchor="middle">skips the checks above</text>
+  <line class="e" x1="1562" y1="472" x2="1562" y2="492" marker-end="url(#safety-chain-arr)"/>
+  <rect class="mask" x="1472" y="496" width="180" height="97" rx="6"/>
+  <rect class="nb" x="1472" y="496" width="180" height="97" rx="6"/>
+  <text class="tn" x="1562" y="518" text-anchor="middle">the panel asks in place</text>
+  <text class="ts" x="1562" y="536" text-anchor="middle">asked: a confirm on every run</text>
+  <text class="ts" x="1562" y="549" text-anchor="middle">the write carries it</text>
+  <text class="ts" x="1562" y="562" text-anchor="middle">unconfirmed: refused</text>
+  <text class="ts" x="1562" y="575" text-anchor="middle">allowed: no dialog</text>
+  <line class="e" x1="1562" y1="593" x2="1562" y2="613" marker-end="url(#safety-chain-arr)"/>
+  <rect class="mask" x="1472" y="617" width="180" height="123" rx="6"/>
+  <rect class="nb" x="1472" y="617" width="180" height="123" rx="6"/>
+  <text class="tn" x="1562" y="639" text-anchor="middle">its control session</text>
+  <text class="ts" x="1562" y="657" text-anchor="middle">bound to one machine</text>
+  <text class="ts" x="1562" y="670" text-anchor="middle">new machine: new process</text>
+  <text class="ts" x="1562" y="683" text-anchor="middle">per write, the verdict:</text>
+  <text class="ts" x="1562" y="696" text-anchor="middle">tier · hold · record · switch</text>
+  <text class="ts" x="1562" y="709" text-anchor="middle">held while any live session</text>
+  <text class="ts" x="1562" y="722" text-anchor="middle">of the terminal is flagged</text>
+  <line class="e" x1="1562" y1="740" x2="1562" y2="757" marker-end="url(#safety-chain-arr)"/>
+
   <!-- connector band -->
-  <rect class="mask" x="40" y="761" width="1416" height="94" rx="6"/>
-  <rect class="nb nb-acc-stroke" x="40" y="761" width="1416" height="94" rx="6"/>
+  <rect class="mask" x="40" y="761" width="1612" height="94" rx="6"/>
+  <rect class="nb nb-acc-stroke" x="40" y="761" width="1612" height="94" rx="6"/>
   <text class="tn" x="60" y="783">Connector — the last step before the machine</text>
-  <text class="ts" x="60" y="801">asks the verdict, on every write: may this login write to this machine now? — a refusal ends in [osprey-refusal: &lt;reason&gt;]</text>
+  <text class="ts" x="60" y="801">asks the verdict, on every write: may this login write to this machine now, and is its session held? — a refusal ends in [osprey-refusal: &lt;reason&gt;]</text>
   <text class="ts" x="60" y="815">either refusal stands whichever path the write took, a running plan included · a refusal the records decided ends its message in that word, so the reason survives into the run record and the audit line</text>
   <text class="ts" x="60" y="829">where limits checking is on, checks the value against the limits: allowed range · step size · may this channel be written</text>
   <text class="ts" x="60" y="843">sends the value · where that channel's policy asks for it, waits for the machine to confirm and reads the channel back to compare</text>
@@ -707,7 +734,7 @@ this page, says where the name comes from and what it does not cover.</p>
   <text class="ts" x="748" y="912" text-anchor="middle">the machine</text>
 
   <!-- whose write is it · the two doors, the fired job, the documented gaps -->
-  <rect class="zone" x="40" y="951" width="1416" height="116" rx="6"/>
+  <rect class="zone" x="40" y="951" width="1612" height="116" rx="6"/>
   <text class="te" x="56" y="969">WHOSE WRITE IS IT — AND WHAT THIS PICTURE DOES NOT COVER</text>
   <text class="ts" x="56" y="989">a request is named at two doors only: the terminal's proxy, and the sidecar's own login gate — each from the credential that got the request in, never from what the request claimed</text>
   <text class="ts" x="56" y="1053">a name that arrived any other way is unvouched: it binds all the same, so the plan is judged against whoever it names</text>
@@ -776,7 +803,8 @@ with only a write gateway has the software layers alone, and the build says so.<
 <p>The hooks and the connector share one verdict and one order, so a write refused at either
 names the same reason.</p>
 <p>Where a watchdog has flagged the session, the hook’s verdict (gate 2), the server (gate 3) and
-the connector (gate 4) each refuse the write with <code class="docutils literal notranslate"><span class="pre">session_held</span></code>. The approval prompt does
+the connector (gate 4) each refuse the write with <code class="docutils literal notranslate"><span class="pre">session_held</span></code>, and so does a CANOPY
+panel’s connector for a click (<a class="reference internal" href="#architecture-safety-chain-panel-write"><span class="std std-ref">A panel write</span></a>). The approval prompt does
 not answer a flag, so a write approved while the flag is open is refused at the server. See
 <a class="reference internal" href="#architecture-safety-watchdogs"><span class="std std-ref">Safety watchdogs</span></a>.</p>
 </section>
@@ -922,8 +950,10 @@ the checks above, including the approval prompt.</p>
 <li><p><strong>Only the prompt.</strong> A watchdog judges when a prompt arrives, not after each tool call or
 at the end of a turn. The decision engine sees only about the last 30,000 tokens of a
 session, and it does not treat what a tool returned as hostile.</p></li>
-<li><p><strong>Only the agent’s writes.</strong> A write the operator makes directly, from a notebook cell or
-the BLUESKY panel, is not held.</p></li>
+<li><p><strong>Only the agent’s writes, and CANOPY’s.</strong> A write the operator makes from a notebook cell or
+the BLUESKY panel is not held. CANOPY is the one held operator surface: the agent opens and
+arranges its screens and drafts, so a held agent could stage a click. A CANOPY panel is held
+while any live session of its terminal is.</p></li>
 <li><p><strong>Not motion already running.</strong> A plan the agent started keeps running; stop it with the
 existing tools.</p></li>
 <li><p><strong>Only the web terminal holds.</strong> <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">chat</span></code> or a bare <code class="docutils literal notranslate"><span class="pre">claude</span></code> in a built project
@@ -948,8 +978,8 @@ cost to every prompt.</p>
 behaviour.</p>
 </section>
 </section>
-<section id="five-paths-below-the-checks">
-<h1>Five paths below the checks<a class="headerlink" href="#five-paths-below-the-checks" title="Link to this heading">#</a></h1>
+<section id="six-paths-below-the-checks">
+<h1>Six paths below the checks<a class="headerlink" href="#six-paths-below-the-checks" title="Link to this heading">#</a></h1>
 <section id="one-channel-write">
 <h2>One channel write<a class="headerlink" href="#one-channel-write" title="Link to this heading">#</a></h2>
 <p>One call, one or more channels, each with its value; one approval covers the call. The three
@@ -1173,20 +1203,36 @@ the OSPREY agent writes into a notebook before it is saved, and can stop it or w
 the same way; cells a person writes are never reviewed
 (<a class="reference internal" href="#architecture-safety-chain-code-review"><span class="std std-ref">Code review</span></a>). See <a class="reference internal" href="../how-to/web-terminal/notebooks.html"><span class="doc">Notebooks</span></a>.</p>
 </section>
+<section id="a-panel-write">
+<span id="architecture-safety-chain-panel-write"></span><h2>A panel write<a class="headerlink" href="#a-panel-write" title="Link to this heading">#</a></h2>
+<p>A click on a CANOPY screen is a person’s action, so no tool call and none of the checks are
+involved. Each click is judged by the same verdict as every write: tier, session hold, record,
+switch. At <em>asked</em> the panel shows a confirm, and the write carries it; a write without it is
+refused <code class="docutils literal notranslate"><span class="pre">approval_missing</span></code>. At <em>allowed</em> there is no dialog.</p>
+<p>The panel’s data process holds one control session, bound for its whole life to the machine the
+record named when the process started. A click is refused when the record has moved on, when a
+switch of the control target is in progress, when the same channel already has a write in flight,
+or when its attempt line cannot be written to the audit trail first. Otherwise the value goes to
+the connector through the same checked write a Python run uses, and <a class="reference internal" href="#architecture-safety-chain-shared"><span class="std std-ref">the connector’s checks</span></a> apply; while it is in flight, a target switch waits for it. A
+change of machine, or a switch moved to or from <em>off</em> where the machine has a separate write
+gateway, replaces the data process. Any other switch change or a hold reaches the open panel
+without a restart. Unlike the agent’s servers, the data process holds its connector in its own
+process. See <a class="reference internal" href="../how-to/web-terminal/canopy.html"><span class="doc">CANOPY</span></a>.</p>
+</section>
 </section>
 <section id="guarded-runs">
 <span id="architecture-safety-chain-guarded-run"></span><h1>Guarded Runs<a class="headerlink" href="#guarded-runs" title="Link to this heading">#</a></h1>
-<p>None of the five paths remembers what it moved. Each write is checked on its own, and a
+<p>None of the six paths remembers what it moved. Each write is checked on its own, and a
 script, a plan or a cell that stops half way leaves the machine where it stopped. A <em>guarded
 run</em> adds a lock around a run’s writes, and only the two paths that run code in the
 executor’s sandbox take part in it: Python the agent wrote and a pyAML tool. A channel write,
-a Bluesky plan and a notebook cell do not hold the lock, and nothing puts back what any path
-moved.</p>
+a Bluesky plan, a notebook cell and a panel write do not hold the lock, and nothing puts back
+what any path moved.</p>
 <p><strong>One run per machine.</strong> A read-write Python run and a pyAML tool run each hold a lock on
 their control target for as long as they run, from whichever terminal, job or container of
 the deployment they were launched. A second run on that target, of either kind, is refused
 before it starts, naming the holder. The lock is between these two kinds of run only; it keeps
-no channel write, plan or cell off the machine.</p>
+no channel write, plan, cell or panel write off the machine.</p>
 <p><strong>What a stopped tool leaves.</strong> Nothing is written back. A pyAML tool that stops, fails or is
 interrupted leaves the machine where it stopped, and its result lists each setpoint it moved
 with its value before the call; a run killed outright, at its time limit or otherwise, lists
@@ -1195,7 +1241,7 @@ reports.</p>
 </section>
 <section id="what-every-path-shares">
 <span id="architecture-safety-chain-shared"></span><h1>What every path shares<a class="headerlink" href="#what-every-path-shares" title="Link to this heading">#</a></h1>
-<p><strong>The connector.</strong> Each of the five paths ends at the connector, the last step before the
+<p><strong>The connector.</strong> Each of the six paths ends at the connector, the last step before the
 machine. On every write it asks the verdict — may this login write to this machine right now
 — whichever path the write took, a plan already running included. A refusal ends in a
 <code class="docutils literal notranslate"><span class="pre">[osprey-refusal:</span> <span class="pre">&lt;reason&gt;]</span></code> trailer, so the reason survives being passed along — through
@@ -1384,12 +1430,21 @@ or a tier whose profile allows a shell — can reach the queue’s own port and 
 under any name it chooses, or none. The gap is that such a name is unvouched: OSPREY did not
 mint it, and it binds all the same, so the plan is judged against whoever it names. With no
 name it writes nothing.</p></li>
-<li><p><strong>A shell reaching the panel’s dispatcher address.</strong> The panel token sits in the agent’s own
-environment, so the same shell can fire a job without the approval prompt. Building a tier
-that allows a shell warns about exactly this, and a sandboxed run cannot do it — neither the
-token nor the port is there. The job still runs as the real person, under their switch.</p></li>
+<li><p><strong>A shell reaching the panel’s dispatcher address.</strong> A shell command starts without the panel
+token, which only the agent’s MCP client and hooks hold, and a sandboxed run has neither the
+token nor the port. The agent’s own process still holds the token, so a same-user process
+that reads another’s environment (<code class="docutils literal notranslate"><span class="pre">/proc</span></code> on Linux) could fire a job without the approval
+prompt, or call CANOPY’s authoring tools without theirs. The job still runs as the real
+person, under their switch; the CANOPY tools change only that person’s own screens and push
+requests, and write no channel.</p></li>
 <li><p><strong>A direct login at the panel’s own address.</strong> Unnamed, as above, so it writes nothing.</p></li>
 </ul>
+<p>A panel write has a gap of the same kind, because its name belongs to the process, not to the
+request. The panel’s data process judges every click against the tier and write switch of the
+login it runs as — the login card’s — and its audit line names that login. It reads no name
+from the request a click arrives on. A panel that more than one person opens, such as a shared
+card, judges each of their clicks against that one card’s tier and switch, and the audit trail
+cannot say which of them clicked.</p>
 <p>An external-worker lane (<code class="docutils literal notranslate"><span class="pre">bluesky.external:</span></code>) is a facility’s own RunEngine and devices: no
 OSPREY check runs inside it, so no tier or switch reaches its writes. The name OSPREY puts on
 such an item is attribution — it says who queued the plan, not what gated it.</p>

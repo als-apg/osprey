@@ -934,8 +934,8 @@ renders — not the terminal process itself, which has its own <code class="docu
 section. The keys below aim the sidebar’s two utility controls, bound the feedback
 store, name the deployment, decide who is offered the onboarding tour, choose
 whether the terminal is offered, size the operator-chat pool, bound how
-long a panel’s own server gets to start, and set how often the file watchers
-re-read the tree.</p>
+long a panel’s own server gets to start, set how often the file watchers
+re-read the tree, and configure the CANOPY panel.</p>
 <section id="documentation-and-feedback-keys">
 <span id="feedback-configuration"></span><h3>Documentation and feedback keys<a class="headerlink" href="#documentation-and-feedback-keys" title="Link to this heading">#</a></h3>
 <div class="pst-scrollable-table-container"><table class="table">
@@ -997,7 +997,7 @@ baked config image each carry their own name.</p></td>
 <tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">web.sidecar_ready_timeout_s</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">60</span></code></p></td>
 <td><p>Seconds the terminal waits for a panel that runs its own server (the
-<strong>JUPYTER</strong> tab) to answer before it greys that tab. The terminal starts
+<strong>JUPYTER</strong> and <strong>CANOPY</strong> tabs) to answer before it greys that tab. The terminal starts
 serving once the panel answers or the wait passes, so a larger value also
 lengthens a start in which the panel fails. A value that is not a
 positive number is refused with a warning, and 60 applies.</p></td>
@@ -1161,6 +1161,81 @@ fewer listings. Lowering it does the opposite. A value that is not a
 positive number is reported in the log and the default is used; there is no
 value that switches the pass off, because a watcher with only one trigger is a
 watcher that can go blind without saying so.</p>
+</section>
+<section id="web-panels-canopy-the-canopy-panel">
+<span id="config-web-panels-canopy"></span><h3><code class="docutils literal notranslate"><span class="pre">web.panels.canopy</span></code> — the CANOPY panel<a class="headerlink" href="#web-panels-canopy-the-canopy-panel" title="Link to this heading">#</a></h3>
+<p>The CANOPY tab is a built-in panel that each web terminal serves from two
+processes of its own, one CANOPY per user (<a class="reference internal" href="../../how-to/web-terminal/canopy.html"><span class="doc">CANOPY</span></a>).
+Besides the <code class="docutils literal notranslate"><span class="pre">enabled</span></code> switch every built-in panel has, its block carries the
+settings the terminal hands to those processes. The terminal reads them each
+time it starts the panel’s processes, so an edit takes effect at the next
+restart of a terminal.</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 34.0%" />
+<col style="width: 16.0%" />
+<col style="width: 50.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Key</p></th>
+<th class="head"><p>Default</p></th>
+<th class="head"><p>Purpose</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">web.panels.canopy.enabled</span></code></p></td>
+<td><p>the panel’s registry default</p></td>
+<td><p>Whether the tab is shown and its processes are started. A panel that is
+absent from <code class="docutils literal notranslate"><span class="pre">web.panels</span></code> is off; a profile leaves it out with
+<code class="docutils literal notranslate"><span class="pre">exclude.web_panels</span></code>.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">web.panels.canopy.trace_default_query</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">&quot;&quot;</span></code></p></td>
+<td><p>The view Trace opens with when its URL carries none, as the query
+string Trace parses (<code class="docutils literal notranslate"><span class="pre">pv=…&amp;pv=…&amp;range=-1h</span></code>). Empty opens Trace with
+no channel.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">web.panels.canopy.correlation_default_query</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">&quot;&quot;</span></code></p></td>
+<td><p>The view the correlation page opens with when its URL carries none
+(<code class="docutils literal notranslate"><span class="pre">x=…&amp;y=…&amp;dt=…</span></code>). Empty opens the page with no channel.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">web.panels.canopy.waveform_default_query</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">&quot;&quot;</span></code></p></td>
+<td><p>The view the waveform page opens with when its URL carries none
+(<code class="docutils literal notranslate"><span class="pre">pv=…</span></code>). Empty opens the page with no channel.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">web.panels.canopy.home_screen</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">&quot;&quot;</span></code></p></td>
+<td><p>The screen CANOPY opens first, by its id in the deployment’s library:
+its path under <code class="docutils literal notranslate"><span class="pre">screens/</span></code> without <code class="docutils literal notranslate"><span class="pre">.screen.json</span></code>, such as
+<code class="docutils literal notranslate"><span class="pre">facility/overview</span></code>. Empty opens CANOPY’s first screen. <code class="docutils literal notranslate"><span class="pre">osprey</span>
+<span class="pre">build</span></code> and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">validate</span></code> refuse an id the library does not hold.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">web.panels.canopy.vole_bytes_max</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">268435456</span></code></p></td>
+<td><p>Ceiling in bytes on the live-value buffers one user’s CANOPY keeps in
+memory (256 MiB). A value that is not an integer keeps the default.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">web.panels.canopy.theme_file</span></code></p></td>
+<td><p>unset</p></td>
+<td><p>A colour theme for the panel. A relative path is read from the project
+root; an absolute path is used as written. Unset keeps CANOPY’s own
+theme.</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>There is no key for the confirmation dialog: it follows the chip’s write
+switch, so a write click asks first at <em>asked</em> and not at <em>allowed</em>.
+There is no <code class="docutils literal notranslate"><span class="pre">url</span></code>, <code class="docutils literal notranslate"><span class="pre">label</span></code> or <code class="docutils literal notranslate"><span class="pre">health_endpoint</span></code> either, because the
+terminal starts the server itself, and no key that turns the agent’s screen
+tools on or off, because those follow the panel.</p>
+<p>The panel’s other properties are fixed in OSPREY’s panel registry
+(<code class="docutils literal notranslate"><span class="pre">osprey.profiles.sidecar_panels</span></code>), not set in configuration: which of its
+agent tools run without a prompt and which ask on every call (see
+<a class="reference internal" href="../../how-to/web-terminal/canopy.html"><span class="doc">CANOPY</span></a>), the two library checks an image build runs,
+and the 34 s a stopping terminal gives a write already sent.</p>
 </section>
 <section id="dangerously-allow-bash-waiving-the-bash-launch-token-refusal">
 <span id="config-dangerously-allow-bash"></span><h3><code class="docutils literal notranslate"><span class="pre">dangerously_allow_bash</span></code> — waiving the Bash/launch-token refusal<a class="headerlink" href="#dangerously-allow-bash-waiving-the-bash-launch-token-refusal" title="Link to this heading">#</a></h3>
@@ -1795,6 +1870,7 @@ the surface that refused it.</p>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#the-control-target-picker">The control-target picker</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#offering-the-terminal">Offering the terminal</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#how-often-the-file-watchers-re-read-the-tree">How often the file watchers re-read the tree</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#web-panels-canopy-the-canopy-panel"><code class="docutils literal notranslate"><span class="pre">web.panels.canopy</span></code> — the CANOPY panel</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#dangerously-allow-bash-waiving-the-bash-launch-token-refusal"><code class="docutils literal notranslate"><span class="pre">dangerously_allow_bash</span></code> — waiving the Bash/launch-token refusal</a></li>
 </ul>
 </li>

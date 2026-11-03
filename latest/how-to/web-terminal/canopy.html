@@ -1,0 +1,965 @@
+
+<!DOCTYPE html>
+
+
+<html lang="en" data-content_root="../../" >
+
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <title>CANOPY &#8212; Osprey Framework dev documentation</title>
+  
+  
+  
+  <script data-cfasync="false">
+    document.documentElement.dataset.mode = localStorage.getItem("mode") || "";
+    document.documentElement.dataset.theme = localStorage.getItem("theme") || "";
+  </script>
+  <!--
+    this give us a css class that will be invisible only if js is disabled
+  -->
+  <noscript>
+    <style>
+      .pst-js-only { display: none !important; }
+
+    </style>
+  </noscript>
+  
+  <!-- Loaded before other Sphinx assets -->
+  <link href="../../_static/styles/theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+<link href="../../_static/styles/pydata-sphinx-theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+
+    <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=8f2a1f02" />
+    <link rel="stylesheet" type="text/css" href="../../_static/copybutton.css?v=76b2166b" />
+    <link rel="stylesheet" type="text/css" href="../../_static/graphviz.css?v=4ae1632d" />
+    <link rel="stylesheet" type="text/css" href="../../_static/workflow-autodoc.css?v=8680bdfd" />
+    <link rel="stylesheet" type="text/css" href="../../_static/sphinx-design.min.css?v=95c83b7e" />
+    <link rel="stylesheet" type="text/css" href="../../_static/custom.css?v=ef4de9ba" />
+  
+  <!-- So that users can add custom icons -->
+  <script src="../../_static/scripts/fontawesome.js?digest=8878045cc6db502f8baf"></script>
+  <!-- Pre-loaded scripts that we'll load fully later -->
+  <link rel="preload" as="script" href="../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
+<link rel="preload" as="script" href="../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
+
+    <script src="../../_static/documentation_options.js?v=632f9628"></script>
+    <script src="../../_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="../../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../../_static/clipboard.min.js?v=a7894cd8"></script>
+    <script src="../../_static/copybutton.js?v=30646c52"></script>
+    <script src="../../_static/design-tabs.js?v=f930bc37"></script>
+    <script>DOCUMENTATION_OPTIONS.pagename = 'how-to/web-terminal/canopy';</script>
+    <script>
+        DOCUMENTATION_OPTIONS.theme_version = '0.16.1';
+        DOCUMENTATION_OPTIONS.theme_switcher_json_url = 'https://als-apg.github.io/osprey/_static/versions.json';
+        DOCUMENTATION_OPTIONS.theme_switcher_version_match = 'dev';
+        DOCUMENTATION_OPTIONS.show_version_warning_banner =
+            true;
+        </script>
+    <link rel="canonical" href="https://als-apg.github.io/osprey/how-to/web-terminal/canopy.html" />
+    <link rel="icon" href="../../_static/logo.svg"/>
+    <link rel="index" title="Index" href="../../genindex.html" />
+    <link rel="search" title="Search" href="../../search.html" />
+    <link rel="next" title="Share CANOPY Screens" href="canopy-library.html" />
+    <link rel="prev" title="Notebooks" href="notebooks.html" />
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="docsearch:language" content="en"/>
+  <meta name="docsearch:version" content="dev" />
+    <meta name="docbuild:last-update" content="Nov 03, 2026"/>
+  </head>
+  
+  
+  <body data-bs-spy="scroll" data-bs-target=".bd-toc-nav" data-offset="180" data-bs-root-margin="0px 0px -60%" data-default-mode="">
+
+  
+  
+  <div id="pst-skip-link" class="skip-link d-print-none"><a href="#main-content">Skip to main content</a></div>
+  
+  <div id="pst-scroll-pixel-helper"></div>
+  
+  <button type="button" class="btn rounded-pill" id="pst-back-to-top">
+    <i class="fa-solid fa-arrow-up"></i>Back to top</button>
+
+  
+  <dialog id="pst-search-dialog">
+    
+<form class="bd-search d-flex align-items-center"
+      action="../../search.html"
+      method="get">
+  <i class="fa-solid fa-magnifying-glass"></i>
+  <input type="search"
+         class="form-control"
+         name="q"
+         placeholder="Search the docs ..."
+         aria-label="Search the docs ..."
+         autocomplete="off"
+         autocorrect="off"
+         autocapitalize="off"
+         spellcheck="false"/>
+  <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd>K</kbd></span>
+</form>
+  </dialog>
+
+  <div class="pst-async-banner-revealer d-none">
+  <aside id="bd-header-version-warning" class="d-none d-print-none" aria-label="Version warning"></aside>
+</div>
+
+  
+    <header class="bd-header navbar navbar-expand-lg bd-navbar d-print-none">
+<div class="bd-header__inner bd-page-width">
+  <button class="pst-navbar-icon sidebar-toggle primary-toggle" aria-label="Site navigation">
+    <span class="fa-solid fa-bars"></span>
+  </button>
+  
+  
+  <div class=" navbar-header-items__start">
+    
+      <div class="navbar-item">
+
+  
+    
+  
+
+<a class="navbar-brand logo" href="../../index.html">
+  
+  
+  
+  
+  
+  
+    <p class="title logo__title">Osprey Framework</p>
+  
+</a></div>
+    
+  </div>
+  
+  <div class=" navbar-header-items">
+    
+    <div class="me-auto navbar-header-items__center">
+      
+        <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="../index.html">
+    How-To Guides
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../architecture/index.html">
+    Architecture
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../reference/index.html">
+    Reference
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+      
+    </div>
+    
+    
+    <div class="navbar-header-items__end">
+      
+        <div class="navbar-item navbar-persistent--container">
+          
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+        </div>
+      
+      
+        <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-2"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-2"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-2"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-2">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+      
+        <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+      
+        <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+      
+    </div>
+    
+  </div>
+  
+  
+    <div class="navbar-persistent--mobile">
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+    </div>
+  
+
+  
+    <button class="pst-navbar-icon sidebar-toggle secondary-toggle" aria-label="On this page">
+      <span class="fa-solid fa-outdent"></span>
+    </button>
+  
+</div>
+
+    </header>
+  
+
+  <div class="bd-container">
+    <div class="bd-container__inner bd-page-width">
+      
+      
+      
+      <dialog id="pst-primary-sidebar-modal"></dialog>
+      <div id="pst-primary-sidebar" class="bd-sidebar-primary bd-sidebar">
+        
+
+  
+  <div class="sidebar-header-items sidebar-primary__section">
+    
+    
+      <div class="sidebar-header-items__center">
+        
+          
+          
+            <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="../index.html">
+    How-To Guides
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../architecture/index.html">
+    Architecture
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../reference/index.html">
+    Reference
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+          
+        
+      </div>
+    
+    
+    
+      <div class="sidebar-header-items__end">
+        
+          <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-3"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-3"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-3"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-3">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+        
+          <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+        
+          <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+        
+      </div>
+    
+  </div>
+  
+    <div class="sidebar-primary-items__start sidebar-primary__section">
+        <div class="sidebar-primary-item">
+<nav class="bd-docs-nav bd-links"
+     aria-label="Section Navigation">
+  <p class="bd-links__title" role="heading" aria-level="1">Section Navigation</p>
+  <div class="bd-toc-item navbar-nav"><ul class="current nav bd-sidenav">
+<li class="toctree-l1"><a class="reference internal" href="../build-profiles.html">Build Profiles</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../deploy-a-facility.html">Deploy a Facility</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../deploy-project/index.html">Container Deployment</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../deploy-project/compose-templates.html">Compose Templates and Images</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../deploy-project/networking.html">Network Binding and Security</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../deploy-project/env-chain.html">Environment Variables (the <code class="docutils literal notranslate"><span class="pre">.env</span></code> chain)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../deploy-project/project-image.html">The Project Image</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../llm-providers/index.html">LLM Providers</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../llm-providers/configure-providers.html">Configure LLM Providers</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../llm-providers/run-open-models.html">Run Open &amp; Local Models</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 current active has-children"><a class="reference internal" href="index.html">Web Terminal</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="operate.html">Run the Web Terminal</a></li>
+<li class="toctree-l2"><a class="reference internal" href="theming.html">Theming</a></li>
+<li class="toctree-l2"><a class="reference internal" href="panels.html">Panels</a></li>
+<li class="toctree-l2"><a class="reference internal" href="lattice-dashboard.html">Lattice Dashboard</a></li>
+<li class="toctree-l2"><a class="reference internal" href="notebooks.html">Notebooks</a></li>
+<li class="toctree-l2 current active"><a class="current reference internal" href="#">CANOPY</a></li>
+
+
+
+
+
+
+
+<li class="toctree-l2"><a class="reference internal" href="canopy-library.html">Share CANOPY Screens</a></li>
+
+
+
+
+
+
+
+<li class="toctree-l2"><a class="reference internal" href="send-feedback.html">Send and Retrieve Feedback</a></li>
+<li class="toctree-l2 has-children"><a class="reference internal" href="multi-user/index.html">Multi-User Support</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l3"><a class="reference internal" href="multi-user/tiers.html">Privilege Tiers</a></li>
+<li class="toctree-l3"><a class="reference internal" href="multi-user/login.html">Require a Login</a></li>
+</ul>
+</details></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../agent-interfaces/index.html">Agent Interfaces</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../agent-interfaces/cli-agent.html">Run the Agent from the Command Line</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../agent-interfaces/event-dispatch.html">Event Dispatch</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../agent-interfaces/add-mcp-server.html">Add an MCP Server</a></li>
+<li class="toctree-l2 has-children"><a class="reference internal" href="../agent-interfaces/chat-bridges/index.html">Chat Bridges</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l3"><a class="reference internal" href="../agent-interfaces/chat-bridges/nextcloud-talk.html">Nextcloud Talk</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../agent-interfaces/chat-bridges/google-chat.html">Google Chat</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../agent-interfaces/chat-bridges/microsoft-teams.html">Microsoft Teams</a></li>
+</ul>
+</details></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../health-and-monitoring/index.html">Health and Monitoring</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../health-and-monitoring/configure-health-checks.html">Configure Health Checks</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../health-and-monitoring/agent-record.html">Keep the Agent Record</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../health-and-monitoring/read-the-record.html">Read the Record</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../control-systems/index.html">Control Systems</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../control-systems/use-connectors.html">Use Connectors</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../control-systems/use-virtual-accelerator.html">Use the Virtual Accelerator</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../control-systems/switch-control-target.html">Switch the Control Target at Run Time</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../control-systems/phoebus-bridge.html">Connect the Agent to Phoebus Displays</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../control-systems/code-review.html">Review the Agent’s Code</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1"><a class="reference internal" href="../safety-watchdogs.html">Safety Watchdogs</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../describe-your-facility.html">Describe your facility</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../measure-with-pyaml.html">Measure with the pyAML Tools</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../use-channel-finder.html">How to Use the Channel Finder</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../import-mml-export.html">Import a Middle Layer export</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../run-scenarios.html">Run and write scenarios</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../facility-knowledge/index.html">Facility Knowledge</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../facility-knowledge/facility-rules.html">Facility Rules</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../facility-knowledge/okf-bundle.html">The OKF Bundle</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../facility-knowledge/use-facility-graph.html">Search the Facility Graph</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../ariel/index.html">Logbook Search Service (ARIEL)</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../ariel/data-ingestion.html">Data Ingestion</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../ariel/search-modes.html">Search Modes</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../ariel/web-interface.html">Web Interface</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../ariel/search-sidecar.html">The Search Sidecar (<code class="docutils literal notranslate"><span class="pre">qmd</span></code>)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../ariel/picture-search.html">Picture Captions and Picture Search</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../bluesky/index.html">Bluesky Plans</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../bluesky/run-first-plan.html">Run Your First Plan</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../bluesky/queue.html">Plans and the Queue</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../bluesky/write-plans.html">Write Your Own Plans</a></li>
+</ul>
+</details></li>
+</ul>
+</div>
+</nav></div>
+    </div>
+  
+  
+  <div class="sidebar-primary-items__end sidebar-primary__section">
+      <div class="sidebar-primary-item">
+<div id="ethical-ad-placement"
+      class="flat"
+      data-ea-publisher="readthedocs"
+      data-ea-type="readthedocs-sidebar"
+      data-ea-manual="true">
+</div></div>
+  </div>
+
+
+      </div>
+      
+      <main id="main-content" class="bd-main" role="main">
+        
+        
+          <div class="bd-content">
+            <div class="bd-article-container">
+              
+              <div class="bd-header-article d-print-none">
+<div class="header-article-items header-article__inner">
+  
+    <div class="header-article-items__start">
+      
+        <div class="header-article-item">
+
+<nav aria-label="Breadcrumb" class="d-print-none">
+  <ul class="bd-breadcrumbs">
+    
+    <li class="breadcrumb-item breadcrumb-home">
+      <a href="../../index.html" class="nav-link" aria-label="Home">
+        <i class="fa-solid fa-home"></i>
+      </a>
+    </li>
+    
+    <li class="breadcrumb-item"><a href="../index.html" class="nav-link">How-To Guides</a></li>
+    
+    
+    <li class="breadcrumb-item"><a href="index.html" class="nav-link">Web Terminal</a></li>
+    
+    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">CANOPY</span></li>
+  </ul>
+</nav>
+</div>
+      
+    </div>
+  
+  
+</div>
+</div>
+              
+              
+              
+                
+<div id="searchbox"></div>
+                <article class="bd-article">
+                  
+  <section id="canopy">
+<span id="how-to-web-terminal-canopy"></span><h1>CANOPY<a class="headerlink" href="#canopy" title="Link to this heading">#</a></h1>
+<p><strong>CANOPY</strong> shows the machine the way a control-room display does: screens with
+live readbacks, setpoints and buttons, plus <strong>Trace</strong> for archived history, a
+correlation plot and a waveform view. In an OSPREY deployment it is the
+<strong>CANOPY</strong> tab of the web terminal, and the agent works in it with you: it
+opens the screen you ask for, arranges tabs, and builds new screens.</p>
+<details class="sd-sphinx-override sd-dropdown sd-card sd-mb-3">
+<summary class="sd-summary-title sd-card-header sd-bg-primary sd-bg-text-primary">
+<span class="sd-summary-icon"><svg version="1.1" width="1.0em" height="1.0em" class="sd-octicon sd-octicon-book" viewBox="0 0 16 16" aria-hidden="true"><path d="M0 1.75A.75.75 0 0 1 .75 1h4.253c1.227 0 2.317.59 3 1.501A3.743 3.743 0 0 1 11.006 1h4.245a.75.75 0 0 1 .75.75v10.5a.75.75 0 0 1-.75.75h-4.507a2.25 2.25 0 0 0-1.591.659l-.622.621a.75.75 0 0 1-1.06 0l-.622-.621A2.25 2.25 0 0 0 5.258 13H.75a.75.75 0 0 1-.75-.75Zm7.251 10.324.004-5.073-.002-2.253A2.25 2.25 0 0 0 5.003 2.5H1.5v9h3.757a3.75 3.75 0 0 1 1.994.574ZM8.755 4.75l-.004 7.322a3.752 3.752 0 0 1 1.992-.572H14.5v-9h-3.495a2.25 2.25 0 0 0-2.25 2.25Z"></path></svg></span><span class="sd-summary-text">What You’ll Learn</span><span class="sd-summary-state-marker sd-summary-chevron-right"><svg version="1.1" width="1.5em" height="1.5em" class="sd-octicon sd-octicon-chevron-right" viewBox="0 0 24 24" aria-hidden="true"><path d="M8.72 18.78a.75.75 0 0 1 0-1.06L14.44 12 8.72 6.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018l6.25 6.25a.75.75 0 0 1 0 1.06l-6.25 6.25a.75.75 0 0 1-1.06 0Z"></path></svg></span></summary><div class="sd-summary-content sd-card-body docutils">
+<ul class="simple">
+<li><p class="sd-card-text">How CANOPY fits into the web terminal, and where its screens come from</p></li>
+<li><p class="sd-card-text">How to turn it on in a deployment</p></li>
+<li><p class="sd-card-text">What a click on a screen may write, and what stops it</p></li>
+<li><p class="sd-card-text">What the agent can and cannot do in the panel</p></li>
+<li><p class="sd-card-text">How to upgrade CANOPY</p></li>
+</ul>
+<p class="sd-card-text"><strong>Prerequisites:</strong> a deployment built with <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> (see
+<a class="reference internal" href="../deploy-a-facility.html"><span class="doc">Deploy a Facility</span></a>). Sharing screens with everyone has its own
+page, <a class="reference internal" href="canopy-library.html"><span class="doc">Share CANOPY Screens</span></a>.</p>
+</div>
+</details></section>
+<section id="how-it-fits-together">
+<h1>How it fits together<a class="headerlink" href="#how-it-fits-together" title="Link to this heading">#</a></h1>
+<div class="osprey-diagram">
+<svg id="canopy-panel-svg" viewBox="0 0 1020 368" role="img" aria-labelledby="canopy-panel-title canopy-panel-desc">
+  <title id="canopy-panel-title">Where a CANOPY screen gets its values, and where its writes go</title>
+  <desc id="canopy-panel-desc">The CANOPY tab in your browser reaches your own CANOPY only through the web terminal, behind your login. Your CANOPY is two processes: a front process that serves the screens, Trace and the agent's screen tools, and a data process that reads and writes channels. The data process goes through the control session, the same path, verdict, limits and audit trail as every other OSPREY write, to the machine. The agent in the same terminal reaches the screen tools through the terminal's proxy; it opens, arranges and drafts screens and writes no channel there. Screens come from the shared library, which everyone sees read-only, and from your personal store, which only you see.</desc>
+  <style>#canopy-panel-svg .tn { font-size: 13px; } #canopy-panel-svg .ts { font-size: 10.5px; } #canopy-panel-svg .ta { font-size: 10px; } #canopy-panel-svg .te { font-size: 9.5px; }</style>
+  <defs>
+    <marker id="canopy-panel-arr" viewBox="0 0 8 6" refX="7" refY="3" markerWidth="8" markerHeight="6" orient="auto-start-reverse">
+      <polygon points="0,0 8,3 0,6" fill="context-stroke"/>
+    </marker>
+  </defs>
+
+  <!-- edges -->
+  <line class="e" x1="315" y1="76" x2="315" y2="124" marker-end="url(#canopy-panel-arr)"/>
+  <line class="e" x1="180" y1="154" x2="228" y2="154" marker-end="url(#canopy-panel-arr)"/>
+  <line class="e" x1="400" y1="154" x2="450" y2="154" marker-end="url(#canopy-panel-arr)"/>
+  <line class="e" x1="555" y1="180" x2="555" y2="194" marker-end="url(#canopy-panel-arr)"/>
+  <line class="e-acc" x1="658" y1="224" x2="708" y2="224" marker-end="url(#canopy-panel-arr)"/>
+  <line class="e-acc" x1="882" y1="224" x2="904" y2="224" marker-end="url(#canopy-panel-arr)"/>
+  <line class="e e-dash" x1="500" y1="296" x2="500" y2="264" marker-end="url(#canopy-panel-arr)"/>
+  <line class="e e-dash" x1="614" y1="296" x2="614" y2="264" marker-end="url(#canopy-panel-arr)"/>
+  <text class="ta" x="325" y="104">writes no channel</text>
+  <text class="ta" x="796" y="272" text-anchor="middle">the same path as every write</text>
+
+  <!-- the agent -->
+  <rect class="mask" x="230" y="20" width="170" height="56" rx="6"/>
+  <rect class="nb-in" x="230" y="20" width="170" height="56" rx="6"/>
+  <text class="tn" x="315" y="42" text-anchor="middle">OSPREY agent</text>
+  <text class="ts" x="315" y="58" text-anchor="middle">opens · arranges · drafts</text>
+
+  <!-- the browser and the terminal -->
+  <rect class="mask" x="40" y="126" width="140" height="56" rx="6"/>
+  <rect class="nb-in" x="40" y="126" width="140" height="56" rx="6"/>
+  <text class="tn" x="110" y="148" text-anchor="middle">CANOPY tab</text>
+  <text class="ts" x="110" y="164" text-anchor="middle">in your browser</text>
+  <rect class="mask" x="230" y="126" width="170" height="56" rx="6"/>
+  <rect class="nb" x="230" y="126" width="170" height="56" rx="6"/>
+  <text class="tn" x="315" y="148" text-anchor="middle">web terminal</text>
+  <text class="ts" x="315" y="164" text-anchor="middle">your login · its proxy</text>
+
+  <!-- your own CANOPY -->
+  <rect class="zone" x="440" y="100" width="230" height="162" rx="6"/>
+  <text class="te" x="456" y="116">YOUR OWN CANOPY</text>
+  <rect class="mask" x="452" y="124" width="206" height="56" rx="6"/>
+  <rect class="nb" x="452" y="124" width="206" height="56" rx="6"/>
+  <text class="tn" x="555" y="146" text-anchor="middle">front process</text>
+  <text class="ts" x="555" y="162" text-anchor="middle">screens · Trace · agent tools</text>
+  <rect class="mask" x="452" y="196" width="206" height="56" rx="6"/>
+  <rect class="nb" x="452" y="196" width="206" height="56" rx="6"/>
+  <text class="tn" x="555" y="218" text-anchor="middle">data process</text>
+  <text class="ts" x="555" y="234" text-anchor="middle">reads and writes channels</text>
+
+  <!-- the control session and the machine -->
+  <rect class="mask" x="710" y="196" width="172" height="56" rx="6"/>
+  <rect class="nb nb-acc-stroke" x="710" y="196" width="172" height="56" rx="6"/>
+  <text class="tn" x="796" y="218" text-anchor="middle">control session</text>
+  <text class="ts" x="796" y="234" text-anchor="middle">verdict · limits · audit</text>
+  <rect class="mask" x="906" y="196" width="86" height="56" rx="6"/>
+  <rect class="nb-foc" x="906" y="196" width="86" height="56" rx="6"/>
+  <text class="tn" x="949" y="228" text-anchor="middle">machine</text>
+
+  <!-- where screens come from -->
+  <rect class="mask" x="446" y="296" width="108" height="52" rx="6"/>
+  <rect class="nb-st" x="446" y="296" width="108" height="52" rx="6"/>
+  <text class="tn" x="500" y="317" text-anchor="middle">library</text>
+  <text class="ts" x="500" y="333" text-anchor="middle">everyone sees it</text>
+  <rect class="mask" x="560" y="296" width="108" height="52" rx="6"/>
+  <rect class="nb-st" x="560" y="296" width="108" height="52" rx="6"/>
+  <text class="tn" x="614" y="317" text-anchor="middle">personal store</text>
+  <text class="ts" x="614" y="333" text-anchor="middle">only you see it</text>
+</svg>
+</div>
+<p>Every user’s web terminal runs its <strong>own</strong> CANOPY. It reads and writes the
+machine through the terminal’s control session, the same one the agent and the
+notebooks use. So a screen shows the machine the control-target chip names, and
+a click on it is judged like any other write from that login: same tier, same
+write switch, same limits, same audit trail. CANOPY has no permissions of its
+own.</p>
+<p>A screen comes from one of two places:</p>
+<ul class="simple">
+<li><p><strong>The library</strong> holds the deployment’s shared screens, in
+<code class="docutils literal notranslate"><span class="pre">data/canopy/library</span></code> of the deployment repository. Everyone sees them, and
+nobody can change them from the panel. <a class="reference internal" href="canopy-library.html"><span class="doc">Share CANOPY Screens</span></a> explains how a
+screen gets in.</p></li>
+<li><p><strong>Your personal store</strong> holds the screens you or the agent built. It lives in
+your own agent data, survives rebuilds, and only you see it.</p></li>
+</ul>
+<p>In a multi-user deployment, every login card has its own CANOPY. A
+<a class="reference internal" href="multi-user/login.html#multi-user-shared-card"><span class="std std-ref">shared card</span></a> is one CANOPY for everyone who
+opens it: they share its screens and saved views, and its writes are audited
+under the card’s name.</p>
+</section>
+<section id="turn-it-on">
+<h1>Turn it on<a class="headerlink" href="#turn-it-on" title="Link to this heading">#</a></h1>
+<p>OSPREY does not build CANOPY. It takes a ready-made <strong>payload</strong>: a directory
+with CANOPY’s Python packages and web pages, built from the canopy repository.</p>
+<ol class="arabic">
+<li><p><strong>Build the payload</strong> with the canopy repository’s
+<code class="docutils literal notranslate"><span class="pre">scripts/build-payload.sh</span></code> (its <code class="docutils literal notranslate"><span class="pre">--help</span></code> lists the inputs). Build it at
+the commits this OSPREY release was tested against, which this command
+prints:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>python<span class="w"> </span>-m<span class="w"> </span>osprey.integrations.canopy<span class="w"> </span>--pins
+</pre></div>
+</div>
+<p>A payload built at any other commit stops the build.</p>
+</li>
+<li><p><strong>Name the payload</strong> in the deployment’s <code class="docutils literal notranslate"><span class="pre">.env</span></code>:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="nv">OSPREY_CANOPY_PAYLOAD</span><span class="o">=</span>/srv/canopy/payload
+</pre></div>
+</div>
+</li>
+<li><p><strong>Add the panel to</strong> <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>. No shipped preset includes it. Add
+<code class="docutils literal notranslate"><span class="pre">canopy</span></code> to <code class="docutils literal notranslate"><span class="pre">web_panels</span></code>, its three skills to <code class="docutils literal notranslate"><span class="pre">skills</span></code>, and the
+build step that copies the payload into the deployment:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">web_panels</span><span class="p">:</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">canopy</span>
+<span class="nt">skills</span><span class="p">:</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">canopy-panel-builder</span><span class="w">   </span><span class="c1"># build and check screens</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">canopy-operator</span><span class="w">        </span><span class="c1"># open and arrange what the panel shows</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">canopy-screens</span><span class="w">         </span><span class="c1"># which screen shows which device</span>
+<span class="nt">lifecycle</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">pre_build</span><span class="p">:</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">canopy-payload</span>
+<span class="w">      </span><span class="nt">timeout</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">30</span>
+<span class="w">      </span><span class="nt">run</span><span class="p">:</span><span class="w"> </span><span class="s">&#39;&quot;{python}&quot;</span><span class="nv"> </span><span class="s">-m</span><span class="nv"> </span><span class="s">osprey.integrations.canopy.stage&#39;</span>
+</pre></div>
+</div>
+</li>
+<li><p>Run <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code>. The <strong>CANOPY</strong> tab is in the
+sidebar.</p></li>
+</ol>
+<p>If <code class="docutils literal notranslate"><span class="pre">OSPREY_CANOPY_PAYLOAD</span></code> is unset, the build leaves the panel and its
+skills out and says so in one line. To leave the panel out of one tier, list
+<code class="docutils literal notranslate"><span class="pre">canopy</span></code> under <code class="docutils literal notranslate"><span class="pre">exclude.web_panels</span></code> and the three skills under
+<code class="docutils literal notranslate"><span class="pre">exclude.skills</span></code> (see <a class="reference internal" href="../build-profiles.html"><span class="doc">Build Profiles</span></a>).</p>
+<p>The panel’s optional settings are flat keys under <code class="docutils literal notranslate"><span class="pre">config:</span></code>, for example the
+screen CANOPY opens first and the channel Trace starts with:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">config</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">web.panels.canopy.home_screen</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">facility/overview</span>
+<span class="w">  </span><span class="nt">web.panels.canopy.trace_default_query</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">pv=SR:DIAG:BPM:03:POSITION:X&amp;range=-1h</span>
+</pre></div>
+</div>
+<p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> refuses a <code class="docutils literal notranslate"><span class="pre">home_screen</span></code> the library does not hold. Every key
+is in <a class="reference internal" href="../../reference/configuration/config.html#config-web-panels-canopy"><span class="std std-ref">the configuration reference</span></a>.</p>
+</section>
+<section id="use-the-panel">
+<h1>Use the panel<a class="headerlink" href="#use-the-panel" title="Link to this heading">#</a></h1>
+<p>Open a screen from the panel’s sidebar or the command palette, or ask the
+agent (“open the RF overview”). Screens and tools open as tabs in tiles, which
+you drag and split like the terminal’s own (<a class="reference internal" href="operate.html#web-terminal-tiles"><span class="std std-ref">Tiles and tabs</span></a>). The
+<strong>☰</strong> menu at the right end of the top-right tile’s bar resets the layout,
+saves the open tabs as a collection and reopens recently closed tabs.</p>
+<p><strong>Which machine.</strong> A badge names the machine the values come from. Switch the
+control target on the chip and CANOPY follows: the screens go blank for a
+moment and return with the new machine’s values. A click made on a screen
+that still showed the old machine is refused, never sent to the new one. If
+the terminal has no control target on record, CANOPY shows the deployment’s
+default machine, read-only. If it cannot reach the chosen machine, every
+channel shows disconnected and every write is refused.</p>
+<p><strong>History.</strong> Trace and the correlation plot read the archive of the machine
+you are on. If the deployment archives another machine, or none, they say
+<em>No archiver</em>. Live values and history never come from two different machines.</p>
+<p><strong>Saved views</strong> in Trace and the correlation plot are yours: they are kept in
+your agent data.</p>
+</section>
+<section id="write-to-the-machine-from-a-screen">
+<h1>Write to the machine from a screen<a class="headerlink" href="#write-to-the-machine-from-a-screen" title="Link to this heading">#</a></h1>
+<p>A button, slider or entry field on a screen writes as you. The chip’s write
+switch for the machine decides how:</p>
+<ul class="simple">
+<li><p><strong>off</strong> — the write is refused.</p></li>
+<li><p><strong>asked</strong> — a dialog asks you to confirm each write. A slider asks once,
+when you let go. Declining sends nothing.</p></li>
+<li><p><strong>allowed</strong> — the write is sent at once, without a dialog.</p></li>
+</ul>
+<p>Your tier, the channel limits and the safety watchdogs apply as well. While a
+watchdog has flagged one of the terminal’s agent sessions, the panel says
+<em>writes held</em> with the reason and refuses every click, because the agent
+arranges this panel and could have set up the click. When a write ends, a
+short notice says whether the machine read back the value you sent, or why the
+write was refused. Every write and every refusal is in the audit trail under
+your name, with the surface <code class="docutils literal notranslate"><span class="pre">canopy</span></code>. <a class="reference internal" href="../../architecture/safety-chain.html#architecture-safety-chain-panel-write"><span class="std std-ref">A panel write</span></a> on the safety chain page follows the
+path step by step.</p>
+<div class="admonition warning">
+<p class="admonition-title">Warning</p>
+<p>At <em>allowed</em>, take care with a screen <strong>the agent opened</strong>. The agent chose
+the screen and its settings, so its write buttons address what the agent
+chose, and they write without a dialog. Read what a button addresses before
+you press it. The <code class="docutils literal notranslate"><span class="pre">canopy-operator</span></code> skill has the agent say which screen
+it opened and how.</p>
+</div>
+<p>After the agent changes the panel, the write buttons in that window pause for
+750 ms with a visible notice, so a tab that moves under your pointer cannot
+catch a click meant for something else.</p>
+</section>
+<section id="what-the-agent-can-do-in-the-panel">
+<h1>What the agent can do in the panel<a class="headerlink" href="#what-the-agent-can-do-in-the-panel" title="Link to this heading">#</a></h1>
+<p>The agent reaches your CANOPY and nobody else’s. Its CANOPY tools fall into
+three groups:</p>
+<ul class="simple">
+<li><p><strong>Look</strong> — read a screen, take a screenshot, read a channel, search channel
+names, check a screen for errors. No prompt.</p></li>
+<li><p><strong>Arrange</strong> — open, close, split and zoom tabs, open a collection, set
+Trace’s channels (<code class="docutils literal notranslate"><span class="pre">get_workspace</span></code>, <code class="docutils literal notranslate"><span class="pre">set_workspace</span></code>). No prompt, because
+none of it touches the machine. What changed is highlighted, each batch is a
+row in the terminal’s activity log (<strong>⋯ More</strong>), and anything the agent
+closes comes back with the closed-tabs toast’s <strong>Undo</strong> or <strong>☰ → Recently
+closed</strong>.</p></li>
+<li><p><strong>Author</strong> — create, edit or delete a screen in your personal store,
+convert a legacy panel (<code class="docutils literal notranslate"><span class="pre">.bob</span></code>, <code class="docutils literal notranslate"><span class="pre">.opi</span></code>, <code class="docutils literal notranslate"><span class="pre">.edl</span></code>, <code class="docutils literal notranslate"><span class="pre">.ui</span></code>), or ask for a
+screen to join the library (<code class="docutils literal notranslate"><span class="pre">request_push</span></code>). Each call asks you first.</p></li>
+</ul>
+<p>The agent never writes a channel through CANOPY: its writes stay on OSPREY’s
+own write tools and their approval. Your own actions win: if you change the
+panel while an agent command is on its way, the command fails and the agent
+looks again. While a write dialog is open, the agent’s arranging waits for it
+to close.</p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>In this release the CANOPY payload carries no screen-format specification.
+When the agent checks a screen, the result carries one warning,
+<code class="docutils literal notranslate"><span class="pre">spec_unavailable</span></code>: the schema checks did not run, everything else did.
+Read such a check as incomplete, not as a pass.</p>
+</div>
+</section>
+<section id="size-the-host">
+<h1>Size the host<a class="headerlink" href="#size-the-host" title="Link to this heading">#</a></h1>
+<p>Each CANOPY takes about 270 MiB, and one runs for every login whose tier shows
+the panel, whether or not the tab is open. The agent’s screenshot tool starts
+a headless browser that adds up to 450 MiB while it is in use.
+<code class="docutils literal notranslate"><span class="pre">web.panels.canopy.vole_bytes_max</span></code> caps the live-value buffers of one
+CANOPY. For a wall display that many people watch, use one shared card: ten
+users on one screen are ten sets of subscriptions on the control system.</p>
+</section>
+<section id="upgrade-canopy">
+<span id="canopy-upgrading"></span><h1>Upgrade CANOPY<a class="headerlink" href="#upgrade-canopy" title="Link to this heading">#</a></h1>
+<p>A CANOPY upgrade is an OSPREY upgrade plus a new payload:</p>
+<ol class="arabic simple">
+<li><p>Upgrade OSPREY to a release tested against the new CANOPY, and read its
+pins with <code class="docutils literal notranslate"><span class="pre">python</span> <span class="pre">-m</span> <span class="pre">osprey.integrations.canopy</span> <span class="pre">--pins</span></code>.</p></li>
+<li><p>Build a new payload at those commits and point <code class="docutils literal notranslate"><span class="pre">OSPREY_CANOPY_PAYLOAD</span></code> at
+it.</p></li>
+<li><p>Regenerate the library’s report with the new CANOPY and commit it, even if
+no screen changed (<a class="reference internal" href="canopy-library.html#canopy-library-report"><span class="std std-ref">Regenerate the report</span></a>).</p></li>
+<li><p>Run <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code>.</p></li>
+</ol>
+<p>The rebuild restarts every terminal and ends open agent sessions, so announce
+it. Personal stores, saved views and pending push requests live in the users’
+agent data and are kept.</p>
+<p>To go back, keep the old payload directory: install the OSPREY release it was
+built for, point <code class="docutils literal notranslate"><span class="pre">OSPREY_CANOPY_PAYLOAD</span></code> at it again, revert the report
+commit of step 3, and rebuild.</p>
+<div class="admonition seealso">
+<p class="admonition-title">See also</p>
+<dl class="simple">
+<dt><a class="reference internal" href="canopy-library.html"><span class="doc">Share CANOPY Screens</span></a></dt><dd><p>Add, review, remove and roll back shared screens.</p>
+</dd>
+<dt><a class="reference internal" href="../../architecture/safety-chain.html#architecture-safety-chain-panel-write"><span class="std std-ref">A panel write</span></a></dt><dd><p>How a click on a screen is checked on its way to the machine.</p>
+</dd>
+<dt><a class="reference internal" href="../../reference/configuration/config.html#config-web-panels-canopy"><span class="std std-ref">The configuration reference</span></a></dt><dd><p>Every <code class="docutils literal notranslate"><span class="pre">web.panels.canopy</span></code> key.</p>
+</dd>
+</dl>
+</div>
+</section>
+
+
+                </article>
+              
+              
+              
+              
+              
+                <footer class="prev-next-footer d-print-none">
+                  
+<div class="prev-next-area">
+    <a class="left-prev"
+       href="notebooks.html"
+       title="previous page">
+      <i class="fa-solid fa-angle-left"></i>
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">previous</p>
+        <p class="prev-next-title">Notebooks</p>
+      </div>
+    </a>
+    <a class="right-next"
+       href="canopy-library.html"
+       title="next page">
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">next</p>
+        <p class="prev-next-title">Share CANOPY Screens</p>
+      </div>
+      <i class="fa-solid fa-angle-right"></i>
+    </a>
+</div>
+                </footer>
+              
+            </div>
+            
+            
+              
+                <dialog id="pst-secondary-sidebar-modal"></dialog>
+                <div id="pst-secondary-sidebar" class="bd-sidebar-secondary bd-toc"><div class="sidebar-secondary-items sidebar-secondary__inner">
+
+
+  <div class="sidebar-secondary-item">
+<div
+    id="pst-page-navigation-heading-2"
+    class="page-toc tocsection onthispage">
+    <i class="fa-solid fa-list"></i> On this page
+  </div>
+  <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
+    <ul class="visible nav section-nav flex-column">
+<li class="toc-h1 nav-item toc-entry"><a class="reference internal nav-link" href="#">CANOPY</a></li>
+<li class="toc-h1 nav-item toc-entry"><a class="reference internal nav-link" href="#how-it-fits-together">How it fits together</a></li>
+<li class="toc-h1 nav-item toc-entry"><a class="reference internal nav-link" href="#turn-it-on">Turn it on</a></li>
+<li class="toc-h1 nav-item toc-entry"><a class="reference internal nav-link" href="#use-the-panel">Use the panel</a></li>
+<li class="toc-h1 nav-item toc-entry"><a class="reference internal nav-link" href="#write-to-the-machine-from-a-screen">Write to the machine from a screen</a></li>
+<li class="toc-h1 nav-item toc-entry"><a class="reference internal nav-link" href="#what-the-agent-can-do-in-the-panel">What the agent can do in the panel</a></li>
+<li class="toc-h1 nav-item toc-entry"><a class="reference internal nav-link" href="#size-the-host">Size the host</a></li>
+<li class="toc-h1 nav-item toc-entry"><a class="reference internal nav-link" href="#upgrade-canopy">Upgrade CANOPY</a></li>
+</ul>
+
+  </nav></div>
+
+  <div class="sidebar-secondary-item">
+
+  
+  <div class="tocsection editthispage">
+    <a href="https://github.com/als-apg/osprey/edit/main/docs/source/how-to/web-terminal/canopy.rst">
+      <i class="fa-solid fa-pencil"></i>
+      
+      
+        
+          Edit on GitHub
+        
+      
+    </a>
+  </div>
+</div>
+
+</div></div>
+              
+            
+          </div>
+          <footer class="bd-footer-content">
+            
+          </footer>
+        
+      </main>
+    </div>
+  </div>
+  
+  <!-- Scripts loaded after <body> so the DOM is not blocked -->
+  <script defer src="../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf"></script>
+<script defer src="../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf"></script>
+
+  <footer class="bd-footer">
+<div class="bd-footer__inner bd-page-width">
+  
+    <div class="footer-items__start">
+      
+        <div class="footer-item">
+
+  <p class="copyright">
+    
+      © Copyright 2026, Osprey Developer Team.
+      <br/>
+    
+  </p>
+</div>
+      
+        <div class="footer-item">
+
+  <p class="sphinx-version">
+    Created using <a href="https://www.sphinx-doc.org/">Sphinx</a> 9.0.4.
+    <br/>
+  </p>
+</div>
+      
+    </div>
+  
+  
+  
+    <div class="footer-items__end">
+      
+        <div class="footer-item">
+<p class="theme-version">
+  <!-- # L10n: Setting the PST URL as an argument as this does not need to be localized -->
+  Built with the <a href="https://pydata-sphinx-theme.readthedocs.io/en/stable/index.html">PyData Sphinx Theme</a> 0.16.1.
+</p></div>
+      
+    </div>
+  
+</div>
+
+  </footer>
+  </body>
+</html>
