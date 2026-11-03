@@ -919,15 +919,22 @@ async ({ selector, tokens }) => {
 }
 """
 
-_READ_FLASH_JS = """
+# Reads the glow by seeking its animation, not by waiting on a clock: pause it,
+# sample box-shadow at offsets 0 and 0.5 of its duration, then finish() it, which
+# fires animationend so the class self-cleans.
+_SEEK_FLASH_JS = """
 (selector) => {
   const el = document.querySelector(selector);
-  const cs = getComputedStyle(el);
-  return {
-    background: cs.backgroundColor,
-    shadow: cs.boxShadow,
-    flashing: el.classList.contains('agent-flash'),
-  };
+  const anim = el.getAnimations().find((a) => a.animationName === 'agent-flash-glow');
+  if (!anim) throw new Error('no agent-flash-glow animation on ' + selector);
+  anim.pause();
+  const duration = anim.effect.getComputedTiming().duration;
+  const samples = [0, 0.5].map((offset) => {
+    anim.currentTime = offset * duration;
+    return getComputedStyle(el).boxShadow;
+  });
+  anim.finish();
+  return samples;
 }
 """
 
@@ -988,9 +995,8 @@ def test_reduced_motion_holds_the_glow_ring_still_instead_of_decaying(tmp_path, 
         assert normal["animationDuration"] == "0.9s"
         # The base keyframes paint their own fill over the element.
         assert normal["background"] == normal["tokens"][_TINT_20], normal
-        page.wait_for_timeout(300)
-        normal_later = page.evaluate(_READ_FLASH_JS, selector)
-        assert normal_later["shadow"] != normal["shadow"], "the ring did not decay"
+        a, b = page.evaluate(_SEEK_FLASH_JS, selector)
+        assert a != b, "the ring did not decay"
         _await_flash_cleanup(page, selector)
 
         # --- Reduced motion: the hold ----------------------------------------
@@ -1005,9 +1011,8 @@ def test_reduced_motion_holds_the_glow_ring_still_instead_of_decaying(tmp_path, 
         # A real ring is painted, from the accent token, and held constant.
         assert "0px 0px 0px 3px" in held["shadow"], held["shadow"]
         assert held["tokens"][_TINT_25] in held["shadow"], held
-        page.wait_for_timeout(300)
-        held_later = page.evaluate(_READ_FLASH_JS, selector)
-        assert held_later["shadow"] == held["shadow"], "the held ring moved"
+        a, b = page.evaluate(_SEEK_FLASH_JS, selector)
+        assert a == b == held["shadow"], "the held ring moved"
         # It still ENDS: the stepped animation fires animationend, so the
         # class self-cleans exactly as the decay does.
         _await_flash_cleanup(page, selector)
