@@ -236,6 +236,42 @@ describe('dock layout persistence under the user-scoped key', () => {
   });
 });
 
+describe('a change made just before the page goes away is stored', () => {
+  // A write waits 150 ms after the first change of a burst. A reload or a
+  // closed tab inside that window must still find the change stored.
+  /** @type {[string, () => void][]} */
+  const leaving = [
+    ['pagehide', () => window.dispatchEvent(new Event('pagehide'))],
+    [
+      'the page going out of sight',
+      () => {
+        Object.defineProperty(document, 'visibilityState', {
+          configurable: true,
+          value: 'hidden',
+        });
+        document.dispatchEvent(new Event('visibilitychange'));
+      },
+    ],
+  ];
+
+  test.each(leaving)('%s writes the change still waiting to be stored', async (_name, leave) => {
+    const page = await boot(null);
+    localStorage.removeItem(KEY);
+    await openService(page, 'ariel');
+    expect(localStorage.getItem(KEY)).toBeNull();
+
+    try {
+      leave();
+    } finally {
+      Reflect.deleteProperty(document, 'visibilityState');
+    }
+
+    const stored = localStorage.getItem(KEY);
+    expect(stored).not.toBeNull();
+    expect(JSON.parse(stored ?? '').layout).toEqual(page.holder.layout);
+  });
+});
+
 describe('a reload restores tiles, the showing tab and sizes', () => {
   test('the stored tiles come back as stored, with their records', async () => {
     localStorage.setItem(KEY, v2(SERVICE_AND_TERMINAL, { ariel: { title: 'ARIEL' } }));

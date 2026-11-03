@@ -693,9 +693,23 @@ function schedulePersist() {
 }
 
 /**
+ * Write a persist still waiting in its debounce window now. Bound to
+ * `pagehide` (a reload, a closed tab, a navigation away) and to the page going
+ * out of sight, the last event a tab the browser discards is sure to get: a
+ * change made in the window before either would otherwise never be stored.
+ */
+function flushPersist() {
+  if (persistHandle == null) return;
+  clearTimeout(persistHandle);
+  persistHandle = null;
+  persistCurrentLayout();
+}
+
+/**
  * Resolve the per-project storage key and the panels the dock can build, apply
  * any stored layout over the default, then wire settled-change persistence
- * (layout changes and tab switches). The listeners are subscribed AFTER the
+ * (layout changes and tab switches), with a write still waiting flushed when
+ * the page goes away or out of sight. The listeners are subscribed AFTER the
  * stored layout is applied so the restore itself doesn't trigger a redundant
  * write-back.
  *
@@ -731,6 +745,10 @@ async function initPersistence(api) {
   announceLayoutRestored();
   api.onDidLayoutChange(schedulePersist);
   api.onDidActivePanelChange(schedulePersist);
+  window.addEventListener('pagehide', flushPersist);
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') flushPersist();
+  });
 }
 
 /**
