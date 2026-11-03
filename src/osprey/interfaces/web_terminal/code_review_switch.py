@@ -90,10 +90,14 @@ async def serve_switch(app: Any) -> SwitchListener:
         os.chmod(path, 0o600)
         sock.setblocking(False)
 
-        async def answer(_reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+        async def answer(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
             try:
                 writer.write(json.dumps(switch_state(app)).encode())
                 await asyncio.wait_for(writer.drain(), _ANSWER_TIMEOUT_S)
+                # Half-close, then stay until the reader has let go: macOS names no peer
+                # once the other end is closed, and the reader asks for it while it reads.
+                writer.write_eof()
+                await asyncio.wait_for(reader.read(1), _ANSWER_TIMEOUT_S)
             except Exception as exc:
                 logger.debug("code review switch answer not delivered: %s", exc)
             finally:

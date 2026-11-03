@@ -62,6 +62,12 @@ while True:
     conn, _ = listener.accept()
     with conn:
         conn.sendall(sys.argv[2].encode())
+        conn.shutdown(socket.SHUT_WR)
+        conn.settimeout(2)
+        try:
+            conn.recv(1)
+        except OSError:
+            pass
 """
 
 
@@ -112,6 +118,10 @@ class _Terminal:
                 if self.stop.wait(0.05):
                     return
                 conn.sendall(bytes([byte]))
+            # As the terminal does: half-close, then stay until the reader lets go.
+            conn.shutdown(socket.SHUT_WR)
+            conn.settimeout(2)
+            conn.recv(1)
 
 
 @pytest.fixture
