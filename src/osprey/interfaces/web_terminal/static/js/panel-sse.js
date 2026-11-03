@@ -28,6 +28,7 @@ import { fetchJSON, createEventSource, getPageClientId, pageEventsUrl } from './
 import { hidePanel } from './dock-iframe.js';
 import { withEchoSuppressed, noteReported, reportLayoutNow, sameReport } from './dock-sync.js';
 import { getLayoutHolder, TERMINAL_KEY } from './dock-apply.js';
+import { serviceTileTarget } from './dock-open.js';
 import {
   flashAgentGlow,
   flashAgentTile,
@@ -126,7 +127,7 @@ export function subscribePanelEvents(sseDeps) {
   //                                             — add/remove a rail entry (an
   //                                               addition with an index goes
   //                                               to that position); removing
-  //                                               also closes the tab (an
+  //                                               also closes the tile (an
   //                                               unlaunchable panel must not be
   //                                               stranded on screen), then switches
   //                                               to the next member+healthy panel
@@ -236,8 +237,8 @@ export function subscribePanelEvents(sseDeps) {
  * Order matters and is pinned by the test suite: membership + rail entry
  * first (the agent glow runs after the add so a just-added entry can flash,
  * and an agent-origin change reports itself on the activity strip);
- * then, on a hide, the dock tab drop (a closed panel's placeholder would be a
- * ghost tab) under the echo guard (dockview auto-activating a neighbor on
+ * then, on a hide, the dock tile drop (a closed panel's placeholder would be a
+ * ghost tile) under the echo guard (dockview auto-activating a neighbor on
  * removal is a server-applied echo and must not POST focus back), and finally
  * the active-panel fallback so a hidden active panel never strands a blank pane.
  *
@@ -279,30 +280,43 @@ function applyPanelVisibility(panel, visible, source, index) {
     });
 
   // A panel the operator can no longer launch must not be stranded on screen.
-  // A hide of a panel that was never on the rail changed nothing, so a tab it
+  // A hide of a panel that was never on the rail changed nothing, so a tile it
   // holds is one opened off the rail on purpose and stays.
   if (!visible && wasMember) closeTile(panel);
 }
 
 /**
- * Close `panel`'s tab and hand the workspace to something the operator can
- * still see, without touching rail membership.
+ * Close `panel`'s tile and, when it held the view, hand the view to a panel
+ * the operator can still see, without touching rail membership.
  *
  * The removal half of `panel_visibility` (membership is already gone by the
- * time this runs): the fallback search reads the CURRENT membership set, so it
- * naturally skips the panel that was just removed.
+ * time this runs). The other tiles stay as they are: the view goes to the
+ * panel in the service tile the holder picks (an activation of a docked panel moves
+ * nothing; one that is not answering keeps its tile and takes no accent), and
+ * only a dock left with no service tile at all opens the next member — the
+ * fallback search reads the CURRENT membership set, so it naturally skips the
+ * panel that was just removed. A fallback into a dock that still shows
+ * service tiles would replace one of them (the open rule), taking away a
+ * panel the operator did not touch.
  * @param {string} panel
  */
 function closeTile(panel) {
   const c = ctx();
   withEchoSuppressed(() => hidePanel(panel));
   if (panel !== c.getActive()) return;
-  const fallback = PANELS.find((p) => p.id !== panel && c.memberSet.has(p.id) && c.isHealthy(p.id));
+  const holder = getLayoutHolder();
+  const docked = holder ? serviceTileTarget(holder.layout, holder.context())?.showing : undefined;
+  const fallback =
+    docked === undefined
+      ? PANELS.find((p) => p.id !== panel && c.memberSet.has(p.id) && c.isHealthy(p.id))?.id
+      : c.isHealthy(docked)
+        ? docked
+        : undefined;
   if (fallback) {
-    c.activate(fallback.id);
+    c.activate(fallback);
   } else {
     c.resetActive();
-    c.renderEmpty('No panels visible');
+    if (docked === undefined) c.renderEmpty('No panels visible');
   }
 }
 
@@ -322,9 +336,9 @@ function tilesOf(node) {
 }
 
 /**
- * Surface what an op put on screen. A placed tab has no iframe until its panel
- * is activated, so every service tab the op newly SHOWS is activated (the tile
- * the op focused last, so focus ends there), and the focused tile's tab is
+ * Surface what an op put on screen. A placed panel has no iframe until it
+ * is activated, so every service panel the op newly SHOWS is activated (the tile
+ * the op focused last, so focus ends there), and the focused tile's panel is
  * activated even when it already showed (an open of a panel already on screen
  * still brings it forward). The activation places nothing new: each panel is
  * already where the op put it. A panel the op took off screen while it held

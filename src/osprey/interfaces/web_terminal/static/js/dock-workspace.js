@@ -64,7 +64,7 @@ let layoutHolder = null;
 const STORE_VERSION = 2;
 
 /** Panel records the last restore brought in, by bare key: the title and
- *  params a restored tab is built with until dockview holds its own entry.
+ *  params a restored panel is built with until dockview holds its own entry.
  *  @type {Record<string, PanelRecord>} */
 let restoredPanels = {};
 
@@ -114,9 +114,10 @@ let persistHandle = null;
 /**
  * Callback the iframe adapter registers (the managed-iframe set lives there),
  * invoked after EVERY whole-layout apply — default rebuild, stored-layout
- * restore. It re-docks any visible service placeholder the applied
- * layout lacks and prunes placeholders whose service no longer exists, so no
- * apply can strand a visible panel or leave a dead tab.
+ * restore. It settles the managed set against the applied layout: a panel
+ * the layout lacks is concealed (its iframe cached for its sidebar row) and
+ * placeholders whose service no longer exists are pruned, so no apply leaves
+ * a stray iframe or a dead tile.
  * @type {(() => void) | null}
  */
 let redockServices = null;
@@ -267,13 +268,12 @@ export function initDockWorkspace() {
       if (options.name === PANEL_TERMINAL) return terminalRenderer;
       return { element: document.createElement('div'), init() {} };
     },
-    // Every tile's tab renders as the host header bar (identity, tabs,
-    // actions) — see dock-tab.js. defaultTabComponent routes panels with no
-    // explicit tabComponent (i.e. all of them, including restored layouts)
-    // through createTabComponent. Of a tile's tabs only the showing one is on
-    // screen (dockview-overrides.css hides the inactive ones), so the bar
-    // spans its tile and the close control anchors at the tile's right edge;
-    // with one tab dockview's own full-width mode does the same stretching
+    // Every tile's tab renders as the host header bar (identity, contributed
+    // controls, actions) — see dock-tab.js. defaultTabComponent routes panels
+    // with no explicit tabComponent (i.e. all of them, including restored
+    // layouts) through createTabComponent. A tile holds one panel
+    // (dock-policy.js), so dockview's own full-width single-tab mode stretches
+    // the bar over its tile, with the close control at the tile's right edge,
     // and collapses the void container (its empty-space drag surface).
     createTabComponent: (/** @type {{ id: string }} */ options) => createTileTab(options.id),
     defaultTabComponent: OSPREY_TAB_COMPONENT,
@@ -282,7 +282,7 @@ export function initDockWorkspace() {
 
   // The holder applies every layout inside dock-sync's echo guard, so the
   // rebuild's own focus changes are never reported as a person's click. A
-  // restored tab is built with the record its store carried.
+  // restored panel is built with the record its store carried.
   layoutHolder = initLayoutHolder({
     api: dockApi,
     guard: withEchoSuppressed,
@@ -325,7 +325,7 @@ export function initDockWorkspace() {
  * too, as the same tree it just wrote, and changes nothing; a tree of another
  * shape is dockview mid-rebuild and says nothing.
  *
- * The focused tile follows dockview's active panel (a tab click, the focus of
+ * The focused tile follows dockview's active panel (a click in a tile, the focus of
  * a rebuilt group), and a panel moving to or from its own pop-out window is
  * recorded on the holder, which is the layout the agent reads.
  * @param {any} api
@@ -356,9 +356,9 @@ function wireHolderSync(api, holder) {
 
 /**
  * Hand a whole layout to the holder, which validates it and applies it with
- * one `fromJSON`, then let the iframe adapter re-sync: it re-docks any visible
- * service placeholder the layout lacks and prunes placeholders whose service
- * no longer exists, so no apply strands a visible panel or leaves a dead tab.
+ * one `fromJSON`, then let the iframe adapter settle: it conceals any managed
+ * panel the layout lacks and prunes placeholders whose service no longer
+ * exists, so no apply leaves a stray iframe or a dead tile.
  * False (nothing changes) for an invalid layout.
  * @param {Layout|null} layout
  * @returns {boolean}
@@ -386,7 +386,7 @@ function arrangeDefaultLayout() {
  * nothing during a live sash drag; the continuous refit while a sash is dragged
  * comes from terminal.js's ResizeObserver on .terminal-body, whose observed
  * parent is preserved by this shell). onDidActivePanelChange covers the terminal
- * card being revealed after it was hidden behind another tab in its group.
+ * card being revealed after its tile was rebuilt.
  * @param {any} api
  */
 function wireTerminalRefit(api) {
@@ -500,7 +500,7 @@ export function closeTerminalPanel() {
  * panel-manager's vacate first, in the capture phase). A key not in the dock
  * changes nothing.
  * @param {string} serviceId  the panel's bare id
- * @returns {boolean} whether a tab was closed
+ * @returns {boolean} whether a tile was closed
  */
 export function closeDockPanel(serviceId) {
   const holder = layoutHolder;
@@ -512,9 +512,9 @@ export function closeDockPanel(serviceId) {
 
 /**
  * The per-panel record reopening a stored layout in a new session needs, by
- * bare key: the title and params each service tab carries (the terminal is
+ * bare key: the title and params each service panel carries (the terminal is
  * the page's own and needs none). Read off the live dock, falling back to the
- * record a restore brought in for a tab dockview has not built yet.
+ * record a restore brought in for a panel dockview has not built yet.
  * @param {Layout|null} layout
  * @returns {Record<string, PanelRecord>}
  */
@@ -708,10 +708,10 @@ function flushPersist() {
 /**
  * Resolve the per-project storage key and the panels the dock can build, apply
  * any stored layout over the default, then wire settled-change persistence
- * (layout changes and tab switches), with a write still waiting flushed when
- * the page goes away or out of sight. The listeners are subscribed AFTER the
- * stored layout is applied so the restore itself doesn't trigger a redundant
- * write-back.
+ * (layout changes; a focus move changes nothing stored), with a write still
+ * waiting flushed when the page goes away or out of sight. The listener is
+ * subscribed AFTER the stored layout is applied so the restore itself doesn't
+ * trigger a redundant write-back.
  *
  * Every exit announces the boot layout as final through the layoutRestored hook
  * — including the no-project-key early return, where the default arrangement IS
@@ -744,7 +744,6 @@ async function initPersistence(api) {
   applyStoredLayout();
   announceLayoutRestored();
   api.onDidLayoutChange(schedulePersist);
-  api.onDidActivePanelChange(schedulePersist);
   window.addEventListener('pagehide', flushPersist);
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'hidden') flushPersist();
@@ -797,7 +796,7 @@ export function resetDockLayout() {
  * `.terminal-header` is hidden there, operator.css), the header on the terminal.
  *
  * The bar reuses the docked bar's `.tile-tab` markup so it renders with the
- * same styles; the inline layout only adapts that full-height tab to a row
+ * same styles; the inline layout only adapts that full-height bar to a row
  * above #panel-content. Idempotent per host.
  * @param {HTMLElement} host  the fallback iframe host (#right-panel)
  * @returns {HTMLElement | null} the bar, or null when the host has no #panel-content

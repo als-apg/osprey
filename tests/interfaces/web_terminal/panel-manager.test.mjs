@@ -19,11 +19,12 @@
  * byte-identical (unprefixed) behavior, per the prefix contract.
  *
  * Beyond the prefix contract this file also pins the SSE-driven behavior the
- * rail and the dock share — agent activity styling, rail membership, the
- * and (with a hand-built DockviewApi published
- * through the mocked dock-workspace module) the placement an agent open_panel
- * produces: focus the panel's own tile, or open one BESIDE, never evicting the
- * tile the operator is watching.
+ * rail and the dock share — agent activity styling, rail membership — and
+ * (with a hand-built DockviewApi published through the mocked dock-workspace
+ * module) where a panel lands when it is opened: a tile holds one panel, so
+ * an open focuses the panel's own tile, or takes the service tile used last,
+ * REPLACING the panel it showed — which keeps its rail row and its cached
+ * iframe, one click away.
  *
  * Module isolation: panel-manager.js keeps PANELS/panelState/visiblePanels
  * as module-private state mutated in place by initPanelManager(), so each
@@ -1137,12 +1138,12 @@ describe('rail membership (launcher model: entry ⇔ member, never dimmed)', () 
   test('an agent close takes the tile but LEAVES the rail entry', async () => {
     // The whole reason the on-screen axis is its own op: the operator must
     // still be able to bring the panel back in one click. An agent close is a
-    // `close_tab` panel_op (the retired panel_close frame), run only by a dock.
+    // `close` panel_op (the retired panel_close frame), run only by a dock.
     const { op, mod, holder } = await bootWorkspace({ visible: ['artifacts'] });
     const strip = vi.fn();
     mod.setActivityStripHandler(strip);
 
-    op('close_tab', { key: 'artifacts' });
+    op('close', { key: 'artifacts' });
 
     expect(tileHolding(holder, 'artifacts')).toBeNull();
     expect(entry('artifacts')).not.toBeNull();
@@ -1158,7 +1159,7 @@ describe('rail membership (launcher model: entry ⇔ member, never dimmed)', () 
     const strip = vi.fn();
     mod.setActivityStripHandler(strip);
 
-    op('close_tab', { key: 'artifacts' }, null);
+    op('close', { key: 'artifacts' }, null);
 
     expect(tileHolding(holder, 'artifacts')).toBeNull();
     expect(entry('artifacts')).not.toBeNull();
@@ -1203,7 +1204,7 @@ async function pageHolder() {
   return holder;
 }
 
-/** Each tile's first tab, in reading order. @param {any} layout @returns {string[]} */
+/** The panel each tile shows, in reading order. @param {any} layout @returns {string[]} */
 const tileOrder = (layout) => {
   if (!layout) return [];
   return 'tile' in layout ? [layout.tabs[0]] : layout.items.flatMap(tileOrder);
@@ -1217,7 +1218,7 @@ const tilesIn = (node) =>
 const tileHolding = (holder, key) =>
   tilesIn(holder.layout).find((t) => t.tabs.includes(key)) ?? null;
 
-/** The keys of the held layout's tiles, each tile as its tab list, left to right. @param {any} holder */
+/** Each held tile's panels (the engine's `tabs`: one per tile), left to right. @param {any} holder */
 const tileTabs = (holder) => tilesIn(holder.layout).map((t) => t.tabs);
 
 const API_PATH = '../../../src/osprey/interfaces/web_terminal/static/js/api.js';
@@ -1420,55 +1421,65 @@ async function bootWorkspace({
 const posts = (/** @type {{url: string, opts: any}[]} */ calls) =>
   calls.filter((c) => c.opts?.method === 'POST').map((c) => c.url);
 
-describe("agent open (panel_op op:'open') — focus or open, never evict", () => {
+describe("agent open (panel_op op:'open') — replace the panel of the service tile used last, or focus", () => {
   // An agent changes the dock only through a panel_op frame addressed to this
   // dock client (panel-placement.js, ONE MUTATION CHANNEL); the retired
   // `panel_focus source:'agent'` switch no longer places anything. An open is
-  // OSPREY's open rule (dock-open.js): a new TAB of the last service tile used,
-  // never a takeover — the operator's panel stays where it is.
+  // OSPREY's open rule (dock-open.js): a tile holds one panel, so the opened
+  // panel takes the service tile used last and REPLACES the panel it showed,
+  // which keeps its rail row and its cached iframe, one click away.
   afterEach(() => {
     document.documentElement.removeAttribute('data-agent-surface');
   });
 
-  test('an undocked rail member opens as a new tab of the service tile — nothing is evicted', async () => {
-    const { holder, op, calls } = await bootWorkspace();
+  /** @param {string} id */
+  const entry = (id) => document.querySelector(`.panel-rail-button[data-panel-id="${id}"]`);
+  /** @param {string} id @returns {HTMLIFrameElement | null} */
+  const frame = (id) => document.querySelector(`iframe.panel-iframe[data-panel-id="${id}"]`);
+  const activeStamp = () => document.getElementById('panel-manager')?.dataset.activePanel ?? null;
+
+  test('an undocked rail member REPLACES the panel of the service tile used last', async () => {
+    const { api, holder, op, calls } = await bootWorkspace();
     const artifactsTile = tileHolding(holder, 'artifacts').tile;
+    const sizes = holder.layout.items.map((/** @type {any} */ item) => item.size);
+    const artifactsFrame = /** @type {HTMLIFrameElement} */ (frame('artifacts'));
 
     op('open', { member: 'ariel' });
 
-    // The operator's panel survives in its tile (now a hidden tab of it)...
-    expect(tileHolding(holder, 'artifacts').tile).toBe(artifactsTile);
-    // ...and ariel arrived once, as a tab of that same service tile, showing.
-    expect(
-      tileTabs(holder)
-        .flat()
-        .filter((k) => k === 'ariel')
-    ).toHaveLength(1);
-    expect(tileHolding(holder, 'ariel')).toMatchObject({ tile: artifactsTile, showing: 'ariel' });
-    expect(tileHolding(holder, 'terminal').tabs).toEqual(['terminal']);
-    // It holds the focus, and the only thing POSTed is the op's outcome —
+    // ariel took the operator's tile, at its size: no tile was added.
+    expect(tileTabs(holder)).toEqual([['ariel'], ['terminal']]);
+    expect(tileHolding(holder, 'ariel').tile).toBe(artifactsTile);
+    expect(holder.layout.items.map((/** @type {any} */ item) => item.size)).toEqual(sizes);
+    expect(dockedTiles(api)).toEqual(['ariel']);
+    // The replaced panel keeps its rail row and its iframe, cached and hidden.
+    expect(entry('artifacts')).not.toBeNull();
+    expect(frame('artifacts')).toBe(artifactsFrame);
+    expect(artifactsFrame.style.display).toBe('none');
+    // ariel holds the view, and the only thing POSTed is the op's outcome —
     // never a focus report echoing the agent's own change back.
-    expect(document.getElementById('panel-manager')?.dataset.activePanel).toBe('ariel');
+    expect(activeStamp()).toBe('ariel');
+    expect(frame('ariel')?.style.display).not.toBe('none');
     await settled(() => expect(posts(calls)).toEqual(['/api/panel-op-result']));
+    const answer = calls.find((c) => c.opts?.method === 'POST');
+    expect(JSON.parse(answer?.opts.body).layout).toEqual(holder.layout);
   });
 
-  test('a panel that already holds a tab is only shown — no second tab, no move', async () => {
+  test('a panel already docked is only focused — nothing moves, nothing is replaced', async () => {
     const { holder, op, calls } = await bootWorkspace();
-    op('open', { member: 'ariel' });
-    const before = structuredClone(tileTabs(holder));
+    rightClick(/** @type {Element} */ (entry('ariel')));
+    /** @type {HTMLElement} */ (menuRow('Open in a new tile')).click();
+    expect(activeStamp()).toBe('ariel');
+    const before = holder.layout;
     const artifactsTile = tileHolding(holder, 'artifacts').tile;
-    await settled(() => expect(posts(calls)).toHaveLength(1));
-    calls.length = 0;
+    calls.length = 0; // the new-tile reveal reports its own focus
 
     op('open', { member: 'artifacts' });
 
-    expect(tileTabs(holder)).toEqual(before);
-    expect(tileHolding(holder, 'artifacts')).toMatchObject({
-      tile: artifactsTile,
-      showing: 'artifacts',
-    });
+    expect(holder.layout).toBe(before);
+    expect(tileTabs(holder).flat().sort()).toEqual(['ariel', 'artifacts', 'terminal']);
     expect(holder.focusedTile).toBe(artifactsTile);
-    expect(document.getElementById('panel-manager')?.dataset.activePanel).toBe('artifacts');
+    expect(activeStamp()).toBe('artifacts');
+    expect(frame('ariel')?.style.display).not.toBe('none');
     await settled(() => expect(posts(calls)).toEqual(['/api/panel-op-result']));
   });
 
@@ -1478,20 +1489,21 @@ describe("agent open (panel_op op:'open') — focus or open, never evict", () =>
 
     op('open', { member: 'ariel' });
 
-    // Rail membership is the server's: the op runner never edits the rail.
+    // Rail membership is the server's: the op runner never edits the rail —
+    // neither for the opened panel nor for the one it replaced.
     expect(tileHolding(holder, 'ariel')).not.toBeNull();
-    expect(tileHolding(holder, 'artifacts')).not.toBeNull();
-    expect(document.querySelector('.panel-rail-button[data-panel-id="ariel"]')).toBeNull();
+    expect(tileHolding(holder, 'artifacts')).toBeNull();
+    expect(entry('artifacts')).not.toBeNull();
+    expect(entry('ariel')).toBeNull();
 
     // The server follows the recorded result with panel_visibility.
     emit({ type: 'panel_visibility', panel: 'ariel', visible: true, source: 'agent' });
-    const entry = document.querySelector('.panel-rail-button[data-panel-id="ariel"]');
-    expect(entry).not.toBeNull();
-    expect(entry?.classList.contains('disabled')).toBe(false);
+    expect(entry('ariel')).not.toBeNull();
+    expect(entry('ariel')?.classList.contains('disabled')).toBe(false);
     expect(mod.getHiddenPanels().map((p) => p.id)).not.toContain('ariel');
   });
 
-  test('an UNHEALTHY target opens no tab — a tab it could never fill would linger empty', async () => {
+  test('an UNHEALTHY target is refused — it would replace a working panel with one it cannot fill', async () => {
     const { holder, op, calls } = await bootWorkspace({ unhealthy: ['ariel'] });
     const before = holder.layout;
 
@@ -1529,7 +1541,7 @@ describe("agent open (panel_op op:'open') — focus or open, never evict", () =>
     op('open', { member: 'ariel' });
 
     // The first-tile rule wins: left of the terminal at the classic 0.6/0.4
-    // split, not a tab of (or a default split off) the terminal's own tile.
+    // split, never in (or a default split off) the terminal's own tile.
     expect(holder.layout.split).toBe('row');
     expect(tileTabs(holder)).toEqual([['ariel'], ['terminal']]);
     expect(holder.layout.items[0].size).toBeCloseTo(0.6, 3);
@@ -1606,6 +1618,151 @@ describe("agent open (panel_op op:'open') — focus or open, never evict", () =>
     expect(JSON.parse(calls[0].opts.body)).toMatchObject({ refusal: 'no_dock_client' });
     expect(document.getElementById('panel-manager')?.dataset.activePanel).toBe('artifacts');
     expect(document.querySelector('.panel-rail-button[data-panel-id="ariel"]')).toBeNull();
+  });
+});
+
+describe('a rail click — the open rule: replace the panel of the service tile used last, or focus', () => {
+  /** @param {string} id @returns {HTMLElement} */
+  const entry = (id) =>
+    /** @type {HTMLElement} */ (
+      document.querySelector(`.panel-rail-button[data-panel-id="${id}"]`)
+    );
+  /** @param {string} id @returns {HTMLIFrameElement} */
+  const frame = (id) =>
+    /** @type {HTMLIFrameElement} */ (
+      document.querySelector(`iframe.panel-iframe[data-panel-id="${id}"]`)
+    );
+  const activeStamp = () => document.getElementById('panel-manager')?.dataset.activePanel ?? null;
+
+  test('a click on an undocked member replaces the panel on view; that panel’s row brings it back, same iframe', async () => {
+    const { api, holder } = await bootWorkspace();
+    const artifactsTile = tileHolding(holder, 'artifacts').tile;
+    const sizes = holder.layout.items.map((/** @type {any} */ item) => item.size);
+    const artifactsFrame = frame('artifacts');
+
+    entry('ariel').click();
+
+    // ariel took artifacts' tile, at its size: no tile was added.
+    expect(tileTabs(holder)).toEqual([['ariel'], ['terminal']]);
+    expect(tileHolding(holder, 'ariel').tile).toBe(artifactsTile);
+    expect(holder.layout.items.map((/** @type {any} */ item) => item.size)).toEqual(sizes);
+    expect(dockedTiles(api)).toEqual(['ariel']);
+    expect(activeStamp()).toBe('ariel');
+    // artifacts keeps its row, and its iframe stays in the page, hidden.
+    expect(entry('artifacts')).not.toBeNull();
+    expect(artifactsFrame.isConnected).toBe(true);
+    expect(artifactsFrame.style.display).toBe('none');
+    const arielFrame = frame('ariel');
+
+    entry('artifacts').click();
+
+    // Back by the same rule, in the same tile, with the SAME iframe element:
+    // the embedded app's state survived being replaced.
+    expect(tileTabs(holder)).toEqual([['artifacts'], ['terminal']]);
+    expect(tileHolding(holder, 'artifacts').tile).toBe(artifactsTile);
+    expect(frame('artifacts')).toBe(artifactsFrame);
+    expect(artifactsFrame.style.display).not.toBe('none');
+    expect(frame('ariel')).toBe(arielFrame);
+    expect(arielFrame.style.display).toBe('none');
+    expect(activeStamp()).toBe('artifacts');
+  });
+
+  test('a click on a docked member only focuses its tile: nothing moves, nothing is replaced', async () => {
+    const { api, holder } = await bootWorkspace();
+    rightClick(entry('ariel'));
+    /** @type {HTMLElement} */ (menuRow('Open in a new tile')).click();
+    expect(activeStamp()).toBe('ariel');
+    const before = holder.layout;
+
+    entry('artifacts').click();
+
+    expect(holder.layout).toBe(before);
+    expect(api.activePanel?.id).toBe('iframe:artifacts');
+    expect(activeStamp()).toBe('artifacts');
+    // Both panels stay on screen, each in its own tile.
+    expect(frame('artifacts').style.display).not.toBe('none');
+    expect(frame('ariel').style.display).not.toBe('none');
+  });
+});
+
+describe('a hide (panel_visibility) hands the view on without replacing a panel', () => {
+  const activeStamp = () => document.getElementById('panel-manager')?.dataset.activePanel ?? null;
+
+  test('a hide of the panel on view gives the view to the panel left on screen — the first member is not opened into its tile', async () => {
+    const { api, holder, op, emit } = await bootWorkspace({
+      panels: ['artifacts', 'ariel', 'lattice'],
+    });
+    // ariel | lattice on screen, ariel on view. artifacts, the first member in
+    // the catalog, holds no tile: opening it would replace lattice.
+    op(
+      'open_arrangement',
+      {
+        name: 'pair',
+        members: ['ariel', 'lattice'],
+        layout: { split: 'row', items: [{ tabs: [0] }, { tabs: [1] }] },
+      },
+      null
+    );
+    expect(tileTabs(holder)).toEqual([['ariel'], ['lattice'], ['terminal']]);
+    expect(activeStamp()).toBe('ariel');
+
+    emit({ type: 'panel_visibility', panel: 'ariel', visible: false });
+
+    expect(tileTabs(holder)).toEqual([['lattice'], ['terminal']]);
+    expect(dockedTiles(api)).toEqual(['lattice']);
+    expect(activeStamp()).toBe('lattice');
+  });
+});
+
+describe('a whole-layout apply (a reset) keeps the panel the operator was on', () => {
+  /** @param {string} id @returns {HTMLElement} */
+  const entry = (id) =>
+    /** @type {HTMLElement} */ (
+      document.querySelector(`.panel-rail-button[data-panel-id="${id}"]`)
+    );
+  /** @param {string} id @returns {HTMLIFrameElement} */
+  const frame = (id) =>
+    /** @type {HTMLIFrameElement} */ (
+      document.querySelector(`iframe.panel-iframe[data-panel-id="${id}"]`)
+    );
+  const activeStamp = () => document.getElementById('panel-manager')?.dataset.activePanel ?? null;
+
+  /** dock-workspace's reset: the default arrangement (the agent pane alone), then the adapter settles. */
+  const reset = async () => {
+    (await pageHolder()).restore(TERMINAL_LAYOUT);
+    dockState.redock?.();
+  };
+
+  test('the panel on view comes back alone beside the agent pane; the others keep their rows', async () => {
+    const { api, holder } = await bootWorkspace();
+    rightClick(entry('ariel'));
+    /** @type {HTMLElement} */ (menuRow('Open in a new tile')).click();
+    expect(dockedTiles(api).sort()).toEqual(['ariel', 'artifacts']);
+    expect(activeStamp()).toBe('ariel');
+
+    await reset();
+
+    // Only the panel on view comes back, at the classic 60/40 split: by the
+    // open rule, each panel put back would replace the one before it.
+    expect(tileTabs(holder)).toEqual([['ariel'], ['terminal']]);
+    expect(holder.layout.items[0].size).toBeCloseTo(0.6, 3);
+    expect(activeStamp()).toBe('ariel');
+    expect(frame('ariel').style.display).not.toBe('none');
+    expect(entry('artifacts')).not.toBeNull();
+    expect(frame('artifacts').style.display).toBe('none');
+  });
+
+  test('with no panel on view, the landing takes the empty slot', async () => {
+    const { api, holder } = await bootWorkspace();
+    // A click on the row on view retires its tile: nothing is on view.
+    entry('artifacts').click();
+    expect(dockedTiles(api)).toEqual([]);
+    expect(activeStamp()).toBeNull();
+
+    await reset();
+
+    expect(tileTabs(holder)).toEqual([['artifacts'], ['terminal']]);
+    expect(activeStamp()).toBe('artifacts');
   });
 });
 
@@ -1699,15 +1856,15 @@ describe("panel_op op:'open_arrangement' — the declarative whole-workspace reb
   test('converges from a DIFFERENT start layout to the same end state', async () => {
     const { holder, op } = await bootWorkspace({ panels: THREE });
     // Start with all three open in a different shape than the arrangement asks
-    // for, so the rebuild has both a tab to drop and tabs to reorder.
-    op('open', { member: 'ariel' });
-    op('open', { member: 'channel-finder' });
+    // for, so the rebuild has both a tile to drop and tiles to reorder.
+    op('open_set', { members: ['ariel', 'channel-finder'], as: 'side' });
     expect(tileTabs(holder).flat().sort()).toEqual([
       'ariel',
       'artifacts',
       'channel-finder',
       'terminal',
     ]);
+    expect(tileTabs(holder).every((tabs) => tabs.length === 1)).toBe(true);
 
     op('open_arrangement', row(['channel-finder', 'ariel']));
 
@@ -2777,7 +2934,7 @@ describe('rail context menu — the entry’s verbs in words (railOptions onCont
     open.mockRestore();
   });
 
-  test('"Bring back" closes the window, and the closed window re-docks the panel as a tab of the service tile', async () => {
+  test('"Bring back" closes the window, and the closed window re-docks the panel by the open rule, replacing the panel on view', async () => {
     const { api, calls } = await bootWorkspace();
     const popup = { closed: false, focus: vi.fn(), close: vi.fn(), postMessage: vi.fn() };
     const open = vi.spyOn(window, 'open').mockReturnValue(/** @type {any} */ (popup));
@@ -2792,11 +2949,19 @@ describe('rail context menu — the entry’s verbs in words (railOptions onCont
     // (every 500 ms) sees the window closed.
     expect(dockedTiles(api)).toEqual(['artifacts']);
     popup.closed = true;
-    await settled(() => expect(dockedTiles(api).sort()).toEqual(['ariel', 'artifacts']));
+    await settled(() => expect(dockedTiles(api)).toEqual(['ariel']));
 
-    // By the open rule: a tab in front of the tile the operator was on.
+    // By the open rule: ariel takes the tile the operator was on, in place of
+    // artifacts, which keeps its row and its iframe, hidden.
     expect(api.getPanel('iframe:ariel').group.id).toBe(artifactsGroup);
-    expect((await pageHolder()).layout.items[0].tabs).toEqual(['artifacts', 'ariel']);
+    expect(tileTabs(await pageHolder())).toEqual([['ariel'], ['terminal']]);
+    expect(activeStamp()).toBe('ariel');
+    expect(entry('artifacts')).not.toBeNull();
+    expect(
+      /** @type {HTMLElement} */ (
+        document.querySelector('iframe.panel-iframe[data-panel-id="artifacts"]')
+      ).style.display
+    ).toBe('none');
     // Nobody asked the server for this surfacing. The layout report is not
     // asking: dock-sync reports the re-docked layout 250 ms after it settles,
     // and the real-time window poll above can let that window pass before
@@ -2888,7 +3053,7 @@ describe('rail context menu — the entry’s verbs in words (railOptions onCont
     expect(iframe).not.toBeNull();
     expect(iframe?.style.display).not.toBe('none');
     expect(dockedTiles(api).sort()).toEqual(['ariel', 'artifacts']);
-    // The layout came back whole: two one-tab tiles, nothing added.
+    // The layout came back whole: two tiles of one panel each, nothing added.
     expect(tileOrder((await pageHolder()).layout)).toEqual(['artifacts', 'ariel', 'terminal']);
     // The landing is a surfacing nobody asked for, so nothing is reported.
     expect(entry('artifacts').getAttribute('aria-current')).toBe('page');

@@ -5,7 +5,7 @@
  * dock-sync carries the REVERSE half of the panel-state loop: it turns a human's
  * dockview FOCUS gestures back into the same server POST an agent MCP call would
  * make, WITHOUT letting the server's own SSE echo bounce back out again. A human
- * tab CLOSE is deliberately NOT a server change (tile occupancy is per-client
+ * tile CLOSE is deliberately NOT a server change (tile occupancy is per-client
  * layout state under the launcher-rail model) — it routes to a locally-registered
  * vacate handler instead. The forward half (server → dock application, and the
  * chat layout synthesis) lives in dock-workspace.js / panel-manager.js and
@@ -14,7 +14,7 @@
  *
  *   - the ECHO GUARD — a genuine human focus POSTs exactly once, a server-applied
  *     (echo) focus POSTs never;
- *   - the human tab-CLOSE click fires the registered tile-close handler, never a
+ *   - the human tile-CLOSE click fires the registered tile-close handler, never a
  *     POST;
  *   - the LAYOUT REPORT reads the layout holder (never dockview's toJSON), sends
  *     the page's client_id and the pop-outs beside the layout, and hands the
@@ -332,8 +332,8 @@ describe('layout reporter — from the holder, settle debounce, content dedupe, 
     vi.useRealTimers();
   });
 
-  test('reports the holder layout — tabs, showing tab and terminal — with the client id', async () => {
-    const layout = row(['terminal'], ['ariel', 'okf'], ['bluesky']);
+  test('reports the holder layout — its tiles, the panel each shows, the terminal — with the client id', async () => {
+    const layout = row(['terminal'], ['ariel'], ['bluesky']);
     await wireReporting(layout);
     await vi.advanceTimersByTimeAsync(SETTLE);
 
@@ -342,7 +342,7 @@ describe('layout reporter — from the holder, settle debounce, content dedupe, 
     expect(Object.keys(body).sort()).toEqual(['client_id', 'dock', 'layout', 'popouts']);
     expect(body.layout.items[1]).toEqual({
       tile: '2',
-      tabs: ['ariel', 'okf'],
+      tabs: ['ariel'],
       showing: 'ariel',
     });
     expect(typeof body.client_id).toBe('string');
@@ -424,10 +424,10 @@ describe('layout reporter — from the holder, settle debounce, content dedupe, 
   });
 
   test('a dirty holder whose layout equals the acked one settles without a POST', async () => {
-    const { api, holder } = await wireReporting(row(['terminal'], ['ariel', 'okf']));
+    const { api, holder } = await wireReporting(row(['terminal'], ['ariel']));
     await vi.advanceTimersByTimeAsync(SETTLE);
     const ackedRev = holder.ackedRev;
-    change(api, row(['terminal'], ['ariel', 'okf']));
+    change(api, row(['terminal'], ['ariel']));
     await vi.advanceTimersByTimeAsync(SETTLE);
     expect(serverReport).toHaveBeenCalledTimes(1);
     expect(holder.dirty).toBe(false);
@@ -491,16 +491,36 @@ describe('layout reporter — from the holder, settle debounce, content dedupe, 
     expect(serverReport).toHaveBeenCalledExactlyOnceWith(row(['okf']), [], true);
   });
 
-  test('switching the showing tab is a change, not a duplicate', async () => {
-    const { api } = await wireReporting(row(['terminal'], ['ariel', 'okf']));
+  test('the same tiles at the same sizes are no news; another panel in a tile, or new sizes, are', async () => {
+    const shown = {
+      split: 'row',
+      items: [
+        { tile: '1', tabs: ['terminal'], showing: 'terminal', size: 0.4 },
+        { tile: '2', tabs: ['ariel'], showing: 'ariel', size: 0.6 },
+      ],
+    };
+    const { api, holder } = await wireReporting(shown);
     await vi.advanceTimersByTimeAsync(SETTLE);
-    const shown = row(['terminal'], ['ariel', 'okf']);
-    shown.items[1].showing = 'okf';
-    change(api, shown);
-    api.fireActive();
+    // The same tree read again (a focus move, a rebuild): deduped, and settled.
+    change(api, structuredClone(shown));
+    await vi.advanceTimersByTimeAsync(SETTLE);
+    expect(serverReport).toHaveBeenCalledTimes(1);
+    expect(holder.dirty).toBe(false);
+    // The open rule replaced ariel in tile 2: the same tiles, another panel.
+    const replaced = structuredClone(shown);
+    replaced.items[1] = { ...replaced.items[1], tabs: ['okf'], showing: 'okf' };
+    change(api, replaced);
     await vi.advanceTimersByTimeAsync(SETTLE);
     expect(serverReport).toHaveBeenCalledTimes(2);
-    expect(serverReport).toHaveBeenLastCalledWith(shown, [], true);
+    expect(serverReport).toHaveBeenLastCalledWith(replaced, [], true);
+    // A sash drag beyond dockview's rounding is news too.
+    const resized = structuredClone(replaced);
+    resized.items[0].size = 0.5;
+    resized.items[1].size = 0.5;
+    change(api, resized);
+    await vi.advanceTimersByTimeAsync(SETTLE);
+    expect(serverReport).toHaveBeenCalledTimes(3);
+    expect(serverReport).toHaveBeenLastCalledWith(resized, [], true);
   });
 
   test('closing the last service tab reports the terminal-only layout', async () => {
@@ -600,12 +620,13 @@ describe('layout reporter — from the holder, settle debounce, content dedupe, 
     const { api, mod } = await wireReporting(before);
     await vi.advanceTimersByTimeAsync(SETTLE);
     expect(serverReport).toHaveBeenCalledTimes(1);
-    // An agent opens bluesky: the holder moves and the op's answer (not this
-    // module's report) is what the server acknowledged.
-    const opened = row(['ariel', 'bluesky'], ['terminal']);
+    // An agent opens bluesky, which replaces ariel in its tile: the holder
+    // moves and the op's answer (not this module's report) is what the
+    // server acknowledged.
+    const opened = row(['bluesky'], ['terminal']);
     state.holder.layout = opened;
     mod.noteReported({ layout: opened, popouts: [] });
-    // The person closes it again: back to the layout this module last sent,
+    // The person opens ariel again: back to the layout this module last sent,
     // which the server no longer holds. It must go out, not dedupe away.
     change(api, before);
     await vi.advanceTimersByTimeAsync(SETTLE);
@@ -616,7 +637,7 @@ describe('layout reporter — from the holder, settle debounce, content dedupe, 
   test('a layout equal to one acknowledged through noteReported is not re-reported', async () => {
     const { api, mod } = await wireReporting(row(['ariel'], ['terminal']));
     await vi.advanceTimersByTimeAsync(SETTLE);
-    const opened = row(['ariel', 'bluesky'], ['terminal']);
+    const opened = row(['bluesky'], ['terminal']);
     mod.noteReported({ layout: opened, popouts: [] });
     change(api, opened);
     await vi.advanceTimersByTimeAsync(SETTLE);
@@ -626,12 +647,18 @@ describe('layout reporter — from the holder, settle debounce, content dedupe, 
   test('a read-back differing only by size rounding from the acknowledged layout is not re-reported', async () => {
     const { api, mod } = await wireReporting(row(['ariel'], ['terminal']));
     await vi.advanceTimersByTimeAsync(SETTLE);
-    const planned = row(['ariel', 'bluesky'], ['terminal']);
+    const planned = {
+      split: 'row',
+      items: [
+        { tile: '1', tabs: ['bluesky'], showing: 'bluesky', size: 0.6 },
+        { tile: '2', tabs: ['terminal'], showing: 'terminal', size: 0.4 },
+      ],
+    };
     mod.noteReported({ layout: planned, popouts: [] });
     // dockview reads the applied tree back a pixel's fraction off.
     const measured = structuredClone(planned);
-    measured.items[0].size = planned.items[0].size + 0.0002;
-    measured.items[1].size = planned.items[1].size - 0.0002;
+    measured.items[0].size = 0.6002;
+    measured.items[1].size = 0.3998;
     change(api, measured);
     await vi.advanceTimersByTimeAsync(SETTLE);
     expect(serverReport).toHaveBeenCalledTimes(1);

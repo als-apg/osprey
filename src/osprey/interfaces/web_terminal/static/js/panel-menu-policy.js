@@ -110,9 +110,9 @@ function ctx() {
  * indistinguishable downstream (both hit activateTab / setPanelVisibility).
  *
  * Every row is a member, so a click is always an activation: show this panel
- * as a tab in front of the service tile used last, or bring its tab forward
+ * in the service tile used last, replacing the panel it showed, or focus it
  * where it is (the open rule, dock-open.js). The placement happens in the dock
- * adapter and is purely local — the covered tab keeps its row. The Agent row
+ * adapter and is purely local — the replaced panel keeps its row. The Agent row
  * routes to the dock instead (its open/closed state is layout state, not
  * membership — see TERMINAL_RAIL_ID).
  */

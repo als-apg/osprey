@@ -45,9 +45,9 @@
  * at the next tick. A window that said bye but is still open is given
  * {@link BYE_GRACE_MS} for its hello to arrive (a reload) before it is treated
  * as having left the protocol (navigated elsewhere) and released. Releasing
- * re-docks the panel through panel-manager, by the open rule (a tab in front
- * of the service tile used last) and without a focus report — nobody asked
- * the server for this surfacing.
+ * re-docks the panel through panel-manager, by the open rule (it takes the
+ * service tile used last, replacing its panel) and without a focus report —
+ * nobody asked the server for this surfacing.
  *
  * This module imports nothing from the panel stack: panel-manager hands it the
  * three verbs it needs at init ({@link initPopouts}), the same seam pattern

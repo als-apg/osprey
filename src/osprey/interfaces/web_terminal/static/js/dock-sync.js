@@ -16,8 +16,8 @@
  *    visibility fallback → hidePanel, register → panel-lifecycle's addPanel,
  *    all via the dock-iframe adapter). This module does NOT duplicate that; it
  *    only guarantees those applied changes never POST back.
- *  - Dock → server: a human focusing a dock tab POSTs setPanelFocus — the only
- *    new POST source the docked model introduces. A human CLOSING a dock tab is
+ *  - Dock → server: a human focusing a tile POSTs setPanelFocus — the only
+ *    new POST source the docked model introduces. A human CLOSING a tile is
  *    deliberately NOT a server change: tile occupancy is per-client layout
  *    state under the launcher-rail model (rail membership is the shared state,
  *    and closing a tile does not remove the panel from the rail), so the close
@@ -40,8 +40,8 @@
  * -------------------------------------------------
  * Rail membership says which panels an operator can reach; it does not say what
  * is actually on screen. So this module also REPORTS the dock's layout (POST
- * /api/panel-layout): the layout holder's tree — tiles, their tabs, each tile's
- * showing tab and the terminal — plus the panels living in pop-out windows and
+ * /api/panel-layout): the layout holder's tree — tiles, the panel each shows
+ * and the terminal — plus the panels living in pop-out windows and
  * this page's `client_id`, letting the agent read the real workspace instead
  * of inferring it. It is read from the holder (dock-apply.js), never serialized
  * from dockview's toJSON: the holder is the dock's single source of truth, and
@@ -283,25 +283,12 @@ function armBootReport() {
 }
 
 /**
- * Whether two same-shape layouts show the same tab in every tile.
- * @param {any} a
- * @param {any} b
- * @returns {boolean}
- */
-function sameShowing(a, b) {
-  if ('tile' in a) return a.showing === b.showing;
-  return a.items.every((/** @type {any} */ item, /** @type {number} */ i) =>
-    sameShowing(item, b.items[i])
-  );
-}
-
-/**
  * Whether two reports describe the same workspace: the same pop-outs, and the
- * same layout tree, showing tabs and sizes up to dockview's size rounding (the
- * holder's own notion of "not a change", `resized`). The read-back of a tree
- * the holder just applied differs from what it applied by a pixel's worth of
- * fraction, so an exact comparison would report — and revise — a workspace
- * nobody changed.
+ * same layout tree (a tile's one panel included) and sizes up to dockview's
+ * size rounding (the holder's own notion of "not a change", `resized`). The
+ * read-back of a tree the holder just applied differs from what it applied by
+ * a pixel's worth of fraction, so an exact comparison would report — and
+ * revise — a workspace nobody changed.
  * @param {Report | null} a
  * @param {Report | null} b
  * @returns {boolean}
@@ -313,7 +300,7 @@ export function sameReport(a, b) {
   if (a.layout === null || b.layout === null) return a.layout === b.layout;
   const x = /** @type {any} */ (a.layout);
   const y = /** @type {any} */ (b.layout);
-  return sameShape(x, y) && sameShowing(x, y) && sameSizes(x, y);
+  return sameShape(x, y) && sameSizes(x, y);
 }
 
 /**
@@ -662,12 +649,13 @@ export function dockPanelAt(serviceId, title = serviceId, position = null) {
 /**
  * Dock a service panel's placeholder BESIDE the focused tile as a NEW tile —
  * the row menu's "Open in a new tile", the one open that splits where the
- * operator is working instead of adding a tab (it lands in
+ * operator is working instead of replacing (it lands in
  * {@link dockPanelAt}, so an already-open panel is moved, not duplicated).
- * Every other open — a row click, the agent, a link — is a tab in front of the
- * service tile used last (dock-open.js's openTab, through the activation).
+ * Every other open — a row click, the agent, a link — takes the service tile
+ * used last, replacing its panel (dock-open.js's openPanel, through the
+ * activation).
  * @param {string} serviceId  panel-manager rail id
- * @param {string} [title]    dock tab title (defaults to the id)
+ * @param {string} [title]    dock tile title (defaults to the id)
  */
 export function dockPanelBesideActive(serviceId, title = serviceId) {
   const holder = getLayoutHolder();
