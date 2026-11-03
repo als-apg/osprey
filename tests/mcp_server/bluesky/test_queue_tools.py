@@ -909,6 +909,39 @@ def test_every_hint_row_is_a_declared_refusal_code():
     assert set(queue._REFUSAL_HINTS) <= set(qb.REFUSAL_REASONS)
 
 
+# The bold lead that opens queue.py's paragraph on the refusal vocabulary.
+_VOCABULARY_LEAD = "**The refusal vocabulary is declared once, in the bridge.**"
+
+# A backticked token spelled like a refusal code: lower snake_case, one
+# underscore at least, so field names such as `retryable` stay out.
+_CODE_TOKEN = re.compile(r"``?([a-z][a-z0-9]*(?:_[a-z0-9]+)+)``?")
+
+
+def test_refusal_docstrings_name_only_declared_codes():
+    """Every refusal code a vocabulary docstring backticks is a declared code."""
+    import ast
+
+    from osprey.services.bluesky_bridge import queue_backend as qb
+    from tests.hooks.conftest import HOOKS_DIR
+
+    module_doc = ast.get_docstring(ast.parse(Path(queue.__file__).read_text()))
+    assert module_doc and _VOCABULARY_LEAD in module_doc
+    vocabulary = module_doc[module_doc.index(_VOCABULARY_LEAD) :].split("\n\n", 1)[0]
+
+    hook_path = HOOKS_DIR / "osprey_approval.py"
+    preview = next(
+        ast.get_docstring(node)
+        for node in ast.walk(ast.parse(hook_path.read_text()))
+        if isinstance(node, ast.FunctionDef) and node.name == "_budgeted_preview_lines"
+    )
+
+    for path, passage in ((queue.__file__, vocabulary), (hook_path, preview)):
+        tokens = _CODE_TOKEN.findall(passage or "")
+        assert tokens, f"{path}: the passage names no refusal code"
+        for token in tokens:
+            assert token in qb.REFUSAL_REASONS, f"{path}: `{token}` is not a declared code"
+
+
 # =========================================================================
 # queue_start — quoting back the queue the approver was shown
 # =========================================================================
