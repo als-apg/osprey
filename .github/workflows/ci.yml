@@ -2289,6 +2289,14 @@ jobs:
     # cap so a hang fails the run step and the capture step still runs.
     timeout-minutes: 135
     steps:
+    # The project image's deps layer ran the runner out of disk: uv reported
+    # "No space left on device" installing into the image. Drop the preinstalled
+    # SDKs this job never uses, as the other image-building E2E jobs do.
+    - name: Free runner disk
+      run: |
+        sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+        df -h /
+
     - name: Checkout repository
       # Full history: `uv sync` builds the package from source and the version
       # backend cannot derive a version without the tags.
