@@ -451,6 +451,41 @@ def _restore(page: Page, layout: dict) -> dict:
     return _settle(page)
 
 
+#: Whether the stored layout is the holder's: the same tiles, tabs and showing
+#: tabs, and the same sizes up to the holder's own tolerance (dock-apply.js's
+#: sameShape and sameSizes). With what was stored and what is held, for the
+#: assertion message.
+_STORED_JS = """
+async () => {
+  const { getLayoutHolder, sameShape, sameSizes } = await import('/static/js/dock-apply.js');
+  const live = getLayoutHolder()?.layout ?? null;
+  const showing = (n) => ('tile' in n ? [n.showing] : n.items.flatMap(showing));
+  const values = Object.keys(localStorage)
+    .filter((k) => k.includes('osprey-dock-layout-'))
+    .map((k) => {
+      try { return JSON.parse(localStorage.getItem(k))?.layout ?? null; } catch { return null; }
+    });
+  const matches = (stored) => !!live && !!stored && sameShape(live, stored)
+    && sameSizes(live, stored) && showing(live).join() === showing(stored).join();
+  return { stored: values.some(matches), live, values };
+}
+"""
+
+
+def _wait_until_stored(page: Page) -> None:
+    """Wait until the stored layout is the one on screen, sizes included.
+
+    A reload restores what was stored, and the store is written a debounce after
+    a change: a reload taken before that write brings back the older sizes.
+    """
+    deadline = time.monotonic() + _SETTLE_S
+    seen = page.evaluate(_STORED_JS)
+    while not seen["stored"] and time.monotonic() < deadline:
+        page.wait_for_timeout(100)
+        seen = page.evaluate(_STORED_JS)
+    assert seen["stored"], f"the stored layout never caught up with the one on screen: {seen}"
+
+
 def _drag(
     page: Page, source: dict, points: list[dict], *, drop: bool = True, leave: bool = False
 ) -> dict:
@@ -1210,17 +1245,13 @@ def test_a_reload_brings_the_stored_layout_back_whole(tmp_path, chromium_browser
         page = _open(chromium_browser, hub)
         _open_services(page, "a", "b", "c")
         a, b, c = (S(x) for x in "abc")
-        before = _restore(page, MATRIX_START)
-        # The debounced persist has written the three-tile arrangement.
-        page.wait_for_function(
-            """() => Object.keys(localStorage).some((k) => {
-                 if (!k.includes('osprey-dock-layout-')) return false;
-                 try {
-                   return JSON.parse(localStorage.getItem(k)).layout?.items?.length === 3;
-                 } catch { return false; }
-               })""",
-            timeout=5_000,
-        )
+        _restore(page, MATRIX_START)
+        # The reload brings back what was stored, so the stored layout must be
+        # the one on screen first, sizes included: the persist is debounced, and
+        # a reload taken before its last write restores older sizes. The state
+        # the reload must bring back is read once the store has caught up.
+        _wait_until_stored(page)
+        before = _settle(page)
 
         page.reload()
         wait_for_dock_settled(page)
