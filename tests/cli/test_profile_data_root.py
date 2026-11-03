@@ -116,7 +116,7 @@ def _build(profile_path: Path) -> Path:
 
 #: Where the build reads the in_context mode's benchmark queries from, and the
 #: flat channel database the project/ mirror overrides.
-QUERIES_SOURCE = Path("data/benchmarks/cross_paradigm/queries/in_context_queries.json")
+QUERIES_SOURCE = Path("data/facility/benchmarks/cross_paradigm/queries/in_context_queries.json")
 FLAT_DB = Path("data/channel_databases/in_context.json")
 
 STRAY_J2 = b"{{ facility_name }} raw braces\n{% if channel_finder_mode %}kept{% endif %}\n"
@@ -274,7 +274,7 @@ class TestBuildPipelineOrderingHolds:
         assert queries.read_text() == PROFILE_QUERIES, (
             "benchmark queries were not copied from the profile's tree"
         )
-        assert not (project_dir / "data" / "benchmarks" / "cross_paradigm").exists(), (
+        assert not (project_dir / "data" / "facility" / "benchmarks" / "cross_paradigm").exists(), (
             "cross_paradigm/ subtree reached the render from the profile-sourced tree"
         )
         assert queries_src.exists(), "the profile's own tree was pruned"

@@ -9,11 +9,6 @@ As shipped by the preset:
 
 ```
 data/
-├── benchmarks/
-│   └── cross_paradigm/queries/           # Benchmark query sources, one per channel-finder pipeline
-├── ariel/
-│   ├── vocabulary.yml                    # Logbook shorthand -> the words entries use
-│   └── README.md                         # Vocabulary format walkthrough
 ├── landing/
 │   └── working-safely.md                 # A notice on the web terminal's landing page
 └── facility/                             # The facility's authored sources
@@ -25,8 +20,16 @@ data/
     ├── limits.yaml                       # Write limits, one record per channel
     ├── seeds.yaml                        # Simulated channels' nominal values and noise
     ├── scenarios/                        # Simulation scenarios, one YAML file each
-    └── knowledge/                        # Markdown knowledge bundle
+    ├── knowledge/                        # Markdown knowledge bundle
+    ├── benchmarks/
+    │   └── cross_paradigm/queries/       # Benchmark query sources, one per channel-finder pipeline
+    └── ariel/
+        ├── vocabulary.yml                # Logbook shorthand -> the words entries use
+        └── README.md                     # Vocabulary format walkthrough
 ```
+
+A bundled facility carries data only: records, decks, models, limits, seeds,
+scenarios, knowledge pages, benchmark query sources and the ARIEL vocabulary.
 
 An importer writes its own layer under `facility/imported/<layer>/`:
 `osprey facility import mml` writes `facility/imported/mml/`. Edit the
@@ -44,7 +47,7 @@ path.
 to `benchmarks/queries.json`: `in_context_queries.json` for `in_context`,
 `tree_queries.json` for every other mode. Each channel-finder index is the view
 the build writes at its own path; nothing is flattened. The render drops the
-`benchmarks/cross_paradigm/` subtree.
+`facility/benchmarks/cross_paradigm/` subtree.
 
 ## Database Paradigms
 

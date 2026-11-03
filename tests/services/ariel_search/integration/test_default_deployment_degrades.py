@@ -78,13 +78,12 @@ TEXT_MODEL = "nomic-embed-text"
 TEXT_DIMS = 768
 #: An alias the llama-server stub serves that is not the preset's model.
 OTHER_ALIAS = "some-other-embedding-model"
-#: The vocabulary the control-assistant build ships at ``data/ariel/vocabulary.yml``.
+#: The vocabulary the control-assistant build ships at ``data/facility/ariel/vocabulary.yml``.
 VOCABULARY = (
     Path(osprey.__file__).parent
     / "templates"
-    / "apps"
-    / "control_assistant"
-    / "data"
+    / "facilities"
+    / "example"
     / "ariel"
     / "vocabulary.yml"
 )
@@ -227,9 +226,9 @@ def _write_source(tmp_path: Path) -> Path:
     """The generic_json file source: one entry, two relative sidecar PNGs.
 
     The preset's vocabulary file is laid down where the build ships it
-    (``data/ariel/vocabulary.yml`` beside ``config.yml``).
+    (``data/facility/ariel/vocabulary.yml`` beside ``config.yml``).
     """
-    vocabulary = tmp_path / "data" / "ariel" / "vocabulary.yml"
+    vocabulary = tmp_path / "data" / "facility" / "ariel" / "vocabulary.yml"
     vocabulary.parent.mkdir(parents=True, exist_ok=True)
     vocabulary.write_bytes(VOCABULARY.read_bytes())
     for name in PICTURES:

@@ -2014,7 +2014,8 @@ def test_build_renders_each_index_as_its_view(tmp_path: Path, paradigm: str) -> 
 
     - rendered config.yml names the index the build writes at
       ``data/channel_finder/<paradigm>.json``, and the file is there.
-    - no ``data/benchmarks/cross_paradigm/`` or ``data/raw/`` reaches the
+    - no ``data/facility/benchmarks/``, no
+      ``data/benchmarks/cross_paradigm/`` and no ``data/raw/`` reaches the
       render; the facility tree keeps them.
     - no ``data/channel_databases/<paradigm>.json`` is materialized, for this
       paradigm or any other.
@@ -2038,6 +2039,7 @@ def test_build_renders_each_index_as_its_view(tmp_path: Path, paradigm: str) -> 
     assert (project_dir / expected_path).is_file()
 
     data = project_dir / "data"
+    assert not (data / "facility" / "benchmarks").exists()
     assert not (data / "benchmarks" / "cross_paradigm").exists()
     assert not (data / "raw").exists()
     staged = sorted(path.name for path in (data / "channel_databases").glob("*"))
@@ -2047,7 +2049,7 @@ def test_build_renders_each_index_as_its_view(tmp_path: Path, paradigm: str) -> 
     assert (data / "benchmarks" / "queries.json").is_file()
 
     # The facility tree the render came from is never pruned.
-    assert (repo / "data" / "benchmarks" / "cross_paradigm").is_dir()
+    assert (repo / "data" / "facility" / "benchmarks" / "cross_paradigm").is_dir()
 
     if paradigm == "hierarchical":
         # The levels the channel-finder agent is told are the index's own.

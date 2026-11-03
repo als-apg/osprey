@@ -50,7 +50,7 @@
       "value": 3342
     },
     {
-      "file": "src/osprey/templates/apps/control_assistant/data/benchmarks/cross_paradigm/queries/tree_queries.json",
+      "file": "src/osprey/templates/facilities/example/benchmarks/cross_paradigm/queries/tree_queries.json",
       "pin": "json:len()",
       "value": 71
     },
