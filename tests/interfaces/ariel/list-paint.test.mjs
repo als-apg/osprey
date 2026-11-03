@@ -169,9 +169,11 @@ function entry(id) {
     timestamp: '2026-08-25T12:00:00Z',
     author: 'alice',
     source_system: 'demo',
-    raw_text: `body of ${id}`,
+    subject: null,
+    snippet: `body of ${id}`,
     score: null,
-    attachments: [],
+    attachment_count: 0,
+    enhancements: {},
     keywords: [],
     highlights: [],
   };

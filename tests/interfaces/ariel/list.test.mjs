@@ -5,10 +5,13 @@
  *
  * `initList(root, {capabilities})` builds the pane head (standalone search
  * box, mode chip with its Filters popover, standalone compose button) and
- * follows the store: an empty query pages through /api/entries newest first
- * with day separators and a Load older control; any other query runs the
- * search driver. The mailbox scopes both: Mine passes its author (and locks the
- * Filters author), Drafts shows its empty state. Row click selects. The
+ * follows the store: an empty query browses /api/entries newest first by
+ * cursor, with day separators and a Load older control; any other query runs
+ * the search driver and pages by offset, in ranked order. Both apply the
+ * filter; the mailbox scopes both: Mine sends its name as the exact author
+ * (and locks the Filters author), Drafts shows its empty state. The store's
+ * notice shows in the banners. Row click selects. paging.js's own cases live
+ * in paging.test.mjs. The
  * two-phase paint cases live in list-paint.test.mjs, the banners in
  * vocabulary-banner.test.mjs, the sink-security cases in render-xss.test.mjs.
  *
@@ -89,34 +92,45 @@ function entry(id, timestamp = '2026-08-25T12:00:00Z') {
     timestamp,
     author: 'alice',
     source_system: 'demo',
-    raw_text: `subject of ${id}\nbody of ${id}`,
+    subject: `subject of ${id}`,
+    snippet: `body of ${id}`,
     score: null,
-    attachments: [],
+    attachment_count: 0,
+    has_images: false,
+    enhancements: {},
     keywords: [],
     highlights: [],
+    matched_via: [],
   };
 }
 
 /**
  * @param {any[]} entries
- * @param {{page?: number, total_pages?: number}} [paging]
+ * @param {{next_cursor?: string|null, total?: number}} [paging]
  * @returns {any}
  */
-function listPage(entries, { page = 1, total_pages = 1 } = {}) {
-  return { entries, total: entries.length, page, total_pages };
+function listPage(entries, { next_cursor = null, total = entries.length } = {}) {
+  return { entries, total, page: null, page_size: 20, total_pages: 1, next_cursor };
 }
 
 /**
  * @param {any[]} entries
+ * @param {{total?: number, total_exact?: boolean, has_more?: boolean}} [paging]
  * @returns {any}
  */
-function searchResponse(entries) {
+function searchResponse(
+  entries,
+  { total = entries.length, total_exact = true, has_more = false } = {}
+) {
   return {
     answer: '',
     sources: [],
     search_modes_used: ['keyword'],
     execution_time_ms: 3,
-    total_results: entries.length,
+    total_results: total,
+    total,
+    total_exact,
+    has_more,
     entries,
     diagnostics: [],
     expanded_terms: [],
@@ -182,6 +196,16 @@ function enter(value) {
 /** @returns {string[]} The day separators' labels, in order. */
 function separators() {
   return Array.from(body().querySelectorAll('.ariel-day-sep')).map((el) => el.textContent ?? '');
+}
+
+/** @returns {HTMLButtonElement|null} The Load more control. */
+function loadMoreButton() {
+  return body().querySelector('[data-load-more]');
+}
+
+/** @returns {string} The header's total. */
+function totalText() {
+  return body().querySelector('[data-list-total]')?.textContent ?? '';
 }
 
 /** @returns {string[]} The painted rows' entry ids, in order. */
@@ -272,16 +296,21 @@ describe('search box', () => {
     expect(api.searchApi.search).toHaveBeenCalledTimes(2);
   });
 
-  test('a search shows the single result set: no day separators, no Load older', async () => {
+  test('a search shows ranked rows without day separators, and no Load more at the end', async () => {
     await mount();
     vi.mocked(api.searchApi.search).mockResolvedValueOnce(
       searchResponse([entry('A', '2026-08-25T12:00:00Z'), entry('B', '2026-08-20T12:00:00Z')])
     );
     enter('quench');
     await flush();
+    expect(vi.mocked(api.searchApi.search).mock.calls[0][0]).toMatchObject({
+      offset: 0,
+      maxResults: list.PAGE_SIZE,
+      view: 'row',
+    });
     expect(rowIds()).toEqual(['A', 'B']);
     expect(separators()).toEqual([]);
-    expect(body().querySelector('[data-load-older]')).toBeNull();
+    expect(loadMoreButton(), 'has_more false: the end').toBeNull();
   });
 
   test('focusSearch focuses the standalone box', async () => {
@@ -319,7 +348,7 @@ describe('search box', () => {
 });
 
 describe('listing (empty query)', () => {
-  test('lists /api/entries page 1, newest first, with a separator per day', async () => {
+  test('lists the first /api/entries page, newest first, with a separator per day', async () => {
     await mount({
       firstPage: listPage([
         entry('E3', '2026-08-25T15:00:00Z'),
@@ -327,8 +356,12 @@ describe('listing (empty query)', () => {
         entry('E1', '2026-08-24T22:00:00Z'),
       ]),
     });
-    expect(vi.mocked(api.entriesApi.list).mock.calls[0][0]).toMatchObject({ page: 1 });
+    const sent = vi.mocked(api.entriesApi.list).mock.calls[0][0];
+    expect(sent).toMatchObject({ pageSize: list.PAGE_SIZE, view: 'row' });
+    expect(sent.page, 'no page numbers').toBeUndefined();
+    expect(sent.cursor, 'the first page has no cursor').toBeUndefined();
     expect(rowIds()).toEqual(['E3', 'E2', 'E1']);
+    expect(totalText(), 'the header shows the total').toBe('3');
     const days = separators();
     expect(days.length, 'one separator per calendar day').toBe(2);
     expect(days[0]).toContain('25');
@@ -356,23 +389,38 @@ describe('listing (empty query)', () => {
     expect(separators()[0]).toContain('24');
   });
 
-  test('Load older appends the next page and continues the day without a repeat separator', async () => {
+  test('Load older continues from next_cursor and continues the day without a repeat separator', async () => {
     await mount({
-      firstPage: listPage([entry('P1', '2026-08-25T12:00:00Z')], { page: 1, total_pages: 2 }),
+      firstPage: listPage([entry('P1', '2026-08-25T12:00:00Z')], { next_cursor: 'C1', total: 3 }),
     });
     expect(separators().length).toBe(1);
+    expect(loadMoreButton()?.textContent).toContain('Load older');
     vi.mocked(api.entriesApi.list).mockResolvedValueOnce(
       listPage(
         [entry('P2-SAME-DAY', '2026-08-25T08:00:00Z'), entry('P2-OLDER', '2026-08-23T08:00:00Z')],
-        { page: 2, total_pages: 2 }
+        { next_cursor: null, total: 3 }
       )
     );
-    /** @type {HTMLElement} */ (body().querySelector('[data-load-older]')).click();
+    /** @type {HTMLElement} */ (loadMoreButton()).click();
     await flush();
-    expect(vi.mocked(api.entriesApi.list).mock.calls.at(-1)?.[0]).toMatchObject({ page: 2 });
+    expect(vi.mocked(api.entriesApi.list).mock.calls.at(-1)?.[0]).toMatchObject({
+      cursor: 'C1',
+      view: 'row',
+    });
     expect(rowIds()).toEqual(['P1', 'P2-SAME-DAY', 'P2-OLDER']);
     expect(separators().length, 'only the new day adds a separator').toBe(2);
-    expect(body().querySelector('[data-load-older]'), 'no more pages').toBeNull();
+    expect(loadMoreButton(), 'no cursor: the end').toBeNull();
+    expect(body().getAttribute('aria-busy')).toBe('false');
+  });
+
+  test('a failed Load older keeps the rows, says why, and can be retried', async () => {
+    await mount({ firstPage: listPage([entry('P1')], { next_cursor: 'C1' }) });
+    vi.mocked(api.entriesApi.list).mockRejectedValueOnce(new Error('HTTP 503: db down'));
+    /** @type {HTMLElement} */ (loadMoreButton()).click();
+    await flush();
+    expect(rowIds()).toEqual(['P1']);
+    expect(body().querySelector('[data-load-more-error]')?.textContent).toContain('db down');
+    expect(loadMoreButton()?.disabled).toBe(false);
   });
 
   test('a failed listing shows the error state', async () => {
@@ -401,27 +449,40 @@ describe('listing (empty query)', () => {
     expect(body().textContent).toContain('No Entries');
   });
 
-  test('a mode or filters change does not reload the newest-first listing', async () => {
+  test('a filter change re-runs the listing with the filter and starts paging over', async () => {
+    await mount({ firstPage: listPage([entry('P1')], { next_cursor: 'C1' }) });
+    vi.mocked(api.entriesApi.list).mockClear();
+    store.setState({ filter: { source_system: ['ops'] } });
+    await flush();
+    const sent = vi.mocked(api.entriesApi.list).mock.calls[0][0];
+    expect(sent.filters).toEqual({ source_system: ['ops'] });
+    expect(sent.cursor, 'paging starts over').toBeUndefined();
+    expect(api.searchApi.search).not.toHaveBeenCalled();
+  });
+
+  test('a Filters author knob reaches the listing as a filter dimension', async () => {
     await mount();
     vi.mocked(api.entriesApi.list).mockClear();
-    store.setState({ mode: 'semantic', rerank: 'now' });
-    store.setState({ filters: { similarity_threshold: 0.8 }, rerank: 'now' });
+    store.setState({ filters: { author: 'bob' }, rerank: 'now' });
     await flush();
-    expect(api.entriesApi.list).not.toHaveBeenCalled();
-    expect(api.searchApi.search).not.toHaveBeenCalled();
+    expect(vi.mocked(api.entriesApi.list).mock.calls[0][0].filters).toEqual({ author: ['bob'] });
   });
 });
 
 describe('mailboxes', () => {
-  test('Mine passes its author to the listing and to the search', async () => {
-    await mount({ state: { mailbox: 'mine', mineAuthor: 'thorsten' } });
-    expect(vi.mocked(api.entriesApi.list).mock.calls[0][0]).toMatchObject({ author: 'thorsten' });
+  test('Mine sends its name as the exact author filter to the listing and to the search', async () => {
+    await mount({
+      state: { mailbox: 'mine', mineAuthor: 'thorsten', filter: { author: ['alice'] } },
+    });
+    const listed = vi.mocked(api.entriesApi.list).mock.calls[0][0];
+    expect(listed.filters).toEqual({ author: ['thorsten'] });
+    expect(listed.author, 'no legacy author param').toBeUndefined();
 
     enter('quench');
     await flush();
-    expect(vi.mocked(api.searchApi.search).mock.calls[0][0].advancedParams).toMatchObject({
-      author: 'thorsten',
-    });
+    const searched = vi.mocked(api.searchApi.search).mock.calls[0][0];
+    expect(searched.filters).toEqual({ author: ['thorsten'] });
+    expect(searched.advancedParams.author).toBeUndefined();
   });
 
   test('Mine locks the Filters author to the Mine name', async () => {
@@ -447,7 +508,9 @@ describe('mailboxes', () => {
 
     store.setState({ mineAuthor: 'thorsten' });
     await flush();
-    expect(vi.mocked(api.entriesApi.list).mock.calls[0][0]).toMatchObject({ author: 'thorsten' });
+    expect(vi.mocked(api.entriesApi.list).mock.calls[0][0].filters).toEqual({
+      author: ['thorsten'],
+    });
   });
 
   test('Drafts shows its empty state, with or without a query, and requests nothing', async () => {
@@ -458,6 +521,7 @@ describe('mailboxes', () => {
     expect(body().textContent).toContain(list.DRAFTS_EMPTY.text);
     expect(api.entriesApi.list).not.toHaveBeenCalled();
     expect(api.searchApi.search).not.toHaveBeenCalled();
+    expect(loadMoreButton(), 'Drafts has no Load more').toBeNull();
   });
 
   test('switching mailbox re-runs the list', async () => {
@@ -465,10 +529,12 @@ describe('mailboxes', () => {
     vi.mocked(api.entriesApi.list).mockClear();
     store.setState({ mailbox: 'mine', mineAuthor: 'thorsten', rerank: 'now' });
     await flush();
-    expect(vi.mocked(api.entriesApi.list).mock.calls[0][0]).toMatchObject({ author: 'thorsten' });
+    expect(vi.mocked(api.entriesApi.list).mock.calls[0][0].filters).toEqual({
+      author: ['thorsten'],
+    });
     store.setState({ mailbox: 'all', rerank: 'now' });
     await flush();
-    expect(vi.mocked(api.entriesApi.list).mock.calls[1][0].author).toBeUndefined();
+    expect(vi.mocked(api.entriesApi.list).mock.calls[1][0].filters).toEqual({});
   });
 });
 
@@ -478,6 +544,17 @@ describe('selection', () => {
     /** @type {HTMLElement} */ (body().querySelector('[data-entry-id="E2"]')).click();
     expect(store.getState().sel).toBe('E2');
     expect(store.getState().narrowView).toBe('reader');
+  });
+
+  test('a row click while an attachment is open clears att from state and hash', async () => {
+    await mount({
+      firstPage: listPage([entry('E1'), entry('E2')]),
+      state: { sel: 'E1', att: 'a1' },
+    });
+    const router = await import('../../../src/osprey/interfaces/ariel/static/js/router.js');
+    /** @type {HTMLElement} */ (body().querySelector('[data-entry-id="E2"]')).click();
+    expect(store.getState()).toMatchObject({ sel: 'E2', att: null });
+    expect(router.serializeState(store.getState())).not.toContain('att=');
   });
 
   test('rows are list-row primitives and mirror the selection', async () => {
@@ -497,7 +574,7 @@ describe('selection', () => {
         {
           ...entry('E1'),
           score: 0.91,
-          attachments: [{ filename: 'a.png' }],
+          attachment_count: 1,
           keywords: ['rf', 'quench'],
         },
       ]),
@@ -523,6 +600,109 @@ describe('selection', () => {
     expect(preview.querySelector('b')?.textContent).toBe('quench');
     expect(preview.querySelector('i'), 'only <b> survives').toBeNull();
     expect(preview.textContent).not.toContain('body of E1');
+  });
+
+  test('a row without a subject falls back to the first line of its snippet', async () => {
+    await mount({
+      firstPage: listPage([{ ...entry('E1'), subject: null, snippet: 'first line\nsecond' }]),
+    });
+    expect(body().querySelector('.ariel-row-subject')?.textContent).toBe('first line');
+    expect(body().querySelector('.ariel-row-preview')?.textContent).toContain('second');
+  });
+});
+
+/** Two enhancement modules, in registry order. */
+const MODULES = [
+  { name: 'text_embedding', label: 'Text embedding' },
+  { name: 'image_caption', label: 'Image caption' },
+];
+
+describe('badge strip', () => {
+  /** @param {any} enhancements @param {any[]} modules */
+  async function strip(enhancements, modules = MODULES) {
+    const components = await import('../../../src/osprey/interfaces/ariel/static/js/components.js');
+    const host = document.createElement('div');
+    host.innerHTML = components.renderBadgeStrip(enhancements, modules);
+    return host;
+  }
+
+  test.each([
+    ['complete', 'complete'],
+    ['pending', 'pending'],
+    ['stale', 'stale'],
+    ['failed', 'failed'],
+    ['n/a', 'na'],
+  ])('a %s cell carries its state, class and text alternative', async (state, token) => {
+    const host = await strip({ image_caption: state });
+    const cell = /** @type {HTMLElement} */ (host.querySelector('[data-module="image_caption"]'));
+    expect(cell.dataset.state).toBe(state);
+    expect(cell.classList.contains(`ariel-strip-cell-${token}`)).toBe(true);
+    expect(cell.getAttribute('role')).toBe('img');
+    expect(cell.getAttribute('aria-label')).toBe(`Image caption: ${state}`);
+    expect(cell.getAttribute('title')).toBe(`Image caption: ${state}`);
+  });
+
+  test('one cell per module in module order; missing or unknown states read n/a', async () => {
+    const host = await strip({ text_embedding: 'bogus', other_module: 'complete' });
+    const cells = Array.from(host.querySelectorAll('.ariel-strip-cell'));
+    expect(cells.map((c) => /** @type {HTMLElement} */ (c).dataset.module)).toEqual([
+      'text_embedding',
+      'image_caption',
+    ]);
+    expect(cells.map((c) => /** @type {HTMLElement} */ (c).dataset.state)).toEqual(['n/a', 'n/a']);
+    expect(host.querySelector('.ariel-strip')?.getAttribute('aria-label')).toBe('Enhancements');
+  });
+
+  test('no modules: no strip', async () => {
+    expect((await strip({ a: 'complete' }, [])).innerHTML).toBe('');
+    expect((await strip(undefined, /** @type {any} */ (null))).innerHTML).toBe('');
+  });
+
+  test('renderListRow renders the strip from enhancements only when strip is on', async () => {
+    const components = await import('../../../src/osprey/interfaces/ariel/static/js/components.js');
+    components.setEnhancementModules(MODULES);
+    const row = { ...entry('E1'), enhancements: { text_embedding: 'complete' } };
+    const on = document.createElement('div');
+    on.innerHTML = components.renderListRow(row, null, { strip: true });
+    expect(on.querySelector('[data-module="text_embedding"]')?.getAttribute('data-state')).toBe(
+      'complete'
+    );
+    const off = document.createElement('div');
+    off.innerHTML = components.renderListRow(row, null, { strip: false });
+    expect(off.querySelector('.ariel-strip')).toBeNull();
+  });
+
+  test('the list follows the preference: rows repaint when it changes', async () => {
+    const components = await import('../../../src/osprey/interfaces/ariel/static/js/components.js');
+    components.setEnhancementModules(MODULES);
+    await mount({
+      firstPage: listPage([{ ...entry('E1'), enhancements: { image_caption: 'stale' } }]),
+    });
+    expect(
+      body().querySelector('.ariel-strip-cell-stale'),
+      'standalone default: on'
+    ).not.toBeNull();
+
+    const prefs = await import('../../../src/osprey/interfaces/ariel/static/js/display-prefs.js');
+    prefs.setStripPref(false);
+    await flush();
+    expect(body().querySelector('[data-entry-id="E1"]')).not.toBeNull();
+    expect(body().querySelector('.ariel-strip')).toBeNull();
+
+    prefs.setStripPref(true);
+    await flush();
+    expect(body().querySelector('.ariel-strip-cell-stale')).not.toBeNull();
+  });
+
+  test('re-initialising the list does not stack preference subscriptions', async () => {
+    await mount({ firstPage: listPage([entry('E1')]) });
+    list.initList(root(), { capabilities: CAPABILITIES });
+    await flush();
+    const calls = vi.mocked(api.entriesApi.list).mock.calls.length;
+    const prefs = await import('../../../src/osprey/interfaces/ariel/static/js/display-prefs.js');
+    prefs.setStripPref(false);
+    await flush();
+    expect(vi.mocked(api.entriesApi.list).mock.calls.length).toBe(calls + 1);
   });
 });
 
@@ -554,22 +734,44 @@ describe('mode chip and Filters popover', () => {
     expect(document.getElementById('param-similarity_threshold')).not.toBeNull();
   });
 
-  test('a filters change writes filters with rerank now and re-runs the query', async () => {
+  test('dragging a filter slider issues at most one search, after the drag settles', async () => {
+    await mount({ state: { query: 'quench', mode: 'semantic' } });
+    vi.mocked(api.searchApi.search).mockClear();
+    chip().click();
+    const slider = /** @type {HTMLInputElement} */ (
+      document.getElementById('param-similarity_threshold')
+    );
+    expect(slider.type).toBe('range');
+    for (const v of ['0.5', '0.6', '0.7', '0.8']) {
+      slider.value = v;
+      slider.dispatchEvent(new Event('input'));
+      await flush();
+    }
+    expect(api.searchApi.search, 'no request while dragging').not.toHaveBeenCalled();
+    slider.dispatchEvent(new Event('change'));
+    await flush();
+    expect(api.searchApi.search).toHaveBeenCalledTimes(1);
+    expect(
+      vi.mocked(api.searchApi.search).mock.calls[0][0].advancedParams.similarity_threshold
+    ).toBe(0.8);
+  });
+
+  test('a Filters author writes filter.author with rerank now and re-runs the query', async () => {
     await mount({ state: { query: 'quench' } });
     vi.mocked(api.searchApi.search).mockClear();
     chip().click();
     const author = /** @type {HTMLInputElement} */ (document.getElementById('param-author'));
     author.value = 'bob';
     author.dispatchEvent(new Event('input'));
-    expect(store.getState().filters).toEqual({ author: 'bob' });
+    author.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' }));
+    expect(store.getState().filter).toEqual({ author: ['bob'] });
+    expect(store.getState().filters, 'the author is a dimension, not a knob').toEqual({});
     expect(store.getState().rerank).toBe('now');
     expect(document.getElementById('param-author'), 'the field being typed in survives').toBe(
       author
     );
     await flush();
-    expect(vi.mocked(api.searchApi.search).mock.calls[0][0].advancedParams).toMatchObject({
-      author: 'bob',
-    });
+    expect(vi.mocked(api.searchApi.search).mock.calls[0][0].filters).toEqual({ author: ['bob'] });
   });
 });
 
@@ -602,5 +804,217 @@ describe('rerank pass-through', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+describe('search paging', () => {
+  test('Load more requests the next offset unreranked and appends only ids not shown', async () => {
+    await mount();
+    vi.mocked(api.searchApi.search).mockResolvedValueOnce(
+      searchResponse([entry('A'), entry('B')], { total: 4, has_more: true })
+    );
+    enter('quench');
+    await flush();
+    expect(loadMoreButton()?.textContent).toContain('Load more');
+    vi.mocked(api.searchApi.search).mockResolvedValueOnce(
+      searchResponse([entry('B'), entry('C')], { total: 4, has_more: false })
+    );
+    /** @type {HTMLElement} */ (loadMoreButton()).click();
+    await flush();
+    expect(api.searchApi.search).toHaveBeenCalledTimes(2);
+    expect(vi.mocked(api.searchApi.search).mock.calls[1][0]).toMatchObject({
+      query: 'quench',
+      offset: 2,
+      maxResults: list.PAGE_SIZE,
+      view: 'row',
+    });
+    expect(rowIds(), 'B is not repeated').toEqual(['A', 'B', 'C']);
+    expect(separators(), 'ranked order: no day separators').toEqual([]);
+    expect(loadMoreButton(), 'has_more false: the end').toBeNull();
+  });
+
+  test('an inexact total shows as a lower bound while more pages remain, else as an estimate', async () => {
+    await mount();
+    vi.mocked(api.searchApi.search).mockResolvedValueOnce(
+      searchResponse([entry('A')], { total: 20, total_exact: false, has_more: true })
+    );
+    enter('quench');
+    await flush();
+    expect(totalText()).toBe('20+');
+    vi.mocked(api.searchApi.search).mockResolvedValueOnce(
+      searchResponse([entry('B')], { total: 30, total_exact: false, has_more: false })
+    );
+    /** @type {HTMLElement} */ (loadMoreButton()).click();
+    await flush();
+    expect(totalText()).toBe('≈30');
+  });
+
+  test('an exact total shows as is', async () => {
+    await mount();
+    vi.mocked(api.searchApi.search).mockResolvedValueOnce(
+      searchResponse([entry('A')], { total: 57, has_more: true })
+    );
+    enter('quench');
+    await flush();
+    expect(totalText()).toBe('57');
+  });
+
+  test('a new query starts paging over from offset 0', async () => {
+    await mount();
+    vi.mocked(api.searchApi.search).mockResolvedValueOnce(
+      searchResponse([entry('A')], { total: 2, has_more: true })
+    );
+    enter('quench');
+    await flush();
+    vi.mocked(api.searchApi.search).mockResolvedValueOnce(searchResponse([entry('Z')]));
+    enter('vacuum');
+    await flush();
+    expect(vi.mocked(api.searchApi.search).mock.calls[1][0]).toMatchObject({
+      query: 'vacuum',
+      offset: 0,
+    });
+    expect(rowIds()).toEqual(['Z']);
+    expect(loadMoreButton()).toBeNull();
+  });
+
+  test('changing the query after Load more starts again from page 1', async () => {
+    await mount();
+    vi.mocked(api.searchApi.search).mockResolvedValueOnce(
+      searchResponse([entry('A'), entry('B')], { total: 6, has_more: true })
+    );
+    enter('quench');
+    await flush();
+    vi.mocked(api.searchApi.search).mockResolvedValueOnce(
+      searchResponse([entry('C'), entry('D')], { total: 6, has_more: true })
+    );
+    /** @type {HTMLElement} */ (loadMoreButton()).click();
+    await flush();
+    expect(vi.mocked(api.searchApi.search).mock.calls[1][0]).toMatchObject({ offset: 2 });
+    expect(rowIds()).toEqual(['A', 'B', 'C', 'D']);
+    vi.mocked(api.searchApi.search).mockResolvedValueOnce(
+      searchResponse([entry('Z')], { total: 1, has_more: false })
+    );
+    enter('vacuum');
+    await flush();
+    expect(api.searchApi.search).toHaveBeenCalledTimes(3);
+    expect(vi.mocked(api.searchApi.search).mock.calls[2][0]).toMatchObject({
+      query: 'vacuum',
+      offset: 0,
+    });
+    expect(rowIds(), 'the earlier pages are gone').toEqual(['Z']);
+    expect(loadMoreButton()).toBeNull();
+  });
+
+  test('Load more is disabled while the phase-2 rerank is pending', async () => {
+    const hybrid = /** @type {any} */ ({
+      ...CAPABILITIES,
+      categories: {
+        direct: {
+          label: 'Direct',
+          modes: [
+            {
+              name: 'hybrid',
+              label: 'Hybrid',
+              parameters: [{ name: 'rerank', label: 'Rerank', type: 'bool', default: true }],
+            },
+          ],
+        },
+      },
+      default_mode: 'hybrid',
+    });
+    await mount({ capabilities: hybrid });
+    /** @type {(value: any) => void} */
+    let finishRerank = () => {};
+    vi.mocked(api.searchApi.search)
+      .mockResolvedValueOnce(searchResponse([entry('FAST')], { total: 5, has_more: true }))
+      .mockImplementationOnce(() => new Promise((resolve) => (finishRerank = resolve)));
+    enter('quench');
+    await flush();
+    expect(rowIds()).toEqual(['FAST']);
+    expect(loadMoreButton()?.disabled, 'held while reranking').toBe(true);
+    /** @type {HTMLElement} */ (loadMoreButton()).click();
+    await flush();
+    expect(api.searchApi.search, 'no page request while held').toHaveBeenCalledTimes(2);
+
+    finishRerank(searchResponse([entry('RERANKED')], { total: 5, has_more: true }));
+    await flush();
+    expect(rowIds()).toEqual(['RERANKED']);
+    expect(loadMoreButton()?.disabled).toBe(false);
+    vi.mocked(api.searchApi.search).mockResolvedValueOnce(searchResponse([entry('NEXT')]));
+    /** @type {HTMLElement} */ (loadMoreButton()).click();
+    await flush();
+    expect(vi.mocked(api.searchApi.search).mock.calls[2][0]).toMatchObject({ offset: 1 });
+    expect(vi.mocked(api.searchApi.search).mock.calls[2][0].advancedParams.rerank).toBe(false);
+  });
+});
+
+describe('superseded requests', () => {
+  test('a listing superseded by a search is aborted and never painted', async () => {
+    api = await import(API_PATH);
+    store = await import(STORE_PATH);
+    list = await import(LIST_PATH);
+    /** @type {(value: any) => void} */
+    let finishListing = () => {};
+    vi.mocked(api.entriesApi.list).mockImplementationOnce(
+      () => new Promise((resolve) => (finishListing = resolve))
+    );
+    vi.mocked(api.searchApi.search).mockResolvedValue(searchResponse([entry('HIT')]));
+    list.initList(root(), { capabilities: CAPABILITIES });
+    await flush();
+    const signal = vi.mocked(api.entriesApi.list).mock.calls[0][0].signal;
+    enter('quench');
+    await flush();
+    expect(signal.aborted, 'the listing request was aborted').toBe(true);
+    finishListing(listPage([entry('STALE')]));
+    await flush();
+    expect(rowIds()).toEqual(['HIT']);
+    expect(body().getAttribute('aria-busy')).toBe('false');
+  });
+
+  test('an aborted search shows no error state', async () => {
+    await mount();
+    vi.mocked(api.searchApi.search).mockImplementationOnce(
+      (/** @type {any} */ params) =>
+        new Promise((_resolve, reject) => {
+          params.signal.addEventListener('abort', () =>
+            reject(new DOMException('aborted', 'AbortError'))
+          );
+        })
+    );
+    vi.mocked(api.entriesApi.list).mockResolvedValue(listPage([entry('NEWEST')]));
+    enter('quench');
+    await flush();
+    enter('');
+    await flush();
+    expect(rowIds()).toEqual(['NEWEST']);
+    expect(body().querySelector('.text-error')).toBeNull();
+  });
+});
+
+describe('notice', () => {
+  test('a notice in state shows in the banners, after the config banner', async () => {
+    await mount({
+      capabilities: { ...CAPABILITIES, status: 'configuration_warning', config_errors: ['x'] },
+      state: { notice: 'Removed filter(s) this logbook does not offer: shift' },
+    });
+    const banners = /** @type {HTMLElement} */ (root().querySelector('.ariel-list-banners'));
+    expect(banners.firstElementChild?.id, 'config banner stays first').toBe(
+      'config-warning-banner'
+    );
+    const notice = /** @type {HTMLElement} */ (banners.querySelector('[data-list-notice]'));
+    expect(notice.hidden).toBe(false);
+    expect(notice.textContent).toContain('does not offer: shift');
+  });
+
+  test('the next filter change clears the notice; a filter written with its notice keeps it', async () => {
+    await mount();
+    const notice = /** @type {HTMLElement} */ (root().querySelector('[data-list-notice]'));
+    expect(notice.hidden, 'no notice, no line').toBe(true);
+    store.setState({ filter: { author: ['alice'] }, notice: 'dropped: shift' });
+    expect(notice.hidden).toBe(false);
+    expect(store.getState().notice).toBe('dropped: shift');
+    store.setState({ filter: { author: ['bob'] } });
+    expect(store.getState().notice).toBeNull();
+    expect(notice.hidden).toBe(true);
   });
 });

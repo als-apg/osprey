@@ -101,6 +101,19 @@ describe('container rendering', () => {
     expect(entriesApi.get).toHaveBeenCalledWith('e-1');
   });
 
+  test('the title is entry.subject, the value the list row shows', async () => {
+    const e = entry('e-1');
+    e.subject = 'Stored subject';
+    vi.mocked(entriesApi.get).mockResolvedValueOnce(e);
+    await showInReader(container, 'e-1');
+    expect(container.querySelector('.entry-detail-title')?.textContent).toBe('Stored subject');
+    const { renderListRow } =
+      await import('../../../src/osprey/interfaces/ariel/static/js/components.js');
+    const row = document.createElement('div');
+    row.innerHTML = renderListRow({ ...e, snippet: e.raw_text });
+    expect(row.querySelector('.ariel-row-subject')?.textContent?.trim()).toBe('Stored subject');
+  });
+
   test('renders only into the container it is given', async () => {
     document.body.insertAdjacentHTML('beforeend', '<div id="other">untouched</div>');
     vi.mocked(entriesApi.get).mockResolvedValueOnce(entry('e-1'));
@@ -228,10 +241,34 @@ describe('attachments and callbacks', () => {
   ])('attachmentId with %s leaves the entry open without a lightbox', async (_label, id, atts) => {
     vi.mocked(entriesApi.get).mockResolvedValueOnce(entry('e-1', atts));
     const onAttachmentOpen = vi.fn();
-    const shown = await showInReader(container, 'e-1', { attachmentId: id, onAttachmentOpen });
+    const onAttachmentMissing = vi.fn();
+    const shown = await showInReader(container, 'e-1', {
+      attachmentId: id,
+      onAttachmentOpen,
+      onAttachmentMissing,
+    });
     expect(shown.entry_id).toBe('e-1');
     expect(lightbox()).toBeNull();
     expect(onAttachmentOpen).not.toHaveBeenCalled();
+    expect(onAttachmentMissing).toHaveBeenCalledWith(id);
+  });
+
+  test('a deep link (entry and attachment together) opens the attachment, missing never reported', async () => {
+    vi.mocked(entriesApi.get).mockResolvedValueOnce(entry('e-1', [PICTURE]));
+    const onAttachmentMissing = vi.fn();
+    await showInReader(container, 'e-1', {
+      attachmentId: PICTURE.attachment_id,
+      onAttachmentMissing,
+    });
+    expect(lightbox()).not.toBeNull();
+    expect(onAttachmentMissing).not.toHaveBeenCalled();
+  });
+
+  test('no attachmentId: missing is not reported', async () => {
+    vi.mocked(entriesApi.get).mockResolvedValueOnce(entry('e-1', [PICTURE]));
+    const onAttachmentMissing = vi.fn();
+    await showInReader(container, 'e-1', { onAttachmentMissing });
+    expect(onAttachmentMissing).not.toHaveBeenCalled();
   });
 
   test('a thumbnail click in the container opens the lightbox and calls onAttachmentOpen', async () => {
