@@ -730,8 +730,16 @@ def _install_lines(text: str) -> list[str]:
 
 KNOB_WHEEL = {"name": "knob-app", "wheel": "knob_app-0.1.0-py3-none-any.whl"}
 
+#: The image's framework constraints, frozen once the framework is in.
+FROZEN = "-c /opt/osprey/constraints.txt"
 
-def test_the_image_installs_the_wheels_on_the_framework_line() -> None:
+
+def _dependency_run(text: str) -> str:
+    """The install of the profile's dependencies, under the frozen framework set."""
+    return next(line for line in _install_lines(text) if FROZEN in line)
+
+
+def test_the_image_installs_the_wheels_under_the_frozen_framework_set() -> None:
     text = _dockerfile("numpy>=1.24 knob-app==0.1.0", DEPLOYMENT_PACKAGES_DIRNAME, (KNOB_WHEEL,))
     staged = f"/tmp/deps-ctx/{DEPLOYMENT_PACKAGES_DIRNAME}/{KNOB_WHEEL['wheel']}"
     bound = f'"knob-app @ file://{staged}"'
@@ -739,15 +747,21 @@ def test_the_image_installs_the_wheels_on_the_framework_line() -> None:
     copy = f"COPY {DEPLOYMENT_PACKAGES_DIRNAME}/ /tmp/deps-ctx/{DEPLOYMENT_PACKAGES_DIRNAME}/"
     assert copy in text
     assert text.index(copy) < text.index("--mount=type=cache,target=/root/.cache/uv")
+    # A deployment package never moves a framework pin: the primer and its
+    # fallback install the framework alone.
     primer, fallback = (
-        line for line in _install_lines(text) if "$OSPREY_PIP_SPEC" in line or "framework " in line
+        line
+        for line in _install_lines(text)
+        if "$OSPREY_PIP_SPEC" in line or "install osprey-framework" in line
     )
     for line in (primer, fallback):
-        assert "knob-app==0.1.0" in line and bound in line
-        # The name is bound to the staged wheel, never looked up: a rebuilt
-        # wheel of an unchanged version is not served from the uv cache, and
-        # no index distribution of that name competes with it.
-        assert "--refresh-package knob-app" in line
+        assert "knob-app" not in line
+    line = _dependency_run(text)
+    assert "knob-app==0.1.0" in line and bound in line
+    # The name is bound to the staged wheel, never looked up: a rebuilt
+    # wheel of an unchanged version is not served from the uv cache, and
+    # no index distribution of that name competes with it.
+    assert "--refresh-package knob-app" in line
     assert "--find-links" not in text
     # A registry build stages no local-requirements file; the wheels are not
     # inside that file's branch, so they install all the same.
@@ -828,10 +842,10 @@ def test_every_image_context_carries_the_wheels_and_installs_them(
         assert sorted(p.name for p in staged.glob("*.whl")) == wheels
         assert not list(context.glob("*.whl")), "a root wheel would be reinstalled as osprey"
         dockerfile = (context / BUILD_DIR_NAME / "Dockerfile").read_text(encoding="utf-8")
-        primer = next(line for line in _install_lines(dockerfile) if "$OSPREY_PIP_SPEC" in line)
-        assert "ring-kind==0.2.0" in primer and "knob-app==0.1.0" in primer
+        dependencies = _dependency_run(dockerfile)
+        assert "ring-kind==0.2.0" in dependencies and "knob-app==0.1.0" in dependencies
         for wheel in wheels:
-            assert f"file:///tmp/deps-ctx/{DEPLOYMENT_PACKAGES_DIRNAME}/{wheel}" in primer
+            assert f"file:///tmp/deps-ctx/{DEPLOYMENT_PACKAGES_DIRNAME}/{wheel}" in dependencies
         assert "./kinds/ring" not in dockerfile
         assert not re.search(re.escape(str(tmp_path)), dockerfile)
     # The record the swap put in place reaches the wheels the swap put beside it.
@@ -865,12 +879,12 @@ def test_a_skip_deps_build_builds_no_wheel_and_its_image_cannot_reach_an_index(
     assert not (context / DEPLOYMENT_PACKAGES_DIRNAME).exists()
     assert not (repo / BUILD_DIR_NAME / DEPLOYMENT_PACKAGES_DIRNAME).exists()
     dockerfile = (context / BUILD_DIR_NAME / "Dockerfile").read_text(encoding="utf-8")
-    primer = next(line for line in _install_lines(dockerfile) if "$OSPREY_PIP_SPEC" in line)
+    dependencies = _dependency_run(dockerfile)
     # Each name stays bound to a wheel this context does not hold, so the install
     # stops there; no index is ever asked for it.
     staged = f"file:///tmp/deps-ctx/{DEPLOYMENT_PACKAGES_DIRNAME}"
-    assert f'"knob-app @ {staged}/knob_app-0.1.0-py3-none-any.whl"' in primer
-    assert f'"ring-kind @ {staged}/ring_kind-0.2.0-py3-none-any.whl"' in primer
+    assert f'"knob-app @ {staged}/knob_app-0.1.0-py3-none-any.whl"' in dependencies
+    assert f'"ring-kind @ {staged}/ring_kind-0.2.0-py3-none-any.whl"' in dependencies
 
 
 def test_skip_lifecycle_still_builds_and_installs_the_packages(
