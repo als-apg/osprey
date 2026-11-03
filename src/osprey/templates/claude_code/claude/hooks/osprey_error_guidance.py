@@ -155,11 +155,13 @@ ERROR_CLASS_MAP = {
     # A lattice figure the selected model cannot draw: pick another figure.
     "figure_unavailable": "Validation",
     # Panel-tool refusals the agent fixes by changing the request: re-read the
-    # layout and retry with its rev, leave the terminal out of a layout, open
-    # as tabs or give an exact layout, or leave a panel in its own window alone.
+    # layout and retry with its rev, leave the terminal out of a layout, give
+    # an exact layout or open fewer panels, put one panel in each tile, or
+    # leave a panel in its own window alone.
     "stale_base": "Validation",
     "terminal_in_layout": "Validation",
     "too_many_for_side": "Validation",
+    "one_panel_per_tile": "Validation",
     "popped_out": "Validation",
     # The reviewer refused this code: revise it and resubmit.
     "review_blocked": "Validation",

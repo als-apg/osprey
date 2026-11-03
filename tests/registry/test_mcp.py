@@ -327,9 +327,10 @@ class TestResolveServers:
             "open_panel_set",
             "arrange_workspace",
             "drop_panel",
-            "close_panel_tab",
-            "close_panel_tile",
+            "close_panel",
         } <= allow
+        # One close verb: a tile shows one panel, so it closes with it.
+        assert sorted(tool for tool in allow if tool.startswith("close_")) == ["close_panel"]
         assert allow.isdisjoint(gated)
         assert gated <= ask
         # A literal matcher per tool: the approval hook and the SDK's disallow

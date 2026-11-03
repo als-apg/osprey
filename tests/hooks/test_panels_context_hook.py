@@ -6,8 +6,8 @@ The hook injects two independent context parts:
    set per session by the web terminal's launchers — the chat line carries
    the "open_panel('artifacts') when you produce an artifact" instruction;
 2. the panel inventory fetched from ``GET /api/panels``;
-3. the open-tiles line built from that payload's ``layout`` — every tile with
-   its tabs and showing tab, the terminal included — omitted when no dock
+3. the open-tiles line built from that payload's ``layout`` — every tile by
+   the one panel it shows, the terminal's included — omitted when no dock
    client has reported.
 
 Either part may be present alone: the surface line must survive a down web
@@ -134,7 +134,7 @@ def test_tile_line_from_reported_layout(hook_runner, monkeypatch, panels_server)
                 {"tile": "t1", "tabs": ["terminal"], "showing": "terminal", "size": 0.5},
                 {
                     "tile": "t2",
-                    "tabs": ["ariel", "artifacts"],
+                    "tabs": ["artifacts"],
                     "showing": "artifacts",
                     "size": 0.5,
                 },
@@ -147,7 +147,7 @@ def test_tile_line_from_reported_layout(hook_runner, monkeypatch, panels_server)
     monkeypatch.delenv("OSPREY_WEB_UX", raising=False)
 
     context = _context(hook_runner(HOOK, "", {}))
-    assert "Open tiles: [terminal], [ariel, artifacts (showing)]; active artifacts." in context
+    assert "Open tiles: [terminal], [artifacts]; active artifacts." in context
 
 
 def test_no_tile_line_before_any_dock_report(hook_runner, monkeypatch, panels_server):

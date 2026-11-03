@@ -1564,8 +1564,7 @@ _EXPECTED_PANEL_ROUTES = {
     ("POST", "/api/panel-visibility"),
     # The agent dock-op write routes: the only agent dock-write path.
     ("POST", "/api/panel-op/drop"),
-    ("POST", "/api/panel-op/close-tab"),
-    ("POST", "/api/panel-op/close-tile"),
+    ("POST", "/api/panel-op/close"),
     ("POST", "/api/panel-op/open"),
     ("POST", "/api/panel-op/open-set"),
     ("POST", "/api/panel-op/open-arrangement"),
@@ -1621,7 +1620,7 @@ _EXPECTED_OPERATOR_ROUTES = [
     # The dock client's answer to an agent op records the layout and mints its
     # rev, so it is a browser-session act like the report above.
     ("POST", "/api/panel-op-result"),
-    # A person's tab-switch report; the agent's focus form is retired.
+    # A person's switch-to-a-panel report; the agent's focus form is retired.
     ("POST", "/api/panel-focus"),
     # The retired agent routes, which no longer exist, stay out of the tier.
     ("POST", "/api/panel-close"),

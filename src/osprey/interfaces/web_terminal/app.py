@@ -920,18 +920,18 @@ def _load_panel_presets(enabled_panels: set[str], custom_panels: list[dict]) -> 
 
     A preset is a facility-curated, named arrangement a human applies in one click
     (the "Layouts" section of the "+" popover) or the agent applies by name. Its
-    value is a dock layout in collection form with panel ids in ``tabs``
-    (:mod:`osprey.interfaces.web_terminal.presets`). This resolves the raw config
-    into the shape the frontend and the arrangement op consume, mirroring how
-    :func:`_load_panel_config` turns ``web.panels`` into concrete ids.
+    value is a dock layout in collection form, each tile naming one panel id in
+    its ``tabs`` (:mod:`osprey.interfaces.web_terminal.presets`). This resolves
+    the raw config into the shape the frontend and the arrangement op consume,
+    mirroring how :func:`_load_panel_config` turns ``web.panels`` into concrete ids.
 
-    A value that is not a valid preset (the retired list form included) is skipped
-    with a warning. Each preset's tabs are pruned to the known ids (enabled built-ins
-    plus custom panel ids) with a warning per dropped id (a typo or a disabled panel
-    must not strand the user), emptied tiles leave the tree, and the result is
-    normalised; a preset with no known tab left is dropped entirely. Config insertion
-    order is preserved (pyyaml keeps mapping order on 3.7+), so config order == menu
-    order.
+    A value that is not a valid preset (the retired list form and a tile naming
+    several panels included) is skipped with a warning. Each preset's panels are
+    pruned to the known ids (enabled built-ins plus custom panel ids) with a
+    warning per dropped id (a typo or a disabled panel must not strand the user),
+    their tiles leave the tree, and the result is normalised; a preset with no
+    known panel left is dropped entirely. Config insertion order is preserved
+    (pyyaml keeps mapping order on 3.7+), so config order == menu order.
 
     Args:
         enabled_panels: Enabled built-in panel ids (from :func:`_load_panel_config`).
@@ -941,8 +941,8 @@ def _load_panel_presets(enabled_panels: set[str], custom_panels: list[dict]) -> 
         A list of ``{"name": str, "panels": [id, ...], "layout": dict}`` dicts in
         config order — a list (not a dict) so JSON serialization preserves ordering
         in the ``GET /api/panels`` payload. ``layout`` is the pruned, normalised
-        preset (panel-id tabs, fractions, every ``showing`` filled in) and
-        ``panels`` its tabs in reading order. Fails open to ``[]`` on any
+        preset (panel ids, fractions, every ``showing`` filled in) and
+        ``panels`` the panels it places, in reading order. Fails open to ``[]`` on any
         config-read error.
     """
     known: set[str] = set(enabled_panels) | {cp["id"] for cp in custom_panels}

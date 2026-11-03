@@ -500,8 +500,7 @@ def notify_panel_register(
 #: The write route of each dock op on the web terminal.
 PANEL_OP_ROUTES: dict[str, str] = {
     "drop": "/api/panel-op/drop",
-    "close_tab": "/api/panel-op/close-tab",
-    "close_tile": "/api/panel-op/close-tile",
+    "close": "/api/panel-op/close",
     "open": "/api/panel-op/open",
     "open_set": "/api/panel-op/open-set",
     "open_arrangement": "/api/panel-op/open-arrangement",
@@ -530,12 +529,12 @@ def panel_op(op: str, args: dict, *, base_rev: int | None = None) -> dict:
         ``await anyio.to_thread.run_sync(...)``.
 
     Args:
-        op: One of :data:`PANEL_OP_ROUTES` (``drop``, ``close_tab``,
-            ``close_tile``, ``open``, ``open_set``, ``open_arrangement``).
+        op: One of :data:`PANEL_OP_ROUTES` (``drop``, ``close``, ``open``,
+            ``open_set``, ``open_arrangement``).
         args: The op's arguments, e.g. ``{"member": "ariel", "url": u}``
             for ``open``; ``open_set`` and ``open_arrangement`` spell ``as`` as is.
-        base_rev: The ``rev`` of the agent's last read, for the ops that name
-            tile ids (``drop``, ``close_tile``); omitted from the body when ``None``.
+        base_rev: The ``rev`` of the agent's last read, for ``drop``, the one op
+            that names tile ids; omitted from the body when ``None``.
 
     Returns:
         ``{"ok": True, "status": 200, "layout": {...}, "popouts": [...], "rev":

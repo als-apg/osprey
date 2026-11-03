@@ -323,24 +323,22 @@ def render_key_errors(config: Any) -> list[str]:
 
 
 def _preset_rewrite(name: str, members: list[Any]) -> str:
-    """How to write a ``label: [ids]`` preset as a dock layout."""
+    """How to write a ``label: [ids]`` preset as a dock layout: one panel per tile."""
     ids = [str(member) for member in members] or ["<panel id>"]
     if len(ids) == 1:
         return f"rewrite it as a layout, e.g. {name!r}: {{tabs: [{ids[0]}]}}"
     tiles = ", ".join(f"{{tabs: [{pid}]}}" for pid in ids)
-    return (
-        f"rewrite it as a layout, e.g. {name!r}: {{split: row, items: [{tiles}]}} "
-        f"(side by side), or {name!r}: {{tabs: [{', '.join(ids)}]}} (tabs of one tile)"
-    )
+    return f"rewrite it as a layout, e.g. {name!r}: {{split: row, items: [{tiles}]}} (side by side)"
 
 
 def panel_preset_errors(name: str, layout: Any, is_known: Callable[[str], bool]) -> list[str]:
     """Refuse a ``panel_presets`` entry that is not a dock layout over shown panels.
 
     The layout rules are :func:`osprey.interfaces.web_terminal.presets.preset_refusal`,
-    the ones the terminal applies to ``web.presets`` at startup; the build adds
-    that every tab must be a panel this render shows (``is_known``). The retired
-    ``label: [ids]`` list form is refused with the layout to write instead.
+    the ones the terminal applies to ``web.presets`` at startup, one panel per
+    tile included; the build adds that every panel a tile names must be a panel
+    this render shows (``is_known``). The retired ``label: [ids]`` list form is
+    refused with the layout to write instead.
 
     Returns:
         One error per problem with the entry; empty when it is a valid preset.
@@ -459,9 +457,10 @@ class BuildProfile:
     panel_presets: dict[str, dict[str, Any]] = field(default_factory=dict)
     """Named panel layouts ("presets") rendered into ``web.presets``. Each key is
     the display label, each value a dock layout in collection form: a tile
-    ``{tabs: [<panel id>, ...], showing?, size?}`` or a split ``{split: row|column,
-    items: [...], size?}`` whose tabs are panel ids (built-ins or custom
-    ``web.panels.<id>.url``-backed ids, never the terminal). A human applies one
+    ``{tabs: [<panel id>], showing?, size?}`` naming the one panel it shows, or a
+    split ``{split: row|column, items: [...], size?}``. Panel ids are built-ins
+    or custom ``web.panels.<id>.url``-backed ids, never the terminal; a tile
+    naming several is refused. A human applies one
     from the Web Terminal "+" popover's "Layouts" section; the agent applies one
     by name. Empty (the default) renders no ``web.presets`` block. Validated at
     build time by :func:`panel_preset_errors`; the retired list-of-ids form is
@@ -1858,9 +1857,10 @@ class BuildProfile:
                 f"({sorted(UNIVERSAL_PANELS)})"
             )
 
-        # Validate panel_presets: each is a dock layout whose tabs resolve the
-        # same way a default_panel does (selected, or universal). Catches typos
-        # and the retired list form at build time, with the layout to write.
+        # Validate panel_presets: each is a dock layout of one panel per tile,
+        # whose panels resolve the same way a default_panel does (selected, or
+        # universal). Catches typos and the retired list form at build time,
+        # with the layout to write.
         for preset_name, layout in self.panel_presets.items():
             errors.extend(panel_preset_errors(preset_name, layout, self._is_known_panel_id))
 

@@ -476,6 +476,7 @@ EXPECTED_ERROR_CLASSES = {
     "stale_base": "Validation",
     "terminal_in_layout": "Validation",
     "too_many_for_side": "Validation",
+    "one_panel_per_tile": "Validation",
     "popped_out": "Validation",
     # Data
     "not_found": "Data",
