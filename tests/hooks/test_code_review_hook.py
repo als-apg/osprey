@@ -8,11 +8,14 @@ from __future__ import annotations
 
 import ast
 import asyncio
+import hashlib
 import io
 import json
+import re
 import subprocess
 import sys
 import textwrap
+import time
 import urllib.request
 from pathlib import Path
 from types import SimpleNamespace
@@ -24,7 +27,12 @@ from osprey.agent_runner.primitives import SDKWorkflowResult
 from osprey.services.code_review import notebook as notebook_module
 from osprey.services.code_review import review as review_module
 from osprey.services.code_review import settings as settings_module
-from osprey.services.code_review.contract import SURFACE_NOTEBOOK, ReviewFailure, ReviewRequest
+from osprey.services.code_review.contract import (
+    SURFACE_NOTEBOOK,
+    ReviewFailure,
+    ReviewRequest,
+    ReviewSwitchedOff,
+)
 from osprey.services.code_review.settings import DEFAULT_PROMPT, HOOK_OVERHEAD_S
 from osprey_connectors.workspace import DEFAULT_AGENT_DATA_BASE_DIR
 from tests.hooks.conftest import HOOKS_DIR, hook_audit_records, import_hook
@@ -32,6 +40,8 @@ from tests.hooks.conftest import HOOKS_DIR, hook_audit_records, import_hook
 SECRET_REASON = "SECRET_REASON_calls_caput"
 NEW_SOURCE = "SECRET_CODE = caput('SR:C01:Set', 7)"
 DISK_SOURCE = "on_disk = 1"
+#: The short digest each review record of ``NEW_SOURCE`` carries.
+DIGEST = f"digest={hashlib.sha256(NEW_SOURCE.encode('utf-8')).hexdigest()[:16]}"
 DISK_OUTPUT = "OUTPUT_THE_REVIEWER_MUST_NOT_SEE"
 
 REPLIES = {
@@ -72,12 +82,24 @@ class Env:
         self.monkeypatch = monkeypatch
         self.capsys = capsys
         self.audits: list[dict] = []
+        #: The ``ms=`` each record carried, in order; a record of no run carries ``None``.
+        self.elapsed_ms: list[int | None] = []
         self.notices: list[tuple[str, str, str]] = []
         self.real_notify = hook.notify_activity
+        #: What code review's runtime switch answers; ``None`` is on.
+        self.switched_off: ReviewSwitchedOff | None = None
+        monkeypatch.setattr(
+            "osprey.services.code_review.switch.switched_off", lambda: self.switched_off
+        )
         monkeypatch.setattr(hook, "emit_audit", self._emit_audit)
         monkeypatch.setattr(hook, "notify_activity", lambda *args: self.notices.append(args))
 
     def _emit_audit(self, name, _hook_input, decision, subject, reason, detail=None):
+        # The time varies run to run, so it is kept apart and the detail compared without it.
+        elapsed = re.search(r" ms=(\d+)$", detail or "")
+        self.elapsed_ms.append(int(elapsed.group(1)) if elapsed else None)
+        if elapsed:
+            detail = detail[: elapsed.start()]
         self.audits.append(
             {"name": name, "decision": decision, "subject": subject, "reason": reason}
             | {"detail": detail}
@@ -299,7 +321,7 @@ def test_the_level_table(env, verdict, level, decision, effect):
         "decision": decision,
         "subject": "notebooks/x.ipynb",
         "reason": "code_review",
-        "detail": f"review={verdict} level={level}",
+        "detail": f"review={verdict} level={level} {DIGEST}",
     }
     assert len(env.notices) == (0 if verdict == "pass" else 1)
     for tool, kind, _detail in env.notices:
@@ -315,7 +337,7 @@ def test_a_failure_at_each_level(env, level, denied):
 
     assert _is_deny(output) is denied
     (record,) = env.audits
-    assert record["detail"] == f"review=failure level={level} kind=unparseable"
+    assert record["detail"] == f"review=failure level={level} kind=unparseable {DIGEST}"
     assert record["decision"] == ("refused" if denied else "allowed")
     assert len(env.notices) == 1
     assert env.notices[0][1] == "review"
@@ -323,6 +345,70 @@ def test_a_failure_at_each_level(env, level, denied):
         assert "do not retry" in output["permissionDecisionReason"]
     else:
         assert "proceeded unreviewed" in output["additionalContext"]
+
+
+@pytest.mark.parametrize("level", ["flag", "block"])
+def test_a_review_switched_off_lets_the_edit_land_and_records_the_skip(env, level):
+    env.config({"enabled": True, "level": level})
+    runner = env.stub("block")
+    env.switched_off = ReviewSwitchedOff(off_by="alice", off_at=1700000000.0)
+
+    output = env.run(env.notebook())
+
+    at = time.strftime("%Y-%m-%d %H:%M", time.localtime(1700000000.0))
+    assert "permissionDecision" not in output, "the edit lands"
+    assert output["additionalContext"] == (
+        f"The code review was skipped: switched off in this terminal by alice at {at}. "
+        "The code proceeded unreviewed."
+    )
+    assert runner.calls == []
+    (record,) = env.audits
+    assert record == {
+        "name": "code-review",
+        "decision": "allowed",
+        "subject": "notebooks/x.ipynb",
+        "reason": "code_review",
+        "detail": f"review=skipped level={level} kind=switched_off by=alice {DIGEST}",
+    }
+    [(tool, kind, detail)] = env.notices
+    assert (tool, kind) == ("NotebookEdit", "review")
+    assert detail == (
+        f"Code review on notebook: skipped (switched off in this terminal by alice at {at}), "
+        "proceeded: notebooks/x.ipynb"
+    )
+
+
+def test_back_on_the_next_edit_is_reviewed_again(env):
+    env.config({"enabled": True, "level": "block"})
+    runner = env.stub("block")
+    notebook = env.notebook()
+    env.switched_off = ReviewSwitchedOff(off_by="alice")
+    assert not _is_deny(env.run(notebook))
+
+    env.switched_off = None
+
+    assert _is_deny(env.run(notebook))
+    assert len(runner.calls) == 1
+
+
+def test_a_reviewed_edit_records_the_time_its_review_took(env):
+    env.config({"enabled": True, "level": "block"})
+    env.stub("pass")
+
+    env.run(env.notebook())
+
+    (elapsed,) = env.elapsed_ms
+    assert isinstance(elapsed, int) and elapsed >= 0
+
+
+def test_a_skipped_review_records_no_time(env):
+    env.config({"enabled": True, "level": "block"})
+    env.stub("pass")
+    env.switched_off = ReviewSwitchedOff(off_by="alice")
+
+    env.run(env.notebook())
+
+    assert env.elapsed_ms == [None]
 
 
 def test_records_and_notices_hold_no_reasons_and_no_code(env):
@@ -362,7 +448,7 @@ def test_an_overrun_of_the_time_limit_denies_at_block(env):
     output = env.run(env.notebook())
 
     assert _is_deny(output)
-    assert env.audits[0]["detail"] == "review=failure level=block kind=timeout"
+    assert env.audits[0]["detail"] == f"review=failure level=block kind=timeout {DIGEST}"
 
 
 def test_an_unparseable_reply_denies_at_block(env):
@@ -370,7 +456,7 @@ def test_an_unparseable_reply_denies_at_block(env):
     env.stub(text="looks fine to me")
 
     assert _is_deny(env.run(env.notebook()))
-    assert env.audits[0]["detail"] == "review=failure level=block kind=unparseable"
+    assert env.audits[0]["detail"] == f"review=failure level=block kind=unparseable {DIGEST}"
 
 
 def test_the_deadline_caps_the_review(env):
@@ -379,7 +465,29 @@ def test_the_deadline_caps_the_review(env):
 
     argv = ("--deadline", str(HOOK_OVERHEAD_S + 0.05))
     assert _is_deny(env.run(env.notebook(), argv=argv))
-    assert env.audits[0]["detail"] == "review=failure level=block kind=timeout"
+    assert env.audits[0]["detail"] == f"review=failure level=block kind=timeout {DIGEST}"
+
+
+def test_the_switch_read_spends_the_deadline_before_the_review(env):
+    env.config({"enabled": True, "level": "block", "time_limit": 600})
+    env.stub("pass")
+
+    def slow_switch():
+        time.sleep(0.3)
+
+    limits: list[float] = []
+    real = review_module.review_code
+
+    async def recording(request, settings, **kwargs):
+        limits.append(settings.time_limit)
+        return await real(request, settings, **kwargs)
+
+    env.monkeypatch.setattr("osprey.services.code_review.switch.switched_off", slow_switch)
+    env.monkeypatch.setattr(review_module, "review_code", recording)
+
+    assert env.run(env.notebook(), argv=("--deadline", str(HOOK_OVERHEAD_S + 10))) is None
+    [limit] = limits
+    assert limit <= 10 - 0.3
 
 
 def test_the_deadline_never_extends_the_time_limit(env):
@@ -395,7 +503,7 @@ def test_a_malformed_deadline_is_the_default(env, raw):
     env.stub("pass")
 
     assert env.run(env.notebook(), argv=("--deadline", raw)) is None
-    assert env.audits[0]["detail"] == "review=pass level=block"
+    assert env.audits[0]["detail"] == f"review=pass level=block {DIGEST}"
 
 
 def test_the_default_deadline_is_the_rendered_timeout(env):
@@ -458,7 +566,7 @@ def test_a_corrupt_notebook_is_reviewed_with_an_empty_context(env, level, denied
     ((args, _kwargs),) = runner.calls
     assert "## Notebook" not in args[1]
     assert NEW_SOURCE in args[1]
-    assert env.audits[0]["detail"] == f"review=block level={level}"
+    assert env.audits[0]["detail"] == f"review=block level={level} {DIGEST}"
 
 
 @pytest.mark.parametrize(("level", "denied"), [("flag", False), ("block", True)])

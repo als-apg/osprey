@@ -10,14 +10,6 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 const ARTIFACTS = [
   { name: 'rules/safety', category: 'rules', description: 'Safety rules', status: 'framework' },
-  {
-    name: 'code-review/rules',
-    category: 'code-review',
-    description: "The code reviewer's instructions",
-    status: 'framework',
-    kind: 'data',
-    read_only: true,
-  },
   { name: 'hooks/approval', category: 'hooks', description: 'Approval hook', status: 'framework' },
   { name: 'mcp-json', category: 'config', description: 'MCP servers', status: 'framework' },
 ];
@@ -76,11 +68,7 @@ describe('scaffold gallery palette seams', () => {
     expect(scaffoldGalleryMounted()).toBe(true);
     const entries = await listGalleryEntries();
     // mcp-json belongs to the Config gallery, which this drawer does not carry.
-    expect(entries.map((e) => e.name)).toEqual([
-      'rules/safety',
-      'code-review/rules',
-      'hooks/approval',
-    ]);
+    expect(entries.map((e) => e.name)).toEqual(['rules/safety', 'hooks/approval']);
     expect(entries[0]).toMatchObject({
       label: 'safety',
       category: 'instructions',
@@ -88,22 +76,22 @@ describe('scaffold gallery palette seams', () => {
       tabLabel: 'Behavior',
     });
     expect(entries[1]).toEqual({
-      name: 'code-review/rules',
-      label: 'rules',
-      category: 'code-review',
+      name: 'hooks/approval',
+      label: 'approval',
+      category: 'hooks',
       tabId: 'tab-safety',
       tabLabel: 'Safety',
-      description: "The code reviewer's instructions",
+      description: 'Approval hook',
     });
   });
 
   it('reveal opens the tab through the gate and the file in Preview once loaded', async () => {
     expect(detailView('tab-safety').style.display).toBe('none');
-    await revealArtifact('code-review/rules', 'tab-safety');
+    await revealArtifact('hooks/approval', 'tab-safety');
     expect(openDrawerTab).toHaveBeenCalledWith('tab-safety');
     expect(detailView('tab-safety').style.display).toBe('');
     expect(document.querySelector('#tab-safety .prompts-detail-name')?.textContent).toContain(
-      'rules'
+      'approval'
     );
     expect(document.querySelector('#tab-safety .prompts-mode-btn.active')?.textContent).toMatch(
       /Preview/
@@ -112,12 +100,12 @@ describe('scaffold gallery palette seams', () => {
 
   it('a declined gate opens nothing', async () => {
     gate.proceed = false;
-    await revealArtifact('code-review/rules', 'tab-safety');
+    await revealArtifact('hooks/approval', 'tab-safety');
     expect(detailView('tab-safety').style.display).toBe('none');
   });
 
   it('an unknown file leaves the tab on its card grid', async () => {
-    await revealArtifact('code-review/missing', 'tab-safety');
+    await revealArtifact('hooks/missing', 'tab-safety');
     expect(openDrawerTab).toHaveBeenCalledWith('tab-safety');
     expect(detailView('tab-safety').style.display).toBe('none');
   });

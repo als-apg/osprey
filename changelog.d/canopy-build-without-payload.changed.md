@@ -1,0 +1,1 @@
+A deployment that names no CANOPY payload (`OSPREY_CANOPY_PAYLOAD` unset) now builds without the CANOPY panel and its skills, with one line saying so, instead of stopping the build. A named payload that is missing, half-built or built at other commits still stops it.

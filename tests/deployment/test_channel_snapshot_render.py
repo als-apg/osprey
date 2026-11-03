@@ -1,7 +1,8 @@
 """Staged-artifact injection into the compose render paths.
 
 Two artifacts are staged by the render and gated the same way — the
-bluesky_web sidecar's ``channels.json`` behind ``channel_snapshot``, and the
+``channels.json`` the bluesky_web sidecar serves, behind
+``channel_snapshot``, and the
 queueserver worker's ``bluesky_devices.yml`` behind ``bluesky_devices``. Each
 is one decision reaching three consumers: a render-context boolean, a file in
 the service's build context, and the compose fragment's conditional mount —
@@ -198,11 +199,11 @@ def test_incremental_rebuild_drops_a_stale_snapshot(repo, rendered_contexts):
 
 
 def test_other_services_never_compute_the_snapshot(repo, rendered_contexts, monkeypatch):
-    """Only the bluesky_web render pays for the roster read."""
+    """Only the services that serve the snapshot pay for the roster read."""
     from osprey.deployment import compose_generator
 
     def unexpected(_config):
-        raise AssertionError("compute_channel_snapshot ran for a non-bluesky_web service")
+        raise AssertionError("compute_channel_snapshot ran for a service serving no snapshot")
 
     monkeypatch.setattr(compose_generator, "compute_channel_snapshot", unexpected)
 
@@ -536,3 +537,58 @@ def test_other_services_never_stage_a_device_file(repo, rendered_contexts):
 
     assert rendered_contexts[0]["bluesky_devices"] is False
     assert not (Path("build") / "services" / "bluesky_web" / "bluesky_devices.yml").exists()
+
+
+# --- the web terminals' copy ------------------------------------------------------------------
+
+WEB_SNAPSHOT = Path("build") / "web_terminals" / "channels.json"
+
+
+def test_the_web_terminal_snapshot_is_the_sorted_addresses(repo):
+    """``osprey build`` stages the per-user CANOPY panel's catalog under build/web_terminals."""
+    from osprey.deployment.compose_generator import (
+        WEB_TERMINAL_CHANNEL_SNAPSHOT,
+        stage_web_terminal_channel_snapshot,
+    )
+
+    assert Path("build") / WEB_TERMINAL_CHANNEL_SNAPSHOT == WEB_SNAPSHOT
+    assert stage_web_terminal_channel_snapshot(_config(repo, _facility_file(repo)), "build") is True
+    assert json.loads(WEB_SNAPSHOT.read_text()) == ["SR:BPM:01:X", "SR:BPM:02:X"]
+
+
+def test_the_web_terminal_snapshot_matches_the_sidecar_copy(repo):
+    """One decision, one artifact: the panel and the sidecar suggest the same addresses."""
+    from osprey.deployment.compose_generator import stage_web_terminal_channel_snapshot
+
+    config = _config(repo, _facility_file(repo))
+    _run_full(config)
+    stage_web_terminal_channel_snapshot(config, "build")
+    assert WEB_SNAPSHOT.read_bytes() == SNAPSHOT.read_bytes()
+
+
+def test_a_stale_web_terminal_snapshot_is_removed_when_the_decision_is_false(repo):
+    from osprey.deployment.compose_generator import stage_web_terminal_channel_snapshot
+
+    WEB_SNAPSHOT.parent.mkdir(parents=True)
+    WEB_SNAPSHOT.write_text('["SR:OLD:CHANNEL"]')
+    assert stage_web_terminal_channel_snapshot(_config(repo), "build") is False
+    assert not WEB_SNAPSHOT.exists()
+
+
+def test_no_decision_no_web_terminal_snapshot(repo):
+    from osprey.deployment.compose_generator import stage_web_terminal_channel_snapshot
+
+    assert stage_web_terminal_channel_snapshot(_config(repo), "build") is False
+    assert not WEB_SNAPSHOT.exists()
+
+
+def test_the_build_stages_the_web_terminal_snapshot_inside_the_compose_render():
+    """``_render_compose_files`` calls the stager right after the services render."""
+    import inspect
+
+    from osprey.cli import build_cmd
+
+    source = inspect.getsource(build_cmd._render_compose_files)
+    prepare = source.index("prepare_compose_files(")
+    stage = source.index("stage_web_terminal_channel_snapshot(config, zones.stage)")
+    assert prepare < stage

@@ -331,8 +331,8 @@ def test_a_panel_derived_server_gates_exactly_its_panels_ask_tools() -> None:
     pre-hook matcher of such a server names one of the panel's ask tools on
     that server, every ask tool has one, every rule ends in the approval hook,
     and the writes check runs ahead of it exactly for the panel's
-    ``mcp_writes``. A build with no opted-in panel has nothing to check here,
-    and that is a pass rather than a skip.
+    ``mcp_writes``. The CANOPY panel is the one the framework ships, and it
+    has to be in the walk.
     """
     from osprey.profiles.sidecar_panels import SIDECAR_PANELS
 
@@ -341,6 +341,7 @@ def test_a_panel_derived_server_gates_exactly_its_panels_ask_tools() -> None:
         for name, definition in FRAMEWORK_SERVERS.items()
         if definition.panel_id is not None
     }
+    assert "canopy" in derived
     for name, definition in derived.items():
         panel = SIDECAR_PANELS[definition.panel_id]
         matchers = [rule.matcher for rule in definition.hooks_pre]

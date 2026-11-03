@@ -305,8 +305,10 @@ UNIT_SELECTION = UnitSelection(
         ("tests/integration/test_preset_static.py", "static-checks"),
         ("tests/integration/test_preset_build.py", "static-checks"),
     ),
-    marker="not pty and not wallclock",
-    quick_marker="not pty and not wallclock and not slow",
+    # A `canopy` test needs CANOPY installed and refuses to skip; the CANOPY
+    # integration's `canopy-contract` check runs them.
+    marker="not pty and not wallclock and not canopy",
+    quick_marker="not pty and not wallclock and not canopy and not slow",
     shards={
         "cli": (("tests/cli",), ()),
         "rest-a": (_REST_A, ()),

@@ -59,6 +59,7 @@ Skips cleanly when the chromium headless binary is not installed.
 from __future__ import annotations
 
 import asyncio
+import json
 import re
 import threading
 import time
@@ -78,7 +79,12 @@ from osprey.interfaces._serving import run_app_server
 from tests.interfaces._browser import open_hub_page as _open_page
 from tests.interfaces._browser import rail_entry as _rail_entry
 from tests.interfaces._hub import hub_app
-from tests.interfaces._panel_launch import UNSERVED, Unserved, publish_artifact_url
+from tests.interfaces._panel_launch import (
+    UNSERVED,
+    Unserved,
+    publish_artifact_url,
+    unserved_url,
+)
 from tests.interfaces.web_terminal._surface import arm_terminal_tab
 
 # ---------------------------------------------------------------------------
@@ -2252,7 +2258,7 @@ def test_overlay_iframe_follows_live_sash_drag(tmp_path, chromium_browser):
 #
 # An embedded panel contributes its toolbar controls INTO the tile bar via
 # postMessage (design_system/js/header-contrib.js → tile-header-contrib.js);
-# clicks round-trip back as osprey-header-action. Proven here with a custom
+# clicks round-trip back as canopy-host-header-action. Proven here with a custom
 # panel whose (proxied, same-origin) page contributes a nav + a button on
 # load and records incoming actions — the full pipeline the unit suites can
 # only cover in halves.
@@ -2261,12 +2267,12 @@ _CONTRIB_PANEL_HTML = b"""<!doctype html>
 <html><body><script>
   window.__actions = [];
   window.addEventListener('message', (e) => {
-    if (e.data && e.data.type === 'osprey-header-action') {
+    if (e.data && e.data.type === 'canopy-host-header-action') {
       window.__actions.push([e.data.id, e.data.value ?? null]);
     }
   });
   parent.postMessage({
-    type: 'osprey-header-contribution',
+    type: 'canopy-host-header-contribution',
     version: 1,
     items: [
       { kind: 'nav', id: 'view', priority: 1, items: [
@@ -2327,7 +2333,7 @@ def test_header_contribution_renders_and_round_trips(reserve_port, tmp_path, chr
 
     The custom panel's page (reverse-proxied same-origin) posts a nav + button
     contribution on load; the bar must render them beside the tile title, a
-    bar click must deliver osprey-header-action back into the iframe, and the
+    bar click must deliver canopy-host-header-action back into the iframe, and the
     artifacts tile (which contributes nothing) must keep an empty region.
     """
     workspace = tmp_path / "_agent_data"
@@ -2370,7 +2376,7 @@ def test_header_contribution_renders_and_round_trips(reserve_port, tmp_path, chr
             expect(ws.locator(".contrib-nav-link")).to_have_count(0)
             expect(ws.locator(".contrib-btn")).to_have_count(0)
 
-            # Round-trip: bar clicks land in the panel as osprey-header-action.
+            # Round-trip: bar clicks land in the panel as canopy-host-header-action.
             tab.locator(".contrib-nav-link", has_text="New Entry").click()
             tab.locator(".contrib-btn", has_text="Refresh").click()
             frame = page.frame_locator('.dock-iframe-overlay iframe[data-panel-id="contrib-demo"]')
@@ -2461,7 +2467,7 @@ _SEARCH_MENU_PANEL_HTML = b"""<!doctype html>
   window.__actions = [];
   function contribution() {
     return {
-      type: 'osprey-header-contribution',
+      type: 'canopy-host-header-contribution',
       version: 1,
       items: [
         // Higher priority survives a narrow tile longer: the filter outranks
@@ -2475,7 +2481,7 @@ _SEARCH_MENU_PANEL_HTML = b"""<!doctype html>
     };
   }
   window.addEventListener('message', (e) => {
-    if (e.data && e.data.type === 'osprey-header-action') {
+    if (e.data && e.data.type === 'canopy-host-header-action') {
       window.__actions.push([e.data.id, e.data.value ?? null]);
       // A real panel reacts and re-sends the WHOLE contribution.
       parent.postMessage(contribution(), window.location.origin);
@@ -2575,6 +2581,269 @@ def test_header_search_survives_re_contribution_and_menu_round_trips(tmp_path, c
             assert actions and actions[-1] == ["more", "refresh"], actions
 
             page.close()
+
+
+# CANOPY is not a custom panel: it is a SIDECAR, so its URL comes from
+# app.state.canopy_server_url and its same-origin standing from the sidecar's
+# own entry pages (sidecar_panels.py), not from a config marker. This stub
+# stands in for the sidecar at the real mount: it answers /health, and the
+# shell at / moves itself to one embedded page under /embed/ — an entry page,
+# so served unsandboxed — which posts a header contribution and records every
+# action the hub routes back.
+#
+# Under header protocol v1 the hub renders exactly what a panel contributes,
+# so each CANOPY page shape shows every item once. Two shapes are pinned, each
+# in its own hub boot:
+#
+#   * a one-tile SCREEN: subtitle, the screen verbs (Print, Export PNG),
+#     Search, ⋯ and Save view;
+#   * the WORKSPACE page, at a distinct /embed/workspace/… path: a summary
+#     text, Search as a ``button`` at priority 1, and ⋯ with Reset layout,
+#     Show sub-screens and Collections.
+#
+# Priorities follow the fold ladder: the tile ⋯ lowest, verbs one higher than
+# their right neighbour, Save view above the verbs.
+_CANOPY_PAGES = {
+    "screen": {
+        "path": "/embed/demo/overview",
+        "items": [
+            {"kind": "text", "id": "subtitle", "text": "Trace · 2 curves · live", "priority": 5},
+            {"kind": "button", "id": "print", "label": "Print", "priority": 3},
+            {"kind": "button", "id": "export-png", "label": "Export PNG", "priority": 2},
+            {"kind": "button", "id": "search", "label": "Search ⌘K", "priority": 1},
+            {
+                "kind": "menu",
+                "id": "more",
+                "priority": 0,
+                "items": [
+                    {"id": "menu:reset-layout", "label": "Reset layout"},
+                    {"id": "tool:export-csv", "label": "Export CSV"},
+                ],
+            },
+            {
+                "kind": "button",
+                "id": "save-view",
+                "label": "Save view",
+                "title": "Save view (⌘S)",
+                "tone": "accent",
+                "priority": 4,
+            },
+        ],
+    },
+    "workspace": {
+        "path": "/embed/workspace/demo",
+        "items": [
+            {"kind": "text", "id": "summary", "text": "3 screens · 2 collections", "priority": 5},
+            {"kind": "button", "id": "search", "label": "Search ⌘K", "priority": 1},
+            {
+                "kind": "menu",
+                "id": "more",
+                "priority": 0,
+                "items": [
+                    {"id": "menu:reset-layout", "label": "Reset layout"},
+                    {"id": "menu:show-sub-screens", "label": "Show sub-screens"},
+                    {"id": "menu:collections", "label": "Collections"},
+                ],
+            },
+        ],
+    },
+}
+
+
+def _canopy_shell_html(embed_path: str) -> bytes:
+    """The sidecar root: move to ``embed_path`` beneath the panel's mount."""
+    return (
+        b"""<!doctype html>
+<html><body><script>
+  // The hub frames the panel's root; move to an embedded page beneath it.
+  const base = location.pathname.replace(/\\/?$/, '/');
+  location.replace(base + """
+        + json.dumps(embed_path.lstrip("/")).encode()
+        + b""" + location.search);
+</script></body></html>"""
+    )
+
+
+def _canopy_embed_html(items: list[dict]) -> bytes:
+    """An embed page that contributes ``items`` and records routed actions."""
+    return (
+        b"""<!doctype html>
+<html><body><script>
+  window.__actions = [];
+  window.addEventListener('message', (e) => {
+    if (e.source === window.parent && e.data && e.data.type === 'canopy-host-header-action') {
+      window.__actions.push([e.data.id, e.data.value ?? null]);
+    }
+  });
+  parent.postMessage({
+    type: 'canopy-host-header-contribution',
+    version: 1,
+    items: """
+        + json.dumps(items).encode()
+        + b""",
+  }, window.location.origin);
+</script></body></html>"""
+    )
+
+
+@contextmanager
+def _canopy_sidecar_stub(page_name: str):
+    """Serve a stand-in CANOPY sidecar whose shell redirects to ``page_name``.
+
+    Both embed pages are routed — ``/embed/workspace/…`` to the workspace page,
+    any other ``/embed/…`` to the screen — so the redirect alone picks the page.
+    """
+    shell = _canopy_shell_html(_CANOPY_PAGES[page_name]["path"])
+    workspace = _canopy_embed_html(_CANOPY_PAGES["workspace"]["items"])
+    screen = _canopy_embed_html(_CANOPY_PAGES["screen"]["items"])
+
+    class _Handler(BaseHTTPRequestHandler):
+        def do_GET(self):
+            path = self.path.split("?", 1)[0]
+            if path == "/health":
+                body, ctype = b'{"status":"ok"}', "application/json"
+            elif path.startswith("/embed/workspace/"):
+                body, ctype = workspace, "text/html"
+            elif path.startswith("/embed/"):
+                body, ctype = screen, "text/html"
+            elif path == "/":
+                body, ctype = shell, "text/html"
+            else:
+                self.send_response(404)
+                self.end_headers()
+                return
+            self.send_response(200)
+            self.send_header("Content-Type", ctype)
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, *args):
+            pass
+
+    server = HTTPServer(("127.0.0.1", 0), _Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        yield f"http://127.0.0.1:{server.server_port}"
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+
+@contextmanager
+def _canopy_hub(tmp_path, chromium_browser, page_name: str):
+    """Boot a hub whose CANOPY sidecar serves ``page_name``; yield (page, base_url)."""
+    workspace = tmp_path / "_agent_data"
+    workspace.mkdir()
+
+    with _canopy_sidecar_stub(page_name) as stub_url:
+
+        async def _publish_stub(app, enabled_panels):
+            # What _launch_sidecar publishes once a real sidecar answers. CANOPY
+            # takes no operator secret, so no panel_auth_headers entry is owed.
+            assert "canopy" in enabled_panels
+            app.state.canopy_server_url = stub_url
+
+        with (
+            patch(
+                "osprey.interfaces.web_terminal.app._launch_enabled_sidecars",
+                new=AsyncMock(side_effect=_publish_stub),
+            ),
+            _live_server(
+                workspace,
+                enabled_panels={"artifacts", "canopy"},
+                # Keep artifacts dead by construction, as the neighbour above.
+                artifact_url=unserved_url(),
+            ) as (base_url, _app),
+        ):
+            page = _open_page(chromium_browser, base_url)
+            try:
+                _open_second_tile(page, base_url, "canopy", "CANOPY")
+                yield page, base_url
+            finally:
+                page.close()
+
+
+_CANOPY_IFRAME = '.dock-iframe-overlay iframe[data-panel-id="canopy"]'
+
+
+def _canopy_activate(page: Page, tab, label: str) -> None:
+    """Click the control labelled ``label`` wherever the bar put it.
+
+    On a wide tile it is a button in the bar or an entry of the contributed ⋯;
+    on a narrow one the ladder may have folded it into the bar's own ⋯. Either
+    way it dispatches the same action, so the round-trip is width-independent.
+    """
+    button = tab.locator(".contrib-btn:visible", has_text=label)
+    if button.count():
+        button.click()
+        return
+    tab.locator(".contrib-menu-btn:visible").click()
+    popover = page.locator(".contrib-menu-popover")
+    expect(popover).to_be_visible(timeout=5_000)
+    popover.locator(".contrib-menu-item", has_text=label).click()
+    expect(page.locator(".contrib-menu-popover")).to_have_count(0, timeout=5_000)
+
+
+@pytest.mark.parametrize("page_name", ["screen", "workspace"])
+def test_canopy_header_contribution_renders_exactly_and_round_trips(
+    tmp_path, chromium_browser, page_name
+):
+    """Each CANOPY page shape renders exactly its contributed control set.
+
+    The sidecar is replaced by a stub published at ``app.state.canopy_server_url``
+    (what a started sidecar publishes), so the iframe is CANOPY's real mount,
+    ``/panel/canopy/embed/…`` through the panel proxy. The hub must render one
+    element per contributed item — counted by ``[data-contrib-key]``, folded
+    ones included, so the count does not depend on the tile's width — with
+    exactly one ⋯ visible, and every button and every ⋯ entry must reach the
+    frame as ``canopy-host-header-action`` carrying CANOPY's ids: a button sends
+    ``{id}``, a menu entry ``{id: "more", value: <entry id>}``.
+    """
+    spec = _CANOPY_PAGES[page_name]
+    items = spec["items"]
+    expected_keys = sorted(f"{it['kind']}:{it['id']}" for it in items)
+
+    with _canopy_hub(tmp_path, chromium_browser, page_name) as (page, base_url):
+        tab = _service_tab(page, "CANOPY")
+        (text_item,) = [it for it in items if it["kind"] == "text"]
+        expect(tab.locator(".contrib-text")).to_have_text(text_item["text"], timeout=10_000)
+
+        # Exactly the contributed set: no item dropped, none duplicated, nothing
+        # added under a contribution key (the bar's own ⋯ carries none).
+        keyed = tab.locator("[data-contrib-key]")
+        expect(keyed).to_have_count(len(items))
+        keys = keyed.evaluate_all("(els) => els.map((el) => el.dataset.contribKey)")
+        assert sorted(keys) == expected_keys, keys
+        # One ⋯ only: either the contributed menu, or — when it has folded on a
+        # narrow tile — the bar's own overflow, never both.
+        expect(tab.locator(".contrib-menu-btn:visible")).to_have_count(1)
+
+        # The frame sits at this page's path under CANOPY's mount, same origin.
+        frame_url = page.locator(_CANOPY_IFRAME).evaluate("(el) => el.contentWindow.location.href")
+        assert frame_url.startswith(f"{base_url}/panel/canopy{spec['path']}"), frame_url
+
+        save = [it for it in items if it["id"] == "save-view"]
+        if save:
+            accent = tab.locator(".contrib-btn.contrib-btn-accent")
+            expect(accent).to_have_count(1)
+            expect(accent).to_have_text(save[0]["label"])
+            expect(accent).to_have_attribute("title", save[0]["title"])
+
+        expected_actions = []
+        for item in items:
+            if item["kind"] == "button":
+                _canopy_activate(page, tab, item["label"])
+                expected_actions.append([item["id"], None])
+            elif item["kind"] == "menu":
+                for entry in item["items"]:
+                    _canopy_activate(page, tab, entry["label"])
+                    expected_actions.append([item["id"], entry["id"]])
+
+        frame = page.frame_locator(_CANOPY_IFRAME)
+        actions = _poll_actions(page, frame, len(expected_actions))
+        assert actions == expected_actions, actions
 
 
 # The drag ghost dockview builds for a tab is a deep clone of that tab, parented

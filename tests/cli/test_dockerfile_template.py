@@ -1450,10 +1450,10 @@ class TestBrowserLayerAndImageChecks:
     panel with image checks gets those checks too.
 
     The browser layer is unconditional: the artifact converter needs Chromium
-    in every image, so no profile key decides it. A sidecar panel's
-    ``image_checks`` are the per-profile fact. These register a synthetic
-    panel, so the pins do not move with what a shipped panel asks for, and ask
-    the two questions the
+    in every image, and the CANOPY panel's sidecar drives the same headless
+    shell, so no profile key decides it. A sidecar panel's ``image_checks`` are
+    the per-profile fact. These register a synthetic panel, so the pins do not
+    move with what the CANOPY panel asks for, and ask the two questions the
     real render asks: what does the profile's selection put in the Dockerfile
     context (``_profile_image_checks_context``), and what does the template
     make of that context. A tier is a profile like any other here — the one
@@ -1581,11 +1581,14 @@ class TestBrowserLayerAndImageChecks:
             *self._CHECKS,
         ]
 
-    def test_no_shipped_panel_names_checks(self):
-        """The shipped sidecar panels name no image checks."""
+    def test_the_canopy_panel_is_the_shipped_one_with_checks(self):
+        """The CANOPY panel names two checks; jupyter none."""
         from osprey.profiles.sidecar_panels import SIDECAR_PANELS
 
-        assert self._context(*SIDECAR_PANELS) == {"image_checks": []}
+        assert self._context("jupyter") == {"image_checks": []}
+        canopy = SIDECAR_PANELS["canopy"]
+        assert len(canopy.image_checks) == 2
+        assert self._context(*SIDECAR_PANELS) == {"image_checks": list(canopy.image_checks)}
 
     def test_the_render_context_carries_the_key(self):
         """The call site: `_repo_render_context` spreads the helper's keys."""
@@ -1624,6 +1627,46 @@ class TestBrowserLayerAndImageChecks:
         full = _render_template(**self._context(panel))
         assert full.count(self._IMAGE_CHECKS) == 1
         assert full.replace(self._IMAGE_CHECKS, "") == plain
+
+    def test_shipped_presets_render_the_browser_everywhere_and_checks_where_canopy_is_shown(
+        self, hello_project, tiered_render
+    ):
+        """The real renders: every project image carries the browser, and the
+        checks follow the CANOPY tab.
+
+        The control assistant shows the tab on its own project and on its
+        tiers; its apps never inherit it, and hello-world never had it.
+        Whether a render shows it is read from the config rendered beside its
+        Dockerfile.
+        """
+        import yaml
+
+        dockerfiles = [hello_project / "Dockerfile", *sorted(tiered_render.rglob("Dockerfile"))]
+        assert len(dockerfiles) >= 7, dockerfiles
+        with_checks = set()
+        for dockerfile in dockerfiles:
+            # A service's image is not a project's: whatever config sits beside
+            # its Dockerfile, it serves no tab.
+            beside = dockerfile.parent / "config.yml"
+            is_service = dockerfile.parent.parent.name == "services"
+            config = yaml.safe_load(beside.read_text()) if beside.is_file() else {}
+            panel = ((config.get("web") or {}).get("panels") or {}).get("canopy")
+            shown = not is_service and panel is not None and panel.get("enabled", True) is True
+            text = dockerfile.read_text()
+            if not is_service:
+                assert text.count(self._BROWSER_INSTALL) == 1, dockerfile
+            assert ("RUN cd /app/" in text) is shown, dockerfile
+            assert text.count("osprey.integrations.canopy.image_check library") == (
+                1 if shown else 0
+            ), dockerfile
+            if shown:
+                with_checks.add(config["project_name"])
+        assert with_checks == {
+            "ca-docker",
+            "ca-docker-readonly",
+            "ca-docker-readwrite",
+            "ca-docker-admin",
+        }
 
     def test_line_order(self, panel):
         """deps → browser → wheel drop → deployment COPY → checks → chown.

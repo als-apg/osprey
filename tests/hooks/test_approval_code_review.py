@@ -13,6 +13,7 @@ import hashlib
 import io
 import json
 import sys
+import time
 from pathlib import Path
 
 import nbformat
@@ -20,7 +21,12 @@ import pytest
 import yaml
 
 from osprey.services.code_review import review as review_module
-from osprey.services.code_review.contract import SURFACE_EXECUTE, ReviewFailure, ReviewVerdict
+from osprey.services.code_review.contract import (
+    SURFACE_EXECUTE,
+    ReviewFailure,
+    ReviewSwitchedOff,
+    ReviewVerdict,
+)
 from osprey.services.code_review.review import AUDIT_REASON, agent_message, decide
 from osprey.services.code_review.stamp import (
     REVIEWED_DIGEST_KEY,
@@ -58,6 +64,10 @@ def _digest(code: str) -> str:
     return hashlib.sha256(code.encode("utf-8")).hexdigest()
 
 
+#: The short digest each review record of ``CODE`` carries.
+DIGEST = f"digest={_digest(CODE)[:16]}"
+
+
 class ReviewStub:
     """Stands in for ``review_code``: records its inputs, then applies the real level table."""
 
@@ -90,7 +100,12 @@ class Deployment:
         self.audits: list[dict] = []
         self.notices: list[tuple] = []
         self.stub = ReviewStub()
+        #: What code review's runtime switch answers; ``None`` is on.
+        self.switched_off: ReviewSwitchedOff | None = None
         monkeypatch.setattr(review_module, "review_code", self.stub)
+        monkeypatch.setattr(
+            "osprey.services.code_review.switch.switched_off", lambda: self.switched_off
+        )
         monkeypatch.setattr(hook, "emit_audit", self._emit_audit)
         monkeypatch.setattr(
             "osprey.mcp_server.http.notify_agent_activity",
@@ -268,6 +283,35 @@ def test_a_render_with_no_room_leaves_the_review_to_the_executor(deployment):
     _assert_asked_unreviewed(deployment, deployment.run(EXECUTE, _execute(), argv=()))
 
 
+@pytest.mark.parametrize("level", ["block", "flag"])
+def test_a_review_switched_off_asks_with_a_line_records_the_skip_and_stamps_nothing(
+    deployment, level
+):
+    deployment.configure({"enabled": True, "level": level})
+    deployment.stub.result = BLOCK
+    deployment.switched_off = ReviewSwitchedOff(off_by="alice", off_at=1700000000.0)
+
+    output = deployment.run(EXECUTE, _execute())
+
+    at = time.strftime("%Y-%m-%d %H:%M", time.localtime(1700000000.0))
+    assert output["permissionDecision"] == "ask"
+    assert (
+        f"Code review: skipped, switched off in this terminal by alice at {at}; "
+        "the code runs unreviewed if approved."
+    ) in _reason(output)
+    assert deployment.stub.calls == []
+    (audit,) = deployment.review_audits()
+    assert audit["decision"] == "allowed"
+    assert audit["detail"] == (
+        f"review=skipped level={level} kind=switched_off by=alice mode=readwrite {DIGEST}"
+    )
+    ((tool, kind), kwargs), *_ = deployment.notices
+    assert (tool, kind) == ("execute", "review")
+    assert kwargs["detail"].startswith("Code review on execute: skipped (switched off")
+    # Unstamped, so the executor asks the switch again before the launch.
+    assert REVIEWED_DIGEST_KEY not in deployment.stamp()
+
+
 # ---------------------------------------------------------------------------
 # The level table, as the operator and the executor see it
 # ---------------------------------------------------------------------------
@@ -289,7 +333,7 @@ def test_a_block_in_blocking_mode_denies_before_anyone_is_asked(deployment):
     (audit,) = deployment.review_audits()
     assert audit["decision"] == "refused"
     assert audit["subject"] == EXECUTE
-    assert audit["detail"] == "review=block level=block mode=readwrite"
+    assert audit["detail"] == f"review=block level=block mode=readwrite {DIGEST}"
     assert REASON not in json.dumps(deployment.audits)
     ((tool, kind), kwargs), *_ = deployment.notices
     assert (tool, kind) == ("execute", "review")
@@ -324,7 +368,7 @@ def test_a_concern_goes_onto_the_prompt_and_into_the_stamp(deployment):
 
     (audit,) = deployment.review_audits()
     assert audit["decision"] == "allowed"
-    assert audit["detail"] == "review=concern level=block mode=readwrite"
+    assert audit["detail"] == f"review=concern level=block mode=readwrite {DIGEST}"
     ((tool, kind), kwargs), *_ = deployment.notices
     assert (tool, kind) == ("execute", "review")
     assert kwargs["detail"] == f"Code review on execute: concern, proceeded: {EXECUTE}"
@@ -344,7 +388,7 @@ def test_a_pass_stamps_the_digest_and_has_nothing_to_tell_the_agent(deployment):
     assert REVIEWED_MESSAGE_KEY not in stamp
     (audit,) = deployment.review_audits()
     assert audit["decision"] == "allowed"
-    assert audit["detail"] == "review=pass level=block mode=readwrite"
+    assert audit["detail"] == f"review=pass level=block mode=readwrite {DIGEST}"
     assert deployment.notices == [], "a pass sends no notice"
 
 
@@ -377,7 +421,7 @@ def test_a_failure_in_blocking_mode_denies_and_says_not_to_retry(deployment):
     assert "do not retry" in _reason(output)
     (audit,) = deployment.review_audits()
     assert audit["decision"] == "refused"
-    assert audit["detail"] == "review=failure level=block kind=timeout mode=readwrite"
+    assert audit["detail"] == f"review=failure level=block kind=timeout mode=readwrite {DIGEST}"
 
 
 def test_a_failure_in_advisory_mode_asks_unstamped(deployment):
@@ -394,7 +438,7 @@ def test_a_failure_in_advisory_mode_asks_unstamped(deployment):
     assert REVIEWED_DIGEST_KEY not in stamp
     (audit,) = deployment.review_audits()
     assert audit["decision"] == "allowed"
-    assert audit["detail"] == "review=failure level=flag kind=timeout mode=readwrite"
+    assert audit["detail"] == f"review=failure level=flag kind=timeout mode=readwrite {DIGEST}"
 
 
 def test_a_reviewer_that_raises_leaves_the_ask_as_it_was(deployment):
@@ -448,8 +492,33 @@ def test_the_review_spends_what_the_budget_leaves_the_prompt(deployment, argv, c
     deployment.run(EXECUTE, _execute(), argv=argv)
 
     (call,) = deployment.stub.calls
-    assert call["settings"].time_limit == limit
+    # Less the instant the stubbed switch read took.
+    assert call["settings"].time_limit == pytest.approx(limit, abs=0.05)
+    assert call["settings"].time_limit <= limit
     assert call["settings"].level == "block"
+
+
+def _slow_switch():
+    time.sleep(0.3)
+
+
+def test_the_switch_read_spends_the_budget_before_the_review(deployment):
+    deployment.configure({"enabled": True, "level": "block", "time_limit": 60})
+    deployment.monkeypatch.setattr("osprey.services.code_review.switch.switched_off", _slow_switch)
+
+    deployment.run(EXECUTE, _execute(), argv=("--budget", "15"))
+
+    (call,) = deployment.stub.calls
+    assert call["settings"].time_limit <= 10 - 0.3
+
+
+def test_a_switch_read_that_spends_the_budget_leaves_the_review_to_the_executor(deployment):
+    deployment.configure({"enabled": True, "level": "block", "time_limit": 60})
+    deployment.monkeypatch.setattr("osprey.services.code_review.switch.switched_off", _slow_switch)
+
+    output = deployment.run(EXECUTE, _execute(), argv=("--budget", "5.2"))
+
+    _assert_asked_unreviewed(deployment, output)
 
 
 def test_a_reason_is_kept_to_one_line_on_the_prompt(deployment):

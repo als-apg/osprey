@@ -361,6 +361,15 @@ def test_resolve_refuses_an_unusable_prompt_path(repo, prompt, match):
         resolve_prompt(ReviewSettings(prompt=prompt), repo, {})
 
 
+@pytest.mark.parametrize("text", ["", "  \n\t\n"], ids=["empty", "whitespace"])
+def test_resolve_refuses_empty_prompt_as_it_refuses_a_missing_one(repo, text):
+    _write(repo, "data/code_review/empty.md", text)
+    with pytest.raises(
+        ReviewConfigError, match="is empty: a reviewer with no rules judges nothing"
+    ):
+        resolve_prompt(ReviewSettings(prompt="data/code_review/empty.md"), repo, {})
+
+
 def test_resolve_refuses_non_utf8_prompt(repo):
     (repo / "data/latin1.md").write_bytes(b"caf\xe9")
     with pytest.raises(ReviewConfigError, match="data/latin1.md"):

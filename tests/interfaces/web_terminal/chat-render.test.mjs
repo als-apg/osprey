@@ -273,6 +273,16 @@ describe('tool vocabulary', () => {
     ).toBe('Saving a logbook picture…');
   });
 
+  test('listing CANOPY collections has its own phrase', () => {
+    expect(TOOL_PHRASES.list_collections).toBe('listing collections');
+    expect(
+      activityLabel({ type: 'tool_use', tool_name_raw: 'mcp__canopy__list_collections' })
+    ).toBe('Listing collections…');
+    expect(activityLabel({ type: 'tool_use', tool_name: 'List Collections' })).toBe(
+      'Listing collections…'
+    );
+  });
+
   test('an unmapped tool has no phrase and keeps its raw name', () => {
     const event = /** @type {const} */ ({
       type: 'tool_use',

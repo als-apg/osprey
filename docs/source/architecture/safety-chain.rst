@@ -13,15 +13,16 @@ passing the checks first. That guarantee belongs to the harness: a process on th
 starts a server by hand sits outside it, which is why access to the host is part of the trust
 boundary.
 
-The checks are the first gate, not the only one. There are five ways a value reaches a
+The checks are the first gate, not the only one. There are six ways a value reaches a
 machine through the connector --- a single channel write, Python the agent wrote, a pyAML tool
-the executor runs, a Bluesky plan, and a notebook cell --- and each has gates of its own below
-the checks. Two of them can also be driven by a person, from the BLUESKY panel or a Jupyter
-cell, and a person's action goes through none of the checks. All five end at the same
-connector and leave the same audit record. A deployment that enables the ``phoebus`` server
-and sets ``phoebus.agent_access: read_write`` has one more: ``phoebus_drive`` passes the checks and then
-the Phoebus product writes the value through its own connections, not through the connector
---- see :ref:`A Phoebus drive <architecture-safety-chain-phoebus-drive>`.
+the executor runs, a Bluesky plan, a notebook cell, and a panel write --- and each has gates of
+its own below the checks. Three of them can be driven by a person, from the BLUESKY panel, a
+Jupyter cell or a screen of a panel that writes, and a person's action goes through none of the
+checks. All six end at the same connector and leave the same audit record. A deployment that
+enables the ``phoebus`` server and sets ``phoebus.agent_access: read_write`` has one more:
+``phoebus_drive`` passes the checks and then the Phoebus product writes the value through its
+own connections, not through the connector --- see :ref:`A Phoebus drive
+<architecture-safety-chain-phoebus-drive>`.
 
 A write also carries a name --- whose write it is. A machine's write switch is one login's,
 so the name decides whose tier and whose switch a write is judged against. :ref:`Whose write is it <architecture-safety-chain-owner>`, at the foot of
@@ -91,7 +92,8 @@ The hooks and the connector share one verdict and one order, so a write refused 
 names the same reason.
 
 Where a watchdog has flagged the session, the hook's verdict (gate 2), the server (gate 3) and
-the connector (gate 4) each refuse the write with ``session_held``. The approval prompt does
+the connector (gate 4) each refuse the write with ``session_held``, and so does a CANOPY
+panel's connector for a click (:ref:`architecture-safety-chain-panel-write`). The approval prompt does
 not answer a flag, so a write approved while the flag is open is refused at the server. See
 :ref:`Safety watchdogs <architecture-safety-watchdogs>`.
 
@@ -159,8 +161,10 @@ What watchdogs do not cover
 - **Only the prompt.** A watchdog judges when a prompt arrives, not after each tool call or
   at the end of a turn. The decision engine sees only about the last 30,000 tokens of a
   session, and it does not treat what a tool returned as hostile.
-- **Only the agent's writes.** A write the operator makes directly, from a notebook cell or
-  the BLUESKY panel, is not held.
+- **Only the agent's writes, and CANOPY's.** A write the operator makes from a notebook cell or
+  the BLUESKY panel is not held. CANOPY is the one held operator surface: the agent opens and
+  arranges its screens and drafts, so a held agent could stage a click. A CANOPY panel is held
+  while any live session of its terminal is.
 - **Not motion already running.** A plan the agent started keeps running; stop it with the
   existing tools.
 - **Only the web terminal holds.** ``osprey chat`` or a bare ``claude`` in a built project
@@ -186,8 +190,8 @@ cost to every prompt.
 :doc:`/how-to/safety-watchdogs` has the steps, and :ref:`reference-watchdog` has the exact
 behaviour.
 
-Five paths below the checks
-===========================
+Six paths below the checks
+==========================
 
 One channel write
 -----------------
@@ -298,23 +302,44 @@ the OSPREY agent writes into a notebook before it is saved, and can stop it or w
 the same way; cells a person writes are never reviewed
 (:ref:`architecture-safety-chain-code-review`). See :doc:`/how-to/web-terminal/notebooks`.
 
+.. _architecture-safety-chain-panel-write:
+
+A panel write
+-------------
+
+A click on a CANOPY screen is a person's action, so no tool call and none of the checks are
+involved. Each click is judged by the same verdict as every write: tier, session hold, record,
+switch. At *asked* the panel shows a confirm, and the write carries it; a write without it is
+refused ``approval_missing``. At *allowed* there is no dialog.
+
+The panel's data process holds one control session, bound for its whole life to the machine the
+record named when the process started. A click is refused when the record has moved on, when a
+switch of the control target is in progress, when the same channel already has a write in flight,
+or when its attempt line cannot be written to the audit trail first. Otherwise the value goes to
+the connector through the same checked write a Python run uses, and :ref:`the connector's checks
+<architecture-safety-chain-shared>` apply; while it is in flight, a target switch waits for it. A
+change of machine, or a switch moved to or from *off* where the machine has a separate write
+gateway, replaces the data process. Any other switch change or a hold reaches the open panel
+without a restart. Unlike the agent's servers, the data process holds its connector in its own
+process. See :doc:`/how-to/web-terminal/canopy`.
+
 .. _architecture-safety-chain-guarded-run:
 
 Guarded Runs
 ============
 
-None of the five paths remembers what it moved. Each write is checked on its own, and a
+None of the six paths remembers what it moved. Each write is checked on its own, and a
 script, a plan or a cell that stops half way leaves the machine where it stopped. A *guarded
 run* adds a lock around a run's writes, and only the two paths that run code in the
 executor's sandbox take part in it: Python the agent wrote and a pyAML tool. A channel write,
-a Bluesky plan and a notebook cell do not hold the lock, and nothing puts back what any path
-moved.
+a Bluesky plan, a notebook cell and a panel write do not hold the lock, and nothing puts back
+what any path moved.
 
 **One run per machine.** A read-write Python run and a pyAML tool run each hold a lock on
 their control target for as long as they run, from whichever terminal, job or container of
 the deployment they were launched. A second run on that target, of either kind, is refused
 before it starts, naming the holder. The lock is between these two kinds of run only; it keeps
-no channel write, plan or cell off the machine.
+no channel write, plan, cell or panel write off the machine.
 
 **What a stopped tool leaves.** Nothing is written back. A pyAML tool that stops, fails or is
 interrupted leaves the machine where it stopped, and its result lists each setpoint it moved
@@ -327,7 +352,7 @@ reports.
 What every path shares
 ======================
 
-**The connector.** Each of the five paths ends at the connector, the last step before the
+**The connector.** Each of the six paths ends at the connector, the last step before the
 machine. On every write it asks the verdict --- may this login write to this machine right now
 --- whichever path the write took, a plan already running included. A refusal ends in a
 ``[osprey-refusal: <reason>]`` trailer, so the reason survives being passed along --- through
@@ -478,11 +503,21 @@ gaps follow from that, and a deployment should know them:
   under any name it chooses, or none. The gap is that such a name is unvouched: OSPREY did not
   mint it, and it binds all the same, so the plan is judged against whoever it names. With no
   name it writes nothing.
-- **A shell reaching the panel's dispatcher address.** The panel token sits in the agent's own
-  environment, so the same shell can fire a job without the approval prompt. Building a tier
-  that allows a shell warns about exactly this, and a sandboxed run cannot do it --- neither the
-  token nor the port is there. The job still runs as the real person, under their switch.
+- **A shell reaching the panel's dispatcher address.** A shell command starts without the panel
+  token, which only the agent's MCP client and hooks hold, and a sandboxed run has neither the
+  token nor the port. The agent's own process still holds the token, so a same-user process
+  that reads another's environment (``/proc`` on Linux) could fire a job without the approval
+  prompt, or call CANOPY's authoring tools without theirs. The job still runs as the real
+  person, under their switch; the CANOPY tools change only that person's own screens and push
+  requests, and write no channel.
 - **A direct login at the panel's own address.** Unnamed, as above, so it writes nothing.
+
+A panel write has a gap of the same kind, because its name belongs to the process, not to the
+request. The panel's data process judges every click against the tier and write switch of the
+login it runs as --- the login card's --- and its audit line names that login. It reads no name
+from the request a click arrives on. A panel that more than one person opens, such as a shared
+card, judges each of their clicks against that one card's tier and switch, and the audit trail
+cannot say which of them clicked.
 
 An external-worker lane (``bluesky.external:``) is a facility's own RunEngine and devices: no
 OSPREY check runs inside it, so no tier or switch reaches its writes. The name OSPREY puts on

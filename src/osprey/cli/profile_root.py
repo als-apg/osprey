@@ -24,7 +24,7 @@ profile missing everything the root was meant to supply. A stem present in both
 ``tiers/`` and ``apps/`` is refused: the name is the render's name, and one name
 cannot be both an access level of the deployment's agent and a separate app.
 
-The retired layer directory is read as ``tiers/`` for one release, with a single
+The retired layer directory is read as ``tiers/`` until the roster sunset, with a single
 warning naming the rewrite.
 """
 

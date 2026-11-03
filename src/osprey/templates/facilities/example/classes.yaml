@@ -1,0 +1,37 @@
+- class: InsertionDevice
+  parent: Magnet
+  aliases:
+  - insertion device
+  - undulator
+  - wiggler
+  - EPU
+  - ID
+  description: Undulator or wiggler in a straight section; its magnetic gap sets the photon energy of the beamline it serves.
+- class: PhotonShutter
+  parent: Actuated
+  aliases:
+  - photon shutter
+  - front-end shutter
+  - beamline shutter
+  description: Front-end shutter that admits or blocks the photon beam of one port.
+- class: TemperatureSensor
+  parent: Instrumentation
+  aliases:
+  - thermocouple
+  - temperature sensor
+  - TC
+  description: Thermocouple or air-temperature sensor.
+- class: AirHandler
+  parent: AcceleratorDevice
+  aliases:
+  - air handler
+  - AHU
+  - air handling unit
+  description: Air-handling unit that conditions the tunnel air.
+- class: HarmonicCavity
+  parent: BunchingCavity
+  aliases:
+  - harmonic cavity
+  - third harmonic cavity
+  - bunch lengthening cavity
+  description: Passive higher-harmonic RF cavity that lengthens the bunches.

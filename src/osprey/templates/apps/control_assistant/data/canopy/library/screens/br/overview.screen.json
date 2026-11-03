@@ -1,0 +1,1317 @@
+{
+  "schemaVersion": "1.1",
+  "kind": "screen",
+  "id": "br/overview",
+  "metadata": {
+    "title": "Booster",
+    "source": {
+      "type": "native"
+    },
+    "size": {
+      "width": 880,
+      "height": 500
+    },
+    "description": "The control-assistant booster: the ring with its BPM status, the dipole and quadrupole ramps, the injection and extraction septa and kicker, and the booster DCCT."
+  },
+  "macros": [],
+  "formulas": [],
+  "root": {
+    "id": "w-001",
+    "type": "absolute-canvas",
+    "props": {
+      "width": 880,
+      "height": 500,
+      "backgroundColor": {
+        "$role": "Page_Background",
+        "fallback": "#f4f5f5",
+        "fallbackDark": "#111217"
+      }
+    },
+    "geometry": {
+      "x": 0,
+      "y": 0,
+      "width": 880,
+      "height": 500
+    },
+    "children": [
+      {
+        "id": "w-002",
+        "type": "text-label",
+        "props": {
+          "text": "Booster",
+          "fontSize": 18,
+          "align": "left",
+          "foregroundColor": {
+            "$role": "Page_Text",
+            "fallback": "#24292e",
+            "fallbackDark": "#ccccdc"
+          },
+          "backgroundColor": {
+            "$role": "Page_Background",
+            "fallback": "#f4f5f5",
+            "fallbackDark": "#111217"
+          }
+        },
+        "geometry": {
+          "x": 16,
+          "y": 8,
+          "width": 300,
+          "height": 26
+        }
+      },
+      {
+        "id": "w-003",
+        "type": "text-label",
+        "props": {
+          "text": "ramps, injection and extraction, beam current",
+          "fontSize": 12,
+          "align": "left",
+          "foregroundColor": {
+            "$role": "Page_Text",
+            "fallback": "#24292e",
+            "fallbackDark": "#ccccdc"
+          },
+          "backgroundColor": {
+            "$role": "Page_Background",
+            "fallback": "#f4f5f5",
+            "fallbackDark": "#111217"
+          }
+        },
+        "geometry": {
+          "x": 140,
+          "y": 12,
+          "width": 420,
+          "height": 20
+        }
+      },
+      {
+        "id": "w-004",
+        "type": "line",
+        "props": {
+          "lineColor": {
+            "$role": "Beam",
+            "fallback": "#1f62c4",
+            "fallbackDark": "#6e9fff"
+          },
+          "lineWidth": 2,
+          "points": [
+            {
+              "x": 86.8,
+              "y": 3.6
+            },
+            {
+              "x": 229.2,
+              "y": 3.6
+            },
+            {
+              "x": 241.1,
+              "y": 9.7
+            },
+            {
+              "x": 252.4,
+              "y": 16.7
+            },
+            {
+              "x": 263.2,
+              "y": 24.5
+            },
+            {
+              "x": 273.4,
+              "y": 33.2
+            },
+            {
+              "x": 282.8,
+              "y": 42.6
+            },
+            {
+              "x": 291.5,
+              "y": 52.8
+            },
+            {
+              "x": 299.3,
+              "y": 63.6
+            },
+            {
+              "x": 306.3,
+              "y": 74.9
+            },
+            {
+              "x": 312.4,
+              "y": 86.8
+            },
+            {
+              "x": 312.4,
+              "y": 86.8
+            },
+            {
+              "x": 312.4,
+              "y": 229.2
+            },
+            {
+              "x": 306.3,
+              "y": 241.1
+            },
+            {
+              "x": 299.3,
+              "y": 252.4
+            },
+            {
+              "x": 291.5,
+              "y": 263.2
+            },
+            {
+              "x": 282.8,
+              "y": 273.4
+            },
+            {
+              "x": 273.4,
+              "y": 282.8
+            },
+            {
+              "x": 263.2,
+              "y": 291.5
+            },
+            {
+              "x": 252.4,
+              "y": 299.3
+            },
+            {
+              "x": 241.1,
+              "y": 306.3
+            },
+            {
+              "x": 229.2,
+              "y": 312.4
+            },
+            {
+              "x": 229.2,
+              "y": 312.4
+            },
+            {
+              "x": 86.8,
+              "y": 312.4
+            },
+            {
+              "x": 74.9,
+              "y": 306.3
+            },
+            {
+              "x": 63.6,
+              "y": 299.3
+            },
+            {
+              "x": 52.8,
+              "y": 291.5
+            },
+            {
+              "x": 42.6,
+              "y": 282.8
+            },
+            {
+              "x": 33.2,
+              "y": 273.4
+            },
+            {
+              "x": 24.5,
+              "y": 263.2
+            },
+            {
+              "x": 16.7,
+              "y": 252.4
+            },
+            {
+              "x": 9.7,
+              "y": 241.1
+            },
+            {
+              "x": 3.6,
+              "y": 229.2
+            },
+            {
+              "x": 3.6,
+              "y": 229.2
+            },
+            {
+              "x": 3.6,
+              "y": 86.8
+            },
+            {
+              "x": 9.7,
+              "y": 74.9
+            },
+            {
+              "x": 16.7,
+              "y": 63.6
+            },
+            {
+              "x": 24.5,
+              "y": 52.8
+            },
+            {
+              "x": 33.2,
+              "y": 42.6
+            },
+            {
+              "x": 42.6,
+              "y": 33.2
+            },
+            {
+              "x": 52.8,
+              "y": 24.5
+            },
+            {
+              "x": 63.6,
+              "y": 16.7
+            },
+            {
+              "x": 74.9,
+              "y": 9.7
+            },
+            {
+              "x": 86.8,
+              "y": 3.6
+            },
+            {
+              "x": 86.8,
+              "y": 3.6
+            }
+          ],
+          "arrowStart": false,
+          "arrowEnd": false
+        },
+        "geometry": {
+          "x": 92,
+          "y": 122,
+          "width": 316,
+          "height": 316
+        }
+      },
+      {
+        "id": "w-005",
+        "type": "rectangle",
+        "props": {
+          "lineColor": {
+            "$role": "Quadrupole",
+            "fallback": "#1f62c4",
+            "fallbackDark": "#6e9fff"
+          },
+          "fill": true,
+          "fillColor": {
+            "$role": "Quadrupole",
+            "fallback": "#1f62c4",
+            "fallbackDark": "#6e9fff"
+          },
+          "rotation": 30.6,
+          "tooltip": "BR/QF01"
+        },
+        "geometry": {
+          "x": 334,
+          "y": 126.2,
+          "width": 5,
+          "height": 15
+        }
+      },
+      {
+        "id": "w-006",
+        "type": "rectangle",
+        "props": {
+          "lineColor": {
+            "$role": "Dipole",
+            "fallback": "#e08e00",
+            "fallbackDark": "#f5b73d"
+          },
+          "fill": true,
+          "fillColor": {
+            "$role": "Dipole",
+            "fallback": "#e08e00",
+            "fallbackDark": "#f5b73d"
+          },
+          "rotation": 39.5,
+          "tooltip": "BR/DIPOLE01"
+        },
+        "geometry": {
+          "x": 349.1,
+          "y": 143.8,
+          "width": 18,
+          "height": 10
+        }
+      },
+      {
+        "id": "w-007",
+        "type": "rectangle",
+        "props": {
+          "lineColor": {
+            "$role": "Quadrupole",
+            "fallback": "#1f62c4",
+            "fallbackDark": "#6e9fff"
+          },
+          "fill": true,
+          "fillColor": {
+            "$role": "Quadrupole",
+            "fallback": "#1f62c4",
+            "fallbackDark": "#6e9fff"
+          },
+          "rotation": 48.3,
+          "tooltip": "BR/QD01"
+        },
+        "geometry": {
+          "x": 374.5,
+          "y": 159.5,
+          "width": 5,
+          "height": 15
+        }
+      },
+      {
+        "id": "w-008",
+        "type": "rectangle",
+        "props": {
+          "lineColor": {
+            "$role": "Dipole",
+            "fallback": "#e08e00",
+            "fallbackDark": "#f5b73d"
+          },
+          "fill": true,
+          "fillColor": {
+            "$role": "Dipole",
+            "fallback": "#e08e00",
+            "fallbackDark": "#f5b73d"
+          },
+          "rotation": 57.2,
+          "tooltip": "BR/DIPOLE02"
+        },
+        "geometry": {
+          "x": 383.9,
+          "y": 183,
+          "width": 18,
+          "height": 10
+        }
+      },
+      {
+        "id": "w-009",
+        "type": "rectangle",
+        "props": {
+          "lineColor": {
+            "$role": "Quadrupole",
+            "fallback": "#1f62c4",
+            "fallbackDark": "#6e9fff"
+          },
+          "fill": true,
+          "fillColor": {
+            "$role": "Quadrupole",
+            "fallback": "#1f62c4",
+            "fallbackDark": "#6e9fff"
+          },
+          "rotation": 120.6,
+          "tooltip": "BR/QF02"
+        },
+        "geometry": {
+          "x": 393.8,
+          "y": 359,
+          "width": 5,
+          "height": 15
+        }
+      },
+      {
+        "id": "w-010",
+        "type": "rectangle",
+        "props": {
+          "lineColor": {
+            "$role": "Dipole",
+            "fallback": "#e08e00",
+            "fallbackDark": "#f5b73d"
+          },
+          "fill": true,
+          "fillColor": {
+            "$role": "Dipole",
+            "fallback": "#e08e00",
+            "fallbackDark": "#f5b73d"
+          },
+          "rotation": 129.5,
+          "tooltip": "BR/DIPOLE03"
+        },
+        "geometry": {
+          "x": 372.2,
+          "y": 383.1,
+          "width": 18,
+          "height": 10
+        }
+      },
+      {
+        "id": "w-011",
+        "type": "rectangle",
+        "props": {
+          "lineColor": {
+            "$role": "Quadrupole",
+            "fallback": "#1f62c4",
+            "fallbackDark": "#6e9fff"
+          },
+          "fill": true,
+          "fillColor": {
+            "$role": "Quadrupole",
+            "fallback": "#1f62c4",
+            "fallbackDark": "#6e9fff"
+          },
+          "rotation": 138.3,
+          "tooltip": "BR/QD02"
+        },
+        "geometry": {
+          "x": 360.5,
+          "y": 399.5,
+          "width": 5,
+          "height": 15
+        }
+      },
+      {
+        "id": "w-012",
+        "type": "rectangle",
+        "props": {
+          "lineColor": {
+            "$role": "Dipole",
+            "fallback": "#e08e00",
+            "fallbackDark": "#f5b73d"
+          },
+          "fill": true,
+          "fillColor": {
+            "$role": "Dipole",
+            "fallback": "#e08e00",
+            "fallbackDark": "#f5b73d"
+          },
+          "rotation": 147.2,
+          "tooltip": "BR/DIPOLE04"
+        },
+        "geometry": {
+          "x": 333,
+          "y": 417.9,
+          "width": 18,
+          "height": 10
+        }
+      },
+      {
+        "id": "w-013",
+        "type": "rectangle",
+        "props": {
+          "lineColor": {
+            "$role": "Quadrupole",
+            "fallback": "#1f62c4",
+            "fallbackDark": "#6e9fff"
+          },
+          "fill": true,
+          "fillColor": {
+            "$role": "Quadrupole",
+            "fallback": "#1f62c4",
+            "fallbackDark": "#6e9fff"
+          },
+          "rotation": 30.6,
+          "tooltip": "BR/QF03"
+        },
+        "geometry": {
+          "x": 161,
+          "y": 418.8,
+          "width": 5,
+          "height": 15
+        }
+      },
+      {
+        "id": "w-014",
+        "type": "rectangle",
+        "props": {
+          "lineColor": {
+            "$role": "Dipole",
+            "fallback": "#e08e00",
+            "fallbackDark": "#f5b73d"
+          },
+          "fill": true,
+          "fillColor": {
+            "$role": "Dipole",
+            "fallback": "#e08e00",
+            "fallbackDark": "#f5b73d"
+          },
+          "rotation": 39.5,
+          "tooltip": "BR/DIPOLE05"
+        },
+        "geometry": {
+          "x": 132.9,
+          "y": 406.2,
+          "width": 18,
+          "height": 10
+        }
+      },
+      {
+        "id": "w-015",
+        "type": "rectangle",
+        "props": {
+          "lineColor": {
+            "$role": "Quadrupole",
+            "fallback": "#1f62c4",
+            "fallbackDark": "#6e9fff"
+          },
+          "fill": true,
+          "fillColor": {
+            "$role": "Quadrupole",
+            "fallback": "#1f62c4",
+            "fallbackDark": "#6e9fff"
+          },
+          "rotation": 48.3,
+          "tooltip": "BR/QD03"
+        },
+        "geometry": {
+          "x": 120.5,
+          "y": 385.5,
+          "width": 5,
+          "height": 15
+        }
+      },
+      {
+        "id": "w-016",
+        "type": "rectangle",
+        "props": {
+          "lineColor": {
+            "$role": "Dipole",
+            "fallback": "#e08e00",
+            "fallbackDark": "#f5b73d"
+          },
+          "fill": true,
+          "fillColor": {
+            "$role": "Dipole",
+            "fallback": "#e08e00",
+            "fallbackDark": "#f5b73d"
+          },
+          "rotation": 57.2,
+          "tooltip": "BR/DIPOLE06"
+        },
+        "geometry": {
+          "x": 98.1,
+          "y": 367,
+          "width": 18,
+          "height": 10
+        }
+      },
+      {
+        "id": "w-017",
+        "type": "rectangle",
+        "props": {
+          "lineColor": {
+            "$role": "Quadrupole",
+            "fallback": "#1f62c4",
+            "fallbackDark": "#6e9fff"
+          },
+          "fill": true,
+          "fillColor": {
+            "$role": "Quadrupole",
+            "fallback": "#1f62c4",
+            "fallbackDark": "#6e9fff"
+          },
+          "rotation": 120.6,
+          "tooltip": "BR/QF04"
+        },
+        "geometry": {
+          "x": 101.2,
+          "y": 186,
+          "width": 5,
+          "height": 15
+        }
+      },
+      {
+        "id": "w-018",
+        "type": "rectangle",
+        "props": {
+          "lineColor": {
+            "$role": "Dipole",
+            "fallback": "#e08e00",
+            "fallbackDark": "#f5b73d"
+          },
+          "fill": true,
+          "fillColor": {
+            "$role": "Dipole",
+            "fallback": "#e08e00",
+            "fallbackDark": "#f5b73d"
+          },
+          "rotation": 129.5,
+          "tooltip": "BR/DIPOLE07"
+        },
+        "geometry": {
+          "x": 109.8,
+          "y": 166.9,
+          "width": 18,
+          "height": 10
+        }
+      },
+      {
+        "id": "w-019",
+        "type": "rectangle",
+        "props": {
+          "lineColor": {
+            "$role": "Quadrupole",
+            "fallback": "#1f62c4",
+            "fallbackDark": "#6e9fff"
+          },
+          "fill": true,
+          "fillColor": {
+            "$role": "Quadrupole",
+            "fallback": "#1f62c4",
+            "fallbackDark": "#6e9fff"
+          },
+          "rotation": 138.3,
+          "tooltip": "BR/QD04"
+        },
+        "geometry": {
+          "x": 134.5,
+          "y": 145.5,
+          "width": 5,
+          "height": 15
+        }
+      },
+      {
+        "id": "w-020",
+        "type": "rectangle",
+        "props": {
+          "lineColor": {
+            "$role": "Dipole",
+            "fallback": "#e08e00",
+            "fallbackDark": "#f5b73d"
+          },
+          "fill": true,
+          "fillColor": {
+            "$role": "Dipole",
+            "fallback": "#e08e00",
+            "fallbackDark": "#f5b73d"
+          },
+          "rotation": 147.2,
+          "tooltip": "BR/DIPOLE08"
+        },
+        "geometry": {
+          "x": 149,
+          "y": 132.1,
+          "width": 18,
+          "height": 10
+        }
+      },
+      {
+        "id": "w-021",
+        "type": "pv-led",
+        "props": {
+          "pv": "BR:DIAG:BPM:01:STATUS:VALID",
+          "onColor": {
+            "$role": "Led_On",
+            "fallback": "#56a64b",
+            "fallbackDark": "#73bf69"
+          },
+          "offColor": {
+            "$role": "Led_Off",
+            "fallback": "#ecedef",
+            "fallbackDark": "#22252b"
+          },
+          "tooltip": "BR/BPM01"
+        },
+        "geometry": {
+          "x": 319.2,
+          "y": 140,
+          "width": 10,
+          "height": 10
+        }
+      },
+      {
+        "id": "w-022",
+        "type": "pv-led",
+        "props": {
+          "pv": "BR:DIAG:BPM:02:STATUS:VALID",
+          "onColor": {
+            "$role": "Led_On",
+            "fallback": "#56a64b",
+            "fallbackDark": "#73bf69"
+          },
+          "offColor": {
+            "$role": "Led_Off",
+            "fallback": "#ecedef",
+            "fallbackDark": "#22252b"
+          },
+          "tooltip": "BR/BPM02"
+        },
+        "geometry": {
+          "x": 380,
+          "y": 200.8,
+          "width": 10,
+          "height": 10
+        }
+      },
+      {
+        "id": "w-023",
+        "type": "pv-led",
+        "props": {
+          "pv": "BR:DIAG:BPM:03:STATUS:VALID",
+          "onColor": {
+            "$role": "Led_On",
+            "fallback": "#56a64b",
+            "fallbackDark": "#73bf69"
+          },
+          "offColor": {
+            "$role": "Led_Off",
+            "fallback": "#ecedef",
+            "fallbackDark": "#22252b"
+          },
+          "tooltip": "BR/BPM03"
+        },
+        "geometry": {
+          "x": 380,
+          "y": 349.2,
+          "width": 10,
+          "height": 10
+        }
+      },
+      {
+        "id": "w-024",
+        "type": "pv-led",
+        "props": {
+          "pv": "BR:DIAG:BPM:04:STATUS:VALID",
+          "onColor": {
+            "$role": "Led_On",
+            "fallback": "#56a64b",
+            "fallbackDark": "#73bf69"
+          },
+          "offColor": {
+            "$role": "Led_Off",
+            "fallback": "#ecedef",
+            "fallbackDark": "#22252b"
+          },
+          "tooltip": "BR/BPM04"
+        },
+        "geometry": {
+          "x": 319.2,
+          "y": 410,
+          "width": 10,
+          "height": 10
+        }
+      },
+      {
+        "id": "w-025",
+        "type": "pv-led",
+        "props": {
+          "pv": "BR:DIAG:BPM:05:STATUS:VALID",
+          "onColor": {
+            "$role": "Led_On",
+            "fallback": "#56a64b",
+            "fallbackDark": "#73bf69"
+          },
+          "offColor": {
+            "$role": "Led_Off",
+            "fallback": "#ecedef",
+            "fallbackDark": "#22252b"
+          },
+          "tooltip": "BR/BPM05"
+        },
+        "geometry": {
+          "x": 170.8,
+          "y": 410,
+          "width": 10,
+          "height": 10
+        }
+      },
+      {
+        "id": "w-026",
+        "type": "pv-led",
+        "props": {
+          "pv": "BR:DIAG:BPM:06:STATUS:VALID",
+          "onColor": {
+            "$role": "Led_On",
+            "fallback": "#56a64b",
+            "fallbackDark": "#73bf69"
+          },
+          "offColor": {
+            "$role": "Led_Off",
+            "fallback": "#ecedef",
+            "fallbackDark": "#22252b"
+          },
+          "tooltip": "BR/BPM06"
+        },
+        "geometry": {
+          "x": 110,
+          "y": 349.2,
+          "width": 10,
+          "height": 10
+        }
+      },
+      {
+        "id": "w-027",
+        "type": "pv-led",
+        "props": {
+          "pv": "BR:DIAG:BPM:07:STATUS:VALID",
+          "onColor": {
+            "$role": "Led_On",
+            "fallback": "#56a64b",
+            "fallbackDark": "#73bf69"
+          },
+          "offColor": {
+            "$role": "Led_Off",
+            "fallback": "#ecedef",
+            "fallbackDark": "#22252b"
+          },
+          "tooltip": "BR/BPM07"
+        },
+        "geometry": {
+          "x": 110,
+          "y": 200.8,
+          "width": 10,
+          "height": 10
+        }
+      },
+      {
+        "id": "w-028",
+        "type": "pv-led",
+        "props": {
+          "pv": "BR:DIAG:BPM:08:STATUS:VALID",
+          "onColor": {
+            "$role": "Led_On",
+            "fallback": "#56a64b",
+            "fallbackDark": "#73bf69"
+          },
+          "offColor": {
+            "$role": "Led_Off",
+            "fallback": "#ecedef",
+            "fallbackDark": "#22252b"
+          },
+          "tooltip": "BR/BPM08"
+        },
+        "geometry": {
+          "x": 170.8,
+          "y": 140,
+          "width": 10,
+          "height": 10
+        }
+      },
+      {
+        "id": "w-029",
+        "type": "group-box",
+        "props": {
+          "title": "Ramps"
+        },
+        "geometry": {
+          "x": 500,
+          "y": 56,
+          "width": 364,
+          "height": 60
+        },
+        "children": [
+          {
+            "id": "w-030",
+            "type": "pv-led",
+            "props": {
+              "pv": "BR:MAG:DIPOLE-RAMP:01:STATUS:ON",
+              "onColor": {
+                "$role": "Led_On",
+                "fallback": "#56a64b",
+                "fallbackDark": "#73bf69"
+              },
+              "offColor": {
+                "$role": "Led_Off",
+                "fallback": "#ecedef",
+                "fallbackDark": "#22252b"
+              }
+            },
+            "geometry": {
+              "x": 512,
+              "y": 90,
+              "width": 13,
+              "height": 13
+            }
+          },
+          {
+            "id": "w-031",
+            "type": "text-label",
+            "props": {
+              "text": "dipole",
+              "fontSize": 11.5,
+              "align": "left",
+              "foregroundColor": {
+                "$role": "Page_Text",
+                "fallback": "#24292e",
+                "fallbackDark": "#ccccdc"
+              },
+              "backgroundColor": {
+                "$role": "Page_Background",
+                "fallback": "#f4f5f5",
+                "fallbackDark": "#111217"
+              }
+            },
+            "geometry": {
+              "x": 530,
+              "y": 85,
+              "width": 42,
+              "height": 20
+            }
+          },
+          {
+            "id": "w-032",
+            "type": "pv-led",
+            "props": {
+              "pv": "BR:MAG:QF-RAMP:01:STATUS:ON",
+              "onColor": {
+                "$role": "Led_On",
+                "fallback": "#56a64b",
+                "fallbackDark": "#73bf69"
+              },
+              "offColor": {
+                "$role": "Led_Off",
+                "fallback": "#ecedef",
+                "fallbackDark": "#22252b"
+              }
+            },
+            "geometry": {
+              "x": 586,
+              "y": 90,
+              "width": 13,
+              "height": 13
+            }
+          },
+          {
+            "id": "w-033",
+            "type": "text-label",
+            "props": {
+              "text": "QF",
+              "fontSize": 11.5,
+              "align": "left",
+              "foregroundColor": {
+                "$role": "Page_Text",
+                "fallback": "#24292e",
+                "fallbackDark": "#ccccdc"
+              },
+              "backgroundColor": {
+                "$role": "Page_Background",
+                "fallback": "#f4f5f5",
+                "fallbackDark": "#111217"
+              }
+            },
+            "geometry": {
+              "x": 604,
+              "y": 85,
+              "width": 14,
+              "height": 20
+            }
+          },
+          {
+            "id": "w-034",
+            "type": "pv-led",
+            "props": {
+              "pv": "BR:MAG:QD-RAMP:01:STATUS:ON",
+              "onColor": {
+                "$role": "Led_On",
+                "fallback": "#56a64b",
+                "fallbackDark": "#73bf69"
+              },
+              "offColor": {
+                "$role": "Led_Off",
+                "fallback": "#ecedef",
+                "fallbackDark": "#22252b"
+              }
+            },
+            "geometry": {
+              "x": 632,
+              "y": 90,
+              "width": 13,
+              "height": 13
+            }
+          },
+          {
+            "id": "w-035",
+            "type": "text-label",
+            "props": {
+              "text": "QD",
+              "fontSize": 11.5,
+              "align": "left",
+              "foregroundColor": {
+                "$role": "Page_Text",
+                "fallback": "#24292e",
+                "fallbackDark": "#ccccdc"
+              },
+              "backgroundColor": {
+                "$role": "Page_Background",
+                "fallback": "#f4f5f5",
+                "fallbackDark": "#111217"
+              }
+            },
+            "geometry": {
+              "x": 650,
+              "y": 85,
+              "width": 14,
+              "height": 20
+            }
+          }
+        ]
+      },
+      {
+        "id": "w-036",
+        "type": "group-box",
+        "props": {
+          "title": "Injection \u00b7 extraction"
+        },
+        "geometry": {
+          "x": 500,
+          "y": 132,
+          "width": 364,
+          "height": 60
+        },
+        "children": [
+          {
+            "id": "w-037",
+            "type": "pv-led",
+            "props": {
+              "pv": "BR:MAG:SEPTUM:01:STATUS:ON",
+              "onColor": {
+                "$role": "Led_On",
+                "fallback": "#56a64b",
+                "fallbackDark": "#73bf69"
+              },
+              "offColor": {
+                "$role": "Led_Off",
+                "fallback": "#ecedef",
+                "fallbackDark": "#22252b"
+              }
+            },
+            "geometry": {
+              "x": 512,
+              "y": 166,
+              "width": 13,
+              "height": 13
+            }
+          },
+          {
+            "id": "w-038",
+            "type": "text-label",
+            "props": {
+              "text": "septum 1",
+              "fontSize": 11.5,
+              "align": "left",
+              "foregroundColor": {
+                "$role": "Page_Text",
+                "fallback": "#24292e",
+                "fallbackDark": "#ccccdc"
+              },
+              "backgroundColor": {
+                "$role": "Page_Background",
+                "fallback": "#f4f5f5",
+                "fallbackDark": "#111217"
+              }
+            },
+            "geometry": {
+              "x": 530,
+              "y": 161,
+              "width": 56,
+              "height": 20
+            }
+          },
+          {
+            "id": "w-039",
+            "type": "pv-led",
+            "props": {
+              "pv": "BR:MAG:SEPTUM:02:STATUS:ON",
+              "onColor": {
+                "$role": "Led_On",
+                "fallback": "#56a64b",
+                "fallbackDark": "#73bf69"
+              },
+              "offColor": {
+                "$role": "Led_Off",
+                "fallback": "#ecedef",
+                "fallbackDark": "#22252b"
+              }
+            },
+            "geometry": {
+              "x": 600,
+              "y": 166,
+              "width": 13,
+              "height": 13
+            }
+          },
+          {
+            "id": "w-040",
+            "type": "text-label",
+            "props": {
+              "text": "septum 2",
+              "fontSize": 11.5,
+              "align": "left",
+              "foregroundColor": {
+                "$role": "Page_Text",
+                "fallback": "#24292e",
+                "fallbackDark": "#ccccdc"
+              },
+              "backgroundColor": {
+                "$role": "Page_Background",
+                "fallback": "#f4f5f5",
+                "fallbackDark": "#111217"
+              }
+            },
+            "geometry": {
+              "x": 618,
+              "y": 161,
+              "width": 56,
+              "height": 20
+            }
+          },
+          {
+            "id": "w-041",
+            "type": "pv-led",
+            "props": {
+              "pv": "BR:MAG:KICKER:01:STATUS:ON",
+              "onColor": {
+                "$role": "Led_On",
+                "fallback": "#56a64b",
+                "fallbackDark": "#73bf69"
+              },
+              "offColor": {
+                "$role": "Led_Off",
+                "fallback": "#ecedef",
+                "fallbackDark": "#22252b"
+              }
+            },
+            "geometry": {
+              "x": 688,
+              "y": 166,
+              "width": 13,
+              "height": 13
+            }
+          },
+          {
+            "id": "w-042",
+            "type": "text-label",
+            "props": {
+              "text": "kicker",
+              "fontSize": 11.5,
+              "align": "left",
+              "foregroundColor": {
+                "$role": "Page_Text",
+                "fallback": "#24292e",
+                "fallbackDark": "#ccccdc"
+              },
+              "backgroundColor": {
+                "$role": "Page_Background",
+                "fallback": "#f4f5f5",
+                "fallbackDark": "#111217"
+              }
+            },
+            "geometry": {
+              "x": 706,
+              "y": 161,
+              "width": 42,
+              "height": 20
+            }
+          }
+        ]
+      },
+      {
+        "id": "w-043",
+        "type": "group-box",
+        "props": {
+          "title": "Beam current (DCCT)"
+        },
+        "geometry": {
+          "x": 500,
+          "y": 208,
+          "width": 364,
+          "height": 92
+        },
+        "children": [
+          {
+            "id": "w-044",
+            "type": "text-label",
+            "props": {
+              "text": "Current",
+              "fontSize": 12,
+              "align": "left",
+              "foregroundColor": {
+                "$role": "Page_Text",
+                "fallback": "#24292e",
+                "fallbackDark": "#ccccdc"
+              },
+              "backgroundColor": {
+                "$role": "Page_Background",
+                "fallback": "#f4f5f5",
+                "fallbackDark": "#111217"
+              }
+            },
+            "geometry": {
+              "x": 512,
+              "y": 238,
+              "width": 110,
+              "height": 22
+            }
+          },
+          {
+            "id": "w-045",
+            "type": "pv-label",
+            "props": {
+              "pv": "BR:DIAG:DCCT:01:CURRENT:RB",
+              "showUnits": true,
+              "alarmSensitive": true,
+              "alarmBorder": true,
+              "precision": 2,
+              "align": "right",
+              "foregroundColor": {
+                "$role": "Page_Text",
+                "fallback": "#24292e",
+                "fallbackDark": "#ccccdc"
+              },
+              "backgroundColor": {
+                "$role": "Field_Background",
+                "fallback": "#fafbfc",
+                "fallbackDark": "#181b1f"
+              }
+            },
+            "geometry": {
+              "x": 630,
+              "y": 238,
+              "width": 120,
+              "height": 22
+            }
+          },
+          {
+            "id": "w-046",
+            "type": "text-label",
+            "props": {
+              "text": "Reading valid",
+              "fontSize": 12,
+              "align": "left",
+              "foregroundColor": {
+                "$role": "Page_Text",
+                "fallback": "#24292e",
+                "fallbackDark": "#ccccdc"
+              },
+              "backgroundColor": {
+                "$role": "Page_Background",
+                "fallback": "#f4f5f5",
+                "fallbackDark": "#111217"
+              }
+            },
+            "geometry": {
+              "x": 512,
+              "y": 268,
+              "width": 110,
+              "height": 22
+            }
+          },
+          {
+            "id": "w-047",
+            "type": "pv-led",
+            "props": {
+              "pv": "BR:DIAG:DCCT:01:STATUS:VALID",
+              "onColor": {
+                "$role": "Led_On",
+                "fallback": "#56a64b",
+                "fallbackDark": "#73bf69"
+              },
+              "offColor": {
+                "$role": "Led_Off",
+                "fallback": "#ecedef",
+                "fallbackDark": "#22252b"
+              }
+            },
+            "geometry": {
+              "x": 630,
+              "y": 272,
+              "width": 13,
+              "height": 13
+            }
+          }
+        ]
+      }
+    ]
+  }
+}

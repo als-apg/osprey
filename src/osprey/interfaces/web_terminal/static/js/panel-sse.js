@@ -53,6 +53,7 @@ import {
   refetchFlags,
 } from './watchdog-alert.js';
 import { isSafetySwitchFrame, refreshSafetySwitches } from './safety-switches.js';
+import { refreshCodeReviewTab } from './code-review-tab.js';
 
 /** @typedef {import('./panel-manager.js').PanelSSEEvent} PanelSSEEvent */
 /** @typedef {import('./panel-manager.js').AgentActivityEvent} AgentActivityEvent */
@@ -143,7 +144,8 @@ export function subscribePanelEvents(sseDeps) {
   //                                               watchdog-alert.js, which re-reads
   //                                               the flags from their route.
   //   safety_switch    {type, name, on}         — a runtime safety switch moved:
-  //                                               safety-switches.js re-reads them.
+  //                                               safety-switches.js and the Review
+  //                                               tab re-read them.
   //
   // panel_op, panel_visibility and panel_register may carry source:'agent'
   // (agent-originated command): that adds a transient glow — never a
@@ -214,6 +216,7 @@ export function subscribePanelEvents(sseDeps) {
           onWatchdogFrame(data);
         } else if (isSafetySwitchFrame(data)) {
           void refreshSafetySwitches();
+          void refreshCodeReviewTab();
         }
       } catch (err) {
         // A throw mid-dispatch can leave rail membership, the dock layout and

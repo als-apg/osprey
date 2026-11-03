@@ -3442,7 +3442,7 @@ describe('the merged panel shell', () => {
       value: {
         /** @param {any} message */
         postMessage(message) {
-          if (message && message.type === 'osprey-header-contribution') {
+          if (message && message.type === 'canopy-host-header-contribution') {
             contributions.push(message.items);
           }
         },
@@ -3501,7 +3501,7 @@ describe('the merged panel shell', () => {
   function sendHeaderAction(id, value) {
     window.dispatchEvent(
       new MessageEvent('message', {
-        data: { type: 'osprey-header-action', id, value },
+        data: { type: 'canopy-host-header-action', id, value },
         origin: window.location.origin,
       })
     );

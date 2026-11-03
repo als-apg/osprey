@@ -799,14 +799,33 @@ def test_unknown_root_entry_flags_a_typo(profile_dir: Path):
 
 @pytest.mark.parametrize(
     "exempt",
-    [".git", ".gitignore", "README.md", "README", "LICENSE", "LICENSE.txt", "docs"],
+    [
+        ".git",
+        ".gitignore",
+        "README.md",
+        "README",
+        "LICENSE",
+        "LICENSE.txt",
+        "docs",
+        # What the CANOPY pre_build step stages into the repo root.
+        "canopy-0.4.0-py3-none-any.whl",
+        "pydmconverter-1.2.0-py3-none-any.whl",
+        "canopy_payload",
+    ],
 )
 def test_unknown_root_entry_exemptions(profile_dir: Path, exempt: str):
-    if exempt in {".git", "docs"}:
+    if exempt in {".git", "docs", "canopy_payload"}:
         (profile_dir / exempt).mkdir()
     else:
         _write(profile_dir / exempt)
     assert unknown_root_entries(profile_dir) == []
+
+
+def test_the_canopy_exemptions_do_not_hide_a_neighbouring_typo(profile_dir: Path):
+    """``canopy-`` and ``canopy_payload`` are prefixes, not a blanket ``canopy*``."""
+    (profile_dir / "canopy").mkdir()
+    _write(profile_dir / "canopy_extras-1.0-py3-none-any.whl")
+    assert unknown_root_entries(profile_dir) == ["canopy", "canopy_extras-1.0-py3-none-any.whl"]
 
 
 def test_known_root_entries_are_not_flagged(profile_dir: Path):

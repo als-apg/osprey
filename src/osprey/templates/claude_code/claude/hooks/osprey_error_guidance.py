@@ -118,6 +118,8 @@ ERROR_CLASS_MAP = {
     "invalid_pattern": "Validation",
     # A panel url that is not a root-relative path or an http(s) URL: pass one.
     "invalid_url": "Validation",
+    # A url for a panel driven by its own workspace tool: use that tool instead.
+    "agent_hop_panel_url": "Validation",
     "sql_error": "Validation",
     "file_too_large": "Validation",
     "conversion_not_supported": "Validation",

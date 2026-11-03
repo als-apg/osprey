@@ -12,11 +12,10 @@ executor runs its own.
 
 from __future__ import annotations
 
-import hashlib
 from collections.abc import Mapping
 from typing import Any
 
-from osprey.services.code_review.contract import ReviewVerdict
+from osprey.services.code_review.contract import ReviewVerdict, code_digest
 from osprey.services.code_review.review import ReviewOutcome, agent_message
 
 #: The ask-stamp field holding the digest of the code the prompt's review read.
@@ -25,11 +24,6 @@ REVIEWED_DIGEST_KEY = "code_review_sha256"
 REVIEWED_VERDICT_KEY = "code_review_verdict"
 #: The ask-stamp field holding what the agent is told; absent for a pass with nothing to say.
 REVIEWED_MESSAGE_KEY = "code_review_message"
-
-
-def code_digest(code: str) -> str:
-    """The digest that binds a stamped review to the code it read."""
-    return hashlib.sha256(code.encode("utf-8")).hexdigest()
 
 
 def reviewed_fields(code: str, outcome: ReviewOutcome) -> dict[str, Any]:

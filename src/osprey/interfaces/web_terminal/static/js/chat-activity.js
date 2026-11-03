@@ -111,6 +111,9 @@ export const TOOL_PHRASES = Object.freeze({
   phoebus_snapshot: 'capturing a Phoebus display',
   phoebus_drive: 'operating a Phoebus display',
 
+  // CANOPY panels.
+  list_collections: 'listing collections',
+
   // Logbook (ARIEL).
   browse: 'browsing the logbook',
   keyword_search: 'searching the logbook',

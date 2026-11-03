@@ -273,12 +273,15 @@ def test_the_route_sits_at_the_design_system_route_s_tier() -> None:
     the Lab page importing them is a page the operator is already logged in to.
 
     Spelled as an equality over the whole ``/panel/`` slice of the table rather
-    than as "nothing under ``/panel/`` is panel-tier": the proxy hop to the
-    event dispatcher's MCP transport is panel-tier, and it is the only path
-    under this prefix that is. Everything else beneath ``/panel/`` — this
-    asset route included — is reached with the operator credential, and a
-    second entry appearing here would mean the weak token had been handed a
-    slice of the terminal proxy.
+    than as "nothing under ``/panel/`` is panel-tier": the proxy hops to the
+    event dispatcher's and to CANOPY's MCP transports are panel-tier, and they
+    are the only paths under this prefix that are. Everything else beneath
+    ``/panel/`` — this asset route included — is reached with the operator
+    credential, and another entry appearing here would mean the weak token had
+    been handed a slice of the terminal proxy. Read from
+    ``panel_tier_routes()``, the table the gate consults: a sidecar panel that
+    opts in to an agent hop adds its own transport path there, and the CANOPY
+    panel is the one that does.
     """
     terminal_static = "/panel/jupyter/terminal-static/js/control-target-chip.js"
     design_system = "/panel/jupyter/design-system/css/tokens.css"
@@ -287,8 +290,9 @@ def test_the_route_sits_at_the_design_system_route_s_tier() -> None:
         "GET", design_system, False
     )
     assert web_auth.classify("GET", terminal_static, False) is web_auth.Tier.OPERATOR
-    assert {path for _, path in web_auth.PANEL_TIER_ROUTES if path.startswith("/panel/")} == {
-        "/panel/events/mcp"
+    assert {path for _, path in web_auth.panel_tier_routes() if path.startswith("/panel/")} == {
+        "/panel/events/mcp",
+        "/panel/canopy/mcp",
     }
 
 

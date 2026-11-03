@@ -446,6 +446,24 @@ def _get_default_artifacts() -> list[BuildArtifact]:
             description="Index of the plans this deployment can run. The template renders an index built from the operator's own plan directory, so this artifact's framework hash tracks that directory: a claimed copy reports drift whenever a plan's docstring changes, not only when the framework template does.",
         ),
         BuildArtifact(
+            canonical_name="skills/canopy-panel-builder",
+            template_path="claude/skills/canopy-panel-builder/SKILL.md",
+            output_path=".claude/skills/canopy-panel-builder/SKILL.md",
+            description="Build, port and check CANOPY screens. The file is CANOPY's own skill, copied byte for byte from the canopy_mcp package, so it is never edited here: a new CANOPY release replaces it.",
+        ),
+        BuildArtifact(
+            canonical_name="skills/canopy-operator",
+            template_path="claude/skills/canopy-operator/SKILL.md",
+            output_path=".claude/skills/canopy-operator/SKILL.md",
+            description="Open, arrange, zoom and close what the operator's CANOPY window shows. The file is CANOPY's own skill, copied byte for byte from the canopy_mcp package, so it is never edited here: a new CANOPY release replaces it.",
+        ),
+        BuildArtifact(
+            canonical_name="skills/canopy-screens",
+            template_path="claude/skills/canopy-screens/SKILL.md.j2",
+            output_path=".claude/skills/canopy-screens/SKILL.md",
+            description="Which CANOPY screen shows which device: an index built from the project's screen library, its devices, collections and the tools' default views; renders only with the CANOPY panel",
+        ),
+        BuildArtifact(
             canonical_name="skills/pyaml-tools",
             template_path="claude/skills/pyaml-tools/SKILL.md.j2",
             output_path=".claude/skills/pyaml-tools/SKILL.md",

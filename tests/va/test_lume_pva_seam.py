@@ -1018,6 +1018,23 @@ class TestNamesServedVerbatim:
         echo = _ca(SR_READBACK)
         assert (echo["value"], (echo["severity"], echo["status"])) == (13.0, NO_ALARM)
 
+    def test_every_served_ca_record_has_a_value_at_attach(self, names_server: _Server) -> None:
+        """No Channel Access record is served undefined because nothing has posted it.
+
+        The CA server creates every record in the ``UDF``/``INVALID`` alarm
+        state and keeps it there until the record is posted once; a client
+        write posts it, and so does a value source, but a setpoint nobody
+        writes and its echoed readback have neither. The start-up pass is what
+        posts them. The set checked is every channel the view serves, not a
+        hand-picked list, so a channel added to the tree is held to this too;
+        ``BTS_SETPOINT`` and its readback are written by no test in this class.
+        """
+        assert names_server.channels, "the view serves no channel"
+        for address in names_server.channels:
+            reading = _ca(address)
+            assert reading["value"] is not None, address
+            assert (reading["severity"], reading["status"]) == NO_ALARM, address
+
     def test_the_applied_config_holds_the_safety_keys_and_the_limits_bands(
         self, names_server: _Server, names_build: BuiltProject
     ) -> None:

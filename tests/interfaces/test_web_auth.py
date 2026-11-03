@@ -1582,6 +1582,15 @@ _EXPECTED_PANEL_ROUTES = {
     ("DELETE", "/panel/events/mcp"),
 }
 
+#: What the sidecar panels that opt in to an agent hop add to the tier: the
+#: CANOPY panel's MCP transport, and that one path only. Spelled out for the
+#: same reason, so a second panel opting in fails this file.
+_EXPECTED_PANEL_HOP_ROUTES = {
+    ("GET", "/panel/canopy/mcp"),
+    ("POST", "/panel/canopy/mcp"),
+    ("DELETE", "/panel/canopy/mcp"),
+}
+
 #: Routes that must stay operator-only. Each is a real route in the tree (see
 #: ``web_terminal/routes/`` and ``artifacts/app.py``) picked because a panel
 #: token reaching it would be an escalation: config writes, scaffold creation,
@@ -1654,6 +1663,11 @@ def test_route_tiers() -> None:
     against a hand-written set rather than a membership check.
     """
     assert set(web_auth.PANEL_TIER_ROUTES) == _EXPECTED_PANEL_ROUTES
+    # The effective table — what ``classify`` consults — adds a hop only for a
+    # sidecar panel that opts in: CANOPY's, and no other.
+    assert set(web_auth.panel_tier_routes()) == (
+        _EXPECTED_PANEL_ROUTES | _EXPECTED_PANEL_HOP_ROUTES
+    )
 
     for method, path in _EXPECTED_PANEL_ROUTES:
         assert web_auth.classify(method, path, False) is web_auth.Tier.PANEL, (

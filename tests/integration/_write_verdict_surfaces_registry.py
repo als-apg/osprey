@@ -216,9 +216,9 @@ def _control_session(staged: Staged) -> Any:
     case = staged.case
     if not _ladder_pin_honoured(case) or not _str_target(case):
         return OUT_OF_DOMAIN
-    from osprey.runtime.session import _verdicts
+    from osprey.runtime.session import _verdict
 
-    _switch, verdict = _verdicts(case.target)
+    verdict = _verdict(case.target)
     return (verdict.allowed, verdict.reason), _expected(case)
 
 

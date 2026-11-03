@@ -93,6 +93,13 @@ check_set = _load_by_path(CHECK_SCRIPT, "_check_set_by_path")
 framework_checks = check_set.FRAMEWORK
 #: How a check starts a tool in the project's environment, as one shell line.
 CHECK_UV_RUN = shlex.join(framework_checks.UV_RUN)
+#: The CANOPY integration's checks module: the contract and the marker's rules.
+canopy_checks = check_set.DECLARED.modules["src/osprey/integrations/canopy/repo_checks.py"]
+#: Each invariant check to the tree readers it runs, file by file.
+INVARIANT_CHECKS = {
+    "invariant-tests": framework_checks.INVARIANT_TESTS,
+    "canopy-marker": canopy_checks.INVARIANT_TESTS,
+}
 
 TILED_JOB = "tiled-roundtrip-e2e"
 VA_JOB = "va-substrate-equivalence-e2e"
@@ -327,15 +334,23 @@ def _row(marker: str) -> LaneLeavingMarker:
     return next(row for row in LANE_LEAVING_MARKERS if row.marker == marker)
 
 
+#: The marker of the tests that need CANOPY installed. No sweep installs it and a
+#: ``canopy`` test refuses to skip, so the parallel lane deselects it beside the
+#: rows above and the CANOPY contract job, which installs CANOPY, runs it.
+CANOPY_MARKER = "canopy"
+CANOPY_DESELECT_TERM = f"not {CANOPY_MARKER}"
+
+
 def _lane_deselect(rows: tuple[LaneLeavingMarker, ...]) -> str:
-    """The parallel lane's marker expression for *rows*."""
-    return '-m "' + " and ".join(row.deselect_term() for row in rows) + '"'
+    """The parallel lane's marker expression for *rows*, the CANOPY term last."""
+    terms = [row.deselect_term() for row in rows] + [CANOPY_DESELECT_TERM]
+    return '-m "' + " and ".join(terms) + '"'
 
 
 #: The parallel lane's marker expression, derived from the table. Matched as a
 #: literal substring: single spaces and the quoting are part of the pin.
 UNIT_LANE_DESELECT = _lane_deselect(LANE_LEAVING_MARKERS)
-assert UNIT_LANE_DESELECT == '-m "not pty and not wallclock"', UNIT_LANE_DESELECT
+assert UNIT_LANE_DESELECT == '-m "not pty and not wallclock and not canopy"', UNIT_LANE_DESELECT
 
 #: The row the terminal-only cases read (Linux gate, files that open a pty).
 TERMINAL_ROW = _row("pty")
@@ -2031,6 +2046,27 @@ def test_nothing_else_times_it__mutation_a_file_carries_both_markers() -> None:
         _check_nothing_else_times_it(_load_workflow(), TERMINAL_ROW, sources)
 
 
+def test_unit_lane_says_the_canopy_contract_was_not_exercised(workflow: dict[str, Any]) -> None:
+    """The deselection is the check's; saying so in the run summary is the
+    step's, read from the log the step tees."""
+    run = _find_named_step(workflow, UNIT_TEST_JOB, "Run unit tests")["run"]
+    summary = "grep -m1 '^CANOPY contract not exercised here' ci-diag/pytest.log"
+    assert summary in run and "| tee ci-diag/pytest.log" in run, (
+        f"the '{UNIT_TEST_JOB}' job must tee its output and copy the line that says the "
+        f"CANOPY contract was not exercised into the step summary"
+    )
+
+
+def test_unit_lane_says_the_canopy_contract_was_not_exercised__mutation_drops_the_tee() -> None:
+    mutated = _load_raw_workflow()
+    step = _find_named_step(mutated, UNIT_TEST_JOB, "Run unit tests")
+    original = step["run"]
+    step["run"] = original.replace(" 2>&1 | tee ci-diag/pytest.log", "")
+    assert step["run"] != original, "the tee moved — mutation is stale"
+    with pytest.raises(AssertionError):
+        test_unit_lane_says_the_canopy_contract_was_not_exercised(mutated)
+
+
 def test_pty_step_runs_only_where_a_terminal_is_real(workflow: dict[str, Any]) -> None:
     """Pinned to the Linux cells. The scenarios self-skip where a pty is not a
     thing, and a step whose whole suite skipped reports green over nothing, so
@@ -2525,7 +2561,10 @@ def _gate_lines_off_the_table(source: str) -> list[str]:
         invariant = (
             not exprs
             and not has_workers
-            and all(f" {path} " in f"{line} " for path in framework_checks.INVARIANT_TESTS)
+            and any(
+                all(f" {path} " in f"{line} " for path in paths)
+                for paths in INVARIANT_CHECKS.values()
+            )
         )
         if not (sweep or serial or invariant):
             off.append(line.strip())
@@ -12532,6 +12571,788 @@ def test_every_nightly_checkout_drops_its_credentials(nightly: dict[str, Any]) -
 
 
 # ---------------------------------------------------------------------------
+# The CANOPY contract job
+# ---------------------------------------------------------------------------
+#
+# One job installs CANOPY and PyDMConverter at the commits the package
+# declares and runs the check command's canopy-contract check against them. It
+# always starts and decides inside itself whether the change needs the proof,
+# so its result is `success` or `failure` and never `skipped`: the gate reads
+# it as an always-on job, and a change into an integration base cannot merge
+# on a job that did not run the contract.
+
+CANOPY_CONTRACT_JOB = "canopy-contract"
+CANOPY_CONTRACT_GATE_FAILURE = "❌ CANOPY contract failed"
+_CANOPY_ALWAYS_ON_CHECK_RE = re.compile(
+    r'if \[\[ "\$\{\{\s*needs\.'
+    + re.escape(CANOPY_CONTRACT_JOB)
+    + r'\.result\s*\}\}" != "success" \]\]; then\n(?:\s*#[^\n]*\n)*\s*echo "(?P<message>[^"\n]*)"\n\s*exit 1\n'
+)
+_COMMIT_LITERAL_RE = re.compile(r"\b[0-9a-f]{40}\b")
+#: The install step's requirement for each distribution, the environment
+#: variable that carries its commit from the `pin` step's output, and the one
+#: that carries its local clone from the `fetch` step's output.
+CANOPY_CONTRACT_INSTALLS = {
+    "canopy": ('"canopy[mcp,convert] @ git+file://', "CANOPY_COMMIT", "canopy", "CANOPY_CLONE"),
+    "PyDMConverter": ('"PyDMConverter @ git+file://', "PYDM_COMMIT", "pydm", "PYDM_CLONE"),
+}
+#: The one step that holds the read credential beside the check that it is set.
+CANOPY_CONTRACT_FETCH_STEP = "fetch"
+#: A git command that is handed the credential helper for its own duration.
+_CANOPY_CREDENTIALED_GIT_RE = re.compile(
+    r'GIT_ASKPASS="\$askpass" GIT_TERMINAL_PROMPT=0 git (?:clone|-C "\$1" fetch) '
+)
+#: A write to the configuration every git command of the runner reads. A
+#: ``--get`` form reads it.
+_GIT_SHARED_CONFIG_RE = re.compile(r"\bgit\s+config\s+--(?:global|system)\b(?!\s+--get)")
+_CREDENTIAL_IN_URL_RE = re.compile(r"https?://[^\s/\"']*@")
+_BUILD_TOOL_RE = re.compile(r"\b(?:uv|uvx|pip|pip3|python|python3|pytest|npm|make)\b")
+_HEREDOC_PY_RE = re.compile(r"<<'PY'\n(?P<body>.*?)\nPY\n", re.S)
+
+
+def _canopy_step(wf: dict[str, Any], step_id: str) -> dict[str, Any]:
+    for step in _jobs(wf)[CANOPY_CONTRACT_JOB]["steps"]:
+        if step.get("id") == step_id:
+            return step
+    raise AssertionError(f"job '{CANOPY_CONTRACT_JOB}' has no step with id '{step_id}'")
+
+
+def _canopy_run_blocks(wf: dict[str, Any]) -> list[str]:
+    return [str(s["run"]) for s in _jobs(wf)[CANOPY_CONTRACT_JOB]["steps"] if "run" in s]
+
+
+def _canopy_git_configuration_writes(wf: dict[str, Any]) -> list[str]:
+    """Each line of the job that writes git's global or system configuration."""
+    return [
+        line.strip()
+        for run in _canopy_run_blocks(wf)
+        for line in run.splitlines()
+        if _GIT_SHARED_CONFIG_RE.search(line)
+    ]
+
+
+def test_canopy_contract_job_exists(workflow: dict[str, Any]) -> None:
+    assert CANOPY_CONTRACT_JOB in _jobs(workflow)
+
+
+def _outside_the_contract(members: Iterator[str], paths: tuple[str, ...]) -> list[str]:
+    """The *members* (paths under ``tests/``) no directory in *paths* holds."""
+    return sorted(m for m in members if not any(f"tests/{m}".startswith(f"{p}/") for p in paths))
+
+
+def test_every_canopy_marked_module_is_in_the_contract_job() -> None:
+    """The unit lane deselects ``canopy``; a marked module the contract does not run, no lane runs."""
+    from tests._canopy_contract import contract_members
+
+    members = contract_members(REPO_ROOT / "tests")
+    assert members
+    assert _outside_the_contract(iter(members), canopy_checks.CONTRACT_TESTS) == []
+
+
+def test_every_canopy_marked_module_is_in_the_contract_job__mutation_drops_a_directory() -> None:
+    from tests._canopy_contract import contract_members
+
+    members = contract_members(REPO_ROOT / "tests")
+    assert _outside_the_contract(iter(members), canopy_checks.CONTRACT_TESTS[:1])
+
+
+def test_canopy_contract_job_exists__mutation_drops_job() -> None:
+    mutated = _load_workflow()
+    del mutated["jobs"][CANOPY_CONTRACT_JOB]
+    with pytest.raises(AssertionError):
+        test_canopy_contract_job_exists(mutated)
+
+
+def test_all_checks_passed_needs_canopy_contract(workflow: dict[str, Any]) -> None:
+    assert CANOPY_CONTRACT_JOB in _jobs(workflow)[GATE_JOB]["needs"]
+
+
+def test_all_checks_passed_needs_canopy_contract__mutation_drops_needs_entry() -> None:
+    mutated = _load_workflow()
+    _jobs(mutated)[GATE_JOB]["needs"].remove(CANOPY_CONTRACT_JOB)
+    with pytest.raises(AssertionError):
+        test_all_checks_passed_needs_canopy_contract(mutated)
+
+
+def test_gate_reads_canopy_contract_as_always_on(workflow: dict[str, Any]) -> None:
+    """The lane ends `success` when the change does not need it, so `skipped`
+    is never a legitimate result: the gate must fail on anything but
+    `success`, which `check_pr_lane` does not do."""
+    match = _CANOPY_ALWAYS_ON_CHECK_RE.search(_gate_run_text(workflow))
+    assert match is not None, (
+        f"the gate has no always-on check of needs.{CANOPY_CONTRACT_JOB}.result"
+    )
+    assert match["message"] == CANOPY_CONTRACT_GATE_FAILURE
+    assert not _gate_checks_lane(workflow, CANOPY_CONTRACT_JOB), (
+        f"'{CANOPY_CONTRACT_JOB}' must not be read through check_pr_lane, which passes a skip"
+    )
+    assert "if" not in _jobs(workflow)[CANOPY_CONTRACT_JOB], (
+        f"'{CANOPY_CONTRACT_JOB}' must carry no job-level `if:`: a skipped job says nothing"
+    )
+
+
+def test_gate_reads_canopy_contract_as_always_on__mutation_drops_the_check() -> None:
+    mutated = _load_workflow()
+    step = _find_named_step(mutated, GATE_JOB, "Check all jobs status")
+    step["run"], dropped = _CANOPY_ALWAYS_ON_CHECK_RE.subn("", step["run"])
+    assert dropped == 1
+    with pytest.raises(AssertionError, match="no always-on check"):
+        test_gate_reads_canopy_contract_as_always_on(mutated)
+
+
+def test_gate_reads_canopy_contract_as_always_on__mutation_moves_it_to_check_pr_lane() -> None:
+    mutated = _load_workflow()
+    step = _find_named_step(mutated, GATE_JOB, "Check all jobs status")
+    step["run"] += (
+        f'check_pr_lane "CANOPY contract" "${{{{ needs.{CANOPY_CONTRACT_JOB}.result }}}}"\n'
+    )
+    with pytest.raises(AssertionError, match="check_pr_lane"):
+        test_gate_reads_canopy_contract_as_always_on(mutated)
+
+
+def test_gate_reads_canopy_contract_as_always_on__mutation_adds_a_job_level_if() -> None:
+    mutated = _load_workflow()
+    _jobs(mutated)[CANOPY_CONTRACT_JOB]["if"] = "github.event_name == 'pull_request'"
+    with pytest.raises(AssertionError, match="job-level"):
+        test_gate_reads_canopy_contract_as_always_on(mutated)
+
+
+def test_canopy_contract_installs_at_the_package_pin(workflow: dict[str, Any]) -> None:
+    """Both distributions install at the commits the `pin` step read from the
+    package. A commit written into the workflow is a second declaration that
+    goes stale the first time the package's moves."""
+    step = _canopy_step(workflow, "install")
+    fetch = _canopy_step(workflow, CANOPY_CONTRACT_FETCH_STEP)
+    for distribution, (requirement, variable, output, clone) in CANOPY_CONTRACT_INSTALLS.items():
+        for name, holder in (("install", step), ("fetch", fetch)):
+            assert holder["env"].get(variable) == f"${{{{ steps.pin.outputs.{output} }}}}", (
+                f"the {name} step must take {distribution}'s commit from steps.pin.outputs.{output}"
+            )
+        assert step["env"].get(clone) == f"${{{{ steps.fetch.outputs.{output} }}}}", (
+            f"the install step must take {distribution}'s clone from steps.fetch.outputs.{output}"
+        )
+        pinned = re.search(
+            re.escape(requirement) + r"\$\{" + clone + r"\}@\$\{" + variable + r'\}"', step["run"]
+        )
+        assert pinned is not None, (
+            f'the install step must install {requirement}${{{clone}}}@${{{variable}}}"'
+        )
+    literals = _COMMIT_LITERAL_RE.findall(json.dumps(_jobs(workflow)[CANOPY_CONTRACT_JOB]))
+    assert literals == [], f"'{CANOPY_CONTRACT_JOB}' names a literal commit: {literals}"
+
+
+@pytest.mark.parametrize("variable", ["CANOPY_COMMIT", "PYDM_COMMIT"])
+def test_canopy_contract_installs_at_the_package_pin__mutation_writes_a_literal_commit(
+    variable: str,
+) -> None:
+    mutated = _load_workflow()
+    _canopy_step(mutated, "install")["env"][variable] = "1f23d209fcc7d7b87c7ddd6e731d5698135956e3"
+    with pytest.raises(AssertionError, match="steps.pin.outputs"):
+        test_canopy_contract_installs_at_the_package_pin(mutated)
+
+
+def test_canopy_contract_installs_at_the_package_pin__mutation_pins_a_commit_in_run() -> None:
+    mutated = _load_workflow()
+    step = _canopy_step(mutated, "install")
+    assert "@${CANOPY_COMMIT}" in step["run"]
+    step["run"] = step["run"].replace(
+        "@${CANOPY_COMMIT}", "@1f23d209fcc7d7b87c7ddd6e731d5698135956e3"
+    )
+    with pytest.raises(AssertionError):
+        test_canopy_contract_installs_at_the_package_pin(mutated)
+
+
+def test_canopy_contract_installs_at_the_package_pin__mutation_drops_the_extras() -> None:
+    mutated = _load_workflow()
+    step = _canopy_step(mutated, "install")
+    assert "canopy[mcp,convert]" in step["run"]
+    step["run"] = step["run"].replace("canopy[mcp,convert]", "canopy")
+    with pytest.raises(AssertionError, match="must install"):
+        test_canopy_contract_installs_at_the_package_pin(mutated)
+
+
+def test_canopy_contract_installs_at_the_package_pin__mutation_installs_a_branch() -> None:
+    mutated = _load_workflow()
+    step = _canopy_step(mutated, "install")
+    step["run"] = step["run"].replace("@${PYDM_COMMIT}", "@main")
+    with pytest.raises(AssertionError, match="must install"):
+        test_canopy_contract_installs_at_the_package_pin(mutated)
+
+
+_PROVEN = {"canopy": "a" * 40, "PyDMConverter": "b" * 40}
+_PROVEN_MODULE = REPO_ROOT / "src/osprey/integrations/canopy/proven.py"
+_PROVEN_COMMITS_RE = re.compile(r"^PROVEN_COMMITS: dict\[str, str\] = \{\n.*?^\}\n", re.S | re.M)
+
+
+def _proven_module_declaring(pins: dict[str, str]) -> str:
+    """The shipped judgement module's source, with *pins* as its declaration."""
+    source, replaced = _PROVEN_COMMITS_RE.subn(
+        f"PROVEN_COMMITS: dict[str, str] = {pins!r}\n", _PROVEN_MODULE.read_text(encoding="utf-8")
+    )
+    assert replaced == 1, f"{_PROVEN_MODULE} declares PROVEN_COMMITS in an unexpected shape"
+    return source
+
+
+def _run_pin_step(
+    wf: dict[str, Any], root: Path, tmp_path: Path
+) -> tuple[subprocess.CompletedProcess[str], str]:
+    """Run the `pin` step's shell from *root*, as the runner does before any install."""
+    output = tmp_path / "github_output"
+    output.write_text("", encoding="utf-8")
+    done = subprocess.run(
+        ["bash", "-eo", "pipefail", "-c", _canopy_step(wf, "pin")["run"]],
+        capture_output=True,
+        text=True,
+        cwd=root,
+        env={"PATH": f"{Path(sys.executable).parent}:/usr/bin:/bin", "GITHUB_OUTPUT": str(output)},
+        check=False,
+    )
+    return done, output.read_text(encoding="utf-8")
+
+
+def _checkout_declaring(tmp_path: Path, pins: dict[str, str]) -> Path:
+    """A checkout holding only the judgement module, declaring *pins*."""
+    root = tmp_path / "checkout"
+    module = root / _PROVEN_MODULE.relative_to(REPO_ROOT)
+    module.parent.mkdir(parents=True)
+    module.write_text(_proven_module_declaring(pins), encoding="utf-8")
+    return root
+
+
+def test_canopy_contract_pin_reads_the_module_with_the_runner_python(
+    workflow: dict[str, Any], tmp_path: Path
+) -> None:
+    """The pins come from running the stdlib-only module by path with the
+    runner's own python3: nothing is installed yet, and no build tool runs."""
+    step = _canopy_step(workflow, "pin")
+    assert "python3 src/osprey/integrations/canopy/proven.py --pins" in step["run"]
+    tools = set(_BUILD_TOOL_RE.findall(step["run"]))
+    assert tools == {"python3"}, f"the pin step must run python3 alone, not {sorted(tools)}"
+    done, output = _run_pin_step(workflow, _checkout_declaring(tmp_path, _PROVEN), tmp_path)
+    assert done.returncode == 0, done.stdout + done.stderr
+    assert output.splitlines() == [
+        f"canopy={_PROVEN['canopy']}",
+        f"pydm={_PROVEN['PyDMConverter']}",
+    ]
+
+
+def test_canopy_contract_pin_reads_this_checkouts_pins(
+    workflow: dict[str, Any], tmp_path: Path
+) -> None:
+    """Run against this checkout's own module, copied so the step's scratch
+    file lands outside the repository."""
+    from osprey.integrations.canopy.proven import PROVEN_COMMITS
+
+    root = tmp_path / "checkout"
+    module = root / _PROVEN_MODULE.relative_to(REPO_ROOT)
+    module.parent.mkdir(parents=True)
+    module.write_bytes(_PROVEN_MODULE.read_bytes())
+    done, output = _run_pin_step(workflow, root, tmp_path)
+    assert done.returncode == 0, done.stdout + done.stderr
+    assert output.splitlines() == [
+        f"canopy={PROVEN_COMMITS['canopy']}",
+        f"pydm={PROVEN_COMMITS['PyDMConverter']}",
+    ]
+
+
+@pytest.mark.parametrize(
+    "pins",
+    [
+        {**_PROVEN, "canopy": "a" * 39},
+        {**_PROVEN, "PyDMConverter": "B" * 40},
+        {**_PROVEN, "canopy": "a" * 40 + " --upload-pack=x"},
+        {"canopy": _PROVEN["canopy"]},
+    ],
+    ids=["short", "upper-case", "trailing-argument", "one-missing"],
+)
+def test_canopy_contract_pin_refuses_a_value_that_is_not_a_whole_commit(
+    workflow: dict[str, Any], tmp_path: Path, pins: dict[str, str]
+) -> None:
+    """The commit reaches `git fetch` beside the credential, so the workflow's
+    own shell checks it is 40 lower-case hex before writing any output."""
+    done, output = _run_pin_step(workflow, _checkout_declaring(tmp_path, pins), tmp_path)
+    assert done.returncode != 0, "the pin step must refuse a value that is not 40-hex"
+    assert output == "", f"the pin step wrote outputs before refusing: {output!r}"
+
+
+def test_canopy_contract_pin_refuses_a_value_that_is_not_a_whole_commit__mutation_drops_the_validation(
+    tmp_path: Path,
+) -> None:
+    mutated = _load_workflow()
+    step = _canopy_step(mutated, "pin")
+    step["run"], dropped = re.subn(r"\^\[0-9a-f\]\{40\}\$", ".*", step["run"])
+    assert dropped >= 1
+    with pytest.raises(AssertionError, match="must refuse"):
+        test_canopy_contract_pin_refuses_a_value_that_is_not_a_whole_commit(
+            mutated, tmp_path, {**_PROVEN, "canopy": "a" * 39}
+        )
+
+
+def test_canopy_contract_token_reaches_only_env(workflow: dict[str, Any]) -> None:
+    """A secret interpolated into `run:` is written into the script file the
+    runner executes; through `env:` it stays a shell variable."""
+    leaking = [run for run in _canopy_run_blocks(workflow) if "${{ secrets." in run]
+    assert leaking == [], f"'{CANOPY_CONTRACT_JOB}' interpolates a secret into run: {leaking}"
+    for step_id in ("credential", CANOPY_CONTRACT_FETCH_STEP):
+        assert _canopy_step(workflow, step_id)["env"].get("TOKEN") == (
+            "${{ secrets.CANOPY_READ_TOKEN }}"
+        ), f"the {step_id} step must take the read credential through env: TOKEN"
+
+
+def test_canopy_contract_token_reaches_only_env__mutation_interpolates_it_into_run() -> None:
+    mutated = _load_workflow()
+    step = _canopy_step(mutated, CANOPY_CONTRACT_FETCH_STEP)
+    assert "${TOKEN}" in step["run"]
+    step["run"] = step["run"].replace("${TOKEN}", "${{ secrets.CANOPY_READ_TOKEN }}")
+    with pytest.raises(AssertionError, match="interpolates a secret"):
+        test_canopy_contract_token_reaches_only_env(mutated)
+
+
+def test_canopy_contract_token_reaches_only_env__mutation_drops_the_env_entry() -> None:
+    mutated = _load_workflow()
+    del _canopy_step(mutated, "credential")["env"]["TOKEN"]
+    with pytest.raises(AssertionError, match="through env"):
+        test_canopy_contract_token_reaches_only_env(mutated)
+
+
+def test_canopy_contract_is_never_advisory(workflow: dict[str, Any]) -> None:
+    job = _jobs(workflow)[CANOPY_CONTRACT_JOB]
+    advisory = [
+        scope.get("id") or scope.get("name") or "job"
+        for scope in [job, *job["steps"]]
+        if "continue-on-error" in scope
+    ]
+    assert advisory == [], f"'{CANOPY_CONTRACT_JOB}' declares continue-on-error on: {advisory}"
+
+
+@pytest.mark.parametrize(
+    "step_id", [None, "decide", "credential", "pin", "fetch", "install", "contract", "summary"]
+)
+def test_canopy_contract_is_never_advisory__mutation_adds_continue_on_error(
+    step_id: str | None,
+) -> None:
+    mutated = _load_workflow()
+    scope = (
+        _jobs(mutated)[CANOPY_CONTRACT_JOB] if step_id is None else _canopy_step(mutated, step_id)
+    )
+    scope["continue-on-error"] = True
+    with pytest.raises(AssertionError, match="continue-on-error"):
+        test_canopy_contract_is_never_advisory(mutated)
+
+
+def _canopy_holds_a_secret(step: dict[str, Any]) -> bool:
+    return "secrets." in json.dumps(step)
+
+
+def test_canopy_contract_credential_never_meets_the_build(workflow: dict[str, Any]) -> None:
+    """The read credential and code the change controls never share a step.
+    A step that holds a secret runs git alone and hands the credential to the
+    clone and the fetch only; the steps that sync, install and test run with
+    no secret, from local clones, and after a check that no URL rewrite is in
+    git's configuration. Nothing in the job writes that configuration."""
+    steps = _jobs(workflow)[CANOPY_CONTRACT_JOB]["steps"]
+    mixed = [
+        step.get("id") or step.get("name")
+        for step in steps
+        if _canopy_holds_a_secret(step)
+        and ("uses" in step or _BUILD_TOOL_RE.search(str(step.get("run", ""))))
+    ]
+    assert mixed == [], f"these steps hold a secret and run a build tool or an action: {mixed}"
+    holders = [step.get("id") for step in steps if _canopy_holds_a_secret(step)]
+    assert holders == ["credential", CANOPY_CONTRACT_FETCH_STEP], (
+        f"only the credential check and the fetch may hold a secret, got {holders}"
+    )
+    order = [step.get("id") for step in steps]
+    assert (
+        order.index(CANOPY_CONTRACT_FETCH_STEP) < order.index("install") < order.index("contract")
+    ), "the fetch must come before the install, and the install before the contract"
+
+    fetch = _canopy_step(workflow, CANOPY_CONTRACT_FETCH_STEP)["run"]
+    assert "git clone" in fetch, "the fetch step must clone the repositories"
+    credentialed = [line.strip() for line in fetch.splitlines() if "GIT_ASKPASS" in line]
+    beyond = [line for line in credentialed if not _CANOPY_CREDENTIALED_GIT_RE.match(line)]
+    assert credentialed and beyond == [], (
+        f"the fetch step must name the credential helper on its clone and fetch alone: {beyond}"
+    )
+    written = _canopy_git_configuration_writes(workflow)
+    assert written == [], f"'{CANOPY_CONTRACT_JOB}' writes git's shared configuration: {written}"
+    in_urls = [run for run in _canopy_run_blocks(workflow) if _CREDENTIAL_IN_URL_RE.search(run)]
+    assert in_urls == [], f"'{CANOPY_CONTRACT_JOB}' writes a credential into a URL: {in_urls}"
+
+    install = _canopy_step(workflow, "install")["run"]
+    guard = install.find("git config --global --get-regexp")
+    assert 0 <= guard < install.index("uv sync"), (
+        "the install step must refuse a leftover URL rewrite before it runs uv"
+    )
+    assert "https://" not in install, "the install step must install from the local clones only"
+
+    checkout = next(s for s in steps if str(s.get("uses", "")).startswith("actions/checkout@"))
+    assert checkout.get("with", {}).get("persist-credentials") is False, (
+        "the checkout must persist no credentials: later steps run the change's code"
+    )
+
+
+def test_canopy_contract_credential_never_meets_the_build__mutation_token_in_install() -> None:
+    mutated = _load_workflow()
+    _canopy_step(mutated, "install")["env"]["TOKEN"] = "${{ secrets.CANOPY_READ_TOKEN }}"
+    with pytest.raises(AssertionError, match="hold a secret and run a build tool"):
+        test_canopy_contract_credential_never_meets_the_build(mutated)
+
+
+@pytest.mark.parametrize("command", ["uv sync --extra dev", "pip install .", "python3 setup.py"])
+def test_canopy_contract_credential_never_meets_the_build__mutation_build_in_fetch(
+    command: str,
+) -> None:
+    mutated = _load_workflow()
+    _canopy_step(mutated, CANOPY_CONTRACT_FETCH_STEP)["run"] += f"{command}\n"
+    with pytest.raises(AssertionError, match="hold a secret and run a build tool"):
+        test_canopy_contract_credential_never_meets_the_build(mutated)
+
+
+def test_canopy_contract_credential_never_meets_the_build__mutation_secret_in_contract() -> None:
+    mutated = _load_workflow()
+    _canopy_step(mutated, "contract").setdefault("env", {})["GH_TOKEN"] = "${{ secrets.X }}"
+    with pytest.raises(AssertionError, match="hold a secret and run a build tool"):
+        test_canopy_contract_credential_never_meets_the_build(mutated)
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        'git config --global url."https://x-access-token:${TOKEN}@github.com/".insteadOf x',
+        'git config --global http.https://github.com/.extraheader "AUTHORIZATION: basic $auth"',
+        "git config --system credential.helper store",
+    ],
+)
+def test_canopy_contract_credential_never_meets_the_build__mutation_writes_git_configuration(
+    line: str,
+) -> None:
+    """A credential in the runner's shared git configuration reaches every
+    later git command of the job, the build's included."""
+    mutated = _load_workflow()
+    step = _canopy_step(mutated, CANOPY_CONTRACT_FETCH_STEP)
+    step["run"] = step["run"].replace("fetch_at() {", f"{line}\nfetch_at() {{", 1)
+    assert line in step["run"], "the fetch step moved; this mutation is stale"
+    with pytest.raises(AssertionError, match="writes git's shared configuration"):
+        test_canopy_contract_credential_never_meets_the_build(mutated)
+
+
+def test_canopy_contract_credential_never_meets_the_build__mutation_exports_the_helper() -> None:
+    mutated = _load_workflow()
+    step = _canopy_step(mutated, CANOPY_CONTRACT_FETCH_STEP)
+    step["run"] = step["run"].replace(
+        "fetch_at() {", 'export GIT_ASKPASS="$askpass"\nfetch_at() {', 1
+    )
+    with pytest.raises(AssertionError, match="on its clone and fetch alone"):
+        test_canopy_contract_credential_never_meets_the_build(mutated)
+
+
+def test_canopy_contract_credential_never_meets_the_build__mutation_credential_in_the_url() -> None:
+    """A clone from a URL that carries the credential stores it as the remote."""
+    mutated = _load_workflow()
+    step = _canopy_step(mutated, CANOPY_CONTRACT_FETCH_STEP)
+    original = step["run"]
+    step["run"] = original.replace(
+        '"https://github.com/$2"', '"https://x-access-token:${TOKEN}@github.com/$2"'
+    )
+    assert step["run"] != original, "the clone URL moved; this mutation is stale"
+    with pytest.raises(AssertionError, match="writes a credential into a URL"):
+        test_canopy_contract_credential_never_meets_the_build(mutated)
+
+
+def _canopy_askpass_answer(tmp_path: Path, prompt: str, *, credential: str) -> str:
+    """What the fetch step's helper answers git's *prompt*, built by the step's own lines."""
+    fetch = _canopy_step(_load_workflow(), CANOPY_CONTRACT_FETCH_STEP)["run"]
+    setup = fetch.split("fetch_at() {", 1)[0]
+    assert "askpass=" in setup, "the fetch step no longer builds its helper before the clones"
+    built = subprocess.run(
+        ["bash", "-c", setup],
+        env={"PATH": "/usr/bin:/bin", "RUNNER_TEMP": str(tmp_path)},
+        capture_output=True,
+        text=True,
+    )
+    assert built.returncode == 0, built.stderr
+    (helper,) = list(tmp_path.iterdir())
+    assert credential not in helper.read_text(encoding="utf-8"), (
+        "the helper file holds the credential"
+    )
+    answered = subprocess.run(
+        [str(helper), prompt],
+        env={"PATH": "/usr/bin:/bin", "TOKEN": credential},
+        capture_output=True,
+        text=True,
+    )
+    assert answered.returncode == 0, answered.stderr
+    return answered.stdout
+
+
+def test_canopy_contract_helper_answers_git_from_the_environment(tmp_path: Path) -> None:
+    """Git asks the helper for a user name and then for a password; the
+    credential is the password, read from the environment when git asks."""
+    credential = "-n not%sa\\real token"
+    user = _canopy_askpass_answer(
+        tmp_path, "Username for 'https://github.com': ", credential=credential
+    )
+    assert user == "x-access-token\n"
+    answer = _canopy_askpass_answer(
+        tmp_path, "Password for 'https://x-access-token@github.com': ", credential=credential
+    )
+    assert answer == credential + "\n"
+
+
+def test_canopy_contract_credential_never_meets_the_build__mutation_drops_the_guard() -> None:
+    mutated = _load_workflow()
+    step = _canopy_step(mutated, "install")
+    assert step["run"].count("--get-regexp") == 1
+    step["run"] = step["run"].replace("--get-regexp", "--get")
+    with pytest.raises(AssertionError, match="leftover URL rewrite"):
+        test_canopy_contract_credential_never_meets_the_build(mutated)
+
+
+def test_canopy_contract_credential_never_meets_the_build__mutation_installs_from_remote() -> None:
+    mutated = _load_workflow()
+    step = _canopy_step(mutated, "install")
+    step["run"] += 'uv pip install "x @ git+https://github.com/o/x"\n'
+    with pytest.raises(AssertionError, match="local clones only"):
+        test_canopy_contract_credential_never_meets_the_build(mutated)
+
+
+@pytest.mark.parametrize("value", [True, None])
+def test_canopy_contract_credential_never_meets_the_build__mutation_checkout_persists(
+    value: bool | None,
+) -> None:
+    mutated = _load_workflow()
+    steps = _jobs(mutated)[CANOPY_CONTRACT_JOB]["steps"]
+    checkout = next(s for s in steps if str(s.get("uses", "")).startswith("actions/checkout@"))
+    if value is None:
+        del checkout["with"]["persist-credentials"]
+    else:
+        checkout["with"]["persist-credentials"] = value
+    with pytest.raises(AssertionError, match="persist no credentials"):
+        test_canopy_contract_credential_never_meets_the_build(mutated)
+
+
+def test_canopy_contract_keeps_its_sources_out_of_the_cache(workflow: dict[str, Any]) -> None:
+    """The Actions cache is shared with every other workflow run of the
+    repository; a CANOPY source tree or wheel saved there outlives the job
+    that was allowed to read it."""
+    steps = _jobs(workflow)[CANOPY_CONTRACT_JOB]["steps"]
+    setups = [s for s in steps if str(s.get("uses", "")).startswith("astral-sh/setup-uv@")]
+    assert len(setups) == 1, f"expected one setup-uv step, got {len(setups)}"
+    assert setups[0].get("with", {}).get("enable-cache") is False, (
+        f"'{CANOPY_CONTRACT_JOB}' must run setup-uv with enable-cache: false"
+    )
+    caching = [s["uses"] for s in steps if str(s.get("uses", "")).startswith("actions/cache")]
+    assert caching == [], f"'{CANOPY_CONTRACT_JOB}' must save no cache, got {caching}"
+
+
+@pytest.mark.parametrize("value", [True, "auto", None])
+def test_canopy_contract_keeps_its_sources_out_of_the_cache__mutation_enables_it(
+    value: bool | str | None,
+) -> None:
+    mutated = _load_workflow()
+    steps = _jobs(mutated)[CANOPY_CONTRACT_JOB]["steps"]
+    setup = next(s for s in steps if str(s.get("uses", "")).startswith("astral-sh/setup-uv@"))
+    if value is None:
+        del setup["with"]["enable-cache"]
+    else:
+        setup["with"]["enable-cache"] = value
+    with pytest.raises(AssertionError, match="enable-cache: false"):
+        test_canopy_contract_keeps_its_sources_out_of_the_cache(mutated)
+
+
+def test_canopy_contract_keeps_its_sources_out_of_the_cache__mutation_adds_a_cache_step() -> None:
+    mutated = _load_workflow()
+    _jobs(mutated)[CANOPY_CONTRACT_JOB]["steps"].append({"uses": "actions/cache@v4"})
+    with pytest.raises(AssertionError, match="must save no cache"):
+        test_canopy_contract_keeps_its_sources_out_of_the_cache(mutated)
+
+
+def _canopy_decision(
+    wf: dict[str, Any], tmp_path: Path, event: str, base: str, head_repo: str = "als-apg/osprey"
+) -> tuple[int, str]:
+    """Run the decide step for *event* into *base*; its exit status and output.
+
+    A pull request comes from *head_repo*; the workflow runs in ``als-apg/osprey``.
+    """
+    output = tmp_path / "output"
+    output.write_text("", encoding="utf-8")
+    ref = {"pull_request": "BASE_REF", "push": "REF_NAME"}
+    env = {
+        "PATH": "/usr/bin:/bin",
+        "EVENT_NAME": event,
+        "BASE_REF": "",
+        "REF_NAME": "",
+        "HEAD_REPO": head_repo if event == "pull_request" else "",
+        "REPO": "als-apg/osprey",
+        "GITHUB_OUTPUT": str(output),
+        "GITHUB_STEP_SUMMARY": str(tmp_path / "summary"),
+    }
+    if event in ref:
+        env[ref[event]] = base
+    done = subprocess.run(
+        ["bash", "-c", _canopy_step(wf, "decide")["run"]],
+        cwd=tmp_path,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    return done.returncode, output.read_text(encoding="utf-8")
+
+
+def _a_base_matching(pattern: str) -> str:
+    """A branch name the trigger pattern *pattern* admits."""
+    return pattern.replace("**", "a/b").replace("*", "a")
+
+
+def test_canopy_contract_runs_on_every_change_into_an_integration_base(
+    workflow: dict[str, Any], tmp_path: Path
+) -> None:
+    """Every base the pull_request trigger names is an integration base, and a
+    pull request or a push into one runs the contract whatever it touches. A
+    dispatch runs it too; any other base does not, and the summary says so."""
+    for pattern in workflow[True]["pull_request"]["branches"]:
+        base = _a_base_matching(pattern)
+        for event in ("pull_request", "push"):
+            assert _canopy_decision(workflow, tmp_path, event, base) == (0, "run=true\n"), (
+                f"the decide step must run the contract for a {event} into {base}"
+            )
+    assert _canopy_decision(workflow, tmp_path, "workflow_dispatch", "") == (0, "run=true\n")
+    assert _canopy_decision(workflow, tmp_path, "push", "feature/x") == (0, "run=false\n")
+    summary = (tmp_path / "summary").read_text(encoding="utf-8")
+    assert summary == "CANOPY contract not run: feature/x is not an integration base\n"
+
+
+@pytest.mark.parametrize(
+    ("old", "new"),
+    [
+        ("|epic/*)", ")"),
+        ('""|main|', '""|'),
+        ("run=true\n", "run=false\n"),
+    ],
+)
+def test_canopy_contract_runs_on_every_change_into_an_integration_base__mutation(
+    tmp_path: Path, old: str, new: str
+) -> None:
+    mutated = _load_workflow()
+    step = _canopy_step(mutated, "decide")
+    assert step["run"].count(old) == 1, f"{old!r} moved — mutation is stale"
+    step["run"] = step["run"].replace(old, new)
+    with pytest.raises(AssertionError):
+        test_canopy_contract_runs_on_every_change_into_an_integration_base(mutated, tmp_path)
+
+
+def test_canopy_contract_skips_a_fork_pull_request_and_says_so(
+    workflow: dict[str, Any], tmp_path: Path
+) -> None:
+    """A pull request from a fork gets no secrets, so the credential step would
+    fail it closed whatever it changes. The decide step skips the contract
+    there with a summary line; a same-repository pull request still runs it."""
+    assert _canopy_decision(workflow, tmp_path, "pull_request", "main", "someone/osprey") == (
+        0,
+        "run=false\n",
+    )
+    summary = (tmp_path / "summary").read_text(encoding="utf-8")
+    assert summary.startswith("CANOPY contract not run: a pull request from a fork"), summary
+    assert _canopy_decision(workflow, tmp_path, "pull_request", "main") == (0, "run=true\n")
+
+
+def test_canopy_contract_skips_a_fork_pull_request_and_says_so__mutation_drops_the_check(
+    tmp_path: Path,
+) -> None:
+    mutated = _load_workflow()
+    step = _canopy_step(mutated, "decide")
+    old = '"$HEAD_REPO" != "$REPO"'
+    assert step["run"].count(old) == 1, f"{old!r} moved — mutation is stale"
+    step["run"] = step["run"].replace(old, "false")
+    with pytest.raises(AssertionError):
+        test_canopy_contract_skips_a_fork_pull_request_and_says_so(mutated, tmp_path)
+
+
+def test_canopy_contract_runs_the_check_under_pipefail(raw_workflow: dict[str, Any]) -> None:
+    """The contract has one spelling, the check command's; the tee into the
+    log must not swallow its exit status. Read as written: the call, not what
+    it resolves to."""
+    step = _canopy_step(raw_workflow, "contract")
+    call = _check_calls(step)
+    assert call == [["run", "canopy-contract"]], (
+        f"the contract step must call {CHECK_SCRIPT} run canopy-contract; got {call}"
+    )
+    assert _resolved(call[0]), "the contract step's call resolves to no command"
+    lines = _uncommented_lines(step["run"])
+    calling = next(i for i, line in enumerate(lines) if CHECK_SCRIPT in line)
+    assert "set -o pipefail" in "\n".join(lines[:calling]) or lines[calling].startswith(
+        "set -o pipefail;"
+    ), "the contract step must set pipefail before the piped call"
+    assert "| tee canopy-contract.log" in lines[calling], "the contract step must tee its log"
+
+
+@pytest.mark.parametrize(
+    ("old", "new"),
+    [
+        ("set -o pipefail\n", ""),
+        ("run canopy-contract", "run pytest"),
+        ("run canopy-contract 2>&1", "run canopy-contract -- -k smoke 2>&1"),
+    ],
+)
+def test_canopy_contract_runs_the_check_under_pipefail__mutation(old: str, new: str) -> None:
+    mutated = _load_raw_workflow()
+    step = _canopy_step(mutated, "contract")
+    assert step["run"].count(old) == 1, f"{old!r} moved — mutation is stale"
+    step["run"] = step["run"].replace(old, new)
+    with pytest.raises((AssertionError, check_set.Refused)):
+        test_canopy_contract_runs_the_check_under_pipefail(mutated)
+
+
+def _canopy_summary(wf: dict[str, Any], tmp_path: Path, log: str) -> str:
+    """What the summary step writes to the run summary, after a run that logged *log*."""
+    (tmp_path / "canopy-contract.log").write_text(log, encoding="utf-8")
+    summary = tmp_path / "summary"
+    summary.write_text("", encoding="utf-8")
+    subprocess.run(
+        ["bash", "-eo", "pipefail", "-c", _canopy_step(wf, "summary")["run"]],
+        cwd=tmp_path,
+        env={"PATH": "/usr/bin:/bin", "GITHUB_STEP_SUMMARY": str(summary)},
+        check=True,
+    )
+    return summary.read_text(encoding="utf-8")
+
+
+def test_canopy_contract_summary_is_the_checks_verdict(
+    workflow: dict[str, Any], tmp_path: Path
+) -> None:
+    """The run summary carries the check's last line verbatim, which names
+    the commits and the platform the contract ran on, passed or failed."""
+    verdict = (
+        "check: clean; CANOPY contract proven against canopy x, PyDMConverter y on Linux x86_64"
+    )
+    log = f"check: canopy-contract: uv run ...\ntests ran\ncheck: canopy-contract: ran\n{verdict}\n"
+    assert _canopy_summary(workflow, tmp_path, log) == f"{verdict}\n"
+    condition = _canopy_step(workflow, "summary")["if"]
+    assert "always()" in condition and "steps.contract.outcome == 'failure'" in condition, (
+        "the summary step must also name the pair of a failed run"
+    )
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("run", 'echo "proven against CANOPY" >> "$GITHUB_STEP_SUMMARY"'),
+        ("run", 'grep "^check: " canopy-contract.log | head -n 1 >> "$GITHUB_STEP_SUMMARY"'),
+        ("if", "steps.contract.outcome == 'success'"),
+    ],
+)
+def test_canopy_contract_summary_is_the_checks_verdict__mutation(
+    tmp_path: Path, field: str, value: str
+) -> None:
+    mutated = _load_workflow()
+    _canopy_step(mutated, "summary")[field] = value
+    with pytest.raises(AssertionError):
+        test_canopy_contract_summary_is_the_checks_verdict(mutated, tmp_path)
+
+
+# ---------------------------------------------------------------------------
 # One check set: the caller jobs run scripts/check.py and spell no check
 # ---------------------------------------------------------------------------
 #
@@ -12562,7 +13383,19 @@ _SETUP_RUN_RES = (
 #: The steps of a caller job that prepare or report in ways no pattern above
 #: states, by job and step name; each has its own tests above. None on main: a
 #: caller job a branch adds names its own here.
-CALLER_SETUP_STEPS: dict[str, tuple[str, ...]] = {}
+CALLER_SETUP_STEPS: dict[str, tuple[str, ...]] = {
+    # The canopy-contract job decides whether the change needs the contract,
+    # then reads the pins, fetches and installs CANOPY, and copies the verdict
+    # into the run summary; each of those has its own tests below.
+    "canopy-contract": (
+        "Decide whether the change needs the contract",
+        "Require the CANOPY read credential",
+        "Read the proven commits from the package",
+        "Fetch CANOPY and PyDMConverter at the proven commits",
+        "Install CANOPY and PyDMConverter at the proven commits",
+        "Name the proven commits",
+    ),
+}
 #: The commands the checks run. One of these in a caller step is a check
 #: spelled a second time.
 LEAF_COMMANDS = (
@@ -12594,6 +13427,9 @@ CHECKS_WITHOUT_A_CI_STEP = {
     # Its files are test modules inside the parallel sweep, so the `pytest`
     # caller runs them on every CI run; a step of its own would run them twice.
     "invariant-tests": "its files are inside the parallel sweep the pytest caller runs",
+    # The same holds for the CANOPY integration's marker rules: its file is
+    # unmarked, so the sweep collects it.
+    "canopy-marker": "its file is inside the parallel sweep the pytest caller runs",
     # The wall-clock budgets run alone in the lane that hosts their marker
     # (LANE_LEAVING_MARKERS), on a runner with no xdist workers beside them.
     "pytest-wallclock": "its suite runs serially in the lane that hosts the wallclock marker",
@@ -12891,8 +13727,9 @@ def _checks_missing_from_ci(wf: dict[str, Any], unit: Any = None) -> list[str]:
         for name in sorted(set(CHECKS_WITHOUT_A_CI_STEP) - declared)
     ]
     problems += [
-        f"invariant-tests: {path} is outside the parallel sweep"
-        for path in framework_checks.INVARIANT_TESTS
+        f"{check_id}: {path} is outside the parallel sweep"
+        for check_id, paths in INVARIANT_CHECKS.items()
+        for path in paths
         if not _swept(path, unit)
     ]
     return problems

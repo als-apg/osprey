@@ -1,0 +1,994 @@
+{
+  "about": [
+    "Shared vectors for the listing of a screen library: the list, its digest and the refusals.",
+    "Authored in canopy (tests/canopy_mcp/fixtures/listing-vectors.json); every other holder keeps a byte-identical copy.",
+    "ASCII-only: other characters are spelled as \\u escapes, a lone surrogate included. No trailing whitespace, one final newline.",
+    "Each case is a list of entries as a scan of a library root reports them and what the pure judge makes of them; no case touches a filesystem, because a case-insensitive host cannot hold two names that differ only in case.",
+    "An entry is {path, kind, mode, sha256}: path relative to the root with '/', kind one of file, dir, symlink, other (from lstat), mode the permission bits, sha256 on files only. The judge reads path, kind and sha256.",
+    "list is the text of the list: one line '<sha256>  screens/<relpath>' plus LF per listed file, sorted by the UTF-8 bytes of relpath. digest is 'sha256:' plus the hex sha256 of the UTF-8 bytes of list.",
+    "A file is listed when it is a regular file under screens/ named *.screen.json (as spelled) or carrying an image suffix (in any case: .png .jpg .jpeg .gif .svg .webp .bmp .ico) and no segment of its path below screens/ is refused.",
+    "refusals are {path, code}, sorted by the UTF-8 bytes of path (a lone surrogate encoded as such), then code. Codes: outside_screens (reported once, at the top-level name; LIBRARY-REPORT.json and LIBRARY-REPORT.md are the only files allowed beside screens/), symlink, not_regular, bad_name (a character of category Cc, Cf or Cs), leftover_tmp ('.' ... '.tmp', below screens/ or as an entry of the root itself), dotfile, ignored_name, suffix, case_collision.",
+    "A name rule (bad_name, leftover_tmp, dotfile, ignored_name; the first that applies, in that order) is judged on every segment below screens/ and reported at the shortest path that breaks it; an entry under a refused name earns no refusal of its own. Otherwise the kind decides: symlink, not_regular, or for a file its suffix.",
+    "A regular file named exactly .DS_Store is skipped anywhere: neither listed nor refused.",
+    "case_collision names every spelling, among the entries below screens/ and their directory prefixes, that shares its str.casefold() with a different spelling. A colliding file is still listed.",
+    "ignoredNames pins the name predicate behind ignored_name and dotfile: a name starting with '.', the name __pycache__, the configuredIgnoredNames, and the endings .swp .swo .pyc .pyo .pyd .log .pid, each compared on name.casefold(). Every case is judged with configuredIgnoredNames as the deployment's own ignored names (CANOPY_LIBRARY_IGNORED_NAMES)."
+  ],
+  "configuredIgnoredNames": [
+    "claude.local.md",
+    "dockerfile",
+    "prefetched-models",
+    "var"
+  ],
+  "ignoredNames": {
+    "refused": [
+      ".env",
+      ".env.shared",
+      ".venv",
+      ".git",
+      "var",
+      "VAR",
+      "__pycache__",
+      "x.pyc",
+      "x.pyo",
+      "x.pyd",
+      ".pytest_cache",
+      "a.log",
+      "A.LOG",
+      "a.pid",
+      ".DS_Store",
+      ".claude",
+      "CLAUDE.local.md",
+      "claude.LOCAL.md",
+      "Dockerfile",
+      "dockerfile",
+      "prefetched-models",
+      "a.swp",
+      "a.swo"
+    ],
+    "accepted": [
+      "a.screen.json",
+      "variant",
+      "log",
+      "-a",
+      "dockerfile.png",
+      "models",
+      "a.py",
+      "a.logs"
+    ]
+  },
+  "cases": [
+    {
+      "name": "empty root",
+      "entries": [],
+      "expect": {
+        "list": "",
+        "digest": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "refusals": []
+      }
+    },
+    {
+      "name": "screens alone",
+      "entries": [
+        {
+          "path": "screens",
+          "kind": "dir",
+          "mode": 493
+        }
+      ],
+      "expect": {
+        "list": "",
+        "digest": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "refusals": []
+      }
+    },
+    {
+      "name": "clean library",
+      "entries": [
+        {
+          "path": "LIBRARY-REPORT.json",
+          "kind": "file",
+          "mode": 420,
+          "sha256": "5552f6e9c0b3b9b3700ec4d1447d8d7396fb68a4fc074e2e855e04e886957216"
+        },
+        {
+          "path": "LIBRARY-REPORT.md",
+          "kind": "file",
+          "mode": 420,
+          "sha256": "daa4772ee38d1049d6d4cd41591399404782041fce30689f10b9467b1d18959f"
+        },
+        {
+          "path": "screens",
+          "kind": "dir",
+          "mode": 493
+        },
+        {
+          "path": "screens/a",
+          "kind": "dir",
+          "mode": 493
+        },
+        {
+          "path": "screens/a/logo.PNG",
+          "kind": "file",
+          "mode": 420,
+          "sha256": "6e247eaefcdfcd10b0fa3ef6da9e5a598667a6c88f7f1b254619a1e79e4360df"
+        },
+        {
+          "path": "screens/a/top.screen.json",
+          "kind": "file",
+          "mode": 420,
+          "sha256": "c14b925be629c113dab4242a14a18caae37d1b99b70e2474786fa9daf770a176"
+        },
+        {
+          "path": "screens/b.screen.json",
+          "kind": "file",
+          "mode": 420,
+          "sha256": "c411a409a582c7adffc874806bf9073b53419133ecfc97e6f40deecda9593149"
+        },
+        {
+          "path": "screens/odd.v1.screen.json",
+          "kind": "file",
+          "mode": 420,
+          "sha256": "54ddc70cbf5e1e1761727239e7c842bc73a88572b519a2d542c224986720bdc0"
+        }
+      ],
+      "expect": {
+        "list": "6e247eaefcdfcd10b0fa3ef6da9e5a598667a6c88f7f1b254619a1e79e4360df  screens/a/logo.PNG\nc14b925be629c113dab4242a14a18caae37d1b99b70e2474786fa9daf770a176  screens/a/top.screen.json\nc411a409a582c7adffc874806bf9073b53419133ecfc97e6f40deecda9593149  screens/b.screen.json\n54ddc70cbf5e1e1761727239e7c842bc73a88572b519a2d542c224986720bdc0  screens/odd.v1.screen.json\n",
+        "digest": "sha256:bd85b464c3fb552a1651268da7f918a73b5edd915ac745132537f8c8db62f487",
+        "refusals": []
+      }
+    },
+    {
+      "name": "the list is sorted by the UTF-8 bytes of the path below screens/",
+      "entries": [
+        {
+          "path": "screens",
+          "kind": "dir",
+          "mode": 493
+        },
+        {
+          "path": "screens/\ud83d\ude00.png",
+          "kind": "file",
+          "mode": 420,
+          "sha256": "ec28460c0f10b874ee9e54dd7ca44cfffd68eef51326ddc240c5ddff4627233e"
+        },
+        {
+          "path": "screens/\uff5e.png",
+          "kind": "file",
+          "mode": 420,
+          "sha256": "9a7b07bb5e105ce252fbabe1fb14dd686da5a1c81ee8b956309b91464a9ba40f"
+        },
+        {
+          "path": "screens/a",
+          "kind": "dir",
+          "mode": 493
+        },
+        {
+          "path": "screens/a/x.png",
+          "kind": "file",
+          "mode": 420,
+          "sha256": "dca19038c9408ec0e688d742f47ea09e5c985ad1c4450e63be6127121a4ce0dd"
+        },
+        {
+          "path": "screens/a.png",
+          "kind": "file",
+          "mode": 420,
+          "sha256": "1c4840bc7be2e76f9d1e122a864e94d45254f637778f8c0dac0afa5a4682adb7"
+        },
+        {
+          "path": "screens/a b.png",
+          "kind": "file",
+          "mode": 420,
+          "sha256": "07fa5b88df0f4d270e7651ca5e1358bc571f4f86d575b98af747855974878044"
+        },
+        {
+          "path": "screens/Z.png",
+          "kind": "file",
+          "mode": 420,
+          "sha256": "89463e96767069bc1319cb636c68181c44e425a95a7b79cc67bd4a760641070c"
+        }
+      ],
+      "expect": {
+        "list": "89463e96767069bc1319cb636c68181c44e425a95a7b79cc67bd4a760641070c  screens/Z.png\n07fa5b88df0f4d270e7651ca5e1358bc571f4f86d575b98af747855974878044  screens/a b.png\n1c4840bc7be2e76f9d1e122a864e94d45254f637778f8c0dac0afa5a4682adb7  screens/a.png\ndca19038c9408ec0e688d742f47ea09e5c985ad1c4450e63be6127121a4ce0dd  screens/a/x.png\n9a7b07bb5e105ce252fbabe1fb14dd686da5a1c81ee8b956309b91464a9ba40f  screens/\uff5e.png\nec28460c0f10b874ee9e54dd7ca44cfffd68eef51326ddc240c5ddff4627233e  screens/\ud83d\ude00.png\n",
+        "digest": "sha256:a6f9a3ce931a94d17f28d6b0a966eb7f2e2fb21307bc5137bb4827ba88c90cb7",
+        "refusals": []
+      }
+    },
+    {
+      "name": "a dotfile and a dot directory",
+      "entries": [
+        {
+          "path": "screens",
+          "kind": "dir",
+          "mode": 493
+        },
+        {
+          "path": "screens/.hidden.screen.json",
+          "kind": "file",
+          "mode": 420,
+          "sha256": "b69ae194dd7f79e9a94f6a0620eebf07ddd99cd08f23f8aaeec48389334f02c7"
+        },
+        {
+          "path": "screens/.git",
+          "kind": "dir",
+          "mode": 493
+        },
+        {
+          "path": "screens/.git/config",
+          "kind": "file",
+          "mode": 420,
+          "sha256": "2c771eb73b2e07b55103c3a25473eefa3e19f7b2596117b44f34ddb5b9bb271f"
+        },
+        {
+          "path": "screens/.git/a.png",
+          "kind": "file",
+          "mode": 420,
+          "sha256": "b532eb82015e065862d803cb12aa41e113e9b5330865550f75649f85d5ccef79"
+        },
+        {
+          "path": "screens/ok.screen.json",
+          "kind": "file",
+          "mode": 420,
+          "sha256": "a67c0f826a35cabc7b308d7e48adb941070928c44e1833e4a6702b74997eccd1"
+        }
+      ],
+      "expect": {
+        "list": "a67c0f826a35cabc7b308d7e48adb941070928c44e1833e4a6702b74997eccd1  screens/ok.screen.json\n",
+        "digest": "sha256:9d2d1ea34a95911a731dcb616e9d510d12783b7d1983ace8cac17b43d437ba60",
+        "refusals": [
+          {
+            "path": "screens/.git",
+            "code": "dotfile"
+          },
+          {
+            "path": "screens/.hidden.screen.json",
+            "code": "dotfile"
+          }
+        ]
+      }
+    },
+    {
+      "name": "a regular file named .DS_Store is skipped",
+      "entries": [
+        {
+          "path": ".DS_Store",
+          "kind": "file",
+          "mode": 420,
+          "sha256": "e2eb93a61ffd7877ea5c751abcb3a618e8e2e9a2073a27f66d4114fe10819f86"
+        },
+        {
+          "path": "screens",
+          "kind": "dir",
+          "mode": 493
+        },
+        {
+          "path": "screens/.DS_Store",
+          "kind": "file",
+          "mode": 420,
+          "sha256": "380e9c0fbc6a692ca1d408b2b32384ee61493fb67c6d51f173df3e2a5ba42c47"
+        },
+        {
+          "path": "screens/a",
+          "kind": "dir",
+          "mode": 493
+        },
+        {
+          "path": "screens/a/.DS_Store",
+          "kind": "file",
+          "mode": 420,
+          "sha256": "632915a4ab05a2a261b0064b3571267301413b29309c4e3363ca7f006f77777e"
+        },
+        {
+          "path": "screens/a/top.screen.json",
+          "kind": "file",
+          "mode": 420,
+          "sha256": "c14b925be629c113dab4242a14a18caae37d1b99b70e2474786fa9daf770a176"
+        }
+      ],
+      "expect": {
+        "list": "c14b925be629c113dab4242a14a18caae37d1b99b70e2474786fa9daf770a176  screens/a/top.screen.json\n",
+        "digest": "sha256:843863acf0de9d4b5e6fa36c8aff5602633c54bf75f4eaa3dc7e00f3091695f1",
+        "refusals": []
+      }
+    },
+    {
+      "name": "a .DS_Store that is not a regular file is a dotfile",
+      "entries": [
+        {
+          "path": "screens",
+          "kind": "dir",
+          "mode": 493
+        },
+        {
+          "path": "screens/.DS_Store",
+          "kind": "dir",
+          "mode": 493
+        },
+        {
+          "path": "screens/.DS_Store/a.png",
+          "kind": "file",
+          "mode": 420,
+          "sha256": "07bce505c32857a98614f35c1cc7998595bb3e1fca8ab7cbe5cb167c5a9547ef"
+        },
+        {
+          "path": "screens/a/.DS_Store",
+          "kind": "symlink",
+          "mode": 511
+        }
+      ],
+      "expect": {
+        "list": "",
+        "digest": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "refusals": [
+          {
+            "path": "screens/.DS_Store",
+            "code": "dotfile"
+          },
+          {
+            "path": "screens/a/.DS_Store",
+            "code": "dotfile"
+          }
+        ]
+      }
+    },
+    {
+      "name": "entries outside screens/",
+      "entries": [
+        {
+          "path": "README.md",
+          "kind": "file",
+          "mode": 420,
+          "sha256": "b335630551682c19a781afebcf4d07bf978fb1f8ac04c6bf87428ed5106870f5"
+        },
+        {
+          "path": "LIBRARY-REPORT.json",
+          "kind": "file",
+          "mode": 420,
+          "sha256": "5552f6e9c0b3b9b3700ec4d1447d8d7396fb68a4fc074e2e855e04e886957216"
+        },
+        {
+          "path": "LIBRARY-REPORT.md",
+          "kind": "dir",
+          "mode": 493
+        },
+        {
+          "path": "extra",
+          "kind": "dir",
+          "mode": 493
+        },
+        {
+          "path": "extra/x.png",
+          "kind": "file",
+          "mode": 420,
+          "sha256": "75d1232ece59e348123c99fb67eff8b12877958a8a1b5a7b829c5097fcf5a71e"
+        },
+        {
+          "path": "extra/y.png",
+          "kind": "file",
+          "mode": 420,
+          "sha256": "26f3dc3f2b6c04b1d7a65e898a39b93946a3fb0f845df7835da1cf800a140eae"
+        },
+        {
+          "path": ".LIBRARY-REPORT.json.k3j2.tmp",
+          "kind": "file",
+          "mode": 420,
+          "sha256": "25cee6e93095ef92b4a68e6daba67e76a427ed315d45b91215050708b899003d"
+        },
+        {
+          "path": "Screens",
+          "kind": "dir",
+          "mode": 493
+        },
+        {
+          "path": "screens",
+          "kind": "dir",
+          "mode": 493
+        },
+        {
+          "path": "screens/a.screen.json",
+          "kind": "file",
+          "mode": 420,
+          "sha256": "7282187b5165a6591b62faa43cdca8b9e36d1c68d89e439560b26222718abaec"
+        }
+      ],
+      "expect": {
+        "list": "7282187b5165a6591b62faa43cdca8b9e36d1c68d89e439560b26222718abaec  screens/a.screen.json\n",
+        "digest": "sha256:13353395b84cdc067c91e07d13a29dd461b3f82fac92406cd306798951e6e523",
+        "refusals": [
+          {
+            "path": ".LIBRARY-REPORT.json.k3j2.tmp",
+            "code": "leftover_tmp"
+          },
+          {
+            "path": "LIBRARY-REPORT.md",
+            "code": "outside_screens"
+          },
+          {
+            "path": "README.md",
+            "code": "outside_screens"
+          },
+          {
+            "path": "Screens",
+            "code": "outside_screens"
+          },
+          {
+            "path": "extra",
+            "code": "outside_screens"
+          }
+        ]
+      }
+    },
+    {
+      "name": "a case-only file pair",
+      "entries": [
+        {
+          "path": "screens",
+          "kind": "dir",
+          "mode": 493
+        },
+        {
+          "path": "screens/a",
+          "kind": "dir",
+          "mode": 493
+        },
+        {
+          "path": "screens/a/Top.screen.json",
+          "kind": "file",
+          "mode": 420,
+          "sha256": "e54d2013fedd9d9599fc119909878e078b30c787e7d30374859dd7c4f4bddce7"
+        },
+        {
+          "path": "screens/a/top.screen.json",
+          "kind": "file",
+          "mode": 420,
+          "sha256": "c14b925be629c113dab4242a14a18caae37d1b99b70e2474786fa9daf770a176"
+        }
+      ],
+      "expect": {
+        "list": "e54d2013fedd9d9599fc119909878e078b30c787e7d30374859dd7c4f4bddce7  screens/a/Top.screen.json\nc14b925be629c113dab4242a14a18caae37d1b99b70e2474786fa9daf770a176  screens/a/top.screen.json\n",
+        "digest": "sha256:3b26f34ae0f43227927b23dcab4c86269320b267398d420656a92c9a5b412d84",
+        "refusals": [
+          {
+            "path": "screens/a/Top.screen.json",
+            "code": "case_collision"
+          },
+          {
+            "path": "screens/a/top.screen.json",
+            "code": "case_collision"
+          }
+        ]
+      }
+    },
+    {
+      "name": "a case-only directory pair",
+      "entries": [
+        {
+          "path": "screens",
+          "kind": "dir",
+          "mode": 493
+        },
+        {
+          "path": "screens/Common",
+          "kind": "dir",
+          "mode": 493
+        },
+        {
+          "path": "screens/Common/a.screen.json",
+          "kind": "file",
+          "mode": 420,
+          "sha256": "54c83ee517c77a270513a852b372d625f48f51ded64f73fbb4598ec70214c836"
+        },
+        {
+          "path": "screens/common",
+          "kind": "dir",
+          "mode": 493
+        },
+        {
+          "path": "screens/common/b.screen.json",
+          "kind": "file",
+          "mode": 420,
+          "sha256": "29412fb7091eb59f38882ee21a20c90e2ba894221dcf2c6d0c42f027460e64b9"
+        }
+      ],
+      "expect": {
+        "list": "54c83ee517c77a270513a852b372d625f48f51ded64f73fbb4598ec70214c836  screens/Common/a.screen.json\n29412fb7091eb59f38882ee21a20c90e2ba894221dcf2c6d0c42f027460e64b9  screens/common/b.screen.json\n",
+        "digest": "sha256:47529a0619249b483dc09467ebe4c0a6719f30b7425ebbbf372d16438a5587e3",
+        "refusals": [
+          {
+            "path": "screens/Common",
+            "code": "case_collision"
+          },
+          {
+            "path": "screens/common",
+            "code": "case_collision"
+          }
+        ]
+      }
+    },
+    {
+      "name": "a case-only directory pair given by its files alone",
+      "entries": [
+        {
+          "path": "screens/Common/a.screen.json",
+          "kind": "file",
+          "mode": 420,
+          "sha256": "54c83ee517c77a270513a852b372d625f48f51ded64f73fbb4598ec70214c836"
+        },
+        {
+          "path": "screens/common/b.screen.json",
+          "kind": "file",
+          "mode": 420,
+          "sha256": "29412fb7091eb59f38882ee21a20c90e2ba894221dcf2c6d0c42f027460e64b9"
+        }
+      ],
+      "expect": {
+        "list": "54c83ee517c77a270513a852b372d625f48f51ded64f73fbb4598ec70214c836  screens/Common/a.screen.json\n29412fb7091eb59f38882ee21a20c90e2ba894221dcf2c6d0c42f027460e64b9  screens/common/b.screen.json\n",
+        "digest": "sha256:47529a0619249b483dc09467ebe4c0a6719f30b7425ebbbf372d16438a5587e3",
+        "refusals": [
+          {
+            "path": "screens/Common",
+            "code": "case_collision"
+          },
+          {
+            "path": "screens/common",
+            "code": "case_collision"
+          }
+        ]
+      }
+    },
+    {
+      "name": "a case pair that needs casefold, not lower",
+      "entries": [
+        {
+          "path": "screens",
+          "kind": "dir",
+          "mode": 493
+        },
+        {
+          "path": "screens/stra\u00dfe.png",
+          "kind": "file",
+          "mode": 420,
+          "sha256": "fe53a94d29e5277d64e5b0beb9fa7c74c27e7328d24b3ad9f2be3de558523115"
+        },
+        {
+          "path": "screens/STRASSE.png",
+          "kind": "file",
+          "mode": 420,
+          "sha256": "2aae29c1e05a4fe82212b76fb5c48276b0bafec6b1add787c298626c3dbc96ee"
+        }
+      ],
+      "expect": {
+        "list": "2aae29c1e05a4fe82212b76fb5c48276b0bafec6b1add787c298626c3dbc96ee  screens/STRASSE.png\nfe53a94d29e5277d64e5b0beb9fa7c74c27e7328d24b3ad9f2be3de558523115  screens/stra\u00dfe.png\n",
+        "digest": "sha256:1a70b67e095f724d7d9bab490fd0448c0eb19d68c64b2a68586a742417eb250c",
+        "refusals": [
+          {
+            "path": "screens/STRASSE.png",
+            "code": "case_collision"
+          },
+          {
+            "path": "screens/stra\u00dfe.png",
+            "code": "case_collision"
+          }
+        ]
+      }
+    },
+    {
+      "name": "names a copy of the library leaves out",
+      "entries": [
+        {
+          "path": "screens",
+          "kind": "dir",
+          "mode": 493
+        },
+        {
+          "path": "screens/prefetched-models/a.screen.json",
+          "kind": "file",
+          "mode": 420,
+          "sha256": "ae57257673ca75c4074801fe35ca5c0224200a4bb7fb4423415e66ed53251c57"
+        },
+        {
+          "path": "screens/img.log/a.png",
+          "kind": "file",
+          "mode": 420,
+          "sha256": "a8746de266be86f5d39da25be16b6bbde8c9c8f6aec520a6a8c721693967129e"
+        },
+        {
+          "path": "screens/var",
+          "kind": "dir",
+          "mode": 493
+        },
+        {
+          "path": "screens/var/a.png",
+          "kind": "file",
+          "mode": 420,
+          "sha256": "e43d47724ff608d1c08f0670c2fd39731d9adde63437040111cf0779fb5c969c"
+        },
+        {
+          "path": "screens/__pycache__",
+          "kind": "dir",
+          "mode": 493
+        },
+        {
+          "path": "screens/x.pyc",
+          "kind": "file",
+          "mode": 420,
+          "sha256": "c5a4ef4cec078f0cb045522d8d1c6eaf28c21821d5d951b3a4a969210761f8e7"
+        },
+        {
+          "path": "screens/Dockerfile",
+          "kind": "file",
+          "mode": 420,
+          "sha256": "64ce83a6a0748b19c32d8101f067f17d79eb52e3211773240a437e7da1befe59"
+        },
+        {
+          "path": "screens/CLAUDE.local.md",
+          "kind": "file",
+          "mode": 420,
+          "sha256": "53b7287a8aa0e2dabf6f5ad47c99afdd0b19034b2779c8846804049ed2d81379"
+        },
+        {
+          "path": "screens/run.PID",
+          "kind": "file",
+          "mode": 420,
+          "sha256": "2c386e9e3557a7477d199127be29d9f3ee5417201bc7df7747a03fea8b665258"
+        },
+        {
+          "path": "screens/variant.screen.json",
+          "kind": "file",
+          "mode": 420,
+          "sha256": "c89e6dc922a882f1e5c5c2847028c3884222c1010fc1a203692c5040a614c515"
+        },
+        {
+          "path": "screens/-dash.screen.json",
+          "kind": "file",
+          "mode": 420,
+          "sha256": "fae7a99fe8dabb8330c07dace25de586446cd4fa5b1e92b44c2492d1769cd7b9"
+        }
+      ],
+      "expect": {
+        "list": "fae7a99fe8dabb8330c07dace25de586446cd4fa5b1e92b44c2492d1769cd7b9  screens/-dash.screen.json\nc89e6dc922a882f1e5c5c2847028c3884222c1010fc1a203692c5040a614c515  screens/variant.screen.json\n",
+        "digest": "sha256:dc1e302da780cea08749dfc7cbd0c1c66dae84c49c4a82003c4c5cfd93c7c8f1",
+        "refusals": [
+          {
+            "path": "screens/CLAUDE.local.md",
+            "code": "ignored_name"
+          },
+          {
+            "path": "screens/Dockerfile",
+            "code": "ignored_name"
+          },
+          {
+            "path": "screens/__pycache__",
+            "code": "ignored_name"
+          },
+          {
+            "path": "screens/img.log",
+            "code": "ignored_name"
+          },
+          {
+            "path": "screens/prefetched-models",
+            "code": "ignored_name"
+          },
+          {
+            "path": "screens/run.PID",
+            "code": "ignored_name"
+          },
+          {
+            "path": "screens/var",
+            "code": "ignored_name"
+          },
+          {
+            "path": "screens/x.pyc",
+            "code": "ignored_name"
+          }
+        ]
+      }
+    },
+    {
+      "name": "symlinks",
+      "entries": [
+        {
+          "path": "LIBRARY-REPORT.md",
+          "kind": "symlink",
+          "mode": 511
+        },
+        {
+          "path": "screens",
+          "kind": "dir",
+          "mode": 493
+        },
+        {
+          "path": "screens/link.screen.json",
+          "kind": "symlink",
+          "mode": 511
+        },
+        {
+          "path": "screens/dirlink",
+          "kind": "symlink",
+          "mode": 511
+        },
+        {
+          "path": "screens/real.screen.json",
+          "kind": "file",
+          "mode": 420,
+          "sha256": "23f081469b2bd294ef60ee43eb6b83b996a1c91064b6fc2d5c805ba02076aa08"
+        }
+      ],
+      "expect": {
+        "list": "23f081469b2bd294ef60ee43eb6b83b996a1c91064b6fc2d5c805ba02076aa08  screens/real.screen.json\n",
+        "digest": "sha256:d3b09944005e72690ea5cd3e21704e2a1b7b0e1c59003217ba27828031bce44e",
+        "refusals": [
+          {
+            "path": "LIBRARY-REPORT.md",
+            "code": "symlink"
+          },
+          {
+            "path": "screens/dirlink",
+            "code": "symlink"
+          },
+          {
+            "path": "screens/link.screen.json",
+            "code": "symlink"
+          }
+        ]
+      }
+    },
+    {
+      "name": "screens/ itself a symlink",
+      "entries": [
+        {
+          "path": "screens",
+          "kind": "symlink",
+          "mode": 511
+        }
+      ],
+      "expect": {
+        "list": "",
+        "digest": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "refusals": [
+          {
+            "path": "screens",
+            "code": "symlink"
+          }
+        ]
+      }
+    },
+    {
+      "name": "screens a regular file",
+      "entries": [
+        {
+          "path": "screens",
+          "kind": "file",
+          "mode": 420,
+          "sha256": "e0709cca0eb42b2da551bf448b8ce554546eb1b8a192ff56e94607cb42bdd007"
+        }
+      ],
+      "expect": {
+        "list": "",
+        "digest": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "refusals": [
+          {
+            "path": "screens",
+            "code": "outside_screens"
+          }
+        ]
+      }
+    },
+    {
+      "name": "a non-regular file",
+      "entries": [
+        {
+          "path": "screens",
+          "kind": "dir",
+          "mode": 493
+        },
+        {
+          "path": "screens/pipe.png",
+          "kind": "other",
+          "mode": 420
+        },
+        {
+          "path": "screens/a.png",
+          "kind": "file",
+          "mode": 420,
+          "sha256": "1c4840bc7be2e76f9d1e122a864e94d45254f637778f8c0dac0afa5a4682adb7"
+        }
+      ],
+      "expect": {
+        "list": "1c4840bc7be2e76f9d1e122a864e94d45254f637778f8c0dac0afa5a4682adb7  screens/a.png\n",
+        "digest": "sha256:e80d71d608ce8091c53a99575f93d7702a24eca23c0842727fbb0c2f3fcb11c0",
+        "refusals": [
+          {
+            "path": "screens/pipe.png",
+            "code": "not_regular"
+          }
+        ]
+      }
+    },
+    {
+      "name": "a leftover of an interrupted write",
+      "entries": [
+        {
+          "path": "screens",
+          "kind": "dir",
+          "mode": 493
+        },
+        {
+          "path": "screens/.a.screen.json.x1y2.tmp",
+          "kind": "file",
+          "mode": 420,
+          "sha256": "b17e8c0f387f8f577985de0bcceb9f3f26c2ad3dd2636de5b3e4f2dfbd8f0b4c"
+        },
+        {
+          "path": "screens/a",
+          "kind": "dir",
+          "mode": 493
+        },
+        {
+          "path": "screens/a/.logo.png.q.tmp",
+          "kind": "file",
+          "mode": 420,
+          "sha256": "c90cdfa9a00388e61a3799f524d384a4d8921960339a3133a3e7fa4838ef11fc"
+        }
+      ],
+      "expect": {
+        "list": "",
+        "digest": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "refusals": [
+          {
+            "path": "screens/.a.screen.json.x1y2.tmp",
+            "code": "leftover_tmp"
+          },
+          {
+            "path": "screens/a/.logo.png.q.tmp",
+            "code": "leftover_tmp"
+          }
+        ]
+      }
+    },
+    {
+      "name": "any other suffix",
+      "entries": [
+        {
+          "path": "screens",
+          "kind": "dir",
+          "mode": 493
+        },
+        {
+          "path": "screens/notes.txt",
+          "kind": "file",
+          "mode": 420,
+          "sha256": "2c0e6f9f6c70e6eadd1818e789a3b67bbf5f1eecf9d6095b0fb143891f31c07c"
+        },
+        {
+          "path": "screens/a.json",
+          "kind": "file",
+          "mode": 420,
+          "sha256": "4c7229a82a50df81e1c89f0dc70a14a78b2a68925308fc66a236d7cdd2854506"
+        },
+        {
+          "path": "screens/A.SCREEN.JSON",
+          "kind": "file",
+          "mode": 420,
+          "sha256": "284f9deed6b51cae7c25b81b93c9f32f84945457c5a6febc1b8cca953f2c59a7"
+        },
+        {
+          "path": "screens/noext",
+          "kind": "file",
+          "mode": 420,
+          "sha256": "56020ab28bb615b9b961faabd1192e24c7368a813f80ff6110c214a0ae368728"
+        },
+        {
+          "path": "screens/a.screen.json.bak",
+          "kind": "file",
+          "mode": 420,
+          "sha256": "36646643568e52481345681e3cc7082d041bc2eb00f15e9704b0a650ace416d0"
+        },
+        {
+          "path": "screens/ok.JPeG",
+          "kind": "file",
+          "mode": 420,
+          "sha256": "7eb596ac20b8dd14e80d0641948172605571b27bc797f5b5e244ec07a3fe6aef"
+        }
+      ],
+      "expect": {
+        "list": "7eb596ac20b8dd14e80d0641948172605571b27bc797f5b5e244ec07a3fe6aef  screens/ok.JPeG\n",
+        "digest": "sha256:38e239efec1445aaea31493b9f9bfeeee5b516ae9aec56e1d9871d34ebcc4bdb",
+        "refusals": [
+          {
+            "path": "screens/A.SCREEN.JSON",
+            "code": "suffix"
+          },
+          {
+            "path": "screens/a.json",
+            "code": "suffix"
+          },
+          {
+            "path": "screens/a.screen.json.bak",
+            "code": "suffix"
+          },
+          {
+            "path": "screens/noext",
+            "code": "suffix"
+          },
+          {
+            "path": "screens/notes.txt",
+            "code": "suffix"
+          }
+        ]
+      }
+    },
+    {
+      "name": "an svg is listed; the report refuses it",
+      "entries": [
+        {
+          "path": "screens",
+          "kind": "dir",
+          "mode": 493
+        },
+        {
+          "path": "screens/icon.svg",
+          "kind": "file",
+          "mode": 420,
+          "sha256": "3b80bc66d45771c21e301d05e8a896504515d8a447d90263ff841a80bf468a2d"
+        }
+      ],
+      "expect": {
+        "list": "3b80bc66d45771c21e301d05e8a896504515d8a447d90263ff841a80bf468a2d  screens/icon.svg\n",
+        "digest": "sha256:fc611a7477aeb1299ad0bfe49ae7856ff99afd21958b14319f405a76847d7890",
+        "refusals": []
+      }
+    },
+    {
+      "name": "names the list cannot carry",
+      "entries": [
+        {
+          "path": "screens",
+          "kind": "dir",
+          "mode": 493
+        },
+        {
+          "path": "screens/a\nb.png",
+          "kind": "file",
+          "mode": 420,
+          "sha256": "8f97d24698bed4c5851feadc07ec212cb0e020aef01c24124c3a45697910ba16"
+        },
+        {
+          "path": "screens/\u202ex.png",
+          "kind": "file",
+          "mode": 420,
+          "sha256": "f253ebf99f1cb1842b8147ea6dcc70baad4bf67861ecb134cbc962273dada91a"
+        },
+        {
+          "path": "screens/\udc80.png",
+          "kind": "file",
+          "mode": 420,
+          "sha256": "4bda7ccd97bb1f0c12da9bf168a2410bcdcee326fa325935103d44acfe15a0eb"
+        },
+        {
+          "path": "screens/ok.png",
+          "kind": "file",
+          "mode": 420,
+          "sha256": "786501ee9fc0f615c60984610151345dcbff216b2eacbb4b7519743f79505db6"
+        }
+      ],
+      "expect": {
+        "list": "786501ee9fc0f615c60984610151345dcbff216b2eacbb4b7519743f79505db6  screens/ok.png\n",
+        "digest": "sha256:dec74d9f64a8f1c2d068e5c61ec63c25d8485d0bf6ad977389d35eb433f57a26",
+        "refusals": [
+          {
+            "path": "screens/a\nb.png",
+            "code": "bad_name"
+          },
+          {
+            "path": "screens/\u202ex.png",
+            "code": "bad_name"
+          },
+          {
+            "path": "screens/\udc80.png",
+            "code": "bad_name"
+          }
+        ]
+      }
+    }
+  ]
+}

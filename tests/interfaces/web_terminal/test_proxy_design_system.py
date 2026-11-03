@@ -31,6 +31,7 @@ DESIGN_SYSTEM_DIR = (
     / "design_system"
     / "static"
 )
+SHARED_FONTS_DIR = DESIGN_SYSTEM_DIR.parents[1] / "shared_fonts"
 
 
 @pytest.fixture
@@ -61,6 +62,42 @@ class TestDesignSystemIntercept:
         assert resp.headers["content-type"].startswith("text/css")
         on_disk = (DESIGN_SYSTEM_DIR / "css" / "tokens.css").read_text(encoding="utf-8")
         assert resp.text == on_disk
+
+    @pytest.mark.parametrize(
+        ("url_path", "on_disk"),
+        [
+            pytest.param(
+                "design-system/css/canopy-host.css",
+                DESIGN_SYSTEM_DIR / "css" / "canopy-host.css",
+                id="canopy-host.css",
+            ),
+            pytest.param(
+                "static/fonts/fonts.css",
+                SHARED_FONTS_DIR / "fonts.css",
+                id="fonts.css",
+            ),
+        ],
+    )
+    def test_serves_the_canopy_host_stylesheets_from_the_hub(
+        self, app_and_client, url_path, on_disk
+    ):
+        """The sheets the CANOPY panel is told to load answer from the hub, unchanged.
+
+        The CANOPY front end links these under its own panel namespace. Each
+        must arrive as CSS and equal the hub's file exactly: a body the proxy
+        altered, or one a sidecar supplied, would style the embedded panel
+        with something other than the terminal's own tokens and typefaces.
+        """
+        app, client = app_and_client
+        app.state.proxy_client.request = AsyncMock(
+            side_effect=AssertionError("host stylesheet request reached the sidecar")
+        )
+
+        resp = client.get(f"/panel/canopy/{url_path}")
+
+        assert resp.status_code == 200
+        assert resp.headers["content-type"].startswith("text/css")
+        assert resp.content == on_disk.read_bytes()
 
     def test_intercept_wins_over_the_catch_all_proxy_route(self, app_and_client):
         """Route ordering: the specific design-system path is matched first.

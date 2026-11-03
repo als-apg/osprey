@@ -547,6 +547,9 @@ exclude = ["src/osprey/templates/apps/control_assistant/data/benchmarks/results"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/osprey"]
+# The CANOPY integration's checks module declares repository gates for scripts/check.py;
+# it is a development file, like the framework's scripts/repo_checks.py, not runtime code.
+exclude = ["src/osprey/integrations/canopy/repo_checks.py"]
 
 # Development tool configurations
 [tool.mypy]
@@ -620,6 +623,14 @@ ignore_missing_imports = true
 module = ["sphinx.*"]
 follow_imports = "skip"
 
+# CANOPY's PV backend (osprey.integrations.canopy.backend) implements CANOPY's
+# connector contract and imports its models. CANOPY is not a dependency of this
+# package: it is installed beside it only where that backend is served, so the
+# check must pass in an environment that does not have it.
+[[tool.mypy.overrides]]
+module = ["canopy.*"]
+ignore_missing_imports = true
+
 # The facility schema's generated pydantic model is gen-pydantic output, byte
 # for byte; its root class's `schema` field overrides `BaseModel.schema`. The
 # `exclude` entry above only stops discovery, and importers still reach the
@@ -675,6 +686,7 @@ markers = [
     "e2e_services: E2E tests requiring local MCP service infrastructure (PostgreSQL, AccelPapers, etc.)",
     "dockerbuild: E2E tests that run a real docker build (skipped when docker is unavailable)",
     "qmd: Tests that need the qmd sidecar image (OSPREY_QMD_IMAGE). They REFUSE to skip when it is absent — a lane that skipped on a missing image would report success having proved nothing — so a lane that does not build or load one must deselect them with `-m 'not qmd'`",
+    "canopy: Tests that need CANOPY and PyDMConverter installed at the commits osprey.integrations.canopy names (PROVEN_COMMITS). Applied by tests/conftest.py from each module's imports, not by hand, except where a test needs CANOPY without importing it (as a subprocess, or through its installed distribution metadata). They REFUSE to skip — a lane that skipped them would report success having proved nothing about write refusal through CANOPY — so a lane without CANOPY deselects them with -m 'not canopy' and its summary says the contract was not exercised",
     "real_workspace_watcher: Web-terminal app test that needs a live filesystem observer — opts out of the conftest stub that keeps broadcaster assertions deterministic",
     "real_http_posters: MCP-server test of the HTTP posters themselves — opts out of the conftest stub that keeps notify_* POSTs from reaching a live web terminal",
     "real_graph_index: Build test of the channel search index derivation itself — opts out of the conftest stub that builds each corpus once per session and copies it into every render",

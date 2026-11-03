@@ -909,19 +909,6 @@ FRAMEWORK_SERVERS: dict[str, ServerDefinition] = {
 }
 
 
-def panel_hop_paths() -> list[str]:
-    """Terminal paths of the panel transports the agent's panel token opens.
-
-    Read off the panel-derived entries of :data:`FRAMEWORK_SERVERS`, so it
-    names exactly the paths those entries dial.
-    """
-    return [
-        sdef.url.removeprefix(PANEL_PROXY_ORIGIN)
-        for sdef in FRAMEWORK_SERVERS.values()
-        if sdef.panel_id is not None and sdef.url
-    ]
-
-
 # Tools exposed by each channel-finder pipeline (one MCP server module per pipeline).
 # The agent template and the server's permissions.allow are both rendered from
 # this single source of truth at build time.

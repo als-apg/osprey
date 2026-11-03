@@ -608,12 +608,12 @@ def _run_agent(args: list[str], build_dir: Path) -> int:
     # companions authenticate against and cannot race with the daemon threads
     # they run in. Gated on a companion having actually started, so a session
     # with no panel host to call hands the child no credential at all.
-    from osprey.agent_runner.clean_env import build_base_child_env
-    from osprey.interfaces.web_auth import PANEL_TOKEN_ENV, get_web_credentials
+    from osprey.agent_runner.clean_env import add_panel_token, build_base_child_env
+    from osprey.interfaces.web_auth import get_web_credentials
 
     child_env = build_base_child_env()
     if started_servers:
-        child_env[PANEL_TOKEN_ENV] = get_web_credentials().panel_token
+        add_panel_token(child_env, get_web_credentials().panel_token)
 
     try:
         return subprocess.run(args, env=child_env).returncode

@@ -2,8 +2,9 @@
 
 A controls MCP server is the ONLY writer of its own report, and it writes
 nothing else here. The one other kind of process that writes a report in this
-directory is a display process (a panel backend), which holds a connector to
-show the machine: its report is display-only, written by its own writer, never
+directory is a display process (a panel backend such as
+:mod:`osprey.integrations.canopy.backend`), which holds a connector to show the
+machine: its report is display-only, written by its own writer, never
 through :func:`write_server_record`, and the fleet readers leave it out at the source
 (:func:`osprey_connectors.control_context.live_reports`). What the deployment
 IS on — target, generation, posture — belongs to the control-context record

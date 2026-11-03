@@ -22,6 +22,7 @@ from fastapi import APIRouter, HTTPException, Request, Response, WebSocket, WebS
 from pydantic import BaseModel, StrictBool, field_validator
 from starlette.concurrency import run_in_threadpool
 
+from osprey.agent_runner.clean_env import add_panel_token
 from osprey.agent_runner.launcher import NoConversationWatch, build_session_argv
 from osprey.audit.posture import OSPREY_AGENT_DATA_ROOT
 from osprey.build.claude_code_telemetry import terminal_session_env
@@ -31,7 +32,7 @@ from osprey.interfaces.common_middleware import (
     read_cookie_candidates,
     session_cookie_name,
 )
-from osprey.interfaces.web_auth import PANEL_TOKEN_ENV, get_web_credentials
+from osprey.interfaces.web_auth import get_web_credentials
 from osprey.interfaces.web_terminal import session_handoff
 from osprey.interfaces.web_terminal.control_context_owner import (
     CONTROL_CONTEXT_FRAME,
@@ -534,7 +535,7 @@ def _build_extra_env(
     if telemetry_session_id:
         extra_env["OSPREY_TELEMETRY_SESSION_ID"] = telemetry_session_id
         extra_env["OSPREY_TELEMETRY_SESSION_START"] = datetime.now(UTC).isoformat()
-    extra_env[PANEL_TOKEN_ENV] = get_web_credentials(websocket.app).panel_token
+    add_panel_token(extra_env, get_web_credentials(websocket.app).panel_token)
 
     # The posture ANCHORS — never the posture itself. Keyed on the pool key:
     # ``terminal_ws`` computes ``current_key = claude_session_id or

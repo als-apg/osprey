@@ -14,6 +14,7 @@ This directory contains testing and validation scripts for the Osprey Framework 
 | `plugin_version.py` | Show, bump and check the plugin version | < 1s | After touching the plugin tree |
 | `cli_tool_inventory.py` | CLI tool inventory of the pinned build | ~2 s plus an npm download | After bumping `_DEFAULT_CLAUDE_CLI_VERSION` |
 | `bpm_polarity_picture.py` | Redraw the example facility's bpm-polarity logbook picture from its model and scenario | ~5 s | After changing the example's SR deck or wiring, the bpm-polarity scenario, or the BPM noise seeds |
+| `facility_demo/facility_overview.py` | Generate the control-assistant facility overview, booster and storage-ring sector screens from the example records | < 1 s | After changing the example facility's records or the generated screens' layout |
 | `va/capture_nominals.py` | Capture the served nominals golden from the VA container over Channel Access; `--out` writes, `--check` compares | ~2 min with the container boot | After a change to the served demo view or the VA's served values |
 
 ## Scripts
@@ -259,6 +260,36 @@ makes a re-run write the same bytes on one host and the same picture on any.
 ```bash
 uv run python scripts/bpm_polarity_picture.py
 uv run python scripts/bpm_polarity_picture.py --simulator build/data/simulator
+```
+
+---
+
+### facility_demo/facility_overview.py
+
+**Purpose**: Generate the control-assistant library's landing page
+`facility/overview`, the booster screen `br/overview` and the storage-ring sector
+screens `sr/sector-01` to `sr/sector-12` with their sub-screens from the example
+facility's channel records, so every bound channel exists.
+
+---
+
+**What it does**: Reads `src/osprey/templates/facilities/example/records/channels.yaml`
+(and `devices.yaml` beside it, for each device's sector) and draws the plan (as many lattice symbols and BPM dots as the records hold), with
+one clickable area per storage-ring sector, booster, BTS and GTL, and the status
+rail, binding each LED, dot and readout to its record in device order. Each sector
+screen unrolls one sector, its lattice and peripherals, with every element's records
+device name as its `tooltip`, and opens its vacuum and absorber sub-screens
+(`sr/_vacuum-NN`, `sr/_absorbers-NN`). A missing record, a count the drawing cannot hold or an area whose
+screen the library lacks stops the run with a named error and writes nothing. `check` renders in memory and exits 1 naming each
+committed file that differs. After a `write`, regenerate the library's report
+(`python -m canopy_mcp.report <library> --served-at library --write`).
+
+---
+
+**Usage**:
+```bash
+uv run --no-sync python scripts/facility_demo/facility_overview.py write --library src/osprey/templates/apps/control_assistant/data/canopy/library
+uv run --no-sync python scripts/facility_demo/facility_overview.py check --library src/osprey/templates/apps/control_assistant/data/canopy/library
 ```
 
 ---

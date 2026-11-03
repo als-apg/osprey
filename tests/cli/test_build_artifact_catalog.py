@@ -96,6 +96,9 @@ class TestBuildArtifactCatalogDefault:
             "skills/session-report/reference",
             "skills/diagnose",
             "skills/setup-mode",
+            "skills/canopy-panel-builder",
+            "skills/canopy-operator",
+            "skills/canopy-screens",
             "output-styles/control-operator",
         ],
     )

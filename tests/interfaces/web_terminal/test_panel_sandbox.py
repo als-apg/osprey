@@ -46,7 +46,7 @@ from osprey.interfaces.web_terminal.panel_sandbox import (
     validate_entry_template,
 )
 from osprey.interfaces.web_terminal.routes.proxy import _PANEL_STATE_MAP
-from osprey.profiles.web_panels import SIDECAR_PANELS, SidecarPanel
+from osprey.profiles.sidecar_panels import CANOPY_PANEL_ID, SIDECAR_PANELS, SidecarPanel
 from osprey.registry.web import FRAMEWORK_WEB_SERVERS
 
 from ._proxy_fakes import _FakeStreamResponse, panel_app
@@ -251,6 +251,15 @@ class TestPolicyRules:
             "static/lab/index.html",
         ):
             assert not matches_entry_page(path, pages), path
+
+    def test_osprey_names_no_canopy_page(self):
+        # The framework allowlist never names a CANOPY page. On the integration
+        # line CANOPY is a registered sidecar panel, and its entry pages come
+        # only from its own registry entry, which never lets a draft through.
+        assert CANOPY_PANEL_ID not in FRAMEWORK_ENTRY_PAGES
+        canopy_pages = SIDECAR_PANELS[CANOPY_PANEL_ID].entry_pages
+        assert not any(t.startswith("/drafts") for t in canopy_pages)
+        assert not matches_entry_page("drafts/x.html", canopy_pages)
 
 
 # ---------------------------------------------------------------------------

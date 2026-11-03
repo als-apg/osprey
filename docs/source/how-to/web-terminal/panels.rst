@@ -91,7 +91,7 @@ because a slow backend often still serves what is loaded. Both clear on the
 next answer. A panel that has not answered since the page loaded keeps its
 greyed-out entry and does not open.
 
-This applies to panels that have a health check: Jupyter, SYSTEM, and any
+This applies to panels that have a health check: Jupyter, CANOPY, SYSTEM, and any
 URL-backed panel whose entry names a ``health_endpoint``.
 
 Clicking a dimmed entry closes its tile as usual, but the panel cannot be
@@ -238,11 +238,12 @@ element:
 .. code-block:: javascript
 
    window.parent.postMessage(
-     { type: 'osprey-focus-exit', direction: 'forward' },  // or 'backward'
+     { type: 'canopy-host-focus-exit', direction: 'forward' },  // or 'backward'
      window.location.origin,
    );
 
-The terminal focuses the next (or previous) element of its own page, in
+The terminal also reads the older ``osprey-focus-exit`` for one release. It then
+focuses the next (or previous) element of its own page, in
 document order relative to the panel's tile — after ``backward``, that is the
 tile's header. It acts only on a message from its own origin and from the
 frame of a panel it shows.
@@ -434,8 +435,8 @@ Panel tools the agent uses
 
 The agent changes the dock the way you do, with the same rules: every drop you
 can make, it can make. The panel tools come in two kinds: the ones that say
-what is on screen, which are auto-allowed, and the ones that change rail
-membership, which ask the operator first.
+what is on screen, which are auto-allowed, and the ones that add or remove a
+sidebar row, which ask the operator first.
 
 What is on screen:
 
@@ -443,7 +444,7 @@ What is on screen:
   their tabs and the tab in front of each (the terminal included), the panels
   in pop-out windows, and the configured layouts.
 - ``open_panel`` — put a panel on screen by the opening rule: a new tab in
-  front of the service tile used last. It joins the rail if it was off it.
+  front of the service tile used last. It gets a sidebar row if it had none.
 - ``open_panel_set`` — open several panels in one call: as tabs of one tile,
   or side by side.
 - ``arrange_workspace`` — apply a configured layout, or an exact one, in place
@@ -451,19 +452,20 @@ What is on screen:
 - ``drop_panel`` — drop a new panel, an open tab or a whole tile on a tile's
   centre, a tab position or an edge, along a whole side of the dock, or
   between two tiles.
-- ``close_panel_tab`` — close a panel's tab, leaving it on the rail.
+- ``close_panel_tab`` — close a panel's tab, leaving its sidebar row.
 - ``close_panel_tile`` — close a whole tile with its tabs.
 
 The agent never moves or closes the terminal, and never moves or closes a
 panel you put in a window of its own; ``open_panel`` brings that window
 forward.
 
-Rail membership, each one approved by the operator:
+Sidebar rows, each one approved by the operator (the tool names keep the
+older word *rail* for the row list):
 
-- ``add_panel_to_rail`` — make a panel launchable from the rail in one click.
-- ``remove_panel_from_rail`` — take a panel off the rail, and off screen with
-  it.
-- ``register_panel`` — add a rail entry at runtime for an upstream URL the
+- ``add_panel_to_rail`` — give a panel a sidebar row, so one click opens it.
+- ``remove_panel_from_rail`` — take a panel's sidebar row away, and its tile
+  off screen with it.
+- ``register_panel`` — add a sidebar row at runtime for an upstream URL the
   terminal proxies.
 
 :doc:`/architecture/mcp-servers` lists these beside the rest of the workspace

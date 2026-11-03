@@ -18,6 +18,7 @@ import yaml
 
 from osprey.agent_runner.tool_names import FOREIGN_MCP_NAMESPACES, READ_ONLY_DENIED_BUILTINS
 from osprey.agent_runner.write_tools import read_only_disallowed_tools
+from osprey.cli.templates.claude_code import panel_declared_context
 from osprey.registry.mcp import (
     _APPROVAL,
     _APPROVAL_PREFLIGHT,
@@ -44,6 +45,8 @@ _ALL_ON_CTX = {
     "event_dispatcher_wired": True,
     "phoebus_agent_access": "read_write",
     "pyaml_view_present": True,
+    # Every panel-derived server renders too: its condition is the panel being declared.
+    **panel_declared_context(lambda _panel_id: True),
 }
 
 

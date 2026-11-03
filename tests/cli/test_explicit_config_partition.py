@@ -487,8 +487,19 @@ def test_render_stays_inside_the_partition(stem: str, preset: str, directory: st
     document = _layer_document(preset, stem, kind)
     config = _config_leaves(document)
     block_prefixes = _block_derived_prefixes(document)
-    panel_switches = _panel_switches(document) | _carried_block_switches(render, config)
     root_document = _preset_document(preset)
+    # A tier that excludes a panel still inherits the root's
+    # `web.panels.<id>.*` keys (a tier cannot subtract `config:`), and the
+    # build switches that block off, so the switch is the build's.
+    panel_switches = (
+        _panel_switches(document)
+        | _carried_block_switches(render, config)
+        | {
+            f"web.panels.{key.split('.')[2]}.enabled"
+            for key in _config_leaves(root_document)
+            if key.startswith("web.panels.") and key.count(".") >= 3
+        }
+    )
     corpus = set(graphdb_corpus_fill(dict(root_document.get("config") or {})))
     unclaimed = [
         key

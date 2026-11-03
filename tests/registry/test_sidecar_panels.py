@@ -35,15 +35,16 @@ from osprey.registry.web import PANEL_ID_TO_REGISTRY_KEY, panel_url_state_attr
 SIDECAR_IDS = sorted(SIDECAR_PANELS)
 
 
-def test_the_notebooks_panel_is_the_registered_sidecar():
-    """The one entry, pinned so the id and its label cannot drift apart."""
-    assert SIDECAR_IDS == ["jupyter"]
+def test_the_notebooks_and_canopy_panels_are_the_registered_sidecars():
+    """The two entries, pinned so each id and its label cannot drift apart."""
+    assert SIDECAR_IDS == ["canopy", "jupyter"]
     assert BUILTIN_PANEL_LABELS["jupyter"] == "JUPYTER"
+    assert BUILTIN_PANEL_LABELS["canopy"] == "CANOPY"
 
 
 def test_the_notebooks_panel_keeps_the_first_row():
     """Registry order is sidebar order: a sidecar added later sits after the notebooks."""
-    assert list(SIDECAR_PANELS)[0] == "jupyter"
+    assert list(SIDECAR_PANELS) == ["jupyter", "canopy"]
 
 
 @pytest.mark.parametrize("name", ["SidecarPanel", "SIDECAR_PANELS", "JUPYTER_PANEL_ID"])

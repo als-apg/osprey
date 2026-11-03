@@ -133,7 +133,11 @@ export function sendSessionToIframe(iframe) {
  * @param {string} [value] nav items: the clicked entry's id
  */
 export function sendHeaderActionToIframe(iframe, id, value) {
-  postToIframe(iframe, { type: 'osprey-header-action', id, ...(value != null ? { value } : {}) });
+  postToIframe(iframe, {
+    type: 'canopy-host-header-action',
+    id,
+    ...(value != null ? { value } : {}),
+  });
 }
 
 /**
