@@ -746,7 +746,13 @@ def test_run_resolves_each_check_to_its_one_command(monkeypatch: pytest.MonkeyPa
     (wallclock,) = run("pytest-wallclock")
     assert after_bound(wallclock) == [
         *fw.UV_RUN,
-        *("pytest", "tests/integration", "-m", "wallclock"),
+        *(
+            "pytest",
+            "tests/integration",
+            "tests/interfaces/test_watchdog_e2e.py",
+            "-m",
+            "wallclock",
+        ),
         *pytest_report("pytest-wallclock"),
     ]
     assert run("live-ca") == [[*fw.UV_RUN, "python", "scripts/va/live_ca/gate.py", "--pva"]]
@@ -961,7 +967,7 @@ def test_the_tiers_bound_their_pytest_runs() -> None:
         return [argv[argv.index(script) + 1] for argv in check.resolve([tier]) if script in argv]
 
     assert bounds("quick") == ["1800", "1800"]
-    assert bounds("full") == ["5400", "600", "900", "900", "1800"]
+    assert bounds("full") == ["5400", "600", "2100", "900", "1800"]
 
 
 def test_both_tiers_deselect_the_canopy_contract() -> None:

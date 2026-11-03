@@ -999,15 +999,29 @@ CHECKS: tuple[Check, ...] = (
         exec_flags=True,
     ),
     # A wall-clock budget timed beside loaded workers measures the workers, so
-    # the sweep deselects the marker and this suite runs alone.
+    # the sweep deselects the marker and this suite runs alone. The bound
+    # holds the integration budgets and the watchdog browser suite's own step.
     Check(
         "pytest-wallclock",
         "tests",
         FULL,
-        (*UV_RUN, "pytest", "tests/integration", "-m", "wallclock"),
-        scope=("tests/integration/**", "*.py", "pyproject.toml", "uv.lock"),
+        (
+            *UV_RUN,
+            "pytest",
+            "tests/integration",
+            "tests/interfaces/test_watchdog_e2e.py",
+            "-m",
+            "wallclock",
+        ),
+        scope=(
+            "tests/integration/**",
+            "tests/interfaces/test_watchdog_e2e.py",
+            "*.py",
+            "pyproject.toml",
+            "uv.lock",
+        ),
         needs=("uv",),
-        bound_s=900,
+        bound_s=2100,
         report="junit-pytest",
         tier_flags={"full": ("--tb=short",)},
         exec_flags=True,
