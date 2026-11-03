@@ -544,7 +544,9 @@ describe('panel_visibility hide — the view falls back, and no other tile chang
   let holder;
 
   beforeEach(async () => {
-    const { createLayoutHolder } = await vi.importActual(`${JS}/dock-apply.js`);
+    const { createLayoutHolder } = /** @type {any} */ (
+      await vi.importActual(`${JS}/dock-apply.js`)
+    );
     const { closeKeys } = await import(`${JS}/dock-open.js`);
     holder = createLayoutHolder({ dockPx: { width: 1000, height: 600 } });
     dock.holder = holder;
