@@ -1609,6 +1609,35 @@ class TestControlAssistantTiersAndApps:
         settings = json.loads((project / ".claude" / "settings.json").read_text())
         assert "mcp__osprey_facility_knowledge__draft_concept" in settings["permissions"]["deny"]
 
+    @pytest.mark.parametrize(
+        ("render", "renders_canopy"),
+        [
+            ("readonly", True),
+            ("readwrite", True),
+            ("channel-finder", False),
+            ("knowledge", False),
+            ("logbook", False),
+        ],
+    )
+    def test_canopy_server_renders_only_where_the_panel_is_shown(
+        self, built_layered_stack: Path, render: str, renders_canopy: bool
+    ) -> None:
+        """The CANOPY panel declares the agent's screen server, so the server
+        follows the panel: the tiers inherit the host's tab and get the entry
+        with it, the apps never inherit the tab, and no render's config spells
+        a ``canopy`` server at all.
+        """
+        project = _render_dir(built_layered_stack, render)
+        assert project.is_dir(), f"the {render} render was never built"
+
+        servers = json.loads((project / ".mcp.json").read_text())["mcpServers"]
+        assert ("canopy" in servers) is renders_canopy, sorted(servers)
+        config = yaml.safe_load((project / "config.yml").read_text(encoding="utf-8"))
+        assert "canopy" not in (config.get("claude_code") or {}).get("servers", {})
+        panel = (config.get("web") or {}).get("panels", {}).get("canopy")
+        shown = panel is not None and panel.get("enabled", True) is not False
+        assert shown is renders_canopy
+
     def test_channel_finder_app_renders_the_file_based_finder_and_no_graph(
         self, built_layered_stack: Path
     ) -> None:

@@ -156,6 +156,18 @@ CONTROL_ASSISTANT_PULLABLE = [
     "data/benchmarks/",
     "data/benchmarks/cross_paradigm/",
     "data/benchmarks/cross_paradigm/queries/",
+    "data/canopy/",
+    "data/canopy/collections/",
+    "data/canopy/library/",
+    "data/canopy/library/screens/",
+    "data/canopy/library/screens/br/",
+    "data/canopy/library/screens/bts/",
+    "data/canopy/library/screens/common/",
+    "data/canopy/library/screens/common/embedded/",
+    "data/canopy/library/screens/common/images/",
+    "data/canopy/library/screens/facility/",
+    "data/canopy/library/screens/gtl/",
+    "data/canopy/library/screens/sr/",
     "data/code_review/",
     "data/facility/",
     "data/facility/decks/",
@@ -181,7 +193,28 @@ CONTROL_ASSISTANT_PULLABLE = [
     "data/ariel/vocabulary.yml",
     "data/benchmarks/cross_paradigm/queries/in_context_queries.json",
     "data/benchmarks/cross_paradigm/queries/tree_queries.json",
+    "data/canopy/collections/control-assistant.json",
+    "data/canopy/library/LIBRARY-REPORT.json",
+    "data/canopy/library/LIBRARY-REPORT.md",
+    "data/canopy/library/screens/br/overview.screen.json",
+    "data/canopy/library/screens/bts/BTS.screen.json",
+    "data/canopy/library/screens/common/embedded/_KnobDevice.screen.json",
+    "data/canopy/library/screens/common/embedded/_bpm.screen.json",
+    "data/canopy/library/screens/common/embedded/_tv.screen.json",
+    "data/canopy/library/screens/common/images/Light off.jpg",
+    "data/canopy/library/screens/common/images/Light on.jpg",
+    "data/canopy/library/screens/common/images/Paddle in.jpg",
+    "data/canopy/library/screens/common/images/Paddle out.jpg",
+    "data/canopy/library/screens/common/images/TV off.jpg",
+    "data/canopy/library/screens/common/images/TV on.jpg",
+    "data/canopy/library/screens/facility/overview.screen.json",
+    "data/canopy/library/screens/gtl/GTL.screen.json",
+    *(f"data/canopy/library/screens/sr/_absorbers-{n:02d}.screen.json" for n in (2, *range(4, 13))),
+    *(f"data/canopy/library/screens/sr/_vacuum-{n:02d}.screen.json" for n in range(1, 13)),
+    "data/canopy/library/screens/sr/orbit-feedback.screen.json",
+    *(f"data/canopy/library/screens/sr/sector-{n:02d}.screen.json" for n in range(1, 13)),
     "data/code_review/reviewer.md",
+    "data/facility/classes.yaml",
     "data/facility/decks/BTS.json",
     "data/facility/decks/LINE.json",
     "data/facility/decks/LTB.json",
@@ -316,6 +349,25 @@ def test_list_pullable_paths_drops_what_the_packaged_data_copy_drops(tmp_path: P
         "data/benchmarks/cross_paradigm/queries/q.json",
         "data/results/kept.json",
     ]
+
+
+def test_list_pullable_paths_never_lists_a_bytecode_cache(tmp_path: Path) -> None:
+    """Importing a template's modules leaves ``__pycache__`` beside them; it is never content."""
+    root = tmp_path / "app_template"
+    _stage_template(
+        root,
+        [
+            "__init__.py",
+            "__pycache__/__init__.cpython-313.pyc",
+            "data/README.md",
+            "data/tools/__pycache__/x.cpython-313.pyc",
+            "data/tools/x.py",
+        ],
+    )
+
+    listed = list_pullable_paths(PresetData(root))
+
+    assert listed == ["data/", "data/tools/", "data/README.md", "data/tools/x.py"]
 
 
 def test_list_pullable_paths_restricts_to_a_subtree(control_assistant: PresetData) -> None:

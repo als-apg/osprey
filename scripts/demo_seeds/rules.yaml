@@ -246,6 +246,54 @@
   noise: {value: 5, unit: V}
   source: pump HV regulation, 0.1 %
 
+- class: InsertionDevice
+  signal: gap_readback
+  noise: {value: 1, unit: µm}
+  source: gap encoder resolution
+
+- class: InsertionDevice
+  signal: offset_readback
+  noise: {value: 1, unit: µm}
+  source: row-phase encoder resolution
+
+- class: Aperture
+  signal: blade_position_readback
+  noise: {value: 1, unit: µm}
+  source: scraper stepper encoder resolution
+
+- class: TemperatureSensor
+  signal: temperature_readback
+  noise: {value: 0.05, unit: degC}
+  drift:
+    amplitude: {value: 0.2, unit: degC}
+    period_s: {value: 86400, unit: s}
+  source: thermocouple readout; diurnal wander of the tunnel and of the heat load
+
+- class: AirHandler
+  signal: valve_position_readback
+  noise: {value: 0.5, unit: "%"}
+  source: chilled-water valve hunting around its control point
+
+- class: HarmonicCavity
+  signal: tuner_position_readback
+  noise: {value: 1, unit: µm}
+  source: tuner encoder resolution
+
+- class: HarmonicCavity
+  signal: temperature_readback
+  noise: {value: 0.05, unit: degC}
+  source: cavity-body RTD readout
+
+- class: HarmonicCavity
+  signal: coolant_flow_readback
+  noise: {value: 0.1, unit: L/min}
+  source: turbine flow meter scatter
+
+- class: HarmonicCavity
+  signal: power_readback
+  noise: {value: 0.03, unit: kW}
+  source: beam-induced power, scatter with the fill pattern
+
 - class: BeamPositionMonitor
   signal: position_x_readback
   machine: GTL
@@ -439,6 +487,26 @@
   signal: voltage_setpoint
   tolerance: {value: 50, unit: V}
   source: ion-pump controller settle band
+
+- class: InsertionDevice
+  signal: gap_setpoint
+  tolerance: {value: 10, unit: µm}
+  source: gap motion deadband
+
+- class: InsertionDevice
+  signal: offset_setpoint
+  tolerance: {value: 10, unit: µm}
+  source: row-phase motion deadband
+
+- class: Aperture
+  signal: blade_position_setpoint
+  tolerance: {value: 10, unit: µm}
+  source: scraper motion deadband
+
+- class: HarmonicCavity
+  signal: tuner_position_setpoint
+  tolerance: {value: 10, unit: µm}
+  source: tuner motion deadband
 
 - class: Dipole
   signal: ramp_offset_setpoint

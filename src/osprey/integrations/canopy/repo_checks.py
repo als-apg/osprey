@@ -34,8 +34,9 @@ PROVEN_MODULE = Path(__file__).resolve().with_name("proven.py")
 #: CANOPY nor PyDMConverter is installed, 1 for anything else.
 CANOPY_PROBE = (*kit.UV_RUN, "--no-sync", "python", "-m", "osprey.integrations.canopy")
 
-#: The contract's tests: the whole directory, with no marker expression.
-CONTRACT_TESTS = "tests/integrations/canopy"
+#: The contract's tests: every directory holding a ``canopy``-marked module (the
+#: integration and the shipped screen library's), whole, with no marker expression.
+CONTRACT_TESTS = ("tests/integrations/canopy", "tests/templates/canopy")
 
 #: The tests that hold the ``canopy`` marker's rules over the whole tests tree:
 #: a change anywhere in it can break them, so no change selection leaves them out.
@@ -215,7 +216,7 @@ CHECKS: tuple[Check, ...] = (
         "tests",
         BOTH,
         (
-            *(*kit.UV_RUN, "--no-sync", "pytest", CONTRACT_TESTS),
+            *(*kit.UV_RUN, "--no-sync", "pytest", *CONTRACT_TESTS),
             *("-p", "no:randomly", "--timeout=600"),
         ),
         needs=("uv",),

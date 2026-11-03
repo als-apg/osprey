@@ -66,6 +66,16 @@ from tests._builds import (  # noqa: F401 - the session's shared builds
 #: host, and a reader can tell "this is the fixture endpoint" at a glance.
 GATEWAY_BASE_URL = "https://gateway.example.org/v1"
 
+# import-time required because every xdist worker must hold this default
+# before it collects a module.
+# The control-assistant preset's `canopy-payload` pre_build step stages a
+# prebuilt CANOPY payload no test host is expected to have, and a build that
+# names none leaves the panel out. Skipping the step renders the finished
+# preset; the tests of the staging module turn the check back on. setdefault
+# leaves an explicit host value alone.
+os.environ.setdefault("OSPREY_CANOPY_PAYLOAD_CHECK", "0")
+
+
 #: :data:`GATEWAY_BASE_URL` as Claude Code receives it — no trailing ``/v1``,
 #: which the resolver strips because Claude Code appends ``/v1/messages``.
 GATEWAY_ORIGIN = "https://gateway.example.org"

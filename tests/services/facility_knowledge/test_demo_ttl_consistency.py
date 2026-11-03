@@ -54,16 +54,16 @@ NARAD_PROPERTY = "https://narad.example.org/property/"
 #: Expected sizes, spelled out rather than derived, so a change to *both* sides
 #: at once still trips something.
 #: ``EXPECTED_CHANNELS`` counts the channel database; the view carries those and
-#: ``EXPECTED_BINDINGS`` in all, the 431 addresses the facility adds included.
+#: ``EXPECTED_BINDINGS`` in all, the 1823 addresses the facility adds included.
 EXPECTED_CHANNELS = 2908
-EXPECTED_BINDINGS = 3339
-EXPECTED_DEVICES = 644
+EXPECTED_BINDINGS = 4731
+EXPECTED_DEVICES = 1016
 
 #: Devices carrying each device prose predicate: every device carries its
 #: system's text, and only a device some described group names carries a
 #: family's.
 EXPECTED_DESCRIBED_DEVICES = {
-    "familyDescription": 644,
+    "familyDescription": 1016,
     "systemDescription": EXPECTED_DEVICES,
 }
 
@@ -78,7 +78,7 @@ DEVICE_DESCRIPTION_PREDICATES = ("familyDescription", "systemDescription")
 #: and system vocabulary. Counting the distinct values, not just the triples,
 #: is what says the texts were joined by device rather than broadcast.
 EXPECTED_DISTINCT_DEVICE_TEXTS = {
-    "familyDescription": 69,
+    "familyDescription": 75,
     "systemDescription": 7,
 }
 
@@ -174,11 +174,13 @@ def additions() -> set[str]:
 
 @pytest.fixture(scope="module")
 def place_bound_additions(built_control_assistant: BuiltProject, additions: set[str]) -> set[str]:
-    """The added addresses whose channel record sits on a place and names no device."""
+    """The added addresses whose channel record sits on a place and names no device or signal."""
     return {
         str(channel["id"])
         for channel in built_control_assistant.facility["channels"]
-        if channel["id"] in additions and "device" not in (channel.get("on") or {})
+        if channel["id"] in additions
+        and "device" not in (channel.get("on") or {})
+        and not channel.get("signal")
     }
 
 
@@ -232,8 +234,8 @@ def test_demo_ttl_gives_every_channel_binding_exactly_one_direction(
 ) -> None:
     """No channel is both read and written, and none is neither.
 
-    The added addresses that sit on a place name no signal, so they are the
-    only bindings with no direction.
+    The added addresses that sit on a place and name no signal are the only
+    bindings with no direction.
     """
     read = _pvs_of_bindings_with(committed_graph, "readsSignal")
     written = _pvs_of_bindings_with(committed_graph, "writesSignal")

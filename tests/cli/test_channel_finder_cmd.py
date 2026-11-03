@@ -489,7 +489,7 @@ class TestInContextIndexRender:
         printed = " ".join(result.output.split())
         assert result.exit_code == 0, (result.output, repr(result.exception))
         assert "VALID" in printed
-        assert "Total Channels 569" in printed
+        assert "Total Channels 571" in printed
 
     @pytest.mark.slow
     def test_preview_prints_the_rows_of_the_index(self, runner, tmp_path, built_control_assistant):

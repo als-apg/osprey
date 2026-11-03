@@ -2,12 +2,12 @@
 """Stamp the example facility's simulated motion and settle tolerances from the rule table.
 
 Every float readback of ``src/osprey/templates/facilities/example`` that carries
-no ``linear`` key gets its ``noise`` and ``drift`` from the one row of
+no ``linear`` or ``topoff_lifetime`` key gets its ``noise`` and ``drift`` from the one row of
 ``rules.yaml`` that matches its device's class and its signal, converted into the
 channel's unit; ``noise`` is written as ``{absolute: <sigma>}``. A channel no
 row matches stays still, unless its committed seed moves, which is an error.
-Every other seed key (``nominal``, ``pulse``, ``gate``, ``clamp``, ``linear``) is
-carried through as data.
+Every other seed key (``nominal``, ``pulse``, ``gate``, ``clamp``, ``linear``,
+``topoff``, ``topoff_lifetime``) is carried through as data.
 
 Every setpoint gets its ``tolerance`` from the one ``tolerance`` row that
 matches it, converted into its unit and written ``{absolute: <x>}`` directly
@@ -19,8 +19,8 @@ Nor does a setpoint that states no unit, since a tolerance is in the channel's
 unit.
 
 The outputs are the committed ``seeds.yaml``, addresses sorted, each entry's
-keys in the order nominal, pulse, gate, noise, drift, clamp, linear, written with one
-canonical ``yaml.safe_dump``; and the committed ``records/channels.yaml`` with
+keys in the order nominal, pulse, gate, noise, drift, clamp, linear, topoff,
+topoff_lifetime, written with one canonical ``yaml.safe_dump``; and the committed ``records/channels.yaml`` with
 its tolerance lines stamped.
 
 Usage::
@@ -62,8 +62,11 @@ UNITS: dict[str, tuple[str, int]] = {
     "kV": ("voltage", 3),
     "V": ("voltage", 0),
     "W": ("power", 0),
+    "kW": ("power", 3),
     "Pa": ("pressure", 0),
     "Torr": ("pressure in torr", 0),
+    "%": ("dimensionless", -2),
+    "L/min": ("volume flow", 0),
     "C": ("temperature", 0),
     "degC": ("temperature", 0),
     "deg": ("angle", 0),
@@ -73,7 +76,17 @@ UNITS: dict[str, tuple[str, int]] = {
 }
 
 #: The seed keys, in the order an entry is written.
-KEY_ORDER = ("nominal", "pulse", "gate", "noise", "drift", "clamp", "linear")
+KEY_ORDER = (
+    "nominal",
+    "pulse",
+    "gate",
+    "noise",
+    "drift",
+    "clamp",
+    "linear",
+    "topoff",
+    "topoff_lifetime",
+)
 
 #: The seed keys this generator owns.
 MOTION_KEYS = ("noise", "drift")
@@ -200,11 +213,16 @@ def motion(row: dict[str, Any], unit: str) -> dict[str, Any]:
 
 
 def moves(channel: dict[str, Any], seed: dict[str, Any]) -> bool:
-    """A channel this generator stamps motion on: a float readback with no ``linear``."""
+    """A channel this generator stamps motion on.
+
+    A float readback with neither ``linear`` nor ``topoff_lifetime``: both give
+    a value derived from elsewhere. A ``topoff`` readback moves like any other.
+    """
     return (
         channel.get("role", "readback") == "readback"
         and channel.get("value_type", "float") == "float"
         and "linear" not in seed
+        and "topoff_lifetime" not in seed
     )
 
 

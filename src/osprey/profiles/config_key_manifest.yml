@@ -2911,8 +2911,6 @@ keys:
   # The CANOPY tab: a builtin, served by a sidecar each web terminal starts.
   # Besides the pair every builtin has, its block carries the sidecar's own
   # settings, each read by name in osprey.integrations.canopy.sidecar.
-  # No shipped preset selects the panel, so no key of the block but the pair
-  # is rendered.
   web.panels.canopy: {covered-by: web.panels, default: n/a}
   web.panels.canopy.enabled: {covered-by: web.panels.canopy, default: derived, default_note: "the canopy panel's registry default; a panel absent from the block is off"}
   web.panels.canopy.trace_default_query:
@@ -2922,8 +2920,9 @@ keys:
     note: >-
       Trace's default view under the per-user CANOPY panel, passed verbatim to
       the panel's front process as CANOPY_TRACE_DEFAULT_QUERY. Unset passes the
-      empty string, and Trace opens with no channel. Not rendered: a facility
-      sets it, or the other two, where it wants one.
+      empty string, and Trace opens with no channel. Not rendered: `control-assistant`
+      carries it as a commented example, because its collection's screens carry
+      their own views; a facility sets it, or the other two, where it wants one.
     default: '""'
   web.panels.canopy.correlation_default_query:
     rendered: false
@@ -2946,7 +2945,6 @@ keys:
       page opens with no channel.
     default: '""'
   web.panels.canopy.home_screen:
-    rendered: false
     deployment-data: true
     evidence: 'settings\.get\("home_screen"\)'
     note: >-
@@ -2959,7 +2957,6 @@ keys:
       the sidecar.
     default: '""'
   web.panels.canopy.vole_bytes_max:
-    rendered: false
     evidence: 'settings\.get\("vole_bytes_max"'
     note: >-
       Ceiling in bytes on the live-value buffers one user's CANOPY keeps,
@@ -2973,7 +2970,8 @@ keys:
       A colour theme for the per-user CANOPY panel, passed to both of its
       processes as CANOPY_THEME_FILE. A relative path resolves against the
       project root (the directory holding the rendered build); an absolute
-      path is used as written. Unset keeps CANOPY's own theme.
+      path is used as written. Unset keeps CANOPY's own theme. Commented in
+      the control-assistant preset.
     default: null
   web.panels.system-health.hidden:
     evidence: 'spec\.get\("hidden", False\)'
@@ -4109,7 +4107,7 @@ render_contexts:
     panels_on: web.panels.channel-finder.enabled
     default_panel_set: web.default_panel
     panel_presets_set: web.presets
-  expected_union_size: 371
+  expected_union_size: 373
   note_union_size: >-
     An assertion: the guard derives the union on every run and fails when this
     figure disagrees with it, or when it is missing. It moves whenever the

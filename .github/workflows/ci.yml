@@ -7363,7 +7363,7 @@ jobs:
       id: contract
       if: steps.decide.outputs.run == 'true'
       # The check probes the installed pair before any test and runs the
-      # whole contract directory through `uv run --no-sync`, so the tests
+      # contract's directories whole through `uv run --no-sync`, so the tests
       # see the environment the install step built. `pipefail` keeps the
       # check's exit status through the tee.
       run: |
