@@ -1554,18 +1554,17 @@ def test_an_undeclared_facility_service_stays_a_bare_address(facility_service_co
     assert "http://127.0.0.1:10901" not in text
 
 
-def test_http_false_is_honoured_like_an_absent_key(facility_service_compose):
-    """An explicit `false` says the same thing as saying nothing."""
-    config = {"project_name": "demo", "services": {"facility-mcp": {"http": False}}}
-
-    text = deploy_summary.format_endpoint_summary(config, [facility_service_compose])
-
-    assert "http://127.0.0.1:10900" not in text
-
-
-def test_a_non_boolean_declaration_does_not_produce_a_link(facility_service_compose):
-    """A profile that never validated must not hand out a dead link."""
-    config = {"project_name": "demo", "services": {"facility-mcp": {"http": "yes"}}}
+@pytest.mark.parametrize(
+    "http",
+    [
+        # An explicit `false` says the same thing as saying nothing.
+        pytest.param(False, id="false-is-honoured-like-an-absent-key"),
+        # A profile that never validated must not hand out a dead link.
+        pytest.param("yes", id="non-boolean"),
+    ],
+)
+def test_a_declaration_other_than_true_does_not_produce_a_link(facility_service_compose, http):
+    config = {"project_name": "demo", "services": {"facility-mcp": {"http": http}}}
 
     text = deploy_summary.format_endpoint_summary(config, [facility_service_compose])
 

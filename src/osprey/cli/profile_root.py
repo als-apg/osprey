@@ -22,7 +22,7 @@ standalone build: it is a layer, so building it alone would silently produce a
 profile missing everything the root was meant to supply. ``apps/`` holds
 applications, never logins: a plain ``<name>.yml`` there is refused by name.
 
-The retired layer directory is read as ``tiers/`` for one release, with a single
+The retired layer directory is read as ``tiers/`` until the roster sunset, with a single
 warning naming the rewrite.
 """
 

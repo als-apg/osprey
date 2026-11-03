@@ -20,11 +20,8 @@ from knob_example import APP_NAME, WRITE_ROUTE
 from knob_example.server import create_app
 
 from osprey.interfaces.common_middleware import OPERATOR_SECRET_HEADER, WebAuthMiddleware
-from osprey.interfaces.web_auth import (
-    WebCredentials,
-    reset_web_credentials,
-    set_panel_agent_routes,
-)
+from osprey.interfaces.web_auth import WebCredentials, reset_web_credentials
+from osprey.profiles.sidecar_panels import SIDECAR_PANELS, ApplicationPanel, PanelRegistry
 from tests.interfaces._asgi import (
     OPERATOR_SECRET,
     PANEL_TOKEN,
@@ -51,9 +48,12 @@ HOPS = {
 def app_stub():
     reset_web_credentials()
     credentials = WebCredentials(operator_secret=OPERATOR_SECRET, panel_token=PANEL_TOKEN)
-    set_panel_agent_routes(frozenset({("POST", HOPS["terminal"][0])}))
-    yield SimpleNamespace(state=SimpleNamespace(web_credentials=credentials))
-    set_panel_agent_routes(frozenset())
+    registry = PanelRegistry(
+        SIDECAR_PANELS, {APP_NAME: ApplicationPanel(APP_NAME, (("POST", WRITE_ROUTE),))}
+    )
+    yield SimpleNamespace(
+        state=SimpleNamespace(web_credentials=credentials, panel_registry=registry)
+    )
     reset_web_credentials()
 
 

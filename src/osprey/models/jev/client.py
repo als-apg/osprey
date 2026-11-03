@@ -61,6 +61,12 @@ deadlines run on the injected ``clock`` and ``sleep`` only.
 
 ``on_attempt`` receives one ``JevAttempt`` per HTTP attempt, success or
 failure, never with a body; calls are serialised under the client's own lock.
+
+The openai route (``openai_route``) asks one chat completion per question, so
+there every question is its own chunk: each gets its own attempts, timeout and
+retries, chunks run on the same pool and semaphore, and ``JevResult.calls``
+holds one call per question. A choice question there carries at most 26
+options, one letter each.
 """
 
 from __future__ import annotations
@@ -93,6 +99,7 @@ from osprey.models.jev.models import (
     JevResponse,
     JevResult,
 )
+from osprey.models.jev.openai_route import MAX_OPENAI_CHOICE_OPTIONS, build_ask
 from osprey.models.jev.tokens import (
     estimate_question,
     estimate_request,
@@ -124,6 +131,15 @@ class _Failure:
     error: DecisionError
     status: int | None
     retry_after_s: float | None
+
+
+class _AttemptFailed(Exception):
+    """Internal: one attempt failed after ``latency_s`` seconds in flight."""
+
+    def __init__(self, failure: _Failure, latency_s: float) -> None:
+        super().__init__(failure.error.message)
+        self.failure = failure
+        self.latency_s = latency_s
 
 
 @dataclass(frozen=True)
@@ -281,6 +297,8 @@ class JevClient:
         if summary is not None:
             raise _invalid(f"invalid Jev request: {summary}") from None
         cap = self._settings.max_choice_options
+        if route.route == "openai":
+            cap = min(cap, MAX_OPENAI_CHOICE_OPTIONS)
         for qid, question in request.questions.items():
             if isinstance(question, ChoiceQuestion) and len(question.criteria) > cap:
                 raise _invalid(
@@ -318,7 +336,13 @@ class JevClient:
                 f" max_state_plus_question_tokens ({route_limits.max_state_plus_question_tokens})",
                 error_type="state_too_large",
             )
-        chunks = self._chunks(request, route_limits.max_request_tokens)
+        if route.route == "openai":
+            chunks = [
+                request.model_copy(update={"questions": {qid: question}})
+                for qid, question in request.questions.items()
+            ]
+        else:
+            chunks = self._chunks(request, route_limits.max_request_tokens)
 
         def run(index: int) -> _ChunkResult:
             return self._run_chunk(chunks[index], route, budget, limits, deadline, index)
@@ -510,20 +534,34 @@ class JevClient:
         chunk_index: int,
         attempt: int,
     ) -> tuple[JevResponse, JevCall] | _Failure:
-        """One HTTP attempt: send, map, parse; report it through ``on_attempt``.
+        """One attempt: send, map, parse; report it through ``on_attempt``.
 
         A failure is returned, not raised, with the reply's requested wait.
         """
-        body = self._wire_body(request)
+        exchange = self._exchange_openai if route.route == "openai" else self._exchange_systemone
+        try:
+            response, call = exchange(request, route, timeout, attempt)
+        except _AttemptFailed as failed:
+            failure = failed.failure
+            self._report(chunk_index, attempt, failure.status, failure.error, failed.latency_s)
+            return failure
+        self._report(chunk_index, attempt, 200, None, call.latency_s, call=call)
+        return response, call
+
+    def _post(
+        self, route: ResolvedRoute, body: dict[str, Any], timeout: float
+    ) -> tuple[httpx.Response, float]:
+        """One HTTP send under a semaphore permit; the reply and its latency.
+
+        A timeout or transport failure raises ``_AttemptFailed``.
+        """
+        headers = {"Authorization": f"Bearer {route.api_key}"} if route.api_key else {}
         started = self._clock()
         try:
             with self._inflight:
                 started = self._clock()
                 http_response = self._http.post(
-                    route.endpoint,
-                    json=body,
-                    headers={"Authorization": f"Bearer {route.api_key}"},
-                    timeout=httpx.Timeout(timeout),
+                    route.endpoint, json=body, headers=headers, timeout=httpx.Timeout(timeout)
                 )
         except httpx.TimeoutException:
             error: DecisionError = DecisionUnavailableError(
@@ -534,23 +572,79 @@ class JevClient:
                 f"Jev request failed in transport: {type(exc).__name__}", error_type="transport"
             )
         else:
-            latency = self._clock() - started
-            status = http_response.status_code
-            failure: _Failure | None = None
-            try:
-                response, call = self._parse(
-                    http_response, route, request, latency=latency, attempts=attempt
-                )
-            except DecisionError as exc:
-                failure = _Failure(exc, status, _parse_retry_after(http_response.headers))
-            if failure is not None:
-                self._report(chunk_index, attempt, status, failure.error, latency)
-                return failure
-            self._report(chunk_index, attempt, 200, None, latency, call=call)
-            return response, call
+            return http_response, self._clock() - started
+        raise _AttemptFailed(_Failure(error, None, None), self._clock() - started)
 
-        self._report(chunk_index, attempt, None, error, self._clock() - started)
-        return _Failure(error, None, None)
+    def _exchange_systemone(
+        self, request: JevRequest, route: ResolvedRoute, timeout: float, attempt: int
+    ) -> tuple[JevResponse, JevCall]:
+        """The whole chunk as one systemone request."""
+        http_response, latency = self._post(route, self._wire_body(request), timeout)
+        failure: _Failure | None = None
+        try:
+            return self._parse(http_response, route, request, latency=latency, attempts=attempt)
+        except DecisionError as exc:
+            failure = _Failure(
+                exc, http_response.status_code, _parse_retry_after(http_response.headers)
+            )
+        raise _AttemptFailed(failure, latency) from None
+
+    def _exchange_openai(
+        self, request: JevRequest, route: ResolvedRoute, timeout: float, attempt: int
+    ) -> tuple[JevResponse, JevCall]:
+        """Every question of the chunk as its own chat completion, in order.
+
+        The batcher gives this route one question per chunk.
+        """
+        answers: dict[str, Any] = {}
+        input_tokens = output_tokens = 0
+        served_model: str | None = None
+        request_id: str | None = None
+        latency = 0.0
+        for qid, question in request.questions.items():
+            ask = build_ask(route.model, request.state, question)
+            remaining = timeout - latency
+            if remaining <= 0:
+                error = DecisionUnavailableError(
+                    f"Jev request timed out after {timeout:g} s", error_type="timeout"
+                )
+                raise _AttemptFailed(_Failure(error, None, None), latency)
+            http_response, took = self._post(route, ask.body, remaining)
+            latency += took
+            status = http_response.status_code
+            content = http_response.content
+            parsed: tuple[dict[str, Any], int, int] | None = None
+            payload: Any = None
+            if status == 200:
+                try:
+                    payload = json.loads(content)
+                    parsed = ask.answer(payload)
+                except ValueError:
+                    parsed = None
+            if parsed is None:
+                failure = _Failure(
+                    error_from_response(status, http_response.headers, content),
+                    status,
+                    _parse_retry_after(http_response.headers),
+                )
+                raise _AttemptFailed(failure, latency) from None
+            answers[qid], prompt_tokens, completion_tokens = parsed
+            input_tokens += prompt_tokens
+            output_tokens += completion_tokens
+            if served_model is None and isinstance(payload.get("model"), str):
+                served_model = payload["model"]
+            if request_id is None and isinstance(payload.get("id"), str):
+                request_id = payload["id"]
+        response = JevResponse.model_validate(
+            {
+                "model": served_model or route.model,
+                "answers": answers,
+                "usage": {"input_tokens": input_tokens, "output_tokens": output_tokens},
+                "id": request_id,
+            }
+        )
+        call = self._call(response, route, latency=latency, attempts=attempt, request_id=request_id)
+        return response, call
 
     def _parse(
         self,

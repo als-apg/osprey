@@ -92,13 +92,21 @@ def test_ariel_db_password_mints_under_writes_enabled_and_subprocess_execution(
     assert _validate_var("ARIEL_DB_PASSWORD", env["ARIEL_DB_PASSWORD"])
 
 
-def test_ariel_db_password_generator_is_uri_safe_every_time():
-    """The value lands unescaped in the DSN's password slot, so every mint
-    must be free of URI-reserved characters — guaranteed by the hex alphabet."""
+@pytest.mark.parametrize(
+    "var",
+    [
+        # The value lands unescaped in the DSN's password slot, so every mint
+        # must be free of URI-reserved characters — guaranteed by the hex alphabet.
+        pytest.param("ARIEL_DB_PASSWORD", id="ariel-db"),
+        # It lands unescaped in the readonly DSN's password slot.
+        pytest.param("ARIEL_DB_READONLY_PASSWORD", id="readonly"),
+    ],
+)
+def test_password_generator_is_uri_safe_every_time(var):
     for _ in range(50):
-        value = _generate_token("ARIEL_DB_PASSWORD")
+        value = _generate_token(var)
         assert value.isalnum()
-        assert _validate_var("ARIEL_DB_PASSWORD", value)
+        assert _validate_var(var, value)
 
 
 @pytest.mark.usefixtures("captured_argv")
@@ -119,12 +127,19 @@ def test_existing_ariel_db_password_is_preserved(_clean_token_env, tmp_path):
     assert project_env(tmp_path)["ARIEL_DB_PASSWORD"] == "preexistingvalue"
 
 
+@pytest.mark.parametrize(
+    "var",
+    [
+        # An operator-supplied password containing a URI-reserved character would
+        # silently reshape the ariel DSN — refuse at the deploy boundary instead.
+        pytest.param("ARIEL_DB_PASSWORD", id="ariel-db"),
+        pytest.param("ARIEL_DB_READONLY_PASSWORD", id="readonly"),
+    ],
+)
 @pytest.mark.usefixtures("captured_argv")
-def test_operator_password_with_reserved_char_is_rejected(_clean_token_env, tmp_path):
-    """An operator-supplied password containing a URI-reserved character would
-    silently reshape the ariel DSN — refuse at the deploy boundary instead."""
-    (tmp_path / ".env").write_text("ARIEL_DB_PASSWORD=p@ssword\n", encoding="utf-8")
-    with pytest.raises(RuntimeError, match="ARIEL_DB_PASSWORD"):
+def test_operator_password_with_reserved_char_is_rejected(_clean_token_env, tmp_path, var):
+    (tmp_path / ".env").write_text(f"{var}=p@ssword\n", encoding="utf-8")
+    with pytest.raises(RuntimeError, match=var):
         container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
 
 
@@ -142,18 +157,3 @@ def test_postgresql_deploy_mints_the_readonly_password_too(_clean_token_env, tmp
     assert env.get("ARIEL_DB_READONLY_PASSWORD")
     assert len(env["ARIEL_DB_READONLY_PASSWORD"]) == 64
     assert env["ARIEL_DB_READONLY_PASSWORD"] != env["ARIEL_DB_PASSWORD"]
-
-
-def test_readonly_password_generator_is_uri_safe_every_time():
-    """It lands unescaped in the readonly DSN's password slot."""
-    for _ in range(50):
-        value = _generate_token("ARIEL_DB_READONLY_PASSWORD")
-        assert value.isalnum()
-        assert _validate_var("ARIEL_DB_READONLY_PASSWORD", value)
-
-
-@pytest.mark.usefixtures("captured_argv")
-def test_operator_readonly_password_with_reserved_char_is_rejected(_clean_token_env, tmp_path):
-    (tmp_path / ".env").write_text("ARIEL_DB_READONLY_PASSWORD=p@ssword\n", encoding="utf-8")
-    with pytest.raises(RuntimeError, match="ARIEL_DB_READONLY_PASSWORD"):
-        container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)

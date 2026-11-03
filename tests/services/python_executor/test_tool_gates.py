@@ -655,22 +655,19 @@ async def test_readwrite_runs_on_a_target_whose_switch_is_on(tmp_path, monkeypat
 
 
 @pytest.mark.usefixtures("mixed_posture")
-async def test_readwrite_is_refused_on_the_live_target(tmp_path, monkeypatch, control_target):
-    """The same deployment, the other target: the machine's own switch refuses."""
-    control_target("live")
-
-    with assert_raises_error(error_type="safety_error") as ctx:
-        await _run_readwrite(tmp_path, monkeypatch)
-
-    _assert_refused_for_the_live_machine(ctx["envelope"], "live")
-
-
-@pytest.mark.usefixtures("mixed_posture")
-async def test_an_unstamped_run_is_answered_for_the_baseline_target(
-    tmp_path, monkeypatch, control_target
+@pytest.mark.parametrize(
+    "target",
+    [
+        # The same deployment, the other target: the machine's own switch refuses.
+        pytest.param("live", id="live-target"),
+        # No record means the baseline — here the live machine — with every switch off.
+        pytest.param(None, id="unstamped-run-answers-the-baseline"),
+    ],
+)
+async def test_readwrite_is_refused_for_the_live_machine(
+    tmp_path, monkeypatch, control_target, target
 ):
-    """No record means the baseline — here the live machine — with every switch off."""
-    control_target(None)
+    control_target(target)
 
     with assert_raises_error(error_type="safety_error") as ctx:
         await _run_readwrite(tmp_path, monkeypatch)

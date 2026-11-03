@@ -3,7 +3,7 @@
 ``control_system.writes`` (the tier) and the per-login switch replaced the
 per-type posture keys ``control_system.writes_enabled`` and
 ``control_system.connector.<type>.writes_enabled``. The build still reads the
-retired spellings for one release (PR-3) and refuses them from 2026.11.0; past
+retired spellings for one release (PR-3) and refuses them from 2026.12.0; past
 that, a file under ``src/``, ``packages/``, ``plugins/`` or ``docs/source``
 that spells one is either migration code or stale advice.
 

@@ -7,6 +7,7 @@ to restate it. The prompt text itself belongs to the facility and is not part of
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 from dataclasses import dataclass
@@ -110,6 +111,26 @@ class ReviewFailure:
 
     kind: str
     message: str
+
+
+@dataclass(frozen=True)
+class ReviewSwitchedOff:
+    """A review left out because an admin switched code review off at runtime.
+
+    No reviewer ran, so the code goes ahead whatever the level.
+
+    Attributes:
+        off_by: Who switched it off, as the web terminal names them.
+        off_at: When, in epoch seconds.
+    """
+
+    off_by: str | None = None
+    off_at: float | None = None
+
+
+def code_digest(code: str) -> str:
+    """The SHA-256 of *code*: what binds a stamped review, and a review's record, to the code."""
+    return hashlib.sha256(code.encode("utf-8")).hexdigest()
 
 
 def _unparseable(defect: str) -> ReviewFailure:

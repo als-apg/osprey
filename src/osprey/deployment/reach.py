@@ -1123,29 +1123,12 @@ REACH_CONTRACTS: dict[str, ReachContract] = {
     "archiver_recorder": ReachContract(
         service="archiver_recorder",
         no_client_reach=True,
-        # Nothing in a render container dials the recorder — and one fact
-        # about it still has to travel. `archive_belongs_to_standin` reads
-        # whether the deployment records its own store to decide WHOSE history
-        # the archive holds, and on that answer the `live` target is refused:
-        # a real machine's readings spliced onto a stand-in's synthesized past
-        # is the one thing an archive must never contain. A render reads that
-        # same store, so the gate has to hold in a multi-user session exactly
-        # as it does in a single-user one — but the host's spelling of the
-        # fact, `deployed_services`, is empty in every attached render.
-        #
-        # So the block the injector writes for a deployed recorder is
-        # projected, ungated like the stand-in port beside it. It is the
-        # host's fact that it records, not a directory the render has: the
-        # predicate is its only reader, and no attached render grows a surface
-        # from it — a service is rendered, mounted and started off
-        # `deployed_services` (compose_generator.find_service_config is driven
-        # by that list), never off the presence of a `services:` block.
-        projected=(ProjectedKey("services.archiver_recorder.path", gate=None),),
-        note=(
-            "a host-side writer; a render reads the store, not the recorder — "
-            "its path is projected as the host's fact that it records one, which "
-            "gates the `live` target in a render session too"
-        ),
+        # Nothing in a render container dials the recorder, and nothing about
+        # it has to travel either. It is a host-side writer that samples the
+        # virtual accelerator into the deployment's store; whose history that
+        # store holds is a fact about the control system the render already
+        # carries (`osprey_connectors.archive_targets`), not about the recorder.
+        note="a host-side writer; a render reads the store, not the recorder",
     ),
     "dispatch_worker": ReachContract(
         service="dispatch_worker",

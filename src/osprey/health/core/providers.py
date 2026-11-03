@@ -28,6 +28,7 @@ from collections.abc import Mapping
 from dataclasses import replace
 from typing import TYPE_CHECKING, Any
 
+from osprey.agent_runner.provider_env import personal_login_allowed
 from osprey.health.models import CheckResult, Status
 from osprey.health.probes import ProbeContext, provider_canary
 from osprey.health.runtime import HealthRuntime
@@ -132,18 +133,39 @@ def providers(
                 )
             if name == own and row.status is not Status.OK:
                 if row.status in (Status.WARNING, Status.ERROR) and row.probed:
-                    # Not advisory: this is the provider the agent runs on, so a
-                    # failed probe here is every terminal and the dispatch
-                    # worker down.
-                    row = replace(
-                        row,
-                        status=Status.ERROR,
-                        message=(
-                            f"{row.message} — {own} is this deployment's agent provider "
-                            "(claude_code.provider); every web terminal and the dispatch "
-                            "worker authenticate with it"
-                        ),
-                    )
+                    if personal_login_allowed(cfg):
+                        # The deployment lets a terminal run on its user's own
+                        # Claude login, and such a terminal never touches this
+                        # provider: a failed probe is the dispatch worker and
+                        # every terminal WITHOUT a login down, not the
+                        # deployment. Which terminals are which is decided
+                        # inside each container at launch and is not visible
+                        # from here, so the row stays the warning the probe
+                        # gave and says what it cannot count.
+                        row = replace(
+                            row,
+                            status=Status.WARNING,
+                            message=(
+                                f"{row.message} — {own} is this deployment's agent provider "
+                                "(claude_code.provider); the dispatch worker and every web "
+                                "terminal without a personal login authenticate with it "
+                                "(claude_code.allow_personal_login is on; a terminal on its "
+                                "user's own login is unaffected)"
+                            ),
+                        )
+                    else:
+                        # Not advisory: this is the provider the agent runs on, so a
+                        # failed probe here is every terminal and the dispatch
+                        # worker down.
+                        row = replace(
+                            row,
+                            status=Status.ERROR,
+                            message=(
+                                f"{row.message} — {own} is this deployment's agent provider "
+                                "(claude_code.provider); every web terminal and the dispatch "
+                                "worker authenticate with it"
+                            ),
+                        )
                 else:
                     # Nothing was contacted, so there is no reachability fact to
                     # escalate — grading the absence of an adapter class as a

@@ -191,23 +191,33 @@ class TestHonestyAboutTheSnapshot:
     def test_list_plans_is_named_however_the_index_resolved(self, index):
         assert "`list_plans`" in render(index)
 
-    def test_list_plans_is_required_before_set_draft(self):
+    @pytest.mark.parametrize(
+        ("first", "second"),
+        [
+            pytest.param(
+                "`list_plans` is the authority",
+                "`set_draft`",
+                id="list-plans-is-required-before-set-draft",
+            ),
+            pytest.param(
+                "metadata-level",
+                "quarantined",
+                id="listing-is-metadata-level-and-a-plan-may-be-quarantined",
+            ),
+            pytest.param(
+                "authored during this session",
+                "`bluesky.plan_module`",
+                id="names-the-absent-sources",
+            ),
+        ],
+    )
+    def test_each_caveat_is_stated(self, first, second):
         text = render(full_index())
-        assert "`list_plans` is the authority" in text
-        assert "`set_draft`" in text
+        assert first in text
+        assert second in text
 
     def test_says_the_listing_is_a_build_time_snapshot(self):
         assert "snapshot taken at build time" in render(full_index())
-
-    def test_says_the_listing_is_metadata_level_and_a_plan_may_be_quarantined(self):
-        text = render(full_index())
-        assert "metadata-level" in text
-        assert "quarantined" in text
-
-    def test_names_the_absent_sources(self):
-        text = render(full_index())
-        assert "authored during this session" in text
-        assert "`bluesky.plan_module`" in text
 
     def test_says_the_deployed_bridge_may_run_a_different_image(self):
         assert "pinned image" in render(full_index())

@@ -391,35 +391,27 @@ def test_per_tool_chain_read_skip(tmp_path, hook_runner):
 # ============================================================================
 
 
-def test_hook_invalid_json_stdin_exits_cleanly(hook_runner_raw):
-    """Hook receiving invalid JSON on stdin exits with code 0 (fail-open).
-
-    All hooks wrap stdin parsing in try/except and call sys.exit(0) on failure,
-    which allows the tool to proceed. This is intentional -- a broken hook
-    should not block the entire system.
-    """
+@pytest.mark.parametrize(
+    ("hook", "stdin_override"),
+    [
+        # All hooks wrap stdin parsing in try/except and call sys.exit(0) on failure,
+        # which allows the tool to proceed. This is intentional -- a broken hook
+        # should not block the entire system.
+        pytest.param("osprey_writes_check.py", "this is not valid json {{{", id="invalid-json"),
+        pytest.param("osprey_approval.py", "", id="empty"),
+    ],
+)
+def test_hook_unusable_stdin_exits_cleanly(hook_runner_raw, hook, stdin_override):
+    """Hook receiving unusable stdin exits with code 0 (fail-open)."""
     returncode, stdout, stderr = hook_runner_raw(
-        "osprey_writes_check.py",
+        hook,
         tool_name="unused",
         tool_input={},
-        stdin_override="this is not valid json {{{",
+        stdin_override=stdin_override,
     )
 
     assert returncode == 0
     assert stdout.strip() == ""  # No output = allow
-
-
-def test_hook_empty_stdin_exits_cleanly(hook_runner_raw):
-    """Hook receiving empty stdin exits with code 0."""
-    returncode, stdout, stderr = hook_runner_raw(
-        "osprey_approval.py",
-        tool_name="unused",
-        tool_input={},
-        stdin_override="",
-    )
-
-    assert returncode == 0
-    assert stdout.strip() == ""
 
 
 # ============================================================================

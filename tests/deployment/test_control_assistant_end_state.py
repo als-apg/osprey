@@ -50,6 +50,7 @@ from osprey.deployment.web_terminals.roster import (
     config_needs_graphdb_password,
     config_needs_launch_token_for,
     config_needs_phoebus_handles,
+    config_stop_period,
     resolve_cards,
     roster_entries,
     served_renders,
@@ -294,12 +295,15 @@ def test_reach(stack: Path, config: dict, served: dict[str, roster.ServedRender]
         "phoebus_handle_renders": config_needs_phoebus_handles,
         "archiver_credential_renders": lambda cfg: bool(config_archiver_credential_envs(cfg)),
         "archiver_ca_bundle_renders": lambda cfg: bool(config_archiver_ca_bundles(cfg)),
+        "stop_grace_renders": lambda cfg: config_stop_period(cfg) > 0,
     }
     keyed = {"launch_token_renders", "application_token_renders"}
     assert set(predicates) | keyed == set(grants)
     for grant, predicate in predicates.items():
         for name, render_config in configs.items():
             assert (name in grants[grant]) == bool(predicate(render_config)), (grant, name)
+    for name, period in grants["stop_grace_renders"].items():
+        assert period == config_stop_period(configs[name]), name
     for lane in roster.LANE_KEYS:
         entitled = grants["launch_token_renders"].get(lane, set())
         for name, render_config in configs.items():

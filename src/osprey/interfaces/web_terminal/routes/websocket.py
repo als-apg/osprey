@@ -22,6 +22,7 @@ from fastapi import APIRouter, HTTPException, Request, Response, WebSocket, WebS
 from pydantic import BaseModel, StrictBool, field_validator
 from starlette.concurrency import run_in_threadpool
 
+from osprey.agent_runner.clean_env import add_panel_token
 from osprey.agent_runner.launcher import NoConversationWatch, build_session_argv
 from osprey.audit.posture import OSPREY_AGENT_DATA_ROOT
 from osprey.build.claude_code_telemetry import terminal_session_env
@@ -31,7 +32,7 @@ from osprey.interfaces.common_middleware import (
     read_cookie_candidates,
     session_cookie_name,
 )
-from osprey.interfaces.web_auth import PANEL_TOKEN_ENV, get_web_credentials
+from osprey.interfaces.web_auth import get_web_credentials
 from osprey.interfaces.web_terminal import session_handoff
 from osprey.interfaces.web_terminal.control_context_owner import (
     CONTROL_CONTEXT_FRAME,
@@ -50,13 +51,14 @@ from osprey.interfaces.web_terminal.operator_session import (
     session_hold_root_of,
     stamp_session_hold,
 )
+from osprey.interfaces.web_terminal.routes.watchdog import session_is_live
 from osprey.interfaces.web_terminal.session_discovery import SessionDiscovery
 from osprey.interfaces.web_terminal.session_key import is_posture_key
 from osprey_connectors import control_context, posture_store
 from osprey_connectors.identity import acting_identity
 from osprey_connectors.posture_env import is_readonly_run
 from osprey_connectors.refusals import refusal_phrase
-from osprey_connectors.session_hold import is_held
+from osprey_connectors.session_hold import has_no_record, is_held, is_safe_session_key
 from osprey_connectors.types import published_machine_kind
 from osprey_connectors.write_target import KIND_BANNERS
 
@@ -514,7 +516,10 @@ def _build_extra_env(
     narrow panel tier (:data:`~osprey.interfaces.web_auth.PANEL_TIER_ROUTES`)
     — panel arrangement and activity, plus the proxy hop to the event
     dispatcher's MCP transport, which is what lets the agent in a session fire
-    a dispatch job under that session's own chip — and nothing else. The
+    a dispatch job under that session's own chip, and the hop each sidecar
+    panel declares as its ``agent_hop`` at its ``mcp_path`` (see
+    :func:`~osprey.interfaces.web_auth.panel_tier_routes`) — and nothing
+    else. The
     operator secret is never put back.
     """
     extra_env: dict[str, str] = {}
@@ -530,7 +535,7 @@ def _build_extra_env(
     if telemetry_session_id:
         extra_env["OSPREY_TELEMETRY_SESSION_ID"] = telemetry_session_id
         extra_env["OSPREY_TELEMETRY_SESSION_START"] = datetime.now(UTC).isoformat()
-    extra_env[PANEL_TOKEN_ENV] = get_web_credentials(websocket.app).panel_token
+    add_panel_token(extra_env, get_web_credentials(websocket.app).panel_token)
 
     # The posture ANCHORS — never the posture itself. Keyed on the pool key:
     # ``terminal_ws`` computes ``current_key = claude_session_id or
@@ -2921,9 +2926,25 @@ def _switch_state(record: Any, status: str, target: str) -> str | None:
 
 
 def _session_held(app: Any, session_id: str | None) -> bool:
-    """Whether the named session has an unanswered hold. BLOCKING; never raises."""
+    """Whether the named session has an unanswered hold. BLOCKING; never raises.
+
+    A key no session runs under, with nothing on disk, has not started: a Simple
+    tab names its session before its first prompt. It is not held, as the flags
+    route also says; writes still read ``is_held`` itself.
+    """
     root = session_hold_root_of(app)
-    return bool(session_id and root is not None and is_held(session_id, root=root))
+    if not session_id or root is None:
+        return False
+    try:
+        if (
+            is_safe_session_key(session_id)
+            and not session_is_live(app, session_id)
+            and has_no_record(session_id, root=root)
+        ):
+            return False
+    except Exception:  # undecided: fall through to the fail-closed read
+        logger.debug("not-started check for %r failed", session_id, exc_info=True)
+    return is_held(session_id, root=root)
 
 
 def _posture_view(

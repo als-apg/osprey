@@ -262,19 +262,24 @@ class TestFlags:
             "summarized",
         ]
 
-    def test_prompt_is_passed_as_the_opening_message(self, runner, launches, lifecycle_repo):
+    @pytest.mark.parametrize(
+        "prompt",
+        ["what is the beam current?", "what is the beam current"],
+        ids=["with-question-mark", "without-question-mark"],
+    )
+    def test_a_quoted_prompt_is_passed_as_the_opening_message(
+        self, runner, launches, lifecycle_repo, prompt
+    ):
         stub_build(lifecycle_repo)
 
-        result = runner.invoke(
-            chat, ["--repo", str(lifecycle_repo), "--print", "what is the beam current?"]
-        )
+        result = runner.invoke(chat, ["--repo", str(lifecycle_repo), "--print", prompt])
 
         assert result.exit_code == 0
         assert launches[0].argv[-4:] == [
             "--print",
             "--thinking-display",
             "summarized",
-            "what is the beam current?",
+            prompt,
         ]
 
     def test_an_unquoted_prompt_reaches_the_agent_as_one_message(
@@ -290,24 +295,6 @@ class TestFlags:
         result = runner.invoke(
             chat,
             ["--repo", str(lifecycle_repo), "--print", "what", "is", "the", "beam", "current"],
-        )
-
-        assert result.exit_code == 0
-        assert launches[0].argv[-4:] == [
-            "--print",
-            "--thinking-display",
-            "summarized",
-            "what is the beam current",
-        ]
-
-    def test_a_quoted_prompt_produces_the_same_single_argument(
-        self, runner, launches, lifecycle_repo
-    ):
-        """Quoted or not, the agent CLI is handed one identical positional."""
-        stub_build(lifecycle_repo)
-
-        result = runner.invoke(
-            chat, ["--repo", str(lifecycle_repo), "--print", "what is the beam current"]
         )
 
         assert result.exit_code == 0

@@ -648,8 +648,8 @@ class TestTheFacilityImportOfATwoZeroExport:
     ) -> None:
         """One ``rm`` line per file, and never ``classes.yaml``.
 
-        The preset ships no ``classes.yaml``, so the import seeds the tree's
-        own classes and the build reaches the limits records rather than
+        The preset's ``classes.yaml`` stays: the import appends the tree's own
+        classes to it, so the build reaches the limits records rather than
         stopping on a class nothing declares.
         """
         cleared = served_repo["cleared"]
@@ -659,8 +659,11 @@ class TestTheFacilityImportOfATwoZeroExport:
         assert f"{FACILITY_DIR}/records/channels.yaml" in cleared
         assert all(path.startswith(f"{FACILITY_DIR}/") for path in cleared)
         assert [path for path in cleared if path.startswith(f"{FACILITY_DIR}/scenarios/")] == []
-        assert not (PACKAGED_FACILITY / "classes.yaml").exists()
-        assert (facility / "classes.yaml").is_file()
+        assert f"{FACILITY_DIR}/classes.yaml" not in cleared
+        packaged = (PACKAGED_FACILITY / "classes.yaml").read_text(encoding="utf-8")
+        merged = (facility / "classes.yaml").read_text(encoding="utf-8")
+        assert merged.startswith(packaged)
+        assert len(merged) > len(packaged)
         assert (facility / "imported" / "mml" / "channels.yaml").is_file()
 
     def test_the_import_lists_the_stale_demo_scenarios_and_the_build_stops_until_they_are_gone(

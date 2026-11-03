@@ -28,7 +28,6 @@ import {
   BEHAVIOR_CATEGORY_REMAPS,
   BEHAVIOR_PINNED_CATEGORIES,
   SAFETY_CATEGORIES,
-  SAFETY_PINNED_CATEGORIES,
   CONFIG_NAMES,
   cardDisplayName,
 } from './scaffold/utils.js';
@@ -480,7 +479,7 @@ const REVEAL_MAX_POLLS = 50;
  * openDrawerTab, hence the first-time warning gate. Degrades quietly -- the
  * tab left open on its grid -- when the gate is declined, the switch is
  * vetoed, the gallery does not load, or the file is not in it.
- * @param {string} name   canonical artifact name, e.g. 'code-review/rules'
+ * @param {string} name   canonical artifact name, e.g. 'hooks/approval'
  * @param {string} tabId  the drawer tab whose gallery shows it
  * @returns {Promise<void>}
  */
@@ -541,9 +540,6 @@ export function initScaffoldGallery() {
   const safetyGallery = new ArtifactGallery({
     container: safetyGalleryContainer,
     categoryFilter: (a) => SAFETY_CATEGORIES.has(a.category),
-    // Pinned so neither section opens collapsed: two short sections are the
-    // whole tab, and the reviewer's rules are short enough to lead it.
-    options: { pinnedCategories: SAFETY_PINNED_CATEGORIES },
   });
 
   const configGallery = configGallerySection

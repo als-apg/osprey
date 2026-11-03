@@ -167,10 +167,14 @@ describe('theme-manager.js under an opaque origin', () => {
     vi.unstubAllGlobals();
   });
 
-  /** Make this window an opaque document embedded by `hub`. */
+  /**
+   * Make this window an opaque document embedded by `hub`. Its effective origin
+   * (`self.origin`) is "null" while its URL keeps the server's origin, as on a
+   * page a CSP header sandboxes.
+   */
   function becomeOpaqueFrame() {
     const hub = { postMessage: vi.fn() };
-    vi.spyOn(window.location, 'origin', 'get').mockReturnValue('null');
+    vi.stubGlobal('origin', 'null');
     vi.stubGlobal('parent', hub);
     vi.spyOn(window, 'localStorage', 'get').mockImplementation(() => {
       throw new DOMException('opaque origin', 'SecurityError');

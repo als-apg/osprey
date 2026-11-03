@@ -234,6 +234,36 @@ async def test_a_live_other_terminal_is_followed_and_never_written_over(
     assert app.state.control_context_follows.port == 8090
 
 
+async def test_a_terminal_claims_a_record_whose_owner_pid_is_another_users_process(
+    control_context_root, write_control_context, liveness, monkeypatch
+):
+    """A record from the previous container must not be followed for ever.
+
+    The PID it names is alive here too — the container's init, run by root —
+    so liveness alone would make this terminal a follower of a process that
+    will never answer a switch request and never exit.
+    """
+    liveness.add(OTHER_TERMINAL_PID)
+    monkeypatch.setattr(
+        control_context, "is_foreign_process", lambda pid: pid == OTHER_TERMINAL_PID
+    )
+    write_control_context(
+        control_context_root,
+        target="va",
+        generation=5,
+        owned_by=fixtures.owner(pid=OTHER_TERMINAL_PID, port=8090),
+    )
+
+    app = make_app()
+    await make_task(app).tick_once()
+
+    stored = read(control_context_root)
+    assert stored is not None
+    assert (stored.target, stored.generation) == ("va", 5)
+    assert stored.owner == terminal_identity()
+    assert app.state.control_context_follows is None
+
+
 async def test_a_follower_takes_the_record_the_moment_the_other_terminal_goes(
     control_context_root, write_control_context, liveness
 ):

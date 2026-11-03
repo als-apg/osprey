@@ -344,13 +344,23 @@ def test_connector_shorthand_writes_the_control_system_key(runner, lifecycle_rep
     assert "config.control_system.type" in result.output
 
 
-def test_unknown_connector_is_refused_and_writes_nothing(runner, lifecycle_repo):
+@pytest.mark.parametrize(
+    ("pair", "message"),
+    [
+        ("connector=epcis", "Unknown connector"),
+        # The same refusal materialization makes: a repo profile inherits nothing.
+        ("extends=../other/profile.yml", "Cannot override 'extends'"),
+        ("model", "KEY=VALUE"),
+    ],
+    ids=["unknown-connector", "extends", "pair-without-equals"],
+)
+def test_a_refused_pair_writes_nothing(runner, lifecycle_repo, pair, message):
     before = _profile_text(lifecycle_repo)
 
-    result = _invoke(runner, lifecycle_repo, "connector=epcis")
+    result = _invoke(runner, lifecycle_repo, pair)
 
     assert result.exit_code != 0
-    assert "Unknown connector" in result.stderr
+    assert message in result.stderr
     assert _profile_text(lifecycle_repo) == before
 
 
@@ -447,27 +457,6 @@ def test_outside_a_repo_is_refused(runner, tmp_path, monkeypatch):
     assert result.exit_code != 0
     assert "No OSPREY deployment repo found" in result.stderr
     assert "profile.yml" in result.stderr
-
-
-def test_extends_is_refused(runner, lifecycle_repo):
-    """The same refusal materialization makes: a repo profile inherits nothing."""
-    before = _profile_text(lifecycle_repo)
-
-    result = _invoke(runner, lifecycle_repo, "extends=../other/profile.yml")
-
-    assert result.exit_code != 0
-    assert "Cannot override 'extends'" in result.stderr
-    assert _profile_text(lifecycle_repo) == before
-
-
-def test_pair_without_equals_is_refused(runner, lifecycle_repo):
-    before = _profile_text(lifecycle_repo)
-
-    result = _invoke(runner, lifecycle_repo, "model")
-
-    assert result.exit_code != 0
-    assert "KEY=VALUE" in result.stderr
-    assert _profile_text(lifecycle_repo) == before
 
 
 def test_one_bad_pair_writes_none_of_them(runner, lifecycle_repo):

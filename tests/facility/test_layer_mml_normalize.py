@@ -22,27 +22,29 @@ from osprey.facility.layers.mml.normalize import normalize_family
 class TestChannelKeysAndFamilyArrays:
     """Bare strings and blank slots under channel keys and family arrays."""
 
-    def test_bare_channel_name_becomes_one_slot_list(self):
-        """A non-empty bare string under ChannelNames becomes a one-slot list."""
-        assert normalize_family({"Monitor": {"ChannelNames": "PV"}}) == {
-            "Monitor": {"ChannelNames": ["PV"]}
-        }
+    @pytest.mark.parametrize(
+        ("key", "bare", "slots"),
+        [
+            # A non-empty bare string under ChannelNames becomes a one-slot list.
+            pytest.param("ChannelNames", "PV", ["PV"], id="bare-channel-name"),
+            # TangoNames is a channel key like ChannelNames.
+            pytest.param("TangoNames", "a/b/c", ["a/b/c"], id="tango-names"),
+        ],
+    )
+    def test_bare_channel_name_becomes_one_slot_list(self, key, bare, slots):
+        assert normalize_family({"Monitor": {key: bare}}) == {"Monitor": {key: slots}}
 
-    def test_tango_names_follow_the_same_rule(self):
-        """TangoNames is a channel key like ChannelNames."""
-        assert normalize_family({"Monitor": {"TangoNames": "a/b/c"}}) == {
-            "Monitor": {"TangoNames": ["a/b/c"]}
-        }
-
-    def test_empty_bare_channel_string_becomes_empty_list(self):
-        """An empty bare string is the JSON exporter's spelling of an empty char."""
-        assert normalize_family({"Monitor": {"ChannelNames": ""}}) == {
-            "Monitor": {"ChannelNames": []}
-        }
-
-    def test_whitespace_bare_channel_string_becomes_empty_list(self):
-        """A whitespace-only bare string is also an empty char."""
-        assert normalize_family({"Monitor": {"ChannelNames": "   "}}) == {
+    @pytest.mark.parametrize(
+        "bare",
+        [
+            # An empty bare string is the JSON exporter's spelling of an empty char.
+            pytest.param("", id="empty"),
+            # A whitespace-only bare string is also an empty char.
+            pytest.param("   ", id="whitespace"),
+        ],
+    )
+    def test_empty_bare_channel_string_becomes_empty_list(self, bare):
+        assert normalize_family({"Monitor": {"ChannelNames": bare}}) == {
             "Monitor": {"ChannelNames": []}
         }
 
@@ -246,16 +248,18 @@ class TestFunctionHandles:
             "Anything": {"$fn": "k2amp", "file": None}
         }
 
-    def test_bare_string_under_fcn_key(self):
-        """A bare string under a *Fcn key is the handle's name."""
-        assert normalize_family({"Setpoint": {"Physics2HWFcn": "k2amp"}}) == {
-            "Setpoint": {"Physics2HWFcn": {"$fn": "k2amp", "file": None}}
-        }
-
-    def test_integer_one_under_fcn_key(self):
-        """The integer 1 under a *Fcn key is an anonymous handle."""
-        assert normalize_family({"Setpoint": {"HW2PhysicsFcn": 1}}) == {
-            "Setpoint": {"HW2PhysicsFcn": {"$fn": None, "file": None}}
+    @pytest.mark.parametrize(
+        ("key", "value", "fn"),
+        [
+            # A bare string under a *Fcn key is the handle's name.
+            pytest.param("Physics2HWFcn", "k2amp", "k2amp", id="bare-string"),
+            # The integer 1 under a *Fcn key is an anonymous handle.
+            pytest.param("HW2PhysicsFcn", 1, None, id="integer-one"),
+        ],
+    )
+    def test_bare_value_under_fcn_key(self, key, value, fn):
+        assert normalize_family({"Setpoint": {key: value}}) == {
+            "Setpoint": {key: {"$fn": fn, "file": None}}
         }
 
     def test_bare_string_under_other_key_is_not_a_handle(self):

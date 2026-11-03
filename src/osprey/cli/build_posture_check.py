@@ -575,7 +575,7 @@ def check_code_review(
             "profile-invalid",
             "code_review.prompt",
             [PROFILE_FILENAME],
-            f"point `code_review.prompt` in {PROFILE_FILENAME} at a readable file under "
+            f"point `code_review.prompt` in {PROFILE_FILENAME} at a readable, non-empty file under "
             "the profile's source files, such as `data/`, outside the agent's data root",
             record_kind="path",
             detail=str(exc),

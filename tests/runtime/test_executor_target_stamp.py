@@ -120,7 +120,7 @@ def write_report(
         "targets": {},
         "updated_at": datetime.now(UTC).isoformat(),
     }
-    path = control_context._report_path_under(root, pid)
+    path = control_context.report_path_under(root, pid)
     path.write_text(json.dumps(payload), encoding="utf-8")
     control_context.invalidate_cache()
     return path
@@ -851,26 +851,25 @@ class TestSandboxRouting:
     """The stamp, not ``control_system.type``, selects the connector block."""
 
     @pytest.mark.usefixtures("fake_registry", "clear_runtime_state")
-    def test_va_stamp_builds_the_virtual_accelerator_block(self, monkeypatch):
-        monkeypatch.setenv("OSPREY_CONTROL_TARGET", "va")
+    @pytest.mark.parametrize(
+        ("target", "timeout_s"),
+        [
+            # 9.0 is the VA block's timeout: reaching it proves the factory read
+            # control_system.connector.virtual_accelerator and not the epics block.
+            pytest.param("va", 9.0, id="va-builds-the-virtual-accelerator-block"),
+            pytest.param("live", 1.0, id="live-builds-the-deployments-real-machine-block"),
+        ],
+    )
+    def test_the_stamp_selects_the_connector_block_of_its_target(
+        self, monkeypatch, target, timeout_s
+    ):
+        monkeypatch.setenv("OSPREY_CONTROL_TARGET", target)
 
         import osprey.runtime as runtime
 
         asyncio.run(runtime._get_connector())
 
-        # 9.0 is the VA block's timeout: reaching it proves the factory read
-        # control_system.connector.virtual_accelerator and not the epics block.
-        assert _FakeConnector.last_config == {"timeout_s": 9.0}
-
-    @pytest.mark.usefixtures("fake_registry", "clear_runtime_state")
-    def test_live_stamp_builds_the_deployments_real_machine_block(self, monkeypatch):
-        monkeypatch.setenv("OSPREY_CONTROL_TARGET", "live")
-
-        import osprey.runtime as runtime
-
-        asyncio.run(runtime._get_connector())
-
-        assert _FakeConnector.last_config == {"timeout_s": 1.0}
+        assert _FakeConnector.last_config == {"timeout_s": timeout_s}
 
     @pytest.mark.usefixtures("clear_stamp", "fake_registry", "clear_runtime_state")
     def test_unstamped_resolution_is_unchanged(self):

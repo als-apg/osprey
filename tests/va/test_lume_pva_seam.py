@@ -154,6 +154,10 @@ SAFETY = {
     "control_pvs": False,
 }
 
+#: The display precision a float channel stating none is served, spelled out
+#: like :data:`SAFETY`.
+FLOAT_PRECISION = 4
+
 #: (severity, status) of an undefined output on each wire.
 CA_UDF = (3, 17)
 PVA_UDF = (3, 6)
@@ -953,8 +957,9 @@ def _assert_safety_config(
             assert entry.get("value_range") == band, address
         else:
             assert "value_range" not in entry, address
-        if channel.get("value_type", "float") == "float" and channel.get("precision") is not None:
-            assert entry["precision"] == channel["precision"], address
+        if channel.get("value_type", "float") == "float":
+            stated = channel.get("precision")
+            assert entry["precision"] == (FLOAT_PRECISION if stated is None else stated), address
         else:
             assert "precision" not in entry, address
 
@@ -1012,6 +1017,23 @@ class TestNamesServedVerbatim:
         assert _caput(SR_SETPOINT, 13.0)
         echo = _ca(SR_READBACK)
         assert (echo["value"], (echo["severity"], echo["status"])) == (13.0, NO_ALARM)
+
+    def test_every_served_ca_record_has_a_value_at_attach(self, names_server: _Server) -> None:
+        """No Channel Access record is served undefined because nothing has posted it.
+
+        The CA server creates every record in the ``UDF``/``INVALID`` alarm
+        state and keeps it there until the record is posted once; a client
+        write posts it, and so does a value source, but a setpoint nobody
+        writes and its echoed readback have neither. The start-up pass is what
+        posts them. The set checked is every channel the view serves, not a
+        hand-picked list, so a channel added to the tree is held to this too;
+        ``BTS_SETPOINT`` and its readback are written by no test in this class.
+        """
+        assert names_server.channels, "the view serves no channel"
+        for address in names_server.channels:
+            reading = _ca(address)
+            assert reading["value"] is not None, address
+            assert (reading["severity"], reading["status"]) == NO_ALARM, address
 
     def test_the_applied_config_holds_the_safety_keys_and_the_limits_bands(
         self, names_server: _Server, names_build: BuiltProject
@@ -1292,6 +1314,8 @@ class TestStubComposite:
         assert config["variables"][STUB_RANGE]["precision"] == STUB_PRECISION
         assert _ca_precision(STUB_RANGE) == STUB_PRECISION
         assert int(stub_server.pva_get(STUB_RANGE)["display.precision"]) == STUB_PRECISION
+        # A float channel stating no precision is served the default, not CA's 0.
+        assert _ca_precision(STUB_SETPOINT) == FLOAT_PRECISION
 
     def test_a_failed_childs_bool_and_enum_outputs_are_invalid(self, stub_server: _Server) -> None:
         for address in (STUB_FLAG, STUB_MODE):

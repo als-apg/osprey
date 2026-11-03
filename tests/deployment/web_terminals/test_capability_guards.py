@@ -79,13 +79,21 @@ def _messages(findings: list[Any], code: str) -> list[str]:
 class TestRenderPrivileges:
     """What :func:`tier_privileges` reads, and how it leans when unsure."""
 
-    def test_base_tier_holds_none(self):
-        """The floor the bundled base sets: tool denied, panel and gallery writes off."""
+    @pytest.mark.parametrize(
+        "panel_enabled",
+        [
+            # The floor the bundled base sets: tool denied, panel and gallery writes off.
+            pytest.param(False, id="base-tier"),
+            # The server honours `"false"`; reading it as truthy would refuse a safe config.
+            pytest.param("false", id="quoted-boolean"),
+        ],
+    )
+    def test_a_tier_with_the_panel_off_holds_none(self, panel_enabled):
         assert (
             tier_privileges(
                 {
                     "claude_code.permissions.deny": [SETUP_TOOL],
-                    "web.config_panel.enabled": False,
+                    "web.config_panel.enabled": panel_enabled,
                     **GALLERY_OFF,
                 }
             )
@@ -167,19 +175,6 @@ class TestRenderPrivileges:
     def test_empty_layers_hold_every_door(self):
         """Nothing said about any key is the un-gated default on every door."""
         assert tier_privileges() == ALL_PRIVILEGES
-
-    def test_quoted_boolean_turns_the_panel_off(self):
-        """The server honours `"false"`; reading it as truthy would refuse a safe config."""
-        assert (
-            tier_privileges(
-                {
-                    "claude_code.permissions.deny": [SETUP_TOOL],
-                    "web.config_panel.enabled": "false",
-                    **GALLERY_OFF,
-                }
-            )
-            == ()
-        )
 
     def test_unreadable_panel_value_leaves_the_panel_on(self):
         """The server discards it and keeps its default, which is ON — so this does too."""

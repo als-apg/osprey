@@ -23,6 +23,7 @@ import sys
 import pytest
 
 from osprey.deployment.web_terminals.ports import FAMILY_BASE_FIELDS
+from osprey.profiles import sidecar_panels, web_panels
 from osprey.profiles.web_panels import (
     BUILTIN_PANEL_LABELS,
     BUILTIN_PANELS,
@@ -34,10 +35,51 @@ from osprey.registry.web import PANEL_ID_TO_REGISTRY_KEY, panel_url_state_attr
 SIDECAR_IDS = sorted(SIDECAR_PANELS)
 
 
-def test_the_notebooks_panel_is_the_registered_sidecar():
-    """The one entry, pinned so the id and its label cannot drift apart."""
-    assert SIDECAR_IDS == ["jupyter"]
+def test_the_notebooks_and_canopy_panels_are_the_registered_sidecars():
+    """The two entries, pinned so each id and its label cannot drift apart."""
+    assert SIDECAR_IDS == ["canopy", "jupyter"]
     assert BUILTIN_PANEL_LABELS["jupyter"] == "JUPYTER"
+    assert BUILTIN_PANEL_LABELS["canopy"] == "CANOPY"
+
+
+def test_the_notebooks_panel_keeps_the_first_row():
+    """Registry order is sidebar order: a sidecar added later sits after the notebooks."""
+    assert list(SIDECAR_PANELS) == ["jupyter", "canopy"]
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "SidecarPanel",
+        "SIDECAR_PANELS",
+        "JUPYTER_PANEL_ID",
+        "ApplicationPanel",
+        "PanelRegistry",
+        "SIDECAR_REGISTRY",
+    ],
+)
+def test_the_panel_module_re_exports_the_leaf_registry(name):
+    """One registry under two names. A test that adds a panel through
+    ``web_panels.SIDECAR_PANELS`` has to reach a reader that imported the leaf,
+    which a copy of the mapping would not."""
+    assert getattr(web_panels, name) is getattr(sidecar_panels, name)
+
+
+def test_the_notebooks_panel_declares_no_agent_surface():
+    """It serves no MCP transport, so every field a panel opts in with is at
+    its default."""
+    panel = SIDECAR_PANELS["jupyter"]
+
+    assert panel.mcp_path is None
+    assert panel.agent_hop is False
+    assert (panel.mcp_allow, panel.mcp_ask, panel.mcp_writes) == ((), (), ())
+
+
+def test_a_panel_waits_for_nothing_on_stop_unless_it_says_so():
+    """The notebooks panel gives jupyter-server its kernels' shutdown; a panel
+    that declares nothing is stopped without a wait."""
+    assert sidecar_panels.SidecarPanel("x", "a:b").stop_grace_s == 0
+    assert SIDECAR_PANELS["jupyter"].stop_grace_s == 5
 
 
 @pytest.mark.parametrize("panel_id", SIDECAR_IDS)
@@ -102,3 +144,33 @@ def test_importing_the_package_does_not_build_the_web_application():
     assert imported == "False", "importing the package built the web application"
     # …and the lazy export still resolves to the real function.
     assert run_web_module == "osprey.interfaces.web_terminal.app"
+
+
+def test_the_sidecar_registry_opens_each_opted_in_transport_on_three_verbs():
+    """A sidecar that sets ``agent_hop`` opens ``GET|POST|DELETE`` on its MCP path, no more."""
+    expected = {
+        (method, f"/panel/{panel_id}{panel.mcp_path}")
+        for panel_id, panel in SIDECAR_PANELS.items()
+        if panel.agent_hop and panel.mcp_path
+        for method in ("GET", "POST", "DELETE")
+    }
+
+    assert expected
+    assert sidecar_panels.SIDECAR_REGISTRY.agent_routes() == expected
+
+
+def test_an_application_route_composes_under_its_panel():
+    registry = sidecar_panels.PanelRegistry(
+        {}, {"knob": sidecar_panels.ApplicationPanel("knob", (("post", "/api/write"),))}
+    )
+
+    assert registry.agent_routes() == {("POST", "/panel/knob/api/write")}
+
+
+def test_an_application_route_without_a_leading_slash_adds_nothing():
+    """Spliced onto the id, ``knobapi/write`` would name a route below another panel id."""
+    registry = sidecar_panels.PanelRegistry(
+        {}, {"knob": sidecar_panels.ApplicationPanel("knob", (("POST", "api/write"),))}
+    )
+
+    assert registry.agent_routes() == frozenset()

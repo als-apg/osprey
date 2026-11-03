@@ -78,8 +78,9 @@ Trust boundaries
 **The proxy write refusal.** On a login that does not arm the application, the terminal's proxy
 refuses every write method and every WebSocket to its panel before anything leaves the terminal:
 ``refused: login '<login>' does not arm application '<app>' for writes``. The agent reaches a
-backend only at the routes the manifest declares as ``agent_routes``, and such a login holds only
-the safe-method ones. The refusal reads the tier, not the switch; a write that passes meets the
+backend only at the routes the manifest declares as ``agent_routes``, which are what the
+terminal's panel registry admits on the panel token, and such a login holds only the safe-method
+ones. The refusal reads the tier, not the switch; a write that passes meets the
 switch further down.
 
 **The shell gate.** An agent with a shell could read a launch token from its environment or call

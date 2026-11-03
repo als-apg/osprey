@@ -169,24 +169,22 @@ def test_the_fallback_is_fetched_without_the_worker_token():
     assert "Authorization" not in public_seen[0].headers
 
 
-def test_an_object_served_with_no_content_type_reports_no_served_type():
-    # Absent is reported as absent, never guessed from the bytes: the engine admits only a
-    # provably-PNG artifact, so an unknown type must skip rather than slip through.
+@pytest.mark.parametrize(
+    ("served", "expected"),
+    [
+        # Absent is reported as absent, never guessed from the bytes: the engine admits only a
+        # provably-PNG artifact, so an unknown type must skip rather than slip through.
+        pytest.param(None, None, id="no-content-type-reports-no-served-type"),
+        pytest.param("Image/PNG; charset=binary", "image/png", id="normalized-to-a-bare-mime"),
+    ],
+)
+def test_the_served_type_is_reported_as_a_bare_mime_or_not_at_all(served, expected):
     result, _, _ = fetch(
         worker_serving({}),
-        gcs_serving({PUBLIC_URL: (GCS_BYTES, None)}),
+        gcs_serving({PUBLIC_URL: (GCS_BYTES, served)}),
     )
 
-    assert result == FetchedArtifact(data=GCS_BYTES, content_type=None)
-
-
-def test_the_served_type_is_normalized_to_a_bare_mime():
-    result, _, _ = fetch(
-        worker_serving({}),
-        gcs_serving({PUBLIC_URL: (GCS_BYTES, "Image/PNG; charset=binary")}),
-    )
-
-    assert result == FetchedArtifact(data=GCS_BYTES, content_type="image/png")
+    assert result == FetchedArtifact(data=GCS_BYTES, content_type=expected)
 
 
 def test_a_worker_body_over_budget_still_falls_back_to_the_published_url():

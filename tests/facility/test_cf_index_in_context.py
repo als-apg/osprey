@@ -25,7 +25,7 @@ from osprey.facility.views.channel_finder import (
     in_context_selected,
     write_in_context,
 )
-from tests.facility.test_cf_view_parity import load_golden
+from tests.facility.test_cf_view_parity import IN_CONTEXT_ADDITIONS, load_golden
 
 if TYPE_CHECKING:
     from tests.facility.conftest import BuiltProject
@@ -200,7 +200,7 @@ def test_a_facility_with_no_channel_stops_with_view_unsupported(tmp_path: Path) 
 
 
 @pytest.mark.slow
-def test_the_demo_index_holds_the_569_golden_rows(
+def test_the_demo_index_holds_the_569_golden_rows_and_the_declared_additions(
     built_control_assistant: BuiltProject, tmp_path: Path
 ) -> None:
     golden = load_golden("in_context_size.json")
@@ -208,10 +208,13 @@ def test_the_demo_index_holds_the_569_golden_rows(
 
     document = json.loads(target.read_bytes())
     rows = document["channels"]
+    addresses = {row["address"] for row in rows}
+    golden_addresses = {row["address"] for row in golden["rows"]}
 
-    assert len(rows) == golden["size"] == 569
-    assert document["count"] == 569
-    assert {row["address"] for row in rows} == {row["address"] for row in golden["rows"]}
+    assert golden["size"] == 569
+    assert len(rows) == document["count"] == 569 + len(IN_CONTEXT_ADDITIONS) == 571
+    assert golden_addresses <= addresses
+    assert addresses - golden_addresses == set(IN_CONTEXT_ADDITIONS)
     assert all(row["channel"] == row["address"] for row in rows)
     assert all(row["description"] for row in rows)
 

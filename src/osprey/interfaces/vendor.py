@@ -194,13 +194,16 @@ def _normalized(directory: str) -> str:
     return directory.strip().strip("/")
 
 
-def _entries(manifest: dict[str, Any]) -> list[tuple[str, str, str, str, str]]:
-    """Every file the manifest delivers, as ``(base, dir, filename, url, sha256)``."""
-    entries: list[tuple[str, str, str, str, str]] = []
+def _entries(manifest: dict[str, Any]) -> list[tuple[str, str, str, str | None, str]]:
+    """Every file the manifest delivers, as ``(base, dir, filename, url, sha256)``.
+
+    A committed asset (a ``source`` record) has no ``url``; its entry carries ``None``.
+    """
+    entries: list[tuple[str, str, str, str | None, str]] = []
     for asset in manifest.get("assets", []):
         for target in asset["targets"]:
             base, directory = _target_spec(target)
-            entries.append((base, directory, asset["filename"], asset["url"], asset["sha256"]))
+            entries.append((base, directory, asset["filename"], asset.get("url"), asset["sha256"]))
     for bundle in manifest.get("font_bundles", []):
         base, directory = _target_spec(bundle["target"])
         for filename, sha256 in bundle["files"].items():
@@ -209,8 +212,8 @@ def _entries(manifest: dict[str, Any]) -> list[tuple[str, str, str, str, str]]:
 
 
 def _select(
-    entries: list[tuple[str, str, str, str, str]], targets: Sequence[str] | None
-) -> list[tuple[str, str, str, str, str]]:
+    entries: list[tuple[str, str, str, str | None, str]], targets: Sequence[str] | None
+) -> list[tuple[str, str, str, str | None, str]]:
     """The entries whose target directory is one of ``targets``; all when ``None``.
 
     Directories compare without leading/trailing slashes. A requested directory
@@ -230,6 +233,15 @@ def _select(
     return [entry for entry in entries if _normalized(entry[1]) in wanted]
 
 
+def _committed_asset_problem(asset: dict[str, Any], target: str) -> str:
+    """Why a committed asset (a ``source`` record, no ``url``) cannot be fetched."""
+    src = asset["source"]
+    return (
+        f"{target}{asset['filename']} is committed, not fetched, and is missing or changed. "
+        f"Re-copy {src['path']} from {src['repo']} at {src['commit']}."
+    )
+
+
 def fetch_all(
     base_dir: Path | None = None,
     quiet: bool = False,
@@ -240,6 +252,8 @@ def fetch_all(
     """Download the vendor assets declared in the manifest.
 
     Idempotent: skips files that already exist with a matching checksum.
+    An asset with a ``source`` record and no ``url`` is committed in the
+    package; it is never fetched, and a missing or changed copy is an error.
     Returns list of files that were actually downloaded (not skipped).
 
     ``insecure`` skips TLS cert verification (SHA256 still enforced). If
@@ -257,12 +271,16 @@ def fetch_all(
     if insecure is None:
         insecure = bool(os.environ.get("OSPREY_VENDOR_INSECURE"))
 
-    selected = _select(_entries(_load_manifest()), targets)
+    manifest = _load_manifest()
+    selected = _select(_entries(manifest), targets)
     downloaded: list[str] = []
     for base, directory, filename, url, sha256 in selected:
         dest = roots[base] / directory / filename
         if dest.exists() and _sha256(dest) == sha256:
             continue
+        if url is None:
+            (asset,) = [a for a in manifest["assets"] if a["filename"] == filename]
+            raise RuntimeError(_committed_asset_problem(asset, directory))
         if not quiet:
             print(f"  {filename} → {directory}")
         _fetch_one(url, dest, sha256, insecure=insecure)
@@ -528,7 +546,7 @@ def asset_cdn_url(name: str) -> str:
     catches typos at Jinja render time rather than producing broken ``src``.
     """
     for asset in _load_manifest().get("assets", []):
-        if asset.get("name") == name:
+        if asset.get("name") == name and "url" in asset:
             url: str = asset["url"]
             return url
     raise KeyError(

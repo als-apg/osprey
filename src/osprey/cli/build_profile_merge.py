@@ -1000,7 +1000,7 @@ def shared_login_names(host: dict[str, Any]) -> frozenset[str]:
     """The logins the host's ``modules.web_terminals.shared`` names.
 
     Every roster login opens these, so each one is sealed read-only
-    (:func:`seal_shared_render`). Read from the host's resolved ``config:`` in
+    (:func:`seal_login_render`). Read from the host's resolved ``config:`` in
     any spelling; an item that names no login (:func:`shared_app_name`) names
     nothing.
 
@@ -1063,63 +1063,111 @@ def _judge_shared_posture(
         )
 
 
-def _host_guard_wiring(config: dict[str, Any]) -> dict[str, Any]:
-    """The host's hook wiring every ``lists: own`` login keeps: its guards, and nothing else.
+def _without_host_hook_wiring(config: dict[str, Any]) -> dict[str, Any]:
+    """The host's config facts a ``lists: own`` login keeps, without its hook wiring.
 
-    Guards are a floor, the way the host's floor denies are: a
-    ``claude_code.hooks.PreToolUse`` declaration in force on the host reaches
-    every narrow render, inert where no tool it matches is present, so a
-    login can add a guard but never drop one by omission. A declaration on any
-    other event is the host's own; a narrow login runs it only when its own
-    ``config:`` declares it.
+    Every ``claude_code.hooks`` declaration leaves, ``PreToolUse`` included. A
+    declaration on any other event is the host's own, which a narrow login runs
+    only when its own ``config:`` declares it. The host's guards are not handed
+    over here: the seal (:func:`seal_login_render`) declares them, so a
+    composed and an edited render take the floor from one place.
 
     Args:
         config: The host's config facts, ``claude_code`` keys fully dotted.
 
     Returns:
-        A copy of *config* without the non-guard declarations; an event left
-        with none is dropped.
+        A copy of *config* without any hook declaration.
     """
-    from .profile_conventions import GUARD_EVENT
-
     prefix = f"{_CLAUDE_CODE_SECTION}.hooks"
-    kept: dict[str, Any] = {}
-    for key, value in config.items():
-        if key == prefix and isinstance(value, dict):
-            guards = value.get(GUARD_EVENT)
-            if isinstance(guards, list) and guards:
-                kept[f"{prefix}.{GUARD_EVENT}"] = guards
-        elif key.startswith(f"{prefix}."):
-            if key == f"{prefix}.{GUARD_EVENT}":
-                kept[key] = value
-        else:
-            kept[key] = value
-    return kept
+    return {
+        key: value
+        for key, value in config.items()
+        if key != prefix and not key.startswith(f"{prefix}.")
+    }
 
 
-def _guard_floor(host_hooks: Any, login_hooks: Any, *, writes_check: bool) -> list[Any]:
+@dataclass(frozen=True)
+class GuardFloor:
+    """The host guards every login render keeps, whatever composes or edits it.
+
+    Attributes:
+        hooks: The host's ``hooks:`` entries that select a library guard, as
+            the host spells them — the deployment's replacement file where the
+            host names one.
+        wiring: The host's ``claude_code.hooks.PreToolUse`` declarations (its
+            facility guards).
+    """
+
+    hooks: tuple[Any, ...] = ()
+    wiring: tuple[Any, ...] = ()
+
+    @classmethod
+    def of(cls, host: dict[str, Any]) -> GuardFloor:
+        """The floor *host*, a resolved root profile, sets for its logins."""
+        from .profile_conventions import GUARD_EVENT, library_guard_hooks, library_selection
+
+        guards = library_guard_hooks()
+        host_hooks = host.get("hooks")
+        hooks = tuple(
+            entry
+            for entry in (host_hooks if isinstance(host_hooks, list) else [])
+            if (names := library_selection("hooks", [entry])) and names[0] in guards
+        )
+        config = host.get("config")
+        flat = _flatten_section(config if isinstance(config, dict) else {}, _CLAUDE_CODE_SECTION)
+        wiring = flat.get(f"{_CLAUDE_CODE_SECTION}.hooks.{GUARD_EVENT}")
+        return cls(hooks, tuple(wiring) if isinstance(wiring, list) else ())
+
+
+def _guard_floor(floor: GuardFloor, hooks: Any) -> list[Any]:
     """The login's ``hooks:`` list with every host library guard it omits appended.
 
     A guard is a library hook on :data:`~osprey.cli.profile_conventions.GUARD_EVENT`
     (approval, the kill switch, limits, the memory guard). Each one the host
-    selects reaches the login as the host spells it — the deployment's
-    replacement file where the host names one — unless the login selects it
-    already, in either spelling. With *writes_check*, the kill switch is
-    pinned whatever the host says: a shared login can never write.
+    selects reaches the login as the host spells it unless the login selects
+    it already, in either spelling. The kill switch is not part of the floor:
+    only a shared login's seal pins it.
     """
-    from .profile_conventions import library_guard_hooks, library_selection
+    from .profile_conventions import library_selection
 
-    hooks = list(login_hooks) if isinstance(login_hooks, list) else []
-    selected = set(library_selection("hooks", hooks))
-    guards = library_guard_hooks()
-    for entry in host_hooks if isinstance(host_hooks, list) else []:
-        names = library_selection("hooks", [entry])
-        if names and names[0] in guards and names[0] not in selected:
-            hooks.append(entry)
-            selected.add(names[0])
-    if writes_check and _WRITES_CHECK_HOOK not in selected:
-        hooks.append(_WRITES_CHECK_HOOK)
-    return hooks
+    kept = list(hooks) if isinstance(hooks, list) else []
+    selected = set(library_selection("hooks", kept))
+    for entry in floor.hooks:
+        name = library_selection("hooks", [entry])[0]
+        if name not in selected:
+            kept.append(entry)
+            selected.add(name)
+    return kept
+
+
+def _guard_wiring_floor(floor: GuardFloor, config: dict[str, Any]) -> dict[str, Any]:
+    """*config* with every host facility guard it omits declared again.
+
+    The ``claude_code`` section is flattened first, so a nested and a dotted
+    spelling are one path; a key above the guard path is dropped, since the
+    only thing it can hold there is a value that would erase the floor (an
+    empty mapping, or no mapping at all). A declaration *config* already
+    carries is not added again: a merged login holds the host's guards
+    already, and a mapping spelling is a group in the rendered settings, so a
+    second copy would bind the hook twice.
+    """
+    from .profile_conventions import GUARD_EVENT
+
+    if not floor.wiring:
+        return config
+    key = f"{_CLAUDE_CODE_SECTION}.hooks.{GUARD_EVENT}"
+    flat = {
+        k: v
+        for k, v in _flatten_section(config, _CLAUDE_CODE_SECTION).items()
+        if not key.startswith(f"{k}.")
+    }
+    declared = flat.get(key)
+    merged = list(floor.wiring)
+    for entry in declared if isinstance(declared, list) else []:
+        if entry not in merged:
+            merged.append(entry)
+    flat[key] = merged
+    return flat
 
 
 def _without_null_model(layer: dict[str, Any]) -> dict[str, Any]:
@@ -1139,11 +1187,11 @@ def compose_own_render(
     inherited. Its ``config:`` sits over the host's facts — the host's config
     minus every ``claude_code.servers`` switch (the login states its own
     server set), minus the host's ``remove_deny`` lifts (which grant the host's
-    own render), and minus every ``claude_code.hooks`` declaration on an event
-    other than ``PreToolUse``; ``claude_code.permissions`` is otherwise kept, so
+    own render), and minus every ``claude_code.hooks`` declaration (the seal
+    declares the host's guards); ``claude_code.permissions`` is otherwise kept, so
     the host's floor denies union with the login's own. Under *shared* the
     host's write-posture and deployment-edit-door switches are stripped too,
-    for :func:`seal_shared_render` to pin; a non-shared narrow login keeps the
+    for :func:`seal_login_render` to pin; a non-shared narrow login keeps the
     host's. The login's ``mcp_servers`` are added to the host's. A ``model:``
     the login names replaces the host's, served by the host's provider. The
     login's other keys — ``lists``, its ``apps:`` selection, ``panel_presets``
@@ -1154,11 +1202,12 @@ def compose_own_render(
     (:data:`~osprey.cli.build_profile_document.RENDER_KEYS`) are the file's,
     read by the render projection, whatever ``lists`` says.
 
-    Guards are a floor: every ``PreToolUse`` hook in force on the host — a
-    library guard its ``hooks:`` selects, or a facility guard its
-    ``claude_code.hooks.PreToolUse`` declares — reaches the login whatever its
-    own list says, so a narrow login adds guards but never drops one by
-    omission.
+    Guards are a floor, which the seal applies (:func:`seal_login_render`):
+    every ``PreToolUse`` hook in force on the host — a library guard its
+    ``hooks:`` selects, or a facility guard its ``claude_code.hooks.PreToolUse``
+    declares — reaches the login whatever its own list says, so a narrow login
+    adds guards but never drops one by omission. The composition hands over
+    none of the host's hook wiring itself.
 
     Args:
         host: The host's resolved root profile.
@@ -1210,47 +1259,76 @@ def compose_own_render(
         ),
     )
     render["config"] = _deep_merge(
-        _host_guard_wiring(_flatten_section(host_facts, _CLAUDE_CODE_SECTION)),
+        _without_host_hook_wiring(_flatten_section(host_facts, _CLAUDE_CODE_SECTION)),
         _flatten_section(login_config, _CLAUDE_CODE_SECTION),
     )
-    render["hooks"] = _guard_floor(host.get("hooks"), render.get("hooks"), writes_check=shared)
     return render
 
 
-def seal_shared_render(render: dict[str, Any], login_rel: str) -> dict[str, Any]:
-    """Pin a shared login's render shut and check it: the composition's last step, and the edit's.
+@dataclass(frozen=True)
+class RenderSeal:
+    """What sealing one login's render applies, composed or edited.
 
-    ``control_system.writes`` is pinned ``never`` with every retired leaf
-    dropped, every deployment-edit door is closed, ``writes-check`` is
-    selected, and :func:`~osprey.deployment.web_terminals.lint.lint_shared_render`
-    checks the result. A ``--set`` edit lands after the composition, so the
-    build seals an edited shared render again: a login named by ``shared:`` is
-    ``never`` whatever the command line says.
+    Attributes:
+        login_rel: The login file's repo-relative label, for messages.
+        floor: The host guards the render keeps (:meth:`GuardFloor.of`).
+        shared: Whether the host's ``modules.web_terminals.shared`` names the
+            login, so its render is also pinned read-only.
+    """
+
+    login_rel: str
+    floor: GuardFloor
+    shared: bool
+
+
+def seal_login_render(render: dict[str, Any], seal: RenderSeal) -> dict[str, Any]:
+    """Seal a login's render: the composition's last step, and the edit's.
+
+    Every host guard in the seal's floor is in force — the facility guard
+    wiring, then the library guards — whatever the login's lists say. When the
+    login is shared, ``control_system.writes`` is also pinned ``never`` with
+    every retired leaf dropped, every deployment-edit door is closed,
+    ``writes-check`` is selected, and
+    :func:`~osprey.deployment.web_terminals.lint.lint_shared_render` checks the
+    result. A ``--set`` edit lands after the composition, so the build seals an
+    edited render again: a login keeps its host's guards, and a shared one is
+    ``never``, whatever the command line says. Sealing a sealed render changes
+    nothing.
 
     Args:
-        render: The shared login's render, composed or edited.
-        login_rel: The login file's repo-relative label, for messages.
+        render: The login's render, composed or edited.
+        seal: The floor to apply, and whether the login is shared.
 
     Returns:
-        ``render`` with its ``config`` and ``hooks`` pinned.
+        ``render`` with its ``config`` and ``hooks`` sealed.
 
     Raises:
-        BuildProfileError: If the pinned render could still write or edit the
-            deployment.
+        BuildProfileError: If a shared login's pinned render could still write
+            or edit the deployment.
     """
     config = render.get("config")
     config = dict(config) if isinstance(config, dict) else {}
-    render["config"] = _pin_edit_doors(_pin_write_switches(config))
+    config = _guard_wiring_floor(seal.floor, config)
+    hooks = _guard_floor(seal.floor, render.get("hooks"))
+    if not seal.shared:
+        render["config"] = config
+        render["hooks"] = hooks
+        return render
 
+    from .profile_conventions import library_selection
+
+    render["config"] = _pin_edit_doors(_pin_write_switches(config))
     # The kill switch is pinned whatever the list says, in either spelling: a
-    # shared render can never write. The host floor was applied by the composer.
-    render["hooks"] = _guard_floor((), render.get("hooks"), writes_check=True)
+    # shared render can never write.
+    if _WRITES_CHECK_HOOK not in library_selection("hooks", hooks):
+        hooks.append(_WRITES_CHECK_HOOK)
+    render["hooks"] = hooks
 
     from osprey.deployment.web_terminals.lint import lint_shared_render
 
     findings = lint_shared_render(render)
     if findings:
-        raise BuildProfileError(f"{login_rel}: {findings[0].message}")
+        raise BuildProfileError(f"{seal.login_rel}: {findings[0].message}")
     return render
 
 
@@ -1566,15 +1644,17 @@ def render_document(
     judge a narrow or shared login as a plain merge it never is.
 
     * ``legacy`` — a file in the retired layer directory keeps its old
-      meaning, ``exclude:`` included, for the one release it is still read
+      meaning, ``exclude:`` included, for as long as it is still read
       (``osprey init --revalidate`` rewrites it into ``tiers/``);
     * a ``lists: own`` login is composed from the host and its file
       (:func:`compose_own_render`);
     * every other login is merged over the host, a ``model: null`` dropped
       first so the host's model runs.
 
-    A login the host's ``modules.web_terminals.shared`` names is then judged
-    (:func:`_judge_shared_posture`) and sealed (:func:`seal_shared_render`):
+    Every login outside the retired directory, and every shared one, is then
+    sealed (:func:`seal_login_render`), so it keeps its host's guards. A login the
+    host's ``modules.web_terminals.shared`` names is judged first
+    (:func:`_judge_shared_posture`) and its seal also pins it read-only:
     everyone on the roster opens it, so it never writes or edits the
     deployment. Every other login is judged on its retired posture leaves
     (:func:`judge_retired_posture`).
@@ -1624,8 +1704,11 @@ def render_document(
         _judge_shared_posture(
             login_config if isinstance(login_config, dict) else {}, layer_rel, layer_path
         )
-        rendered = seal_shared_render(rendered, layer_rel)
-    else:
+    if shared or not legacy:
+        rendered = seal_login_render(
+            rendered, RenderSeal(layer_rel, GuardFloor.of(host_resolved), shared)
+        )
+    if not shared:
         origin_paths = [*host_chain, *([layer_path] if layer_path is not None else [])]
         judge_retired_posture(
             rendered.get("config"),
@@ -1663,9 +1746,9 @@ class ResolvedProfileDocument:
             chain consumed, and so the answer to "which packaged data bundle is
             this profile's tree from" for a profile that records no
             ``provenance:`` block of its own.
-        shared_rel: The login file's repo-relative label when the host's
-            ``modules.web_terminals.shared`` names it, so its render was sealed
-            (:func:`seal_shared_render`), else ``None``.
+        seal: How the login's render was sealed (:func:`seal_login_render`),
+            which a ``--set`` edit of it is sealed with again; ``None`` for
+            the root and for an unshared file in the retired layer directory.
     """
 
     raw: dict[str, Any]
@@ -1673,7 +1756,7 @@ class ResolvedProfileDocument:
     is_layer: bool
     excluded_artifacts: frozenset[str]
     inherited_preset: str | None = None
-    shared_rel: str | None = None
+    seal: RenderSeal | None = None
 
 
 def resolve_profile_document(
@@ -1733,7 +1816,7 @@ def resolve_profile_document(
     lineage: list[str] = []
 
     def finish(
-        resolved: dict[str, Any], as_delta: bool, shared_rel: str | None = None
+        resolved: dict[str, Any], as_delta: bool, seal: RenderSeal | None = None
     ) -> ResolvedProfileDocument:
         """Report the exclusion diagnostics, then package the result.
 
@@ -1750,7 +1833,7 @@ def resolve_profile_document(
             as_delta,
             frozenset(artifacts),
             lineage[0] if lineage else None,
-            shared_rel,
+            seal,
         )
 
     if not is_layer:
@@ -1844,7 +1927,9 @@ def resolve_profile_document(
     if served_error is not None:
         raise served_error
     shared = is_shared_login(root_resolved, layer_rel)
-    return finish(merged, True, layer_rel if shared else None)
+    if retired_tier and not shared:
+        return finish(merged, True)
+    return finish(merged, True, RenderSeal(layer_rel, GuardFloor.of(root_resolved), shared))
 
 
 # ---------------------------------------------------------------------------

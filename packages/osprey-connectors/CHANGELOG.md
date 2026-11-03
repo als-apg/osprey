@@ -20,6 +20,121 @@ and folded into the `[Unreleased]` section below when a release is cut:
 
 ## [Unreleased]
 
+## [2026.11.2] - 2026-11-02
+
+### Removed
+
+- **Breaking change:** four more names nothing outside their own module used are
+  no longer public API: `posture_store.launch_pin_term`, and
+  `write_target.is_write_call`, `is_write_tool` and `short_tool_name`. Each is now
+  underscore-prefixed and out of `__all__`.
+
+### Security
+
+- `osprey_connectors.config.apply_env_chain` sets the env chain into a process
+  environment without the shell-only launch variables: a `.env` line that names
+  `PATH`, `HOME`, a runtime's start-up or loader variable, or a tool's launch
+  variable is skipped, and the names it skipped are returned.
+
+## [2026.11.1] - 2026-11-02
+
+### Added
+
+- `archive_targets()` says which control targets the deployment's `archiver:`
+  block serves: the deployment's own MongoDB store serves the virtual
+  accelerator on every deployment that builds one; every other archiver but the
+  mock (the EPICS appliance, MYA, DOOCS) is the facility's and serves the live
+  machine and the stand-in that rehearses it, when its block names an address.
+- `ControlSystemConnector.wait_stale()` raises `ConnectorUnavailableError` — the
+  lost connector, which its supervisor replaces — once the connector's transport
+  has gone stale: the IOC serves a channel again but the client library keeps it
+  down. EPICS CA with a name server configured watches the channels that
+  connected and went down: a channel counts once another channel connected
+  after it went down, or once it has been down for 30 s with nothing
+  connecting. Only channels that connected in this process count, so in a
+  replacement a channel that never comes back cannot drive a restart loop.
+  Every other connector waits for ever.
+
+  Known limit: a process in which no channel has ever connected never reports
+  stale.
+- Connectors answer `channel_key(address)`, the one key every spelling of a
+  channel shares: whitespace stripped, and on EPICS `ca://X`, `X.VAL` and `X`
+  are one channel.
+- A connector subscription can now say whether its channel is connected:
+  `subscribe()` takes a keyword-only `on_connection` callback, which EPICS CA,
+  PVA and the in-process simulator call with `True` before the first value and
+  `False` on a drop (DOOCS and Tango accept it and never call it).
+  `ChannelMetadata` now carries the control, warning and alarm limit pairs and
+  whether this client may write the channel; a bound that is not a finite
+  number, or a pair whose low is not below its high, reads as `None`.
+- The simulator runs top-off: a `topoff` seed serves a stored
+  current that decays with a lifetime and refills on a period, and a
+  `topoff_lifetime` seed serves a readback of that lifetime, so current and
+  lifetime agree live and in the archive.
+- A control-context report may carry a machine `statement`: `reachable`
+  (`yes` until the connector is lost) and `writes`, the execution verdict's
+  `{allowed, position, reason, kind}` as `control_context.write_statement()`
+  builds it. Such a report is a display process's: `live_reports` leaves it
+  out and `live_statement_reports` reads it. A `statement` of any other shape
+  states nothing.
+- A simulated `step` series on a float channel may end at a given time, after
+  which the channel returns to its baseline.
+- `session_hold_refusal()` and `execution_verdict()` take `session_keys=`, the
+  sessions a write belongs to, and refuse `session_held` while any one of them
+  has an open flag, with that session's sources; a process that serves several
+  sessions (a panel's data process) names them instead of the environment's
+  one key. Without the keyword nothing changes.
+- `mark_long_lived_session()` marks a process that holds one connector for
+  hours, such as a panel backend, so a readonly refusal there uses the
+  deployment-wide wording, as in an MCP server.
+- `subscribe(..., on_connection=...)` works on every connector, including one a
+  facility wrote before the keyword existed: when a subclass's `subscribe` does
+  not take `on_connection`, the base class passes it a wrapped callback and
+  reports `True` before the channel's first value (never `False`, since such a
+  connector never says a channel dropped). A `subscribe` that takes the keyword
+  receives it unchanged. The wrapper is a deprecated compatibility path: defining
+  such a subclass emits a `DeprecationWarning` naming it, and the wrapper will be
+  removed in osprey-connectors 2027.3.0.
+
+### Changed
+
+- EPICS CA subscriptions are served from one record per channel address,
+  however many subscribers it has (`X` and `ca://X` share one). An IOC restart
+  no longer delivers duplicate values, every subscription carries the channel's
+  limits, and `get_metadata` of a subscribed address answers from its control
+  data. `warm()` starts the CA context ahead of the first subscription.
+- The simulated septum pulse's flat top now rings with a few damped components
+  whose amplitude, phase and edge timing change from shot to shot. Archives
+  seeded with the old pulse shape re-seed.
+
+### Deprecated
+
+- `standin.archive_belongs_to_standin`, `standin.ARCHIVER_RECORDER_SERVICE` and
+  `standin.DEPLOYED_SERVICES_KEY` are kept only for the framework releases that
+  import them and go in a later release: the deployment's store is the virtual
+  accelerator's and no store belongs to the stand-in. Ask `archive_targets()`
+  which targets an archive serves.
+
+### Fixed
+
+- A web terminal no longer follows a control-context record whose owner PID now belongs to another user's process. After an upgrade that put an init process at PID 1 of the container, the record left by the previous container still named PID 1 as its owning terminal; the new terminal read root's init as a live owner and refused every target switch with `context_owned_elsewhere`.
+- An EPICS write now ends within `S + 2T` (`step_read_timeout_s` and `timeout_s`
+  of its connector block): the `max_step` read, the put and the confirming read
+  each get one deadline that covers their connection as well as their call, the
+  confirming read reads the value and alarm state only (no lazy units, precision
+  or limit fetches), and a string written to an enum channel is put as its state
+  index with the labels fetched inside the put's deadline. A write runs on the
+  connector's own executor, which starts a thread per phase, so neither one-shot
+  reads filling the default executor nor other writes in flight can delay it.
+  That executor holds at most 64 threads at once; a write submitted past the cap
+  raises `ConnectorInternalError` before anything is sent.
+- The in-process simulator accepts `on_connection` on `subscribe` and reports its channels connected, as every connector's subscription contract promises.
+- A PVA subscription whose server goes away no longer goes silent on its last
+  value: the drop arrives as a connection-down report on the same monitor, never
+  as a value. `get_metadata` of a channel already subscribed answers from that
+  subscription instead of opening a second request, and raises
+  `ChannelUnreachableError` when no update arrives within `timeout_s`.
+
 ## [2026.11.0] - 2026-11-01
 
 ### Added

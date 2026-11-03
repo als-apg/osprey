@@ -48,6 +48,7 @@ from osprey.cli.profile_conventions import SETUP_PATCH_TOOL
 from osprey.deployment.control_identity import validate_identity
 from osprey.deployment.graphdb_service import resolve_graphdb_service_config
 from osprey.deployment.web_terminals.render_naming import RENDER_KIND_SHARED, RENDER_KIND_TIER
+from osprey.profiles.sidecar_panels import SIDECAR_PANELS
 from osprey.profiles.web_panels import panel_spec_enabled
 from osprey.registry.mcp import FRAMEWORK_SERVERS
 from osprey.services.auth_sidecar.identity_headers import CASE_INSENSITIVE_CLAIMS
@@ -1328,6 +1329,79 @@ def renders_needing_phoebus_handles(config: Any, project_root: Any) -> set[str]:
     return _renders_whose_config(config, project_root, config_needs_phoebus_handles)
 
 
+#: Seconds compose waits between stopping a service and killing it when the
+#: service says nothing: Docker's own default ``stop_grace_period``.
+COMPOSE_DEFAULT_STOP_GRACE_S = 10
+
+#: Seconds the web terminal's own shutdown needs once its sidecars are stopped:
+#: the PTY pool's 3 s SIGTERM grace and the SIGKILL wait for the child
+#: (:meth:`~osprey.interfaces.web_terminal.pty_manager.PtySession.stop`).
+WEB_TERMINAL_STOP_S = 5
+
+
+def config_stop_grace(config: Any) -> int:
+    """Seconds the slowest sidecar ``config``'s terminal shows needs to stop.
+
+    The largest :attr:`~osprey.profiles.sidecar_panels.SidecarPanel.stop_grace_s`
+    among the sidecar panels ``config`` declares. A sidecar's stop hands that
+    number to the process stop as its grace, so it is how long the terminal's
+    shutdown may spend on the sidecar before killing it. A panel switched off
+    counts for nothing (:func:`config_declares_panel`).
+
+    :param config: A parsed project config.
+    :return: The grace in seconds; ``0`` when no declared panel waits for
+        anything.
+    """
+    return max(
+        (
+            panel.stop_grace_s
+            for panel_id, panel in SIDECAR_PANELS.items()
+            if config_declares_panel(config, panel_id)
+        ),
+        default=0,
+    )
+
+
+def config_stop_period(config: Any) -> int:
+    """Seconds compose must give ``config``'s terminal to stop, or ``0`` for its default.
+
+    One number for the whole service: the slowest shown sidecar's grace
+    (:func:`config_stop_grace`), then the terminal's own stop on top of it
+    (:data:`WEB_TERMINAL_STOP_S`), because the terminal stops its sidecars
+    before it stops itself. A sum within compose's own default
+    (:data:`COMPOSE_DEFAULT_STOP_GRACE_S`) is ``0``: the service then renders
+    no ``stop_grace_period`` line, and compose's default stands.
+    """
+    grace = config_stop_grace(config)
+    if grace <= 0:
+        return 0
+    period = grace + WEB_TERMINAL_STOP_S
+    return period if period > COMPOSE_DEFAULT_STOP_GRACE_S else 0
+
+
+def render_stop_grace(config: Any, project_root: Any) -> dict[str, int]:
+    """Map each render whose terminal needs more than compose's default stop to its period.
+
+    A map rather than a set because the period is a number: two renders
+    showing different panels get different periods. Walks the same
+    per-render ``config.yml`` files the other grants walk, tiers and shared logins
+    alike, so an unrendered or unreadable render contributes nothing rather
+    than a guess.
+
+    :param config: The parsed deploy config.
+    :param project_root: Deploy project root; relative ``project_path`` values
+        resolve against it.
+    :return: ``{render_name: seconds}`` for the referenced renders whose
+        period is positive (see :func:`config_stop_period`).
+    """
+    periods: dict[str, int] = {}
+    for render_name, render_config in _render_configs(config, project_root):
+        period = config_stop_period(render_config)
+        if period > 0:
+            periods[render_name] = period
+    return periods
+
+
 def renders_needing_launch_token_by_lane(config: Any, project_root: Any) -> dict[str, set[str]]:
     """Which renders may arm a queue start, per plan lane.
 
@@ -2404,7 +2478,7 @@ class DeploymentEditDoor:
 #: Every door onto editing the deployment, in the order guard messages name
 #: them. The one list read by the shared-card rule (through
 #: :func:`tier_privileges`), the shared-login seal
-#: (:func:`osprey.cli.build_profile_merge.seal_shared_render`), its check
+#: (:func:`osprey.cli.build_profile_merge.seal_login_render`), its check
 #: (:func:`osprey.deployment.web_terminals.lint.lint_shared_render`) and the
 #: headless refusal of a dispatch tier
 #: (:func:`osprey.cli.build_profile_schema.headless_refused_flags`).

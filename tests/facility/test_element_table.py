@@ -1,6 +1,6 @@
 """The injector element table is a complete, well-formed spec of the injector channels.
 
-``scripts/facility_demo/injector_elements.tsv`` maps every GTLView/BTSView binding
+``scripts/facility_demo/injector_elements.tsv`` maps every GTL and BTS panel binding
 and every non-panel injector channel to a demo name in the six-token grammar.
 Every name uses only the grammar's alphabets and no legacy MML form; every role
 has a template, and every injector BPM reads in millimetres. Every deck element

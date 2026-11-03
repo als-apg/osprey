@@ -425,7 +425,7 @@ def test_the_rewrite_window_is_still_open():
     assert Version(get_release_version()) < Version(RETIRED_ROSTER_KEYS_REFUSED_FROM)
 
 
-def test_the_window_closes_one_minor_after_the_vocabulary_release():
+def test_the_window_closes_two_minors_after_the_vocabulary_release():
     from packaging.version import Version
 
     from osprey.cli.build_profile_load import (
@@ -436,7 +436,8 @@ def test_the_window_closes_one_minor_after_the_vocabulary_release():
     floor = Version(_PROFILE_SCHEMA_MIN_OSPREY)
     end = Version(RETIRED_ROSTER_KEYS_REFUSED_FROM)
     assert end > floor
-    assert (end.major, end.minor) == (floor.major, floor.minor + 1)
+    # Two minors since the owner's 2026-11-02 ruling (was one).
+    assert (end.major, end.minor) == (floor.major, floor.minor + 2)
     assert end.micro == 0
 
 

@@ -257,23 +257,28 @@ class TestTheRowsThatNameADeployment:
         fell through to it would answer ``osprey``, visibly wrong here."""
         pin_account(monkeypatch, "osprey")
 
-    def test_a_terminal_user_names_the_person(
-        self, resolvers: dict, monkeypatch: pytest.MonkeyPatch
+    @pytest.mark.parametrize(
+        ("terminal_user", "audit_identity", "name"),
+        [
+            # A ``web-<user>`` container: a real person is behind it.
+            ("alice", "bluesky-web", "alice"),
+            # A container hosting no single user files under its service key.
+            (None, "sidecar", "sidecar"),
+        ],
+        ids=["terminal-user-names-the-person", "service-container-names-its-own-key"],
+    )
+    def test_a_container_names_who_is_behind_it(
+        self,
+        resolvers: dict,
+        monkeypatch: pytest.MonkeyPatch,
+        terminal_user: str | None,
+        audit_identity: str,
+        name: str,
     ) -> None:
-        """A ``web-<user>`` container: a real person is behind it."""
-        set_rung(monkeypatch, ladder.TERMINAL_USER_ENV, "alice")
-        set_rung(monkeypatch, ladder.AUDIT_IDENTITY_ENV, "bluesky-web")
+        set_rung(monkeypatch, ladder.TERMINAL_USER_ENV, terminal_user)
+        set_rung(monkeypatch, ladder.AUDIT_IDENTITY_ENV, audit_identity)
 
-        assert answers(resolvers) == dict.fromkeys(resolvers, "alice")
-
-    def test_a_service_container_names_its_own_key(
-        self, resolvers: dict, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """A container hosting no single user files under its service key."""
-        set_rung(monkeypatch, ladder.TERMINAL_USER_ENV, None)
-        set_rung(monkeypatch, ladder.AUDIT_IDENTITY_ENV, "sidecar")
-
-        assert answers(resolvers) == dict.fromkeys(resolvers, "sidecar")
+        assert answers(resolvers) == dict.fromkeys(resolvers, name)
 
     def test_a_laptop_names_the_local_account(
         self, resolvers: dict, monkeypatch: pytest.MonkeyPatch

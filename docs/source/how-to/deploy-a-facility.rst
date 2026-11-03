@@ -748,7 +748,7 @@ anywhere inside the repository:
 
    osprey set connector=epics                      # your control system; or edit profile.yml by hand
    osprey set config.archiver.type=epics_archiver  # the archiver that records it
-   osprey set va_archiver=null                     # the recorded archive goes with the stand-in
+   osprey set va_archiver=null                     # that store records the simulator
    osprey build
    osprey up -d
 

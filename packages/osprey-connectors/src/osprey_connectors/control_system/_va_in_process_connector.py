@@ -845,9 +845,17 @@ class VAInProcessConnector(ControlSystemConnector):
     # -- subscriptions and the tick ------------------------------------------
 
     async def subscribe(
-        self, channel_address: str, callback: Callable[[ChannelValue], None]
+        self,
+        channel_address: str,
+        callback: Callable[[ChannelValue], None],
+        *,
+        on_connection: Callable[[bool], None] | None = None,
     ) -> str:
         """Subscribe to a channel; the callback fires after a tick or a write.
+
+        A channel of the facility is served by this process and never drops, so
+        ``on_connection(True)`` comes once, before this returns, and ``False``
+        never does.
 
         Raises:
             ChannelNotFoundError: The address is not a channel of the facility.
@@ -858,6 +866,13 @@ class VAInProcessConnector(ControlSystemConnector):
         self._subscriptions[sub_id] = (channel_address, callback)
         self._last_held[channel_address] = self._held_value(channel_address)
         logger.debug(f"In-process subscription created: {sub_id}")
+        if on_connection is not None:
+            try:
+                on_connection(True)
+            except Exception as exc:
+                logger.warning(
+                    f"In-process connection callback for {channel_address} raised: {exc}"
+                )
         return sub_id
 
     async def unsubscribe(self, subscription_id: str) -> None:

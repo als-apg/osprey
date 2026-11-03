@@ -82,6 +82,15 @@ ALLOWED: dict[tuple[str, str], str] = {
     ("src/osprey/deployment/web_terminals/env_production.py", "migrate_users_env"): (
         "renames an existing secrets file"
     ),
+    ("src/osprey/integrations/canopy/push/verbs.py", "_promote_stage"): (
+        "renames a checked stage directory into place"
+    ),
+    ("src/osprey/integrations/canopy/push/verbs.py", "_place_file"): (
+        "places a library file through dir_fd and O_NOFOLLOW, which atomic_replace has no form of"
+    ),
+    ("src/osprey/integrations/canopy/stage.py", "stage"): (
+        "swaps the staged payload directory, setting the previous one aside"
+    ),
     ("src/osprey/interfaces/web_terminal/ownership.py", "OwnershipStore._quarantine"): (
         "sets a corrupt index aside"
     ),

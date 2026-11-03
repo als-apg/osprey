@@ -59,7 +59,7 @@ from .build_profile_merge import (
     _refuse_root_lists,
     _resolve_extends,
     resolve_profile_document,
-    seal_shared_render,
+    seal_login_render,
 )
 from .build_profile_model import BuildProfile
 from .build_profile_presets import _load_preset_raw
@@ -630,10 +630,11 @@ def resolve_build_document(
         if set_pairs and not is_layer:
             # An edit may not spell on the root what the file may not.
             _refuse_root_lists(raw, str(profile_path))
-        # The edit lands after the shared login's render was sealed, so it is
-        # sealed again: no edit arms it or opens a deployment-edit door.
-        if document.shared_rel is not None and set_pairs:
-            raw = seal_shared_render(raw, document.shared_rel)
+        # The edit lands after the login's render was sealed, so it is sealed
+        # again: no edit drops a host guard, and none arms a shared login or
+        # opens a deployment-edit door on it.
+        if document.seal is not None and set_pairs:
+            raw = seal_login_render(raw, document.seal)
 
     profile = _parse_profile(raw)
     profile.inherited_preset = inherited_preset

@@ -24,10 +24,49 @@ def test_float_is_the_default_type():
     assert coerce(1, None) == 1.0
 
 
-@pytest.mark.parametrize("bad", [True, False, math.nan, math.inf, -math.inf, "1.0", None, [1.0]])
-def test_float_refuses_bool_non_finite_and_non_numbers(bad):
-    with pytest.raises(ValueError, match="float"):
-        coerce(bad, "float")
+@pytest.mark.parametrize(
+    ("bad", "value_type"),
+    [
+        # float: bool, non-finite and non-numbers
+        pytest.param(True, "float", id="float-bool-true"),
+        pytest.param(False, "float", id="float-bool-false"),
+        pytest.param(math.nan, "float", id="float-nan"),
+        pytest.param(math.inf, "float", id="float-inf"),
+        pytest.param(-math.inf, "float", id="float-negative-inf"),
+        pytest.param("1.0", "float", id="float-string"),
+        pytest.param(None, "float", id="float-none"),
+        pytest.param([1.0], "float", id="float-list"),
+        # int: fractional, non-finite, bool and non-numbers
+        pytest.param(4.5, "int", id="int-fractional"),
+        pytest.param(math.nan, "int", id="int-nan"),
+        pytest.param(math.inf, "int", id="int-inf"),
+        pytest.param(True, "int", id="int-bool"),
+        pytest.param("4", "int", id="int-string"),
+        pytest.param(None, "int", id="int-none"),
+        # bool: out-of-range index, float and unknown label
+        pytest.param(2, "bool", id="bool-index-out-of-range"),
+        pytest.param(-1, "bool", id="bool-negative-index"),
+        pytest.param("maybe", "bool", id="bool-unknown-label"),
+        pytest.param(0.5, "bool", id="bool-fractional-float"),
+        pytest.param(1.0, "bool", id="bool-integral-float"),
+        pytest.param(None, "bool", id="bool-none"),
+        pytest.param([0], "bool", id="bool-list"),
+        # string: anything that is not a str
+        pytest.param(1, "string", id="string-int"),
+        pytest.param(1.0, "string", id="string-float"),
+        pytest.param(True, "string", id="string-bool"),
+        pytest.param(None, "string", id="string-none"),
+        pytest.param(b"x", "string", id="string-bytes"),
+        pytest.param(["a"], "string", id="string-list"),
+        # enum without options
+        pytest.param(0, "enum", id="enum-without-options"),
+        # unknown value type
+        pytest.param(1.0, "complex", id="unknown-value-type"),
+    ],
+)
+def test_a_value_the_type_cannot_hold_is_refused(bad, value_type):
+    with pytest.raises(ValueError, match=value_type):
+        coerce(bad, value_type)
 
 
 # int ----------------------------------------------------------------------
@@ -37,12 +76,6 @@ def test_int_accepts_int_and_integral_float():
     assert coerce(4, "int") == 4
     got = coerce(4.0, "int")
     assert got == 4 and type(got) is int
-
-
-@pytest.mark.parametrize("bad", [4.5, math.nan, math.inf, True, "4", None])
-def test_int_refuses_fractional_non_finite_bool_and_non_numbers(bad):
-    with pytest.raises(ValueError, match="int"):
-        coerce(bad, "int")
 
 
 # bool ---------------------------------------------------------------------
@@ -59,12 +92,6 @@ def test_bool_default_labels_store_the_label(value, label):
 def test_bool_custom_labels():
     assert coerce(True, "bool", options=["Open", "Closed"]) == "Closed"
     assert coerce("Open", "bool", options=["Open", "Closed"]) == "Open"
-
-
-@pytest.mark.parametrize("bad", [2, -1, "maybe", 0.5, 1.0, None, [0]])
-def test_bool_refuses_out_of_range_index_float_and_unknown_label(bad):
-    with pytest.raises(ValueError, match="bool"):
-        coerce(bad, "bool")
 
 
 # enum ---------------------------------------------------------------------
@@ -84,23 +111,12 @@ def test_enum_refuses_out_of_range_index_float_and_unknown_label(bad):
         coerce(bad, "enum", options=ENUM)
 
 
-def test_enum_without_options_is_refused():
-    with pytest.raises(ValueError, match="enum"):
-        coerce(0, "enum")
-
-
 # string -------------------------------------------------------------------
 
 
 def test_string_accepts_str_only():
     assert coerce("hello", "string") == "hello"
     assert coerce("", "string") == ""
-
-
-@pytest.mark.parametrize("bad", [1, 1.0, True, None, b"x", ["a"]])
-def test_string_refuses_non_str(bad):
-    with pytest.raises(ValueError, match="string"):
-        coerce(bad, "string")
 
 
 # waveform -----------------------------------------------------------------
@@ -164,11 +180,6 @@ def test_numpy_bool_and_non_finite_are_refused_as_numbers():
 
 
 # unknown type -------------------------------------------------------------
-
-
-def test_unknown_value_type_is_refused():
-    with pytest.raises(ValueError, match="complex"):
-        coerce(1.0, "complex")
 
 
 def test_refusal_names_the_type_and_the_value():

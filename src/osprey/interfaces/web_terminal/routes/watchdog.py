@@ -43,6 +43,7 @@ from pydantic import BaseModel, Field
 
 from osprey.interfaces.web_terminal.operator_session import session_hold_root_of
 from osprey.interfaces.web_terminal.process_tree import ProcessTableUnreadable
+from osprey.interfaces.web_terminal.safety_switches import WATCHDOG_SWITCH, feature_is_on
 from osprey.interfaces.web_terminal.session_handoff import (
     INTERRUPT_GRACE_S,
     interrupt_pty_turn,
@@ -104,6 +105,23 @@ def session_is_live(app: Any, session_key: str) -> bool:
     return registry.has_chat_key(session_key) or registry.get_session(session_key) is not None
 
 
+def live_session_keys(app: Any) -> list[str]:
+    """Every session key this process runs now, sorted: the keys :func:`session_is_live` accepts.
+
+    Read from another thread too (a sidecar's own watcher), so a registry that
+    changes size under the read raises ``RuntimeError``; the caller retries.
+    """
+    state = app.state
+    keys: set[str] = set()
+    pty_registry = getattr(state, "pty_registry", None)
+    if pty_registry is not None:
+        keys.update(pty_registry.session_keys())
+    registry = getattr(state, "operator_registry", None)
+    if registry is not None:
+        keys.update(registry.session_keys())
+    return sorted(key for key in keys if key)
+
+
 def make_notifier(app: Any) -> Callable[[dict[str, Any]], Awaitable[None]]:
     """The runner's and the answer route's notifier: the broadcaster and the chat feed."""
 
@@ -154,7 +172,10 @@ class PromptSubmission(BaseModel):
 async def post_prompt(
     body: PromptSubmission, request: Request, background: BackgroundTasks
 ) -> dict[str, bool]:
-    """Take one operator prompt from the trigger hook and judge it after answering."""
+    """Take one operator prompt from the trigger hook and judge it after answering.
+
+    With the watchdog switched off at runtime it is accepted and not judged.
+    """
     if not all(
         is_posture_key(value)
         for value in (body.session_key, body.record_session_id, body.submission_id)
@@ -166,6 +187,10 @@ async def post_prompt(
         raise HTTPException(status_code=404, detail="watchdog_disabled")
     if not session_is_live(app, body.session_key):
         raise HTTPException(status_code=404, detail="unknown_session")
+    if not feature_is_on(app, WATCHDOG_SWITCH):
+        # Accepted, so the hook does not fall back to its record entry, which
+        # would judge and hold in a process this switch does not reach.
+        return {"accepted": True, "duplicate": False, "judged": False}
     received_at = time.monotonic()
     if not _first_sight(app, make_prompt_ref(body.record_session_id, body.submission_id)):
         return {"accepted": True, "duplicate": True}

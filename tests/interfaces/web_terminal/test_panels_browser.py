@@ -7,30 +7,31 @@ turns human dock gestures into the same server POSTs the agent's MCP calls make.
 These tests drive that stack through a real browser and a live SSE stream — the
 parts the FastAPI TestClient cannot reach.
 
-One panel per tile is a workspace invariant: the rail is the tab system, so an
-activation REPLACES the focused service tile's panel (the evicted panel closes
-server-side and dims on the rail), the "+" add menu and the rail entry's
-"Open in a new tile" are the verbs that open a NEW tile beside the current one,
-and no drop geometry may stack tabs.
+An open — a rail click, the "+" add menu, an agent focus — lands as a new tab
+in front of the service tile used last, so nothing resizes and nothing is
+evicted; the rail entry's "Open in a new tile" is the one verb that opens a
+NEW tile beside the current one. A tile holds tabs: the dock engine
+(``dock-drop.js``) decides every drop, a tab dropped on another tile's header
+or centre joins it, an edge splits it.
 
 What is proven here, grouped:
 
   * SSE / rail flows materialize as dockview panels: focusing a service panel
-    docks a placeholder whose overlay iframe tracks the group geometry — taking
-    the focused tile over from its previous panel; hiding a panel removes its
+    docks a placeholder whose overlay iframe tracks the group geometry — as a
+    tab in front of the focused service tile; hiding a panel removes its
     placeholder; register appends a rail entry WITHOUT auto-docking.
   * The echo guard (``dock-sync.js``): a human dock-tab focus POSTs setPanelFocus
     exactly once, a human tab-close POSTs visibility(false), and a server-driven
     SSE focus is applied WITHOUT POSTing back (no feedback loop).
   * Drag rearrange via real Playwright drags — a tile moves to a new edge
-    position, and a drop that would stack (onto another tile's tab bar) is
-    vetoed — asserted with getBoundingClientRect geometry, and the overlay
+    position, and a tab dropped on another service tile's header joins it as
+    a tab — asserted with getBoundingClientRect geometry, and the overlay
     iframe re-following the dragged panel's new rectangle.
   * Layout persistence keyed by project_key: an arrangement survives a
     reload, two project cwds keep distinct layouts on one origin, reset restores
     the default, and a corrupt stored value falls back cleanly.
   * The "+" add menu: unclipped geometry beside the rail, URL-row gating, reveal a
-    hidden panel INTO A NEW TILE beside the active one, register from URL, and
+    hidden panel as a tab of the active service tile, register from URL, and
     inline register errors.
   * Tile header-bar contributions (the embed contract): a panel's own nav, search
     and overflow items render in ITS bar only, actions round-trip into the iframe,
@@ -58,6 +59,7 @@ Skips cleanly when the chromium headless binary is not installed.
 from __future__ import annotations
 
 import asyncio
+import json
 import re
 import threading
 import time
@@ -77,7 +79,12 @@ from osprey.interfaces._serving import run_app_server
 from tests.interfaces._browser import open_hub_page as _open_page
 from tests.interfaces._browser import rail_entry as _rail_entry
 from tests.interfaces._hub import hub_app
-from tests.interfaces._panel_launch import UNSERVED, Unserved, publish_artifact_url
+from tests.interfaces._panel_launch import (
+    UNSERVED,
+    Unserved,
+    publish_artifact_url,
+    unserved_url,
+)
 from tests.interfaces.web_terminal._surface import arm_terminal_tab
 
 # ---------------------------------------------------------------------------
@@ -381,9 +388,10 @@ def _command_posts(posts: list[str]) -> list[str]:
     invariant these tests guard is what a gesture *commands* (focus/visibility,
     the calls that move every client's workspace), so reports are filtered out
     before the assertion. A report is safe here precisely because the server
-    stores it last-writer-wins and broadcasts nothing.
+    stores it last-writer-wins and broadcasts nothing. ``/api/panel-op-result``
+    is the page's answer to an op the server relayed to it, not a command.
     """
-    return [p for p in posts if p != "panel-layout"]
+    return [p for p in posts if p not in ("panel-layout", "panel-op-result")]
 
 
 # ---------------------------------------------------------------------------
@@ -437,11 +445,10 @@ def _open_rail_menu(page: Page, panel_id: str):
 def _open_second_tile(page: Page, base_url: str, panel_id: str, label: str) -> None:
     """Open ``panel_id`` as a SECOND tile beside the current one from its menu.
 
-    A rail click would REPLACE the focused tile's panel (one panel per tile), so
-    tests that need two service tiles side by side use the entry's context-menu
-    row "Open in a new tile" — the open-beside verb, whose hover ⊞ corner is
-    gone. ``base_url`` is unused (kept so call sites read uniformly with the old
-    add-menu dance).
+    A rail click adds a tab to the focused service tile, so tests that need two
+    service tiles side by side use the entry's context-menu row "Open in a new
+    tile" — the one open that splits. ``base_url`` is unused (kept so call
+    sites read uniformly with the old add-menu dance).
     """
     del base_url  # the menu path is purely client-side
     _open_rail_menu(page, panel_id)
@@ -485,15 +492,14 @@ def _dock_locked(page: Page) -> bool:
 # ===========================================================================
 
 
-def test_focus_docks_service_panel_with_overlay_geometry(tmp_path, chromium_browser):
-    """A rail click REPLACES the focused tile's panel; the overlay tracks the tile.
+def test_focus_opens_service_panel_as_a_tab_with_overlay_geometry(tmp_path, chromium_browser):
+    """A rail click opens the panel as a tab in front of the focused service tile.
 
-    A rail click on data-viz takes over the tile artifacts occupied (one panel
-    per tile — the rail is the tab system): data-viz's overlay iframe becomes
-    visible and its rectangle aligns to the dock group's content area (the
-    adapter's follow contract), while the evicted artifacts panel loses its dock
-    tab entirely and its overlay is concealed — a purely LOCAL vacate: its rail
-    entry stays in place at full brightness, one click from taking the tile back.
+    A rail click on data-viz lands it in the tile artifacts occupies, in front:
+    data-viz's overlay iframe becomes visible and its rectangle aligns to the
+    dock group's content area (the adapter's follow contract), while artifacts
+    stays as the tile's other tab — its overlay hidden behind, its tab and its
+    rail entry in place, one click from coming forward again. Nothing resizes.
     """
     workspace = tmp_path / "_agent_data"
     workspace.mkdir()
@@ -508,8 +514,9 @@ def test_focus_docks_service_panel_with_overlay_geometry(tmp_path, chromium_brow
         # Artifacts is auto-activated at boot: its dock tab + overlay iframe exist.
         expect(_service_tab(page, "Artifacts")).to_have_count(1, timeout=10_000)
         expect(_overlay_iframe(page, "artifacts")).to_be_visible(timeout=5_000)
+        before = _dock_groups(page)
 
-        # Act — focus data-viz from the rail; it docks and becomes the active tab.
+        # Act — focus data-viz from the rail; it joins the tile and comes forward.
         _focus_service_panel(page, "data-viz", "DATA VIZ")
         expect(_overlay_iframe(page, "data-viz")).to_be_visible(timeout=5_000)
 
@@ -523,17 +530,19 @@ def test_focus_docks_service_panel_with_overlay_geometry(tmp_path, chromium_brow
         assert abs(geo["iframeW"] - geo["contentW"]) <= 2, geo
         assert abs(geo["iframeH"] - geo["contentH"]) <= 2, geo
 
-        # The evicted artifacts panel: overlay concealed, dock tab gone — but
-        # its rail entry survives untouched (eviction is local occupancy, not a
-        # membership change) — the tile holds exactly one panel again.
+        # The covered artifacts panel: overlay hidden, tab and rail entry kept.
         expect(_overlay_iframe(page, "artifacts")).to_be_hidden(timeout=5_000)
-        expect(_service_tab(page, "Artifacts")).to_have_count(0, timeout=5_000)
+        expect(_service_tab(page, "Artifacts")).to_have_count(1)
         expect(page.locator('button.panel-rail-button[data-panel-id="artifacts"]')).to_be_attached(
             timeout=5_000
         )
         groups = _dock_groups(page)
         service_groups = [g for g in groups if "Agent" not in g["tabs"]]
-        assert all(len(g["tabs"]) == 1 for g in service_groups), groups
+        assert [g["tabs"] for g in service_groups] == [["Artifacts", "Data Viz"]], groups
+        # The same tiles at the same rectangles: an open never resizes.
+        assert [(g["x"], g["y"], g["w"], g["h"]) for g in groups] == [
+            (g["x"], g["y"], g["w"], g["h"]) for g in before
+        ], (before, groups)
 
         page.close()
 
@@ -760,8 +769,8 @@ def test_reopen_after_empty_state_redocks_panel(tmp_path, chromium_browser):
 def test_dock_tab_focus_posts_setfocus_once(tmp_path, chromium_browser):
     """A human dock-tab focus POSTs setPanelFocus exactly once — no echo loop.
 
-    With the two service panels in side-by-side tiles (via the "+" menu — a rail
-    click would replace, not add), clicking the inactive artifacts dock tab
+    With the two service panels in side-by-side tiles (via "Open in a new tile"
+    — a rail click would add a tab, not a tile), clicking the inactive artifacts dock tab
     fires one panel-focus POST. The server's SSE echo is applied under the echo
     guard, so it does not POST focus back again.
     """
@@ -922,10 +931,10 @@ def test_open_beside_moves_docked_panel_instead_of_duplicating(tmp_path, chromiu
 # onUnhandledDragOver (accepted by rail-drag.js) and then onDidDrop. The drop
 # only registers once a dragover has been PROCESSED — dockview settles its
 # overlay state asynchronously and needs more than one dragover to resolve a
-# target — so each attempt polls for dockview's own drop-target overlay before
-# dropping rather than sleeping a fixed budget: a drop dispatched before that
-# overlay exists is silently ignored, a no-op the assertions can only report
-# as a missing tab. How long the whole gesture takes is load-dependent, so it
+# target — so each attempt polls for the drop bridge's split highlight before
+# dropping rather than sleeping a fixed budget: a drop dispatched before the
+# bridge has hit-tested the point is a no-op the assertions can only report as
+# a missing tab. How long the whole gesture takes is load-dependent, so it
 # is also RETRIED until the dock actually happened. The landing signal is the
 # tile bar dock-tab.js stamps for the placeholder
 # (`.tile-tab[data-panel-id="iframe:<id>"]`), the same DOM the caller's tab
@@ -942,34 +951,32 @@ _RAIL_DRAG_DROP_JS = """async (panelId) => {
         g.querySelector('.tile-tab-terminal'));
     const content = term.querySelector('.dv-content-container');
     const r = content.getBoundingClientRect();
-    // Just inside the grid's bottom edge band → dockview resolves
-    // { target: 'edge', position: 'bottom' } — a split against the grid edge
-    // (the group-targeted variant is covered by the ⊞ tests + unit suite;
-    // points deeper inside the content resolve 'center', which is refused).
+    // Just inside the dock's bottom strip → the engine resolves an outer
+    // bottom target: a new tile along the dock's bottom (points deeper inside
+    // the content are the tile's edge band or its centre, which a row never
+    // lands on).
     const x = r.left + r.width / 2;
     const y = r.bottom - 5;
     const opts = { bubbles: true, cancelable: true, dataTransfer: dt,
                    clientX: x, clientY: y };
     const target = document.elementFromPoint(x, y) ?? content;
-    // dockview paints .dv-drop-target-selection once it has resolved the drop
-    // position; the '-bottom' modifier is the edge split this drag intends, so
-    // gating each drop on it proves the geometry resolved the way the test
-    // claims. 20 attempts with a 500ms overlay budget each — an unloaded
+    // The bridge paints its split highlight once it has hit-tested the point,
+    // so gating each drop on it proves the geometry resolved the way the test
+    // claims. 20 attempts with a 500ms highlight budget each — an unloaded
     // machine lands on the first attempt in ~150ms, a loaded one gets an order
     // of magnitude more slack than any single hardcoded wait could give it.
     const ATTEMPTS = 20;
     const OVERLAY_BUDGET_MS = 500;
     const SETTLE_MS = 80;
-    const overlay = () => document.querySelector(
-        '.dv-drop-target-selection.dv-drop-target-bottom');
+    const overlay = () => document.querySelector('.dock-drop-preview__rect--split');
     const landed = () => !!document.querySelector(
         `.dv-groupview .dv-tab .tile-tab[data-panel-id="iframe:${panelId}"]`);
     let tries = 0;
     while (tries < ATTEMPTS && !landed()) {
         tries += 1;
-        // dockview clears its drop target on drop, so each attempt re-arms it
-        // with a fresh dragenter, then holds the dragover until dockview has
-        // painted the bottom-edge overlay before dispatching the drop.
+        // The bridge clears its highlight on drop, so each attempt re-arms it
+        // with a fresh dragenter, then holds the dragover until the split
+        // highlight is painted before dispatching the drop.
         target.dispatchEvent(new DragEvent('dragenter', opts));
         const deadline = performance.now() + OVERLAY_BUDGET_MS;
         while (!overlay() && performance.now() < deadline) {
@@ -986,8 +993,8 @@ _RAIL_DRAG_DROP_JS = """async (panelId) => {
     if (!landed()) {
         throw new Error(
             `RailDropNeverSettled: no tile appeared for 'iframe:${panelId}' after ` +
-            `${tries} overlay-gated drop attempts — the rail drop was never ` +
-            `accepted by dockview.`);
+            `${tries} highlight-gated drop attempts — the rail drop was never ` +
+            `accepted by the drop bridge.`);
     }
     return tries;
 }"""
@@ -997,9 +1004,9 @@ def test_drag_rail_entry_to_tile_edge_opens_split(tmp_path, chromium_browser):
     """Dragging a rail entry onto a tile edge opens the panel as a new tile there.
 
     The precise half of the open-beside verb (rail-drag.js): the entry's HTML5
-    drag carries the panel id; dropping it near the bottom edge of the terminal
-    tile splits that tile and the panel fills the new half, then the normal
-    reveal tail focuses it.
+    drag carries the panel id; dropping it in the dock's bottom strip under the
+    terminal tile opens the panel as a new tile along the dock's bottom, then
+    the normal reveal tail focuses it.
     """
     workspace = tmp_path / "_agent_data"
     workspace.mkdir()
@@ -1103,14 +1110,13 @@ def test_drag_along_the_rail_reorders_it_for_every_client_and_survives_reload(
 
 
 def test_server_sse_focus_is_applied_without_posting_back(tmp_path, chromium_browser):
-    """A server-originated panel_focus re-activates an already-docked panel silently.
+    """An agent's open of an already-docked panel brings it forward silently.
 
-    Posting /api/panel-focus directly (as an agent MCP call would) drives the SSE
-    handler, which applies the focus through the echo guard. When the target is
-    already docked (its placeholder exists), the applied focus is a pure setActive
-    the guard suppresses — the client emits no POST of its own. (First-dock of a
-    panel legitimately emits one benign idempotent focus POST as its placeholder
-    is created; that quirk is isolated out here by pre-docking data-viz.)
+    Posting /api/panel-op/open directly (as the agent's ``open_panel`` does)
+    relays a ``panel_op`` frame to this page, which shows the panel and answers
+    the op (/api/panel-op-result, the op's own answer). It commands nothing of
+    its own: the surfaced focus runs under the echo guard, so no focus POST
+    goes back out.
     """
     workspace = tmp_path / "_agent_data"
     workspace.mkdir()
@@ -1121,7 +1127,7 @@ def test_server_sse_focus_is_applied_without_posting_back(tmp_path, chromium_bro
         custom_panels=[_CUSTOM_DATA_VIZ],
     ) as (base_url, _app):
         page = _open_page(chromium_browser, base_url)
-        # Pre-dock data-viz as a SECOND tile (a rail click would replace), then
+        # Pre-dock data-viz as a SECOND tile (a rail click would add a tab), then
         # make artifacts active again, so the later server focus only has to
         # re-activate an existing placeholder.
         expect(_service_tab(page, "Artifacts")).to_have_count(1, timeout=10_000)
@@ -1134,13 +1140,14 @@ def test_server_sse_focus_is_applied_without_posting_back(tmp_path, chromium_bro
         page.wait_for_timeout(800)
 
         posts = _track_panel_posts(page)
-        # Server-driven focus back to the already-docked data-viz. The source
-        # tag is what makes the server broadcast at all — a source-less human
-        # report is mirrored without a frame.
+        # The agent's open of the already-docked data-viz: relayed to this page
+        # as an op, answered with the layout it shows.
         r = requests.post(
-            f"{base_url}/api/panel-focus", json={"panel": "data-viz", "source": "agent"}
+            f"{base_url}/api/panel-op/open",
+            json={"request_id": "panels-open-1", "member": "data-viz"},
+            timeout=10,
         )
-        assert r.status_code == 200
+        assert r.status_code == 200, r.text
 
         # It is applied — data-viz's tile takes the active focus (artifacts keeps
         # its own tile and overlay: side-by-side tiles are both on screen)...
@@ -1148,9 +1155,9 @@ def test_server_sse_focus_is_applied_without_posting_back(tmp_path, chromium_bro
         expect(
             page.locator('button.panel-rail-button[data-panel-id="data-viz"].active')
         ).to_have_count(1, timeout=5_000)
-        # ...with zero POSTs echoed back out (the guard suppressed the setActive).
+        # ...with zero POSTs commanded back out (the guard suppressed the setActive).
         page.wait_for_timeout(600)
-        assert _command_posts(posts) == [], f"server-driven focus POSTed back: {posts}"
+        assert _command_posts(posts) == [], f"an agent open POSTed a command back: {posts}"
 
         page.close()
 
@@ -1216,8 +1223,7 @@ def test_drag_moves_tile_to_new_edge_position(tmp_path, chromium_browser):
 
     The artifacts tile starts left of the terminal. Dragging its tab to the
     right edge of the terminal group moves the tile to the far right; its
-    overlay iframe re-follows to the new rectangle. (Edge drops are the only
-    accepted drop geometry — see the veto test below.)
+    overlay iframe re-follows to the new rectangle.
     """
     workspace = tmp_path / "_agent_data"
     workspace.mkdir()
@@ -1269,20 +1275,17 @@ def test_drag_moves_tile_to_new_edge_position(tmp_path, chromium_browser):
         page.close()
 
 
-# Hold an HTML5 drag of one service tab over three targets and report what
-# dockview painted. The drag starts on the source tab's real dragstart handler
-# (dockview records the panel being dragged there). The first target is the
-# terminal group's right-edge band: an accepted split, so dockview paints its
-# `.dv-drop-target-selection` overlay — the proof that the synthetic drag is
-# one dockview recognises at all. The other two are the stacking geometries
-# on the target service tile: its tab title (the old restack gesture) and the
-# centre of its content. The stacking veto (dock-workspace.js
-# wireStackingVeto) must keep the overlay from painting on either, and the
-# drop dispatched on the title must not move anything. Each target is held
-# with repeated dragovers for a fixed budget, because dockview resolves its
-# overlay only after a dragover has been processed. Events go to the element
-# under the pointer, as a real drag would deliver them: dockview's tab drop
-# target does not answer events dispatched on the outer `.dv-tab`.
+# Hold an HTML5 drag of one service tab over three targets and report what the
+# drop bridge (dock-drop.js) painted. The drag starts on the source tab's real
+# dragstart handler (dockview's own tab drag, which the bridge records as the
+# tile). The first target is the terminal group's right-edge band: a split, so
+# the bridge paints its `.dock-drop-preview__rect--split` highlight — the proof
+# that the synthetic drag is one the bridge recognises at all. The other two
+# are the target service tile's title and the centre of its content: both add
+# a tab, so each paints the `--tab` highlight, and the drop dispatched on the
+# title joins the two panels in one tile. Each target is held with repeated
+# dragovers for a fixed budget. Events go to the element under the pointer, as
+# a real drag would deliver them.
 _TAB_DRAG_PROBE_JS = r"""async ({ source, target }) => {
     const tabOf = (label) => [...document.querySelectorAll('.dv-tab')].find(t =>
         t.querySelector(`.tile-tab[aria-label="${label}"]`));
@@ -1294,17 +1297,20 @@ _TAB_DRAG_PROBE_JS = r"""async ({ source, target }) => {
     const dt = new DataTransfer();
     src.dispatchEvent(new DragEvent('dragstart',
         { bubbles: true, cancelable: true, dataTransfer: dt }));
-    const overlay = () => !!document.querySelector('.dv-drop-target-selection');
+    const kind = () => {
+        const box = document.querySelector('.dock-drop-preview__rect');
+        return box ? [...box.classList].find((c) => c.startsWith('dock-drop-preview__rect--'))?.slice(25) ?? null : null;
+    };
     const hold = async (el, x, y) => {
         const opts = { bubbles: true, cancelable: true, dataTransfer: dt,
                        clientX: x, clientY: y };
         el.dispatchEvent(new DragEvent('dragenter', opts));
-        let painted = false;
+        let painted = null;
         const deadline = performance.now() + 600;
         while (performance.now() < deadline) {
             el.dispatchEvent(new DragEvent('dragover', opts));
             await new Promise((res) => setTimeout(res, 50));
-            painted = painted || overlay();
+            painted = kind() ?? painted;
         }
         return { painted, opts };
     };
@@ -1313,9 +1319,9 @@ _TAB_DRAG_PROBE_JS = r"""async ({ source, target }) => {
     const ex = c.right - 5, ey = c.top + c.height / 2;
     const edgeEl = document.elementFromPoint(ex, ey) ?? content;
     const edge = await hold(edgeEl, ex, ey);
-    edgeEl.dispatchEvent(new DragEvent('dragleave', edge.opts));
+    edgeEl.dispatchEvent(new DragEvent('dragleave', { ...edge.opts, relatedTarget: document.body }));
     await new Promise((res) => setTimeout(res, 100));
-    const clearedAfterEdge = !overlay();
+    const clearedAfterEdge = kind() === null;
     const at = async (el) => {
         const r = el.getBoundingClientRect();
         const x = r.left + r.width / 2, y = r.top + r.height / 2;
@@ -1323,8 +1329,6 @@ _TAB_DRAG_PROBE_JS = r"""async ({ source, target }) => {
         return { hit, ...(await hold(hit, x, y)) };
     };
     const centre = await at(dst.closest('.dv-groupview').querySelector('.dv-content-container'));
-    centre.hit.dispatchEvent(new DragEvent('dragleave', centre.opts));
-    await new Promise((res) => setTimeout(res, 100));
     // The artifacts tile hides its title behind the shell's breadcrumb root.
     const titleEl = [...dst.querySelectorAll('.osprey-crumb-root, .tile-tab-title')]
         .find((el) => el.getClientRects().length > 0);
@@ -1336,14 +1340,14 @@ _TAB_DRAG_PROBE_JS = r"""async ({ source, target }) => {
 }"""
 
 
-def test_drag_onto_tab_bar_is_vetoed_no_stack(tmp_path, chromium_browser):
-    """A drop that would stack two panels into one tile is vetoed.
+def test_drag_onto_a_tile_header_adds_a_tab(tmp_path, chromium_browser):
+    """A tab dropped on another service tile's header or centre joins it as a tab.
 
-    One panel per tile: dragging the data-viz tab onto the artifacts tile's tab
-    (the old restack gesture) or its centre never paints a drop target, and
-    the drop leaves every tile holding exactly one panel. The same drag held
-    over the terminal's right edge DOES paint one, so a drag dockview never
-    recognised cannot pass as a veto.
+    Dragging the data-viz tab over the artifacts tile's title or its centre
+    paints the add-as-tab highlight, and the drop on the title leaves one tile
+    holding both panels with the dropped one in front. The same drag held over
+    the terminal's right edge paints a split, so a drag the bridge never
+    recognised cannot pass as a tab drop.
     """
     workspace = tmp_path / "_agent_data"
     workspace.mkdir()
@@ -1360,21 +1364,28 @@ def test_drag_onto_tab_bar_is_vetoed_no_stack(tmp_path, chromium_browser):
         before = _dock_groups(page)
         assert all(len(g["tabs"]) == 1 for g in before), before
 
-        # Act — the restack gesture, with an accepted edge target as contrast.
+        # Act — the tab drop, with a split target as contrast.
         probe = page.evaluate(
             _TAB_DRAG_PROBE_JS, {"source": _title_case("DATA VIZ"), "target": "Artifacts"}
         )
         assert "error" not in probe, probe
-        assert probe["edgePainted"] is True, f"dockview never recognised the drag: {probe}"
+        assert probe["edgePainted"] == "split", f"the bridge never recognised the drag: {probe}"
         assert probe["clearedAfterEdge"] is True, probe
-        assert probe["centrePainted"] is False, f"a tile centre painted a drop overlay: {probe}"
-        assert probe["titlePainted"] is False, f"a tab title painted a drop overlay: {probe}"
-        page.wait_for_timeout(500)
+        assert probe["centrePainted"] == "tab", f"a tile centre painted no tab highlight: {probe}"
+        assert probe["titlePainted"] == "tab", f"a tile title painted no tab highlight: {probe}"
 
-        # Assert — vetoed: no group holds two tabs, arrangement unchanged.
+        # Assert — one tile holds both, the dropped tab in front and its header shown.
+        page.wait_for_function(
+            "() => [...document.querySelectorAll('.dv-groupview')]"
+            ".some(g => g.querySelectorAll('.dv-tab').length === 2)",
+            timeout=5_000,
+        )
         after = _dock_groups(page)
-        assert all(len(g["tabs"]) == 1 for g in after), (
-            f"a drop stacked two panels into one tile: {after}"
+        joined = [g for g in after if len(g["tabs"]) == 2]
+        assert len(joined) == 1 and sorted(joined[0]["tabs"]) == ["Artifacts", "Data Viz"], after
+        expect(_service_tab(page, "DATA VIZ").locator(".tile-tab-tabs")).to_be_visible()
+        expect(_service_tab(page, "DATA VIZ").locator(".tile-tab-item--showing")).to_have_attribute(
+            "data-panel-key", "data-viz"
         )
         assert sorted(t for g in after for t in g["tabs"]) == sorted(
             t for g in before for t in g["tabs"]
@@ -1618,8 +1629,8 @@ def test_add_menu_reveals_hidden_panel(tmp_path, chromium_browser):
     """Clicking a hidden panel in the "+" menu un-hides its rail entry and docks it.
 
     data-viz starts visible, is hidden via the API, then revealed from the menu —
-    which docks it as a NEW tile beside the active group (the add menu is the
-    grow-the-layout verb; a rail click would replace) and POSTs the reveal.
+    which opens it as a tab in front of the active service tile, like every
+    other open, and POSTs the reveal.
     """
     workspace = tmp_path / "_agent_data"
     workspace.mkdir()
@@ -2013,13 +2024,13 @@ def test_terminal_rail_entry_close_and_reopen(tmp_path, chromium_browser):
         page.close()
 
 
-def test_evicted_panel_entry_click_redocks_it(tmp_path, chromium_browser):
-    """An evicted panel's rail entry survives and one click takes the tile back.
+def test_rail_click_on_covered_panel_brings_it_forward(tmp_path, chromium_browser):
+    """A covered tab's rail entry stays lit, and one click brings the tab forward.
 
-    A rail click on data-viz evicts artifacts from the tile (local vacate —
-    membership untouched); the artifacts entry stays in the rail, and clicking
-    it re-docks artifacts by taking the tile over from data-viz in turn. No
-    visibility POST fires in either direction: occupancy is per-client state.
+    A rail click on data-viz puts it in front of artifacts in the same tile;
+    clicking the artifacts entry brings artifacts forward again, in place. Both
+    tabs stay; no visibility POST fires in either direction: which tab is in
+    front is per-client state.
     """
     workspace = tmp_path / "_agent_data"
     workspace.mkdir()
@@ -2036,21 +2047,27 @@ def test_evicted_panel_entry_click_redocks_it(tmp_path, chromium_browser):
 
         posts = _track_panel_posts(page)
 
-        # Evict artifacts by activating data-viz (one panel per tile).
+        # Cover artifacts by activating data-viz (a tab in front of it).
         _focus_service_panel(page, "data-viz", "DATA VIZ")
-        expect(_service_tab(page, "Artifacts")).to_have_count(0, timeout=5_000)
+        expect(_overlay_iframe(page, "artifacts")).to_be_hidden(timeout=5_000)
+        expect(_service_tab(page, "Artifacts")).to_have_count(1)
         expect(artifacts_rail).to_be_attached()
 
-        # Take the tile back through the surviving entry.
+        # Bring artifacts forward through its entry.
         artifacts_rail.click()
-        expect(_service_tab(page, "Artifacts")).to_have_count(1, timeout=5_000)
         expect(_overlay_iframe(page, "artifacts")).to_be_visible(timeout=5_000)
-        expect(_service_tab(page, "DATA VIZ")).to_have_count(0, timeout=5_000)
+        expect(_overlay_iframe(page, "data-viz")).to_be_hidden(timeout=5_000)
+        expect(_service_tab(page, "DATA VIZ")).to_have_count(1)
+        groups = _dock_groups(page)
+        assert [g["tabs"] for g in groups if "Agent" not in g["tabs"]] == [
+            ["Artifacts", "Data Viz"]
+        ], groups
 
-        # Focus POSTs only (the docking flow may report focus more than once —
-        # pre-existing, benign) — evictions never touch server visibility.
-        page.wait_for_timeout(600)
-        assert "panel-visibility" not in posts, f"eviction must stay local, got {posts}"
+        # Focus POSTs only — which tab is in front never touches server visibility.
+        expect(
+            page.locator('button.panel-rail-button[data-panel-id="artifacts"].active')
+        ).to_have_count(1, timeout=5_000)
+        assert "panel-visibility" not in posts, f"a tab switch must stay local, got {posts}"
         assert set(_command_posts(posts)) == {"panel-focus"}, f"expected only focus POSTs: {posts}"
 
         page.close()
@@ -2229,7 +2246,7 @@ def test_overlay_iframe_follows_live_sash_drag(tmp_path, chromium_browser):
 #
 # An embedded panel contributes its toolbar controls INTO the tile bar via
 # postMessage (design_system/js/header-contrib.js → tile-header-contrib.js);
-# clicks round-trip back as osprey-header-action. Proven here with a custom
+# clicks round-trip back as canopy-host-header-action. Proven here with a custom
 # panel whose (proxied, same-origin) page contributes a nav + a button on
 # load and records incoming actions — the full pipeline the unit suites can
 # only cover in halves.
@@ -2238,12 +2255,12 @@ _CONTRIB_PANEL_HTML = b"""<!doctype html>
 <html><body><script>
   window.__actions = [];
   window.addEventListener('message', (e) => {
-    if (e.data && e.data.type === 'osprey-header-action') {
+    if (e.data && e.data.type === 'canopy-host-header-action') {
       window.__actions.push([e.data.id, e.data.value ?? null]);
     }
   });
   parent.postMessage({
-    type: 'osprey-header-contribution',
+    type: 'canopy-host-header-contribution',
     version: 1,
     items: [
       { kind: 'nav', id: 'view', priority: 1, items: [
@@ -2304,7 +2321,7 @@ def test_header_contribution_renders_and_round_trips(reserve_port, tmp_path, chr
 
     The custom panel's page (reverse-proxied same-origin) posts a nav + button
     contribution on load; the bar must render them beside the tile title, a
-    bar click must deliver osprey-header-action back into the iframe, and the
+    bar click must deliver canopy-host-header-action back into the iframe, and the
     artifacts tile (which contributes nothing) must keep an empty region.
     """
     workspace = tmp_path / "_agent_data"
@@ -2347,7 +2364,7 @@ def test_header_contribution_renders_and_round_trips(reserve_port, tmp_path, chr
             expect(ws.locator(".contrib-nav-link")).to_have_count(0)
             expect(ws.locator(".contrib-btn")).to_have_count(0)
 
-            # Round-trip: bar clicks land in the panel as osprey-header-action.
+            # Round-trip: bar clicks land in the panel as canopy-host-header-action.
             tab.locator(".contrib-nav-link", has_text="New Entry").click()
             tab.locator(".contrib-btn", has_text="Refresh").click()
             frame = page.frame_locator('.dock-iframe-overlay iframe[data-panel-id="contrib-demo"]')
@@ -2438,7 +2455,7 @@ _SEARCH_MENU_PANEL_HTML = b"""<!doctype html>
   window.__actions = [];
   function contribution() {
     return {
-      type: 'osprey-header-contribution',
+      type: 'canopy-host-header-contribution',
       version: 1,
       items: [
         // Higher priority survives a narrow tile longer: the filter outranks
@@ -2452,7 +2469,7 @@ _SEARCH_MENU_PANEL_HTML = b"""<!doctype html>
     };
   }
   window.addEventListener('message', (e) => {
-    if (e.data && e.data.type === 'osprey-header-action') {
+    if (e.data && e.data.type === 'canopy-host-header-action') {
       window.__actions.push([e.data.id, e.data.value ?? null]);
       // A real panel reacts and re-sends the WHOLE contribution.
       parent.postMessage(contribution(), window.location.origin);
@@ -2552,6 +2569,269 @@ def test_header_search_survives_re_contribution_and_menu_round_trips(tmp_path, c
             assert actions and actions[-1] == ["more", "refresh"], actions
 
             page.close()
+
+
+# CANOPY is not a custom panel: it is a SIDECAR, so its URL comes from
+# app.state.canopy_server_url and its same-origin standing from the sidecar's
+# own entry pages (sidecar_panels.py), not from a config marker. This stub
+# stands in for the sidecar at the real mount: it answers /health, and the
+# shell at / moves itself to one embedded page under /embed/ — an entry page,
+# so served unsandboxed — which posts a header contribution and records every
+# action the hub routes back.
+#
+# Under header protocol v1 the hub renders exactly what a panel contributes,
+# so each CANOPY page shape shows every item once. Two shapes are pinned, each
+# in its own hub boot:
+#
+#   * a one-tile SCREEN: subtitle, the screen verbs (Print, Export PNG),
+#     Search, ⋯ and Save view;
+#   * the WORKSPACE page, at a distinct /embed/workspace/… path: a summary
+#     text, Search as a ``button`` at priority 1, and ⋯ with Reset layout,
+#     Show sub-screens and Collections.
+#
+# Priorities follow the fold ladder: the tile ⋯ lowest, verbs one higher than
+# their right neighbour, Save view above the verbs.
+_CANOPY_PAGES = {
+    "screen": {
+        "path": "/embed/demo/overview",
+        "items": [
+            {"kind": "text", "id": "subtitle", "text": "Trace · 2 curves · live", "priority": 5},
+            {"kind": "button", "id": "print", "label": "Print", "priority": 3},
+            {"kind": "button", "id": "export-png", "label": "Export PNG", "priority": 2},
+            {"kind": "button", "id": "search", "label": "Search ⌘K", "priority": 1},
+            {
+                "kind": "menu",
+                "id": "more",
+                "priority": 0,
+                "items": [
+                    {"id": "menu:reset-layout", "label": "Reset layout"},
+                    {"id": "tool:export-csv", "label": "Export CSV"},
+                ],
+            },
+            {
+                "kind": "button",
+                "id": "save-view",
+                "label": "Save view",
+                "title": "Save view (⌘S)",
+                "tone": "accent",
+                "priority": 4,
+            },
+        ],
+    },
+    "workspace": {
+        "path": "/embed/workspace/demo",
+        "items": [
+            {"kind": "text", "id": "summary", "text": "3 screens · 2 collections", "priority": 5},
+            {"kind": "button", "id": "search", "label": "Search ⌘K", "priority": 1},
+            {
+                "kind": "menu",
+                "id": "more",
+                "priority": 0,
+                "items": [
+                    {"id": "menu:reset-layout", "label": "Reset layout"},
+                    {"id": "menu:show-sub-screens", "label": "Show sub-screens"},
+                    {"id": "menu:collections", "label": "Collections"},
+                ],
+            },
+        ],
+    },
+}
+
+
+def _canopy_shell_html(embed_path: str) -> bytes:
+    """The sidecar root: move to ``embed_path`` beneath the panel's mount."""
+    return (
+        b"""<!doctype html>
+<html><body><script>
+  // The hub frames the panel's root; move to an embedded page beneath it.
+  const base = location.pathname.replace(/\\/?$/, '/');
+  location.replace(base + """
+        + json.dumps(embed_path.lstrip("/")).encode()
+        + b""" + location.search);
+</script></body></html>"""
+    )
+
+
+def _canopy_embed_html(items: list[dict]) -> bytes:
+    """An embed page that contributes ``items`` and records routed actions."""
+    return (
+        b"""<!doctype html>
+<html><body><script>
+  window.__actions = [];
+  window.addEventListener('message', (e) => {
+    if (e.source === window.parent && e.data && e.data.type === 'canopy-host-header-action') {
+      window.__actions.push([e.data.id, e.data.value ?? null]);
+    }
+  });
+  parent.postMessage({
+    type: 'canopy-host-header-contribution',
+    version: 1,
+    items: """
+        + json.dumps(items).encode()
+        + b""",
+  }, window.location.origin);
+</script></body></html>"""
+    )
+
+
+@contextmanager
+def _canopy_sidecar_stub(page_name: str):
+    """Serve a stand-in CANOPY sidecar whose shell redirects to ``page_name``.
+
+    Both embed pages are routed — ``/embed/workspace/…`` to the workspace page,
+    any other ``/embed/…`` to the screen — so the redirect alone picks the page.
+    """
+    shell = _canopy_shell_html(_CANOPY_PAGES[page_name]["path"])
+    workspace = _canopy_embed_html(_CANOPY_PAGES["workspace"]["items"])
+    screen = _canopy_embed_html(_CANOPY_PAGES["screen"]["items"])
+
+    class _Handler(BaseHTTPRequestHandler):
+        def do_GET(self):
+            path = self.path.split("?", 1)[0]
+            if path == "/health":
+                body, ctype = b'{"status":"ok"}', "application/json"
+            elif path.startswith("/embed/workspace/"):
+                body, ctype = workspace, "text/html"
+            elif path.startswith("/embed/"):
+                body, ctype = screen, "text/html"
+            elif path == "/":
+                body, ctype = shell, "text/html"
+            else:
+                self.send_response(404)
+                self.end_headers()
+                return
+            self.send_response(200)
+            self.send_header("Content-Type", ctype)
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, *args):
+            pass
+
+    server = HTTPServer(("127.0.0.1", 0), _Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        yield f"http://127.0.0.1:{server.server_port}"
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+
+@contextmanager
+def _canopy_hub(tmp_path, chromium_browser, page_name: str):
+    """Boot a hub whose CANOPY sidecar serves ``page_name``; yield (page, base_url)."""
+    workspace = tmp_path / "_agent_data"
+    workspace.mkdir()
+
+    with _canopy_sidecar_stub(page_name) as stub_url:
+
+        async def _publish_stub(app, enabled_panels):
+            # What _launch_sidecar publishes once a real sidecar answers. CANOPY
+            # takes no operator secret, so no panel_auth_headers entry is owed.
+            assert "canopy" in enabled_panels
+            app.state.canopy_server_url = stub_url
+
+        with (
+            patch(
+                "osprey.interfaces.web_terminal.app._launch_enabled_sidecars",
+                new=AsyncMock(side_effect=_publish_stub),
+            ),
+            _live_server(
+                workspace,
+                enabled_panels={"artifacts", "canopy"},
+                # Keep artifacts dead by construction, as the neighbour above.
+                artifact_url=unserved_url(),
+            ) as (base_url, _app),
+        ):
+            page = _open_page(chromium_browser, base_url)
+            try:
+                _open_second_tile(page, base_url, "canopy", "CANOPY")
+                yield page, base_url
+            finally:
+                page.close()
+
+
+_CANOPY_IFRAME = '.dock-iframe-overlay iframe[data-panel-id="canopy"]'
+
+
+def _canopy_activate(page: Page, tab, label: str) -> None:
+    """Click the control labelled ``label`` wherever the bar put it.
+
+    On a wide tile it is a button in the bar or an entry of the contributed ⋯;
+    on a narrow one the ladder may have folded it into the bar's own ⋯. Either
+    way it dispatches the same action, so the round-trip is width-independent.
+    """
+    button = tab.locator(".contrib-btn:visible", has_text=label)
+    if button.count():
+        button.click()
+        return
+    tab.locator(".contrib-menu-btn:visible").click()
+    popover = page.locator(".contrib-menu-popover")
+    expect(popover).to_be_visible(timeout=5_000)
+    popover.locator(".contrib-menu-item", has_text=label).click()
+    expect(page.locator(".contrib-menu-popover")).to_have_count(0, timeout=5_000)
+
+
+@pytest.mark.parametrize("page_name", ["screen", "workspace"])
+def test_canopy_header_contribution_renders_exactly_and_round_trips(
+    tmp_path, chromium_browser, page_name
+):
+    """Each CANOPY page shape renders exactly its contributed control set.
+
+    The sidecar is replaced by a stub published at ``app.state.canopy_server_url``
+    (what a started sidecar publishes), so the iframe is CANOPY's real mount,
+    ``/panel/canopy/embed/…`` through the panel proxy. The hub must render one
+    element per contributed item — counted by ``[data-contrib-key]``, folded
+    ones included, so the count does not depend on the tile's width — with
+    exactly one ⋯ visible, and every button and every ⋯ entry must reach the
+    frame as ``canopy-host-header-action`` carrying CANOPY's ids: a button sends
+    ``{id}``, a menu entry ``{id: "more", value: <entry id>}``.
+    """
+    spec = _CANOPY_PAGES[page_name]
+    items = spec["items"]
+    expected_keys = sorted(f"{it['kind']}:{it['id']}" for it in items)
+
+    with _canopy_hub(tmp_path, chromium_browser, page_name) as (page, base_url):
+        tab = _service_tab(page, "CANOPY")
+        (text_item,) = [it for it in items if it["kind"] == "text"]
+        expect(tab.locator(".contrib-text")).to_have_text(text_item["text"], timeout=10_000)
+
+        # Exactly the contributed set: no item dropped, none duplicated, nothing
+        # added under a contribution key (the bar's own ⋯ carries none).
+        keyed = tab.locator("[data-contrib-key]")
+        expect(keyed).to_have_count(len(items))
+        keys = keyed.evaluate_all("(els) => els.map((el) => el.dataset.contribKey)")
+        assert sorted(keys) == expected_keys, keys
+        # One ⋯ only: either the contributed menu, or — when it has folded on a
+        # narrow tile — the bar's own overflow, never both.
+        expect(tab.locator(".contrib-menu-btn:visible")).to_have_count(1)
+
+        # The frame sits at this page's path under CANOPY's mount, same origin.
+        frame_url = page.locator(_CANOPY_IFRAME).evaluate("(el) => el.contentWindow.location.href")
+        assert frame_url.startswith(f"{base_url}/panel/canopy{spec['path']}"), frame_url
+
+        save = [it for it in items if it["id"] == "save-view"]
+        if save:
+            accent = tab.locator(".contrib-btn.contrib-btn-accent")
+            expect(accent).to_have_count(1)
+            expect(accent).to_have_text(save[0]["label"])
+            expect(accent).to_have_attribute("title", save[0]["title"])
+
+        expected_actions = []
+        for item in items:
+            if item["kind"] == "button":
+                _canopy_activate(page, tab, item["label"])
+                expected_actions.append([item["id"], None])
+            elif item["kind"] == "menu":
+                for entry in item["items"]:
+                    _canopy_activate(page, tab, entry["label"])
+                    expected_actions.append([item["id"], entry["id"]])
+
+        frame = page.frame_locator(_CANOPY_IFRAME)
+        actions = _poll_actions(page, frame, len(expected_actions))
+        assert actions == expected_actions, actions
 
 
 # The drag ghost dockview builds for a tab is a deep clone of that tab, parented

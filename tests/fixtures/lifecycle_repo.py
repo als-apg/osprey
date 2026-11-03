@@ -246,6 +246,9 @@ skills:
   - writing-bluesky-plans  # Write, check and queue a plan (needs the Bluesky server)
   - operating-bluesky-plans  # Stage, queue and watch a plan (needs the Bluesky server)
   - bluesky-plans  # Browse which plans this deployment can run
+  - canopy-panel-builder  # Build, port and check CANOPY screens (goes with the canopy panel)
+  - canopy-operator  # Open, arrange and close what the CANOPY panel shows (goes with the panel)
+  - canopy-screens  # Which CANOPY screen shows which device, built from the library (goes with the panel)
   - pyaml-tools  # Measure through pyaml_measure (renders only with a pyAML view)
   # Available — uncomment to enable:
   # - logbook-deep-research  # Multi-phase logbook investigation skill
@@ -278,8 +281,12 @@ web_panels:
   - okf             # KNOWLEDGE tab, for browsing the facility knowledge bundle
   - system-health   # SYSTEM tab, a framework health dashboard
   - jupyter         # JUPYTER tab, JupyterLab with kernels that follow the terminal session
+  - canopy          # CANOPY tab, the operator GUI: machine screens and Trace, one per terminal
   # The events and bluesky panels are added by the write-armed tiers
   # (readwrite and admin) instead, so the read-only login is built without them.
+
+# The tab the web terminal opens on: CANOPY, the operator GUI.
+default_panel: canopy
 
 # ── Scanning and simulated hardware ──────────────────────────────────────────
 # These three blocks give you a working plan setup with no real hardware: a
@@ -318,8 +325,8 @@ virtual_accelerator:
   # in that block — so pointing this deployment at your facility is that one
   # edit and nothing here.
   # `osprey sim apply` moves both machines — a scenario changes the world, not
-  # one lane. The archiver records the stand-in: the archive belongs to the
-  # machine.
+  # one lane. The stand-in is never recorded: it reads the facility's archive,
+  # and the store holds the simulator's past.
   # `true` serves the stand-in on this deployment's own stand-in port, so two
   # deployments on one host never collide over it. Write a Channel Access port
   # number instead only to pin it somewhere specific.
@@ -433,13 +440,11 @@ config:
   # `gateways` and `probe_channel` first — then the switch probes that target
   # and requires your own
   # `control_system.target_switch.live_gateway_acknowledged` — the operator
-  # saying those gateways really are this facility's — and it still refuses
-  # while this deployment records its own archive from the stand-in, because
-  # that store's history is the stand-in's (see `va_archiver:` above).
+  # saying those gateways really are this facility's.
   # `osprey set connector=<type>` ("epics", "doocs" or "tango") makes your
   # facility's machine the session baseline in place of the simulator, with
   # `osprey set config.archiver.type=<the archiver that records it>` and
-  # `osprey set va_archiver=null`, because the recorded archive goes with it.
+  # `osprey set va_archiver=null`, because that store records the simulator.
   control_system.type: virtual_accelerator
   # Write ceiling, the FIRST guard in the write-safety chain: `never` refuses
   # every hardware write before the limits check or the approval prompt is
@@ -1175,6 +1180,20 @@ config:
   # snapshot, so a database with more channels than this is skipped (the build
   # says so) and the fields simply offer no suggestions.
   web.channel_suggestions.max_channels: 50000
+  # The CANOPY tab is built in: each web terminal starts its own CANOPY for the
+  # user it serves, so the tab has no url, label or health endpoint to set.
+  # Trace, the correlation page and the waveform page open empty: the default
+  # collection's Orbit, RF thermal and Septum pulse carry their own views.
+  # A `*_default_query` here would give the bare tools a view as well.
+  # web.panels.canopy.trace_default_query: pv=SR:DIAG:BPM:03:POSITION:X&range=-1h
+  # The screen CANOPY opens on, by its id in data/canopy/library/screens.
+  web.panels.canopy.home_screen: facility/overview
+  # Ceiling in bytes on the live-value buffers one user's CANOPY keeps in
+  # memory (256 MB).
+  web.panels.canopy.vole_bytes_max: 268435456
+  # A colour theme for CANOPY, as a path relative to the project root
+  # (absolute accepted). Unset keeps CANOPY's own theme.
+  # web.panels.canopy.theme_file: data/canopy/theme/colors.json
   # The SYSTEM tab is served but starts out of the sidebar: `+ Add panel` and
   # the command palette open it, and `+ Add panel` can also pin it there.
   # Delete this line to give it a sidebar row from the first load.
@@ -1386,6 +1405,20 @@ services:
 apps:
   knob-example: {}
 
+# ── Build checks ─────────────────────────────────────────────────────────────
+# `canopy-payload` copies the prebuilt CANOPY payload (the wheels, the viewer,
+# Trace and the staged spec, made by the canopy repo's scripts/build-payload.sh)
+# into this repo, where the image build picks it up. The directory is
+# OSPREY_CANOPY_PAYLOAD (shell, then .env.shared/.env in this repo). With none
+# named, the build leaves the CANOPY panel out and says so; a named payload that
+# is missing or half-built stops the build. Set OSPREY_CANOPY_PAYLOAD_CHECK=0 to
+# skip the step.
+lifecycle:
+  pre_build:
+    - name: canopy-payload
+      timeout: 30
+      run: '"{python}" -m osprey.integrations.canopy.stage'
+
 # ── Answering webhooks (optional) ────────────────────────────────────────────
 # Lets an outside system ask the agent a question over HTTP. The triggers that
 # ship need no control system, so a single `curl` after `osprey up` exercises
@@ -1451,15 +1484,8 @@ provenance:
   providers_hash: @PROVIDERS_HASH@
 # true builds its own services stack; false attaches to another project's.
 deploy_services: true
-# Named web-terminal layouts, as label -> list of panel ids.
+# Named web-terminal layouts, as label -> tiles of panel-id tabs.
 panel_presets: {}
-
-# --- Default web-terminal panel ----------------------------------------------
-# Panel id opened when the web terminal loads. Must be a built-in, an entry in
-# the web_panels list above, or a custom panel backed by a web.panels.<id>.url
-# config override.
-#
-# default_panel: artifacts
 @DEPLOY_BLOCK@
 # --- Facility MCP servers ----------------------------------------------------
 # Your own MCP servers, injected into the build's .mcp.json next to the
@@ -3093,6 +3119,46 @@ def packaged_providers_yml() -> str:
     return packaged_catalog_path().read_text(encoding="utf-8")
 
 
+#: Where the exemplar's screen library sits, repo-relative.
+CANOPY_LIBRARY_RELPATH = "data/canopy/library"
+
+
+def packaged_canopy_library() -> Path:
+    """The control-assistant screen library inside the installed package.
+
+    Read rather than frozen, as :func:`packaged_providers_yml` reads the
+    catalog: the package owns the screens and their write-binding report, so
+    the exemplar carries exactly what ``osprey init --preset control-assistant``
+    puts into a deployment's ``data/``.
+    """
+    bundle = importlib.resources.files("osprey.templates.apps.control_assistant")
+    return Path(str(bundle)) / "data" / "canopy" / "library"
+
+
+def copy_canopy_library(root: Path) -> Path:
+    """Copy the packaged screen library into ``root`` as bytes.
+
+    Files land 0644 and directories 0755 whatever the installed tree's modes
+    are, so the library is the same in every checkout and its write-binding
+    report stays fresh. Kept out of :func:`exemplar_source_files` because the
+    library holds images: that mapping is the exemplar's text.
+    """
+    source = packaged_canopy_library()
+    target = root / CANOPY_LIBRARY_RELPATH
+    for path in sorted(source.rglob("*")):
+        dest = target / path.relative_to(source)
+        if path.is_dir():
+            dest.mkdir(parents=True, exist_ok=True)
+        elif path.is_file():
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            dest.write_bytes(path.read_bytes())
+            dest.chmod(0o644)
+    for path in [target.parent.parent, target.parent, target, *target.rglob("*")]:
+        if path.is_dir():
+            path.chmod(0o755)
+    return target
+
+
 def expand_sentinels(text: str) -> str:
     """Resolve the version, preset-hash and providers-hash sentinels in ``text``.
 
@@ -3303,6 +3369,8 @@ def build_exemplar_repo(
         path.write_text(text, encoding="utf-8")
         if rel in EXECUTABLE_FILES:
             path.chmod(0o755)
+
+    copy_canopy_library(root)
 
     # STATE zone: present and empty. Git-ignored, so no .gitkeep — a marker
     # file there would be ignored too, and would be the one thing a `reset`

@@ -186,3 +186,136 @@ def test_a_set_edit_spelling_lists_on_the_root_is_refused_like_the_file(tmp_path
         str(from_set.value).split(" spells ", 1)[1] == str(from_file.value).split(" spells ", 1)[1]
     )
     assert "tiers/" in str(from_set.value)
+
+
+# ── a --set edit cannot drop a host guard from any login ─────────────────────
+
+_HOUSE_GUARD = "hooks/house_guard.py"
+_GUARD_WIRING = "claude_code.hooks.PreToolUse"
+
+
+def _guarded_repo(tmp_path: Path, *, shared: bool, lists: str = "own") -> Path:
+    """A host that selects library guards and wires a facility guard, and one login."""
+    repo = tmp_path / "repo"
+    (repo / "data").mkdir(parents=True)
+    (repo / "hooks").mkdir()
+    (repo / _HOUSE_GUARD).write_text("import sys\nsys.exit(0)\n", encoding="utf-8")
+    config: dict[str, Any] = {_WRITES: "allowed", _GUARD_WIRING: [_HOUSE_GUARD]}
+    if shared:
+        config["modules.web_terminals.shared"] = ["logbook"]
+    _write_yaml(
+        repo / "profile.yml",
+        {"name": "Facility", "data": "data", "hooks": ["hook-log", "approval", "limits"]}
+        | {"config": config},
+    )
+    return _write_yaml(
+        repo / "tiers" / "logbook.yml",
+        {
+            "name": "Logbook",
+            "lists": lists,
+            "claude_md_template": "CLAUDE.logbook.md.j2",
+            "hooks": ["hook-log"],
+            "config": {"claude_code.servers.controls.enabled": False},
+        },
+    )
+
+
+def _guard_wiring(config: dict[str, Any]) -> list[Any]:
+    from osprey.cli.build_profile_merge import _flatten_section
+
+    return _flatten_section(config, "claude_code").get(_GUARD_WIRING, [])
+
+
+@pytest.mark.parametrize("shared", [True, False], ids=["shared", "unshared"])
+@pytest.mark.parametrize("pair", ["hooks=[hook-log]", "hooks=[]", "hooks=[hook-log, writes-check]"])
+def test_a_set_hooks_edit_keeps_the_host_library_guards(
+    pair: str, shared: bool, tmp_path: Path
+) -> None:
+    unedited = resolve_build_document(_guarded_repo(tmp_path, shared=shared), None, (), ())
+    edited = resolve_build_document(_guarded_repo(tmp_path / "e", shared=shared), None, (), (pair,))
+
+    for guard in ("approval", "limits"):
+        assert guard in unedited.profile.hooks
+        assert guard in edited.profile.hooks, (pair, edited.profile.hooks)
+    # Only a shared login is pinned; an unshared one keeps the switch only if it asks.
+    assert ("writes-check" in unedited.profile.hooks) is shared
+    assert ("writes-check" in edited.profile.hooks) is (shared or "writes-check" in pair)
+
+
+@pytest.mark.parametrize("shared", [True, False], ids=["shared", "unshared"])
+@pytest.mark.parametrize(
+    "pair",
+    [
+        f"config.{_GUARD_WIRING}=[]",
+        "config.claude_code.hooks={}",
+        "config.claude_code={hooks: {PreToolUse: []}}",
+    ],
+)
+def test_a_set_config_edit_keeps_the_host_facility_guards(
+    pair: str, shared: bool, tmp_path: Path
+) -> None:
+    unedited = resolve_build_document(_guarded_repo(tmp_path, shared=shared), None, (), ())
+    edited = resolve_build_document(_guarded_repo(tmp_path / "e", shared=shared), None, (), (pair,))
+
+    assert _guard_wiring(unedited.profile.config) == [_HOUSE_GUARD]
+    assert _guard_wiring(edited.profile.config) == [_HOUSE_GUARD], edited.profile.config
+
+
+@pytest.mark.parametrize("shared", [True, False], ids=["shared", "unshared"])
+def test_a_set_edit_can_still_add_a_guard_to_a_login(shared: bool, tmp_path: Path) -> None:
+    edited = resolve_build_document(
+        _guarded_repo(tmp_path, shared=shared), None, (), ("hooks=[hook-log, memory-guard]",)
+    )
+
+    assert {"memory-guard", "approval", "limits"} <= set(edited.profile.hooks)
+
+
+def test_a_set_hooks_edit_keeps_the_host_guards_on_a_lists_add_login(tmp_path: Path) -> None:
+    login = _guarded_repo(tmp_path, shared=False, lists="add")
+
+    edited = resolve_build_document(login, None, (), ("hooks=[]", f"config.{_GUARD_WIRING}=[]"))
+
+    assert {"approval", "limits"} <= set(edited.profile.hooks)
+    assert _guard_wiring(edited.profile.config) == [_HOUSE_GUARD]
+
+
+@pytest.mark.parametrize("shared", [True, False], ids=["shared", "unshared"])
+@pytest.mark.parametrize(
+    "guard",
+    [_HOUSE_GUARD, {"hook": "house_guard.py", "matcher": "Bash|Edit", "timeout": 5}],
+    ids=["name", "mapping"],
+)
+def test_a_host_facility_guard_is_declared_once_in_a_composed_and_resealed_login(
+    guard: Any, shared: bool
+) -> None:
+    import copy
+
+    from osprey.cli.build_profile_merge import GuardFloor, RenderSeal, seal_login_render
+
+    config: dict[str, Any] = {_WRITES: "allowed", _GUARD_WIRING: [guard]}
+    if shared:
+        config["modules.web_terminals.shared"] = ["logbook"]
+    host = {"config": config}
+    render = render_document(host, {"name": "Logbook", "lists": "own"}, "tiers/logbook.yml")
+    assert _guard_wiring(render["config"]) == [guard]
+
+    # A --set edit seals the render again: the floor is still not added twice.
+    seal = RenderSeal("tiers/logbook.yml", GuardFloor.of(host), shared)
+    resealed = seal_login_render(copy.deepcopy(render), seal)
+    assert _guard_wiring(resealed["config"]) == [guard]
+
+
+@pytest.mark.parametrize("shared", [True, False], ids=["shared", "unshared"])
+def test_seal_login_render_is_idempotent(shared: bool) -> None:
+    import copy
+
+    from osprey.cli.build_profile_merge import GuardFloor, RenderSeal, seal_login_render
+
+    host = {
+        **_HOST,
+        "config": {**_HOST["config"], "modules.web_terminals.shared": ["narrow"] if shared else []},
+    }
+    seal = RenderSeal("tiers/narrow.yml", GuardFloor.of(host), shared)
+    once = render_document(host, dict(_NARROW), "tiers/narrow.yml")
+
+    assert seal_login_render(copy.deepcopy(once), seal) == once

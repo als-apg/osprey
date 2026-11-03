@@ -9,7 +9,7 @@ renders is a target described one way in a single-user session and another way
 through a login — and one of those two operators would be wrong about where
 they are.
 
-Three projections are asserted here, all on a real build of the exemplar:
+Two projections are asserted here, all on a real build of the exemplar:
 
 * ``services.live_standin.port`` — ungated, alone among the service ports,
   because it is the whole evidence the ``standin`` slot's label is derived
@@ -21,11 +21,10 @@ Three projections are asserted here, all on a real build of the exemplar:
   switches to ``va`` would dial, gated on the ``va`` target resolving rather
   than on the deployment baseline (SC-9). A stand-in-baselined deployment
   still offers the simulator.
-* ``services.archiver_recorder.path`` — not an endpoint at all: the host's
-  fact THAT it records its own store, which is what
-  ``archive_belongs_to_standin`` reads to decide whose history the archive
-  holds, and on that answer the ``live`` target is refused. A render queries
-  that same store, so the gate has to hold in a render session too.
+
+The archive recorder projects nothing. It writes the virtual accelerator's
+store, and whose history that is follows from the control system a render
+already carries; no gate reads the recorder, so no render is told of it.
 
 The unit behind the labels (``tests/mcp_server/test_control_target_roster.py``)
 stages its config by hand; what only a build can show is that the config a
@@ -51,7 +50,6 @@ import yaml
 from osprey.deployment import status_display
 from osprey.deployment.reach import reach_errors
 from osprey.mcp_server.control_system.connector_host_manager import target_display_metadata
-from osprey_connectors.standin import archive_belongs_to_standin
 from osprey_connectors.write_target import KIND_BANNERS
 from tests.cli._lifecycle_build import invoke_build_in
 from tests.fixtures.lifecycle_repo import (
@@ -140,18 +138,15 @@ def test_live_standin_render_projects_the_port_and_nothing_else(standin_repo, re
     """The stand-in reaches a render as one key: where to dial it.
 
     ``path`` is the deployment's own business — a render runs no containers
-    and resolves no compose file — so its absence from the stand-in's block is
-    what makes this a projection rather than a copy of the deployment's
-    service block. The recorder's ``path`` is the one exception in the render
-    and is not an endpoint at all; it has its own test below.
+    and resolves no compose file — so its absence from every block is what
+    makes this a projection rather than a copy of the deployment's service
+    block.
     """
     config = _render_config(standin_repo, render)
 
     assert config["services"]["live_standin"] == {"port": STANDIN_PORT}
     assert not config.get("deployed_services")
     for name, block in config["services"].items():
-        if name == "archiver_recorder":
-            continue
         assert "path" not in block, f"{name}: {block}"
 
 
@@ -253,24 +248,19 @@ def test_the_render_is_reachable_as_the_build_reads_it(standin_repo, render: str
 
 
 @pytest.mark.parametrize("render", RENDERS)
-def test_the_recorder_fact_reaches_a_render_of_a_recording_host(standin_repo, render: str) -> None:
-    """A render is told THAT its host records its own store, not where.
+def test_the_recorder_reaches_no_render(standin_repo, render: str) -> None:
+    """The host records its own store and tells its renders nothing of it.
 
-    ``deployed_services`` is the deploying render's spelling of that fact and
-    is empty in every render, so the recorder's block is projected
-    ungated beside the stand-in's port. Its only reader is
-    ``archive_belongs_to_standin``, and on that answer the ``live`` target is
-    refused: a real machine's readings spliced onto a stand-in's synthesized
-    past is the one thing an archive must never contain. The path is the
-    host's, and projecting it grows no surface — a service is rendered and
-    started off ``deployed_services``, never off a ``services:`` block.
+    The store is the virtual accelerator's, whichever render reads it, and no
+    gate on any target reads the recorder — so there is no fact to project
+    and no ``services.archiver_recorder`` block in a tier render.
     """
-    host_path = _host_config(standin_repo)["services"]["archiver_recorder"]["path"]
+    assert "archiver_recorder" in _host_config(standin_repo)["services"]
+
     config = _render_config(standin_repo, render)
 
-    assert config["services"]["archiver_recorder"] == {"path": host_path}
+    assert "archiver_recorder" not in config["services"]
     assert not config.get("deployed_services")
-    assert archive_belongs_to_standin(config) is True
 
 
 @pytest.mark.parametrize("render", RENDERS)
@@ -285,7 +275,6 @@ def test_a_render_of_a_deployment_with_no_stand_in_is_told_of_none(plain_repo, r
     """
     config = _render_config(plain_repo, render)
     assert "live_standin" not in config["services"]
-    assert not archive_belongs_to_standin(config)
 
     metadata = target_display_metadata(config)
     assert metadata["live"]["label"] == LIVE_LABEL

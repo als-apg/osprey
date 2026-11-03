@@ -38,21 +38,22 @@ def _provider_secret(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("CBORG_API_KEY", "sk-cborg-secret")
 
 
-def test_sdk_env_pins_tz_to_the_facility_timezone(tmp_path: Path) -> None:
-    _write_config(tmp_path, timezone="America/Los_Angeles")
+@pytest.mark.parametrize(
+    ("timezone", "expected"),
+    [
+        pytest.param("America/Los_Angeles", "America/Los_Angeles", id="facility-timezone"),
+        # Same default the facility-timezone resolver uses, so both clocks agree.
+        pytest.param(None, "UTC", id="utc-when-the-project-names-no-timezone"),
+    ],
+)
+def test_sdk_env_pins_tz_to_the_projects_timezone_else_utc(
+    tmp_path: Path, timezone: str | None, expected: str
+) -> None:
+    _write_config(tmp_path, timezone=timezone)
 
     env = sdk_env(tmp_path)
 
-    assert env["TZ"] == "America/Los_Angeles"
-
-
-def test_sdk_env_tz_is_utc_when_the_project_names_no_timezone(tmp_path: Path) -> None:
-    """Same default the facility-timezone resolver uses, so both clocks agree."""
-    _write_config(tmp_path, timezone=None)
-
-    env = sdk_env(tmp_path)
-
-    assert env["TZ"] == "UTC"
+    assert env["TZ"] == expected
 
 
 def test_sdk_env_without_a_project_sets_no_tz() -> None:

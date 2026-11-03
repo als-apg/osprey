@@ -31,10 +31,8 @@ Four kinds of check:
 * ``static`` -- one per language or rule: mypy, the import contracts, the
   private-name imports, tsc, eslint, prettier, actionlint.
 * ``tests`` -- one per runner: the parallel pytest sweep, the serial
-  real-terminal and wall-clock suites, the live Channel Access gate, Vitest,
-  and the dock-engine's own Vitest suite.
-* ``build`` -- the documentation and its links, the dock-engine bundle, and the
-  packages.
+  real-terminal and wall-clock suites, the live Channel Access gate and Vitest.
+* ``build`` -- the documentation and its links, and the packages.
 
 Two tiers. ``quick`` is what a commit needs, ``full`` is what a push needs and
 adds the serial suites and the builds. ``run`` runs named checks as declared and

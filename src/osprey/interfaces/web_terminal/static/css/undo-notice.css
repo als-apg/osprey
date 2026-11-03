@@ -13,6 +13,8 @@
   display: flex;
   align-items: center;
   gap: var(--space-3);
+  /* Sized to its sentence, not to the half of the page right of its anchor. */
+  width: max-content;
   max-width: min(480px, calc(100vw - 32px));
   padding: 6px 6px 6px 14px;
   font-family: var(--font-display);
@@ -26,10 +28,9 @@
   animation: undo-notice-in var(--duration-instant) ease-out;
 }
 
+/* A sentence wraps rather than losing its end. */
 .undo-notice-text {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
 }
 
 .undo-notice-btn {

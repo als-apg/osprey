@@ -267,7 +267,9 @@ def _unbounded_pytest_checks(check: ModuleType, checks: tuple[Any, ...]) -> list
     """What leaves a pytest check of *checks* unbounded, one line per defect.
 
     A check is bounded when it declares a bound and every tier that runs it
-    resolves its command through ``scripts/run_bounded.py`` with a bound.
+    resolves its command through ``scripts/run_bounded.py`` with a bound. The
+    wrapper runs through ``uv run``, or ``uv run --no-sync`` for a check whose
+    environment a sync would move.
     """
     problems = []
     for declared in _pytest_checks(checks):
@@ -277,8 +279,16 @@ def _unbounded_pytest_checks(check: ModuleType, checks: tuple[Any, ...]) -> list
             context = check.Context(tier=tier)
             for argv in check.commands(declared, check.Selection(check.WHOLE), context):
                 prefix = [*check.kit.UV_RUN, *WRAPPER]
+                # A check that keeps an installed environment as it is (the
+                # CANOPY contract) adds ``--no-sync`` after the kit's ``uv run``.
+                frozen = len(check.kit.UV_RUN)
+                head = (
+                    argv[:frozen] + argv[frozen + 1 :]
+                    if argv[frozen : frozen + 1] == ["--no-sync"]
+                    else argv
+                )
                 bounded = (
-                    argv[: len(prefix)] == prefix and "--" in argv and float(argv[len(prefix)]) > 0
+                    head[: len(prefix)] == prefix and "--" in head and float(head[len(prefix)]) > 0
                 )
                 if not bounded:
                     problems.append(f"{declared.id}: {tier} runs it without {WRAPPER[-1]}")
@@ -292,6 +302,7 @@ def test_every_pytest_check_resolves_through_the_bound(check):
         "pytest-wallclock",
         "readonly-warmups-py314",
         "app-check-js",
+        "canopy-contract",
     ]
     assert _unbounded_pytest_checks(check, check.CHECKS) == []
 

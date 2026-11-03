@@ -17,7 +17,8 @@ out those bound only to a place), the
 machine, system and family descriptions kept, every field and subfield
 sentence on the channels it described, every benchmark target indexed, and no
 fewer benchmark queries answerable by whole index cells than the copies answer. The in_context view,
-called the same way, holds the in_context golden's address set, and every
+called the same way, holds the in_context golden's address set plus the
+declared in_context additions, and every
 in_context benchmark target is one of its rows. Each query file is checked
 against the indexes its pipeline scores. The transfer line, which has no copy,
 is held to the Families and the ``DeviceList`` and ``PlaceList`` entries its
@@ -129,6 +130,14 @@ def fingerprint_addresses() -> set[str]:
 def in_context_golden_addresses() -> set[str]:
     """The addresses of the frozen in_context golden."""
     return {row["address"] for row in load_golden("in_context_size.json")["rows"]}
+
+
+#: The in_context rows beyond the frozen golden, each with its cause: records
+#: added since its capture and tagged ``in_context``.
+IN_CONTEXT_ADDITIONS = {
+    "SR:DIAG:DCCT:01:LIFETIME:RB": "the beam lifetime, read off the top-off current's decay",
+    "SR:OPS:MODE:RB": "the storage ring's operation mode",
+}
 
 
 @cache
@@ -643,7 +652,9 @@ def test_the_middle_layer_view_holds_the_pre_line_addresses(
 @pytest.mark.slow
 def test_the_in_context_view_holds_the_golden_addresses(in_context_view: dict[str, Any]) -> None:
     view = {row["address"] for row in in_context_view["channels"]}
-    assert view == in_context_golden_addresses()
+    assert set(IN_CONTEXT_ADDITIONS) <= addition_addresses()
+    assert not set(IN_CONTEXT_ADDITIONS) & in_context_golden_addresses()
+    assert view == in_context_golden_addresses() | set(IN_CONTEXT_ADDITIONS)
 
 
 @pytest.mark.slow

@@ -343,37 +343,39 @@ def test_every_reference_is_accounted_for_exactly_once():
 # --- filenames --------------------------------------------------------------
 
 
-def test_a_filename_carrying_crlf_is_sanitized():
-    files, _ = download_attachments(
-        session_for({"attachments/AAA": PNG}), [ref(content_name="a\r\nb.png")]
-    )
-
-    assert files[0]["filename"] == "ab.png"
-
-
-@pytest.mark.parametrize("name", [None, "", "   ", 17])
-def test_an_unusable_filename_falls_back(name):
+@pytest.mark.parametrize(
+    ("name", "expected"),
+    [
+        pytest.param("a\r\nb.png", "ab.png", id="crlf-is-sanitized"),
+        pytest.param(None, "attachment", id="unusable-none"),
+        pytest.param("", "attachment", id="unusable-empty"),
+        pytest.param("   ", "attachment", id="unusable-blank"),
+        pytest.param(17, "attachment", id="unusable-int"),
+    ],
+)
+def test_a_filename_is_sanitized_or_falls_back_to_a_default(name, expected):
     files, _ = download_attachments(session_for({"attachments/AAA": PNG}), [ref(content_name=name)])
 
-    assert files[0]["filename"] == "attachment"
+    assert files[0]["filename"] == expected
 
 
 # --- nothing to do ----------------------------------------------------------
 
 
-@pytest.mark.parametrize("refs", [None, [], ()])
-def test_no_references_is_a_strict_no_op(refs):
+@pytest.mark.parametrize(
+    "refs",
+    [
+        pytest.param(None, id="none"),
+        pytest.param([], id="empty-list"),
+        pytest.param((), id="empty-tuple"),
+        # A caller bug, but it may not raise: a dispatch is worth more than a batch.
+        pytest.param(17, id="non-iterable"),
+    ],
+)
+def test_no_usable_references_is_a_strict_no_op(refs):
     session, requests = counting_session()
 
     assert download_attachments(session, refs) == ([], [])
-    assert requests == []
-
-
-def test_a_non_iterable_reference_list_is_a_strict_no_op():
-    """A caller bug, but it may not raise: a dispatch is worth more than a batch."""
-    session, requests = counting_session()
-
-    assert download_attachments(session, 17) == ([], [])
     assert requests == []
 
 

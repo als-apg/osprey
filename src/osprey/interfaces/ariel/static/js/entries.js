@@ -26,13 +26,14 @@ import {
   handleFilePreview,
   loadDraft,
   initEntryTags,
+  resetCreateForm,
 } from './entries-form.js';
 import { renderEntryFields } from './entry-fields.js';
 
 // Re-export the detail-view and form public surface — app.js and window.app
 // import these from entries.js, so this module stays their single point of entry.
 export { showEntry, openEntry, closeEntryModal, showImageLightbox, getCurrentEntry };
-export { loadDraft };
+export { loadDraft, resetCreateForm };
 
 /**
  * Wire up delegated click handling for entry cards and pagination.

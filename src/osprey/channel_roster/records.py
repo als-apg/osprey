@@ -215,6 +215,9 @@ class ChannelRecord:
         on: The device or place the channel belongs to, as the facility file's
             ``on`` states it (``("device", <id>)`` or ``("place", <id>)``), or
             ``None`` when the channel belongs to nothing.
+        options: The labels of a labelled (``bool`` or ``enum``) channel, in
+            option-index order, as the facility file's ``options`` states them;
+            ``None`` when the file states none.
 
     Raises:
         ValueError: On an empty address, a direction outside ``"read"``/
@@ -230,6 +233,7 @@ class ChannelRecord:
     value_type: str | None = None
     description: str | None = None
     on: tuple[str, str] | None = None
+    options: tuple[str, ...] | None = None
 
     def __post_init__(self) -> None:
         if not self.address:

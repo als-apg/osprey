@@ -72,16 +72,23 @@ def test_p4p_read_patterns_are_in_the_read_list(pattern):
     assert pattern not in patterns["write"]
 
 
-def test_no_bare_post_pattern():
-    """A bare ``.post(`` would flag every requests.post() in analysis code.
-
-    The existing generic ``\\.put\\s*\\(`` collision is not a precedent to
-    extend: the p4p post spelling is only matched when p4p is named too.
-    """
+@pytest.mark.parametrize(
+    "bare_pattern",
+    [
+        # A bare ``.post(`` would flag every requests.post() in analysis code.
+        #
+        # The existing generic ``\\.put\\s*\\(`` collision is not a precedent to
+        # extend: the p4p post spelling is only matched when p4p is named too.
+        pytest.param(r"\.post\s*\(", id="post"),
+        # A bare ``.set(`` would flag half of ordinary analysis code.
+        pytest.param(r"\.set\s*\(", id="set"),
+    ],
+)
+def test_no_bare_method_call_pattern(bare_pattern):
     patterns = get_framework_standard_patterns()
 
-    assert r"\.post\s*\(" not in patterns["write"]
-    assert r"\.post\s*\(" not in patterns["read"]
+    assert bare_pattern not in patterns["write"]
+    assert bare_pattern not in patterns["read"]
 
 
 def test_every_p4p_pattern_compiles():
@@ -284,42 +291,25 @@ def test_requests_post_is_not_a_control_system_write():
 
 
 @pytest.mark.parametrize(
-    "code",
+    ("code", "expected"),
     [
+        # doocs4py.set is what the shipped DOOCS connector writes through.
         pytest.param(
             "import doocs4py\ndoocs4py.set('FACILITY/MAGNET/H1/CURRENT.SP', 1.5)\n",
+            True,
             id="doocs-qualified-set",
         ),
         pytest.param(
             "import doocs4py as d\nd.set('FACILITY/MAGNET/H1/CURRENT.SP', 1.5)\n",
+            True,
             id="doocs-aliased-set",
         ),
+        # The DOOCS entry is anchored, so ordinary set() calls stay quiet.
+        pytest.param("settings = {}\nsettings.set('a', 1)\n", False, id="unrelated-set"),
+        pytest.param("frozenset().set\n", False, id="attribute-only"),
     ],
 )
-def test_doocs_set_is_detected_as_a_write(code):
-    """doocs4py.set is what the shipped DOOCS connector writes through."""
+def test_set_is_a_doocs_write_only_when_anchored_to_doocs4py(code, expected):
     result = detect(code)
 
-    assert result["has_writes"] is True
-
-
-@pytest.mark.parametrize(
-    "code",
-    [
-        pytest.param("settings = {}\nsettings.set('a', 1)\n", id="unrelated-set"),
-        pytest.param("frozenset().set\n", id="attribute-only"),
-    ],
-)
-def test_bare_set_is_not_a_doocs_write(code):
-    """The DOOCS entry is anchored, so ordinary set() calls stay quiet."""
-    result = detect(code)
-
-    assert result["has_writes"] is False
-
-
-def test_no_bare_set_pattern():
-    """A bare ``.set(`` would flag half of ordinary analysis code."""
-    patterns = get_framework_standard_patterns()
-
-    assert r"\.set\s*\(" not in patterns["write"]
-    assert r"\.set\s*\(" not in patterns["read"]
+    assert result["has_writes"] is expected

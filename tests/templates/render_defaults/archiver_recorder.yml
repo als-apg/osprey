@@ -5,12 +5,15 @@
 # from then on this service records the machine as it actually behaves, into
 # the same collection, on the same timeline.
 #
-# It records only while `control_system.type` is `virtual_accelerator` —
-# read from the mounted CONFIG_FILE below and re-read on an interval, not
-# latched at boot, so the documented post-build flip takes effect without a
-# restart. On any other control system it idles with a one-line log and writes
-# nothing; recording a real machine's readings into a simulated archive would
-# be exactly the kind of two-world dishonesty this feature exists to remove.
+# It records only while the `va` target's endpoint — derived from the mounted
+# CONFIG_FILE below and re-read on an interval, not latched at boot — is this
+# deployment's own virtual accelerator: loopback, on the port
+# `services.virtual_accelerator.port` publishes. Whatever machine a session
+# starts on, the store is the simulator's. A `va` block repointed elsewhere, or
+# a deployment that no longer builds a simulator, idles it with a one-line log
+# and writes nothing; recording a real machine's readings into a simulated
+# archive would be exactly the kind of two-world dishonesty this feature exists
+# to remove.
 #
 # There is deliberately NO Dockerfile here and no `build:` block: this service
 # runs the VIRTUAL ACCELERATOR's image with a different command, so it adds no
@@ -61,7 +64,7 @@ services:
     # explicit interpolation below, resolved from the project .env because
     # `osprey up` runs compose with `--env-file .env`.
     environment:
-      # The recorder reads control_system.type (its own enablement), the
+      # The recorder reads the `va` target's gateways (its own enablement), the
       # va_archiver cadence/retention knobs and the archiver connection block
       # from config.yml at runtime. CWD is the image WORKDIR (/app), not the
       # project dir, so the path is named rather than discovered: the

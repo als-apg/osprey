@@ -33,9 +33,12 @@
 
 import { test, expect, describe, beforeEach, afterEach, vi } from 'vitest';
 
-import { makeDockApi as makeApi, addTerminal, FakeResizeObserver } from './_dock-fake.mjs';
+import { makeDockApi as makeApi, FakeResizeObserver, TERMINAL_LAYOUT } from './_dock-fake.mjs';
 
-const ADAPTER = '../../../src/osprey/interfaces/web_terminal/static/js/dock-iframe.js';
+const JS = '../../../src/osprey/interfaces/web_terminal/static/js';
+const ADAPTER = `${JS}/dock-iframe.js`;
+const DOCK_APPLY = `${JS}/dock-apply.js`;
+const DOCK_OPEN = `${JS}/dock-open.js`;
 
 const { getDockApi, state, redock } = vi.hoisted(() => ({
   state: { api: /** @type {any} */ (null) },
@@ -75,12 +78,37 @@ function makeIframe() {
   return document.createElement('iframe');
 }
 
-/** @param {any} api */
+/**
+ * A fresh adapter over `api` and a fresh layout holder showing the terminal
+ * alone (no holder at all for a null api: fallback mode).
+ * @param {any} api
+ */
 async function freshAdapter(api) {
   state.api = api;
+  if (api) {
+    const apply = await import(DOCK_APPLY);
+    apply
+      .initLayoutHolder({ api, guard: (/** @type {() => any} */ fn) => fn() })
+      .restore(TERMINAL_LAYOUT);
+  }
   const mod = await import(ADAPTER);
   mod.initDockIframeAdapter({ fallbackHost: null });
   return mod;
+}
+
+/**
+ * Open `id` as a tile of its own beside the focused tile, through the holder —
+ * what "Open in a new tile" does before the adapter adopts the panel's iframe.
+ * @param {string} id
+ */
+async function openTile(id) {
+  const apply = await import(DOCK_APPLY);
+  const open = await import(DOCK_OPEN);
+  const holder = apply.getLayoutHolder();
+  if (!holder) throw new Error('no holder');
+  holder.run((/** @type {any} */ layout, /** @type {any} */ ctx) =>
+    open.openAt(layout, id, null, ctx)
+  );
 }
 
 /**
@@ -125,7 +153,6 @@ function textOf(el) {
 /** Adopt ariel into its own tile, stub its rect and mark it not answering. */
 async function arielDown() {
   const api = makeApi();
-  addTerminal(api);
   const mod = await freshAdapter(api);
   const frame = makeIframe();
   frame.src = 'http://example.test/panel/ariel/';
@@ -183,7 +210,6 @@ describe('setPanelReachable — the tile body says its backend stopped answering
     // A polite live region must be in the accessibility tree before its text
     // arrives, or the arrival is not announced.
     const api = makeApi();
-    addTerminal(api);
     const mod = await freshAdapter(api);
     mod.adoptIframe('ariel', makeIframe(), { title: 'ARIEL' });
 
@@ -221,7 +247,6 @@ describe('setPanelReachable — the tile body says its backend stopped answering
 
   test('a time recorded before the tile exists shows when the tile is adopted', async () => {
     const api = makeApi();
-    addTerminal(api);
     const mod = await freshAdapter(api);
 
     mod.setPanelReachable('ariel', false, SINCE);
@@ -237,14 +262,9 @@ describe('setPanelReachable — the tile body says its backend stopped answering
 
   test('two panels are independent', async () => {
     const api = makeApi();
-    addTerminal(api);
     const mod = await freshAdapter(api);
     mod.adoptIframe('ariel', makeIframe(), { title: 'ARIEL' });
-    api.addPanel({
-      id: 'iframe:artifacts',
-      component: 'dock-iframe-placeholder',
-      title: 'WORKSPACE',
-    });
+    await openTile('artifacts');
     mod.adoptIframe('artifacts', makeIframe(), { title: 'WORKSPACE' });
     stubTileRect(api, 'iframe:ariel', { left: 340, top: 90, width: 300, height: 480 });
     stubTileRect(api, 'iframe:artifacts', { left: 640, top: 90, width: 300, height: 480 });

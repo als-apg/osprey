@@ -216,13 +216,26 @@ def test_a_malformed_block_is_refused(key: str, value: object, match: str) -> No
         _parse_profile({"name": "x", "data": "data", key: value})
 
 
-def test_virtual_accelerator_live_standin_parses() -> None:
-    """A live_standin port lands on the parsed VAConfig."""
+@pytest.mark.parametrize(
+    ("live_standin", "expected"),
+    [
+        (5074, 5074),
+        # `live_standin: true` asks for the stand-in without naming a number.
+        # The number it gets is the layout's ``va_standin`` slot at the layout's own
+        # base, since this profile configures no ``deployment.port_base``.
+        (True, 10090),
+    ],
+    ids=["port", "true-takes-the-layout-slot"],
+)
+def test_virtual_accelerator_live_standin_lands_on_the_parsed_config(
+    live_standin: object, expected: int
+) -> None:
+    """A live_standin lands on the parsed VAConfig."""
     profile = _parse_profile(
-        {"name": "x", "data": "data", "virtual_accelerator": {"live_standin": 5074}}
+        {"name": "x", "data": "data", "virtual_accelerator": {"live_standin": live_standin}}
     )
     assert profile.virtual_accelerator is not None
-    assert profile.virtual_accelerator.live_standin == 5074
+    assert profile.virtual_accelerator.live_standin == expected
 
 
 def test_virtual_accelerator_without_live_standin_parses_to_none() -> None:
@@ -230,19 +243,6 @@ def test_virtual_accelerator_without_live_standin_parses_to_none() -> None:
     profile = _parse_profile({"name": "x", "data": "data", "virtual_accelerator": {"port": 5064}})
     assert profile.virtual_accelerator is not None
     assert profile.virtual_accelerator.live_standin is None
-
-
-def test_virtual_accelerator_live_standin_true_takes_the_layout_slot() -> None:
-    """`live_standin: true` asks for the stand-in without naming a number.
-
-    The number it gets is the layout's ``va_standin`` slot at the layout's own
-    base, since this profile configures no ``deployment.port_base``.
-    """
-    profile = _parse_profile(
-        {"name": "x", "data": "data", "virtual_accelerator": {"live_standin": True}}
-    )
-    assert profile.virtual_accelerator is not None
-    assert profile.virtual_accelerator.live_standin == 10090
 
 
 def test_virtual_accelerator_live_standin_true_follows_the_profiles_port_base() -> None:

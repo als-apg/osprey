@@ -4,8 +4,8 @@ Two forms of root are guarded. ``<repo>/var/agent_data`` and its siblings are
 single directories: each is the mark left behind when something resolved a
 runtime root to the checkout instead of to a tmp path. The packaged templates
 are a tree: tests copy it while other tests run beside them, so a write into it
-surfaces as a copy error somewhere else. The guards in ``_guards`` and in
-``tests/conftest.py`` fail a session that changed either.
+surfaces as a copy error somewhere else. The guards in ``_guards`` fail a
+session that changed either.
 
 This module reads leak markers, never subjects. What it compares is what git
 does not track — new entries, removed entries, a moved mtime — so it reads the

@@ -31,10 +31,8 @@ from starlette.websockets import WebSocketDisconnect
 from osprey.interfaces import web_auth
 from osprey.interfaces.web_auth import WebCredentials
 from osprey.interfaces.web_terminal.app import _load_panel_config
-from osprey.interfaces.web_terminal.routes.proxy import (
-    _PANEL_STATE_MAP,
-    configured_agent_routes,
-)
+from osprey.interfaces.web_terminal.routes.proxy import _PANEL_STATE_MAP, application_panels
+from osprey.profiles.sidecar_panels import ApplicationPanel
 from tests.interfaces._asgi import OPERATOR_SECRET, PANEL_TOKEN
 from tests.interfaces.web_terminal._proxy_fakes import _FakeConnect, _patch_connect, panel_app
 from tests.interfaces.web_terminal._started_app import started_client
@@ -237,8 +235,8 @@ class TestPanelSpec:
 
 
 class TestAgentRoutes:
-    def test_composed_under_the_panel_prefix(self):
-        routes = configured_agent_routes(
+    def test_each_application_panel_declares_its_routes(self):
+        panels = application_panels(
             [
                 _app_panel(),
                 {
@@ -248,11 +246,14 @@ class TestAgentRoutes:
             ]
         )
 
-        assert routes == {("GET", f"/panel/{PANEL_ID}{STATE_PATH}"), ("GET", "/panel/rooted/")}
+        assert panels == {
+            PANEL_ID: ApplicationPanel(APP_NAME, (("GET", STATE_PATH),)),
+            "rooted": ApplicationPanel(APP_NAME, (("GET", "/"),)),
+        }
 
     def test_only_config_defined_loopback_panels_declare(self):
-        declared = {"agentRoutes": [{"method": "GET", "path": STATE_PATH}]}
-        routes = configured_agent_routes(
+        declared = {"app": APP_NAME, "agentRoutes": [{"method": "GET", "path": STATE_PATH}]}
+        routes = application_panels(
             [
                 {"id": "registered", "url": "http://127.0.0.1:9001", **declared},
                 {
@@ -264,7 +265,7 @@ class TestAgentRoutes:
             ]
         )
 
-        assert routes == frozenset()
+        assert routes == {}
 
     def test_startup_admits_the_hook_state_url(self, workspace_dir):
         """Booted over config, the hook's exact P5 URL classifies as panel-tier."""
@@ -278,18 +279,25 @@ class TestAgentRoutes:
                 "plain": {"url": "http://127.0.0.1:9301"},
             }
         }
-        with started_client(workspace_dir, web=web):
+        with started_client(workspace_dir, web=web) as client:
+            panels = web_auth.panel_registry_of(client.app)
             hook_url = f"/panel/{PANEL_ID}{STATE_PATH}"
-            assert web_auth.classify("GET", hook_url, False) is web_auth.Tier.PANEL
-            assert web_auth.classify("POST", hook_url, False) is web_auth.Tier.OPERATOR
-            assert web_auth.classify("GET", "/panel/plain/", False) is web_auth.Tier.OPERATOR
+            assert web_auth.classify("GET", hook_url, False, panels=panels) is web_auth.Tier.PANEL
+            assert (
+                web_auth.classify("POST", hook_url, False, panels=panels) is web_auth.Tier.OPERATOR
+            )
+            assert (
+                web_auth.classify("GET", "/panel/plain/", False, panels=panels)
+                is web_auth.Tier.OPERATOR
+            )
 
     def test_unconfigured_panel_stays_operator_tier(self, workspace_dir):
         with started_client(
             workspace_dir, web={"panels": {"plain": {"url": "http://127.0.0.1:1"}}}
-        ):
+        ) as client:
+            panels = web_auth.panel_registry_of(client.app)
             assert (
-                web_auth.classify("GET", f"/panel/{PANEL_ID}{STATE_PATH}", False)
+                web_auth.classify("GET", f"/panel/{PANEL_ID}{STATE_PATH}", False, panels=panels)
                 is web_auth.Tier.OPERATOR
             )
 

@@ -584,17 +584,19 @@ async def test_median_falls_back_to_client_side_binning():
 
 
 @pytest.mark.asyncio
-async def test_unknown_processing_mode_is_refused():
+@pytest.mark.parametrize(
+    ("precision_ms", "processing", "match"),
+    [
+        pytest.param(60_000, "bogus", "Unknown processing mode", id="unknown-processing-mode"),
+        pytest.param(0, "mean", "requires precision_ms > 0", id="aggregate-at-full-resolution"),
+    ],
+)
+async def test_an_unusable_processing_request_is_refused(precision_ms, processing, match):
     connector = _connected(_fake_client())
-    with pytest.raises(ValueError, match="Unknown processing mode"):
-        await connector.get_data(["TEST:PV"], _START, _END, precision_ms=60_000, processing="bogus")
-
-
-@pytest.mark.asyncio
-async def test_aggregate_at_full_resolution_is_refused():
-    connector = _connected(_fake_client())
-    with pytest.raises(ValueError, match="requires precision_ms > 0"):
-        await connector.get_data(["TEST:PV"], _START, _END, precision_ms=0, processing="mean")
+    with pytest.raises(ValueError, match=match):
+        await connector.get_data(
+            ["TEST:PV"], _START, _END, precision_ms=precision_ms, processing=processing
+        )
 
 
 @pytest.mark.asyncio

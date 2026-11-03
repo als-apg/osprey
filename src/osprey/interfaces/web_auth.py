@@ -11,8 +11,10 @@ its own answer:
 * the **operator secret**, which authorises everything an operator can do;
 * the **panel token**, a deliberately weaker credential for the narrow set of
   panel-arrangement calls in-process companions legitimately make, and for the
-  one entry in that tier which is not arrangement at all — the terminal proxy's
-  hop to the event dispatcher's MCP transport (:data:`PANEL_TIER_ROUTES`);
+  entries in that tier which are not arrangement at all — the terminal proxy's
+  hop to the event dispatcher's MCP transport (:data:`PANEL_TIER_ROUTES`) and
+  its hop to the MCP transport of each sidecar panel that opts in
+  (:func:`panel_tier_routes`);
 * a **browser-session map**, ``{digest of a session id: expiry}``, holding the
   sessions handed out when a browser exchanges a one-time URL token for a
   cookie — served from memory, and kept across a restart by
@@ -87,12 +89,14 @@ import secrets
 import threading
 import time
 import urllib.parse
-from collections.abc import Iterable
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
 from typing import Any
 
+# The leaf, not ``osprey.profiles.web_panels``: that module imports the shared
+# middleware, which imports this one.
+from osprey.profiles.sidecar_panels import SIDECAR_REGISTRY, PanelRegistry
 from osprey.utils.sensitive_env import guard_process_memory
 from osprey_connectors.identity import TERMINAL_USER_ENV, acting_identity, usable_identity
 from osprey_connectors.safety_file import atomic_replace
@@ -123,10 +127,11 @@ __all__ = [
     "get_web_credentials",
     "mint_and_announce",
     "mint_secret",
+    "panel_registry_of",
+    "panel_tier_routes",
     "peek_supplied_panel_token",
     "peek_web_credentials",
     "reset_web_credentials",
-    "set_panel_agent_routes",
 ]
 
 #: The operator secret's environment carrier. In the container shape the deploy
@@ -656,11 +661,14 @@ class WebCredentials:
         the route table decides which tier a request needs and this method never
         widens it.
 
-        That tier is panel arrangement with one exception:
-        ``GET|POST|DELETE /panel/events/mcp``, the proxy hop to the event
-        dispatcher's MCP transport, so that the agent in a session can fire a
-        dispatch job under that session's own chip. Holding this token is
-        therefore enough to fire a job — but not enough to decide what the job
+        That tier is panel arrangement with two exceptions. Each sidecar panel
+        that opts in adds the hop to its own MCP transport
+        (``/panel/<id><mcp_path>``, see :func:`panel_tier_routes`), so that the
+        agent in a session reaches that terminal's own sidecar and nothing
+        shared. The other is ``GET|POST|DELETE /panel/events/mcp``, the proxy
+        hop to the event dispatcher's MCP transport, so that the agent in a
+        session can fire a dispatch job under that session's own chip. Holding
+        this token is therefore enough to fire a job — but not enough to decide what the job
         does or whose authority it runs under. The dispatcher's own bearer
         never leaves the proxy; attribution rests on the owner header minted on
         that hop — the terminal proxy's ``/panel/events/mcp`` handler — rather
@@ -1288,18 +1296,16 @@ def reset_web_credentials() -> None:
     ``app.state.web_credentials`` on an app built before the reset — an app
     outliving the reset keeps the credentials it cached.
 
-    It also forgets the supplied panel token and the declared panel agent
-    routes (:func:`set_panel_agent_routes`), and that is load-bearing rather
+    It also forgets the supplied panel token, and that is load-bearing rather
     than tidiness: this runs before and after every test
     (``tests/conftest.py::reset_web_credentials_between_tests``), and a
     remembered token surviving a test would hand a bearer to the next test
     asserting that a process holding nothing sends none.
     """
-    global _CREDENTIALS, _SUPPLIED_PANEL_TOKEN, _PANEL_AGENT_ROUTES
+    global _CREDENTIALS, _SUPPLIED_PANEL_TOKEN
     with _POPULATION_LOCK:
         _CREDENTIALS = None
         _SUPPLIED_PANEL_TOKEN = None
-        _PANEL_AGENT_ROUTES = frozenset()
 
 
 def mint_and_announce(host: str, port: int, *, path: str = "/") -> str:
@@ -1431,7 +1437,8 @@ class Tier(Enum):
     #: The narrow, low-privilege tier: panel arrangement and activity
     #: reporting, plus the terminal proxy's hop to the event dispatcher's MCP
     #: transport — the one member of :data:`PANEL_TIER_ROUTES` that fires work
-    #: rather than moving a panel.
+    #: rather than moving a panel — and the hop to each opted-in sidecar's MCP
+    #: transport (:func:`panel_tier_routes`).
     #: Reachable with the panel token *or* with any operator credential.
     PANEL = "panel"
 
@@ -1454,9 +1461,11 @@ class Tier(Enum):
 #: panel-tier everywhere — on an app that has no such route the request clears
 #: the gate and is then answered with a 404 by routing, which grants nothing.
 #:
-#: ``/panel/events/mcp`` is the one entry that is not panel arrangement, and the
-#: one place this tier grants something an operator would recognise as an
-#: action: it is the terminal proxy's hop to the event dispatcher's MCP
+#: ``/panel/events/mcp`` is the one static entry here that is not panel
+#: arrangement, and the one place this table grants something an operator would
+#: recognise as an action. (Each sidecar panel that opts in adds its own MCP hop
+#: at call time, see :func:`panel_tier_routes`; that hop reaches only the
+#: terminal's own sidecar.) It is the terminal proxy's hop to the event dispatcher's MCP
 #: transport, panel-tier so that the agent in a session can fire a dispatch job
 #: under that session's own chip. The grant is narrow in every other direction.
 #: The dispatcher's own bearer is stripped from every agent child environment,
@@ -1490,10 +1499,13 @@ class Tier(Enum):
 PANEL_TIER_ROUTES: frozenset[tuple[str, str]] = frozenset(
     {
         ("GET", "/api/panels"),
-        ("POST", "/api/panel-focus"),
         ("POST", "/api/panel-visibility"),
-        ("POST", "/api/panel-close"),
-        ("POST", "/api/panel-arrange"),
+        ("POST", "/api/panel-op/drop"),
+        ("POST", "/api/panel-op/close-tab"),
+        ("POST", "/api/panel-op/close-tile"),
+        ("POST", "/api/panel-op/open"),
+        ("POST", "/api/panel-op/open-set"),
+        ("POST", "/api/panel-op/open-arrangement"),
         ("POST", "/api/agent-activity"),
         ("POST", "/api/agent-turn"),
         ("POST", "/api/watchdog/prompt"),
@@ -1511,46 +1523,54 @@ PANEL_TIER_ROUTES: frozenset[tuple[str, str]] = frozenset(
 #: repoint anything.
 PANEL_REGISTER_ROUTE: tuple[str, str] = ("POST", "/api/panels/register")
 
-#: The prefix every declared panel agent route must carry: the terminal's panel
-#: proxy. Nothing outside it can be admitted through :func:`set_panel_agent_routes`.
-_PANEL_PROXY_PREFIX = "/panel/"
 
-#: The exact ``(method, /panel/<id><path>)`` pairs the configured application
-#: panels declare as agent routes (``web.panels.<id>.agent_routes``), admitted
-#: on the panel token beside :data:`PANEL_TIER_ROUTES`. Empty until the web
-#: terminal loads its panel config; kept apart from the flat table so that
-#: table stays the fixed statement of the tier and this one is only what the
-#: render declared.
-_PANEL_AGENT_ROUTES: frozenset[tuple[str, str]] = frozenset()
+def panel_tier_routes(panels: PanelRegistry = SIDECAR_REGISTRY) -> frozenset[tuple[str, str]]:
+    """Every ``(method, path)`` pair the panel token may drive in a terminal serving *panels*.
 
+    The static :data:`PANEL_TIER_ROUTES`, plus what the registered panels open
+    to the agent (:meth:`~osprey.profiles.sidecar_panels.PanelRegistry.agent_routes`).
+    A sidecar may serve an MCP transport beside its pages
+    (``SidecarPanel.mcp_path``); declaring that path alone opens nothing, and
+    the terminal proxy refuses it for every caller. A sidecar that also sets
+    ``agent_hop`` adds exactly ``GET|POST|DELETE /panel/<id><mcp_path>`` — the
+    three verbs of a streamable-HTTP conversation on the one path its transport
+    answers at — so the agent in a session reaches that transport with the
+    credential it already holds. An application panel adds each agent route
+    its config declares, under ``/panel/<id>``.
 
-def set_panel_agent_routes(routes: Iterable[tuple[str, str]]) -> None:
-    """Replace the declared panel agent routes :func:`classify` admits.
-
-    Called once by the web terminal at startup, with the pairs it composed from
-    its config-defined loopback panels. The set is replaced, never extended: a
-    route the config no longer declares stops admitting.
+    Exact pairs, like the static table and for the same reason (see
+    :func:`classify`): nothing else below ``/panel/<id>/`` is opened, in any
+    spelling. Admitting the route here is half of the grant. The proxy serving
+    it forwards the request only when the gate admitted it on the panel token,
+    and refuses an operator credential there.
 
     Args:
-        routes: Exact ``(method, path)`` pairs; the method is upper-cased.
+        panels: The terminal's panel registry (:func:`panel_registry_of`); the
+            sidecars alone when the caller serves no application panel.
 
-    Raises:
-        ValueError: A path not under ``/panel/<id>/`` — this hook declares panel
-            routes, it cannot widen the tier anywhere else.
+    Returns:
+        A new frozenset; :data:`PANEL_TIER_ROUTES` itself is never widened.
     """
-    global _PANEL_AGENT_ROUTES
-    pairs = set()
-    for method, path in routes:
-        if not path.startswith(_PANEL_PROXY_PREFIX) or path.count("/") < 3:
-            raise ValueError(
-                f"panel agent route {method} {path!r} is not under {_PANEL_PROXY_PREFIX}<id>/"
-            )
-        pairs.add((method.upper(), path))
-    with _POPULATION_LOCK:
-        _PANEL_AGENT_ROUTES = frozenset(pairs)
+    return PANEL_TIER_ROUTES | panels.agent_routes()
 
 
-def classify(method: str | None, path: str | None, body_has_url: bool) -> Tier:
+def panel_registry_of(app: Any) -> PanelRegistry:
+    """The panel registry *app* serves: ``app.state.panel_registry``, else the sidecars alone.
+
+    The web terminal builds its registry once at start-up; any other app, or
+    one that loaded no panel config, admits only the sidecars' routes.
+    """
+    registry = getattr(getattr(app, "state", None), "panel_registry", None)
+    return registry if isinstance(registry, PanelRegistry) else SIDECAR_REGISTRY
+
+
+def classify(
+    method: str | None,
+    path: str | None,
+    body_has_url: bool,
+    *,
+    panels: PanelRegistry = SIDECAR_REGISTRY,
+) -> Tier:
     """Return the credential tier a request must satisfy.
 
     Args:
@@ -1574,12 +1594,13 @@ def classify(method: str | None, path: str | None, body_has_url: bool) -> Tier:
             a ``True`` default would be a parameter whose name contradicts its
             value. Making the caller decide is the only spelling with no wrong
             way to hold it.
+        panels: The terminal's panel registry (:func:`panel_registry_of`),
+            which the panel-tier routes are derived from.
 
     Returns:
-        :data:`Tier.PANEL` for the handful of routes in
-        :data:`PANEL_TIER_ROUTES`, for a configured panel's declared agent
-        route (:func:`set_panel_agent_routes`), and for a ``url``-free panel
-        registration.
+        :data:`Tier.PANEL` for the handful of routes
+        :func:`panel_tier_routes` returns for *panels*, and for a ``url``-free
+        panel registration.
         :data:`Tier.OPERATOR` for everything else.
 
     The match is **exact** on both fields, and that is the security property
@@ -1596,7 +1617,7 @@ def classify(method: str | None, path: str | None, body_has_url: bool) -> Tier:
         return Tier.OPERATOR
 
     route = (method.upper(), path)
-    if route in PANEL_TIER_ROUTES or route in _PANEL_AGENT_ROUTES:
+    if route in panel_tier_routes(panels):
         return Tier.PANEL
     if route == PANEL_REGISTER_ROUTE and not body_has_url:
         return Tier.PANEL

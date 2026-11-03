@@ -70,7 +70,7 @@ MAX_SCORE_LEVELS = 10
 PROBABILITY_DECIMALS = 3
 PROBABILITY_FLOOR = 0.005
 
-Route = Literal["typesafe", "openrouter"]
+Route = Literal["typesafe", "openrouter", "openai"]
 CostSource = Literal["billed", "computed"]
 
 # Structured guidance accepted in ``instructions`` and criteria values.

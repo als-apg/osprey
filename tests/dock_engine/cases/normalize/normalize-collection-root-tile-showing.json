@@ -1,0 +1,12 @@
+{
+  "name": "normalize-collection-root-tile-showing",
+  "rule": "layout-grammar",
+  "form": "collection",
+  "input": {
+    "tabs": [0, 1]
+  },
+  "output": {
+    "tabs": [0, 1],
+    "showing": 0
+  }
+}

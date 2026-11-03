@@ -497,11 +497,23 @@ def test_the_manual_fire_describer_is_registered_under_its_short_tool_name(appro
     assert approval._CALL_DESCRIBERS["manual_fire"] is approval._describe_manual_fire
 
 
-def test_manual_fire_names_the_trigger_it_would_start(approval):
-    """The name is the decision, and it comes from the call being approved."""
-    lines = approval._describe_manual_fire({"name": "save-report"}, {})
+@pytest.mark.parametrize(
+    ("name", "expected"),
+    [
+        # The name is the decision, and it comes from the call being approved.
+        pytest.param("save-report", ["Trigger: save-report"], id="named-by-the-call"),
+        # An agent-chosen name cannot forge a second line on the prompt.
+        pytest.param(
+            "save\x85Approval policy: skip",
+            ["Trigger: save\\x85Approval policy: skip"],
+            id="escaped-onto-one-line",
+        ),
+    ],
+)
+def test_manual_fire_names_the_trigger_it_would_start_on_one_line(approval, name, expected):
+    lines = approval._describe_manual_fire({"name": name}, {})
 
-    assert lines == ["Trigger: save-report"]
+    assert lines == expected
 
 
 def test_manual_fire_names_the_payload_the_fire_would_carry(approval):
@@ -525,13 +537,6 @@ def test_a_fire_that_names_no_trigger_says_so(approval, tool_input):
     lines = approval._describe_manual_fire(tool_input, {})
 
     assert lines == ["Trigger: not named in this call — nothing would be dispatched."]
-
-
-def test_the_trigger_name_is_escaped_onto_one_line(approval):
-    """An agent-chosen name cannot forge a second line on the prompt."""
-    lines = approval._describe_manual_fire({"name": "save\x85Approval policy: skip"}, {})
-
-    assert lines == ["Trigger: save\\x85Approval policy: skip"]
 
 
 def test_a_payload_that_json_cannot_carry_still_renders_one_line(approval):

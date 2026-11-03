@@ -301,13 +301,21 @@ def test_a_pinned_key_no_compose_file_reads_is_not_reported(tmp_path, caplog):
     assert caplog.text == ""
 
 
-def test_an_export_the_store_does_not_pin_is_not_a_divergence(tmp_path, caplog):
-    """Nothing is being overridden — the export is the only value there is."""
-    repo = _repo(
-        tmp_path,
-        "ANTHROPIC_API_KEY=x\n",
-        "environment:\n  POSTGRES_PASSWORD: ${ARIEL_DB_PASSWORD}\n",
-    )
+@pytest.mark.parametrize(
+    ("store", "compose_text"),
+    [
+        # Nothing is being overridden — the export is the only value there is.
+        pytest.param(
+            "ANTHROPIC_API_KEY=x\n",
+            "environment:\n  POSTGRES_PASSWORD: ${ARIEL_DB_PASSWORD}\n",
+            id="export-the-store-does-not-pin",
+        ),
+        # With no store, compose is given no ``--env-file`` and nothing is shadowed.
+        pytest.param(None, "environment:\n  X: ${ARIEL_DB_PASSWORD}\n", id="no-env-file"),
+    ],
+)
+def test_an_export_with_nothing_pinned_to_override_is_silent(tmp_path, caplog, store, compose_text):
+    repo = _repo(tmp_path, store, compose_text)
 
     with caplog.at_level(logging.WARNING):
         assert (
@@ -379,18 +387,6 @@ def test_an_absolute_compose_path_is_read_as_given(tmp_path, caplog):
 # ---------------------------------------------------------------------------
 # It never becomes the reason a deploy fails
 # ---------------------------------------------------------------------------
-
-
-def test_no_env_file_is_silent(tmp_path, caplog):
-    """With no store, compose is given no ``--env-file`` and nothing is shadowed."""
-    repo = _repo(tmp_path, None, "environment:\n  X: ${ARIEL_DB_PASSWORD}\n")
-
-    with caplog.at_level(logging.WARNING):
-        assert (
-            _preflight_env_shadowing(_files(), repo, environ={"ARIEL_DB_PASSWORD": _EXPORTED}) == []
-        )
-
-    assert caplog.text == ""
 
 
 def test_a_missing_compose_file_is_skipped_not_raised(tmp_path, caplog):
@@ -957,8 +953,21 @@ def test_a_chain_file_removed_since_the_build_refuses(tmp_path, caplog):
     assert "osprey build" in str(excinfo.value)
 
 
-def test_a_chain_matching_its_render_is_silent(tmp_path, caplog):
-    repo = _repo(tmp_path, "A=x\n", _worker_compose("./.env.shared", "./.env"))
+@pytest.mark.parametrize(
+    "store",
+    [
+        pytest.param("A=x\n", id="chain-matching-its-render"),
+        # A render naming `.env` with no `.env` on disk stays silent HERE.
+        #
+        # Not because it is fine, but because `osprey up` already refuses a missing
+        # `.env` on its own, with a message that tells the operator to create one.
+        # Refusing here too would answer that situation with `osprey build`, which
+        # re-renders around the missing file instead of fixing it.
+        pytest.param(None, id="missing-env-is-not-this-checks-refusal-to-make"),
+    ],
+)
+def test_a_chain_with_nothing_to_refuse_is_silent(tmp_path, caplog, store):
+    repo = _repo(tmp_path, store, _worker_compose("./.env.shared", "./.env"))
     _shared(repo, "B=y\n")
 
     with caplog.at_level(logging.INFO):
@@ -967,33 +976,23 @@ def test_a_chain_matching_its_render_is_silent(tmp_path, caplog):
     assert caplog.text == ""
 
 
-def test_the_deploys_own_minted_env_is_not_drift(tmp_path, caplog):
-    """`.env` appearing after the build is this command's own doing.
-
-    `osprey init` writes only the shared half, so a project's first `osprey
-    build` records a chain of `.env.shared` alone — and the `osprey up` that
-    follows mints the service tokens into a brand-new `.env` a few steps before
-    this check runs. Reading that as operator drift refuses the FIRST START of
-    every new deployment, which is the ordinary `init` -> `build` -> `up` order.
-    """
-    repo = _repo(tmp_path, "A=x\n", _worker_compose("./.env.shared"))
-    _shared(repo, "B=y\n")
-
-    with caplog.at_level(logging.INFO):
-        _preflight_env_chain_drift(_files(), repo)
-
-    assert caplog.text == ""
-
-
-def test_a_missing_env_is_not_this_checks_refusal_to_make(tmp_path, caplog):
-    """A render naming `.env` with no `.env` on disk stays silent HERE.
-
-    Not because it is fine, but because `osprey up` already refuses a missing
-    `.env` on its own, with a message that tells the operator to create one.
-    Refusing here too would answer that situation with `osprey build`, which
-    re-renders around the missing file instead of fixing it.
-    """
-    repo = _repo(tmp_path, None, _worker_compose("./.env.shared", "./.env"))
+@pytest.mark.parametrize(
+    "env_file",
+    [
+        # `.env` appearing after the build is this command's own doing.
+        #
+        # `osprey init` writes only the shared half, so a project's first `osprey
+        # build` records a chain of `.env.shared` alone — and the `osprey up` that
+        # follows mints the service tokens into a brand-new `.env` a few steps before
+        # this check runs. Reading that as operator drift refuses the FIRST START of
+        # every new deployment, which is the ordinary `init` -> `build` -> `up` order.
+        pytest.param("./.env.shared", id="the-deploys-own-minted-env"),
+        # ``.env.auth`` and friends are other subsystems' files, not chain members.
+        pytest.param("./.env.auth", id="non-chain-env-file"),
+    ],
+)
+def test_an_env_file_that_is_not_chain_drift_is_silent(tmp_path, caplog, env_file):
+    repo = _repo(tmp_path, "A=x\n", _worker_compose(env_file))
     _shared(repo, "B=y\n")
 
     with caplog.at_level(logging.INFO):
@@ -1010,17 +1009,6 @@ def test_a_render_that_names_no_chain_file_is_not_evidence(tmp_path, caplog):
     ambiguity would block deploys this check has no finding against.
     """
     repo = _repo(tmp_path, "A=x\n", _worker_compose())
-    _shared(repo, "B=y\n")
-
-    with caplog.at_level(logging.INFO):
-        _preflight_env_chain_drift(_files(), repo)
-
-    assert caplog.text == ""
-
-
-def test_a_non_chain_env_file_is_not_read_as_membership(tmp_path, caplog):
-    """``.env.auth`` and friends are other subsystems' files, not chain members."""
-    repo = _repo(tmp_path, "A=x\n", _worker_compose("./.env.auth"))
     _shared(repo, "B=y\n")
 
     with caplog.at_level(logging.INFO):
@@ -1296,27 +1284,19 @@ def test_every_contradicted_pin_is_named(tmp_path, caplog):
     assert "2 variable(s)" in str(excinfo.value)
 
 
-def test_an_unpinned_override_is_not_refused(tmp_path):
-    """Local-wins stays the default; the declaration is what changes the answer."""
-    repo = _repo(tmp_path, "A=local\n")
-    _shared(repo, "A=shared\n")
-    _pins(repo, "B")
-
-    assert container_lifecycle._preflight_pinned_overrides(repo) == []
-
-
-def test_a_pinned_name_the_two_files_agree_on_is_not_an_override(tmp_path):
-    repo = _repo(tmp_path, "A=same\n")
-    _shared(repo, "A=same\n")
-    _pins(repo, "A")
-
-    assert container_lifecycle._preflight_pinned_overrides(repo) == []
-
-
-def test_a_pinned_name_the_local_file_never_sets_is_silent(tmp_path):
-    repo = _repo(tmp_path, "B=local\n")
-    _shared(repo, "A=shared\n")
-    _pins(repo, "A")
+@pytest.mark.parametrize(
+    ("local", "shared", "pinned"),
+    [
+        # Local-wins stays the default; the declaration is what changes the answer.
+        pytest.param("A=local\n", "A=shared\n", "B", id="unpinned-override"),
+        pytest.param("A=same\n", "A=same\n", "A", id="pinned-name-the-two-files-agree-on"),
+        pytest.param("B=local\n", "A=shared\n", "A", id="pinned-name-local-never-sets"),
+    ],
+)
+def test_a_pinned_name_with_nothing_overridden_is_not_refused(tmp_path, local, shared, pinned):
+    repo = _repo(tmp_path, local)
+    _shared(repo, shared)
+    _pins(repo, pinned)
 
     assert container_lifecycle._preflight_pinned_overrides(repo) == []
 
@@ -1802,18 +1782,38 @@ def test_the_report_says_the_container_gets_an_empty_value(tmp_path, caplog):
     assert ".env" in caplog.text
 
 
-def test_a_name_the_chain_sets_is_silent(tmp_path, caplog):
-    """The passthrough works. There is nothing to report."""
-    repo = _repo(
-        tmp_path,
-        "SITE_HTTP_PROXY=http://proxy.example:3128\n",
-        "environment:\n  SITE_HTTP_PROXY: ${SITE_HTTP_PROXY}\n",
-    )
+@pytest.mark.parametrize(
+    ("store", "compose_text", "service"),
+    [
+        # The passthrough works. There is nothing to report.
+        pytest.param(
+            "SITE_HTTP_PROXY=http://proxy.example:3128\n",
+            "environment:\n  SITE_HTTP_PROXY: ${SITE_HTTP_PROXY}\n",
+            "qmd",
+            id="name-the-chain-sets",
+        ),
+        # A service declared but not deployed renders no document, so it asks for nothing.
+        #
+        # Reporting a passthrough that cannot reach any container this deploy starts
+        # would make the advisory loudest about the services a deployment switched
+        # off, which is the fastest way to teach an operator to scroll past it.
+        pytest.param(
+            "OTHER=x\n",
+            "environment:\n  SOMETHING_ELSE: ${SOMETHING_ELSE:-x}\n",
+            "bluesky",
+            id="declaration-no-compose-file-interpolates",
+        ),
+    ],
+)
+def test_a_declaration_with_nothing_to_report_is_silent(
+    tmp_path, caplog, store, compose_text, service
+):
+    repo = _repo(tmp_path, store, compose_text)
 
     with caplog.at_level(logging.WARNING):
         assert (
             container_lifecycle._preflight_declared_env_unset(
-                _files(), repo, _declaring(("qmd", ["SITE_HTTP_PROXY"])), environ={}
+                _files(), repo, _declaring((service, ["SITE_HTTP_PROXY"])), environ={}
             )
             == []
         )
@@ -1875,26 +1875,6 @@ def test_an_empty_value_is_no_value(tmp_path, caplog):
         )
 
     assert unset == ["SITE_HTTP_PROXY"]
-
-
-def test_a_declaration_no_compose_file_interpolates_is_not_reported(tmp_path, caplog):
-    """A service declared but not deployed renders no document, so it asks for nothing.
-
-    Reporting a passthrough that cannot reach any container this deploy starts
-    would make the advisory loudest about the services a deployment switched
-    off, which is the fastest way to teach an operator to scroll past it.
-    """
-    repo = _repo(tmp_path, "OTHER=x\n", "environment:\n  SOMETHING_ELSE: ${SOMETHING_ELSE:-x}\n")
-
-    with caplog.at_level(logging.WARNING):
-        assert (
-            container_lifecycle._preflight_declared_env_unset(
-                _files(), repo, _declaring(("bluesky", ["SITE_HTTP_PROXY"])), environ={}
-            )
-            == []
-        )
-
-    assert caplog.text == ""
 
 
 def test_an_interpolated_name_no_service_declared_is_not_reported(tmp_path, caplog):

@@ -799,14 +799,33 @@ def test_unknown_root_entry_flags_a_typo(profile_dir: Path):
 
 @pytest.mark.parametrize(
     "exempt",
-    [".git", ".gitignore", "README.md", "README", "LICENSE", "LICENSE.txt", "docs"],
+    [
+        ".git",
+        ".gitignore",
+        "README.md",
+        "README",
+        "LICENSE",
+        "LICENSE.txt",
+        "docs",
+        # What the CANOPY pre_build step stages into the repo root.
+        "canopy-0.4.0-py3-none-any.whl",
+        "pydmconverter-1.2.0-py3-none-any.whl",
+        "canopy_payload",
+    ],
 )
 def test_unknown_root_entry_exemptions(profile_dir: Path, exempt: str):
-    if exempt in {".git", "docs"}:
+    if exempt in {".git", "docs", "canopy_payload"}:
         (profile_dir / exempt).mkdir()
     else:
         _write(profile_dir / exempt)
     assert unknown_root_entries(profile_dir) == []
+
+
+def test_the_canopy_exemptions_do_not_hide_a_neighbouring_typo(profile_dir: Path):
+    """``canopy-`` and ``canopy_payload`` are prefixes, not a blanket ``canopy*``."""
+    (profile_dir / "canopy").mkdir()
+    _write(profile_dir / "canopy_extras-1.0-py3-none-any.whl")
+    assert unknown_root_entries(profile_dir) == ["canopy", "canopy_extras-1.0-py3-none-any.whl"]
 
 
 def test_known_root_entries_are_not_flagged(profile_dir: Path):
@@ -833,14 +852,23 @@ def test_extra_known_names_suppress_the_flag(profile_dir: Path):
     assert unknown_root_entries(profile_dir, extra_known=["facility-data"]) == []
 
 
+@pytest.mark.parametrize(
+    ("named", "advice"),
+    [
+        ("rule", "output-styles/"),
+        # The original cause still gets its own answer: the convention list.
+        ("check for a typo", "rules/"),
+    ],
+    ids=["names-the-entry-and-the-conventions", "keeps-the-typo-answer"],
+)
 def test_warn_unknown_root_entries_logs_the_convention_list(
-    profile_dir: Path, caplog: pytest.LogCaptureFixture
+    profile_dir: Path, caplog: pytest.LogCaptureFixture, named: str, advice: str
 ):
     (profile_dir / "rule").mkdir()
     with caplog.at_level(logging.WARNING):
         assert warn_unknown_root_entries(profile_dir) == ["rule"]
-    assert "rule" in caplog.text
-    assert "output-styles/" in caplog.text
+    assert named in caplog.text
+    assert advice in caplog.text
 
 
 def test_warn_unknown_root_entries_is_quiet_on_a_clean_profile(
@@ -996,16 +1024,6 @@ def test_the_repos_own_claude_code_files_are_not_unknown_root_entries(zone_repo:
 
     assert unknown_root_entries(zone_repo) == []
     assert REPO_CLAUDE_CODE_ENTRIES <= KNOWN_ROOT_ENTRIES
-
-
-def test_zone_remedy_keeps_the_typo_answer(profile_dir: Path, caplog: pytest.LogCaptureFixture):
-    """The original cause still gets its own answer: the convention list."""
-    (profile_dir / "rule").mkdir()
-    with caplog.at_level(logging.WARNING):
-        assert warn_unknown_root_entries(profile_dir) == ["rule"]
-
-    assert "check for a typo" in caplog.text
-    assert "rules/" in caplog.text
 
 
 def test_zone_remedy_names_the_repo_it_is_judging(
@@ -1441,13 +1459,18 @@ def test_protected_key_families(target_file: str, protected: str, negative_a: st
 @pytest.mark.parametrize(
     ("target_file", "dotted"),
     [
+        # A server's command line and environment are how it gets its privileges.
         (".mcp.json", "mcpServers.foo.args"),
         (".mcp.json", "mcpServers.foo.env.API_KEY"),
         (".mcp.json", "mcpServers.foo.env"),
+        # The target file may be given as a path.
+        ("/srv/project/config.yml", "approval.mode"),
+        # The waiver decides whether a Bash-capable agent may hold a launch token, so
+        # the agent must not be able to set it through a config write.
+        ("config.yml", "dangerously_allow_bash"),
     ],
 )
-def test_mcp_server_launch_surface_is_protected(target_file: str, dotted: str):
-    """A server's command line and environment are how it gets its privileges."""
+def test_a_protected_key_is_protected_in_its_target_file(target_file: str, dotted: str):
     assert is_protected_key(target_file, dotted) is True
 
 
@@ -1471,10 +1494,6 @@ def test_protection_does_not_cross_files():
 def test_unknown_target_file_protects_nothing():
     """Only the two files the writers may patch have tables at all."""
     assert is_protected_key("README.md", "control_system.writes_enabled") is False
-
-
-def test_target_file_may_be_given_as_a_path():
-    assert is_protected_key("/srv/project/config.yml", "approval.mode") is True
 
 
 def test_an_ancestor_of_a_protected_key_is_protected():
@@ -1951,12 +1970,6 @@ def test_the_glob_match_is_the_other_mirror():
     assert is_setup_patch_capable(config) is not any(
         fnmatchcase(SETUP_PATCH_TOOL, entry) for entry in rendered
     )
-
-
-def test_dangerously_allow_bash_is_protected():
-    """The waiver decides whether a Bash-capable agent may hold a launch token, so
-    the agent must not be able to set it through a config write."""
-    assert is_protected_key("config.yml", "dangerously_allow_bash") is True
 
 
 def test_dangerously_allow_bash_is_protected_below_itself_too():

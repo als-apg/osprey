@@ -444,10 +444,10 @@ def test_a_seal_refusal_travels_as_the_reason(
     (tmp_path / "tiers").mkdir()
     (tmp_path / "tiers" / "logbook.yml").write_text("lists: own\nconfig: {}\n", encoding="utf-8")
 
-    def _refuse(_render: Any, rel: str) -> Any:
-        raise BuildProfileError(f"{rel}: this app may not hold the door")
+    def _refuse(_render: Any, seal: merge.RenderSeal) -> Any:
+        raise BuildProfileError(f"{seal.login_rel}: this app may not hold the door")
 
-    monkeypatch.setattr(merge, "seal_shared_render", _refuse)
+    monkeypatch.setattr(merge, "seal_login_render", _refuse)
 
     # Act
     root = {"modules": {"web_terminals": {"shared": ["logbook"]}}}

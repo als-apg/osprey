@@ -350,7 +350,9 @@ KNOWN_ROOT_ENTRIES: frozenset[str] = (
 
 #: Name prefixes exempt from the unknown-root-entry warning. Dot-prefixed
 #: entries (``.git/``, ``.DS_Store``) and ``docs/`` are exempt too — a profile
-#: is a directory someone keeps in version control and documents.
+#: is a directory someone keeps in version control and documents. What the
+#: CANOPY ``pre_build`` step puts in the repo root is exempt as well; see
+#: :func:`_root_warning_exempt_prefixes`.
 _ROOT_WARNING_EXEMPT_PREFIXES = ("README", "LICENSE")
 _ROOT_WARNING_EXEMPT_NAMES = frozenset({"docs"})
 
@@ -2091,11 +2093,26 @@ def unselected_convention_artifacts(profile_dir: Path, selected: Collection[str]
     return sorted(names - set(selected))
 
 
+def _root_warning_exempt_prefixes() -> tuple[str, ...]:
+    """:data:`_ROOT_WARNING_EXEMPT_PREFIXES` plus what the CANOPY stage step writes.
+
+    The step (:mod:`osprey.integrations.canopy.stage`) puts the two wheels the
+    image installs and the payload directory in the repo root; their names are
+    read from that module so the two cannot drift.
+    """
+    from osprey.integrations.canopy import PAYLOAD_DIRNAME
+    from osprey.integrations.canopy.stage import WHEEL_PREFIXES
+
+    return (*_ROOT_WARNING_EXEMPT_PREFIXES, *WHEEL_PREFIXES, PAYLOAD_DIRNAME)
+
+
 def unknown_root_entries(profile_dir: Path, extra_known: Iterable[str] = ()) -> list[str]:
     """Return profile-root entries that are neither known nor exempt.
 
     Exempt: dot-prefixed entries, ``README*``, ``LICENSE*``, and ``docs/`` — a
-    profile is a directory someone keeps in version control and documents.
+    profile is a directory someone keeps in version control and documents —
+    and the staged CANOPY payload (``canopy-*``, ``pydmconverter-*``,
+    ``canopy_payload``).
 
     Args:
         profile_dir: The profile root directory.
@@ -2112,7 +2129,7 @@ def unknown_root_entries(profile_dir: Path, extra_known: Iterable[str] = ()) -> 
         if entry.name not in known
         and not entry.name.startswith(".")
         and entry.name not in _ROOT_WARNING_EXEMPT_NAMES
-        and not entry.name.startswith(_ROOT_WARNING_EXEMPT_PREFIXES)
+        and not entry.name.startswith(_root_warning_exempt_prefixes())
     )
 
 

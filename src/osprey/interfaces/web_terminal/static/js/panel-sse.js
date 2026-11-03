@@ -8,9 +8,11 @@
  * apply paths those frames share with the reconnect resync.
  *
  * The boundary is direction of travel: everything here REACTS to a frame the
- * server broadcast — nothing in this module is reached by a human gesture, and
- * nothing here POSTs (the command half lives in panel-commands.js, and the DOM
- * effect of every command IS its SSE echo arriving back through here).
+ * server sent — nothing in this module is reached by a human gesture. The
+ * only POSTs are answers the server asked for: the outcome of a `panel_op`
+ * frame addressed to this dock client (/api/panel-op-result) and the forced
+ * layout report a `panel_report_request` frame asks for. The command half
+ * lives in panel-commands.js.
  *
  * Leaf modules are imported directly; everything that lives in panel-manager's
  * private state arrives as injected deps registered once when the stream opens
@@ -22,9 +24,10 @@
  * state of its own.
  */
 
-import { fetchJSON, createEventSource } from './api.js';
+import { fetchJSON, createEventSource, getPageClientId, pageEventsUrl } from './api.js';
 import { hidePanel } from './dock-iframe.js';
-import { withEchoSuppressed } from './dock-sync.js';
+import { withEchoSuppressed, noteReported, postLayoutReport, sameReport } from './dock-sync.js';
+import { getLayoutHolder, TERMINAL_KEY } from './dock-apply.js';
 import {
   flashAgentGlow,
   flashAgentTile,
@@ -40,14 +43,17 @@ import {
   rereadPanelConfig,
 } from './panel-lifecycle.js';
 import { entryIds, placeEntry } from './panel-rail.js';
-import { applyAgentSwitch, applyArrange } from './panel-placement.js';
-import { isPoppedOut, focusPopout } from './popout.js';
+import { runPanelOp } from './panel-placement.js';
+import { postPanelOpResult } from './panel-commands.js';
+import { focusPopout } from './popout.js';
 import {
   initWatchdogAlert,
   isWatchdogFrame,
   onWatchdogFrame,
   refetchFlags,
 } from './watchdog-alert.js';
+import { isSafetySwitchFrame, refreshSafetySwitches } from './safety-switches.js';
+import { refreshCodeReviewTab } from './code-review-tab.js';
 
 /** @typedef {import('./panel-manager.js').PanelSSEEvent} PanelSSEEvent */
 /** @typedef {import('./panel-manager.js').AgentActivityEvent} AgentActivityEvent */
@@ -68,6 +74,7 @@ import {
  * @property {(id: string, url: string) => void} navigate - point a panel's iframe at `url`
  * @property {() => string | null} getActive - the locally surfaced panel id
  * @property {() => void} resetActive - forget the surfaced panel, leaving the rail accent alone
+ * @property {() => void} clearActive - forget the surfaced panel AND clear its rail accent and stamp
  * @property {(message: string) => void} renderEmpty - paint the empty-workspace placeholder
  * @property {(frame: AgentActivityEvent) => void} reportActivity - hand a frame to the strip seam
  */
@@ -101,35 +108,31 @@ export function subscribePanelEvents(sseDeps) {
   // window.__OSPREY_PREFIX__ under multi-user deployments (empty prefix ⇒
   // unchanged behavior). These event types are handled:
   //
-  //   panel_focus      {type, panel, url?}      — explicit open_panel MCP call
-  //                                               or the echo of a human focus
-  //                                               gesture; always honor. An
-  //                                               agent-tagged frame surfaces
-  //                                               the panel without evicting
-  //                                               anything (applyAgentSwitch);
-  //                                               a human echo takes the tile
-  //                                               over as it always has.
-  //   panel_close      {type, panel}            — close_panel MCP call: close the
-  //                                               panel's tile and leave rail
-  //                                               membership alone, so the panel
-  //                                               stays one click away. The
-  //                                               on-screen half of panel_visibility.
+  //   panel_op         {type, request_id, target_client, op, args, source, base_rev?}
+  //                                             — one dock op (an agent's drop,
+  //                                               close, open, set or
+  //                                               arrangement, or a person's
+  //                                               preset click), addressed to
+  //                                               ONE dock client: every other
+  //                                               client ignores it. The op
+  //                                               runner (panel-placement.js)
+  //                                               applies it to the holder and
+  //                                               the outcome is POSTed back.
+  //   panel_report_request {type}               — the current dock client went
+  //                                               away: report this dock's
+  //                                               layout now, undeduped, so a
+  //                                               surviving dock becomes current.
   //   panel_visibility {type, panel, visible, index?}
   //                                             — add/remove a rail entry (an
   //                                               addition with an index goes
   //                                               to that position); removing
-  //                                               also closes the tile (an
+  //                                               also closes the tab (an
   //                                               unlaunchable panel must not be
   //                                               stranded on screen), then switches
   //                                               to the next member+healthy panel
   //                                               or the empty state.
   //   rail_order       {type, order}            — an operator reordered the rail:
   //                                               every member, top to bottom.
-  //   panel_arrange    {type, tiles, focus?, prune_rail?}
-  //                                             — a whole-workspace layout
-  //                                               request: exactly these
-  //                                               service tiles, left to right
-  //                                               (see panel-placement.js).
   //   panel_register   {type, id, label, url, healthEndpoint, path}
   //                                             — add a runtime panel; do NOT
   //                                               auto-activate (URL may not be ready).
@@ -140,12 +143,20 @@ export function subscribePanelEvents(sseDeps) {
   //   watchdog_*       {type, session_key, ...} — a change notice: handed to
   //                                               watchdog-alert.js, which re-reads
   //                                               the flags from their route.
+  //   safety_switch    {type, name, on}         — a runtime safety switch moved:
+  //                                               safety-switches.js and the Review
+  //                                               tab re-read them.
   //
-  // The first three may carry source:'agent' (agent-originated command): that
-  // adds a transient glow on the rail entry — never a persistent badge, the
-  // action itself already happened. Untagged frames behave exactly as before.
+  // panel_op, panel_visibility and panel_register may carry source:'agent'
+  // (agent-originated command): that adds a transient glow — never a
+  // persistent badge, the action itself already happened.
+  //
+  // The stream carries this page's dock client id, so the server knows which
+  // stream belongs to the current dock client (and asks the others to report
+  // when it closes). It is the page's events URL (api.js pageEventsUrl), the
+  // very URL the chip and the activity strip subscribe to: one shared socket.
   let streamOpened = false;
-  createEventSource('/api/files/events', {
+  createEventSource(pageEventsUrl(), {
     // prefixed via createEventSource (api.js)
     // SSE has no replay: anything broadcast while this client was
     // disconnected (or dropped by the server's bounded per-client queue) is
@@ -158,6 +169,7 @@ export function subscribePanelEvents(sseDeps) {
     onOpen: () => {
       void resyncPanelState().then(restoreAgentBadges);
       void refetchFlags();
+      void refreshSafetySwitches();
       // The first open follows the config reads of this page's boot. A later
       // one may be a different hub: what each panel is served at is read again.
       if (streamOpened) for (const panel of PANELS) void rereadPanelConfig(panel);
@@ -165,52 +177,31 @@ export function subscribePanelEvents(sseDeps) {
     },
     onMessage: (raw) => {
       try {
+        // The transport frames are typed here (panel-placement.js's
+        // PanelOpFrame); the rest are panel-manager's PanelSSEEvent union.
+        const kind = /** @type {{type?: unknown}} */ (raw)?.type;
+        if (kind === 'panel_op') {
+          const frame = /** @type {import('./panel-placement.js').PanelOpFrame} */ (raw);
+          // Only the addressed dock client acts on an op.
+          if (frame.target_client === getPageClientId()) void handlePanelOp(frame);
+          return;
+        }
+        if (kind === 'panel_report_request') {
+          void forceLayoutReport();
+          return;
+        }
         const data = /** @type {PanelSSEEvent} */ (raw);
         const c = ctx();
 
-        if (data.type === 'panel_focus' && data.panel) {
-          if (data.url) c.navigate(data.panel, data.url);
-          // A panel living in its own pop-out window has no tile to focus or
-          // open: the window comes to the front instead, and an agent switch
-          // still flashes the rail entry so the operator sees who asked.
-          if (isPoppedOut(data.panel)) {
-            focusPopout(data.panel);
-            if (data.source === 'agent') flashAgentTile(data.panel);
-          } else if (data.source === 'agent') {
-            // An AGENT switch is polite: focus the panel's own tile, or open
-            // one beside the operator's — never take a tile away
-            // (applyAgentSwitch). Human focus is never broadcast (the server
-            // mirrors it silently and the gesturing client applies it
-            // locally), so an unattributed frame can only come from an
-            // out-of-contract caller; it keeps the plain activation. The
-            // attribution runs after the switch so a just-added entry can
-            // flash and the tile glow measures the tile the switch actually
-            // surfaced.
-            applyAgentSwitch(data.panel);
-            flashAgentTile(data.panel);
-          } else {
-            c.activate(data.panel);
-          }
-        } else if (data.type === 'panel_close' && data.panel) {
-          applyPanelClose(data.panel, data.source);
-        } else if (data.type === 'panel_visibility' && data.panel) {
+        if (data.type === 'panel_visibility' && data.panel) {
           applyPanelVisibility(data.panel, data.visible, data.source, data.index);
         } else if (data.type === 'rail_order' && Array.isArray(data.order)) {
           applyRailOrder(data.order);
-        } else if (data.type === 'panel_arrange' && Array.isArray(data.tiles)) {
-          // A whole-workspace arrangement (agent arrange_workspace, or a human
-          // "Layouts" click — one server operation, one apply path). Precedence
-          // against the visibility channel above: a hide keeps its existing
-          // meaning everywhere, while an arrange only ADDS membership for the
-          // tiles it lists — except on the preset path, where prune_rail
-          // reproduces today's membership-exclusive semantics. See
-          // panel-placement.js's header for the full split.
-          applyArrange(data);
         } else if (data.type === 'panel_register' && data.id) {
           // Seed membership before addPanel so the appended entry is a member
           c.memberSet.add(data.id);
           addPanel(data);
-          // CC-3: do NOT call activateTab — the new panel's URL may not be ready yet;
+          // Do NOT call activateTab — the new panel's URL may not be ready yet;
           // the user activates when they want it.
           if (data.source === 'agent') flashAgentGlow(data.id);
         } else if (data.type === AGENT_ACTIVITY_FRAME && data.target) {
@@ -223,6 +214,9 @@ export function subscribePanelEvents(sseDeps) {
           }
         } else if (isWatchdogFrame(data)) {
           onWatchdogFrame(data);
+        } else if (isSafetySwitchFrame(data)) {
+          void refreshSafetySwitches();
+          void refreshCodeReviewTab();
         }
       } catch (err) {
         // A throw mid-dispatch can leave rail membership, the dock layout and
@@ -242,11 +236,10 @@ export function subscribePanelEvents(sseDeps) {
  * Order matters and is pinned by the test suite: membership + rail entry
  * first (the agent glow runs after the add so a just-added entry can flash,
  * and an agent-origin change reports itself on the activity strip);
- * then, on a hide, the dock tile drop (one panel per tile — a
- * closed panel's placeholder would be a ghost tile) under the echo guard
- * (dockview auto-activating a neighbor on removal is a server-applied echo
- * and must not POST focus back), and finally the active-panel fallback so a
- * hidden active panel never strands a blank pane.
+ * then, on a hide, the dock tab drop (a closed panel's placeholder would be a
+ * ghost tab) under the echo guard (dockview auto-activating a neighbor on
+ * removal is a server-applied echo and must not POST focus back), and finally
+ * the active-panel fallback so a hidden active panel never strands a blank pane.
  *
  * An addition with an `index` lands at that position among the rail's panel
  * entries, counted without Agent — the same count the operator's Undo took
@@ -286,21 +279,18 @@ function applyPanelVisibility(panel, visible, source, index) {
     });
 
   // A panel the operator can no longer launch must not be stranded on screen.
-  // A hide of a panel that was never on the rail changed nothing, so a tile it
+  // A hide of a panel that was never on the rail changed nothing, so a tab it
   // holds is one opened off the rail on purpose and stays.
   if (!visible && wasMember) closeTile(panel);
 }
 
 /**
- * Close `panel`'s tile and hand the workspace to something the operator can
+ * Close `panel`'s tab and hand the workspace to something the operator can
  * still see, without touching rail membership.
  *
- * Shared by the two frames that take a tile off screen: `panel_close` (the
- * agent's close_panel, membership untouched) and the removal half of
- * `panel_visibility` (where membership is already gone by the time this runs).
- * Keeping one implementation is what makes "closed" mean the same thing on both
- * paths — the fallback search reads the CURRENT membership set, so it naturally
- * skips a panel that was just removed and keeps one that was merely closed.
+ * The removal half of `panel_visibility` (membership is already gone by the
+ * time this runs): the fallback search reads the CURRENT membership set, so it
+ * naturally skips the panel that was just removed.
  * @param {string} panel
  */
 function closeTile(panel) {
@@ -316,28 +306,146 @@ function closeTile(panel) {
   }
 }
 
+/** A refusal for an op the runner threw on (a bug, reported rather than hung). */
+const OP_FAILED = 'op_failed';
+/** The server caps a refusal's detail at this many characters. */
+const DETAIL_CAP = 500;
+
 /**
- * Apply a `panel_close` frame: take the tile off screen, leave the rail alone.
- *
- * The on-screen half of the panel vocabulary. Closing a panel that has no tile
- * open is a no-op in `hidePanel`, which is what makes the verb safe to call
- * without first reading a per-client tile report that may be stale.
- * @param {string} panel
- * @param {string|undefined} source
+ * Every tile of a layout, in tree order.
+ * @param {any} node
+ * @returns {{tile: string, tabs: string[], showing: string}[]}
  */
-function applyPanelClose(panel, source) {
-  closeTile(panel);
-  // No rail entry is created or destroyed, so unlike the visibility path there
-  // is an entry left to glow — the operator can see which panel just went away.
-  if (source === 'agent') {
-    flashAgentGlow(panel);
-    ctx().reportActivity({
-      type: AGENT_ACTIVITY_FRAME,
-      ts: Date.now(),
-      tool: 'close_panel',
-      target: { kind: 'panel', panel },
-    });
+function tilesOf(node) {
+  if (!node) return [];
+  return Array.isArray(node.tabs) ? [node] : (node.items ?? []).flatMap(tilesOf);
+}
+
+/**
+ * Surface what an op put on screen. A placed tab has no iframe until its panel
+ * is activated, so every service tab the op newly SHOWS is activated (the tile
+ * the op focused last, so focus ends there), and the focused tile's tab is
+ * activated even when it already showed (an open of a panel already on screen
+ * still brings it forward). The activation places nothing new: each panel is
+ * already where the op put it. A panel the op took off screen while it held
+ * the view leaves the accent stale; with nothing surfaced (no activation took
+ * effect — an unhealthy panel refuses one) it is cleared, and only an empty
+ * service region paints the empty pane: a tile still on screen is never
+ * painted over.
+ * @param {any} before  the layout before the op
+ * @param {any} after   the layout after it
+ * @param {string | null | undefined} focus  the tile the op focused
+ * @param {boolean} agent  attribute the surfaced panels to the agent
+ */
+function surfaceOp(before, after, focus, agent) {
+  const c = ctx();
+  const shownBefore = new Set(tilesOf(before).map((t) => t.showing));
+  const tiles = tilesOf(after).filter((t) => t.showing !== TERMINAL_KEY);
+  const focused = tiles.find((t) => t.tile === focus) ?? null;
+  const surfaced = tiles
+    .filter((t) => t !== focused && !shownBefore.has(t.showing))
+    .map((t) => t.showing);
+  if (focused) surfaced.push(focused.showing);
+  // Only an activation that took effect surfaced anything: activate refuses an
+  // unhealthy panel, and a refused one must not keep a stale accent alive.
+  let tookEffect = 0;
+  for (const key of surfaced) {
+    c.activate(key);
+    if (c.getActive() === key) tookEffect++;
+    if (agent) flashAgentTile(key);
   }
+  const active = c.getActive();
+  const keys = new Set(tilesOf(after).flatMap((t) => t.tabs));
+  if (tookEffect > 0 || active === null || keys.has(active)) return;
+  // A refused activation leaves the view on a panel the op took away: clear
+  // the accent and the stamp too. Nothing tried (a close) keeps the rail
+  // accent on the panel that is one click away again.
+  if (surfaced.length > 0) c.clearActive();
+  else c.resetActive();
+  if (tiles.length === 0) c.renderEmpty('No panels visible');
+}
+
+/**
+ * Run one `panel_op` frame addressed to this dock client and answer it.
+ *
+ * The op runner (panel-placement.js) refuses a stale or terminal-moving op and
+ * otherwise runs it on the layout holder, which applies the result (held while
+ * a person's drag is live). The placed panels are then surfaced, an `open` with
+ * a `url` navigates the panel's iframe, and the layout the holder now holds is
+ * POSTed to /api/panel-op-result with the pop-outs beside it; the `rev` that
+ * answer returns is the holder's new ack baseline — unless the layout moved on
+ * meanwhile, which stays dirty for dock-sync's next report. An `open` of a
+ * panel in its own window brings that window forward and answers the layout
+ * unchanged. A refusal is POSTed by name and changes nothing.
+ * @param {import('./panel-placement.js').PanelOpFrame} frame
+ */
+async function handlePanelOp(frame) {
+  const answer = { request_id: frame.request_id, client_id: getPageClientId() };
+  try {
+    const before = getLayoutHolder()?.layout ?? null;
+    /** @type {import('./panel-placement.js').PanelOpOutcome} */
+    let outcome;
+    try {
+      outcome = runPanelOp(frame);
+    } catch (err) {
+      console.error('panel-sse: panel op failed', err, frame);
+      outcome = { refusal: OP_FAILED, detail: String(err) };
+    }
+    if (outcome.refusal !== undefined) {
+      const detail = outcome.detail ? { detail: outcome.detail.slice(0, DETAIL_CAP) } : {};
+      await postPanelOpResult({ ...answer, refusal: outcome.refusal, ...detail });
+      return;
+    }
+    const holder = getLayoutHolder();
+    if (!holder) return;
+    const args = frame.args ?? {};
+    const url = frame.op === 'open' && typeof args.url === 'string' ? args.url : null;
+    if (outcome.popout !== undefined) {
+      if (url !== null) ctx().navigate(args.member, url);
+      focusPopout(outcome.popout);
+      if (frame.source === 'agent') flashAgentTile(outcome.popout);
+    } else {
+      surfaceOp(before, holder.layout, outcome.result.focus, frame.source === 'agent');
+      if (url !== null) ctx().navigate(args.member, url);
+    }
+    const layout = holder.layout;
+    const popouts = holder.popouts;
+    const ack = await postPanelOpResult({ ...answer, layout, popouts });
+    recordAck(holder, { layout, popouts }, ack);
+  } catch (err) {
+    console.error('panel-sse: panel op answer failed', err, frame);
+  }
+}
+
+/**
+ * Answer a `panel_report_request`: POST this dock's layout now, undeduped, and
+ * take the returned `rev` as the ack baseline when the layout has not moved
+ * since. No holder or no layout reports nothing — a page without a dock must
+ * not become the dock client.
+ */
+async function forceLayoutReport() {
+  const holder = getLayoutHolder();
+  const layout = holder?.layout ?? null;
+  if (!holder || !layout) return;
+  const popouts = holder.popouts;
+  recordAck(holder, { layout, popouts }, await postLayoutReport(layout, popouts));
+}
+
+/**
+ * Record the server's acknowledgement of a layout this module sent. The server
+ * holds `sent` now, so it becomes dock-sync's dedupe baseline; its `rev` is the
+ * holder's ack baseline only while the holder still holds `sent` (up to
+ * dockview's size rounding, as dock-sync compares reports) — a layout that
+ * moved on meanwhile stays dirty for dock-sync's next report. An answer that
+ * did not land, or carries no `rev`, records nothing.
+ * @param {{layout: unknown, popouts: string[], ack: (rev: number) => void}} holder
+ * @param {{layout: unknown, popouts: string[]}} sent  what was sent
+ * @param {{rev?: number} | null} ack  the server's answer, or null
+ */
+function recordAck(holder, sent, ack) {
+  if (!ack || typeof ack.rev !== 'number') return;
+  noteReported(sent);
+  if (sameReport({ layout: holder.layout, popouts: holder.popouts }, sent)) holder.ack(ack.rev);
 }
 
 /**

@@ -51,7 +51,7 @@ from osprey.deployment.reach import (
 from osprey.deployment.web_terminals.artifacts import resolve_render_inputs
 from osprey.deployment.web_terminals.render import render_web_terminals
 from osprey.deployment.web_terminals.roster import resolve_cards
-from osprey_connectors.standin import archive_belongs_to_standin
+from osprey.profiles.web_panels import SIDECAR_PANELS
 from tests._renders import tier_render
 
 pytestmark = pytest.mark.slow
@@ -147,6 +147,19 @@ def test_a_service_that_listens_keeps_its_hand_written_contract():
         assert REACH_CONTRACTS[name].no_client_reach is True
         entry = BUNDLED_HOST_BINDINGS.get(name)
         assert entry is None or entry.binding.listens is True
+
+
+def test_the_canopy_tab_is_served_by_each_terminals_sidecar():
+    """The CANOPY tab is a builtin each terminal serves from its own sidecar.
+
+    A render that selects the tab needs no ``web.panels.canopy.url`` and no
+    deployed service: the selected-panel rule has nothing to refuse.
+    """
+    assert "canopy" in SIDECAR_PANELS
+
+    selected = {"web": {"panels": {"canopy": {"enabled": True}}, "default_panel": "canopy"}}
+    assert reach_errors({**selected, "deployed_services": []}) == []
+    assert live_consumers(selected) == []
 
 
 def test_every_contract_names_a_deployable_service():
@@ -464,72 +477,33 @@ def test_a_config_only_render_has_the_port_and_no_consumer():
 
 
 # ---------------------------------------------------------------------------
-# The archive recorder: a fact projected for a reader, not for a client
+# The archive recorder: reached by nobody, projected to nobody
 # ---------------------------------------------------------------------------
 
 
-def _recording_standin_host(port: int = _STANDIN_PORT) -> dict:
-    """A deploying render that records its own stand-in's history."""
-    host = _standin_config(port)
-    host["services"]["archiver_recorder"] = {"path": "./services/archiver_recorder"}
-    host["deployed_services"] = ["live_standin", "archiver_recorder", "mongodb"]
-    return host
+def test_the_recorder_projects_nothing():
+    """Nothing in a render dials the recorder, and nothing about it travels.
 
-
-def test_the_recorder_projects_its_block_though_nothing_dials_it():
-    """The one contract reached by nobody that still projects a key.
-
-    ``osprey_connectors.standin.archive_belongs_to_standin`` reads whether the
-    deployment records its own store to decide whose history the archive holds
-    -- the fact the ``live`` target is refused on. The host spells it in
-    ``deployed_services``, which every attached render carries empty, so the
-    recorder's own block is projected instead, ungated like the stand-in port
-    beside it.
+    The recorder samples the virtual accelerator into the deployment's store;
+    whose history that store holds follows from the control system the render
+    already carries, so there is no recorder fact a render needs to be told.
     """
     contract = REACH_CONTRACTS["archiver_recorder"]
 
     assert contract.no_client_reach
     assert contract.consumers == ()
-    assert [key.key for key in contract.projected] == ["services.archiver_recorder.path"]
-    assert contract.projected[0].gate is None
-    assert contract.projected[0].panel is None
+    assert contract.projected == ()
 
 
-def test_a_render_of_a_recording_host_is_told_the_archive_is_the_standins():
-    """Single-user and multi-user must answer this the same way.
-
-    The render queries the host's store, so the gate on ``live`` has to hold
-    in its session too -- and it can only hold if the render carries the fact.
-    """
-    host = _recording_standin_host()
-    attached: dict = {"services": {}}
-
-    overrides = project_attached_overrides(host, attached)
-    assert overrides["services.archiver_recorder.path"] == "./services/archiver_recorder"
-    assert overrides["services.live_standin.port"] == _STANDIN_PORT
-
-    # The render those overrides make: no deployed_services, both facts, and
-    # the predicate answering exactly as it does on the host that told it.
-    tier = {
-        "services": {
-            "live_standin": {"port": _STANDIN_PORT},
-            "archiver_recorder": {"path": "./services/archiver_recorder"},
-        }
-    }
-    assert archive_belongs_to_standin(tier)
-    assert archive_belongs_to_standin(host)
-    # Told a fact, not handed a surface: the render is refused nothing for it.
-    assert reach_errors(tier) == []
-
-
-def test_a_host_that_does_not_record_projects_no_recorder():
-    """A deployment with a stand-in and no recorder tells its renders so, and
-    their ``live`` target stays open for the same reason its own does."""
+def test_a_render_of_a_recording_host_is_told_nothing_of_the_recorder():
     host = _standin_config()
+    host["services"]["archiver_recorder"] = {"path": "./services/archiver_recorder"}
+    host["deployed_services"] = ["live_standin", "archiver_recorder", "mongodb"]
+
     overrides = project_attached_overrides(host, {"services": {}})
 
     assert "services.archiver_recorder.path" not in overrides
-    assert not archive_belongs_to_standin({"services": {"live_standin": {"port": _STANDIN_PORT}}})
+    assert overrides["services.live_standin.port"] == _STANDIN_PORT
 
 
 # ---------------------------------------------------------------------------

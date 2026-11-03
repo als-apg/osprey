@@ -20,9 +20,18 @@ import osprey.agent_runner
 from tests._fresh_import import modules_added_by_import
 
 
-def test_importing_a_leaf_costs_only_that_leaf():
-    """A stdlib-only module of the package loads no sibling and no agent SDK."""
-    added = modules_added_by_import("osprey.agent_runner.project_paths")
+@pytest.mark.parametrize(
+    "module",
+    [
+        # A stdlib-only module of the package loads no sibling and no agent SDK.
+        pytest.param("osprey.agent_runner.project_paths", id="stdlib-only-leaf"),
+        # Deployment code and the container entrypoint read these modules without driving an agent.
+        pytest.param("osprey.agent_runner.claude_state", id="claude-state"),
+        pytest.param("osprey.agent_runner.artifact_resolve", id="artifact-resolve"),
+    ],
+)
+def test_an_sdk_free_submodule_imports_without_the_sdk(module: str) -> None:
+    added = modules_added_by_import(module)
 
     assert not [name for name in added if name.split(".")[0] == "claude_agent_sdk"]
     assert "osprey.agent_runner.primitives" not in added
@@ -73,18 +82,6 @@ def test_the_build_artifact_catalog_costs_no_agent_sdk(module: str) -> None:
     added = modules_added_by_import(module)
 
     assert not [name for name in added if name.split(".")[0] == "claude_agent_sdk"]
-
-
-@pytest.mark.parametrize(
-    "module",
-    ["osprey.agent_runner.claude_state", "osprey.agent_runner.artifact_resolve"],
-)
-def test_an_sdk_free_submodule_imports_without_the_sdk(module: str) -> None:
-    """Deployment code and the container entrypoint read these modules without driving an agent."""
-    added = modules_added_by_import(module)
-
-    assert not [name for name in added if name.split(".")[0] == "claude_agent_sdk"]
-    assert "osprey.agent_runner.primitives" not in added
 
 
 def test_every_public_name_is_its_defining_modules_object() -> None:

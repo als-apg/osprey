@@ -24,18 +24,41 @@ import {
   showPanel,
   activateTab,
   applyMenuPreset,
+  navigateAndActivatePanel,
 } from './panel-manager.js';
 import { popOutPanel } from './popout.js';
+import { CANOPY_PANEL_ID, createCanopyProvider } from './canopy-provider.js';
 import { openPanelBeside } from './panel-placement.js';
 import { resetDockLayout } from './dock-workspace.js';
 import { openDrawerTab, revealSetting } from './settings.js';
 import { CONFIG_TAB_ID } from './config-tab.js';
 import { scaffoldGalleryMounted, listGalleryEntries, revealArtifact } from './scaffold-gallery.js';
+import { REVIEW_TAB_ID, reviewPaletteEntries } from './code-review-tab.js';
 import { startTour } from './tour.js';
 import { openPalette, closePalette, isOpen } from './palette.js';
 import { confirmSignOut } from './sign-out.js';
 import { isMacPlatform } from '/design-system/js/platform.js';
 import { isFeedbackModalOpen } from './feedback-modal.js';
+
+/**
+ * The one CANOPY provider, shared across opens so its newest-read-wins
+ * sequence spans them. Created on first use.
+ * @type {ReturnType<typeof createCanopyProvider> | null}
+ */
+let canopyProvider = null;
+
+/**
+ * Whether this deployment carries the CANOPY panel. Without it there is nothing
+ * to search and nowhere to open a row. Hidden and visible panels exclude the
+ * active one; the pop-out list includes it once its URL has resolved, which is
+ * also the earliest the panel could show a row's target.
+ * @returns {boolean}
+ */
+function canopyPanelPresent() {
+  return [...getHiddenPanels(), ...getVisiblePanels(), ...getPopoutPanels()].some(
+    (p) => p.id === CANOPY_PANEL_ID
+  );
+}
 
 /**
  * Whether this deployment still carries the settings drawer's Config tab.
@@ -60,7 +83,9 @@ function configTabPresent() {
  * Typed against the REGISTRY's dep bundle rather than palette.js's OpenDeps:
  * everything assembled here exists to reach `buildRegistry`, and PaletteDeps is
  * the declaration site for the panel-verb deps. openPalette accepts it as-is.
- * @returns {import('./palette-registry.js').PaletteDeps}
+ * The CANOPY search seam (`searchCanopy` / `startCanopy`) is palette.js's own,
+ * not the registry's, so it is typed from OpenDeps.
+ * @returns {import('./palette-registry.js').PaletteDeps & Pick<import('./palette.js').OpenDeps, 'searchCanopy' | 'startCanopy'>}
  */
 function buildPaletteDeps() {
   /** @type {Array<{ label: string, detail?: string, run: () => void }>} */
@@ -113,7 +138,7 @@ function buildPaletteDeps() {
     });
   }
 
-  /** @type {import('./palette-registry.js').PaletteDeps} */
+  /** @type {import('./palette-registry.js').PaletteDeps & Pick<import('./palette.js').OpenDeps, 'searchCanopy' | 'startCanopy'>} */
   const deps = {
     // Panel show/focus is exactly what a rail click does, and the rail is
     // present in both modes.
@@ -137,12 +162,22 @@ function buildPaletteDeps() {
   // Omitting the dep is what drops the rows.
   if (configTabPresent()) deps.revealSetting = revealSetting;
 
-  // The Settings files group (a row per gallery card) reaches the drawer's
-  // galleries; where none mounted, both deps are withheld and the group and
-  // its /api/scaffold read go with them.
-  if (scaffoldGalleryMounted()) {
-    deps.loadArtifacts = listGalleryEntries;
-    deps.revealArtifact = revealArtifact;
+  // The Settings files group holds a row per gallery card, which reaches the
+  // drawer's galleries, and the Review tab's rules row, which opens that tab.
+  // The gallery rows and their /api/scaffold read come only where a gallery
+  // mounted, the rules row only while the Review tab is in the drawer; with
+  // neither, both deps are withheld and the group goes with them.
+  const galleries = scaffoldGalleryMounted();
+  const reviewRows = reviewPaletteEntries();
+  if (galleries || reviewRows.length) {
+    deps.loadArtifacts = async () => [
+      ...(galleries ? await listGalleryEntries() : []),
+      ...reviewRows,
+    ];
+    deps.revealArtifact = (name, tabId) => {
+      if (tabId === REVIEW_TAB_ID) void openDrawerTab(tabId);
+      else void revealArtifact(name, tabId);
+    };
   }
 
   // "Open … in a new tile" and the Layouts group place tiles; both views hold
@@ -151,6 +186,19 @@ function buildPaletteDeps() {
   deps.getPresets = getPresets;
   deps.applyPreset = applyMenuPreset;
   deps.resetLayout = resetDockLayout;
+
+  // The CANOPY group: screens and collections, opened in place in the CANOPY
+  // panel through the same navigate-and-activate path the agent's panel_focus
+  // uses. Offered only where the deployment has that panel.
+  if (canopyPanelPresent()) {
+    if (!canopyProvider) {
+      canopyProvider = createCanopyProvider({
+        navigate: (panelId, url) => navigateAndActivatePanel(panelId, url),
+      });
+    }
+    deps.searchCanopy = canopyProvider.search;
+    deps.startCanopy = canopyProvider.start;
+  }
 
   return deps;
 }

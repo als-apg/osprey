@@ -987,22 +987,31 @@ class TestArchiverReadRealInProcessConnector:
         return _wire_archiver_project(project, monkeypatch)
 
     @pytest.mark.usefixtures("archiver_project")
-    async def test_bin_size_zero_full_resolution_succeeds(self):
-        """bin_size=0 (precision_ms=0) must not raise ZeroDivisionError on the real connector."""
+    @pytest.mark.parametrize(
+        ("end_time", "bin_size", "points"),
+        [
+            # bin_size=0 (precision_ms=0) must not raise ZeroDivisionError on the
+            # real connector. Full resolution at the mock's 1 Hz over 300 s is
+            # exactly 300 samples; `> 0` would still pass a degraded ten-point floor.
+            pytest.param("2024-01-15T10:05:00", 0, 300, id="bin-size-zero-full-resolution"),
+            # An ordinary positive bin_size runs the real connector's binning path.
+            # One sample per 60-second bin across a one-hour window.
+            pytest.param("2024-01-15T11:00:00", 60, 60, id="normal-bin-size"),
+        ],
+    )
+    async def test_bin_size_succeeds_with_the_expected_points(self, end_time, bin_size, points):
         fn = _get_archiver_read()
         result = await fn(
             channels=["SR:DCCT"],
             start_time="2024-01-15T10:00:00",
-            end_time="2024-01-15T10:05:00",
+            end_time=end_time,
             processing="raw",
-            bin_size=0,
+            bin_size=bin_size,
         )
 
         data = extract_response_dict(result)
         assert data["status"] == "success"
-        # Full resolution at the mock's 1 Hz over 300 s is exactly 300 samples;
-        # `> 0` would still pass a degraded ten-point floor.
-        assert data["summary"]["per_channel"]["SR:DCCT"]["points"] == 300
+        assert data["summary"]["per_channel"]["SR:DCCT"]["points"] == points
 
     @pytest.mark.usefixtures("archiver_project")
     async def test_bin_size_zero_returns_more_points_than_binned(self):
@@ -1026,23 +1035,6 @@ class TestArchiverReadRealInProcessConnector:
         binned_points = binned["summary"]["per_channel"]["SR:DCCT"]["points"]
         assert binned_points > 0
         assert full_points > binned_points
-
-    @pytest.mark.usefixtures("archiver_project")
-    async def test_normal_bin_size_succeeds(self):
-        """An ordinary positive bin_size runs the real connector's binning path."""
-        fn = _get_archiver_read()
-        result = await fn(
-            channels=["SR:DCCT"],
-            start_time="2024-01-15T10:00:00",
-            end_time="2024-01-15T11:00:00",
-            processing="raw",
-            bin_size=60,
-        )
-
-        data = extract_response_dict(result)
-        assert data["status"] == "success"
-        # One sample per 60-second bin across a one-hour window.
-        assert data["summary"]["per_channel"]["SR:DCCT"]["points"] == 60
 
     @pytest.mark.usefixtures("archiver_project")
     async def test_processing_mode_succeeds(self, tmp_path):

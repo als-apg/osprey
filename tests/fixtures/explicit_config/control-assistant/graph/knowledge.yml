@@ -242,8 +242,6 @@ scaffold:
   user_owned:
   - rules/facility
 services:
-  archiver_recorder:
-    path: ./services/archiver_recorder
   graphdb:
     port_host: 10802
     ttl_path: ./data/graph/facility.ttl

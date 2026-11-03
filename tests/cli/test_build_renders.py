@@ -11,6 +11,7 @@ rules, its write posture, and the card the roster resolves for it.
 
 from __future__ import annotations
 
+import copy
 import json
 import logging
 from pathlib import Path
@@ -200,7 +201,12 @@ def test_logbook_selects_the_graph_subagent_and_the_safety_rule(built):
 
 def test_logbook_writes_nothing(built):
     config = _config(_render(built["repo"], "logbook"))
-    writes = _values_of(config, "writes")
+    # ``web.panels.<id>.writes`` is a panel affordance setting, not a control-system posture.
+    posture = copy.deepcopy(config)
+    for panel in ((posture.get("web") or {}).get("panels") or {}).values():
+        if isinstance(panel, dict):
+            panel.pop("writes", None)
+    writes = _values_of(posture, "writes")
 
     assert writes, "the logbook render states no write posture at all"
     assert (config.get("control_system") or {}).get("writes") == "never", writes

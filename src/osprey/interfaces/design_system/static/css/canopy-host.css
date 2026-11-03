@@ -1,0 +1,80 @@
+/* OSPREY Design System — CANOPY host adapter
+   Hand-maintained. Publishes OSPREY's design tokens under the names of the
+   CANOPY host contract, version 1, so an embedded CANOPY page follows the
+   active OSPREY theme. CANOPY links this sheet after tokens.css and the
+   shared fonts sheet, and puts the anchor attribute and the theme id on one
+   element; nothing here matches a CANOPY class.
+
+   Values are token references, mixes of token references, or lengths: this
+   file contains no hex or functional color literal. Every theme selector is
+   compound on the anchor, so no rule can reach the page root or a screen
+   root. The name list and the contrast of every pair are pinned in
+   tests/interfaces/design_system/test_freshness.py. */
+
+[data-canopy-host-root] {
+  --canopy-host-font-ui: var(--font-display);
+  --canopy-host-font-mono: var(--font-mono);
+  --canopy-host-text-sm: var(--text-sm);
+  --canopy-host-text-md: var(--text-md);
+  --canopy-host-text-lg: var(--text-lg);
+  --canopy-host-radius-sm: var(--radius-sm);
+  --canopy-host-radius-md: var(--radius-md);
+  /* OSPREY has no token for either control row: 24px is CANOPY's tile-bar
+     control box, 28px OSPREY's compact control row. */
+  --canopy-host-control-h-xs: 24px;
+  --canopy-host-control-h-sm: 28px;
+  --canopy-host-bg-base: var(--bg-primary);
+  --canopy-host-bg-panel: var(--bg-panel);
+  --canopy-host-bg-elevated: var(--bg-elevated);
+  --canopy-host-bg-field: var(--bg-secondary);
+  --canopy-host-text-primary: var(--text-primary);
+  --canopy-host-text-secondary: var(--text-secondary);
+  --canopy-host-text-muted: var(--text-muted);
+  --canopy-host-border: var(--border-default);
+  /* OSPREY has no strong-border token; this tint is its stronger outline. */
+  --canopy-host-border-strong: var(--neutral-tint-35);
+  --canopy-host-accent: var(--color-accent);
+  --canopy-host-on-accent: var(--color-on-accent);
+  --canopy-host-accent-hover: var(--color-accent-light);
+  --canopy-host-accent-tint: var(--accent-tint-10);
+  --canopy-host-hover-tint: var(--neutral-tint-06);
+  --canopy-host-focus: var(--color-accent);
+  --canopy-host-status-success: var(--color-success);
+  --canopy-host-status-warning: var(--color-warning);
+  --canopy-host-status-error: var(--color-error);
+  /* The tile bar is as tall as OSPREY's pane header; its other lengths are
+     CANOPY's own. */
+  --canopy-host-bar-h: var(--wt-pane-head-height);
+  --canopy-host-bar-icon: 14px;
+  /* CANOPY's ruling: its tabs keep their natural width between 96px and the
+     tab maximum and never shrink. OSPREY's own tabs shrink to 48px, so this
+     minimum is CANOPY's length, not an OSPREY token. */
+  --canopy-host-tab-min-w: 96px;
+  --canopy-host-tab-max-w: 220px;
+  --canopy-host-tab-underline: 2px;
+  --canopy-host-weight-medium: var(--weight-medium);
+  --canopy-host-shadow-dropdown: var(--shadow-dropdown);
+  --canopy-host-z-dropdown: var(--z-dropdown);
+  --canopy-host-contract: 1;
+}
+
+/* Accent hover, per theme. The default above is OSPREY's own hover shade.
+   Four themes give it the same value as the accent, so hover would not
+   show: there the accent moves away from the on-accent color, which keeps
+   the label on a hovered primary button at least as readable as at rest. */
+[data-canopy-host-root][data-theme="dark"],
+[data-canopy-host-root][data-theme="desy-dark"],
+[data-canopy-host-root][data-theme="desy-light"] {
+  --canopy-host-accent-hover: color-mix(in srgb, var(--color-accent) 88%, white 12%);
+}
+
+[data-canopy-host-root][data-theme="light"] {
+  --canopy-host-accent-hover: color-mix(in srgb, var(--color-accent) 88%, black 12%);
+}
+
+/* Here OSPREY's hover shade is darker than the accent while the on-accent
+   color is dark too, which drops the label below the text minimum; mixing
+   toward the page background lightens it instead. */
+[data-canopy-host-root][data-theme="retro-light"] {
+  --canopy-host-accent-hover: color-mix(in srgb, var(--color-accent) 85%, var(--bg-primary) 15%);
+}

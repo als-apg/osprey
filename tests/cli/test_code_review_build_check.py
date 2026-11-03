@@ -194,6 +194,18 @@ def test_an_enabled_section_whose_prompt_is_missing_is_refused(tmp_path: Path) -
     assert PROFILE_FILENAME in error.remedy
 
 
+@pytest.mark.parametrize("text", ["", " \n\n"], ids=["empty", "whitespace"])
+def test_an_enabled_section_whose_prompt_is_empty_is_refused(repo: Path, text: str) -> None:
+    (repo / DEFAULT_PROMPT).write_text(text, "utf-8")
+
+    with pytest.raises(FacilityBuildError) as caught:
+        check_code_review({"code_review": {"enabled": True}}, BOTH_HOOKS, repo)
+
+    assert caught.value.record_id == "code_review.prompt"
+    assert "is empty: a reviewer with no rules judges nothing" in caught.value.detail
+    assert "non-empty" in caught.value.remedy
+
+
 @pytest.mark.parametrize(
     "prompt",
     ["build/reviewer.md", "var/state/reviewer.md", "reviewer.md", "../outside/reviewer.md"],

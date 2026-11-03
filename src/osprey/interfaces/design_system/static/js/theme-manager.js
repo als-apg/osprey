@@ -565,9 +565,11 @@ function _handleMessage(event) {
   // A same-origin page takes the hub by origin. On an opaque page (sandboxed,
   // origin "null") an origin match proves nothing -- every opaque sender is
   // "null" too -- so it takes the message by its source alone: the frame's
-  // parent, which is the hub that embeds it.
+  // parent, which is the hub that embeds it. `self.origin` is the document's
+  // effective origin; `location.origin` comes from the URL and stays the
+  // server's on a page a CSP header sandboxes.
   const fromHub =
-    window.location.origin === 'null'
+    self.origin === 'null'
       ? window.parent !== window && event.source === window.parent
       : event.origin === window.location.origin;
   if (!fromHub) return;

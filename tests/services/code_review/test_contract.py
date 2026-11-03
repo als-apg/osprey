@@ -125,22 +125,6 @@ def test_stray_braces_in_prose_do_not_hide_the_verdict() -> None:
 
 
 @pytest.mark.parametrize(
-    "text",
-    [
-        f'{PASS}\nActually: {{"verdict": "block", "reasons": ["writes',
-        '{"verdict": "block", "reasons": ["r"], "extra": {"verdict": "pass", "reasons": []}',
-    ],
-    ids=["earlier-object-then-cut-off", "inner-object-of-a-cut-off-one"],
-)
-def test_a_reply_cut_off_inside_an_object_never_reads_as_an_earlier_verdict(text: str) -> None:
-    assert "ends inside" in _failure(text).message
-
-
-def test_absurdly_deep_nesting_is_a_failure_not_a_raise() -> None:
-    assert "nest" in _failure("[" * 200_000 + "]" * 200_000).message
-
-
-@pytest.mark.parametrize(
     ("text", "defect"),
     [
         ("", "empty"),
@@ -164,6 +148,12 @@ def test_absurdly_deep_nesting_is_a_failure_not_a_raise() -> None:
         ('{"verdict": "block", "reasons": ["", "  "]}', "block"),
         ('{"verdict": "pass", "reasons": [], "suggested_revision": 3}', "suggested_revision"),
         ('{"verdict": "pass", "reasons": [], "suggested_revision": ["x"]}', "suggested_revision"),
+        # A reply cut off inside an object never reads as an earlier verdict.
+        (f'{PASS}\nActually: {{"verdict": "block", "reasons": ["writes', "ends inside"),
+        (
+            '{"verdict": "block", "reasons": ["r"], "extra": {"verdict": "pass", "reasons": []}',
+            "ends inside",
+        ),
     ],
     ids=[
         "empty",
@@ -187,10 +177,16 @@ def test_absurdly_deep_nesting_is_a_failure_not_a_raise() -> None:
         "block-blank-reasons",
         "revision-int",
         "revision-list",
+        "earlier-object-then-cut-off",
+        "inner-object-of-a-cut-off-one",
     ],
 )
 def test_defects_are_unparseable_and_named(text: str, defect: str) -> None:
     assert defect in _failure(text).message
+
+
+def test_absurdly_deep_nesting_is_a_failure_not_a_raise() -> None:
+    assert "nest" in _failure("[" * 200_000 + "]" * 200_000).message
 
 
 def _execute_request(**overrides: object) -> ReviewRequest:

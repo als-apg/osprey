@@ -318,22 +318,23 @@ class TestServerContextInProcess:
 
 class TestHealthRuntime:
     @pytest.mark.asyncio
-    async def test_health_names_the_configured_baseline(self, recording_factory):
+    @pytest.mark.parametrize(
+        ("section", "target"),
+        [
+            ({"type": "live_standin", "connector": {}}, "standin"),
+            ({"type": "epics", "connector": {}}, "live"),
+        ],
+        ids=["configured-baseline", "live-deployment"],
+    )
+    async def test_health_names_the_target_its_section_describes(
+        self, recording_factory, section, target
+    ):
         from osprey.health.runtime import HealthRuntime
 
-        async with HealthRuntime({"type": "live_standin", "connector": {}}) as runtime:
+        async with HealthRuntime(section) as runtime:
             await runtime.get_connector()
 
-        assert recording_factory.target == "standin"
-
-    @pytest.mark.asyncio
-    async def test_health_on_a_live_deployment_names_live(self, recording_factory):
-        from osprey.health.runtime import HealthRuntime
-
-        async with HealthRuntime({"type": "epics", "connector": {}}) as runtime:
-            await runtime.get_connector()
-
-        assert recording_factory.target == "live"
+        assert recording_factory.target == target
 
 
 # ---------------------------------------------------------------------------

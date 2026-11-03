@@ -63,18 +63,19 @@ def test_read_write_pair_names() -> None:
     assert str(dev) == RW
 
 
-def test_bare_reference_names_its_one_address() -> None:
-    """A bare reference names its one address for both."""
-    dev = _device("TUNE:x[]")
-    assert dev.name() == "TUNE:x"
-    assert dev.measure_name() == "TUNE:x"
-
-
-def test_write_only_names_use_the_setpoint_address() -> None:
-    """A write-only reference measures on its setpoint address."""
-    dev = _device("(HCOR_001:Cm:set)[rad]")
-    assert dev.name() == "HCOR_001:Cm:set"
-    assert dev.measure_name() == "HCOR_001:Cm:set"
+@pytest.mark.parametrize(
+    ("reference", "address"),
+    [
+        # A bare reference names its one address for both.
+        pytest.param("TUNE:x[]", "TUNE:x", id="bare-reference"),
+        # A write-only reference measures on its setpoint address.
+        pytest.param("(HCOR_001:Cm:set)[rad]", "HCOR_001:Cm:set", id="write-only"),
+    ],
+)
+def test_a_reference_with_one_address_names_it_for_both(reference: str, address: str) -> None:
+    dev = _device(reference)
+    assert dev.name() == address
+    assert dev.measure_name() == address
 
 
 def test_unit_is_the_si_word_of_the_reference_suffix() -> None:

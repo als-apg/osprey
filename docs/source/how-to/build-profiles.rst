@@ -279,7 +279,7 @@ channel:
      - the profile's own ``.env`` file and ``env:`` keys
    * - ``.osprey-manifest.json``
      - the build itself
-   * - ``data/simulation/channel_limits.json``
+   * - ``data/channel_limits.json``
      - the build, from ``data/facility/limits.yaml``
    * - ``data/pyaml/<model>/``
      - the build: the pyAML view, per served model with a measurement file
@@ -508,7 +508,7 @@ Guards are a floor. Every ``PreToolUse`` hook in force on the deployment's
 render — OSPREY's (approval, ``writes-check``, ``limits``, ``memory-guard``) or
 one ``profile.yml`` declares — reaches every login render, inert where no tool
 it matches is present. A login adds guards; it never drops one by leaving it
-out. A declaration on any other event reaches a ``lists: add`` login with
+out or by a ``--set`` edit. A declaration on any other event reaches a ``lists: add`` login with
 ``profile.yml``'s config, and a ``lists: own`` login only when its own
 ``config:`` declares it.
 

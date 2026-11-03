@@ -11,6 +11,8 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
+from osprey.interfaces.web_terminal.file_watcher import STREAM_END
+from osprey.interfaces.web_terminal.routes.panel_ops import dock_stream_closed
 from osprey.interfaces.web_terminal.session_key import is_posture_key
 
 router = APIRouter()
@@ -244,20 +246,46 @@ async def file_content(filepath: str, request: Request):
     }
 
 
+#: Longest ``client_id`` the event stream accepts, the same bound the dock report
+#: route puts on it.
+_CLIENT_ID_MAX = 128
+
+
 @router.get("/api/files/events")
-async def file_events(request: Request):
-    """SSE endpoint for real-time file change events."""
+async def file_events(request: Request, client_id: str | None = None):
+    """SSE endpoint for real-time file change events and panel frames.
+
+    A dock page passes its ``client_id`` so the server knows which stream is the
+    page whose dock report is current. When that stream closes the server stops
+    addressing ops to it and asks the remaining dock clients to report
+    (:func:`~osprey.interfaces.web_terminal.routes.panel_ops.dock_stream_closed`).
+    Every subscriber on a page names the page's one id, so the page holds one
+    socket; a page with no dock (the session view) is never the current dock
+    client, so its stream closing changes nothing. A stream the broadcaster
+    dropped for falling too far behind
+    (:data:`~osprey.interfaces.web_terminal.file_watcher.RELIABLE_CAP`) ends here
+    the same way, and the page reconnects.
+
+    Raises:
+        HTTPException: 400 ``invalid_client_id`` for an empty or over-long id.
+    """
+    if client_id is not None and not 0 < len(client_id) <= _CLIENT_ID_MAX:
+        raise HTTPException(status_code=400, detail="invalid_client_id")
     broadcaster = request.app.state.broadcaster
-    q = broadcaster.subscribe()
+    q = broadcaster.subscribe(client_id)
 
     async def stream():
         try:
             while True:
                 data = await q.get()
+                if data is STREAM_END:
+                    break
                 yield f"data: {json.dumps(data)}\n\n"
         except asyncio.CancelledError:
             pass
         finally:
             broadcaster.unsubscribe(q)
+            if client_id is not None:
+                dock_stream_closed(request.app.state, client_id)
 
     return StreamingResponse(stream(), media_type="text/event-stream")

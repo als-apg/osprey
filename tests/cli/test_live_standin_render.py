@@ -3,15 +3,16 @@
 Every unit behind the stand-in has its own module — the derived overrides
 (``test_live_standin_overrides.py``), the service injection
 (``test_inject_va_gateways.py``), the compose instance loop
-(``tests/deployment/test_va_compose_instances.py``), the recorder's choice of
-machine (``tests/deployment/test_recorder_standin_compose.py``), the profile
-refusals (``test_live_standin_validate.py``). What none of them can show is
-that the pieces still agree once a real build has run end to end: the injector
-writes ``services.live_standin`` and the override writer points the
+(``tests/deployment/test_va_compose_instances.py``), the recorder's machine
+(``tests/deployment/test_recorder_compose_target.py``), the profile refusals
+(``test_live_standin_validate.py``). What none of them can show is that the
+pieces still agree once a real build has run end to end: the injector writes
+``services.live_standin`` and the override writer points the
 ``connector.live_standin`` gateways at a port, and nothing but a full render
-proves those two are the SAME port, and that the recorder's Channel Access
-address is that port too. A deployment where any pair of those disagrees still
-builds; it just sends the operator somewhere they were not told about.
+proves those two are the SAME port — and that the recorder's Channel Access
+address is NOT that port, because the archive is the virtual accelerator's. A
+deployment where any pair of those disagrees still builds; it just sends the
+operator somewhere they were not told about.
 
 The stand-in is a **third control target** here, not a rewrite of the first, and
 that is the sharpest thing a whole-build test can pin. ``live`` is the machine
@@ -424,14 +425,12 @@ def test_live_standin_render_adds_only_the_standin_block_to_an_epics_deployment(
     catches a build consuming a comment the facility was meant to keep reading.
 
     ``va_archiver:`` comes off both profiles because the exemplar ships one and
-    ``standin_archive_errors`` refuses that block beside a stand-in on an
-    ``epics`` baseline: the archive belongs to the machine it records, and a
-    deployment whose real machine is live cannot have its recorder follow the
-    stand-in. That refusal has its own test; what this one is about is the
-    ``epics`` block, so the archive is taken out of the picture on BOTH sides —
-    keeping the two profiles identical apart from the one key under test. So is
-    ``apps:``: an application on the bridge is refused where no name server can
-    be derived for the machine, and a facility names its own address for it.
+    the archiver pairing refuses a simulated store on an ``epics`` baseline.
+    What this test is about is the ``epics`` block, so the archive is taken
+    out of the picture on BOTH sides — keeping the two profiles identical apart
+    from the one key under test. So is ``apps:``: an application on the bridge
+    is refused where no name server can be derived for the machine, and a
+    facility names its own address for it.
     """
     epics_baseline = {"control_system.type": "epics"}
     standin_repo = _exemplar(
@@ -500,18 +499,20 @@ class TestTheRenderedComposeStandsTwoMachinesUp:
         # their Channel Access stack.
         assert standin["image"] == compose["services"]["virtual-accelerator"]["image"]
 
-    def test_live_standin_render_records_the_stand_in_not_the_sandbox(self, standin_build) -> None:
-        """The archive belongs to the machine, so the recorder follows the stand-in.
+    def test_live_standin_render_records_the_sandbox_not_the_stand_in(self, standin_build) -> None:
+        """The archive belongs to the machine it records, and that is the simulator.
 
+        The stand-in rehearses the facility's real machine and is shown that
+        machine's past; the deployment's own store is the virtual accelerator's.
         Both wiring sites are read back separately because they have to name
         the same instance: a recorder that waits on one machine and reads from
         another is a deploy-time race that looks like an empty archive.
         """
         recorder = _compose(standin_build, "archiver_recorder")["services"]["archiver-recorder"]
 
-        assert recorder["environment"]["EPICS_CA_NAME_SERVERS"] == f"live-standin:{STANDIN_PORT}"
-        assert recorder["depends_on"]["live-standin"] == {"condition": "service_healthy"}
-        assert "virtual-accelerator" not in recorder["depends_on"]
+        assert recorder["environment"]["EPICS_CA_NAME_SERVERS"] == f"virtual-accelerator:{VA_PORT}"
+        assert recorder["depends_on"]["virtual-accelerator"] == {"condition": "service_healthy"}
+        assert "live-standin" not in recorder["depends_on"]
 
 
 # ── FR-7: the row ``osprey health`` grows ────────────────────────────────────

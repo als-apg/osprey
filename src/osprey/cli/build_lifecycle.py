@@ -21,6 +21,7 @@ import contextlib
 import os
 import shlex
 import subprocess
+import sys
 import threading
 import time
 from pathlib import Path
@@ -256,7 +257,9 @@ def _run_lifecycle_phase(
         steps: List of LifecycleStep objects.
         default_cwd: Default working directory for steps without explicit cwd.
         project_path: Project root path, substituted for `{project_root}` and the
-            directory the JUnit results file is read from.
+            directory the JUnit results file is read from. A step's `run` may
+            also name `{python}`, replaced with `sys.executable`; the
+            replacement is plain text, so a step quotes it (`"{python}" -m ...`).
         abort_on_failure: If True, raise BuildProfileError on failure.
             If False, warn and continue (used for validate phase).
         stream: If True, stream stdout/stderr in real-time instead of capturing.
@@ -300,7 +303,11 @@ def _run_lifecycle_phase(
     # `--verbose` (where the logger below is carrying the detail instead).
     current_reporter().emit(f"  Running {phase_name} commands...")
     for step in steps:
-        cmd_str = step.run.replace("{project_root}", str(project_path))
+        # `{python}` is the interpreter running this build — the one that has
+        # `osprey` importable — which the venv prepended to PATH above is not.
+        cmd_str = step.run.replace("{project_root}", str(project_path)).replace(
+            "{python}", sys.executable
+        )
 
         # Resolve cwd
         if step.cwd:

@@ -655,15 +655,14 @@ def _assert_target_pin() -> None:
     if target is None:
         return
 
+    from osprey.runtime.write_steps import PinVerdict, pin_verdict
+
     stamped_generation = _stamped_generation()
     record = _current_target_record()
 
-    if (
-        stamped_generation is not None
-        and record is not None
-        and record.target == target
-        and record.generation == stamped_generation
-    ):
+    # An unknown stamped generation never matches, and an unreadable record is
+    # refused like a moved one: a write is the operation that cannot be taken back.
+    if pin_verdict(record, (target, stamped_generation)) is PinVerdict.MATCH:
         return
 
     stamped_description = (
@@ -816,26 +815,41 @@ async def _write_channel_async(channel_address: str, value: Any, **kwargs) -> No
 
     connector = await _get_connector()
 
-    # Safety net: validate against injected limits validator (set by execution wrapper)
-    # This catches violations even when the connector's own validator isn't
-    # configured. The connector is acquired first so the net can hand over that
-    # connector's own fresh-read primitive: max_step is measured over the client
-    # the write is about to go through, and a net that omitted it would refuse
-    # every max_step channel before the connector that CAN measure it is reached.
-    if _limits_validator is not None:
-        _limits_validator.validate(
-            channel_address, value, read_current=connector.current_value_reader()
-        )  # Raises ChannelLimitsViolationError
-
-    # write_channel_checked is the reference monitor's denial contract: it raises
-    # on a refusal, on a failed write, AND on a write whose confirming re-read
-    # did not hold the setpoint. Calling write_channel directly would let an
-    # unconfirmed write return silently and get logged as "Wrote ...".
+    # checked_write runs the safety net first: the injected limits validator
+    # (set by the execution wrapper) catches violations even when the
+    # connector's own validator isn't configured, and raises the raw
+    # ChannelLimitsViolationError before the attempt is observed. The connector
+    # is acquired first so the net can hand over that connector's own fresh-read
+    # primitive: max_step is measured over the client the write is about to go
+    # through, and a net that omitted it would refuse every max_step channel
+    # before the connector that CAN measure it is reached.
+    #
+    # Then the attempt observer, then write_channel_checked — the reference
+    # monitor's denial contract: it raises on a refusal (a connector-level limits
+    # refusal normalised to ChannelWriteBlockedError 'LIMITS'), on a failed
+    # write, AND on a write whose confirming re-read did not hold the setpoint.
+    # Calling write_channel directly would let an unconfirmed write return
+    # silently and get logged as "Wrote ...".
+    from osprey.runtime.write_steps import checked_write
     from osprey_connectors.errors import ChannelWriteBlockedError, ChannelWriteFailedError
 
-    _notify_write(channel_address, _WRITE_PHASE_ATTEMPT)
+    confirm = kwargs.pop("confirm", None)
+    timeout = kwargs.pop("timeout", None)
+    if kwargs:
+        raise TypeError(
+            f"write_channel() got unexpected keyword argument(s): {', '.join(sorted(kwargs))}"
+        )
+
     try:
-        result = await connector.write_channel_checked(channel_address, value, **kwargs)
+        result = await checked_write(
+            connector,
+            channel_address,
+            value,
+            net=_limits_validator.validate if _limits_validator is not None else None,
+            on_attempt=lambda address: _notify_write(address, _WRITE_PHASE_ATTEMPT),
+            confirm=confirm,
+            timeout=timeout,
+        )
     except ChannelWriteBlockedError:
         # write_channel_checked raises it only for this channel's refusal.
         _notify_write(channel_address, _WRITE_PHASE_REFUSED)
@@ -920,7 +934,9 @@ async def _write_channels_async(channel_values: dict[str, Any], **kwargs) -> Non
         await _write_channel_async(address, value, **kwargs)
     else:
         # Same pin as the single-channel path, which the branch above reaches
-        # through _write_channel_async.
+        # through _write_channel_async. The pin is the only step shared with it:
+        # the net, the attempts and write_multiple_channels below cover every
+        # channel before any outcome is raised.
         _assert_target_pin()
 
         from osprey_connectors.control_system import raise_for_write_result

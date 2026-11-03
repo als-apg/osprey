@@ -23,7 +23,7 @@ import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from types import FrameType
+from types import FrameType, SimpleNamespace
 
 import pytest
 
@@ -355,12 +355,15 @@ def test_register_keeps_its_decorator_return():
     atexit.unregister(_named_exit_callback)
 
 
-def test_a_fast_final_collection_writes_nothing_and_a_slow_one_is_named():
+def test_a_fast_final_collection_writes_nothing_and_a_slow_one_is_named(monkeypatch):
+    """The clock is injected: a real collection over a large heap can itself pass any limit."""
+    ticks = iter([0.0, 60.0, 100.0, 160.5])
+    monkeypatch.setattr(_live_threads, "time", SimpleNamespace(monotonic=lambda: next(ticks)))
     buf = io.StringIO()
     frozen = gc.get_freeze_count()
-    final_collection(buf, slow=60.0)
+    assert final_collection(buf, slow=60.0) == 60.0
     assert buf.getvalue() == ""
-    final_collection(buf, slow=-1.0)
+    assert final_collection(buf, slow=60.0) == 60.5
     assert gc.get_freeze_count() == frozen
     line = buf.getvalue()
     assert "final garbage collection took" in line

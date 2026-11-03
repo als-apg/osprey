@@ -436,35 +436,27 @@ def test_a_session_outside_the_web_terminal_reports_nothing(monkeypatch, absent,
     assert capsys.readouterr().out == ""
 
 
-def test_the_chat_surface_still_reports(monkeypatch, turn_server):
-    """The hook does not decide which surface counts — the server drops the rest.
-
-    Keeping one code path here means a surface the server later starts caring
-    about needs no change in a file that ships into every deployment.
-    """
-    port, received = turn_server
-
-    assert run_hook(monkeypatch, payload_for("Stop"), port=port, surface="chat") == 0
-
-    assert received[0]["body"]["surface"] == "chat"
-
-
-def test_a_missing_surface_variable_reports_an_empty_surface(monkeypatch, turn_server):
-    port, received = turn_server
-
-    assert run_hook(monkeypatch, payload_for("Stop"), port=port, surface=None) == 0
-
-    assert received[0]["body"]["surface"] == ""
-
-
-@pytest.mark.parametrize(("value", "reported"), [("  terminal\n", "terminal"), ("   ", "")])
-def test_the_surface_variable_is_read_stripped(monkeypatch, turn_server, value, reported):
-    """The same rule the other env reads apply: padding is not part of the value.
-
-    An uninterpolated compose variable arrives blank and a hand-edited one can
-    arrive padded; the server compares the surface for equality, so a padded
-    ``terminal`` would be dropped as an unrecognised surface.
-    """
+@pytest.mark.parametrize(
+    ("value", "reported"),
+    [
+        # The hook does not decide which surface counts — the server drops the rest.
+        #
+        # Keeping one code path here means a surface the server later starts caring
+        # about needs no change in a file that ships into every deployment.
+        pytest.param("chat", "chat", id="chat-surface-still-reports"),
+        pytest.param(None, "", id="missing-variable-reports-an-empty-surface"),
+        # The same rule the other env reads apply: padding is not part of the value.
+        #
+        # An uninterpolated compose variable arrives blank and a hand-edited one can
+        # arrive padded; the server compares the surface for equality, so a padded
+        # ``terminal`` would be dropped as an unrecognised surface.
+        pytest.param("  terminal\n", "terminal", id="padded-value-is-stripped"),
+        pytest.param("   ", "", id="blank-value-is-stripped-to-empty"),
+    ],
+)
+def test_the_reported_surface_follows_the_surface_variable(
+    monkeypatch, turn_server, value, reported
+):
     port, received = turn_server
 
     assert run_hook(monkeypatch, payload_for("Stop"), port=port, surface=value) == 0
@@ -562,16 +554,16 @@ def test_settings_without_stop_failure_still_report_turns_but_warn(tmp_path, cap
     assert "StopFailure" in caplog.text
 
 
-def test_a_project_without_settings_reports_no_turns(tmp_path):
-    app = project_with(None, tmp_path)
-    _detect_turn_hook(app)
-
-    assert app.state.turn_hook_present is False
-
-
-def test_unreadable_settings_report_no_turns(tmp_path):
-    """A malformed artifact reads as "no hook" rather than breaking the boot."""
-    app = project_with("{ not json", tmp_path)
+@pytest.mark.parametrize(
+    "settings",
+    [
+        pytest.param(None, id="project-without-settings"),
+        # A malformed artifact reads as "no hook" rather than breaking the boot.
+        pytest.param("{ not json", id="unreadable-settings"),
+    ],
+)
+def test_settings_that_cannot_be_used_report_no_turns(tmp_path, settings):
+    app = project_with(settings, tmp_path)
     _detect_turn_hook(app)
 
     assert app.state.turn_hook_present is False

@@ -251,8 +251,6 @@ scaffold:
   user_owned:
   - rules/facility
 services:
-  archiver_recorder:
-    path: ./services/archiver_recorder
   graphdb:
     ttl_path: ./data/graph/facility.ttl
   live_standin:

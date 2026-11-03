@@ -10,7 +10,10 @@
     "moduleResolution": "bundler",
     "types": [],
     "paths": {
-      "/design-system/js/*": ["./src/osprey/interfaces/design_system/static/js/*"]
+      "/design-system/js/*": ["./src/osprey/interfaces/design_system/static/js/*"],
+      "/static/vendor/dock-engine.mjs": [
+        "./src/osprey/interfaces/web_terminal/static/vendor/dock-engine.d.mts"
+      ]
     }
   },
   "include": [

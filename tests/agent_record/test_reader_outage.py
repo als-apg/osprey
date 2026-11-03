@@ -204,14 +204,23 @@ async def test_session_log_says_record_unavailable(stopped_url, monkeypatch, ses
     assert elapsed < READER_BOUND_S
 
 
-def test_the_session_list_says_record_unavailable(stopped_url, monkeypatch, web_terminal):
+@pytest.mark.parametrize(
+    ("path", "key"),
+    [
+        pytest.param("/api/sessions", "sessions", id="session-list"),
+        pytest.param("/api/hooks/debug-log", "entries", id="hook-debug-panel"),
+    ],
+)
+def test_a_listing_says_record_unavailable_and_lists_nothing(
+    stopped_url, monkeypatch, web_terminal, path, key
+):
     _aim(monkeypatch, stopped_url)
 
-    response, elapsed = _timed(lambda: web_terminal.get("/api/sessions"))
+    response, elapsed = _timed(lambda: web_terminal.get(path))
 
     assert response.status_code == 200
     body = response.json()
-    assert body["sessions"] == []
+    assert body[key] == []
     _not_complete(body, "unavailable")
     assert elapsed < READER_BOUND_S
 
@@ -239,18 +248,6 @@ def test_recent_audit_says_record_unavailable(stopped_url, monkeypatch, web_term
     body = response.json()
     assert body["records"] == []
     _not_complete(body, audit_routes.UNAVAILABLE)
-    assert elapsed < READER_BOUND_S
-
-
-def test_the_hook_debug_panel_says_record_unavailable(stopped_url, monkeypatch, web_terminal):
-    _aim(monkeypatch, stopped_url)
-
-    response, elapsed = _timed(lambda: web_terminal.get("/api/hooks/debug-log"))
-
-    assert response.status_code == 200
-    body = response.json()
-    assert body["entries"] == []
-    _not_complete(body, "unavailable")
     assert elapsed < READER_BOUND_S
 
 

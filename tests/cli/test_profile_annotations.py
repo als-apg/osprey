@@ -152,7 +152,7 @@ def test_annotation_lands_below_a_preset_authored_header() -> None:
     index = next(i for i, line in enumerate(lines) if line.startswith("env:"))
     above = lines[: index - len(_ANNOTATIONS["env"])]
     assert above[-1].startswith("#")
-    assert "Passwords for the webhook service above" in "\n".join(above[-6:])
+    assert "Passwords for the webhook service above." in "\n".join(above[-6:])
 
 
 # ---------------------------------------------------------------------------

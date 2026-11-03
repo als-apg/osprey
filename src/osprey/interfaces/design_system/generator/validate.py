@@ -25,6 +25,11 @@ system's actual contract is enforced:
   (``naming.py``'s ``PROMOTED_PRIMITIVE_GROUPS`` — font, text, weight,
   leading, space, radius, z, duration), which is theme-independent and
   cannot be overridden.
+- **Promoted-primitive prefixes** — no promoted primitive may emit a CSS
+  name under a namespace another document owns (``naming.py``'s
+  ``FORBIDDEN_PROMOTED_PREFIXES`` — ``--canopy-``, ``--cds-``, ``--dv-``,
+  ``--pydm-``, ``--bar-``), since ``tokens.css`` is also linked into
+  CANOPY documents.
 - **Theme metadata** — every theme document's root ``$extensions`` must
   declare ``mode`` as ``"dark"`` or ``"light"`` (plus non-empty string
   ``id``/``label``/``family``). ``family`` groups a ``{light, dark}`` pair
@@ -68,6 +73,7 @@ from osprey.interfaces.design_system.generator.model import (
     TokenTree,
 )
 from osprey.interfaces.design_system.generator.naming import (
+    FORBIDDEN_PROMOTED_PREFIXES,
     PROMOTED_PRIMITIVE_GROUPS,
     css_variable_name,
     promoted_css_name,
@@ -96,6 +102,7 @@ __all__ = [
     "check_interface_mode_completeness",
     "check_namespace_collisions",
     "check_promoted_primitive_collisions",
+    "check_promoted_primitive_prefixes",
     "check_wcag_gates",
     "validate_token_tree",
     "assert_valid",
@@ -125,6 +132,9 @@ class ValidationRule(StrEnum):
     #: with a promoted primitive scale (see :data:`PROMOTED_PRIMITIVE_GROUPS`
     #: in ``naming.py``).
     PROMOTED_PRIMITIVE_COLLISION = "promoted_primitive_collision"
+    #: A promoted primitive's emitted CSS name starts with a prefix another
+    #: document owns (see :data:`FORBIDDEN_PROMOTED_PREFIXES` in ``naming.py``).
+    FORBIDDEN_PROMOTED_PREFIX = "forbidden_promoted_prefix"
     #: A theme document's ``$extensions`` metadata is missing or invalid.
     INVALID_THEME_METADATA = "invalid_theme_metadata"
     #: The ``$extensions.default`` flag is non-boolean, declared true by
@@ -969,6 +979,15 @@ def check_namespace_collisions(tree: TokenTree) -> list[TokenFinding]:
     return errors
 
 
+def _promoted_primitives(tree: TokenTree) -> list[tuple[str, ResolvedToken, str]]:
+    """Every primitive in a promoted group, as (path, token, emitted CSS name)."""
+    return [
+        (path, token, promoted_css_name(path))
+        for path, token in tree.primitives.items()
+        if path.split(".", 1)[0] in PROMOTED_PRIMITIVE_GROUPS
+    ]
+
+
 def check_promoted_primitive_collisions(tree: TokenTree) -> list[TokenFinding]:
     """Reject theme/interface tokens whose emitted CSS name collides with a promoted primitive.
 
@@ -987,11 +1006,7 @@ def check_promoted_primitive_collisions(tree: TokenTree) -> list[TokenFinding]:
         One error per theme or interface extension token whose emitted CSS
         name collides with a promoted primitive.
     """
-    promoted_names = {
-        promoted_css_name(path)
-        for path in tree.primitives
-        if path.split(".", 1)[0] in PROMOTED_PRIMITIVE_GROUPS
-    }
+    promoted_names = {name for _path, _token, name in _promoted_primitives(tree)}
     if not promoted_names:
         return []
 
@@ -1031,6 +1046,41 @@ def check_promoted_primitive_collisions(tree: TokenTree) -> list[TokenFinding]:
                     )
                 )
 
+    return errors
+
+
+def check_promoted_primitive_prefixes(tree: TokenTree) -> list[TokenFinding]:
+    """Reject promoted primitives whose emitted CSS name uses a foreign prefix.
+
+    ``tokens.css`` is linked into CANOPY documents as well as OSPREY pages,
+    so its root-level promoted names share one namespace with canopy-shell
+    (``--canopy-*``), Carbon (``--cds-*``), dockview (``--dv-*``) and PyDM
+    (``--pydm-*``); web_terminal also owns ``--bar-*`` locally. A promoted
+    group whose names fall under any of :data:`FORBIDDEN_PROMOTED_PREFIXES`
+    would silently shadow, or be shadowed by, those properties.
+
+    Args:
+        tree: The loaded token tree.
+
+    Returns:
+        One error per promoted primitive whose emitted CSS name starts with
+        a forbidden prefix.
+    """
+    errors: list[TokenFinding] = []
+    for path, token, name in _promoted_primitives(tree):
+        prefix = next((p for p in FORBIDDEN_PROMOTED_PREFIXES if name.startswith(p)), None)
+        if prefix is not None:
+            errors.append(
+                TokenFinding(
+                    rule=ValidationRule.FORBIDDEN_PROMOTED_PREFIX,
+                    message=(
+                        f"promoted primitive {path!r} emits {name!r}, under the forbidden "
+                        f"prefix {prefix!r} (tokens.css is also linked into CANOPY documents)"
+                    ),
+                    source_file=token.source_file,
+                    path=path,
+                )
+            )
     return errors
 
 
@@ -1118,6 +1168,7 @@ def validate_token_tree(tree: TokenTree) -> list[TokenFinding]:
     errors.extend(check_interface_mode_completeness(tree))
     errors.extend(check_namespace_collisions(tree))
     errors.extend(check_promoted_primitive_collisions(tree))
+    errors.extend(check_promoted_primitive_prefixes(tree))
     errors.extend(check_wcag_gates(tree))
     return errors
 

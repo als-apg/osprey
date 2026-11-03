@@ -59,3 +59,26 @@ export function onChat(name, listener) {
   bus.addEventListener(name, handler);
   return () => bus.removeEventListener(name, handler);
 }
+
+/** @type {((text: string) => boolean) | null} */
+let noticeSink = null;
+
+/**
+ * Where {@link postChatNotice} writes: the console registers it at boot. The
+ * sink answers whether the line went in the log, which it does only while the
+ * chat is on screen.
+ * @param {((text: string) => boolean) | null} sink
+ */
+export function setChatNoticeSink(sink) {
+  noticeSink = sink;
+}
+
+/**
+ * Put a line that is not part of the conversation in the chat's log, for a
+ * module outside the chat that has news for the operator.
+ * @param {string} text
+ * @returns {boolean} whether the chat showed it; false means show it elsewhere
+ */
+export function postChatNotice(text) {
+  return noticeSink?.(text) ?? false;
+}

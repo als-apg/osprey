@@ -41,11 +41,11 @@ from .config import (
     read_control_system_type,
     resolve_channel_addresses,
 )
-from .recorder import RECORDING_CONTROL_SYSTEM, Recorder
+from .recorder import RECORDED_TARGET, Recorder
 from .store import ArchiveWriter, expiry_for
 
 __all__ = [
-    "RECORDING_CONTROL_SYSTEM",
+    "RECORDED_TARGET",
     "ArchiveWriter",
     "Recorder",
     "RecorderConfigError",

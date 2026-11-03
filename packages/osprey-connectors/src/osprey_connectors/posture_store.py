@@ -73,7 +73,7 @@ worker, a CLI run — is decided by the same field as one that does.
 
 Inside an executor sandbox one further term is read, and only there:
 :data:`LAUNCH_POSTURE_ENV_VAR`, the switch state the run was LAUNCHED under
-(:func:`launch_posture_stamp` writes it, :func:`launch_pin_term` reads it). Its
+(:func:`launch_posture_stamp` writes it, :func:`_launch_pin_term` reads it). Its
 job is asymmetry: a machine switched off mid-run is refused by the record read,
 while a machine switched ON never reaches a run that started with it off, which
 would otherwise hand a running script write access the operator had not given
@@ -132,7 +132,7 @@ import errno
 import logging
 import os
 import stat
-from collections.abc import Iterator
+from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass, field, replace
 from pathlib import Path
@@ -180,7 +180,6 @@ __all__ = [
     "current_owner",
     "execution_verdict",
     "invalidate_cache",
-    "launch_pin_term",
     "launch_posture_stamp",
     "owner_tier_term",
     "parse_posture_value",
@@ -230,7 +229,7 @@ VALID_POSTURES = frozenset({POSTURE_SANDBOX, POSTURE_WRITES})
 
 #: The launch-time pin, stamped into an executor sandbox's environment by
 #: ``osprey.mcp_server.python_executor.executor._apply_target_stamp`` and read
-#: back HERE, inside that sandbox, by :func:`launch_pin_term`.
+#: back HERE, inside that sandbox, by :func:`_launch_pin_term`.
 #:
 #: The wire format is one ``"<target>=<posture>"`` pair and nothing else:
 #:
@@ -244,7 +243,7 @@ VALID_POSTURES = frozenset({POSTURE_SANDBOX, POSTURE_WRITES})
 #: the in-flight marker states what the run launched under, and is inert here:
 #: a stamp can refuse and never grant. A missing or blank stamp is inert too,
 #: which is what makes every process that is not an executor sandbox
-#: unaffected by this term; an unparseable one refuses (:func:`launch_pin_term`).
+#: unaffected by this term; an unparseable one refuses (:func:`_launch_pin_term`).
 #:
 #: Spelled here rather than imported because this is the reading side and the
 #: reading side runs in the lean connector chain;
@@ -992,7 +991,7 @@ def launch_posture_stamp(target: str | None, launch_posture: str) -> str:
     """Compose the :data:`LAUNCH_POSTURE_ENV_VAR` value for one launch.
 
     The one place the wire format is written, so the executor that stamps it
-    and :func:`launch_pin_term` which reads it cannot disagree about the
+    and :func:`_launch_pin_term` which reads it cannot disagree about the
     separator or about how "no target" is spelled.
 
     Args:
@@ -1005,7 +1004,7 @@ def launch_posture_stamp(target: str | None, launch_posture: str) -> str:
     return f"{target or LAUNCH_POSTURE_ALL_TARGETS}={launch_posture}"
 
 
-def launch_pin_term(target: str | None) -> Literal["none", "pinned", "unreadable"]:
+def _launch_pin_term(target: str | None) -> Literal["none", "pinned", "unreadable"]:
     """The launch pin as a term of the write verdict — fail-closed on a bad stamp.
 
     Reads :data:`LAUNCH_POSTURE_ENV_VAR` on every call and answers, for *target*:
@@ -1193,7 +1192,7 @@ def write_verdict(
        (:func:`~osprey_connectors.control_context.switch_position`) is ``off``.
        The record's ``posture`` field is not read: it mirrors the switch, and
        an old ``sandbox`` value left in a file does not refuse.
-    8. ``launch_pinned`` — the launch pin (:func:`launch_pin_term`) is
+    8. ``launch_pinned`` — the launch pin (:func:`_launch_pin_term`) is
        ``pinned`` or ``unreadable`` for *target*; skipped when
        *ignore_launch_pin*, for a caller that reports the pin on its own.
 
@@ -1267,26 +1266,50 @@ def backstop_verdict(section: Any) -> WriteVerdict:
     return WriteVerdict(allowed=reason is None, reason=reason, target=None, kind=None)
 
 
-def session_hold_refusal(*, root: Path | str | None = None) -> WriteVerdict | None:
+def session_hold_refusal(
+    *, root: Path | str | None = None, session_keys: Sequence[str] | None = None
+) -> WriteVerdict | None:
     """The ``session_held`` refusal for this process's session, or ``None``.
 
     The session is :data:`_SESSION_KEY_ENV_VAR`; a process without one belongs to
-    no session and is never held. The store is *root*, else the stamped
-    :data:`~osprey_connectors.session_hold.HOLD_DIR_ENV_VAR`; without either
-    nothing is held. Under a store, a record that cannot be read refuses.
+    no session and is never held. A process that serves several sessions at
+    once — a panel's data process, which starts before any conversation exists
+    and answers a terminal's every session — names them in *session_keys*
+    instead, and is held while any one of them is. The store is *root*, else
+    the stamped :data:`~osprey_connectors.session_hold.HOLD_DIR_ENV_VAR`;
+    without either nothing is held. Under a store, a record that cannot be
+    read refuses.
 
     Args:
         root: The hold root, for a caller that resolved it itself.
+        session_keys: The sessions to ask about, in place of the environment's
+            one key. An empty sequence belongs to no session; an empty key in it
+            names none. ``None`` reads the environment.
 
     Returns:
-        ``None`` when not held; otherwise a refusal whose ``target`` and ``kind``
-        are ``None`` and whose ``detail`` names the open flags' sources, each once
-        in the order opened. An unsafe session key has no flags to name. Never
-        raises.
+        ``None`` when no named session is held; otherwise the first held
+        session's refusal, in the order given: ``target`` and ``kind`` are
+        ``None`` and ``detail`` names that session's open flags' sources, each
+        once in the order opened. An unsafe session key has no flags to name.
+        Never raises.
     """
-    key = os.environ.get(_SESSION_KEY_ENV_VAR, "")
-    if not key:
-        return None
+    for key in _session_keys(session_keys):
+        refusal = _hold_refusal(key, root)
+        if refusal is not None:
+            return refusal
+    return None
+
+
+def _session_keys(session_keys: Sequence[str] | None) -> list[str]:
+    """The session keys a hold is asked about: *session_keys* as given, else the environment's."""
+    if session_keys is None:
+        key = os.environ.get(_SESSION_KEY_ENV_VAR, "")
+        return [key] if key else []
+    return [key for key in session_keys if key]
+
+
+def _hold_refusal(key: str, root: Path | str | None) -> WriteVerdict | None:
+    """The ``session_held`` refusal for one session *key*, or ``None`` (see :func:`session_hold_refusal`)."""
     detail = None
     try:
         # One read: the decision and the words it is refused in come from one answer.
@@ -1308,6 +1331,7 @@ def execution_verdict(
     *,
     owner: str | NoOwner | None = None,
     ignore_launch_pin: bool = False,
+    session_keys: Sequence[str] | None = None,
 ) -> WriteVerdict:
     """The verdict on one write about to execute: :func:`write_verdict` plus the hold.
 
@@ -1321,6 +1345,9 @@ def execution_verdict(
         target: The control target the write lands on.
         owner: As for :func:`write_verdict`.
         ignore_launch_pin: As for :func:`write_verdict`.
+        session_keys: As for :func:`session_hold_refusal`: the sessions the
+            write belongs to, held while any one is; ``None`` is the
+            environment's session.
 
     Returns:
         A :class:`WriteVerdict` with the ``target`` and ``kind`` of
@@ -1329,7 +1356,7 @@ def execution_verdict(
     verdict = write_verdict(section, target, owner=owner, ignore_launch_pin=ignore_launch_pin)
     if not backstop_verdict(section).allowed:
         return verdict
-    held = session_hold_refusal()
+    held = session_hold_refusal(session_keys=session_keys)
     if held is None:
         return verdict
     return replace(held, target=verdict.target, kind=verdict.kind)
@@ -1392,7 +1419,7 @@ def _write_refusal(
     if stored == "off":
         return "switch_off", None
 
-    if not ignore_launch_pin and launch_pin_term(target) != "none":
+    if not ignore_launch_pin and _launch_pin_term(target) != "none":
         return "launch_pinned", None
     ceiling = write_ceiling(section, resolved)
     return None, cast("Literal['asked', 'allowed']", min(stored, ceiling, key=_LOGIN_TIERS.index))
