@@ -1102,9 +1102,7 @@ def test_every_remedy_names_the_one_migration_verb() -> None:
     previous_release = "tests/cli/test_init_revalidate.py"
     offenders = []
     for rel in listed:
-        if rel in (this_file, previous_release, "CHANGELOG.md") or rel.startswith(
-            "tests/fixtures/previous_release_repo/"
-        ):
+        if rel in (this_file, previous_release, "CHANGELOG.md"):
             continue
         path = REPO_ROOT / rel
         if not path.is_file():
