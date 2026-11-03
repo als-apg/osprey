@@ -293,30 +293,26 @@ def _overview(built: _InMemoryBuild) -> dict[str, Any]:
     }
 
 
-def _record(document: dict[str, Any], record_id: str) -> dict[str, Any] | str:
-    """The ``facility show ID`` document, or the line that says why there is none."""
-    from osprey.facility.records import RECORD_KINDS
+def _record(document: dict[str, Any], record_id: str) -> list[dict[str, Any]] | str:
+    """The ``facility show ID`` records, in ``RECORD_KINDS`` order, or the line that says why
+    there are none."""
+    from osprey.facility.records import FacilityRecords
 
-    found = [
-        (kind, record)
-        for kind, key, id_field in RECORD_KINDS
-        for record in document.get(key) or []
-        if str(record.get(id_field)) == record_id
-    ]
+    found = FacilityRecords(document).find(record_id)
     if not found:
         return f"facility show: no record {record_id}"
-    if len(found) > 1:
-        kinds = [f"a {kind}" for kind, _record in found]
-        named = ", ".join(kinds[:-1]) + f" and {kinds[-1]}"
-        return f"facility show: {record_id} names {named}"
-    ((kind, record),) = found
-    provenance = dict(record.get("provenance") or {})
-    return {
-        "record": {key: value for key, value in record.items() if key != "provenance"},
-        "kind": kind,
-        "provenance": provenance,
-        "fixes_applied": list(provenance.get("fixes") or []),
-    }
+    entries = []
+    for each in found:
+        provenance = dict(each.record.get("provenance") or {})
+        entries.append(
+            {
+                "record": {key: value for key, value in each.record.items() if key != "provenance"},
+                "kind": each.kind,
+                "provenance": provenance,
+                "fixes_applied": list(provenance.get("fixes") or []),
+            }
+        )
+    return entries
 
 
 def _yaml_lines(value: Any) -> list[str]:
@@ -395,9 +391,9 @@ def show(ctx: click.Context, record_id: str | None, as_json: bool, repo: Path | 
     on an error. Without ID it prints the identity, the records per kind, the
     wiring per model, each model's engine, served flag and solve setting, and
     each view with its path and whether the main render carries it. With ID it
-    prints that record with its provenance and the fixes applied to it; an ID
-    that names no record, or more than one, exits 1. Under ``--json`` stdout
-    holds one document and every other line goes to stderr.
+    prints every record of that id, each under its kind, with its provenance and
+    the fixes applied to it; an ID that names no record exits 1. Under ``--json``
+    stdout holds one document and every other line goes to stderr.
     """
     import json
     from contextlib import nullcontext
@@ -413,13 +409,16 @@ def show(ctx: click.Context, record_id: str | None, as_json: bool, repo: Path | 
             if isinstance(found, str):
                 click.echo(found, err=True)
                 ctx.exit(1)
-            document = found
+            document = {"records": found}
     if as_json:
         click.echo(json.dumps(document, indent=2, sort_keys=True, ensure_ascii=False))
     elif record_id is None:
         _print_overview(document, _shown(built.primary_config, built.repo_root))
     else:
-        _print_record(document)
+        for index, entry in enumerate(document["records"]):
+            if index:
+                report("")
+            _print_record(entry)
 
 
 @facility.group("import")
