@@ -1029,12 +1029,14 @@ keys:
     default: 1.0
   simulation.default_scenarios:
     evidence: '\.get\("default_scenarios"\)'
+    facility-fact: true
     note: >-
       Per-preset: control-assistant alone states it ([rf-thermal]), the one
       preset whose facility tree ships scenarios. Read at deploy time by
       `simulation.apply.activate_default_scenarios`, only while the deployment
       has no scenario state. Never derived: the build derives no start set from
       the facility file, and a stated name is an override checked against it.
+      Listed in `osprey.facility.settings`.
     default: []
 
   # ── Control system ──────────────────────────────────────────────────
@@ -1286,11 +1288,12 @@ keys:
   control_system.connector.virtual_accelerator.probe_channel:
     rendered: false
     evidence: 'PROBE_CHANNEL_KEY'
+    facility-fact: true
     note: >-
       The channel the target switch reads to prove this target is reachable
       before it becomes the active one; a target without one is ineligible.
       Derived from the facility file at build for the VA block; a stated value
-      is an override checked against the file.
+      is an override checked against the file. Listed in `osprey.facility.settings`.
     default: ''
   control_system.connector.live_standin:
     rendered: false
@@ -2119,6 +2122,11 @@ keys:
   channel_finder.benchmark.dataset_path:
     rendered: false
     evidence: 'No benchmark query set configured'
+    facility-fact: true
+    note: >-
+      The build states data/benchmarks/queries.json when the facility ships
+      benchmark query sources; a stated value with no sources is refused at
+      build. Listed in `osprey.facility.settings`.
     default: no-fallback
     default_note: >-
       the runner refuses a benchmark with no query set, naming this key and --queries-path
@@ -2226,23 +2234,27 @@ keys:
   ariel.vocabulary.enabled:
     rendered: false
     evidence: '_vocab_bool\(data, "enabled"'
+    facility-fact: true
     note: >-
       The off switch. No preset states it: the build states true when the
       facility ships data/facility/ariel/vocabulary.yml, a stated false turns
       it off, and a stated true with no such file and no path of its own is
       refused at build. False means nothing is read at all, so a stale `path`
-      left behind is inert rather than a startup failure.
+      left behind is inert rather than a startup failure. Listed in `osprey.facility.settings`.
     default: false
   ariel.vocabulary.path:
     rendered: false
     evidence: '_VOCABULARY_PREFIX\}\.path must be a non-empty string'
+    facility-fact: true
     note: >-
       The build states data/facility/ariel/vocabulary.yml when the facility
-      ships that file; a stated value is the profile's own file.
-      Config-relative, resolved against the directory holding config.yml — the
+      ships that file; a stated value is the profile's own file, and one that
+      is not a file while the vocabulary is on is refused at build.
+      Config-relative, resolved against the project root of config.yml — the
       same rule as `facility_knowledge.bundle_path` and the qmd mirror. Enabled
       with no value here is a validate() error rather than a silent no-op, and
       a file that fails to load is stored as a keyed error, never swallowed.
+      Listed in `osprey.facility.settings`.
     default: null
   ariel.vocabulary.expand_by_default:
     evidence: '_vocab_bool\(data, "expand_by_default"'
@@ -2799,6 +2811,16 @@ keys:
       effectively reserved and the reference documents it as such. Evidence
       anchors on the constant the injector spells it from rather than on the
       derived dotted string, which is assembled at runtime.
+    default: n/a
+  health.categories.archiver.checks:
+    rendered: false
+    covered-by: health.categories.archiver
+    facility-fact: true
+    note: >-
+      The archive-freshness check the build derives for a `va_archiver:` block,
+      watching the probe's channel unless `va_archiver.freshness_channel`
+      states one; a stated channel is an override checked against the facility
+      file. Listed in `osprey.facility.settings`.
     default: n/a
   health.auto:
     rendered: false
