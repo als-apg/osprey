@@ -1,7 +1,7 @@
 """The review consumers' read of code review's runtime switch: off only when the terminal says so.
 
-A real loopback server answers. In a deployment the terminal spawns the session, so the hook or
-the executor asking is the terminal's descendant; here the asker is a child process of this test
+A real UNIX socket answers. In a deployment the terminal spawns the session, so the hook or the
+executor asking is the terminal's descendant; here the asker is a child process of this test
 process, which serves. An answer from anywhere else, this process asking itself included, is the
 agent standing in for the terminal and must leave the review running.
 """
@@ -11,121 +11,159 @@ from __future__ import annotations
 import contextlib
 import json
 import os
+import shutil
 import socket
 import subprocess
 import sys
+import tempfile
 import threading
-import time
-from collections import namedtuple
 from collections.abc import Iterator
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from types import SimpleNamespace
 
 import pytest
 
 from osprey.mcp_server import http as http_module
 from osprey.services.code_review.contract import ReviewSwitchedOff
-from osprey.services.code_review.switch import switched_off
+from osprey.services.code_review.switch import (
+    SWITCH_ANSWER_LIMIT,
+    SWITCH_SOCKET_ENV,
+    switched_off,
+)
 
-TOKEN = "panel-token-for-the-switch"
+ON = {"on": True, "off_by": None, "off_at": None}
 OFF = {"on": False, "off_by": "alice", "off_at": 1700000000.5}
 
-#: Run in a child: ask the switch and print what came back.
+#: Run in a child: ask the switch, with the timeout in ``argv[1]`` when given, and print what
+#: came back and how long it took.
 _ASK = """
-import contextlib
 import json
 import logging
 import sys
+import time
 logging.basicConfig(level=logging.WARNING, stream=sys.stderr, force=True)
+from osprey.mcp_server import http
 from osprey.services.code_review.switch import switched_off
+if len(sys.argv) > 1:
+    real = http.fetch_code_review_switch
+    http.fetch_code_review_switch = lambda: real(timeout=float(sys.argv[1]))
+started = time.monotonic()
 off = switched_off()
-if off is None:
-    import os
-    import psutil
-    port = int(os.environ["OSPREY_WEB_PORT"])
-    print("ancestry of", os.getpid(), file=sys.stderr)
-    for a in psutil.Process().parents():
-        try:
-            seen = [(c.status, tuple(c.laddr), tuple(c.raddr) if c.raddr else None)
-                    for c in a.net_connections(kind="tcp")
-                    if (c.laddr and c.laddr.port == port) or (c.raddr and c.raddr.port == port)]
-        except Exception as exc:
-            seen = repr(exc)
-        print("  ", a.pid, a.name(), seen, file=sys.stderr)
-print(json.dumps(None if off is None else [off.off_by, off.off_at]))
+took = time.monotonic() - started
+print(json.dumps([None if off is None else [off.off_by, off.off_at], took]))
+"""
+
+#: Run in a child: serve ``argv[2]`` on the socket ``argv[1]`` until killed.
+_FORGE = """
+import os, socket, sys
+listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+listener.bind(sys.argv[1])
+listener.listen()
+print(os.getpid(), flush=True)
+while True:
+    conn, _ = listener.accept()
+    with conn:
+        conn.sendall(sys.argv[2].encode())
 """
 
 
 class _Terminal:
-    """A loopback stand-in for the web terminal's switch route."""
+    """A stand-in for the web terminal's switch socket, served from this process."""
 
-    def __init__(self) -> None:
-        self.status = 200
-        self.body: bytes = json.dumps({"on": True, "off_by": None, "off_at": None}).encode()
+    def __init__(self, path: str) -> None:
+        self.path = path
+        self.body = json.dumps(ON).encode()
         self.delay = 0.0
-        self.requests: list[tuple[str, str | None]] = []
-        terminal = self
+        self.drip_from: int | None = None
+        self.served = 0
+        self.stop = threading.Event()
+        self.listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        self.listener.bind(path)
+        self.listener.listen()
+        self.listener.settimeout(0.05)
+        threading.Thread(target=self._serve, daemon=True).start()
 
-        class Handler(BaseHTTPRequestHandler):
-            protocol_version = "HTTP/1.1"
+    def answer(self, body: object) -> None:
+        self.body = body if isinstance(body, bytes) else json.dumps(body).encode()
 
-            def do_GET(self) -> None:
-                terminal.requests.append((self.path, self.headers.get("Authorization")))
-                if terminal.delay:
-                    threading.Event().wait(terminal.delay)
-                self.send_response(terminal.status)
-                self.send_header("Content-Type", "application/json")
-                self.send_header("Content-Length", str(len(terminal.body)))
-                self.end_headers()
-                self.wfile.write(terminal.body)
+    def close(self) -> None:
+        self.stop.set()
+        self.listener.close()
+        with contextlib.suppress(FileNotFoundError):
+            os.unlink(self.path)
 
-            def log_message(self, *_args) -> None:
-                pass
+    def _serve(self) -> None:
+        while not self.stop.is_set():
+            try:
+                conn, _ = self.listener.accept()
+            except TimeoutError:
+                continue
+            except OSError:
+                return
+            threading.Thread(target=self._answer, args=(conn,), daemon=True).start()
 
-        self.server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
-        self.server.daemon_threads = True
-        self.port = self.server.server_address[1]
-
-    def answer(self, body: object, status: int = 200) -> None:
-        self.body = json.dumps(body).encode() if not isinstance(body, bytes) else body
-        self.status = status
+    def _answer(self, conn: socket.socket) -> None:
+        conn.settimeout(None)
+        with conn, contextlib.suppress(OSError):
+            self.served += 1
+            if self.stop.wait(self.delay):
+                return
+            cut = len(self.body) if self.drip_from is None else self.drip_from
+            conn.sendall(self.body[:cut])
+            for byte in self.body[cut:]:
+                if self.stop.wait(0.05):
+                    return
+                conn.sendall(bytes([byte]))
 
 
 @pytest.fixture
-def terminal(monkeypatch) -> Iterator[_Terminal]:
-    served = _Terminal()
-    thread = threading.Thread(target=served.server.serve_forever, daemon=True)
-    thread.start()
-    monkeypatch.setenv("OSPREY_WEB_PORT", str(served.port))
-    monkeypatch.setenv("OSPREY_PANEL_TOKEN", TOKEN)
-    # A proxy that would swallow the read: loopback must never go through it.
-    monkeypatch.setenv("http_proxy", "http://127.0.0.1:9")
-    monkeypatch.setenv("HTTP_PROXY", "http://127.0.0.1:9")
-    http_module.reset_panel_token_latch()
+def socket_dir() -> Iterator[str]:
+    """A short private directory: a socket path must fit in ``sun_path``."""
+    directory = tempfile.mkdtemp(prefix="osprey-cr-")
+    yield directory
+    shutil.rmtree(directory, ignore_errors=True)
+
+
+@pytest.fixture
+def terminal(monkeypatch, socket_dir) -> Iterator[_Terminal]:
+    served = _Terminal(os.path.join(socket_dir, "s"))
+    monkeypatch.setenv(SWITCH_SOCKET_ENV, served.path)
     yield served
-    served.server.shutdown()
-    served.server.server_close()
-    http_module.reset_panel_token_latch()
+    served.close()
 
 
-def _ask_as_a_descendant(*, expect_off: bool = False) -> ReviewSwitchedOff | None:
-    """Ask the switch from a child of this process, as a session's hook asks its terminal.
-
-    With *expect_off*, a ``None`` answer fails the test with the child's own log, which says
-    which check refused the answer.
-    """
+def _ask(timeout: float | None = None) -> tuple[ReviewSwitchedOff | None, float, str]:
+    """Ask the switch from a child of this process, as a session's hook asks its terminal."""
     done = subprocess.run(
-        [sys.executable, "-c", _ASK],
+        [sys.executable, "-c", _ASK, *([] if timeout is None else [str(timeout)])],
         capture_output=True,
         text=True,
         timeout=60,
         env=dict(os.environ),
         check=True,
     )
-    answer = json.loads(done.stdout.strip().splitlines()[-1])
-    if answer is None and expect_off:
-        pytest.fail(f"the terminal said off but the child read no answer:\n{done.stderr}")
-    return None if answer is None else ReviewSwitchedOff(off_by=answer[0], off_at=answer[1])
+    answer, took = json.loads(done.stdout.strip().splitlines()[-1])
+    off = None if answer is None else ReviewSwitchedOff(off_by=answer[0], off_at=answer[1])
+    return off, took, done.stderr
+
+
+def _ask_as_a_descendant(*, expect_off: bool = False) -> ReviewSwitchedOff | None:
+    """The child's answer; with *expect_off*, a ``None`` fails with the child's own log."""
+    off, _took, log = _ask()
+    if off is None and expect_off:
+        pytest.fail(f"the terminal said off but the child read no answer:\n{log}")
+    return off
+
+
+@contextlib.contextmanager
+def _forger(path: str, body: object) -> Iterator[int]:
+    """A process this test spawns serving *body* on *path*: the agent's own server."""
+    forger = subprocess.Popen(
+        [sys.executable, "-c", _FORGE, path, json.dumps(body)], stdout=subprocess.PIPE, text=True
+    )
+    try:
+        yield int(forger.stdout.readline())
+    finally:
+        forger.kill()
+        forger.wait(timeout=10)
 
 
 # ---- The terminal that spawned the session ----
@@ -137,14 +175,12 @@ def test_an_off_answer_from_the_terminal_names_who_and_when(terminal):
     assert _ask_as_a_descendant(expect_off=True) == ReviewSwitchedOff(
         off_by="alice", off_at=1700000000.5
     )
-    [(path, auth)] = terminal.requests
-    assert path == "/api/code-review/switch"
-    assert auth == f"Bearer {TOKEN}"
+    assert terminal.served == 1
 
 
 def test_an_on_answer_reviews(terminal):
     assert _ask_as_a_descendant() is None
-    assert terminal.requests
+    assert terminal.served == 1
 
 
 def test_an_off_answer_without_names_still_skips(terminal):
@@ -164,116 +200,160 @@ def test_anything_but_a_literal_off_reviews(terminal, body):
     assert _ask_as_a_descendant() is None
 
 
-@pytest.mark.parametrize("status", [401, 500])
-def test_a_refusal_reviews_even_when_its_body_says_off(terminal, status):
-    terminal.answer(OFF, status=status)
+@pytest.mark.parametrize(
+    "body",
+    [
+        b"",
+        json.dumps(OFF).encode()[:-1],
+        json.dumps(OFF).encode().ljust(SWITCH_ANSWER_LIMIT + 1),
+    ],
+    ids=["nothing", "cut-short", "too-long"],
+)
+def test_an_answer_that_is_not_whole_reviews_even_when_it_says_off(terminal, body):
+    terminal.answer(body)
 
     assert _ask_as_a_descendant() is None
+    assert terminal.served == 1
+
+
+@pytest.mark.skipif(sys.platform != "linux", reason="a non-dumpable process is a Linux property")
+def test_an_off_answer_from_a_terminal_that_hides_its_memory_is_read(terminal):
+    """The web terminal marks itself non-dumpable; its descendants cannot read its ``/proc`` fds."""
+    import ctypes
+
+    pr_get_dumpable, pr_set_dumpable = 3, 4
+    libc = ctypes.CDLL(None, use_errno=True)
+    was = libc.prctl(pr_get_dumpable, 0, 0, 0, 0)
+    terminal.answer(OFF)
+    assert libc.prctl(pr_set_dumpable, 0, 0, 0, 0) == 0
+    try:
+        if os.geteuid() != 0:
+            peek = f"import os; os.listdir('/proc/{os.getpid()}/fd')"
+            hidden = subprocess.run([sys.executable, "-c", peek], capture_output=True, timeout=60)
+            assert hidden.returncode != 0, "the terminal's fds are readable: nothing is hidden"
+
+        assert _ask_as_a_descendant(expect_off=True) == ReviewSwitchedOff(
+            off_by="alice", off_at=1700000000.5
+        )
+    finally:
+        libc.prctl(pr_set_dumpable, was, 0, 0, 0)
 
 
 # ---- Anyone answering in the terminal's place ----
 
 
-def test_an_off_answer_from_a_process_that_did_not_spawn_the_session_reviews(terminal):
+def test_an_off_answer_from_a_process_that_did_not_spawn_the_session_reviews(terminal, caplog):
     """This process serves and asks itself: it is no ancestor of itself, as the agent is not."""
     terminal.answer(OFF)
 
-    assert switched_off() is None
-    assert terminal.requests, "the forged answer was read, and refused for who served it"
-
-
-def test_an_off_answer_from_a_sibling_on_the_port_reviews(monkeypatch):
-    """The agent's own server on a port the terminal left free: a sibling, not an ancestor."""
-    script = (
-        "import http.server, json, sys\n"
-        "class H(http.server.BaseHTTPRequestHandler):\n"
-        "    protocol_version = 'HTTP/1.1'\n"
-        "    def do_GET(self):\n"
-        f"        body = json.dumps({OFF!r}).encode()\n"
-        "        self.send_response(200); self.send_header('Content-Length', str(len(body)))\n"
-        "        self.end_headers(); self.wfile.write(body)\n"
-        "    def log_message(self, *a): pass\n"
-        "s = http.server.HTTPServer(('127.0.0.1', 0), H)\n"
-        "print(s.server_address[1], flush=True)\n"
-        "s.serve_forever()\n"
-    )
-    forger = subprocess.Popen([sys.executable, "-c", script], stdout=subprocess.PIPE, text=True)
-    try:
-        port = forger.stdout.readline().strip()
-        monkeypatch.setenv("OSPREY_WEB_PORT", port)
-
+    with caplog.at_level("WARNING", logger="osprey.mcp_server.http"):
         assert switched_off() is None
-    finally:
-        forger.kill()
-        forger.wait(timeout=10)
+    assert any("outside this session" in r.getMessage() for r in caplog.records)
+
+
+def test_an_off_answer_from_a_sibling_where_the_terminal_was_reviews(terminal):
+    """The agent's own server bound at the path the terminal left: a sibling, not an ancestor."""
+    terminal.close()
+    with _forger(terminal.path, OFF):
+        off, _took, log = _ask()
+
+    assert off is None
+    assert "outside this session" in log
+
+
+def test_the_kernel_names_the_process_that_listens(terminal, socket_dir):
+    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as ours:
+        ours.connect(terminal.path)
+        assert http_module._peer(ours) == (os.getpid(), os.getuid())
+
+    path = os.path.join(socket_dir, "f")
+    with _forger(path, OFF) as pid, socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as theirs:
+        theirs.connect(path)
+        assert http_module._peer(theirs) == (pid, os.getuid())
+
+
+def _as_if_served_by(monkeypatch, pid: int, uid: int) -> None:
+    monkeypatch.setattr(http_module, "_peer", lambda _sock: (pid, uid))
+
+
+def test_an_ancestor_of_this_account_is_believed(terminal, monkeypatch):
+    """The control for the two below: the same answer, believed when the peer qualifies."""
+    terminal.answer(OFF)
+    _as_if_served_by(monkeypatch, os.getppid(), os.getuid())
+
+    assert switched_off() == ReviewSwitchedOff(off_by="alice", off_at=1700000000.5)
+
+
+def test_an_ancestor_running_as_another_account_is_no_answer(terminal, monkeypatch):
+    terminal.answer(OFF)
+    _as_if_served_by(monkeypatch, os.getppid(), os.getuid() + 1)
+
+    assert switched_off() is None
+
+
+def test_a_process_table_that_cannot_be_read_is_no_proof(terminal, monkeypatch):
+    def unreadable(*_a, **_k):
+        raise PermissionError("no")
+
+    terminal.answer(OFF)
+    _as_if_served_by(monkeypatch, os.getppid(), os.getuid())
+    monkeypatch.setattr("psutil.Process.parents", unreadable)
+
+    assert switched_off() is None
+
+
+def test_a_platform_that_names_no_peer_is_no_answer(terminal, monkeypatch):
+    monkeypatch.setattr(http_module.sys, "platform", "win32")
+    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as sock:
+        sock.connect(terminal.path)
+
+        assert http_module._peer(sock) is None
+        assert http_module._served_by_an_ancestor(sock) is False
 
 
 # ---- No answer ----
 
 
-def test_a_terminal_too_slow_to_answer_reviews(terminal, monkeypatch):
+def test_a_terminal_too_slow_to_answer_reviews_in_time(terminal):
     terminal.answer(OFF)
-    terminal.delay = 0.5
-    real = http_module.fetch_code_review_switch
-    monkeypatch.setattr(http_module, "fetch_code_review_switch", lambda: real(timeout=0.1))
+    terminal.delay = 1.0
 
-    assert switched_off() is None
+    off, took, _log = _ask(timeout=0.2)
+    assert off is None
+    assert took < 0.9
+
+    assert _ask(timeout=5)[0] == ReviewSwitchedOff(off_by="alice", off_at=1700000000.5)
 
 
-@pytest.mark.parametrize("stage", ["status", "headers", "body"])
-def test_an_answer_dripped_slower_than_the_deadline_reviews_in_time(monkeypatch, stage):
+@pytest.mark.parametrize("drip_from", [0, 20], ids=["from-the-start", "after-a-prefix"])
+def test_an_answer_dripped_slower_than_the_deadline_reviews_in_time(terminal, drip_from):
     """Every byte arrives well inside the timeout, yet the whole read gives up at it."""
-    answer = json.dumps(OFF).encode().ljust(4096)
-    head = f"HTTP/1.1 200 OK\r\nContent-Length: {len(answer)}\r\n\r\n".encode()
-    fast, drip = {
-        "status": (b"", head + answer),
-        "headers": (head[:20], head[20:] + answer),
-        "body": (head, answer),
-    }[stage]
-    listener = socket.create_server(("127.0.0.1", 0))
-    stop = threading.Event()
+    terminal.answer(json.dumps(OFF).encode().ljust(SWITCH_ANSWER_LIMIT))
+    terminal.drip_from = drip_from
 
-    def serve() -> None:
-        conn, _ = listener.accept()
-        with conn:
-            conn.recv(4096)
-            conn.sendall(fast)
-            for byte in drip:
-                if stop.wait(0.05):
-                    return
-                with contextlib.suppress(OSError):
-                    conn.sendall(bytes([byte]))
-
-    server = threading.Thread(target=serve, daemon=True)
-    server.start()
-    monkeypatch.setenv("OSPREY_WEB_PORT", str(listener.getsockname()[1]))
-    try:
-        started = time.monotonic()
-        assert http_module.fetch_code_review_switch(timeout=0.5) is None
-        assert time.monotonic() - started < 1.5
-    finally:
-        stop.set()
-        server.join(timeout=5)
-        listener.close()
+    off, took, _log = _ask(timeout=0.5)
+    assert off is None
+    assert took < 1.5
 
 
-def test_an_unreachable_terminal_reviews(terminal, monkeypatch):
-    port = terminal.port
-    terminal.server.shutdown()
-    terminal.server.server_close()
-    monkeypatch.setenv("OSPREY_WEB_PORT", str(port))
+@pytest.mark.parametrize("left", ["no-file", "stale-file"])
+def test_an_unreachable_terminal_reviews(terminal, left):
+    terminal.close()
+    if left == "stale-file":
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as dead:
+            dead.bind(terminal.path)
 
-    assert switched_off() is None
+    assert _ask_as_a_descendant() is None
 
 
-@pytest.mark.parametrize("port", [None, "", "  ", "abc", "80; rm"], ids=str)
-def test_no_terminal_named_reviews_and_dials_nothing(monkeypatch, port):
-    if port is None:
-        monkeypatch.delenv("OSPREY_WEB_PORT", raising=False)
+@pytest.mark.parametrize("path", [None, "", "  ", "relative/s"], ids=str)
+def test_no_terminal_named_reviews_and_dials_nothing(monkeypatch, path):
+    if path is None:
+        monkeypatch.delenv(SWITCH_SOCKET_ENV, raising=False)
     else:
-        monkeypatch.setenv("OSPREY_WEB_PORT", port)
+        monkeypatch.setenv(SWITCH_SOCKET_ENV, path)
     dialed: list = []
-    monkeypatch.setattr("http.client.HTTPConnection.connect", lambda *a: dialed.append(a))
+    monkeypatch.setattr("socket.socket.connect", lambda *a: dialed.append(a))
 
     assert switched_off() is None
     assert dialed == []
@@ -286,51 +366,3 @@ def test_a_broken_reader_reviews(monkeypatch):
     monkeypatch.setattr(http_module, "fetch_code_review_switch", broken)
 
     assert switched_off() is None
-
-
-def test_a_process_table_that_cannot_be_read_is_no_proof(monkeypatch):
-    def unreadable(*_a, **_k):
-        raise PermissionError("no")
-
-    monkeypatch.setattr("psutil.Process.parents", unreadable)
-
-    assert http_module._served_by_an_ancestor(("127.0.0.1", 1), ("127.0.0.1", 2)) is False
-
-
-def _ancestor_holding(*conns):
-    class _Ancestor:
-        def net_connections(self, **_kind):
-            return list(conns)
-
-    return [_Ancestor()]
-
-
-_Addr = namedtuple("_Addr", "ip port")
-
-
-def _conn(laddr, raddr, status):
-    return SimpleNamespace(laddr=_Addr(*laddr), raddr=_Addr(*raddr) if raddr else (), status=status)
-
-
-@pytest.mark.parametrize(
-    ("listen_ip", "peer", "expected"),
-    [
-        ("127.0.0.1", ("127.0.0.1", 50000), True),
-        ("0.0.0.0", ("::ffff:127.0.0.1", 50000), True),
-        # Same ports, another client address: not this connection.
-        ("127.0.0.1", ("10.0.0.5", 50000), False),
-        # Listening on another address than the one we reached.
-        ("127.0.0.2", ("127.0.0.1", 50000), False),
-    ],
-)
-def test_the_ancestor_must_hold_this_very_connection(monkeypatch, listen_ip, peer, expected):
-    import psutil
-
-    held = _ancestor_holding(
-        _conn((listen_ip, 8080), None, psutil.CONN_LISTEN),
-        _conn(("127.0.0.1", 8080), peer, psutil.CONN_ESTABLISHED),
-    )
-    monkeypatch.setattr("psutil.Process.parents", lambda self: held)
-
-    ours, theirs = ("127.0.0.1", 50000), ("127.0.0.1", 8080)
-    assert http_module._served_by_an_ancestor(ours, theirs) is expected

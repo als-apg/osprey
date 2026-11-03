@@ -1,13 +1,17 @@
 """Code review's runtime safety switch: registered from the profile, moved by the admin only.
 
-The consumers run in the agent's processes and read the switch through the panel-tier
-``GET /api/code-review/switch``; the admin moves it through the safety-switch route, which
-audits every move. The Review tab reads the same row the Safety tab lists.
+The consumers run in the agent's processes and read the switch from the terminal's own UNIX
+socket; the admin moves it through the safety-switch route, which audits every move. The Review
+tab reads the same row the Safety tab lists.
 """
 
 from __future__ import annotations
 
+import asyncio
 import json
+import os
+import socket
+import stat
 from pathlib import Path
 
 import pytest
@@ -15,8 +19,9 @@ from fastapi.testclient import TestClient
 
 from osprey.interfaces._serving import WEB_HOST_ENV
 from osprey.interfaces.web_auth import Tier, classify
+from osprey.interfaces.web_terminal import code_review_switch
 from osprey.interfaces.web_terminal.app import create_app
-from osprey.interfaces.web_terminal.routes.code_review import SWITCH_ROUTE
+from osprey.interfaces.web_terminal.code_review_switch import serve_switch, switch_state
 from osprey.interfaces.web_terminal.routes.code_review import router as review_router
 from osprey.interfaces.web_terminal.routes.safety_switches import (
     AUDIT_SUBJECT_SAFETY_SWITCH,
@@ -24,7 +29,7 @@ from osprey.interfaces.web_terminal.routes.safety_switches import (
 )
 from osprey.interfaces.web_terminal.routes.safety_switches import router as switch_router
 from osprey.interfaces.web_terminal.safety_switches import CODE_REVIEW_SWITCH, SafetySwitches
-from osprey.mcp_server.http import CODE_REVIEW_SWITCH_ROUTE
+from osprey.services.code_review.switch import SWITCH_SOCKET_ENV
 
 from .conftest import bare_route_app
 
@@ -69,24 +74,33 @@ def _app(tmp_path: Path, *, admin: bool, registered: bool = True):
     )
 
 
+def _read(path: str) -> dict:
+    """What the socket at *path* answers one connection."""
+    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as sock:
+        sock.settimeout(5)
+        sock.connect(path)
+        body = b""
+        while chunk := sock.recv(4096):
+            body += chunk
+    return json.loads(body)
+
+
 # ---- The consumers' read ----
 
 
-def test_the_read_is_panel_tier_and_the_move_is_not():
-    """An agent's panel token reads the switch and can never move it."""
-    assert classify("GET", SWITCH_ROUTE, False) is Tier.PANEL
+def test_the_switch_has_no_http_route_and_the_move_is_operator_tier():
+    """An agent's panel token can neither move the switch nor stand in for its socket."""
     assert classify("POST", MOVE_URL, False) is Tier.OPERATOR
-    assert classify("POST", SWITCH_ROUTE, False) is Tier.OPERATOR
-    assert SWITCH_ROUTE == CODE_REVIEW_SWITCH_ROUTE
+    assert classify("GET", "/api/code-review/switch", False) is Tier.OPERATOR
 
 
 def test_the_read_says_on_until_the_admin_turns_it_off(tmp_path):
-    client = TestClient(_app(tmp_path, admin=True))
-    assert client.get(SWITCH_ROUTE).json() == {"on": True, "off_by": None, "off_at": None}
+    app = _app(tmp_path, admin=True)
+    assert switch_state(app) == {"on": True, "off_by": None, "off_at": None}
 
-    assert client.post(MOVE_URL, json={"state": "off"}).status_code == 200
+    assert TestClient(app).post(MOVE_URL, json={"state": "off"}).status_code == 200
 
-    state = client.get(SWITCH_ROUTE).json()
+    state = switch_state(app)
     assert state["on"] is False
     assert state["off_by"]
     assert isinstance(state["off_at"], float)
@@ -97,7 +111,69 @@ def test_no_registry_or_no_switch_in_it_reads_on(registry):
     state = {} if registry == "none" else {"safety_switches": SafetySwitches()}
     app = bare_route_app(review_router, config_path=None, **state)
 
-    assert TestClient(app).get(SWITCH_ROUTE).json()["on"] is True
+    assert switch_state(app)["on"] is True
+
+
+# ---- The socket ----
+
+
+@pytest.fixture
+def unpublished(monkeypatch):
+    """The listener publishes into ``os.environ``; leave it as it was found."""
+    monkeypatch.delenv(SWITCH_SOCKET_ENV, raising=False)
+
+
+@pytest.mark.usefixtures("unpublished")
+async def test_the_socket_serves_the_row_each_connection_reads(tmp_path):
+    app = _app(tmp_path, admin=True)
+    listener = await serve_switch(app)
+    try:
+        assert os.environ[SWITCH_SOCKET_ENV] == listener.path
+        on = await asyncio.to_thread(_read, listener.path)
+        assert on == {"on": True, "off_by": None, "off_at": None}
+
+        app.state.safety_switches.set(CODE_REVIEW_SWITCH, on=False, by="alice")
+        off = await asyncio.to_thread(_read, listener.path)
+        assert off["on"] is False
+        assert off["off_by"] == "alice"
+        assert isinstance(off["off_at"], float)
+    finally:
+        await listener.close()
+
+
+@pytest.mark.usefixtures("unpublished")
+async def test_the_socket_answers_on_without_a_registry():
+    listener = await serve_switch(bare_route_app(review_router))
+    try:
+        assert (await asyncio.to_thread(_read, listener.path))["on"] is True
+    finally:
+        await listener.close()
+
+
+@pytest.mark.usefixtures("unpublished")
+async def test_only_the_owner_can_reach_the_socket(tmp_path):
+    listener = await serve_switch(_app(tmp_path, admin=True))
+    try:
+        directory = os.stat(os.path.dirname(listener.path))
+        sock = os.stat(listener.path)
+        assert stat.S_IMODE(directory.st_mode) == 0o700
+        assert stat.S_IMODE(sock.st_mode) == 0o600
+        assert stat.S_ISSOCK(sock.st_mode)
+        assert directory.st_uid == sock.st_uid == os.getuid()
+        assert len(os.fsencode(listener.path)) <= 103
+    finally:
+        await listener.close()
+
+
+@pytest.mark.usefixtures("unpublished")
+async def test_closing_removes_the_socket_and_unpublishes_it(tmp_path):
+    listener = await serve_switch(_app(tmp_path, admin=True))
+    await listener.close()
+
+    assert not os.path.exists(os.path.dirname(listener.path))
+    assert SWITCH_SOCKET_ENV not in os.environ
+    with pytest.raises(OSError):
+        _read(listener.path)
 
 
 # ---- The admin's move ----
@@ -107,7 +183,7 @@ def test_a_non_admin_cannot_turn_it_off_and_the_refusal_is_audited(tmp_path, aud
     client = TestClient(_app(tmp_path, admin=False))
 
     assert client.post(MOVE_URL, json={"state": "off"}).status_code == 403
-    assert client.get(SWITCH_ROUTE).json()["on"] is True
+    assert switch_state(client.app)["on"] is True
     [line] = [x for x in audit if x.get("subject") == AUDIT_SUBJECT_SAFETY_SWITCH]
     assert line["decision"] == "refused"
 
@@ -178,14 +254,20 @@ def bound(monkeypatch):
     return bind
 
 
-@pytest.mark.usefixtures("web_config", "bound")
-def test_a_profile_with_code_review_on_registers_the_switch_on(tmp_path):
+@pytest.mark.usefixtures("web_config", "bound", "unpublished")
+def test_a_profile_with_code_review_on_registers_the_switch_on_and_serves_it(tmp_path):
     config = _render(tmp_path, {"enabled": True})
     with TestClient(create_app(config_path=config, shell_command=["echo"])) as client:
         [switch] = client.get("/api/safety-switches").json()["switches"]
         assert switch["name"] == CODE_REVIEW_SWITCH
         assert switch["on"] is True
-        assert client.get(SWITCH_ROUTE).json()["on"] is True
+        path = os.environ[SWITCH_SOCKET_ENV]
+        assert _read(path)["on"] is True
+
+        assert client.post(MOVE_URL, json={"state": "off"}).status_code == 200
+        assert _read(path)["on"] is False
+    assert not os.path.exists(path)
+    assert SWITCH_SOCKET_ENV not in os.environ
 
 
 @pytest.mark.parametrize(
@@ -194,25 +276,37 @@ def test_a_profile_with_code_review_on_registers_the_switch_on(tmp_path):
     ids=["no-section", "off", "unreadable"],
 )
 @pytest.mark.usefixtures("web_config", "bound")
-def test_a_profile_without_code_review_on_registers_nothing(tmp_path, section):
-    """Off is the only widening: nothing is registered that could turn review on."""
+def test_a_profile_without_code_review_on_registers_nothing(tmp_path, monkeypatch, section):
+    """Off is the only widening: nothing is registered that could turn review on.
+
+    A socket an outer terminal published is not passed on to this terminal's sessions.
+    """
+    monkeypatch.setenv(SWITCH_SOCKET_ENV, "/an/outer/terminal/s")
     assert _names(_render(tmp_path, section)) == []
+    assert SWITCH_SOCKET_ENV not in os.environ
 
 
-@pytest.mark.parametrize("host", ["127.0.0.1", "127.0.0.2", "localhost", "0.0.0.0", "::"])
-@pytest.mark.usefixtures("web_config")
-def test_a_terminal_its_reviews_can_reach_registers_the_switch(tmp_path, bound, host):
+@pytest.mark.parametrize(
+    "host", ["127.0.0.1", "0.0.0.0", "::", "::1", "192.168.1.20", "terminal.example.org", None]
+)
+@pytest.mark.usefixtures("web_config", "unpublished")
+def test_the_switch_is_registered_whatever_the_terminal_binds(tmp_path, bound, host):
+    """The reviews ask the socket, not the bind address, so every bind can be switched off."""
     bound(host)
     assert _names(_render(tmp_path, {"enabled": True})) == [CODE_REVIEW_SWITCH]
 
 
-@pytest.mark.parametrize("host", ["192.168.1.20", "::1", "terminal.example.org", None])
-@pytest.mark.usefixtures("web_config")
-def test_a_terminal_its_reviews_cannot_reach_registers_nothing_and_says_why(
-    tmp_path, bound, host, caplog
+@pytest.mark.usefixtures("web_config", "bound", "unpublished")
+def test_a_terminal_that_cannot_serve_the_socket_registers_nothing_and_says_why(
+    tmp_path, monkeypatch, caplog
 ):
-    """The reviews dial 127.0.0.1; an off switch there would never be heard, yet read 'Off'."""
-    bound(host)
+    """An off switch nobody can read would never be heard, yet read 'Off'."""
+
+    async def refuse(_app):
+        raise OSError("no socket here")
+
+    monkeypatch.setattr(code_review_switch, "serve_switch", refuse)
     with caplog.at_level("WARNING", logger="osprey.interfaces.web_terminal.app"):
         assert _names(_render(tmp_path, {"enabled": True})) == []
-    assert any("127.0.0.1" in r.getMessage() for r in caplog.records)
+    assert any("no socket here" in r.getMessage() for r in caplog.records)
+    assert SWITCH_SOCKET_ENV not in os.environ

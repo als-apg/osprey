@@ -3,23 +3,33 @@
 Code review is a runtime safety switch of the web terminal
 (:mod:`osprey.interfaces.web_terminal.safety_switches`), but every review runs in
 the agent's processes: the approval hook, the notebook hook and the executor.
-Each asks :func:`switched_off` right before it would review, through the
-panel-tier ``GET /api/code-review/switch``, so a move counts from the next review.
+Each asks :func:`switched_off` right before it would review, so a move counts from
+the next review. The terminal answers on a UNIX socket in a directory only its
+account can enter, and names it in :data:`SWITCH_SOCKET_ENV` for the sessions it
+spawns (:mod:`osprey.interfaces.web_terminal.code_review_switch`).
 
 The read fails closed. Only an answer that says ``"on": false`` in so many words,
 served by this process's own ancestor (the terminal that spawned the session),
-skips a review; no terminal, no answer, a refusal, a timeout, an answer from any
-other process or anything malformed is answered with ``None``, and the review
-runs. The agent can read the switch with its panel token and never move it, and
-it cannot answer in the terminal's place: it runs as the same account and holds
-the same token, but nothing it starts is an ancestor of the hook or executor
-asking. Every skip is told to the agent, the operator's activity feed and the
+skips a review; no socket named, no answer, a timeout, an answer from any other
+process or anything malformed is answered with ``None``, and the review runs.
+The kernel names the serving process (``SO_PEERCRED`` on Linux, ``LOCAL_PEERPID``
+on macOS; elsewhere nothing is believed), and it must run as this account and be
+an ancestor. The agent runs as the same account and can bind a socket where the
+terminal's was, but nothing it starts is an ancestor of the hook or executor
+asking, so it cannot answer in the terminal's place, and the socket moves
+nothing. Every skip is told to the agent, the operator's activity feed and the
 audit trail, so a skip nobody meant shows up.
 """
 
 from __future__ import annotations
 
 from osprey.services.code_review.contract import ReviewSwitchedOff
+
+#: The terminal's switch socket, published by the terminal for the sessions it spawns.
+SWITCH_SOCKET_ENV = "OSPREY_TERMINAL_CODE_REVIEW_SOCKET"
+
+#: The most of a switch answer read; the real one is a few dozen bytes.
+SWITCH_ANSWER_LIMIT = 4096
 
 
 def switched_off() -> ReviewSwitchedOff | None:

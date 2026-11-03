@@ -17,8 +17,8 @@ The registry decides nothing about who may move a switch; the route does
 (:mod:`osprey.interfaces.web_terminal.routes.safety_switches`). Each consumer asks
 at the moment it would act, so a move takes effect on the next prompt without
 respawning anything: an in-process one through :func:`feature_is_on`, code
-review's consumers, which run in the agent's processes, through a panel-tier read
-(:mod:`osprey.interfaces.web_terminal.routes.code_review`).
+review's consumers, which run in the agent's processes, through the terminal's
+socket (:mod:`osprey.interfaces.web_terminal.code_review_switch`).
 """
 
 from __future__ import annotations

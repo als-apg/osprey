@@ -9,11 +9,9 @@ reads it, and ``switch`` is code review's runtime safety switch, ``None`` when
 the profile leaves review off (:mod:`osprey.interfaces.web_terminal.safety_switches`).
 The admin moves it through the safety-switch route, audited there.
 
-``GET /api/code-review/switch`` is what each review consumer asks right before
-it would review: the approval hook, the notebook hook and the executor run in
-the agent's processes, so they read the switch over loopback with the panel
-token (``PANEL_TIER_ROUTES``). It reads and moves nothing; no registry, or no
-code review switch in it, answers on.
+The review consumers, which run in the agent's processes, read the switch from
+the terminal's own socket instead
+(:mod:`osprey.interfaces.web_terminal.code_review_switch`).
 
 Everything is read through the reviewer's own functions in
 :mod:`osprey.services.code_review.settings`, uncached, so the tab shows the
@@ -39,9 +37,6 @@ from osprey.interfaces.web_terminal.safety_switches import CODE_REVIEW_SWITCH, s
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
-
-#: The review consumers' read of the switch; ``code_review.switch`` asks it.
-SWITCH_ROUTE = "/api/code-review/switch"
 
 #: Where a ``code_review`` key is changed: the channel the protected set names
 #: for ``config.yml``, so the fix the tab gives and the refusal a write gets agree.
@@ -90,15 +85,6 @@ def _switch_row(app: Any) -> dict[str, Any] | None:
     """Code review's switch as the safety-switch route serves it, or ``None``."""
     switches = switches_of(app)
     return switches.row(CODE_REVIEW_SWITCH) if switches is not None else None
-
-
-@router.get(SWITCH_ROUTE)
-async def get_code_review_switch(request: Request) -> dict[str, Any]:
-    """Whether code review runs in this terminal now, and who turned it off when not."""
-    row = _switch_row(request.app)
-    if row is None:
-        return {"on": True, "off_by": None, "off_at": None}
-    return {"on": row["on"], "off_by": row["off_by"], "off_at": row["off_at"]}
 
 
 @router.get("/api/code-review")

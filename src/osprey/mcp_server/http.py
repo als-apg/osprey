@@ -2,7 +2,10 @@
 
 import contextlib
 import logging
+import os
 import socket
+import struct
+import sys
 import time
 
 logger = logging.getLogger("osprey.mcp_server.http")
@@ -317,146 +320,110 @@ def fetch_panels(timeout: int = 3) -> dict | None:
     return data if isinstance(data, dict) else None
 
 
-#: Code review's switch read on the web terminal (``routes.code_review.SWITCH_ROUTE``).
-CODE_REVIEW_SWITCH_ROUTE = "/api/code-review/switch"
-
-
 def fetch_code_review_switch(timeout: float = 2) -> dict | None:
     """Read code review's runtime switch from the web terminal that started this session.
 
-    Only ``OSPREY_WEB_PORT`` names that terminal, with no config fallback: a
-    session no terminal started is under no terminal's switch. The call stays on
-    loopback (``http.client`` consults no proxy) and carries the panel token
-    (:func:`_panel_auth_headers`).
+    Only the socket the terminal published (``SWITCH_SOCKET_ENV``) names that terminal, with no
+    fallback: a session no terminal started is under no terminal's switch.
 
-    An answer counts only when the process that served it is this process's own
-    ancestor (:func:`_served_by_an_ancestor`). Neither the port nor the panel token
-    tells the terminal apart from the agent: the agent's code runs as the same
-    account, holds the token, and can bind the port whenever the terminal is not
-    on it. What it cannot do is become an ancestor of the hook or the executor
-    asking, so an answer from anywhere else is no answer.
+    An answer counts only when the kernel says it was served by a process of this account that
+    is this process's own ancestor (:func:`_served_by_an_ancestor`). The agent's code runs as
+    the same account and can bind a socket at that path whenever the terminal is not on it;
+    what it cannot do is become an ancestor of the hook or the executor asking. The check reads pids only, never
+    another process's ``/proc`` entries, so a terminal that hides its memory still counts.
 
     .. warning::
         A **blocking** call bounded by ``timeout`` from the dial to the last byte read,
-        however the answer trickles in (:class:`_DeadlineSocket`); async callers run it
-        in a thread.
+        however the answer trickles in; async callers run it in a thread.
 
     Returns:
-        The parsed JSON object, or ``None`` when no terminal is named, it cannot
-        be reached, refuses, is not this session's ancestor, or answers with
-        anything but a JSON object.
+        The parsed JSON object, or ``None`` when no terminal is named, it cannot be reached,
+        is not this session's ancestor, or answers with anything but a JSON object.
     """
-    import http.client
     import json as _json
-    import os
 
-    port = os.environ.get("OSPREY_WEB_PORT", "").strip()
-    if not port.isdigit():
+    from osprey.services.code_review.switch import SWITCH_ANSWER_LIMIT, SWITCH_SOCKET_ENV
+
+    path = os.environ.get(SWITCH_SOCKET_ENV, "").strip()
+    if not os.path.isabs(path) or not hasattr(socket, "AF_UNIX"):
         return None
     deadline = time.monotonic() + timeout
-    conn = http.client.HTTPConnection("127.0.0.1", int(port), timeout=timeout)
     try:
-        conn.connect()
-        conn.sock = _DeadlineSocket.adopt(conn.sock, deadline)
-        conn.request("GET", CODE_REVIEW_SWITCH_ROUTE, headers=_panel_auth_headers())
-        resp = conn.getresponse()
-        body = resp.read(_SWITCH_BODY_LIMIT)
-        # Checked with the connection still open, so the serving end is still held.
-        if resp.status != 200 or conn.sock is None:
-            return None
-        if not _served_by_an_ancestor(conn.sock.getsockname()[:2], conn.sock.getpeername()[:2]):
-            logger.warning("code review switch answered by a process outside this session")
-            return None
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as sock:
+            sock.settimeout(timeout)
+            sock.connect(path)
+            if not _served_by_an_ancestor(sock):
+                logger.warning("code review switch answered by a process outside this session")
+                return None
+            body = b""
+            while chunk := _recv_by(sock, deadline, SWITCH_ANSWER_LIMIT + 1 - len(body)):
+                body += chunk
+                if len(body) > SWITCH_ANSWER_LIMIT:
+                    raise ValueError("the code review switch answer is too long")
         data = _json.loads(body)
     except Exception as exc:
         logger.warning("code review switch read failed: %s", exc)
         return None
-    finally:
-        conn.close()
     return data if isinstance(data, dict) else None
 
 
-#: The most of a switch answer read; the real one is a few dozen bytes.
-_SWITCH_BODY_LIMIT = 4096
+def _recv_by(sock: socket.socket, deadline: float, nbytes: int) -> bytes:
+    """Up to *nbytes* from *sock*, waiting only for what is left until *deadline*.
 
-
-class _DeadlineSocket(socket.socket):
-    """A socket whose every send and receive shares one wall-clock deadline.
-
-    A socket timeout bounds each operation alone, so a server dripping one byte
-    at a time keeps a reader waiting for as long as it likes. Here each call gets
-    only what is left of the deadline, and a call made after it has passed fails
-    at once with :class:`TimeoutError`.
+    A socket timeout bounds each receive alone, so a server dripping one byte at a time
+    would keep the reader waiting as long as it liked.
     """
-
-    _deadline: float
-
-    @classmethod
-    def adopt(cls, sock: socket.socket, deadline: float) -> "_DeadlineSocket":
-        """Take over *sock*'s connection, which must not be read through *sock* again."""
-        adopted = cls(sock.family, sock.type, sock.proto, fileno=sock.detach())
-        adopted._deadline = deadline
-        return adopted
-
-    def _arm(self) -> None:
-        remaining = self._deadline - time.monotonic()
-        if remaining <= 0:
-            raise TimeoutError("the code review switch read ran out of time")
-        self.settimeout(remaining)
-
-    def recv_into(self, buffer, nbytes=0, flags=0):
-        self._arm()
-        return super().recv_into(buffer, nbytes, flags)
-
-    def recv(self, bufsize, flags=0):
-        self._arm()
-        return super().recv(bufsize, flags)
-
-    def sendall(self, data, flags=0):
-        self._arm()
-        return super().sendall(data, flags)
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        raise TimeoutError("the code review switch read ran out of time")
+    sock.settimeout(remaining)
+    return sock.recv(nbytes)
 
 
-def _served_by_an_ancestor(ours: tuple[str, int], theirs: tuple[str, int]) -> bool:
-    """Whether one of this process's ancestors listens where we connected and holds our connection.
+def _served_by_an_ancestor(sock: socket.socket) -> bool:
+    """Whether the process serving *sock* runs as this account and is one of our ancestors.
 
-    The terminal spawns every session, so the session's hooks and MCP servers
-    descend from it; whatever the agent starts is a descendant of the session,
-    never an ancestor of them. The ancestor must hold both a listening socket on
-    the address we reached (or the wildcard) and the accepted end of this very
-    connection, matched on both addresses and ports: a port taken over from a
-    terminal that went away, or stolen by a more specific bind, is held by a
-    process outside the chain. Never raises; a process table that cannot be read
-    is no proof.
+    The terminal spawns every session, so the session's hooks and MCP servers descend
+    from it; whatever the agent starts is a descendant of the session, never an ancestor
+    of them. Never raises; a peer or process table that cannot be read is no proof.
     """
-    ours, theirs = _plain(ours), _plain(theirs)
     try:
+        peer = _peer(sock)
+        if peer is None or peer[1] != os.getuid():
+            return False
         import psutil
 
-        for ancestor in psutil.Process().parents():
-            try:
-                connections = ancestor.net_connections(kind="tcp")
-            except (psutil.Error, OSError):
-                continue
-            listens = holds = False
-            for c in connections:
-                if not c.laddr or c.laddr.port != theirs[1]:
-                    continue
-                if c.status == psutil.CONN_LISTEN:
-                    listens = listens or _plain(c.laddr)[0] in (theirs[0], "0.0.0.0", "::")
-                elif c.raddr and _plain(c.laddr) == theirs and _plain(c.raddr) == ours:
-                    holds = True
-            if listens and holds:
-                return True
+        return peer[0] in {p.pid for p in psutil.Process().parents()}
     except Exception:
         logger.warning("could not check who answered the code review switch", exc_info=True)
-    return False
+        return False
 
 
-def _plain(addr: tuple[str, int]) -> tuple[str, int]:
-    """*addr* as ``(ip, port)`` with an IPv4-mapped IPv6 address written as IPv4."""
-    ip, port = addr[0], addr[1]
-    return (ip.removeprefix("::ffff:"), port)
+def _peer(sock: socket.socket) -> tuple[int, int] | None:
+    """The ``(pid, uid)`` the kernel recorded for the listening end of *sock*, or ``None``.
+
+    Linux reads ``SO_PEERCRED`` (``struct ucred``); macOS reads ``LOCAL_PEERPID`` and the uid
+    from ``LOCAL_PEERCRED`` (``struct xucred``). Any other platform names no peer.
+    """
+    if sys.platform == "linux":
+        ucred = struct.Struct("3i")
+        pid, uid, _gid = ucred.unpack(
+            sock.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED, ucred.size)
+        )
+        return pid, uid
+    if sys.platform == "darwin":
+        (pid,) = struct.unpack("i", sock.getsockopt(_SOL_LOCAL, _LOCAL_PEERPID, 4))
+        version, uid = struct.unpack_from("2I", sock.getsockopt(_SOL_LOCAL, _LOCAL_PEERCRED, 76))
+        return (pid, uid) if version == _XUCRED_VERSION else None
+    return None
+
+
+#: ``SOL_LOCAL``, ``LOCAL_PEERCRED``, ``LOCAL_PEERPID`` and ``XUCRED_VERSION`` from macOS
+#: ``<sys/un.h>`` and ``<sys/ucred.h>``; 76 is ``sizeof(struct xucred)``.
+_SOL_LOCAL = 0
+_LOCAL_PEERCRED = 0x001
+_LOCAL_PEERPID = 0x002
+_XUCRED_VERSION = 0
 
 
 def notify_panel_visibility(panel: str, visible: bool) -> None:

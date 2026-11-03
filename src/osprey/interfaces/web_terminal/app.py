@@ -9,7 +9,6 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import importlib
-import ipaddress
 import json
 import os
 import shlex
@@ -1197,16 +1196,20 @@ def _start_watchdogs(app: FastAPI, config_file: Path | None) -> None:
     )
 
 
-def _register_code_review_switch(app: FastAPI, config_file: Path | None) -> None:
-    """Make code review switchable when the rendered config turns it on.
+async def _serve_code_review_switch(app: FastAPI, config_file: Path | None) -> None:
+    """Make code review switchable when the rendered config turns it on, and serve the switch.
 
-    Its consumers run in the agent's processes and read the switch through the
-    panel-tier ``GET /api/code-review/switch``. A section that cannot be read
-    registers nothing: every review refuses then, and there is nothing to turn off.
-    Nor does a terminal its consumers cannot reach: they dial ``127.0.0.1``, so a
-    terminal bound anywhere that does not answer there would show an off switch
-    while every review still ran.
+    Its consumers run in the agent's processes and read the switch from the socket this
+    terminal serves (:mod:`~osprey.interfaces.web_terminal.code_review_switch`). A section
+    that cannot be read registers nothing: every review refuses then, and there is nothing
+    to turn off. Nor does a terminal that cannot serve the socket, which would show an off
+    switch while every review still ran. A socket an outer terminal published is never
+    passed on, so a session started here asks this terminal or nobody.
     """
+    from osprey.services.code_review.switch import SWITCH_SOCKET_ENV
+
+    os.environ.pop(SWITCH_SOCKET_ENV, None)
+    app.state.code_review_switch_listener = None
     if config_file is None:
         return
     from osprey.services.code_review.settings import (
@@ -1222,34 +1225,18 @@ def _register_code_review_switch(app: FastAPI, config_file: Path | None) -> None
     switches = switches_of(app)
     if not enabled or switches is None:
         return
-    from osprey.interfaces._serving import WEB_HOST_ENV
+    from osprey.interfaces.web_terminal.code_review_switch import serve_switch
 
-    host = os.environ.get(WEB_HOST_ENV)
-    if not _answers_on_loopback(host):
-        logger.warning(
-            "code review cannot be switched off here: its reviews ask the terminal on "
-            "127.0.0.1, which this terminal's bind address (%s) does not answer",
-            host or "unknown, not started by osprey web",
-        )
+    try:
+        app.state.code_review_switch_listener = await serve_switch(app)
+    except OSError as exc:
+        logger.warning("code review cannot be switched off here: its socket failed (%s)", exc)
         return
     switches.register(
         CODE_REVIEW_SWITCH,
         "Code review",
         "Meanwhile the agent's Python and notebook code runs unreviewed.",
     )
-
-
-def _answers_on_loopback(host: str | None) -> bool:
-    """Whether a terminal bound to *host* accepts a connection to ``127.0.0.1``."""
-    if host is None:
-        return False
-    if host in ("", "0.0.0.0", "::", "localhost"):
-        return True
-    try:
-        address = ipaddress.ip_address(host)
-    except ValueError:
-        return False
-    return address.version == 4 and address.is_loopback
 
 
 def _create_lifespan(
@@ -1430,7 +1417,7 @@ def _create_lifespan(
         # Built before any feature registers into it; a restart starts it empty.
         app.state.safety_switches = SafetySwitches()
         _start_watchdogs(app, resolved_config_path)
-        _register_code_review_switch(app, resolved_config_path)
+        await _serve_code_review_switch(app, resolved_config_path)
 
         # ── Web theme (SSR no-FOUC attribute) ──
         # Resolved once at startup and server-rendered onto <html data-theme>
@@ -1979,6 +1966,9 @@ def _create_lifespan(
             await app.state.watchdog_runner.shutdown()
 
         await app.state.control_context_task.stop()
+
+        if app.state.code_review_switch_listener is not None:
+            await app.state.code_review_switch_listener.close()
 
         reaper_task.cancel()
         with suppress(asyncio.CancelledError):
