@@ -17,10 +17,12 @@ import { applyEmbedded, isEmbedded } from '/design-system/js/frame-params.js';
 import '/design-system/js/components/osprey-drawer.js';
 import '/design-system/js/components/osprey-display-menu.js';
 import { capabilitiesApi } from './api.js';
-import { applyFacilityTimezone } from './components.js';
+import { applyFacilityTimezone, setEnhancementModules } from './components.js';
+import { bindStripSwitch } from './display-prefs.js';
 import { initSettings } from './settings.js';
 import { initLayout } from './layout.js';
 import { initRail } from './rail.js';
+import { initFacets } from './facets.js';
 import { initList } from './list.js';
 import { showInReader, clearReader, closeLightbox } from './reader.js';
 import { initEntries } from './entries.js';
@@ -45,7 +47,8 @@ initTheme({ role: isEmbedded() ? 'follower' : 'hub' });
  * through `onAttachmentOpen`; `shownAtt` records that so the resulting `att`
  * write is not answered by loading the entry again. `att:null` from outside
  * (Esc, the router) closes the lightbox without a callback, so nothing is
- * written back.
+ * written back. A new `sel` takes `att` only from the same patch (a deep
+ * link); a stale `att` is cleared, as is one naming no viewable picture.
  * @param {HTMLElement} container - `#ariel-reader-body`
  */
 function wireReader(container) {
@@ -61,6 +64,10 @@ function wireReader(container) {
       shownAtt = null;
       setState({ att: null });
     },
+    onAttachmentMissing: () => {
+      shownAtt = null;
+      if (getState().att !== null) setState({ att: null });
+    },
   };
 
   /** @param {string|null} sel @param {string|null} att */
@@ -73,7 +80,17 @@ function wireReader(container) {
 
   subscribe((next, _prev, changed) => {
     if (changed.has('sel')) {
-      show(next.sel, next.att);
+      const att = changed.has('att') ? next.att : null;
+      show(next.sel, att);
+      // Deferred: a write from inside a subscriber would reach later
+      // subscribers (the router's hash) before this one's `next`.
+      if (att === null && next.att !== null) {
+        const { sel, att: stale } = next;
+        queueMicrotask(() => {
+          const now = getState();
+          if (now.sel === sel && now.att === stale) setState({ att: null });
+        });
+      }
     } else if (changed.has('att')) {
       if (next.att === null) {
         closeLightbox(container);
@@ -103,11 +120,15 @@ async function init() {
 
   try {
     applyFacilityTimezone(capabilities);
+    setEnhancementModules(capabilities?.enhancement_modules);
+    bindStripSwitch(document.getElementById('ariel-strip-toggle'));
     initSettings(capabilities);
     initLayout(document);
 
     const rail = document.getElementById('ariel-rail');
     if (rail) initRail(rail);
+    const facets = rail?.querySelector('.ariel-rail-facets');
+    if (facets instanceof HTMLElement) initFacets(facets, { capabilities });
     const list = document.getElementById('ariel-list');
     if (list) initList(list, { capabilities });
     const reader = document.getElementById('ariel-reader-body');
@@ -121,7 +142,7 @@ async function init() {
     console.error('Module initialization failed (non-fatal):', e);
   }
 
-  initRouter();
+  initRouter({ dimensions: capabilities?.filter_dimensions ?? null });
 
   console.log('ARIEL Web Interface initialized');
 }

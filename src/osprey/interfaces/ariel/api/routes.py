@@ -11,13 +11,13 @@ import os
 import re
 import time
 import uuid
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
 import yaml
-from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
+from fastapi import APIRouter, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel
 
@@ -31,7 +31,10 @@ from osprey.interfaces.ariel.api.schemas import (
     EntryCreateRequest,
     EntryCreateResponse,
     EntryResponse,
+    EntryView,
     ExpandedTermResponse,
+    FacetsResponse,
+    RowResponse,
     SearchRequest,
     SearchResponse,
     StatusResponse,
@@ -42,7 +45,13 @@ from osprey_connectors.logger import get_logger
 
 if TYPE_CHECKING:
     from osprey.services.ariel_search import ARIELSearchService
+    from osprey.services.ariel_search.enhancement.status import EnhancementContext
     from osprey.services.ariel_search.entry_fields import ResolvedEntryWrite
+    from osprey.services.ariel_search.filters import (
+        EntryFilter,
+        FilterDimension,
+        FilterValidationError,
+    )
     from osprey.services.ariel_search.models import (
         AttachmentInfo,
         EnhancedLogbookEntry,
@@ -160,6 +169,50 @@ def _display_url(
     return None
 
 
+#: Longest row snippet taken from an entry's text.
+ROW_SNIPPET_CHARS = 300
+
+
+def _stored_status(status_json: Any) -> dict[str, Any]:
+    """The stored ``enhancement_status`` as a dict (a JSON string is parsed)."""
+    if isinstance(status_json, (str, bytes)):
+        try:
+            status_json = _json.loads(status_json)
+        except ValueError:
+            return {}
+    return dict(status_json) if isinstance(status_json, Mapping) else {}
+
+
+def _enhancement_states(
+    entry: Mapping[str, Any], enhancement: EnhancementContext | None
+) -> dict[str, str]:
+    """The computed state of every enabled module for ``entry`` (C-ENH)."""
+    return {} if enhancement is None else dict(enhancement.view(entry))
+
+
+def _enhancement_status(
+    entry: Mapping[str, Any], enhancement: EnhancementContext | None
+) -> dict[str, Any]:
+    """The stored ``enhancement_status`` with each enabled module's ``state``."""
+    status = _stored_status(entry.get("enhancement_status"))
+    for module, state in _enhancement_states(entry, enhancement).items():
+        stored = status.get(module)
+        status[module] = {**(stored if isinstance(stored, Mapping) else {}), "state": state}
+    return status
+
+
+def _entry_url(entry: Mapping[str, Any]) -> str | None:
+    """The entry's canonical logbook URL, or None (C-URL)."""
+    from osprey.services.ariel_search.entry_url import build_entry_url
+
+    metadata = entry.get("metadata")
+    return build_entry_url(
+        entry.get("entry_id"),
+        entry.get("source_system"),
+        metadata=metadata if isinstance(metadata, Mapping) else None,
+    )
+
+
 def _entry_to_response(
     entry: Mapping[str, Any],
     *,
@@ -168,6 +221,7 @@ def _entry_to_response(
     file_source: bool,
     score: float | None = None,
     highlights: list[str] | None = None,
+    enhancement: EnhancementContext | None = None,
 ) -> EntryResponse:
     """Convert a database entry to the web response model.
 
@@ -184,6 +238,8 @@ def _entry_to_response(
             paths (``file_source_for``).
         score: The search score, if any.
         highlights: The search highlights, if any.
+        enhancement: The enhancement context, resolved once per request; None
+            leaves the stored status without computed states.
 
     Returns:
         The entry response.
@@ -192,6 +248,7 @@ def _entry_to_response(
     from osprey.services.ariel_search.attachments.summaries import (
         build_attachment_summary_pairs,
     )
+    from osprey.services.ariel_search.subject import entry_subject
 
     entry_id = str(entry.get("entry_id") or "")
     pairs = build_attachment_summary_pairs(
@@ -238,6 +295,9 @@ def _entry_to_response(
         highlights=highlights or [],
         matched_via=list(entry.get("_matched_via") or ()),
         matched_attachment_ids=list(entry.get("_matched_attachment_ids") or ()),
+        subject=entry_subject(entry),
+        entry_url=_entry_url(entry),
+        enhancement_status=_enhancement_status(entry, enhancement),
     )
 
 
@@ -286,10 +346,12 @@ async def _entry_responses(
     """
     from osprey.services.ariel_search.attachments.compose import caption_model_id
     from osprey.services.ariel_search.attachments.summaries import file_source_for
+    from osprey.services.ariel_search.enhancement.status import enhancement_context
 
     mapping = await _attachment_rows_by_entry(service, entries)
     model_id = caption_model_id(service.config)
     file_source = file_source_for(service.config)
+    enhancement = enhancement_context(service.config)
     return [
         _entry_to_response(
             e,
@@ -298,9 +360,100 @@ async def _entry_responses(
             file_source=file_source,
             score=e.get("_score") if with_scores else None,
             highlights=e.get("_highlights") if with_scores else None,
+            enhancement=enhancement,
         )
         for e in entries
     ]
+
+
+def _row_snippet(entry: Mapping[str, Any], subject: str, highlights: list[str]) -> str:
+    """The row preview: the first highlight, else the text after the subject.
+
+    The entry's first non-blank line is dropped when it is the subject, so the
+    preview does not repeat the row's title; whitespace runs collapse to one
+    space and the result is cut at :data:`ROW_SNIPPET_CHARS`.
+    """
+    if highlights:
+        return str(highlights[0])
+    raw_text = entry.get("raw_text")
+    if not isinstance(raw_text, str):
+        return ""
+    lines = raw_text.strip().splitlines()
+    if lines and subject and lines[0].strip() == subject.strip():
+        lines = lines[1:]
+    return " ".join(" ".join(lines).split())[:ROW_SNIPPET_CHARS]
+
+
+def _row_facets(entry: Mapping[str, Any], dimensions: list[FilterDimension]) -> dict[str, Any]:
+    """The entry's value of each builtin and declared dimension, absent ones left out."""
+    facets: dict[str, Any] = {}
+    for dim in dimensions:
+        if dim.kind == "enhancement":
+            continue
+        value = dim.entry_value(entry)
+        if dim.multi:
+            if isinstance(value, list):
+                facets[dim.name] = list(value)
+        elif value is not None:
+            facets[dim.name] = value
+    return facets
+
+
+async def _row_responses(
+    service: ARIELSearchService,
+    entries: list[Mapping[str, Any]],
+    *,
+    with_scores: bool = False,
+) -> list[RowResponse]:
+    """Convert a page of entries to list rows (C-ROW), with no further reads.
+
+    Unlike :func:`_entry_responses` this reads no attachment rows: the count
+    comes from the entry's attachments and ``has_images`` from the boolean the
+    repository selected. The enhancement context and the filter dimensions are
+    resolved once for the page.
+
+    Args:
+        service: The ARIEL service; only its config is read.
+        entries: The entries, in output order.
+        with_scores: Carry each entry's ``_score`` and ``_highlights`` across.
+
+    Returns:
+        One row per entry, in the given order.
+    """
+    from osprey.services.ariel_search.enhancement.status import (
+        enhancement_context,
+        has_images,
+    )
+    from osprey.services.ariel_search.filters import filter_dimensions
+    from osprey.services.ariel_search.subject import entry_subject
+
+    enhancement = enhancement_context(service.config)
+    dimensions = filter_dimensions(service.config)
+    rows = []
+    for e in entries:
+        subject = entry_subject(e)
+        highlights = list(e.get("_highlights") or ()) if with_scores else []
+        attachments = e.get("attachments")
+        rows.append(
+            RowResponse(
+                entry_id=e["entry_id"],
+                timestamp=to_facility_iso(e.get("timestamp")),
+                author=e.get("author") or "",
+                source_system=e.get("source_system") or "",
+                subject=subject,
+                snippet=_row_snippet(e, subject, highlights),
+                facets=_row_facets(e, dimensions),
+                attachment_count=len(attachments) if isinstance(attachments, list) else 0,
+                has_images=has_images(e),
+                enhancements=_enhancement_states(e, enhancement),
+                entry_url=_entry_url(e),
+                score=e.get("_score") if with_scores else None,
+                highlights=highlights,
+                keywords=list(e.get("keywords") or ()),
+                matched_via=list(e.get("_matched_via") or ()),
+            )
+        )
+    return rows
 
 
 def _capabilities_modes(service: ARIELSearchService) -> list[str]:
@@ -691,15 +844,66 @@ def _expanded_terms(result: Any) -> list[ExpandedTermResponse]:
     return terms
 
 
+def _filter_refusal(e: FilterValidationError) -> HTTPException:
+    """The 422 a refused filter or cursor answers: ``{"detail": {"field", "reason"}}``."""
+    return HTTPException(status_code=422, detail={"field": e.field, "reason": e.reason})
+
+
+def _entry_filter(
+    service: ARIELSearchService, raw: Mapping[str, Any] | str | None
+) -> EntryFilter | None:
+    """Parse a request's C-FILTER object against the configured dimensions.
+
+    Args:
+        service: The ARIEL service; its config names the dimensions.
+        raw: The object, its JSON text, or None.
+
+    Returns:
+        The filter, or None when it constrains nothing.
+
+    Raises:
+        HTTPException: 422 when the filter is refused (C-FILTER).
+    """
+    from osprey.services.ariel_search.filters import (
+        EntryFilter,
+        FilterValidationError,
+        filter_dimensions,
+    )
+
+    try:
+        flt = EntryFilter.parse(raw, filter_dimensions(service.config))
+    except FilterValidationError as e:
+        raise _filter_refusal(e) from e
+    return None if flt.is_empty() else flt
+
+
+async def _page_responses(
+    service: ARIELSearchService,
+    entries: Sequence[Mapping[str, Any]],
+    view: EntryView,
+    *,
+    with_scores: bool = False,
+) -> list[EntryResponse | RowResponse]:
+    """A page of entries in the requested view: full entries or list rows."""
+    if view == "row":
+        return [*await _row_responses(service, list(entries), with_scores=with_scores)]
+    return [*await _entry_responses(service, list(entries), with_scores=with_scores)]
+
+
 @router.post("/search", response_model=SearchResponse)
 async def search(request: Request, search_req: SearchRequest) -> SearchResponse:
     """Execute search query.
 
     Routes to the search module named by ``mode``; an unknown or disabled mode
-    is rejected with 400 rather than falling back to another module.
+    is rejected with 400 rather than falling back to another module. The body's
+    ``filters`` (C-FILTER) narrow the matches, ANDed with the legacy author,
+    source and date fields; ``max_results`` is the page size and ``offset`` its
+    start, and the response reports ``total``, ``total_exact`` and ``has_more``
+    (C-PAGE). A refused filter is 422.
     """
     from osprey.services.ariel_search.database.repository import schema_behind_diagnostics
     from osprey.services.ariel_search.exceptions import ConfigurationError, PatternError
+    from osprey.services.ariel_search.filters import FilterValidationError
     from osprey.services.ariel_search.models import parse_time_bound
 
     service = _require_service(request)
@@ -709,6 +913,7 @@ async def search(request: Request, search_req: SearchRequest) -> SearchResponse:
     service_mode = _resolve_search_mode(service, search_req.mode)
     if service_mode == "hybrid":
         _validate_hybrid_overrides(search_req.advanced_params)
+    entry_filter = _entry_filter(service, search_req.filters)
 
     try:
         # advanced_params takes precedence over top-level filter fields
@@ -739,6 +944,8 @@ async def search(request: Request, search_req: SearchRequest) -> SearchResponse:
             time_range=time_range,
             mode=service_mode,
             advanced_params=adv,
+            entry_filter=entry_filter,
+            offset=search_req.offset,
         )
 
         execution_time = int((time.time() - start_time) * 1000)
@@ -752,8 +959,17 @@ async def search(request: Request, search_req: SearchRequest) -> SearchResponse:
             if any("_matched_via" in entry for entry in page)
             else list(result.sources)
         )
-        entries = await _entry_responses(service, page, with_scores=True)
+        entries = await _page_responses(service, page, search_req.view, with_scores=True)
         schema_behind = await schema_behind_diagnostics(service.repository)
+
+        # A module that reports no total leaves what this page shows: the
+        # entries before it and on it, inexact.
+        total = result.total
+        if isinstance(total, int) and not isinstance(total, bool):
+            total_exact = result.total_exact is True
+        else:
+            total, total_exact = search_req.offset + len(page), False
+        has_more = result.has_more is True
 
         return SearchResponse(
             entries=entries,
@@ -761,7 +977,10 @@ async def search(request: Request, search_req: SearchRequest) -> SearchResponse:
             sources=sources,
             search_modes_used=list(result.search_modes_used),
             reasoning=result.reasoning,
-            total_results=len(entries),
+            total_results=total,
+            total=total,
+            total_exact=total_exact,
+            has_more=has_more,
             execution_time_ms=execution_time,
             diagnostics=[
                 DiagnosticResponse(
@@ -793,6 +1012,8 @@ async def search(request: Request, search_req: SearchRequest) -> SearchResponse:
         if e.pattern:
             detail = f"Invalid search pattern '{e.pattern}': {e.message}"
         raise HTTPException(status_code=400, detail=detail) from e
+    except FilterValidationError as e:
+        raise _filter_refusal(e) from e
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
@@ -800,27 +1021,53 @@ async def search(request: Request, search_req: SearchRequest) -> SearchResponse:
 @router.get("/entries", response_model=EntriesListResponse)
 async def list_entries(
     request: Request,
-    page: int = 1,
-    page_size: int = 20,
+    page: int | None = None,
+    page_size: int = Query(20, ge=1, le=100),
     start_date: str | None = None,
     end_date: str | None = None,
     author: str | None = None,
     source_system: str | None = None,
+    filters: str | None = None,
+    cursor: str | None = None,
+    view: EntryView = "full",
 ) -> EntriesListResponse:
     """List entries with pagination and filtering, newest first.
 
     The date bounds are ISO-8601, facility-local when naive; a bare end date
-    includes that whole day.
+    includes that whole day. ``filters`` is the C-FILTER object as JSON text,
+    ANDed with the legacy author, source and date parameters.
+
+    Paging is by ``cursor`` (C-PAGE): the response's ``next_cursor`` continues
+    after its last entry and is null on the last page. The legacy ``page``
+    parameter keeps offset paging and returns no cursor; ``page`` and ``cursor``
+    together are 422, as are a refused filter or cursor and a ``page_size``
+    outside 1..100.
     """
+    from osprey.services.ariel_search.filters import (
+        FilterValidationError,
+        decode_cursor,
+        encode_cursor,
+    )
     from osprey.services.ariel_search.models import parse_time_bound
 
     service = _require_service(request)
 
+    if page is not None and cursor is not None:
+        raise HTTPException(
+            status_code=422,
+            detail={"field": "cursor", "reason": "page and cursor cannot be combined"},
+        )
     try:
         local_start = parse_time_bound(start_date, end=False) if start_date else None
         local_end = parse_time_bound(end_date, end=True) if end_date else None
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e)) from e
+    entry_filter = _entry_filter(service, filters)
+    if cursor is not None:
+        try:
+            decode_cursor(cursor)
+        except FilterValidationError as e:
+            raise _filter_refusal(e) from e
 
     try:
         # Count with the same filters so total_pages reflects the filtered set,
@@ -830,30 +1077,124 @@ async def list_entries(
             end=local_end,
             author=author,
             source_system=source_system,
+            entry_filter=entry_filter,
         )
 
-        offset = max(page - 1, 0) * page_size
-        entries = await service.repository.search_by_time_range(
-            start=local_start,
-            end=local_end,
-            limit=page_size,
-            offset=offset,
-            author=author,
-            source_system=source_system,
+        if page is not None:
+            limit, offset = page_size, max(page - 1, 0) * page_size
+        else:
+            # One surplus row says whether a next page exists.
+            limit, offset = page_size + 1, 0
+        rows = list(
+            await service.repository.search_by_time_range(
+                start=local_start,
+                end=local_end,
+                limit=limit,
+                offset=offset,
+                author=author,
+                source_system=source_system,
+                entry_filter=entry_filter,
+                after_cursor=cursor,
+            )
         )
 
-        entry_responses = await _entry_responses(service, list(entries))
-
-        total_pages = (total + page_size - 1) // page_size
+        next_cursor = None
+        if page is None and len(rows) > page_size:
+            rows = rows[:page_size]
+            last = rows[-1]
+            next_cursor = encode_cursor(last["timestamp"], last["entry_id"])
 
         return EntriesListResponse(
-            entries=entry_responses,
+            entries=await _page_responses(service, rows, view),
             total=total,
             page=page,
             page_size=page_size,
-            total_pages=total_pages,
+            total_pages=(total + page_size - 1) // page_size,
+            next_cursor=next_cursor,
         )
 
+    except FilterValidationError as e:
+        raise _filter_refusal(e) from e
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+def _advanced_params_query(raw: str | None) -> dict[str, Any]:
+    """Parse the ``advanced_params`` query parameter: the JSON object ``/search`` takes.
+
+    Raises:
+        HTTPException: 422 ``{"field": "advanced_params", "reason"}`` when it is
+            not JSON or not an object.
+    """
+    if raw is None or raw == "":
+        return {}
+    try:
+        parsed = _json.loads(raw)
+    except ValueError:
+        parsed = None
+        reason = "is not valid JSON"
+    else:
+        reason = "must be a JSON object"
+    if not isinstance(parsed, dict):
+        raise HTTPException(status_code=422, detail={"field": "advanced_params", "reason": reason})
+    return parsed
+
+
+@router.get("/facets", response_model=FacetsResponse)
+async def get_facets(
+    request: Request,
+    q: str | None = None,
+    mode: str | None = None,
+    filters: str | None = None,
+    advanced_params: str | None = None,
+) -> FacetsResponse:
+    """Facet counts and the day histogram for the list a search shows (C-FACETS).
+
+    ``filters`` is the C-FILTER object as JSON text and ``advanced_params`` the
+    knobs the list's ``/search`` sends, as JSON text. A blank ``q`` counts over
+    the filter alone; otherwise over the mode's matched set. Without a service,
+    or when its database drops, the answer is ``available: false`` with no
+    counts. An unknown mode is 400, as ``/search`` answers; a refused filter or
+    a malformed ``advanced_params`` is 422.
+    """
+    from osprey.services.ariel_search.exceptions import (
+        ConfigurationError,
+        DatabaseConnectionError,
+    )
+    from osprey.services.ariel_search.filters import FilterValidationError
+
+    service = getattr(request.app.state, "ariel_service", None)
+    if service is None:
+        return FacetsResponse(available=False, exact=False)
+    service = cast("ARIELSearchService", service)
+
+    # Validated before the try block so the 400s and 422s are not swallowed.
+    service_mode = _resolve_search_mode(service, mode)
+    adv = _advanced_params_query(advanced_params)
+    if service_mode == "hybrid":
+        _validate_hybrid_overrides(adv)
+    entry_filter = _entry_filter(service, filters)
+
+    try:
+        payload = await service.facets(
+            query=q,
+            mode=service_mode,
+            entry_filter=entry_filter,
+            advanced_params=adv,
+        )
+        return FacetsResponse(available=True, **payload)
+    except DatabaseConnectionError as e:
+        logger.warning("Facet counts unavailable: %s", e)
+        return FacetsResponse(available=False, exact=False)
+    except ConfigurationError as e:
+        errors = getattr(e, "errors", None)
+        first = errors[0] if errors else e.message
+        raise HTTPException(
+            status_code=503,
+            detail=f"{first}. {e.remedy}" if e.remedy else first,
+        ) from e
+    except FilterValidationError as e:
+        raise _filter_refusal(e) from e
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 

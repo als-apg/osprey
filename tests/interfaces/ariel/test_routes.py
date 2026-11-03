@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+import copy
 import types
-from datetime import datetime
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -127,6 +128,9 @@ def mock_ariel_service():
     mock_result.sources = []
     mock_result.search_modes_used = []
     mock_result.reasoning = ""
+    mock_result.total = 0
+    mock_result.total_exact = True
+    mock_result.has_more = False
     service.search = AsyncMock(return_value=mock_result)
 
     # Mock status
@@ -1874,7 +1878,8 @@ def test_search_hybrid_page_and_sources_stop_at_max_results(client, mock_ariel_s
     """A lane admitting image-only hits beyond max_results: the page holds max_results.
 
     The route slices the fused entries itself and names exactly the shown
-    entries in ``sources``, so ``total_results == len(sources)``.
+    entries in ``sources``; ``total_results`` is the result's total (C-PAGE),
+    not the page length.
     """
     _enable_hybrid(mock_ariel_service)
     entries = [_fused_entry(f"T{i}", ["text"]) for i in range(1, 11)] + [
@@ -1886,12 +1891,15 @@ def test_search_hybrid_page_and_sources_stop_at_max_results(client, mock_ariel_s
     result.search_modes_used = ("hybrid",)
     result.diagnostics = ()
     result.expanded_terms = ()
+    result.total, result.total_exact, result.has_more = 14, False, True
 
     response = client.post("/api/search", json={"query": "q", "mode": "hybrid", "max_results": 10})
 
     assert response.status_code == 200
     data = response.json()
-    assert data["total_results"] == len(data["sources"]) == len(data["entries"]) == 10
+    assert len(data["sources"]) == len(data["entries"]) == 10
+    assert data["total_results"] == data["total"] == 14
+    assert data["has_more"] is True
     assert data["sources"] == [e["entry_id"] for e in data["entries"]]
     assert data["sources"] == [f"T{i}" for i in range(1, 11)]
 
@@ -1909,3 +1917,798 @@ def test_search_keeps_the_service_sources_without_matched_via(client, mock_ariel
 
     assert response.status_code == 200
     assert response.json()["sources"] == ["e0", "e1", "cited"]
+
+
+# ---------------------------------------------------------------------------
+# Response fields: subject, entry_url, enhancement_status (C-SUBJ, C-URL, C-ENH)
+# and the row projection (C-ROW)
+# ---------------------------------------------------------------------------
+
+_FIELD_MODULES = ["image_caption", "text_embedding"]
+
+
+def _field_entry(**overrides):
+    """One entry seen by every route: a stored subject that differs from its first
+    line, a local-only save, a caption written under an older model, a picture."""
+    entry = {
+        "entry_id": "E-1",
+        "source_system": "ARIEL Web",
+        "timestamp": datetime(2025, 10, 6, 9, 30),
+        "author": "J. Smith",
+        "raw_text": "First line of the text\n\nThe body of the entry.",
+        "subject": "Stored subject",
+        "attachments": [{"url": PNG_URL, "type": "image/png", "filename": "p.png"}],
+        "metadata": {"sync_status": "local_only", "logbook": "Ops", "tags": ["rf", "Vacuum"]},
+        "created_at": datetime(2025, 10, 6, 9, 30),
+        "updated_at": datetime(2025, 10, 6, 9, 30),
+        "summary": None,
+        "keywords": ["rf"],
+        "enhancement_status": {
+            "image_caption": {"status": "complete", "marker": "cap-v1"},
+            "text_embedding": {"status": "complete"},
+        },
+        "has_images": True,
+    }
+    entry.update(overrides)
+    return entry
+
+
+@pytest.fixture
+def field_service(mock_ariel_service):
+    """The mock service with two enabled enhancement modules, the caption model
+    now ``cap-v2``, and a registry that lists them."""
+    mock_ariel_service.config = ARIELConfig.from_dict(
+        {
+            "database": {"uri": "postgresql://localhost:5432/test"},
+            "search_modules": {"keyword": {"enabled": True}},
+            "enhancement_modules": {
+                "image_caption": {"enabled": True, "model": {"model_id": "cap-v2"}},
+                "text_embedding": {"enabled": True},
+            },
+        }
+    )
+    registry = _build_mock_registry()
+    registry.list_ariel_enhancement_modules.return_value = list(_FIELD_MODULES)
+    with patch("osprey.registry.get_registry", return_value=registry):
+        yield mock_ariel_service
+
+
+def _fetch_entry(client, service, route, entry):
+    """The one entry as the given route returns it, as JSON."""
+    if route == "search":
+        result = service.search.return_value
+        result.entries = [{**entry, "_score": 1.0, "_highlights": []}]
+        result.sources = [entry["entry_id"]]
+        result.diagnostics = []
+        response = client.post("/api/search", json={"query": "rf", "mode": "keyword"})
+        assert response.status_code == 200, response.text
+        return response.json()["entries"][0]
+    if route == "list":
+        service.repository.count_entries = AsyncMock(return_value=1)
+        service.repository.search_by_time_range = AsyncMock(return_value=[entry])
+        response = client.get("/api/entries")
+        assert response.status_code == 200, response.text
+        return response.json()["entries"][0]
+    service.repository.get_entry = AsyncMock(return_value=entry)
+    response = client.get(f"/api/entries/{entry['entry_id']}")
+    assert response.status_code == 200, response.text
+    return response.json()
+
+
+_ROUTES = ["search", "list", "detail"]
+
+
+@pytest.mark.parametrize("route", _ROUTES)
+@pytest.mark.parametrize(
+    ("field", "expected"),
+    [
+        pytest.param("subject", "Stored subject", id="field-subject-stored"),
+        pytest.param("entry_url", None, id="field-entry_url-local-only-null"),
+        pytest.param(
+            "enhancement_status",
+            {
+                "image_caption": {"status": "complete", "marker": "cap-v1", "state": "stale"},
+                "text_embedding": {"status": "complete", "state": "complete"},
+            },
+            id="field-enhancement-stale-computed",
+        ),
+    ],
+)
+def test_response_field_table(client, field_service, route, field, expected):
+    """Search, list and detail carry the same new fields for one entry: the stored
+    subject (not the text's first line), a null URL for a local-only save, and a
+    caption written under the old model reported stale."""
+    data = _fetch_entry(client, field_service, route, _field_entry())
+
+    assert data[field] == expected
+
+
+@pytest.mark.parametrize("route", _ROUTES)
+def test_response_field_entry_url_rendered_for_a_logbook_entry(
+    client, field_service, route, monkeypatch
+):
+    """An entry that is in the facility logbook gets the template URL on every route."""
+    monkeypatch.setattr(
+        "osprey_connectors.config.get_config_value",
+        lambda key, default=None: (
+            "https://logbook.example/entry/{entry_id}"
+            if key == "ariel.entry_url_template"
+            else default
+        ),
+    )
+    entry = _field_entry(source_system="Example eLog", metadata={})
+
+    data = _fetch_entry(client, field_service, route, entry)
+
+    assert data["entry_url"] == "https://logbook.example/entry/E-1"
+
+
+@pytest.mark.parametrize("route", _ROUTES)
+def test_response_field_subject_derived_when_none_stored(client, field_service, route):
+    """A store without the subject column still gets one subject per entry."""
+    entry = _field_entry()
+    del entry["subject"]
+
+    data = _fetch_entry(client, field_service, route, entry)
+
+    assert data["subject"] == "First line of the text"
+
+
+def test_response_field_enhancement_without_pictures_is_na(client, field_service):
+    """An image module on an entry with no viewable picture is n/a, not stale."""
+    data = _fetch_entry(client, field_service, "detail", _field_entry(has_images=False))
+
+    assert data["enhancement_status"]["image_caption"]["state"] == "n/a"
+
+
+def test_response_field_enhancement_context_resolved_once_per_request(client, field_service):
+    """Markers and enabled modules are resolved once for a page, not per entry."""
+    entries = [_field_entry(entry_id=f"E-{i}") for i in range(5)]
+    field_service.repository.count_entries = AsyncMock(return_value=5)
+    field_service.repository.search_by_time_range = AsyncMock(return_value=entries)
+
+    with patch(
+        "osprey.services.ariel_search.enhancement.status.current_markers",
+        wraps=__import__(
+            "osprey.services.ariel_search.enhancement.status", fromlist=["current_markers"]
+        ).current_markers,
+    ) as markers:
+        response = client.get("/api/entries")
+
+    assert response.status_code == 200
+    assert markers.call_count == 1
+
+
+def _row_dimensions():
+    from osprey.services.ariel_search.filters import BUILTIN_DIMENSIONS, FilterDimension
+
+    return [
+        *BUILTIN_DIMENSIONS,
+        FilterDimension("logbook", "Logbook", "declared", "metadata->>'logbook'", multi=False),
+        FilterDimension(
+            "enhancement", "Enhancement", "enhancement", "", multi=False, values=("x",)
+        ),
+    ]
+
+
+def _rows(service, entries, **kwargs):
+    import asyncio
+
+    with patch(
+        "osprey.services.ariel_search.filters.filter_dimensions",
+        return_value=_row_dimensions(),
+    ):
+        return asyncio.run(routes._row_responses(service, entries, **kwargs))
+
+
+def test_row_view_carries_the_c_row_fields(field_service):
+    """A row holds what the list pane renders, computed from the row data."""
+    entry = _field_entry(_matched_via=["text"])
+
+    (row,) = _rows(field_service, [entry])
+
+    assert row.model_dump() == {
+        "entry_id": "E-1",
+        "timestamp": row.timestamp,
+        "author": "J. Smith",
+        "source_system": "ARIEL Web",
+        "subject": "Stored subject",
+        "snippet": "First line of the text The body of the entry.",
+        "facets": {
+            "author": "J. Smith",
+            "source_system": "ARIEL Web",
+            "tags": ["rf", "Vacuum"],
+            "logbook": "Ops",
+        },
+        "attachment_count": 1,
+        "has_images": True,
+        "enhancements": {"image_caption": "stale", "text_embedding": "complete"},
+        "entry_url": None,
+        "score": None,
+        "highlights": [],
+        "keywords": ["rf"],
+        "matched_via": ["text"],
+    }
+    assert row.timestamp and row.timestamp.startswith("2025-10-06T09:30")
+
+
+def test_row_view_carries_no_raw_text(field_service):
+    """The row view never ships the entry's full text or attachment summaries."""
+    (row,) = _rows(field_service, [_field_entry()])
+
+    dumped = row.model_dump()
+    assert "raw_text" not in dumped
+    assert "attachments" not in dumped
+    assert "The body of the entry." not in dumped["subject"]
+
+
+def test_row_view_makes_at_most_one_batched_read(field_service):
+    """A page of rows reads no attachment rows and nothing per entry."""
+    entries = [_field_entry(entry_id=f"E-{i}") for i in range(10)]
+
+    rows = _rows(field_service, entries)
+
+    assert len(rows) == 10
+    field_service.repository.get_attachment_rows.assert_not_awaited()
+    assert len(field_service.repository.mock_calls) <= 1
+
+
+def test_row_view_snippet_drops_a_subject_first_line(field_service):
+    """When the text opens with the subject, the preview starts after it."""
+    entry = _field_entry(subject="First line of the text")
+
+    (row,) = _rows(field_service, [entry])
+
+    assert row.snippet == "The body of the entry."
+
+
+def test_row_view_snippet_is_capped(field_service):
+    """The preview is at most 300 characters of the details."""
+    entry = _field_entry(raw_text="Title\n" + "x" * 1000, subject="Title")
+
+    (row,) = _rows(field_service, [entry])
+
+    assert row.snippet == "x" * routes.ROW_SNIPPET_CHARS
+
+
+def test_row_view_snippet_prefers_highlights_and_carries_scores(field_service):
+    """Search rows preview the match and carry score and highlights."""
+    entry = _field_entry(_score=0.5, _highlights=["the <mark>rf</mark> trip"])
+
+    (row,) = _rows(field_service, [entry], with_scores=True)
+
+    assert row.snippet == "the <mark>rf</mark> trip"
+    assert row.highlights == ["the <mark>rf</mark> trip"]
+    assert row.score == 0.5
+
+
+def test_row_view_without_attachments_or_pictures(field_service):
+    """No attachments counts zero; a missing has_images is false; image modules n/a."""
+    entry = _field_entry(attachments=None)
+    del entry["has_images"]
+
+    (row,) = _rows(field_service, [entry])
+
+    assert row.attachment_count == 0
+    assert row.has_images is False
+    assert row.enhancements["image_caption"] == "n/a"
+
+
+@pytest.mark.parametrize("route", _ROUTES)
+def test_row_view_subject_matches_every_route(client, field_service, route):
+    """List rows, search, list and detail carry the same stored subject."""
+    entry = _field_entry()
+    (row,) = _rows(field_service, [entry])
+
+    data = _fetch_entry(client, field_service, route, entry)
+
+    assert data["subject"] == row.subject == "Stored subject"
+
+
+# --- Filters and paging on /search and /entries (C-FILTER, C-PAGE) ---------------
+
+
+def _post_search(client, **body):
+    return client.post("/api/search", json={"query": "rf", "mode": "keyword", **body})
+
+
+def _get_entries(client, **params):
+    return client.get("/api/entries", params=params)
+
+
+# One request per route and refusal. /search pages by offset rather than by
+# cursor, so its bad paging position is a negative offset, and its page size is
+# max_results.
+_REFUSALS = {
+    ("search", "unknown dimension"): {"filters": {"nope": ["x"]}},
+    ("search", "malformed value"): {"filters": {"author": "J. Smith"}},
+    ("search", "bad cursor"): {"offset": -1},
+    ("search", "page_size 101"): {"max_results": 101},
+    ("list", "unknown dimension"): {"filters": '{"nope": ["x"]}'},
+    ("list", "malformed value"): {"filters": '{"author": "J. Smith"}'},
+    ("list", "bad cursor"): {"cursor": "not-a-cursor"},
+    ("list", "page_size 101"): {"page_size": 101},
+}
+
+
+@pytest.mark.parametrize(("route", "case"), list(_REFUSALS))
+def test_filter_and_paging_refusals_are_422(client, mock_ariel_service, route, case):
+    """A bad filter, paging position or page size is the caller's error, never a 500,
+    and nothing is read."""
+    repo = mock_ariel_service.repository
+    repo.count_entries = AsyncMock(return_value=0)
+    repo.search_by_time_range = AsyncMock(return_value=[])
+    params = _REFUSALS[(route, case)]
+
+    if route == "search":
+        response = _post_search(client, **params)
+    else:
+        response = _get_entries(client, **params)
+
+    assert response.status_code == 422, response.text
+    mock_ariel_service.search.assert_not_called()
+    repo.search_by_time_range.assert_not_called()
+    repo.count_entries.assert_not_called()
+
+
+_FILTER_REFUSALS = [
+    ("unknown dimension", "nope"),
+    ("malformed value", "author"),
+]
+
+
+@pytest.mark.parametrize("route", ["search", "list"])
+@pytest.mark.parametrize(("case", "field"), _FILTER_REFUSALS)
+def test_filter_refusal_names_the_field(client, route, case, field):
+    """A refused filter answers ``{"detail": {"field", "reason"}}``."""
+    params = _REFUSALS[(route, case)]
+
+    response = (
+        _post_search(client, **params) if route == "search" else _get_entries(client, **params)
+    )
+
+    detail = response.json()["detail"]
+    assert detail["field"] == field
+    assert detail["reason"]
+
+
+def test_list_bad_cursor_names_the_cursor_field(client):
+    response = _get_entries(client, cursor="not-a-cursor")
+
+    assert response.status_code == 422
+    assert response.json()["detail"]["field"] == "cursor"
+
+
+@pytest.mark.parametrize("page_size", [0, -1])
+def test_list_page_size_below_one_is_422(client, page_size):
+    assert _get_entries(client, page_size=page_size).status_code == 422
+
+
+def test_list_page_and_cursor_together_is_422(client, mock_ariel_service):
+    """``page`` and ``cursor`` are two paging schemes; asking for both is refused."""
+    from osprey.services.ariel_search.filters import encode_cursor
+
+    mock_ariel_service.repository.search_by_time_range = AsyncMock(return_value=[])
+    cursor = encode_cursor(datetime(2025, 10, 6, 9, 30, tzinfo=UTC), "E-1")
+
+    response = _get_entries(client, page=2, cursor=cursor)
+
+    assert response.status_code == 422
+    mock_ariel_service.repository.search_by_time_range.assert_not_called()
+
+
+def test_list_passes_filter_and_cursor_to_the_repository(client, mock_ariel_service):
+    """The parsed filter reaches both the count and the page read, with the cursor,
+    beside the unchanged legacy kwargs."""
+    from osprey.services.ariel_search.filters import EntryFilter, encode_cursor
+
+    repo = mock_ariel_service.repository
+    repo.count_entries = AsyncMock(return_value=3)
+    repo.search_by_time_range = AsyncMock(return_value=[])
+    cursor = encode_cursor(datetime(2025, 10, 6, 9, 30, tzinfo=UTC), "E-1")
+
+    response = _get_entries(
+        client,
+        filters='{"author": ["J. Smith"], "tags": ["rf"]}',
+        cursor=cursor,
+        page_size=10,
+        source_system="ERF",
+    )
+
+    assert response.status_code == 200, response.text
+    kwargs = repo.search_by_time_range.call_args.kwargs
+    flt = kwargs["entry_filter"]
+    assert isinstance(flt, EntryFilter)
+    assert flt.values("author") == ("J. Smith",)
+    assert flt.values("tags") == ("rf",)
+    assert kwargs["after_cursor"] == cursor
+    assert kwargs["limit"] == 11  # one surplus row decides next_cursor
+    assert kwargs["offset"] == 0
+    assert kwargs["source_system"] == "ERF"
+    ckwargs = repo.count_entries.call_args.kwargs
+    assert ckwargs["entry_filter"] == flt
+    assert ckwargs["source_system"] == "ERF"
+    assert response.json()["total"] == 3
+
+
+def test_list_without_filters_passes_no_entry_filter(client, mock_ariel_service):
+    repo = mock_ariel_service.repository
+    repo.count_entries = AsyncMock(return_value=0)
+    repo.search_by_time_range = AsyncMock(return_value=[])
+
+    assert _get_entries(client).status_code == 200
+
+    assert repo.search_by_time_range.call_args.kwargs["entry_filter"] is None
+    assert repo.search_by_time_range.call_args.kwargs["after_cursor"] is None
+    assert repo.count_entries.call_args.kwargs["entry_filter"] is None
+
+
+def _list_entries(n):
+    return [
+        _field_entry(entry_id=f"E-{i}", timestamp=datetime(2025, 10, 6, 9, 30 - i, tzinfo=UTC))
+        for i in range(n)
+    ]
+
+
+def test_list_next_cursor_points_after_the_last_row_shown(client, mock_ariel_service):
+    """A surplus row means more entries: the cursor continues after the page's last row."""
+    from osprey.services.ariel_search.filters import encode_cursor
+
+    rows = _list_entries(3)
+    mock_ariel_service.repository.count_entries = AsyncMock(return_value=5)
+    mock_ariel_service.repository.search_by_time_range = AsyncMock(return_value=rows)
+
+    data = _get_entries(client, page_size=2).json()
+
+    assert [e["entry_id"] for e in data["entries"]] == ["E-0", "E-1"]
+    assert data["next_cursor"] == encode_cursor(rows[1]["timestamp"], "E-1")
+    assert data["page_size"] == 2
+    assert data["total"] == 5
+
+
+def test_list_last_page_has_no_next_cursor(client, mock_ariel_service):
+    mock_ariel_service.repository.count_entries = AsyncMock(return_value=2)
+    mock_ariel_service.repository.search_by_time_range = AsyncMock(return_value=_list_entries(2))
+
+    data = _get_entries(client, page_size=2).json()
+
+    assert len(data["entries"]) == 2
+    assert data["next_cursor"] is None
+
+
+def test_list_legacy_page_path_is_unchanged(client, mock_ariel_service):
+    """An explicit ``page`` keeps offset paging; it reads no cursor and returns none."""
+    repo = mock_ariel_service.repository
+    repo.count_entries = AsyncMock(return_value=100)
+    repo.search_by_time_range = AsyncMock(return_value=_list_entries(20))
+
+    data = _get_entries(client, page=2, page_size=20).json()
+
+    kwargs = repo.search_by_time_range.call_args.kwargs
+    assert (kwargs["limit"], kwargs["offset"], kwargs["after_cursor"]) == (20, 20, None)
+    assert data["page"] == 2
+    assert data["total_pages"] == 5
+    assert data["next_cursor"] is None
+    assert len(data["entries"]) == 20
+
+
+def test_list_repository_cursor_refusal_is_422(client, mock_ariel_service):
+    """A cursor the repository refuses is still the caller's error."""
+    from osprey.services.ariel_search.filters import FilterValidationError, encode_cursor
+
+    mock_ariel_service.repository.count_entries = AsyncMock(return_value=0)
+    mock_ariel_service.repository.search_by_time_range = AsyncMock(
+        side_effect=FilterValidationError("cursor", "not a valid cursor")
+    )
+    cursor = encode_cursor(datetime(2025, 10, 6, 9, 30, tzinfo=UTC), "E-1")
+
+    response = _get_entries(client, cursor=cursor)
+
+    assert response.status_code == 422
+    assert response.json()["detail"] == {"field": "cursor", "reason": "not a valid cursor"}
+
+
+@pytest.mark.parametrize(
+    "filters", [{"author": ["J. Smith"]}, '{"author": ["J. Smith"]}'], ids=["object", "text"]
+)
+def test_search_passes_filter_and_offset_to_the_service(client, mock_ariel_service, filters):
+    """The body filter (an object or its JSON text) and offset reach the service;
+    the legacy author field keeps its advanced_params path."""
+    from osprey.services.ariel_search.filters import EntryFilter
+
+    response = _post_search(client, filters=filters, offset=20, author="alice")
+
+    assert response.status_code == 200, response.text
+    kwargs = mock_ariel_service.search.call_args.kwargs
+    assert isinstance(kwargs["entry_filter"], EntryFilter)
+    assert kwargs["entry_filter"].values("author") == ("J. Smith",)
+    assert kwargs["offset"] == 20
+    assert kwargs["advanced_params"]["author"] == "alice"
+
+
+def test_search_without_filters_passes_no_entry_filter(client, mock_ariel_service):
+    assert _post_search(client).status_code == 200
+
+    kwargs = mock_ariel_service.search.call_args.kwargs
+    assert kwargs["entry_filter"] is None
+    assert kwargs["offset"] == 0
+
+
+@pytest.mark.parametrize(
+    ("total", "exact", "has_more"), [(57, True, True), (1000, False, True), (3, True, False)]
+)
+def test_search_reports_the_module_totals(client, mock_ariel_service, total, exact, has_more):
+    """total, total_exact and has_more come from the result; total_results equals total."""
+    result = mock_ariel_service.search.return_value
+    result.entries = [_field_entry()]
+    result.diagnostics = []
+    result.total, result.total_exact, result.has_more = total, exact, has_more
+
+    data = _post_search(client).json()
+
+    assert data["total"] == total
+    assert data["total_results"] == total
+    assert data["total_exact"] is exact
+    assert data["has_more"] is has_more
+
+
+def test_search_without_module_totals_falls_back_to_the_page(client, mock_ariel_service):
+    """A result with no total reports what was seen, inexact."""
+    result = mock_ariel_service.search.return_value
+    result.entries = [_field_entry()]
+    result.diagnostics = []
+    result.total, result.total_exact, result.has_more = None, False, None
+
+    data = _post_search(client, offset=10).json()
+
+    assert data["total"] == 11
+    assert data["total_exact"] is False
+    assert data["has_more"] is False
+
+
+def test_search_service_filter_refusal_is_422(client, mock_ariel_service):
+    from osprey.services.ariel_search.filters import FilterValidationError
+
+    mock_ariel_service.search.side_effect = FilterValidationError("time", "bad bound")
+
+    response = _post_search(client)
+
+    assert response.status_code == 422
+    assert response.json()["detail"] == {"field": "time", "reason": "bad bound"}
+
+
+_ROW_KEYS = {"snippet", "facets", "attachment_count", "has_images", "enhancements"}
+
+
+@pytest.mark.parametrize("route", ["search", "list"])
+def test_view_row_returns_rows(client, field_service, route):
+    """``view=row`` answers list rows (C-ROW) on both routes; the default is full entries."""
+    entry = _field_entry()
+    result = field_service.search.return_value
+    result.entries = [{**entry, "_score": 1.0, "_highlights": ["the <mark>rf</mark>"]}]
+    result.diagnostics = []
+    field_service.repository.count_entries = AsyncMock(return_value=1)
+    field_service.repository.search_by_time_range = AsyncMock(return_value=[entry])
+
+    def fetch(**extra):
+        if route == "search":
+            return _post_search(client, **extra)
+        return _get_entries(client, **extra)
+
+    row = fetch(view="row").json()["entries"][0]
+    full = fetch().json()["entries"][0]
+
+    assert _ROW_KEYS <= row.keys()
+    assert "raw_text" not in row
+    assert row["subject"] == "Stored subject"
+    assert "raw_text" in full
+    assert not (_ROW_KEYS & full.keys())
+    if route == "search":
+        assert row["snippet"] == "the <mark>rf</mark>"
+        assert row["score"] == 1.0
+    field_service.repository.get_attachment_rows.assert_awaited_once()
+
+
+@pytest.mark.parametrize("route", ["search", "list"])
+def test_unknown_view_is_422(client, route):
+    response = (
+        _post_search(client, view="tile")
+        if route == "search"
+        else _get_entries(client, view="tile")
+    )
+
+    assert response.status_code == 422
+
+
+# The facets route (C-FACETS).
+
+_FACETS_PAYLOAD = {
+    "dimensions": [
+        {
+            "name": "author",
+            "label": "Author",
+            "kind": "author",
+            "values": [{"value": "J. Smith", "count": 4}, {"value": "alice", "count": 1}],
+        },
+        {"name": "tags", "label": "Tags", "kind": "tags", "values": []},
+    ],
+    "histogram": [{"day": "2025-10-06", "count": 5}],
+    "exact": False,
+    "tier": "partial",
+}
+
+
+@pytest.fixture
+def facets_service(field_service):
+    """The field service, whose config enables two enhancement modules, with a
+    stubbed ``facets``."""
+    field_service.facets = AsyncMock(return_value=copy.deepcopy(_FACETS_PAYLOAD))
+    return field_service
+
+
+def _get_facets(client, **params):
+    return client.get("/api/facets", params=params)
+
+
+def test_facets_returns_the_service_payload(client, facets_service):
+    """Shape: the service's dimensions, histogram, exact and tier, plus available."""
+    response = _get_facets(client, q="rf", mode="keyword")
+
+    assert response.status_code == 200, response.text
+    assert response.json() == {"available": True, **_FACETS_PAYLOAD}
+    kwargs = facets_service.facets.call_args.kwargs
+    assert kwargs["query"] == "rf"
+    assert kwargs["mode"] == "keyword"
+    assert kwargs["entry_filter"] is None
+    assert kwargs["advanced_params"] == {}
+
+
+def test_facets_degraded_without_a_service():
+    """No service (database unavailable): 200 with available false and no counts."""
+    app = routes_app(None)
+
+    response = TestClient(app).get("/api/facets", params={"q": "rf"})
+
+    assert response.status_code == 200, response.text
+    data = response.json()
+    assert data["available"] is False
+    assert data["dimensions"] == []
+    assert data["histogram"] == []
+
+
+def test_facets_degraded_when_the_database_drops(client, facets_service):
+    from osprey.services.ariel_search.exceptions import DatabaseConnectionError
+
+    facets_service.facets = AsyncMock(side_effect=DatabaseConnectionError("gone"))
+
+    data = _get_facets(client).json()
+
+    assert data["available"] is False
+    assert data["dimensions"] == []
+
+
+def test_facets_passes_the_whole_filter_for_self_exclusion(client, facets_service):
+    """The route hands the service the full filter; the service counts each
+    dimension under the filter minus its own selection, so a selected author
+    still lists its siblings."""
+    from osprey.services.ariel_search.filters import EntryFilter
+
+    response = _get_facets(
+        client,
+        q="",
+        filters='{"author": ["J. Smith"], "tags": ["rf"]}',
+        advanced_params='{"fuzzy": true}',
+    )
+
+    assert response.status_code == 200, response.text
+    kwargs = facets_service.facets.call_args.kwargs
+    flt = kwargs["entry_filter"]
+    assert isinstance(flt, EntryFilter)
+    assert flt.values("author") == ("J. Smith",)
+    assert flt.values("tags") == ("rf",)
+    assert kwargs["advanced_params"] == {"fuzzy": True}
+    author = response.json()["dimensions"][0]
+    assert [v["value"] for v in author["values"]] == ["J. Smith", "alice"]
+
+
+def test_facets_enhancement_filter_reaches_the_service(client, facets_service):
+    response = _get_facets(client, filters='{"enhancement": ["image_caption:failed"]}')
+
+    assert response.status_code == 200, response.text
+    flt = facets_service.facets.call_args.kwargs["entry_filter"]
+    assert flt.values("enhancement") == ("image_caption:failed",)
+
+
+@pytest.mark.parametrize(
+    ("params", "status", "field"),
+    [
+        pytest.param({"mode": "nonexistent"}, 400, None, id="unknown-mode"),
+        pytest.param({"mode": ""}, 400, None, id="blank-mode"),
+        pytest.param({"filters": '{"bogus": ["x"]}'}, 422, "bogus", id="unknown-dimension"),
+        pytest.param({"filters": '{"author": "J. Smith"}'}, 422, "author", id="malformed-value"),
+        pytest.param({"filters": "{not json"}, 422, "filter", id="filter-not-json"),
+        pytest.param(
+            {"filters": '{"enhancement": ["image_caption:complete"]}'},
+            422,
+            "enhancement",
+            id="enhancement-state-not-failed-or-stale",
+        ),
+        pytest.param(
+            {"filters": '{"enhancement": ["nope:failed"]}'},
+            422,
+            "enhancement",
+            id="enhancement-unknown-module",
+        ),
+        pytest.param(
+            {"advanced_params": "{not json"}, 422, "advanced_params", id="advanced-not-json"
+        ),
+        pytest.param(
+            {"advanced_params": "[1, 2]"}, 422, "advanced_params", id="advanced-not-object"
+        ),
+    ],
+)
+def test_facets_refusals(client, facets_service, params, status, field):
+    response = _get_facets(client, q="rf", **params)
+
+    assert response.status_code == status, response.text
+    if field is not None:
+        assert response.json()["detail"]["field"] == field
+    facets_service.facets.assert_not_called()
+
+
+def test_facets_hybrid_overrides_are_validated_as_search_does(client, facets_service):
+    _enable_hybrid(facets_service)
+
+    response = _get_facets(client, q="rf", mode="hybrid", advanced_params='{"rerank": "false"}')
+
+    assert response.status_code == 400
+    facets_service.facets.assert_not_called()
+
+
+def test_facets_service_filter_refusal_is_422(client, facets_service):
+    from osprey.services.ariel_search.filters import FilterValidationError
+
+    facets_service.facets = AsyncMock(
+        side_effect=FilterValidationError("time", "start is after end")
+    )
+
+    response = _get_facets(client)
+
+    assert response.status_code == 422
+    assert response.json()["detail"] == {"field": "time", "reason": "start is after end"}
+
+
+def test_facets_other_failures_are_500_not_422(client, facets_service):
+    facets_service.facets = AsyncMock(side_effect=ValueError("boom"))
+
+    assert _get_facets(client).status_code == 500
+
+
+def test_search_route_filters_a_third_party_mode_that_ignores_the_filter():
+    """A module that never sees the filter still lists only matching entries
+    through /api/search: the real service post-filters what the module returns."""
+    from tests.services.ariel_search.test_service_filter import (
+        _descriptor,
+        _Recorder,
+        _registry,
+        _service,
+    )
+
+    service = _service()
+    service.repository.schema_facts = AsyncMock(return_value=SchemaFacts(True, True))
+    service.repository.get_attachment_rows = AsyncMock(return_value={})
+    rows = [
+        (_field_entry(entry_id="E1", author="J. Smith"), 0.9),
+        (_field_entry(entry_id="E2", author="J. Smithson"), 0.8),
+        (_field_entry(entry_id="E3", author="Bob"), 0.7),
+    ]
+    recorder = _Recorder(rows)
+    with patch("osprey.registry.get_registry", return_value=_registry(_descriptor(recorder))):
+        response = TestClient(routes_app(service)).post(
+            "/api/search",
+            json={"query": "beam", "mode": "third", "filters": {"author": ["j. smith"]}},
+        )
+
+    assert response.status_code == 200, response.text
+    assert [e["entry_id"] for e in response.json()["entries"]] == ["E1"]
+    assert "entry_filter" not in recorder.kwargs

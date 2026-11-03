@@ -113,6 +113,9 @@ function renderAttachmentCard(att) {
  *   when the lightbox opens, with the attachment it shows
  * @property {() => void} [onAttachmentClose] - Called when the user dismisses
  *   the lightbox (never by `closeLightbox`, whose caller already knows)
+ * @property {(attachmentId: string) => void} [onAttachmentMissing] - Called
+ *   when `showInReader`'s `attachmentId` names no viewable, safe picture of
+ *   the entry, so nothing opened
  */
 
 /**
@@ -149,10 +152,11 @@ function readerState(container) {
  * @param {unknown} displayUrl - The attachment's `display_url`
  * @param {string} filename
  * @param {string|null} attachmentId
+ * @returns {boolean} whether the lightbox opened
  */
 function openLightboxFor(container, displayUrl, filename, attachmentId) {
   const url = safeHref(displayUrl);
-  if (!url) return;
+  if (!url) return false;
   const state = readerState(container);
   /** @type {HTMLElement|null} */
   let overlay = null;
@@ -164,6 +168,7 @@ function openLightboxFor(container, displayUrl, filename, attachmentId) {
     },
   });
   state.lightbox = overlay;
+  return true;
 }
 
 /**
@@ -195,7 +200,7 @@ function bindDelegation(container) {
  * Load an entry into the container: the loading state first, then the entry,
  * or the error state when the id is unknown or the request fails. When
  * `attachmentId` names one of the entry's viewable pictures, that picture
- * opens in the lightbox. Only the newest call per container renders or opens
+ * opens in the lightbox; otherwise `onAttachmentMissing` is called. Only the newest call per container renders or opens
  * an attachment; an older call that resolves later does nothing.
  * @param {HTMLElement} container - Element the entry is rendered into
  * @param {string} entryId - Entry ID
@@ -204,7 +209,7 @@ function bindDelegation(container) {
  *   superseded)
  */
 export async function showInReader(container, entryId, options = {}) {
-  const { attachmentId = null, onAttachmentOpen, onAttachmentClose } = options;
+  const { attachmentId = null, onAttachmentOpen, onAttachmentClose, onAttachmentMissing } = options;
   const state = readerState(container);
   const seq = ++state.seq;
   state.callbacks = { onAttachmentOpen, onAttachmentClose };
@@ -229,14 +234,15 @@ export async function showInReader(container, entryId, options = {}) {
     const att = (entry.attachments || []).find(
       (/** @type {any} */ a) => a && a.attachment_id === attachmentId
     );
-    if (att?.viewable === true) {
+    const opened =
+      att?.viewable === true &&
       openLightboxFor(
         container,
         att.display_url,
         att.filename || 'attachment',
         att.attachment_id || null
       );
-    }
+    if (!opened) onAttachmentMissing?.(attachmentId);
   }
   return entry;
 }
@@ -345,8 +351,10 @@ export function renderEntryDetail(container, entry) {
   const attachments = entry.attachments || [];
   const time = formatTimestamp(entry.timestamp);
 
-  // Parse raw_text for subject and details
-  const { subject, details } = parseEntryText(entry.raw_text);
+  // The title is the row's subject: the stored/derived one, else raw_text's first line
+  const parsed = parseEntryText(entry.raw_text);
+  const subject = entry.subject || parsed.subject;
+  const { details } = parsed;
 
   container.innerHTML = `
     <div class="entry-detail">

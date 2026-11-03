@@ -14,7 +14,8 @@
  *     per-phase `rerank` key on top of the sent params, on a copy, and adds
  *     nothing else;
  *   - the sent params are only the names the passed mode or the shared
- *     parameters declare, non-null, plus the caller's `author`;
+ *     parameters declare, non-null, and never a filter dimension name: those
+ *     (and the caller's Mine `author`) ride in the request's `filters`;
  *   - a newer call or cancelSearch() supersedes an older search: its phase-2
  *     response reports nothing;
  *   - a phase-2 failure reports the fallback status and phase-1's results again,
@@ -339,7 +340,18 @@ describe('search driver: per-mode parameters', () => {
         ],
       },
     },
-    shared_parameters: [{ name: 'author', label: 'Author', type: 'text', default: null }],
+    shared_parameters: [
+      { name: 'author', label: 'Author', type: 'text', default: null },
+      { name: 'source_system', label: 'Source', type: 'text', default: null },
+      { name: 'start_date', label: 'From', type: 'date', default: null },
+      { name: 'end_date', label: 'To', type: 'date', default: null },
+      { name: 'shift', label: 'Shift', type: 'text', default: null },
+      { name: 'window', label: 'Window', type: 'int', default: null },
+    ],
+    filter_dimensions: [
+      { name: 'author', label: 'Author', kind: 'builtin' },
+      { name: 'shift', label: 'Shift', kind: 'declared' },
+    ],
   });
 
   test("another mode's touched knob stays off the wire", async () => {
@@ -354,28 +366,101 @@ describe('search driver: per-mode parameters', () => {
     expect(searchMock.mock.calls[0][0].advancedParams).toEqual({ similarity: 0.8 });
   });
 
-  test('shared parameters are sent in every mode; null values never are', async () => {
+  test('shared knobs are sent in every mode; null values never are', async () => {
     const { search, searchMock } = await loadDriver();
     searchMock.mockResolvedValue(searchResponse());
 
     await search.runSearch(
-      { query: 'q', mode: 'keyword', filters: { author: 'alice', fuzzy: null } },
+      { query: 'q', mode: 'keyword', filters: { window: 3, fuzzy: null } },
       recorder(TWO_MODES).hooks
     );
 
-    expect(searchMock.mock.calls[0][0].advancedParams).toEqual({ author: 'alice' });
+    expect(searchMock.mock.calls[0][0].advancedParams).toEqual({ window: 3 });
   });
 
-  test("the caller's author is sent and wins over an author filter", async () => {
+  test('no dimension name is ever an advanced param; dimensions ride as filters', async () => {
     const { search, searchMock } = await loadDriver();
     searchMock.mockResolvedValue(searchResponse());
 
     await search.runSearch(
-      { query: 'q', mode: 'semantic', filters: { author: 'alice' }, author: 'bob' },
+      {
+        query: 'q',
+        mode: 'keyword',
+        filters: {
+          author: 'alice',
+          source_system: 'elog',
+          start_date: '2026-01-01',
+          end_date: '2026-02-01',
+          shift: 'owl',
+          fuzzy: true,
+        },
+      },
       recorder(TWO_MODES).hooks
     );
 
-    expect(searchMock.mock.calls[0][0].advancedParams).toEqual({ author: 'bob' });
+    const sent = searchMock.mock.calls[0][0];
+    expect(sent.advancedParams).toEqual({ fuzzy: true });
+    expect(sent.filters).toEqual({
+      author: ['alice'],
+      source_system: ['elog'],
+      time: { start: '2026-01-01', end: '2026-02-01' },
+    });
+  });
+
+  test('the passed filter is sent as filters and wins per dimension', async () => {
+    const { search, searchMock } = await loadDriver();
+    searchMock.mockResolvedValue(searchResponse());
+
+    await search.runSearch(
+      {
+        query: 'q',
+        mode: 'semantic',
+        filters: { author: 'alice' },
+        filter: { author: ['carol', 'dave'], shift: ['owl'] },
+      },
+      recorder(TWO_MODES).hooks
+    );
+
+    const sent = searchMock.mock.calls[0][0];
+    expect(sent.advancedParams).toEqual({});
+    expect(sent.filters).toEqual({ author: ['carol', 'dave'], shift: ['owl'] });
+  });
+
+  test("the caller's Mine author replaces the filter's author, off the advanced params", async () => {
+    const { search, searchMock } = await loadDriver();
+    searchMock.mockResolvedValue(searchResponse());
+
+    await search.runSearch(
+      {
+        query: 'q',
+        mode: 'semantic',
+        filters: { author: 'alice' },
+        filter: { author: ['carol'], tags: ['rf'] },
+        author: 'bob',
+      },
+      recorder(TWO_MODES).hooks
+    );
+
+    const sent = searchMock.mock.calls[0][0];
+    expect(sent.advancedParams).toEqual({});
+    expect(sent.filters).toEqual({ author: ['bob'], tags: ['rf'] });
+  });
+
+  test('offset, view and signal reach the request; an empty filter is left out', async () => {
+    const { search, searchMock } = await loadDriver();
+    searchMock.mockResolvedValue(searchResponse());
+    const { signal } = new AbortController();
+
+    await search.runSearch(
+      { query: 'q', mode: 'keyword', filters: {}, offset: 20, view: 'row', signal },
+      recorder(TWO_MODES).hooks
+    );
+
+    const sent = searchMock.mock.calls[0][0];
+    expect(sent).not.toHaveProperty('filters');
+    expect(sent.offset).toBe(20);
+    expect(sent.view).toBe('row');
+    expect(sent.signal).toBe(signal);
   });
 
   test('a touched max_results sets the request size', async () => {
@@ -388,6 +473,46 @@ describe('search driver: per-mode parameters', () => {
     );
 
     expect(searchMock.mock.calls[0][0].maxResults).toBe(25);
+  });
+
+  test('a passed pageSize sets the request size over the max_results knob', async () => {
+    const { search, searchMock } = await loadDriver();
+    searchMock.mockResolvedValue(searchResponse());
+
+    await search.runSearch(
+      { query: 'q', mode: 'keyword', filters: { max_results: 25 }, pageSize: 20 },
+      recorder(TWO_MODES).hooks
+    );
+
+    expect(searchMock.mock.calls[0][0].maxResults).toBe(20);
+  });
+
+  test('searchPage sends one unreranked request with the same body and the offset', async () => {
+    const { search, searchMock } = await loadDriver();
+    searchMock.mockResolvedValue(searchResponse());
+
+    await search.searchPage(
+      { ...HYBRID, filter: { author: ['bob'] }, offset: 40, pageSize: 20, view: 'row' },
+      { capabilities: hybridCapabilities(true) }
+    );
+
+    expect(searchMock).toHaveBeenCalledTimes(1);
+    const sent = searchMock.mock.calls[0][0];
+    expect(sent).toMatchObject({ query: 'quench', mode: 'hybrid', offset: 40, maxResults: 20 });
+    expect(sent.advancedParams.rerank, 'a later page is never reranked').toBe(false);
+    expect(sent.filters).toEqual({ author: ['bob'] });
+  });
+
+  test('searchPage adds no rerank key for a mode that does not declare one', async () => {
+    const { search, searchMock } = await loadDriver();
+    searchMock.mockResolvedValue(searchResponse());
+
+    await search.searchPage(
+      { query: 'q', mode: 'keyword', filters: {}, offset: 20 },
+      { capabilities: TWO_MODES }
+    );
+
+    expect(searchMock.mock.calls[0][0].advancedParams).not.toHaveProperty('rerank');
   });
 });
 
@@ -512,6 +637,26 @@ describe('two-phase search: a phase-2 failure keeps the fast results', () => {
       ['status', 'fallback'],
       ['results', ['FAST-1', 'FAST-2']],
     ]);
+  });
+
+  test('an aborted phase 2 reports nothing, not the fallback', async () => {
+    const { search, searchMock } = await loadDriver();
+    const fast = deferred();
+    const reranked = deferred();
+    searchMock
+      .mockImplementationOnce(() => fast.promise)
+      .mockImplementationOnce(() => reranked.promise);
+    const { log, hooks } = recorder(hybridCapabilities(true));
+
+    const pending = search.runSearch(HYBRID, hooks);
+    fast.resolve(searchResponse({ entries: [entry('FAST-1')] }));
+    await flush();
+
+    reranked.reject(new DOMException('The operation was aborted.', 'AbortError'));
+    await expect(pending).resolves.toBeUndefined();
+
+    expect(log.slice(2)).toEqual([]);
+    expect(console.error).not.toHaveBeenCalled();
   });
 
   test('a 200 carrying the backend rerank warning reads as the fallback, not success', async () => {

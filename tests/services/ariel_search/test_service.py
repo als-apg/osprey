@@ -1115,6 +1115,8 @@ class TestAdvancedParamsWiring:
             "start_date",
             "end_date",
             "parsed",
+            "entry_filter",
+            "offset",
         }
 
 

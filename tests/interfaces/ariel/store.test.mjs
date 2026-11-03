@@ -32,7 +32,20 @@ describe('initial state', () => {
       stacked: false,
       narrowView: 'list',
       mineAuthor: null,
+      filter: {},
+      notice: null,
     });
+  });
+
+  test('the filter and the knobs are separate keys', () => {
+    const seen = /** @type {Set<string>[]} */ ([]);
+    store.subscribe((_s, _p, changed) => seen.push(changed));
+    store.setState({ filter: { author: ['alice'] } });
+    expect(store.getState().filters).toEqual({});
+    expect(store.getState().filter).toEqual({ author: ['alice'] });
+    store.setState({ filter: { author: ['alice'] } });
+    store.setState({ notice: 'Dropped: shift' });
+    expect(seen.map((c) => [...c])).toEqual([['filter'], ['notice']]);
   });
 });
 

@@ -7,6 +7,12 @@
  * for the mode choices and the Filters & Options controls. The view renders
  * from the values passed in and reports changes; the chosen mode and the
  * touched filter values live in the store, never here.
+ *
+ * Controls report quietly: a slider on release (`change`), a text field 300 ms
+ * after the last keystroke, on Enter or on commit. The author field is a
+ * pick-list fed by /api/filter-options/authors (every author, not the capped
+ * facet values); typing narrows the suggestions. `max_results` is not shown:
+ * the list pages instead.
  */
 
 import { escapeHtml } from '/design-system/js/dom.js';
@@ -70,6 +76,8 @@ import { escapeHtml } from '/design-system/js/dom.js';
  * @property {VocabularyCapability} [vocabulary]
  * @property {boolean} [config_panel_enabled]
  * @property {string} [facility_timezone]
+ * @property {Array<{name: string, label?: string, kind?: string}>|null} [filter_dimensions]
+ * @property {Array<{name: string, label: string}>} [enhancement_modules]
  */
 
 // --- Fallback ---
@@ -95,6 +103,94 @@ export const FALLBACK_CAPABILITIES = {
 // endpoint. A cache of the backend's answer, not a choice anyone made.
 /** @type {Object<string, AdvancedParamOption[]>} */
 const dynamicOptionsCache = {};
+
+/** Every distinct author, uncapped. */
+export const AUTHORS_ENDPOINT = '/api/filter-options/authors';
+
+/** Most suggestions a pick-list shows at once; typing narrows the rest. */
+const SUGGESTION_LIMIT = 50;
+
+/** How long a text field waits after the last keystroke before it reports. */
+export const TEXT_DEBOUNCE_MS = 300;
+
+/** Parameters the panel never shows (the list pages instead of capping). */
+const HIDDEN_PARAMS = new Set(['max_results']);
+
+/**
+ * Fetch `endpoint`'s `{options: [{value, label}]}` once; later calls reuse the
+ * answer. A failed fetch yields `[]` and is retried next time.
+ * @param {string} endpoint
+ * @returns {Promise<AdvancedParamOption[]>}
+ */
+async function fetchOptions(endpoint) {
+  if (dynamicOptionsCache[endpoint]) return dynamicOptionsCache[endpoint];
+  try {
+    const response = await fetch(endpoint);
+    if (!response.ok) return [];
+    const data = await response.json();
+    const options = Array.isArray(data?.options) ? data.options : [];
+    dynamicOptionsCache[endpoint] = options;
+    return options;
+  } catch (err) {
+    console.warn(`Failed to load options from ${endpoint}:`, err);
+    return [];
+  }
+}
+
+/**
+ * The names among `names` containing `typed` (ignoring case), in their order,
+ * at most `limit` of them. Blank `typed` matches every name.
+ * @param {string[]} names
+ * @param {string} typed
+ * @param {number} [limit]
+ * @returns {string[]}
+ */
+export function matchSuggestions(names, typed, limit = SUGGESTION_LIMIT) {
+  const needle = (typed || '').trim().toLowerCase();
+  const out = [];
+  for (const name of names) {
+    if (needle && !name.toLowerCase().includes(needle)) continue;
+    out.push(name);
+    if (out.length >= limit) break;
+  }
+  return out;
+}
+
+/**
+ * Offer every author as `input`'s suggestions through `datalist`, narrowed to
+ * what is typed. The list is fetched on the operator's first press into the
+ * field (pointer or key, not a programmatic focus), never at render;
+ * keystrokes narrow what has arrived. A failure leaves a plain text field.
+ * @param {HTMLInputElement} input
+ * @param {HTMLDataListElement} datalist
+ */
+export function attachAuthorSuggestions(input, datalist) {
+  /** @type {string[]} */
+  let names = [];
+  const fill = () => {
+    datalist.replaceChildren(
+      ...matchSuggestions(names, input.value).map((name) => {
+        const option = document.createElement('option');
+        option.value = name;
+        return option;
+      })
+    );
+  };
+  let asked = false;
+  const load = async () => {
+    if (asked) return;
+    asked = true;
+    names = (await fetchOptions(AUTHORS_ENDPOINT)).map((o) => String(o.value));
+    // A failed fetch is retried on the next press.
+    asked = names.length > 0;
+    fill();
+  };
+  input.addEventListener('pointerdown', load);
+  input.addEventListener('keydown', (event) => {
+    if (event.key !== 'Escape' && event.key !== 'Enter') load();
+  });
+  input.addEventListener('input', fill);
+}
 
 // --- Pure capabilities reads ---
 
@@ -232,7 +328,9 @@ export function renderFilters(root, { capabilities, mode, filters, locked = {}, 
   /** @param {string} name */
   const valueOf = (name) => (isLocked(name) ? locked[name] : current[name]);
 
-  const allParams = [...modeParameters(caps, mode), ...(caps.shared_parameters || [])];
+  const allParams = [...modeParameters(caps, mode), ...(caps.shared_parameters || [])].filter(
+    (p) => !HIDDEN_PARAMS.has(p.name)
+  );
 
   if (allParams.length === 0) {
     root.innerHTML = `
@@ -302,6 +400,13 @@ export function renderFilters(root, { capabilities, mode, filters, locked = {}, 
   };
 
   attachParamListeners(root, report);
+  root.querySelectorAll('input[data-suggest="authors"]').forEach((el) => {
+    const input = /** @type {HTMLInputElement} */ (el);
+    const list = root.querySelector(`#${input.getAttribute('list')}`);
+    if (!input.disabled && list) {
+      attachAuthorSuggestions(input, /** @type {HTMLDataListElement} */ (list));
+    }
+  });
   root.querySelector('[data-action="reset-filters"]')?.addEventListener('click', () => {
     current = {};
     onChange({});
@@ -338,7 +443,9 @@ function renderParameter(param, touchedValue, isLocked) {
     case 'date':
       return renderDateInput(param, value, disabled) + hint;
     case 'text':
-      return renderTextInput(param, value, disabled) + hint;
+      return param.name === 'author'
+        ? renderAuthorInput(param, value, disabled) + hint
+        : renderTextInput(param, value, disabled) + hint;
     case 'dynamic_select':
       return renderDynamicSelect(param, value, disabled) + hint;
     default:
@@ -447,7 +554,7 @@ function renderDateInput(param, value, disabled) {
  * @returns {string} HTML string
  */
 function renderTextInput(param, value, disabled) {
-  const val = value || '';
+  const val = textValue(value);
   const placeholder = param.placeholder || '';
   return `
     <div class="input-group">
@@ -455,6 +562,38 @@ function renderTextInput(param, value, disabled) {
       <input type="text" id="param-${param.name}" class="input"
         data-param="${param.name}" data-type="text"
         value="${escapeHtml(val)}" placeholder="${escapeHtml(placeholder)}"${disabled}>
+    </div>
+  `;
+}
+
+/**
+ * A text control's shown value: a list (several selected values) joined.
+ * @param {*} value
+ * @returns {string}
+ */
+function textValue(value) {
+  if (Array.isArray(value)) return value.join(', ');
+  return value ? String(value) : '';
+}
+
+/**
+ * Render the author pick-list: a text field whose suggestions are every
+ * author, narrowed by what is typed (`attachAuthorSuggestions`).
+ * @param {AdvancedParam} param - Parameter descriptor
+ * @param {*} value - Current value
+ * @param {string} disabled - '' or ' disabled'
+ * @returns {string} HTML string
+ */
+function renderAuthorInput(param, value, disabled) {
+  const placeholder = param.placeholder || '';
+  const listId = `param-${param.name}-options`;
+  return `
+    <div class="input-group">
+      <label class="input-label" for="param-${param.name}">${escapeHtml(param.label)}</label>
+      <input type="text" id="param-${param.name}" class="input" list="${listId}"
+        autocomplete="off" data-param="${param.name}" data-type="text" data-suggest="authors"
+        value="${escapeHtml(textValue(value))}" placeholder="${escapeHtml(placeholder)}"${disabled}>
+      <datalist id="${listId}"></datalist>
     </div>
   `;
 }
@@ -498,47 +637,46 @@ async function loadDynamicSelectOptions(container, valueOf) {
 
     const currentValue = valueOf(select.dataset.param || '') || '';
 
-    try {
-      /** @type {AdvancedParamOption[]} */
-      let options;
-      if (dynamicOptionsCache[endpoint]) {
-        options = dynamicOptionsCache[endpoint];
-      } else {
-        const response = await fetch(endpoint);
-        if (!response.ok) continue;
-        const data = await response.json();
-        options = data.options || [];
-        dynamicOptionsCache[endpoint] = options;
-      }
-
-      // Preserve the "All" option and append fetched options
-      select.innerHTML =
-        '<option value="">All</option>' +
-        options.map((opt) => renderOption(opt, currentValue)).join('');
-    } catch (err) {
-      console.warn(`Failed to load options from ${endpoint}:`, err);
-    }
+    const options = await fetchOptions(endpoint);
+    if (options.length === 0) continue;
+    // Preserve the "All" option and append fetched options
+    select.innerHTML =
+      '<option value="">All</option>' +
+      options.map((opt) => renderOption(opt, currentValue)).join('');
   }
 }
 
 /**
  * Attach change listeners to parameter controls. Disabled (locked) controls
  * get none, and `report` refuses locked names besides.
+ *
+ * Reports are quiet: a slider updates its readout while dragged and reports
+ * once on release (`change`); a text field reports `TEXT_DEBOUNCE_MS` after
+ * the last keystroke, at once on Enter, on commit (`change`) or on a
+ * suggestion pick, and never the same value twice in a row. A pending report
+ * of a control that was re-rendered away is dropped.
  * @param {HTMLElement} container - Container holding the rendered parameter controls
  * @param {(name: string, value: *) => void} report - Receives a name and its new value (null = cleared)
  */
 function attachParamListeners(container, report) {
   /**
    * @param {string} selector
+   * @returns {Array<HTMLInputElement & HTMLSelectElement>}
+   */
+  const live = (selector) =>
+    Array.from(
+      /** @type {NodeListOf<HTMLInputElement & HTMLSelectElement>} */ (
+        container.querySelectorAll(selector)
+      )
+    ).filter((ctl) => !ctl.disabled);
+
+  /**
+   * @param {string} selector
    * @param {string} event
    * @param {(el: HTMLInputElement & HTMLSelectElement) => *} read
    */
   const bind = (selector, event, read) => {
-    const controls = /** @type {NodeListOf<HTMLInputElement & HTMLSelectElement>} */ (
-      container.querySelectorAll(selector)
-    );
-    controls.forEach((ctl) => {
-      if (ctl.disabled) return;
+    live(selector).forEach((ctl) => {
       ctl.addEventListener(event, () => {
         const name = ctl.dataset.param;
         if (name) report(name, read(ctl));
@@ -546,16 +684,53 @@ function attachParamListeners(container, report) {
     });
   };
 
-  bind('input[type="range"][data-param]', 'input', (slider) => {
-    const type = slider.dataset.type;
-    const val = type === 'float' ? parseFloat(slider.value) : parseInt(slider.value, 10);
-    const display = container.querySelector(`#param-${slider.dataset.param}-value`);
-    if (display) display.textContent = type === 'float' ? val.toFixed(2) : String(val);
-    return val;
+  /** @param {HTMLInputElement} slider */
+  const sliderValue = (slider) =>
+    slider.dataset.type === 'float' ? parseFloat(slider.value) : parseInt(slider.value, 10);
+
+  live('input[type="range"][data-param]').forEach((slider) => {
+    slider.addEventListener('input', () => {
+      const val = sliderValue(slider);
+      const display = container.querySelector(`#param-${slider.dataset.param}-value`);
+      if (display)
+        display.textContent = slider.dataset.type === 'float' ? val.toFixed(2) : String(val);
+    });
   });
+  bind('input[type="range"][data-param]', 'change', sliderValue);
   bind('input[type="checkbox"][data-param]', 'change', (toggle) => toggle.checked);
   // A cleared select/date/text control means "no value": the name is removed.
   bind('select[data-param]', 'change', (select) => select.value || null);
   bind('input[type="date"][data-param]', 'change', (input) => input.value || null);
-  bind('input[type="text"][data-param]', 'input', (input) => input.value.trim() || null);
+
+  live('input[type="text"][data-param]').forEach((input) => {
+    const name = input.dataset.param;
+    if (!name) return;
+    /** @param {HTMLInputElement} el */
+    const read = (el) => el.value.trim() || null;
+    let sent = read(input);
+    /** @type {ReturnType<typeof setTimeout>|null} */
+    let timer = null;
+    const flush = () => {
+      if (timer !== null) clearTimeout(timer);
+      timer = null;
+      if (!input.isConnected) return;
+      const value = read(input);
+      if (value === sent) return;
+      sent = value;
+      report(name, value);
+    };
+    input.addEventListener('input', (event) => {
+      // A suggestion picked from the list is a choice, not a keystroke.
+      if (/** @type {any} */ (event).inputType === 'insertReplacementText') {
+        flush();
+        return;
+      }
+      if (timer !== null) clearTimeout(timer);
+      timer = setTimeout(flush, TEXT_DEBOUNCE_MS);
+    });
+    input.addEventListener('change', flush);
+    input.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter') flush();
+    });
+  });
 }

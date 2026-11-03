@@ -19,16 +19,27 @@
  *     descriptor's default — and `undefined` for a name the mode does not
  *     declare;
  *   - `renderModeChoices` marks the passed mode and reports a pick;
- *   - descriptions render as visible hints, never as hover-only titles.
+ *   - descriptions render as visible hints, never as hover-only titles;
+ *   - reports are quiet: one per slider drag (on release), a text field after
+ *     300 ms of no typing or on Enter, never the same value twice;
+ *   - the author field is a pick-list fed by /api/filter-options/authors that
+ *     typing narrows, and a pick yields the same filter as `toggleValue`;
+ *   - `max_results` is not shown.
  *
  *   npx vitest run tests/interfaces/ariel/advanced-options.test.mjs
  *
- * Runs under happy-dom (vitest.config.js). Nothing is mocked: the fixtures
- * declare no dynamic_select, so no fetch fires.
+ * Runs under happy-dom (vitest.config.js). The fixtures declare no
+ * dynamic_select; the author suggestions' fetch is stubbed where it fires.
  */
 
-import { test, expect, describe, beforeEach, vi } from 'vitest';
+import { test, expect, describe, beforeEach, afterEach, vi } from 'vitest';
 import {
+  splitFilters,
+  toggleValue,
+} from '../../../src/osprey/interfaces/ariel/static/js/filter-state.js';
+import {
+  AUTHORS_ENDPOINT,
+  matchSuggestions,
   effectiveParam,
   declaredParamNames,
   defaultMode,
@@ -98,6 +109,15 @@ const CAPABILITIES = /** @type {any} */ ({
   vocabulary: { enabled: false, concepts: 0, expand_by_default: false },
 });
 
+/** A plain shared text parameter (not the author pick-list). */
+const TAG = {
+  name: 'tag',
+  label: 'Tag',
+  type: 'text',
+  default: null,
+  section: 'Filters',
+};
+
 /**
  * @param {string} name - Parameter name
  * @returns {HTMLInputElement} The rendered control for that parameter
@@ -146,6 +166,7 @@ describe('filters view: touched parameters', () => {
     const slider = control('candidate_limit');
     slider.value = '80';
     slider.dispatchEvent(new Event('input'));
+    slider.dispatchEvent(new Event('change'));
 
     expect(last()).toEqual({ candidate_limit: 80 });
     expect(document.getElementById('param-candidate_limit-value')?.textContent).toBe('80');
@@ -167,7 +188,7 @@ describe('filters view: touched parameters', () => {
     toggle.dispatchEvent(new Event('change'));
     const slider = control('candidate_limit');
     slider.value = '80';
-    slider.dispatchEvent(new Event('input'));
+    slider.dispatchEvent(new Event('change'));
 
     expect(last()).toEqual({ rerank: false, candidate_limit: 80 });
   });
@@ -190,16 +211,23 @@ describe('filters view: touched parameters', () => {
   });
 
   test('a text filter typed and then cleared reports no value', () => {
-    const { last } = mount();
-    const input = control('author');
-    input.value = 'alice';
-    input.dispatchEvent(new Event('input'));
-    expect(last()).toEqual({ author: 'alice' });
+    vi.useFakeTimers();
+    try {
+      const { last } = mount();
+      const input = control('author');
+      input.value = 'alice';
+      input.dispatchEvent(new Event('input'));
+      vi.advanceTimersByTime(300);
+      expect(last()).toEqual({ author: 'alice' });
 
-    input.value = '';
-    input.dispatchEvent(new Event('input'));
+      input.value = '';
+      input.dispatchEvent(new Event('input'));
+      vi.advanceTimersByTime(300);
 
-    expect(last()).toEqual({});
+      expect(last()).toEqual({});
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   test('a select set and then cleared reports no value', () => {
@@ -221,6 +249,145 @@ describe('filters view: touched parameters', () => {
       mode: 'not_a_mode',
     });
     expect(root.textContent).toContain('No advanced options for this mode.');
+  });
+});
+
+describe('filters view: quiet reports', () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+
+  test('a slider drag reports once, on release, while its readout follows the drag', () => {
+    const { onChange, last } = mount();
+    const slider = control('candidate_limit');
+    for (const v of ['50', '60', '70', '80']) {
+      slider.value = v;
+      slider.dispatchEvent(new Event('input'));
+    }
+    expect(onChange).not.toHaveBeenCalled();
+    expect(document.getElementById('param-candidate_limit-value')?.textContent).toBe('80');
+
+    slider.dispatchEvent(new Event('change'));
+    expect(onChange).toHaveBeenCalledTimes(1);
+    expect(last()).toEqual({ candidate_limit: 80 });
+  });
+
+  test('a text field reports once, 300 ms after the last keystroke', () => {
+    const { onChange, last } = mount({
+      capabilities: { ...CAPABILITIES, shared_parameters: [TAG] },
+    });
+    const input = control('tag');
+    for (const v of ['q', 'qu', 'que', 'quench']) {
+      input.value = v;
+      input.dispatchEvent(new Event('input'));
+      vi.advanceTimersByTime(200);
+    }
+    expect(onChange).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(100);
+    expect(onChange).toHaveBeenCalledTimes(1);
+    expect(last()).toEqual({ tag: 'quench' });
+  });
+
+  test('Enter reports at once and the pending timer adds no second report', () => {
+    const { onChange, last } = mount();
+    const input = control('author');
+    input.value = 'alice';
+    input.dispatchEvent(new Event('input'));
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' }));
+    expect(onChange).toHaveBeenCalledTimes(1);
+    expect(last()).toEqual({ author: 'alice' });
+
+    vi.advanceTimersByTime(1000);
+    input.dispatchEvent(new Event('change'));
+    expect(onChange).toHaveBeenCalledTimes(1);
+  });
+
+  test('a pending report of a control rendered away is dropped', () => {
+    const { root, onChange } = mount();
+    const input = control('author');
+    input.value = 'alice';
+    input.dispatchEvent(new Event('input'));
+    root.innerHTML = '';
+    vi.advanceTimersByTime(300);
+    expect(onChange).not.toHaveBeenCalled();
+  });
+});
+
+describe('filters view: author pick-list', () => {
+  const AUTHORS = ['Alice Smith', 'alicia', 'Bob', 'Carol'];
+
+  beforeEach(() => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ({
+        ok: true,
+        json: async () => ({
+          field: 'authors',
+          options: AUTHORS.map((a) => ({ value: a, label: a })),
+        }),
+      }))
+    );
+  });
+  afterEach(() => vi.unstubAllGlobals());
+
+  /** @returns {string[]} The suggestions the author field currently offers */
+  const suggestions = () => {
+    const input = control('author');
+    const list = document.getElementById(/** @type {string} */ (input.getAttribute('list')));
+    return Array.from(list?.querySelectorAll('option') ?? []).map((o) => o.value);
+  };
+
+  test('the author field offers every author from the authors endpoint', async () => {
+    mount();
+    control('author').dispatchEvent(new Event('pointerdown'));
+    await vi.waitFor(() => expect(suggestions()).toEqual(AUTHORS));
+    expect(vi.mocked(fetch).mock.calls[0][0]).toBe(AUTHORS_ENDPOINT);
+  });
+
+  test('typing narrows the suggestions, ignoring case', async () => {
+    mount();
+    const input = control('author');
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'a' }));
+    await vi.waitFor(() => expect(suggestions()).toEqual(AUTHORS));
+    input.value = 'ALI';
+    input.dispatchEvent(new Event('input'));
+    expect(suggestions()).toEqual(['Alice Smith', 'alicia']);
+  });
+
+  test('picking an author reports at once and yields the same filter as toggleValue', () => {
+    const { onChange, last } = mount();
+    const input = control('author');
+    input.value = 'Bob';
+    input.dispatchEvent(new InputEvent('input', { inputType: 'insertReplacementText' }));
+    expect(onChange).toHaveBeenCalledTimes(1);
+    expect(splitFilters(last()).filter).toEqual(toggleValue({}, 'author', 'Bob'));
+  });
+
+  test('a locked author field fetches no suggestions', () => {
+    mount({ locked: { author: 'bob' } });
+    control('author').dispatchEvent(new Event('pointerdown'));
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  test('matchSuggestions caps what it returns and blank matches all', () => {
+    expect(matchSuggestions(AUTHORS, '')).toEqual(AUTHORS);
+    expect(matchSuggestions(AUTHORS, 'o', 1)).toEqual(['Bob']);
+  });
+});
+
+describe('filters view: hidden knobs', () => {
+  test('max_results is not shown in the panel', () => {
+    const maxResults = {
+      name: 'max_results',
+      label: 'Max Results',
+      type: 'int',
+      default: 10,
+      min: 1,
+      max: 100,
+      section: 'General',
+    };
+    mount({ capabilities: { ...CAPABILITIES, shared_parameters: [maxResults, TAG] } });
+    expect(control('max_results')).toBeNull();
+    expect(control('tag')).not.toBeNull();
   });
 });
 

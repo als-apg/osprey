@@ -29,6 +29,8 @@
  * @property {boolean} stacked
  * @property {'list'|'reader'} narrowView
  * @property {string|null} mineAuthor
+ * @property {Record<string, any>} filter - The C-FILTER object (filter-state.js)
+ * @property {string|null} notice - One line for the list banners, e.g. dropped dimensions
  */
 
 /**
@@ -54,6 +56,8 @@ let state = {
   stacked: false,
   narrowView: 'list',
   mineAuthor: null,
+  filter: {},
+  notice: null,
 };
 
 /** @type {Subscriber[]} */

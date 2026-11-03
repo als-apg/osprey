@@ -3,8 +3,14 @@
  * ARIEL panel router: maps the location hash onto the store and keeps the
  * hash canonical.
  *
- * Canonical form: `#q=<query>&mode=<mode>&box=<all|drafts|mine|saved:<name>>&sel=<id>&att=<id>`,
- * URL-encoded, keys omitted when empty. Legacy aliases (`#entry?id=X&attachment=Y`,
+ * Canonical form: `#q=<query>&mode=<mode>&box=<all|drafts|mine|saved:<name>>&f=<filter>&sel=<id>&att=<id>`,
+ * URL-encoded, keys omitted when empty. `f` is the store's C-FILTER `filter`
+ * as compact JSON with sorted keys. Under a `saved:` box `q` and `f` are always
+ * written, even empty (`q=&f={}`), so a reload never brings back a query or
+ * filter the user cleared: a saved box restores, from its record, only the
+ * fields whose hash key is absent (a hash `f` always wins). Every parsed filter
+ * goes through `sanitizeFilter` against the deployment's dimensions; the names
+ * it drops become the store's `notice`. Legacy aliases (`#entry?id=X&attachment=Y`,
  * `#create`, `#create?draft=ID`, `#search`, `#browse`, `#status`) are an
  * external contract — MCP tools, the artifacts logbook and the docs link to
  * them — and are applied with `force`, so following the same link twice always
@@ -13,10 +19,43 @@
  * therefore always arrives as a real fragment change.
  */
 
-import { getState, setState, subscribe, mailboxKey, parseMailboxKey } from './store.js';
+import { getState, setState, subscribe, mailboxKey, parseMailboxKey, savedName } from './store.js';
+import { normalizeFilter, sanitizeFilter, mergeFilter } from './filter-state.js';
+import { findSaved } from './saved-searches.js';
 import { isEmbedded } from '/design-system/js/frame-params.js';
 
 /** @typedef {import('./store.js').State} State */
+
+/**
+ * The deployment's filter dimensions (`capabilities.filter_dimensions`), set
+ * by `initRouter`; null while unknown, which keeps every dimension.
+ * @type {Array<{name: string}>|null}
+ */
+let dimensions = null;
+
+/**
+ * The `f` value of a hash as a filter; unreadable JSON is no filter.
+ * @param {string} raw
+ * @returns {unknown}
+ */
+function readFilterParam(raw) {
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * The notice for dimensions a restored filter lost, or null for none.
+ * @param {string[]} dropped
+ * @returns {string|null}
+ */
+function droppedNotice(dropped) {
+  if (dropped.length === 0) return null;
+  const noun = dropped.length === 1 ? 'filter' : 'filters';
+  return `Removed ${noun} this logbook does not offer: ${dropped.join(', ')}`;
+}
 
 /**
  * The patch for "show the list": empty query, nothing selected or open.
@@ -51,7 +90,9 @@ function classify(hash) {
 /**
  * Translate a hash into the store patch it stands for. An empty hash is no
  * patch. Omitted canonical keys come back empty, so a canonical hash fully
- * describes the query, mailbox and selection.
+ * describes the query, filter, mailbox and selection; under `box=saved:<name>`
+ * an omitted `q`, `mode` or `f` comes from that saved search instead, and its
+ * knobs (`filters`) are always restored, all in this one patch.
  * @param {string} hash with or without the leading `#`
  * @returns {Partial<State>}
  */
@@ -60,15 +101,30 @@ export function parseHash(hash) {
   if (alias === '') return {};
   if (alias === null) {
     const sel = params.get('sel') || null;
+    const mailbox = parseMailboxKey(params.get('box'));
+    const name = savedName(mailbox);
+    const saved = name === null ? undefined : findSaved(name);
+    /** @type {unknown} */
+    let rawFilter = {};
+    if (params.has('f')) rawFilter = readFilterParam(/** @type {string} */ (params.get('f')));
+    else if (saved) rawFilter = saved.filter;
+    const sanitized = sanitizeFilter(rawFilter, dimensions);
+    let filter = normalizeFilter(sanitized.filter);
+    // Mine scopes the author itself (requestFilter), so its own selection goes.
+    if (mailbox === 'mine') filter = mergeFilter(filter, { author: null });
     /** @type {Partial<State>} */
     const patch = {
-      query: params.get('q') || '',
-      mode: params.get('mode') || null,
-      mailbox: parseMailboxKey(params.get('box')),
+      query: params.has('q') ? params.get('q') || '' : (saved?.query ?? ''),
+      mode: params.has('mode') ? params.get('mode') || null : (saved?.mode ?? null),
+      mailbox,
+      filter,
+      notice: droppedNotice(sanitized.dropped),
       sel,
       att: params.get('att') || null,
       rerank: 'now',
     };
+    // The knobs have no hash key: a saved box always restores them.
+    if (saved) patch.filters = structuredClone(saved.filters);
     if (sel) patch.narrowView = 'reader';
     return patch;
   }
@@ -100,17 +156,22 @@ export function parseHash(hash) {
  * @returns {string}
  */
 export function serializeState(state) {
-  /** @type {Array<[string, string|null|undefined]>} */
+  const saved = savedName(state.mailbox) !== null;
+  const filter = normalizeFilter(state.filter);
+  /** @type {Array<[string, string|null|undefined, boolean]>} [key, value, written even when empty] */
   const pairs = [
-    ['q', state.query],
-    ['mode', state.mode],
-    ['box', mailboxKey(state.mailbox)],
-    ['sel', state.sel],
-    ['att', state.att],
+    ['q', state.query ?? '', saved],
+    ['mode', state.mode, false],
+    ['box', mailboxKey(state.mailbox), false],
+    ['f', Object.keys(filter).length ? JSON.stringify(filter) : saved ? '{}' : '', saved],
+    ['sel', state.sel, false],
+    ['att', state.att, false],
   ];
   const parts = pairs
-    .filter(([, value]) => value !== null && value !== undefined && value !== '')
-    .map(([key, value]) => `${key}=${encodeURIComponent(/** @type {string} */ (value))}`);
+    .filter(
+      ([, value, always]) => always || (value !== null && value !== undefined && value !== '')
+    )
+    .map(([key, value]) => `${key}=${encodeURIComponent(/** @type {string} */ (value ?? ''))}`);
   return `#${parts.join('&')}`;
 }
 
@@ -141,11 +202,16 @@ function applyLocationHash() {
 /**
  * Apply the current hash, follow every `hashchange`, and keep the hash
  * canonical as the store changes. Call once, after every store subscriber
- * exists, so the initial hash reaches them. Further calls do nothing.
+ * exists and capabilities are known, so the initial hash reaches them and its
+ * filter is checked against the deployment's dimensions. Further calls do
+ * nothing.
+ * @param {{dimensions?: Array<{name: string}>|null}} [opts] - `capabilities.filter_dimensions`;
+ *   null or absent keeps every dimension
  */
-export function initRouter() {
+export function initRouter(opts = {}) {
   if (started) return;
   started = true;
+  dimensions = opts.dimensions ?? null;
   subscribe(() => {
     if (!applying) writeHash();
   });

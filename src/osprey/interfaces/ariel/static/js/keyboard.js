@@ -3,7 +3,8 @@
  * ARIEL panel keyboard shortcuts. Every key writes the store; nothing here
  * touches the panes directly.
  *
- *   j / k   move `sel` through the rendered list rows (the reader follows)
+ *   j / k   move `sel` through the rendered list rows, clearing `att` (the
+ *           reader follows)
  *   Enter   open the selection in the reader (`narrowView:'reader'`)
  *   /       focus the search box (standalone only; embedded it is the host's)
  *   [       toggle `railCollapsed`
@@ -51,7 +52,7 @@ function moveSelection(doc, step) {
   const ids = rows.map((row) => row.dataset.entryId || '');
   const at = ids.indexOf(getState().sel ?? '');
   const next = at < 0 ? 0 : Math.min(Math.max(at + step, 0), ids.length - 1);
-  setState({ sel: ids[next] });
+  setState({ sel: ids[next], att: null });
   rows[next].scrollIntoView?.({ block: 'nearest' });
   return true;
 }

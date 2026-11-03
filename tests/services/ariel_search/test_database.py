@@ -958,6 +958,8 @@ class TestGetEnabledMigrations:
             "attachment_files_copy_state",
             "embedding_input_key",
             "als_logbook_plain_text",
+            "entry_subject_and_keyset",
+            "entry_subject_backfill",
         ]
 
     def test_unimportable_migration_is_skipped_with_warning(self, monkeypatch, caplog) -> None:

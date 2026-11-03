@@ -9,11 +9,17 @@ import { test, expect, describe, beforeEach, afterEach, vi } from 'vitest';
 
 const STORE = '../../../src/osprey/interfaces/ariel/static/js/store.js';
 const ROUTER = '../../../src/osprey/interfaces/ariel/static/js/router.js';
+const SAVED = '../../../src/osprey/interfaces/ariel/static/js/saved-searches.js';
+const FILTER = '../../../src/osprey/interfaces/ariel/static/js/filter-state.js';
 
 /** @type {typeof import('../../../src/osprey/interfaces/ariel/static/js/store.js')} */
 let store;
 /** @type {typeof import('../../../src/osprey/interfaces/ariel/static/js/router.js')} */
 let router;
+/** @type {typeof import('../../../src/osprey/interfaces/ariel/static/js/saved-searches.js')} */
+let saved;
+/** @type {typeof import('../../../src/osprey/interfaces/ariel/static/js/filter-state.js')} */
+let filterState;
 
 /** @param {string} url */
 function go(url) {
@@ -32,6 +38,7 @@ const realAdd = window.addEventListener.bind(window);
 
 beforeEach(async () => {
   go('/');
+  localStorage.clear();
   added = [];
   vi.spyOn(window, 'addEventListener').mockImplementation((type, fn, opts) => {
     added.push([type, fn]);
@@ -40,6 +47,8 @@ beforeEach(async () => {
   vi.resetModules();
   store = await import(STORE);
   router = await import(ROUTER);
+  saved = await import(SAVED);
+  filterState = await import(FILTER);
 });
 
 afterEach(() => {
@@ -65,11 +74,30 @@ describe('serializeState', () => {
       query: 'beam dump & rf',
       mode: 'keyword',
       mailbox: /** @type {const} */ ({ saved: 'my search' }),
+      filter: { source_system: ['ops'], author: ['x y'] },
       sel: 'e/1',
       att: 'a 2',
     };
     expect(router.serializeState(s)).toBe(
-      '#q=beam%20dump%20%26%20rf&mode=keyword&box=saved%3Amy%20search&sel=e%2F1&att=a%202'
+      '#q=beam%20dump%20%26%20rf&mode=keyword&box=saved%3Amy%20search' +
+        `&f=${encodeURIComponent('{"author":["x y"],"source_system":["ops"]}')}` +
+        '&sel=e%2F1&att=a%202'
+    );
+  });
+
+  test('f is the normalized filter: sorted keys and values, empties dropped', () => {
+    const s = {
+      ...store.getState(),
+      filter: { tags: ['b', 'A', 'a'], author: [], time: { start: '2026-01-01', end: null } },
+    };
+    expect(router.serializeState(s)).toBe(
+      `#box=all&f=${encodeURIComponent('{"tags":["A","b"],"time":{"start":"2026-01-01","end":null}}')}`
+    );
+  });
+
+  test('under a saved box q and f are written even when empty', () => {
+    expect(router.serializeState({ ...store.getState(), mailbox: { saved: 'x' } })).toBe(
+      '#q=&box=saved%3Ax&f=%7B%7D'
     );
   });
 
@@ -88,6 +116,7 @@ describe('parseHash: canonical', () => {
       query: 'vacuum + leak?',
       mode: 'semantic',
       mailbox: /** @type {const} */ ({ saved: 'a:b' }),
+      filter: { author: ['Bob & Eve'], time: { start: null, end: '2026-02-01' } },
       sel: 'id=7',
       att: 'att&1',
     };
@@ -97,6 +126,7 @@ describe('parseHash: canonical', () => {
       query: s.query,
       mode: s.mode,
       mailbox: s.mailbox,
+      filter: s.filter,
       sel: s.sel,
       att: s.att,
     });
@@ -128,6 +158,8 @@ describe('parseHash: canonical', () => {
       query: 'x',
       mode: null,
       mailbox: 'all',
+      filter: {},
+      notice: null,
       sel: null,
       att: null,
       rerank: 'now',
@@ -294,7 +326,7 @@ describe('initRouter: canonical hash and write-back', () => {
     const assignHash = vi.spyOn(window, 'dispatchEvent');
     store.setState({ query: 'beam', mailbox: { saved: 'mine2' }, rerank: 'now' });
     expect(replace).toHaveBeenCalledTimes(1);
-    expect(window.location.hash).toBe('#q=beam&box=saved%3Amine2');
+    expect(window.location.hash).toBe('#q=beam&box=saved%3Amine2&f=%7B%7D');
     expect(window.location.search).toBe('?embedded=true');
     expect(assignHash).not.toHaveBeenCalled();
   });
@@ -327,5 +359,166 @@ describe('initRouter: canonical hash and write-back', () => {
     go('/#create');
     hashchange();
     expect(changed).toHaveBeenCalledTimes(1);
+  });
+});
+
+/** @param {Record<string, unknown>} f */
+function fParam(f) {
+  return encodeURIComponent(JSON.stringify(f));
+}
+
+describe('parseHash: filter', () => {
+  test('an unreadable f is no filter', () => {
+    expect(router.parseHash('#f=%7Bnope').filter).toEqual({});
+    expect(router.parseHash('#f=%5B1%5D').filter).toEqual({});
+  });
+
+  test('box=mine clears filter.author in the same patch', () => {
+    const patch = router.parseHash(`#box=mine&f=${fParam({ author: ['x'], tags: ['t'] })}`);
+    expect(patch).toMatchObject({ mailbox: 'mine', filter: { tags: ['t'] } });
+  });
+
+  test('#entry?id= is unchanged: no filter, no notice', () => {
+    expect(router.parseHash('#entry?id=E1')).toEqual({
+      sel: 'E1',
+      att: null,
+      narrowView: 'reader',
+      rerank: 'now',
+    });
+  });
+});
+
+describe('parseHash: saved box', () => {
+  beforeEach(() => {
+    saved.saveSearch({
+      name: 'K',
+      query: 'kicker',
+      mode: 'semantic',
+      filter: { author: ['Bob'], time: { start: '2026-01-01', end: null } },
+      filters: { max_results: 3 },
+    });
+  });
+
+  test('saved:x alone restores its filter, query, mode and knobs', () => {
+    expect(router.parseHash('#box=saved%3AK')).toMatchObject({
+      mailbox: { saved: 'K' },
+      query: 'kicker',
+      mode: 'semantic',
+      filter: { author: ['Bob'], time: { start: '2026-01-01', end: null } },
+      filters: { max_results: 3 },
+    });
+  });
+
+  test('saved:x plus f: the hash f wins; knobs still restored', () => {
+    const patch = router.parseHash(`#box=saved%3AK&f=${fParam({ tags: ['vac'] })}`);
+    expect(patch.filter).toEqual({ tags: ['vac'] });
+    expect(patch.query).toBe('kicker');
+    expect(patch.filters).toEqual({ max_results: 3 });
+  });
+
+  test('clearing the query or the filter under a saved box survives a reload', () => {
+    const cleared = router.serializeState({
+      ...store.getState(),
+      mailbox: { saved: 'K' },
+      query: '',
+      mode: 'semantic',
+      filter: {},
+    });
+    expect(cleared).toBe('#q=&mode=semantic&box=saved%3AK&f=%7B%7D');
+    expect(router.parseHash(cleared)).toMatchObject({ query: '', filter: {} });
+  });
+
+  test('saved:<unknown> restores nothing and leaves the knobs alone', () => {
+    const patch = router.parseHash('#box=saved%3Anope');
+    expect(patch).toMatchObject({ query: '', mode: null, filter: {} });
+    expect('filters' in patch).toBe(false);
+  });
+
+  test('a search saved under Mine lists only that author after reload', () => {
+    store.setState({ mailbox: 'mine', mineAuthor: 'Jane', filter: { tags: ['rf'] } });
+    const state = store.getState();
+    saved.saveSearch({
+      name: 'My RF',
+      query: state.query,
+      mode: state.mode,
+      filter: filterState.requestFilter(state) ?? {},
+      filters: state.filters,
+    });
+    go(`/#box=${encodeURIComponent('saved:My RF')}`);
+    router.initRouter();
+    expect(store.getState().filter).toEqual({ author: ['Jane'], tags: ['rf'] });
+    expect(window.location.hash).toBe(
+      `#q=&box=saved%3AMy%20RF&f=${fParam({ author: ['Jane'], tags: ['rf'] })}`
+    );
+  });
+
+  test('a P1 record is migrated on restore', () => {
+    localStorage.setItem(
+      saved.SAVED_KEY,
+      JSON.stringify([
+        { name: 'Old', query: 'q', mode: null, filters: { author: 'Bob', max_results: 5 } },
+      ])
+    );
+    expect(router.parseHash('#box=saved%3AOld')).toMatchObject({
+      filter: { author: ['Bob'] },
+      filters: { max_results: 5 },
+    });
+  });
+
+  test('save, reload, restore keeps the filter', () => {
+    store.setState({ query: 'dump', filter: { source_system: ['ops'] } });
+    const state = store.getState();
+    saved.saveSearch({
+      name: 'Dumps',
+      query: state.query,
+      mode: state.mode,
+      filter: filterState.requestFilter(state) ?? {},
+      filters: state.filters,
+    });
+    store.setState({ query: '', filter: {} });
+    go('/#box=saved%3ADumps');
+    router.initRouter();
+    expect(store.getState()).toMatchObject({ query: 'dump', filter: { source_system: ['ops'] } });
+  });
+});
+
+describe('initRouter: dimensions', () => {
+  const DIMS = [{ name: 'author' }, { name: 'source_system' }];
+
+  test('a dropped dimension produces a notice naming it; time is kept', () => {
+    go(
+      `/#f=${fParam({ author: ['a'], tags: ['t'], logbook: ['l'], time: { start: '2026-01-01' } })}`
+    );
+    router.initRouter({ dimensions: DIMS });
+    const s = store.getState();
+    expect(s.filter).toEqual({ author: ['a'], time: { start: '2026-01-01', end: null } });
+    expect(s.notice).toContain('tags');
+    expect(s.notice).toContain('logbook');
+    expect(window.location.hash).toBe(
+      `#box=all&f=${fParam({ author: ['a'], time: { start: '2026-01-01', end: null } })}`
+    );
+  });
+
+  test('a saved record is sanitized too', () => {
+    saved.saveSearch({ name: 'T', query: '', mode: null, filter: { tags: ['t'] }, filters: {} });
+    go('/#box=saved%3AT');
+    router.initRouter({ dimensions: DIMS });
+    expect(store.getState().filter).toEqual({});
+    expect(store.getState().notice).toContain('tags');
+  });
+
+  test('no drop, no notice; a later clean hash clears the notice', () => {
+    go(`/#f=${fParam({ tags: ['t'] })}`);
+    router.initRouter({ dimensions: DIMS });
+    expect(store.getState().notice).not.toBeNull();
+    go(`/#f=${fParam({ author: ['a'] })}`);
+    hashchange();
+    expect(store.getState().notice).toBeNull();
+  });
+
+  test('without capabilities every dimension is kept', () => {
+    go(`/#f=${fParam({ tags: ['t'] })}`);
+    router.initRouter({ dimensions: null });
+    expect(store.getState()).toMatchObject({ filter: { tags: ['t'] }, notice: null });
   });
 });

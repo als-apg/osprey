@@ -16,7 +16,10 @@ from typing import TYPE_CHECKING, Any, cast
 
 from pydantic import BaseModel, Field
 
-from osprey.services.ariel_search.database.repository import warn_schema_behind_once
+from osprey.services.ariel_search.database.repository import (
+    SEARCH_COUNT_CAP,
+    warn_schema_behind_once,
+)
 from osprey.services.ariel_search.database.search_fts import (
     ATTACHMENT_TEXT_DOCUMENT,
     EMPTY_TSQUERY,
@@ -57,6 +60,7 @@ from osprey_connectors.logger import get_logger
 if TYPE_CHECKING:
     from osprey.services.ariel_search.config import ARIELConfig
     from osprey.services.ariel_search.database.repository import ARIELRepository
+    from osprey.services.ariel_search.filters import EntryFilter
     from osprey.services.ariel_search.models import EnhancedLogbookEntry
     from osprey.services.ariel_search.search.base import QueryExpansion
     from osprey.services.ariel_search.search.patterns import RawSpan
@@ -546,6 +550,8 @@ async def keyword_search(
     fuzzy_fallback: bool = True,
     parsed: ParsedKeywordQuery | None = None,
     query_expansion: QueryExpansion | None = None,
+    entry_filter: EntryFilter | None = None,
+    offset: int | None = None,
     **kwargs: Any,
 ) -> list[tuple[EnhancedLogbookEntry, float, list[str]]] | ModuleOutput:
     """Execute keyword search against the logbook database.
@@ -563,7 +569,8 @@ async def keyword_search(
     fallback run.
 
     **Return shape.** A call that came through the ARIEL search service -- one
-    that supplied `parsed` or `query_expansion` -- gets a `ModuleOutput`
+    that supplied `parsed`, `query_expansion`, `entry_filter` or `offset` --
+    gets a `ModuleOutput` (reporting the matching ``tier``)
     carrying diagnostics and the expansion the executed SQL actually contained.
     A direct call that supplied neither gets the bare list of result tuples it
     has always returned. Nothing about the search itself differs between the two.
@@ -592,9 +599,18 @@ async def keyword_search(
             ``None`` when none applies. A query carrying explicit boolean
             operators is searched unexpanded with an INFO diagnostic, because
             ``websearch_to_tsquery`` syntax cannot group alternatives.
+        entry_filter: Dimension filter (C-FILTER). Its ``to_sql`` clauses are
+            ANDed into every tier -- strict, partial and fuzzy -- beside the
+            legacy `author`/`source_system` filters, which fuzzy still ignores.
+        offset: The page offset (C-MODOUT). When given, every tier is asked
+            for one page at `offset` plus its capped unpaged count; the tier is
+            the first whose count is non-zero, so a later page never falls back
+            to a looser tier. The output carries ``total`` (exact for strict,
+            inexact for partial and fuzzy) and ``has_more``.
 
     Returns:
-        `ModuleOutput` when `parsed` or `query_expansion` was supplied, else a
+        `ModuleOutput` when `parsed`, `query_expansion`, `entry_filter` or
+        `offset` was supplied, else a
         list of (entry, score, highlights) tuples sorted by relevance.
 
     Raises:
@@ -604,10 +620,27 @@ async def keyword_search(
         PatternError: If PostgreSQL refused to compile one of the patterns,
             re-raised naming the query text it came from.
     """
-    via_service = parsed is not None or query_expansion is not None
+    via_service = (
+        parsed is not None
+        or query_expansion is not None
+        or entry_filter is not None
+        or offset is not None
+    )
+    filtering = entry_filter is not None
 
     if not query.strip():
-        return ModuleOutput(entries=[]) if via_service else []
+        return (
+            ModuleOutput(
+                entries=[],
+                total=0,
+                total_exact=True,
+                has_more=False,
+                tier="strict",
+                filter_applied=filtering,
+            )
+            if via_service
+            else []
+        )
 
     logger.info(
         f"keyword_search: query={query!r}, max_results={max_results}, "
@@ -641,7 +674,8 @@ async def keyword_search(
 
     # One read of the schema fact per query: the WHERE built here, the rank and
     # headline the repository builds, and the fuzzy fallback all select from it.
-    v2 = (await repository.schema_facts()).has_v2_fts
+    schema_facts = await repository.schema_facts()
+    v2 = schema_facts.has_v2_fts
     if not v2:
         warn_schema_behind_once()
 
@@ -704,6 +738,16 @@ async def keyword_search(
         filter_clauses.append("source_system = %s")
         filter_params.append(source_system)
 
+    # The dimension filter (C-FILTER) over alias ``e``, which every tier's
+    # statement uses; fuzzy receives the same filter on its own.
+    if entry_filter is not None and not entry_filter.is_empty():
+        from osprey.services.ariel_search.enhancement.status import enhancement_context
+
+        ctx = enhancement_context(config, has_copy_state=schema_facts.has_copy_state)
+        dim_clauses, dim_params = entry_filter.to_sql("e", ctx)
+        filter_clauses.extend(dim_clauses)
+        filter_params.extend(dim_params)
+
     where_clauses.extend(filter_clauses)
     params.extend(filter_params)
 
@@ -718,6 +762,11 @@ async def keyword_search(
         extra["pattern_timeout_seconds"] = settings.pattern_timeout_seconds
 
     probe_text = search_text or " ".join(phrases)
+    paging = offset is not None
+    if paging:
+        extra["offset"] = offset
+        extra["count"] = True
+    page_kwargs: dict[str, Any] = {"offset": offset, "count": True} if paging else {}
 
     try:
         results = await repository.keyword_search(
@@ -731,6 +780,7 @@ async def keyword_search(
         )
     except PatternError as e:
         raise _name_pattern(e, parsed.pattern_spans) from e
+    tier = "strict"
 
     if results:
         if tsquery_sql is None and (search_text.strip() or phrases):
@@ -752,7 +802,7 @@ async def keyword_search(
     # Partial step: no entry holds every plain word. Operator queries already
     # say how their words combine, and a literal pattern is never relaxed.
     if (
-        not results
+        not _matched(results)
         and search_text.strip()
         and not parsed.pattern_spans
         and not has_boolean_operators(search_text)
@@ -776,8 +826,10 @@ async def keyword_search(
                 max_results=max_results,
                 include_highlights=include_highlights,
                 v2=v2,
+                **page_kwargs,
             )
-            if results:
+            if _matched(results):
+                tier = "partial"
                 diagnostics.append(_partial_diagnostic(results))
                 await _attach_caption_matches(
                     results,
@@ -791,7 +843,12 @@ async def keyword_search(
     # only ever add hits, never remove one. A pattern search never falls back: a
     # literal pattern that matched nothing means nothing matched, not that the
     # spelling was close.
-    if not results and fuzzy_fallback and probe_text.strip() and not parsed.pattern_spans:
+    if not _matched(results) and fuzzy_fallback and probe_text.strip() and not parsed.pattern_spans:
+        # The legacy author/source_system kwargs stay unapplied here, as they
+        # always were; only the dimension filter narrows the fuzzy tier.
+        fuzzy_extra: dict[str, Any] = dict(page_kwargs)
+        if entry_filter is not None:
+            fuzzy_extra["entry_filter"] = entry_filter
         results = await repository.fuzzy_search(
             search_text=probe_text,
             threshold=settings.fuzzy_threshold,
@@ -799,8 +856,9 @@ async def keyword_search(
             start_date=start_date,
             end_date=end_date,
             v2=v2,
+            **fuzzy_extra,
         )
-        if not results and expansion_applied and query_expansion is not None:
+        if not _matched(results) and expansion_applied and query_expansion is not None:
             results = await repository.fuzzy_search(
                 search_text=query_expansion.flattened_text,
                 threshold=settings.fuzzy_threshold,
@@ -808,16 +866,56 @@ async def keyword_search(
                 start_date=start_date,
                 end_date=end_date,
                 v2=v2,
+                **fuzzy_extra,
             )
+        if _matched(results):
+            tier = "fuzzy"
 
     logger.info(f"keyword_search: returning {len(results)} results")
     if via_service:
+        total, total_exact, has_more = _page_totals(
+            results, offset or 0, max_results, exact_tier=tier == "strict"
+        )
         return ModuleOutput(
-            entries=results,
+            entries=list(results),
             diagnostics=tuple(diagnostics),
             expansion=expansion_applied,
+            total=total,
+            total_exact=total_exact,
+            has_more=has_more,
+            tier=tier,
+            filter_applied=filtering,
         )
     return results
+
+
+def _counted_total(rows: Any) -> int | None:
+    """The capped unpaged count a repository search attached to `rows`, if any."""
+    total = getattr(rows, "total", None)
+    return total if isinstance(total, int) and not isinstance(total, bool) else None
+
+
+def _matched(rows: Any) -> bool:
+    """Whether a tier matched anything: its unpaged count when counted, else its rows."""
+    total = _counted_total(rows)
+    return bool(rows) if total is None else total > 0
+
+
+def _page_totals(
+    rows: Any, offset: int, page_size: int, *, exact_tier: bool
+) -> tuple[int | None, bool, bool | None]:
+    """``(total, total_exact, has_more)`` for one page of a tier (C-MODOUT).
+
+    Without a count the page says nothing about the total, and the service
+    derives the fallback itself.
+    """
+    total = _counted_total(rows)
+    if total is None:
+        return None, False, None
+    exact = exact_tier and bool(getattr(rows, "total_exact", False))
+    end = offset + len(rows)
+    has_more = end < total or (total >= SEARCH_COUNT_CAP and len(rows) >= page_size)
+    return total, exact, has_more
 
 
 class KeywordSearchInput(BaseModel):
@@ -909,4 +1007,6 @@ def get_tool_descriptor() -> SearchToolDescriptor:
         format_result=format_keyword_result,
         accepts_expansion=True,
         query_parser=parse_keyword_query,
+        accepts_entry_filter=True,
+        accepts_offset=True,
     )

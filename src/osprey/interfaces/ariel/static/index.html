@@ -58,8 +58,13 @@
                   aria-haspopup="menu" aria-expanded="false"></button>
           <!-- Every display preference (Appearance, View, Theme) plus the
                Settings entry that opens #settings-drawer, behind one trigger.
-               The component hides itself when embedded. -->
-          <osprey-display-menu settings-drawer="settings-drawer"></osprey-display-menu>
+               The component hides itself when embedded. Its children are
+               moved into the card's action row: the badge-strip switch,
+               wired by display-prefs.js. -->
+          <osprey-display-menu settings-drawer="settings-drawer">
+            <button type="button" class="display-menu-settings" id="ariel-strip-toggle"
+                    role="switch" aria-checked="true">Badges<span class="osprey-switch" aria-hidden="true"></span></button>
+          </osprey-display-menu>
         </div>
       </div>
     </header>

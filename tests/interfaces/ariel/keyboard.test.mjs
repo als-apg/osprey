@@ -113,6 +113,18 @@ describe('j / k', () => {
     expect(store.getState().sel).toBe('e1');
   });
 
+  test.each(['j', 'k'])(
+    '%s while an attachment is open clears att from state and hash',
+    async (key) => {
+      const router = await import('../../../src/osprey/interfaces/ariel/static/js/router.js');
+      store.setState({ sel: 'e2', att: 'a1' });
+      press(key);
+      expect(store.getState().sel).not.toBe('e2');
+      expect(store.getState().att).toBeNull();
+      expect(router.serializeState(store.getState())).not.toContain('att=');
+    }
+  );
+
   test('j/k set only sel, never narrowView', () => {
     store.setState({ stacked: true });
     press('j');

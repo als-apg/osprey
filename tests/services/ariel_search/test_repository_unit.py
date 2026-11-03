@@ -19,6 +19,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+from collections.abc import Iterator
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -37,11 +38,20 @@ from osprey.services.ariel_search.database.repository import (
     ARIELRepository,
     SchemaFacts,
 )
+from osprey.services.ariel_search.enhancement.status import (
+    EnhancementContext,
+    enhancement_state_sql,
+)
 from osprey.services.ariel_search.exceptions import (
     ConfigurationError,
     DatabaseQueryError,
     PatternError,
     SearchTimeoutError,
+)
+from osprey.services.ariel_search.filters import (
+    BUILTIN_DIMENSIONS,
+    EntryFilter,
+    FilterDimension,
 )
 
 # ---------------------------------------------------------------------------
@@ -220,6 +230,20 @@ ERROR_WRAP_CASES = [
         "SELECT MAX(started_at) source_system=als_logbook",
         id="get_last_successful_run",
     ),
+    pytest.param(
+        lambda r: r.facet_counts(
+            EntryFilter.parse({}, BUILTIN_DIMENSIONS),
+            BUILTIN_DIMENSIONS,
+            ctx=EnhancementContext(),
+        ),
+        "SELECT facet_counts dims=[author, source_system, tags]",
+        id="facet_counts",
+    ),
+    pytest.param(
+        lambda r: r.day_histogram(EntryFilter.parse({}, BUILTIN_DIMENSIONS), "UTC"),
+        "SELECT day_histogram tz=UTC",
+        id="day_histogram",
+    ),
 ]
 
 
@@ -351,6 +375,13 @@ class TestErrorWrapping:
 # ---------------------------------------------------------------------------
 
 
+def _current_repo(pool: Any) -> ARIELRepository:
+    """A repository whose schema facts are all true, so no probe reaches ``pool``."""
+    repo = ARIELRepository(pool, _make_config())
+    repo._schema_facts = SchemaFacts(has_v2_fts=True, has_copy_state=True, has_subject=True)
+    return repo
+
+
 class TestUpsertEntryReingestHazards:
     """The ON CONFLICT clause is re-ingestion's only data-loss guard."""
 
@@ -372,7 +403,7 @@ class TestUpsertEntryReingestHazards:
         DO UPDATE set, an entry edited in the source logbook silently stays
         frozen at whatever ARIEL first saw, with no error anywhere.
         """
-        repo = ARIELRepository(fake_pool, _make_config())
+        repo = _current_repo(fake_pool)
 
         await repo.upsert_entry(seed_entry_factory())
 
@@ -394,7 +425,7 @@ class TestUpsertEntryReingestHazards:
         and orphans their stored blobs -- unrecoverable, and invisible until
         someone opens the entry.
         """
-        repo = ARIELRepository(fake_pool, _make_config())
+        repo = _current_repo(fake_pool)
 
         await repo.upsert_entry(seed_entry_factory(attachments=[]))
 
@@ -417,7 +448,7 @@ class TestUpsertEntryReingestHazards:
         already-enhanced entry back to the incoming (usually empty) status on
         each poll, silently re-queueing the whole corpus for re-enhancement.
         """
-        repo = ARIELRepository(fake_pool, _make_config())
+        repo = _current_repo(fake_pool)
 
         await repo.upsert_entry(seed_entry_factory(enhancement_status={"text_embedding": {}}))
 
@@ -437,7 +468,7 @@ class TestUpsertEntryReingestHazards:
             metadata={"logbook": "operations"},
             enhancement_status={"text_embedding": {"status": "complete"}},
         )
-        repo = ARIELRepository(fake_pool, _make_config())
+        repo = _current_repo(fake_pool)
 
         await repo.upsert_entry(entry)
 
@@ -461,7 +492,7 @@ class TestUpsertEntryReingestHazards:
         fake_pool,
     ) -> None:
         """An entry without author/attachments/metadata still binds every slot."""
-        repo = ARIELRepository(fake_pool, _make_config())
+        repo = _current_repo(fake_pool)
 
         await repo.upsert_entry(
             {
@@ -474,7 +505,7 @@ class TestUpsertEntryReingestHazards:
 
         params = fake_pool.calls[0][1]
         assert params[3] == ""
-        assert params[5:] == ["[]", "{}", "{}"]
+        assert params[5:] == ["[]", "{}", "{}", "text"]
 
 
 # ---------------------------------------------------------------------------
@@ -488,20 +519,20 @@ class TestEntryReads:
     async def test_get_entry_returns_converted_row(self, fake_pool_factory) -> None:
         """A found row is converted to an EnhancedLogbookEntry."""
         pool = fake_pool_factory(results=[[_entry_row(entry_id="e-42")]])
-        repo = ARIELRepository(pool, _make_config())
+        repo = _current_repo(pool)
 
         entry = await repo.get_entry("e-42")
 
         assert entry is not None
         assert entry["entry_id"] == "e-42"
-        assert pool.calls[0] == (
-            "SELECT * FROM enhanced_entries WHERE entry_id = %s",
-            ["e-42"],
-        )
+        sql, params = pool.calls[0]
+        assert _sql_body(sql).startswith("SELECT e.*, EXISTS (SELECT 1 FROM attachment_files f")
+        assert "AS has_images FROM enhanced_entries e WHERE e.entry_id = %s" in _sql_body(sql)
+        assert params == ["e-42"]
 
     async def test_get_entry_returns_none_when_absent(self, fake_pool) -> None:
         """No row means None, not an exception."""
-        repo = ARIELRepository(fake_pool, _make_config())
+        repo = _current_repo(fake_pool)
 
         assert await repo.get_entry("missing") is None
 
@@ -512,7 +543,7 @@ class TestEntryReads:
         to happen on the caller's next refactor; the guard keeps the degenerate
         case off the database entirely.
         """
-        repo = ARIELRepository(fake_pool, _make_config())
+        repo = _current_repo(fake_pool)
 
         assert await repo.get_entries_by_ids([]) == []
         assert fake_pool.calls == []
@@ -521,7 +552,7 @@ class TestEntryReads:
         """Ids are bound as one array parameter."""
         rows = [_entry_row(entry_id="e-1"), _entry_row(entry_id="e-2")]
         pool = fake_pool_factory(results=[rows])
-        repo = ARIELRepository(pool, _make_config())
+        repo = _current_repo(pool)
 
         entries = await repo.get_entries_by_ids(["e-1", "e-2", "gone"])
 
@@ -530,7 +561,7 @@ class TestEntryReads:
 
     async def test_search_by_time_range_without_filters_uses_true(self, fake_pool) -> None:
         """No filters means ``WHERE TRUE``, with only limit and offset bound."""
-        repo = ARIELRepository(fake_pool, _make_config())
+        repo = _current_repo(fake_pool)
 
         assert await repo.search_by_time_range(limit=25, offset=50) == []
 
@@ -543,7 +574,7 @@ class TestEntryReads:
         start = datetime(2026, 1, 1, tzinfo=UTC)
         end = datetime(2026, 2, 1, tzinfo=UTC)
         pool = fake_pool_factory(results=[[_entry_row()]])
-        repo = ARIELRepository(pool, _make_config())
+        repo = _current_repo(pool)
 
         entries = await repo.search_by_time_range(
             start=start,
@@ -596,6 +627,76 @@ class TestEntryReads:
             in _sql_body(sql)
         )
         assert params == [start, end, "operator", "als_logbook"]
+
+    async def test_search_by_time_range_orders_by_the_keyset_and_selects_has_images(
+        self, fake_pool
+    ) -> None:
+        """``entry_id DESC`` breaks timestamp ties, and every row carries ``has_images``."""
+        repo = _current_repo(fake_pool)
+
+        await repo.search_by_time_range()
+
+        body = _sql_body(fake_pool.calls[0][0])
+        assert body.startswith("SELECT e.*, EXISTS (SELECT 1 FROM attachment_files f")
+        assert "AS has_images FROM enhanced_entries e WHERE TRUE" in body
+        assert "ORDER BY e.timestamp DESC, e.entry_id DESC LIMIT %s OFFSET %s" in body
+
+    async def test_search_by_time_range_after_cursor_is_a_row_comparison(self, fake_pool) -> None:
+        """The cursor binds ``(ts, id)`` after the other clauses, ahead of limit/offset."""
+        from osprey.services.ariel_search.filters import encode_cursor
+
+        ts = datetime(2026, 3, 1, 12, tzinfo=UTC)
+        repo = _current_repo(fake_pool)
+
+        await repo.search_by_time_range(
+            author="operator", limit=5, after_cursor=encode_cursor(ts, "e-9")
+        )
+
+        sql, params = fake_pool.calls[0]
+        assert "WHERE author = %s AND (e.timestamp, e.entry_id) < (%s, %s)" in _sql_body(sql)
+        assert params == ["operator", ts, "e-9", 5, 0]
+
+    async def test_search_by_time_range_bad_cursor_raises_before_any_query(self, fake_pool) -> None:
+        """A malformed cursor is the caller's 422, not a DatabaseQueryError."""
+        from osprey.services.ariel_search.filters import FilterValidationError
+
+        repo = _current_repo(fake_pool)
+
+        with pytest.raises(FilterValidationError) as excinfo:
+            await repo.search_by_time_range(after_cursor="garbage")
+
+        assert excinfo.value.field == "cursor"
+        assert fake_pool.calls == []
+
+    async def test_search_by_time_range_ands_the_filter_after_legacy_literals(
+        self, fake_pool
+    ) -> None:
+        """Legacy ``author`` stays a literal ``=``; the filter adds its case-blind clause."""
+        from osprey.services.ariel_search.filters import BUILTIN_DIMENSIONS, EntryFilter
+
+        flt = EntryFilter.parse({"author": ["J. Smith"]}, BUILTIN_DIMENSIONS)
+        repo = _current_repo(fake_pool)
+
+        await repo.search_by_time_range(author="j. smith", entry_filter=flt, limit=10)
+
+        sql, params = fake_pool.calls[0]
+        assert "WHERE author = %s AND lower(e.author) = ANY(%s)" in _sql_body(sql)
+        assert params == ["j. smith", ["j. smith"], 10, 0]
+
+    async def test_count_entries_applies_the_filter_like_the_list(self, fake_pool_factory) -> None:
+        """The count binds the same filter clause, qualified by the unaliased table."""
+        from osprey.services.ariel_search.filters import BUILTIN_DIMENSIONS, EntryFilter
+
+        flt = EntryFilter.parse({"author": ["J. Smith"]}, BUILTIN_DIMENSIONS)
+        pool = fake_pool_factory(results=[[(2,)]])
+        repo = _current_repo(pool)
+
+        assert await repo.count_entries(source_system="als_logbook", entry_filter=flt) == 2
+        assert pool.calls[0] == (
+            "SELECT COUNT(*) FROM enhanced_entries WHERE source_system = %s"
+            " AND lower(enhanced_entries.author) = ANY(%s)",
+            ["als_logbook", ["j. smith"]],
+        )
 
     async def test_count_entries_returns_zero_without_a_row(self, fake_pool) -> None:
         """A missing count row reads as zero rather than raising."""
@@ -1127,6 +1228,22 @@ class TestEmbeddingTables:
 # ---------------------------------------------------------------------------
 
 
+@pytest.fixture
+def _search_schema_known(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Answer ``schema_facts`` without a probe, so no fake-pool call is spent on it.
+
+    The search statements select ``has_images`` (C-ENH), whose expression
+    depends on the ``has_copy_state`` fact; these tests pin the statements
+    themselves, so the fact is fixed rather than probed from the fake pool.
+    """
+
+    async def _facts(_self: ARIELRepository) -> SchemaFacts:
+        return SchemaFacts(has_v2_fts=True, has_copy_state=True, has_subject=True)
+
+    monkeypatch.setattr(ARIELRepository, "schema_facts", _facts)
+
+
+@pytest.mark.usefixtures("_search_schema_known")
 class TestSearchQueries:
     """Keyword, fuzzy and semantic search all emit one parametrized statement."""
 
@@ -1155,6 +1272,67 @@ class TestSearchQueries:
         assert "ts_headline('english', raw_text || ' ' || COALESCE(summary, '')" in body
         assert "WHERE author = %s" in body
         assert params == ["beam lost", "beam lost", "operator", 5]
+
+    async def test_keyword_search_pages_and_counts(self, fake_pool_factory) -> None:
+        """A paged keyword search binds OFFSET last and counts the same WHERE, capped."""
+        pool = fake_pool_factory(results=[[_entry_row(entry_id="e-9", rank=0.5)], [{"n": 57}]])
+        repo = ARIELRepository(pool, _make_config())
+
+        results = await repo.keyword_search(
+            where_clauses=["author = %s"],
+            params=["operator"],
+            search_text="quench",
+            max_results=20,
+            include_highlights=False,
+            offset=40,
+            count=True,
+        )
+
+        assert [entry["entry_id"] for entry, _s, _h in results] == ["e-9"]
+        assert (results.total, results.total_exact) == (57, True)
+        page_sql, page_params = pool.calls[0]
+        assert "ORDER BY rank DESC, e.entry_id DESC LIMIT %s OFFSET %s" in _sql_body(page_sql)
+        assert page_params == ["quench", "operator", 20, 40]
+        count_sql, count_params = pool.calls[1]
+        body = _sql_body(count_sql)
+        assert "SELECT COUNT(*)" in body
+        assert "FROM enhanced_entries e WHERE author = %s LIMIT 1001" in body
+        assert count_params == ["operator"]
+
+    async def test_count_past_the_cap_is_inexact(self, fake_pool_factory) -> None:
+        """More than 1000 matches report 1000, flagged inexact."""
+        pool = fake_pool_factory(results=[[], [{"n": 1001}]])
+        repo = ARIELRepository(pool, _make_config())
+
+        results = await repo.fuzzy_search(search_text="quench", count=True)
+
+        assert (results.total, results.total_exact) == (1000, False)
+        assert "ORDER BY sim DESC, e.entry_id DESC" in _sql_body(pool.calls[0][0])
+
+    async def test_semantic_search_pages_and_counts(self, fake_pool_factory) -> None:
+        """Semantic paging appends OFFSET and counts over the embedding join."""
+        pool = fake_pool_factory(results=[[], [{"n": 3}]])
+        repo = ARIELRepository(pool, _make_config())
+
+        results = await repo.semantic_search(
+            query_embedding=[0.5], model_name="m", max_results=4, offset=8, count=True
+        )
+
+        assert (results.total, results.total_exact) == (3, True)
+        assert "ORDER BY similarity DESC, e.entry_id DESC LIMIT %s OFFSET %s" in _sql_body(
+            pool.calls[0][0]
+        )
+        assert pool.calls[0][1][-2:] == [4, 8]
+        assert "JOIN text_embeddings_m emb" in _sql_body(pool.calls[1][0])
+
+    async def test_unpaged_search_issues_one_statement(self, fake_pool) -> None:
+        """Without count the result carries no total and no count statement runs."""
+        repo = ARIELRepository(fake_pool, _make_config())
+
+        results = await repo.keyword_search(where_clauses=[], params=[], search_text="quench")
+
+        assert results.total is None
+        assert len(fake_pool.calls) == 1
 
     async def test_keyword_search_without_highlights(self, fake_pool) -> None:
         """Skipping highlights drops the ts_headline call and one bound copy."""
@@ -1291,6 +1469,251 @@ class TestSearchQueries:
 # ---------------------------------------------------------------------------
 # Ingestion runs
 # ---------------------------------------------------------------------------
+
+
+@pytest.mark.usefixtures("_search_schema_known")
+class TestSearchEntryFilter:
+    """The dimension filter (C-FILTER) joins each search statement over alias ``e``."""
+
+    @pytest.fixture(autouse=True)
+    def _registry(self, _mock_ariel_registry: None) -> Iterator[None]:
+        # Nested inside the conftest's patch so the two unwind in order; a
+        # monkeypatch here would restore the conftest's mock after it exits.
+        from unittest.mock import MagicMock, patch
+
+        registry = MagicMock()
+        registry.list_ariel_enhancement_modules.return_value = []
+        with patch("osprey.registry.get_registry", return_value=registry):
+            yield
+
+    @staticmethod
+    def _filter() -> Any:
+        from osprey.services.ariel_search.filters import BUILTIN_DIMENSIONS, EntryFilter
+
+        return EntryFilter.parse(
+            {"author": ["Alice"], "source_system": ["als"]}, BUILTIN_DIMENSIONS
+        )
+
+    @staticmethod
+    def _sql(flt: Any) -> tuple[list[str], list[Any]]:
+        from osprey.services.ariel_search.enhancement.status import EnhancementContext
+
+        return flt.to_sql("e", EnhancementContext())
+
+    async def test_fuzzy_search_ands_the_filter_after_the_dates(self, fake_pool) -> None:
+        start = datetime(2026, 1, 1, tzinfo=UTC)
+        flt = self._filter()
+        clauses, filter_params = self._sql(flt)
+        repo = ARIELRepository(fake_pool, _make_config())
+
+        await repo.fuzzy_search("quench", start_date=start, max_results=3, entry_filter=flt)
+
+        sql, params = fake_pool.calls[0]
+        body = _sql_body(sql)
+        assert " AND ".join(["timestamp >= %s", *clauses]) in body
+        assert params == ["quench", "quench", 0.3, start, *filter_params, 3]
+
+    async def test_semantic_search_keeps_legacy_filters_beside_the_filter(self, fake_pool) -> None:
+        flt = self._filter()
+        clauses, filter_params = self._sql(flt)
+        repo = ARIELRepository(fake_pool, _make_config())
+
+        await repo.semantic_search(
+            [0.5], "nomic-embed-text", author="oper", source_system="als", entry_filter=flt
+        )
+
+        sql, params = fake_pool.calls[0]
+        body = _sql_body(sql)
+        assert " AND ".join(["e.author ILIKE %s", "e.source_system = %s", *clauses]) in body
+        assert params == ["[0.5]", "[0.5]", 0.5, "%oper%", "als", *filter_params, 10]
+
+    async def test_an_empty_filter_adds_nothing(self, fake_pool) -> None:
+        from osprey.services.ariel_search.filters import BUILTIN_DIMENSIONS, EntryFilter
+
+        repo = ARIELRepository(fake_pool, _make_config())
+
+        await repo.fuzzy_search("quench", entry_filter=EntryFilter.parse({}, BUILTIN_DIMENSIONS))
+
+        _sql, params = fake_pool.calls[0]
+        assert params == ["quench", "quench", 0.3, 10]
+
+    @pytest.mark.parametrize("statement", ["keyword", "partial", "fuzzy", "semantic"])
+    async def test_every_search_selects_has_images(self, fake_pool, statement: str) -> None:
+        """``matches`` must see the same picture flag ``to_sql`` uses (C-ENH)."""
+        from osprey.services.ariel_search.enhancement.status import has_images_sql
+
+        repo = ARIELRepository(fake_pool, _make_config())
+        if statement == "keyword":
+            await repo.keyword_search([], [], "beam")
+        elif statement == "partial":
+            await repo.keyword_partial_search(
+                [], [], terms=[("beam", ("beam",)), ("orbit", ("orbit",))], min_fraction=0.5
+            )
+        elif statement == "fuzzy":
+            await repo.fuzzy_search("beam")
+        else:
+            await repo.semantic_search([0.5], "nomic-embed-text")
+
+        assert any(
+            f"{_sql_body(has_images_sql('e'))} AS has_images" in _sql_body(sql)
+            for sql, _params in fake_pool.calls
+        )
+
+
+_ENHANCEMENT_DIM = FilterDimension(
+    "enhancement",
+    "Enhancements",
+    "enhancement",
+    "enhancement_status",
+    multi=False,
+    values=("text_embedding", "image_caption"),
+)
+_FACET_DIMS = (*BUILTIN_DIMENSIONS, _ENHANCEMENT_DIM)
+_FACET_CTX = EnhancementContext(
+    markers={"image_caption": "m2"}, enabled=("text_embedding", "image_caption")
+)
+
+
+class TestFacetCounts:
+    """``facet_counts`` and ``day_histogram`` emit the C-FACETS statements."""
+
+    @staticmethod
+    def _filter(raw: dict[str, Any]) -> EntryFilter:
+        return EntryFilter.parse(raw, _FACET_DIMS)
+
+    async def test_facet_each_dimension_excludes_its_own_selection(self, fake_pool) -> None:
+        flt = self._filter({"author": ["Alice"], "source_system": ["Als"]})
+        repo = _current_repo(fake_pool)
+
+        await repo.facet_counts(flt, BUILTIN_DIMENSIONS[:2], ctx=_FACET_CTX)
+
+        (author_sql, author_params), (source_sql, source_params) = fake_pool.calls
+        # Each dimension keeps the other's clause and drops its own.
+        assert author_params == [["als"], 50]
+        assert source_params == [["alice"], 50]
+        assert "lower(e.source_system) = ANY(%s)" in _sql_body(author_sql)
+        assert "lower(e.author) = ANY(%s)" not in _sql_body(author_sql)
+        assert "lower(e.author) = ANY(%s)" in _sql_body(source_sql)
+
+    async def test_facet_scalar_groups_by_lower_and_caps_by_count(self, fake_pool) -> None:
+        repo = _current_repo(fake_pool)
+
+        await repo.facet_counts(self._filter({}), BUILTIN_DIMENSIONS[:1], ctx=_FACET_CTX, limit=7)
+
+        ((sql, params),) = fake_pool.calls
+        body = _sql_body(sql)
+        assert "SELECT min(e.author) AS value, COUNT(*) AS count" in body
+        assert "GROUP BY lower(e.author)" in body
+        assert "ORDER BY count DESC, value LIMIT %s" in body
+        assert "btrim(e.author) <> ''" in body
+        assert params == [7]
+
+    async def test_facet_tags_unnest_guarded_and_counted_once_per_entry(self, fake_pool) -> None:
+        repo = _current_repo(fake_pool)
+
+        await repo.facet_counts(self._filter({}), BUILTIN_DIMENSIONS[2:], ctx=_FACET_CTX)
+
+        ((sql, _params),) = fake_pool.calls
+        body = _sql_body(sql)
+        assert "jsonb_typeof(e.metadata->'tags') = 'array'" in body
+        assert "jsonb_array_elements_text(" in body
+        assert "COUNT(DISTINCT e.entry_id)" in body
+        assert "GROUP BY lower(tg.tag)" in body
+
+    async def test_facet_values_come_back_in_dimension_order(self, fake_pool_factory) -> None:
+        pool = fake_pool_factory(
+            rows_for={
+                "GROUP BY lower(e.author)": [
+                    {"value": "Alice", "count": 3},
+                    {"value": "bob", "count": 1},
+                ]
+            }
+        )
+        repo = _current_repo(pool)
+
+        counts = await repo.facet_counts(self._filter({}), BUILTIN_DIMENSIONS, ctx=_FACET_CTX)
+
+        assert list(counts) == ["author", "source_system", "tags"]
+        assert counts["author"] == [{"value": "Alice", "count": 3}, {"value": "bob", "count": 1}]
+
+    async def test_facet_enhancement_uses_state_sql_never_jsonb_each(
+        self, fake_pool_factory
+    ) -> None:
+        pool = fake_pool_factory(rows_for={"FILTER (WHERE": [{"c0": 2, "c1": 0, "c2": 5}]})
+        repo = _current_repo(pool)
+        flt = self._filter({"enhancement": ["image_caption:stale"], "author": ["Alice"]})
+
+        counts = await repo.facet_counts(flt, (_ENHANCEMENT_DIM,), ctx=_FACET_CTX)
+
+        ((sql, params),) = pool.calls
+        body = _sql_body(sql)
+        assert "jsonb_each" not in body
+        # text_embedding has no marker, so it is never stale: three counted states.
+        assert body.count("COUNT(*) FILTER (WHERE") == 3
+        expected: list[Any] = []
+        for module, state in (
+            ("text_embedding", "failed"),
+            ("image_caption", "failed"),
+            ("image_caption", "stale"),
+        ):
+            fragment, fragment_params = enhancement_state_sql(
+                module, state, "e", marker=_FACET_CTX.markers.get(module)
+            )
+            assert _sql_body(fragment) in body
+            expected += fragment_params
+        # Its own selection is left out; the author clause stays.
+        assert params == [*expected, ["alice"]]
+        assert counts == {
+            "enhancement": [
+                {"value": "image_caption:stale", "count": 5},
+                {"value": "text_embedding:failed", "count": 2},
+            ]
+        }
+
+    async def test_facet_enhancement_skips_modules_the_context_disables(self, fake_pool) -> None:
+        repo = _current_repo(fake_pool)
+
+        counts = await repo.facet_counts(
+            self._filter({}), (_ENHANCEMENT_DIM,), ctx=EnhancementContext()
+        )
+
+        assert fake_pool.calls == []
+        assert counts == {"enhancement": []}
+
+    async def test_facet_id_scope_restricts_every_count(self, fake_pool) -> None:
+        repo = _current_repo(fake_pool)
+
+        await repo.facet_counts(
+            self._filter({}), BUILTIN_DIMENSIONS[:1], id_scope=("e-1", "e-2"), ctx=_FACET_CTX
+        )
+
+        ((sql, params),) = fake_pool.calls
+        assert "e.entry_id = ANY(%s)" in _sql_body(sql)
+        assert params == [["e-1", "e-2"], 50]
+
+    async def test_histogram_buckets_by_facility_day_without_time(self, fake_pool_factory) -> None:
+        from zoneinfo import ZoneInfo
+
+        pool = fake_pool_factory(rows_for={"AS day": [{"day": "2026-10-30", "count": 4}]})
+        repo = _current_repo(pool)
+        flt = self._filter(
+            {"time": {"start": "2026-10-01", "end": "2026-10-02"}, "author": ["Alice"]}
+        )
+
+        days = await repo.day_histogram(
+            flt, ZoneInfo("America/Los_Angeles"), id_scope=["e-1"], ctx=_FACET_CTX
+        )
+
+        ((sql, params),) = pool.calls
+        body = _sql_body(sql)
+        assert "(e.timestamp AT TIME ZONE %s)::date" in body
+        assert "- 364" in body
+        # The time selection is dropped; the 365-day window replaces it.
+        assert "e.timestamp >= %s" not in body
+        assert "GROUP BY day ORDER BY day" in body
+        zone = "America/Los_Angeles"
+        assert params == [zone, zone, zone, ["alice"], ["e-1"]]
+        assert days == [{"day": "2026-10-30", "count": 4}]
 
 
 class TestIngestionRuns:
@@ -1514,6 +1937,7 @@ def _entry_statement(pool: _TxPool) -> tuple[str, Any]:
     return call
 
 
+@pytest.mark.usefixtures("_search_schema_known")
 class TestKeywordSearchTsquerySplice:
     """A caller-supplied tsquery replaces the plain one in rank *and* headline."""
 
@@ -1604,6 +2028,7 @@ class TestKeywordSearchTsquerySplice:
         assert (entry["entry_id"], score, highlights) == ("e-1", 0.5, ["ts <b>aborted</b>"])
 
 
+@pytest.mark.usefixtures("_search_schema_known")
 class TestKeywordSearchOrdering:
     """A pattern-only statement ranks everything 0, so the tie has to be broken."""
 
@@ -1619,7 +2044,7 @@ class TestKeywordSearchOrdering:
         )
 
         body = _sql_body(_entry_statement(pool)[0])
-        assert "ORDER BY rank DESC, timestamp DESC" in body
+        assert "ORDER BY rank DESC, timestamp DESC, e.entry_id DESC LIMIT" in body
 
     @pytest.mark.parametrize(
         ("search_text", "tsquery_sql", "tsquery_params"),
@@ -1647,9 +2072,10 @@ class TestKeywordSearchOrdering:
         )
 
         body = _sql_body(_entry_statement(pool)[0])
-        assert "ORDER BY rank DESC LIMIT" in body
+        assert "ORDER BY rank DESC, e.entry_id DESC LIMIT" in body
 
 
+@pytest.mark.usefixtures("_search_schema_known")
 class TestKeywordSearchTimeoutEnvelope:
     """`pattern_timeout_seconds` is the only thing that opens a transaction."""
 
@@ -1813,8 +2239,32 @@ def _probing_repo(pool: Any, config: ARIELConfig | None = None) -> tuple[ARIELRe
 
 
 class TestSchemaFacts:
+    async def test_subject_column_is_probed_and_reported(self, fake_pool):
+        fake_pool.recorder.rows_for[_PROBE] = [(False, False, True)]
+        repo, _ = _probing_repo(fake_pool)
+
+        facts = await repo.schema_facts()
+
+        assert facts.has_subject is True
+        sql = fake_pool.sql[0]
+        assert "enhanced_entries" in sql and "'subject'" in sql
+
+    async def test_has_subject_defaults_false(self):
+        assert SchemaFacts(has_v2_fts=True, has_copy_state=True).has_subject is False
+
+    async def test_a_true_subject_stays_true_while_others_are_reprobed(self, fake_pool):
+        fake_pool.recorder.rows_for[_PROBE] = [(False, False, True)]
+        repo, clock = _probing_repo(fake_pool)
+
+        await repo.schema_facts()
+        fake_pool.recorder.rows_for[_PROBE] = [(False, True, False)]
+        clock.now += SCHEMA_FACTS_NEGATIVE_TTL_SECONDS
+        facts = await repo.schema_facts()
+
+        assert facts == SchemaFacts(has_v2_fts=False, has_copy_state=True, has_subject=True)
+
     async def test_one_statement_probes_both_facts(self, fake_pool):
-        fake_pool.recorder.rows_for[_PROBE] = [(False, True)]
+        fake_pool.recorder.rows_for[_PROBE] = [(False, True, False)]
         repo, _ = _probing_repo(fake_pool)
 
         facts = await repo.schema_facts()
@@ -1844,11 +2294,11 @@ class TestSchemaFacts:
         assert "idx_entries_raw_text_fts_v2" in fake_pool.sql[0]
 
     async def test_negative_is_cached_within_the_ttl(self, fake_pool):
-        fake_pool.recorder.rows_for[_PROBE] = [(False, False)]
+        fake_pool.recorder.rows_for[_PROBE] = [(False, False, False)]
         repo, clock = _probing_repo(fake_pool)
 
         await repo.schema_facts()
-        fake_pool.recorder.rows_for[_PROBE] = [(False, True)]
+        fake_pool.recorder.rows_for[_PROBE] = [(False, True, False)]
         clock.now += SCHEMA_FACTS_NEGATIVE_TTL_SECONDS - 1
         facts = await repo.schema_facts()
 
@@ -1856,11 +2306,11 @@ class TestSchemaFacts:
         assert len(fake_pool.matching(_PROBE)) == 1
 
     async def test_negative_is_reprobed_after_the_ttl(self, fake_pool):
-        fake_pool.recorder.rows_for[_PROBE] = [(False, False)]
+        fake_pool.recorder.rows_for[_PROBE] = [(False, False, False)]
         repo, clock = _probing_repo(fake_pool)
 
         await repo.schema_facts()
-        fake_pool.recorder.rows_for[_PROBE] = [(False, True)]
+        fake_pool.recorder.rows_for[_PROBE] = [(False, True, False)]
         clock.now += SCHEMA_FACTS_NEGATIVE_TTL_SECONDS
         facts = await repo.schema_facts()
 
@@ -1868,18 +2318,18 @@ class TestSchemaFacts:
         assert len(fake_pool.matching(_PROBE)) == 2
 
     async def test_positive_is_never_reprobed(self, fake_pool):
-        fake_pool.recorder.rows_for[_PROBE] = [(True, True)]
+        fake_pool.recorder.rows_for[_PROBE] = [(True, True, True)]
         repo, clock = _probing_repo(fake_pool)
 
         await repo.schema_facts()
         clock.now += 100 * SCHEMA_FACTS_NEGATIVE_TTL_SECONDS
         facts = await repo.schema_facts()
 
-        assert facts == SchemaFacts(has_v2_fts=True, has_copy_state=True)
+        assert facts == SchemaFacts(has_v2_fts=True, has_copy_state=True, has_subject=True)
         assert len(fake_pool.calls) == 1
 
     async def test_a_true_fact_stays_true_while_the_other_is_reprobed(self, fake_pool):
-        fake_pool.recorder.rows_for[_PROBE] = [(False, True)]
+        fake_pool.recorder.rows_for[_PROBE] = [(False, True, False)]
         repo, clock = _probing_repo(fake_pool)
 
         await repo.schema_facts()
@@ -1892,11 +2342,11 @@ class TestSchemaFacts:
         assert len(fake_pool.matching(_PROBE)) == 2
 
     async def test_invalidate_drops_the_cached_negative(self, fake_pool):
-        fake_pool.recorder.rows_for[_PROBE] = [(False, False)]
+        fake_pool.recorder.rows_for[_PROBE] = [(False, False, False)]
         repo, _ = _probing_repo(fake_pool)
 
         await repo.schema_facts()
-        fake_pool.recorder.rows_for[_PROBE] = [(False, True)]
+        fake_pool.recorder.rows_for[_PROBE] = [(False, True, False)]
         repo.invalidate_schema_facts()
         facts = await repo.schema_facts()
 
@@ -2178,6 +2628,7 @@ def _raw_config() -> ARIELConfig:
 class TestV2SearchStatements:
     """``v2=True`` widens rank, headline and fuzzy similarity to ``attachment_text``."""
 
+    @pytest.mark.usefixtures("_search_schema_known")
     async def test_keyword_search_defaults_to_the_v1_expressions(self, fake_pool) -> None:
         repo = ARIELRepository(fake_pool, _raw_config())
 
@@ -2188,6 +2639,7 @@ class TestV2SearchStatements:
         assert "ts_headline('english', raw_text, plainto_tsquery('english', %s)" in body
         assert "attachment_text" not in body
 
+    @pytest.mark.usefixtures("_search_schema_known")
     @pytest.mark.parametrize("semantic", [False, True])
     async def test_keyword_search_v2_ranks_and_highlights_the_v2_document(
         self, fake_pool, semantic: bool
@@ -2208,6 +2660,7 @@ class TestV2SearchStatements:
         assert f"ts_rank( {expression}, plainto_tsquery('english', %s) )" in body
         assert f"ts_headline('english', {document}, plainto_tsquery('english', %s)" in body
 
+    @pytest.mark.usefixtures("_search_schema_known")
     async def test_fuzzy_search_v2_takes_the_better_of_both_texts(self, fake_pool) -> None:
         repo = ARIELRepository(fake_pool, _raw_config())
 
@@ -2223,6 +2676,7 @@ class TestV2SearchStatements:
         assert "ORDER BY sim DESC" in body
         assert params == ["quench", "quench", "quench", "quench", 0.25, 10]
 
+    @pytest.mark.usefixtures("_search_schema_known")
     async def test_fuzzy_search_v1_is_b1_exact(self, fake_pool) -> None:
         repo = ARIELRepository(fake_pool, _raw_config())
 
@@ -2253,7 +2707,7 @@ class TestOneQueryOneExpression:
         from osprey.services.ariel_search.search.keyword import keyword_search
 
         config = _raw_config()
-        fake_pool.recorder.rows_for[_PROBE] = [(v2, True)]
+        fake_pool.recorder.rows_for[_PROBE] = [(v2, True, False)]
         repo, _ = _probing_repo(fake_pool, config)
 
         await keyword_search("quench", repo, config, fuzzy_fallback=False)
@@ -2272,7 +2726,7 @@ class TestOneQueryOneExpression:
         from osprey.services.ariel_search.search.keyword import keyword_search
 
         config = _raw_config()
-        fake_pool.recorder.rows_for[_PROBE] = [(False, True)]
+        fake_pool.recorder.rows_for[_PROBE] = [(False, True, False)]
         repo, clock = _probing_repo(fake_pool, config)
 
         async def searched_with_v2() -> bool:
@@ -2283,7 +2737,7 @@ class TestOneQueryOneExpression:
 
         assert not await searched_with_v2()
 
-        fake_pool.recorder.rows_for[_PROBE] = [(True, True)]  # the migration ran
+        fake_pool.recorder.rows_for[_PROBE] = [(True, True, False)]  # the migration ran
         clock.now += SCHEMA_FACTS_NEGATIVE_TTL_SECONDS - 1
         assert not await searched_with_v2()
 
