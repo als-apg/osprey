@@ -15,7 +15,7 @@ from osprey.cli.templates.manager import TemplateManager
 from osprey.registry.mcp import CHANNEL_FINDER_TOOLS_BY_PIPELINE
 from osprey.services.channel_finder.core.exceptions import PipelineModeError
 from tests._config_render_context import MINIMAL_CONFIG_CONTEXT
-from tests._preset_data import create_project_as_built
+from tests._preset_data import create_project_as_built, packaged_facility_dir
 
 
 class TestTemplateManager:
@@ -75,7 +75,6 @@ class TestTemplateManager:
         database is flattened beside them: each index is the view the build
         writes at its own path.
         """
-        from pathlib import Path
 
         manager = TemplateManager()
         project_dir = create_project_as_built(
@@ -86,22 +85,19 @@ class TestTemplateManager:
             context={"channel_finder_mode": mode},
         )
 
-        preset_data = (
-            Path(__file__).resolve().parents[2]
-            / "src"
-            / "osprey"
-            / "templates"
-            / "apps"
-            / "control_assistant"
-            / "data"
-        )
         source = "in_context_queries.json" if mode == "in_context" else "tree_queries.json"
-        expected = preset_data / "benchmarks" / "cross_paradigm" / "queries" / source
+        expected = (
+            packaged_facility_dir("control_assistant")
+            / "benchmarks"
+            / "cross_paradigm"
+            / "queries"
+            / source
+        )
         queries = project_dir / "data" / "benchmarks" / "queries.json"
         assert queries.read_bytes() == expected.read_bytes()
 
         data = project_dir / "data"
-        assert not (data / "benchmarks" / "cross_paradigm").exists()
+        assert not (data / "facility" / "benchmarks" / "cross_paradigm").exists()
         assert not (data / "raw").exists()
         for paradigm in VALID_CHANNEL_FINDER_MODES:
             assert not (data / "channel_databases" / f"{paradigm}.json").exists()

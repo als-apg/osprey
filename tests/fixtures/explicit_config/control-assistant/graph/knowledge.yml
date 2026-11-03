@@ -107,7 +107,7 @@ ariel:
     enabled: true
     expand_by_default: true
     expand_entries: false
-    path: data/ariel/vocabulary.yml
+    path: data/facility/ariel/vocabulary.yml
 artifact_server:
   auto_launch: true
   example_artifact: false

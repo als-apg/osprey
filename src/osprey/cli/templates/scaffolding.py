@@ -11,6 +11,7 @@ import shutil
 from pathlib import Path
 
 from osprey.cli.templates._rendering import render_template
+from osprey.cli.templates.preset_data import FACILITY_DATA_DIRNAME
 
 logger = logging.getLogger("osprey.cli.templates")
 
@@ -431,7 +432,7 @@ def copy_template_data(
 #: the benchmark query sources and the raw inputs. Relative to the render's
 #: ``data/``.
 _RENDER_EXCLUDED_DATA_DIRS: tuple[tuple[str, ...], ...] = (
-    ("benchmarks", "cross_paradigm"),
+    (FACILITY_DATA_DIRNAME, "benchmarks", "cross_paradigm"),
     ("raw",),
 )
 
@@ -440,14 +441,15 @@ def materialize_benchmark_queries(project_dir: Path, channel_finder_mode: str) -
     """Copy the mode's benchmark query file into place and prune the staging trees.
 
     The facility tree ships its benchmark query sources under
-    ``data/benchmarks/cross_paradigm/queries/``: ``in_context_queries.json``
+    ``data/facility/benchmarks/cross_paradigm/queries/``: ``in_context_queries.json``
     for ``in_context`` and ``tree_queries.json`` for every other mode. The selected
     one is copied to ``data/benchmarks/queries.json``. Then
-    ``data/benchmarks/cross_paradigm/`` and ``data/raw/`` are removed from the
-    render; the facility tree they were copied from is never touched. Each channel-finder index is the view the
+    ``data/facility/benchmarks/cross_paradigm/`` and ``data/raw/`` are removed from the
+    render, along with a ``data/facility/benchmarks/`` left empty; the facility tree
+    they were copied from is never touched. Each channel-finder index is the view the
     build writes at its own path, so nothing is flattened here.
 
-    A render whose tree ships no ``data/benchmarks/cross_paradigm/`` subtree
+    A render whose tree ships no ``data/facility/benchmarks/cross_paradigm/`` subtree
     gets no ``queries.json``.
 
     Args:
@@ -459,7 +461,7 @@ def materialize_benchmark_queries(project_dir: Path, channel_finder_mode: str) -
             mode. Raised before anything is copied or removed.
     """
     data_dir = project_dir / "data"
-    queries_root = data_dir / "benchmarks" / "cross_paradigm" / "queries"
+    queries_root = data_dir / FACILITY_DATA_DIRNAME / "benchmarks" / "cross_paradigm" / "queries"
     if queries_root.exists():
         source_name = (
             "in_context_queries.json"
@@ -473,6 +475,7 @@ def materialize_benchmark_queries(project_dir: Path, channel_finder_mode: str) -
                 f"(channel_finder_mode={channel_finder_mode!r})"
             )
         queries_dst = data_dir / "benchmarks" / "queries.json"
+        queries_dst.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(queries_src, queries_dst)
         logger.debug("Copied benchmark queries %s to %s", queries_src, queries_dst)
 
@@ -481,3 +484,5 @@ def materialize_benchmark_queries(project_dir: Path, channel_finder_mode: str) -
         if excluded.exists():
             shutil.rmtree(excluded)
             logger.debug("Removed %s from the render", excluded)
+            if excluded.parent != data_dir and not any(excluded.parent.iterdir()):
+                excluded.parent.rmdir()

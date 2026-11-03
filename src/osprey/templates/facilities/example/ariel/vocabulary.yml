@@ -1,3 +1,4 @@
+# Bundled with OSPREY: the example facility. Delete this line to make the file yours.
 # ============================================================
 # ARIEL facility vocabulary — the shorthand your operators type,
 # mapped to the words your logbook prose actually contains.
@@ -13,14 +14,9 @@
 #   operator and to the agent as `expanded_terms`, so a surprising hit always
 #   comes with the reason it appeared.
 #
-#   THIS FILE IS AN EXAMPLE, not a facility vocabulary. The twenty-two concepts
-#   below are the ones most storage-ring facilities share, so the file is
-#   useful on day one and is meant to be edited: delete what you do not use,
-#   and add the shorthand your own control room actually says. The orbit and
-#   ring group (storage ring, beam based alignment, orbit response matrix,
-#   fast/slow orbit feedback) is storage-ring-specific — a linac or FEL
-#   should delete it first. Nothing here is hard-coded anywhere in OSPREY —
-#   this file is the whole vocabulary.
+#   THIS FILE IS AN EXAMPLE: the example facility's concepts; your facility's
+#   vocabulary replaces this file. Nothing here is hard-coded anywhere in
+#   OSPREY — this file is the whole vocabulary.
 #
 # FORMAT
 #   One top-level key, `concepts`, holding a non-empty list. Each entry is:
@@ -83,14 +79,14 @@
 #   widening is visible rather than accidental. This example ships none.
 #
 # VALIDATE AFTER EVERY EDIT
-#   osprey ariel vocab-check data/ariel/vocabulary.yml
+#   osprey ariel vocab-check data/facility/ariel/vocabulary.yml
 #
 #   It lists every error in one pass, plus warnings for the traps that load
 #   fine but do not behave the way the author expects. A file that fails to
 #   load takes ARIEL's search with it — the panel starts in CONFIGURATION
 #   INVALID mode — so check before you deploy, not after.
 #
-# See data/ariel/README.md for the longer walkthrough, and the
+# See data/facility/ariel/README.md for the longer walkthrough, and the
 # `ariel.vocabulary` block in config.yml for the switches named above.
 
 concepts:

@@ -628,13 +628,11 @@ config:
   # reported back as `expanded_terms`. The file is read once at startup; a
   # broken one fails loudly there (panel in CONFIGURATION INVALID mode, search
   # 503, MCP server refuses to start). Check edits with
-  # `osprey ariel vocab-check data/ariel/vocabulary.yml`.
+  # `osprey ariel vocab-check data/facility/ariel/vocabulary.yml`.
   ariel.vocabulary.enabled: true
-  # A twenty-concept EXAMPLE covering what most circular-accelerator facilities
-  # share (a linac or FEL should delete the group the file's header marks for
-  # it). A starting point, not your vocabulary: edit it. Relative to the
-  # project root.
-  ariel.vocabulary.path: data/ariel/vocabulary.yml
+  # The example facility's concepts; your facility's vocabulary replaces this
+  # file. Relative to the project root.
+  ariel.vocabulary.path: data/facility/ariel/vocabulary.yml
   # Whether a search that expresses no preference gets expansion. The
   # per-request `expand_query` argument overrides it either way.
   ariel.vocabulary.expand_by_default: true

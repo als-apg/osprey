@@ -145,12 +145,8 @@ va_archiver:
   host: localhost      # where the agent reaches the store this project deploys
   retention_days: 30   # how far back the archive reaches
   hot_span_hours: 48   # how much of it is kept at the dense cadence
-  # The channel `osprey health` reads to decide whether the archive is still
-  # being written, as opposed to merely reachable. The stored-beam current is
-  # this facility's canary: it is the first thing to stop moving when the
-  # machine does. Naming it here is what derives the `archiver_freshness`
-  # check — including its staleness threshold, which follows the recorder's
-  # cadence rather than being a second number to keep in step.
+  # The build derives `freshness_channel`, the channel `osprey health` watches,
+  # from the facility file; a stated line is an override checked against it.
 
 # ── Facility-owned compose services ──────────────────────────────────────────
 # One entry per directory under `services/`. `template:` is profile-relative
@@ -309,8 +305,8 @@ config:
   # control_system.connector.virtual_accelerator.serving: served
   # Milliseconds each read and write takes when the simulator is served in process; unread when served.
   # control_system.connector.virtual_accelerator.response_delay_ms: 10
-  # Channel the target switch reads to prove this target is reachable before
-  # making it active. The simulator serves it from the built facility.
+  # The build derives `probe_channel`, the channel the target switch reads, from
+  # the facility file; a stated line is an override checked against it.
   # Gateways in CA name-server (TCP) mode against localhost, the one
   # host-to-container configuration that works across container runtimes. No
   # port is written: the connector follows `services.virtual_accelerator.port`,
@@ -457,13 +453,11 @@ config:
   # reported back as `expanded_terms`. The file is read once at startup; a
   # broken one fails loudly there (panel in CONFIGURATION INVALID mode, search
   # 503, MCP server refuses to start). Check edits with
-  # `osprey ariel vocab-check data/ariel/vocabulary.yml`.
+  # `osprey ariel vocab-check data/facility/ariel/vocabulary.yml`.
   ariel.vocabulary.enabled: true
-  # A twenty-concept EXAMPLE covering what most circular-accelerator facilities
-  # share (a linac or FEL should delete the group the file's header marks for
-  # it). A starting point, not your vocabulary: edit it. Relative to the
-  # project root.
-  ariel.vocabulary.path: data/ariel/vocabulary.yml
+  # The example facility's concepts; your facility's vocabulary replaces this
+  # file. Relative to the project root.
+  ariel.vocabulary.path: data/facility/ariel/vocabulary.yml
   # Whether a search that expresses no preference gets expansion. The
   # per-request `expand_query` argument overrides it either way.
   ariel.vocabulary.expand_by_default: true

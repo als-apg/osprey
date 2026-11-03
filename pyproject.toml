@@ -538,12 +538,10 @@ version-file = "src/osprey/_version.py"
 # keeps them out of git. Add one, add the other — tests/cli/test_dockerfile_template.py
 # fails if the pair comes apart.
 #
-# - benchmarks/results: written by running the channel-finder benchmark from
-#   inside the packaged template tree.
 # - prefetched-models: GGUF model files staged on disk where the model host is
 #   unreachable, for the qmd sidecar to load over a read-only mount. Gigabytes
 #   each — unexcluded they turn a small wheel into an unusable one.
-exclude = ["src/osprey/templates/apps/control_assistant/data/benchmarks/results", "**/prefetched-models"]
+exclude = ["**/prefetched-models"]
 
 [tool.hatch.build.targets.wheel]
 # `dock_engine` (the dock layout rules shared with the panel builder) ships inside this
