@@ -1850,6 +1850,30 @@ def test_a_failed_check_without_a_report_keeps_its_exit_status(
     assert out[-1] == "check: not clean: failed: pytest-pty"
 
 
+def test_a_named_reports_directory_keeps_the_report(
+    recorder: Recorder, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A caller that reads the report after the run names where it goes; the
+    runner writes it there and leaves it in place."""
+    monkeypatch.chdir(tmp_path)
+    assert check.resolve(["run", "pytest-pty", "--reports", "ci-reports"])[0][-3:] == (
+        pytest_report("pytest-pty", "ci-reports")
+    )
+    recorder.reports = {"tests/pty/": PYTEST_REPORT_XML}
+    assert check.main(["run", "pytest-pty", "--reports", "ci-reports"]) == 0
+    kept = tmp_path / "ci-reports" / "pytest-pty" / "junit.xml"
+    assert kept.read_text(encoding="utf-8") == PYTEST_REPORT_XML
+    full = [part for line in check.resolve(["full", "--reports", "ci-reports"]) for part in line]
+    assert "--junitxml=ci-reports/pytest/junit.xml" in full
+
+
+def test_without_a_named_reports_directory_the_report_is_removed(recorder: Recorder) -> None:
+    recorder.reports = {"tests/pty/": PYTEST_REPORT_XML}
+    assert check.main(["run", "pytest-pty"]) == 0
+    (written,) = (part for part in recorder.calls[-1] if part.startswith("--junitxml="))
+    assert not Path(written.split("=", 1)[1]).exists()
+
+
 def test_the_verdict_caps_the_named_failures_at_five() -> None:
     names = tuple(f"tests/test_m.py::test_{index}" for index in range(8))
     outcomes = [

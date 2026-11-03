@@ -5,9 +5,9 @@ A change is clean when every check below that applies to it ran here and passed.
 Each check is declared once, by the code that owns it, and every caller runs it
 from there::
 
-    check.py quick [--changed BASE [--worktree] | --base BASE] [--fix] [-- PATH...]
-    check.py full  [--changed BASE [--worktree] | --base BASE]         [-- PATH...]
-    check.py run ID... [--base BASE] [--shard cli|rest-a|rest-b] [-- EXEC-FLAGS...]
+    check.py quick [--changed BASE [--worktree] | --base BASE] [--fix] [--reports DIR] [-- PATH...]
+    check.py full  [--changed BASE [--worktree] | --base BASE] [--reports DIR] [-- PATH...]
+    check.py run ID... [--base BASE] [--shard cli|rest-a|rest-b] [--reports DIR] [-- EXEC-FLAGS...]
     check.py list [--tier quick|full] [--changed BASE] [--json]
 
 An owner declares its checks in a ``repo_checks.py`` module beside its code:
@@ -67,6 +67,9 @@ check, a flag that is not an execution flag. Every check of the run is attempted
 even after an earlier one failed, and the last line is the verdict. A failed
 test check names its failing tests, read from the report its runner writes for
 the command. A refusal names every check it cannot judge and what to install.
+The reports live in a directory removed when the command ends; ``--reports DIR``
+writes them under ``DIR/<check id>/`` instead and keeps them, for a caller that
+reads one afterwards.
 
 Before any check runs, the needs put the tree's pins in place: the pinned
 Claude Code first on PATH, and node_modules reinstalled when it differs from
@@ -731,8 +734,14 @@ def execute(
 
     A check that will not run here is classified first, and only the needs of
     the rest are probed. When one is unmet, nothing runs and every check with an
-    unmet need is refused.
+    unmet need is refused. The reports go to a directory removed afterwards,
+    unless the context names one.
     """
+    if context.reports != Context.reports:
+        # A caller named the directory to read the reports from afterwards.
+        kept = Path(context.reports).resolve()
+        kept.mkdir(parents=True, exist_ok=True)
+        return _execute(planned, dataclasses.replace(context, reports=str(kept)), fix)
     with tempfile.TemporaryDirectory(prefix="check-reports-") as reports:
         return _execute(planned, dataclasses.replace(context, reports=reports), fix)
 
@@ -886,6 +895,15 @@ def report(outcomes: Sequence[Outcome], lanes: Sequence[str], scoped: bool) -> i
 # Command line
 
 
+def _add_reports(verb: argparse.ArgumentParser) -> None:
+    verb.add_argument(
+        "--reports",
+        metavar="DIR",
+        default=Context.reports,
+        help="write the runners' reports under DIR/<check id>/ and keep them",
+    )
+
+
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="check.py",
@@ -905,6 +923,7 @@ def _parser() -> argparse.ArgumentParser:
         verb.add_argument(
             "--worktree", action="store_true", help="judge the working tree, not HEAD"
         )
+        _add_reports(verb)
         if tier == "quick":
             verb.add_argument(
                 "--fix",
@@ -915,6 +934,7 @@ def _parser() -> argparse.ArgumentParser:
     run.add_argument("ids", nargs="+", metavar="ID")
     run.add_argument("--base", metavar="BASE", help="the base of the checks that judge a range")
     run.add_argument("--shard", choices=sorted({s for c in CHECKS for s in c.shards}))
+    _add_reports(run)
     listing = verbs.add_parser("list", help="print the declaration")
     listing.add_argument("--tier", choices=TIERS)
     listing.add_argument(
@@ -964,7 +984,9 @@ def _request(argv: Sequence[str]) -> _Request:
         unbased = [c.id for c in chosen if "base" in c.needs and not args.base]
         if unbased:
             raise Refused(f"{', '.join(unbased)}: needs --base BASE")
-        context = Context("full", args.base, args.shard, {"*": tuple(tail)}, named=True)
+        context = Context(
+            "full", args.base, args.shard, {"*": tuple(tail)}, args.reports, named=True
+        )
         return _Request([(check, Selection(WHOLE)) for check in chosen], context)
     if args.changed and args.base and args.changed != args.base:
         raise Refused("--changed and --base name different bases")
@@ -977,7 +999,9 @@ def _request(argv: Sequence[str]) -> _Request:
         reach = touched(args.changed, args.worktree, scope=True)
         files = repository_files(args.worktree)
     plan = select(args.verb, paths, tail, files, reach)
-    context = Context(args.verb, base, None, _tier_flags(args.verb), worktree=args.worktree)
+    context = Context(
+        args.verb, base, None, _tier_flags(args.verb), args.reports, worktree=args.worktree
+    )
     planned = [(by_id[name], selection) for name, selection in plan.selections.items()]
     return _Request(planned, context, plan.lanes, plan.scoped, getattr(args, "fix", False))
 
