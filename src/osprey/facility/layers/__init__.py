@@ -8,7 +8,6 @@ sources field by field. A seed-once file an import creates opens with
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Any
 
 import click
@@ -19,8 +18,6 @@ __all__ = ["HEADER", "LayerSourceInvalid"]
 
 #: The first line of every file an import seeds, in every format.
 HEADER = "# Seeded once by the facility import; edit this file by hand."
-
-#: The body of the knowledge index an import seeds.
 
 
 class LayerSourceInvalid(click.ClickException):
@@ -45,23 +42,3 @@ class LayerSourceInvalid(click.ClickException):
         """
         for error in self.errors:
             error.show(file)
-
-
-def _seed_knowledge_index(facility_dir: Path) -> Path | None:
-    """Write the blank placeholder knowledge index when none exists; never rewrite one.
-
-    The placeholder is empty: the index regenerator neither renders it nor calls
-    it stale, and writes over it once the bundle holds a page.
-
-    Args:
-        facility_dir: The ``data/facility`` directory.
-
-    Returns:
-        The path written, or ``None`` when an index already exists.
-    """
-    index = facility_dir / "knowledge" / "index.md"
-    if index.exists():
-        return None
-    index.parent.mkdir(parents=True, exist_ok=True)
-    index.write_text("", encoding="utf-8")
-    return index
