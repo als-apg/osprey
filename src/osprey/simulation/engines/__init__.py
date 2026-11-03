@@ -80,7 +80,7 @@ class EnginePlugin(Protocol):
         ...
 
     def describe(self, wiring_record: Any) -> Mapping[str, Any]:
-        """What a wiring record is: its role, plane and refresh."""
+        """What a wiring record is: its engine_role, plane and refresh."""
         ...
 
     def build(

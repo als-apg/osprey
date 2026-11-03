@@ -66,7 +66,7 @@ class StubModel(LUMEModel):
             else:
                 self._variables[address] = ScalarVariable(name=address, read_only=True)
                 self.truth[address] = float(entry.get("default", 0.0))
-                plane = entry.get("plane") if entry.get("role") == "monitor" else None
+                plane = entry.get("plane") if entry.get("engine_role") == "monitor" else None
                 if plane is not None and entry.get("element") is not None:
                     self.monitors.setdefault(str(entry["element"]), {})[plane] = address
                     name = f"{address}/polarity"
@@ -146,7 +146,7 @@ def _stub_engine(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def _described(role: str, plane: str | None = None) -> dict[str, Any]:
     """The description a build stamps on a wiring record."""
-    return {"role": role, "plane": plane, "refresh": "pass"}
+    return {"engine_role": role, "plane": plane, "refresh": "pass"}
 
 
 def _wiring(*, waveform: bool = False) -> list[dict[str, Any]]:
@@ -388,7 +388,9 @@ def test_a_monitor_read_on_one_plane_reads_its_partner_through_the_readout(
 def test_partner_planes_group_by_monitor_role_without_an_engine_axis(tmp_path: Path) -> None:
     view = _view(tmp_path)
     document = json.loads((view / "variables.json").read_text(encoding="utf-8"))
-    monitors = [entry for entry in document["models"][0]["wiring"] if entry["role"] == "monitor"]
+    monitors = [
+        entry for entry in document["models"][0]["wiring"] if entry["engine_role"] == "monitor"
+    ]
     composite = Composite(view, state_dir=tmp_path / "state", clock=lambda: T0)
 
     assert sorted(entry["plane"] for entry in monitors) == ["x", "y"]

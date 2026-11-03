@@ -31,7 +31,7 @@ enums:
       none:
         description: Neither written nor paired.
 
-  wiring_role_enum:
+  engine_role_enum:
     description: What a model's engine says a wiring record is.
     permissible_values:
       setpoint:
@@ -614,8 +614,8 @@ classes:
         multivalued: true
         list_elements_ordered: true
         description: Computed from the channel's limits record.
-      role:
-        range: wiring_role_enum
+      engine_role:
+        range: engine_role_enum
         description: Computed; what the model's engine says the record is.
       plane:
         range: plane_enum
@@ -837,9 +837,8 @@ classes:
         description: >-
           `all`, or a list of addresses and selections: while the scenario is
           active, those readings serve without drift, couplings or noise. A
-          selection is `{model|place, group, signal, role, plane}` and names a
-          model or a place; its `role` is the wiring record's role
-          (`setpoint|readback|monitor|output`), not the channel's.
+          selection is `{model|place, group, signal, engine_role, plane}` and
+          names a model or a place.
 
   Any:
     class_uri: linkml:Any

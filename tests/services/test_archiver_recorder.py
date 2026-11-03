@@ -54,6 +54,7 @@ from osprey.services.archiver_recorder.config import (
     read_recording_facts,
 )
 from osprey_connectors.simulation.archive import waveform_collection, waveform_document
+from osprey_connectors.simulation.view import VARIABLES_SCHEMA
 
 # The session-scoped MongoDB container, reused rather than re-declared: one
 # container for the whole test session, skipping cleanly without Docker.
@@ -356,7 +357,7 @@ def _variables(view: Path, value_types: dict[str, str]) -> None:
         )
         for address, value_type in value_types.items()
     ]
-    document = {"schema": "osprey.facility.simulator/2", "code": "demo", "channels": channels}
+    document = {"schema": VARIABLES_SCHEMA, "code": "demo", "channels": channels}
     (view / "variables.json").write_text(json.dumps(document), encoding="utf-8")
 
 
@@ -391,8 +392,8 @@ def test_without_value_types_every_channel_is_a_number(tmp_path: Path) -> None:
     [
         "not json",
         json.dumps({"schema": "osprey.facility.simulator/1", "channels": []}),
-        json.dumps({"schema": "osprey.facility.simulator/2"}),
-        json.dumps({"schema": "osprey.facility.simulator/2", "channels": [{"address": "X"}]}),
+        json.dumps({"schema": VARIABLES_SCHEMA}),
+        json.dumps({"schema": VARIABLES_SCHEMA, "channels": [{"address": "X"}]}),
     ],
 )
 def test_unreadable_value_types_are_fatal(tmp_path: Path, document: str) -> None:

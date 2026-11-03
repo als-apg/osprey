@@ -36,7 +36,7 @@ __all__ = ["element_stop", "fill_wiring_slots"]
 _MODELS_FILE = "models.yaml"
 
 #: The keys of an engine's description a wiring record carries.
-_DESCRIPTION_KEYS = ("role", "plane", "refresh")
+_DESCRIPTION_KEYS = ("engine_role", "plane", "refresh")
 
 
 def fill_wiring_slots(validated: Validated) -> list[FacilityBuildError]:
@@ -50,12 +50,12 @@ def fill_wiring_slots(validated: Validated) -> list[FacilityBuildError]:
     * ``unit``: the channel's unit, when the channel states one;
     * ``value_range``: ``[min_value, max_value]`` of the channel's limits
       record, when that record states both bounds;
-    * ``role``, ``plane`` and ``refresh``: what the model's engine
+    * ``engine_role``, ``plane`` and ``refresh``: what the model's engine
       ``describe()`` says the record is; ``plane`` is null for a record that
       steers or reads no plane.
 
-    ``default`` waits for a deck; ``role``, ``plane`` and ``refresh`` wait for
-    an engine, which every model but a ``texture`` one names. Each filled slot
+    ``default`` waits for a deck; ``engine_role``, ``plane`` and ``refresh``
+    wait for an engine, which every model but a ``texture`` one names. Each filled slot
     is recorded in the record's ``provenance.defaults``. The engine is reached
     through the ``osprey.simulation.engines`` entry-point group, read once per
     build. A record the engine has no start value for, or cannot describe, is
@@ -246,7 +246,7 @@ def _check_description(
         expected, why = "output", "it names no element"
     else:
         return
-    if description.get("role") != expected:
+    if description.get("engine_role") != expected:
         raise FacilityBuildError(
             "engine-invalid",
             str(model["name"]),
@@ -254,7 +254,7 @@ def _check_description(
             f"make the engine's describe() call {address} a {expected}",
             record_kind="model",
             detail=(
-                f"the engine describes {address} as a {description.get('role')}; "
+                f"the engine describes {address} as a {description.get('engine_role')}; "
                 f"it is a {expected}: {why}"
             ),
         )

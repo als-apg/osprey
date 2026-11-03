@@ -322,4 +322,4 @@ def test_view_reader_stamp_a1_holds(
     }
     named = [entry for entry in model.wiring if entry["address"] in derived]
     assert named
-    assert {(entry["direction"], entry["role"]) for entry in named} == {("read", "readback")}
+    assert {(entry["direction"], entry["engine_role"]) for entry in named} == {("read", "readback")}

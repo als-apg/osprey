@@ -311,8 +311,8 @@ def _stub_channel(address: str, owner: str, **fields: Any) -> dict[str, Any]:
 
 
 #: The description a build stamps on a stub setpoint and a stub readback.
-_DESCRIBED_SETPOINT = {"role": "setpoint", "plane": None, "refresh": "pass"}
-_DESCRIBED_READBACK = {"role": "readback", "plane": None, "refresh": "pass"}
+_DESCRIBED_SETPOINT = {"engine_role": "setpoint", "plane": None, "refresh": "pass"}
+_DESCRIBED_READBACK = {"engine_role": "readback", "plane": None, "refresh": "pass"}
 
 
 def _write_stub_view(root: Path) -> Path:

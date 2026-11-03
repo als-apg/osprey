@@ -366,7 +366,7 @@ def _stub_view(root: Path, settings: Mapping[str, Any] | None = None) -> Path:
             "id": str(index),
             "address": channel["address"],
             "direction": "read",
-            "role": "readback",
+            "engine_role": "readback",
             "plane": None,
             "refresh": "pass",
         }

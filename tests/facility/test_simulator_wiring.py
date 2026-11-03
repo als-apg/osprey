@@ -4,7 +4,7 @@
 facility file onto the simulator's wiring entry shape: the authored keys
 (``id``, ``address``, ``element`` or ``slices``, ``engine``, ``calibration``)
 plus the slots the build fills from the channel, its limits record and the
-model's engine (``direction``, ``unit``, ``default``, ``value_range``, ``role``,
+model's engine (``direction``, ``unit``, ``default``, ``value_range``, ``engine_role``,
 ``plane``, ``refresh``). A key the record does not carry is absent from its
 entry; ``provenance`` never appears.
 """
@@ -35,11 +35,11 @@ ENTRY_KEYS = {
     "unit",
     "default",
     "value_range",
-    "role",
+    "engine_role",
     "plane",
     "refresh",
 }
-ALWAYS = {"id", "address", "engine", "direction", "default", "role", "plane", "refresh"}
+ALWAYS = {"id", "address", "engine", "direction", "default", "engine_role", "plane", "refresh"}
 UNWIRED_ELEMENT = {"SR:DIAG:CHROM:X", "SR:DIAG:CHROM:Y", "SR:DIAG:TUNE:X", "SR:DIAG:TUNE:Y"}
 
 
@@ -155,6 +155,6 @@ def test_simulator_wiring_loads_no_engine(
     entries = simulator_wiring(FacilityRecords(demo), "SR")
 
     for entry, record in zip(entries, _records(demo, "SR"), strict=True):
-        assert {key: entry[key] for key in ("role", "plane", "refresh")} == {
-            key: record[key] for key in ("role", "plane", "refresh")
+        assert {key: entry[key] for key in ("engine_role", "plane", "refresh")} == {
+            key: record[key] for key in ("engine_role", "plane", "refresh")
         }, entry["id"]

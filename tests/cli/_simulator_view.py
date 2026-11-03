@@ -129,7 +129,7 @@ def write_simulator_view(
                             "id": "0",
                             "address": _BPM,
                             "direction": "read",
-                            "role": "monitor",
+                            "engine_role": "monitor",
                             "plane": "x",
                             "refresh": "pass",
                         }

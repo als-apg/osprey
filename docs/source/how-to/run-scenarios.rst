@@ -89,7 +89,7 @@ resolves it to plain addresses:
 .. code-block:: yaml
 
    still:
-     - {model: <model>, role: monitor}
+     - {model: <model>, engine_role: monitor}
      - {place: <place>, signal: <signal>}
      - <address>
 
@@ -98,8 +98,8 @@ resolves it to plain addresses:
 - ``place``: channels on that place or on a place under it.
 - ``group``: channels on a device of that group.
 - ``signal``: channels stating that ``signal``.
-- ``role``: channels whose wiring record has that role (``setpoint``,
-  ``readback``, ``monitor`` or ``output``), not the channel's own ``role``.
+- ``engine_role``: channels whose wiring record has that engine role
+  (``setpoint``, ``readback``, ``monitor`` or ``output``).
 - ``plane``: channels whose wiring record has that plane.
 
 The keys of one selection all apply. The build stops on a selection that names
