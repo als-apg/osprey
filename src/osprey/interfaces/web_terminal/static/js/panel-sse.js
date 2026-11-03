@@ -411,9 +411,10 @@ function showOutcome(frame, outcome, before, after) {
  * a `url` navigates the panel's iframe, and the layout the holder now holds is
  * POSTed to /api/panel-op-result with the pop-outs beside it; the `rev` that
  * answer returns is the holder's new ack baseline — unless the layout moved on
- * meanwhile, which stays dirty for dock-sync's next report. An `open` of a
- * panel in its own window brings that window forward and answers the layout
- * unchanged.
+ * meanwhile, which dock-sync then reports. An `open` of a panel in its own
+ * window brings that window forward and answers the layout unchanged. The
+ * answer may come after the server stopped waiting (`no_dock_answer`); the
+ * server still records it, as the layout report it is.
  *
  * Every frame is answered. A refusal is POSTed by name only while the holder
  * still holds the layout it had before the op: then nothing changed. Once the
@@ -472,8 +473,9 @@ async function forceLayoutReport() {
  * holds `sent` now, so it becomes dock-sync's dedupe baseline; its `rev` is the
  * holder's ack baseline only while the holder still holds `sent` (up to
  * dockview's size rounding, as dock-sync compares reports) — a layout that
- * moved on meanwhile stays dirty for dock-sync's next report. An answer that
- * did not land, or carries no `rev`, records nothing.
+ * moved on meanwhile is not acked here, and dock-sync reports it
+ * (noteReported). An answer that did not land, or carries no `rev`, records
+ * nothing.
  * @param {{layout: unknown, popouts: string[], ack: (rev: number) => void}} holder
  * @param {{layout: unknown, popouts: string[]}} sent  what was sent
  * @param {{rev?: number} | null} ack  the server's answer, or null

@@ -4,7 +4,9 @@ A write route under ``/api/panel-op/`` checks what the server can check, relays 
 ``panel_op`` frame addressed to the current dock client on a channel that never
 drops frames, and waits for that client's ``/api/panel-op-result``. The result
 route records the layout as the client's report and mints the ``rev`` the write
-returns. Every refusal is named and changes nothing.
+returns. Every refusal is named and changes nothing, except ``no_dock_answer``:
+the client did not answer in time and may still apply the op, so its outcome
+is unknown, and an answer that comes later is recorded as the client's report.
 
 The dock client is played by the test: it reads the relayed frame from a real
 :class:`FileEventBroadcaster` subscription and answers over the same app.
@@ -296,13 +298,15 @@ async def test_no_dock_client_is_refused_at_once():
     assert frame is None
 
 
-async def test_a_dock_that_never_answers_is_no_dock_client(monkeypatch):
+async def test_a_dock_that_does_not_answer_in_time_leaves_the_outcome_unknown(monkeypatch):
+    """The frame went out, so the dock may still apply the op: the write never says it did not."""
     monkeypatch.setattr(panel_ops, "OP_TIMEOUT_S", 0.05)
     app = _app()
     resp, frame, _ = await _write(app, "/api/panel-op/open", {"member": "lattice"})
 
     assert resp.status_code == 409
-    assert resp.json()["reason"] == "no_dock_client"
+    assert resp.json()["reason"] == "no_dock_answer"
+    assert resp.json()["rev"] == 3
     assert frame["type"] == "panel_op"
     assert app.state.panel_ops == {}
     assert app.state.dock_layout_rev == 3
@@ -337,6 +341,132 @@ async def test_a_pending_request_id_cannot_be_reused():
     assert resp.status_code == 409
     assert resp.json()["reason"] == "duplicate_request"
     assert frame is None
+
+
+# ---- a dock that answers after the write gave up ---- #
+
+
+async def _late(
+    app: FastAPI, body: dict, answer: Callable[[dict], dict], request_id: str = "r1"
+) -> tuple[httpx.Response, httpx.Response]:
+    """POST an ``open`` the dock client does not answer in time, then play its late answer.
+
+    Returns the write's response and the late answer's.
+    """
+    page = app.state.broadcaster.subscribe(CLIENT)
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://wt") as client:
+        resp = await client.post("/api/panel-op/open", json={"request_id": request_id, **body})
+        late = await client.post("/api/panel-op-result", json=answer(page.get_nowait()))
+    app.state.broadcaster.unsubscribe(page)
+    return resp, late
+
+
+async def test_a_late_answer_is_recorded_as_the_clients_report(monkeypatch):
+    """A dock that applies the op after the write gave up still answers, and the server keeps it.
+
+    The write has already returned, so the answer changes what the panels read
+    says (layout, rev, current client) and nothing else: no rail entry and no
+    activity row for an op the agent was told may not have happened.
+    """
+    monkeypatch.setattr(panel_ops, "OP_TIMEOUT_S", 0.05)
+    app = _app(dock_client_id=CLIENT)
+    resp, late = await _late(app, {"member": "lattice"}, _layout_answer())
+
+    assert resp.json()["reason"] == "no_dock_answer"
+    assert late.status_code == 200
+    assert late.json()["rev"] == 4
+    assert late.json()["layout"] == normalize_layout(AFTER)
+    assert app.state.dock_layout == normalize_layout(AFTER)
+    assert app.state.dock_layout_rev == 4
+    assert app.state.dock_client_id == CLIENT
+    assert app.state.visible_panels == ["ariel"]
+    assert _activity(app) == []
+
+
+async def test_a_late_answer_is_checked_like_a_report(monkeypatch):
+    monkeypatch.setattr(panel_ops, "OP_TIMEOUT_S", 0.05)
+    app = _app()
+    bad = {"tile": "t1", "tabs": ["nope"], "showing": "nope"}
+    _, late = await _late(app, {"member": "lattice"}, _layout_answer(bad))
+
+    assert late.status_code == 422
+    assert app.state.dock_layout == LAYOUT
+    assert app.state.dock_layout_rev == 3
+
+
+async def test_a_late_refusal_records_nothing(monkeypatch):
+    monkeypatch.setattr(panel_ops, "OP_TIMEOUT_S", 0.05)
+    app = _app()
+    _, late = await _late(app, {"member": "lattice"}, _refusal_answer("stale_base"))
+
+    assert late.status_code == 200
+    assert app.state.dock_layout == LAYOUT
+    assert app.state.dock_layout_rev == 3
+
+
+async def test_a_late_answer_from_another_client_is_refused_and_the_dock_can_still_answer(
+    monkeypatch,
+):
+    monkeypatch.setattr(panel_ops, "OP_TIMEOUT_S", 0.05)
+    app = _app()
+
+    def other(frame: dict) -> dict:
+        return {"request_id": frame["request_id"], "client_id": "page-2", "layout": AFTER}
+
+    _, late = await _late(app, {"member": "lattice"}, other)
+    assert late.status_code == 403
+    assert app.state.dock_layout == LAYOUT
+
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://wt") as client:
+        answer = {"request_id": "r1", "client_id": CLIENT, "layout": AFTER}
+        assert (await client.post("/api/panel-op-result", json=answer)).status_code == 200
+    assert app.state.dock_layout == normalize_layout(AFTER)
+
+
+async def test_a_late_answer_counts_once(monkeypatch):
+    monkeypatch.setattr(panel_ops, "OP_TIMEOUT_S", 0.05)
+    app = _app()
+    _, late = await _late(app, {"member": "lattice"}, _layout_answer())
+    assert late.status_code == 200
+
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://wt") as client:
+        again = {"request_id": "r1", "client_id": CLIENT, "layout": LAYOUT}
+        assert (await client.post("/api/panel-op-result", json=again)).status_code == 404
+    assert app.state.dock_layout == normalize_layout(AFTER)
+
+
+async def test_an_unanswered_request_id_cannot_be_reused(monkeypatch):
+    """A second write under its id could otherwise take the first op's late answer as its own."""
+    monkeypatch.setattr(panel_ops, "OP_TIMEOUT_S", 0.05)
+    app = _app()
+    first, _, _ = await _write(app, "/api/panel-op/open", {"member": "lattice"})
+    assert first.json()["reason"] == "no_dock_answer"
+
+    again, frame, _ = await _write(app, "/api/panel-op/open", {"member": "lattice"})
+    assert again.json()["reason"] == "duplicate_request"
+    assert frame is None
+
+
+async def test_only_the_newest_unanswered_requests_are_kept(monkeypatch):
+    monkeypatch.setattr(panel_ops, "OP_TIMEOUT_S", 0.05)
+    monkeypatch.setattr(panel_ops, "UNANSWERED_CAP", 1)
+    app = _app()
+    page = app.state.broadcaster.subscribe(CLIENT)
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://wt") as client:
+        for request_id in ("r1", "r2"):
+            resp = await client.post(
+                "/api/panel-op/open", json={"request_id": request_id, "member": "lattice"}
+            )
+            assert resp.json()["reason"] == "no_dock_answer"
+        oldest = {"request_id": "r1", "client_id": CLIENT, "layout": AFTER}
+        newest = {"request_id": "r2", "client_id": CLIENT, "layout": AFTER}
+        assert (await client.post("/api/panel-op-result", json=oldest)).status_code == 404
+        assert (await client.post("/api/panel-op-result", json=newest)).status_code == 200
+    app.state.broadcaster.unsubscribe(page)
 
 
 # ---- drop ---- #
@@ -514,7 +644,7 @@ async def test_a_result_from_another_client_is_refused(monkeypatch):
 
     resp, _, result = await _write(app, "/api/panel-op/open", {"member": "lattice"}, other)
     assert result.status_code == 403
-    assert resp.json()["reason"] == "no_dock_client"
+    assert resp.json()["reason"] == "no_dock_answer"
     assert app.state.dock_layout == LAYOUT
 
 

@@ -509,7 +509,7 @@ PANEL_OP_ROUTES: dict[str, str] = {
 
 #: Socket timeout of :func:`panel_op`. Longer than the route's own 5 s wait for
 #: the dock client, so a silent dock comes back as the route's named
-#: ``no_dock_client`` refusal rather than as a dropped connection.
+#: ``no_dock_answer`` (outcome unknown) rather than as a dropped connection.
 PANEL_OP_TIMEOUT_S = 8
 
 #: Reason :func:`panel_op` reports when the web terminal cannot be reached.
@@ -542,8 +542,9 @@ def panel_op(op: str, args: dict, *, base_rev: int | None = None) -> dict:
         <int>}`` when the dock applied the op, else ``{"ok": False, "status": <int|None>,
         "reason": <str>, "detail": <str>}`` (plus ``rev`` when the server gave
         one). ``reason`` is the route's named refusal (``stale_base``,
-        ``no_dock_client``, ``terminal_not_agent_movable``, ...),
-        ``invalid_request`` for a body the route could not parse, or
+        ``no_dock_client``, ``terminal_not_agent_movable``, ...) or
+        ``no_dock_answer`` (the dock did not answer in time and may still apply
+        the op), ``invalid_request`` for a body the route could not parse, or
         :data:`NO_WEB_TERMINAL` when the terminal is unreachable.
 
     Raises:

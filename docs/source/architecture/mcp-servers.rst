@@ -229,10 +229,13 @@ Every layout tool is one agent dock operation sent through the op helper
 (``panel_op``): the web terminal relays it to the browser holding the dock and
 answers with the resulting layout and ``rev``, or with a named refusal
 (``stale_base``, ``no_dock_client``, ``terminal_not_agent_movable``, ...) that
-changed nothing. The tools that name tile ids (``drop_panel``,
-``close_panel_tile``) take the ``rev`` of the agent's last read as
-``base_rev``. The terminal is never an agent drop source or close target, and a
-layout never names it.
+changed nothing. A browser that does not answer within five seconds gives
+``no_dock_answer``. The browser can still apply that operation, so the outcome
+is unknown: the agent reads the panels again before it tries again. The web
+terminal records the late answer of the browser as its layout report. The
+tools that name tile ids (``drop_panel``, ``close_panel_tile``) take the
+``rev`` of the agent's last read as ``base_rev``. The terminal is never an
+agent drop source or close target, and a layout never names it.
 
 **Screen Capture:**
 

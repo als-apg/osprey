@@ -871,6 +871,19 @@ class TestClosePanelTabAndTile:
 
         assert "Web Terminal" in ctx["envelope"]["suggestions"][0]
 
+    @pytest.mark.asyncio
+    async def test_a_dock_that_did_not_answer_leaves_the_outcome_unknown(self):
+        """The dock may still apply the op: the error never says nothing changed."""
+        no_answer = _refused("no_dock_answer", "the dock client did not answer in time", rev=5)
+        with patch(f"{_MODULE}.panel_op", return_value=no_answer):
+            with assert_raises_error(error_type="no_dock_answer") as ctx:
+                await _tool("close_panel_tile")("t1", 5)
+
+        envelope = ctx["envelope"]
+        assert "Nothing changed" not in envelope["error_message"]
+        assert "outcome is unknown" in envelope["error_message"]
+        assert "list_panels" in envelope["suggestions"][0]
+
     def test_old_close_panel_tool_is_gone(self):
         from osprey.mcp_server.workspace.tools import panel_tools
 

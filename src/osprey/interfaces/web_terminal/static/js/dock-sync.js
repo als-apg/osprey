@@ -288,10 +288,19 @@ export function sameReport(a, b) {
  * without this, a person undoing an agent's open would land on the stale
  * baseline, be deduped away as already reported, and leave the server holding
  * the panel open.
+ *
+ * A holder that no longer holds `sent` reports what it holds. An answer can
+ * land after the report of a newer layout (an op the dock answered late, a
+ * person's change meanwhile); the server then holds a layout that is no longer
+ * on screen, and no further change may come to correct it.
  * @param {Report} sent  the acknowledged report
  */
 export function noteReported(sent) {
   lastReported = sent;
+  const holder = getLayoutHolder();
+  if (holder && !sameReport({ layout: holder.layout, popouts: holder.popouts }, sent)) {
+    scheduleLayoutReport();
+  }
 }
 
 /**

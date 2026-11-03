@@ -619,6 +619,24 @@ describe('layout reporter — from the holder, settle debounce, content dedupe, 
     expect(serverReport).toHaveBeenCalledTimes(1);
   });
 
+  test('an op answer the server took after a newer report is followed by a report of the screen', async () => {
+    // A person's newer layout was reported and acked; then the op's answer,
+    // built before that change, landed last (an answer the dock sent late). The
+    // server holds the older layout now, so the one on screen goes out again.
+    const { api, mod, holder } = await wireReporting(row(['ariel'], ['terminal']));
+    await vi.advanceTimersByTimeAsync(SETTLE);
+    const newer = row(['ariel', 'okf'], ['terminal']);
+    change(api, newer);
+    await vi.advanceTimersByTimeAsync(SETTLE);
+    expect(serverReport).toHaveBeenCalledTimes(2);
+    expect(holder.dirty).toBe(false);
+
+    mod.noteReported({ layout: row(['okf'], ['terminal']), popouts: [] });
+    await vi.advanceTimersByTimeAsync(SETTLE);
+    expect(serverReport).toHaveBeenCalledTimes(3);
+    expect(serverReport).toHaveBeenLastCalledWith(newer, [], true);
+  });
+
   test('a panel leaving for its own window is reported, with the pop-outs beside the layout', async () => {
     const { api, holder } = await wireReporting(row(['ariel'], ['terminal']));
     await vi.advanceTimersByTimeAsync(SETTLE);

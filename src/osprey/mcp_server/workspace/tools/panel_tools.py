@@ -12,7 +12,9 @@ The on-screen verbs are the dock ops in OSPREY's naming style (``open``,
 ``open_set``, ``open_arrangement``, ``drop``, ``close_tab``, ``close_tile``). Every one goes through :func:`osprey.mcp_server.http.panel_op`,
 the one agent dock-write path: the web terminal relays the op to the browser
 that holds the dock, and the tool answers with the resulting layout and its
-``rev`` — or with a named refusal, in which case nothing changed.
+``rev`` — or with a named refusal, in which case nothing changed. The one
+exception is ``no_dock_answer``: the browser did not answer in time and may
+still apply the op, so its outcome is unknown until ``list_panels`` is read.
 
 ``list_panels`` reports both axes, the full layout and the ``rev`` the
 tile-naming verbs take as ``base_rev``. ``register_panel`` adds a panel the
@@ -69,7 +71,9 @@ async def list_panels() -> str:
     ``base_rev`` to ``drop_panel`` and ``close_panel_tile``, which name tile ids
     — a write against an older ``rev`` is refused ``stale_base``.  Every write
     tool returns the new layout and ``rev``, so two steps in a row need no
-    second read.
+    second read.  A write the browser did not answer in time fails with
+    ``no_dock_answer``: the browser may still apply it, so read the panels
+    again before you retry it.
 
     How far to trust ``layout``:
 
@@ -300,6 +304,10 @@ async def register_panel(
     )
 
 
+#: The one reason after which the op may still be applied: the browser was sent
+#: it and did not answer in time, so its outcome is unknown, not refused.
+_NO_DOCK_ANSWER = "no_dock_answer"
+
 #: Next steps per named refusal; a reason not listed gets :data:`_DEFAULT_HINT`.
 _REFUSAL_HINTS: dict[str, str] = {
     "stale_base": (
@@ -309,6 +317,10 @@ _REFUSAL_HINTS: dict[str, str] = {
     "no_dock_client": (
         "No browser with the dock is answering: ask the operator to open the Web "
         "Terminal, or continue without the workspace."
+    ),
+    _NO_DOCK_ANSWER: (
+        "The browser may still apply the op: call list_panels, and retry only if "
+        "its layout does not show the change."
     ),
     NO_WEB_TERMINAL: "Continue without the workspace, or ask the operator to start it.",
     "terminal_not_agent_movable": (
@@ -347,17 +359,18 @@ def _refuse(op: str, reason: str, detail: str, rev: int | None = None) -> None:
     """Raise the structured error for an op refused for a named ``reason``.
 
     The ``error_type`` is the reason itself (``stale_base``,
-    ``terminal_not_agent_movable``, ...), so an agent can branch on it.
+    ``terminal_not_agent_movable``, ...), so an agent can branch on it. A
+    refusal changed nothing; ``no_dock_answer`` is not a refusal but an
+    unknown outcome, and its message says so.
     """
     details: dict[str, Any] = {"op": op, "reason": reason, "detail": detail}
     if rev is not None:
         details["rev"] = rev
-    make_error(
-        reason,
-        f"{_OP_TOOLS[op]} refused ({reason}): {detail} Nothing changed.",
-        [_REFUSAL_HINTS.get(reason, _DEFAULT_HINT)],
-        details,
-    )
+    if reason == _NO_DOCK_ANSWER:
+        message = f"{_OP_TOOLS[op]} got no answer ({reason}): {detail} The outcome is unknown."
+    else:
+        message = f"{_OP_TOOLS[op]} refused ({reason}): {detail} Nothing changed."
+    make_error(reason, message, [_REFUSAL_HINTS.get(reason, _DEFAULT_HINT)], details)
 
 
 async def _run_panel_op(
@@ -370,8 +383,9 @@ async def _run_panel_op(
         the dock applied the op.
 
     Raises:
-        ToolError: The op was refused (or the web terminal is unreachable); the
-            envelope's ``error_type`` is the named reason.
+        ToolError: The op was refused, the web terminal is unreachable, or the
+            browser did not answer in time (``no_dock_answer``); the envelope's
+            ``error_type`` is the named reason.
     """
     result = await anyio.to_thread.run_sync(
         functools.partial(panel_op, op, args, base_rev=base_rev)
