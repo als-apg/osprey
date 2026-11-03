@@ -11,7 +11,9 @@ Each prompt is the page's own, typed in the chat's composer. The terminal runs a
 stand-in shell, so a session reaches it by a reload of a tab that opted into it, and a prompt
 typed in it is the post its trigger hook makes to the intake. A flag
 opens after its prompt, so a scripted turn that must meet the flag waits at the
-model until the record shows both.
+model until the hold record shows both. The test itself waits on what each
+watchdog decided for the submission, read from the deployment's agent record,
+which both the app's intake and the trigger hook's own fallback write.
 
 Run:
     uv run pytest tests/interfaces/test_watchdog_e2e.py -m browser -q
@@ -38,7 +40,6 @@ import pytest
 import yaml
 
 from osprey.agent_runner.project_paths import CLAUDE_CONFIG_DIR_ENV
-from osprey.audit import writer as audit_writer
 from osprey.interfaces import _serving
 from osprey.interfaces._serving import run_app_server
 from osprey.interfaces.common_middleware import OPERATOR_SECRET_HEADER, WEB_PORT_ENV
@@ -85,6 +86,11 @@ pytestmark = [pytest.mark.browser, pytest.mark.slow, pytest.mark.usefixtures("re
 SECOND_WATCHDOG = "second-look"
 WATCHDOGS = {WATCHDOG, SECOND_WATCHDOG}
 
+#: The audit decisions a watchdog files for a submission; every other one is an answer.
+VERDICT_DECISIONS = frozenset({"flagged", "clear", "unavailable"})
+#: The verdict the trigger hook's fallback files before it judges the submission itself.
+INTAKE_FAILED = "intake_failed"
+
 CHIP = "#control-target-chip"
 CHIP_STATE = f"{CHIP} .ctc-state"
 DIALOG = ".watchdog-alert-dialog"
@@ -103,6 +109,7 @@ TIMEOUT_MS = 15_000
 #: A first prompt launches the agent and its MCP servers, then the watchdogs judge it.
 TURN_TIMEOUT_MS = 120_000
 FLAG_TIMEOUT_S = 90.0
+VERDICT_POLL_S = 0.2
 HTTP_TIMEOUT_S = 180.0
 
 EXECUTE = "mcp__python__execute"
@@ -130,7 +137,7 @@ class Served:
     events: dict[str, Any]
     conductor: Conductor
     jev: FakeJev
-    audit: list[dict[str, Any]] = field(default_factory=list)
+    recorded_entries: Callable[..., list[Any]]
     keys: set[str] = field(default_factory=set)
     app: Any = None
     base_url: str = ""
@@ -199,7 +206,10 @@ class Served:
                 if {flag.source for flag in self.flags(key)} == WATCHDOGS:
                     return
                 time.sleep(0.05)
-            raise AssertionError(f"both flags did not open within {FLAG_TIMEOUT_S} s")
+            raise AssertionError(
+                f"both flags did not open within {FLAG_TIMEOUT_S} s; "
+                "the test's verdict wait names the watchdog that missed"
+            )
 
         return wait
 
@@ -215,15 +225,80 @@ class Served:
         self.conductor.next_prompt(prompt, script, before_turn)
         return prompt
 
+    def watchdog_entries(self, key: str) -> list[dict[str, Any]]:
+        """Every watchdog audit body the record holds for *key*, oldest first."""
+        entries = sorted(self.recorded_entries("audit"), key=lambda entry: entry.ts)
+        return [
+            dict(entry.body)
+            for entry in entries
+            if entry.body.get("surface") == SURFACE_SAFETY_WATCHDOG
+            and entry.body.get("session") == key
+        ]
+
     def answers(self, key: str) -> list[dict[str, Any]]:
-        """The answers filed for *key*: every audit entry that is not a verdict."""
+        """The answers filed for *key*: every watchdog entry that is not a verdict."""
         return [
             entry
-            for entry in self.audit
-            if entry["surface"] == SURFACE_SAFETY_WATCHDOG
-            and entry.get("session") == key
-            and entry["decision"] not in {"flagged", "clear", "unavailable"}
+            for entry in self.watchdog_entries(key)
+            if entry["decision"] not in VERDICT_DECISIONS
         ]
+
+    def verdicts(self, key: str) -> dict[str, dict[str, list[dict[str, Any]]]]:
+        """The verdicts filed for *key*: by submission (``prompt_ref``), then watchdog."""
+        by_ref: dict[str, dict[str, list[dict[str, Any]]]] = {}
+        for entry in self.watchdog_entries(key):
+            if entry["decision"] in VERDICT_DECISIONS:
+                ref = _prompt_ref(entry)
+                by_ref.setdefault(ref, {}).setdefault(entry["subject"], []).append(entry)
+        return by_ref
+
+    def await_flagged_verdicts(self, key: str, seen: set[str]) -> str:
+        """Block until a submission not in *seen* is judged flagged by every watchdog; its ref.
+
+        A judged verdict is a watchdog's first one that is not the fallback's
+        ``intake_failed``. One that is not ``flagged`` fails at once, naming
+        the watchdog and what it decided; past :data:`FLAG_TIMEOUT_S` the
+        failure names each watchdog that has not judged yet.
+        """
+        deadline = time.monotonic() + FLAG_TIMEOUT_S
+        while True:
+            fresh = {ref: by_name for ref, by_name in self.verdicts(key).items() if ref not in seen}
+            for ref, by_name in fresh.items():
+                judged = {name: _judged(by_name.get(name, [])) for name in sorted(WATCHDOGS)}
+                for name, verdict in judged.items():
+                    if verdict is not None and verdict["decision"] != "flagged":
+                        raise AssertionError(
+                            f"{name}: {verdict['decision']} ({verdict['reason']}); "
+                            f"intake_failed recorded: {_intake_failed(by_name.get(name, []))}"
+                        )
+                if all(verdict is not None for verdict in judged.values()):
+                    return ref
+            if time.monotonic() >= deadline:
+                missing = [
+                    f"{name} (intake_failed recorded: "
+                    f"{_intake_failed([e for by in fresh.values() for e in by.get(name, [])])})"
+                    for name in sorted(WATCHDOGS)
+                    if not any(_judged(by.get(name, [])) for by in fresh.values())
+                ]
+                raise AssertionError(
+                    f"no judged verdict within {FLAG_TIMEOUT_S} s: {', '.join(missing)}"
+                )
+            time.sleep(VERDICT_POLL_S)
+
+
+def _prompt_ref(entry: dict[str, Any]) -> str:
+    """The submission a verdict entry judged: its ``prompt_ref=`` detail token."""
+    tokens = dict(part.split("=", 1) for part in (entry.get("detail") or "").split() if "=" in part)
+    return tokens.get("prompt_ref", "")
+
+
+def _judged(verdicts: list[dict[str, Any]]) -> dict[str, Any] | None:
+    """A watchdog's judged verdict: the first that is not the fallback's ``intake_failed``."""
+    return next((entry for entry in verdicts if entry["reason"] != INTAKE_FAILED), None)
+
+
+def _intake_failed(verdicts: list[dict[str, Any]]) -> str:
+    return "yes" if any(entry["reason"] == INTAKE_FAILED for entry in verdicts) else "no"
 
 
 @pytest.fixture(autouse=True)
@@ -259,6 +334,7 @@ def served(
     scripted_model: Callable[[Any], Any],  # noqa: F811
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
+    recorded_entries: Callable[..., list[Any]],
 ) -> Iterator[Served]:
     """The app served over the deployment, with the model and Jev replaced."""
     jev = FakeJev()
@@ -298,15 +374,8 @@ def served(
         },
         conductor=conductor,
         jev=jev,
+        recorded_entries=recorded_entries,
     )
-
-    record = audit_writer.record
-
-    def keep_and_record(**fields: Any) -> Any:
-        stack.audit.append(dict(fields))
-        return record(**fields)
-
-    monkeypatch.setattr(audit_writer, "record", keep_and_record)
 
     stack.start()
     # Read when a child starts, so the trigger hook posts to this app.
@@ -375,7 +444,9 @@ def _flag_in_composer(
         flagging=True,
         before_turn=before_turn or {0: served.until_both_flagged(key)},
     )
+    seen = set(served.verdicts(key))
     _type_prompt(page, prompt)
+    served.await_flagged_verdicts(key, seen)
     _assert_dialog_names_both_watchdogs(page, prompt)
     return prompt
 
@@ -483,18 +554,21 @@ def test_the_terminal_shows_the_held_session_and_a_flag_raised_under_it(
 
     # What the trigger hook posts for a prompt typed in this terminal.
     typed = f"A prompt typed in the terminal ({uuid.uuid4().hex})."
+    submission_id = str(uuid.uuid4())
     served.jev.flagging = True
+    seen = set(served.verdicts(key))
     with served.client() as client:
         posted = client.post(
             "/api/watchdog/prompt",
             json={
                 "session_key": key,
                 "record_session_id": key,
-                "submission_id": str(uuid.uuid4()),
+                "submission_id": submission_id,
                 "prompt": typed,
             },
         )
     assert posted.status_code == 202, posted.text
+    assert served.await_flagged_verdicts(key, seen) == f"{key}:{submission_id}"
 
     _assert_dialog_names_both_watchdogs(page, typed)
     _assert_chip_held(page)
