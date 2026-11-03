@@ -50,6 +50,7 @@ from uuid import uuid4
 
 import click
 
+from osprey.deployment.compose_generator import TEMPLATE_FILENAME
 from osprey.deployment.compose_merge import MERGED_COMPOSE_FILENAME
 from osprey.deployment.members import WORKSPACE_MEMBERS
 from osprey.facility.errors import FacilityBuildError, FacilityBuildWarning
@@ -905,7 +906,7 @@ def _inert_axis_errors(config: dict[str, Any], indexed: Sequence[_RenderedServic
         if not stranded:
             continue
         template = os.path.join(
-            str(_mapping(block).get("path") or f"./services/{name}"), "docker-compose.yml.j2"
+            str(_mapping(block).get("path") or f"./services/{name}"), TEMPLATE_FILENAME
         )
         errors.append(
             f"services.{name}.network is '{_HOST_NETWORK}', but the compose file this "
@@ -1084,9 +1085,6 @@ def _network_check_errors(config: dict[str, Any], compose_files: Sequence[str]) 
 # A service must be real, checked against what is about to be rendered
 # ---------------------------------------------------------------------------
 
-#: The file that makes a directory a service template, bundled or custom.
-_SERVICE_TEMPLATE_FILE = "docker-compose.yml.j2"
-
 
 def _bundled_service_names() -> frozenset[str]:
     """Every service OSPREY ships a compose template for, by its config key.
@@ -1100,7 +1098,7 @@ def _bundled_service_names() -> frozenset[str]:
     templates = {
         entry.name
         for entry in root.iterdir()
-        if entry.is_dir() and (entry / _SERVICE_TEMPLATE_FILE).is_file()
+        if entry.is_dir() and (entry / TEMPLATE_FILENAME).is_file()
     }
     shared = {name for name, owner in _SHARED_SERVICE_TEMPLATE.items() if owner in templates}
     return frozenset(templates | shared)
@@ -1153,7 +1151,7 @@ def _service_existence_errors(config: Mapping[str, Any], render_root: Path) -> l
         if (
             isinstance(path, str)
             and path.strip()
-            and (render_root / path / _SERVICE_TEMPLATE_FILE).is_file()
+            and (render_root / path / TEMPLATE_FILENAME).is_file()
         ):
             continue
         where = [
@@ -1163,14 +1161,14 @@ def _service_existence_errors(config: Mapping[str, Any], render_root: Path) -> l
         close = difflib.get_close_matches(name, sorted(bundled), n=1)
         hint = f" (did you mean {close[0]!r}?)" if close else ""
         if isinstance(path, str) and path.strip():
-            found = f"its path {path!r} holds no {_SERVICE_TEMPLATE_FILE}"
+            found = f"its path {path!r} holds no {TEMPLATE_FILENAME}"
         else:
             found = "it states no path"
         errors.append(
             f"{' and '.join(where)} name(s) the service {name!r}{hint}, which OSPREY "
             f"does not bundle, and {found}. Bundled services are: "
             f"{', '.join(sorted(bundled))}. A custom service needs services.{name}.path "
-            f"naming a directory in the repo that holds its {_SERVICE_TEMPLATE_FILE} "
+            f"naming a directory in the repo that holds its {TEMPLATE_FILENAME} "
             "(for example ./services/<name>, from the profile's services/ directory)."
         )
     return errors

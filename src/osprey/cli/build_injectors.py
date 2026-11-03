@@ -26,7 +26,7 @@ from osprey.agent_record.config import HISTORY_SERVICE, history_page_deployed
 from osprey.bluesky_bridge_connection import LANE_KEYS, SECOND_LANE_KEYS
 from osprey.cli.build_profile_presets import bundled_services_dir, resolve_service_template
 from osprey.cli.build_profile_schema import ServiceDef, osprey_declares_binding
-from osprey.deployment.compose_generator import AGENT_RECORD_TEMPLATE_DIR
+from osprey.deployment.compose_generator import AGENT_RECORD_TEMPLATE_DIR, TEMPLATE_FILENAME
 from osprey.deployment.graphdb_service import (
     DEFAULT_TTL_PATH,
     GRAPHDB_SERVICE_NAME,
@@ -372,9 +372,9 @@ def _copy_service_templates(project_path: Path) -> int:
     # Always copy the root compose template so `osprey up` works even
     # for presets with no deployed_services (the renderer references it
     # unconditionally; without it deploy fails with TemplateNotFound).
-    root_template = pkg_services / "docker-compose.yml.j2"
+    root_template = pkg_services / TEMPLATE_FILENAME
     if root_template.exists():
-        shutil.copy2(root_template, dest_services_root / "docker-compose.yml.j2")
+        shutil.copy2(root_template, dest_services_root / TEMPLATE_FILENAME)
 
     services_config = config.get("services", {})
 
