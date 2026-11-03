@@ -244,6 +244,37 @@ _CONTROL_ASSISTANT_RENDERS = (
 )
 
 
+#: The control-assistant renders that show the CANOPY panel and open on it: the
+#: root and its personal logins. The shared logins carry the panel's block
+#: switched off and keep their own default tab.
+_CANOPY_RENDERS = ("root", "admin", "readonly", "readwrite")
+
+
+def _canopy_panel_deltas(document: str) -> tuple[Delta, ...]:
+    """The leaves the CANOPY panel adds to one control-assistant render."""
+    shown = document in _CANOPY_RENDERS
+    deltas = [
+        Delta(document=document, path="web.panels.canopy.enabled", fixture=ABSENT, live=shown),
+        Delta(
+            document=document,
+            path="web.panels.canopy.home_screen",
+            fixture=ABSENT,
+            live="facility/overview",
+        ),
+        Delta(
+            document=document,
+            path="web.panels.canopy.vole_bytes_max",
+            fixture=ABSENT,
+            live=268435456,
+        ),
+    ]
+    if shown:
+        deltas.append(
+            Delta(document=document, path="web.default_panel", fixture=ABSENT, live="canopy")
+        )
+    return tuple(deltas)
+
+
 def _catalog_addition_deltas(*documents: str) -> tuple[Delta, ...]:
     """The ``api.providers`` delta each of *documents* gains from the catalog additions.
 
@@ -268,6 +299,11 @@ CELL_DELTAS: dict[str, tuple[Delta, ...]] = {
     "hello-world/unset": _retired_governed_policies("root") + _catalog_addition_deltas("root"),
     **{
         f"control-assistant/{mode}": _catalog_addition_deltas(*_CONTROL_ASSISTANT_RENDERS)
+        + tuple(
+            delta
+            for document in _CONTROL_ASSISTANT_RENDERS
+            for delta in _canopy_panel_deltas(document)
+        )
         for mode in ("in_context", "hierarchical", "middle_layer", "graph")
     },
 }
