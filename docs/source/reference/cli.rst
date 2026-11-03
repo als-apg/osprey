@@ -1128,19 +1128,20 @@ an export into it. See :doc:`/how-to/import-mml-export` for the import end to en
    its path under the render and whether it is written. The views are those of
    the main render, ``build/config.yml``; a tier's or app's selection does not change
    them. A view that is not written names the config key or model fact that
-   left it out. With ``ID`` it prints the place, device, channel, group or
-   model of that id with its provenance (the layer and file each field came
-   from, the fields the build filled) and the fixes applied to it. An id that
-   names no record prints ``facility show: no record <id>``, and an id that
-   names records of more than one kind prints
-   ``facility show: <id> names a <kind> and a <kind>``; both go to stderr and
-   exit 1. ``--json`` prints one JSON document on stdout and every other line,
-   view notes included, on stderr; on an error stdout is empty. The facility
+   left it out. With ``ID`` it prints every place, device, channel, group or
+   model of that id, each under its kind, with its provenance (the layer and
+   file each field came from, the fields the build filled) and the fixes
+   applied to it. An id that names no record prints
+   ``facility show: no record <id>`` on stderr and exits 1. ``--json`` prints
+   one JSON document on stdout and every other line, view notes included, on
+   stderr; on an error stdout is empty. The facility
    document's keys are ``identity``, ``counts`` (``places``, ``devices``,
    ``channels``, ``groups``, and ``wiring`` keyed by model), ``models``
    (``name``, ``engine``, ``served``, ``solve``) and ``views`` (``name``,
    ``path``, ``written``, and ``reason`` only on a view that is not written);
-   a record's are ``record``, ``kind``, ``provenance`` and ``fixes_applied``.
+   the record document is ``records``, one entry per record with ``record``,
+   ``kind``, ``provenance`` and ``fixes_applied``, in place, device, channel,
+   group, model order.
 
 ``osprey facility import``
    Group for the importers that write an export as sources under
