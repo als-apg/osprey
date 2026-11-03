@@ -676,27 +676,6 @@ async def _modules_health(
 _PICTURE_SEARCH_REASONS = frozenset({"unreachable", "model", "auth", "config"})
 
 
-def _image_embedding_marker(config: ARIELConfig) -> tuple[str | None, bool]:
-    """The completion marker of an enabled ``image_embedding`` block.
-
-    Returns:
-        ``(table, False)`` when the block resolves, ``(None, True)`` when it is
-        enabled but misconfigured, and ``(None, False)`` when it is off.
-    """
-    from osprey.services.ariel_search.database.migrations import image_embedding_target
-    from osprey.services.ariel_search.exceptions import ModuleConfigError
-
-    if not config.is_enhancement_module_enabled("image_embedding"):
-        return None, False
-    try:
-        target = image_embedding_target(
-            config.get_enhancement_module_config("image_embedding") or {}
-        )
-    except ModuleConfigError:
-        return None, True
-    return target.table, False
-
-
 def _picture_search_unavailable(
     config: ARIELConfig, health: Mapping[str, Mapping[str, Any]]
 ) -> str | None:
@@ -761,8 +740,11 @@ async def get_status(config_dict: dict, *, config_dir: Path | None = None) -> di
         stays the probed width.
     """
     from osprey.services.ariel_search import create_ariel_service
-    from osprey.services.ariel_search.attachments.compose import caption_model_id
     from osprey.services.ariel_search.config import registered_ariel_names
+    from osprey.services.ariel_search.enhancement.status import (
+        current_markers,
+        image_embedding_marker,
+    )
     from osprey.services.ariel_search.exceptions import ConfigurationError
 
     # Computed first and unconditionally: the vocabulary line must survive a
@@ -793,13 +775,10 @@ async def get_status(config_dict: dict, *, config_dir: Path | None = None) -> di
                 errors.append(
                     f"{refusal.message}. {refusal.remedy}" if refusal.remedy else refusal.message
                 )
-            markers: dict[str, str] = {}
-            caption_marker = caption_model_id(config)
-            if caption_marker is not None:
-                markers["image_caption"] = caption_marker
-            image_marker, image_config_bad = _image_embedding_marker(config)
-            if image_marker is not None:
-                markers["image_embedding"] = image_marker
+            current = current_markers(config)
+            caption_marker = current["image_caption"]
+            _, image_config_bad = image_embedding_marker(config)
+            markers = {name: marker for name, marker in current.items() if marker is not None}
             if markers:
                 stats = await service.repository.get_enhancement_stats(markers=markers)
             else:
@@ -2709,8 +2688,9 @@ def _entry_summary(entry: dict) -> dict:
     timestamp = entry.get("timestamp")
     if isinstance(timestamp, datetime):
         timestamp = timestamp.isoformat()
-    raw_text = (entry.get("raw_text") or "").strip()
-    title = raw_text.splitlines()[0][:100] if raw_text else ""
+    from osprey.services.ariel_search.subject import entry_subject
+
+    title = entry_subject(entry)[:100]
     return {
         "entry_id": entry.get("entry_id", ""),
         "timestamp": str(timestamp or ""),
