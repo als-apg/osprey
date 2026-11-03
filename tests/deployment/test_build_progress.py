@@ -245,26 +245,40 @@ def test_filtering_captions_changes_no_row(cold_build):
     assert list(caption_trace(COLD_BUILD)) == [row.service for row in model.snapshot()]
 
 
-def test_the_vertex_stopwatch_is_not_part_of_the_caption():
-    """`#12 0.322 Hit:1 ...` is one caption with a timestamp in front of it, and
-    the timestamp is the vertex's, not the step's."""
+@pytest.mark.parametrize(
+    ("header", "output", "caption"),
+    [
+        # `#12 0.322 Hit:1 ...` is one caption with a timestamp in front of it, and
+        # the timestamp is the vertex's, not the step's.
+        (
+            "#12 [virtual-accelerator 5/8] RUN apt-get update",
+            "#12 0.322 Hit:1 https://deb.debian.org/debian trixie InRelease",
+            "Hit:1 https://deb.debian.org/debian trixie InRelease",
+        ),
+        # The stamp is per write, so a redrawn line carries one on every frame —
+        # including the last one, which is the only one anybody saw.
+        (
+            "#17 [virtual-accelerator 6/8] RUN pip install",
+            "#17 21.51 Collecting numpy\r21.52 Collecting scikit-learn",
+            "Collecting scikit-learn",
+        ),
+        # `dpkg` redraws one line in place, so a single captured line holds a
+        # dozen overwrites; only the last was ever on screen.
+        (
+            "#17 [va 6/8] RUN apt-get install",
+            "#17 8.494 (Reading database ... \r(Reading database ... 45%\r",
+            "(Reading database ... 45%",
+        ),
+    ],
+    ids=["vertex-stopwatch", "stopwatch-on-the-surviving-frame", "redrawn-progress-line"],
+)
+def test_a_caption_is_the_last_frame_without_the_vertex_stopwatch(header, output, caption):
     model = BuildModel()
 
-    model.feed("#12 [virtual-accelerator 5/8] RUN apt-get update", 0.0)
-    model.feed("#12 0.322 Hit:1 https://deb.debian.org/debian trixie InRelease", 1.0)
+    model.feed(header, 0.0)
+    model.feed(output, 1.0)
 
-    assert model.snapshot()[0].caption == "Hit:1 https://deb.debian.org/debian trixie InRelease"
-
-
-def test_the_stopwatch_is_stripped_from_the_frame_that_survived():
-    """The stamp is per write, so a redrawn line carries one on every frame —
-    including the last one, which is the only one anybody saw."""
-    model = BuildModel()
-
-    model.feed("#17 [virtual-accelerator 6/8] RUN pip install", 0.0)
-    model.feed("#17 21.51 Collecting numpy\r21.52 Collecting scikit-learn", 1.0)
-
-    assert model.snapshot()[0].caption == "Collecting scikit-learn"
+    assert model.snapshot()[0].caption == caption
 
 
 @pytest.mark.parametrize(
@@ -476,17 +490,6 @@ def test_a_repeated_infrastructure_header_stays_on_the_labelled_row():
     assert rows[0].started_at == 0.0
     # The `DONE` lines carry no caption, but they are still this row's output.
     assert rows[0].last_line_at == 5.0
-
-
-def test_a_redrawn_progress_caption_keeps_only_its_last_frame():
-    """`dpkg` redraws one line in place, so a single captured line holds a
-    dozen overwrites; only the last was ever on screen."""
-    model = BuildModel()
-
-    model.feed("#17 [va 6/8] RUN apt-get install", 0.0)
-    model.feed("#17 8.494 (Reading database ... \r(Reading database ... 45%\r", 1.0)
-
-    assert model.snapshot()[0].caption == "(Reading database ... 45%"
 
 
 def test_a_resumed_vertex_repeats_its_header_without_restarting_the_row():

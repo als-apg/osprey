@@ -119,12 +119,24 @@ class TestTheRule:
     def _refusal(path: str, *, raw_path: bytes = b"", backend: str = BACKEND_URL):
         return proxy._mcp_path_refusal(_Scope(raw_path), HOP_PANEL, path, f"{backend}/{path}")
 
-    @pytest.mark.parametrize("path", [".", "..", "./page", "a/./b", "a/../mcp", "a/..", "../mcp"])
-    def test_a_dot_segment_is_not_found(self, path):
-        assert self._refusal(path) == 404
-
-    @pytest.mark.parametrize("path", ["a%2eb", "a%2Fb", "a%5Cb"])
-    def test_an_escape_left_in_the_decoded_path_is_not_found(self, path):
+    @pytest.mark.parametrize(
+        "path",
+        [
+            # a dot segment
+            ".",
+            "..",
+            "./page",
+            "a/./b",
+            "a/../mcp",
+            "a/..",
+            "../mcp",
+            # an escape left in the decoded path
+            "a%2eb",
+            "a%2Fb",
+            "a%5Cb",
+        ],
+    )
+    def test_a_path_that_could_resolve_elsewhere_is_not_found(self, path):
         assert self._refusal(path) == 404
 
     def test_an_escaped_separator_in_the_raw_path_is_not_found(self):

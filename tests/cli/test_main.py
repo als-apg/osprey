@@ -41,12 +41,21 @@ class TestLazyGroup:
             # Should attempt to import the module
             mock_import.assert_called_once()
 
-    def test_get_command_returns_none_for_invalid_command(self):
-        """Test get_command returns None for unknown commands."""
+    @pytest.mark.parametrize(
+        "name",
+        [
+            "nonexistent_command",
+            # export-config has been fully removed
+            "export-config",
+        ],
+        ids=["unknown", "removed-export-config"],
+    )
+    def test_get_command_returns_none_for_a_command_that_does_not_exist(self, name):
+        """Test get_command returns None for unknown and fully removed commands."""
         group = LazyGroup(name="test")
         ctx = mock.Mock()
 
-        cmd = group.get_command(ctx, "nonexistent_command")
+        cmd = group.get_command(ctx, name)
         assert cmd is None
 
     def test_list_commands_offers_the_whole_lifecycle(self):
@@ -132,16 +141,6 @@ class TestLazyGroup:
 
             # Should get config attribute from module
             assert mock_import.called
-
-    def test_get_command_handles_removed_export_config(self):
-        """Test that fully removed export-config command returns None."""
-        group = LazyGroup(name="test")
-        ctx = mock.Mock()
-
-        cmd = group.get_command(ctx, "export-config")
-
-        # export-config has been fully removed, should return None
-        assert cmd is None
 
 
 class TestCliGroup:

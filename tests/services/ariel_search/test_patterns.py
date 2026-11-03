@@ -53,13 +53,20 @@ def test_strip_trailing_question_removes_at_most_one() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_slash_forms_do_not_open_or_close_a_span() -> None:
-    """``t/s i/o`` must yield no spans -- the criterion's slash-form collision."""
-    result = extract_pattern_spans("t/s i/o")
+@pytest.mark.parametrize(
+    "text",
+    [
+        # ``t/s i/o`` must yield no spans -- the criterion's slash-form collision.
+        pytest.param("t/s i/o", id="slash-forms"),
+        pytest.param("BPM (SR01) C++", id="no-slashes"),
+    ],
+)
+def test_text_without_a_span_is_left_untouched(text) -> None:
+    result = extract_pattern_spans(text)
 
     assert result.spans == ()
     assert result.notices == ()
-    assert result.residual_text == "t/s i/o"
+    assert result.residual_text == text
 
 
 def test_span_beside_a_slash_form() -> None:
@@ -72,31 +79,31 @@ def test_span_beside_a_slash_form() -> None:
     assert result.notices == ()
 
 
-def test_span_at_start_of_query() -> None:
-    result = extract_pattern_spans(r"/SR0[1-4]C___BPM\d+/ trip")
+@pytest.mark.parametrize(
+    ("query", "residual", "body"),
+    [
+        pytest.param(r"/SR0[1-4]C___BPM\d+/ trip", "trip", r"SR0[1-4]C___BPM\d+", id="at-start"),
+        pytest.param("alpha /SR01C___BPM/ omega", "alpha omega", "SR01C___BPM", id="in-the-middle"),
+    ],
+)
+def test_a_span_leaves_a_clean_residual(query, residual, body) -> None:
+    result = extract_pattern_spans(query)
 
-    assert result.residual_text == "trip"
-    assert [span.body for span in result.spans] == [r"SR0[1-4]C___BPM\d+"]
-
-
-def test_span_in_the_middle_leaves_clean_residual() -> None:
-    result = extract_pattern_spans("alpha /SR01C___BPM/ omega")
-
-    assert result.residual_text == "alpha omega"
-    assert [span.body for span in result.spans] == ["SR01C___BPM"]
-
-
-def test_span_may_contain_spaces() -> None:
-    result = extract_pattern_spans("/beam loss/")
-
-    assert [span.body for span in result.spans] == ["beam loss"]
-    assert result.residual_text == ""
+    assert result.residual_text == residual
+    assert [span.body for span in result.spans] == [body]
 
 
-def test_span_may_contain_escaped_slashes() -> None:
-    result = extract_pattern_spans(r"/a\/b/")
+@pytest.mark.parametrize(
+    ("query", "body"),
+    [
+        pytest.param("/beam loss/", "beam loss", id="spaces"),
+        pytest.param(r"/a\/b/", r"a\/b", id="escaped-slashes"),
+    ],
+)
+def test_span_may_contain_spaces_and_escaped_slashes(query, body) -> None:
+    result = extract_pattern_spans(query)
 
-    assert [span.body for span in result.spans] == [r"a\/b"]
+    assert [span.body for span in result.spans] == [body]
     assert result.residual_text == ""
 
 
@@ -137,14 +144,6 @@ def test_flow_rate_slashes_are_not_a_pattern_after_acceptance() -> None:
     assert "6" in result.spans[0].original
 
 
-def test_no_spans_leaves_text_untouched() -> None:
-    result = extract_pattern_spans("BPM (SR01) C++")
-
-    assert result.spans == ()
-    assert result.notices == ()
-    assert result.residual_text == "BPM (SR01) C++"
-
-
 def test_trailing_question_strip_then_extract() -> None:
     """The documented order: strip one ``?``, then extract spans."""
     stripped = strip_trailing_question(r"/SR0[1-4]C___BPM\d+/?")
@@ -177,6 +176,16 @@ def test_internal_question_mark_survives() -> None:
         ("C++", False),
         ("5", False),
         ("", False),
+        pytest.param("5", False, id="arithmetic-5"),
+        pytest.param("3", False, id="arithmetic-3"),
+        pytest.param("test", False, id="plain-word"),
+        pytest.param("UNION", False, id="sql-union"),
+        pytest.param("SELECT", False, id="sql-select"),
+        pytest.param("FROM", False, id="sql-from"),
+        pytest.param("users", False, id="sql-table-name"),
+        pytest.param("--", False, id="sql-comment-marker"),
+        # ``SR01C___BPM?`` produces zero ``~*`` clauses.
+        pytest.param("SR01C___BPM?", False, id="question-only-token-is-searched-as-text"),
     ],
 )
 def test_is_glob(token: str, expected: bool) -> None:
@@ -280,13 +289,3 @@ def test_accept_pattern_rejects_bare_star_glob() -> None:
 
     assert isinstance(decision, Rejected)
     assert decision.reason == TOO_GENERIC_REASON
-
-
-@pytest.mark.parametrize("token", ["5", "3", "test", "UNION", "SELECT", "FROM", "users", "--"])
-def test_injection_and_arithmetic_tokens_are_not_globs(token: str) -> None:
-    assert is_glob(token) is False
-
-
-def test_question_only_token_is_searched_as_text() -> None:
-    """``SR01C___BPM?`` produces zero ``~*`` clauses."""
-    assert is_glob("SR01C___BPM?") is False

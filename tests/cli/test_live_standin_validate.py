@@ -43,18 +43,23 @@ def _standin_profile(live_standin: int = 5074, **extra: Any) -> BuildProfile:
 # --- the port itself -------------------------------------------------------
 
 
-def test_live_standin_validate_rejects_a_port_out_of_range(tmp_path: Path) -> None:
-    """The stand-in's Channel Access port must be a usable TCP port."""
-    assert validation_errors(_standin_profile(70000), tmp_path) == [
-        "virtual_accelerator.live_standin must be in 1..65535 (got 70000)"
-    ]
-
-
-def test_live_standin_validate_rejects_the_baseline_ioc_port(tmp_path: Path) -> None:
-    """Sandbox and stand-in are two containers; one port cannot serve both."""
-    assert validation_errors(_standin_profile(5064), tmp_path) == [
-        "virtual_accelerator.live_standin must differ from virtual_accelerator.port (both 5064)"
-    ]
+@pytest.mark.parametrize(
+    ("port", "message"),
+    [
+        # The stand-in's Channel Access port must be a usable TCP port.
+        (70000, "virtual_accelerator.live_standin must be in 1..65535 (got 70000)"),
+        # Sandbox and stand-in are two containers; one port cannot serve both.
+        (
+            5064,
+            "virtual_accelerator.live_standin must differ from virtual_accelerator.port (both 5064)",
+        ),
+    ],
+    ids=["out-of-range", "baseline-ioc-port"],
+)
+def test_live_standin_validate_rejects_an_unusable_port(
+    tmp_path: Path, port: int, message: str
+) -> None:
+    assert validation_errors(_standin_profile(port), tmp_path) == [message]
 
 
 def test_live_standin_validate_rejects_a_port_another_block_claims(tmp_path: Path) -> None:
@@ -65,28 +70,32 @@ def test_live_standin_validate_rejects_a_port_another_block_claims(tmp_path: Pat
     ]
 
 
-def test_live_standin_validate_rejects_a_port_a_config_service_claims(tmp_path: Path) -> None:
-    """The ``config:`` block is a port-authoring surface too, and is swept the same."""
-    profile = _standin_profile(5074, config={"services.postgresql.port_host": 5074})
-    assert validation_errors(profile, tmp_path) == [
-        "virtual_accelerator.live_standin (5074) collides with services.postgresql.port_host (5074)"
-    ]
+@pytest.mark.parametrize(
+    ("config", "message"),
+    [
+        # The ``config:`` block is a port-authoring surface too, and is swept the same.
+        (
+            {"services.postgresql.port_host": 5074},
+            "virtual_accelerator.live_standin (5074) collides with services.postgresql.port_host (5074)",
+        ),
+        # A hand-authored gateway port equal to the stand-in's is one endpoint for two targets.
+        (
+            {"control_system.connector.virtual_accelerator.gateways.write_access.port": 5074},
+            "virtual_accelerator.live_standin (5074) collides with the profile's `config:` "
+            "control_system.connector.virtual_accelerator.gateways.write_access.port (5074) — "
+            "the virtual accelerator and its live stand-in are two endpoints, never one",
+        ),
+    ],
+    ids=["config-service", "dotted-gateway"],
+)
+def test_live_standin_validate_rejects_a_port_the_config_block_claims(
+    tmp_path: Path, config: dict[str, int], message: str
+) -> None:
+    profile = _standin_profile(5074, config=config)
+    assert validation_errors(profile, tmp_path) == [message]
 
 
 # --- the VA gateways the simulation is dialed through ----------------------
-
-
-def test_live_standin_validate_rejects_a_dotted_gateway_port(tmp_path: Path) -> None:
-    """A hand-authored gateway port equal to the stand-in's is one endpoint for two targets."""
-    profile = _standin_profile(
-        5074,
-        config={"control_system.connector.virtual_accelerator.gateways.write_access.port": 5074},
-    )
-    assert validation_errors(profile, tmp_path) == [
-        "virtual_accelerator.live_standin (5074) collides with the profile's `config:` "
-        "control_system.connector.virtual_accelerator.gateways.write_access.port (5074) — "
-        "the virtual accelerator and its live stand-in are two endpoints, never one"
-    ]
 
 
 def test_live_standin_validate_reads_a_nested_gateway_port_the_same(tmp_path: Path) -> None:

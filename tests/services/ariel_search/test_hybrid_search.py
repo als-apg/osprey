@@ -364,10 +364,25 @@ class TestSettings:
             == "rrf"
         )
 
-    @pytest.mark.parametrize("bad", [None, "RRF", "other", 1])
-    def test_invalid_strategy_is_refused(self, bad):
-        with pytest.raises(ValueError, match="search_modules.hybrid.settings.strategy"):
-            HybridSearchSettings.from_ariel_config(make_config({"strategy": bad}))
+    @pytest.mark.parametrize(
+        ("key", "bad"),
+        [
+            pytest.param("strategy", None, id="strategy-none"),
+            pytest.param("strategy", "RRF", id="strategy-wrong-case"),
+            pytest.param("strategy", "other", id="strategy-unknown-name"),
+            pytest.param("strategy", 1, id="strategy-not-a-string"),
+            pytest.param("rerank", "false", id="rerank-string"),
+            pytest.param("rerank", 0, id="rerank-int"),
+            pytest.param("rerank", None, id="rerank-none"),
+            pytest.param("candidate_limit", 0, id="candidate-limit-zero"),
+            pytest.param("candidate_limit", -1, id="candidate-limit-negative"),
+            pytest.param("candidate_limit", True, id="candidate-limit-bool"),
+            pytest.param("candidate_limit", "40", id="candidate-limit-string"),
+        ],
+    )
+    def test_a_malformed_setting_is_refused(self, key, bad):
+        with pytest.raises(ValueError, match=f"search_modules.hybrid.settings.{key}"):
+            HybridSearchSettings.from_ariel_config(make_config({key: bad}))
 
     def test_config_sets_candidate_limit(self):
         settings = HybridSearchSettings.from_ariel_config(make_config({"candidate_limit": 12}))
@@ -376,16 +391,6 @@ class TestSettings:
     def test_candidate_limit_none_defers_to_qmd(self):
         settings = HybridSearchSettings.from_ariel_config(make_config({"candidate_limit": None}))
         assert settings.candidate_limit is None
-
-    @pytest.mark.parametrize("bad", ["false", 0, None])
-    def test_malformed_rerank_is_refused(self, bad):
-        with pytest.raises(ValueError, match="search_modules.hybrid.settings.rerank"):
-            HybridSearchSettings.from_ariel_config(make_config({"rerank": bad}))
-
-    @pytest.mark.parametrize("bad", [0, -1, True, "40"])
-    def test_malformed_candidate_limit_is_refused(self, bad):
-        with pytest.raises(ValueError, match="search_modules.hybrid.settings.candidate_limit"):
-            HybridSearchSettings.from_ariel_config(make_config({"candidate_limit": bad}))
 
 
 # --------------------------------------------------------------------------
@@ -1077,19 +1082,19 @@ class TestSidecarFaults:
     """ "Search is down" and "nothing matched" must not look alike."""
 
     @pytest.mark.asyncio
-    async def test_unconfigured_sidecar_raises_rather_than_returning_empty(self, search_calls):
-        client = StubClient(available=False, configured=False)
+    @pytest.mark.parametrize(
+        ("configured", "match"),
+        [
+            pytest.param(False, "no qmd sidecar is configured", id="unconfigured-sidecar"),
+            pytest.param(True, "127.0.0.1:8180", id="configured-but-down-names-its-endpoint"),
+        ],
+    )
+    async def test_an_unavailable_sidecar_raises_rather_than_returning_empty(
+        self, search_calls, configured, match
+    ):
+        client = StubClient(available=False, configured=configured)
 
-        with pytest.raises(QMDUnavailableError, match="no qmd sidecar is configured"):
-            await hybrid_search(
-                "beam", StubRepository([]), make_config(), client=client, search_calls=search_calls
-            )
-
-    @pytest.mark.asyncio
-    async def test_configured_but_down_sidecar_names_its_endpoint(self, search_calls):
-        client = StubClient(available=False, configured=True)
-
-        with pytest.raises(QMDUnavailableError, match="127.0.0.1:8180"):
+        with pytest.raises(QMDUnavailableError, match=match):
             await hybrid_search(
                 "beam", StubRepository([]), make_config(), client=client, search_calls=search_calls
             )

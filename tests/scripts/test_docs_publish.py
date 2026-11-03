@@ -617,18 +617,26 @@ def _run_main_stage(
 class TestCli:
     """The workflow reads stdout; anything unexpected there corrupts a deploy."""
 
-    def test_plan_for_a_main_push_emits_the_four_output_lines(self):
-        """`main` publishes `/latest/` and must never claim to be the stable build."""
-        result = _run("plan", "--ref", "refs/heads/main", "--event", "push", *_TAGS)
+    @pytest.mark.parametrize(
+        ("ref", "stdout"),
+        [
+            # `main` publishes `/latest/` and must never claim to be the stable build.
+            pytest.param(
+                "refs/heads/main",
+                "version=dev\ndeploy_dir=latest\nis_latest=false\ndeploy=true\n",
+                id="main-push",
+            ),
+            pytest.param(
+                "refs/tags/v2026.8.0",
+                "version=2026.8.0\ndeploy_dir=v2026.8.0\nis_latest=true\ndeploy=true\n",
+                id="newest-release-tag-claims-the-root",
+            ),
+        ],
+    )
+    def test_plan_for_a_push_emits_the_four_output_lines(self, ref, stdout):
+        result = _run("plan", "--ref", ref, "--event", "push", *_TAGS)
         assert result.returncode == 0
-        assert result.stdout == ("version=dev\ndeploy_dir=latest\nis_latest=false\ndeploy=true\n")
-
-    def test_plan_for_the_newest_release_tag_claims_the_root(self):
-        result = _run("plan", "--ref", "refs/tags/v2026.8.0", "--event", "push", *_TAGS)
-        assert result.returncode == 0
-        assert result.stdout == (
-            "version=2026.8.0\ndeploy_dir=v2026.8.0\nis_latest=true\ndeploy=true\n"
-        )
+        assert result.stdout == stdout
 
     def test_plan_rejects_a_malformed_tag_input_without_writing_stdout(self):
         """A bad dispatch must fail, not append a partial line to $GITHUB_OUTPUT."""

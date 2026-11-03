@@ -135,24 +135,22 @@ def connection_argv(root: Path, name: str = f"kernel-{KERNEL_ID}.json") -> list[
 class TestPreparingTheProcess:
     """What the kernel's environment holds by the time a cell can read it."""
 
-    def test_the_server_token_is_removed(self, tmp_path, kernel_env, monkeypatch):
-        """A cell must find no ``JUPYTER_TOKEN`` key, not an empty one.
-
-        The kernelspec carries the name with an empty value and the provisioner
-        merges that env OVER ``os.environ``, so setting it empty is what puts
-        the key there. Only a pop takes it away.
-        """
+    @pytest.mark.parametrize(
+        "token",
+        [
+            # A cell must find no ``JUPYTER_TOKEN`` key, not an empty one.
+            #
+            # The kernelspec carries the name with an empty value and the provisioner
+            # merges that env OVER ``os.environ``, so setting it empty is what puts
+            # the key there. Only a pop takes it away.
+            pytest.param("", id="the-kernelspecs-empty-value"),
+            # The inherited value, not only the kernelspec's empty one.
+            pytest.param("not-for-cells", id="a-real-token"),
+        ],
+    )
+    def test_the_server_token_is_removed(self, tmp_path, kernel_env, monkeypatch, token):
         monkeypatch.setenv(posture_store.AGENT_DATA_ROOT_ENV_VAR, str(tmp_path))
-        monkeypatch.setenv(jupyter_kernel.JUPYTER_TOKEN_ENV_VAR, "")
-
-        jupyter_kernel._prepare_environment()
-
-        assert jupyter_kernel.JUPYTER_TOKEN_ENV_VAR not in kernel_env
-
-    def test_a_real_token_is_removed_too(self, tmp_path, kernel_env, monkeypatch):
-        """The inherited value, not only the kernelspec's empty one."""
-        monkeypatch.setenv(posture_store.AGENT_DATA_ROOT_ENV_VAR, str(tmp_path))
-        monkeypatch.setenv(jupyter_kernel.JUPYTER_TOKEN_ENV_VAR, "not-for-cells")
+        monkeypatch.setenv(jupyter_kernel.JUPYTER_TOKEN_ENV_VAR, token)
 
         jupyter_kernel._prepare_environment()
 

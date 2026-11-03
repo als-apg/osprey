@@ -988,19 +988,33 @@ def test_a_module_in_an_interface_without_tests_widens_to_every_test() -> None:
 
 
 @pytest.mark.parametrize(
-    "path",
+    ("path", "tool"),
     [
-        "vitest.config.js",
-        "tests/vitest.setup.mjs",
-        "package.json",
-        "package-lock.json",
-        TW + "panel-labels-fixture.mjs",
-        "src/osprey/interfaces/design_system/static/js/tokens.js",
-        WT + "vendor/xterm.js",
+        # A shared JavaScript input widens vitest to every test.
+        ("vitest.config.js", "vitest"),
+        ("tests/vitest.setup.mjs", "vitest"),
+        ("package.json", "vitest"),
+        ("package-lock.json", "vitest"),
+        (TW + "panel-labels-fixture.mjs", "vitest"),
+        ("src/osprey/interfaces/design_system/static/js/tokens.js", "vitest"),
+        (WT + "vendor/xterm.js", "vitest"),
+        # What the mapping cannot place widens pytest to the sweep.
+        ("tests/conftest.py", "pytest"),
+        ("tests/cli/conftest.py", "pytest"),
+        ("tests/_shared_contract.py", "pytest"),
+        ("src/osprey/lonely/thing.py", "pytest"),
+        ("src/osprey/__init__.py", "pytest"),
+        ("packages/osprey-connectors/src/osprey_connectors/errors.py", "pytest"),
+        ("pyproject.toml", "pytest"),
+        ("uv.lock", "pytest"),
+        # A script without a mirror widens pytest too.
+        ("scripts/_tier_db_common.py", "pytest"),
     ],
 )
-def test_a_shared_javascript_input_widens_vitest_to_every_test(path: str) -> None:
-    assert selected("quick", path)["vitest"].state == check.WHOLE
+def test_a_path_the_mapping_cannot_place_widens_its_tool_to_every_test(
+    path: str, tool: str
+) -> None:
+    assert selected("quick", path)[tool].state == check.WHOLE
 
 
 @needs_mapping
@@ -1028,23 +1042,6 @@ def test_a_source_file_selects_its_mirrored_tests() -> None:
         assert selected("quick", path)["pytest"] == check.Selection(check.PATHS, ("tests/cli",))
 
 
-@pytest.mark.parametrize(
-    "path",
-    [
-        "tests/conftest.py",
-        "tests/cli/conftest.py",
-        "tests/_shared_contract.py",
-        "src/osprey/lonely/thing.py",
-        "src/osprey/__init__.py",
-        "packages/osprey-connectors/src/osprey_connectors/errors.py",
-        "pyproject.toml",
-        "uv.lock",
-    ],
-)
-def test_what_the_mapping_cannot_place_widens_pytest_to_the_sweep(path: str) -> None:
-    assert selected("quick", path)["pytest"].state == check.WHOLE
-
-
 def test_a_helper_script_selects_only_its_mirror() -> None:
     assert selected("quick", "scripts/scenario_plots.py")["pytest"] == check.Selection(
         check.PATHS, ("tests/scripts/test_scenario_plots.py",)
@@ -1068,10 +1065,6 @@ def test_a_file_under_a_tests_directory_selects_that_directory() -> None:
 def test_a_file_under_a_tests_directory_without_test_modules_widens() -> None:
     assert not any(name.startswith("tests/fixtures/") for name in FILES)
     assert selected("quick", "tests/fixtures/config.yml")["pytest"].state == check.WHOLE
-
-
-def test_a_script_without_a_mirror_widens() -> None:
-    assert selected("quick", "scripts/_tier_db_common.py")["pytest"].state == check.WHOLE
 
 
 def test_a_new_check_naming_a_script_makes_it_shaping(monkeypatch: pytest.MonkeyPatch) -> None:

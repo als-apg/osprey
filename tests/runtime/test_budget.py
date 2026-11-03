@@ -158,17 +158,22 @@ class TestBoundBudget:
             bound_budget({"timeout": 3}, write_budget({}), "epics")
 
     @pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf")])
-    def test_a_non_finite_step_read_is_refused(self, value):
-        with pytest.raises(
-            ValueError,
-            match=r"control_system\.connector\.epics\.step_read_timeout_s must be a finite",
-        ):
-            bound_budget({"step_read_timeout_s": value}, write_budget({}), "epics")
-
-    @pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf")])
-    def test_a_non_finite_call_bound_is_refused(self, value):
-        with pytest.raises(ValueError, match=r"control_system\.connector\.epics\.timeout_s"):
-            bound_budget({"timeout_s": value}, write_budget({}), "epics")
+    @pytest.mark.parametrize(
+        ("key", "match"),
+        [
+            pytest.param(
+                "step_read_timeout_s",
+                r"control_system\.connector\.epics\.step_read_timeout_s must be a finite",
+                id="step-read",
+            ),
+            pytest.param(
+                "timeout_s", r"control_system\.connector\.epics\.timeout_s", id="call-bound"
+            ),
+        ],
+    )
+    def test_a_non_finite_bound_is_refused_naming_its_key(self, key, match, value):
+        with pytest.raises(ValueError, match=match):
+            bound_budget({key: value}, write_budget({}), "epics")
 
     def test_a_refused_step_read_names_a_placeholder_without_a_type(self):
         with pytest.raises(

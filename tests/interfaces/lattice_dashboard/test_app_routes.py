@@ -80,15 +80,14 @@ class TestParam:
 
 
 class TestRefresh:
-    def test_refresh_fast(self, ws):
+    @pytest.mark.parametrize(
+        "path",
+        ["/api/refresh", "/api/refresh/optics"],
+        ids=["fast", "figure-valid"],
+    )
+    def test_refresh_launches_optics(self, ws, path):
         _, client = ws
-        r = client.post("/api/refresh")
-        assert r.status_code == 200
-        assert r.json()["launched"] == ["optics"]
-
-    def test_refresh_figure_valid(self, ws):
-        _, client = ws
-        r = client.post("/api/refresh/optics")
+        r = client.post(path)
         assert r.status_code == 200
         assert r.json()["launched"] == ["optics"]
 
@@ -263,18 +262,19 @@ class TestBaselineAndSettings:
         assert r.status_code == 200
         assert "da" in r.json()
 
-    def test_update_settings(self, ws):
+    @pytest.mark.parametrize(
+        ("requested", "stored"),
+        [
+            pytest.param(1024, 1024, id="in-range"),
+            # Clamped to the validation ceiling (8192)
+            pytest.param(999999, 8192, id="clamps-out-of-range"),
+        ],
+    )
+    def test_update_settings_stores_nturns(self, ws, requested, stored):
         _, client = ws
-        r = client.put("/api/settings", json={"settings": {"da": {"nturns": 1024}}})
+        r = client.put("/api/settings", json={"settings": {"da": {"nturns": requested}}})
         assert r.status_code == 200
-        assert r.json()["da"]["nturns"] == 1024
-
-    def test_update_settings_clamps_out_of_range(self, ws):
-        _, client = ws
-        r = client.put("/api/settings", json={"settings": {"da": {"nturns": 999999}}})
-        assert r.status_code == 200
-        # Clamped to the validation ceiling (8192)
-        assert r.json()["da"]["nturns"] == 8192
+        assert r.json()["da"]["nturns"] == stored
 
     def test_reset_settings(self, ws):
         _, client = ws

@@ -101,19 +101,24 @@ class TestResolveShellCommand:
         with pytest.raises(FileNotFoundError, match="does not exist"):
             resolve_shell_command(missing)
 
-    def test_not_found_anywhere_raises(self, tmp_path):
-        """Commands not on PATH or in user dirs raise FileNotFoundError."""
+    @pytest.mark.parametrize(
+        ("command", "match"),
+        [
+            # Commands not on PATH or in user dirs raise FileNotFoundError.
+            pytest.param(
+                "this-command-definitely-does-not-exist-anywhere",
+                "not found on PATH",
+                id="not-found-anywhere",
+            ),
+            # The error message mentions config.yml as an escape hatch.
+            pytest.param("nonexistent-cmd", "web_terminal.shell", id="error-includes-config-hint"),
+        ],
+    )
+    def test_a_command_found_nowhere_raises(self, tmp_path, command, match):
         candidates = [tmp_path / "empty"]
         with patch("osprey.utils.shell_resolver._user_bin_candidates", lambda: candidates):
-            with pytest.raises(FileNotFoundError, match="not found on PATH"):
-                resolve_shell_command("this-command-definitely-does-not-exist-anywhere")
-
-    def test_error_message_includes_config_hint(self, tmp_path):
-        """The error message mentions config.yml as an escape hatch."""
-        candidates = [tmp_path / "empty"]
-        with patch("osprey.utils.shell_resolver._user_bin_candidates", lambda: candidates):
-            with pytest.raises(FileNotFoundError, match="web_terminal.shell"):
-                resolve_shell_command("nonexistent-cmd")
+            with pytest.raises(FileNotFoundError, match=match):
+                resolve_shell_command(command)
 
 
 class TestAnAccountWithNoHome:

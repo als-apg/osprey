@@ -191,17 +191,18 @@ def test_directory_path_yields_no_devices(tmp_path: Path) -> None:
     assert specs_from_file(tmp_path) == ([], [])
 
 
-def test_empty_file_yields_no_devices(tmp_path: Path) -> None:
-    """An empty file parses to ``None`` -- a valid, if useless, empty device set."""
+@pytest.mark.parametrize(
+    "text",
+    [
+        # An empty file parses to ``None`` -- a valid, if useless, empty device set.
+        pytest.param("", id="empty-file"),
+        # A YAML syntax error degrades to an empty device set, not an exception.
+        pytest.param("settables: [unclosed\n", id="unparseable-yaml"),
+    ],
+)
+def test_file_without_a_usable_document_yields_no_devices(tmp_path: Path, text: str) -> None:
     path = tmp_path / "devices.yml"
-    path.write_text("", encoding="utf-8")
-    assert specs_from_file(path) == ([], [])
-
-
-def test_unparseable_yaml_yields_no_devices(tmp_path: Path) -> None:
-    """A YAML syntax error degrades to an empty device set, not an exception."""
-    path = tmp_path / "devices.yml"
-    path.write_text("settables: [unclosed\n", encoding="utf-8")
+    path.write_text(text, encoding="utf-8")
     assert specs_from_file(path) == ([], [])
 
 

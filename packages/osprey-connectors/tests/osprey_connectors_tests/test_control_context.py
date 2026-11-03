@@ -428,9 +428,10 @@ def test_wrong_schema_reads_as_none(data_root, schema):
     assert control_context.read_record() is None
 
 
-def test_absent_schema_reads_as_none(data_root):
+@pytest.mark.parametrize("field", ["schema", "target", "generation"])
+def test_an_absent_required_field_reads_as_none(data_root, field):
     payload = _payload()
-    del payload["schema"]
+    del payload[field]
     _write_raw(data_root, payload)
     assert control_context.read_record() is None
 
@@ -441,23 +442,9 @@ def test_unknown_target_reads_as_none(data_root, target):
     assert control_context.read_record() is None
 
 
-def test_absent_target_reads_as_none(data_root):
-    payload = _payload()
-    del payload["target"]
-    _write_raw(data_root, payload)
-    assert control_context.read_record() is None
-
-
 @pytest.mark.parametrize("generation", [-1, "7", 7.0, None, True])
 def test_unusable_generation_reads_as_none(data_root, generation):
     _write_raw(data_root, _payload(generation=generation))
-    assert control_context.read_record() is None
-
-
-def test_absent_generation_reads_as_none(data_root):
-    payload = _payload()
-    del payload["generation"]
-    _write_raw(data_root, payload)
     assert control_context.read_record() is None
 
 
@@ -835,9 +822,17 @@ def test_claimed_unswitched_record_follows_baseline(caplog):
     assert "live" in warnings[0] and "va" in warnings[0]
 
 
-def test_claimed_switched_record_is_kept(caplog):
-    """A switch mints generation + 1, so a record past generation 0 was chosen."""
-    record = control_context.ControlContext(target="live", generation=3)
+@pytest.mark.parametrize(
+    ("target", "generation"),
+    [
+        # A switch mints generation + 1, so a record past generation 0 was chosen.
+        pytest.param("live", 3, id="switched-record-is-kept"),
+        # A record already on the baseline is returned as it is, with nothing logged.
+        pytest.param("va", 0, id="same-target"),
+    ],
+)
+def test_claimed_returns_the_record_itself_without_a_warning(caplog, target, generation):
+    record = control_context.ControlContext(target=target, generation=generation)
 
     with caplog.at_level("WARNING", logger="osprey_connectors.control_context"):
         result = control_context.claimed(record, "va")
@@ -860,17 +855,6 @@ def test_claimed_keeps_posture_narrowings():
     assert result.target == "va"
     assert result.posture == {"live": "sandbox", "va": "sandbox"}
     assert result.last_switch == {"generation": 0, "status": "refused"}
-
-
-def test_claimed_same_target_is_identity(caplog):
-    """A record already on the baseline is returned as it is, with nothing logged."""
-    record = control_context.ControlContext(target="va", generation=0)
-
-    with caplog.at_level("WARNING", logger="osprey_connectors.control_context"):
-        result = control_context.claimed(record, "va")
-
-    assert result is record
-    assert not [r for r in caplog.records if r.levelname == "WARNING"]
 
 
 # --- the per-server reports ------------------------------------------------
@@ -1574,20 +1558,20 @@ def test_a_near_miss_session_name_stays_converged():
     assert control_context.converged(record, reports, "SESS-1") is True
 
 
-@pytest.mark.parametrize("session", [None, ""])
-def test_a_session_less_reader_owns_no_report_and_stays_converged(session):
-    """A bare ``claude`` and the owner's fleet check are blocked only by applying."""
+@pytest.mark.parametrize(
+    ("report_session", "session"),
+    [
+        # A bare ``claude`` and the owner's fleet check are blocked only by applying.
+        pytest.param(None, None, id="session-less-none"),
+        pytest.param(None, "", id="session-less-blank"),
+        pytest.param("sess-1", "kernel:abcd1234", id="kernel-session"),
+    ],
+)
+def test_a_reader_with_no_session_to_own_a_report_stays_converged(report_session, session):
     record = _context()
-    reports = [_report(4321, session=None, applied_generation=6)]
+    reports = [_report(4321, session=report_session, applied_generation=6)]
 
     assert control_context.converged(record, reports, session) is True
-
-
-def test_a_kernel_session_owns_no_report_and_stays_converged():
-    record = _context()
-    reports = [_report(4321, session="sess-1", applied_generation=6)]
-
-    assert control_context.converged(record, reports, "kernel:abcd1234") is True
 
 
 def test_every_unconverged_reason_is_named_once_and_in_pid_order():

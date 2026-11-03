@@ -213,17 +213,18 @@ def serving_client(tmp_path):
 class TestServingRoute:
     """The /panel-static/{id}/{path} local-file route + api/panels URL rewrite."""
 
-    def test_bare_path_serves_entry(self, serving_client):
+    @pytest.mark.parametrize(
+        ("path", "text"),
+        [
+            pytest.param("/panel-static/demo/", "Demo panel", id="bare-path-serves-entry"),
+            pytest.param("/panel-static/demo/app.js", "export const x", id="named-asset"),
+        ],
+    )
+    def test_a_panel_static_path_is_served(self, serving_client, path, text):
         client, _ = serving_client
-        resp = client.get("/panel-static/demo/")
+        resp = client.get(path)
         assert resp.status_code == 200
-        assert "Demo panel" in resp.text
-
-    def test_named_asset_is_served(self, serving_client):
-        client, _ = serving_client
-        resp = client.get("/panel-static/demo/app.js")
-        assert resp.status_code == 200
-        assert "export const x" in resp.text
+        assert text in resp.text
 
     def test_unknown_panel_id_is_404(self, serving_client):
         client, _ = serving_client

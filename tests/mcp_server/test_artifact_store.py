@@ -779,49 +779,31 @@ class TestArtifactRegisterTool:
     """Tests for the artifact_register MCP tool."""
 
     @pytest.mark.asyncio
-    async def test_save_inline_markdown(self, tmp_path, monkeypatch):
+    @pytest.mark.parametrize(
+        ("title", "content", "content_type"),
+        [
+            pytest.param(
+                "Test Summary", "# Summary\n\nAll systems nominal.", "markdown", id="markdown"
+            ),
+            pytest.param("HTML Report", "<h1>Report</h1><p>Done.</p>", "html", id="html"),
+            pytest.param("JSON Data", '{"key": "value"}', "json", id="json"),
+        ],
+    )
+    async def test_save_inline_content_registers_an_artifact_of_its_type(
+        self, tmp_path, monkeypatch, title, content, content_type
+    ):
         monkeypatch.chdir(tmp_path)
 
         fn = _get_artifact_register()
         result = await fn(
-            title="Test Summary",
-            content="# Summary\n\nAll systems nominal.",
-            content_type="markdown",
+            title=title,
+            content=content,
+            content_type=content_type,
         )
 
         data = extract_response_dict(result)
         assert data["status"] == "success"
-        assert data["artifact_type"] == "markdown"
-
-    @pytest.mark.asyncio
-    async def test_save_inline_html(self, tmp_path, monkeypatch):
-        monkeypatch.chdir(tmp_path)
-
-        fn = _get_artifact_register()
-        result = await fn(
-            title="HTML Report",
-            content="<h1>Report</h1><p>Done.</p>",
-            content_type="html",
-        )
-
-        data = extract_response_dict(result)
-        assert data["status"] == "success"
-        assert data["artifact_type"] == "html"
-
-    @pytest.mark.asyncio
-    async def test_save_inline_json(self, tmp_path, monkeypatch):
-        monkeypatch.chdir(tmp_path)
-
-        fn = _get_artifact_register()
-        result = await fn(
-            title="JSON Data",
-            content='{"key": "value"}',
-            content_type="json",
-        )
-
-        data = extract_response_dict(result)
-        assert data["status"] == "success"
-        assert data["artifact_type"] == "json"
+        assert data["artifact_type"] == content_type
 
     @pytest.mark.asyncio
     async def test_save_file_path(self, tmp_path, monkeypatch):

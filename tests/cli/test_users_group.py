@@ -504,27 +504,21 @@ class TestTypedGates:
         assert result.exit_code != 0
         assert prompts and "Type 'alice' to confirm" in prompts[0]
 
+    @pytest.mark.parametrize(
+        "answer",
+        [
+            "",  # blank, non-matching
+            "yes",
+        ],
+        ids=["blank", "generic-yes"],
+    )
     def test_remove_purge_declined_leaves_the_roster_and_volumes_untouched(
-        self, runner, tmp_path, monkeypatch, fake_runtime
+        self, runner, tmp_path, monkeypatch, fake_runtime, answer
     ):
         calls, _listing = fake_runtime
         repo_root = _make_repo(tmp_path, _config([{"name": "alice", "index": 0}]))
         monkeypatch.chdir(repo_root)
-        monkeypatch.setattr("builtins.input", lambda prompt="": "")  # blank, non-matching
-
-        result = runner.invoke(users, ["remove", "alice", "--purge"])
-
-        assert result.exit_code != 0
-        assert _roster(repo_root) == [{"name": "alice", "index": 0}]
-        assert [c for c in calls if c[1] == "rm" or c[1:3] == ["volume", "rm"]] == []
-
-    def test_remove_purge_is_not_confirmed_by_a_generic_yes(
-        self, runner, tmp_path, monkeypatch, fake_runtime
-    ):
-        calls, _listing = fake_runtime
-        repo_root = _make_repo(tmp_path, _config([{"name": "alice", "index": 0}]))
-        monkeypatch.chdir(repo_root)
-        monkeypatch.setattr("builtins.input", lambda prompt="": "yes")
+        monkeypatch.setattr("builtins.input", lambda prompt="": answer)
 
         result = runner.invoke(users, ["remove", "alice", "--purge"])
 

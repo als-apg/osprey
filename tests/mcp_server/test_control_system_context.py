@@ -313,24 +313,22 @@ async def test_a_handle_with_no_connector_serving_offers_only_the_contracts_call
     assert inspect.iscoroutinefunction(connector.read_channel)
 
 
-async def test_invalidate_unknown_connector(tmp_path, monkeypatch):
-    """Invalidating a non-existent connector is a no-op."""
+@pytest.mark.parametrize(
+    "name",
+    [
+        # Invalidating a non-existent connector is a no-op. Should not raise.
+        pytest.param("nonexistent", id="unknown-connector"),
+        # Invalidating a connector that was never created is a no-op. Should not
+        # raise (no instance to disconnect).
+        pytest.param("control_system", id="unconnected"),
+    ],
+)
+async def test_invalidating_a_connector_that_is_not_live_is_a_no_op(tmp_path, monkeypatch, name):
     monkeypatch.chdir(tmp_path)
     _write_config(tmp_path, _VA_IN_PROCESS)
     registry = initialize_server_context()
 
-    # Should not raise
-    await registry.invalidate_connector("nonexistent")
-
-
-async def test_invalidate_unconnected(tmp_path, monkeypatch):
-    """Invalidating a connector that was never created is a no-op."""
-    monkeypatch.chdir(tmp_path)
-    _write_config(tmp_path, _VA_IN_PROCESS)
-    registry = initialize_server_context()
-
-    # Should not raise (no instance to disconnect)
-    await registry.invalidate_connector("control_system")
+    await registry.invalidate_connector(name)
 
 
 # ---------------------------------------------------------------------------

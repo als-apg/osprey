@@ -435,15 +435,16 @@ class TestRead:
     def test_absent_file_reads_as_none(self):
         assert target_state.read(1234) is None
 
-    def test_corrupt_json_reads_as_none(self, state_root):
+    @pytest.mark.parametrize(
+        "text",
+        [
+            pytest.param("{not json", id="corrupt-json"),
+            pytest.param("[1, 2, 3]", id="non-object-json"),
+        ],
+    )
+    def test_unusable_json_reads_as_none(self, state_root, text):
         path = _write_foreign(state_root, 1234)
-        path.write_text("{not json", encoding="utf-8")
-
-        assert target_state.read(1234) is None
-
-    def test_non_object_json_reads_as_none(self, state_root):
-        path = _write_foreign(state_root, 1234)
-        path.write_text("[1, 2, 3]", encoding="utf-8")
+        path.write_text(text, encoding="utf-8")
 
         assert target_state.read(1234) is None
 

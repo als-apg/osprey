@@ -937,10 +937,12 @@ async def test_the_simulator_is_recorded_whatever_machine_the_sessions_start_on(
         pytest.param(("va.example.org", None), id="gateway-moved-off-the-host"),
         pytest.param(("localhost", 5074), id="gateway-on-the-stand-ins-port"),
         pytest.param(("127.0.0.1", "not-a-port"), id="gateway-port-that-names-no-port"),
+        # No gateway row, no endpoint: there is nothing to judge, so nothing is recorded.
+        pytest.param(None, id="no-gateways-at-all"),
     ],
 )
 async def test_a_va_block_that_does_not_land_on_the_deployments_simulator_idles(
-    tmp_path: Path, va_gateway: tuple[str, int | str | None]
+    tmp_path: Path, va_gateway: tuple[str, int | str | None] | None
 ) -> None:
     """An endpoint is a real machine until the config proves otherwise.
 
@@ -955,21 +957,6 @@ async def test_a_va_block_that_does_not_land_on_the_deployments_simulator_idles(
         addresses=["SR:BPM01:X"],
         writer=writer,
         config_path=_write_config(tmp_path / "config.yml", va_gateway=va_gateway),
-        reader=_reader({"SR:BPM01:X": 1.5}),
-    )
-
-    assert await recorder.tick(datetime(2026, 8, 10, 12, 0, 0, tzinfo=UTC)) is False
-    assert writer.samples == []
-
-
-async def test_a_va_block_with_no_gateways_at_all_idles(tmp_path: Path) -> None:
-    """No gateway row, no endpoint: there is nothing to judge, so nothing is recorded."""
-    writer = _FakeWriter()
-    recorder = Recorder(
-        settings=_settings(),
-        addresses=["SR:BPM01:X"],
-        writer=writer,
-        config_path=_write_config(tmp_path / "config.yml", va_gateway=None),
         reader=_reader({"SR:BPM01:X": 1.5}),
     )
 

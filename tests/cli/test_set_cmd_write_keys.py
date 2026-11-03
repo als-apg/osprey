@@ -104,24 +104,34 @@ def test_asked_is_accepted_from_allowed(runner, lifecycle_repo):
     assert _rendered_ceiling(lifecycle_repo) == "asked"
 
 
-@pytest.mark.parametrize("ceiling", ["never", "asked", None])
-def test_asked_is_refused_unless_the_ceiling_is_allowed(runner, lifecycle_repo, ceiling):
+@pytest.mark.parametrize(
+    ("assignment", "ceiling"),
+    [
+        ("config.control_system.writes=asked", "never"),
+        ("config.control_system.writes=asked", "asked"),
+        ("config.control_system.writes=asked", None),
+        ("config.control_system.writes=allowed", "never"),
+        ("config.control_system.writes=allowed", "asked"),
+        ("config.control_system.writes=allowed", "allowed"),
+        ("config.control_system.writes=allowed", None),
+    ],
+    ids=[
+        "asked-from-never",
+        "asked-from-asked",
+        "asked-from-unset",
+        "allowed-from-never",
+        "allowed-from-asked",
+        "allowed-from-allowed",
+        "allowed-from-unset",
+    ],
+)
+def test_a_write_above_the_ceiling_is_refused_and_points_at_the_profile(
+    runner, lifecycle_repo, assignment, ceiling
+):
     _state_ceiling(lifecycle_repo, ceiling)
     before = _profile_bytes(lifecycle_repo)
 
-    result = _invoke(runner, lifecycle_repo, "config.control_system.writes=asked")
-
-    assert result.exit_code != 0
-    assert "profile" in result.output and "tier file" in result.output, result.output
-    assert _profile_bytes(lifecycle_repo) == before
-
-
-@pytest.mark.parametrize("ceiling", ["never", "asked", "allowed", None])
-def test_allowed_is_refused_and_points_at_the_profile(runner, lifecycle_repo, ceiling):
-    _state_ceiling(lifecycle_repo, ceiling)
-    before = _profile_bytes(lifecycle_repo)
-
-    result = _invoke(runner, lifecycle_repo, "config.control_system.writes=allowed")
+    result = _invoke(runner, lifecycle_repo, assignment)
 
     assert result.exit_code != 0
     assert "profile" in result.output and "tier file" in result.output, result.output
@@ -682,14 +692,35 @@ def test_a_render_that_fails_after_the_write_takes_the_line_back(runner, tmp_pat
 
 
 @pytest.mark.parametrize(
-    "text",
-    ["config:\n  control_system.writes: [never\n", "name: a\nname: b\n"],
-    ids=["unclosed-flow", "duplicate-key"],
+    ("text", "pair", "message"),
+    [
+        (
+            "config:\n  control_system.writes: [never\n",
+            "config.control_system.writes=never",
+            "not valid YAML",
+        ),
+        (
+            "config:\n  control_system.writes: [never\n",
+            "config.system.timezone=UTC",
+            "not valid YAML",
+        ),
+        ("name: a\nname: b\n", "config.control_system.writes=never", "not valid YAML"),
+        ("name: a\nname: b\n", "config.system.timezone=UTC", "not valid YAML"),
+        ("- a\n", "config.control_system.writes=never", "not a mapping"),
+        ("hello\n", "config.control_system.writes=never", "not a mapping"),
+    ],
+    ids=[
+        "unclosed-flow-writes",
+        "unclosed-flow-timezone",
+        "duplicate-key-writes",
+        "duplicate-key-timezone",
+        "list",
+        "scalar",
+    ],
 )
-@pytest.mark.parametrize(
-    "pair", ["config.control_system.writes=never", "config.system.timezone=UTC"]
-)
-def test_a_profile_that_is_not_yaml_is_refused_cleanly(runner, tmp_path, text, pair):
+def test_a_profile_that_is_not_a_yaml_mapping_is_refused_cleanly(
+    runner, tmp_path, text, pair, message
+):
     repo = _silent_root(tmp_path / "repo", "control-assistant")
     (repo / "profile.yml").write_text(text, encoding="utf-8")
     before = _profile_bytes(repo)
@@ -698,7 +729,7 @@ def test_a_profile_that_is_not_yaml_is_refused_cleanly(runner, tmp_path, text, p
 
     assert result.exit_code != 0
     assert isinstance(result.exception, SystemExit), result.output
-    assert "not valid YAML" in result.output, result.output
+    assert message in result.output, result.output
     assert _profile_bytes(repo) == before
 
 
@@ -771,31 +802,28 @@ def test_never_is_written_over_a_config_that_is_not_a_mapping(runner, tmp_path, 
 
 
 @pytest.mark.parametrize("config", ["5", "true", "[a]", ""])
-def test_a_block_over_a_config_that_is_not_a_mapping_cannot_be_judged(runner, tmp_path, config):
+@pytest.mark.parametrize(
+    "pair",
+    [
+        "config.control_system={type: virtual_accelerator}",
+        # The line names no ceiling, but turning `config:` back into a mapping repairs the root.
+        "config.system.timezone=UTC",
+    ],
+    ids=["block", "replacing-config"],
+)
+def test_a_write_over_a_config_that_is_not_a_mapping_cannot_be_judged(
+    runner, tmp_path, config, pair
+):
     repo = _silent_root(tmp_path / "repo", "control-assistant")
     path = repo / "profile.yml"
     path.write_text(path.read_text() + f"config: {config}\n", encoding="utf-8")
     before = _profile_bytes(repo)
 
-    result = _invoke(runner, repo, "config.control_system={type: virtual_accelerator}")
+    result = _invoke(runner, repo, pair)
 
     assert result.exit_code != 0
     assert isinstance(result.exception, SystemExit), result.output
     assert "cannot be judged" in result.output, result.output
-    assert _profile_bytes(repo) == before
-
-
-@pytest.mark.parametrize("text", ["- a\n", "hello\n"], ids=["list", "scalar"])
-def test_a_profile_that_is_not_a_mapping_is_refused_cleanly(runner, tmp_path, text):
-    repo = _silent_root(tmp_path / "repo", "control-assistant")
-    (repo / "profile.yml").write_text(text, encoding="utf-8")
-    before = _profile_bytes(repo)
-
-    result = _invoke(runner, repo, "config.control_system.writes=never")
-
-    assert result.exit_code != 0
-    assert isinstance(result.exception, SystemExit), result.output
-    assert "not a mapping" in result.output, result.output
     assert _profile_bytes(repo) == before
 
 
@@ -808,19 +836,3 @@ def test_never_is_written_into_an_empty_profile(runner, tmp_path):
     assert result.exit_code == 0, result.output
     assert "not checked" in result.output, result.output
     assert "control_system.writes: never" in (repo / "profile.yml").read_text()
-
-
-@pytest.mark.parametrize("config", ["5", "true", "[a]", ""])
-def test_replacing_a_config_that_is_not_a_mapping_cannot_be_judged(runner, tmp_path, config):
-    """The line names no ceiling, but turning `config:` back into a mapping repairs the root."""
-    repo = _silent_root(tmp_path / "repo", "control-assistant")
-    path = repo / "profile.yml"
-    path.write_text(path.read_text() + f"config: {config}\n", encoding="utf-8")
-    before = _profile_bytes(repo)
-
-    result = _invoke(runner, repo, "config.system.timezone=UTC")
-
-    assert result.exit_code != 0
-    assert isinstance(result.exception, SystemExit), result.output
-    assert "cannot be judged" in result.output, result.output
-    assert _profile_bytes(repo) == before

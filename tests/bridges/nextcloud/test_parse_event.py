@@ -228,8 +228,21 @@ def test_a_mention_matches_across_account_casing():
 # ==========================================================================
 
 
-def test_group_room_message_without_a_mention_is_ignored():
-    assert _parse(_msg(message="what is the beam current?", messageParameters=[])) is None
+@pytest.mark.parametrize(
+    "message",
+    [
+        pytest.param("what is the beam current?", id="group-room-without-a-mention"),
+        # Matching on messageParameters rather than on the text is what makes this
+        # exact: typing the bot's handle without Talk's mention picker does not
+        # address it.
+        pytest.param("@osprey-bot what is the beam current?", id="literal-bot-name-in-text"),
+        pytest.param("", id="empty"),
+        pytest.param("   ", id="whitespace"),
+        pytest.param("\n\t ", id="newlines"),
+    ],
+)
+def test_a_message_with_no_mention_parameter_is_ignored(message):
+    assert _parse(_msg(message=message, messageParameters=[])) is None
 
 
 def test_group_room_at_all_is_ignored():
@@ -290,15 +303,6 @@ def test_only_a_user_type_parameter_counts_as_a_mention(param):
     assert _parse(_msg(messageParameters={"mention-user1": param})) is None
 
 
-def test_the_literal_bot_name_in_text_is_not_a_mention():
-    """Matching on messageParameters rather than on the text is what makes this
-    exact: typing the bot's handle without Talk's mention picker does not
-    address it."""
-    assert _parse(_msg(message="@osprey-bot what is the beam current?", messageParameters=[])) is (
-        None
-    )
-
-
 # ==========================================================================
 # System events, non-comments, and empty questions
 # ==========================================================================
@@ -325,18 +329,6 @@ def test_a_missing_message_type_is_treated_as_a_comment():
     del raw["messageType"]
 
     assert _parse(raw) is not None
-
-
-@pytest.mark.parametrize(
-    "message",
-    [
-        pytest.param("", id="empty"),
-        pytest.param("   ", id="whitespace"),
-        pytest.param("\n\t ", id="newlines"),
-    ],
-)
-def test_empty_text_is_ignored(message):
-    assert _parse(_msg(message=message, messageParameters=[])) is None
 
 
 def test_a_bare_mention_with_no_question_is_ignored():
@@ -583,13 +575,26 @@ def test_interior_whitespace_is_left_alone():
     assert event.text == "why does this fail?\n\n    for i in range(3):\n        print(i)"
 
 
-def test_an_unknown_placeholder_is_left_verbatim():
-    """A brace the user typed themselves is not a Talk parameter, and deleting
-    text nobody can account for is worse than showing a stray brace."""
-    event = _parse(_msg(message="{mention-user1} what does {beam_current} mean?"))
+@pytest.mark.parametrize(
+    ("message", "expected"),
+    [
+        # A brace the user typed themselves is not a Talk parameter, and deleting
+        # text nobody can account for is worse than showing a stray brace.
+        pytest.param(
+            "{mention-user1} what does {beam_current} mean?",
+            "what does {beam_current} mean?",
+            id="unknown-placeholder-left-verbatim",
+        ),
+        pytest.param(
+            "{mention-user1} hello {mention-user1}", "hello", id="repeated-mention-token-stripped"
+        ),
+    ],
+)
+def test_mention_tokens_are_stripped_and_other_text_is_kept_as_written(message, expected):
+    event = _parse(_msg(message=message))
 
     assert event is not None
-    assert event.text == "what does {beam_current} mean?"
+    assert event.text == expected
 
 
 def test_a_parameter_with_no_label_is_left_verbatim():
@@ -605,13 +610,6 @@ def test_a_parameter_with_no_label_is_left_verbatim():
 
     assert event is not None
     assert event.text == "look at {file0}"
-
-
-def test_a_repeated_mention_token_is_fully_stripped():
-    event = _parse(_msg(message="{mention-user1} hello {mention-user1}"))
-
-    assert event is not None
-    assert event.text == "hello"
 
 
 # ==========================================================================

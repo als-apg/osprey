@@ -84,10 +84,11 @@ async def test_get_run_request_response_mapping(monkeypatch):
     assert extract_response_dict(result) == record
 
 
-async def test_get_run_unreachable(monkeypatch):
+@pytest.mark.parametrize("tool", ["get_run", "get_run_data", "get_run_figure"])
+async def test_a_run_read_reports_an_unreachable_bridge(monkeypatch, tool):
     monkeypatch.setattr(f"{_MOD}._http_get_json", _unreachable)
     with assert_raises_error(error_type="bluesky_bridge_unreachable"):
-        await _fn("get_run")(run_id="run-1")
+        await _fn(tool)(run_id="run-1")
 
 
 def test_get_run_docstring_names_every_key_the_run_record_can_emit(monkeypatch):
@@ -198,10 +199,11 @@ async def test_list_plans_request_response_mapping(monkeypatch):
     assert data["plans"] == plans
 
 
-async def test_list_plans_unreachable(monkeypatch):
+@pytest.mark.parametrize("tool", ["list_plans", "list_devices", "list_runs"])
+async def test_a_listing_reports_an_unreachable_bridge(monkeypatch, tool):
     monkeypatch.setattr(f"{_MOD}._http_get_json", _unreachable)
     with assert_raises_error(error_type="bluesky_bridge_unreachable"):
-        await _fn("list_plans")()
+        await _fn(tool)()
 
 
 # ---------------------------------------------------------------------------
@@ -231,12 +233,6 @@ async def test_list_devices_request_response_mapping(monkeypatch):
     assert (data["total"], data["offset"], data["limit"]) == (2, 0, 500)
 
 
-async def test_list_devices_unreachable(monkeypatch):
-    monkeypatch.setattr(f"{_MOD}._http_get_json", _unreachable)
-    with assert_raises_error(error_type="bluesky_bridge_unreachable"):
-        await _fn("list_devices")()
-
-
 # ---------------------------------------------------------------------------
 # list_runs — GET /runs
 # ---------------------------------------------------------------------------
@@ -258,12 +254,6 @@ async def test_list_runs_request_response_mapping(monkeypatch):
     data = extract_response_dict(result)
     assert data["status"] == "success"
     assert data["runs"] == runs
-
-
-async def test_list_runs_unreachable(monkeypatch):
-    monkeypatch.setattr(f"{_MOD}._http_get_json", _unreachable)
-    with assert_raises_error(error_type="bluesky_bridge_unreachable"):
-        await _fn("list_runs")()
 
 
 # ---------------------------------------------------------------------------
@@ -322,12 +312,6 @@ async def test_get_run_data_cuts_a_wide_window_to_the_byte_budget(monkeypatch):
         assert data["truncated"] is True
         assert data["row_count"] == 400
         assert data["note"].startswith(f"{400 - kept} of the 400 rows asked for were left out")
-
-
-async def test_get_run_data_unreachable(monkeypatch):
-    monkeypatch.setattr(f"{_MOD}._http_get_json", _unreachable)
-    with assert_raises_error(error_type="bluesky_bridge_unreachable"):
-        await _fn("get_run_data")(run_id="run-1")
 
 
 # ---------------------------------------------------------------------------
@@ -441,12 +425,6 @@ async def test_get_run_figure_unknown_run(monkeypatch):
 async def test_get_run_figure_bridge_error(monkeypatch):
     _serve(monkeypatch, {"detail": "boom"}, status=503)
     with assert_raises_error(error_type="bluesky_bridge_error"):
-        await _fn("get_run_figure")(run_id="run-1")
-
-
-async def test_get_run_figure_unreachable(monkeypatch):
-    monkeypatch.setattr(f"{_MOD}._http_get_json", _unreachable)
-    with assert_raises_error(error_type="bluesky_bridge_unreachable"):
         await _fn("get_run_figure")(run_id="run-1")
 
 

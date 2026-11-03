@@ -71,21 +71,33 @@ def test_get_draft_attachment_success(draft_client):
     assert resp.headers["content-security-policy"] == "sandbox; default-src 'none'"
 
 
-def test_get_draft_attachment_not_in_draft(draft_client):
-    """Requesting an attachment not listed in draft returns 404."""
+@pytest.mark.parametrize(
+    ("draft_id", "attachment_path", "filename"),
+    [
+        # Requesting an attachment not listed in draft.
+        pytest.param("draft-test002", "/some/other/file.png", "unlisted.png", id="not-in-draft"),
+        # Attachment listed in draft but missing on disk.
+        pytest.param(
+            "draft-test005", "/nonexistent/path/image.png", "image.png", id="file-missing-on-disk"
+        ),
+    ],
+)
+def test_get_draft_attachment_not_servable_returns_404(
+    draft_client, draft_id, attachment_path, filename
+):
     client, drafts_dir = draft_client
 
     write_draft(
-        "draft-test002",
+        draft_id,
         {
-            "draft_id": "draft-test002",
+            "draft_id": draft_id,
             "subject": "Test",
             "details": "Details",
-            "attachment_paths": ["/some/other/file.png"],
+            "attachment_paths": [attachment_path],
         },
     )
 
-    resp = client.get("/api/drafts/draft-test002/attachments/unlisted.png")
+    resp = client.get(f"/api/drafts/{draft_id}/attachments/{filename}")
     assert resp.status_code == 404
 
 
@@ -181,24 +193,6 @@ def test_create_draft_does_not_store_fields(draft_client):
     draft_id = resp.json()["draft_id"]
     assert "fields" not in drafts_mod.read_draft(draft_id)
     assert client.get(f"/api/drafts/{draft_id}").json()["fields"] is None
-
-
-def test_get_draft_attachment_file_missing_on_disk(draft_client):
-    """Attachment listed in draft but missing on disk returns 404."""
-    client, _ = draft_client
-
-    write_draft(
-        "draft-test005",
-        {
-            "draft_id": "draft-test005",
-            "subject": "Test",
-            "details": "Details",
-            "attachment_paths": ["/nonexistent/path/image.png"],
-        },
-    )
-
-    resp = client.get("/api/drafts/draft-test005/attachments/image.png")
-    assert resp.status_code == 404
 
 
 def _write_draft_with(drafts_dir, draft_id: str, name: str, data: bytes) -> None:

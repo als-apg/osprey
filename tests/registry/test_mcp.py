@@ -127,28 +127,24 @@ class TestResolveServers:
         assert s["permissions_ask"] == ["write_data"]
         assert s["is_custom"] is True
 
-    def test_resolve_external_command_resolves_current_python_env(self):
-        """An external server's ``command`` resolves {current_python_env}
-        the same way ``args`` and ``env`` already do."""
+    @pytest.mark.parametrize(
+        ("command", "expected"),
+        [
+            # An external server's ``command`` resolves {current_python_env}
+            # the same way ``args`` and ``env`` already do.
+            pytest.param("{current_python_env}", "/usr/bin/python3", id="current-python-env"),
+            # An external server's ``command`` resolves {project_root}.
+            pytest.param("{project_root}/bin/x", "/tmp/test-project/bin/x", id="project-root"),
+            # ``${VAR}`` in an external server's ``command`` survives verbatim,
+            # matching the existing behavior for ``args`` and ``env``.
+            pytest.param("${TOOL_HOME}/bin/x", "${TOOL_HOME}/bin/x", id="dollar-var-untouched"),
+        ],
+    )
+    def test_resolve_external_command_resolves_its_placeholders(self, command, expected):
         ctx = _base_ctx()
-        cfg = {"servers": {"my-server": {"command": "{current_python_env}"}}}
+        cfg = {"servers": {"my-server": {"command": command}}}
         s = _resolve_one(cfg, "my-server", ctx)
-        assert s["command"] == "/usr/bin/python3"
-
-    def test_resolve_external_command_resolves_project_root(self):
-        """An external server's ``command`` resolves {project_root}."""
-        ctx = _base_ctx()
-        cfg = {"servers": {"my-server": {"command": "{project_root}/bin/x"}}}
-        s = _resolve_one(cfg, "my-server", ctx)
-        assert s["command"] == "/tmp/test-project/bin/x"
-
-    def test_resolve_external_command_leaves_dollar_var_untouched(self):
-        """``${VAR}`` in an external server's ``command`` survives verbatim,
-        matching the existing behavior for ``args`` and ``env``."""
-        ctx = _base_ctx()
-        cfg = {"servers": {"my-server": {"command": "${TOOL_HOME}/bin/x"}}}
-        s = _resolve_one(cfg, "my-server", ctx)
-        assert s["command"] == "${TOOL_HOME}/bin/x"
+        assert s["command"] == expected
 
     def test_resolve_custom_server_url_defaults_to_http_transport(self):
         """A URL server without a transport key resolves as streamable-HTTP."""
@@ -204,29 +200,27 @@ class TestResolveServers:
         assert not [s for s in servers if s["name"] == "typo-api"]
         assert "invalid transport" in caplog.text
 
-    def test_resolve_custom_server_double_underscore_name_rejected(self, caplog):
-        """A ``__`` in a custom server name is rejected loudly, like extends clones.
-
-        Tool names are ``mcp__<server>__<tool>``, so a server named
-        ``my__server`` would make every consumer that splits on the first
-        ``__`` (transcript reader, display formatting) silently mis-attribute
-        its calls to a server named ``my``.
-        """
+    @pytest.mark.parametrize(
+        "name",
+        [
+            # A ``__`` in a custom server name is rejected loudly, like extends clones.
+            #
+            # Tool names are ``mcp__<server>__<tool>``, so a server named
+            # ``my__server`` would make every consumer that splits on the first
+            # ``__`` (transcript reader, display formatting) silently mis-attribute
+            # its calls to a server named ``my``.
+            pytest.param("my__server", id="double-underscore"),
+            # A trailing ``_`` makes ``mcp__<server>__`` ambiguous, so it is rejected.
+            pytest.param("srv_", id="trailing-underscore"),
+        ],
+    )
+    def test_resolve_custom_server_name_that_breaks_the_tool_prefix_rejected(self, caplog, name):
         ctx = _base_ctx()
-        cfg = {"servers": {"my__server": {"command": "node", "args": ["s.js"]}}}
+        cfg = {"servers": {name: {"command": "node", "args": ["s.js"]}}}
         with caplog.at_level("WARNING"):
             servers = resolve_servers(cfg, ctx)
-        assert not [s for s in servers if s["name"] == "my__server"]
-        assert "my__server" in caplog.text
-
-    def test_resolve_custom_server_trailing_underscore_rejected(self, caplog):
-        """A trailing ``_`` makes ``mcp__<server>__`` ambiguous — rejected."""
-        ctx = _base_ctx()
-        cfg = {"servers": {"srv_": {"command": "node", "args": ["s.js"]}}}
-        with caplog.at_level("WARNING"):
-            servers = resolve_servers(cfg, ctx)
-        assert not [s for s in servers if s["name"] == "srv_"]
-        assert "srv_" in caplog.text
+        assert not [s for s in servers if s["name"] == name]
+        assert name in caplog.text
 
     def test_resolve_custom_server_transport_on_stdio_ignored(self, caplog):
         """A command server declaring transport keeps working; the key is ignored loudly."""

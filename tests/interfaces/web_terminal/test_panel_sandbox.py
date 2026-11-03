@@ -457,11 +457,26 @@ _SERVER_PATH_RE = re.compile(
 
 
 class TestPanelStatic:
-    def test_the_entry_page_is_never_allowlisted(self, discovered):
+    @pytest.mark.parametrize(
+        ("urls", "status"),
+        [
+            pytest.param(
+                ("/panel-static/agent/", "/panel-static/agent/index.html"),
+                200,
+                id="the-entry-page-is-never-allowlisted",
+            ),
+            pytest.param(
+                ("/panel-static/agent/nope.html", "/panel-static/nobody/"),
+                404,
+                id="a-miss",
+            ),
+        ],
+    )
+    def test_the_entry_page_and_a_miss_are_sandboxed(self, discovered, urls, status):
         _app, client = discovered
-        for url in ("/panel-static/agent/", "/panel-static/agent/index.html"):
+        for url in urls:
             resp = client.get(url)
-            assert resp.status_code == 200, url
+            assert resp.status_code == status, url
             assert _sandboxed(resp), url
 
     def test_an_agent_svg_is_sandboxed_and_not_sniffed(self, discovered):
@@ -493,13 +508,6 @@ class TestPanelStatic:
 
         assert resp.status_code == 200
         assert not _sandboxed(resp)
-
-    def test_a_miss_is_sandboxed(self, discovered):
-        _app, client = discovered
-        for url in ("/panel-static/agent/nope.html", "/panel-static/nobody/"):
-            resp = client.get(url)
-            assert resp.status_code == 404, url
-            assert _sandboxed(resp), url
 
     def test_the_reference_panel_is_served_self_contained(self, discovered):
         _app, client = discovered

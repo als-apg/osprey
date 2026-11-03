@@ -102,9 +102,18 @@ def test_empty_required_field(field_name: str) -> None:
     assert [e.rule for e in errors] == [ManifestRule.EMPTY_FIELD]
 
 
-@pytest.mark.parametrize("field_name", ["id", "label", "entry"])
-def test_wrong_type_required_field(field_name: str) -> None:
-    data = _valid_manifest() | {field_name: 123}
+@pytest.mark.parametrize(
+    ("field_name", "value"),
+    [
+        pytest.param("id", 123, id="id"),
+        pytest.param("label", 123, id="label"),
+        pytest.param("entry", 123, id="entry"),
+        # JSON booleans are Python ints; the validator must reject them.
+        pytest.param("version", True, id="bool-version"),
+    ],
+)
+def test_wrong_type_field(field_name: str, value: object) -> None:
+    data = _valid_manifest() | {field_name: value}
     errors = validate_manifest(data)
     assert [e.rule for e in errors] == [ManifestRule.WRONG_TYPE]
 
@@ -127,13 +136,6 @@ def test_wrong_type_version() -> None:
     errors = validate_manifest(data)
     assert [e.rule for e in errors] == [ManifestRule.WRONG_TYPE]
     assert "version" in str(errors[0])
-
-
-def test_bool_version_rejected() -> None:
-    # JSON booleans are Python ints; the validator must reject them.
-    data = _valid_manifest() | {"version": True}
-    errors = validate_manifest(data)
-    assert [e.rule for e in errors] == [ManifestRule.WRONG_TYPE]
 
 
 # --- Non-object input ---------------------------------------------------------
