@@ -1830,6 +1830,14 @@ jobs:
     timeout-minutes: 50
 
     steps:
+    # Image-building E2E lanes run the hosted runner out of disk ("No space left
+    # on device" in the image's deps layer). Drop the preinstalled SDKs this job
+    # never uses, as the other image-building E2E jobs do.
+    - name: Free runner disk
+      run: |
+        sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+        df -h /
+
     - name: Checkout repository
       uses: actions/checkout@v7
       with:
@@ -2160,6 +2168,14 @@ jobs:
     timeout-minutes: 30
 
     steps:
+    # Image-building E2E lanes run the hosted runner out of disk ("No space left
+    # on device" in the image's deps layer). Drop the preinstalled SDKs this job
+    # never uses, as the other image-building E2E jobs do.
+    - name: Free runner disk
+      run: |
+        sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+        df -h /
+
     - name: Checkout repository
       # Full history: `uv sync` builds the package from source and the version
       # backend cannot derive a version without the tags.
@@ -2690,6 +2706,14 @@ jobs:
       || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
 
     steps:
+    # Image-building E2E lanes run the hosted runner out of disk ("No space left
+    # on device" in the image's deps layer). Drop the preinstalled SDKs this job
+    # never uses, as the other image-building E2E jobs do.
+    - name: Free runner disk
+      run: |
+        sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+        df -h /
+
     - name: Checkout repository
       uses: actions/checkout@v7
       with:
@@ -2796,6 +2820,14 @@ jobs:
       || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
 
     steps:
+    # Image-building E2E lanes run the hosted runner out of disk ("No space left
+    # on device" in the image's deps layer). Drop the preinstalled SDKs this job
+    # never uses, as the other image-building E2E jobs do.
+    - name: Free runner disk
+      run: |
+        sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+        df -h /
+
     - name: Checkout repository
       uses: actions/checkout@v7
       with:
@@ -2902,6 +2934,14 @@ jobs:
     timeout-minutes: 60
 
     steps:
+    # Image-building E2E lanes run the hosted runner out of disk ("No space left
+    # on device" in the image's deps layer). Drop the preinstalled SDKs this job
+    # never uses, as the other image-building E2E jobs do.
+    - name: Free runner disk
+      run: |
+        sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+        df -h /
+
     - name: Checkout repository
       uses: actions/checkout@v7
       with:
@@ -3030,6 +3070,14 @@ jobs:
     timeout-minutes: 60
 
     steps:
+    # Image-building E2E lanes run the hosted runner out of disk ("No space left
+    # on device" in the image's deps layer). Drop the preinstalled SDKs this job
+    # never uses, as the other image-building E2E jobs do.
+    - name: Free runner disk
+      run: |
+        sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+        df -h /
+
     - name: Checkout repository
       uses: actions/checkout@v7
       with:
@@ -3199,6 +3247,14 @@ jobs:
     timeout-minutes: 45
 
     steps:
+    # Image-building E2E lanes run the hosted runner out of disk ("No space left
+    # on device" in the image's deps layer). Drop the preinstalled SDKs this job
+    # never uses, as the other image-building E2E jobs do.
+    - name: Free runner disk
+      run: |
+        sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+        df -h /
+
     - name: Checkout repository
       uses: actions/checkout@v7
       with:
@@ -3279,6 +3335,14 @@ jobs:
     timeout-minutes: 45
 
     steps:
+    # Image-building E2E lanes run the hosted runner out of disk ("No space left
+    # on device" in the image's deps layer). Drop the preinstalled SDKs this job
+    # never uses, as the other image-building E2E jobs do.
+    - name: Free runner disk
+      run: |
+        sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+        df -h /
+
     - name: Checkout repository
       uses: actions/checkout@v7
       with:
@@ -3501,6 +3565,14 @@ jobs:
     timeout-minutes: 75
 
     steps:
+    # Image-building E2E lanes run the hosted runner out of disk ("No space left
+    # on device" in the image's deps layer). Drop the preinstalled SDKs this job
+    # never uses, as the other image-building E2E jobs do.
+    - name: Free runner disk
+      run: |
+        sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+        df -h /
+
     - name: Checkout repository
       uses: actions/checkout@v7
       with:
@@ -3596,6 +3668,14 @@ jobs:
     timeout-minutes: 75
 
     steps:
+    # Image-building E2E lanes run the hosted runner out of disk ("No space left
+    # on device" in the image's deps layer). Drop the preinstalled SDKs this job
+    # never uses, as the other image-building E2E jobs do.
+    - name: Free runner disk
+      run: |
+        sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+        df -h /
+
     - name: Checkout repository
       uses: actions/checkout@v7
       with:
@@ -3894,6 +3974,14 @@ jobs:
     timeout-minutes: 30
 
     steps:
+    # Image-building E2E lanes run the hosted runner out of disk ("No space left
+    # on device" in the image's deps layer). Drop the preinstalled SDKs this job
+    # never uses, as the other image-building E2E jobs do.
+    - name: Free runner disk
+      run: |
+        sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+        df -h /
+
     - name: Checkout repository
       uses: actions/checkout@v7
       with:
@@ -4141,6 +4229,14 @@ jobs:
     timeout-minutes: 45
 
     steps:
+    # Image-building E2E lanes run the hosted runner out of disk ("No space left
+    # on device" in the image's deps layer). Drop the preinstalled SDKs this job
+    # never uses, as the other image-building E2E jobs do.
+    - name: Free runner disk
+      run: |
+        sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+        df -h /
+
     - name: Checkout repository
       uses: actions/checkout@v7
       with:
@@ -4273,6 +4369,14 @@ jobs:
       OSPREY_E2E_RUNTIME: docker
 
     steps:
+    # Image-building E2E lanes run the hosted runner out of disk ("No space left
+    # on device" in the image's deps layer). Drop the preinstalled SDKs this job
+    # never uses, as the other image-building E2E jobs do.
+    - name: Free runner disk
+      run: |
+        sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+        df -h /
+
     - name: Checkout repository
       uses: actions/checkout@v7
       with:
@@ -4537,6 +4641,14 @@ jobs:
       || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
 
     steps:
+    # Image-building E2E lanes run the hosted runner out of disk ("No space left
+    # on device" in the image's deps layer). Drop the preinstalled SDKs this job
+    # never uses, as the other image-building E2E jobs do.
+    - name: Free runner disk
+      run: |
+        sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+        df -h /
+
     - name: Checkout repository
       uses: actions/checkout@v7
       with:
@@ -4987,6 +5099,14 @@ jobs:
     timeout-minutes: 40
 
     steps:
+    # Image-building E2E lanes run the hosted runner out of disk ("No space left
+    # on device" in the image's deps layer). Drop the preinstalled SDKs this job
+    # never uses, as the other image-building E2E jobs do.
+    - name: Free runner disk
+      run: |
+        sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+        df -h /
+
     - name: Checkout repository
       uses: actions/checkout@v7
       with:
@@ -5059,6 +5179,14 @@ jobs:
       || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
 
     steps:
+    # Image-building E2E lanes run the hosted runner out of disk ("No space left
+    # on device" in the image's deps layer). Drop the preinstalled SDKs this job
+    # never uses, as the other image-building E2E jobs do.
+    - name: Free runner disk
+      run: |
+        sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+        df -h /
+
     - name: Checkout repository
       uses: actions/checkout@v7
       with:
@@ -5146,6 +5274,14 @@ jobs:
       || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
 
     steps:
+    # Image-building E2E lanes run the hosted runner out of disk ("No space left
+    # on device" in the image's deps layer). Drop the preinstalled SDKs this job
+    # never uses, as the other image-building E2E jobs do.
+    - name: Free runner disk
+      run: |
+        sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+        df -h /
+
     - name: Checkout repository
       uses: actions/checkout@v7
       with:
@@ -5263,6 +5399,14 @@ jobs:
       || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
 
     steps:
+    # Image-building E2E lanes run the hosted runner out of disk ("No space left
+    # on device" in the image's deps layer). Drop the preinstalled SDKs this job
+    # never uses, as the other image-building E2E jobs do.
+    - name: Free runner disk
+      run: |
+        sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+        df -h /
+
     - name: Checkout repository
       uses: actions/checkout@v7
       with:
@@ -5665,6 +5809,14 @@ jobs:
       || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
 
     steps:
+    # Image-building E2E lanes run the hosted runner out of disk ("No space left
+    # on device" in the image's deps layer). Drop the preinstalled SDKs this job
+    # never uses, as the other image-building E2E jobs do.
+    - name: Free runner disk
+      run: |
+        sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+        df -h /
+
     - name: Checkout repository
       uses: actions/checkout@v7
       with:
@@ -6013,6 +6165,14 @@ jobs:
     timeout-minutes: 60
 
     steps:
+    # Image-building E2E lanes run the hosted runner out of disk ("No space left
+    # on device" in the image's deps layer). Drop the preinstalled SDKs this job
+    # never uses, as the other image-building E2E jobs do.
+    - name: Free runner disk
+      run: |
+        sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+        df -h /
+
     - name: Checkout repository
       uses: actions/checkout@v7
       with:
@@ -6453,6 +6613,14 @@ jobs:
     timeout-minutes: 45
 
     steps:
+    # Image-building E2E lanes run the hosted runner out of disk ("No space left
+    # on device" in the image's deps layer). Drop the preinstalled SDKs this job
+    # never uses, as the other image-building E2E jobs do.
+    - name: Free runner disk
+      run: |
+        sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+        df -h /
+
     - name: Checkout repository
       # Full history, not a shallow clone: the image build below stages a tree
       # with no .git in it and passes the version in from the host, and
