@@ -27,7 +27,7 @@ from typing import TYPE_CHECKING
 import pytest
 
 from osprey.facility.records import FacilityRecords
-from osprey.facility.served import BENCHMARK_DATASET_PATH
+from osprey.facility.settings import BENCHMARK_DATASET_PATH
 from osprey.facility.validate import FACILITY_HEADER
 
 if TYPE_CHECKING:

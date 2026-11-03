@@ -2215,25 +2215,24 @@ def _render_project(
         # tier and app files (validation refuses a profile spelling of it). The
         # deployment projects it when it stands up web terminals or runs its
         # dispatch workers at a tier; a tier's or app's render stands up neither,
-        # so no render projects renders-of-a-render.
+        # so no render projects renders-of-a-render. The `facility` entry is
+        # OVERRIDE-CHECKED: `osprey.facility.settings` derives each key the
+        # profile leaves unstated and refuses a stated one the facility
+        # contradicts.
         from osprey.deployment.web_terminals.render_naming import derived_renders
         from osprey.facility.records import FacilityRecords
-        from osprey.facility.served import facility_tree_fill, served_channel_fill
+        from osprey.facility.settings import fill_facility_settings
 
-        # Written for what the profile leaves unstated: the channels the served
-        # simulator proves itself by, and the keys whose value is a fact of the
-        # facility tree. The stand-in copies the simulator's probe, so it reads
-        # the filled value.
-        facility_fill = {
-            **served_channel_fill(
-                FacilityRecords(shared.facility),
-                _rendered_config(render_dir),
-                build_profile.config,
-                build_profile.va_archiver,
-                reported=shared.views_omitted_reported,
-            ),
-            **facility_tree_fill(data_root / "facility", build_profile.config),
-        }
+        # Written for what the profile leaves unstated. The stand-in copies the
+        # simulator's probe, so it reads the filled value.
+        facility_fill = fill_facility_settings(
+            FacilityRecords(shared.facility),
+            data_root / "facility",
+            _rendered_config(render_dir),
+            build_profile.config,
+            build_profile.va_archiver,
+            reported=shared.views_omitted_reported,
+        )
         derived_by_block = {
             "layout": layout_port_fill(build_profile.config, _profile_port_base(build_profile)),
             "deploy": deploy_config_overrides(build_profile.deploy, build_profile.config),
