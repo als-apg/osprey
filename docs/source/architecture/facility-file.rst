@@ -215,6 +215,11 @@ The views
      - always
      - The graph store ``osprey up`` seeds, and ``osprey knowledge
        seed-from-ttl``.
+   * - benchmarks
+     - ``data/<dataset_path>``, by default ``data/benchmarks/queries.json``
+     - ``channel_finder.benchmark.dataset_path`` is stated and the facility
+       ships query sources under ``benchmarks/cross_paradigm/queries/``
+     - ``osprey channel-finder benchmark``.
    * - pyaml
      - ``data/pyaml/<model>/configuration.yaml`` and the files it names
        (``lattice.json``, ``trm.json``, ``crm.json``)
