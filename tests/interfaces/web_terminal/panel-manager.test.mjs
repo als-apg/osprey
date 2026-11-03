@@ -2797,8 +2797,11 @@ describe('rail context menu — the entry’s verbs in words (railOptions onCont
     // By the open rule: a tab in front of the tile the operator was on.
     expect(api.getPanel('iframe:ariel').group.id).toBe(artifactsGroup);
     expect((await pageHolder()).layout.items[0].tabs).toEqual(['artifacts', 'ariel']);
-    // Nobody asked the server for this surfacing.
-    expect(posts(calls)).toEqual([]);
+    // Nobody asked the server for this surfacing. The layout report is not
+    // asking: dock-sync reports the re-docked layout 250 ms after it settles,
+    // and the real-time window poll above can let that window pass before
+    // this line runs on a loaded machine.
+    expect(posts(calls).filter((url) => !url.endsWith('/api/panel-layout'))).toEqual([]);
     open.mockRestore();
   });
 
