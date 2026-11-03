@@ -395,9 +395,10 @@ describe('list row picture-match marker', () => {
         timestamp: '2026-01-01T00:00:00Z',
         author: 'a',
         source_system: 's',
-        raw_text: 'subject\nbody',
+        subject: 'subject',
+        snippet: 'body',
         score: null,
-        attachments: [{ filename: 'a.png' }, { filename: 'b.pdf' }],
+        attachment_count: 2,
         ...extra,
       },
       null
@@ -420,7 +421,7 @@ describe('list row picture-match marker', () => {
     }
   );
 
-  test('the paperclip count is attachments.length', () => {
+  test('the paperclip count is attachment_count', () => {
     expect(card({}).textContent).toContain('📎 2');
   });
 });

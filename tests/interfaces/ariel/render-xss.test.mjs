@@ -43,6 +43,7 @@ vi.mock('../../../src/osprey/interfaces/ariel/static/js/api.js', async (importOr
 import { entriesApi, draftsApi } from '../../../src/osprey/interfaces/ariel/static/js/api.js';
 import { getState, setState } from '../../../src/osprey/interfaces/ariel/static/js/store.js';
 import { initList } from '../../../src/osprey/interfaces/ariel/static/js/list.js';
+import { setEnhancementModules } from '../../../src/osprey/interfaces/ariel/static/js/components.js';
 import {
   showInReader,
   showImageLightbox,
@@ -167,11 +168,11 @@ let composeHost = null;
 /**
  * A listing page.
  * @param {any[]} entries
- * @param {{page?: number, total_pages?: number}} [paging]
+ * @param {{next_cursor?: string|null}} [paging]
  * @returns {any}
  */
-function listPage(entries, { page = 1, total_pages = 1 } = {}) {
-  return { entries, total: entries.length, page, total_pages };
+function listPage(entries, { next_cursor = null } = {}) {
+  return { entries, total: entries.length, page: null, total_pages: 1, next_cursor };
 }
 
 beforeEach(async () => {
@@ -221,10 +222,35 @@ describe('list rows (list.js, via the empty-query listing)', () => {
           timestamp: '2026-01-01T00:00:00Z',
           author: PAYLOAD,
           source_system: PAYLOAD,
-          raw_text: `${PAYLOAD}\nbody text`,
+          subject: PAYLOAD,
+          snippet: `body ${PAYLOAD}`,
           score: null,
-          attachments: [],
+          attachment_count: 0,
+          enhancements: { [PAYLOAD]: PAYLOAD, image_caption: PAYLOAD },
           keywords: [PAYLOAD],
+          highlights: [],
+          matched_via: [],
+        },
+      ])
+    );
+
+    await loadListing();
+
+    assertPayloadInert(listBody());
+  });
+
+  test('a subject-less row escapes the snippet it falls back to', async () => {
+    vi.mocked(entriesApi.list).mockResolvedValueOnce(
+      listPage([
+        {
+          entry_id: 'e1',
+          timestamp: '2026-01-01T00:00:00Z',
+          author: 'a',
+          source_system: 's',
+          subject: null,
+          snippet: `${PAYLOAD}\n${PAYLOAD}`,
+          score: null,
+          keywords: [],
           highlights: [],
         },
       ])
@@ -233,6 +259,47 @@ describe('list rows (list.js, via the empty-query listing)', () => {
     await loadListing();
 
     assertPayloadInert(listBody());
+  });
+
+  test('escapes hostile module names, labels and states through the badge strip', async () => {
+    setEnhancementModules([
+      { name: PAYLOAD, label: PAYLOAD },
+      { name: 'image_caption', label: PAYLOAD },
+    ]);
+    try {
+      vi.mocked(entriesApi.list).mockResolvedValueOnce(
+        listPage([
+          {
+            entry_id: 'e1',
+            timestamp: '2026-01-01T00:00:00Z',
+            author: 'a',
+            source_system: 's',
+            subject: 'subject',
+            snippet: 'body',
+            enhancements: { [PAYLOAD]: PAYLOAD, image_caption: 'stale' },
+            keywords: [],
+            highlights: [],
+          },
+        ])
+      );
+
+      await loadListing();
+
+      const list = listBody();
+      const strip = /** @type {Element} */ (list?.querySelector('.ariel-strip'));
+      expect(strip, 'strip rendered').not.toBeNull();
+      expect(list?.querySelector('img'), 'no live <img> injected by the payload').toBeNull();
+      assertNoEventHandlerAttributes(list);
+      const cells = Array.from(strip.querySelectorAll('.ariel-strip-cell'));
+      expect(cells.map((c) => /** @type {HTMLElement} */ (c).dataset.module)).toEqual([
+        PAYLOAD,
+        'image_caption',
+      ]);
+      expect(cells[0].getAttribute('aria-label')).toBe(`${PAYLOAD}: n/a`);
+      expect(cells[1].getAttribute('title')).toBe(`${PAYLOAD}: stale`);
+    } finally {
+      setEnhancementModules([]);
+    }
   });
 });
 
@@ -333,9 +400,9 @@ describe('list row (list.js, via the listing + delegated click)', () => {
             timestamp: '2026-01-01T00:00:00Z',
             author: 'author',
             source_system: 'sys',
-            raw_text: 'body',
+            snippet: 'body',
             score: null,
-            attachments: [],
+            attachment_count: 0,
             keywords: [],
             highlights: [],
           },
@@ -372,29 +439,25 @@ describe('load older (list.js, via delegated click)', () => {
     timestamp: '2026-01-01T00:00:00Z',
     author: 'a',
     source_system: 's',
-    raw_text: 'body',
+    snippet: 'body',
     score: null,
-    attachments: [],
+    attachment_count: 0,
     keywords: [],
     highlights: [],
   });
 
   test('clicking Load older appends the next page through the listener on the list body itself', async () => {
-    vi.mocked(entriesApi.list).mockResolvedValueOnce(
-      listPage([row('e1')], { page: 1, total_pages: 2 })
-    );
+    vi.mocked(entriesApi.list).mockResolvedValueOnce(listPage([row('e1')], { next_cursor: 'C1' }));
 
     await loadListing();
 
     const list = listBody();
     assertNoEventHandlerAttributes(list);
 
-    const older = /** @type {HTMLElement|null} */ (list.querySelector('[data-load-older]'));
+    const older = /** @type {HTMLElement|null} */ (list.querySelector('[data-load-more]'));
     expect(older, 'Load older rendered').not.toBeNull();
 
-    vi.mocked(entriesApi.list).mockResolvedValueOnce(
-      listPage([row('e2')], { page: 2, total_pages: 2 })
-    );
+    vi.mocked(entriesApi.list).mockResolvedValueOnce(listPage([row('e2')]));
 
     // The body's innerHTML was replaced wholesale by the listing above — this
     // click only works if the listener lives on the body itself (bound once,
@@ -402,7 +465,7 @@ describe('load older (list.js, via delegated click)', () => {
     /** @type {HTMLElement} */ (older).dispatchEvent(new MouseEvent('click', { bubbles: true }));
 
     await vi.waitFor(() => expect(entriesApi.list).toHaveBeenCalledTimes(2));
-    expect(vi.mocked(entriesApi.list).mock.calls[1][0]).toMatchObject({ page: 2 });
+    expect(vi.mocked(entriesApi.list).mock.calls[1][0]).toMatchObject({ cursor: 'C1' });
     await vi.waitFor(() => expect(list.querySelector('[data-entry-id="e2"]')).not.toBeNull());
     expect(list.querySelector('[data-entry-id="e1"]'), 'older rows are appended').not.toBeNull();
   });
@@ -410,24 +473,18 @@ describe('load older (list.js, via delegated click)', () => {
   test('Load older renders while older pages remain and is gone at the end', async () => {
     const list = listBody();
 
-    vi.mocked(entriesApi.list).mockResolvedValueOnce(
-      listPage([row('e1')], { page: 1, total_pages: 2 })
-    );
+    vi.mocked(entriesApi.list).mockResolvedValueOnce(listPage([row('e1')], { next_cursor: 'C1' }));
     await loadListing();
-    expect(list.querySelectorAll('[data-load-older]').length, 'one control at the end').toBe(1);
+    expect(list.querySelectorAll('[data-load-more]').length, 'one control at the end').toBe(1);
 
-    vi.mocked(entriesApi.list).mockResolvedValueOnce(
-      listPage([row('e2')], { page: 2, total_pages: 2 })
-    );
-    /** @type {HTMLElement} */ (list.querySelector('[data-load-older]')).click();
+    vi.mocked(entriesApi.list).mockResolvedValueOnce(listPage([row('e2')]));
+    /** @type {HTMLElement} */ (list.querySelector('[data-load-more]')).click();
     await vi.waitFor(() => expect(list.querySelector('[data-entry-id="e2"]')).not.toBeNull());
-    expect(list.querySelector('[data-load-older]'), 'no control past the last page').toBeNull();
+    expect(list.querySelector('[data-load-more]'), 'no control past the last page').toBeNull();
 
-    vi.mocked(entriesApi.list).mockResolvedValueOnce(
-      listPage([row('only')], { page: 1, total_pages: 1 })
-    );
+    vi.mocked(entriesApi.list).mockResolvedValueOnce(listPage([row('only')]));
     await loadListing();
-    expect(list.querySelector('[data-load-older]'), 'no control on a single page').toBeNull();
+    expect(list.querySelector('[data-load-more]'), 'no control on a single page').toBeNull();
   });
 });
 

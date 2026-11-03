@@ -9,6 +9,7 @@ import { escapeHtml } from '/design-system/js/dom.js';
 import { formatFacilityTime } from '/design-system/js/facility-time.js';
 import { parseEntryText } from './entries-helpers.js';
 import { messageOf } from './utils.js';
+import { getStripPref } from './display-prefs.js';
 
 /**
  * Stamp the zone the capabilities name on `<html>`, where the shared
@@ -25,18 +26,67 @@ export function applyFacilityTimezone(capabilities) {
 }
 
 /**
+ * A list row (C-ROW, `view=row`).
  * @typedef {Object} Entry
  * @property {string} entry_id
- * @property {string} [timestamp]
+ * @property {string|null} [timestamp]
  * @property {string} [author]
  * @property {string} [source_system]
- * @property {string} [raw_text]
+ * @property {string|null} [subject]
+ * @property {string} [snippet]
  * @property {number|null} [score]
- * @property {Array<*>} [attachments]
+ * @property {number} [attachment_count]
+ * @property {Record<string, string>} [enhancements]
  * @property {string[]} [keywords]
  * @property {string[]} [highlights]
  * @property {string[]|null} [matched_via]
  */
+
+/**
+ * One enhancement module, in registry order (capabilities.enhancement_modules).
+ * @typedef {{name: string, label: string}} EnhancementModule
+ */
+
+/** @type {EnhancementModule[]} */
+let enhancementModules = [];
+
+/**
+ * Set the modules the badge strip shows, once at boot.
+ * @param {EnhancementModule[]|null|undefined} modules
+ */
+export function setEnhancementModules(modules) {
+  enhancementModules = Array.isArray(modules)
+    ? modules.filter((m) => m && typeof m.name === 'string')
+    : [];
+}
+
+/** Strip cell states and the class token each maps to (`n/a` is no class token). */
+const STRIP_STATES = /** @type {Record<string, string>} */ ({
+  complete: 'complete',
+  pending: 'pending',
+  stale: 'stale',
+  failed: 'failed',
+  'n/a': 'na',
+});
+
+/**
+ * The enhancement badge strip: one cell per module, in module order, styled
+ * by the entry's state for it. A missing or unknown state reads `n/a`. Each
+ * cell carries its text alternative (`role="img"` with `aria-label`).
+ * @param {Record<string, string>|null|undefined} enhancements
+ * @param {EnhancementModule[]} modules
+ * @returns {string}
+ */
+export function renderBadgeStrip(enhancements, modules) {
+  if (!Array.isArray(modules) || modules.length === 0) return '';
+  const cells = modules.map((m) => {
+    const raw = enhancements?.[m.name];
+    const state = typeof raw === 'string' && raw in STRIP_STATES ? raw : 'n/a';
+    const text = `${m.label || m.name}: ${state}`;
+    return `<span class="ariel-strip-cell ariel-strip-cell-${STRIP_STATES[state]}" role="img" data-module="${escapeHtml(m.name)}" data-state="${escapeHtml(state)}" title="${escapeHtml(text)}" aria-label="${escapeHtml(text)}"></span>`;
+  });
+  return `<span class="ariel-strip" role="group" aria-label="Enhancements">${cells.join('')}</span>`;
+}
 
 /**
  * @typedef {Object} Diagnostic
@@ -155,30 +205,34 @@ export function sanitizeHighlight(html) {
 }
 
 /**
- * One list row: subject, time, author, score badge, highlights or preview,
- * attachment count, picture-match marker and keywords — what today's card
- * shows. Every interpolated value is escaped; the entry id is carried only as
- * a `data-*` attribute.
+ * One list row from the C-ROW fields: subject (else the snippet's first
+ * line), time, author, score badge, highlights or snippet, attachment count,
+ * picture-match marker, keywords, and the badge strip when `strip` is on
+ * (default: the display preference). Every interpolated value is escaped; the
+ * entry id is carried only as a `data-*` attribute.
  * @param {Entry} entry
  * @param {string|null} [selected] - The selected entry id
+ * @param {{strip?: boolean}} [options]
  * @returns {string}
  */
-export function renderListRow(entry, selected = null) {
+export function renderListRow(entry, selected = null, { strip = getStripPref() } = {}) {
   const id = String(entry.entry_id ?? '');
   const isSelected = selected !== null && selected === id;
   const score = renderScoreBadge(entry.score);
-  const attachmentCount = entry.attachments?.length || 0;
+  const attachmentCount = Number(entry.attachment_count) || 0;
   const keywords = entry.keywords?.slice(0, 5) || [];
   const pictureMatch = Array.isArray(entry.matched_via) && entry.matched_via.includes('image');
-  const { subject, details } = parseEntryText(entry.raw_text);
+  const snippet = entry.snippet || '';
+  const subject = entry.subject || parseEntryText(snippet).subject;
 
   const highlights = entry.highlights || [];
   const preview =
     highlights.length > 0
       ? highlights.map((/** @type {string} */ h) => sanitizeHighlight(h)).join(' &hellip; ')
-      : `${escapeHtml(details.slice(0, 300))}${details.length > 300 ? '...' : ''}`;
+      : escapeHtml(snippet);
 
   const foot = [
+    strip ? renderBadgeStrip(entry.enhancements, enhancementModules) : '',
     attachmentCount > 0
       ? `<span class="text-muted" data-attachment-count="${attachmentCount}">📎 ${attachmentCount}</span>`
       : '',
@@ -197,7 +251,7 @@ export function renderListRow(entry, selected = null) {
          data-entry-id="${escapeHtml(id)}" aria-selected="${isSelected}">
       <div class="ariel-row-top">
         <span class="osprey-list-title ariel-row-subject">${escapeHtml(subject)}</span>
-        <time class="ariel-row-time" datetime="${escapeHtml(entry.timestamp || '')}">${escapeHtml(formatTimestamp(entry.timestamp))}</time>
+        <time class="ariel-row-time" datetime="${escapeHtml(entry.timestamp || '')}">${escapeHtml(formatTimestamp(entry.timestamp || undefined))}</time>
       </div>
       <div class="ariel-row-meta">
         <span class="ariel-row-author">${escapeHtml(entry.author || 'Unknown')}</span>

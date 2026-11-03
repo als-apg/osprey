@@ -212,6 +212,48 @@ textarea.input {
   background: transparent;
 }
 
+/* === Enhancement Badge Strip ===
+   One cell per enhancement module. The state is a shape as well as a hue:
+   filled (complete), hollow (pending), dashed (stale), filled error (failed),
+   faint hairline (n/a). */
+.ariel-strip {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.ariel-strip-cell {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  border: 1px solid var(--text-muted);
+  background: transparent;
+}
+
+.ariel-strip-cell-complete {
+  border-color: var(--color-success);
+  background: var(--color-success);
+}
+
+.ariel-strip-cell-pending {
+  border-color: var(--color-info);
+}
+
+.ariel-strip-cell-stale {
+  border-style: dashed;
+  border-color: var(--color-warning);
+}
+
+.ariel-strip-cell-failed {
+  border-color: var(--color-error);
+  background: var(--color-error);
+  border-radius: var(--radius-full);
+}
+
+.ariel-strip-cell-na {
+  border-color: var(--neutral-tint-10);
+}
+
 /* === Score Badge === */
 .score-badge {
   display: inline-flex;
