@@ -46,7 +46,7 @@ STALE = {"image_caption": {"status": "complete", "marker": "m1"}}
 ROWS: tuple[tuple[str, str, str, list[str] | None, str, dict[str, Any]], ...] = (
     ("f-1", "Alice", "als", ["Beam", "RF"], "kicker misfire beam dump", {}),
     ("f-2", "alice", "als", ["beam"], "kicker misfire septum", {}),
-    ("f-3", "Bob", "ALS", ["Vacuum"], "kicker misfire vacuum", {}),
+    ("f-3", "Bob", "Als", ["Vacuum"], "kicker misfire vacuum", {}),
     ("f-4", "Bob", "linac", None, "unrelated cryo note", {}),
     ("f-stale", "Carol", "als", ["RF"], "kicker misfire stale picture", STALE),
     ("f-nopic", "Carol", "linac", "not-a-list", "kicker misfire no picture", STALE),

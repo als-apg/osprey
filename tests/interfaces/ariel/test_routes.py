@@ -2036,7 +2036,7 @@ def test_response_field_entry_url_rendered_for_a_logbook_entry(
             else default
         ),
     )
-    entry = _field_entry(source_system="ALS eLog", metadata={})
+    entry = _field_entry(source_system="Example eLog", metadata={})
 
     data = _fetch_entry(client, field_service, route, entry)
 

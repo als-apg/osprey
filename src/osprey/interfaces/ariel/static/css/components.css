@@ -225,7 +225,7 @@ textarea.input {
 .ariel-strip-cell {
   width: 8px;
   height: 8px;
-  border-radius: 2px;
+  border-radius: var(--radius-xs);
   border: 1px solid var(--text-muted);
   background: transparent;
 }

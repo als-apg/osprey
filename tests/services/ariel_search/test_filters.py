@@ -268,7 +268,7 @@ def _entry(**kw) -> dict:
     entry = {
         "entry_id": "e1",
         "author": "J. Smith",
-        "source_system": "ALS eLog",
+        "source_system": "Example eLog",
         "timestamp": _T0,
         "metadata": {"tags": ["RF", "Vacuum"], "logbook": "Operations"},
         "enhancement_status": {},
@@ -299,7 +299,7 @@ MATCH_CASES = [
         id="and-across-dimensions",
     ),
     pytest.param(
-        {"author": ["J. Smith"], "source_system": ["als elog"]},
+        {"author": ["J. Smith"], "source_system": ["example elog"]},
         _entry(),
         True,
         id="and-across-both-true",
@@ -490,7 +490,7 @@ class TestEntryFilterToSql:
         assert "WHERE lower(e.author) = ANY(%s)" in sql
 
     def test_one_clause_per_dimension_in_table_order(self):
-        clauses, params = self._sql({"source_system": ["ALS"], "author": ["X"]})
+        clauses, params = self._sql({"source_system": ["Als"], "author": ["X"]})
 
         assert clauses == ["lower(e.author) = ANY(%s)", "lower(e.source_system) = ANY(%s)"]
         assert params == [["x"], ["als"]]

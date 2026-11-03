@@ -77,6 +77,17 @@ function tokenize(text) {
 }
 
 /**
+ * The number of days in month `mo` (1-12) of year `y`, by calendar rule.
+ * @param {number} y
+ * @param {number} mo
+ * @returns {number}
+ */
+function daysInMonth(y, mo) {
+  if (mo === 2) return (y % 4 === 0 && y % 100 !== 0) || y % 400 === 0 ? 29 : 28;
+  return [4, 6, 9, 11].includes(mo) ? 30 : 31;
+}
+
+/**
  * The time window a `date:` value names, or null when it names none.
  * @param {string} value
  * @returns {{start: string, end: string}|null}
@@ -85,15 +96,14 @@ export function dateWindow(value) {
   const day = DAY.exec(value);
   if (day) {
     const [y, mo, d] = [Number(day[1]), Number(day[2]), Number(day[3])];
-    const probe = new Date(Date.UTC(y, mo - 1, d));
-    if (probe.getUTCMonth() !== mo - 1 || probe.getUTCDate() !== d) return null;
+    if (mo < 1 || mo > 12 || d < 1 || d > daysInMonth(y, mo)) return null;
     return { start: value, end: value };
   }
   const month = MONTH.exec(value);
   if (month) {
     const mo = Number(month[2]);
     if (mo < 1 || mo > 12) return null;
-    const last = new Date(Date.UTC(Number(month[1]), mo, 0)).getUTCDate();
+    const last = daysInMonth(Number(month[1]), mo);
     return { start: `${value}-01`, end: `${value}-${String(last).padStart(2, '0')}` };
   }
   return null;

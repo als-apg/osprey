@@ -1,6 +1,6 @@
 """The stored subject line of a logbook entry.
 
-Facilities name the subject differently: the ALS adapter stores
+Facilities name the subject differently: the ``als`` adapter stores
 ``metadata["subject"]``, the JLab, ORNL and generic adapters store
 ``metadata["title"]``, and an untitled entry has only its text. ARIEL derives
 one subject per entry when it is written and stores it in the

@@ -50,7 +50,7 @@ def _row(**extra):
     now = datetime.now(UTC)
     return {
         "entry_id": "e1",
-        "source_system": "ALS eLog",
+        "source_system": "Example eLog",
         "timestamp": now,
         "author": "a",
         "raw_text": "Body",

@@ -1578,7 +1578,7 @@ class TestFacetCounts:
         return EntryFilter.parse(raw, _FACET_DIMS)
 
     async def test_facet_each_dimension_excludes_its_own_selection(self, fake_pool) -> None:
-        flt = self._filter({"author": ["Alice"], "source_system": ["ALS"]})
+        flt = self._filter({"author": ["Alice"], "source_system": ["Als"]})
         repo = _current_repo(fake_pool)
 
         await repo.facet_counts(flt, BUILTIN_DIMENSIONS[:2], ctx=_FACET_CTX)
