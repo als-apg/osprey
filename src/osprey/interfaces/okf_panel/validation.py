@@ -29,14 +29,17 @@ import re
 from collections.abc import Callable
 from dataclasses import dataclass
 
+from osprey.facility.references import LINK_SCHEME
 from osprey.services.facility_knowledge.okf.bundle import OKFBundle, OKFBundleError
 from osprey.services.facility_knowledge.okf.document import OKFDocumentError
 
-# Markdown inline links: [text](target)
-_LINK_RE = re.compile(r"\[([^\]]*)\]\(([^)]+)\)")
+# Markdown inline links: [text](target) or [text](<target>), the angle-bracket
+# destination holding spaces or parentheses.
+_LINK_RE = re.compile(r"\[([^\]]*)\]\((<[^>\n]*>|[^)]+)\)")
 
-# Link targets we never try to resolve as concepts.
-_EXTERNAL_PREFIXES = ("http://", "https://", "mailto:", "#")
+# Link targets we never try to resolve as concepts. A facility link names a
+# facility record, not a concept; the facility build checks it.
+_EXTERNAL_PREFIXES = ("http://", "https://", "mailto:", "#", f"{LINK_SCHEME}:")
 
 
 @dataclass(frozen=True)
@@ -60,8 +63,8 @@ def validate_bundle(bundle: OKFBundle) -> list[ValidationWarning]:
 
     For each concept this checks (a) authoring-level frontmatter completeness
     and (b) that every internal body link resolves to an existing concept file.
-    External links (``http``, ``https``, ``mailto``, in-page ``#`` anchors) are
-    skipped.
+    External links (``http``, ``https``, ``mailto``, in-page ``#`` anchors) and
+    ``facility:`` links are skipped.
 
     This function never raises: any unexpected error while reading a concept is
     itself recorded as a ``"frontmatter"`` warning so the sweep can continue.
@@ -149,6 +152,8 @@ def _scan_links(bundle: OKFBundle, concept_id: str, body: str) -> list[Validatio
 
     for match in matches:
         target = match.group(2).strip()
+        if target.startswith("<") and target.endswith(">"):
+            target = target[1:-1].strip()
         if not target:
             continue
         if target.lower().startswith(_EXTERNAL_PREFIXES):
@@ -157,8 +162,7 @@ def _scan_links(bundle: OKFBundle, concept_id: str, body: str) -> list[Validatio
         # Map a link target like "/devices/bpm.md" or "devices/bpm.md" to an
         # OKF §2 concept id: strip a leading slash and a trailing ".md".
         link_id = target.lstrip("/")
-        if link_id.endswith(".md"):
-            link_id = link_id[:-3]
+        link_id = link_id.removesuffix(".md")
         if not link_id:
             continue
 

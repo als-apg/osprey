@@ -26,11 +26,7 @@ from click.testing import CliRunner
 
 from osprey.cli.set_cmd import set as set_command
 from osprey.deployment import staleness
-
-
-@pytest.fixture
-def runner() -> CliRunner:
-    return CliRunner()
+from tests.cli._lifecycle_build import invoke_build
 
 
 def _profile_text(repo: Path) -> str:
@@ -111,7 +107,7 @@ def test_project_name_is_renamed_in_place(runner, lifecycle_repo):
     result = _invoke(runner, lifecycle_repo, "project_name=als-renamed")
 
     assert result.exit_code == 0, result.output
-    assert "unknown" not in result.output.lower()
+    assert "Not a profile key" not in result.output
     after = _profile_text(lifecycle_repo)
     assert "\nproject_name: als-renamed\n" in after
     assert "\nproject_name: als-exemplar\n" not in after
@@ -307,13 +303,13 @@ def test_values_are_read_as_yaml(runner, lifecycle_repo):
     result = _invoke(
         runner,
         lifecycle_repo,
-        "config.control_system.writes_enabled=true",
+        "config.ariel.vocabulary.canonical_to_shorthand=true",
         "config.web.panels.events.health_timeout=30",
     )
 
     assert result.exit_code == 0, result.output
     after = _profile_text(lifecycle_repo)
-    assert "control_system.writes_enabled: true" in after
+    assert "ariel.vocabulary.canonical_to_shorthand: true" in after
     assert "web.panels.events.health_timeout: 30" in after
 
 
@@ -348,13 +344,23 @@ def test_connector_shorthand_writes_the_control_system_key(runner, lifecycle_rep
     assert "config.control_system.type" in result.output
 
 
-def test_unknown_connector_is_refused_and_writes_nothing(runner, lifecycle_repo):
+@pytest.mark.parametrize(
+    ("pair", "message"),
+    [
+        ("connector=epcis", "Unknown connector"),
+        # The same refusal materialization makes: a repo profile inherits nothing.
+        ("extends=../other/profile.yml", "Cannot override 'extends'"),
+        ("model", "KEY=VALUE"),
+    ],
+    ids=["unknown-connector", "extends", "pair-without-equals"],
+)
+def test_a_refused_pair_writes_nothing(runner, lifecycle_repo, pair, message):
     before = _profile_text(lifecycle_repo)
 
-    result = _invoke(runner, lifecycle_repo, "connector=epcis")
+    result = _invoke(runner, lifecycle_repo, pair)
 
     assert result.exit_code != 0
-    assert "Unknown connector" in result.stderr
+    assert message in result.stderr
     assert _profile_text(lifecycle_repo) == before
 
 
@@ -451,27 +457,6 @@ def test_outside_a_repo_is_refused(runner, tmp_path, monkeypatch):
     assert result.exit_code != 0
     assert "No OSPREY deployment repo found" in result.stderr
     assert "profile.yml" in result.stderr
-
-
-def test_extends_is_refused(runner, lifecycle_repo):
-    """The same refusal materialization makes: a repo profile inherits nothing."""
-    before = _profile_text(lifecycle_repo)
-
-    result = _invoke(runner, lifecycle_repo, "extends=../other/profile.yml")
-
-    assert result.exit_code != 0
-    assert "Cannot override 'extends'" in result.stderr
-    assert _profile_text(lifecycle_repo) == before
-
-
-def test_pair_without_equals_is_refused(runner, lifecycle_repo):
-    before = _profile_text(lifecycle_repo)
-
-    result = _invoke(runner, lifecycle_repo, "model")
-
-    assert result.exit_code != 0
-    assert "KEY=VALUE" in result.stderr
-    assert _profile_text(lifecycle_repo) == before
 
 
 def test_one_bad_pair_writes_none_of_them(runner, lifecycle_repo):
@@ -575,13 +560,19 @@ def _honesty_repo(tmp_path: Path, name: str = "honesty") -> Path:
         "provider: cborg\n"
         "model: claude-haiku-4-5\n"
         "channel_finder_mode: in_context\n"
+        # A tool the write switch governs is put to a human whatever
+        # `approval.*` says, so the build requires the hook that asks; naming
+        # hooks replaces the bundle's list, so the kill switch and the Write
+        # gate are named beside it.
+        "hooks:\n"
+        "  - writes-check\n"
+        "  - approval\n"
+        "  - memory-guard\n"
         "config:\n"
         "  control_system.type: epics\n"
         "  archiver.type: mock_archiver\n"
-        # No approval hook is selected, so nothing would ask: approval is off.
         "  approval.enabled: false\n"
         "  approval.default_policy: always\n"
-        "  claude_code.telemetry.enabled: false\n"
         "  hooks.debug: false\n"
         "  system.timezone: UTC\n"
         # The ARIEL server is on by framework default and dials this store.
@@ -600,12 +591,6 @@ def _honesty_repo(tmp_path: Path, name: str = "honesty") -> Path:
     return repo
 
 
-def _build(runner: CliRunner, repo: Path):
-    from osprey.cli.build_cmd import build
-
-    return runner.invoke(build, ["--repo", str(repo), "--skip-deps", "--skip-lifecycle"])
-
-
 class TestASetPairingIsJudgedAtTheNextBuild:
     def test_va_onto_the_mock_archiver_is_refused(self, runner, tmp_path, caplog):
         repo = _honesty_repo(tmp_path)
@@ -614,7 +599,7 @@ class TestASetPairingIsJudgedAtTheNextBuild:
         )
         assert wrote.exit_code == 0, wrote.output
 
-        result = _build(runner, repo)
+        result = invoke_build(repo)
 
         assert result.exit_code != 0
         # The refusal reaches the operator through the logger, and the Rich
@@ -634,7 +619,7 @@ class TestASetPairingIsJudgedAtTheNextBuild:
         repo = _honesty_repo(tmp_path)
         assert _invoke(runner, repo, "connector=virtual_accelerator").exit_code == 0
 
-        result = _build(runner, repo)
+        result = invoke_build(repo)
 
         assert result.exit_code != 0
         assert "archiver.type" in caplog.text
@@ -644,7 +629,7 @@ class TestASetPairingIsJudgedAtTheNextBuild:
         repo = _honesty_repo(tmp_path)
         assert _invoke(runner, repo, "connector=virtual_accelerator").exit_code == 0
 
-        result = _build(runner, repo)
+        result = invoke_build(repo)
 
         assert result.exit_code != 0
         assert "va_archiver" in caplog.text
@@ -654,7 +639,7 @@ class TestASetPairingIsJudgedAtTheNextBuild:
         repo = _honesty_repo(tmp_path)
         assert _invoke(runner, repo, "connector=virtual_accelerator").exit_code == 0
 
-        result = _build(runner, repo)
+        result = invoke_build(repo)
 
         assert result.exit_code != 0
         assert "Traceback" not in result.output
@@ -663,7 +648,7 @@ class TestASetPairingIsJudgedAtTheNextBuild:
         """The exemplar pairs the VA with its `va_archiver:` store — legal."""
         assert _invoke(runner, lifecycle_repo, "connector=virtual_accelerator").exit_code == 0
 
-        result = _build(runner, lifecycle_repo)
+        result = invoke_build(lifecycle_repo)
 
         assert result.exit_code == 0, result.output
 
@@ -672,7 +657,7 @@ class TestASetPairingIsJudgedAtTheNextBuild:
         repo = _honesty_repo(tmp_path)
         assert _invoke(runner, repo, "connector=epics").exit_code == 0
 
-        result = _build(runner, repo)
+        result = invoke_build(repo)
 
         assert result.exit_code == 0, result.output
 
@@ -687,7 +672,7 @@ class TestASetPairingIsJudgedAtTheNextBuild:
         )
         assert wrote.exit_code == 0, wrote.output
 
-        result = _build(runner, repo)
+        result = invoke_build(repo)
 
         assert result.exit_code == 0, result.output
 

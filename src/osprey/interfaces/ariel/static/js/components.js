@@ -25,27 +25,6 @@ export function applyFacilityTimezone(capabilities) {
 }
 
 /**
- * Format a timestamp as a friendly, full-sentence date for Simple mode
- * (frame 1b), in the facility zone and the viewer's date convention, e.g.
- * "Tuesday, July 15 at 8:30 AM" in US English. Falls back to the raw string
- * if the timestamp can't be parsed.
- * @param {string} [timestamp] - ISO timestamp
- * @returns {string} Humanized date/time
- */
-export function formatHumanTimestamp(timestamp) {
-  if (!timestamp) return '';
-  return (
-    formatFacilityTime(timestamp, {
-      weekday: 'long',
-      month: 'long',
-      day: 'numeric',
-      hour: 'numeric',
-      minute: '2-digit',
-    }) || timestamp
-  );
-}
-
-/**
  * @typedef {Object} Entry
  * @property {string} entry_id
  * @property {string} [timestamp]
@@ -163,7 +142,7 @@ export function renderStatusIndicator(healthy, label) {
 export function renderTags(tags, type = '') {
   if (!tags || tags.length === 0) return '';
   const cls = type ? `tag-${type}` : '';
-  return tags.map(tag => `<span class="tag ${cls}">${escapeHtml(tag)}</span>`).join('');
+  return tags.map((tag) => `<span class="tag ${cls}">${escapeHtml(tag)}</span>`).join('');
 }
 
 /**
@@ -175,18 +154,20 @@ export function renderTags(tags, type = '') {
 export function sanitizeHighlight(html) {
   if (!html) return '';
   // Replace <b> and </b> with placeholders, escape everything else, restore placeholders
-  return html
-    .replace(/<b>/gi, '\x00B_OPEN\x00')
-    .replace(/<\/b>/gi, '\x00B_CLOSE\x00')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#039;') // hygiene-allow-color: HTML entity, not a hex color (scanner false positive)
-    // eslint-disable-next-line no-control-regex -- NUL sentinels are intentional bold-marker placeholders swapped back to tags
-    .replace(/\x00B_OPEN\x00/g, '<b>')
-    // eslint-disable-next-line no-control-regex -- NUL sentinels are intentional bold-marker placeholders swapped back to tags
-    .replace(/\x00B_CLOSE\x00/g, '</b>');
+  return (
+    html
+      .replace(/<b>/gi, '\x00B_OPEN\x00')
+      .replace(/<\/b>/gi, '\x00B_CLOSE\x00')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#039;') // hygiene-allow-color: HTML entity, not a hex color (scanner false positive)
+      // eslint-disable-next-line no-control-regex -- NUL sentinels are intentional bold-marker placeholders swapped back to tags
+      .replace(/\x00B_OPEN\x00/g, '<b>')
+      // eslint-disable-next-line no-control-regex -- NUL sentinels are intentional bold-marker placeholders swapped back to tags
+      .replace(/\x00B_CLOSE\x00/g, '</b>')
+  );
 }
 
 /**
@@ -209,7 +190,7 @@ export function renderEntryCard(entry, isCited = false) {
   const highlights = entry.highlights || [];
   let contentHtml;
   if (highlights.length > 0) {
-    contentHtml = highlights.map(h => sanitizeHighlight(h)).join(' &hellip; ');
+    contentHtml = highlights.map((h) => sanitizeHighlight(h)).join(' &hellip; ');
   } else {
     contentHtml = `${escapeHtml(preview).slice(0, 300)}${preview.length > 300 ? '...' : ''}`;
   }
@@ -231,37 +212,14 @@ export function renderEntryCard(entry, isCited = false) {
       <div class="entry-card-footer">
         ${attachmentCount > 0 ? `<span class="text-muted">📎 ${attachmentCount}</span>` : ''}
         ${pictureMatch ? '<span class="text-muted" data-match-marker="image" title="Matched through a picture in this entry">🖼️ picture match</span>' : ''}
-        ${keywords.length > 0 ? `<span class="keyword-list">🏷️ ${keywords.map(kw =>
-          `<span class="keyword-tag">${escapeHtml(kw)}</span>`
-        ).join('')}</span>` : ''}
+        ${
+          keywords.length > 0
+            ? `<span class="keyword-list">🏷️ ${keywords
+                .map((kw) => `<span class="keyword-tag">${escapeHtml(kw)}</span>`)
+                .join('')}</span>`
+            : ''
+        }
       </div>
-    </article>
-  `;
-}
-
-/**
- * Render a plain-language result card for Simple mode (frame 1b): title,
- * humanized date, author, and a plain-text summary — no relevance score,
- * source chip, highlight markup, or keyword pills. The whole card and its
- * footer link both carry data-entry-id, so the existing search-results
- * delegation opens the same detail view as the Expert card.
- * @param {Entry} entry - Entry data
- * @returns {string} HTML string
- */
-export function renderEntryCardSimple(entry) {
-  const { subject, details } = parseEntryText(entry.raw_text);
-  const preview = escapeHtml(details).slice(0, 240) + (details.length > 240 ? '…' : '');
-  const when = formatHumanTimestamp(entry.timestamp);
-  const author = escapeHtml(entry.author || 'Unknown');
-  const metaBits = [when, author].filter(Boolean).join(' · ');
-  const id = escapeHtml(entry.entry_id);
-
-  return `
-    <article class="entry-card-simple" data-entry-id="${id}">
-      <h3 class="entry-card-simple-title">${escapeHtml(subject)}</h3>
-      <div class="entry-card-simple-meta">${metaBits}</div>
-      <p class="entry-card-simple-summary">${preview}</p>
-      <a href="#" class="entry-card-simple-link" data-entry-id="${id}">Read the full entry &rarr;</a>
     </article>
   `;
 }
@@ -280,13 +238,13 @@ export function renderAnswerBox(answer, sources = [], mode = 'keyword', toolsUse
   /** @type {Object<string, string>} */
   const modeLabels = { keyword: 'Keyword', semantic: 'Semantic' };
   const modeName = modeLabels[mode] || 'Answer';
-  const tools = toolsUsed.filter(t => t !== mode);
+  const tools = toolsUsed.filter((t) => t !== mode);
   const toolsSuffix = tools.length > 0 ? ` (${tools.join(', ')})` : '';
   const label = `${modeName} Answer${toolsSuffix}`;
 
-  const sourceLinks = sources.map(id =>
-    `<a href="#" data-entry-id="${escapeHtml(id)}">${escapeHtml(id)}</a>`
-  ).join(', ');
+  const sourceLinks = sources
+    .map((id) => `<a href="#" data-entry-id="${escapeHtml(id)}">${escapeHtml(id)}</a>`)
+    .join(', ');
 
   return `
     <div class="answer-box animate-fade-in">
@@ -300,11 +258,15 @@ export function renderAnswerBox(answer, sources = [], mode = 'keyword', toolsUse
       <div class="answer-box-content">
         ${escapeHtml(answer).replace(/\n/g, '<br>')}
       </div>
-      ${sources.length > 0 ? `
+      ${
+        sources.length > 0
+          ? `
         <div class="answer-box-sources">
           <strong>Sources:</strong> ${sourceLinks}
         </div>
-      ` : ''}
+      `
+          : ''
+      }
     </div>
   `;
 }
@@ -399,19 +361,24 @@ export function renderDiagnosticsBar(diagnostics) {
     }
   }
 
-  const icon = maxLevel === 'info'
-    ? '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg>'
-    : '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><path d="M12 9v4M12 17h.01"/></svg>';
+  const icon =
+    maxLevel === 'info'
+      ? '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg>'
+      : '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><path d="M12 9v4M12 17h.01"/></svg>';
 
   const count = diagnostics.length;
   const label = count === 1 ? '1 issue detected' : `${count} issues detected`;
 
-  const items = diagnostics.map(d => {
-    const msgLevel = escapeHtml(d.level);
-    return `<li class="diagnostics-msg diagnostics-msg-${msgLevel}">` +
-      `<span class="diagnostics-source">${escapeHtml(d.source)}</span> ` +
-      `${escapeHtml(d.message)}</li>`;
-  }).join('');
+  const items = diagnostics
+    .map((d) => {
+      const msgLevel = escapeHtml(d.level);
+      return (
+        `<li class="diagnostics-msg diagnostics-msg-${msgLevel}">` +
+        `<span class="diagnostics-source">${escapeHtml(d.source)}</span> ` +
+        `${escapeHtml(d.message)}</li>`
+      );
+    })
+    .join('');
 
   return `
     <details class="diagnostics-bar diagnostics-${escapeHtml(maxLevel)} animate-fade-in">
@@ -425,7 +392,7 @@ export function renderDiagnosticsBar(diagnostics) {
 }
 
 /**
- * Render the query-expansion strip for the Expert results header: one pair per
+ * Render the query-expansion strip for the results header: one pair per
  * applied expansion, e.g. `ts -> troubleshoot, timing system`. An entry whose
  * term expanded to several canonicals is ONE pair with the canonicals joined by
  * commas, never one pair per canonical, so the strip mirrors the backend's
@@ -439,12 +406,16 @@ export function renderExpansionBanner(expandedTerms) {
   );
   if (groups.length === 0) return '';
 
-  const pairs = groups.map((t) => {
-    const alternatives = t.alternatives.map((a) => escapeHtml(a)).join(', ');
-    return '<span class="expansion-pair">' +
-      `<code class="expansion-original">${escapeHtml(t.original)}</code>` +
-      ` &rarr; ${alternatives}</span>`;
-  }).join('');
+  const pairs = groups
+    .map((t) => {
+      const alternatives = t.alternatives.map((a) => escapeHtml(a)).join(', ');
+      return (
+        '<span class="expansion-pair">' +
+        `<code class="expansion-original">${escapeHtml(t.original)}</code>` +
+        ` &rarr; ${alternatives}</span>`
+      );
+    })
+    .join('');
 
   return `
     <div class="expansion-banner" data-testid="expansion-banner">
@@ -475,9 +446,7 @@ export function renderConfigBanner(configErrors, remedy, blocking = false) {
   const items = (configErrors ?? [])
     .map((e) => `<li class="config-banner-error">${escapeHtml(e)}</li>`)
     .join('');
-  const remedyHtml = remedy
-    ? `<p class="config-banner-remedy">${escapeHtml(remedy)}</p>`
-    : '';
+  const remedyHtml = remedy ? `<p class="config-banner-remedy">${escapeHtml(remedy)}</p>` : '';
 
   return `
     <div id="${id}" class="config-banner ${variant}" role="alert" data-testid="config-banner">
@@ -508,14 +477,12 @@ export function createElement(html) {
 export default {
   formatTimestamp,
   formatRelativeTime,
-  formatHumanTimestamp,
   getScoreClass,
   renderScoreBadge,
   renderStatusIndicator,
   renderTags,
   sanitizeHighlight,
   renderEntryCard,
-  renderEntryCardSimple,
   renderAnswerBox,
   renderDiagnosticsBar,
   renderExpansionBanner,

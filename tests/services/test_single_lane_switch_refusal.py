@@ -45,8 +45,12 @@ from osprey.mcp_server.bluesky.server_context import (
 from osprey.mcp_server.bluesky.tools import queue
 from osprey.mcp_server.control_system import target_banner, target_state
 from osprey.services.bluesky_bridge import queue_backend as qb
-from osprey_connectors import control_context, posture_store
-from osprey_connectors_tests._harness import owner, write_control_context
+from osprey_connectors import control_context
+from osprey_connectors_tests._harness import (
+    isolate_verdict_environment,
+    owner,
+    write_control_context,
+)
 from tests._control_system import IN_PROCESS, section_for
 from tests.mcp_server.conftest import assert_raises_error, get_tool_fn
 
@@ -79,23 +83,25 @@ def deployment(tmp_path, monkeypatch):
     """
 
     def _stage(baseline: str) -> None:
-        control_system = {**section_for(_BASELINE_TYPES[baseline]), "writes_enabled": True}
+        control_system = {**section_for(_BASELINE_TYPES[baseline]), "writes": "allowed"}
 
         # The baseline comes from the shared resolver reading the deployment
         # config; the tool module reads the write posture separately.
         monkeypatch.setattr(
             target_banner, "load_osprey_config", lambda: {"control_system": control_system}
         )
+        # Stage 1 of approval reads the rendered config too. These cases call
+        # the tools with no approval hook in front of them, so approval is off
+        # (tests/mcp_server/bluesky/test_queue_approval_record.py has it on).
+        monkeypatch.setattr(
+            "osprey_connectors.workspace.load_osprey_config",
+            lambda: {"control_system": control_system, "approval": {"enabled": False}},
+        )
 
         def fake_get_config_value(key: str, default: Any = None, _config_path: Any = None) -> Any:
-            # The whole section, not only the deployment-wide flag: write
-            # posture is resolved per control target out of
-            # `control_system.connector`, so a stub serving one dotted key would
-            # answer "unarmed" for every lane whatever this deployment says.
-            return {
-                "control_system": control_system,
-                "control_system.writes_enabled": True,
-            }.get(key, default)
+            # The whole section: the write verdict reads the tier and resolves
+            # the lane's target out of it.
+            return {"control_system": control_system}.get(key, default)
 
         monkeypatch.setattr("osprey_connectors.config.get_config_value", fake_get_config_value)
 
@@ -103,7 +109,7 @@ def deployment(tmp_path, monkeypatch):
         # that at tmp_path is what keeps one test's deployment out of another's,
         # and out of whatever record this machine happens to be carrying.
         monkeypatch.setattr(target_state, "resolve_shared_data_root", lambda: tmp_path)
-        monkeypatch.setenv(posture_store.AGENT_DATA_ROOT_ENV_VAR, str(tmp_path))
+        isolate_verdict_environment(monkeypatch, tmp_path)
         control_context.invalidate_cache()
 
         monkeypatch.setenv("BLUESKY_LAUNCH_TOKEN", _TOKEN)
@@ -130,7 +136,7 @@ def _switch_to(root: Path, target: str) -> Path:
 
 def _write_raw_record(root: Path, body: str) -> Path:
     """Drop a control-context record with arbitrary bytes in it."""
-    path = control_context.record_path_under(root)
+    path = control_context._record_path_under(root)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(body, encoding="utf-8")
     control_context.invalidate_cache()
@@ -166,8 +172,30 @@ async def test_queue_add_reaches_the_bridge_with_no_record(deployment, baseline)
 
 
 @pytest.mark.parametrize("baseline", ["live", "va"])
-async def test_queue_start_reaches_the_bridge_with_no_record(deployment, baseline):
+async def test_queue_start_with_no_record_passes_the_target_gate_to_the_verdict(
+    deployment, baseline
+):
+    """No record is no mismatch: the start reaches the write verdict, not this gate.
+
+    With no record every switch is off, so the verdict refuses ``switch_off``;
+    what this pins is that the refusal is the verdict's, never
+    ``control_target_mismatch``.
+    """
     deployment(baseline)
+    with patch(f"{_MOD}._http_post_json") as post:
+        with assert_raises_error(error_type="writes_disabled") as ctx:
+            await _start()
+
+    post.assert_not_called()
+    assert ctx["envelope"]["details"]["reason"] == "switch_off"
+
+
+@pytest.mark.parametrize("baseline", ["live", "va"])
+async def test_queue_start_on_the_baseline_reaches_the_bridge_when_switched_on(
+    deployment, baseline
+):
+    root = deployment(baseline)
+    _deployment_on(root, baseline, switch={baseline: "on"})
     with patch(f"{_MOD}._http_post_json", return_value=(200, {"started": True})) as post:
         with patch(f"{_MOD}.notify_agent_activity_async"):
             await _start()
@@ -175,11 +203,21 @@ async def test_queue_start_reaches_the_bridge_with_no_record(deployment, baselin
     assert post.call_args.args[0] == "/queue/start"
 
 
-@pytest.mark.parametrize("baseline", ["live", "va"])
-async def test_a_session_sitting_on_the_baseline_is_not_a_mismatch(deployment, baseline):
-    """A published record is not itself a refusal — only a differing one is."""
+@pytest.mark.parametrize(
+    ("baseline", "recorded"),
+    [
+        # A published record is not itself a refusal — only a differing one is.
+        pytest.param("live", "live", id="live-session-on-the-baseline"),
+        pytest.param("va", "va", id="va-session-on-the-baseline"),
+        # A record whose ``target`` is not one of the known names is not an answer.
+        pytest.param("live", "somewhere-else", id="record-naming-an-unknown-target"),
+    ],
+)
+async def test_a_record_that_does_not_differ_from_the_baseline_is_not_a_mismatch(
+    deployment, baseline, recorded
+):
     root = deployment(baseline)
-    _deployment_on(root, baseline)
+    _deployment_on(root, recorded)
 
     with patch(f"{_MOD}._http_post_json", return_value=(200, {"run_id": "r1"})) as post:
         with patch(f"{_MOD}.notify_agent_activity_async"):
@@ -305,18 +343,6 @@ async def test_a_corrupt_record_reads_as_the_baseline(deployment):
     assert post.called
 
 
-async def test_a_record_naming_an_unknown_target_reads_as_the_baseline(deployment):
-    """A record whose ``target`` is not one of the known names is not an answer."""
-    root = deployment("live")
-    _deployment_on(root, "somewhere-else")
-
-    with patch(f"{_MOD}._http_post_json", return_value=(200, {"run_id": "r1"})) as post:
-        with patch(f"{_MOD}.notify_agent_activity_async"):
-            await _add()
-
-    assert post.called
-
-
 async def test_a_record_whose_owner_is_dead_still_names_the_deployments_target(deployment):
     """The one case in this section that is NOT read as the baseline.
 
@@ -378,29 +404,25 @@ def test_the_halt_paths_manager_states_are_the_queue_backends():
     assert queue._MOVING_MANAGER_STATES == qb.QUEUE_ACTIVE_MANAGER_STATES
 
 
-def test_the_js_queue_clients_carry_the_same_manager_states():
-    """The two browser copies of the same set, pinned by regex.
+def test_the_js_queue_client_carries_the_same_manager_states():
+    """The browser copy of the same set, pinned by regex.
 
-    Neither can import the Python constant either, and a panel that thinks a
+    It cannot import the Python constant either, and a panel that thinks a
     lane is idle offers no stop button for a plan that is running.
     """
     import re
     from pathlib import Path
 
     repo_root = Path(__file__).resolve().parents[2]
-    sources = [
-        repo_root / "src/osprey/interfaces/bluesky_web/panels/bluesky/queue-client.js",
-        repo_root / "src/osprey/interfaces/web_terminal/static/js/bar-item-queue.js",
-    ]
+    source = repo_root / "src/osprey/interfaces/bluesky_web/panels/bluesky/queue-client.js"
     pattern = re.compile(
         r"QUEUE_ACTIVE_MANAGER_STATES\s*=\s*Object\.freeze\(\[(?P<body>[^\]]*)\]\)"
     )
 
-    for source in sources:
-        match = pattern.search(source.read_text())
-        assert match, f"{source.name} no longer declares QUEUE_ACTIVE_MANAGER_STATES"
-        states = set(re.findall(r"'([a-z_]+)'", match.group("body")))
-        assert states == set(qb.QUEUE_ACTIVE_MANAGER_STATES), source.name
+    match = pattern.search(source.read_text())
+    assert match, f"{source.name} no longer declares QUEUE_ACTIVE_MANAGER_STATES"
+    states = set(re.findall(r"'([a-z_]+)'", match.group("body")))
+    assert states == set(qb.QUEUE_ACTIVE_MANAGER_STATES)
 
 
 def test_the_reason_has_an_entry_in_the_shared_refusal_hint_table():

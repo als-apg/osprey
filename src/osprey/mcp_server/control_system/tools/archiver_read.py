@@ -10,13 +10,17 @@ from typing import Any, NamedTuple
 import numpy as np
 import pandas as pd
 
+from osprey.channel_roster import registered_channels
 from osprey.mcp_server.control_system import target_banner
 from osprey.mcp_server.control_system.error_handling import connector_error_handler
 from osprey.mcp_server.control_system.server import mcp
 from osprey.mcp_server.errors import make_error
+from osprey_connectors.archive_targets import archive_targets, archive_withheld
 from osprey_connectors.archiver import PROCESSING_MODES
 from osprey_connectors.config import get_facility_timezone
-from osprey_connectors.types import resolve_archiver_type
+from osprey_connectors.refusals import KIND_WORDS
+from osprey_connectors.simulation.values import LABELLED_TYPES, channel_labels
+from osprey_connectors.types import published_machine_kind, resolve_archiver_type
 
 logger = logging.getLogger("osprey.mcp_server.tools.archiver_read")
 
@@ -256,7 +260,9 @@ def _compose_coverage(
     }
 
 
-def _provenance(archiver_section: Any, connector: Any) -> dict[str, str]:
+def _provenance(
+    archiver_section: Any, connector: Any, situation: target_banner.TargetSituation
+) -> dict[str, str]:
     """Who served this read: the session's control-system target and the archiver.
 
     Four keys, always all four, stamped identically onto the saved query block
@@ -282,8 +288,8 @@ def _provenance(archiver_section: Any, connector: Any) -> dict[str, str]:
     Args:
         archiver_section: The ``archiver`` config block.
         connector: The archiver connector instance that served this read.
+        situation: The session's target, as resolved once for this read.
     """
-    situation = target_banner.resolve_target_situation()
     return {
         "target": situation.control_target,
         "target_source": TARGET_SOURCE_SESSION if situation.switched else TARGET_SOURCE_BASELINE,
@@ -323,6 +329,54 @@ def _cadence_seconds(timestamps: pd.Series) -> int | float | None:
         return None
     seconds = float(pd.Series(timestamps).diff().dropna().median().total_seconds())
     return int(seconds) if seconds.is_integer() else seconds
+
+
+def _machine_words(target: str) -> str:
+    """The words a refusal names the machine *target* is by: the published kind's."""
+    return KIND_WORDS[published_machine_kind(target)]
+
+
+def _roster_labels(config: dict[str, Any]) -> dict[str, tuple[str, ...]]:
+    """Every labelled channel's labels, by address, read once from the channel roster.
+
+    A ``bool`` or ``enum`` channel is archived as its option index; these are
+    the labels those indices name. A bool the facility file gives no options
+    takes the default labels. No roster means no labels: every channel is
+    then returned as the archive served it.
+    """
+    roster = registered_channels(config)
+    labels: dict[str, tuple[str, ...]] = {}
+    for record in roster.records:
+        if record.value_type not in LABELLED_TYPES:
+            continue
+        if record.options is None and record.value_type != "bool":
+            continue
+        labels[record.address] = tuple(channel_labels({"options": record.options}))
+    return labels
+
+
+def _index_and_label(value: Any, options: tuple[str, ...]) -> tuple[Any, str | None]:
+    """One archived sample of a labelled channel as ``(index, label)``.
+
+    An integral number is the option index; a string that is one of the labels
+    is that label (a backend serving labels); a null is ``(None, None)``. An
+    index outside the options keeps its value and has no label.
+    """
+    if value is None or (isinstance(value, float) and math.isnan(value)):
+        return None, None
+    if isinstance(value, str):
+        if value in options:
+            return options.index(value), value
+        return value, None
+    integral = isinstance(value, int | np.integer | np.bool_) or (
+        isinstance(value, float | np.floating) and float(value).is_integer()
+    )
+    if not integral:
+        return value, None
+    index = int(value)
+    if 0 <= index < len(options):
+        return index, options[index]
+    return index, None
 
 
 @mcp.tool()
@@ -466,25 +520,66 @@ async def archiver_read(
             resolved_bin = bin_size
             bin_source = "requested"
 
+        # The archive belongs to the machine. One `archiver:` block serves the
+        # deployment, and it holds the past of some targets and not others
+        # (osprey_connectors.archive_targets): the facility's appliance for the
+        # live machine and the stand-in that rehearses it, the deployment's own
+        # store for the virtual accelerator. A session on any other target is
+        # told it has no archive, never shown another machine's past.
+        situation = target_banner.resolve_target_situation()
+        if archive_withheld(registry.config.raw, situation.control_target):
+            served = sorted(archive_targets(registry.config.raw))
+            holds = ", ".join(_machine_words(t) for t in served) or "no machine"
+            return make_error(
+                "no_archive",
+                f"No archive for {_machine_words(situation.control_target)} here: this "
+                f"deployment's archiver ({resolve_archiver_type(registry.config.archiver)}) "
+                f"holds the past of {holds}, and a session is never shown another "
+                "machine's past.",
+                [
+                    "Switch to a target this archive belongs to before reading history.",
+                    "Ask for the target roster to see which targets this deployment offers.",
+                ],
+                details={"target": situation.control_target, "archive_targets": served},
+            )
+
         # The archiver connector is HTTP/pymongo-class — an appliance or a
         # database, never Channel Access — so this read is NOT routed through
         # the connector-host child that serves the control system, and must
         # never be gated on that child being alive: history stays readable
-        # exactly when a diagnosis needs it most. The only thing the control
-        # target contributes here is provenance, stamped below.
+        # exactly when a diagnosis needs it most. Beyond the gate above, the
+        # only thing the control target contributes is provenance.
         connector = await registry.archiver()
-        provenance = _provenance(registry.config.archiver, connector)
+        provenance = _provenance(registry.config.archiver, connector.connector, situation)
 
         # Deduplicate: all counts below must describe what was actually queried.
         unique_channels = list(dict.fromkeys(channels))
 
-        df = await connector.get_data(
-            unique_channels,
-            start_dt,
-            end_dt,
-            precision_ms=resolved_bin * 1000,
-            processing=processing,
-        )
+        # A labelled channel is archived as its option index, whichever backend
+        # stores it; its labels come from the roster, loaded once per read. It
+        # is always requested raw — the last real sample per bin — because an
+        # aggregate of option indices (a mean of 0 and 3) names no state.
+        all_labels = _roster_labels(registry.config.raw)
+        labels = {ch: all_labels[ch] for ch in unique_channels if ch in all_labels}
+        if processing == "raw" or not labels:
+            requests = [(unique_channels, processing)]
+        else:
+            requests = [
+                ([ch for ch in unique_channels if ch not in labels], processing),
+                ([ch for ch in unique_channels if ch in labels], "raw"),
+            ]
+            requests = [(chans, mode) for chans, mode in requests if chans]
+        frames = [
+            await connector.get_data(
+                chans,
+                start_dt,
+                end_dt,
+                precision_ms=resolved_bin * 1000,
+                processing=mode,
+            )
+            for chans, mode in requests
+        ]
+        df = frames[0] if len(frames) == 1 else pd.concat(frames, ignore_index=True)
 
         series: dict[str, dict[str, list[Any]]] = {}
         per_channel: dict[str, dict[str, Any]] = {}
@@ -546,6 +641,33 @@ async def archiver_read(
                     {"timestamp": ts, **st} for ts, st in zip(timestamps, trace_stats, strict=True)
                 ]
                 per_channel[ch] = waveform_entry
+                continue
+
+            if ch in labels:
+                options = labels[ch]
+                pairs = [_index_and_label(v, options) for v in sub["value"].astype(object)]
+                indices = [index for index, _ in pairs]
+                sample_labels = [label for _, label in pairs]
+                series[ch] = {
+                    "timestamps": timestamps,
+                    "values": indices,
+                    "labels": sample_labels,
+                    "options": list(options),
+                }
+                points = len(sub)
+                total_points += points
+                labelled_entry: dict[str, Any] = {
+                    "points": points,
+                    "processing": "raw",
+                    "options": list(options),
+                }
+                if points:
+                    labelled_entry["last"] = {
+                        "timestamp": timestamps[-1],
+                        "index": indices[-1],
+                        "label": sample_labels[-1],
+                    }
+                per_channel[ch] = labelled_entry
                 continue
 
             # NaN is not valid JSON; ``.astype(object)`` first is required or
@@ -611,7 +733,8 @@ async def archiver_read(
             "data_file_structure": {
                 "root_keys": ["query", "series"],
                 "series_format": (
-                    "mapping of channel name to {'timestamps': [...], 'values': [...]}"
+                    "mapping of channel name to {'timestamps': [...], 'values': [...]}; "
+                    "a labelled (bool/enum) channel also carries 'labels' and 'options'"
                 ),
             },
             "access_pattern": (
@@ -642,7 +765,14 @@ async def archiver_read(
                     "are computed over the numeric ones only. A waveform channel's value "
                     "is one whole trace per timestamp — a list of floats, JSON null for a "
                     "missing point — and its series also carries 'stats', one "
-                    "{points, min, max, mean} per trace, parallel to 'values'."
+                    "{points, min, max, mean} per trace, parallel to 'values'. A "
+                    "labelled (bool/enum) channel's value is its option index, and its "
+                    "series also carries 'labels' (the state each index names, parallel "
+                    "to 'values'; null for a null sample or an index outside the options) "
+                    "and 'options' (every label, in index order). Name its state by the "
+                    "label, never the bare index. A labelled channel is always read raw "
+                    "(the last real sample per bin), whatever 'processing' says; its "
+                    "summary entry says so and gives the 'last' sample's index and label."
                 ),
             },
         }

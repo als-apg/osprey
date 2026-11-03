@@ -15,7 +15,6 @@ from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from osprey.interfaces.ariel.api import routes
@@ -36,6 +35,7 @@ from tests.fixtures.ariel_entry_fields import (  # noqa: F401 - fixtures used by
     example_descriptors,
     example_entry_fields_fixture,
 )
+from tests.interfaces.ariel._routes_app import routes_app
 
 
 @pytest.fixture(name="service")
@@ -52,10 +52,7 @@ def service_fixture() -> Iterator[ARIELSearchService]:
 @pytest.fixture(name="client")
 def client_fixture(service: ARIELSearchService) -> TestClient:
     """A routes-only app serving ``service``."""
-    app = FastAPI()
-    app.include_router(routes.router)
-    app.state.ariel_service = service
-    app.state.config_panel_enabled = True
+    app = routes_app(service)
     return TestClient(app)
 
 
@@ -397,10 +394,7 @@ def local_client_fixture(
     service = ARIELSearchService(
         config=example_config(), pool=MagicMock(), repository=dict_repository
     )
-    app = FastAPI()
-    app.include_router(routes.router)
-    app.state.ariel_service = service
-    app.state.config_panel_enabled = True
+    app = routes_app(service)
     yield TestClient(app)
 
 

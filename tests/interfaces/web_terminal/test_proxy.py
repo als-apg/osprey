@@ -54,7 +54,7 @@ from fastapi.testclient import TestClient
 
 from osprey.interfaces.common_middleware import session_cookie_name
 from osprey.interfaces.web_auth import BIND_HOST_ENV, WebCredentials
-from osprey.interfaces.web_terminal.app import UNIVERSAL_PANELS, create_app
+from osprey.interfaces.web_terminal.app import UNIVERSAL_PANELS
 from osprey.interfaces.web_terminal.routes.proxy import (
     _PANEL_STATE_MAP,
     TERMINAL_SECRET_HEADER,
@@ -64,6 +64,7 @@ from osprey.interfaces.web_terminal.routes.proxy import (
 )
 from osprey.utils.owner_header import OWNER_HEADER
 from osprey_connectors.identity import AUDIT_IDENTITY_ENV, TERMINAL_USER_ENV, acting_identity
+from tests.interfaces.web_terminal._started_app import terminal_client
 
 from ._proxy_fakes import _FakeConnect, _FakeStreamResponse, _lower, _patch_connect
 
@@ -116,29 +117,25 @@ def _build_app(workspace_dir, custom_panels, framework_url=None):
     real (empty) panel set and every proxied request 404s.
     """
     enabled = set(UNIVERSAL_PANELS)
-    with (
-        patch(
-            "osprey.interfaces.web_terminal.app._load_web_config",
-            return_value={"watch_dir": str(workspace_dir)},
-        ),
+    with terminal_client(
+        workspace_dir,
         patch(
             "osprey.interfaces.web_terminal.app._load_panel_config",
             return_value=(enabled, custom_panels, None),
         ),
-    ):
-        app = create_app(shell_command="echo")
-        with TestClient(app) as client:
-            # Applied after the lifespan, which writes both of these itself.
-            # Pinning the credentials here gives the proxy — and the gate in
-            # front of it — a known secret without populating (and popping)
-            # anything from the environment.
-            app.state.web_credentials = WebCredentials(
-                operator_secret=OPERATOR_SECRET,
-                panel_token="panel-token-value",
-            )
-            if framework_url is not None:
-                setattr(app.state, FRAMEWORK_STATE_ATTR, framework_url)
-            yield app, client
+    ) as client:
+        app = client.app
+        # Applied after the lifespan, which writes both of these itself.
+        # Pinning the credentials here gives the proxy — and the gate in
+        # front of it — a known secret without populating (and popping)
+        # anything from the environment.
+        app.state.web_credentials = WebCredentials(
+            operator_secret=OPERATOR_SECRET,
+            panel_token="panel-token-value",
+        )
+        if framework_url is not None:
+            setattr(app.state, FRAMEWORK_STATE_ATTR, framework_url)
+        yield app, client
 
 
 def _cookie_client(app) -> TestClient:
@@ -194,13 +191,6 @@ def _roster_credentials(app, account=ROSTER_ACCOUNT):
 def _owners_of(captured):
     """Every header key in ``captured`` that a backend reads as the owner."""
     return [name for name in captured if name.lower() == OWNER_WIRE_NAME]
-
-
-@pytest.fixture
-def workspace_dir(tmp_path):
-    ws = tmp_path / "_agent_data"
-    ws.mkdir()
-    return ws
 
 
 @pytest.fixture
@@ -475,22 +465,21 @@ class TestSecretInjection:
 
         assert _lower(captured).get("x-osprey-terminal-secret") == OPERATOR_SECRET
 
-    def test_config_defined_offbox_panel_gets_nothing(self, panels_app):
-        """Config-declared is not enough: the secret must not leave the machine."""
+    @pytest.mark.parametrize(
+        "panel_id",
+        [
+            # Config-declared is not enough: the secret must not leave the machine.
+            pytest.param("facility", id="config_defined_offbox"),
+            # Loopback is not enough either: runtime registration is agent-reachable.
+            pytest.param("registered", id="runtime_registered_loopback"),
+        ],
+    )
+    def test_undeclared_or_offbox_panel_gets_nothing(self, panels_app, panel_id):
+        """Only a declared loopback backend is handed the operator secret."""
         app, _client = panels_app
         captured = _capture_request(app)
 
-        _cookie_client(app).get("/panel/facility/api/status")
-
-        assert "x-osprey-terminal-secret" not in _lower(captured)
-        assert OPERATOR_SECRET not in " ".join(captured.values())
-
-    def test_runtime_registered_loopback_panel_gets_nothing(self, panels_app):
-        """Loopback is not enough either: runtime registration is agent-reachable."""
-        app, _client = panels_app
-        captured = _capture_request(app)
-
-        _cookie_client(app).get("/panel/registered/api/status")
+        _cookie_client(app).get(f"/panel/{panel_id}/api/status")
 
         assert "x-osprey-terminal-secret" not in _lower(captured)
         assert OPERATOR_SECRET not in " ".join(captured.values())
@@ -547,28 +536,24 @@ class TestOwnerMint:
     owner and the header observed upstream can only have come from this hop.
     """
 
-    def test_declared_loopback_backend_is_told_who_is_driving(self, panels_app, identity_markers):
+    @pytest.mark.parametrize(
+        "path",
+        [
+            pytest.param("/panel/trusted/api/status", id="declared_loopback_backend"),
+            # The shape this exists for: the Bluesky sidecar is a framework panel.
+            # Its URL is published on ``app.state`` by the launcher that started
+            # it, which is what makes it declared, and it listens on loopback — so
+            # it is handed both a credential and the name of the human behind the
+            # request it will queue a plan for.
+            pytest.param(f"/panel/{FRAMEWORK_PANEL_ID}/queue/items", id="framework_sidecar"),
+        ],
+    )
+    def test_declared_backend_is_told_who_is_driving(self, panels_app, identity_markers, path):
         app, _client = panels_app
         identity_markers.setenv(TERMINAL_USER_ENV, "alice")
         captured = _capture_request(app)
 
-        _cookie_client(app).get("/panel/trusted/api/status")
-
-        assert _lower(captured).get(OWNER_WIRE_NAME) == "alice"
-
-    def test_framework_sidecar_is_told_who_is_driving(self, panels_app, identity_markers):
-        """The shape this exists for: the Bluesky sidecar is a framework panel.
-
-        Its URL is published on ``app.state`` by the launcher that started it,
-        which is what makes it declared, and it listens on loopback — so it is
-        handed both a credential and the name of the human behind the request
-        it will queue a plan for.
-        """
-        app, _client = panels_app
-        identity_markers.setenv(TERMINAL_USER_ENV, "alice")
-        captured = _capture_request(app)
-
-        _cookie_client(app).get(f"/panel/{FRAMEWORK_PANEL_ID}/queue/items")
+        _cookie_client(app).get(path)
 
         assert _lower(captured).get(OWNER_WIRE_NAME) == "alice"
 
@@ -1053,131 +1038,111 @@ class TestRedirectContainment:
         assert resp.status_code == 502
         assert "location" not in _lower(resp.headers)
 
-    def test_backend_origin_redirect_location_is_rebased(self, panels_app):
-        app, client = panels_app
-        self._record_calls(
-            app,
-            lambda: httpx.Response(
-                302, headers={"location": "http://127.0.0.1:9000/dashboard/state"}
+    @pytest.mark.parametrize(
+        ("panel_id", "location", "rebased"),
+        [
+            pytest.param(
+                "trusted",
+                "http://127.0.0.1:9000/dashboard/state",
+                "/panel/trusted/dashboard/state",
+                id="loopback_backend",
             ),
-        )
-
-        resp = client.get(
-            "/panel/trusted/api/thing", headers=OPERATOR_HEADERS, follow_redirects=False
-        )
-
-        assert resp.status_code == 302
-        assert resp.headers["location"] == "/panel/trusted/dashboard/state"
-
-    def test_offbox_backend_own_origin_location_is_rebased_not_refused(self, panels_app):
-        """The refusal is about *third* origins, not about being off-box.
-
-        A config-declared facility panel redirecting to its own origin is the
-        ordinary in-panel redirect, so it re-bases like a loopback one; only a
-        Location that is neither the backend nor the console is refused.
-        """
-        app, client = panels_app
-        self._record_calls(
-            app,
-            lambda: httpx.Response(
-                302, headers={"location": "http://grafana.facility.lan:3000/d/abc"}
+            # The refusal is about *third* origins, not about being off-box: a
+            # config-declared facility panel redirecting to its own origin is the
+            # ordinary in-panel redirect, so it re-bases like a loopback one.
+            pytest.param(
+                "facility",
+                "http://grafana.facility.lan:3000/d/abc",
+                "/panel/facility/d/abc",
+                id="offbox_backend",
             ),
-        )
-
-        resp = client.get(
-            "/panel/facility/api/thing", headers=OPERATOR_HEADERS, follow_redirects=False
-        )
-
-        assert resp.status_code == 302
-        assert resp.headers["location"] == "/panel/facility/d/abc"
-
-    def test_protocol_relative_location_is_refused(self, panels_app):
-        """``//evil.test/x`` is an absolute URL wearing the request's scheme."""
-        app, client = panels_app
-        self._record_calls(
-            app, lambda: httpx.Response(302, headers={"location": "//evil.test/steal"})
-        )
-
-        resp = client.get(
-            "/panel/trusted/api/thing", headers=OPERATOR_HEADERS, follow_redirects=False
-        )
-
-        assert resp.status_code == 502
-        assert "location" not in _lower(resp.headers)
-
-    def test_unparseable_location_is_refused(self, panels_app):
-        """A Location the proxy cannot classify is refused, not emitted.
-
-        ``urlparse`` raises on a malformed IPv6 authority; without the guard the
-        panel request would 500, and relaying the value unclassified would be
-        the open redirect the refusal exists to close.
-        """
-        app, client = panels_app
-        self._record_calls(
-            app, lambda: httpx.Response(302, headers={"location": "http://[::1/steal"})
-        )
-
-        resp = client.get(
-            "/panel/trusted/api/thing", headers=OPERATOR_HEADERS, follow_redirects=False
-        )
-
-        assert resp.status_code == 502
-        assert "location" not in _lower(resp.headers)
-
-    def test_terminal_origin_location_is_relayed(self, panels_app):
-        """An absolute Location naming the console itself is not off-site.
-
-        It is the same destination a root-absolute path would name, so refusing
-        it would break a backend that spells its in-console redirect out in full
-        while granting nothing: the browser lands back on the terminal, which
-        gates the re-request like any other.
-        """
-        app, client = panels_app
-        self._record_calls(
-            app,
-            lambda: httpx.Response(
-                302, headers={"location": "http://testserver/panel/trusted/dashboard"}
-            ),
-        )
-
-        resp = client.get(
-            "/panel/trusted/api/thing", headers=OPERATOR_HEADERS, follow_redirects=False
-        )
-
-        assert resp.status_code == 302
-        assert resp.headers["location"] == "http://testserver/panel/trusted/dashboard"
-
-    @pytest.mark.parametrize("request_path", ["/panel/registered", "/panel/registered/"])
-    def test_relative_location_from_the_panel_root_stays_in_the_panel(
-        self, panels_app, request_path
+        ],
+    )
+    def test_backend_origin_redirect_location_is_rebased(
+        self, panels_app, panel_id, location, rebased
     ):
-        """``Location: dashboard/`` on ``/panel/<id>`` must not lose the id.
-
-        The browser resolves a relative Location against the *request* path, and
-        ``/panel/registered`` has no trailing slash — so an unrewritten
-        ``dashboard/`` resolves to ``/panel/dashboard/``, a different panel id.
-        The proxy resolves it here instead, treating the panel prefix as the
-        directory it is.
-        """
+        """A Location on the backend's own origin is re-based under its panel."""
         app, client = panels_app
-        self._record_calls(app, lambda: httpx.Response(302, headers={"location": "dashboard/"}))
+        self._record_calls(app, lambda: httpx.Response(302, headers={"location": location}))
+
+        resp = client.get(
+            f"/panel/{panel_id}/api/thing", headers=OPERATOR_HEADERS, follow_redirects=False
+        )
+
+        assert resp.status_code == 302
+        assert resp.headers["location"] == rebased
+
+    @pytest.mark.parametrize(
+        "location",
+        [
+            # An absolute URL wearing the request's scheme.
+            pytest.param("//evil.test/steal", id="protocol_relative"),
+            # ``urlparse`` raises on a malformed IPv6 authority; without the guard
+            # the panel request would 500, and relaying the value unclassified
+            # would be the open redirect the refusal exists to close.
+            pytest.param("http://[::1/steal", id="unparseable"),
+        ],
+    )
+    def test_unclassifiable_or_offsite_location_is_refused(self, panels_app, location):
+        """A Location the proxy cannot place inside the panel is refused, not emitted."""
+        app, client = panels_app
+        self._record_calls(app, lambda: httpx.Response(302, headers={"location": location}))
+
+        resp = client.get(
+            "/panel/trusted/api/thing", headers=OPERATOR_HEADERS, follow_redirects=False
+        )
+
+        assert resp.status_code == 502
+        assert "location" not in _lower(resp.headers)
+
+    @pytest.mark.parametrize(
+        ("request_path", "location", "expected"),
+        [
+            # An absolute Location naming the console itself is not off-site: it is
+            # the same destination a root-absolute path would name, so refusing it
+            # would break a backend that spells its in-console redirect out in full
+            # while granting nothing.
+            pytest.param(
+                "/panel/trusted/api/thing",
+                "http://testserver/panel/trusted/dashboard",
+                "http://testserver/panel/trusted/dashboard",
+                id="terminal-origin-location-is-relayed",
+            ),
+            # ``Location: dashboard/`` on ``/panel/<id>`` must not lose the id: the
+            # browser resolves a relative Location against the *request* path, and
+            # ``/panel/registered`` has no trailing slash, so the proxy resolves it
+            # here, treating the panel prefix as the directory it is.
+            pytest.param(
+                "/panel/registered",
+                "dashboard/",
+                "/panel/registered/dashboard/",
+                id="relative-from-the-panel-root",
+            ),
+            pytest.param(
+                "/panel/registered/",
+                "dashboard/",
+                "/panel/registered/dashboard/",
+                id="relative-from-the-panel-root-with-slash",
+            ),
+            # Deeper paths keep the browser's own resolution, which was correct.
+            pytest.param(
+                "/panel/registered/wizard/step1",
+                "next",
+                "/panel/registered/wizard/next",
+                id="relative-under-a-subpath",
+            ),
+        ],
+    )
+    def test_an_in_console_location_is_relayed_resolved_against_the_request_path(
+        self, panels_app, request_path, location, expected
+    ):
+        app, client = panels_app
+        self._record_calls(app, lambda: httpx.Response(302, headers={"location": location}))
 
         resp = client.get(request_path, headers=OPERATOR_HEADERS, follow_redirects=False)
 
         assert resp.status_code == 302
-        assert resp.headers["location"] == "/panel/registered/dashboard/"
-
-    def test_relative_location_under_a_subpath_resolves_against_it(self, panels_app):
-        """Deeper paths keep the browser's own resolution, which was correct."""
-        app, client = panels_app
-        self._record_calls(app, lambda: httpx.Response(302, headers={"location": "next"}))
-
-        resp = client.get(
-            "/panel/registered/wizard/step1", headers=OPERATOR_HEADERS, follow_redirects=False
-        )
-
-        assert resp.status_code == 302
-        assert resp.headers["location"] == "/panel/registered/wizard/next"
+        assert resp.headers["location"] == expected
 
     def test_not_modified_is_not_treated_as_a_redirect(self, panels_app):
         """304 shares the 3xx range but is a cache answer, not a redirect.
@@ -1407,10 +1372,17 @@ class TestWebSocketBoundary:
         sentinel = RuntimeError("redirect")
         assert _RedirectRefusingConnect("ws://127.0.0.1:9/").process_redirect(sentinel) is sentinel
 
-    def test_registered_panel_ws_carries_no_headers(self, panels_app):
+    @pytest.mark.parametrize(
+        "path",
+        [
+            pytest.param("/panel/registered/ws/stream", id="registered-panel"),
+            pytest.param("/panel/facility/ws/stream", id="offbox-panel"),
+        ],
+    )
+    def test_a_panel_ws_carries_no_headers(self, panels_app, path):
         _app, client = panels_app
 
-        fake = self._connect(client, "/panel/registered/ws/stream")
+        fake = self._connect(client, path)
 
         assert fake.kwargs["additional_headers"] is None
         # No secret in flight → the default redirect handling is left in place.
@@ -1437,14 +1409,6 @@ class TestWebSocketBoundary:
 
         assert fake.kwargs["open_timeout"] == UPSTREAM_OPEN_TIMEOUT
         assert UPSTREAM_OPEN_TIMEOUT >= MappingKernelManager.kernel_info_timeout.default_value
-
-    def test_offbox_panel_ws_carries_no_headers(self, panels_app):
-        _app, client = panels_app
-
-        fake = self._connect(client, "/panel/facility/ws/stream")
-
-        assert fake.kwargs["additional_headers"] is None
-        assert not fake.refuses_redirects
 
     def test_real_websockets_exposes_process_redirect(self):
         """The redirect refusal above is only real if the library still has the hook.

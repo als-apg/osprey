@@ -18,7 +18,6 @@ No test reads the real checkout's history.
 
 from __future__ import annotations
 
-import importlib.util
 import shutil
 import subprocess
 from datetime import date
@@ -26,12 +25,11 @@ from pathlib import Path
 
 import pytest
 
+from tests._by_path import load_module
+
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _MODULE_PATH = _REPO_ROOT / "scripts" / "plugin_version.py"
-_spec = importlib.util.spec_from_file_location("plugin_version", _MODULE_PATH)
-assert _spec and _spec.loader
-pv = importlib.util.module_from_spec(_spec)
-_spec.loader.exec_module(pv)
+pv = load_module("plugin_version", _MODULE_PATH)
 
 CLAUDE_MANIFEST = """\
 {
@@ -117,18 +115,18 @@ class TestBump:
         assert versions(root) == ["2026.9.1", "2026.9.1"]
         assert capsys.readouterr().out == "2026.9.0 -> 2026.9.1\n"
 
-    def test_a_new_month_resets_the_serial_to_zero(self, root):
-        assert run(root, "bump", "--today", "2026-10-01") == 0
-        assert versions(root) == ["2026.10.0", "2026.10.0"]
-
-    def test_a_new_year_resets_the_serial_to_zero(self, root):
-        assert run(root, "bump", "--today", "2027-01-20") == 0
-        assert versions(root) == ["2027.1.0", "2027.1.0"]
-
-    def test_the_month_is_never_zero_padded(self, root):
-        """`2027.3.0`, not `2027.03.0` — the CI gate compares the string, not a tuple."""
-        assert run(root, "bump", "--today", "2027-03-09") == 0
-        assert versions(root) == ["2027.3.0", "2027.3.0"]
+    @pytest.mark.parametrize(
+        ("today", "version"),
+        [
+            pytest.param("2026-10-01", "2026.10.0", id="new-month"),
+            pytest.param("2027-01-20", "2027.1.0", id="new-year"),
+            # `2027.3.0`, not `2027.03.0` — the CI gate compares the string, not a tuple.
+            pytest.param("2027-03-09", "2027.3.0", id="month-never-zero-padded"),
+        ],
+    )
+    def test_a_bump_into_a_later_month_resets_the_serial_to_zero(self, root, today, version):
+        assert run(root, "bump", "--today", today) == 0
+        assert versions(root) == [version, version]
 
     def test_repeated_bumps_keep_counting_within_the_month(self, root):
         for _ in range(3):
@@ -208,7 +206,7 @@ TREE_FILES = {
 def git(repo: Path, *args: str) -> str:
     """Run git in *repo*, failing the test on a non-zero exit; return stdout."""
     return subprocess.run(
-        ["git", *args], cwd=repo, check=True, capture_output=True, text=True
+        ["git", *args], cwd=repo, check=True, capture_output=True, text=True, timeout=60
     ).stdout.strip()
 
 
@@ -229,7 +227,7 @@ def commit(repo: Path, message: str, files: dict[Path, str] | None = None) -> No
 def make_repo(path: Path, *, manifests: bool = True) -> Path:
     """A scratch repository on ``main`` whose first commit holds the plugin tree."""
     git_init = ["git", "init", "-q", "-b", "main", str(path)]
-    subprocess.run(git_init, check=True, capture_output=True)
+    subprocess.run(git_init, check=True, capture_output=True, timeout=60)
     git(path, "config", "user.email", "test@example.com")
     git(path, "config", "user.name", "Test")
     git(path, "config", "maintenance.auto", "false")
@@ -367,6 +365,51 @@ class TestCheck:
             "plugin version 2026.9.0 -> 2026.9.1\n",
         )
         assert check(repo, capsys, "main") == (1, pv.UNCHANGED + "\n", "")
+
+    def test_uncommitted_plugin_edits_are_not_judged(self, repo, capsys):
+        """Without ``--worktree`` the range is committed state, which a pull request carries."""
+        git(repo, "checkout", "-q", "-b", "work")
+        write(repo, SKILL, "changed\n")
+        git(repo, "add", "-A")
+        assert check(repo, capsys) == (0, pv.UNTOUCHED + "\n", "")
+
+    def test_a_staged_plugin_edit_without_a_bump_fails_under_worktree(self, repo):
+        git(repo, "checkout", "-q", "-b", "work")
+        write(repo, SKILL, "changed\n")
+        git(repo, "add", "-A")
+        assert run(repo, "check", "--base", "main", "--worktree") == 1
+
+    def test_a_staged_plugin_edit_with_a_bump_passes_under_worktree(self, repo):
+        git(repo, "checkout", "-q", "-b", "work")
+        write(repo, SKILL, "changed\n")
+        assert run(repo, "bump", "--today", "2026-09-15") == 0
+        git(repo, "add", "-A")
+        assert run(repo, "check", "--base", "main", "--worktree") == 0
+
+    def test_an_unstaged_plugin_edit_with_a_bump_passes_under_worktree(self, repo, capsys):
+        git(repo, "checkout", "-q", "-b", "work")
+        write(repo, SKILL, "changed\n")
+        assert run(repo, "bump", "--today", "2026-09-15") == 0
+        capsys.readouterr()
+        assert run(repo, "check", "--base", "main", "--worktree") == 0
+        assert capsys.readouterr().out == "plugin version 2026.9.0 -> 2026.9.1\n"
+
+    def test_an_untracked_plugin_file_counts_under_worktree(self, repo):
+        git(repo, "checkout", "-q", "-b", "work")
+        write(repo, SKILL.parent / "NEW.md", "new\n")
+        assert run(repo, "check", "--base", "main") == 0
+        assert run(repo, "check", "--base", "main", "--worktree") == 1
+
+    def test_an_untracked_file_outside_the_tree_owes_nothing_under_worktree(self, repo, capsys):
+        git(repo, "checkout", "-q", "-b", "work")
+        write(repo, Path("NOTES.md"), "new\n")
+        capsys.readouterr()
+        assert run(repo, "check", "--base", "main", "--worktree") == 0
+        assert capsys.readouterr().out == pv.UNTOUCHED + "\n"
+
+    def test_a_base_that_does_not_resolve_is_an_error_under_worktree(self, repo, capsys):
+        assert run(repo, "check", "--base", "no-such-branch", "--worktree") == 2
+        assert "no-such-branch" in capsys.readouterr().err
 
     def test_base_is_required(self, repo, capsys):
         with pytest.raises(SystemExit) as exit_info:

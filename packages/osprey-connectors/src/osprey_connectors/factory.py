@@ -10,9 +10,7 @@ system for unified component management and lazy loading.
 from __future__ import annotations
 
 import importlib
-from collections.abc import Iterator
-from contextlib import contextmanager
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal
 
 from osprey_connectors import types
@@ -28,11 +26,7 @@ __all__ = [
     "BUILTIN_CONNECTORS",
     "BuiltinConnector",
     "ConnectorFactory",
-    "ConnectorRegistrySnapshot",
-    "isolated_connector_registries",
     "register_builtin_connectors",
-    "restore_connector_registries",
-    "snapshot_connector_registries",
 ]
 
 logger = get_logger("connector_factory")
@@ -347,82 +341,6 @@ class ConnectorFactory:
     def list_archivers(cls) -> list:
         """List available archiver connector types."""
         return list(cls._archiver_connectors.keys())
-
-
-@dataclass(frozen=True)
-class ConnectorRegistrySnapshot:
-    """Captured contents of both :class:`ConnectorFactory` registries.
-
-    Treat the two dicts as read-only. They are the restore point, not a working
-    copy: mutating either one changes what
-    :func:`restore_connector_registries` puts back, so the registries would be
-    restored to a state the process was never in.
-    """
-
-    control_system: dict[str, type[ControlSystemConnector]] = field(default_factory=dict)
-    archiver: dict[str, type[ArchiverConnector]] = field(default_factory=dict)
-
-
-def snapshot_connector_registries() -> ConnectorRegistrySnapshot:
-    """Copy the current control system and archiver registrations.
-
-    Returns:
-        Snapshot that :func:`restore_connector_registries` can replay.
-    """
-    return ConnectorRegistrySnapshot(
-        control_system=dict(ConnectorFactory._control_system_connectors),
-        archiver=dict(ConnectorFactory._archiver_connectors),
-    )
-
-
-def restore_connector_registries(snapshot: ConnectorRegistrySnapshot) -> None:
-    """Replace both registries with the contents of ``snapshot``.
-
-    The restore is total: registrations added after the snapshot are dropped
-    and registrations removed after it are put back, so any mutation made in
-    between is undone.
-
-    Args:
-        snapshot: Value returned by :func:`snapshot_connector_registries`.
-    """
-    ConnectorFactory._control_system_connectors.clear()
-    ConnectorFactory._control_system_connectors.update(snapshot.control_system)
-    ConnectorFactory._archiver_connectors.clear()
-    ConnectorFactory._archiver_connectors.update(snapshot.archiver)
-
-
-@contextmanager
-def isolated_connector_registries(*, clear: bool = False) -> Iterator[ConnectorRegistrySnapshot]:
-    """Bracket registry mutations so the surrounding process state survives.
-
-    This is the sanctioned way for tests to mutate the factory registries.
-    Clearing them directly is destructive: registrations made elsewhere (by
-    ``initialize_registry()``, by another test module, by a facility preset)
-    are gone for the rest of the process, and
-    :func:`register_builtin_connectors` cannot tell a deliberately customized
-    registry from a truncated one.
-
-    Args:
-        clear: Empty both registries on entry, for code that needs to observe
-            registration from scratch. The clear is undone on exit like any
-            other mutation.
-
-    Yields:
-        The snapshot taken on entry, before any ``clear``. It is the restore
-        point for the ``finally`` below — read it, do not mutate it.
-
-    Example:
-        >>> with isolated_connector_registries(clear=True):
-        ...     register_builtin_connectors()
-    """
-    snapshot = snapshot_connector_registries()
-    if clear:
-        ConnectorFactory._control_system_connectors.clear()
-        ConnectorFactory._archiver_connectors.clear()
-    try:
-        yield snapshot
-    finally:
-        restore_connector_registries(snapshot)
 
 
 @dataclass(frozen=True)

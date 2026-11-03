@@ -114,7 +114,10 @@ export function createScaffoldGalleryDetail(gallery) {
     const name = prompt(`Name for new ${category.replace(/s$/, '')}:`);
     if (!name) return;
 
-    const sanitized = name.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
+    const sanitized = name
+      .toLowerCase()
+      .replace(/\s+/g, '-')
+      .replace(/[^a-z0-9-]/g, '');
     if (!sanitized) {
       alert('Invalid name. Use letters, numbers, and hyphens.');
       return;
@@ -363,11 +366,16 @@ export function createScaffoldGalleryDetail(gallery) {
       if (gallery.detailRenderSeq !== render) return;
       const message = e instanceof Error ? e.message : String(e);
       if (gallery.detailContentEl) {
-        gallery.detailContentEl.innerHTML =
-          `<div class="prompts-content-error">Error loading content: ${escapeHtml(message)}</div>`;
+        gallery.detailContentEl.innerHTML = `<div class="prompts-content-error">Error loading content: ${escapeHtml(message)}</div>`;
       }
     }
   }
 
-  return { openDetail, showCreateDialog, renderDetailHeader, renderDetailModes, renderDetailContent };
+  return {
+    openDetail,
+    showCreateDialog,
+    renderDetailHeader,
+    renderDetailModes,
+    renderDetailContent,
+  };
 }

@@ -27,13 +27,21 @@ afterEach(() => {
 });
 
 test('names the TTL file and the store, and lists the tools behind the info tip', () => {
-  state.setGraphInfo(['read_cypher', 'get_schema'], { uri: 'bolt://localhost:7687', ttl_filename: 'als.ttl' });
+  state.setGraphInfo(['read_cypher', 'get_schema'], {
+    uri: 'bolt://localhost:7687',
+    ttl_filename: 'als.ttl',
+  });
   renderProvenance();
 
-  expect(slot().querySelector('.graph-store-badge code')?.textContent).toBe('als.ttl @ bolt://localhost:7687');
+  expect(slot().querySelector('.graph-store-badge code')?.textContent).toBe(
+    'als.ttl @ bolt://localhost:7687'
+  );
   expect(slot().textContent).toContain('2 assistant tools');
   const tip = slot().querySelector('.osprey-info .osprey-tip');
-  expect([...(tip?.querySelectorAll('.graph-tool-chip') ?? [])].map((c) => c.textContent)).toEqual(['read_cypher', 'get_schema']);
+  expect([...(tip?.querySelectorAll('.graph-tool-chip') ?? [])].map((c) => c.textContent)).toEqual([
+    'read_cypher',
+    'get_schema',
+  ]);
   expect(slot().querySelector('.osprey-info')?.getAttribute('aria-label')).toBeTruthy();
 });
 

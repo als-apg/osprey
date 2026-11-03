@@ -168,6 +168,37 @@ def test_the_posture_clamp_comes_first(monkeypatch):
         _call(kind="orm")
 
 
+@pytest.mark.usefixtures("gated")
+def test_a_switched_off_machine_is_refused_by_the_real_clamp(tmp_path, monkeypatch):
+    """The tool reaches the executor's entry gate: an off switch refuses the measurement.
+
+    The real clamp, not a stand-in: the deployment allows writes by its tier and
+    is on the simulator, whose switch is off, so the write verdict refuses before
+    the render is read or the gate sequence is reached.
+    """
+    from osprey.audit import posture
+    from osprey.mcp_server.python_executor.tools import _execution_gates
+    from osprey_connectors.refusals import refusal_text
+    from osprey_connectors_tests._write_fakes import (
+        ARMED_SECTION,
+        ARMED_TARGET,
+        arm_switch,
+        turn_switch,
+    )
+
+    monkeypatch.setattr(posture, "control_system_section", lambda: dict(ARMED_SECTION))
+    arm_switch(monkeypatch, tmp_path / "agent_data", ARMED_TARGET, stamp=False)
+    turn_switch(ARMED_TARGET, "off")
+    monkeypatch.setattr(tool, "enforce_posture_clamp", _execution_gates.enforce_posture_clamp)
+    monkeypatch.setattr("osprey.utils.config_paths.resolve_config_dir", lambda: 1 / 0)
+
+    envelope = _error(kind="orm")
+
+    assert envelope["error_type"] == "safety_error"
+    assert envelope["error_message"] == refusal_text("switch_off", "simulator")
+    assert envelope["details"] == {"reason": "switch_off", "target": ARMED_TARGET}
+
+
 # --- what the tool answers ---------------------------------------------------------
 
 
@@ -200,6 +231,7 @@ def test_a_completed_orm_is_named_by_address_and_device(gated, monkeypatch):
             variables=["SCOR:H:SP"],
             data_file="/exec/pyaml_measure_orm.json",
             moved=[["SCOR:H:SP", 0.25]],
+            missing={},
         )
     )
 
@@ -210,6 +242,7 @@ def test_a_completed_orm_is_named_by_address_and_device(gated, monkeypatch):
     assert all(row["address"] for row in answer["rows"])
     assert answer["deltas"] == {"SCOR:H:SP": 1e-5}
     assert answer["moved"] == [{"address": "SCOR:H:SP", "device": "SR/COR1", "before": 0.25}]
+    assert answer["missing"] == {}
     assert saved == [answer]
 
 
@@ -229,6 +262,7 @@ def _completed_orm_line(data_file: str, observables: list[list[str]] | None = No
         variables=["SCOR:H:SP"],
         data_file=data_file,
         moved=[["SCOR:H:SP", 0.25]],
+        missing={},
     )
 
 
@@ -299,6 +333,7 @@ def test_a_run_notes_its_writes_on_the_call_record(gated, monkeypatch):
             variables=["SCOR:H:SP"],
             data_file="/exec/pyaml_measure_orm.json",
             moved=[["SCOR:H:SP", 0.25]],
+            missing={},
         ),
         written_channels=["SCOR:H:SP"],
     )
@@ -377,32 +412,33 @@ def _stopped_line(**changes: Any) -> str:
             "sha256": "ab" * 32,
             "completed": False,
             "deltas": {"SCOR:H:SP": 1e-5},
-            "remainder": "orm",
+            "missing": {"orm": None},
             "moved": [["SCOR:H:SP", 0.25]],
         }
         | changes
     )
 
 
-def test_a_stopped_run_answers_its_remainder_and_what_it_moved(gated):
+def test_a_stopped_run_answers_what_it_did_not_measure_and_what_it_moved(gated):
     gated.result = _result(_stopped_line())
 
     answer = _call(kind="orm")
 
     assert answer["completed"] is False
-    assert answer["remainder"] == "orm"
+    assert answer["missing"] == {"orm": None}
     assert answer["moved"] == [{"address": "SCOR:H:SP", "device": "SR/COR1", "before": 0.25}]
     assert "restore" not in answer
 
 
 def test_a_failed_run_that_printed_its_line_answers_it_as_a_stopped_result(gated):
-    line = _stopped_line(error="the tune readback went away")
+    line = _stopped_line(missing={"orm": "the tune readback went away"})
     gated.result = _result(line, "Traceback: RuntimeError", success=False)
 
     answer = _call(kind="orm")
 
     assert answer["completed"] is False
-    assert answer["error"] == "the tune readback went away"
+    assert answer["missing"] == {"orm": "the tune readback went away"}
+    assert "error" not in answer
     assert answer["moved"] == [{"address": "SCOR:H:SP", "device": "SR/COR1", "before": 0.25}]
 
 

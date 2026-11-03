@@ -75,7 +75,9 @@ function collector() {
 
 describe('sendPrompt: request shape', () => {
   test('POSTs prompt + chat_id as JSON to /api/chat?stream=true with the abort signal', async () => {
-    const fetchMock = vi.fn(async () => streamResponse([frame({ type: 'result', is_error: false })]));
+    const fetchMock = vi.fn(async () =>
+      streamResponse([frame({ type: 'result', is_error: false })])
+    );
     vi.stubGlobal('fetch', fetchMock);
 
     const cb = collector();
@@ -138,7 +140,10 @@ describe('sendPrompt: frame parsing and dispatch', () => {
       frame({ type: 'thinking' }) +
       frame({ type: 'text', content: 'a' }) +
       frame({ type: 'result' });
-    vi.stubGlobal('fetch', vi.fn(async () => streamResponse([combined])));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => streamResponse([combined]))
+    );
 
     const cb = collector();
     chat.sendPrompt('c', 'p', cb.handlers);
@@ -151,7 +156,12 @@ describe('sendPrompt: frame parsing and dispatch', () => {
     vi.stubGlobal(
       'fetch',
       vi.fn(async () =>
-        streamResponse([': heartbeat\n\n', frame({ type: 'text', content: 'x' }), ': heartbeat\n\n', frame({ type: 'result' })])
+        streamResponse([
+          ': heartbeat\n\n',
+          frame({ type: 'text', content: 'x' }),
+          ': heartbeat\n\n',
+          frame({ type: 'result' }),
+        ])
       )
     );
 
@@ -164,7 +174,10 @@ describe('sendPrompt: frame parsing and dispatch', () => {
 
   test('joins multi-line data fields before parsing', async () => {
     const raw = 'data: {"type":"text",\ndata: "content":"multi"}\n\n' + frame({ type: 'result' });
-    vi.stubGlobal('fetch', vi.fn(async () => streamResponse([raw])));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => streamResponse([raw]))
+    );
 
     const cb = collector();
     chat.sendPrompt('c', 'p', cb.handlers);
@@ -181,7 +194,10 @@ describe('sendPrompt: terminal conditions', () => {
       frame({ type: 'result', is_error: false }),
       frame({ type: 'text', content: 'after-terminal' }),
     ]);
-    vi.stubGlobal('fetch', vi.fn(async () => response));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => response)
+    );
 
     const cb = collector();
     chat.sendPrompt('c', 'p', cb.handlers);
@@ -211,7 +227,11 @@ describe('sendPrompt: terminal conditions', () => {
 
     // The server error is delivered by type, then the turn stops.
     expect(cb.events.map((e) => e.type)).toEqual(['error']);
-    expect(onError).toHaveBeenCalledWith({ type: 'error', error_type: 'TimeoutError', message: 'boom' });
+    expect(onError).toHaveBeenCalledWith({
+      type: 'error',
+      error_type: 'TimeoutError',
+      message: 'boom',
+    });
     // Transport onError is NOT fired for a server error event.
     expect(cb.onError).not.toHaveBeenCalled();
   });
@@ -240,7 +260,9 @@ describe('sendPrompt: transport failures', () => {
   test('a non-2xx status reports onError and closes', async () => {
     vi.stubGlobal(
       'fetch',
-      vi.fn(async () => streamResponse([], { ok: false, status: 503, statusText: 'Service Unavailable' }))
+      vi.fn(async () =>
+        streamResponse([], { ok: false, status: 503, statusText: 'Service Unavailable' })
+      )
     );
 
     const cb = collector();
@@ -277,6 +299,27 @@ describe('sendPrompt: transport failures', () => {
     expect(err.status).toBe(409);
     expect(err.slug).toBe('chat_terminated');
     expect(err.message).toBe('HTTP 409: Conflict');
+  });
+
+  test('a refused command carries the command it names', async () => {
+    const body = {
+      detail: { error: 'command_not_available', command: 'login', message: 'not here' },
+    };
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ({
+        ...streamResponse([], { ok: false, status: 400, statusText: 'Bad Request' }),
+        json: async () => body,
+      }))
+    );
+
+    const cb = collector();
+    chat.sendPrompt('c', '/login', cb.handlers);
+    await vi.waitFor(() => expect(cb.onClose).toHaveBeenCalledTimes(1));
+
+    const err = cb.onError.mock.calls[0][0];
+    expect(err.slug).toBe('command_not_available');
+    expect(err.command).toBe('login');
   });
 
   test('a non-JSON rejection body is not itself a failure', async () => {
@@ -316,7 +359,12 @@ describe('sendPrompt: transport failures', () => {
   });
 
   test('a rejected fetch reports onError and closes', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => { throw new Error('network down'); }));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => {
+        throw new Error('network down');
+      })
+    );
 
     const cb = collector();
     chat.sendPrompt('c', 'p', cb.handlers);
@@ -327,7 +375,10 @@ describe('sendPrompt: transport failures', () => {
   });
 
   test('a malformed frame reports onError', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => streamResponse(['data: {not json}\n\n'])));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => streamResponse(['data: {not json}\n\n']))
+    );
 
     const cb = collector();
     chat.sendPrompt('c', 'p', cb.handlers);
@@ -338,7 +389,10 @@ describe('sendPrompt: transport failures', () => {
   });
 
   test('onClose fires exactly once even on a terminal-then-end stream', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => streamResponse([frame({ type: 'result' })])));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => streamResponse([frame({ type: 'result' })]))
+    );
 
     const cb = collector();
     chat.sendPrompt('c', 'p', cb.handlers);
@@ -394,7 +448,10 @@ describe('interrupt', () => {
   });
 
   test('throws on a non-2xx status', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, status: 404, statusText: 'Not Found' })));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ({ ok: false, status: 404, statusText: 'Not Found' }))
+    );
     await expect(chat.interrupt('c')).rejects.toThrow('HTTP 404: Not Found');
   });
 });
@@ -431,7 +488,7 @@ describe('requestHandoff: request shape', () => {
     const init = firstInit(fetchMock);
     expect(init.method).toBe('POST');
     expect(init.headers).toEqual({ 'Content-Type': 'application/json' });
-    expect(JSON.parse(init.body)).toEqual({ to: 'simple', interrupt: false, end_started: false });
+    expect(JSON.parse(init.body)).toEqual({ to: 'chat', interrupt: false, end_started: false });
     expect(result).toEqual({ state: 'ready', session_id: 'k-1' });
   });
 
@@ -441,7 +498,7 @@ describe('requestHandoff: request shape', () => {
 
     await chat.requestHandoff('k', { interrupt: true });
     expect(JSON.parse(firstInit(fetchMock).body)).toEqual({
-      to: 'simple',
+      to: 'chat',
       interrupt: true,
       end_started: false,
     });
@@ -453,7 +510,7 @@ describe('requestHandoff: request shape', () => {
 
     await chat.requestHandoff('k', { endStarted: true });
     expect(JSON.parse(firstInit(fetchMock).body)).toEqual({
-      to: 'simple',
+      to: 'chat',
       interrupt: false,
       end_started: true,
     });
@@ -505,21 +562,22 @@ describe('requestHandoff: abort', () => {
 
   test('aborting the signal rejects the pending hand-off', async () => {
     // A fetch that never settles on its own, mirroring a hand-off waiting on a
-    // long Expert turn: only the signal ends it.
+    // long terminal turn: only the signal ends it.
     vi.stubGlobal(
       'fetch',
-      vi.fn((/** @type {string} */ _url, /** @type {any} */ init) =>
-        new Promise((_resolve, reject) => {
-          /** @type {AbortSignal} */
-          const signal = init.signal;
-          const fail = () => {
-            const err = new Error('aborted');
-            err.name = 'AbortError';
-            reject(err);
-          };
-          if (signal.aborted) fail();
-          else signal.addEventListener('abort', fail);
-        })
+      vi.fn(
+        (/** @type {string} */ _url, /** @type {any} */ init) =>
+          new Promise((_resolve, reject) => {
+            /** @type {AbortSignal} */
+            const signal = init.signal;
+            const fail = () => {
+              const err = new Error('aborted');
+              err.name = 'AbortError';
+              reject(err);
+            };
+            if (signal.aborted) fail();
+            else signal.addEventListener('abort', fail);
+          })
       )
     );
     const controller = new AbortController();
@@ -538,7 +596,9 @@ describe('requestHandoff: rejection slugs', () => {
   ])('%i carries status and the detail.error slug', async (status, statusText, slug) => {
     vi.stubGlobal(
       'fetch',
-      vi.fn(async () => jsonResponse({ detail: { error: slug } }, { ok: false, status, statusText }))
+      vi.fn(async () =>
+        jsonResponse({ detail: { error: slug } }, { ok: false, status, statusText })
+      )
     );
 
     const err = await chat.requestHandoff('k').catch((e) => e);
@@ -621,6 +681,36 @@ describe('fetchHistory', () => {
     });
   });
 
+  test("hands each agent turn's thinking events to the renderer untouched", async () => {
+    // The chat chat's thinking summary is drawn from these events, an
+    // omitted (empty) block included: the renderer, not the transport, decides
+    // that an empty block draws nothing.
+    const turns = [
+      { role: 'user', content: 'why?' },
+      {
+        role: 'assistant',
+        content: 'because',
+        events: [
+          { type: 'thinking', content: 'reasoning' },
+          { type: 'thinking', content: '' },
+          { type: 'text', content: 'because' },
+          { type: 'result', is_error: false, duration_ms: 900 },
+        ],
+      },
+    ];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => jsonResponse({ turns, count: turns.length }))
+    );
+
+    const got = await chat.fetchHistory('k');
+    expect(got).toEqual(turns);
+    expect(got[1].events?.filter((e) => e.type === 'thinking').map((e) => e.content)).toEqual([
+      'reasoning',
+      '',
+    ]);
+  });
+
   test('applies the multi-user prefix and encodes the key', async () => {
     window.__OSPREY_PREFIX__ = '/u/alice';
     const fetchMock = vi.fn(async () => jsonResponse({ turns: [], count: 0 }));
@@ -631,7 +721,10 @@ describe('fetchHistory', () => {
   });
 
   test('a body without turns yields an empty list', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ count: 0 })));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => jsonResponse({ count: 0 }))
+    );
     await expect(chat.fetchHistory('k')).resolves.toEqual([]);
   });
 
@@ -639,11 +732,14 @@ describe('fetchHistory', () => {
     vi.stubGlobal(
       'fetch',
       vi.fn(async () =>
-        jsonResponse({ detail: { error: 'session_unknown' } }, {
-          ok: false,
-          status: 404,
-          statusText: 'Not Found',
-        })
+        jsonResponse(
+          { detail: { error: 'session_unknown' } },
+          {
+            ok: false,
+            status: 404,
+            statusText: 'Not Found',
+          }
+        )
       )
     );
 
@@ -667,7 +763,10 @@ describe('fetchCommands', () => {
   });
 
   test('a body without an array yields an empty list', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ commands: null })));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => jsonResponse({ commands: null }))
+    );
     await expect(chat.fetchCommands()).resolves.toEqual([]);
   });
 
@@ -697,6 +796,40 @@ describe('followChat', () => {
     await vi.advanceTimersByTimeAsync(1);
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(onEvent).not.toHaveBeenCalled();
+    feed.close();
+  });
+
+  test('each 204 tells the caller that no agent runs for the chat', async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ({ ok: true, status: 204, body: null }))
+    );
+    const onNoAgent = vi.fn();
+
+    const feed = chat.followChat('c', { onEvent: vi.fn(), onNoAgent });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(onNoAgent).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(10000);
+    expect(onNoAgent).toHaveBeenCalledTimes(2);
+    feed.close();
+  });
+
+  test('a feed that answers says nothing about a missing agent', async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        streamResponse([frame({ type: 'hello', seq: 0, in_flight: false, pending: [] })])
+      )
+    );
+    const onEvent = vi.fn();
+    const onNoAgent = vi.fn();
+
+    const feed = chat.followChat('c', { onEvent, onNoAgent });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(onEvent).toHaveBeenCalledWith(expect.objectContaining({ type: 'hello' }));
+    expect(onNoAgent).not.toHaveBeenCalled();
     feed.close();
   });
 

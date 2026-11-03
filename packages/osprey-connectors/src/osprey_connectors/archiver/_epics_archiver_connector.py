@@ -25,6 +25,7 @@ from osprey_connectors.archiver._timerange import (
     utc_window,
 )
 from osprey_connectors.connection import read_connection_settings, urllib_opener
+from osprey_connectors.errors import ConnectorUnavailableError
 from osprey_connectors.logger import get_logger
 
 logger = get_logger("epics_archiver_connector")
@@ -133,7 +134,7 @@ class EPICSArchiverConnector(ArchiverConnector):
 
         Raises:
             ValueError: If PV has array-valued samples (waveform PV)
-            ConnectionError: If the HTTP request fails
+            ConnectorUnavailableError: If the HTTP request fails
         """
         params = urllib.parse.urlencode(
             {"pv": pv, "from": start_str, "to": end_str, "fetchLatestMetadata": "true"}
@@ -151,16 +152,20 @@ class EPICSArchiverConnector(ArchiverConnector):
                 payload = json.loads(resp.read().decode())
         except urllib.error.HTTPError as e:
             if e.code in (401, 403):
-                raise ConnectionError(self._refused_login_message(e.code)) from e
-            raise ConnectionError(f"Cannot connect to archiver at {self._url}: {e}") from e
+                raise ConnectorUnavailableError(self._refused_login_message(e.code)) from e
+            raise ConnectorUnavailableError(
+                f"Cannot connect to archiver at {self._url}: {e}"
+            ) from e
         except urllib.error.URLError as e:
             if isinstance(e.reason, ssl.SSLCertVerificationError):
-                raise ConnectionError(
+                raise ConnectorUnavailableError(
                     f"The archiver at {self._url} presented a certificate this process does "
                     "not trust: name its CA in `archiver.settings.tls.ca_bundle`, or add it "
                     "to the image with `images.site_ca`."
                 ) from e
-            raise ConnectionError(f"Cannot connect to archiver at {self._url}: {e}") from e
+            raise ConnectorUnavailableError(
+                f"Cannot connect to archiver at {self._url}: {e}"
+            ) from e
 
         # Empty response: [] or [{"meta": ..., "data": []}]
         if not payload:
@@ -225,7 +230,7 @@ class EPICSArchiverConnector(ArchiverConnector):
         Raises:
             RuntimeError: If archiver not connected
             TimeoutError: If operation times out
-            ConnectionError: If archiver cannot be reached
+            ConnectorUnavailableError: If archiver cannot be reached
             ValueError: If data format is unexpected; if ``precision_ms`` is
                 positive but not a multiple of 1000; or if a non-raw
                 ``processing`` mode is requested for a channel whose values are
@@ -284,14 +289,16 @@ class EPICSArchiverConnector(ArchiverConnector):
         except TimeoutError as e:
             raise TimeoutError(f"Archiver request timed out after {timeout}s") from e
         except ConnectionRefusedError as e:
-            raise ConnectionError(
+            raise ConnectorUnavailableError(
                 "Cannot connect to the archiver. "
                 "Please check connectivity and SSH tunnels (if required)."
             ) from e
         except Exception as e:
             error_msg = str(e).lower()
             if "connection" in error_msg:
-                raise ConnectionError(f"Network connectivity issue with archiver: {e}") from e
+                raise ConnectorUnavailableError(
+                    f"Network connectivity issue with archiver: {e}"
+                ) from e
             raise
 
     async def get_metadata(self, channel: str) -> ArchiverMetadata:

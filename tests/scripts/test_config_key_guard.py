@@ -138,7 +138,7 @@ def test_path_absence_is_measured_by_git_not_the_filesystem(tmp_path):
     ``Path.exists()`` therefore reports the module as still present on a
     developer worktree while CI, which never imported it, stays green.
     """
-    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True, timeout=60)
     deleted = tmp_path / "src/osprey/services/machine_state/__pycache__"
     deleted.mkdir(parents=True)
     (deleted / "reader.cpython-313.pyc").write_bytes(b"\x00machine_state stale bytecode")
@@ -148,13 +148,17 @@ def test_path_absence_is_measured_by_git_not_the_filesystem(tmp_path):
     assert guard.tracked_files("src/osprey/services/machine_state") == []
 
 
-def test_cli_exits_nonzero_when_the_manifest_is_violated(tmp_path):
+def test_cli_exits_nonzero_when_the_manifest_is_violated(tmp_path, monkeypatch):
     doctored = copy.deepcopy(MANIFEST)
     doctored["deleted"].append("system.timezone")
     manifest_path = tmp_path / "config_key_manifest.yml"
     manifest_path.write_text(yaml.safe_dump(doctored))
 
-    # The clean tree's exit 0 is test_guard_is_green_on_this_tree's assertion.
+    # Only check_deleted runs, through the real run(); the full clean run is
+    # test_guard_is_green_on_this_tree's.
+    for name in dir(ConfigKeyGuard):
+        if name.startswith("check_") and name != "check_deleted":
+            monkeypatch.setattr(ConfigKeyGuard, name, lambda self, *_, **__: None)
     assert guard_module.main(["--manifest", str(manifest_path)]) == 1
 
 
@@ -226,11 +230,16 @@ def test_leaves_below_a_data_map_are_not_demanded():
 
 def test_mode_2_unmatched_evidence_regex_goes_red():
     def break_the_evidence(manifest):
-        manifest["keys"]["images.registry"]["evidence"] = "no_reader_spells_this_anywhere"
+        # Only the broken key: the others are test_guard_is_green_on_this_tree's.
+        broken = {
+            **manifest["keys"]["images.registry"],
+            "evidence": "no_reader_spells_this_anywhere",
+        }
+        manifest["keys"] = {"images.registry": broken}
 
     guard = make_guard(break_the_evidence)
     guard.check_evidence()
-    assert "evidence" in modes(guard)
+    assert modes(guard) == ["evidence"]
     assert "images.registry" in details(guard)
 
 
@@ -519,21 +528,21 @@ def test_a_same_value_mark_on_a_divergent_key_goes_red():
     assert "control-assistant" in text
 
 
-@pytest.mark.parametrize("key", ["web.theme", "services.telemetry_store.port"])
-def test_a_same_value_mark_no_two_presets_state_goes_red(key: str):
-    # web.theme is live only in control-assistant; services.telemetry_store.port
-    # reaches the union only through the layout fill, which no preset writes.
+@pytest.mark.parametrize(
+    ("key", "message"),
+    [
+        # web.theme is live only in control-assistant; services.qmd.port
+        # reaches the union only through the layout fill, which no preset writes.
+        ("web.theme", "compares nothing"),
+        ("services.qmd.port", "compares nothing"),
+        ("artifact_server", "mark its leaves"),
+    ],
+)
+def test_an_unusable_same_value_mark_goes_red(key: str, message: str):
     guard = make_guard(mark_same_value(key))
     guard.check_parity()
     assert "parity" in modes(guard)
-    assert "compares nothing" in details(guard)
-
-
-def test_a_same_value_mark_on_a_block_goes_red():
-    guard = make_guard(mark_same_value("artifact_server"))
-    guard.check_parity()
-    assert "parity" in modes(guard)
-    assert "mark its leaves" in details(guard)
+    assert message in details(guard)
 
 
 def test_the_parity_table_names_exactly_the_value_marked_keys():
@@ -1165,6 +1174,7 @@ def _baseline_reachable() -> bool:
         cwd=REPO_ROOT,
         capture_output=True,
         check=False,
+        timeout=60,
     )
     return proc.returncode == 0
 
@@ -1189,13 +1199,19 @@ def test_back_test_catches_a_regex_that_cannot_fail():
     """Zero matches on both sides is a green light wired to nothing."""
 
     def wire_it_to_nothing(manifest):
-        manifest["orphan_sites"]["facility_name"] = [
-            {"root": "src/osprey/templates", "regex": "zzz_never_existed_anywhere"}
-        ]
+        # Only this site, and no absent paths: the real ones are
+        # test_back_test_confirms_every_orphan_regex_is_falsifiable's.
+        manifest["orphan_sites"] = {
+            "facility_name": [
+                {"root": "src/osprey/templates", "regex": "zzz_never_existed_anywhere"}
+            ]
+        }
+        manifest["absent_paths"] = []
 
     guard = make_guard(wire_it_to_nothing)
     guard.back_test(_baseline_commit())
-    assert "back-test" in modes(guard)
+    assert modes(guard) == ["back-test"]
+    assert "orphan regex for facility_name" in details(guard)
     assert "cannot fail" in details(guard)
 
 
@@ -1211,20 +1227,26 @@ def test_back_test_sums_hits_across_roots_newer_than_the_baseline():
     """
 
     def cannot_fail_under_either_root(manifest):
-        manifest["orphan_sites"]["synthetic"] = [
-            {
-                "root": [
-                    "src/osprey/templates",
-                    "packages/osprey-connectors/src/osprey_connectors",
-                ],
-                "regex": "zzz_never_existed_anywhere",
-                "why": "negative control",
-            }
-        ]
+        # Only this site, and no absent paths, as in
+        # test_back_test_catches_a_regex_that_cannot_fail.
+        manifest["orphan_sites"] = {
+            "synthetic": [
+                {
+                    "root": [
+                        "src/osprey/templates",
+                        "packages/osprey-connectors/src/osprey_connectors",
+                    ],
+                    "regex": "zzz_never_existed_anywhere",
+                    "why": "negative control",
+                }
+            ]
+        }
+        manifest["absent_paths"] = []
 
     guard = make_guard(cannot_fail_under_either_root)
     guard.back_test(_baseline_commit())
-    assert "back-test" in modes(guard)
+    assert modes(guard) == ["back-test"]
+    assert "orphan regex for synthetic" in details(guard)
     assert "cannot fail" in details(guard)
 
 
@@ -1281,7 +1303,8 @@ def test_an_app_renders_as_the_host_with_the_app_over_it():
     # A host fact survives; the app's switch wins; the write boundary is pinned.
     assert cfg["approval"]["enabled"] is True
     assert cfg["claude_code"]["servers"]["python"]["enabled"] is False
-    assert cfg["control_system"]["writes_enabled"] is False
+    assert cfg["control_system"]["writes"] == "never"
+    assert "writes_enabled" not in cfg["control_system"]
 
 
 def test_parity_expects_the_root_presets_alone():

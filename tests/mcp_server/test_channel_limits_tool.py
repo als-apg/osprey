@@ -121,6 +121,16 @@ def _get_channel_limits():
     return get_tool_fn(channel_limits)
 
 
+async def _query_limits(*, validator=None, **kwargs) -> dict:
+    """Call channel_limits over ``validator`` (TEST_LIMITS_DB by default); return the response."""
+    with patch(
+        "osprey_connectors.control_system._limits_validator.LimitsValidator.from_config",
+        return_value=_make_validator() if validator is None else validator,
+    ):
+        result = await _get_channel_limits()(**kwargs)
+    return extract_response_dict(result)
+
+
 # ---------------------------------------------------------------------------
 # Summary mode
 # ---------------------------------------------------------------------------
@@ -128,14 +138,7 @@ def _get_channel_limits():
 
 async def test_summary_mode():
     """No params → stats, policy, version."""
-    with patch(
-        "osprey_connectors.control_system._limits_validator.LimitsValidator.from_config",
-        return_value=_make_validator(),
-    ):
-        fn = _get_channel_limits()
-        result = await fn()
-
-    data = extract_response_dict(result)
+    data = await _query_limits()
     assert data["status"] == "success"
     assert data["summary"]["total_channels"] == 6
     assert data["summary"]["writable"] == 4
@@ -149,14 +152,7 @@ async def test_summary_mode():
 
 async def test_summary_confirm_breakdown():
     """Summary reports how many channels resolve to confirm true vs false."""
-    with patch(
-        "osprey_connectors.control_system._limits_validator.LimitsValidator.from_config",
-        return_value=_make_validator(),
-    ):
-        fn = _get_channel_limits()
-        result = await fn()
-
-    data = extract_response_dict(result)
+    data = await _query_limits()
     # Only DIAG:TEMP:SP opts out; the rest state no confirm and confirm.
     assert data["summary"]["confirm_breakdown"] == {"true": 5, "false": 1}
     # The retired per-level breakdown is gone: no summary key names it any more.
@@ -170,14 +166,7 @@ async def test_summary_confirm_breakdown():
 
 async def test_lookup_found():
     """Single known channel → full config with the resolved confirm flag."""
-    with patch(
-        "osprey_connectors.control_system._limits_validator.LimitsValidator.from_config",
-        return_value=_make_validator(),
-    ):
-        fn = _get_channel_limits()
-        result = await fn(channels=["MAG:HCM01:CURRENT:SP"])
-
-    data = extract_response_dict(result)
+    data = await _query_limits(channels=["MAG:HCM01:CURRENT:SP"])
     assert data["status"] == "success"
     ch = data["access_details"]["channels"]["MAG:HCM01:CURRENT:SP"]
     assert ch["writable"] is True
@@ -188,30 +177,24 @@ async def test_lookup_found():
     assert "verification" not in ch
 
 
-async def test_lookup_confirm_opt_out():
-    """A channel with confirm: false reports it."""
-    with patch(
-        "osprey_connectors.control_system._limits_validator.LimitsValidator.from_config",
-        return_value=_make_validator(),
-    ):
-        fn = _get_channel_limits()
-        result = await fn(channels=["DIAG:TEMP:SP"])
-
-    data = extract_response_dict(result)
-    ch = data["access_details"]["channels"]["DIAG:TEMP:SP"]
-    assert ch["confirm"] is False
+@pytest.mark.parametrize(
+    ("channel", "key"),
+    [
+        # A channel with confirm: false reports it.
+        pytest.param("DIAG:TEMP:SP", "confirm", id="confirm-opt-out"),
+        # Read-only channel shows writable: false.
+        pytest.param("MAG:QF01:CURRENT:SP", "writable", id="read-only-channel"),
+    ],
+)
+async def test_lookup_reports_a_channel_property_that_is_off(channel, key):
+    data = await _query_limits(channels=[channel])
+    ch = data["access_details"]["channels"][channel]
+    assert ch[key] is False
 
 
 async def test_lookup_not_found_blocked():
     """Unknown channel + mode exclusive → BLOCKED."""
-    with patch(
-        "osprey_connectors.control_system._limits_validator.LimitsValidator.from_config",
-        return_value=_make_validator(mode="exclusive"),
-    ):
-        fn = _get_channel_limits()
-        result = await fn(channels=["UNKNOWN:PV"])
-
-    data = extract_response_dict(result)
+    data = await _query_limits(channels=["UNKNOWN:PV"], validator=_make_validator(mode="exclusive"))
     assert data["status"] == "success"
     ch = data["access_details"]["channels"]["UNKNOWN:PV"]
     assert ch["in_database"] is False
@@ -220,14 +203,7 @@ async def test_lookup_not_found_blocked():
 
 async def test_lookup_not_found_allowed():
     """Unknown channel + mode optional → allowed."""
-    with patch(
-        "osprey_connectors.control_system._limits_validator.LimitsValidator.from_config",
-        return_value=_make_validator(mode="optional"),
-    ):
-        fn = _get_channel_limits()
-        result = await fn(channels=["UNKNOWN:PV"])
-
-    data = extract_response_dict(result)
+    data = await _query_limits(channels=["UNKNOWN:PV"], validator=_make_validator(mode="optional"))
     ch = data["access_details"]["channels"]["UNKNOWN:PV"]
     assert ch["in_database"] is False
     assert "allowed" in ch["policy_action"]
@@ -236,14 +212,7 @@ async def test_lookup_not_found_allowed():
 @pytest.mark.usefixtures("control_context_root")
 async def test_summary_unset_reports_null_and_deployment_wide_key():
     """Deployment-wide key unset → the summary reports null, not a permissive default."""
-    with patch(
-        "osprey_connectors.control_system._limits_validator.LimitsValidator.from_config",
-        return_value=_make_validator(mode=None),
-    ):
-        fn = _get_channel_limits()
-        result = await fn()
-
-    data = extract_response_dict(result)
+    data = await _query_limits(validator=_make_validator(mode=None))
     policy = data["access_details"]["policy"]
     assert policy["mode"] is None
     assert policy["mode_key"] == DEPLOYMENT_WIDE_KEY
@@ -252,14 +221,7 @@ async def test_summary_unset_reports_null_and_deployment_wide_key():
 @pytest.mark.usefixtures("control_context_root")
 async def test_lookup_unset_is_refused_naming_the_deployment_wide_key():
     """Unset is nobody's permission: the unlisted channel is refused, key named."""
-    with patch(
-        "osprey_connectors.control_system._limits_validator.LimitsValidator.from_config",
-        return_value=_make_validator(mode=None),
-    ):
-        fn = _get_channel_limits()
-        result = await fn(channels=["UNKNOWN:PV"])
-
-    data = extract_response_dict(result)
+    data = await _query_limits(channels=["UNKNOWN:PV"], validator=_make_validator(mode=None))
     ch = data["access_details"]["channels"]["UNKNOWN:PV"]
     assert ch["in_database"] is False
     assert ch["mode"] is None
@@ -291,14 +253,7 @@ async def test_posture_is_resolved_for_the_record_target(
 async def test_summary_reports_the_per_target_key(control_context_root, write_control_context):
     """A per-type block answers: the summary names that key, not the deployment-wide one."""
     write_control_context(control_context_root, target="va")
-    with patch(
-        "osprey_connectors.control_system._limits_validator.LimitsValidator.from_config",
-        return_value=_make_validator(mode="optional", mode_key=VA_KEY),
-    ):
-        fn = _get_channel_limits()
-        result = await fn()
-
-    data = extract_response_dict(result)
+    data = await _query_limits(validator=_make_validator(mode="optional", mode_key=VA_KEY))
     assert data["access_details"]["policy"]["mode_key"] == VA_KEY
 
 
@@ -353,46 +308,23 @@ async def test_hand_built_policy_without_a_key_names_the_deployment_wide_one(
     validator = _make_validator(mode="exclusive")
     del validator.policy["mode_key"]
     write_control_context(control_context_root, target="live")
-    with patch(
-        "osprey_connectors.control_system._limits_validator.LimitsValidator.from_config",
-        return_value=validator,
-    ):
-        fn = _get_channel_limits()
-        result = await fn(channels=["UNKNOWN:PV"])
-
-    ch = extract_response_dict(result)["access_details"]["channels"]["UNKNOWN:PV"]
+    ch = (await _query_limits(channels=["UNKNOWN:PV"], validator=validator))["access_details"][
+        "channels"
+    ]["UNKNOWN:PV"]
     assert ch["mode"] == "exclusive"
     assert ch["mode_key"] == DEPLOYMENT_WIDE_KEY
 
 
 async def test_lookup_multiple_mixed():
     """Mix of found + not-found channels."""
-    with patch(
-        "osprey_connectors.control_system._limits_validator.LimitsValidator.from_config",
-        return_value=_make_validator(mode="exclusive"),
-    ):
-        fn = _get_channel_limits()
-        result = await fn(channels=["MAG:HCM01:CURRENT:SP", "NONEXISTENT:PV"])
-
-    data = extract_response_dict(result)
+    data = await _query_limits(
+        channels=["MAG:HCM01:CURRENT:SP", "NONEXISTENT:PV"],
+        validator=_make_validator(mode="exclusive"),
+    )
     channels = data["access_details"]["channels"]
     assert channels["MAG:HCM01:CURRENT:SP"]["writable"] is True
     assert channels["NONEXISTENT:PV"]["in_database"] is False
     assert "BLOCKED" in channels["NONEXISTENT:PV"]["policy_action"]
-
-
-async def test_read_only_channel_details():
-    """Read-only channel shows writable: false."""
-    with patch(
-        "osprey_connectors.control_system._limits_validator.LimitsValidator.from_config",
-        return_value=_make_validator(),
-    ):
-        fn = _get_channel_limits()
-        result = await fn(channels=["MAG:QF01:CURRENT:SP"])
-
-    data = extract_response_dict(result)
-    ch = data["access_details"]["channels"]["MAG:QF01:CURRENT:SP"]
-    assert ch["writable"] is False
 
 
 # ---------------------------------------------------------------------------
@@ -402,14 +334,7 @@ async def test_read_only_channel_details():
 
 async def test_pattern_match():
     """MAG:.* → matches 2 MAG channels."""
-    with patch(
-        "osprey_connectors.control_system._limits_validator.LimitsValidator.from_config",
-        return_value=_make_validator(),
-    ):
-        fn = _get_channel_limits()
-        result = await fn(pattern="MAG:.*")
-
-    data = extract_response_dict(result)
+    data = await _query_limits(pattern="MAG:.*")
     assert data["status"] == "success"
     assert data["summary"]["matches"] == 2
     assert "MAG:HCM01:CURRENT:SP" in data["access_details"]["channels"]
@@ -418,14 +343,7 @@ async def test_pattern_match():
 
 async def test_search_entries_carry_confirm():
     """Compact search entries report confirm, never verification vocabulary."""
-    with patch(
-        "osprey_connectors.control_system._limits_validator.LimitsValidator.from_config",
-        return_value=_make_validator(),
-    ):
-        fn = _get_channel_limits()
-        result = await fn(pattern=".*")
-
-    data = extract_response_dict(result)
+    data = await _query_limits(pattern=".*")
     channels = data["access_details"]["channels"]
     assert channels["MAG:HCM01:CURRENT:SP"]["confirm"] is True
     assert channels["DIAG:TEMP:SP"]["confirm"] is False
@@ -434,14 +352,7 @@ async def test_search_entries_carry_confirm():
 
 async def test_pattern_no_match():
     """Non-matching pattern → empty results, still success."""
-    with patch(
-        "osprey_connectors.control_system._limits_validator.LimitsValidator.from_config",
-        return_value=_make_validator(),
-    ):
-        fn = _get_channel_limits()
-        result = await fn(pattern="NONEXISTENT:.*")
-
-    data = extract_response_dict(result)
+    data = await _query_limits(pattern="NONEXISTENT:.*")
     assert data["status"] == "success"
     assert data["summary"]["matches"] == 0
 
@@ -461,34 +372,20 @@ async def test_pattern_invalid_regex():
 # ---------------------------------------------------------------------------
 
 
-async def test_name_contains_matches_regex_metacharacters_literally():
-    """name_contains uses literal matching for names with [], (), ., ^, etc."""
-    with patch(
-        "osprey_connectors.control_system._limits_validator.LimitsValidator.from_config",
-        return_value=_make_validator(),
-    ):
-        fn = _get_channel_limits()
-        result = await fn(name_contains="Amplifier 2 [J]")
-
-    data = extract_response_dict(result)
+@pytest.mark.parametrize(
+    ("name_contains", "expected"),
+    [
+        # name_contains uses literal matching for names with [], (), ., ^, etc.
+        pytest.param("Amplifier 2 [J]", "Amplifier 2 [J]", id="regex-metacharacters"),
+        # Literal matching should not treat '.' as a regex wildcard.
+        pytest.param("Delay.Ch", "DDG-AA-ShotCntrl Delay.Ch H", id="dot-is-literal"),
+    ],
+)
+async def test_name_contains_matches_literally(name_contains, expected):
+    data = await _query_limits(name_contains=name_contains)
     channels = data["access_details"]["channels"]
     assert len(channels) == 1
-    assert "Amplifier 2 [J]" in channels
-
-
-async def test_name_contains_treats_dot_as_literal():
-    """Literal matching should not treat '.' as a regex wildcard."""
-    with patch(
-        "osprey_connectors.control_system._limits_validator.LimitsValidator.from_config",
-        return_value=_make_validator(),
-    ):
-        fn = _get_channel_limits()
-        result = await fn(name_contains="Delay.Ch")
-
-    data = extract_response_dict(result)
-    channels = data["access_details"]["channels"]
-    assert len(channels) == 1
-    assert "DDG-AA-ShotCntrl Delay.Ch H" in channels
+    assert expected in channels
 
 
 # ---------------------------------------------------------------------------
@@ -498,47 +395,26 @@ async def test_name_contains_treats_dot_as_literal():
 
 async def test_filter_writable():
     """filter_by=writable → writable channels only."""
-    with patch(
-        "osprey_connectors.control_system._limits_validator.LimitsValidator.from_config",
-        return_value=_make_validator(),
-    ):
-        fn = _get_channel_limits()
-        result = await fn(filter_by="writable")
-
-    data = extract_response_dict(result)
+    data = await _query_limits(filter_by="writable")
     channels = data["access_details"]["channels"]
     assert len(channels) == 4
     assert all(ch["writable"] is True for ch in channels.values())
 
 
-async def test_filter_read_only():
-    """filter_by=read_only → read-only channels only."""
-    with patch(
-        "osprey_connectors.control_system._limits_validator.LimitsValidator.from_config",
-        return_value=_make_validator(),
-    ):
-        fn = _get_channel_limits()
-        result = await fn(filter_by="read_only")
-
-    data = extract_response_dict(result)
+@pytest.mark.parametrize(
+    ("filter_by", "count", "member"),
+    [
+        # filter_by=read_only → read-only channels only.
+        pytest.param("read_only", 2, "MAG:QF01:CURRENT:SP", id="read-only"),
+        # filter_by=has_step_limit → channels with max_step.
+        pytest.param("has_step_limit", 1, "MAG:HCM01:CURRENT:SP", id="has-step-limit"),
+    ],
+)
+async def test_filter_returns_the_matching_channels(filter_by, count, member):
+    data = await _query_limits(filter_by=filter_by)
     channels = data["access_details"]["channels"]
-    assert len(channels) == 2
-    assert "MAG:QF01:CURRENT:SP" in channels
-
-
-async def test_filter_has_step_limit():
-    """filter_by=has_step_limit → channels with max_step."""
-    with patch(
-        "osprey_connectors.control_system._limits_validator.LimitsValidator.from_config",
-        return_value=_make_validator(),
-    ):
-        fn = _get_channel_limits()
-        result = await fn(filter_by="has_step_limit")
-
-    data = extract_response_dict(result)
-    channels = data["access_details"]["channels"]
-    assert len(channels) == 1
-    assert "MAG:HCM01:CURRENT:SP" in channels
+    assert len(channels) == count
+    assert member in channels
 
 
 async def test_the_filter_set_carries_no_retired_readback_filter():
@@ -569,14 +445,7 @@ async def test_the_filter_set_carries_no_retired_readback_filter():
 
 async def test_combined_pattern_and_filter():
     """pattern + filter_by → intersection."""
-    with patch(
-        "osprey_connectors.control_system._limits_validator.LimitsValidator.from_config",
-        return_value=_make_validator(),
-    ):
-        fn = _get_channel_limits()
-        result = await fn(pattern="MAG:.*", filter_by="writable")
-
-    data = extract_response_dict(result)
+    data = await _query_limits(pattern="MAG:.*", filter_by="writable")
     channels = data["access_details"]["channels"]
     # MAG:HCM01 is writable, MAG:QF01 is read-only → only 1 match
     assert len(channels) == 1
@@ -585,14 +454,7 @@ async def test_combined_pattern_and_filter():
 
 async def test_combined_name_contains_and_filter():
     """name_contains + filter_by → literal search filtered by property."""
-    with patch(
-        "osprey_connectors.control_system._limits_validator.LimitsValidator.from_config",
-        return_value=_make_validator(),
-    ):
-        fn = _get_channel_limits()
-        result = await fn(name_contains="[", filter_by="read_only")
-
-    data = extract_response_dict(result)
+    data = await _query_limits(name_contains="[", filter_by="read_only")
     channels = data["access_details"]["channels"]
     assert len(channels) == 1
     assert "Background density [1e18/cm^3]" in channels

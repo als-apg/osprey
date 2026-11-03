@@ -47,7 +47,8 @@ export function showSettingsNotice(message) {
   // Assigned as text, never interpolated into the markup above: this string
   // arrives over the wire. It is the server's own copy today, and a save notice
   // is still not the place to hand a response body to an HTML parser.
-  /** @type {HTMLElement} */ (overlay.querySelector('.settings-warning-body p')).textContent = message;
+  /** @type {HTMLElement} */ (overlay.querySelector('.settings-warning-body p')).textContent =
+    message;
 
   mountOverlay(overlay);
 
@@ -57,8 +58,13 @@ export function showSettingsNotice(message) {
     document.removeEventListener('keydown', onKey);
     fadeOutOverlay(overlay);
   };
-  /** @type {HTMLElement} */ (overlay.querySelector('.settings-warning-proceed')).addEventListener('click', dismiss);
+  /** @type {HTMLElement} */ (overlay.querySelector('.settings-warning-proceed')).addEventListener(
+    'click',
+    dismiss
+  );
   /** @param {KeyboardEvent} e */
-  const onKey = (e) => { if (e.key === 'Escape') dismiss(); };
+  const onKey = (e) => {
+    if (e.key === 'Escape') dismiss();
+  };
   document.addEventListener('keydown', onKey);
 }

@@ -36,6 +36,14 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from osprey.audit import posture
+from osprey.mcp_server.approval_record import (
+    APPROVAL_CONFIG_INVALID,
+    APPROVAL_MISSING,
+    PROMPTED_APPROVERS,
+    Refusal,
+    approval_ask_stamp,
+    require_approval_record,
+)
 from osprey.mcp_server.sandbox_env import (
     PERIMETER_DENY_PORTS_ENV,
     PERIMETER_MARKER_ENV,
@@ -48,10 +56,12 @@ from osprey.stores.artifact_manifest import (
     collect_artifacts,
     is_collectable_file,
 )
+from osprey.utils.execution_method import EXECUTION_METHOD_SUBPROCESS
+from osprey.utils.workspace import LAYER_DIRNAMES
 from osprey_connectors import posture_store
-from osprey_connectors.config import EXECUTION_METHOD_SUBPROCESS, get_facility_timezone
+from osprey_connectors.config import get_facility_timezone
+from osprey_connectors.posture_env import POSTURE_ENV_VAR
 from osprey_connectors.safety_file import atomic_replace
-from osprey_connectors.workspace import LAYER_DIRNAMES
 
 if TYPE_CHECKING:
     from osprey_connectors.control_context import ControlContext
@@ -105,6 +115,7 @@ PROFILE_SOURCE_ENTRIES: tuple[str, ...] = (
     *LAYER_DIRNAMES,
     "profiles",
     "scripts",
+    "watchdogs",
     # Convention directories, in CONVENTION_DIRS order.
     "rules",
     "skills",
@@ -181,40 +192,42 @@ FAILURE_KIND_TIMEOUT = "timeout"
 #: service is healthy) nor a script error (the code is fine).
 FAILURE_KIND_SWITCH_IN_PROGRESS = "switch_in_progress"
 #: :attr:`ExecutionResult.failure_kind` for a guarded call that was never
-#: admitted: its tool's approval policy asks, and the approval hook left no
-#: matching record for this call. Nothing ran.
-FAILURE_KIND_APPROVAL_MISSING = "approval_missing"
+#: admitted: its tool needs an approval record (a governed tool always does),
+#: and the approval hook left no matching record for this call. Nothing ran.
+FAILURE_KIND_APPROVAL_MISSING = APPROVAL_MISSING
 #: :attr:`ExecutionResult.failure_kind` for a readwrite run refused because the
 #: rendered ``config.yml`` states an approval switch that is not true or false,
 #: or an ``approval`` section that is not a mapping. Nothing ran, and calling
 #: again cannot help: the fix is in the deployment's profile.
-FAILURE_KIND_APPROVAL_CONFIG_INVALID = "approval_config_invalid"
+FAILURE_KIND_APPROVAL_CONFIG_INVALID = APPROVAL_CONFIG_INVALID
 #: :attr:`ExecutionResult.failure_kind` for a readwrite run that did not start
 #: because another guarded run holds its control target's lock. Nothing in the
 #: submitted code ran; the error message names the holder's pid and start time.
 #: Spelled like the sandbox wrapper's failure kind for the same refusal.
 FAILURE_KIND_GUARDED_RUN_BUSY = "guarded_run_busy"
+#: :attr:`ExecutionResult.failure_kind` for a run admitted after its code review
+#: was skipped: the review was spared because :func:`admission_refusal` saw the
+#: run declined, and by the launch the decline no longer held (a switch landed,
+#: the target moved). Nothing ran, and calling again reviews it.
+FAILURE_KIND_UNREVIEWED = "unreviewed"
 
-#: The call fields the approval prompt binds a guarded call to. Every one the
-#: call carries must equal the value the approval hook recorded for the call.
-APPROVED_FIELDS: tuple[str, ...] = ("approved_target", "approved_view_sha256")
+#: The refusal for :data:`FAILURE_KIND_UNREVIEWED`.
+UNREVIEWED_REFUSAL = (
+    "not run: the code review was skipped because this run was about to be declined, and "
+    "by the launch it no longer was (unreviewed). Call the tool again so the review can run."
+)
 
-#: The approved fields an asking guarded call must carry.
-_REQUIRED_APPROVED_FIELDS: tuple[str, ...] = ("approved_target",)
-
-#: The further approved fields an asking call of one tool must carry: a
-#: measurement is bound to the pyAML view its prompt showed.
-_TOOL_REQUIRED_APPROVED_FIELDS: Mapping[str, tuple[str, ...]] = {
-    "pyaml_measure": ("approved_view_sha256",),
-}
-
-#: The ask stamp the approval hook leaves for a call it put to an approver,
-#: restated from ``osprey_approval.py`` (a hook script this package cannot
-#: import);
-#: ``tests/mcp_server/python_executor/test_approved_call_forwarding.py`` pins the
-#: spellings equal.
-APPROVAL_ASK_PREFIX = "approval_ask_"
-APPROVAL_ASK_SUFFIX = ".json"
+#: Every :attr:`ExecutionResult.failure_kind` of a run whose submitted code never started.
+NOT_STARTED_FAILURE_KINDS = frozenset(
+    {
+        FAILURE_KIND_SETUP,
+        FAILURE_KIND_SWITCH_IN_PROGRESS,
+        FAILURE_KIND_APPROVAL_MISSING,
+        FAILURE_KIND_APPROVAL_CONFIG_INVALID,
+        FAILURE_KIND_GUARDED_RUN_BUSY,
+        FAILURE_KIND_UNREVIEWED,
+    }
+)
 
 #: Upper bound, in seconds, on winding down a cancelled run that has no finite
 #: deadline: how long its child gets to exit after ``SIGINT`` before it is
@@ -256,8 +269,9 @@ class ExecutionResult:
     #: :data:`FAILURE_KIND_SETUP`, :data:`FAILURE_KIND_TIMEOUT`,
     #: :data:`FAILURE_KIND_SWITCH_IN_PROGRESS`,
     #: :data:`FAILURE_KIND_APPROVAL_MISSING`,
-    #: :data:`FAILURE_KIND_APPROVAL_CONFIG_INVALID` or
-    #: :data:`FAILURE_KIND_GUARDED_RUN_BUSY`. ``None`` for
+    #: :data:`FAILURE_KIND_APPROVAL_CONFIG_INVALID`,
+    #: :data:`FAILURE_KIND_GUARDED_RUN_BUSY` or
+    #: :data:`FAILURE_KIND_UNREVIEWED`. ``None`` for
     #: a run that started and whose own code raised — the only failure the
     #: submitted code can be blamed for. The response builder reads this to
     #: class the error envelope: a dead backend is an infrastructure outage,
@@ -276,6 +290,9 @@ class ExecutionResult:
     #: The process id of the sandbox child this run started; ``None`` for a
     #: run that never started its child.
     pid: int | None = None
+    #: What the code review said to the agent about a run it let proceed; ``None``
+    #: when no review ran or it had nothing to say.
+    code_review: str | None = None
 
 
 def execution_timeout_seconds(value: object) -> float:
@@ -315,7 +332,10 @@ def _read_config() -> dict:
             ``python_executor.execution_timeout_seconds`` is not a finite,
             positive number (an explicit null included).
     """
-    from osprey_connectors.config import DEFAULT_EXECUTION_TIMEOUT_SECONDS, resolve_execution_method
+    from osprey.utils.execution_method import (
+        DEFAULT_EXECUTION_TIMEOUT_SECONDS,
+        resolve_execution_method,
+    )
     from osprey_connectors.workspace import load_osprey_config
 
     config = load_osprey_config()
@@ -353,7 +373,7 @@ def resolve_protected_roots(
 ) -> tuple[Path, ...]:
     """Resolve the paths executed code may not write into, in any mode.
 
-    Three groups, all anchored on the deployment repo root:
+    Four groups, all anchored on the deployment repo root:
 
     * The **render zone** (``build/``). Every ``osprey build`` re-creates it
       wholesale, so a write there is either lost at the next build or, worse,
@@ -361,13 +381,18 @@ def resolve_protected_roots(
       that the next run reads its own permissions out of lives here.
     * The **profile source set** (:data:`PROFILE_SOURCE_ENTRIES`) — what the
       build reads to produce that render.
-    * The **audit ledger** (``var/audit``), the record of what was refused. Of
-      the two directories in ``STATE_ZONE_DIRS`` this is the one the agent does
-      not own: ``var/agent_data`` is its workspace and comes back as a
-      *permitted* root below, while the ledger is written only by the parent
-      process (``osprey.audit.writer``, called from the MCP tool layer) and
-      never by the child. A run that could rewrite it could
-      erase the evidence of its own refusal.
+    * The **pre-upgrade audit tree**
+      (:data:`~osprey.utils.workspace.PRE_UPGRADE_AUDIT_RELPATH`), the
+      ledger a deployment kept before the agent record. Nothing writes it, and
+      it stays protected: a run that could rewrite it could erase or forge the
+      evidence of what an earlier agent was refused.
+    * The **agent-record roots** (``var/spool``, ``var/agent_record``,
+      ``var/state`` and ``var/archive``): the spool the record is ingested
+      from, the embedded record itself, the per-container state that holds the
+      sidecar's revocations, and the archive — the lasting half of the audit
+      trail, holding the same facts as the record. Each is written by OSPREY
+      processes and never by executed code, which could otherwise forge or
+      erase entries.
 
     Entries that do not exist yet are included on purpose: a repo without a
     ``tiers/`` directory is one where creating it is exactly the write to
@@ -386,12 +411,26 @@ def resolve_protected_roots(
         Absolute, resolved paths — de-duplicated, order preserved. The child
         gets these as literals and never re-derives them.
     """
-    from osprey_connectors.workspace import AUDIT_DIR_RELPATH, BUILD_DIR_NAME
+    from osprey.utils.workspace import (
+        ARCHIVE_DIR_RELPATH,
+        PRE_UPGRADE_AUDIT_RELPATH,
+        RECORD_DIR_RELPATH,
+        SPOOL_DIR_RELPATH,
+        STATE_DIR_RELPATH,
+    )
+    from osprey_connectors.workspace import BUILD_DIR_NAME
 
     root = Path(project_root) if project_root is not None else _resolve_project_root()
     root = root.resolve()
 
-    candidates = [root / BUILD_DIR_NAME, root / AUDIT_DIR_RELPATH]
+    candidates = [
+        root / BUILD_DIR_NAME,
+        root / PRE_UPGRADE_AUDIT_RELPATH,
+        root / SPOOL_DIR_RELPATH,
+        root / RECORD_DIR_RELPATH,
+        root / STATE_DIR_RELPATH,
+        root / ARCHIVE_DIR_RELPATH,
+    ]
     candidates += [root / entry for entry in PROFILE_SOURCE_ENTRIES]
     return tuple(dict.fromkeys(path.resolve() for path in candidates))
 
@@ -577,7 +616,7 @@ def switch_in_progress_message(pids: tuple[int, ...]) -> str:
     )
 
 
-def _deployment_record() -> "ControlContext | None":
+def _control_context_record() -> "ControlContext | None":
     """The deployment's control context, or ``None`` when there is none to read.
 
     One record per deployment instance, written by its owner and read by every
@@ -677,33 +716,38 @@ def _target_is_resolvable(target: str) -> bool:
 def _launch_posture(target: str | None) -> str:
     """The :data:`ENV_LAUNCH_POSTURE` value for a run about to start on *target*.
 
-    The store answers "may this session write to this machine" at the instant
-    of launch, and that answer is pinned into the run rather than left to be
-    re-asked. The store read inside the sandbox still follows the operator, so
-    a narrowing lands on the very next write; this pin is the other direction —
-    a WIDENING must not reach a run that started narrow, because the script is
-    already running and nobody re-consented to what it does next.
+    The write verdict
+    (:func:`~osprey_connectors.posture_store.write_verdict`) for *target* at the
+    instant of launch, asked with the launch pin ignored — this IS the pin, and
+    a pin that consulted itself would only ever echo the one this process
+    inherited. That answer is pinned into the run rather than left to be
+    re-asked. The verdict inside the sandbox still follows the operator, so a
+    turn-off lands on the very next write; this pin is the other direction — a
+    turn-on must not reach a run that started off, because the script is
+    already running and nobody re-consented to what it does next. It reaches
+    the next run.
 
     ``target`` is ``None`` for a run this executor could not place on a target,
-    and the stamp then covers every target: the most restrictive answer, for the
-    same reason :func:`~osprey_connectors.posture_store.store_permits` takes it
-    when it is handed no target.
+    and the stamp then covers every target, sandboxed: the most restrictive
+    answer, since there is no machine to ask the verdict about.
 
-    Fails CLOSED. Every way of not being able to read the store lands on
+    Fails CLOSED. Every way of not being able to reach the verdict lands on
     ``sandbox``, which costs a readwrite run its control-system writes and
     costs a readonly run nothing — the trade every other reader in this
     contract makes.
     """
-    try:
-        permitted = posture_store.store_permits(target)
-    except Exception:  # an unreadable store must not grant writes
-        logger.warning(
-            "Could not resolve the session write posture for target %r; "
-            "the run is launched sandboxed",
-            target,
-            exc_info=True,
-        )
-        permitted = False
+    permitted = False
+    if target is not None:
+        try:
+            permitted = posture_store.write_verdict(
+                posture.control_system_section(), target, ignore_launch_pin=True
+            ).allowed
+        except Exception:  # write_verdict never raises; an unreachable one grants nothing
+            logger.warning(
+                "Could not reach the write verdict for target %r; the run is launched sandboxed",
+                target,
+                exc_info=True,
+            )
     value = posture_store.POSTURE_WRITES if permitted else posture_store.POSTURE_SANDBOX
     return posture_store.launch_posture_stamp(target, value)
 
@@ -744,7 +788,7 @@ def _apply_target_stamp(sandbox_env: dict[str, str]) -> str:
     for name in _STAMP_ENV_NAMES:
         sandbox_env.pop(name, None)
 
-    record = _deployment_record()
+    record = _control_context_record()
     if record is not None and (blocking := _blocking_pids(record)):
         raise _SwitchInProgress(blocking)
 
@@ -759,44 +803,6 @@ def _apply_target_stamp(sandbox_env: dict[str, str]) -> str:
     return target
 
 
-class _ApprovalMissing(Exception):
-    """A guarded call whose approval prompt left no matching record.
-
-    Raised by :func:`_check_approved_call` and turned into an
-    :class:`ExecutionResult` by :func:`_execute_via_local`, before anything
-    is spawned — never seen outside this module.
-    """
-
-
-class _ApprovalConfigInvalid(Exception):
-    """A readwrite call under an approval switch that is not true or false.
-
-    Raised by :func:`_check_approved_call` and turned into an
-    :class:`ExecutionResult` by :func:`_execute_via_local`, before anything
-    is spawned — never seen outside this module.
-    """
-
-
-def _approved_call_stamp(tool_use_id: str | None) -> dict | None:
-    """The approval hook's ask stamp for the call *tool_use_id*, or ``None``.
-
-    ``None`` without an id, without a stamp, and when the state directory
-    cannot be resolved: each is a call nobody can show was asked.
-    """
-    if not tool_use_id:
-        return None
-    try:
-        from osprey.mcp_server.control_system import target_state
-
-        stamp = target_state.read_file(
-            target_state.state_dir() / f"{APPROVAL_ASK_PREFIX}{tool_use_id}{APPROVAL_ASK_SUFFIX}"
-        )
-    except Exception:
-        logger.debug("Could not read the ask stamp for %s", tool_use_id, exc_info=True)
-        return None
-    return stamp if isinstance(stamp, dict) else None
-
-
 def _check_approved_call(
     execution_mode: str,
     osprey_config: Mapping[str, Any],
@@ -804,65 +810,194 @@ def _check_approved_call(
     approved: Mapping[str, str | None],
     *,
     control_target: str,
-) -> None:
+) -> Refusal | None:
     """Whether the call was approved, decided before it is spawned.
 
-    A readonly run takes no run lock, and a call whose tool's policy does not
-    ask was put to nobody, so neither is checked. A call whose policy asks
-    runs only when the approval hook's ask stamp for this tool call exists,
-    names *tool*, and records every approved field the call carries with the
-    same value; the call must carry the target, ``pyaml_measure`` the view
-    digest too, and that target must name the guarded-run directory
-    *control_target* does. Nothing of the stamp reaches the sandbox.
+    A readonly run takes no run lock, and a tool that is not ask-capable
+    (:func:`~osprey.cli.build_posture_check.ask_capable`) is put to nobody, so
+    neither is checked. A governed tool is ask-capable whatever ``approval.*``
+    says. An ask-capable call runs only when the approval hook's ask stamp for
+    this tool call exists, names *tool*, and records every approved field the
+    call carries with the same value — whichever approver filed it: a
+    ``write_switch`` stamp from the ``allowed`` position is a record like a
+    ``human`` one; the call must carry the target, ``pyaml_measure`` the view
+    digest too (:func:`~osprey.mcp_server.approval_record.required_fields`
+    for a guarded run), and that target must name the guarded-run directory
+    *control_target* does. Nothing of the stamp reaches the sandbox. The
+    record check is :func:`~osprey.mcp_server.approval_record.require_approval_record`;
+    the guarded-run target check is this executor's own.
 
     Args:
         execution_mode: ``"readonly"`` or ``"readwrite"``.
         osprey_config: The rendered ``config.yml``.
         tool: The tool's short name, as ``approval.tools`` keys it.
-        approved: The call's :data:`APPROVED_FIELDS`, ``None`` for an absent one.
+        approved: The call's
+            :data:`~osprey.mcp_server.approval_record.APPROVED_FIELDS`, ``None`` for an
+            absent one.
         control_target: The target this run is stamped with.
 
-    Raises:
-        _ApprovalMissing: The policy asks and the stamp is missing, names
-            another tool, or disagrees with the call, or the call was approved
-            for another target than the run's.
-        _ApprovalConfigInvalid: The config states an ``approval.enabled`` that
-            is not true or false, or an ``approval`` that is not a mapping.
+    Returns:
+        ``None`` when the call may run; else the
+        :class:`~osprey.mcp_server.approval_record.Refusal` —
+        ``approval_missing`` when a record is needed and the stamp is missing,
+        names another tool, or disagrees with the call, or the call was
+        approved for another target than the run's; ``approval_config_invalid``
+        when the config states an ``approval.enabled`` that is not true or
+        false, or an ``approval`` that is not a mapping.
     """
     if execution_mode != "readwrite":
-        return
+        return None
+    from osprey.cli.build_posture_check import ask_capable
+
+    refusal = require_approval_record(tool, osprey_config, approved=approved, guarded_run=True)
+    if refusal is not None:
+        return refusal
+    if not ask_capable(osprey_config, tool):
+        return None
+    approved_target = str(approved["approved_target"])
+    approved_name = _guarded_run_name(approved_target)
+    if approved_name is None or approved_name != _guarded_run_name(control_target):
+        return Refusal(
+            APPROVAL_MISSING,
+            f"not run: this call was approved for target `{approved_target}`; the run is on "
+            f"`{control_target}` (approval_missing). Call the tool again.",
+        )
+    return None
+
+
+#: The tools whose code :func:`_check_store_path` reads: the code ``execute``
+#: was given, and the file text ``execute_file`` is about to run.
+STORE_PATH_TOOLS: frozenset[str] = frozenset({"execute", "execute_file"})
+
+#: The refusal for store-naming code no person approved — no stamp, or a
+#: ``write_switch`` one. The approval hook denies with the same words
+#: (``osprey_approval._STORE_PATH_REASON``).
+STORE_PATH_REFUSAL = (
+    "not run: this code names the posture store, which only a call a person "
+    "approves may touch, and no person is asked here (approval_missing). Remove "
+    "the store's name from the code, or run it where approval asks."
+)
+
+
+def names_store(code: str) -> bool:
+    """Whether *code* spells a path of the posture store, anywhere in its text.
+
+    A plain, case-sensitive substring match on
+    :data:`~osprey_connectors.refusals.STORE_PATH_MARKERS`: a marker in a string
+    literal or a comment counts, and a path assembled at run time does not.
+    """
+    from osprey_connectors.refusals import STORE_PATH_MARKERS
+
+    return isinstance(code, str) and any(marker in code for marker in STORE_PATH_MARKERS)
+
+
+def _check_store_path(code: str, osprey_config: Mapping[str, Any], tool: str) -> Refusal | None:
+    """Refuse store-naming code no person approved, in every execution mode.
+
+    Separate from :func:`_check_approved_call`, which leaves readonly runs
+    alone. Code that names the posture store (:func:`names_store`) runs only
+    when the tool is ask-capable and the approval hook's ask stamp for this
+    call names *tool* and was answered at a prompt: its ``approver`` is in
+    :data:`~osprey.mcp_server.approval_record.PROMPTED_APPROVERS`. A
+    ``write_switch`` stamp, filed at ``allowed`` with nobody asked, is a record
+    for every other call but never for this one. An approval switch that is
+    not a bool refuses first, as everywhere; then a dispatch run is refused
+    before any stamp is read; then a tool that asks nobody; then a missing or
+    unprompted stamp. Code that names no store is not checked here.
+
+    Args:
+        code: The code the run would execute (for ``execute_file``, the file's text).
+        osprey_config: The rendered ``config.yml``.
+        tool: The tool's short name, as ``approval.tools`` keys it.
+
+    Returns:
+        ``None`` when the code may run; else the
+        :class:`~osprey.mcp_server.approval_record.Refusal` —
+        ``approval_missing`` for store-naming code no person approved,
+        ``approval_config_invalid`` when the config's approval switch is not
+        true or false.
+    """
+    if tool not in STORE_PATH_TOOLS or not names_store(code):
+        return None
     from osprey.cli.build_posture_check import approval_enabled_fault, ask_capable
 
     fault = approval_enabled_fault(osprey_config)
     if fault is not None:
-        raise _ApprovalConfigInvalid(f"not run: {fault} (approval_config_invalid).")
-    if not ask_capable(osprey_config, tool):
-        return
+        return Refusal(APPROVAL_CONFIG_INVALID, f"not run: {fault} (approval_config_invalid).")
+    dispatch_run = os.environ.get(posture_store.DISPATCH_RUN_ENV_VAR) == "1"
+    if dispatch_run or not ask_capable(osprey_config, tool):
+        return Refusal(APPROVAL_MISSING, STORE_PATH_REFUSAL)
+    if require_approval_record(tool, osprey_config) is not None:
+        return Refusal(APPROVAL_MISSING, STORE_PATH_REFUSAL)
     from osprey.audit.call import current_tool_use_id
 
-    stamp = _approved_call_stamp(current_tool_use_id())
-    if stamp is None or not str(stamp.get("tool") or "").endswith(tool):
-        raise _ApprovalMissing(
-            "not run: this call's approval prompt left no record (approval_missing). "
-            "Call the tool again so the approval prompt can ask."
-        )
-    required = (*_REQUIRED_APPROVED_FIELDS, *_TOOL_REQUIRED_APPROVED_FIELDS.get(tool, ()))
-    for name in APPROVED_FIELDS:
-        value = approved.get(name)
-        if value is None and name not in required:
-            continue
-        if value is None or stamp.get(name) != value:
-            raise _ApprovalMissing(
-                f"not run: `{name}` differs from what the approval prompt recorded "
-                "(approval_missing). Call the tool again."
-            )
-    approved_target = str(approved["approved_target"])
-    approved_name = _guarded_run_name(approved_target)
-    if approved_name is None or approved_name != _guarded_run_name(control_target):
-        raise _ApprovalMissing(
-            f"not run: this call was approved for target `{approved_target}`; the run is on "
-            f"`{control_target}` (approval_missing). Call the tool again."
-        )
+    stamp = approval_ask_stamp(current_tool_use_id())
+    if stamp is None or stamp.get("approver") not in PROMPTED_APPROVERS:
+        return Refusal(APPROVAL_MISSING, STORE_PATH_REFUSAL)
+    return None
+
+
+def _admission(
+    code: str,
+    mode: str,
+    osprey_config: Mapping[str, Any],
+    tool: str,
+    approved: Mapping[str, str | None],
+    sandbox_env: dict[str, str],
+) -> tuple[str, Refusal | None]:
+    """Run the checks that decide whether a launch may spawn its child.
+
+    Args:
+        code: The code the launch would receive.
+        mode: ``"readonly"`` or ``"readwrite"``.
+        osprey_config: The deployment's config.
+        tool: The tool's short name, as ``approval.tools`` keys it.
+        approved: The call's approved fields, ``None`` for an absent one.
+        sandbox_env: Receives the control target's stamp.
+
+    Returns:
+        ``(control target, the refusal if there is one)``.
+
+    Raises:
+        _SwitchInProgress: When the deployment is mid-switch.
+    """
+    control_target = _apply_target_stamp(sandbox_env)
+    refusal = _check_store_path(code, osprey_config, tool) or _check_approved_call(
+        mode, osprey_config, tool, approved, control_target=control_target
+    )
+    return control_target, refusal
+
+
+def admission_refusal(code: str, mode: str, tool: str, approved: Mapping[str, str | None]) -> bool:
+    """Whether :func:`_execute_via_local` would decline this run before spawning it.
+
+    :func:`_admission` with no effect: the stamp goes into a throwaway dict, and the control
+    context, the config and the ask stamp are only read. The caller uses the answer to spare a
+    review, then still calls :func:`execute_code`, which runs these checks again and produces
+    the decline itself. The two reads can disagree (a switch lands between them), so a caller
+    that spared a review on ``True`` says so to the launch, which then refuses a run it admits.
+
+    Args:
+        code: The code the launch would receive.
+        mode: ``"readonly"`` or ``"readwrite"``.
+        tool: The tool's short name, as ``approval.tools`` keys it.
+        approved: The call's approved fields, ``None`` for an absent one.
+
+    Returns:
+        ``True`` when the run would be declined. ``False`` otherwise, including when a check
+        could not answer: the review then still runs, because declining here on an unknown
+        would launch the code unreviewed if :func:`execute_code` then admitted it.
+    """
+    from osprey_connectors.workspace import load_osprey_config
+
+    try:
+        _, refusal = _admission(code, mode, load_osprey_config(), tool, approved, {})
+    except _SwitchInProgress:
+        return True
+    except Exception:
+        logger.warning("Could not pre-check admission; reviewing anyway", exc_info=True)
+        return False
+    return refusal is not None
 
 
 def _guarded_run_name(target: str) -> str | None:
@@ -1020,6 +1155,7 @@ async def _execute_via_local(
     tool: str = "execute",
     approved_target: str | None = None,
     approved_view_sha256: str | None = None,
+    expect_declined: bool = False,
 ) -> ExecutionResult:
     """Execute code in a host subprocess with the ExecutionWrapper.
 
@@ -1027,7 +1163,9 @@ async def _execute_via_local(
     view digest it is checked against the call the approval hook recorded
     (:func:`_check_approved_call`). A call that should have been asked and was
     not, or was approved for another target, is refused before anything is
-    spawned.
+    spawned. *expect_declined* says a code review was skipped on the word of
+    :func:`admission_refusal`, so a run admitted here after all is refused
+    (:data:`FAILURE_KIND_UNREVIEWED`) instead of launched unreviewed.
     """
     from osprey.services.python_executor.execution.wrapper import ExecutionWrapper
     from osprey_connectors.workspace import load_osprey_config
@@ -1051,7 +1189,7 @@ async def _execute_via_local(
     # the read_only gateway when this says readonly, so a readonly run cannot
     # write however the call is spelled — the pre-execution regex only ever
     # saw the standard spellings.
-    sandbox_env["OSPREY_EXECUTION_MODE"] = execution_mode
+    sandbox_env[POSTURE_ENV_VAR] = execution_mode
     # Which machine those writes and reads reach is the second runtime property
     # of the subprocess, and it is stamped for the same reason as the mode: the
     # sandbox is a fresh process that builds its own connector, so the target
@@ -1067,50 +1205,51 @@ async def _execute_via_local(
     # spawned: the refusal is a fact about the fleet rather than about the
     # submitted code, so it comes back as a failed result naming the servers
     # to wait for, not as a traceback out of the sandbox.
-    try:
-        control_target = _apply_target_stamp(sandbox_env)
-    except _SwitchInProgress as refusal:
-        return ExecutionResult(
-            success=False,
-            stdout="",
-            stderr=str(refusal),
-            execution_method_used=EXECUTION_METHOD_SUBPROCESS,
-            execution_time_seconds=0.0,
-            error_message=str(refusal),
-            failure_kind=FAILURE_KIND_SWITCH_IN_PROGRESS,
-        )
-    # Whether this call was put to a human is decided here, by the process
+    #
+    # Whether this call was put to a human is decided here too, by the process
     # that launches the script, from the record the approval hook left for
-    # this tool call; the sandbox is handed nothing of it.
+    # this tool call; the sandbox is handed nothing of it. Code that names the
+    # posture store is checked first, readonly runs included.
     try:
-        _check_approved_call(
+        control_target, refusal = _admission(
+            code,
             execution_mode,
             osprey_config,
             tool,
             {"approved_target": approved_target, "approved_view_sha256": approved_view_sha256},
-            control_target=control_target,
+            sandbox_env,
         )
-    except _ApprovalMissing as refusal:
+    except _SwitchInProgress as in_flight:
         return ExecutionResult(
             success=False,
             stdout="",
-            stderr=str(refusal),
+            stderr=str(in_flight),
             execution_method_used=EXECUTION_METHOD_SUBPROCESS,
             execution_time_seconds=0.0,
-            error_message=str(refusal),
-            control_target=control_target,
-            failure_kind=FAILURE_KIND_APPROVAL_MISSING,
+            error_message=str(in_flight),
+            failure_kind=FAILURE_KIND_SWITCH_IN_PROGRESS,
         )
-    except _ApprovalConfigInvalid as refusal:
+    if refusal is not None:
         return ExecutionResult(
             success=False,
             stdout="",
-            stderr=str(refusal),
+            stderr=refusal.message,
             execution_method_used=EXECUTION_METHOD_SUBPROCESS,
             execution_time_seconds=0.0,
-            error_message=str(refusal),
+            error_message=refusal.message,
             control_target=control_target,
-            failure_kind=FAILURE_KIND_APPROVAL_CONFIG_INVALID,
+            failure_kind=refusal.error_type,
+        )
+    if expect_declined:
+        return ExecutionResult(
+            success=False,
+            stdout="",
+            stderr=UNREVIEWED_REFUSAL,
+            execution_method_used=EXECUTION_METHOD_SUBPROCESS,
+            execution_time_seconds=0.0,
+            error_message=UNREVIEWED_REFUSAL,
+            control_target=control_target,
+            failure_kind=FAILURE_KIND_UNREVIEWED,
         )
     limits_validator = _load_limits_validator(target=control_target)
 
@@ -1466,6 +1605,7 @@ async def execute_code(
     tool: str = "execute",
     approved_target: str | None = None,
     approved_view_sha256: str | None = None,
+    expect_declined: bool = False,
 ) -> ExecutionResult:
     """Execute Python code in a host subprocess.
 
@@ -1485,6 +1625,9 @@ async def execute_code(
             call; ``None`` when the call carries none.
         approved_view_sha256: The pyAML view digest the approval hook put into
             the call; ``None`` when the call carries none.
+        expect_declined: The caller skipped a blocking code review because
+            :func:`admission_refusal` said this run would be declined; a run
+            admitted after all is refused rather than launched unreviewed.
 
     Returns:
         :class:`ExecutionResult` with stdout, stderr, success status, figures,
@@ -1502,6 +1645,7 @@ async def execute_code(
             tool=tool,
             approved_target=approved_target,
             approved_view_sha256=approved_view_sha256,
+            expect_declined=expect_declined,
         )
     except Exception as exc:
         logger.error(

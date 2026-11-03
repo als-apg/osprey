@@ -90,12 +90,14 @@ def test_preset_data_composes_the_app_template_and_its_facility(
 def test_preset_data_composes_an_app_template_with_no_data_of_its_own(
     manager: TemplateManager,
 ) -> None:
-    """hello-world's app template ships no ``data/``; its facility is all of it."""
+    """hello-world's app template ships no ``data/``; its facility and the starter are all of it."""
     composed = _preset_data(manager, "hello-world")
 
     assert not composed.app_data.exists()
     assert composed.facility_root == Path(manager.template_root) / "facilities" / "hello_world"
-    assert all(relative.startswith("facility/") for relative in composed.placed_files())
+    assert {
+        relative for relative in composed.placed_files() if not relative.startswith("facility/")
+    } == {"code_review/reviewer.md"}
 
 
 # ---------------------------------------------------------------------------
@@ -154,6 +156,19 @@ CONTROL_ASSISTANT_PULLABLE = [
     "data/benchmarks/",
     "data/benchmarks/cross_paradigm/",
     "data/benchmarks/cross_paradigm/queries/",
+    "data/canopy/",
+    "data/canopy/collections/",
+    "data/canopy/library/",
+    "data/canopy/library/screens/",
+    "data/canopy/library/screens/br/",
+    "data/canopy/library/screens/bts/",
+    "data/canopy/library/screens/common/",
+    "data/canopy/library/screens/common/embedded/",
+    "data/canopy/library/screens/common/images/",
+    "data/canopy/library/screens/facility/",
+    "data/canopy/library/screens/gtl/",
+    "data/canopy/library/screens/sr/",
+    "data/code_review/",
     "data/facility/",
     "data/facility/decks/",
     "data/facility/knowledge/",
@@ -178,6 +193,28 @@ CONTROL_ASSISTANT_PULLABLE = [
     "data/ariel/vocabulary.yml",
     "data/benchmarks/cross_paradigm/queries/in_context_queries.json",
     "data/benchmarks/cross_paradigm/queries/tree_queries.json",
+    "data/canopy/collections/control-assistant.json",
+    "data/canopy/library/LIBRARY-REPORT.json",
+    "data/canopy/library/LIBRARY-REPORT.md",
+    "data/canopy/library/screens/br/overview.screen.json",
+    "data/canopy/library/screens/bts/BTS.screen.json",
+    "data/canopy/library/screens/common/embedded/_KnobDevice.screen.json",
+    "data/canopy/library/screens/common/embedded/_bpm.screen.json",
+    "data/canopy/library/screens/common/embedded/_tv.screen.json",
+    "data/canopy/library/screens/common/images/Light off.jpg",
+    "data/canopy/library/screens/common/images/Light on.jpg",
+    "data/canopy/library/screens/common/images/Paddle in.jpg",
+    "data/canopy/library/screens/common/images/Paddle out.jpg",
+    "data/canopy/library/screens/common/images/TV off.jpg",
+    "data/canopy/library/screens/common/images/TV on.jpg",
+    "data/canopy/library/screens/facility/overview.screen.json",
+    "data/canopy/library/screens/gtl/GTL.screen.json",
+    *(f"data/canopy/library/screens/sr/_absorbers-{n:02d}.screen.json" for n in (2, *range(4, 13))),
+    *(f"data/canopy/library/screens/sr/_vacuum-{n:02d}.screen.json" for n in range(1, 13)),
+    "data/canopy/library/screens/sr/orbit-feedback.screen.json",
+    *(f"data/canopy/library/screens/sr/sector-{n:02d}.screen.json" for n in range(1, 13)),
+    "data/code_review/reviewer.md",
+    "data/facility/classes.yaml",
     "data/facility/decks/BTS.json",
     "data/facility/decks/LINE.json",
     "data/facility/decks/LTB.json",
@@ -240,6 +277,9 @@ def control_assistant(manager: TemplateManager) -> PresetData:
 def packaged(source: PresetData, relative: str | Path) -> Path:
     """Where the template-relative *relative* is read from in the installation."""
     parts = PurePosixPath(Path(relative).as_posix()).parts
+    placed = source.placed_files().get("/".join(parts[1:])) if parts[0] == "data" else None
+    if placed is not None:
+        return placed
     if source.facility_root is not None and parts[:2] == ("data", "facility"):
         return source.facility_root.joinpath(*parts[2:])
     return source.app_root.joinpath(*parts)
@@ -309,6 +349,25 @@ def test_list_pullable_paths_drops_what_the_packaged_data_copy_drops(tmp_path: P
         "data/benchmarks/cross_paradigm/queries/q.json",
         "data/results/kept.json",
     ]
+
+
+def test_list_pullable_paths_never_lists_a_bytecode_cache(tmp_path: Path) -> None:
+    """Importing a template's modules leaves ``__pycache__`` beside them; it is never content."""
+    root = tmp_path / "app_template"
+    _stage_template(
+        root,
+        [
+            "__init__.py",
+            "__pycache__/__init__.cpython-313.pyc",
+            "data/README.md",
+            "data/tools/__pycache__/x.cpython-313.pyc",
+            "data/tools/x.py",
+        ],
+    )
+
+    listed = list_pullable_paths(PresetData(root))
+
+    assert listed == ["data/", "data/tools/", "data/README.md", "data/tools/x.py"]
 
 
 def test_list_pullable_paths_restricts_to_a_subtree(control_assistant: PresetData) -> None:
@@ -835,11 +894,6 @@ def test_apply_pull_leaves_an_unchanged_target_alone(
 # ---------------------------------------------------------------------------
 # The verb
 # ---------------------------------------------------------------------------
-
-
-@pytest.fixture
-def runner() -> CliRunner:
-    return CliRunner()
 
 
 @pytest.fixture

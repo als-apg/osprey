@@ -89,6 +89,7 @@ import yaml
 
 from osprey.agent_runner import ToolTrace, expected_mcp_servers
 from osprey.registry.mcp import CHANNEL_FINDER_TOOLS_BY_PIPELINE
+from tests.e2e._facility_select import ProbeDevice
 from tests.e2e.sdk_helpers import (
     HAS_SDK,
     e2e_budget_scale,
@@ -104,14 +105,14 @@ from tests.e2e.sdk_helpers import (
 # module's namespace); ``noqa: F401`` because nothing here references them
 # directly.
 from tests.e2e.test_graph_mcp_smoke import (  # noqa: F401 — fixture registration
-    _MARKDOWN_EMPHASIS,
-    PROBE_DEVICE_BINDINGS,
-    PROBE_PV,
+    _RECORDED_DEVICE,
     _point_project_at_the_store,
     _seed_demo_corpus,
     fabricated_addresses,
     graph_smoke_plugin_dir,
     graph_store_port,
+    probe_device_of,
+    strip_emphasis,
 )
 
 logger = logging.getLogger(__name__)
@@ -288,31 +289,41 @@ def test_render_arms_the_subagent_with_the_paradigm_vocabulary(
 # The live half
 # ---------------------------------------------------------------------------
 
-#: Operator-style and naming nothing the model could pattern-match onto a tool:
-#: no server, no ``mcp__`` prefix, no Cypher keyword, no mention of a graph, and
-#: no channel address. It asks the one thing a channel finder is *for* — the
-#: address behind a piece of hardware described in words — about the device
-#: whose complete binding set this module knows
-#: (:data:`PROBE_DEVICE_BINDINGS`), so both the "named a real address" floor
-#: and the fabrication floor can grade it.
-OPERATOR_PROMPT = (
-    "I need to trim the current on the first dipole magnet in the storage ring. "
-    "Which channel do I write the new setpoint to, and what can I read back on "
-    "that same magnet afterwards to confirm it took?"
-)
+
+@pytest.fixture(scope="module")
+def probe_device(graph_paradigm_repo: Path) -> ProbeDevice:
+    """The device the operator asks about, chosen by the sibling's rule from this build."""
+    return probe_device_of(graph_paradigm_repo)
 
 
-def _real_addresses_named(text: str) -> list[str]:
-    """The probe device's genuine channel addresses that *text* names.
+def operator_prompt(device: ProbeDevice) -> str:
+    """The operator's question about ``device``, named in words.
+
+    Operator-style and naming nothing the model could pattern-match onto a
+    tool: no server, no ``mcp__`` prefix, no Cypher keyword, no mention of a
+    graph, and no channel address. It asks the one thing a channel finder is
+    *for* — the address behind a piece of hardware described in words — about
+    the device whose complete binding set the facility file states, so both the
+    "named a real address" floor and the fabrication floor can grade it.
+    """
+    return (
+        f"I need to trim the current on the first {device.class_label} in the "
+        f"{device.top_place_name}. Which channel do I write the new setpoint to, and "
+        "what can I read back on that same device afterwards to confirm it took?"
+    )
+
+
+def _real_addresses_named(text: str, device: ProbeDevice) -> list[str]:
+    """``device``'s genuine channel addresses that *text* names.
 
     Markdown emphasis is stripped with the sibling module's own rule before the
-    match, so a bolded ``SR:MAG:DIPOLE:01:CURRENT:**SP**`` counts as the address
-    it renders — the same normalisation
+    match, so a bolded rendering of a token counts as the address it renders —
+    the same normalisation
     :func:`~tests.e2e.test_graph_mcp_smoke.fabricated_addresses` applies before
     it looks for inventions.
     """
-    plain = _MARKDOWN_EMPHASIS.sub("", text)
-    return sorted(pv for pv in PROBE_DEVICE_BINDINGS if pv in plain)
+    plain = strip_emphasis(text, device)
+    return sorted(pv for pv in device.bindings if pv in plain)
 
 
 def _unwrapped_json_object(text: str) -> dict[str, Any] | None:
@@ -345,8 +356,8 @@ def _unwrapped_json_object(text: str) -> dict[str, Any] | None:
     return None
 
 
-def _addresses_returned_by(call: Any) -> list[str]:
-    """The probe device's genuine addresses in what one retrieval call returned.
+def _addresses_returned_by(call: Any, device: ProbeDevice) -> list[str]:
+    """``device``'s genuine addresses in what one retrieval call returned.
 
     The two retrieval tools answer in two shapes, so this reads each on its own
     terms. ``search_channels`` returns a documented envelope, so its rows are
@@ -375,13 +386,14 @@ def _addresses_returned_by(call: Any) -> list[str]:
 
     Args:
         call: One ``ToolTrace`` whose ``name`` is in :data:`_RETRIEVAL_TOOLS`.
+        device: The device whose bindings are the answer key.
 
     Returns:
         The corpus addresses the call returned, sorted and deduplicated.
     """
     text = call.result or ""
     if call.name != _SEARCH_CHANNELS:
-        return _real_addresses_named(text)
+        return _real_addresses_named(text, device)
 
     payload = _unwrapped_json_object(text)
     if payload is None:
@@ -393,7 +405,7 @@ def _addresses_returned_by(call: Any) -> list[str]:
         {
             row["fullPv"]
             for row in rows
-            if isinstance(row, dict) and row.get("fullPv") in PROBE_DEVICE_BINDINGS
+            if isinstance(row, dict) and row.get("fullPv") in device.bindings
         }
     )
 
@@ -436,7 +448,9 @@ def test_floor_two_reads_the_transport_envelope_a_live_run_produces() -> None:
     enveloped = ToolTrace(
         name=_SEARCH_CHANNELS, input={"query": "dipole"}, result=_LIVE_ENVELOPED_SEARCH_RESULT
     )
-    assert _addresses_returned_by(enveloped) == ["SR:MAG:DIPOLE:01:CURRENT:GOLDEN"]
+    assert _addresses_returned_by(enveloped, _RECORDED_DEVICE) == [
+        "SR:MAG:DIPOLE:01:CURRENT:GOLDEN"
+    ]
 
     outer = json.loads(_LIVE_ENVELOPED_SEARCH_RESULT)
     assert set(outer) == {"result"}, "the FastMCP envelope carries exactly one key"
@@ -446,14 +460,14 @@ def test_floor_two_reads_the_transport_envelope_a_live_run_produces() -> None:
     )
 
     bare = ToolTrace(name=_SEARCH_CHANNELS, input={"query": "dipole"}, result=json.dumps(body))
-    assert _addresses_returned_by(bare) == ["SR:MAG:DIPOLE:01:CURRENT:GOLDEN"]
+    assert _addresses_returned_by(bare, _RECORDED_DEVICE) == ["SR:MAG:DIPOLE:01:CURRENT:GOLDEN"]
 
     facet_echo = ToolTrace(
         name=_SEARCH_CHANNELS,
         input={"query": "dipole"},
-        result=json.dumps({"total": 0, "rows": [], "suggestions": [PROBE_PV]}),
+        result=json.dumps({"total": 0, "rows": [], "suggestions": [_RECORDED_DEVICE.setpoint]}),
     )
-    assert _addresses_returned_by(facet_echo) == [], (
+    assert _addresses_returned_by(facet_echo, _RECORDED_DEVICE) == [], (
         "an address echoed outside a row's fullPv is not an address the call returned"
     )
 
@@ -468,9 +482,9 @@ def _all_assistant_text(result: Any) -> str:
     return "\n".join(result.text_blocks).strip()
 
 
-def _print_run(result: Any, prose: str) -> None:
+def _print_run(result: Any, prose: str, prompt: str) -> None:
     print("\n--- Graph channel-finder paradigm smoke ---")
-    print(f"  prompt: {OPERATOR_PROMPT}")
+    print(f"  prompt: {prompt}")
     print(f"  mcp servers: {[(s.get('name'), s.get('status')) for s in result.mcp_servers]}")
     print(f"  tools called: {result.tool_names}")
     print(f"  num_turns: {result.num_turns}")
@@ -491,6 +505,7 @@ def _print_run(result: Any, prose: str) -> None:
 @pytest.mark.asyncio
 async def test_channel_finder_graph_paradigm_answers_an_address_question(
     seeded_graph_paradigm_project: Path,
+    probe_device: ProbeDevice,
 ) -> None:
     """An operator asks for a channel; the graph paradigm answers with a real one.
 
@@ -506,9 +521,10 @@ async def test_channel_finder_graph_paradigm_answers_an_address_question(
         f".mcp.json declares {sorted(expected_mcp_servers(render))}"
     )
 
+    prompt = operator_prompt(probe_device)
     result = await run_sdk_query(
         seeded_graph_paradigm_project,
-        OPERATOR_PROMPT,
+        prompt,
         max_turns=14,
         max_budget_usd=1.5,
         # The other door onto the same store — the facility-knowledge-graph
@@ -518,7 +534,7 @@ async def test_channel_finder_graph_paradigm_answers_an_address_question(
         disallowed_tools=["mcp__graph"],
     )
     prose = _all_assistant_text(result)
-    _print_run(result, prose)
+    _print_run(result, prose, prompt)
 
     assert result.result is not None, "no ResultMessage received"
     assert not result.result.is_error, f"SDK query ended in error: {result.result.result}"
@@ -562,11 +578,11 @@ async def test_channel_finder_graph_paradigm_answers_an_address_question(
         f"{[(t.name, t.is_error, (t.result or '')[:300]) for t in retrieval]}"
     )
 
-    from_store = sorted({pv for t in answered for pv in _addresses_returned_by(t)})
+    from_store = sorted({pv for t in answered for pv in _addresses_returned_by(t, probe_device)})
     assert from_store, (
         "no retrieval call returned any of this device's channel addresses. The "
         "store may be seeded but unreachable, the search index missing or stale, or "
-        f"the query simply missed. Corpus binds {list(PROBE_DEVICE_BINDINGS)}; "
+        f"the query simply missed. Corpus binds {list(probe_device.bindings)}; "
         f"results were {[(t.name, (t.result or '')[:400]) for t in answered]}"
     )
 
@@ -575,17 +591,17 @@ async def test_channel_finder_graph_paradigm_answers_an_address_question(
         "the agent produced no assistant text at all — there is nothing to grade. "
         f"Tools called: {result.tool_names}"
     )
-    named = _real_addresses_named(prose)
+    named = _real_addresses_named(prose, probe_device)
     assert named, (
         "the agent reached the graph but its answer names none of the device's real "
-        f"channel addresses. The corpus binds {list(PROBE_DEVICE_BINDINGS)} and the "
-        f"setpoint the question asks for is {PROBE_PV}."
+        f"channel addresses. The corpus binds {list(probe_device.bindings)} and the "
+        f"setpoint the question asks for is {probe_device.setpoint}."
     )
 
-    fabricated = fabricated_addresses(prose)
+    fabricated = fabricated_addresses(prose, probe_device)
     assert not fabricated, (
         f"the agent's prose names channel addresses this device does not have: "
-        f"{fabricated}. The corpus binds exactly {list(PROBE_DEVICE_BINDINGS)} to it."
+        f"{fabricated}. The corpus binds exactly {list(probe_device.bindings)} to it."
     )
 
     print(f"  addresses returned by the store: {from_store}")

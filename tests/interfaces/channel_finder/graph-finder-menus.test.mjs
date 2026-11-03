@@ -20,7 +20,11 @@ import {
   moreMenu,
   rowMenu,
 } from '../../../src/osprey/interfaces/channel_finder/static/js/graph-finder-menus.js';
-import { createFinderState, toggleFacet, toggleSelection } from '../../../src/osprey/interfaces/channel_finder/static/js/graph-finder-state.js';
+import {
+  createFinderState,
+  toggleFacet,
+  toggleSelection,
+} from '../../../src/osprey/interfaces/channel_finder/static/js/graph-finder-state.js';
 import { COLUMN_SPECS } from '../../../src/osprey/interfaces/channel_finder/static/js/graph-finder-prefs.js';
 import { defaultLayout, resizeColumn, setColumnHidden } from '/design-system/js/table-columns.js';
 
@@ -29,9 +33,28 @@ import { defaultLayout, resizeColumn, setColumnHidden } from '/design-system/js/
 
 /** @returns {Record<string, any>} every action, as a spy */
 function spies() {
-  const names = ['copy', 'send', 'openDevice', 'closeDevice', 'toggleSelected', 'clearSelection', 'onlyFacet',
-    'toggleFacet', 'clearFacet', 'clearFilters', 'removeChip', 'collapseAllFacets', 'sort', 'nudgeColumn',
-    'setColumnHidden', 'autosize', 'autosizeAll', 'resetColumns', 'setDensity', 'toggleRail'];
+  const names = [
+    'copy',
+    'send',
+    'openDevice',
+    'closeDevice',
+    'toggleSelected',
+    'clearSelection',
+    'onlyFacet',
+    'toggleFacet',
+    'clearFacet',
+    'clearFilters',
+    'removeChip',
+    'collapseAllFacets',
+    'sort',
+    'nudgeColumn',
+    'setColumnHidden',
+    'autosize',
+    'autosizeAll',
+    'resetColumns',
+    'setDensity',
+    'toggleRail',
+  ];
   return Object.fromEntries(names.map((n) => [n, vi.fn()]));
 }
 
@@ -56,7 +79,10 @@ function ctx(over = {}) {
 /** @param {MenuItem[]} items @param {string} label @returns {MenuItem} */
 function row(items, label) {
   const found = items.find((i) => i.label === label);
-  if (!found) throw new Error(`no row "${label}" in ${items.map((i) => i.label ?? i.heading ?? '—').join(' | ')}`);
+  if (!found)
+    throw new Error(
+      `no row "${label}" in ${items.map((i) => i.label ?? i.heading ?? '—').join(' | ')}`
+    );
   return found;
 }
 
@@ -64,8 +90,13 @@ function row(items, label) {
 const labels = (items) => items.filter((i) => i.label).map((i) => /** @type {string} */ (i.label));
 
 const ROW = {
-  fullPv: 'SR01C:QF1:SP', device: 'SR01C_QF1', device_uri: 'urn:QF1', section: 'SR01C', system: 'MG',
-  description: 'current\tsetpoint', edges: ['WRITESSIGNAL'],
+  fullPv: 'SR01C:QF1:SP',
+  device: 'SR01C_QF1',
+  device_uri: 'urn:QF1',
+  section: 'SR01C',
+  system: 'MG',
+  description: 'current\tsetpoint',
+  edges: ['WRITESSIGNAL'],
   signals: [{ name: 'current' }, { name: 'voltage' }],
 };
 
@@ -73,18 +104,29 @@ describe('a result row', () => {
   test('offers the address verbs, the device, the narrowing verbs and selection', () => {
     const items = rowMenu(ctx(), ROW);
     expect(labels(items)).toEqual([
-      'Copy address', 'Copy device name', 'Copy row as TSV',
+      'Copy address',
+      'Copy device name',
+      'Copy row as TSV',
       'Open device',
-      'Only section', 'Only system', 'Only signal', 'Only signal',
+      'Only section',
+      'Only system',
+      'Only signal',
+      'Only signal',
       'Select',
     ]);
-    expect(items.filter((i) => i.label === 'Only signal').map((i) => i.code)).toEqual(['current', 'voltage']);
+    expect(items.filter((i) => i.label === 'Only signal').map((i) => i.code)).toEqual([
+      'current',
+      'voltage',
+    ]);
   });
 
   test('the row TSV is one line in table order, with tabs and newlines flattened', () => {
     const c = ctx();
     row(rowMenu(c, ROW), 'Copy row as TSV').run?.();
-    expect(c.actions.copy).toHaveBeenCalledWith('SR01C_QF1\tSR01C\tSR01C:QF1:SP\tW\tcurrent, voltage\tcurrent setpoint', 'the row');
+    expect(c.actions.copy).toHaveBeenCalledWith(
+      'SR01C_QF1\tSR01C\tSR01C:QF1:SP\tW\tcurrent, voltage\tcurrent setpoint',
+      'the row'
+    );
   });
 
   test('on a row inside a larger selection, copy and send act on the selection', () => {
@@ -171,7 +213,8 @@ describe('a column header', () => {
     expect(row(items, 'System').checked).toBe(false);
     expect(row(items, 'Device').checked).toBe(true);
     expect(items.some((i) => i.heading === 'Columns')).toBe(true);
-    for (const key of ['section', 'address', 'dir', 'signal', 'description']) setColumnHidden(COLUMN_SPECS, layout, key, true);
+    for (const key of ['section', 'address', 'dir', 'signal', 'description'])
+      setColumnHidden(COLUMN_SPECS, layout, key, true);
     const lone = headerMenu(ctx({ layout }), 'device');
     expect(row(lone, 'Device').disabled).toBe(true);
     expect(row(lone, 'Hide Device').disabled).toBe(true);
@@ -198,7 +241,9 @@ describe('the rail', () => {
   test('a selected value offers remove instead of add', () => {
     const finder = createFinderState();
     toggleFacet(finder, 'section', 'SR01C');
-    expect(labels(facetValueMenu(ctx({ finder }), 'section', 'SR01C', 'SR01C'))).toContain('Remove from filter');
+    expect(labels(facetValueMenu(ctx({ finder }), 'section', 'SR01C', 'SR01C'))).toContain(
+      'Remove from filter'
+    );
   });
 
   test('a class copies its URI under its name, and offers no add', () => {

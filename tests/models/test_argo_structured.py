@@ -26,20 +26,45 @@ class SampleOutput(BaseModel):
 class TestCleanJsonResponse:
     """Tests for the _clean_json_response helper."""
 
-    def test_plain_json_unchanged(self):
-        """Plain JSON passes through unchanged."""
-        raw = '{"name": "test", "value": 42}'
-        assert _clean_json_response(raw) == raw
-
-    def test_strips_json_code_fence(self):
-        """Strips ```json ... ``` fences."""
-        raw = '```json\n{"name": "test"}\n```'
-        assert _clean_json_response(raw) == '{"name": "test"}'
-
-    def test_strips_plain_code_fence(self):
-        """Strips ``` ... ``` fences without language tag."""
-        raw = '```\n{"name": "test"}\n```'
-        assert _clean_json_response(raw) == '{"name": "test"}'
+    @pytest.mark.parametrize(
+        ("raw", "expected"),
+        [
+            pytest.param(
+                '{"name": "test", "value": 42}',
+                '{"name": "test", "value": 42}',
+                id="plain_json_unchanged",
+            ),
+            pytest.param(
+                '```json\n{"name": "test"}\n```', '{"name": "test"}', id="strips_json_code_fence"
+            ),
+            # A fence without a language tag.
+            pytest.param(
+                '```\n{"name": "test"}\n```', '{"name": "test"}', id="strips_plain_code_fence"
+            ),
+            # An object preceded by explanation text is extracted.
+            pytest.param(
+                'Here is the result:\n{"name": "test", "value": 1}',
+                '{"name": "test", "value": 1}',
+                id="extracts_json_from_surrounding_text",
+            ),
+            pytest.param(
+                '   \n  {"name": "test"}  \n  ', '{"name": "test"}', id="strips_whitespace"
+            ),
+            # Already a JSON array: it starts with '[' so no object extraction is attempted.
+            pytest.param("[1, 2, 3]", "[1, 2, 3]", id="top_level_array_passes_through"),
+            # A known asymmetry: the extraction regex only matches JSON objects
+            # (r'\{.*\}'), so an array preceded by prose is NOT unwrapped the way an
+            # object would be. Pinning this guards against silent changes to the
+            # (arguably buggy) behavior — see argo._clean_json_response.
+            pytest.param(
+                "Here you go: [1, 2]",
+                "Here you go: [1, 2]",
+                id="array_with_leading_text_is_not_extracted",
+            ),
+        ],
+    )
+    def test_cleans(self, raw, expected):
+        assert _clean_json_response(raw) == expected
 
     def test_fixes_python_true(self):
         """Converts Python True → JSON true."""
@@ -60,38 +85,12 @@ class TestCleanJsonResponse:
         assert '"a": true' in result
         assert '"b": false' in result
 
-    def test_extracts_json_from_surrounding_text(self):
-        """Extracts JSON object when preceded by explanation text."""
-        raw = 'Here is the result:\n{"name": "test", "value": 1}'
-        result = _clean_json_response(raw)
-        assert result == '{"name": "test", "value": 1}'
-
-    def test_strips_whitespace(self):
-        """Strips leading/trailing whitespace."""
-        raw = '   \n  {"name": "test"}  \n  '
-        assert _clean_json_response(raw) == '{"name": "test"}'
-
     def test_combined_fence_and_booleans(self):
         """Handles code fence + Python booleans together."""
         raw = '```json\n{"active": True, "deleted": False}\n```'
         result = _clean_json_response(raw)
         assert '"active": true' in result
         assert '"deleted": false' in result
-
-    def test_top_level_array_passes_through(self):
-        """A response that is already a JSON array is returned unchanged (it
-        starts with '[' so no object extraction is attempted)."""
-        raw = "[1, 2, 3]"
-        assert _clean_json_response(raw) == "[1, 2, 3]"
-
-    def test_array_with_leading_text_is_not_extracted(self):
-        """Documents a known asymmetry: the extraction regex only matches JSON
-        objects (r'\\{.*\\}'), so an array preceded by prose is NOT unwrapped the
-        way an object would be. Pinning this guards against silent changes to the
-        (arguably buggy) behavior — see argo._clean_json_response.
-        """
-        raw = "Here you go: [1, 2]"
-        assert _clean_json_response(raw) == "Here you go: [1, 2]"
 
 
 # --- Tests for _execute_argo_structured_output ---
@@ -101,12 +100,30 @@ class TestExecuteArgoStructuredOutput:
     """Tests for the _execute_argo_structured_output function."""
 
     @patch("osprey.models.providers.argo.httpx.post")
-    def test_successful_structured_output(self, mock_post):
-        """Successful parse returns validated Pydantic model."""
+    @pytest.mark.parametrize(
+        ("content", "name", "value"),
+        [
+            # Successful parse returns validated Pydantic model.
+            pytest.param(
+                '{"name": "test", "value": 42, "active": true}',
+                "test",
+                42,
+                id="plain-json",
+            ),
+            # Successfully parses response wrapped in markdown code fences.
+            pytest.param(
+                '```json\n{"name": "fenced", "value": 99, "active": True}\n```',
+                "fenced",
+                99,
+                id="markdown-fenced",
+            ),
+        ],
+    )
+    def test_a_valid_reply_is_returned_as_the_validated_model(
+        self, mock_post, content, name, value
+    ):
         mock_response = MagicMock()
-        mock_response.json.return_value = {
-            "choices": [{"message": {"content": '{"name": "test", "value": 42, "active": true}'}}]
-        }
+        mock_response.json.return_value = {"choices": [{"message": {"content": content}}]}
         mock_response.raise_for_status = MagicMock()
         mock_post.return_value = mock_response
 
@@ -119,8 +136,8 @@ class TestExecuteArgoStructuredOutput:
         )
 
         assert isinstance(result, SampleOutput)
-        assert result.name == "test"
-        assert result.value == 42
+        assert result.name == name
+        assert result.value == value
         assert result.active is True
 
     @patch("osprey.models.providers.argo.httpx.post")
@@ -148,14 +165,26 @@ class TestExecuteArgoStructuredOutput:
         assert result == {"name": "test", "value": 1, "active": False}
 
     @patch("osprey.models.providers.argo.httpx.post")
-    def test_empty_response_raises_value_error(self, mock_post):
-        """Empty API response raises ValueError."""
+    @pytest.mark.parametrize(
+        ("content", "match"),
+        [
+            # Empty API response raises ValueError.
+            pytest.param("", "Empty response", id="empty-response"),
+            # Invalid JSON in response raises ValueError.
+            pytest.param(
+                "not valid json at all",
+                "Failed to parse structured output",
+                id="invalid-json",
+            ),
+        ],
+    )
+    def test_an_unusable_reply_raises_value_error(self, mock_post, content, match):
         mock_response = MagicMock()
-        mock_response.json.return_value = {"choices": [{"message": {"content": ""}}]}
+        mock_response.json.return_value = {"choices": [{"message": {"content": content}}]}
         mock_response.raise_for_status = MagicMock()
         mock_post.return_value = mock_response
 
-        with pytest.raises(ValueError, match="Empty response"):
+        with pytest.raises(ValueError, match=match):
             _execute_argo_structured_output(
                 model_id="gpt5mini",
                 message="Extract info",
@@ -180,25 +209,6 @@ class TestExecuteArgoStructuredOutput:
         mock_post.return_value = mock_response
 
         with pytest.raises(httpx.HTTPStatusError):
-            _execute_argo_structured_output(
-                model_id="gpt5mini",
-                message="Extract info",
-                output_format=SampleOutput,
-                api_key="test-key",
-                base_url="https://test.url",
-            )
-
-    @patch("osprey.models.providers.argo.httpx.post")
-    def test_invalid_json_raises_value_error(self, mock_post):
-        """Invalid JSON in response raises ValueError."""
-        mock_response = MagicMock()
-        mock_response.json.return_value = {
-            "choices": [{"message": {"content": "not valid json at all"}}]
-        }
-        mock_response.raise_for_status = MagicMock()
-        mock_post.return_value = mock_response
-
-        with pytest.raises(ValueError, match="Failed to parse structured output"):
             _execute_argo_structured_output(
                 model_id="gpt5mini",
                 message="Extract info",
@@ -278,35 +288,6 @@ class TestExecuteArgoStructuredOutput:
         with pytest.raises(ValueError, match="Empty response"):
             self._ask_argo()
         assert mock_post.call_count == 1
-
-    @patch("osprey.models.providers.argo.httpx.post")
-    def test_cleans_markdown_fenced_response(self, mock_post):
-        """Successfully parses response wrapped in markdown code fences."""
-        mock_response = MagicMock()
-        mock_response.json.return_value = {
-            "choices": [
-                {
-                    "message": {
-                        "content": '```json\n{"name": "fenced", "value": 99, "active": True}\n```'
-                    }
-                }
-            ]
-        }
-        mock_response.raise_for_status = MagicMock()
-        mock_post.return_value = mock_response
-
-        result = _execute_argo_structured_output(
-            model_id="gpt5mini",
-            message="Extract info",
-            output_format=SampleOutput,
-            api_key="test-key",
-            base_url="https://test.url",
-        )
-
-        assert isinstance(result, SampleOutput)
-        assert result.name == "fenced"
-        assert result.value == 99
-        assert result.active is True
 
     @patch("osprey.models.providers.argo.httpx.post")
     def test_posts_to_the_base_url_it_is_given(self, mock_post):

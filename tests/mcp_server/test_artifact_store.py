@@ -9,24 +9,16 @@ Covers:
 """
 
 import json
-import socket
 from unittest.mock import patch
 
 import pytest
 
+from tests._live import wait_until
 from tests.mcp_server.conftest import (
     assert_raises_error,
     extract_response_dict,
     get_tool_fn,
 )
-
-
-def _free_port() -> int:
-    """Return an ephemeral port the OS just handed us (avoids fixed-port flakes)."""
-    with socket.socket() as s:
-        s.bind(("127.0.0.1", 0))
-        return int(s.getsockname()[1])
-
 
 # ---------------------------------------------------------------------------
 # ArtifactStore — core storage layer
@@ -787,49 +779,31 @@ class TestArtifactRegisterTool:
     """Tests for the artifact_register MCP tool."""
 
     @pytest.mark.asyncio
-    async def test_save_inline_markdown(self, tmp_path, monkeypatch):
+    @pytest.mark.parametrize(
+        ("title", "content", "content_type"),
+        [
+            pytest.param(
+                "Test Summary", "# Summary\n\nAll systems nominal.", "markdown", id="markdown"
+            ),
+            pytest.param("HTML Report", "<h1>Report</h1><p>Done.</p>", "html", id="html"),
+            pytest.param("JSON Data", '{"key": "value"}', "json", id="json"),
+        ],
+    )
+    async def test_save_inline_content_registers_an_artifact_of_its_type(
+        self, tmp_path, monkeypatch, title, content, content_type
+    ):
         monkeypatch.chdir(tmp_path)
 
         fn = _get_artifact_register()
         result = await fn(
-            title="Test Summary",
-            content="# Summary\n\nAll systems nominal.",
-            content_type="markdown",
+            title=title,
+            content=content,
+            content_type=content_type,
         )
 
         data = extract_response_dict(result)
         assert data["status"] == "success"
-        assert data["artifact_type"] == "markdown"
-
-    @pytest.mark.asyncio
-    async def test_save_inline_html(self, tmp_path, monkeypatch):
-        monkeypatch.chdir(tmp_path)
-
-        fn = _get_artifact_register()
-        result = await fn(
-            title="HTML Report",
-            content="<h1>Report</h1><p>Done.</p>",
-            content_type="html",
-        )
-
-        data = extract_response_dict(result)
-        assert data["status"] == "success"
-        assert data["artifact_type"] == "html"
-
-    @pytest.mark.asyncio
-    async def test_save_inline_json(self, tmp_path, monkeypatch):
-        monkeypatch.chdir(tmp_path)
-
-        fn = _get_artifact_register()
-        result = await fn(
-            title="JSON Data",
-            content='{"key": "value"}',
-            content_type="json",
-        )
-
-        data = extract_response_dict(result)
-        assert data["status"] == "success"
-        assert data["artifact_type"] == "json"
+        assert data["artifact_type"] == content_type
 
     @pytest.mark.asyncio
     async def test_save_file_path(self, tmp_path, monkeypatch):
@@ -1345,7 +1319,7 @@ class TestAutoLaunchLogging:
 class TestServerLauncherRetry:
     """Tests for server launcher crash recovery."""
 
-    def test_server_launcher_retries_after_crash(self):
+    def test_server_launcher_retries_after_crash(self, reserve_port):
         """_launched resets to False when the server thread crashes."""
         from osprey.infrastructure.server_launcher import ServerLauncher
 
@@ -1354,7 +1328,7 @@ class TestServerLauncherRetry:
 
         launcher = ServerLauncher(
             name="Test Server",
-            config_reader=lambda: ("127.0.0.1", _free_port()),
+            config_reader=lambda: ("127.0.0.1", reserve_port()),
             auto_launch_checker=lambda: True,
             app_factory=crash_app_factory,
             pass_workspace=False,
@@ -1363,18 +1337,12 @@ class TestServerLauncherRetry:
         # First call: sets _launched = True, then thread crashes and resets it
         launcher.ensure_running()
 
-        # Give the thread time to crash and reset _launched
-        import time
+        # After the crash, _launched is reset to False
+        wait_until(lambda: launcher._launched is False, what="_launched reset after the crash")
 
-        time.sleep(1.0)
-
-        # After crash, _launched should be reset to False
-        assert launcher._launched is False
-
-    def test_server_launcher_health_check_warning(self, caplog, monkeypatch):
+    def test_server_launcher_health_check_warning(self, reserve_port, caplog, monkeypatch):
         """A server that never answers /health is warned about once the late-health window ends."""
         import logging
-        import time
 
         from osprey.infrastructure import server_launcher
         from osprey.infrastructure.server_launcher import ServerLauncher
@@ -1388,7 +1356,7 @@ class TestServerLauncherRetry:
 
         launcher = ServerLauncher(
             name="Test Server",
-            config_reader=lambda: ("127.0.0.1", _free_port()),
+            config_reader=lambda: ("127.0.0.1", reserve_port()),
             auto_launch_checker=lambda: True,
             app_factory=noop_app_factory,
             pass_workspace=False,
@@ -1399,11 +1367,7 @@ class TestServerLauncherRetry:
 
         with caplog.at_level(logging.WARNING, logger="osprey.infrastructure.server_launcher"):
             launcher.ensure_running()
-            deadline = time.monotonic() + 15.0
-            while not warned() and time.monotonic() < deadline:
-                time.sleep(0.05)
-
-        assert warned()
+            wait_until(warned, timeout=15.0, what="the health-check warning")
 
 
 class TestArtifactStoreConcurrency:

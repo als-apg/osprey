@@ -24,11 +24,6 @@ from osprey.cli.profile_cmd import _materialize_profile_directory, profile
 MINIMAL_PROFILE = "name: Minimal\nextends: hello-world\ndata: data\n"
 
 
-@pytest.fixture
-def runner() -> CliRunner:
-    return CliRunner()
-
-
 def _write_profile(directory: Path, text: str) -> Path:
     """Write a profile and the ``data:`` tree every profile must name.
 
@@ -316,5 +311,6 @@ def test_module_import_stays_lazy() -> None:
         capture_output=True,
         text=True,
         check=True,
+        timeout=120,
     )
     assert out.stdout.strip() == "", f"eagerly imported: {out.stdout.strip()}"

@@ -75,8 +75,8 @@ A payload with no session id is dropped rather than reported with a blank one:
 the server writes the id it receives as the key's current transcript, so an
 empty value would erase a mapping instead of updating it.
 
-``surface`` is ``OSPREY_WEB_UX`` (``expert`` | ``simple``). Only the expert
-surface is recorded — the simple view knows its own turn boundaries — but the
+``surface`` is ``OSPREY_WEB_UX`` (``terminal`` | ``chat``). Only the terminal
+surface is recorded — the chat knows its own turn boundaries — but the
 report is sent either way and the server drops what it does not want. An
 unlaunched-by-the-web-terminal session has neither variable and never sends
 anything.

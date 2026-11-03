@@ -1,7 +1,7 @@
-"""The Simple view's hand-off endpoint: ``POST /api/session/{key}/handoff``.
+"""The chat's hand-off endpoint: ``POST /api/session/{key}/handoff``.
 
 The route is a thin translation of one call — ``acquire_surface`` for the
-Simple surface — into HTTP, and everything worth pinning is in that
+chat surface — into HTTP, and everything worth pinning is in that
 translation:
 
 - what the operator gets back when the flip works, with no turn taken on the
@@ -24,7 +24,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import time
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
@@ -52,8 +51,17 @@ from osprey.interfaces.web_terminal.session_handoff import (
 )
 from osprey.interfaces.web_terminal.turn_state import BUSY, IDLE
 from osprey_connectors import posture_store
+from tests._live import wait_until
 from tests.interfaces.web_terminal._fakes import FakeChatPool, FakeChatSession, FakeClock
-from tests.interfaces.web_terminal._handoff_harness import KEY, RecordingPty, pool_pty, set_store
+from tests.interfaces.web_terminal._handoff_harness import (
+    KEY,
+    RecordingPty,
+    assert_released,
+    chats,
+    pool_pty,
+    registry,
+    set_store,
+)
 
 HANDOFF_PATH = f"/api/session/{KEY}/handoff"
 
@@ -168,26 +176,12 @@ def make_app(tmp_path, *, hook: bool = True, paced: bool = False) -> FastAPI:
     return app
 
 
-def chats(app: FastAPI) -> FakeChatPool:
-    return app.state.operator_registry.chats
-
-
-def registry(app: FastAPI) -> PtyRegistry:
-    return app.state.pty_registry
-
-
 def post(app: FastAPI, **body) -> Any:
     """POST a client-shaped hand-off body and return the response."""
-    payload = {"to": "simple"}
+    payload = {"to": "chat"}
     payload.update(body)
     with TestClient(app) as client:
         return client.post(HANDOFF_PATH, json=payload)
-
-
-def assert_released(app: FastAPI) -> None:
-    """The pending slot and the reservation an ended acquire leaves behind."""
-    assert KEY not in get_state(app).pending
-    assert not registry(app).is_reserved(KEY)
 
 
 # ---------------------------------------------------------------------------
@@ -208,15 +202,15 @@ def test_the_route_is_reachable_on_the_composite_router():
     app = FastAPI()
     app.include_router(composite)
 
-    resp = TestClient(app).post("/api/session/not-a-uuid/handoff", json={"to": "simple"})
+    resp = TestClient(app).post("/api/session/not-a-uuid/handoff", json={"to": "chat"})
 
     assert resp.status_code == 400
 
 
-def test_only_the_simple_surface_can_be_asked_for(tmp_path):
-    """The Expert view acquires on its socket; there is no HTTP form of it."""
+def test_only_the_chat_surface_can_be_asked_for(tmp_path):
+    """The terminal acquires on its socket; there is no HTTP form of it."""
     app = make_app(tmp_path)
-    resp = post(app, to="expert")
+    resp = post(app, to="terminal")
     assert resp.status_code == 422
     assert app.state.operator_registry.spawns == []
 
@@ -225,7 +219,7 @@ def test_the_key_must_be_a_session_uuid(tmp_path):
     """A key outside the grammar never reaches the acquire."""
     app = make_app(tmp_path)
     with TestClient(app) as client:
-        resp = client.post("/api/session/not-a-uuid/handoff", json={"to": "simple"})
+        resp = client.post("/api/session/not-a-uuid/handoff", json={"to": "chat"})
     assert resp.status_code == 400
     assert resp.json()["detail"]["error"] == "invalid_session_id"
     assert app.state.operator_registry.spawns == []
@@ -243,7 +237,7 @@ def test_an_unheld_key_starts_the_chat_and_answers_with_the_surface(tmp_path):
     resp = post(app)
 
     assert resp.status_code == 200
-    assert resp.json() == {"state": "simple", "session_id": KEY}
+    assert resp.json() == {"state": "chat", "session_id": KEY}
     assert app.state.operator_registry.spawns == [(KEY, str(tmp_path), None)]
     assert isinstance(chats(app).sessions[KEY], Chat)
     assert_released(app)
@@ -262,7 +256,7 @@ def test_the_child_is_stamped_with_the_key_and_a_live_posture(tmp_path):
 
 
 def test_an_idle_chat_already_under_the_key_is_handed_back_untouched(tmp_path):
-    """The Simple view's own pooled chat is the answer; nothing is spawned or claimed."""
+    """The chat's own pooled chat is the answer; nothing is spawned or claimed."""
     app = make_app(tmp_path)
     pooled = Chat()
     chats(app).sessions[KEY] = pooled
@@ -270,7 +264,7 @@ def test_an_idle_chat_already_under_the_key_is_handed_back_untouched(tmp_path):
     resp = post(app)
 
     assert resp.status_code == 200
-    assert resp.json() == {"state": "simple", "session_id": KEY}
+    assert resp.json() == {"state": "chat", "session_id": KEY}
     assert app.state.operator_registry.spawns == []
     assert chats(app).sessions[KEY] is pooled
     assert pooled.teardowns == 0
@@ -507,7 +501,7 @@ async def test_a_caller_that_hangs_up_mid_wait_gets_no_body_and_costs_nothing(tm
     pty = pool_pty(app)
     set_store(app, BUSY, app.state.clock.now)
 
-    sent = await call_asgi(app, HANDOFF_PATH, {"to": "simple"}, polls_before_hangup=2)
+    sent = await call_asgi(app, HANDOFF_PATH, {"to": "chat"}, polls_before_hangup=2)
 
     start = next(m for m in sent if m["type"] == "http.response.start")
     assert start["status"] == 204
@@ -551,13 +545,16 @@ def test_a_second_request_with_an_interrupt_takes_the_key_from_a_waiting_one(tmp
     threads = ThreadPoolExecutor(max_workers=2)
     try:
         with TestClient(app) as client:
-            first = threads.submit(client.post, HANDOFF_PATH, json={"to": "simple"})
-            deadline = time.monotonic() + 5.0
-            while KEY not in get_state(app).pending:
-                assert time.monotonic() < deadline, "the first request never reached its wait"
-                time.sleep(0.005)
+            first = threads.submit(client.post, HANDOFF_PATH, json={"to": "chat"})
+            wait_until(
+                lambda: KEY in get_state(app).pending,
+                timeout=5.0,
+                interval=0.005,
+                what="the first request to reach its wait",
+            )
+
             second = threads.submit(
-                client.post, HANDOFF_PATH, json={"to": "simple", "interrupt": True}
+                client.post, HANDOFF_PATH, json={"to": "chat", "interrupt": True}
             )
             try:
                 superseded = first.result(timeout=30.0)
@@ -570,7 +567,7 @@ def test_a_second_request_with_an_interrupt_takes_the_key_from_a_waiting_one(tmp
     assert superseded.status_code == 409
     assert superseded.json()["detail"]["error"] == ERROR_HANDOFF_SUPERSEDED
     assert cut.status_code == 200
-    assert cut.json() == {"state": "simple", "session_id": KEY}
+    assert cut.json() == {"state": "chat", "session_id": KEY}
     assert pty.writes == [b"\x1b"]
     assert pty.terminates == 1
     assert registry(app).get_session(KEY) is None

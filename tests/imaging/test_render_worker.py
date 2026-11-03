@@ -140,7 +140,7 @@ def worker():
     finally:
         if w.proc.poll() is None:
             w.proc.kill()
-            w.proc.wait()
+            w.proc.wait(timeout=30)
 
 
 def noise(mode: str, size: tuple[int, int], seed: int = 7) -> Image.Image:
@@ -253,31 +253,31 @@ def test_pdeathsig_is_armed_through_prctl():
 
 
 @pytest.mark.parametrize(
-    "data",
-    [b"", b"hello world, plain text", b"<!doctype html><html></html>", b"%PDF-1.7\n"],
-    ids=["empty", "text", "html", "pdf"],
+    ("data", "reason"),
+    [
+        pytest.param(b"", "not_an_image", id="empty-not-an-image"),
+        pytest.param(b"hello world, plain text", "not_an_image", id="text-not-an-image"),
+        pytest.param(b"<!doctype html><html></html>", "not_an_image", id="html-not-an-image"),
+        pytest.param(b"%PDF-1.7\n", "not_an_image", id="pdf-not-an-image"),
+        pytest.param(
+            b"\x89PNG\r\n\x1a\n" + b"\x00" * 40, "decoder_failed", id="png-garbage-decoder-failed"
+        ),
+        pytest.param(tiny_jpeg()[:200], "decoder_failed", id="truncated-jpeg-decoder-failed"),
+        pytest.param(
+            encode(Image.new("RGB", (64, 64), "red"), "PNG")[:-30],
+            "decoder_failed",
+            id="truncated-png-decoder-failed",
+        ),
+    ],
 )
-def test_bytes_that_do_not_sniff_as_a_picture_are_not_an_image(data):
-    assert_refused(render(data), "not_an_image")
+def test_bytes_that_are_not_a_decodable_picture_are_refused_with_a_reason(data, reason):
+    assert_refused(render(data), reason)
 
 
 def test_a_picture_whose_decoded_format_differs_from_its_magic_is_a_mismatch():
     png_sniff = sniff(encode(Image.new("RGB", (4, 4)), "PNG"))
     with mock.patch.object(render_worker, "sniff", return_value=png_sniff):
         assert_refused(render(tiny_jpeg()), "format_mismatch")
-
-
-@pytest.mark.parametrize(
-    "data",
-    [
-        b"\x89PNG\r\n\x1a\n" + b"\x00" * 40,
-        tiny_jpeg()[:200],
-        encode(Image.new("RGB", (64, 64), "red"), "PNG")[:-30],
-    ],
-    ids=["png-garbage", "truncated-jpeg", "truncated-png"],
-)
-def test_undecodable_bytes_are_decoder_failed(data):
-    assert_refused(render(data), "decoder_failed")
 
 
 # -- size limits -----------------------------------------------------------------
@@ -639,6 +639,7 @@ def test_the_worker_entry_point_hardens_before_its_handshake():
         cwd="/",
         capture_output=True,
         check=False,
+        timeout=120,
     )
     assert result.returncode == 0, result.stderr.decode()
     assert json.loads(result.stdout) == {"ready": True, "pillow": PIL.__version__}
@@ -701,6 +702,7 @@ def _probe(data: bytes) -> dict:
         cwd="/",
         capture_output=True,
         check=False,
+        timeout=120,
     )
     assert result.returncode == 0, result.stderr.decode()
     return json.loads(result.stdout)

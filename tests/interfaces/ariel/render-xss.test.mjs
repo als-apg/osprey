@@ -40,12 +40,29 @@ vi.mock('../../../src/osprey/interfaces/ariel/static/js/api.js', async (importOr
   };
 });
 
-import { entriesApi, draftsApi, searchApi } from '../../../src/osprey/interfaces/ariel/static/js/api.js';
-import { loadEntries, initEntriesListDelegation } from '../../../src/osprey/interfaces/ariel/static/js/entries.js';
-import { showEntry, showImageLightbox, initEntryDetail } from '../../../src/osprey/interfaces/ariel/static/js/entries-detail.js';
-import { loadDraft, initEntryTags } from '../../../src/osprey/interfaces/ariel/static/js/entries-form.js';
+import {
+  entriesApi,
+  draftsApi,
+  searchApi,
+} from '../../../src/osprey/interfaces/ariel/static/js/api.js';
+import {
+  loadEntries,
+  initEntriesListDelegation,
+} from '../../../src/osprey/interfaces/ariel/static/js/entries.js';
+import {
+  showEntry,
+  showImageLightbox,
+  initEntryDetail,
+} from '../../../src/osprey/interfaces/ariel/static/js/entries-detail.js';
+import {
+  loadDraft,
+  initEntryTags,
+} from '../../../src/osprey/interfaces/ariel/static/js/entries-form.js';
 import { renderEntryFields } from '../../../src/osprey/interfaces/ariel/static/js/entry-fields.js';
-import { performSearch, initSearchResultsDelegation } from '../../../src/osprey/interfaces/ariel/static/js/search.js';
+import {
+  performSearch,
+  initSearchResultsDelegation,
+} from '../../../src/osprey/interfaces/ariel/static/js/search.js';
 
 /**
  * Single-quote-based payload: breaks out of any `"`-quoted HTML attribute
@@ -104,7 +121,7 @@ function assertNoEventHandlerAttributes(root) {
   const el = /** @type {Element} */ (root);
   const all = [el, ...Array.from(el.querySelectorAll('*'))];
   for (const node of all) {
-    const offenders = node.getAttributeNames().filter(n => n.startsWith('on'));
+    const offenders = node.getAttributeNames().filter((n) => n.startsWith('on'));
     expect(offenders, `<${node.tagName.toLowerCase()}> has no on* attributes`).toEqual([]);
   }
 }
@@ -141,17 +158,19 @@ beforeEach(async () => {
 describe('renderEntriesList (entries.js, via loadEntries)', () => {
   test('escapes hostile entry fields in the list and pagination header', async () => {
     vi.mocked(entriesApi.list).mockResolvedValueOnce({
-      entries: [{
-        entry_id: PAYLOAD,
-        timestamp: '2026-01-01T00:00:00Z',
-        author: PAYLOAD,
-        source_system: PAYLOAD,
-        raw_text: `${PAYLOAD}\nbody text`,
-        score: null,
-        attachments: [],
-        keywords: [PAYLOAD],
-        highlights: [],
-      }],
+      entries: [
+        {
+          entry_id: PAYLOAD,
+          timestamp: '2026-01-01T00:00:00Z',
+          author: PAYLOAD,
+          source_system: PAYLOAD,
+          raw_text: `${PAYLOAD}\nbody text`,
+          score: null,
+          attachments: [],
+          keywords: [PAYLOAD],
+          highlights: [],
+        },
+      ],
       total: 1,
       page: 1,
       total_pages: 1,
@@ -199,7 +218,11 @@ describe('renderEntryDetail (entries-detail.js, via showEntry)', () => {
 describe('addTag + renderSessionInfoPanel (entries-form.js, via loadDraft)', () => {
   test('escapes a hostile tag and hostile session-metadata fields', async () => {
     vi.mocked(draftsApi.get).mockResolvedValueOnce({
-      subject: '', details: '', author: '', logbook: '', shift: '',
+      subject: '',
+      details: '',
+      author: '',
+      logbook: '',
+      shift: '',
       tags: [PAYLOAD],
       metadata: {
         session_metadata: {
@@ -246,69 +269,76 @@ describe('showImageLightbox (entries-detail.js, direct)', () => {
 // ---------------------------------------------------------------------------
 
 describe('entry card (components.js renderEntryCard, via loadEntries + delegated click)', () => {
-  test.each(HOSTILE_PAYLOADS)('carries entry_id %j as data only and dispatches showEntry via the delegated click', async (payload) => {
-    vi.mocked(entriesApi.list).mockResolvedValueOnce({
-      entries: [{
+  test.each(HOSTILE_PAYLOADS)(
+    'carries entry_id %j as data only and dispatches showEntry via the delegated click',
+    async (payload) => {
+      vi.mocked(entriesApi.list).mockResolvedValueOnce({
+        entries: [
+          {
+            entry_id: payload,
+            timestamp: '2026-01-01T00:00:00Z',
+            author: 'author',
+            source_system: 'sys',
+            raw_text: 'body',
+            score: null,
+            attachments: [],
+            keywords: [],
+            highlights: [],
+          },
+        ],
+        total: 1,
+        page: 1,
+        total_pages: 1,
+      });
+
+      await loadEntries();
+
+      const list = /** @type {HTMLElement} */ (document.getElementById('entries-list'));
+      assertNoEventHandlerAttributes(list);
+
+      const card = /** @type {HTMLElement|null} */ (list.querySelector('[data-entry-id]'));
+      expect(card, 'entry card rendered').not.toBeNull();
+      // Exact round-trip through dataset — the value is carried as data, never
+      // re-parsed as JavaScript (the bug: escapeHtml's `'` -> `&#39;` decodes
+      // back to a literal `'` inside an inline onclick's JS string, breaking
+      // out of it).
+      expect(/** @type {HTMLElement} */ (card).dataset.entryId).toBe(payload);
+
+      vi.mocked(entriesApi.get).mockResolvedValueOnce({
         entry_id: payload,
         timestamp: '2026-01-01T00:00:00Z',
         author: 'author',
         source_system: 'sys',
         raw_text: 'body',
-        score: null,
-        attachments: [],
         keywords: [],
-        highlights: [],
-      }],
-      total: 1,
-      page: 1,
-      total_pages: 1,
-    });
+        attachments: [],
+      });
 
-    await loadEntries();
+      /** @type {HTMLElement} */ (card).dispatchEvent(new MouseEvent('click', { bubbles: true }));
 
-    const list = /** @type {HTMLElement} */ (document.getElementById('entries-list'));
-    assertNoEventHandlerAttributes(list);
-
-    const card = /** @type {HTMLElement|null} */ (list.querySelector('[data-entry-id]'));
-    expect(card, 'entry card rendered').not.toBeNull();
-    // Exact round-trip through dataset — the value is carried as data, never
-    // re-parsed as JavaScript (the bug: escapeHtml's `'` -> `&#39;` decodes
-    // back to a literal `'` inside an inline onclick's JS string, breaking
-    // out of it).
-    expect(/** @type {HTMLElement} */ (card).dataset.entryId).toBe(payload);
-
-    vi.mocked(entriesApi.get).mockResolvedValueOnce({
-      entry_id: payload,
-      timestamp: '2026-01-01T00:00:00Z',
-      author: 'author',
-      source_system: 'sys',
-      raw_text: 'body',
-      keywords: [],
-      attachments: [],
-    });
-
-    /** @type {HTMLElement} */ (card).dispatchEvent(new MouseEvent('click', { bubbles: true }));
-
-    // Proves the click reached the delegated handler AND carried the exact,
-    // unmangled id through — not a JS-string-parsed fragment of it.
-    await vi.waitFor(() => expect(entriesApi.get).toHaveBeenCalledWith(payload));
-  });
+      // Proves the click reached the delegated handler AND carried the exact,
+      // unmangled id through — not a JS-string-parsed fragment of it.
+      await vi.waitFor(() => expect(entriesApi.get).toHaveBeenCalledWith(payload));
+    }
+  );
 });
 
 describe('pagination (entries.js renderPagination, via delegated click)', () => {
   test('clicking Next re-loads the next page through the listener attached on #entries-list itself', async () => {
     vi.mocked(entriesApi.list).mockResolvedValueOnce({
-      entries: [{
-        entry_id: 'e1',
-        timestamp: '2026-01-01T00:00:00Z',
-        author: 'a',
-        source_system: 's',
-        raw_text: 'body',
-        score: null,
-        attachments: [],
-        keywords: [],
-        highlights: [],
-      }],
+      entries: [
+        {
+          entry_id: 'e1',
+          timestamp: '2026-01-01T00:00:00Z',
+          author: 'a',
+          source_system: 's',
+          raw_text: 'body',
+          score: null,
+          attachments: [],
+          keywords: [],
+          highlights: [],
+        },
+      ],
       total: 40,
       page: 1,
       total_pages: 2,
@@ -322,7 +352,12 @@ describe('pagination (entries.js renderPagination, via delegated click)', () => 
     const nextBtn = /** @type {HTMLElement|null} */ (list.querySelector('[data-page="2"]'));
     expect(nextBtn, 'Next button rendered with data-page').not.toBeNull();
 
-    vi.mocked(entriesApi.list).mockResolvedValueOnce({ entries: [], total: 40, page: 2, total_pages: 2 });
+    vi.mocked(entriesApi.list).mockResolvedValueOnce({
+      entries: [],
+      total: 40,
+      page: 2,
+      total_pages: 2,
+    });
 
     // list.innerHTML was replaced wholesale by the loadEntries() call above —
     // this click only works if the listener lives on #entries-list itself
@@ -354,134 +389,182 @@ describe('pagination (entries.js renderPagination, via delegated click)', () => 
     const list = /** @type {HTMLElement} */ (document.getElementById('entries-list'));
 
     // First page: Previous exists but is disabled, Next is live.
-    vi.mocked(entriesApi.list).mockResolvedValueOnce({ entries: [entry], total: 60, page: 1, total_pages: 3 });
+    vi.mocked(entriesApi.list).mockResolvedValueOnce({
+      entries: [entry],
+      total: 60,
+      page: 1,
+      total_pages: 3,
+    });
     await loadEntries();
     let buttons = list.querySelectorAll('.pagination [data-page]');
     expect(buttons.length, 'both buttons render on the first page').toBe(2);
-    expect(/** @type {HTMLButtonElement} */ (buttons[0]).disabled, 'Previous disabled at the start').toBe(true);
-    expect(/** @type {HTMLButtonElement} */ (buttons[1]).disabled, 'Next live at the start').toBe(false);
+    expect(
+      /** @type {HTMLButtonElement} */ (buttons[0]).disabled,
+      'Previous disabled at the start'
+    ).toBe(true);
+    expect(/** @type {HTMLButtonElement} */ (buttons[1]).disabled, 'Next live at the start').toBe(
+      false
+    );
 
     // Last page: the mirror image.
-    vi.mocked(entriesApi.list).mockResolvedValueOnce({ entries: [entry], total: 60, page: 3, total_pages: 3 });
+    vi.mocked(entriesApi.list).mockResolvedValueOnce({
+      entries: [entry],
+      total: 60,
+      page: 3,
+      total_pages: 3,
+    });
     await loadEntries({ page: 3 });
     buttons = list.querySelectorAll('.pagination [data-page]');
     expect(buttons.length, 'both buttons render on the last page').toBe(2);
-    expect(/** @type {HTMLButtonElement} */ (buttons[0]).disabled, 'Previous live at the end').toBe(false);
-    expect(/** @type {HTMLButtonElement} */ (buttons[1]).disabled, 'Next disabled at the end').toBe(true);
+    expect(/** @type {HTMLButtonElement} */ (buttons[0]).disabled, 'Previous live at the end').toBe(
+      false
+    );
+    expect(/** @type {HTMLButtonElement} */ (buttons[1]).disabled, 'Next disabled at the end').toBe(
+      true
+    );
   });
 });
 
 describe('cited-source link (components.js renderAnswerBox, via performSearch + delegated click)', () => {
-  test.each(HOSTILE_PAYLOADS)('carries source id %j as data only, suppresses navigation, and dispatches showEntry', async (payload) => {
-    vi.mocked(searchApi.search).mockResolvedValueOnce({
-      answer: 'The answer.',
-      sources: [payload],
-      search_modes_used: ['keyword'],
-      execution_time_ms: 5,
-      total_results: 0,
-      entries: [],
-      diagnostics: [],
-    });
+  test.each(HOSTILE_PAYLOADS)(
+    'carries source id %j as data only, suppresses navigation, and dispatches showEntry',
+    async (payload) => {
+      vi.mocked(searchApi.search).mockResolvedValueOnce({
+        answer: 'The answer.',
+        sources: [payload],
+        search_modes_used: ['keyword'],
+        execution_time_ms: 5,
+        total_results: 0,
+        entries: [],
+        diagnostics: [],
+      });
 
-    await performSearch('some query');
+      await performSearch('some query');
 
-    const results = /** @type {HTMLElement} */ (document.getElementById('search-results'));
-    assertNoEventHandlerAttributes(results);
+      const results = /** @type {HTMLElement} */ (document.getElementById('search-results'));
+      assertNoEventHandlerAttributes(results);
 
-    const link = /** @type {HTMLElement|null} */ (results.querySelector('a[data-entry-id]'));
-    expect(link, 'cited-source link rendered').not.toBeNull();
-    expect(/** @type {HTMLElement} */ (link).dataset.entryId).toBe(payload);
+      const link = /** @type {HTMLElement|null} */ (results.querySelector('a[data-entry-id]'));
+      expect(link, 'cited-source link rendered').not.toBeNull();
+      expect(/** @type {HTMLElement} */ (link).dataset.entryId).toBe(payload);
 
-    vi.mocked(entriesApi.get).mockResolvedValueOnce({
-      entry_id: payload,
-      timestamp: '2026-01-01T00:00:00Z',
-      author: 'a',
-      source_system: 's',
-      raw_text: 'body',
-      keywords: [],
-      attachments: [],
-    });
+      vi.mocked(entriesApi.get).mockResolvedValueOnce({
+        entry_id: payload,
+        timestamp: '2026-01-01T00:00:00Z',
+        author: 'a',
+        source_system: 's',
+        raw_text: 'body',
+        keywords: [],
+        attachments: [],
+      });
 
-    const clickEvent = new MouseEvent('click', { bubbles: true, cancelable: true });
-    /** @type {HTMLElement} */ (link).dispatchEvent(clickEvent);
+      const clickEvent = new MouseEvent('click', { bubbles: true, cancelable: true });
+      /** @type {HTMLElement} */ (link).dispatchEvent(clickEvent);
 
-    // The link is `href="#"`; the delegated handler must call preventDefault()
-    // to preserve the old inline handler's `return false` (no navigation).
-    expect(clickEvent.defaultPrevented, 'navigation suppressed').toBe(true);
-    await vi.waitFor(() => expect(entriesApi.get).toHaveBeenCalledWith(payload));
-  });
+      // The link is `href="#"`; the delegated handler must call preventDefault()
+      // to preserve the old inline handler's `return false` (no navigation).
+      expect(clickEvent.defaultPrevented, 'navigation suppressed').toBe(true);
+      await vi.waitFor(() => expect(entriesApi.get).toHaveBeenCalledWith(payload));
+    }
+  );
 });
 
 describe('attachment thumbnail (entries-detail.js renderEntryDetail, via showEntry + delegated click)', () => {
-  test.each(HOSTILE_PAYLOADS)('carries lightbox filename %j as data only and opens the lightbox via delegated click', async (payload) => {
-    vi.mocked(entriesApi.get).mockResolvedValueOnce({
-      entry_id: 'entry-1',
-      timestamp: '2026-01-01T00:00:00Z',
-      author: 'author',
-      source_system: 'sys',
-      raw_text: 'body',
-      keywords: [],
-      attachments: [{ filename: payload, viewable: true, display_url: RENDITION_URL, mime_type: 'image/png' }],
-    });
+  test.each(HOSTILE_PAYLOADS)(
+    'carries lightbox filename %j as data only and opens the lightbox via delegated click',
+    async (payload) => {
+      vi.mocked(entriesApi.get).mockResolvedValueOnce({
+        entry_id: 'entry-1',
+        timestamp: '2026-01-01T00:00:00Z',
+        author: 'author',
+        source_system: 'sys',
+        raw_text: 'body',
+        keywords: [],
+        attachments: [
+          { filename: payload, viewable: true, display_url: RENDITION_URL, mime_type: 'image/png' },
+        ],
+      });
 
-    await showEntry('entry-1');
+      await showEntry('entry-1');
 
-    const modalBody = /** @type {HTMLElement} */ (document.getElementById('entry-modal-body'));
-    assertNoEventHandlerAttributes(modalBody);
+      const modalBody = /** @type {HTMLElement} */ (document.getElementById('entry-modal-body'));
+      assertNoEventHandlerAttributes(modalBody);
 
-    const thumb = /** @type {HTMLElement|null} */ (modalBody.querySelector('[data-lightbox-url]'));
-    expect(thumb, 'attachment thumbnail rendered').not.toBeNull();
-    expect(/** @type {HTMLElement} */ (thumb).dataset.lightboxUrl).toBe(RENDITION_URL);
-    expect(/** @type {HTMLElement} */ (thumb).dataset.lightboxName).toBe(payload);
+      const thumb = /** @type {HTMLElement|null} */ (
+        modalBody.querySelector('[data-lightbox-url]')
+      );
+      expect(thumb, 'attachment thumbnail rendered').not.toBeNull();
+      expect(/** @type {HTMLElement} */ (thumb).dataset.lightboxUrl).toBe(RENDITION_URL);
+      expect(/** @type {HTMLElement} */ (thumb).dataset.lightboxName).toBe(payload);
 
-    /** @type {HTMLElement} */ (thumb).dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      /** @type {HTMLElement} */ (thumb).dispatchEvent(new MouseEvent('click', { bubbles: true }));
 
-    const overlay = document.getElementById('image-lightbox');
-    expect(overlay, 'lightbox overlay opened via delegated click').not.toBeNull();
-    expect(/** @type {Element} */ (overlay).textContent).toContain(payload);
-  });
+      const overlay = document.getElementById('image-lightbox');
+      expect(overlay, 'lightbox overlay opened via delegated click').not.toBeNull();
+      expect(/** @type {Element} */ (overlay).textContent).toContain(payload);
+    }
+  );
 
-  test.each(HOSTILE_PAYLOADS)('a hostile display_url %j renders no thumbnail and no href', async (payload) => {
-    vi.mocked(entriesApi.get).mockResolvedValueOnce({
-      entry_id: 'entry-1',
-      timestamp: '2026-01-01T00:00:00Z',
-      author: 'author',
-      source_system: 'sys',
-      raw_text: 'body',
-      keywords: [],
-      attachments: [{ filename: 'beam.png', viewable: true, display_url: payload, mime_type: 'image/png' }],
-    });
+  test.each(HOSTILE_PAYLOADS)(
+    'a hostile display_url %j renders no thumbnail and no href',
+    async (payload) => {
+      vi.mocked(entriesApi.get).mockResolvedValueOnce({
+        entry_id: 'entry-1',
+        timestamp: '2026-01-01T00:00:00Z',
+        author: 'author',
+        source_system: 'sys',
+        raw_text: 'body',
+        keywords: [],
+        attachments: [
+          { filename: 'beam.png', viewable: true, display_url: payload, mime_type: 'image/png' },
+        ],
+      });
 
-    await showEntry('entry-1');
+      await showEntry('entry-1');
 
-    const modalBody = /** @type {HTMLElement} */ (document.getElementById('entry-modal-body'));
-    assertNoEventHandlerAttributes(modalBody);
-    expect(modalBody.querySelector('img'), 'no thumbnail').toBeNull();
-    expect(modalBody.querySelector('[data-lightbox-url]'), 'no lightbox target').toBeNull();
-    expect(modalBody.querySelector('[href]'), 'no href').toBeNull();
-    expect(modalBody.textContent).toContain('beam.png');
-  });
+      const modalBody = /** @type {HTMLElement} */ (document.getElementById('entry-modal-body'));
+      assertNoEventHandlerAttributes(modalBody);
+      expect(modalBody.querySelector('img'), 'no thumbnail').toBeNull();
+      expect(modalBody.querySelector('[data-lightbox-url]'), 'no lightbox target').toBeNull();
+      expect(modalBody.querySelector('[href]'), 'no href').toBeNull();
+      expect(modalBody.textContent).toContain('beam.png');
+    }
+  );
 });
 
 describe('tag remove button (entries-form.js addTag, via loadDraft + delegated click)', () => {
-  test.each(HOSTILE_PAYLOADS)('renders hostile tag %j with no on* attributes and removes the chip via delegated click', async (payload) => {
-    vi.mocked(draftsApi.get).mockResolvedValueOnce({
-      subject: '', details: '', author: '', logbook: '', shift: '',
-      tags: [payload],
-      metadata: null,
-    });
+  test.each(HOSTILE_PAYLOADS)(
+    'renders hostile tag %j with no on* attributes and removes the chip via delegated click',
+    async (payload) => {
+      vi.mocked(draftsApi.get).mockResolvedValueOnce({
+        subject: '',
+        details: '',
+        author: '',
+        logbook: '',
+        shift: '',
+        tags: [payload],
+        metadata: null,
+      });
 
-    await loadDraft('draft-1');
+      await loadDraft('draft-1');
 
-    const tagsContainer = /** @type {HTMLElement} */ (document.getElementById('entry-tags'));
-    assertNoEventHandlerAttributes(tagsContainer);
+      const tagsContainer = /** @type {HTMLElement} */ (document.getElementById('entry-tags'));
+      assertNoEventHandlerAttributes(tagsContainer);
 
-    expect(tagsContainer.querySelector('.tag'), 'tag chip rendered').not.toBeNull();
-    const removeBtn = /** @type {HTMLElement|null} */ (tagsContainer.querySelector('[data-tag-remove]'));
-    expect(removeBtn, 'tag remove button rendered').not.toBeNull();
+      expect(tagsContainer.querySelector('.tag'), 'tag chip rendered').not.toBeNull();
+      const removeBtn = /** @type {HTMLElement|null} */ (
+        tagsContainer.querySelector('[data-tag-remove]')
+      );
+      expect(removeBtn, 'tag remove button rendered').not.toBeNull();
 
-    /** @type {HTMLElement} */ (removeBtn).dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      /** @type {HTMLElement} */ (removeBtn).dispatchEvent(
+        new MouseEvent('click', { bubbles: true })
+      );
 
-    expect(tagsContainer.querySelector('.tag'), 'tag chip removed by the delegated click').toBeNull();
-  });
+      expect(
+        tagsContainer.querySelector('.tag'),
+        'tag chip removed by the delegated click'
+      ).toBeNull();
+    }
+  );
 });

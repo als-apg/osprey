@@ -12,6 +12,11 @@ among its alternatives, which is neither written nor named; ``osprey build`` and
 render's stdout. A view that writes may add a note of its own through
 :func:`report_note`, also once per build. ``osprey facility show`` asks every
 predicate of the main render and lists each view with its answer.
+
+A view's writer sees only the config keys its row names in ``View.reads``, so
+two renders that agree on those keys and serve the same models get the same
+bytes, and a build writes each such view once and copies it into the others
+(:func:`osprey.facility.render.render_facility_outputs`).
 """
 
 from __future__ import annotations
@@ -21,6 +26,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from osprey.bluesky_bridge_connection import LANE_KEYS
 from osprey.facility.build import FacilityDocument
 from osprey_connectors.simulation.view import VIEW_RELPATH
 
@@ -29,6 +35,7 @@ __all__ = [
     "VIEWS",
     "View",
     "ViewInputs",
+    "config_read",
     "report_note",
     "report_omitted",
     "view_bytes",
@@ -51,6 +58,10 @@ class ViewInputs:
             them.
         reported: The notes this build has already printed; ``None`` prints
             every note.
+        built_databases: The databases this build has already written, keyed
+            by the sha256 of the view bytes each was imported from; a render
+            whose view has the same bytes copies the database instead of
+            importing it again. ``None`` imports every one.
     """
 
     doc: FacilityDocument
@@ -58,6 +69,7 @@ class ViewInputs:
     facility_dir: Path
     served: list[str]
     reported: set[str] | None = None
+    built_databases: dict[str, Path] | None = None
 
 
 @dataclass(frozen=True)
@@ -71,10 +83,14 @@ class View:
         written_when: Whether a render carries the view, and the config key
             or model fact that decides it, named when the view is not written.
         write: Writes the view into the directory it is given and returns the
-            files written.
+            files written, in the order it wrote them.
         selected_by: The config key that picks this view from among its
             alternatives, or ``None``. A render that picks another alternative
             does not carry the view and does not name it either.
+        reads: The dotted config keys the writer reads, its notes and warnings
+            included. The writer is handed only these (:func:`config_read`),
+            so a key it reads and this does not name reads as absent in every
+            render rather than as stale in some.
     """
 
     name: str
@@ -82,6 +98,41 @@ class View:
     written_when: Callable[[ViewInputs], tuple[bool, str]]
     write: Callable[[Path, ViewInputs], list[Path]]
     selected_by: str | None = None
+    reads: tuple[str, ...] = ()
+
+
+def config_read(config: Mapping[str, Any], keys: tuple[str, ...]) -> dict[str, Any]:
+    """The part of a rendered config at ``keys``, at the paths it has there.
+
+    A key the config does not hold is not held here either. A path that meets
+    a value that is not a mapping carries that value where it met it, so a
+    reader walking the path finds what it would have found in the whole config.
+
+    Args:
+        config: The render's ``config.yml``, as a nested mapping.
+        keys: The dotted keys.
+
+    Returns:
+        A nested mapping sharing the config's values.
+    """
+    part: dict[str, Any] = {}
+    for key in keys:
+        source: Mapping[str, Any] = config
+        target = part
+        *parents, leaf = key.split(".")
+        for name in parents:
+            if name not in source:
+                break
+            value = source[name]
+            if not isinstance(value, Mapping):
+                target[name] = value
+                break
+            source = value
+            target = target.setdefault(name, {})
+        else:
+            if leaf in source:
+                target[leaf] = source[leaf]
+    return part
 
 
 def view_bytes(document: Mapping[str, Any]) -> bytes:
@@ -233,6 +284,7 @@ VIEWS: tuple[View, ...] = (
         path=VIEW_RELPATH.name,
         written_when=_always,
         write=_write_simulator,
+        reads=("control_system",),
     ),
     View(
         name="limits",
@@ -251,12 +303,14 @@ VIEWS: tuple[View, ...] = (
         path=".",
         written_when=_always,
         write=_write_facts,
+        reads=("project_name",),
     ),
     View(
         name="bluesky",
         path=".",
         written_when=_bluesky_configured,
         write=_write_bluesky,
+        reads=("control_system", *(f"services.{lane}" for lane in LANE_KEYS)),
     ),
     View(
         name="in_context",

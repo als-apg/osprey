@@ -47,6 +47,7 @@ import yaml
 from click.testing import CliRunner, Result
 
 from osprey.cli.main import cli
+from tests.cli._lifecycle_build import rendered_config
 
 #: The preset whose web-terminal stack the hello-world repo adopts.
 SOURCE_PRESET = "control-assistant"
@@ -85,7 +86,7 @@ DEMO_LOGINS = ("alice", "bob", "carol")
 
 #: The facility's own roster, which replaces the demo logins.
 FACILITY_ROSTER = [
-    {"name": "operator", "index": 0, "tier": "readonly", "display_name": "Control Room"},
+    {"name": "controlroom", "index": 0, "tier": "readonly", "display_name": "Control Room"},
 ]
 
 #: Top-level panels the host must offer, once the recipe has pruned. It is
@@ -446,7 +447,7 @@ def test_the_rendered_config_points_at_the_pulled_bundle(built_repo: dict[str, A
     """The second of the two `osprey set` keys, carried through the render."""
     repo_root: Path = built_repo["repo_root"]
 
-    rendered = yaml.safe_load((repo_root / "build" / "config.yml").read_text(encoding="utf-8"))
+    rendered = rendered_config(repo_root)
 
     assert rendered["facility_knowledge"]["bundle_path"] == BUNDLE_PATH
 

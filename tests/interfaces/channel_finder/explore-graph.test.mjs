@@ -51,7 +51,10 @@ vi.mock('../../../src/osprey/interfaces/channel_finder/static/js/explore-graph.j
 }));
 
 import { state } from '../../../src/osprey/interfaces/channel_finder/static/js/state.js';
-import { mountExplore, unmountExplore } from '../../../src/osprey/interfaces/channel_finder/static/js/explore.js';
+import {
+  mountExplore,
+  unmountExplore,
+} from '../../../src/osprey/interfaces/channel_finder/static/js/explore.js';
 import { renderSchema } from '../../../src/osprey/interfaces/channel_finder/static/js/utils.js';
 import { refreshStatsBadges } from '../../../src/osprey/interfaces/channel_finder/static/js/stats-badges.js';
 // app.js boots the panel on import (readyState is already 'complete' here), so
@@ -71,7 +74,7 @@ const KNOWN_TYPES = [
   { type: 'graph', mount: mocks.mountGraph, unmount: mocks.unmountGraph },
 ];
 
-const ALL_MOUNTS = KNOWN_TYPES.map(t => t.mount);
+const ALL_MOUNTS = KNOWN_TYPES.map((t) => t.mount);
 
 /**
  * Put a pipeline type on the shared state and mount Explore into a fresh
@@ -115,15 +118,18 @@ test.each(KNOWN_TYPES)('pipeline type $type dispatches to its own renderer', ({ 
   expect(unknownPane()).toBeNull();
 });
 
-test.each(KNOWN_TYPES)('unmounting after $type calls that renderer\'s unmount only', ({ type, unmount }) => {
-  mountWith(type);
-  unmountExplore();
+test.each(KNOWN_TYPES)(
+  "unmounting after $type calls that renderer's unmount only",
+  ({ type, unmount }) => {
+    mountWith(type);
+    unmountExplore();
 
-  expect(unmount).toHaveBeenCalledTimes(1);
-  for (const row of KNOWN_TYPES) {
-    if (row.unmount !== unmount) expect(row.unmount).not.toHaveBeenCalled();
+    expect(unmount).toHaveBeenCalledTimes(1);
+    for (const row of KNOWN_TYPES) {
+      if (row.unmount !== unmount) expect(row.unmount).not.toHaveBeenCalled();
+    }
   }
-});
+);
 
 test('an unknown pipeline type mounts the unknown pane and no renderer', () => {
   mountWith('no_such_pipeline');
@@ -150,8 +156,8 @@ test('the unknown pane escapes the pipeline type it echoes back', () => {
 
   const content = /** @type {HTMLElement} */ (document.getElementById('explore-content'));
   expect(content.querySelector('img'), 'no live <img> node').toBeNull();
-  const hasOnAttr = [...content.querySelectorAll('*')].some(el =>
-    [...el.attributes].some(attr => attr.name.startsWith('on'))
+  const hasOnAttr = [...content.querySelectorAll('*')].some((el) =>
+    [...el.attributes].some((attr) => attr.name.startsWith('on'))
   );
   expect(hasOnAttr, 'no on* event-handler attribute').toBe(false);
   // The value still reaches the reader, as inert text.
@@ -206,9 +212,10 @@ test('the unknown-pipeline pane keeps the error posture', () => {
   mountWith('no_such_pipeline');
 
   const pane = unknownPane();
-  expect(pane?.classList.contains('explore-unknown--info'), 'error pane is not tinted as info').toBe(
-    false
-  );
+  expect(
+    pane?.classList.contains('explore-unknown--info'),
+    'error pane is not tinted as info'
+  ).toBe(false);
   expect(pane?.getAttribute('role')).toBe('alert');
 });
 
@@ -238,7 +245,7 @@ test("renderSchema draws nothing for graph, and clears a previous mode's diagram
  * @returns {string[]}
  */
 const badgeLabels = () =>
-  [...document.querySelectorAll('#stats-badges .badge-label')].map(el => el.textContent ?? '');
+  [...document.querySelectorAll('#stats-badges .badge-label')].map((el) => el.textContent ?? '');
 
 test('the stats badges render the graph statistics in table order', async () => {
   document.body.innerHTML = '<div id="stats-badges"></div>';
@@ -278,12 +285,15 @@ test('a 503 from /api/statistics clears the badges instead of throwing', async (
   document.body.innerHTML = '<div id="stats-badges"></div>';
   const container = /** @type {HTMLElement} */ (document.getElementById('stats-badges'));
   container.innerHTML = '<span class="stats-badge">stale</span>';
-  vi.stubGlobal('fetch', vi.fn(async () => ({
-    ok: false,
-    status: 503,
-    statusText: 'Service Unavailable',
-    json: async () => ({ detail: 'the facility graph is unreachable' }),
-  })));
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () => ({
+      ok: false,
+      status: 503,
+      statusText: 'Service Unavailable',
+      json: async () => ({ detail: 'the facility graph is unreachable' }),
+    }))
+  );
   state.pipelineType = 'graph';
 
   try {
@@ -298,9 +308,12 @@ test('a rejected /api/statistics fetch clears the badges instead of throwing', a
   document.body.innerHTML = '<div id="stats-badges"></div>';
   const container = /** @type {HTMLElement} */ (document.getElementById('stats-badges'));
   container.innerHTML = '<span class="stats-badge">stale</span>';
-  vi.stubGlobal('fetch', vi.fn(async () => {
-    throw new TypeError('Failed to fetch');
-  }));
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () => {
+      throw new TypeError('Failed to fetch');
+    })
+  );
   state.pipelineType = 'graph';
 
   try {

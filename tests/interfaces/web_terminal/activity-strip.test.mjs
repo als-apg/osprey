@@ -26,14 +26,12 @@
 
 import { test, expect, describe, beforeEach, afterEach, vi } from 'vitest';
 
-// The host-chrome import graph below reaches bar-sync.js, which GETs the
-// operator's bar layout at import time, and the history popover reads the
-// server's buffer through the real reader. Both are answered here — from
-// `vi.hoisted`, which runs before the static imports are evaluated and
-// therefore before the bar GET is made. `recent` is the buffer a test serves:
-// its events, whether the read fails, a pending read a test settles by hand,
-// and the limits every read asked for. Any other URL is a dependency this
-// file has not declared, and fails loudly.
+// The history popover reads the server's buffer through the real reader,
+// answered here from `vi.hoisted`, which runs before the static imports are
+// evaluated. `recent` is the buffer a test serves: its events, whether the
+// read fails, a pending read a test settles by hand, and the limits every
+// read asked for. Any other URL is a dependency this file has not declared,
+// and fails loudly.
 const { recent } = vi.hoisted(() => {
   const recent = {
     /** @type {any[]} */ events: [],
@@ -41,38 +39,30 @@ const { recent } = vi.hoisted(() => {
     /** @type {Promise<any[]> | null} */ pending: null,
     /** @type {number[]} */ limits: [],
   };
-  vi.stubGlobal('fetch', vi.fn(async (/** @type {string} */ url) => {
-    if (url === '/api/bar-items') {
-      return {
-        ok: true,
-        status: 200,
-        json: async () => ({
-          version: 1,
-          rev: 0,
-          header: [],
-          status: [],
-          header_visible: true,
-          status_visible: true,
-        }),
-      };
-    }
-    const history = /^\/api\/agent-activity\/recent\?limit=(\d+)$/.exec(url);
-    if (history) {
-      recent.limits.push(Number(history[1]));
-      if (recent.fail) throw new Error('offline');
-      const events = recent.pending ? await recent.pending : recent.events;
-      return { ok: true, status: 200, json: async () => ({ events: [...events] }) };
-    }
-    throw new Error(`unstubbed fetch: ${url}`);
-  }));
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (/** @type {string} */ url) => {
+      const history = /^\/api\/agent-activity\/recent\?limit=(\d+)$/.exec(url);
+      if (history) {
+        recent.limits.push(Number(history[1]));
+        if (recent.fail) throw new Error('offline');
+        const events = recent.pending ? await recent.pending : recent.events;
+        return { ok: true, status: 200, json: async () => ({ events: [...events] }) };
+      }
+      throw new Error(`unstubbed fetch: ${url}`);
+    })
+  );
   return { recent };
 });
 
 import {
-  createActivityStrip, ACTIVITY_CLEAR_MS,
+  createActivityStrip,
+  ACTIVITY_CLEAR_MS,
 } from '../../../src/osprey/interfaces/web_terminal/static/js/activity-strip.js';
 import {
-  formatActivity, formatRelativeTime,
+  formatActivity,
+  formatRelativeTime,
+  WORKSPACE_TOOL,
 } from '../../../src/osprey/interfaces/web_terminal/static/js/activity-format.js';
 import { HISTORY_LIMIT } from '../../../src/osprey/interfaces/web_terminal/static/js/activity-history.js';
 
@@ -115,9 +105,7 @@ function makeStrip() {
 
 /** The body-level popover, or null when it is closed. */
 function popover() {
-  return /** @type {HTMLElement | null} */ (
-    document.querySelector('.activity-history-popover')
-  );
+  return /** @type {HTMLElement | null} */ (document.querySelector('.activity-history-popover'));
 }
 
 /** Visible history rows, top to bottom. */
@@ -252,8 +240,16 @@ describe('suppression: active panel self-signals', () => {
   });
 
   test.each([
-    ['a channel frame, whatever is active', { kind: 'channel', detail: 'SR01:HCM1:SP' }, 'artifacts'],
-    ['an artifact frame with no panel active', { kind: 'artifact', detail: 'orbit-plot.png' }, null],
+    [
+      'a channel frame, whatever is active',
+      { kind: 'channel', detail: 'SR01:HCM1:SP' },
+      'artifacts',
+    ],
+    [
+      'an artifact frame with no panel active',
+      { kind: 'artifact', detail: 'orbit-plot.png' },
+      null,
+    ],
     ['a panel frame that names no panel', { kind: 'panel' }, 'lattice'],
   ])('%s is never suppressed', (_name, target, active) => {
     activePanel = active;
@@ -277,10 +273,9 @@ describe('agent strings are text nodes only', () => {
 describe('unknown target kinds', () => {
   test('an unrecognized kind renders the generic "agent activity" + tool fallback', () => {
     const strip = makeStrip();
-    strip.handleActivity(frame(
-      /** @type {any} */ ({ kind: 'hologram', detail: 'ignored' }),
-      'future_tool',
-    ));
+    strip.handleActivity(
+      frame(/** @type {any} */ ({ kind: 'hologram', detail: 'ignored' }), 'future_tool')
+    );
 
     expect(mount.textContent).toContain('agent activity');
     expect(mount.textContent).toContain('future_tool');
@@ -305,10 +300,46 @@ describe('config and ui kinds', () => {
   });
 
   test('a detail-less config or ui frame names the tool instead', () => {
-    expect(formatActivity(frame({ kind: 'config' }, 'patch_setup')))
-      .toEqual({ verb: 'agent changed config', subject: 'patch_setup' });
-    expect(formatActivity(frame({ kind: 'ui' }, 'manage_window')))
-      .toEqual({ verb: 'agent moved window', subject: 'manage_window' });
+    expect(formatActivity(frame({ kind: 'config' }, 'patch_setup'))).toEqual({
+      verb: 'agent changed config',
+      subject: 'patch_setup',
+    });
+    expect(formatActivity(frame({ kind: 'ui' }, 'manage_window'))).toEqual({
+      verb: 'agent moved window',
+      subject: 'manage_window',
+    });
+  });
+});
+
+describe('review kind', () => {
+  test('a review frame reads as a code review of the notice text', () => {
+    const strip = makeStrip();
+    strip.handleActivity(frame({ kind: 'review', detail: 'blocked: writes to /etc' }, 'execute'));
+
+    expect(mount.querySelector('.activity-strip-verb')?.textContent).toBe('code review');
+    expect(mount.querySelector('.activity-strip-subject')?.textContent).toBe(
+      'blocked: writes to /etc'
+    );
+  });
+
+  test('a review frame names neither a write nor a launched run', () => {
+    expect(formatActivity(frame({ kind: 'review', detail: 'passed' }, 'execute'))).toEqual({
+      verb: 'code review',
+      subject: 'passed',
+    });
+  });
+
+  test('a detail-less review frame names the tool instead', () => {
+    expect(formatActivity(frame({ kind: 'review' }, 'execute'))).toEqual({
+      verb: 'code review',
+      subject: 'execute',
+    });
+  });
+
+  test('an unknown kind still falls through to the generic branch', () => {
+    expect(
+      formatActivity(frame(/** @type {any} */ ({ kind: 'reviews', detail: 'ignored' }), 'execute'))
+    ).toEqual({ verb: 'agent activity', subject: 'execute' });
   });
 });
 
@@ -318,7 +349,10 @@ describe('panel action verbs', () => {
     ['remove_panel_from_rail', 'agent removed'],
     ['add_panel_to_rail', 'agent made available'],
     ['open_panel', 'agent opened'],
-    ['close_panel', 'agent closed'],
+    ['open_panel_set', 'agent opened'],
+    ['drop_panel', 'agent moved'],
+    ['close_panel_tab', 'agent closed'],
+    ['close_panel_tile', 'agent closed tile'],
     ['register_panel', 'agent added'],
   ];
 
@@ -352,7 +386,7 @@ describe('panel action verbs', () => {
   test('NotebookEdit with a detail reads "agent edited <notebook>"', () => {
     const strip = makeStrip();
     strip.handleActivity(
-      frame({ kind: 'panel', panel: 'jupyter', detail: 'getting-started.ipynb' }, 'NotebookEdit'),
+      frame({ kind: 'panel', panel: 'jupyter', detail: 'getting-started.ipynb' }, 'NotebookEdit')
     );
 
     expect(mount.textContent).toContain('agent edited');
@@ -417,7 +451,6 @@ describe('arrange coalescing', () => {
   });
 });
 
-
 // ---- History popover ----
 
 /**
@@ -464,7 +497,7 @@ describe('history popover: open, fetch, render', () => {
 
   test('history rows are worded by the same verbs and labels as the live line', async () => {
     serveHistory([
-      pastFrame({ kind: 'panel', panel: 'lattice' }, 3, 'close_panel'),
+      pastFrame({ kind: 'panel', panel: 'lattice' }, 3, 'close_panel_tab'),
       pastFrame({ kind: 'panel', panel: 'ariel' }, 9, 'arrange_workspace'),
     ]);
     const strip = makeStrip();
@@ -497,9 +530,7 @@ describe('history popover: open, fetch, render', () => {
   });
 
   test('reopening refetches — the server buffer is the only source of history', async () => {
-    const { calls } = serveHistory([
-      pastFrame({ kind: 'channel', detail: 'SR01:HCM1:SP' }, 1),
-    ]);
+    const { calls } = serveHistory([pastFrame({ kind: 'channel', detail: 'SR01:HCM1:SP' }, 1)]);
     const strip = makeStrip();
 
     await strip.openHistory();
@@ -513,7 +544,9 @@ describe('history popover: open, fetch, render', () => {
   test('a fetch that resolves after close does not resurrect the popover', async () => {
     /** @type {(events: AgentActivityFrame[]) => void} */
     let resolve = () => {};
-    recent.pending = new Promise((r) => { resolve = r; });
+    recent.pending = new Promise((r) => {
+      resolve = r;
+    });
     const strip = makeStrip();
 
     const opening = strip.openHistory();
@@ -527,7 +560,8 @@ describe('history popover: open, fetch, render', () => {
 
   test('rows never exceed HISTORY_LIMIT, however much the server returns', async () => {
     const many = Array.from({ length: HISTORY_LIMIT + 10 }, (_, i) =>
-      pastFrame({ kind: 'channel', detail: `SR01:HCM${i}:SP` }, i));
+      pastFrame({ kind: 'channel', detail: `SR01:HCM${i}:SP` }, i)
+    );
     serveHistory(many);
     const strip = makeStrip();
     await strip.openHistory();
@@ -539,9 +573,7 @@ describe('history popover: open, fetch, render', () => {
 describe('history popover: agent strings are text nodes only', () => {
   test('markup in a history row lands as literal text, no element is created', async () => {
     const payload = '<img src=x onerror=alert(1)>';
-    serveHistory([
-      pastFrame({ kind: 'channel', detail: payload }, 2),
-    ]);
+    serveHistory([pastFrame({ kind: 'channel', detail: payload }, 2)]);
     const strip = makeStrip();
     await strip.openHistory();
 
@@ -552,9 +584,7 @@ describe('history popover: agent strings are text nodes only', () => {
 
 describe('history popover: live frames while open', () => {
   test('a frame arriving while open is prepended above the fetched rows', async () => {
-    serveHistory([
-      pastFrame({ kind: 'run', detail: 'orm-42' }, 60, 'run_plan'),
-    ]);
+    serveHistory([pastFrame({ kind: 'run', detail: 'orm-42' }, 60, 'run_plan')]);
     const strip = makeStrip();
     await strip.openHistory();
     expect(rowTexts().length).toBe(1);
@@ -585,7 +615,9 @@ describe('history popover: live frames while open', () => {
     const strip = makeStrip();
     await strip.openHistory();
 
-    strip.handleActivity(pastFrame({ kind: 'artifact', detail: 'orbit-plot.png' }, 0, 'focus_artifact'));
+    strip.handleActivity(
+      pastFrame({ kind: 'artifact', detail: 'orbit-plot.png' }, 0, 'focus_artifact')
+    );
 
     // Suppression governs the live line only — the strip stays silent...
     expect(mount.querySelectorAll('.activity-strip-entry').length).toBe(0);
@@ -679,9 +711,7 @@ describe('history popover: trigger and close affordances', () => {
   });
 
   test('a click outside closes; a click inside the popover does not', async () => {
-    serveHistory([
-      pastFrame({ kind: 'channel', detail: 'SR01:HCM1:SP' }, 1),
-    ]);
+    serveHistory([pastFrame({ kind: 'channel', detail: 'SR01:HCM1:SP' }, 1)]);
     const strip = makeStrip();
     await strip.openHistory();
 
@@ -737,22 +767,31 @@ describe('empty-strip focusability', () => {
   const OPERATIONS = [
     ['showing a frame', async () => {}],
     // The state a reloaded page starts in: nothing live, history on the server.
-    ['the auto-clear timeout', async () => {
-      await vi.advanceTimersByTimeAsync(ACTIVITY_CLEAR_MS);
-      expect(mount.textContent).toBe('');
-    }],
-    ['an explicit clear()', async (strip) => {
-      strip.clear();
-      await flush();
-    }],
-    ['an open/close over an emptied strip', async (strip) => {
-      await strip.openHistory();
-      await vi.advanceTimersByTimeAsync(ACTIVITY_CLEAR_MS);
-      expect(mount.textContent).toBe('');
-      expect(mount.getAttribute('tabindex')).toBe('0');
-      strip.closeHistory();
-      await flush();
-    }],
+    [
+      'the auto-clear timeout',
+      async () => {
+        await vi.advanceTimersByTimeAsync(ACTIVITY_CLEAR_MS);
+        expect(mount.textContent).toBe('');
+      },
+    ],
+    [
+      'an explicit clear()',
+      async (strip) => {
+        strip.clear();
+        await flush();
+      },
+    ],
+    [
+      'an open/close over an emptied strip',
+      async (strip) => {
+        await strip.openHistory();
+        await vi.advanceTimersByTimeAsync(ACTIVITY_CLEAR_MS);
+        expect(mount.textContent).toBe('');
+        expect(mount.getAttribute('tabindex')).toBe('0');
+        strip.closeHistory();
+        await flush();
+      },
+    ],
   ];
 
   test.each(OPERATIONS)('%s keeps the tab stop', async (_name, operate) => {
@@ -763,5 +802,65 @@ describe('empty-strip focusability', () => {
     await operate(strip);
 
     expect(mount.getAttribute('tabindex')).toBe('0');
+  });
+});
+
+describe('set_workspace rows', () => {
+  /**
+   * A set_workspace row as the panel proxy records it.
+   * @param {object} workspace
+   * @returns {AgentActivityFrame}
+   */
+  const batchFrame = (workspace) =>
+    /** @type {AgentActivityFrame} */ (
+      /** @type {unknown} */ ({
+        type: 'agent_activity',
+        tool: WORKSPACE_TOOL,
+        target: { kind: 'panel', panel: 'canopy', workspace },
+        ts: 1234,
+      })
+    );
+  const commands = [
+    { cmd: 'open', key: 'library/sr-orbit' },
+    { cmd: 'close_others', key: 's:library/sr-orbit' },
+    { cmd: 'close_all' },
+  ];
+  const labelCanopy = (/** @type {string} */ id) => (id === 'canopy' ? 'CANOPY' : id);
+
+  test.each([
+    ['done', undefined, 'done'],
+    ['pending', undefined, 'pending'],
+    ['refused', 'no_window', 'refused: no_window'],
+  ])('a %s batch names its verbs, keys and returned status', (status, reason, shown) => {
+    const workspace = reason ? { commands, status, reason } : { commands, status };
+    expect(formatActivity(batchFrame(workspace), { labelOf: labelCanopy })).toEqual({
+      verb: 'agent sent CANOPY',
+      subject: `open library/sr-orbit, close others s:library/sr-orbit, close all (${shown})`,
+    });
+  });
+
+  test('commands past the listed ones are counted, and an empty batch still reads', () => {
+    expect(
+      formatActivity(batchFrame({ commands: [{ cmd: 'reopen' }], more: 4, status: 'done' })).subject
+    ).toBe('reopen, +4 more (done)');
+    expect(formatActivity(batchFrame({ status: 'error' })).subject).toBe('a batch (error)');
+    expect(formatActivity(batchFrame({})).subject).toBe('a batch (unanswered)');
+  });
+
+  test('without a catalog label the raw panel id is shown', () => {
+    expect(formatActivity(batchFrame({ commands, status: 'done' })).verb).toBe('agent sent canopy');
+  });
+
+  test('agent-chosen keys land as text, never markup', () => {
+    const strip = makeStrip();
+    strip.handleActivity(
+      batchFrame({
+        commands: [{ cmd: 'focus', key: '<img src=x onerror=alert(1)>' }],
+        status: 'done',
+      })
+    );
+
+    expect(mount.querySelector('img')).toBeNull();
+    expect(mount.textContent).toContain('focus <img src=x onerror=alert(1)> (done)');
   });
 });

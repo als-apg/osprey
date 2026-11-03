@@ -66,9 +66,7 @@ describe('initSidebarResize', () => {
 
   test('Arrow keys nudge the width and persist it', () => {
     initSidebarResize();
-    const resizer = /** @type {HTMLElement} */ (
-      document.getElementById('sidebar-resizer')
-    );
+    const resizer = /** @type {HTMLElement} */ (document.getElementById('sidebar-resizer'));
     // happy-dom reports a 0-width rect, so the nudge clamps up to the minimum.
     resizer.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
     const sidebar = document.getElementById('sidebar');

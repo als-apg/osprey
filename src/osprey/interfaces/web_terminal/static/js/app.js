@@ -6,51 +6,44 @@ import {
   pasteToTerminal,
   getCurrentSessionId,
   getTerminalInstance,
-  startExpert,
+  startTerminalSurface,
   stopTerminal,
 } from './terminal.js';
-import { logout } from './logout.js';
+import { confirmSignOut } from './sign-out.js';
 import {
   initPanelManager,
-  broadcastMode,
-  handleUiModeFlip,
   navigateAndActivatePanel,
   getPanelStandaloneUrl,
 } from './panel-manager.js';
 import { wireAgentLinks } from './agent-links.js';
+import { wireArtifactLinks } from './artifact-links.js';
+import { fetchJSON, withPrefix } from './api.js';
 import '/design-system/js/components/osprey-drawer.js';
 import { initSettings } from './settings.js';
 import { initMemoryGallery } from './memory-gallery.js';
 import { initScaffoldGallery } from './scaffold-gallery.js';
 import { initHookDebug } from './hook-debug.js';
+import { initSafetySwitches } from './safety-switches.js';
+import { initCodeReviewTab } from './code-review-tab.js';
 import { initSessionSelector, startNewSession } from './sessions.js';
 import { initCommandPalette } from './palette-boot.js';
-import { initRailMoreMenu } from './rail-more-menu.js';
-import { getFamily, initTheme, subscribe as subscribeTheme } from '/design-system/js/theme-manager.js';
-import { onModeChange } from '/design-system/js/frame-params.js';
-import '/design-system/js/components/osprey-display-menu.js';
-import { initChat, enterFromExpert, renderChatBootFailure } from './chat.js';
-import { initDockWorkspace, applyDockMode } from './dock-workspace.js';
+import { initMoreMenu } from './more-menu.js';
+import { initTheme } from '/design-system/js/theme-manager.js';
+import { isMacPlatform } from '/design-system/js/platform.js';
+import { isTerminalSurface, onSurfaceChange } from './agent-surface.js';
+import { initChat, enterFromTerminal, renderChatBootFailure } from './chat.js';
+import { initDockWorkspace } from './dock-workspace.js';
+import { panelFocusAnchor } from './dock-iframe.js';
 import { initHeaderContrib } from './tile-header-contrib.js';
-import { initIdentityMenu } from './identity-menu.js';
 import { initControlTargetChip } from './control-target-chip.js';
 import { insertPrompt } from './first-contact.js';
 import { initControlTargetPopover } from './control-target-popover.js';
-import { followThemeFamily, getRailPosition, setRailPosition } from './rail-position.js';
 import { initFeedback } from './feedback-boot.js';
-// The bar stack, in the order its own contract requires. bar-host.js hydrates
-// the server-rendered shells SYNCHRONOUSLY at import time (no fetch, no await),
-// and bar-items.js — which imports it — registers the body builder for every
-// non-adopted item; registering fills any already-hydrated shell of that type,
-// so import order between the two cannot leave an item blank. Both are bare
-// imports because their whole contribution is that side effect. What is left
-// for boot to do is the ladder, which needs a laid-out page (see initBars).
-import './bar-items.js';
-import './bar-item-queue.js';
-import './bar-item-health.js';
-import { deploymentContext } from './bar-sync.js';
-import './bar-customize.js';
-import { watchCrowding } from './bar-overflow.js';
+import { initSidebar } from './sidebar.js';
+import { initSidebarTarget } from './sidebar-target.js';
+import { initSidebarArtifacts, teardownSidebarArtifacts } from './sidebar-artifacts.js';
+import { whilePanelServed } from './panel-availability.js';
+import { initTooltips } from '/design-system/js/tooltip.js';
 
 document.addEventListener('DOMContentLoaded', () => {
   initTheme({ role: 'hub' });
@@ -59,14 +52,13 @@ document.addEventListener('DOMContentLoaded', () => {
   // kill the whole boot.
   try {
     initTerminal('terminal-container');
-    // The page opens straight onto the prompt, and nothing else claims focus
-    // at boot — so boot hands it to the terminal.
-    focusTerminal();
+    // A tab that opted into the terminal reopens straight onto its prompt.
+    if (isTerminalSurface()) focusTerminal();
   } catch (err) {
     console.error('Failed to init terminal:', err);
   }
-  // Simple-mode operator chat. Guarded so a chat init failure can't break the
-  // rest of the boot (the expert terminal is already up at this point).
+  // The operator chat. Guarded so a chat init failure can't break the rest of
+  // the boot.
   try {
     initChat('operator-container');
   } catch (err) {
@@ -79,6 +71,23 @@ document.addEventListener('DOMContentLoaded', () => {
   } catch (err) {
     console.error('Failed to init agent answer links:', err);
   }
+  try {
+    initArtifactLinks();
+  } catch (err) {
+    console.error('Failed to init artifact links:', err);
+  }
+  // The sidebar shell — width toggle (Cmd/Ctrl+\), list disclosure, the Agent
+  // row — before the panel manager renders its rows into it.
+  initSidebar();
+  // One tooltip layer for the whole page. A sidebar row whose label shows
+  // needs only its explanation; every other tip carries label and detail.
+  initTooltips(document.body, {
+    mode: (el) =>
+      el.closest('#sidebar') &&
+      document.documentElement.getAttribute('data-sidebar') !== 'collapsed'
+        ? 'detail'
+        : 'label+detail',
+  });
   // Before the panel manager creates any iframe, so no contribution can
   // arrive without a listener.
   initHeaderContrib();
@@ -92,44 +101,56 @@ document.addEventListener('DOMContentLoaded', () => {
   } catch (err) {
     console.error('Failed to init dock workspace:', err);
   }
+  // The sidebar's Artifacts and Script runs lists, while the panel behind them
+  // is served. Their rows are page-owned, so they exist already; the lists
+  // follow every later sidebar render through `osprey-sidebar-rendered`.
+  whilePanelServed('artifacts', initSidebarArtifacts, teardownSidebarArtifacts);
   initKeyboardShortcuts();
   initCommandPalette();
   try {
-    initRailMoreMenu({ getSessionId: getCurrentSessionId });
+    initMoreMenu({ getSessionId: getCurrentSessionId });
   } catch (err) {
-    console.error('Failed to init the rail More menu:', err);
+    console.error('Failed to init the More menu:', err);
   }
   initNewSessionButton();
-  initLogoutButton();
-  initUiModeFollowUps();
-  initDisplayMenu();
-  initIdentityMenu();
-  // The control-target chip: which machine this session stands on, and
-  // whether a write there would land. Mounts itself into `.header-actions`
-  // ahead of the palette trigger and stays hidden until the terminal reports
-  // a session, so boot order only needs the static header markup.
-  // With the picker switched off neither mounts, so no chip lands in the
-  // header-actions fallback and nothing reads the posture route.
-  const controlTargetAvailable = deploymentContext(document).controlTargetAvailable;
-  if (controlTargetAvailable) initControlTargetChip();
-  // Its popover — the roster and every gesture that changes where this session
-  // writes. Mounts under the chip's own positioning context, so it has to
-  // follow the chip's init and no-ops on a page that renders no chip.
-  if (controlTargetAvailable) initControlTargetPopover();
-  // Last of the bar wiring, and deliberately after the chip: the ladder's first
-  // pass MEASURES the bars, and a bar measured before its widest item mounted
-  // would report room it does not have.
-  initBars();
-  initRailPosition();
+  initSignOut();
+  initSurfaceFollowUps();
+  initControlSystemBlock();
   initFeedbackDialog();
   initDrawerTriggerHighlight();
   initSettings();
   initMemoryGallery();
   initScaffoldGallery();
   initHookDebug();
+  initSafetySwitches();
+  initCodeReviewTab();
   // Listen for paste requests from embedded iframes (gallery, ARIEL)
   initIframePasteBridge();
 });
+
+/* ---- Control-system block ---- */
+
+/**
+ * The sidebar's control-system block. The chip — which machine this session
+ * stands on, and whether a write there would land — mounts into
+ * `#sidebar-target` and stays hidden until its first read answers; its
+ * popover, the roster and every gesture that changes where this session
+ * writes, mounts beside it. A deployment without the picker
+ * (`html[data-control-target="off"]`, stamped by the server) mounts neither
+ * and reads nothing from the posture route; the block then shows the health
+ * dot alone. Guarded: a failure here costs the block, not the rest of boot.
+ */
+function initControlSystemBlock() {
+  try {
+    if (document.documentElement.dataset.controlTarget !== 'off') {
+      initControlTargetChip({ host: document.getElementById('sidebar-target') });
+      initControlTargetPopover();
+    }
+    initSidebarTarget();
+  } catch (err) {
+    console.error('Failed to init the control-system block:', err);
+  }
+}
 
 /* ---- New Session Button ---- */
 
@@ -149,115 +170,99 @@ function initNewSessionButton() {
   });
 }
 
-/* ---- Logout Button ---- */
+/* ---- Sign out ---- */
 
 /**
- * Log out renders in TWO places — `#logout-btn` in the header identity chip's
- * menu and `#display-menu-logout-btn` in the display menu's action row — and
- * both are only present in the DOM when the server rendered a non-empty
- * `landing_url` (multi-user deployments). Plain `osprey web` never emits
- * either button, so this is a no-op there. The flow itself is logout.js's,
- * shared with the command palette, which offers Log out with neither button
- * on the page.
+ * Sign out renders in the sidebar footer as `#logout-btn`, present only when
+ * the server rendered a user and a non-empty `landing_url` (multi-user
+ * deployments); the same condition stamps `data-landing-url` on <html>. With
+ * it, the OSPREY mark (`a.sidebar-brand`) opens the same sign-out dialog
+ * instead of following its home link. Plain `osprey web` emits neither, so
+ * this is a no-op there and the mark stays a plain link. The dialog and the
+ * flow are sign-out.js's and logout.js's, shared with the command palette.
  *
  * Exported for testability (see app-logout.test.mjs) — the module's
- * DOMContentLoaded bootstrap never fires the button wiring on its own once
- * that event has already passed, e.g. in a test environment.
+ * DOMContentLoaded bootstrap never fires the wiring on its own once that
+ * event has already passed, e.g. in a test environment.
  */
-export function initLogoutButton() {
-  for (const id of ['logout-btn', 'display-menu-logout-btn']) {
-    const btn = /** @type {HTMLButtonElement|null} */ (document.getElementById(id));
-    if (!btn) continue;
-
-    const landingUrl = btn.dataset.landingUrl;
-    if (!landingUrl) continue;
-
-    btn.addEventListener('click', () => logout(landingUrl, btn));
+export function initSignOut() {
+  const btn = /** @type {HTMLButtonElement|null} */ (document.getElementById('logout-btn'));
+  const rowLanding = btn?.dataset.landingUrl;
+  if (btn && rowLanding) {
+    btn.addEventListener('click', () => confirmSignOut({ landingUrl: rowLanding, button: btn }));
+  }
+  const landingUrl = document.documentElement.dataset.landingUrl;
+  const brand = document.querySelector('a.sidebar-brand');
+  if (brand && landingUrl) {
+    brand.addEventListener('click', (event) => {
+      event.preventDefault();
+      confirmSignOut({ landingUrl });
+    });
   }
 }
 
-/* ---- UI Mode Toggle (Expert / Simple) ---- */
+/* ---- The Agent tile's surface ---- */
 
 /**
- * The hub-only half of an Expert/Simple flip. The View row of the header
- * `<osprey-display-menu>` owns the pick itself — it persists the choice,
- * drops a leftover one-shot ?mode=, and posts the same-origin
- * `osprey-mode-change` message to this window — and frame-params.js's shared
- * receive side stamps html[data-ui-mode] before handing the mode here. What
- * follows is what only the hub has to do with it: broadcast to the panels,
- * the dock and panel follow-ups, then hand the session to the view the
- * operator flipped to. mode-boot.js already resolved the initial mode
- * pre-paint, so this only ever handles the runtime flip.
+ * Hand the session to whichever surface the Agent tile now shows. The tile's ⋯
+ * menu and the hand-off's cancel paths own the change itself (agent-surface.js).
  *
- * Exported for testability (see app-mode-flip.test.mjs) — the module's
+ * Exported for testability (see app-surface-handoff.test.mjs) — the module's
  * DOMContentLoaded bootstrap never fires on its own once that event has
  * already passed, e.g. in a test environment.
  */
-export function initUiModeFollowUps() {
-  onModeChange((mode) => {
-    // Panels read the current mode off <html>, so broadcast only after the
-    // swap (onModeChange stamped it before calling back).
-    broadcastMode();
-    // Dock half of the flip: stash the outgoing view's arrangement, then
-    // restore the target view's own (or build its default). Runs after the
-    // CSS/attribute swap so the dock reads the target mode; no-ops until the
-    // workspace shell exists.
-    applyDockMode(mode);
-    // Panel half: a flip to expert ends the simple-UX chat-only suppression
-    // and lets the default panel claim a still-empty workspace slot. Runs
-    // after applyDockMode so the activation docks into the target layout.
-    handleUiModeFlip(mode);
-    // Session half, last: the target view's layout is on screen by now, so
-    // whichever surface has to show a transitional state is the one the
-    // operator is looking at.
-    handOffSession(mode);
-  });
+export function initSurfaceFollowUps() {
+  onSurfaceChange(handOffSession);
 }
 
 /**
- * The hand-offs of successive flips, chained.
+ * The hand-offs of successive surface changes, chained.
  *
- * Both views are windows onto ONE session key, and the server lets exactly one
- * of them hold it — a second acquire arriving while the first is still pending
- * is refused outright. A flip is one gesture, so an operator who flips twice
- * quickly would produce exactly that. Chaining makes the second flip wait for
- * the first hand-off to settle instead, which is also why the teardown belongs
- * in here: dropping the terminal ahead of the queue would strand a connection
- * a queued flip to Expert is about to open.
+ * Both surfaces are windows onto ONE session key, and the server lets exactly
+ * one of them hold it — a second acquire arriving while the first is still
+ * pending is refused outright. A change is one gesture, so an operator who
+ * changes twice quickly would produce exactly that. Chaining makes the second
+ * change wait for the first hand-off to settle instead, which is also why the
+ * teardown belongs in here: dropping the terminal ahead of the queue would
+ * strand a connection a queued change to the terminal is about to open.
  *
- * The chain covers flips and nothing else. The overlay's own retry and the
- * session picker take the key over through terminal.js directly, so a flip
- * that lands between one of those and its answer is still two acquires; both
- * paths already show the server's refusal where the operator can see it.
+ * The chain covers surface changes and nothing else. The overlay's own retry
+ * and the session picker take the key over through terminal.js directly, so a
+ * change that lands between one of those and its answer is still two acquires;
+ * both paths already show the server's refusal where the operator can see it.
  *
  * @type {Promise<void>}
  */
 let sessionHandoff = Promise.resolve();
 
 /**
- * Move the live agent to *mode*'s view.
+ * Move the live agent to the surface now showing.
  *
- * Flipping to Expert resumes the key the tab is pointed at over the terminal
+ * Opening the terminal resumes the key the tab is pointed at over the terminal
  * socket, which shows its own overlay while the server tears the chat down.
- * Flipping to Simple drops that socket first — the server reads the closed
- * connection as the Expert view letting go — and the console then asks for the
+ * Going back to chat drops that socket first — the server reads the closed
+ * connection as the terminal letting go — and the console then asks for the
  * key and replays the transcript into itself. Neither direction reloads.
  *
- * Every step answers with a promise and every one of them is awaited. A flip
- * queued behind an Expert acquire that is still in flight would otherwise drop
+ * Every step answers with a promise and every one of them is awaited. A change
+ * queued behind a terminal acquire that is still in flight would otherwise drop
  * the socket before the server had seen it open; and the console would ask for
  * the key before the dropped socket's close had reached the server, which
- * reads that close as the Expert view letting go.
+ * reads that close as the terminal letting go.
  *
- * @param {'expert'|'simple'} mode
  * @returns {void}
  */
-function handOffSession(mode) {
+function handOffSession() {
+  const toTerminal = isTerminalSurface();
   sessionHandoff = sessionHandoff
     .then(async () => {
-      if (mode === 'expert') return startExpert();
+      if (toTerminal) {
+        await startTerminalSurface();
+        focusTerminal();
+        return;
+      }
       await stopTerminal();
-      return enterFromExpert();
+      await enterFromTerminal();
     })
     .catch((err) => {
       console.error('Failed to hand the session over:', err);
@@ -265,28 +270,12 @@ function handOffSession(mode) {
 }
 
 /**
- * The hub's glue around the header `<osprey-display-menu>`: its projected
- * Settings row is the one entry that closes the card, because opening the
- * drawer moves the operator to another surface. The component leaves
- * projected children alone by design (the projected Log out must NOT be
- * closed away — see index.html), so the hub asks for the close itself. The
- * open itself stays settings.js's: it binds the same `[data-drawer-trigger]`
- * button behind its first-time warning gate.
- */
-function initDisplayMenu() {
-  const menu = /** @type {any} */ (document.getElementById('display-menu'));
-  const settings = document.getElementById('display-menu-settings');
-  if (!menu || !settings || typeof menu.closeMenu !== 'function') return;
-  settings.addEventListener('click', () => menu.closeMenu());
-}
-
-/**
- * Wire the rail's utility cluster (Documentation + Feedback) and the feedback
- * dialog — see feedback-boot.js, which owns the whole arrangement.
+ * Wire the sidebar footer's Docs and Feedback rows and the feedback dialog —
+ * see feedback-boot.js, which owns the whole arrangement.
  *
  * Returns as soon as the button is live; the deployment's own config arrives
  * over HTTP afterwards and fills itself in. Guarded like the other
- * network-dependent inits above, so a failure costs the two rail controls and
+ * network-dependent inits above, so a failure costs the two footer rows and
  * nothing more.
  *
  * Both terminal dependencies are injected from here rather than imported
@@ -308,30 +297,6 @@ function initFeedbackDialog() {
   }
 }
 
-/**
- * Adopt a one-shot `?rail=` as an explicit choice. rail-boot.js already
- * stamped the attribute pre-paint; re-setting it through setRailPosition
- * persists it and strips the param, so a reload (or a stale bookmark of the
- * bare URL) keeps the arrangement the link put the operator in. No `?rail=`
- * means nothing to adopt — the boot-resolved position already IS the stored
- * or configured one.
- */
-function initRailPosition() {
-  // Follow the theme family for as long as neither the operator nor the
-  // deployment has pinned a rail of their own: picking Retro hands back the
-  // pre-redesign look, and the horizontal tab strip is part of that look.
-  // followThemeFamily() decides whether the move is allowed; this only tells
-  // it which family is now active, on every apply (init included).
-  subscribeTheme(() => followThemeFamily(getFamily()));
-
-  try {
-    if (!new URLSearchParams(window.location.search).has('rail')) return;
-  } catch {
-    return;
-  }
-  setRailPosition(getRailPosition());
-}
-
 /* ---- Drawer Trigger Highlight ---- */
 
 /**
@@ -341,11 +306,10 @@ function initRailPosition() {
  * this via the `drawer:open`/`drawer:close` events the component dispatches
  * (bubbling) on the host, matching any trigger for that drawer id — either
  * the component's own `[data-drawer]` marker, or `[data-drawer-trigger]`,
- * web_terminal's convention for a trigger (like the display menu's System
- * Settings row) that
- * needs its own gating logic before opening and so must never match the
- * component's delegated `[data-drawer]` handler. Either way the highlight
- * stays in sync.
+ * web_terminal's convention for a trigger (like the More menu's Settings
+ * row) that needs its own gating logic before opening and so must never
+ * match the component's delegated `[data-drawer]` handler. Either way the
+ * highlight stays in sync.
  */
 function initDrawerTriggerHighlight() {
   const setActive = (/** @type {boolean} */ active) => (/** @type {Event} */ event) => {
@@ -359,66 +323,96 @@ function initDrawerTriggerHighlight() {
   document.addEventListener('drawer:close', setActive(false));
 }
 
-/* ---- Item bars (header + status) ---- */
-
-/**
- * The last step of standing the two item bars up.
- *
- * This replaces `initStatusBar()`, which wrote the WS dot, the terminal
- * dimensions and the clock into three hardcoded ids. All three are bar ITEMS
- * now (`connection`, `terminal-size`, `clock` in bar-items.js), which is not
- * just a move: each owns its own subscription and hands back a disposer, so an
- * item the operator folds away stops working instead of writing forever into a
- * pooled node. The retired function armed two bare `setInterval`s at boot, kept
- * no handle to either, and \u2014 on any layout that did not render those ids \u2014 ran
- * them against `null` for the life of the page.
- *
- * Everything the bars need at first paint has already happened by the time this
- * runs, at IMPORT time and with no network in the path (see the bar imports at
- * the top of this file). What is left is the overflow ladder, which is the one
- * part that cannot run early: it measures.
- *
- * bar-overflow.js's wiring contract is two calls, and this is the first of
- * them \u2014 `watchCrowding(document)` ONCE, which runs a first pass itself and
- * re-runs it whenever a host changes width. The second, `applyOverflow(document)`
- * after every `reconcile()`, has no site yet: nothing reconciles in this phase,
- * because the layout each deployment gets is the one the server rendered. The
- * saved-layout store that lands next owns its own reconcile and calls
- * `applyOverflow()` there \u2014 a fold decided against the previous layout's widths
- * is a stale fold.
- *
- * Guarded like the other boot steps: a throw here would cost the operator the
- * rail position, the feedback dialog, settings and both galleries, which is a
- * far worse trade than a bar that does not fold.
- */
-function initBars() {
-  try {
-    watchCrowding(document);
-  } catch (err) {
-    console.error('Failed to watch bar crowding:', err);
-  }
-}
-
 /* ---- Iframe Paste Bridge ---- */
 
 /**
- * Route clicks on links in the Simple view's agent answers: a link to a panel
+ * Route clicks on links in the chat's agent answers: a link to a panel
  * this hub hosts opens it in the workspace, any other http(s) link opens in a
  * new tab, and the hub page itself never navigates away. Whether a panel is
  * hosted is read at click time, so a panel whose URL has not resolved opens in
  * a new tab instead.
  *
+ * A loopback link to a panel backend's port (the address the agent's tools
+ * name, e.g. the gallery's `http://127.0.0.1:<port>#focus`) is that panel too.
+ * The ports come from `/api/panels`' `loopback_ports`, read once here; until
+ * they arrive, or if the read fails, such a link opens in a new tab as before.
+ *
  * Exported so the wiring can be driven directly in tests: the bootstrap above
  * runs on DOMContentLoaded, which has already fired by then.
+ *
+ * @returns {Promise<void>} settles once the loopback ports are read (or not)
  */
 export function initAgentLinks() {
   const operatorRoot = document.getElementById('operator-container');
-  if (!operatorRoot) return;
+  if (!operatorRoot) return Promise.resolve();
+  /** @type {ReadonlyMap<string, string>} backend port -> panel id */
+  let loopbackPorts = new Map();
   wireAgentLinks(operatorRoot, {
     prefix: window.__OSPREY_PREFIX__ || '',
     isHostedPanel: (id) => getPanelStandaloneUrl(id) !== null,
+    loopbackPorts: () => loopbackPorts,
     openPanel: navigateAndActivatePanel,
-    openWindow: (url, target, features) => { window.open(url, target, features); },
+    openWindow: (url, target, features) => {
+      window.open(url, target, features);
+    },
+  });
+  return fetchJSON('/api/panels').then(
+    (config) => {
+      /** @type {Record<string, unknown>} */
+      const ports = config?.loopback_ports ?? {};
+      loopbackPorts = new Map(
+        Object.entries(ports)
+          .filter(([, port]) => Number.isInteger(port))
+          .map(([id, port]) => [String(port), id])
+      );
+    },
+    (err) => {
+      console.warn('Agent links: panel ports unavailable:', err);
+    }
+  );
+}
+
+/** The panel that hosts the artifact gallery. */
+const ARTIFACTS_PANEL_ID = 'artifacts';
+
+// A panel handing focus back. The old name is read until canopy-screen-runtime
+// 0.2.0, whose viewers stop sending it.
+const FOCUS_EXIT_TYPES = new Set(['canopy-host-focus-exit', 'osprey-focus-exit']);
+
+/**
+ * Make an artifact id in a chat agent answer show that artifact: the
+ * gallery is asked to focus it through the hub's panel proxy (the request the
+ * agent's `artifact_focus` makes), and the artifacts panel opens once it has.
+ * Focusing first means a gallery that loads only now reads the new focus on
+ * its first `GET /api/focus`.
+ *
+ * Exported so the wiring can be driven directly in tests: the bootstrap above
+ * runs on DOMContentLoaded, which has already fired by then.
+ */
+export function initArtifactLinks() {
+  const operatorRoot = document.getElementById('operator-container');
+  if (!operatorRoot) return;
+  wireArtifactLinks(operatorRoot, {
+    focusArtifact: async (id) => {
+      let res;
+      try {
+        res = await fetch(withPrefix(`/panel/${ARTIFACTS_PANEL_ID}/api/focus`), {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ artifact_id: id }),
+        });
+      } catch {
+        return 'unreachable';
+      }
+      if (!res.ok) {
+        if (res.status === 404) return 'missing';
+        if (res.status === 401) return 'expired';
+        if (res.status === 403) return 'refused';
+        return 'unreachable';
+      }
+      navigateAndActivatePanel(ARTIFACTS_PANEL_ID, '');
+      return 'shown';
+    },
   });
 }
 
@@ -427,8 +421,8 @@ export function initAgentLinks() {
  *
  * A panel cannot type for the operator, so it posts what it has and the hub
  * decides where that lands. `insertPrompt` is the one seam that knows where
- * that is in each view — the terminal in expert, the chat textarea in Simple,
- * which the terminal branch alone would never reach — and it appends here
+ * that is on each surface — the chat textarea, or the terminal when the tab opted
+ * into it — and it appends here
  * rather than replaces: what a panel contributes (the addresses just picked,
  * say) is an ingredient of a prompt the operator may already be writing, and
  * overwriting that would destroy the only copy of it. It is never sent; the
@@ -457,30 +451,60 @@ export function initIframePasteBridge() {
     // whatever scheme it is handed. `javascript:alert(1)` survives it intact
     // and would execute in the HOST origin, and `//evil.example/x` resolves
     // to a cross-origin document — so a leading-slash test alone is a hole.
-    // Every real panel url is root-relative and already server-prefixed.
-    if (e.data && e.data.type === 'osprey:navigate'
-        && typeof e.data.panel === 'string' && typeof e.data.url === 'string'
-        && e.data.url.startsWith('/') && !e.data.url.startsWith('//')) {
+    // Every real panel url is root-relative and already server-prefixed, and
+    // navigateAndActivatePanel then applies the guard's member rule: the url
+    // must stay under that panel's own mount, or nothing moves.
+    if (
+      e.data &&
+      e.data.type === 'osprey:navigate' &&
+      typeof e.data.panel === 'string' &&
+      typeof e.data.url === 'string' &&
+      e.data.url.startsWith('/') &&
+      !e.data.url.startsWith('//')
+    ) {
       navigateAndActivatePanel(e.data.panel, e.data.url);
+    }
+    // A panel handing keyboard focus back: Tab (or Shift+Tab) ran off the end
+    // of its own document, and a frame cannot move focus in its parent. Only
+    // a panel frame may ask — the source check is what keeps any other
+    // same-origin window from steering the operator's focus.
+    if (
+      e.data &&
+      FOCUS_EXIT_TYPES.has(e.data.type) &&
+      (e.data.direction === 'forward' || e.data.direction === 'backward')
+    ) {
+      moveFocusOutOfPanel(e.source, e.data.direction);
     }
     // ARIEL's "Use in Workspace" control asks only to activate the already
     // registered artifact gallery in THIS browser. Unlike the legacy navigate
     // message it carries no URL; bind it to the live ARIEL iframe identity so
     // another same-origin panel cannot activate arbitrary destinations.
-    if (e.data && e.data.type === 'osprey:activate' && e.data.panel === 'artifacts'
-        && panelIdForMessageSource(e.source) === 'ariel') {
+    if (
+      e.data &&
+      e.data.type === 'osprey:activate' &&
+      e.data.panel === 'artifacts' &&
+      panelIdForMessageSource(e.source) === 'ariel'
+    ) {
       navigateAndActivatePanel('artifacts', '');
     }
   });
 
-  // Drop zone: accept dragged artifacts onto the terminal container
+  // Drop zone: accept dragged artifacts onto the terminal container. Only a
+  // drag its source lets be copied is the terminal's; a dock drag (a header
+  // tab, a tile or a sidebar row) allows only a move and belongs to the tile
+  // beneath — pasting its key into the shell would be the wrong answer.
   const termContainer = document.getElementById('terminal-container');
   if (termContainer) {
+    const COPYABLE = new Set(['copy', 'copyLink', 'copyMove', 'all', 'uninitialized']);
+    /** @param {DragEvent} e */
+    const isCopyDrag = (e) => !!e.dataTransfer && COPYABLE.has(e.dataTransfer.effectAllowed);
     termContainer.addEventListener('dragover', (e) => {
+      if (!isCopyDrag(e)) return;
       e.preventDefault();
       /** @type {DataTransfer} */ (e.dataTransfer).dropEffect = 'copy';
     });
     termContainer.addEventListener('drop', (e) => {
+      if (!isCopyDrag(e)) return;
       e.preventDefault();
       const text = /** @type {DataTransfer} */ (e.dataTransfer).getData('text/plain');
       if (text) {
@@ -489,6 +513,58 @@ export function initIframePasteBridge() {
       }
     });
   }
+}
+
+/** What the browser would stop on with Tab, before visibility is checked. */
+const TABBABLE =
+  'a[href], area[href], button, input, select, textarea, iframe, summary, ' +
+  '[tabindex], [contenteditable]:not([contenteditable="false"])';
+
+/**
+ * Whether Tab could land on `el`: focusable, not taken out of the order, not
+ * disabled, and neither it nor an ancestor hidden or inert.
+ * @param {Element} el
+ */
+function isTabbable(el) {
+  const h = /** @type {HTMLElement} */ (el);
+  if (h.tabIndex < 0) return false;
+  if (/** @type {HTMLInputElement} */ (el).disabled) return false;
+  if (el instanceof HTMLInputElement && el.type === 'hidden') return false;
+  if (el.closest('[hidden], [inert], fieldset[disabled]')) return false;
+  for (let n = /** @type {Element | null} */ (el); n; n = n.parentElement) {
+    const cs = getComputedStyle(n);
+    if (cs.display === 'none') return false;
+    if (n === el && cs.visibility === 'hidden') return false;
+  }
+  return true;
+}
+
+/**
+ * Move focus to the host element before (`backward`) or after (`forward`) the
+ * panel whose frame is `source`, in host document order relative to the
+ * panel's place in the dock (see `panelFocusAnchor`). With nothing on that side
+ * focus stays where it is, which is where the panel's own sentinel left it.
+ *
+ * Exported so it can be driven directly in tests.
+ * @param {MessageEventSource | null} source
+ * @param {'forward' | 'backward'} direction
+ * @returns {boolean} whether focus moved
+ */
+export function moveFocusOutOfPanel(source, direction) {
+  const found = panelFocusAnchor(source);
+  if (!found) return false;
+  const { anchor, skip } = found;
+  const candidates = [...document.querySelectorAll(TABBABLE)].filter(
+    (el) => !anchor.contains(el) && !skip(el) && isTabbable(el)
+  );
+  const FOLLOWING = Node.DOCUMENT_POSITION_FOLLOWING;
+  const PRECEDING = Node.DOCUMENT_POSITION_PRECEDING;
+  const before = candidates.filter((el) => anchor.compareDocumentPosition(el) & PRECEDING);
+  const after = candidates.filter((el) => anchor.compareDocumentPosition(el) & FOLLOWING);
+  const target = direction === 'backward' ? before[before.length - 1] : after[0];
+  if (!target) return false;
+  /** @type {HTMLElement} */ (target).focus();
+  return true;
 }
 
 /**
@@ -508,12 +584,22 @@ function panelIdForMessageSource(source) {
 
 /* ---- Keyboard Shortcuts ---- */
 
+/** The Settings row's trigger contract (settings-warning-gate.js binds it). */
+const SETTINGS_TRIGGER = '[data-drawer-trigger="settings-drawer"]';
+
+/**
+ * Cmd+, (macOS) / Ctrl+, opens or closes the settings drawer through the same click the More menu's Settings row takes,
+ * so the warning gate runs exactly as it does there. Cmd/Ctrl+\ (the
+ * sidebar's width) and Cmd/Ctrl+K (the palette) are bound by their own
+ * modules.
+ */
 function initKeyboardShortcuts() {
+  const mac = isMacPlatform();
   document.addEventListener('keydown', (e) => {
-    // Ctrl+` — focus terminal
-    if (e.ctrlKey && e.key === '`') {
-      e.preventDefault();
-      focusTerminal();
-    }
+    if (e.key !== ',' || !(mac ? e.metaKey : e.ctrlKey) || e.altKey || e.shiftKey) return;
+    const trigger = /** @type {HTMLElement | null} */ (document.querySelector(SETTINGS_TRIGGER));
+    if (!trigger) return;
+    e.preventDefault();
+    trigger.click();
   });
 }

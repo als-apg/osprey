@@ -30,7 +30,7 @@ from osprey.cli.main import cli
 from osprey.facility.build import build_facility
 from osprey.facility.errors import KINDS
 from osprey.facility.views import VIEWS, ViewInputs
-from osprey_connectors.workspace import TIERS_DIRNAME
+from osprey.utils.workspace import TIERS_DIRNAME
 from tests._builds import init_project, run_build
 from tests.facility._synthetic_trees import (
     BPM,
@@ -2251,7 +2251,8 @@ CASES: dict[str, tuple[Callable[[], Tree], str]] = {
         (
             "facility: engine-invalid: scenario warm — faults.SR.QF:SP/tilt names no channel and "
             "no pyat variable; fix: name a channel address or a pyat variable "
-            "(<address>/<field>); closest: QF:SP/cal_offset, QF:SP/cal_factor"
+            "(<address>/<field>, or <element>/<field> for an element error); "
+            "closest: QF:SP/cal_offset, QF:SP/cal_factor"
         ),
     ),
     "engine_invalid__scenario_fault_key_nothing_close": (
@@ -2259,7 +2260,7 @@ CASES: dict[str, tuple[Callable[[], Tree], str]] = {
         (
             "facility: engine-invalid: scenario warm — faults.SR.ZZZZ names no channel and "
             "no pyat variable; fix: name a channel address or a pyat variable "
-            "(<address>/<field>)"
+            "(<address>/<field>, or <element>/<field> for an element error)"
         ),
     ),
     "model_conflict__texture": (
@@ -2538,10 +2539,9 @@ CASES: dict[str, tuple[Callable[[], Tree], str]] = {
     "profile_invalid__approval_hook_not_selected": (
         _plain(),
         (
-            "facility: profile-invalid: path approval.enabled — guarded tool `execute` is put "
-            "to a human under `approval.tools.execute` but the profile does not select the "
-            "`approval` hook, so nothing would ask; fix: add `approval` to `hooks:` in "
-            "profile.yml, or set `config: approval.enabled: false`"
+            "facility: profile-invalid: path approval.enabled — governed tool `execute` is put "
+            "to a human by the write switch but the profile does not select the `approval` "
+            "hook, so nothing would ask; fix: add `approval` to `hooks:` in profile.yml"
         ),
     ),
 }
@@ -2646,17 +2646,21 @@ def _drop_approval_hook(repo: Path) -> None:
 def _disable_approval(repo: Path) -> None:
     """Turn approval off, and writes with it: armed writes need the approval hook installed.
 
-    The renders that arm the simulator's writes on their own are disarmed too.
+    The tier renders that allow writes on their own are pinned ``never`` too.
     """
     profile = repo / "profile.yml"
     data = yaml.safe_load(profile.read_text(encoding="utf-8"))
     data.setdefault("config", {})["approval.enabled"] = False
-    data["config"]["control_system.writes_enabled"] = False
+    data["config"]["control_system.writes"] = "never"
     profile.write_text(yaml.safe_dump(data, sort_keys=False), encoding="utf-8")
-    armed = "control_system.connector.virtual_accelerator.writes_enabled: true"
-    for render in sorted((repo / TIERS_DIRNAME).glob("*.yml")):
+    armed = "control_system.writes: allowed"
+    renders = sorted((repo / TIERS_DIRNAME).glob("*.yml"))
+    assert any(armed in render.read_text(encoding="utf-8") for render in renders), (
+        f"fixture precondition: some tier render under {TIERS_DIRNAME}/ allows writes"
+    )
+    for render in renders:
         text = render.read_text(encoding="utf-8")
-        render.write_text(text.replace(armed, armed.replace("true", "false")), encoding="utf-8")
+        render.write_text(text.replace(armed, "control_system.writes: never"), encoding="utf-8")
 
 
 def _select_in_context_unprobed(repo: Path) -> None:
@@ -2761,21 +2765,24 @@ def initialised(tmp_path_factory: pytest.TempPathFactory) -> Path:
 
 
 def _clear_facility_records(facility: Path) -> None:
-    """Remove every entry of ``facility`` except its ``knowledge`` pages."""
+    """Remove the bundled machine from ``facility``, its knowledge pages included.
+
+    A knowledge page links records of the machine it ships with, so it leaves
+    with that machine; a case that tests a page link writes its own page. The
+    ``knowledge`` directory stays, empty: the profile binds it.
+    """
     for entry in facility.iterdir():
-        if entry.name == "knowledge":
-            continue
         if entry.is_dir() and not entry.is_symlink():
             shutil.rmtree(entry)
         else:
             entry.unlink()
+    (facility / "knowledge").mkdir()
 
 
 def _repo(initialised: Path, tmp_path: Path, case: str) -> Path:
-    """A copy of the initialised repo whose facility records are the case's tree.
+    """A copy of the initialised repo whose facility description is the case's tree.
 
-    The ``data/facility/knowledge`` pages are kept. The case's ``project/`` mirror
-    files and profile edit are applied beside it.
+    The case's ``project/`` mirror files and profile edit are applied beside it.
     """
     repo = tmp_path / PROJECT
     shutil.copytree(initialised, repo, symlinks=True)
@@ -2833,7 +2840,7 @@ def test_validate_prints_the_one_line(initialised: Path, tmp_path: Path, case: s
     "edits",
     [
         pytest.param((), id="hook-selected"),
-        pytest.param((_drop_approval_hook, _disable_approval), id="approval-disabled"),
+        pytest.param((_disable_approval,), id="approval-disabled"),
     ],
 )
 def test_an_asking_profile_builds_with_the_hook_or_approval_off(
@@ -2849,6 +2856,25 @@ def test_an_asking_profile_builds_with_the_hook_or_approval_off(
     result = run_build(repo)
 
     assert result.exit_code == 0, result.output
+
+
+@pytest.mark.slow
+def test_approval_off_does_not_excuse_a_missing_hook_for_a_governed_tool(
+    initialised: Path, tmp_path: Path
+) -> None:
+    """``approval.enabled: false`` has no say over a governed tool: the write
+    switch still puts it to a human, so the build stops without the hook."""
+    repo = tmp_path / PROJECT
+    shutil.copytree(initialised, repo, symlinks=True)
+    _clear_facility_records(repo / "data" / "facility")
+    write_tree(repo / "data" / "facility", plain_tree())
+    _drop_approval_hook(repo)
+    _disable_approval(repo)
+
+    result = run_build(repo)
+
+    assert result.exit_code == 1, result.output
+    assert result.stderr.splitlines()[-1] == CASES["profile_invalid__approval_hook_not_selected"][1]
 
 
 @pytest.mark.slow

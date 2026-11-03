@@ -63,7 +63,11 @@ that re-add it are
 :func:`osprey.interfaces.web_terminal.operator_session.build_operator_child_env`
 (the SDK operator and chat sessions) and :func:`osprey.cli.chat_cmd.chat`
 (``osprey chat``). Each takes the value from the credential holder, never from
-``os.environ``. The operator secret is re-added by nothing, anywhere.
+``os.environ``, and adds it through :func:`add_panel_token`, which denies it to
+the agent's shell commands: Claude Code sources :data:`SHELL_ENV_FILE` before
+every Bash and Monitor command, and that script unsets the token. Only the MCP
+client and the hooks, which Claude Code starts itself, see it. The operator
+secret is re-added by nothing, anywhere.
 
 One consequence of the ``*_LAUNCH_TOKEN`` strip is deliberate and worth stating
 plainly rather than discovering as a bug report: **on the two real-child paths
@@ -91,7 +95,7 @@ from pathlib import Path
 from types import MappingProxyType
 
 from osprey.build.claude_code_telemetry import TELEMETRY_ENV_VARS
-from osprey.utils.sensitive_env import strip_sensitive
+from osprey.utils.sensitive_env import PANEL_TOKEN_ENV, strip_sensitive
 from osprey.utils.shell_resolver import user_bin_dirs
 
 _STRIP_PREFIXES = ("CLAUDECODE", "CLAUDE_CODE_")
@@ -118,14 +122,40 @@ _TELEMETRY_SWITCHES: frozenset[str] = frozenset(
 TASK_TOOLS_ENV: Mapping[str, str] = MappingProxyType({"CLAUDE_CODE_ENABLE_TODO_TOOLS": "1"})
 
 
+#: The variable Claude Code reads for a script to source before every Bash and
+#: Monitor command it runs.
+SHELL_ENV_FILE_VAR = "CLAUDE_ENV_FILE"
+
+#: The script an agent child's shell commands are started under: it unsets the
+#: panel token (see :func:`add_panel_token`).
+SHELL_ENV_FILE: Path = Path(__file__).with_name("agent_shell_env.sh")
+
+
+def add_panel_token(env: dict[str, str], token: str) -> None:
+    """Give an agent child the panel token in *env*, and deny it to its shell commands.
+
+    Sets ``OSPREY_PANEL_TOKEN`` for the MCP client's header expansion and the
+    hooks, and points :data:`SHELL_ENV_FILE_VAR` at :data:`SHELL_ENV_FILE`, so a
+    Bash or Monitor command the agent runs starts without it and cannot call a
+    panel-tier route, the dispatcher wire or a panel's MCP transport around the
+    approval prompt. The agent's own process still holds the value.
+
+    Args:
+        env: The child environment, changed in place.
+        token: The panel token, from the credential holder.
+    """
+    env[PANEL_TOKEN_ENV] = token
+    env[SHELL_ENV_FILE_VAR] = str(SHELL_ENV_FILE)
+
+
 def strip_claude_code_env(env: dict[str, str]) -> dict[str, str]:
     """Return a copy of ``env`` without Claude Code internal session variables.
 
     Strips every key beginning with ``CLAUDECODE`` or ``CLAUDE_CODE_`` (nesting
     detection, entrypoint tracking, beta flags) so a nested launch does not
     inherit the parent session's markers. The telemetry switches (every
-    ``CLAUDE_CODE_*`` member of ``TELEMETRY_ENV_VARS``: the master switch, the
-    tracing switch and the content limit) are preserved so telemetry survives on
+    ``CLAUDE_CODE_*`` member of ``TELEMETRY_ENV_VARS``: the master switch and
+    the tracing switch) are preserved so telemetry survives on
     both the operator and PTY paths. ``OTEL_*`` keys do not carry the stripped
     prefix and therefore pass through untouched.
 

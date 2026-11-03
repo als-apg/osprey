@@ -25,6 +25,9 @@ from osprey_connectors.control_system._tango_connector import (
     _quality_fields,
     _split_address,
 )
+from osprey_connectors.errors import ChannelUnreachableError, ConnectorUnavailableError
+from osprey_connectors_tests._write_fakes import arm_switch
+from osprey_connectors_tests._write_fakes import writes_enabled_config as _writes_enabled
 
 # --------------------------------------------------------------------------------------
 # Helpers to build mock PyTango objects
@@ -43,6 +46,17 @@ _ADDRESS = "sr/power_supply/ps01/Current"
 #: only when the call it guards ran somewhere it should not have, so a broken
 #: offload fails an assertion instead of hanging the suite.
 _OFFLOAD_CEILING_S = 5.0
+
+
+@pytest.fixture(autouse=True)
+def _switch_on(monkeypatch, tmp_path):
+    """The login's switch on for the simulator target, connectors stamped with it.
+
+    With :func:`writes_enabled_config` serving a write tier that allows, that is
+    everything the reference monitor's verdict asks before a write reaches the
+    transport; a test that disarms serves a tier that does not.
+    """
+    return arm_switch(monkeypatch, tmp_path / "armed-data")
 
 
 class _Quality:
@@ -106,12 +120,6 @@ def _make_limits_validator(confirm=True):
     validator.validate.return_value = None
     validator.resolve_confirm.return_value = confirm
     return validator
-
-
-def _writes_enabled(key, default=None):
-    if key == "control_system.writes_enabled":
-        return True
-    return default
 
 
 @pytest.fixture
@@ -225,7 +233,7 @@ class TestConnect:
             from osprey_connectors.control_system._tango_connector import TangoConnector
 
             conn = TangoConnector()
-            with pytest.raises(ConnectionError, match="TANGO database"):
+            with pytest.raises(ConnectorUnavailableError, match="TANGO database"):
                 await conn.connect({})
 
     async def test_explicit_tango_host_reaches_that_database(self):
@@ -279,8 +287,41 @@ class TestConnect:
             proxy.set_timeout_millis.assert_called_once_with(2500)
             await conn.disconnect()
 
-    @pytest.mark.parametrize("bad", [0, -1, "five", True, float("nan"), float("inf")])
-    async def test_a_timeout_s_that_is_not_a_positive_number_is_refused(self, bad):
+    @pytest.mark.parametrize(
+        ("config", "match"),
+        [
+            pytest.param(
+                {"timeout_s": 0}, "control_system.connector.tango.timeout_s", id="timeout-s-zero"
+            ),
+            pytest.param(
+                {"timeout_s": -1},
+                "control_system.connector.tango.timeout_s",
+                id="timeout-s-negative",
+            ),
+            pytest.param(
+                {"timeout_s": "five"},
+                "control_system.connector.tango.timeout_s",
+                id="timeout-s-string",
+            ),
+            pytest.param(
+                {"timeout_s": True},
+                "control_system.connector.tango.timeout_s",
+                id="timeout-s-bool",
+            ),
+            pytest.param(
+                {"timeout_s": float("nan")},
+                "control_system.connector.tango.timeout_s",
+                id="timeout-s-nan",
+            ),
+            pytest.param(
+                {"timeout_s": float("inf")},
+                "control_system.connector.tango.timeout_s",
+                id="timeout-s-inf",
+            ),
+            pytest.param({"timeout": 0.2}, "renamed to timeout_s", id="the-old-timeout-key"),
+        ],
+    )
+    async def test_a_timeout_setting_that_cannot_be_used_is_refused(self, config, match):
         mock_tango = _make_tango()
         with (
             patch.dict(sys.modules, {"tango": mock_tango}),
@@ -291,25 +332,8 @@ class TestConnect:
             from osprey_connectors.control_system._tango_connector import TangoConnector
 
             conn = TangoConnector()
-            with pytest.raises(ValueError, match="control_system.connector.tango.timeout_s"):
-                await conn.connect({"timeout_s": bad})
-
-        assert conn._connected is False
-        mock_tango.Database.assert_not_called()
-
-    async def test_the_old_timeout_key_is_refused(self):
-        mock_tango = _make_tango()
-        with (
-            patch.dict(sys.modules, {"tango": mock_tango}),
-            patch(_LIMITS_PATCH, return_value=None),
-            patch(_TZ_PATCH, return_value=UTC),
-            patch("osprey_connectors.config.get_config_value", return_value=False),
-        ):
-            from osprey_connectors.control_system._tango_connector import TangoConnector
-
-            conn = TangoConnector()
-            with pytest.raises(ValueError, match="renamed to timeout_s"):
-                await conn.connect({"timeout": 0.2})
+            with pytest.raises(ValueError, match=match):
+                await conn.connect(config)
 
         assert conn._connected is False
         mock_tango.Database.assert_not_called()
@@ -391,11 +415,12 @@ class TestReadChannel:
         await conn.read_channel("sr/power_supply/ps01/Voltage")
         assert list(conn._proxies) == ["sr/power_supply/ps01"]
 
-    async def test_a_device_failure_on_read_is_a_connection_error(self, connector):
+    async def test_a_device_failure_on_read_is_an_unreachable_channel(self, connector):
         conn, proxy = connector
         proxy.read_attribute.side_effect = RuntimeError("device down")
-        with pytest.raises(ConnectionError, match="device down") as raised:
+        with pytest.raises(ChannelUnreachableError, match="device down") as raised:
             await conn.read_channel(_ADDRESS)
+        assert raised.value.channel_address == _ADDRESS
         assert _ADDRESS in str(raised.value)
         assert isinstance(raised.value.__cause__, RuntimeError)
 
@@ -816,15 +841,15 @@ class TestUnreachableDevice:
 
     Creating a proxy is itself a database round trip, so a device that is
     down, or a name no database knows, fails there rather than at the read
-    or the write. A read reports that as a connection error naming the
+    or the write. A read reports that as an unreachable channel naming the
     attribute and keeps PyTango's own error as its cause; a write turns it
     into the word the write contract owns.
     """
 
-    async def test_a_proxy_that_cannot_be_built_is_a_connection_error(self, connector):
+    async def test_a_proxy_that_cannot_be_built_is_an_unreachable_channel(self, connector):
         conn, _ = connector
         conn._tango.DeviceProxy.side_effect = RuntimeError("device is not exported")
-        with pytest.raises(ConnectionError, match="not exported"):
+        with pytest.raises(ChannelUnreachableError, match="not exported"):
             await conn.read_channel(_ADDRESS)
 
     async def test_a_proxy_that_could_not_be_built_is_not_cached(self, connector):
@@ -832,7 +857,7 @@ class TestUnreachableDevice:
         conn, proxy = connector
         conn._tango.DeviceProxy.side_effect = [RuntimeError("device is not exported"), proxy]
 
-        with pytest.raises(ConnectionError):
+        with pytest.raises(ChannelUnreachableError):
             await conn.read_channel(_ADDRESS)
         assert not conn._proxies
 

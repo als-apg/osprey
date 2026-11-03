@@ -23,12 +23,12 @@ from __future__ import annotations
 import asyncio
 import base64
 import logging
-from typing import Any
 
 import pytest
 
-from osprey.agent_runner import ResultEvent, TextEvent
+from osprey.agent_runner import TextEvent
 from osprey.mcp_server.dispatch_worker import sdk_runner
+from tests.dispatch_worker._runner import result_event, stub_osprey_helpers
 
 PNG_BYTES = b"\x89PNG\r\n\x1a\n" + b"solid-red-square-body" * 8
 PNG_B64 = base64.b64encode(PNG_BYTES).decode("ascii")
@@ -37,35 +37,7 @@ PNG_B64 = base64.b64encode(PNG_BYTES).decode("ascii")
 @pytest.fixture(autouse=True)
 def _stub_osprey_helpers(monkeypatch):
     """Stub the deferred OSPREY helper imports so run_dispatch can be driven."""
-    monkeypatch.setattr(
-        "osprey.agent_runner.clean_env.build_clean_env",
-        lambda **kw: {},
-    )
-    monkeypatch.setattr(
-        "osprey.agent_runner.sdk_context.build_system_prompt",
-        lambda *a, **k: "system",
-    )
-    monkeypatch.setattr(
-        "osprey_connectors.config.get_facility_timezone",
-        lambda *a, **k: "UTC",
-    )
-
-
-def _result(**overrides: Any) -> ResultEvent:
-    """A successful result record; any field can be overridden."""
-    fields: dict[str, Any] = {
-        "subtype": "success",
-        "is_error": False,
-        "num_turns": 1,
-        "duration_ms": 0,
-        "session_id": "s",
-        "total_cost_usd": 0.1,
-        "usage": None,
-        "result": None,
-        "api_error_status": None,
-    }
-    fields.update(overrides)
-    return ResultEvent(**fields)
+    stub_osprey_helpers(monkeypatch)
 
 
 async def _capture_user_content(monkeypatch, prompt: str, seam: list[dict], run_id: str = "run-1"):
@@ -78,7 +50,7 @@ async def _capture_user_content(monkeypatch, prompt: str, seam: list[dict], run_
     async def fake_stream(project_dir, prompt, **_kw):  # noqa: ARG001 - matches the stream_query signature
         captured["content"] = prompt
         yield TextEvent(text="ok", parent_tool_use_id=None)
-        yield _result()
+        yield result_event()
 
     monkeypatch.setattr(sdk_runner, "stream_query", fake_stream)
     await sdk_runner.run_dispatch(prompt, ["Read"], event_queue=asyncio.Queue(), run_id=run_id)
@@ -294,7 +266,7 @@ def test_prompt_stream_no_run_id_leaves_content_plain(monkeypatch):
     async def fake_stream(project_dir, prompt, **_kw):  # noqa: ARG001 - matches the stream_query signature
         captured["content"] = prompt
         yield TextEvent(text="ok", parent_tool_use_id=None)
-        yield _result()
+        yield result_event()
 
     monkeypatch.setattr(sdk_runner, "stream_query", fake_stream)
     asyncio.run(sdk_runner.run_dispatch("plain prompt", ["Read"], event_queue=asyncio.Queue()))

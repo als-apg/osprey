@@ -113,8 +113,8 @@ The ten skills
        commits, push, PR, CI iteration. Detects whether you have push access
        or work from a fork.
    * - ``/osprey:pre-commit``
-     - Runs the three-tier check scripts --- quick, ci, premerge --- at the
-       gate that matches what you are about to do.
+     - Runs the check command's tiers --- quick, full, quick scoped to the
+       diff --- at the gate that matches what you are about to do.
    * - ``/osprey:release``
      - Walks a maintainer through a CalVer release: the release-notes PR, the
        tag, and verifying the automated PyPI publish.

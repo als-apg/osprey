@@ -20,7 +20,7 @@ from osprey.interfaces.ariel.api import routes
 from osprey.interfaces.ariel.app import REMEDY_NO_CONFIG_FILE
 from osprey.services.ariel_search.capabilities import attachments_capability
 from osprey.services.ariel_search.config import ARIELConfig
-from osprey.services.ariel_search.exceptions import VocabularyError
+from osprey.services.ariel_search.exceptions import ConfigurationError, VocabularyError
 from osprey.services.ariel_search.search.base import SearchToolDescriptor
 
 VOCABULARY_ERROR = "ariel.vocabulary.path: /x/vocabulary.yml — file not found"
@@ -242,8 +242,42 @@ def test_search_maps_vocabulary_error_to_503_naming_key_and_remedy():
 
     assert response.status_code == 503
     detail = response.json()["detail"]
-    assert "ariel.vocabulary.path" in detail
-    assert VocabularyError.remedy in detail
+    assert detail == f"{VOCABULARY_ERROR}. {VocabularyError.remedy}"
+    assert detail.count("ariel.vocabulary.path:") == 1
+
+
+def test_search_maps_missing_embedding_table_to_503_naming_key_and_fix():
+    """A configuration the host contradicts answers 503 with the key and the fix."""
+    refusal = ConfigurationError(
+        "search_modules.semantic.model: semantic search is enabled for model 'm', but this "
+        "database has no embedding table for it ('text_embeddings_m')",
+        config_key="search_modules.semantic.model",
+        remedy="Run `osprey ariel quickstart` or set search_modules.semantic.enabled: false",
+    )
+    app = _make_app(ariel_service=_make_service(search_error=refusal))
+    client = TestClient(app)
+
+    response = client.post("/api/search", json={"query": "ts bpm", "mode": "keyword"})
+
+    assert response.status_code == 503
+    detail = response.json()["detail"]
+    assert detail == f"{refusal.message}. {refusal.remedy}"
+    assert detail.count("search_modules.semantic.model") == 1
+
+
+def test_search_maps_a_refusal_without_a_remedy_to_its_message():
+    """A configuration refusal that names no fix answers 503 with its message alone."""
+    refusal = ConfigurationError(
+        "search_modules.semantic.model: semantic search is enabled for model 'm', but this "
+        "database has no embedding table for it ('text_embeddings_m')",
+        config_key="search_modules.semantic.model",
+    )
+    app = _make_app(ariel_service=_make_service(search_error=refusal))
+
+    response = TestClient(app).post("/api/search", json={"query": "ts bpm", "mode": "keyword"})
+
+    assert response.status_code == 503
+    assert response.json()["detail"] == refusal.message
 
 
 def test_entries_and_status_stay_200_while_search_is_degraded():

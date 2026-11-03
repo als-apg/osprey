@@ -70,6 +70,7 @@ from osprey_connectors.archiver._timerange import (
 )
 from osprey_connectors.config import get_facility_timezone
 from osprey_connectors.connection import read_connection_settings
+from osprey_connectors.errors import ConnectorUnavailableError
 from osprey_connectors.logger import get_logger
 
 logger = get_logger("mya_archiver_connector")
@@ -165,7 +166,7 @@ class MYAArchiverConnector(ArchiverConnector):
         Raises:
             ValueError: If the block names ``auth``, ``tls`` or a flat ``timeout``.
             ImportError: If ``jlab_archiver_client`` is not installed.
-            ConnectionError: If the client cannot be initialized.
+            ConnectorUnavailableError: If the client cannot be initialized.
         """
         connection = read_connection_settings(
             config,
@@ -209,7 +210,9 @@ class MYAArchiverConnector(ArchiverConnector):
                 "channel": f"{base}{settings.channel_path}",
             }
         except Exception as e:
-            raise ConnectionError(f"MYA archiver client initialization failed: {e}") from e
+            raise ConnectorUnavailableError(
+                f"MYA archiver client initialization failed: {e}"
+            ) from e
 
         self._deployment = config.get("deployment") or _DEFAULT_DEPLOYMENT
         self._timeout = connection.timeout_or(_DEFAULT_TIMEOUT_S)
@@ -261,7 +264,7 @@ class MYAArchiverConnector(ArchiverConnector):
             RuntimeError: If the archiver is not connected, or the client
                 library is too old to honour ``unix_timestamps_ms``.
             TimeoutError: If the request times out.
-            ConnectionError: If myquery cannot be reached.
+            ConnectorUnavailableError: If myquery cannot be reached.
             ValueError: If the time range or processing mode is invalid, or a
                 non-raw mode is asked of a non-numeric channel.
         """
@@ -310,12 +313,14 @@ class MYAArchiverConnector(ArchiverConnector):
         except TimeoutError as e:
             raise TimeoutError(f"MYA archiver request timed out after {timeout}s") from e
         except ConnectionRefusedError as e:
-            raise ConnectionError(
+            raise ConnectorUnavailableError(
                 "Cannot connect to the MYA archiver. Check connectivity and configuration."
             ) from e
         except Exception as e:
             if "connection" in str(e).lower():
-                raise ConnectionError(f"Network issue reaching the MYA archiver: {e}") from e
+                raise ConnectorUnavailableError(
+                    f"Network issue reaching the MYA archiver: {e}"
+                ) from e
             raise
 
     def _server_local(self, moment: datetime) -> datetime:

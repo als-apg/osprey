@@ -11,6 +11,8 @@ from __future__ import annotations
 
 import json
 import math
+import sys
+from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -26,19 +28,26 @@ from osprey_connectors.simulation import pulse
 from osprey_connectors.simulation.archive import (
     DATE_FIELD,
     SeedKnobs,
+    _synthesize_documents,
     build,
     seed_base,
-    synthesize_documents,
 )
 from osprey_connectors.simulation.composite import Composite
 from osprey_connectors.simulation.state import write_active_state
 from osprey_connectors.simulation.view import SimulatorView
-from osprey_connectors.standin import archive_belongs_to_standin
 from osprey_connectors.workspace import resolve_simulation_state_dir
+from tests._archive_composites import archives_closed
 from tests._simulator_view import write_texture_view
 
 if TYPE_CHECKING:
     from tests._builds import BuiltProject
+
+
+@pytest.fixture(autouse=True)
+def _close_archives(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+    with archives_closed(monkeypatch, sys.modules[__name__]):
+        yield
+
 
 T0 = datetime(2026, 3, 14, 9, 26, 53, tzinfo=UTC)
 
@@ -106,6 +115,34 @@ def demo_render(built_control_assistant: BuiltProject, tmp_path: Path) -> Path:
 
 
 @pytest.mark.slow
+def test_a_seeded_monitor_sample_is_the_reading_the_simulator_serves(
+    demo_render: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """With no scenario active, a seeded monitor sample is the served reading.
+
+    A physics monitor reads the orbit its model solves, with its motion on top.
+    Its seeded history sits on that same orbit, so a seeded sample and a
+    recorded one at the same instant are the same number and a trend across
+    the seam between them shows no step.
+    """
+    monkeypatch.setattr(composite_module, "default_config_path", lambda: None)
+    _activate(demo_render, {}, [], T0)
+    view = demo_render / "build" / "data" / "simulator"
+    state = resolve_simulation_state_dir({}, demo_render)
+    instants = T0.timestamp() - 3600.0 * np.arange(6, 0, -1)
+
+    archive = container_lifecycle._archiver_seed_inputs({}, demo_render)
+    documents = _synthesize_documents(archive, instants)
+
+    for document, instant in zip(documents, instants, strict=True):
+        served = Composite(view, state_dir=state, clock=lambda t=instant: t, model_log=False)
+        for plane in (BPM_X, BPM_Y):
+            assert document[plane] == served.get(plane)
+    # Not trivially equal: the readings move between the instants.
+    assert len({document[BPM_X] for document in documents}) > 1
+
+
+@pytest.mark.slow
 def test_a_seeded_monitor_sample_under_a_readout_fault_is_the_served_reading(
     demo_render: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -116,7 +153,7 @@ def test_a_seeded_monitor_sample_under_a_readout_fault_is_the_served_reading(
     instant = T0.timestamp() - 600.0
 
     archive = container_lifecycle._archiver_seed_inputs({}, demo_render)
-    (document,) = synthesize_documents(archive, np.asarray([instant]))
+    (document,) = _synthesize_documents(archive, np.asarray([instant]))
     served = Composite(view, state_dir=state, clock=lambda: instant, model_log=False)
     nominal = Composite(view, clock=lambda: instant, model_log=False)
 
@@ -134,13 +171,12 @@ def test_a_stand_in_deployment_seeds_the_history_a_sandbox_seeds(
         "services": {"live_standin": {"port": 5064}},
         "deployed_services": ["archiver_recorder"],
     }
-    assert archive_belongs_to_standin(standin)
     times = np.arange(T0.timestamp() - 300.0, T0.timestamp(), 10.0)
 
-    with_standin = synthesize_documents(
+    with_standin = _synthesize_documents(
         container_lifecycle._archiver_seed_inputs(standin, demo_render), times
     )
-    without = synthesize_documents(
+    without = _synthesize_documents(
         container_lifecycle._archiver_seed_inputs({}, demo_render), times
     )
 

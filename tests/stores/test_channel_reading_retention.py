@@ -29,20 +29,6 @@ OTHER_CHANNEL = "SIM:CAM2:ArrayData"
 
 
 @pytest.fixture
-def store(tmp_path, monkeypatch) -> ArtifactStore:
-    """An ArtifactStore with a real repo root, so ``data_file`` anchors resolve."""
-    repo_root = tmp_path / "repo"
-    (repo_root / "build").mkdir(parents=True)
-    config_path = repo_root / "build" / "config.yml"
-    config_path.write_text(
-        f"project_root: {repo_root}\nagent_data:\n  base_dir: state/agent\n",
-    )
-    monkeypatch.setenv("OSPREY_CONFIG", str(config_path))
-    monkeypatch.chdir(repo_root)
-    return ArtifactStore(workspace_root=repo_root / "state" / "agent")
-
-
-@pytest.fixture
 def delete_events():
     """Capture (entry, actor) for every delete listener call, then unregister."""
     events: list[tuple[str, str]] = []
@@ -86,16 +72,19 @@ class TestWindow:
         assert [e.id for e in pruned] == [entries[0].id, entries[1].id]
         assert _ids(store) == [e.id for e in entries[2:]]
 
-    def test_window_not_yet_full_is_a_no_op(self, store):
-        entries = [_save(store) for _ in range(2)]
+    @pytest.mark.parametrize(
+        ("saved", "keep"),
+        [
+            pytest.param(2, 3, id="window-not-yet-full"),
+            pytest.param(3, 3, id="exactly-at-the-window"),
+            # 0 means unlimited retention, not 'delete everything'.
+            pytest.param(4, 0, id="keep-zero"),
+        ],
+    )
+    def test_a_window_that_holds_every_reading_is_a_no_op(self, store, saved, keep):
+        entries = [_save(store) for _ in range(saved)]
 
-        assert store.prune_channel_readings(CHANNEL, keep=3) == []
-        assert _ids(store) == [e.id for e in entries]
-
-    def test_exactly_at_the_window_is_a_no_op(self, store):
-        entries = [_save(store) for _ in range(3)]
-
-        assert store.prune_channel_readings(CHANNEL, keep=3) == []
+        assert store.prune_channel_readings(CHANNEL, keep=keep) == []
         assert _ids(store) == [e.id for e in entries]
 
     def test_repeated_saves_hold_the_window(self, store):
@@ -107,13 +96,6 @@ class TestWindow:
             store.prune_channel_readings(CHANNEL, keep=2)
             kept = kept[-2:]
             assert _ids(store) == kept
-
-    def test_keep_zero_keeps_everything(self, store):
-        """0 means unlimited retention, not 'delete everything'."""
-        entries = [_save(store) for _ in range(4)]
-
-        assert store.prune_channel_readings(CHANNEL, keep=0) == []
-        assert _ids(store) == [e.id for e in entries]
 
     def test_negative_keep_keeps_everything(self, store):
         entries = [_save(store) for _ in range(4)]

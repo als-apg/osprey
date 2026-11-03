@@ -45,7 +45,7 @@ without it.
 
 **A failed child.** A child whose engine raises while it is built or read is
 failed, with the engine's error text as its status (``ok`` otherwise), capped
-at :data:`STATUS_MAX_BYTES` UTF-8 bytes. It holds the inputs written to it and
+at :data:`_STATUS_MAX_BYTES` UTF-8 bytes. It holds the inputs written to it and
 never raises: its setpoints read those inputs, its float outputs NaN, any other
 output its last good value or its type's zero, and
 :meth:`Composite.output_severity` names each of its channels. A refused write
@@ -63,7 +63,7 @@ scenarios.
 
 **The model log.** Each physics child appends JSON lines ``{instance, pid,
 ...}`` to ``var/simulator/<model>.log`` under the repo root of the loaded
-config, one ``os.write`` per record of under :data:`LOG_RECORD_MAX_BYTES`
+config, one ``os.write`` per record of under :data:`_LOG_RECORD_MAX_BYTES`
 bytes. Without a loaded config the records go to the process logger only.
 """
 
@@ -110,13 +110,10 @@ from osprey_connectors.workspace import SIMULATOR_LOG_DIR_RELPATH, repo_root_for
 __all__ = [
     "ENGINE_GROUP",
     "INSTANCES",
-    "LOG_RECORD_MAX_BYTES",
-    "STATUS_MAX_BYTES",
     "STATUS_OK",
     "UDF",
     "Composite",
     "WriteRefusedError",
-    "cap_status",
     "log_dir",
 ]
 
@@ -132,10 +129,10 @@ INSTANCES = ("virtual_accelerator", "live_standin", "inprocess")
 STATUS_OK = "ok"
 
 #: The longest status text, in UTF-8 bytes.
-STATUS_MAX_BYTES = 1023
+_STATUS_MAX_BYTES = 1023
 
 #: Every model log record, newline included, is shorter than this many bytes.
-LOG_RECORD_MAX_BYTES = 4096
+_LOG_RECORD_MAX_BYTES = 4096
 
 #: The condition :meth:`Composite.output_severity` names for a failed child's channel.
 UDF = "udf"
@@ -149,7 +146,7 @@ _LOG_MODE = 0o664
 _MS_PER_S = 1000.0
 
 
-def cap_status(text: str, max_bytes: int = STATUS_MAX_BYTES) -> str:
+def _cap_status(text: str, max_bytes: int = _STATUS_MAX_BYTES) -> str:
     """``text`` cut to at most ``max_bytes`` UTF-8 bytes, ending in ``…`` when cut.
 
     Args:
@@ -230,6 +227,9 @@ class _Child:
     inputs: dict[str, Any] = field(default_factory=dict)
     last_good: dict[str, Any] = field(default_factory=dict)
     starts: dict[str, Any] = field(default_factory=dict)
+    #: The active scenarios that fault this child or override one of its
+    #: setpoints, in activation order.
+    scenarios: tuple[str, ...] = ()
 
 
 class Composite(LUMEModel):
@@ -409,13 +409,20 @@ class Composite(LUMEModel):
         self._log(child.name, {"event": "built", "status": STATUS_OK})
 
     def _fail(self, child: _Child, exc: BaseException) -> None:
-        """Mark a child failed with the text its engine gives for ``exc``."""
+        """Mark a child failed with the text its engine gives for ``exc``.
+
+        A child some active scenario faults or overrides names those
+        scenarios first, so a seed with no solve says which scenario seeded it.
+        """
         error_text = getattr(child.engine, "error_text", None)
         text = error_text(exc) if callable(error_text) else ""
         if not text:
             text = str(exc) or type(exc).__name__
+        if child.scenarios:
+            plural = "s" if len(child.scenarios) > 1 else ""
+            text = f"scenario{plural} {', '.join(child.scenarios)}: {text}"
         child.model = None
-        child.status = cap_status(text)
+        child.status = _cap_status(text)
         self._log(child.name, {"event": "failed", "error": text})
 
     # -- the active scenarios ------------------------------------------------
@@ -465,12 +472,16 @@ class Composite(LUMEModel):
         still: set[str] = set()
         still_all = False
         channel_faults: dict[str, str] = {}
+        faulted_by: dict[str, set[str]] = {}
+        overridden_by: dict[str, set[str]] = {}
         for name in active:
             scenario = self._scenarios.get(name, {})
             overrides.update(scenario.get("overrides") or {})
+            overridden_by[str(name)] = {str(a) for a in scenario.get("overrides") or {}}
             for model, fault in (scenario.get("faults") or {}).items():
                 if not fault.get("inactive"):
                     faults.setdefault(str(model), {}).update(fault.get("writes") or {})
+                    faulted_by.setdefault(str(model), set()).add(str(name))
             drivers.update(scenario.get("drivers") or {})
             for address, terms in (scenario.get("couple") or {}).items():
                 couple.setdefault(str(address), []).extend(terms)
@@ -509,6 +520,12 @@ class Composite(LUMEModel):
 
         for child in self._children.values():
             child.active = self._child_active(child, overrides, faults)
+            child.scenarios = tuple(
+                str(name)
+                for name in active
+                if str(name) in faulted_by.get(child.name, ())
+                or overridden_by.get(str(name), set()) & child.setpoints
+            )
             child.last_good = {}
             self._build(child)
         self._apply_channel_faults(channel_faults)
@@ -1153,9 +1170,9 @@ class Composite(LUMEModel):
         while (
             isinstance(error, str)
             and error
-            and len(line.encode("utf-8")) >= (LOG_RECORD_MAX_BYTES - 1)
+            and len(line.encode("utf-8")) >= (_LOG_RECORD_MAX_BYTES - 1)
         ):
-            excess = len(line.encode("utf-8")) - (LOG_RECORD_MAX_BYTES - 2)
-            error = cap_status(error, max(len(error.encode("utf-8")) - excess, 0))
+            excess = len(line.encode("utf-8")) - (_LOG_RECORD_MAX_BYTES - 2)
+            error = _cap_status(error, max(len(error.encode("utf-8")) - excess, 0))
             line = json.dumps({**entry, "error": error}, sort_keys=True, ensure_ascii=False)
         return line

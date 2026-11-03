@@ -9,6 +9,13 @@ const designSystemJsDir = fileURLToPath(
   new URL('./src/osprey/interfaces/design_system/static/js', import.meta.url)
 );
 
+// The dock engine is vendored into the web terminal's static vendor directory
+// and served at `/static/vendor/dock-engine.mjs`; the web terminal's dock
+// modules import it by that absolute URL.
+const dockEngineBundle = fileURLToPath(
+  new URL('./src/osprey/interfaces/web_terminal/static/vendor/dock-engine.mjs', import.meta.url)
+);
+
 // One hang bound for every test and hook, sized like the Python lane's
 // per-test cap (pytest --timeout=600). It detects a hang; it is never a speed
 // budget. A JS time budget is not expressed through it: a test that needs one
@@ -20,8 +27,9 @@ const HANG_BOUND_MS = 600_000;
 export default {
   resolve: {
     alias: {
-      '/design-system/js': designSystemJsDir
-    }
+      '/design-system/js': designSystemJsDir,
+      '/static/vendor/dock-engine.mjs': dockEngineBundle,
+    },
   },
   test: {
     environment: 'happy-dom',
@@ -40,6 +48,6 @@ export default {
     // Works around Node >= 26 shadowing happy-dom's localStorage with its own
     // undefined experimental global (see the comment in the setup file).
     setupFiles: ['./tests/vitest.setup.mjs'],
-    include: ['tests/**/*.test.{js,mjs}', 'src/osprey/interfaces/**/*.test.{js,mjs}']
-  }
+    include: ['tests/**/*.test.{js,mjs}', 'src/osprey/interfaces/**/*.test.{js,mjs}'],
+  },
 };

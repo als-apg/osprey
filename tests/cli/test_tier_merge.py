@@ -17,6 +17,7 @@ from pathlib import Path
 import pytest
 import yaml
 
+from osprey.cli.build_profile_document import _read_profile_document
 from osprey.cli.build_profile_merge import (
     _deep_merge,
     merge_layer_delta,
@@ -63,6 +64,12 @@ def _resolve(path: Path):
     return resolve_profile_document(raw, path, warn=False)
 
 
+def _root_writing(word: str) -> dict:
+    """The root document with the tier key in place of its retired leaf."""
+    config = {k: v for k, v in _ROOT["config"].items() if k != "control_system.writes_enabled"}
+    return {**_ROOT, "config": {**config, "control_system.writes": word}}
+
+
 # ── the tier merge ───────────────────────────────────────────────────────────
 
 
@@ -71,7 +78,7 @@ def test_tier_is_a_deep_merge_over_the_root_with_lists_unioned(tmp_path: Path) -
         "name": "Ops (Read-Write)",
         "skills": ["session-report", "write-check"],
         "web_panels": ["events", "bluesky"],
-        "config": {"control_system.writes_enabled": True, "web.ui_mode": "expert"},
+        "config": {"control_system.writes_enabled": True, "web.theme": "retro"},
     }
     path = _repo(tmp_path, "tiers/readwrite.yml", tier)
     document = _resolve(path)
@@ -83,17 +90,20 @@ def test_tier_is_a_deep_merge_over_the_root_with_lists_unioned(tmp_path: Path) -
     assert raw["skills"] == ["diagnose", "session-report", "write-check"]
     assert raw["web_panels"] == ["ariel", "events", "bluesky"]
     assert raw["config"]["control_system.writes_enabled"] is True
-    assert raw["config"]["web.ui_mode"] == "expert"
+    assert raw["config"]["web.theme"] == "retro"
     assert raw["config"]["deployed_services"] == ["alpha", "beta"]
 
 
 def test_tier_merge_matches_deep_merge_except_attachment(tmp_path: Path) -> None:
     """Outside the attachment facts, the tier result IS _deep_merge(root, tier)."""
-    tier = {"skills": ["write-check"], "config": {"web.ui_mode": "simple"}}
+    tier = {"skills": ["write-check"], "config": {"web.theme": "main"}}
     path = _repo(tmp_path, "tiers/readonly.yml", tier)
     raw = _resolve(path).raw
 
-    expected = _deep_merge(_ROOT, tier)
+    # The root as the pipeline reads it: its retired posture leaf is rewritten
+    # to ``control_system.writes`` at the parse point.
+    root = _read_profile_document(tmp_path / "repo" / "profile.yml")
+    expected = _deep_merge(root, tier)
     for key in ("deploy_services", "services"):
         raw.pop(key)
         expected.pop(key)
@@ -145,11 +155,23 @@ def test_attachment_without_a_root_config_block(tmp_path: Path) -> None:
     # What remains is only the app composer's pins: writes off, setup tool
     # denied, Config panel and gallery writes off.
     assert config == {
-        "control_system.writes_enabled": False,
+        "control_system.writes": "never",
         "claude_code.permissions.deny": ["mcp__osprey_workspace__setup_patch"],
         "web.config_panel.enabled": False,
         "web.scaffold_gallery.write_enabled": False,
     }
+
+
+@pytest.mark.parametrize(("tier", "root"), [("asked", "allowed"), ("allowed", "asked")])
+def test_a_tier_word_wins_over_the_root(tmp_path: Path, tier: str, root: str) -> None:
+    document = {"name": "Ops", "config": {"control_system.writes": tier}}
+    path = _repo(tmp_path, "tiers/ops.yml", document, root=_root_writing(root))
+    assert _resolve(path).raw["config"]["control_system.writes"] == tier
+
+
+def test_an_app_over_an_asked_root_is_pinned_never(tmp_path: Path) -> None:
+    path = _repo(tmp_path, "apps/logbook.yml", {"name": "Logbook"}, root=_root_writing("asked"))
+    assert _resolve(path).raw["config"]["control_system.writes"] == "never"
 
 
 @pytest.mark.parametrize("layer", ["tiers/readonly.yml", "apps/logbook.yml"])

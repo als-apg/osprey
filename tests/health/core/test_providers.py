@@ -15,68 +15,36 @@ network is touched. Covers:
 
 from __future__ import annotations
 
-import time
 from collections.abc import Mapping
 from time import perf_counter
 from typing import Any
 
 from osprey.health.core.providers import providers
 from osprey.health.models import CheckResult, Status
+from tests.health._fakes import StubRegistry, fake_provider
 
 
-class _StubRegistry:
-    """Duck-typed stand-in for ``ProviderRegistry`` with a name→class map."""
-
-    def __init__(self, mapping: dict[str, type], non_chat: frozenset[str] = frozenset()) -> None:
-        self._mapping = mapping
-        self._non_chat = non_chat
-
-    def get_provider(self, name: str) -> type | None:
-        return self._mapping.get(name)
-
-    def is_chat(self, name: str) -> bool:
-        return name not in self._non_chat
-
-
-def _provider(result: tuple[bool, str] = (True, "ok"), sleep: float = 0.0) -> type:
-    """Build a fake provider class returning *result* after an optional sleep."""
-
-    class _Fake:
-        def check_health(
-            self,
-            _api_key: str | None,
-            _base_url: str | None,
-            _timeout: float = 5.0,
-            _model_id: str | None = None,
-        ) -> tuple[bool, str]:
-            if sleep:
-                time.sleep(sleep)
-            return result
-
-    return _Fake
-
-
-async def _run(config: Mapping[str, Any] | None, registry: _StubRegistry) -> list[CheckResult]:
+async def _run(config: Mapping[str, Any] | None, registry: StubRegistry) -> list[CheckResult]:
     results = await providers(config, registry=registry)()
     assert isinstance(results, list)
     return results
 
 
 async def test_zero_providers_no_rows() -> None:
-    rows = await _run({"api": {"providers": {}}}, _StubRegistry({}))
+    rows = await _run({"api": {"providers": {}}}, StubRegistry({}))
     assert rows == []
 
 
 async def test_config_none_no_rows() -> None:
-    rows = await _run(None, _StubRegistry({}))
+    rows = await _run(None, StubRegistry({}))
     assert rows == []
 
 
 async def test_mixed_results_ok_and_warning() -> None:
-    registry = _StubRegistry(
+    registry = StubRegistry(
         {
-            "good": _provider((True, "reachable")),
-            "bad": _provider((False, "auth failed")),
+            "good": fake_provider((True, "reachable")),
+            "bad": fake_provider((False, "auth failed")),
         }
     )
     config = {"api": {"providers": {"good": {"api_key": "k"}, "bad": {"api_key": "k"}}}}
@@ -97,7 +65,7 @@ async def test_a_config_only_provider_is_skipped() -> None:
     not a fault to report.
     """
     config = {"api": {"providers": {"made_up": {"api_key": "k"}}}}
-    rows = await _run(config, _StubRegistry({}))
+    rows = await _run(config, StubRegistry({}))
 
     assert len(rows) == 1
     assert rows[0].name == "made_up"
@@ -107,7 +75,7 @@ async def test_a_config_only_provider_is_skipped() -> None:
 
 async def test_unknown_provider_without_a_block_is_warning() -> None:
     config = {"api": {"providers": {"made_up": {}}}}
-    rows = await _run(config, _StubRegistry({}))
+    rows = await _run(config, StubRegistry({}))
 
     assert len(rows) == 1
     assert rows[0].name == "made_up"
@@ -140,7 +108,7 @@ async def test_api_key_and_base_url_flow_from_config(monkeypatch: Any) -> None:
             }
         }
     }
-    rows = await _run(config, _StubRegistry({"cborg": _Recording}))
+    rows = await _run(config, StubRegistry({"cborg": _Recording}))
 
     assert rows[0].status is Status.OK
     assert captured[0]["api_key"] == "secret-xyz"
@@ -150,8 +118,8 @@ async def test_api_key_and_base_url_flow_from_config(monkeypatch: Any) -> None:
 async def test_seven_slow_providers_run_concurrently() -> None:
     n = 7
     per_item_sleep = 1.0
-    registry = _StubRegistry(
-        {f"p{i}": _provider((True, "ok"), sleep=per_item_sleep) for i in range(n)}
+    registry = StubRegistry(
+        {f"p{i}": fake_provider((True, "ok"), sleep=per_item_sleep) for i in range(n)}
     )
     config = {"api": {"providers": {f"p{i}": {"api_key": "k"} for i in range(n)}}}
 
@@ -180,7 +148,7 @@ async def test_a_non_chat_provider_is_skipped_in_config_order() -> None:
 
         return _Fake
 
-    registry = _StubRegistry(
+    registry = StubRegistry(
         {"a": _recording("a"), "emb": _recording("emb"), "z": _recording("z")},
         non_chat=frozenset({"emb"}),
     )

@@ -11,7 +11,11 @@
 import { test, expect, describe, vi, beforeEach, afterEach } from 'vitest';
 
 import { createChatRenderer } from '../../../src/osprey/interfaces/web_terminal/static/js/chat-render.js';
-import { onChat } from '../../../src/osprey/interfaces/web_terminal/static/js/chat-events.js';
+import {
+  onChat,
+  postChatNotice,
+  setChatNoticeSink,
+} from '../../../src/osprey/interfaces/web_terminal/static/js/chat-events.js';
 import { systemFrame } from '../../../src/osprey/interfaces/web_terminal/static/js/chat-system.js';
 
 /** @type {Array<() => void>} */
@@ -54,7 +58,9 @@ describe('the renderer publishes its lifecycle', () => {
     r.beginTurn();
     r.handleEvent({ type: 'tool_use', tool_name: 'channel_read', tool_use_id: 't1', input: {} });
 
-    expect(frames).toEqual([{ event: expect.objectContaining({ tool_use_id: 't1' }), replay: false }]);
+    expect(frames).toEqual([
+      { event: expect.objectContaining({ tool_use_id: 't1' }), replay: false },
+    ]);
     // A listener can already find what the frame drew.
     expect(toolRowsAtPublish).toEqual([1]);
   });
@@ -67,7 +73,11 @@ describe('the renderer publishes its lifecycle', () => {
 
     r.replay([
       { role: 'user', content: 'read the orbit' },
-      { role: 'assistant', content: '', events: [{ type: 'text', content: 'Done.' }, { type: 'result' }] },
+      {
+        role: 'assistant',
+        content: '',
+        events: [{ type: 'text', content: 'Done.' }, { type: 'result' }],
+      },
       { role: 'assistant', content: 'Plain history.' },
     ]);
     r.beginTurn();
@@ -129,8 +139,28 @@ describe('systemFrame', () => {
   });
 
   test('an API retry names the status and the attempt', () => {
-    const activity = systemFrame({ subtype: 'api_retry', error_status: 529, attempt: 2, max_retries: 10 })?.activity ?? '';
+    const activity =
+      systemFrame({ subtype: 'api_retry', error_status: 529, attempt: 2, max_retries: 10 })
+        ?.activity ?? '';
     expect(activity).toContain('529');
     expect(activity).toContain('2/10');
+  });
+});
+
+describe('a notice posted from outside the chat', () => {
+  afterEach(() => setChatNoticeSink(null));
+
+  test('with no chat booted it is not shown, so the sender shows it itself', () => {
+    expect(postChatNotice('Safety watchdog is back on.')).toBe(false);
+  });
+
+  test('the console sink decides and answers whether it showed it', () => {
+    /** @type {string[]} */
+    const shown = [];
+    setChatNoticeSink((text) => (shown.push(text), true));
+    expect(postChatNotice('Safety watchdog is back on.')).toBe(true);
+    setChatNoticeSink(() => false);
+    expect(postChatNotice('hidden')).toBe(false);
+    expect(shown).toEqual(['Safety watchdog is back on.']);
   });
 });

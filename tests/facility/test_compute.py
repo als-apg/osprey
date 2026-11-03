@@ -285,29 +285,50 @@ class TestSpans:
 
 
 class TestPlaces:
-    def test_an_ancestor_hand_place_is_refined(self, tmp_path):
+    @pytest.mark.parametrize(
+        ("hand_place", "place", "place_from"),
+        [
+            pytest.param("SR", "SR/A", "span", id="ancestor-hand-place-is-refined"),
+            pytest.param("SR/B", "SR/B", "authored", id="authored-contradiction-is-recorded"),
+        ],
+    )
+    def test_a_hand_place_builds_and_records_where_it_came_from(
+        self, tmp_path, hand_place, place, place_from
+    ):
         files = _tree()
-        files["records/devices.yaml"][1]["place"] = "SR"
+        files["records/devices.yaml"][1]["place"] = hand_place
         qd = _devices(_ok(tmp_path, files))["SR/QD"]
-        assert qd["place"] == "SR/A"
-        assert qd["provenance"]["place_from"] == "span"
-
-    def test_an_authored_contradiction_builds_and_is_recorded(self, tmp_path):
-        files = _tree()
-        files["records/devices.yaml"][1]["place"] = "SR/B"
-        qd = _devices(_ok(tmp_path, files))["SR/QD"]
-        assert qd["place"] == "SR/B"
-        assert qd["provenance"]["place_from"] == "authored"
+        assert qd["place"] == place
+        assert qd["provenance"]["place_from"] == place_from
 
     def test_an_imported_contradiction_stops(self, tmp_path):
         files = _tree()
         files["imported/mml/devices.yaml"] = [{"id": "SR/QD", "place": "SR/B"}]
-        result = _run(tmp_path, files)
-        assert _lines(result) == [
-            "facility: place-conflict: device SR/QD — layer mml states place SR/B, but the "
-            "span of place SR/A holds the device at s 1.25 in model SR; fix: drop `place` "
-            "from the layer, or add a fix `set` of place SR/B"
-        ]
+        assert _stops(tmp_path, files) == [("place-conflict", "device", "SR/QD")]
+
+    def test_an_imported_place_under_a_span_that_holds_it_stands(self, tmp_path):
+        files = _tree()
+        for place in files["records/places.yaml"]:
+            if place["id"] in ("SR/A", "SR/B"):
+                del place["span"]
+        files["imported/mml/devices.yaml"] = [{"id": "SR/QD", "place": "SR/B"}]
+        qd = _devices(_ok(tmp_path, files))["SR/QD"]
+        assert qd["place"] == "SR/B"
+        assert qd["provenance"]["place_from"] == "imported"
+
+    def test_an_imported_place_its_span_agrees_with_is_the_span(self, tmp_path):
+        files = _tree()
+        files["imported/mml/devices.yaml"] = [{"id": "SR/QD", "place": "SR/A"}]
+        qd = _devices(_ok(tmp_path, files))["SR/QD"]
+        assert qd["place"] == "SR/A"
+        assert qd["provenance"]["place_from"] == "span"
+
+    def test_an_imported_place_no_span_holds_is_recorded_imported(self, tmp_path):
+        files = _tree()
+        files["imported/mml/devices.yaml"] = [{"id": "SR/SPARE", "place": "SR/B"}]
+        spare = _devices(_ok(tmp_path, files))["SR/SPARE"]
+        assert spare["place"] == "SR/B"
+        assert spare["provenance"]["place_from"] == "imported"
 
     def test_a_fix_keeps_an_imported_place(self, tmp_path):
         files = _tree()

@@ -16,14 +16,13 @@ external-worker lanes, whose facility manager would refuse an unknown kwarg.
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
 
 from osprey.services.bluesky_bridge import app as app_module
-from osprey.services.bluesky_bridge import document_plane, history_removals, live_rows, runs
+from osprey.services.bluesky_bridge import runs
 from osprey.services.bluesky_bridge.app import app
 from osprey.services.bluesky_bridge.queue_backend import OWNER_META_KEY, QueueBackend
 from osprey_connectors.posture_store import RESERVED_OWNER_KWARG
@@ -67,19 +66,6 @@ def _item(
     if result is not None:
         item["result"] = result
     return item
-
-
-@pytest.fixture(autouse=True)
-def _isolated_state(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    monkeypatch.setenv("BLUESKY_SESSION_PLAN_DIR", str(tmp_path / "plans_session"))
-    history_removals._clear()
-    live_rows._clear()
-    document_plane._clear()
-    yield
-    history_removals._clear()
-    live_rows._clear()
-    document_plane._clear()
-    app_module.set_queue_backend(None)
 
 
 @pytest.fixture

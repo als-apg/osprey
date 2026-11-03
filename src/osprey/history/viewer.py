@@ -1,10 +1,12 @@
-"""Who is looking: the person, view user and tables nginx hands the page.
+"""Who is looking: the person and the record viewer nginx hands the page.
 
 nginx asks the auth sidecar's ``/verify-history`` once per request and forwards
 its answer as the ``X-Osprey-History-*`` headers below; the page trusts them
 because only nginx reaches it (the gate secret, published on loopback only).
-Every link the page renders carries ``?as=<entry>``, the sidecar's selector, so
-the person a viewer picked stays picked as they navigate.
+The view header names the agent-record viewer (``all``, ``own:<person>`` or
+``reader:<name>``) the page reads every answer for. Every link the page renders
+carries ``?as=<entry>``, the sidecar's selector, so the person a viewer picked
+stays picked as they navigate.
 """
 
 from __future__ import annotations
@@ -24,7 +26,6 @@ PERSON_HEADER = "X-Osprey-History-Person"
 SCOPE_HEADER = "X-Osprey-History-Scope"
 VIEW_HEADER = "X-Osprey-History-View"
 ROLE_HEADER = "X-Osprey-History-Role"
-TABLES_HEADER = "X-Osprey-History-Tables"
 ENTRY_HEADER = "X-Osprey-History-Entry"
 CHOICES_HEADER = "X-Osprey-History-Choices"
 
@@ -35,9 +36,13 @@ SCOPE_OWN = "own"
 SCOPE_ALL = "all"
 SCOPE_READER = "reader"
 
-#: A store user name the page may put after ``EXECUTE AS``: the roster's
-#: charset plus the underscores the view users are spelled with.
-_VIEW_USER = re.compile(r"^[A-Za-z0-9_-]{1,128}$")
+#: The record viewers, spelled as the agent-record service reads them.
+VIEWER_ALL = "all"
+VIEWER_OWN_PREFIX = "own:"
+VIEWER_READER_PREFIX = "reader:"
+
+#: A person or reader name a viewer may carry: the roster's charset.
+_NAME = re.compile(r"^[A-Za-z0-9._-]{1,128}$")
 
 
 @dataclass(frozen=True)
@@ -46,8 +51,7 @@ class Viewer:
 
     person: str
     scope: str
-    view_user: str
-    tables: tuple[str, ...]
+    record_viewer: str
     entry: str
     choices: tuple[tuple[str, str], ...]
     role: str = ""
@@ -56,10 +60,6 @@ class Viewer:
     def own(self) -> bool:
         """Whether this view shows the person's own sessions only."""
         return self.scope == SCOPE_OWN
-
-    def reads(self, table: str) -> bool:
-        """Whether the view user may read *table*."""
-        return table in self.tables
 
     def href(self, path: str = "/", **params: object) -> str:
         """A page URL under :data:`ROOT_PATH` that keeps this viewer's selection.
@@ -88,19 +88,34 @@ def _choices(raw: str) -> tuple[tuple[str, str], ...]:
     return tuple(found)
 
 
+def record_viewer_scope(value: str) -> str:
+    """The scope the record viewer *value* reads.
+
+    Raises:
+        MissingViewer: *value* is not ``all``, ``own:<person>`` or
+            ``reader:<name>`` with a name the roster could hold.
+    """
+    if value == VIEWER_ALL:
+        return SCOPE_ALL
+    for prefix, scope in ((VIEWER_OWN_PREFIX, SCOPE_OWN), (VIEWER_READER_PREFIX, SCOPE_READER)):
+        if value.startswith(prefix) and _NAME.fullmatch(value[len(prefix) :]):
+            return scope
+    raise MissingViewer(f"viewer {value!r} is not all, own:<person> or reader:<name>")
+
+
 def viewer_from_headers(headers: Mapping[str, str]) -> Viewer:
     """The viewer the sidecar's headers name.
 
     Raises:
-        MissingViewer: A required header is absent or empty, or the view user
-            is not a name the page may run a query as.
+        MissingViewer: A required header is absent or empty, the record viewer
+            is not one the record reads, or it disagrees with the scope.
     """
     lowered = {key.lower(): value for key, value in headers.items()}
 
     def header(name: str) -> str:
         return (lowered.get(name.lower()) or "").strip()
 
-    person, scope, view_user, entry = (
+    person, scope, record_viewer, entry = (
         header(PERSON_HEADER),
         header(SCOPE_HEADER),
         header(VIEW_HEADER),
@@ -111,24 +126,20 @@ def viewer_from_headers(headers: Mapping[str, str]) -> Viewer:
         for name, value in (
             (PERSON_HEADER, person),
             (SCOPE_HEADER, scope),
-            (VIEW_HEADER, view_user),
+            (VIEW_HEADER, record_viewer),
             (ENTRY_HEADER, entry),
         )
         if not value
     ]
     if missing:
         raise MissingViewer(f"missing {', '.join(missing)}")
-    if scope not in (SCOPE_OWN, SCOPE_ALL, SCOPE_READER):
-        raise MissingViewer(f"unknown scope {scope!r}")
-    if not _VIEW_USER.fullmatch(view_user):
-        raise MissingViewer(f"view user {view_user!r} is not a store user name")
-    tables = tuple(t.strip() for t in header(TABLES_HEADER).split(",") if t.strip())
+    if record_viewer_scope(record_viewer) != scope:
+        raise MissingViewer(f"viewer {record_viewer!r} does not read scope {scope!r}")
     choices = _choices(header(CHOICES_HEADER)) or ((entry, person),)
     return Viewer(
         person=person,
         scope=scope,
-        view_user=view_user,
-        tables=tables,
+        record_viewer=record_viewer,
         entry=entry,
         choices=choices,
         role=header(ROLE_HEADER),

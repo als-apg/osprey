@@ -45,8 +45,8 @@ from osprey_connectors.factory import (
     _BUILTIN_ARCHIVERS,
     _BUILTIN_CONTROL_SYSTEMS,
     ConnectorFactory,
-    isolated_connector_registries,
 )
+from osprey_connectors_tests._harness import isolated_connector_registries
 
 
 def _provider_names(connector_type: str) -> set[str]:

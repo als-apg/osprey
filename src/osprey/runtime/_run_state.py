@@ -32,6 +32,22 @@ LOCK = threading.Lock()
 
 
 @dataclass(frozen=True)
+class ActionContext:
+    """Whose run a hold is, and on what it was admitted.
+
+    Attributes:
+        target: The control target the run drives.
+        owner: The account the run acts for, ``None`` when it acts for nobody.
+        approved_target: The target the run was admitted on; a run is never
+            admitted on one target and driven on another.
+    """
+
+    target: str
+    owner: str | None
+    approved_target: str
+
+
+@dataclass(frozen=True)
 class Hold:
     """The run lock this process holds.
 
@@ -42,6 +58,8 @@ class Hold:
         dir_fd: The open descriptor of ``directory``; the lock is opened
             relative to it.
         started: When the lock was taken (ISO-8601), as the holder record says.
+        context: The run's :class:`ActionContext`, ``None`` when the lock was
+            taken without one.
     """
 
     target: str
@@ -49,6 +67,7 @@ class Hold:
     fd: int
     started: str
     dir_fd: int
+    context: ActionContext | None = None
 
 
 @dataclass

@@ -11,12 +11,9 @@
  *
  * Covers:
  *   - the `customElements.get()` registration guard
- *   - the three FIXED rows (Appearance / View / Theme) render, with the
+ *   - the two FIXED rows (Appearance / Theme) render, with the
  *     family pills coming from theme-manager.js's `themeFamilies()`
  *   - the Appearance row drives theme-manager.js's `toggleTheme()`
- *   - the View row's three-step mechanism: persist under
- *     `localStorage['osprey-ui-mode']`, strip a leftover `?mode=`, and post
- *     `osprey-mode-change` to its OWN window
  *   - the Theme pills call `setFamily()` and reflect `subscribe()` notifications
  *   - the popover grammar: trigger toggles, outside click and Escape dismiss
  *   - the optional Settings entry — present only with `settings-drawer`, and
@@ -26,7 +23,7 @@
  * Module-identity note (same as theme-switcher.test.mjs): `customElements` is
  * a process-global registry Vitest's module-registry reset cannot touch, so
  * the one `OspreyDisplayMenu` class that backs every element created here has
- * its theme-manager.js / frame-params.js imports bound to whichever module
+ * its theme-manager.js imports bound to whichever module
  * instances were live the first time this file's top-level imports ran.
  * Re-importing them per test would silently decouple the test's handles from
  * the instances the element actually talks to — so this file imports each
@@ -39,8 +36,6 @@ import { qs } from '../../_support/dom.mjs';
 
 import * as ThemeManager from '/design-system/js/theme-manager.js';
 import '/design-system/js/components/osprey-display-menu.js';
-
-const MODE_KEY = 'osprey-ui-mode';
 
 /**
  * Mount a fresh menu, optionally naming a settings drawer. The attribute is
@@ -60,7 +55,7 @@ describe('<osprey-display-menu>', () => {
   beforeEach(() => {
     window.localStorage.clear();
     document.documentElement.removeAttribute('data-theme');
-    document.documentElement.removeAttribute('data-ui-mode');
+    document.documentElement.removeAttribute('data-agent-surface');
     document.body.innerHTML = '';
     document.body.className = '';
     window.history.replaceState({}, '', '/');
@@ -96,12 +91,12 @@ describe('<osprey-display-menu>', () => {
   });
 
   describe('fixed rows', () => {
-    test('renders the three headings in order: Appearance, View, Theme', () => {
+    test('renders the two headings in order: Appearance, Theme', () => {
       const el = mount();
       const headings = Array.from(el.querySelectorAll('.display-menu-heading')).map(
         (h) => h.textContent
       );
-      expect(headings).toEqual(['Appearance', 'View', 'Theme']);
+      expect(headings).toEqual(['Appearance', 'Theme']);
     });
 
     test('the Appearance row offers exactly light and dark', () => {
@@ -110,14 +105,6 @@ describe('<osprey-display-menu>', () => {
         el.querySelectorAll('.display-menu-appearance .display-seg-option')
       ).map((o) => (o instanceof HTMLElement ? o.dataset.appearance : null));
       expect(options).toEqual(['light', 'dark']);
-    });
-
-    test('the View row offers exactly expert and simple', () => {
-      const el = mount();
-      const options = Array.from(
-        el.querySelectorAll('.display-menu-view .display-seg-option')
-      ).map((o) => (o instanceof HTMLElement ? o.dataset.mode : null));
-      expect(options).toEqual(['expert', 'simple']);
     });
 
     test('the Theme row renders one pill per family, from themeFamilies()', () => {
@@ -197,96 +184,6 @@ describe('<osprey-display-menu>', () => {
     });
   });
 
-  describe('View row', () => {
-    test('persists the pick under localStorage[osprey-ui-mode]', () => {
-      const el = mount();
-      qs(el, '.display-menu-view .display-seg-option[data-mode="simple"]').click();
-      expect(window.localStorage.getItem(MODE_KEY)).toBe('simple');
-
-      qs(el, '.display-menu-view .display-seg-option[data-mode="expert"]').click();
-      expect(window.localStorage.getItem(MODE_KEY)).toBe('expert');
-    });
-
-    test('posts osprey-mode-change to its OWN window, at the page origin', () => {
-      const postSpy = vi.spyOn(window, 'postMessage');
-      const el = mount();
-
-      qs(el, '.display-menu-view .display-seg-option[data-mode="simple"]').click();
-
-      expect(postSpy).toHaveBeenCalledWith(
-        { type: 'osprey-mode-change', mode: 'simple' },
-        window.location.origin
-      );
-    });
-
-    test('clicking the already-active view segment does not broadcast a flip', () => {
-      // The segment stays a live button (the card stays open across a pick),
-      // so re-clicking it is an ordinary gesture. The hub's dock treats every
-      // broadcast as a flip and stashes the current layout under the OTHER
-      // view's key, so a same-value pick must persist and nothing more.
-      document.documentElement.setAttribute('data-ui-mode', 'expert');
-      const postSpy = vi.spyOn(window, 'postMessage').mockImplementation(() => {});
-      const el = mount();
-
-      qs(el, '.display-menu-view .display-seg-option[data-mode="expert"]').click();
-      expect(postSpy).not.toHaveBeenCalled();
-      expect(window.localStorage.getItem(MODE_KEY)).toBe('expert');
-
-      qs(el, '.display-menu-view .display-seg-option[data-mode="simple"]').click();
-      expect(postSpy).toHaveBeenCalledWith(
-        { type: 'osprey-mode-change', mode: 'simple' },
-        window.location.origin
-      );
-    });
-
-    test('strips a leftover one-shot ?mode= so it cannot out-rank the pick on reload', () => {
-      window.history.replaceState({}, '', '/?mode=expert&embedded=true');
-      const el = mount();
-
-      qs(el, '.display-menu-view .display-seg-option[data-mode="simple"]').click();
-
-      const params = new URLSearchParams(window.location.search);
-      expect(params.has('mode')).toBe(false);
-      expect(params.get('embedded')).toBe('true');
-    });
-
-    test('does not stamp data-ui-mode itself — the page listener owns that', () => {
-      // The stamp path lives in each page's app.js 'message' listener, which
-      // this suite never imports — so nothing here would stamp even without
-      // the mock. Suppressing delivery anyway pins the claim to the element
-      // itself: the null assertion stays meaningful even if another suite
-      // sharing this window ever registers such a listener.
-      vi.spyOn(window, 'postMessage').mockImplementation(() => {});
-      const el = mount();
-
-      qs(el, '.display-menu-view .display-seg-option[data-mode="simple"]').click();
-
-      expect(document.documentElement.getAttribute('data-ui-mode')).toBeNull();
-    });
-
-    test('reflects the pick immediately, without waiting for the broadcast', () => {
-      vi.spyOn(window, 'postMessage').mockImplementation(() => {});
-      const el = mount();
-
-      qs(el, '.display-menu-view .display-seg-option[data-mode="simple"]').click();
-
-      const seg = qs(el, '.display-menu-view');
-      expect(seg.getAttribute('data-active')).toBe('simple');
-      expect(qs(seg, '.display-seg-option[data-mode="simple"]').getAttribute('aria-pressed')).toBe(
-        'true'
-      );
-      expect(qs(seg, '.display-seg-option[data-mode="expert"]').getAttribute('aria-pressed')).toBe(
-        'false'
-      );
-    });
-
-    test('reflects the mode mode-boot.js already stamped, at connect time', () => {
-      document.documentElement.setAttribute('data-ui-mode', 'simple');
-      const el = mount();
-      expect(qs(el, '.display-menu-view').getAttribute('data-active')).toBe('simple');
-    });
-  });
-
   describe('Theme row', () => {
     test('clicking a family pill calls setFamily(), preserving the light/dark mode', () => {
       ThemeManager.setTheme('main-light');
@@ -305,9 +202,9 @@ describe('<osprey-display-menu>', () => {
       const active = qs(el, '.display-family-pill[data-family="high-contrast"]');
       expect(active.classList.contains('active')).toBe(true);
       expect(active.getAttribute('aria-pressed')).toBe('true');
-      expect(
-        qs(el, '.display-family-pill[data-family="main"]').getAttribute('aria-pressed')
-      ).toBe('false');
+      expect(qs(el, '.display-family-pill[data-family="main"]').getAttribute('aria-pressed')).toBe(
+        'false'
+      );
     });
   });
 
@@ -388,7 +285,7 @@ describe('<osprey-display-menu>', () => {
       expect(el.querySelector('.display-menu-actions')).toBeNull();
     });
 
-    test('appears with settings-drawer, carrying osprey-drawer\'s data-drawer contract', () => {
+    test("appears with settings-drawer, carrying osprey-drawer's data-drawer contract", () => {
       const el = mount('settings-drawer');
       const button = qs(el, '.display-menu-settings', HTMLButtonElement);
 
@@ -437,13 +334,16 @@ describe('<osprey-display-menu>', () => {
       return /** @type {HTMLElement} */ (el);
     }
 
-    test('moves the tag\'s children into the action row, last in the card, in order', () => {
+    test("moves the tag's children into the action row, last in the card, in order", () => {
       const el = mountWithActions();
       const card = qs(el, '.display-menu-card');
       const actions = qs(el, '.display-menu-actions');
 
       expect(card.lastElementChild).toBe(actions);
-      expect(Array.from(actions.children).map((c) => c.id)).toEqual(['page-settings', 'page-logout']);
+      expect(Array.from(actions.children).map((c) => c.id)).toEqual([
+        'page-settings',
+        'page-logout',
+      ]);
       // Nothing leaks outside the card: the trigger and the card are the only
       // direct children left.
       expect(Array.from(el.children).map((c) => c.className)).toEqual([
@@ -470,7 +370,7 @@ describe('<osprey-display-menu>', () => {
       expect(settings.hasAttribute('data-drawer')).toBe(false);
     });
 
-    test('a projected child\'s click leaves the card open (the page decides)', () => {
+    test("a projected child's click leaves the card open (the page decides)", () => {
       // The hub's Log out must NOT be closed away: its aria-busy state has to
       // stay visible while the logout POST is in flight. The hub closes on its
       // own Settings click by calling closeMenu() itself.

@@ -11,21 +11,22 @@ rules, its write posture, and the card the roster resolves for it.
 
 from __future__ import annotations
 
+import copy
 import json
 import logging
 from pathlib import Path
 
 import pytest
 import yaml
-from click.testing import CliRunner
 
-from osprey.cli.build_cmd import build
 from osprey.deployment.web_terminals.render_images import (
     render_build_profile_shape_problem,
     verify_renders,
 )
 from osprey.deployment.web_terminals.roster import resolve_cards
-from osprey_connectors.workspace import BUILD_DIR_NAME, IMAGE_DIR_NAME
+from osprey.utils.workspace import IMAGE_DIR_NAME
+from osprey_connectors.workspace import BUILD_DIR_NAME
+from tests.cli._lifecycle_build import invoke_build
 from tests.fixtures.lifecycle_repo import build_exemplar_repo, preserved_environ
 
 PROJECT = "als-exemplar"
@@ -60,9 +61,7 @@ def built(tmp_path_factory: pytest.TempPathFactory) -> dict:
     try:
         with pytest.MonkeyPatch.context() as patch, preserved_environ():
             patch.chdir(outside)
-            result = CliRunner().invoke(
-                build, ["--repo", str(repo), "--skip-deps", "--skip-lifecycle"]
-            )
+            result = invoke_build(repo)
     finally:
         root.removeHandler(records)
         root.setLevel(previous_level)
@@ -160,13 +159,17 @@ def test_a_tier_render_is_stamped_with_the_deployment_preset(built, name):
     assert tier["build_args"]["profile_path"] == str(repo / "tiers" / f"{name}.yml")
 
 
+#: The write ceiling each bundled tier pins over the exemplar's ``asked``.
+_TIER_WRITES = {"readonly": "never", "readwrite": "asked", "admin": "allowed"}
+
+
 @pytest.mark.parametrize("name", TIERS)
 def test_tier_renders_keep_their_own_write_posture(built, name):
-    writes = _values_of(_config(_render(built["repo"], name)), "writes_enabled")
+    config = _config(_render(built["repo"], name))
 
-    assert writes, name
-    if name == "readonly":
-        assert not any(writes)
+    assert (config.get("control_system") or {}).get("writes") == _TIER_WRITES[name], name
+    # The retired leaves are gone from the render, so nothing else states a posture.
+    assert _values_of(config, "writes_enabled") == [], name
 
 
 # ---------------------------------------------------------------------------
@@ -198,10 +201,17 @@ def test_logbook_selects_the_graph_subagent_and_the_safety_rule(built):
 
 def test_logbook_writes_nothing(built):
     config = _config(_render(built["repo"], "logbook"))
-    writes = _values_of(config, "writes_enabled")
+    # ``web.panels.<id>.writes`` is a panel affordance setting, not a control-system posture.
+    posture = copy.deepcopy(config)
+    for panel in ((posture.get("web") or {}).get("panels") or {}).values():
+        if isinstance(panel, dict):
+            panel.pop("writes", None)
+    writes = _values_of(posture, "writes")
 
     assert writes, "the logbook render states no write posture at all"
-    assert all(value is False for value in writes), writes
+    assert (config.get("control_system") or {}).get("writes") == "never", writes
+    assert all(value == "never" for value in writes), writes
+    assert _values_of(config, "writes_enabled") == []
 
 
 @pytest.mark.parametrize("server", LOGBOOK_ABSENT_SERVERS)

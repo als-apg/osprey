@@ -412,10 +412,7 @@ class StepMeasurement(MeasurementTool):
             observables[:, idx] = (after - before) / self._delta
             self.send_callback(Action.RESTORE, {"idx": idx, "group": group})
             _sleep(self.set_wait_time)
-        if self.kind == "trm":
-            name = self._tune_monitor
-        else:
-            name = self._chromaticity_monitor
+        name = self._tune_monitor if self.kind == "trm" else self._chromaticity_monitor
         return {
             "matrix": observables.tolist(),
             "variable_names": list(self._groups),

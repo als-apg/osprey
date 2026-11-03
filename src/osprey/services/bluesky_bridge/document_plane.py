@@ -86,7 +86,7 @@ ZMQ_SUBSCRIBE_ADDR_ENV = "BLUESKY_ZMQ_SUBSCRIBE_ADDR"
 ``RemoteDispatcher`` connects to. Defaults to a loopback address with a
 kernel-assigned port — nothing outside this container subscribes."""
 
-ZMQ_CURVE_SECRET_KEY_ENV = "BLUESKY_ZMQ_CURVE_SECRET_KEY"
+ZMQ_CURVE_SECRET_KEY_ENV = "BLUESKY_ZMQ_CURVE_SECRET_KEY"  # noqa: S105 -- names an environment variable, holds no secret
 """Path to the proxy's own CURVE secret certificate — the server half of the
 worker's ``BLUESKY_ZMQ_CURVE_SERVER_PUBLIC_KEY``. Required whenever the
 document plane is configured at all."""

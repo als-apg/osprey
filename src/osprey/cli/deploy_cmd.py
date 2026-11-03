@@ -419,7 +419,7 @@ def ensure_repo_env(repo_root: Path, config: dict[str, Any], *, mark: bool = Tru
                 f"No .env in {repo_root}. Seed one from your shell ({names})?", default=True
             )
         if seed_it:
-            from osprey_connectors.dotenv import append_profile_env
+            from osprey.deployment.dotenv import append_profile_env
 
             append_profile_env(env_path, harvest, _UP_SEEDED_ENV_BANNER)
             _report_fact(f"Seeded {env_path} (mode 0600) with {names}")
@@ -958,13 +958,16 @@ def status_verb(repo: Path | None, show_agents: bool) -> None:
     reports; it starts nothing, stops nothing and renders nothing, so it is safe
     to run against a live stack at any time.
 
-    Four sections. Build says whether build/ still matches profile.yml -- the
+    Five sections. Build says whether build/ still matches profile.yml -- the
     same check `osprey up` refuses on, so a refusal there is never a surprise
     here -- and which version of osprey rendered it. Containers is what the
     container runtime reports, not what compose thinks should exist. Endpoints
-    is where the services are declared to answer. Agent is the provider, whether
-    its credential can be found, and whether the rendered agent files still
-    match the config.
+    is where the services are declared to answer. Writes lists each login's
+    tier, the machine it points at, and which machines it has switched writes
+    on for -- marking an "on" that a never tier makes inert, a login that is
+    not in the roster, and a record that cannot be read. Agent is the provider,
+    whether its credential can be found, and whether the rendered agent files
+    still match the config.
 
     Containers are matched by the label a build bakes into them, so a second
     checkout of the same deployment on this host is reported as a second

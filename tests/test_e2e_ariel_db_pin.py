@@ -237,9 +237,8 @@ def test_without_an_export_a_render_must_name_the_default(
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("exported", [CELL_URI, None], ids=["exported", "default"])
 def test_the_agent_loads_the_database_the_guard_probes_from_a_real_render(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, exported: str | None
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     """``osprey init`` + ``osprey build`` of the control-assistant preset, read back
     the way the ARIEL MCP server reads it, against the URI the skip guard dials.
@@ -247,8 +246,11 @@ def test_the_agent_loads_the_database_the_guard_probes_from_a_real_render(
     The last assertion is what makes the others mean something: the same render
     with its ``database`` block removed derives a DSN from the deployment's own
     Postgres service, which is a different database.
+
+    One build: without an export, only the string handed to ``init`` differs,
+    and ``test_init_project_states_the_pin_at_init[default]`` pins that.
     """
-    _export(monkeypatch, exported)
+    _export(monkeypatch, CELL_URI)
     monkeypatch.delenv(FORCE_PROVIDER_ENV, raising=False)
 
     repo = sdk_helpers.init_project(tmp_path, "cell", provider="anthropic")
@@ -258,7 +260,9 @@ def test_the_agent_loads_the_database_the_guard_probes_from_a_real_render(
     base = resolve_port_base(config)
     loaded = ARIELConfig.from_dict(config["ariel"], postgresql, base=base)
     dialled, _reason = _probe(monkeypatch)
-    assert loaded.database.uri == dialled == (exported or DEFAULT_URI)
+    assert loaded.database.uri == dialled == CELL_URI
 
     unpinned = {key: value for key, value in config["ariel"].items() if key != "database"}
-    assert resolve_ariel_dsn(unpinned, postgresql, env={}, base=base) != dialled
+    derived = resolve_ariel_dsn(unpinned, postgresql, env={}, base=base)
+    # The derived DSN does not depend on the export, so this covers the default too.
+    assert derived not in (dialled, DEFAULT_URI)

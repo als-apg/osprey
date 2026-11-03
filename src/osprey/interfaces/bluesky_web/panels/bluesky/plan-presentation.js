@@ -26,11 +26,7 @@
  * @type {Record<string, string[][]>}
  */
 const PLAN_LAYOUTS = {
-  orm: [
-    ['correctors', 'readbacks'],
-    ['span_a', 'num'],
-    ['sweep'],
-  ],
+  orm: [['correctors', 'readbacks'], ['span_a', 'num'], ['sweep']],
   grid_scan: [['axes'], ['readbacks', 'snake_axes']],
   orbit_bump_sweep: [
     ['correctors'],

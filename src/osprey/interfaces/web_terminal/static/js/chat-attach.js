@@ -1,5 +1,5 @@
 // @ts-check
-/* OSPREY Web Terminal — Simple-mode chat: files attached to a message.
+/* OSPREY Web Terminal — operator chat: files attached to a message.
  *
  * The composer takes files three ways: the paperclip button, a paste, and a
  * drop onto the composer or the log. Each file is uploaded as it is picked and
@@ -357,7 +357,7 @@ export function initChatAttachments(ctx) {
         });
       } else {
         void removeChatAttachment(chip.key, storedName(stored.path), { batch: chip.batch }).catch(
-          () => {},
+          () => {}
         );
       }
     } catch (err) {
@@ -394,8 +394,8 @@ export function initChatAttachments(ctx) {
       files.map((file) =>
         file.type.startsWith('image/')
           ? new File([file], pastedImageName(when, file.type), { type: file.type })
-          : file,
-      ),
+          : file
+      )
     );
   });
 
@@ -466,7 +466,7 @@ export function initChatAttachments(ctx) {
     for (const chip of chips) forget(chip, true);
   });
 
-  /** The chat was reset or rebound: nothing in the tray belongs to what follows. */
+  /** The chat moved to another conversation: nothing in the tray belongs to what follows. */
   function clearTray() {
     for (const chip of chips) forget(chip);
     chips = [];
@@ -543,7 +543,7 @@ export function initChatAttachments(ctx) {
       e.preventDefault();
       e.stopPropagation();
     },
-    true,
+    true
   );
   inputArea.addEventListener(
     'click',
@@ -553,7 +553,7 @@ export function initChatAttachments(ctx) {
       e.preventDefault();
       e.stopPropagation();
     },
-    true,
+    true
   );
 
   // The prompt the controller sends carries the block. The bubble it has just
@@ -596,7 +596,19 @@ export function initChatAttachments(ctx) {
     const bubble = lastOperatorBubble(messages);
     if (bubble) bubble.replaceChildren(document.createTextNode(parts.typed), chipRow(parts.names));
   });
-  onChat('reset', clearTray);
+  // The log is cleared both when the console moves to another conversation
+  // (New conversation, a session switch) and when it reads the same one again
+  // (a reconnect gap, the end of a mirrored turn, a re-bind after a hand-off).
+  // Only a move empties the tray: files attached and not yet sent belong to the
+  // conversation, and a re-read must not delete them. chat.js names the new key
+  // before it clears the log, so the key read here is the one that follows.
+  let trayKey = ctx.getKey();
+  onChat('reset', () => {
+    const key = ctx.getKey();
+    if (key === trayKey) return;
+    trayKey = key;
+    clearTray();
+  });
 
   // The tray starts empty, but the paperclip's state is painted from the start.
   sync();

@@ -8,7 +8,7 @@
  * tab CLOSE is deliberately NOT a server change (tile occupancy is per-client
  * layout state under the launcher-rail model) — it routes to a locally-registered
  * vacate handler instead. The forward half (server → dock application, and the
- * simple-mode layout synthesis) lives in dock-workspace.js / panel-manager.js and
+ * chat layout synthesis) lives in dock-workspace.js / panel-manager.js and
  * is pinned by the reconcile tests (dock-reconcile.test.mjs) plus the browser
  * suite; this file does not duplicate them. Here we pin dock-sync's own contract:
  *
@@ -16,38 +16,51 @@
  *     (echo) focus POSTs never;
  *   - the human tab-CLOSE click fires the registered tile-close handler, never a
  *     POST;
- *   - dockPanelBesideActive appends a placeholder beside the active group under
- *     the same guard;
+ *   - the LAYOUT REPORT reads the layout holder (never dockview's toJSON), sends
+ *     the page's client_id and the pop-outs beside the layout, and hands the
+ *     ack's rev back to the holder;
+ *   - dockPanelBesideActive and dockPanelAt run one engine op on the layout
+ *     holder, which applies it under the same guard;
  *   - the listeners wire idempotently and tolerate late DockviewApi arrival.
  *
- * dockview and the two collaborators are stubbed at the module boundary: getDockApi
- * (dock-workspace.js) yields a hand-built fake api, and setPanelFocus /
- * setPanelVisibility (panel-commands.js) are spies. Each test re-imports dock-sync
- * fresh (vi.resetModules) so its module-scoped guard/wire state never leaks across
- * tests.
+ * dockview and the collaborators are stubbed at the module boundary: getDockApi
+ * (dock-workspace.js) yields a hand-built fake api, getLayoutHolder (dock-apply.js)
+ * a fake holder (or a real one over the fake api, for the placement verbs), and
+ * setPanelFocus / setPanelVisibility (panel-commands.js) are spies, and fetch
+ * is stubbed so `serverReport` plays the layout-report route. Each test
+ * re-imports dock-sync fresh (vi.resetModules) so its module-scoped guard/wire
+ * state never leaks across tests.
  */
 
 import { test, expect, describe, beforeEach, afterEach, vi } from 'vitest';
 
 const SYNC = '../../../src/osprey/interfaces/web_terminal/static/js/dock-sync.js';
+const API = '../../../src/osprey/interfaces/web_terminal/static/js/api.js';
 
 // Boundary stubs. Hoisted so the spies exist before dock-sync's static imports
 // resolve; the same spy instances persist across resetModules (they are closed
 // over here), while dock-sync's own state is rebuilt on each fresh import.
 const {
-  getDockApi, setPanelFocus, setPanelVisibility, reportPanelLayout, setLayoutRestoredHook, state,
-} = vi.hoisted(
-  () => ({
-    state: { api: /** @type {any} */ (null), restoreHook: /** @type {any} */ (null) },
-    getDockApi: vi.fn(() => /** @type {any} */ (null)),
-    setLayoutRestoredHook: vi.fn(),
-    setPanelFocus: vi.fn(),
-    setPanelVisibility: vi.fn(),
-    // Resolves with the server's acknowledgement; the reporter sets its dedupe
-    // baseline from that, so tests can model a lost report by resolving null.
-    reportPanelLayout: vi.fn(),
-  }),
-);
+  getDockApi,
+  setPanelFocus,
+  setPanelVisibility,
+  serverReport,
+  setLayoutRestoredHook,
+  state,
+} = vi.hoisted(() => ({
+  state: {
+    api: /** @type {any} */ (null),
+    restoreHook: /** @type {any} */ (null),
+    holder: /** @type {any} */ (null),
+  },
+  getDockApi: vi.fn(() => /** @type {any} */ (null)),
+  setLayoutRestoredHook: vi.fn(),
+  setPanelFocus: vi.fn(),
+  setPanelVisibility: vi.fn(),
+  // The layout-report route: (layout, popouts, dock) -> the server's
+  // acknowledgement, or null for a report that did not land.
+  serverReport: vi.fn(),
+}));
 // getDockApi reads the mutable holder so a test can swap the live api in place.
 getDockApi.mockImplementation(() => state.api);
 
@@ -68,8 +81,36 @@ vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/dock-workspace.js
 vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/panel-commands.js', () => ({
   setPanelFocus,
   setPanelVisibility,
-  reportPanelLayout,
 }));
+// The layout holder is the one thing the reporter and the placement verbs
+// read; the page's holder is swapped per test (a fake with just a layout for
+// the reporter, a real one over the fake api for the verbs).
+const DOCK_APPLY = '../../../src/osprey/interfaces/web_terminal/static/js/dock-apply.js';
+vi.mock(
+  '../../../src/osprey/interfaces/web_terminal/static/js/dock-apply.js',
+  async (importOriginal) => ({
+    .../** @type {object} */ (await importOriginal()),
+    getLayoutHolder: () => state.holder,
+  })
+);
+// The one question dock-sync asks the pop-out seam: whether a panel lives in
+// its own window. The seam's own behaviour is popout.test.mjs's contract.
+const { isPoppedOut, popoutListeners } = vi.hoisted(() => ({
+  isPoppedOut: vi.fn(/** @type {(id: string) => boolean} */ (() => false)),
+  /** The pop-out change listeners dock-sync registered. @type {Function[]} */
+  popoutListeners: /** @type {Function[]} */ ([]),
+}));
+vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/popout.js', () => ({
+  isPoppedOut,
+  onPopoutChange: (/** @type {Function} */ fn) => {
+    popoutListeners.push(fn);
+  },
+}));
+
+/** Every body POSTed to /api/panel-layout, in order. @type {any[]} */
+let fetchBodies = [];
+/** Flip `ok` to false to model the route refusing a report. */
+const fetchStatus = { ok: true };
 
 beforeEach(() => {
   vi.resetModules();
@@ -79,12 +120,28 @@ beforeEach(() => {
   setLayoutRestoredHook.mockImplementation((/** @type {any} */ fn) => {
     state.restoreHook = fn;
   });
-  // Default: the server acknowledges every report as a genuine update, echoing
-  // the tiles back the way the real route does.
-  reportPanelLayout.mockImplementation((/** @type {string[]} */ tiles, /** @type {boolean} */ dock) =>
-    Promise.resolve({ status: 'ok', tiles, dock, updated: true }),
+  // Default: the server acknowledges every report as a genuine update and
+  // mints the next rev, the way the real route does.
+  let rev = 0;
+  serverReport.mockImplementation(
+    (/** @type {any} */ layout, /** @type {string[]} */ popouts, /** @type {boolean} */ dock) =>
+      Promise.resolve({ status: 'ok', layout, popouts, dock, rev: ++rev, updated: true })
+  );
+  fetchBodies = [];
+  fetchStatus.ok = true;
+  popoutListeners.length = 0;
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (/** @type {string} */ _url, /** @type {any} */ opts) => {
+      const body = JSON.parse(opts.body);
+      fetchBodies.push(body);
+      const ack = await serverReport(body.layout, body.popouts, body.dock);
+      if (!fetchStatus.ok || ack === null) return { ok: false, json: async () => null };
+      return { ok: true, json: async () => ack };
+    })
   );
   state.api = null;
+  state.holder = null;
   document.body.innerHTML = '';
 });
 
@@ -94,23 +151,21 @@ beforeEach(() => {
  * dock-sync registered (dockview fires it synchronously for both a human tab
  * click and a programmatic setActive — the ambiguity the echo guard resolves);
  * `fireLayout()` invokes the onDidLayoutChange listener the occupancy reporter
- * registered.
+ * registered. A layout holder applies a whole layout at once through
+ * `fromJSON` (and reads the stored panel entries through `toJSON`).
  *
- * Deliberately has NO toJSON: an api that cannot serialize its grid reports
- * nothing, which keeps the settle timer wiring arms at boot inert in every test
- * that is not about the reporter. Reporter tests opt in via {@link withGrid}.
+ * The layout report reads the holder, never this api; `state.holder` is
+ * null by default, which keeps the settle timer wiring arms at boot inert in
+ * every test that is not about the reporter.
  * @returns {any}
  */
 function makeApi() {
   /** @type {any} */
   const api = {
     activePanel: null,
-    activeGroup: null,
     groups: [],
-    _panels: /** @type {Record<string, any>} */ ({}),
-    _added: /** @type {any[]} */ ([]),
-    /** Panel dockview auto-activates when the active one is removed (null = none). */
-    _activateOnRemove: /** @type {any} */ (null),
+    width: 1600,
+    height: 900,
     /** @type {null | (() => void)} */
     _activeCb: null,
     /** @type {null | (() => void)} */
@@ -131,19 +186,21 @@ function makeApi() {
     api._layoutCb = cb;
     return { dispose() {} };
   });
-  api.getPanel = vi.fn((/** @type {string} */ id) => api._panels[id] ?? null);
-  api.addPanel = vi.fn((/** @type {any} */ opts) => {
-    api._added.push(opts);
-  });
-  // dockview removes the panel; if a stacked neighbor exists it becomes active and
-  // onDidActivePanelChange fires SYNCHRONOUSLY — the echo the guard must cover.
-  api.removePanel = vi.fn(() => {
-    if (api._activateOnRemove) {
-      api.activePanel = api._activateOnRemove;
-      api.fireActive();
-    }
-  });
+  api.getPanel = vi.fn(() => null);
+  api.toJSON = vi.fn(() => ({ panels: {} }));
+  api.fromJSON = vi.fn();
   return api;
+}
+
+/**
+ * A dock layout row of tiles, one per tab list (tile ids '1', '2', ...; each
+ * tile shows its first tab); a single list is a root tile.
+ * @param {...string[]} tabLists
+ * @returns {any}
+ */
+function row(...tabLists) {
+  const tiles = tabLists.map((tabs, i) => ({ tile: String(i + 1), tabs, showing: tabs[0] }));
+  return tiles.length === 1 ? tiles[0] : { split: 'row', items: tiles };
 }
 
 /** The tile-close vacate handler panel-manager registers in production —
@@ -203,211 +260,50 @@ function buildGroup(root, api, panelIds) {
 }
 
 /**
- * A serialized grid LEAF (one tile) in the shape `api.toJSON()` emits — `views`
- * is the tile's tab order, one entry under the one-panel-per-tile invariant.
- * @param {...string} views
+ * A fake layout holder with the surface the reporter reads: `layout`,
+ * `popouts`, `dirty`, `ackedRev` and `ack(rev)` (dock-apply.js's
+ * createLayoutHolder).
+ * @param {any} layout @param {string[]} [popouts]
  */
-function leaf(...views) {
-  return {
-    type: 'leaf',
-    data: { views, activeView: views[0], id: `group-${views.join('+') || 'empty'}` },
-    size: 500,
-  };
+function makeHolder(layout, popouts = []) {
+  /** @type {any} */
+  const holder = { layout, popouts, dirty: true, ackedRev: null };
+  holder.ack = vi.fn((/** @type {number} */ rev) => {
+    holder.ackedRev = rev;
+    holder.dirty = false;
+  });
+  return holder;
 }
 
-/**
- * A serialized grid BRANCH: children in spatial order along the branch's own
- * axis — left-to-right for a horizontal branch, top-to-bottom for a vertical
- * one (the root's axis is `grid.orientation`, nested branches alternate).
- * @param {...any} children
- */
-function branch(...children) {
-  return { type: 'branch', data: children, size: 1000 };
-}
-
-/**
- * A serialized dockview layout carrying `root` as its grid tree.
- * @param {any} root  the grid tree, or undefined for a layout with no grid
- */
-function gridPayload(root) {
-  return {
-    grid:
-      root === undefined ? undefined : { root, width: 1600, height: 900, orientation: 'HORIZONTAL' },
-    panels: {},
-    activeGroup: 'group-1',
-  };
-}
-
-/**
- * A minimal api stub exposing only toJSON — serializeOpenTiles takes the api as
- * an argument, so these tests need no wiring, no DOM, and no dockview.
- * @param {any} root
- */
-function apiWithGrid(root) {
-  return { toJSON: () => gridPayload(root) };
-}
-
-/**
- * Teach a {@link makeApi} stub to serialize `root`, opting that api into the
- * occupancy reporter. Returns the api for chaining; call again to model the
- * operator rearranging tiles before firing the next layout change.
- * @param {any} api
- * @param {any} root
- */
-function withGrid(api, root) {
-  api.toJSON = () => gridPayload(root);
-  return api;
-}
-
-describe('serializeOpenTiles — occupancy in spatial reading order', () => {
-  test('returns null with no api at all (fallback mode — never an empty report)', async () => {
-    const { serializeOpenTiles } = await import(SYNC);
-    expect(serializeOpenTiles(null)).toBeNull();
-    expect(serializeOpenTiles(undefined)).toBeNull();
-  });
-
-  test('returns null for an api that cannot serialize (no toJSON)', async () => {
-    const { serializeOpenTiles } = await import(SYNC);
-    expect(serializeOpenTiles({})).toBeNull();
-  });
-
-  test('returns null when toJSON throws — the layout is unknown, not empty', async () => {
-    const { serializeOpenTiles } = await import(SYNC);
-    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-    const api = {
-      toJSON: () => {
-        throw new Error('dockview mid-rebuild');
-      },
-    };
-
-    expect(serializeOpenTiles(api)).toBeNull();
-    expect(errSpy).toHaveBeenCalled();
-    errSpy.mockRestore();
-  });
-
-  test('returns null when the payload carries no grid tree', async () => {
-    const { serializeOpenTiles } = await import(SYNC);
-    expect(serializeOpenTiles(apiWithGrid(undefined))).toBeNull();
-    expect(serializeOpenTiles(apiWithGrid(null))).toBeNull();
-  });
-
-  test('an EMPTY dock reports an empty list (distinct from the unknown null)', async () => {
-    const { serializeOpenTiles } = await import(SYNC);
-    expect(serializeOpenTiles(apiWithGrid(branch()))).toEqual([]);
-  });
-
-  test('a dock holding only the terminal reports no tiles', async () => {
-    const { serializeOpenTiles } = await import(SYNC);
-    expect(serializeOpenTiles(apiWithGrid(branch(leaf('terminal'))))).toEqual([]);
-  });
-
-  test('a horizontal split reports left-to-right, terminal excluded from the order', async () => {
-    const { serializeOpenTiles } = await import(SYNC);
-    const root = branch(leaf('iframe:ariel'), leaf('iframe:bluesky'), leaf('terminal'));
-
-    expect(serializeOpenTiles(apiWithGrid(root))).toEqual(['ariel', 'bluesky']);
-  });
-
-  test('a single group holding several placeholders reports them in tab order', async () => {
-    // The one-panel-per-tile invariant makes this a pre-strict-model layout, but
-    // the serializer must still describe it rather than drop the stack.
-    const { serializeOpenTiles } = await import(SYNC);
-    const root = branch(leaf('iframe:ariel', 'iframe:bluesky', 'iframe:okf'));
-
-    expect(serializeOpenTiles(apiWithGrid(root))).toEqual(['ariel', 'bluesky', 'okf']);
-  });
-
-  test('a 2D arrangement flattens column-first: a stacked pair before its neighbor', async () => {
-    // ariel over bluesky on the left, okf full-height on the right. Flattened,
-    // not raster-scanned — pixel geometry is out of scope for the report.
-    const { serializeOpenTiles } = await import(SYNC);
-    const root = branch(
-      branch(leaf('iframe:ariel'), leaf('iframe:bluesky')),
-      leaf('iframe:okf'),
-      leaf('terminal'),
-    );
-
-    expect(serializeOpenTiles(apiWithGrid(root))).toEqual(['ariel', 'bluesky', 'okf']);
-  });
-
-  test('nests to arbitrary depth', async () => {
-    const { serializeOpenTiles } = await import(SYNC);
-    const root = branch(
-      leaf('iframe:a'),
-      branch(leaf('iframe:b'), branch(leaf('iframe:c'), leaf('terminal'))),
-      leaf('iframe:d'),
-    );
-
-    expect(serializeOpenTiles(apiWithGrid(root))).toEqual(['a', 'b', 'c', 'd']);
-  });
-
-  test('a leaf with a bare (non-branch) root is walked too', async () => {
-    // dockview requires a branch root on fromJSON, but toJSON is read here
-    // without that assumption.
-    const { serializeOpenTiles } = await import(SYNC);
-    expect(serializeOpenTiles(apiWithGrid(leaf('iframe:ariel')))).toEqual(['ariel']);
-  });
-
-  test('an UNRECOGNIZED ROOT is unreadable (null), never an affirmative empty workspace', async () => {
-    // The whole tree is unreadable, so there is nothing to assert about
-    // occupancy — distinct from an inner node, whose siblings still describe
-    // real tiles and which is therefore skipped rather than fatal.
-    const { serializeOpenTiles } = await import(SYNC);
-
-    expect(serializeOpenTiles(apiWithGrid({ type: 'mystery', data: [] }))).toBeNull();
-    expect(serializeOpenTiles(apiWithGrid({ data: [] }))).toBeNull();
-    expect(serializeOpenTiles(apiWithGrid({ type: 'leaf', data: { views: [] } }))).toEqual([]);
-  });
-
-  test('malformed nodes are skipped, not thrown on', async () => {
-    const { serializeOpenTiles } = await import(SYNC);
-    const root = branch(
-      null,
-      { type: 'leaf' },
-      { type: 'leaf', data: { views: 'not-an-array' } },
-      { type: 'mystery', data: [leaf('iframe:ignored')] },
-      leaf('iframe:ariel'),
-    );
-
-    expect(serializeOpenTiles(apiWithGrid(root))).toEqual(['ariel']);
-  });
-
-  test('a panel referenced twice by a malformed tree is reported once', async () => {
-    const { serializeOpenTiles } = await import(SYNC);
-    const root = branch(leaf('iframe:ariel'), leaf('iframe:bluesky'), leaf('iframe:ariel'));
-
-    expect(serializeOpenTiles(apiWithGrid(root))).toEqual(['ariel', 'bluesky']);
-  });
-
-  test('does not mutate the serialized layout it reads', async () => {
-    const { serializeOpenTiles } = await import(SYNC);
-    const root = branch(branch(leaf('iframe:ariel'), leaf('terminal')), leaf('iframe:okf'));
-    const before = JSON.stringify(root);
-
-    serializeOpenTiles(apiWithGrid(root));
-
-    expect(JSON.stringify(root)).toBe(before);
-  });
-});
-
-describe('occupancy reporter — settle debounce, content dedupe, capability', () => {
+describe('layout reporter — from the holder, settle debounce, content dedupe, rev', () => {
   const SETTLE = 250;
 
   /**
-   * Wire dock-sync against an api that serializes `root`, then fire the
-   * boot-layout-settled hook — the normal boot, where dock-workspace finishes
-   * deciding the starting layout. Reporting is inert until that fires, so tests
-   * about steady-state behavior go through here; tests about the boot window
-   * itself withhold it (pass `settled: false`) and fire state.restoreHook
-   * themselves.
-   * @param {any} root
+   * Wire dock-sync with a holder holding `layout`, then fire the boot-layout-
+   * settled hook — the normal boot. Reporting is inert until that fires, so
+   * tests about the boot window itself withhold it (`settled: false`) and fire
+   * state.restoreHook themselves.
+   * @param {any} layout
    * @param {{settled?: boolean}} [opts]
    */
-  async function wireReporting(root, { settled = true } = {}) {
-    const api = withGrid(makeApi(), root);
+  async function wireReporting(layout, { settled = true } = {}) {
+    state.holder = makeHolder(layout);
+    const api = makeApi();
     const { mod } = await wire(api);
     if (settled) state.restoreHook?.();
-    return { api, mod };
+    return { api, mod, holder: state.holder };
+  }
+
+  /**
+   * The operator's dock moved on: the holder now holds `layout` (dirty), and
+   * dockview fires the layout change the holder's apply causes.
+   * @param {any} api
+   * @param {any} layout
+   */
+  function change(api, layout) {
+    state.holder.layout = layout;
+    state.holder.dirty = true;
+    api.fireLayout();
   }
 
   beforeEach(() => {
@@ -418,266 +314,245 @@ describe('occupancy reporter — settle debounce, content dedupe, capability', (
     vi.useRealTimers();
   });
 
-  test('a SLOW restore never publishes the pre-restore layout as fact', async () => {
-    // The critical boot case. dock-workspace restores only after an /api/panels
-    // round trip; if reporting ran on a deadline, a fetch slower than that
-    // deadline would publish "no tiles open" as a confident fact, and a hook
-    // reading /api/panels in that window would believe it.
-    const { api } = await wireReporting(branch(leaf('terminal')), { settled: false });
-
-    // Far past any settle window, with the restore still in flight.
-    await vi.advanceTimersByTimeAsync(SETTLE * 20);
-    expect(reportPanelLayout).not.toHaveBeenCalled();
-
-    // The restore finally lands, and only now is there a layout worth reporting.
-    withGrid(api, branch(leaf('iframe:ariel'), leaf('iframe:okf'), leaf('terminal')));
-    state.restoreHook();
+  test('reports the holder layout — tabs, showing tab and terminal — with the client id', async () => {
+    const layout = row(['terminal'], ['ariel', 'okf'], ['bluesky']);
+    await wireReporting(layout);
     await vi.advanceTimersByTimeAsync(SETTLE);
 
-    expect(reportPanelLayout).toHaveBeenCalledExactlyOnceWith(['ariel', 'okf'], true);
-    expect(reportPanelLayout).not.toHaveBeenCalledWith([], true);
+    expect(serverReport).toHaveBeenCalledExactlyOnceWith(layout, [], true);
+    const body = fetchBodies[0];
+    expect(Object.keys(body).sort()).toEqual(['client_id', 'dock', 'layout', 'popouts']);
+    expect(body.layout.items[1]).toEqual({
+      tile: '2',
+      tabs: ['ariel', 'okf'],
+      showing: 'ariel',
+    });
+    expect(typeof body.client_id).toBe('string');
+    expect(body.client_id.length).toBeGreaterThan(0);
+    const { getPageClientId } = await import(API);
+    expect(body.client_id).toBe(getPageClientId());
+  });
+
+  test('never reads dockview: an api whose toJSON throws changes nothing', async () => {
+    const { api } = await wireReporting(row(['terminal']));
+    api.toJSON = vi.fn(() => {
+      throw new Error('toJSON must not be called');
+    });
+    change(api, row(['terminal'], ['ariel']));
+    await vi.advanceTimersByTimeAsync(SETTLE);
+    expect(api.toJSON).not.toHaveBeenCalled();
+    expect(serverReport).toHaveBeenCalledExactlyOnceWith(row(['terminal'], ['ariel']), [], true);
+  });
+
+  test('the client id is the same on every report of a page', async () => {
+    const { api } = await wireReporting(row(['terminal']));
+    await vi.advanceTimersByTimeAsync(SETTLE);
+    change(api, row(['terminal'], ['ariel']));
+    await vi.advanceTimersByTimeAsync(SETTLE);
+    expect(fetchBodies).toHaveLength(2);
+    expect(fetchBodies[0].client_id).toBe(fetchBodies[1].client_id);
+  });
+
+  test('the ack rev goes to the holder: ackedRev kept, dirty cleared', async () => {
+    serverReport.mockImplementation((/** @type {any} */ layout) =>
+      Promise.resolve({ status: 'ok', layout, rev: 7, updated: true })
+    );
+    const { holder } = await wireReporting(row(['terminal'], ['ariel']));
+    expect(holder.dirty).toBe(true);
+    await vi.advanceTimersByTimeAsync(SETTLE);
+    expect(holder.ack).toHaveBeenCalledExactlyOnceWith(7);
+    expect(holder.ackedRev).toBe(7);
+    expect(holder.dirty).toBe(false);
+  });
+
+  test('a layout that moved on while the report was in flight stays dirty and goes next', async () => {
+    /** @type {(() => void)[]} */
+    const pending = [];
+    let rev = 0;
+    serverReport.mockImplementation(
+      (/** @type {any} */ layout) =>
+        new Promise((resolve) =>
+          pending.push(() => resolve({ status: 'ok', layout, rev: ++rev, updated: true }))
+        )
+    );
+    const { api, holder } = await wireReporting(row(['terminal']));
+    await vi.advanceTimersByTimeAsync(SETTLE);
+    expect(serverReport).toHaveBeenCalledTimes(1);
+
+    change(api, row(['terminal'], ['ariel']));
+    pending[0]();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(holder.ack).not.toHaveBeenCalled();
+    expect(holder.dirty).toBe(true);
+
+    await vi.advanceTimersByTimeAsync(SETTLE);
+    expect(serverReport).toHaveBeenCalledTimes(2);
+    expect(serverReport).toHaveBeenLastCalledWith(row(['terminal'], ['ariel']), [], true);
+    pending[1]();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(holder.ack).toHaveBeenCalledExactlyOnceWith(2);
+    expect(holder.dirty).toBe(false);
+  });
+
+  test('the unchanged-since-ack check ignores rev', async () => {
+    // A later writer (the op-result route) may move the holder's ackedRev; the
+    // layout is what decides whether there is news, never the rev.
+    const { api, holder } = await wireReporting(row(['terminal'], ['ariel']));
+    await vi.advanceTimersByTimeAsync(SETTLE);
+    holder.ack(99);
+    api.fireLayout();
+    await vi.advanceTimersByTimeAsync(SETTLE * 4);
+    expect(serverReport).toHaveBeenCalledTimes(1);
+  });
+
+  test('a dirty holder whose layout equals the acked one settles without a POST', async () => {
+    const { api, holder } = await wireReporting(row(['terminal'], ['ariel', 'okf']));
+    await vi.advanceTimersByTimeAsync(SETTLE);
+    const ackedRev = holder.ackedRev;
+    change(api, row(['terminal'], ['ariel', 'okf']));
+    await vi.advanceTimersByTimeAsync(SETTLE);
+    expect(serverReport).toHaveBeenCalledTimes(1);
+    expect(holder.dirty).toBe(false);
+    expect(holder.ackedRev).toBe(ackedRev);
+  });
+
+  test('a SLOW restore never publishes the pre-restore layout as fact', async () => {
+    const { api } = await wireReporting(row(['terminal']), { settled: false });
+    await vi.advanceTimersByTimeAsync(SETTLE * 20);
+    expect(serverReport).not.toHaveBeenCalled();
+
+    change(api, row(['ariel'], ['okf'], ['terminal']));
+    state.restoreHook();
+    await vi.advanceTimersByTimeAsync(SETTLE);
+    expect(serverReport).toHaveBeenCalledExactlyOnceWith(
+      row(['ariel'], ['okf'], ['terminal']),
+      [],
+      true
+    );
   });
 
   test('layout churn before the restore is ignored, not merely debounced', async () => {
-    const { api } = await wireReporting(branch(leaf('terminal')), { settled: false });
-
-    // The adapter docking its first placeholders, pre-restore.
-    withGrid(api, branch(leaf('iframe:ariel'), leaf('terminal')));
-    api.fireLayout();
+    const { api } = await wireReporting(row(['terminal']), { settled: false });
+    change(api, row(['ariel'], ['terminal']));
     await vi.advanceTimersByTimeAsync(SETTLE * 4);
-    withGrid(api, branch(leaf('terminal')));
-    api.fireLayout();
+    change(api, row(['terminal']));
     await vi.advanceTimersByTimeAsync(SETTLE * 4);
-
-    expect(reportPanelLayout).not.toHaveBeenCalled();
+    expect(serverReport).not.toHaveBeenCalled();
   });
 
   test('the boot deadline is a backstop when the restore hook never fires', async () => {
-    // A dock-workspace that never reached initPersistence, or a fetch that
-    // neither resolves nor rejects: reporting must not be disabled forever.
-    const { api } = await wireReporting(branch(leaf('iframe:ariel')), { settled: false });
-
+    const { api } = await wireReporting(row(['ariel']), { settled: false });
     await vi.advanceTimersByTimeAsync(SETTLE * 8);
-    expect(reportPanelLayout).not.toHaveBeenCalled();
-
+    expect(serverReport).not.toHaveBeenCalled();
     await vi.advanceTimersByTimeAsync(10000);
-    expect(reportPanelLayout).toHaveBeenCalledExactlyOnceWith(['ariel'], true);
+    expect(serverReport).toHaveBeenCalledExactlyOnceWith(row(['ariel']), [], true);
     expect(api.onDidLayoutChange).toHaveBeenCalledTimes(1);
   });
 
-  test('a restore arriving after the deadline is an ordinary layout change', async () => {
-    const { api } = await wireReporting(branch(leaf('terminal')), { settled: false });
-    await vi.advanceTimersByTimeAsync(10000 + SETTLE);
-    reportPanelLayout.mockClear();
-
-    withGrid(api, branch(leaf('iframe:ariel'), leaf('terminal')));
-    state.restoreHook();
-    await vi.advanceTimersByTimeAsync(SETTLE);
-
-    expect(reportPanelLayout).toHaveBeenCalledExactlyOnceWith(['ariel'], true);
-  });
-
-  test('reports the settled layout once the window expires', async () => {
-    const { api } = await wireReporting(branch(leaf('iframe:ariel'), leaf('terminal')));
-
-    expect(api.onDidLayoutChange).toHaveBeenCalledTimes(1);
-    expect(reportPanelLayout).not.toHaveBeenCalled(); // still settling
-
-    await vi.advanceTimersByTimeAsync(SETTLE);
-    expect(reportPanelLayout).toHaveBeenCalledExactlyOnceWith(['ariel'], true);
-  });
-
-  test('a burst of layout changes reports ONCE, from the arrangement it settles on', async () => {
-    // The shape of a mode flip / reset / fromJSON restore: panels land one at a
-    // time, and only the final arrangement may reach the server.
-    const { api } = await wireReporting(branch(leaf('terminal')));
-
-    withGrid(api, branch(leaf('iframe:ariel'), leaf('terminal')));
-    api.fireLayout();
+  test('a burst of layout changes reports ONCE, from the layout it settles on', async () => {
+    const { api } = await wireReporting(row(['terminal']));
+    change(api, row(['ariel'], ['terminal']));
     await vi.advanceTimersByTimeAsync(100);
-    withGrid(api, branch(leaf('iframe:ariel'), leaf('iframe:bluesky'), leaf('terminal')));
-    api.fireLayout();
+    change(api, row(['ariel'], ['bluesky'], ['terminal']));
     await vi.advanceTimersByTimeAsync(100);
-    withGrid(api, branch(leaf('iframe:bluesky'), leaf('iframe:ariel'), leaf('terminal')));
-    api.fireLayout();
-
-    expect(reportPanelLayout).not.toHaveBeenCalled();
+    change(api, row(['bluesky'], ['ariel'], ['terminal']));
+    expect(serverReport).not.toHaveBeenCalled();
     await vi.advanceTimersByTimeAsync(SETTLE);
-    expect(reportPanelLayout).toHaveBeenCalledExactlyOnceWith(['bluesky', 'ariel'], true);
+    expect(serverReport).toHaveBeenCalledExactlyOnceWith(
+      row(['bluesky'], ['ariel'], ['terminal']),
+      [],
+      true
+    );
   });
 
-  test('serializes at FLUSH time — an intermediate arrangement is never reported', async () => {
-    const { api } = await wireReporting(branch(leaf('iframe:ariel')));
-
-    // Mid-rebuild the dock is momentarily empty; it settles holding okf.
-    withGrid(api, branch());
-    api.fireLayout();
-    withGrid(api, branch(leaf('iframe:okf')));
-    api.fireLayout();
+  test('reads at FLUSH time — an intermediate layout is never reported', async () => {
+    const { api } = await wireReporting(row(['ariel']));
+    change(api, row(['terminal']));
+    change(api, row(['okf']));
     await vi.advanceTimersByTimeAsync(SETTLE);
-
-    expect(reportPanelLayout).toHaveBeenCalledExactlyOnceWith(['okf'], true);
+    expect(serverReport).toHaveBeenCalledExactlyOnceWith(row(['okf']), [], true);
   });
 
-  test('an api.clear()/fromJSON rebuild never records its transient EMPTY window', async () => {
-    // The correctness case behind subscribe-after-apply + settle debounce: a
-    // rebuild legitimately serializes to [] between clear() and fromJSON, and []
-    // is a VALID report ("operator closed everything"), so nothing downstream
-    // could tell that transient from real occupancy. Only the debounce can — the
-    // window must never expire mid-rebuild.
-    const { api } = await wireReporting(branch(leaf('iframe:ariel'), leaf('terminal')));
+  test('switching the showing tab is a change, not a duplicate', async () => {
+    const { api } = await wireReporting(row(['terminal'], ['ariel', 'okf']));
     await vi.advanceTimersByTimeAsync(SETTLE);
-    reportPanelLayout.mockClear();
-
-    withGrid(api, branch()); // api.clear()
-    api.fireLayout();
-    await vi.advanceTimersByTimeAsync(SETTLE - 50);
-    withGrid(api, branch(leaf('terminal'))); // fromJSON, panel by panel
-    api.fireLayout();
-    await vi.advanceTimersByTimeAsync(SETTLE - 50);
-    withGrid(api, branch(leaf('iframe:okf'), leaf('terminal')));
-    api.fireLayout();
+    const shown = row(['terminal'], ['ariel', 'okf']);
+    shown.items[1].showing = 'okf';
+    change(api, shown);
+    api.fireActive();
     await vi.advanceTimersByTimeAsync(SETTLE);
-
-    expect(reportPanelLayout).toHaveBeenCalledExactlyOnceWith(['okf'], true);
-    expect(reportPanelLayout).not.toHaveBeenCalledWith([], true);
+    expect(serverReport).toHaveBeenCalledTimes(2);
+    expect(serverReport).toHaveBeenLastCalledWith(shown, [], true);
   });
 
-  test('an unchanged layout is not re-POSTed (client half of the dedupe contract)', async () => {
-    const { api } = await wireReporting(branch(leaf('iframe:ariel')));
+  test('closing the last service tab reports the terminal-only layout', async () => {
+    const { api } = await wireReporting(row(['ariel'], ['terminal']));
     await vi.advanceTimersByTimeAsync(SETTLE);
-    expect(reportPanelLayout).toHaveBeenCalledTimes(1);
-
-    // A sash drag or a focus change settles the layout without moving a tile.
-    api.fireLayout();
+    change(api, row(['terminal']));
     await vi.advanceTimersByTimeAsync(SETTLE);
-    api.fireLayout();
-    await vi.advanceTimersByTimeAsync(SETTLE);
-
-    expect(reportPanelLayout).toHaveBeenCalledTimes(1);
-  });
-
-  test('a genuine change after a deduped repeat still reports', async () => {
-    const { api } = await wireReporting(branch(leaf('iframe:ariel')));
-    await vi.advanceTimersByTimeAsync(SETTLE);
-
-    api.fireLayout(); // same list — deduped
-    await vi.advanceTimersByTimeAsync(SETTLE);
-    withGrid(api, branch(leaf('iframe:ariel'), leaf('iframe:okf')));
-    api.fireLayout();
-    await vi.advanceTimersByTimeAsync(SETTLE);
-
-    expect(reportPanelLayout).toHaveBeenCalledTimes(2);
-    expect(reportPanelLayout).toHaveBeenLastCalledWith(['ariel', 'okf'], true);
-  });
-
-  test('REORDERING the same panels is a change, not a duplicate', async () => {
-    const { api } = await wireReporting(branch(leaf('iframe:ariel'), leaf('iframe:okf')));
-    await vi.advanceTimersByTimeAsync(SETTLE);
-
-    withGrid(api, branch(leaf('iframe:okf'), leaf('iframe:ariel')));
-    api.fireLayout();
-    await vi.advanceTimersByTimeAsync(SETTLE);
-
-    expect(reportPanelLayout).toHaveBeenCalledTimes(2);
-    expect(reportPanelLayout).toHaveBeenLastCalledWith(['okf', 'ariel'], true);
-  });
-
-  test('closing the last service tile reports an empty list (a real report)', async () => {
-    const { api } = await wireReporting(branch(leaf('iframe:ariel'), leaf('terminal')));
-    await vi.advanceTimersByTimeAsync(SETTLE);
-
-    withGrid(api, branch(leaf('terminal')));
-    api.fireLayout();
-    await vi.advanceTimersByTimeAsync(SETTLE);
-
-    expect(reportPanelLayout).toHaveBeenLastCalledWith([], true);
+    expect(serverReport).toHaveBeenLastCalledWith(row(['terminal']), [], true);
   });
 
   test('reports during an echo-guarded apply — the guard must NOT gate it', async () => {
-    // dockview defers onDidLayoutChange to a microtask, so it lands after the
-    // synchronous suppress window closes; gating here would suppress nothing
-    // while looking correct. Dedupe is what stops the loop instead.
-    const { api, mod } = await wireReporting(branch(leaf('terminal')));
+    const { api, mod } = await wireReporting(row(['terminal']));
     await vi.advanceTimersByTimeAsync(SETTLE);
-    reportPanelLayout.mockClear();
-
-    mod.withEchoSuppressed(() => {
-      withGrid(api, branch(leaf('iframe:ariel'), leaf('terminal')));
-      api.fireLayout();
-    });
+    serverReport.mockClear();
+    mod.withEchoSuppressed(() => change(api, row(['ariel'], ['terminal'])));
     await vi.advanceTimersByTimeAsync(SETTLE);
-
-    expect(reportPanelLayout).toHaveBeenCalledExactlyOnceWith(['ariel'], true);
+    expect(serverReport).toHaveBeenCalledExactlyOnceWith(row(['ariel'], ['terminal']), [], true);
   });
 
-  test('an applied arrangement settles in ONE report, then goes quiet (no loop)', async () => {
-    // The convergence criterion: a server-applied arrange fires layout changes,
-    // which report once; the induced report matches, so nothing follows.
-    const { api } = await wireReporting(branch(leaf('terminal')));
+  test('an applied layout settles in ONE report, then goes quiet (no loop)', async () => {
+    const { api } = await wireReporting(row(['terminal']));
     await vi.advanceTimersByTimeAsync(SETTLE);
-    reportPanelLayout.mockClear();
-
-    withGrid(api, branch(leaf('iframe:ariel'), leaf('iframe:okf'), leaf('terminal')));
-    api.fireLayout();
+    serverReport.mockClear();
+    change(api, row(['ariel'], ['okf'], ['terminal']));
     api.fireLayout();
     await vi.advanceTimersByTimeAsync(SETTLE);
-    expect(reportPanelLayout).toHaveBeenCalledTimes(1);
-
+    expect(serverReport).toHaveBeenCalledTimes(1);
     api.fireLayout();
     await vi.advanceTimersByTimeAsync(SETTLE * 4);
-    expect(reportPanelLayout).toHaveBeenCalledTimes(1);
+    expect(serverReport).toHaveBeenCalledTimes(1);
   });
 
-  test('an api that cannot serialize reports nothing and leaves the baseline intact', async () => {
-    const api = makeApi(); // no toJSON — occupancy is unknown, not empty
-    await wire(api);
-    state.restoreHook();
-
+  test('no holder, or a holder with no layout yet, reports nothing', async () => {
+    const { api } = await wireReporting(null);
     await vi.advanceTimersByTimeAsync(SETTLE);
-    expect(reportPanelLayout).not.toHaveBeenCalled();
+    expect(serverReport).not.toHaveBeenCalled();
 
-    // Once it can serialize, the first real report still goes out.
-    withGrid(api, branch(leaf('iframe:ariel')));
+    state.holder = null;
     api.fireLayout();
     await vi.advanceTimersByTimeAsync(SETTLE);
-    expect(reportPanelLayout).toHaveBeenCalledExactlyOnceWith(['ariel'], true);
-  });
+    expect(serverReport).not.toHaveBeenCalled();
 
-  test('a dock torn down inside the settle window reports nothing', async () => {
-    const { api } = await wireReporting(branch(leaf('iframe:ariel')));
+    state.holder = makeHolder(row(['ariel']));
     api.fireLayout();
-    state.api = null; // shell gone before the window expires
-
     await vi.advanceTimersByTimeAsync(SETTLE);
-    expect(reportPanelLayout).not.toHaveBeenCalled();
+    expect(serverReport).toHaveBeenCalledExactlyOnceWith(row(['ariel']), [], true);
   });
 
-  test('fallback mode sends ONE dock:false capability report and no tile reports', async () => {
-    const mod = await import(SYNC);
-    mod.initDockSync(); // no api, no #dock-root — the shell never arrives
-
-    await vi.advanceTimersByTimeAsync(150 * 33); // exhaust the bounded retry budget
-    expect(reportPanelLayout).toHaveBeenCalledExactlyOnceWith([], false);
-
-    // Re-entering after the budget is spent must not re-report.
-    mod.initDockSync();
-    mod.initDockSync();
-    await vi.advanceTimersByTimeAsync(150 * 10);
-    expect(reportPanelLayout).toHaveBeenCalledTimes(1);
-  });
-
-  test('a dock:false claim is RETRACTED when a slow shell finally arrives', async () => {
-    // The fast budget expiring means "no dock seen yet", not "no dock exists".
-    // A shell that boots slowly must be able to correct the record rather than
-    // leaving the server believing this client is dockless.
+  test('fallback mode sends ONE dock:false capability report with no layout', async () => {
     const mod = await import(SYNC);
     mod.initDockSync();
     await vi.advanceTimersByTimeAsync(150 * 33);
-    expect(reportPanelLayout).toHaveBeenCalledExactlyOnceWith([], false);
+    expect(serverReport).toHaveBeenCalledExactlyOnceWith(null, [], false);
+    const { getPageClientId } = await import(API);
+    expect(fetchBodies[0].client_id).toBe(getPageClientId());
 
-    // The shell shows up late; the slow poll is still watching.
-    const api = withGrid(makeApi(), branch(leaf('iframe:ariel'), leaf('terminal')));
+    mod.initDockSync();
+    mod.initDockSync();
+    await vi.advanceTimersByTimeAsync(150 * 10);
+    expect(serverReport).toHaveBeenCalledTimes(1);
+  });
+
+  test('a dock:false claim is RETRACTED when a slow shell finally arrives', async () => {
+    const mod = await import(SYNC);
+    mod.initDockSync();
+    await vi.advanceTimersByTimeAsync(150 * 33);
+    expect(serverReport).toHaveBeenCalledExactlyOnceWith(null, [], false);
+
+    state.holder = makeHolder(row(['ariel'], ['terminal']));
+    const api = makeApi();
     state.api = api;
     const root = document.createElement('div');
     root.id = 'dock-root';
@@ -687,156 +562,176 @@ describe('occupancy reporter — settle debounce, content dedupe, capability', (
 
     state.restoreHook();
     await vi.advanceTimersByTimeAsync(SETTLE);
-    expect(reportPanelLayout).toHaveBeenLastCalledWith(['ariel'], true);
+    expect(serverReport).toHaveBeenLastCalledWith(row(['ariel'], ['terminal']), [], true);
   });
 
   test('a deduped no-op ack (updated:false) still sets the dedupe baseline', async () => {
-    // The server already held this list, so it is acknowledged even though
-    // nothing changed — the client must treat it as reported, not retry it.
-    reportPanelLayout.mockImplementation((/** @type {string[]} */ tiles, /** @type {boolean} */ dock) =>
-      Promise.resolve({ status: 'ok', tiles, dock, updated: false }),
+    serverReport.mockImplementation((/** @type {any} */ layout) =>
+      Promise.resolve({ status: 'ok', layout, rev: 3, updated: false })
     );
-    const { api } = await wireReporting(branch(leaf('iframe:ariel')));
+    const { api, holder } = await wireReporting(row(['ariel']));
     await vi.advanceTimersByTimeAsync(SETTLE);
-    expect(reportPanelLayout).toHaveBeenCalledTimes(1);
-
+    expect(holder.ackedRev).toBe(3);
     api.fireLayout();
     await vi.advanceTimersByTimeAsync(SETTLE * 4);
-    expect(reportPanelLayout).toHaveBeenCalledTimes(1);
+    expect(serverReport).toHaveBeenCalledTimes(1);
+  });
+
+  test('a person undoing an agent open is reported: noteReported moves the baseline', async () => {
+    const before = row(['ariel'], ['terminal']);
+    const { api, mod } = await wireReporting(before);
+    await vi.advanceTimersByTimeAsync(SETTLE);
+    expect(serverReport).toHaveBeenCalledTimes(1);
+    // An agent opens bluesky: the holder moves and the op's answer (not this
+    // module's report) is what the server acknowledged.
+    const opened = row(['ariel', 'bluesky'], ['terminal']);
+    state.holder.layout = opened;
+    mod.noteReported({ layout: opened, popouts: [] });
+    // The person closes it again: back to the layout this module last sent,
+    // which the server no longer holds. It must go out, not dedupe away.
+    change(api, before);
+    await vi.advanceTimersByTimeAsync(SETTLE);
+    expect(serverReport).toHaveBeenCalledTimes(2);
+    expect(serverReport).toHaveBeenLastCalledWith(before, [], true);
+  });
+
+  test('a layout equal to one acknowledged through noteReported is not re-reported', async () => {
+    const { api, mod } = await wireReporting(row(['ariel'], ['terminal']));
+    await vi.advanceTimersByTimeAsync(SETTLE);
+    const opened = row(['ariel', 'bluesky'], ['terminal']);
+    mod.noteReported({ layout: opened, popouts: [] });
+    change(api, opened);
+    await vi.advanceTimersByTimeAsync(SETTLE);
+    expect(serverReport).toHaveBeenCalledTimes(1);
+  });
+
+  test('a read-back differing only by size rounding from the acknowledged layout is not re-reported', async () => {
+    const { api, mod } = await wireReporting(row(['ariel'], ['terminal']));
+    await vi.advanceTimersByTimeAsync(SETTLE);
+    const planned = row(['ariel', 'bluesky'], ['terminal']);
+    mod.noteReported({ layout: planned, popouts: [] });
+    // dockview reads the applied tree back a pixel's fraction off.
+    const measured = structuredClone(planned);
+    measured.items[0].size = planned.items[0].size + 0.0002;
+    measured.items[1].size = planned.items[1].size - 0.0002;
+    change(api, measured);
+    await vi.advanceTimersByTimeAsync(SETTLE);
+    expect(serverReport).toHaveBeenCalledTimes(1);
+  });
+
+  test('a panel leaving for its own window is reported, with the pop-outs beside the layout', async () => {
+    const { api, holder } = await wireReporting(row(['ariel'], ['terminal']));
+    await vi.advanceTimersByTimeAsync(SETTLE);
+    expect(serverReport).toHaveBeenCalledTimes(1);
+    // popout.js vacates the tile (the holder's layout moves) and tells the
+    // holder; dock-sync hears the change and reports both.
+    holder.layout = row(['terminal']);
+    holder.popouts = ['ariel'];
+    holder.dirty = true;
+    for (const fn of popoutListeners) fn('ariel', true);
+    await vi.advanceTimersByTimeAsync(SETTLE);
+    expect(serverReport).toHaveBeenLastCalledWith(row(['terminal']), ['ariel'], true);
+    expect(fetchBodies.at(-1).popouts).toEqual(['ariel']);
+    // Its return, with the layout as before the pop-out, is news too.
+    holder.layout = row(['ariel'], ['terminal']);
+    holder.popouts = [];
+    holder.dirty = true;
+    for (const fn of popoutListeners) fn('ariel', false);
+    api.fireLayout();
+    await vi.advanceTimersByTimeAsync(SETTLE);
+    expect(serverReport).toHaveBeenCalledTimes(3);
+    expect(serverReport).toHaveBeenLastCalledWith(row(['ariel'], ['terminal']), [], true);
   });
 
   test('a report that never LANDED is retried, not remembered as sent', async () => {
-    // Optimistically marking a failed POST as reported would dedupe that layout
-    // away forever, leaving the server permanently wrong about occupancy.
-    reportPanelLayout.mockImplementation(() => Promise.resolve(null));
-    const { api } = await wireReporting(branch(leaf('iframe:ariel')));
+    serverReport.mockImplementation(() => Promise.resolve(null));
+    const { api, holder } = await wireReporting(row(['ariel']));
     await vi.advanceTimersByTimeAsync(SETTLE);
-    expect(reportPanelLayout).toHaveBeenCalledTimes(1);
+    expect(serverReport).toHaveBeenCalledTimes(1);
+    expect(holder.ack).not.toHaveBeenCalled();
+    expect(holder.dirty).toBe(true);
 
-    api.fireLayout(); // same layout — but the server never got it
+    api.fireLayout();
     await vi.advanceTimersByTimeAsync(SETTLE);
-    expect(reportPanelLayout).toHaveBeenCalledTimes(2);
-    expect(reportPanelLayout).toHaveBeenLastCalledWith(['ariel'], true);
+    expect(serverReport).toHaveBeenCalledTimes(2);
 
-    // Once a report lands, the baseline takes hold and dedupe resumes.
-    reportPanelLayout.mockImplementation((/** @type {string[]} */ tiles, /** @type {boolean} */ dock) =>
-      Promise.resolve({ status: 'ok', tiles, dock, updated: true }),
+    serverReport.mockImplementation((/** @type {any} */ layout) =>
+      Promise.resolve({ status: 'ok', layout, rev: 1, updated: true })
     );
     api.fireLayout();
     await vi.advanceTimersByTimeAsync(SETTLE);
-    expect(reportPanelLayout).toHaveBeenCalledTimes(3);
+    expect(serverReport).toHaveBeenCalledTimes(3);
     api.fireLayout();
     await vi.advanceTimersByTimeAsync(SETTLE);
-    expect(reportPanelLayout).toHaveBeenCalledTimes(3);
+    expect(serverReport).toHaveBeenCalledTimes(3);
   });
 
-  test('a REJECTED report does not strand the in-flight flag and kill reporting', async () => {
-    // reportPanelLayout is documented never to reject, but that contract lives in
-    // another module. Were it ever broken, an unhandled rejection would leave the
-    // serialization flag raised and silently suppress every later report — the one
-    // failure mode the whole design errs away from. Pinned so it stays recoverable.
-    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-    reportPanelLayout.mockImplementation(() => Promise.reject(new Error('contract broken')));
-    const { api } = await wireReporting(branch(leaf('iframe:ariel')));
+  test('a refused report (HTTP error) is not acked and is retried', async () => {
+    fetchStatus.ok = false;
+    const { api, holder } = await wireReporting(row(['ariel']));
     await vi.advanceTimersByTimeAsync(SETTLE);
-    expect(reportPanelLayout).toHaveBeenCalledTimes(1);
-    expect(errSpy).toHaveBeenCalled();
-
-    // The reporter is still alive: the next layout change reports normally.
-    reportPanelLayout.mockImplementation((/** @type {string[]} */ tiles, /** @type {boolean} */ dock) =>
-      Promise.resolve({ status: 'ok', tiles, dock, updated: true }),
-    );
-    withGrid(api, branch(leaf('iframe:ariel'), leaf('iframe:okf')));
+    expect(holder.ack).not.toHaveBeenCalled();
+    fetchStatus.ok = true;
     api.fireLayout();
     await vi.advanceTimersByTimeAsync(SETTLE);
-    expect(reportPanelLayout).toHaveBeenCalledTimes(2);
-    expect(reportPanelLayout).toHaveBeenLastCalledWith(['ariel', 'okf'], true);
-    errSpy.mockRestore();
+    expect(serverReport).toHaveBeenCalledTimes(2);
+    expect(holder.ack).toHaveBeenCalledTimes(1);
   });
 
-  test('the baseline follows the ACKNOWLEDGED tiles, not the ones sent', async () => {
-    // A server that normalized the list would otherwise leave the client
-    // re-POSTing forever; the baseline is whatever the server says it holds.
-    reportPanelLayout.mockImplementation((/** @type {string[]} */ _tiles, /** @type {boolean} */ dock) =>
-      Promise.resolve({ status: 'ok', tiles: ['ariel'], dock, updated: true }),
+  test('a fetch that throws does not strand the in-flight flag and kill reporting', async () => {
+    serverReport.mockImplementation(() => Promise.reject(new Error('network down')));
+    const { api } = await wireReporting(row(['ariel']));
+    await vi.advanceTimersByTimeAsync(SETTLE);
+    expect(serverReport).toHaveBeenCalledTimes(1);
+
+    serverReport.mockImplementation((/** @type {any} */ layout) =>
+      Promise.resolve({ status: 'ok', layout, rev: 1, updated: true })
     );
-    const { api } = await wireReporting(branch(leaf('iframe:ariel')));
+    change(api, row(['ariel'], ['okf']));
     await vi.advanceTimersByTimeAsync(SETTLE);
-
-    api.fireLayout();
-    await vi.advanceTimersByTimeAsync(SETTLE);
-
-    expect(reportPanelLayout).toHaveBeenCalledTimes(1);
+    expect(serverReport).toHaveBeenCalledTimes(2);
+    expect(serverReport).toHaveBeenLastCalledWith(row(['ariel'], ['okf']), [], true);
   });
 
   test('a second report never overlaps one in flight — it waits for the ack', async () => {
-    // Two concurrent reports could be applied by the server in one order and
-    // acknowledged in the other, and no client-side rule could tell which write
-    // stuck. Overlap is therefore prevented rather than arbitrated.
-    /** Resolvers for the reports still in flight; calling one delivers its ack.
-     *  @type {(() => void)[]} */
+    /** @type {(() => void)[]} */
     const pending = [];
-    reportPanelLayout.mockImplementation((/** @type {string[]} */ tiles, /** @type {boolean} */ dock) =>
-      new Promise((resolve) => pending.push(() => resolve({
-        status: 'ok', tiles, dock, updated: true,
-      }))),
+    serverReport.mockImplementation(
+      (/** @type {any} */ layout) =>
+        new Promise((resolve) =>
+          pending.push(() => resolve({ status: 'ok', layout, rev: pending.length, updated: true }))
+        )
     );
-
-    const { api } = await wireReporting(branch(leaf('iframe:ariel')));
+    const { api } = await wireReporting(row(['ariel']));
     await vi.advanceTimersByTimeAsync(SETTLE);
-    expect(reportPanelLayout).toHaveBeenCalledTimes(1); // first report, unacked
+    expect(serverReport).toHaveBeenCalledTimes(1);
 
-    // The operator keeps working while that report is still outstanding.
-    withGrid(api, branch(leaf('iframe:ariel'), leaf('iframe:okf')));
-    api.fireLayout();
+    change(api, row(['ariel'], ['okf']));
     await vi.advanceTimersByTimeAsync(SETTLE * 4);
-    expect(reportPanelLayout).toHaveBeenCalledTimes(1); // still only the first
+    expect(serverReport).toHaveBeenCalledTimes(1);
 
-    // Once it acks, the deferred report goes out — with the CURRENT layout.
     pending[0]();
     await vi.advanceTimersByTimeAsync(SETTLE);
-    expect(reportPanelLayout).toHaveBeenCalledTimes(2);
-    expect(reportPanelLayout).toHaveBeenLastCalledWith(['ariel', 'okf'], true);
+    expect(serverReport).toHaveBeenCalledTimes(2);
+    expect(serverReport).toHaveBeenLastCalledWith(row(['ariel'], ['okf']), [], true);
 
-    // Its ack sets the baseline to the newer list: a repeat is deduped away.
     pending[1]();
     await vi.advanceTimersByTimeAsync(SETTLE);
     api.fireLayout();
     await vi.advanceTimersByTimeAsync(SETTLE * 4);
-    expect(reportPanelLayout).toHaveBeenCalledTimes(2);
+    expect(serverReport).toHaveBeenCalledTimes(2);
   });
-
-  test('a STALE ack causes a redundant report, never suppression', async () => {
-    // The invariant behind the module header's "no sequence guard" rule. Feed an
-    // ack that names an older list than the one just sent — what a reordered or
-    // superseded response would carry — and the client must end up re-reporting
-    // the real layout. Erring toward a redundant POST is recoverable (the server
-    // dedupes it); erring toward suppression is not, because a suppressed report
-    // leaves the server wrong with nothing scheduled to correct it.
-    reportPanelLayout.mockImplementation((/** @type {string[]} */ _tiles, /** @type {boolean} */ dock) =>
-      Promise.resolve({ status: 'ok', tiles: ['stale-older-list'], dock, updated: true }),
-    );
-    const { api } = await wireReporting(branch(leaf('iframe:ariel')));
-    await vi.advanceTimersByTimeAsync(SETTLE);
-    expect(reportPanelLayout).toHaveBeenCalledExactlyOnceWith(['ariel'], true);
-
-    // Layout unchanged, but the baseline disagrees with it, so it reports again
-    // rather than concluding the server already knows.
-    api.fireLayout();
-    await vi.advanceTimersByTimeAsync(SETTLE);
-    expect(reportPanelLayout).toHaveBeenCalledTimes(2);
-    expect(reportPanelLayout).toHaveBeenLastCalledWith(['ariel'], true);
-  });
-
 });
 
 describe('withEchoSuppressed — the guard primitive', () => {
   test('restores the guard even when the callback throws (finally)', async () => {
     const api = makeApi();
     const { mod } = await wire(api);
-    expect(() => mod.withEchoSuppressed(() => {
-      throw new Error('boom');
-    })).toThrow('boom');
+    expect(() =>
+      mod.withEchoSuppressed(() => {
+        throw new Error('boom');
+      })
+    ).toThrow('boom');
 
     // Guard is back to 0, so a subsequent genuine focus still POSTs.
     api.activePanel = { id: 'iframe:ariel' };
@@ -984,7 +879,7 @@ describe('human tab close → local vacate handler (never a POST)', () => {
     tabs[0].tile.removeAttribute('data-panel-id'); // stamp lost — nothing to resolve
 
     expect(() =>
-      tabs[0].action.dispatchEvent(new MouseEvent('click', { bubbles: true })),
+      tabs[0].action.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     ).not.toThrow();
     expect(tileClose).not.toHaveBeenCalled();
   });
@@ -996,100 +891,162 @@ describe('human tab close → local vacate handler (never a POST)', () => {
     const { tabs } = buildGroup(root, api, ['iframe:ariel']);
 
     expect(() =>
-      tabs[0].action.dispatchEvent(new MouseEvent('click', { bubbles: true })),
+      tabs[0].action.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     ).not.toThrow();
     expect(setPanelVisibility).not.toHaveBeenCalled();
   });
 });
 
-describe('dockPanelBesideActive — placeholder append (register/open path)', () => {
-  test('adds a placeholder by the adapter id + component, positioned right of the active group', async () => {
+/**
+ * A REAL layout holder (dock-apply.js's createLayoutHolder, loaded past the
+ * module mock) over `api`, published as the page's holder and seeded with
+ * `layout`; `focus` (a tile id) is the tile a person last focused. Its applies
+ * call `api.fromJSON` under the guard the page passes in — dock-sync's own echo
+ * guard here, as in production. Call after `wire()` so the holder shares the
+ * freshly imported dock-sync.
+ * @param {any} api
+ * @param {any} layout
+ * @param {string} [focus]
+ * @returns {Promise<any>}
+ */
+async function seedHolder(api, layout, focus) {
+  const actual = /** @type {any} */ (await vi.importActual(DOCK_APPLY));
+  const sync = await import(SYNC);
+  const holder = actual.createLayoutHolder({
+    api,
+    guard: sync.withEchoSuppressed,
+    dockPx: { width: 1600, height: 900 },
+  });
+  expect(holder.restore(layout)).toBe(true);
+  if (focus) {
+    const tile = tilesIn(holder.layout).find((t) => t.tile === focus);
+    expect(holder.show(focus, tile.showing)).toBe(true);
+  }
+  api.fromJSON.mockClear();
+  state.holder = holder;
+  return holder;
+}
+
+/**
+ * Every tile of a dock layout in reading order.
+ * @param {any} layout
+ * @returns {any[]}
+ */
+function tilesIn(layout) {
+  if (!layout) return [];
+  return 'tile' in layout ? [layout] : layout.items.flatMap(tilesIn);
+}
+
+/**
+ * A dock layout reduced to its shape: a tile is its tab list, a split is
+ * `{split, items}` (tile ids and sizes dropped).
+ * @param {any} layout
+ * @returns {any}
+ */
+function shapeOf(layout) {
+  if ('tile' in layout) return layout.tabs;
+  return { split: layout.split, items: layout.items.map(shapeOf) };
+}
+
+describe('dockPanelBesideActive — a new tile right of the focused tile (register/open path)', () => {
+  test('adds a placeholder by the adapter id + component, in a new tile right of the focused tile', async () => {
     const api = makeApi();
-    const activeGroup = { id: 'group-1' };
-    api.activeGroup = activeGroup;
     const { mod } = await wire(api);
+    const holder = await seedHolder(api, row(['terminal'], ['bluesky']), '2');
 
     mod.dockPanelBesideActive('ariel', 'ARIEL');
 
-    expect(api.addPanel).toHaveBeenCalledTimes(1);
-    expect(api._added[0]).toEqual({
+    expect(shapeOf(holder.layout)).toEqual({
+      split: 'row',
+      items: [['terminal'], ['bluesky'], ['ariel']],
+    });
+    // One whole-layout apply, carrying the placeholder under the adapter id.
+    expect(api.fromJSON).toHaveBeenCalledTimes(1);
+    const serialized = api.fromJSON.mock.calls[0][0];
+    expect(serialized.panels['iframe:ariel']).toMatchObject({
       id: 'iframe:ariel',
-      component: 'dock-iframe-placeholder',
+      contentComponent: 'dock-iframe-placeholder',
       title: 'ARIEL',
-      position: { referenceGroup: activeGroup, direction: 'right' },
     });
   });
 
   test('defaults the tab title to the service id when none is given', async () => {
     const api = makeApi();
     const { mod } = await wire(api);
+    await seedHolder(api, row(['terminal'], ['bluesky']), '2');
 
     mod.dockPanelBesideActive('okf');
 
-    expect(api._added[0].title).toBe('okf');
-    expect(api._added[0].id).toBe('iframe:okf');
+    const serialized = api.fromJSON.mock.calls[0][0];
+    expect(serialized.panels['iframe:okf'].title).toBe('okf');
+    expect(serialized.panels['iframe:okf'].id).toBe('iframe:okf');
   });
 
-  test('omits the position when there is no active group', async () => {
+  test('with no focused tile the panel opens as the first service tile, left of the terminal', async () => {
     const api = makeApi();
-    api.activeGroup = null;
     const { mod } = await wire(api);
+    const holder = await seedHolder(api, row(['terminal']));
 
     mod.dockPanelBesideActive('ariel');
 
-    expect(api._added[0].position).toBeUndefined();
+    expect(shapeOf(holder.layout)).toEqual({ split: 'row', items: [['ariel'], ['terminal']] });
   });
 
-  test('a move is echo-guarded — the removal\'s auto-activation does not POST a focus', async () => {
+  test('already docked with NO focused tile: a no-op (no meaningful target)', async () => {
     const api = makeApi();
-    api.activeGroup = { id: 'group-1' };
-    api._panels['iframe:ariel'] = { id: 'iframe:ariel', group: { id: 'group-0' } };
-    api._activateOnRemove = { id: 'iframe:bluesky' };
     const { mod } = await wire(api);
+    const holder = await seedHolder(api, row(['terminal'], ['ariel']));
+    const before = holder.layout;
 
     mod.dockPanelBesideActive('ariel');
 
+    expect(api.fromJSON).not.toHaveBeenCalled();
+    expect(holder.layout).toBe(before);
+  });
+
+  test("a move is echo-guarded — the rebuild's active change does not POST a focus", async () => {
+    const api = makeApi();
+    const { mod } = await wire(api);
+    await seedHolder(api, row(['terminal'], ['ariel'], ['bluesky']), '3');
+    // Model dockview activating a panel synchronously on apply.
+    api.fromJSON = vi.fn(() => {
+      api.activePanel = { id: 'iframe:bluesky' };
+      api.fireActive();
+    });
+
+    mod.dockPanelBesideActive('ariel');
+
+    expect(api.fromJSON).toHaveBeenCalledTimes(1);
     expect(setPanelFocus).not.toHaveBeenCalled();
-  });
-
-  test('already docked with NO active group: a no-op (no meaningful target)', async () => {
-    const api = makeApi();
-    api.activeGroup = null;
-    api._panels['iframe:ariel'] = { id: 'iframe:ariel', group: { id: 'group-0' } };
-    const { mod } = await wire(api);
-
-    mod.dockPanelBesideActive('ariel');
-
-    expect(api.removePanel).not.toHaveBeenCalled();
-    expect(api.addPanel).not.toHaveBeenCalled();
   });
 
   test('the add is wrapped in the echo guard — its own active change does not POST a focus', async () => {
     const api = makeApi();
-    api.activeGroup = { id: 'group-1' };
-    // Model dockview activating the freshly-added panel synchronously on add.
-    api.addPanel = vi.fn((/** @type {any} */ opts) => {
-      api._added.push(opts);
-      api.activePanel = { id: opts.id };
+    const { mod } = await wire(api);
+    await seedHolder(api, row(['terminal'], ['bluesky']), '2');
+    // Model dockview activating the freshly-added panel synchronously on apply.
+    api.fromJSON = vi.fn(() => {
+      api.activePanel = { id: 'iframe:ariel' };
       api.fireActive();
     });
-    const { mod } = await wire(api);
 
     mod.dockPanelBesideActive('ariel');
 
-    expect(api.addPanel).toHaveBeenCalledTimes(1);
+    expect(api.fromJSON).toHaveBeenCalledTimes(1);
     expect(setPanelFocus).not.toHaveBeenCalled(); // the add-menu's show path owns the focus POST
   });
 
-  test('a failing addPanel is caught and does not propagate', async () => {
+  test('a failing apply is caught and does not propagate', async () => {
     const api = makeApi();
-    api.addPanel = vi.fn(() => {
-      throw new Error('dockview rejected');
-    });
     const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     const { mod } = await wire(api);
+    await seedHolder(api, row(['terminal'], ['bluesky']), '2');
+    api.fromJSON = vi.fn(() => {
+      throw new Error('dockview rejected');
+    });
 
     expect(() => mod.dockPanelBesideActive('ariel')).not.toThrow();
+    expect(api.fromJSON).toHaveBeenCalledTimes(1);
     expect(errSpy).toHaveBeenCalled();
     errSpy.mockRestore();
   });
@@ -1103,46 +1060,104 @@ describe('dockPanelBesideActive — placeholder append (register/open path)', ()
 });
 
 describe('dockPanelAt — placement at an explicit dock position (rail drag / drop routing)', () => {
-  test('adds a fresh placeholder at the given group + direction', async () => {
+  test('adds a fresh placeholder split off the given tile on the given side', async () => {
     const api = makeApi();
-    const target = { id: 'group-2' };
     const { mod } = await wire(api);
+    const holder = await seedHolder(api, row(['terminal'], ['bluesky']));
 
-    mod.dockPanelAt('okf', 'KNOWLEDGE', { referenceGroup: target, direction: 'bottom' });
+    mod.dockPanelAt('okf', 'KNOWLEDGE', { referenceGroup: { id: '2' }, direction: 'bottom' });
 
-    expect(api._added[0]).toEqual({
-      id: 'iframe:okf',
-      component: 'dock-iframe-placeholder',
-      title: 'KNOWLEDGE',
-      position: { referenceGroup: target, direction: 'bottom' },
+    expect(shapeOf(holder.layout)).toEqual({
+      split: 'row',
+      items: [['terminal'], { split: 'column', items: [['bluesky'], ['okf']] }],
+    });
+    expect(api.fromJSON.mock.calls[0][0].panels['iframe:okf'].title).toBe('KNOWLEDGE');
+  });
+
+  test("dockview's own words for the vertical sides are taken (the rail's drop routing)", async () => {
+    const api = makeApi();
+    const { mod } = await wire(api);
+    const holder = await seedHolder(api, row(['terminal'], ['bluesky']));
+
+    mod.dockPanelAt('okf', 'KNOWLEDGE', { referenceGroup: { id: '1' }, direction: 'below' });
+    mod.dockPanelAt('ariel', 'ARIEL', { referenceGroup: { id: '2' }, direction: 'above' });
+
+    expect(shapeOf(holder.layout)).toEqual({
+      split: 'row',
+      items: [
+        { split: 'column', items: [['terminal'], ['okf']] },
+        { split: 'column', items: [['ariel'], ['bluesky']] },
+      ],
     });
   });
 
-  test('moves an existing placeholder to the given position', async () => {
+  test('a tile may be named by id as well as by its dockview group', async () => {
     const api = makeApi();
-    const target = { id: 'group-2' };
-    const existing = { id: 'iframe:okf', group: { id: 'group-0' } };
-    api._panels['iframe:okf'] = existing;
     const { mod } = await wire(api);
+    const holder = await seedHolder(api, row(['terminal'], ['bluesky']));
 
-    mod.dockPanelAt('okf', 'KNOWLEDGE', { referenceGroup: target, direction: 'left' });
+    mod.dockPanelAt('okf', 'KNOWLEDGE', { referenceTile: '1', direction: 'left' });
 
-    expect(api.removePanel).toHaveBeenCalledExactlyOnceWith(existing);
-    expect(api._added[0].position).toEqual({ referenceGroup: target, direction: 'left' });
+    expect(shapeOf(holder.layout)).toEqual({
+      split: 'row',
+      items: [['okf'], ['terminal'], ['bluesky']],
+    });
   });
 
-  test('dropping a panel onto its OWN group is a no-op (would destroy the tile mid-move)', async () => {
+  test('no tile named: split against the grid edge', async () => {
     const api = makeApi();
-    const home = { id: 'group-0' };
-    api._panels['iframe:okf'] = { id: 'iframe:okf', group: home };
     const { mod } = await wire(api);
+    const holder = await seedHolder(api, row(['terminal'], ['bluesky']));
 
-    mod.dockPanelAt('okf', 'KNOWLEDGE', { referenceGroup: home, direction: 'right' });
+    mod.dockPanelAt('okf', 'KNOWLEDGE', { direction: 'right' });
 
-    expect(api.removePanel).not.toHaveBeenCalled();
-    expect(api.addPanel).not.toHaveBeenCalled();
+    expect(shapeOf(holder.layout)).toEqual({
+      split: 'row',
+      items: [['terminal'], ['bluesky'], ['okf']],
+    });
   });
 
+  test('moves an existing placeholder to the given position, never duplicating it', async () => {
+    const api = makeApi();
+    const { mod } = await wire(api);
+    const holder = await seedHolder(api, row(['okf'], ['terminal'], ['bluesky']));
+
+    mod.dockPanelAt('okf', 'KNOWLEDGE', { referenceGroup: { id: '3' }, direction: 'right' });
+
+    expect(shapeOf(holder.layout)).toEqual({
+      split: 'row',
+      items: [['terminal'], ['bluesky'], ['okf']],
+    });
+  });
+
+  test('dropping a panel onto its OWN tile is a no-op', async () => {
+    const api = makeApi();
+    const { mod } = await wire(api);
+    const holder = await seedHolder(api, row(['okf'], ['terminal']));
+    const before = holder.layout;
+
+    mod.dockPanelAt('okf', 'KNOWLEDGE', { referenceGroup: { id: '1' }, direction: 'right' });
+
+    expect(api.fromJSON).not.toHaveBeenCalled();
+    expect(holder.layout).toBe(before);
+  });
+
+  test('a panel living in its own pop-out window never gets a placeholder, by any placement verb', async () => {
+    const api = makeApi();
+    const { mod } = await wire(api);
+    const holder = await seedHolder(api, row(['terminal'], ['bluesky']), '2');
+    isPoppedOut.mockImplementation((/** @type {string} */ id) => id === 'okf');
+
+    mod.dockPanelAt('okf', 'KNOWLEDGE', { referenceGroup: { id: '2' }, direction: 'right' });
+    mod.dockPanelBesideActive('okf', 'KNOWLEDGE');
+    mod.dockPanelBesideActive('ariel', 'ARIEL');
+
+    expect(shapeOf(holder.layout)).toEqual({
+      split: 'row',
+      items: [['terminal'], ['bluesky'], ['ariel']],
+    });
+    isPoppedOut.mockImplementation(() => false);
+  });
 });
 
 describe('initDockSync — wiring, idempotency, late arrival', () => {

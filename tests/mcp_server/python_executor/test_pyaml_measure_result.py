@@ -44,6 +44,7 @@ def _orm(**changes: Any) -> dict[str, Any]:
         "variables": ["SCOR:H:SP", "SCOR:V:SP"],
         "data_file": "/exec/pyaml_measure_orm.json",
         "moved": [["SCOR:H:SP", 0.25]],
+        "missing": {},
     } | changes
 
 
@@ -93,16 +94,18 @@ def test_a_completed_chromaticity_monitor_reads_the_chromaticity():
         chromaticity=[1.5, -2.5],
         data_file="/exec/c.json",
         moved=[],
+        missing={},
     )
 
     result = parse_measure_result(line, "chromaticity_monitor")
 
     assert result["chromaticity"] == [1.5, -2.5]
+    assert result["missing"] == {}
     assert "deltas" not in result
 
 
 def _stopped_orm() -> dict[str, Any]:
-    stopped = _orm(completed=False, remainder=["SCOR:V:SP"])
+    stopped = _orm(completed=False, missing={"SCOR:V:SP": None})
     for key in ("shape", "observables", "variables", "data_file"):
         del stopped[key]
     return stopped
@@ -113,17 +116,24 @@ def test_every_result_carries_what_it_moved():
     stopped = parse_measure_result(_line(**_stopped_orm()), "orm")
 
     assert completed["moved"] == [["SCOR:H:SP", 0.25]]
+    assert completed["missing"] == {}
     assert stopped["moved"] == [["SCOR:H:SP", 0.25]]
-    assert stopped["remainder"] == ["SCOR:V:SP"]
-    assert "error" not in stopped
+    assert stopped["missing"] == {"SCOR:V:SP": None}
 
 
 @pytest.mark.parametrize("completed", [True, False], ids=["completed", "stopped"])
-def test_a_line_without_moved_is_an_error(completed: bool):
+@pytest.mark.parametrize(
+    ("field", "match"),
+    [
+        pytest.param("moved", "has no 'moved' field", id="moved"),
+        pytest.param("missing", "has no 'missing' field", id="missing"),
+    ],
+)
+def test_a_line_without_a_required_field_is_an_error(completed: bool, field: str, match: str):
     line = _orm() if completed else _stopped_orm()
-    del line["moved"]
+    del line[field]
 
-    with pytest.raises(MeasureResultError, match="has no 'moved' field"):
+    with pytest.raises(MeasureResultError, match=match):
         parse_measure_result(_line(**line), "orm")
 
 
@@ -135,12 +145,30 @@ def test_a_moved_that_is_not_address_value_pairs_is_an_error(moved: Any):
         parse_measure_result(_line(**_orm(moved=moved)), "orm")
 
 
-def test_a_stopped_line_carries_its_error():
-    line = _stopped_orm() | {"error": "KeyboardInterrupt"}
+def test_a_stopped_line_names_what_stopped_it_in_missing():
+    line = _stopped_orm() | {"missing": {"SCOR:V:SP": "KeyboardInterrupt"}}
 
-    assert parse_measure_result(_line(**line), "orm")["error"] == "KeyboardInterrupt"
-    with pytest.raises(MeasureResultError, match="'error' is not a string"):
-        parse_measure_result(_line(**(line | {"error": 3})), "orm")
+    result = parse_measure_result(_line(**line), "orm")
+
+    assert result["missing"] == {"SCOR:V:SP": "KeyboardInterrupt"}
+    assert "error" not in result
+
+
+@pytest.mark.parametrize(
+    "missing", [["SCOR:V:SP"], "orm", {"SCOR:V:SP": 3}, {}], ids=["list", "name", "number", "empty"]
+)
+def test_a_stopped_line_whose_missing_is_not_a_text_map_is_an_error(missing: Any):
+    line = _stopped_orm() | {"missing": missing}
+
+    with pytest.raises(MeasureResultError, match="'missing'"):
+        parse_measure_result(_line(**line), "orm")
+
+
+def test_a_completed_line_that_names_something_missing_is_an_error():
+    line = _orm(missing={"SCOR:V:SP": None})
+
+    with pytest.raises(MeasureResultError, match="'missing'"):
+        parse_measure_result(_line(**line), "orm")
 
 
 def test_a_non_finite_before_value_is_spelled():
@@ -157,11 +185,12 @@ def test_a_stopped_run_with_no_partial_column_names_the_kind():
         "model": "SR",
         "sha256": SHA,
         "completed": False,
+        "missing": {"chromaticity_monitor": "the tune readback went away"},
     }
 
     result = parse_measure_result(_line(**stopped, moved=[]), "chromaticity_monitor")
 
-    assert result["remainder"] == "chromaticity_monitor"
+    assert result["missing"] == {"chromaticity_monitor": "the tune readback went away"}
 
 
 def test_a_refusal_is_returned_as_the_refusal():
@@ -206,24 +235,26 @@ def test_every_plane_spelling_reads_back_as_x_or_y(plane: str, read: str):
     assert result["observables"] == [["SR_BPM1", read], ["SR_BPM1", "y"]]
 
 
-def test_an_observable_without_a_plane_is_refused_by_name():
-    line = _line(**_orm(observables=[["SR_BPM1", ""], ["SR_BPM1", "y"]]))
+@pytest.mark.parametrize(
+    ("observables", "match"),
+    [
+        pytest.param(
+            [["SR_BPM1", ""], ["SR_BPM1", "y"]],
+            r"observable 'SR_BPM1' has no plane",
+            id="without-a-plane",
+        ),
+        pytest.param(
+            [["SR_BPM1", "s"], ["SR_BPM1", "y"]],
+            r"observable 'SR_BPM1' has plane 's'",
+            id="with-an-unknown-plane",
+        ),
+        pytest.param([["", "x"], ["SR_BPM1", "y"]], "has no name", id="without-a-name"),
+    ],
+)
+def test_an_observable_without_a_usable_name_or_plane_is_refused(observables, match):
+    line = _line(**_orm(observables=observables))
 
-    with pytest.raises(MeasureResultError, match=r"observable 'SR_BPM1' has no plane"):
-        parse_measure_result(line, "orm")
-
-
-def test_an_observable_with_an_unknown_plane_is_refused_by_name():
-    line = _line(**_orm(observables=[["SR_BPM1", "s"], ["SR_BPM1", "y"]]))
-
-    with pytest.raises(MeasureResultError, match=r"observable 'SR_BPM1' has plane 's'"):
-        parse_measure_result(line, "orm")
-
-
-def test_an_observable_without_a_name_is_refused():
-    line = _line(**_orm(observables=[["", "x"], ["SR_BPM1", "y"]]))
-
-    with pytest.raises(MeasureResultError, match="has no name"):
+    with pytest.raises(MeasureResultError, match=match):
         parse_measure_result(line, "orm")
 
 
@@ -320,10 +351,10 @@ def test_a_tune_response_by_magnet_names_each_quadrupole_setpoint(render: Path):
     ]
 
 
-def test_a_stopped_run_s_remainder_is_named_by_address(render: Path):
-    stopped = {**_orm(completed=False), "remainder": ["SCOR:V:SP"]}
+def test_a_stopped_run_s_missing_is_keyed_by_address(render: Path):
+    stopped = {**_orm(completed=False), "missing": {"DEFAULT_RF_PLANT": "lost", "orm": None}}
 
-    assert label_result(stopped, _labels(render))["remainder"] == ["SCOR:V:SP"]
+    assert label_result(stopped, _labels(render))["missing"] == {"RF:SP": "lost", "orm": None}
 
 
 def test_moved_is_labelled_by_address_and_device(render: Path):

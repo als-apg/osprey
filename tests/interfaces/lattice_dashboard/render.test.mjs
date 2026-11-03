@@ -44,10 +44,17 @@ function mountFixture() {
     <div class="stat-chip" id="stat-chrom-x"><span class="stat-value"></span></div>
     <div class="stat-chip" id="stat-chrom-y"><span class="stat-value"></span></div>
     <div id="slider-container"></div>
-    ${FIGURE_NAMES.map(name => `
-      <span class="figure-led" id="led-${name}"></span>
-      <div class="figure-plot" id="plot-${name}"></div>
-    `).join('')}
+    ${FIGURE_NAMES.map(
+      (name) => `
+      <div class="figure-cell" id="cell-${name}">
+        <div class="figure-header">
+          <span class="figure-led" id="led-${name}"></span>
+          <span class="figure-title">Static ${name}</span>
+        </div>
+        <div class="figure-plot" id="plot-${name}"></div>
+      </div>
+    `
+    ).join('')}
   `;
 }
 
@@ -162,7 +169,7 @@ describe('renderPlotly', () => {
   test('merges theme colors, fixed font, and margin into the figure layout', () => {
     const figData = {
       data: [{ x: [1, 2], y: [3, 4] }],
-      layout: { title: 'Optics', width: 400, height: 300 },
+      layout: { title: { text: 'Optics' }, width: 400, height: 300 },
     };
     renderPlotly('optics', figData);
 
@@ -178,13 +185,17 @@ describe('renderPlotly', () => {
     // the shipped fallback is what renders (see the token case below).
     expect(layout.font.family).toBe("'JetBrains Mono', monospace");
     expect(layout.font.size).toBe(10);
+    // Top margin = the modebar's band and nothing more: this figure pins no
+    // label to the plot's top edge.
     expect(layout.margin).toEqual({ l: 45, r: 15, t: 30, b: 35 });
     expect(layout.autosize).toBe(true);
     // Explicit width/height from the backend must not fight autosize.
     expect(layout.width).toBeUndefined();
     expect(layout.height).toBeUndefined();
-    // Title is preserved from the original layout.
-    expect(layout.title).toBe('Optics');
+    // The title moves to the card caption; plotly does not draw it under
+    // the modebar.
+    expect(layout).not.toHaveProperty('title');
+    expect(qs(document, '#cell-optics .figure-title').textContent).toBe('Optics');
     // Theme colors are present (real chartTheme() reads CSS vars — empty
     // string in this unstyled test DOM — the key shape is what's pinned).
     expect(layout).toHaveProperty('paper_bgcolor');
@@ -246,10 +257,7 @@ describe('renderPlotly', () => {
     const figData = {
       data: [],
       layout: {
-        annotations: [
-          { text: 'a', font: { color: 'red' } },
-          { text: 'b' },
-        ],
+        annotations: [{ text: 'a', font: { color: 'red' } }, { text: 'b' }],
       },
     };
     renderPlotly('optics', figData);
@@ -266,6 +274,68 @@ describe('renderPlotly', () => {
   test('does nothing when the target plot element is absent (unknown figure name)', () => {
     expect(() => renderPlotly('does-not-exist', { data: [], layout: {} })).not.toThrow();
     expect(Plotly.react).not.toHaveBeenCalled();
+  });
+
+  test("the caption keeps a title's sub/sup markup as elements and drops other tags", () => {
+    renderPlotly('optics', {
+      data: [],
+      layout: { title: { text: 'ξ<sub>x</sub>=1.2, <b>ξ</b><sub>y</sub>=<img src=x>0.8' } },
+    });
+    const caption = qs(document, '#cell-optics .figure-title');
+    expect(caption.textContent).toBe('ξx=1.2, ξy=0.8');
+    expect(caption.querySelectorAll('sub').length).toBe(2);
+    expect(caption.querySelector('b')).toBeNull();
+    expect(caption.querySelector('img')).toBeNull();
+  });
+
+  test('a figure without a title leaves the static caption alone', () => {
+    renderPlotly('optics', { data: [], layout: {} });
+    expect(qs(document, '#cell-optics .figure-title').textContent).toBe('Static optics');
+  });
+
+  test('a subplot title pinned to the top edge gets a row below the modebar band', () => {
+    const top = {
+      text: 'Beta Functions',
+      font: { size: 16 },
+      xref: 'paper',
+      yref: 'paper',
+      x: 0.5,
+      y: 1.0,
+      yanchor: 'bottom',
+    };
+    // The second-row subplot title sits inside the figure and needs no room.
+    const inner = { ...top, text: 'Horizontal Dispersion', y: 0.375 };
+    renderPlotly('optics', { data: [], layout: { annotations: [top, inner] } });
+    const [, , layout] = Plotly.react.mock.calls[0];
+    // 30 px band + one 16 px line at 1.3 leading (21 px) + a 4 px gap.
+    expect(layout.margin.t).toBe(30 + 21 + 4);
+    expect(layout.annotations).toEqual([top, inner]);
+  });
+
+  test('a horizontal legend laid out above the plot moves to the bottom of the figure', () => {
+    renderPlotly('optics', {
+      data: [],
+      layout: {
+        legend: { orientation: 'h', yanchor: 'bottom', y: 1.02, xanchor: 'right', x: 1 },
+      },
+    });
+    const [, , layout] = Plotly.react.mock.calls[0];
+    expect(layout.legend).toEqual({
+      orientation: 'h',
+      x: 0.5,
+      xanchor: 'center',
+      xref: 'paper',
+      y: 0,
+      yanchor: 'bottom',
+      yref: 'container',
+    });
+  });
+
+  test('a legend beside the plot stays where the figure put it', () => {
+    const legend = { orientation: 'v', x: 1.02, y: 1 };
+    renderPlotly('optics', { data: [], layout: { legend } });
+    const [, , layout] = Plotly.react.mock.calls[0];
+    expect(layout.legend).toEqual(legend);
   });
 });
 
@@ -291,7 +361,7 @@ describe('createRenderer / updateSliders debounce', () => {
 
   function families() {
     return {
-      'QF1': { type: 'quadrupole', value: 1.2345, range: [-5, 5] },
+      QF1: { type: 'quadrupole', value: 1.2345, range: [-5, 5] },
     };
   }
 

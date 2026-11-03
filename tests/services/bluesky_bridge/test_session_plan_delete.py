@@ -20,29 +20,9 @@ from osprey.services.bluesky_bridge import plan_loader
 from osprey.services.bluesky_bridge.app import app
 from osprey.services.bluesky_bridge.plan_validation import hash_plan_body
 from osprey.services.bluesky_bridge.validation_record import validation_records
+from tests.services.bluesky_bridge._session_plans import session_plan_source, write_session_plan
 
-_SESSION_PLAN_DIR_ENV = "BLUESKY_SESSION_PLAN_DIR"
 _PLAN_DIRS_ENV = "BLUESKY_PLAN_DIRS"
-_PLAN_MODULE_ENV = "BLUESKY_PLAN_MODULE"
-
-
-@pytest.fixture(autouse=True)
-def _isolated_state(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    monkeypatch.delenv(_PLAN_DIRS_ENV, raising=False)
-    monkeypatch.delenv(_PLAN_MODULE_ENV, raising=False)
-    monkeypatch.setenv(_SESSION_PLAN_DIR_ENV, str(tmp_path / "plans_session"))
-    plan_loader.reset_facility_plans()
-
-    with validation_records.lock:
-        saved_hashes = set(validation_records._passing_hashes)
-        validation_records._passing_hashes.clear()
-
-    yield
-
-    plan_loader.reset_facility_plans()
-    with validation_records.lock:
-        validation_records._passing_hashes.clear()
-        validation_records._passing_hashes.update(saved_hashes)
 
 
 @pytest.fixture
@@ -50,19 +30,7 @@ def client() -> TestClient:
     return TestClient(app)
 
 
-def _session_plan_source(name: str) -> str:
-    return (
-        "PLAN_METADATA = {\n"
-        f'    "name": {name!r},\n'
-        '    "description": "A session-tier test plan.",\n'
-        '    "writes": False,\n'
-        "}\n\n\n"
-        "def build_plan(devices, params):\n"
-        f'    return {{"plan": {name!r}}}\n'
-    )
-
-
-def _author_and_validate(tmp_path: Path, name: str) -> Path:
+def _author_and_validate(name: str) -> Path:
     """Put a session plan on disk AND make it discoverable.
 
     A session file with no passing validation record is invisible to
@@ -72,11 +40,8 @@ def _author_and_validate(tmp_path: Path, name: str) -> Path:
     listed in the first place, and would keep passing if the route did
     nothing at all.
     """
-    session_dir = tmp_path / "plans_session"
-    session_dir.mkdir(parents=True, exist_ok=True)
-    path = session_dir / f"{name}.py"
-    source = _session_plan_source(name)
-    path.write_text(source)
+    source = session_plan_source(name)
+    path = write_session_plan(name, source)
     validation_records.record(hash_plan_body(source))
     plan_loader.reset_facility_plans()
     return path
@@ -88,9 +53,7 @@ def _registered_names(client: TestClient) -> set[str]:
     return {spec["name"] for spec in response.json()}
 
 
-def test_delete_retires_the_plan_from_the_registry_and_disk(
-    tmp_path: Path, client: TestClient
-) -> None:
+def test_delete_retires_the_plan_from_the_registry_and_disk(client: TestClient) -> None:
     """The whole point: after a DELETE the name is gone from `GET /plans`.
 
     Asserted through the route rather than the filesystem because that is the
@@ -99,7 +62,7 @@ def test_delete_retires_the_plan_from_the_registry_and_disk(
     the directory layers on each call, so the removal has to take effect with
     no restart and no cache reset.
     """
-    path = _author_and_validate(tmp_path, "retired_plan")
+    path = _author_and_validate("retired_plan")
     assert "retired_plan" in _registered_names(client)
 
     response = client.delete("/plans/session/retired_plan")
@@ -124,9 +87,9 @@ def test_delete_of_an_absent_name_reports_deleted_false(client: TestClient) -> N
     assert response.json() == {"name": "never_written", "deleted": False}
 
 
-def test_delete_removes_only_the_named_plan(tmp_path: Path, client: TestClient) -> None:
-    keep = _author_and_validate(tmp_path, "keep_me")
-    _author_and_validate(tmp_path, "drop_me")
+def test_delete_removes_only_the_named_plan(client: TestClient) -> None:
+    keep = _author_and_validate("keep_me")
+    _author_and_validate("drop_me")
     assert {"keep_me", "drop_me"} <= _registered_names(client)
 
     assert client.delete("/plans/session/drop_me").status_code == 200
@@ -188,7 +151,7 @@ def test_delete_cannot_reach_a_directory_layer_plan(
     facility_dir = tmp_path / "facility_plans"
     facility_dir.mkdir(parents=True, exist_ok=True)
     facility_file = facility_dir / "operator_plan.py"
-    facility_file.write_text(_session_plan_source("operator_plan"))
+    facility_file.write_text(session_plan_source("operator_plan"))
     monkeypatch.setenv(_PLAN_DIRS_ENV, str(facility_dir))
     plan_loader.reset_facility_plans()
     assert "operator_plan" in _registered_names(client)

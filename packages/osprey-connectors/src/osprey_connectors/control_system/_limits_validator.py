@@ -15,6 +15,7 @@ from osprey_connectors.logger import get_logger
 from osprey_connectors.types import (
     LIMITS_MODE_OPTIONAL,
     LimitsPosture,
+    limits_database_required,
     most_restrictive_limits_posture,
     target_limits_posture,
     type_limits_posture,
@@ -92,7 +93,7 @@ def _c_integer(text: str) -> int | None:
     sign = -1 if text[0] == "-" else 1
     digits = text.lstrip("+-")
     if digits[:2] in ("0x", "0X"):
-        return sign * int(digits[2:], 16)
+        return sign * int(digits, 0)
     if len(digits) > 1 and digits[0] == "0":
         return sign * int(digits, 8)
     return sign * int(digits)
@@ -592,14 +593,22 @@ class LimitsValidator:
         is a deployment trying to switch limits checking *on*; reading it as an
         unset ``enabled`` would take the disabled branch and check nothing.
 
+        Whether the database must exist is
+        :func:`~osprey_connectors.types.limits_database_required`, asked of the
+        live config's path. ``optional`` with no path configured needs none:
+        the validator enforces over an empty database, so every channel is
+        unlisted and written with no limits. A configured path that fails to
+        load stays fail-safe whatever the mode.
+
         Args:
             posture: The resolved posture, from the ``types`` resolver family.
 
         Returns:
-            An enforcing validator; a fail-safe validator that blocks every
-            write when the block is incomplete or the database is unavailable;
-            or ``None`` when limits checking is off for this posture or the
-            config could not be read at all.
+            An enforcing validator (over an empty database for ``optional``
+            with no path configured); a fail-safe validator that blocks every
+            write when the block is incomplete or a required database is
+            unavailable; or ``None`` when limits checking is off for this
+            posture or the config could not be read at all.
         """
         try:
             if posture.incomplete:
@@ -613,6 +622,19 @@ class LimitsValidator:
             if posture.enabled is not True:
                 return None
 
+            # Both entries are JSON-serialisable: the python executor embeds
+            # this dict verbatim into the sandbox (wrapper.py), so the
+            # tri-state rides as null rather than as anything richer.
+            policy = {
+                "mode": posture.mode,
+                "mode_key": posture.key("mode"),
+            }
+
+            if not limits_database_required(
+                posture, path_configured=cls.configured_database_path() is not None
+            ):
+                return cls({}, policy, {})
+
             loaded, load_reason = cls.load_configured_database()
             if loaded is None:
                 # Same failsafe as the incomplete-block case above: a missing
@@ -625,15 +647,6 @@ class LimitsValidator:
                     {}, {}, {}, failsafe_reason=f"limits checking is enabled but {load_reason}"
                 )
             limits_db, raw_db = loaded
-
-            # Both entries are JSON-serialisable: the python executor embeds
-            # this dict verbatim into the sandbox (wrapper.py), so the
-            # tri-state rides as null rather than as anything richer.
-            policy = {
-                "mode": posture.mode,
-                "mode_key": posture.key("mode"),
-            }
-
             return cls(limits_db, policy, raw_db)
         except (FileNotFoundError, KeyError, RuntimeError) as e:
             # Config not available (test environment, etc.) - limits checking disabled
@@ -1028,24 +1041,23 @@ class LimitsValidator:
             # record.
             if self.policy.get("mode") == LIMITS_MODE_OPTIONAL:
                 return None, None  # Written with no limits
-            else:
-                # FAILSAFE: refuse a channel with no record. Name the key that
-                # actually answered — a deployment may set this per connector
-                # type, and quoting the deployment-wide key there would send an
-                # operator to flip a line the per-type block overrides. A
-                # validator built from a bare policy dict carries no key; the
-                # deployment-wide one is the honest answer for it.
-                answering_key = self.policy.get("mode_key", "control_system.limits_checking.mode")
-                logger.warning(f"Blocked write to unlisted channel: {channel_address}={value}")
-                raise ChannelLimitsViolationError(
-                    channel_address=channel_address,
-                    value=value,
-                    violation_type="UNLISTED_CHANNEL",
-                    violation_reason=(
-                        f"Channel '{channel_address}' not in limits database "
-                        f"('{answering_key}' is not '{LIMITS_MODE_OPTIONAL}')"
-                    ),
-                )
+            # FAILSAFE: refuse a channel with no record. Name the key that
+            # actually answered — a deployment may set this per connector
+            # type, and quoting the deployment-wide key there would send an
+            # operator to flip a line the per-type block overrides. A
+            # validator built from a bare policy dict carries no key; the
+            # deployment-wide one is the honest answer for it.
+            answering_key = self.policy.get("mode_key", "control_system.limits_checking.mode")
+            logger.warning(f"Blocked write to unlisted channel: {channel_address}={value}")
+            raise ChannelLimitsViolationError(
+                channel_address=channel_address,
+                value=value,
+                violation_type="UNLISTED_CHANNEL",
+                violation_reason=(
+                    f"Channel '{channel_address}' not in limits database "
+                    f"('{answering_key}' is not '{LIMITS_MODE_OPTIONAL}')"
+                ),
+            )
 
         # Check 2: Channel is writable?
         if not channel_config.writable:

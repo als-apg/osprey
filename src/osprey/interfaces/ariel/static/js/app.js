@@ -6,12 +6,21 @@
  */
 
 import { initTheme } from '/design-system/js/theme-manager.js';
-import { applyEmbedded, onModeChange } from '/design-system/js/frame-params.js';
+import { applyEmbedded } from '/design-system/js/frame-params.js';
 import { contributeHeader, onHeaderAction } from '/design-system/js/header-contrib.js';
 import { capabilitiesApi } from './api.js';
 import { applyFacilityTimezone } from './components.js';
-import { initSearch, performSearch, clearSearch, onUiModeChange } from './search.js';
-import { initEntries, loadEntries, showEntry, openEntry, closeEntryModal, loadDraft, showImageLightbox } from './entries.js';
+import { initSearch, performSearch, clearSearch } from './search.js';
+import {
+  initEntries,
+  loadEntries,
+  showEntry,
+  openEntry,
+  closeEntryModal,
+  loadDraft,
+  resetCreateForm,
+  showImageLightbox,
+} from './entries.js';
 import { initDashboard, loadStatus, startAutoRefresh, stopAutoRefresh } from './dashboard.js';
 import { initAdvancedOptions } from './advanced-options.js';
 import '/design-system/js/components/osprey-drawer.js';
@@ -29,15 +38,15 @@ applyEmbedded();
 // data-theme pre-paint either way.
 initTheme({ role: isEmbedded() ? 'follower' : 'hub' });
 
-// Live Expert<->Simple switch — broadcast by the hub's header toggle when
-// embedded, posted by the display menu's View row when standalone. The shared
-// receive-side helper stamps data-ui-mode (CSS deltas key off it); the
-// callback repaints the current results so plain cards <-> scored cards swap
-// without re-running the query. Mirrors the artifacts panel's gallery.js.
-onModeChange(() => onUiModeChange());
-
 // Current view
 let currentView = 'search';
+
+/**
+ * The view New Entry was opened from, where Cancel goes back to. Before any
+ * navigation it is the initial `currentView`; navigateTo redirects that to
+ * Browse wherever Search is not offered.
+ */
+let viewBeforeCreate = currentView;
 
 /**
  * Whether the app runs embedded in the web terminal iframe.
@@ -97,7 +106,7 @@ function publishHeaderContribution() {
     {
       kind: 'nav',
       id: 'view',
-      items: headerViews().map(v => ({ id: v.id, label: v.label, active: v.id === currentView })),
+      items: headerViews().map((v) => ({ id: v.id, label: v.label, active: v.id === currentView })),
     },
   ]);
 }
@@ -159,7 +168,7 @@ async function init() {
  */
 function setupNavigation() {
   // Handle nav link clicks
-  document.querySelectorAll('.nav-link[data-view]').forEach(link => {
+  document.querySelectorAll('.nav-link[data-view]').forEach((link) => {
     link.addEventListener('click', (e) => {
       e.preventDefault();
       const view = /** @type {HTMLElement} */ (link).dataset.view;
@@ -181,18 +190,14 @@ function setupNavigation() {
 }
 
 /**
- * Wire the New Entry form's Cancel button: clear the fields and the staged
- * file thumbnails (a native form reset leaves the previews behind, since it
- * fires no change event for handleFilePreview to see).
+ * Wire the New Entry form's Cancel button: discard what the form holds (a
+ * loaded draft included) and go back to the view New Entry was opened from.
  */
 function setupCreateFormReset() {
   const cancelBtn = document.getElementById('create-cancel-btn');
   cancelBtn?.addEventListener('click', () => {
-    /** @type {HTMLFormElement|null} */ (
-      document.getElementById('create-entry-form')
-    )?.reset();
-    const preview = document.getElementById('file-preview');
-    if (preview) preview.innerHTML = '';
+    resetCreateForm();
+    navigateTo(viewBeforeCreate);
   });
 }
 
@@ -277,12 +282,12 @@ function navigateTo(hash) {
   window.location.hash = hash;
 
   // Update nav links (match on view name only, not query params)
-  document.querySelectorAll('.nav-link').forEach(link => {
+  document.querySelectorAll('.nav-link').forEach((link) => {
     link.classList.toggle('active', /** @type {HTMLElement} */ (link).dataset.view === viewName);
   });
 
   // Hide all views
-  document.querySelectorAll('.view').forEach(v => {
+  document.querySelectorAll('.view').forEach((v) => {
     v.classList.remove('active');
   });
 
@@ -300,6 +305,7 @@ function navigateTo(hash) {
     if (currentView === 'status') {
       stopAutoRefresh();
     }
+    if (viewName === 'create') viewBeforeCreate = currentView;
   }
 
   // Initialize new view (or reload draft for same-view navigation)

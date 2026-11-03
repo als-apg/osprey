@@ -39,7 +39,6 @@ class _HierarchicalBase(BaseDatabase):
     hierarchy_levels: list[str]
     naming_pattern: str
     hierarchy_config: dict[str, Any]
-    default_separators: dict[tuple[str, str], str]
     channel_map: dict[str, dict]
     # Lazily created by generate_tree_preview() (see _HierarchicalPreviewMixin).
     _tree_preview_cache: dict[tuple[int, int], str]
@@ -53,7 +52,7 @@ class _HierarchicalBase(BaseDatabase):
             start, end = expansion_def.get("_range", [1, 1])
             return [pattern.format(i) for i in range(start, end + 1)]
 
-        elif expansion_type == "list":
+        if expansion_type == "list":
             instances: list[str] = expansion_def.get("_instances", [])
             return instances
 
@@ -63,10 +62,9 @@ class _HierarchicalBase(BaseDatabase):
         """Convert value to list if it isn't already."""
         if isinstance(value, list):
             return value
-        elif value is None:
+        if value is None:
             return []
-        else:
-            return [value]
+        return [value]
 
     def _get_single_value(self, value):
         """Get single value from potentially list value."""

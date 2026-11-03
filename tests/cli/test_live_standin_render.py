@@ -3,15 +3,16 @@
 Every unit behind the stand-in has its own module — the derived overrides
 (``test_live_standin_overrides.py``), the service injection
 (``test_inject_va_gateways.py``), the compose instance loop
-(``tests/deployment/test_va_compose_instances.py``), the recorder's choice of
-machine (``tests/deployment/test_recorder_standin_compose.py``), the profile
-refusals (``test_live_standin_validate.py``). What none of them can show is
-that the pieces still agree once a real build has run end to end: the injector
-writes ``services.live_standin`` and the override writer points the
+(``tests/deployment/test_va_compose_instances.py``), the recorder's machine
+(``tests/deployment/test_recorder_compose_target.py``), the profile refusals
+(``test_live_standin_validate.py``). What none of them can show is that the
+pieces still agree once a real build has run end to end: the injector writes
+``services.live_standin`` and the override writer points the
 ``connector.live_standin`` gateways at a port, and nothing but a full render
-proves those two are the SAME port, and that the recorder's Channel Access
-address is that port too. A deployment where any pair of those disagrees still
-builds; it just sends the operator somewhere they were not told about.
+proves those two are the SAME port — and that the recorder's Channel Access
+address is NOT that port, because the archive is the virtual accelerator's. A
+deployment where any pair of those disagrees still builds; it just sends the
+operator somewhere they were not told about.
 
 The stand-in is a **third control target** here, not a rewrite of the first, and
 that is the sharpest thing a whole-build test can pin. ``live`` is the machine
@@ -40,32 +41,34 @@ from __future__ import annotations
 import asyncio
 import difflib
 import logging
-import os
 from pathlib import Path
 from typing import Any
 
 import pytest
 import yaml
-from click.testing import CliRunner
 from ruamel.yaml import YAML
 
 import osprey.health.core.containers as containers_mod
-from osprey.cli.build_cmd import build as build_command
+from osprey.deployment.deployment_record import DeploymentRecord
 from osprey.health.core.containers import containers
 from osprey.health.models import CheckResult, Status
+from osprey.mcp_server.control_system.connector_host_manager import target_display_metadata
 from osprey.port_layout import default_port
+from osprey_connectors.write_target import KIND_BANNERS
+from tests.cli._lifecycle_build import invoke_build_in
 from tests.fixtures.lifecycle_repo import EXEMPLAR_DIRNAME, build_exemplar_repo
 
 #: Every test here renders a deployment for real — seconds each, not
 #: milliseconds — which is the property that makes them worth having.
 pytestmark = pytest.mark.slow
 
-#: A build with no venv and no lifecycle hooks. Neither is what the stand-in is
-#: about, and a real dependency install would dominate this module's runtime.
-CI_FLAGS = ["--skip-deps", "--skip-lifecycle"]
-
 #: The port the stand-in is reserved on throughout the codebase.
 STANDIN_PORT = 5074
+
+#: The stand-in's published label (C-WORDS). The simulator's banner also says
+#: "nothing moves" (D4), so the rehearsal is told apart by its whole banner.
+REHEARSAL_LABEL = KIND_BANNERS["rehearsal"]
+NOTHING_MOVES = "nothing moves"
 
 #: The exemplar's own virtual accelerator, and therefore the port the stand-in
 #: must NOT land on.
@@ -128,51 +131,35 @@ def _set_live_standin(repo: Path, port: int | None) -> None:
     rather than a no-op the day the preset starts shipping the key.
     """
     profile_path = repo / "profile.yml"
-    with profile_path.open("r", encoding="utf-8") as handle:
-        profile = _ruamel.load(handle)
+    profile = _ruamel.load(profile_path)
     block = profile["virtual_accelerator"]
     if port is None:
         block.pop("live_standin", None)
     else:
         block["live_standin"] = port
-    with profile_path.open("w", encoding="utf-8") as handle:
-        _ruamel.dump(profile, handle)
+    _ruamel.dump(profile, profile_path)
 
 
 def _set_config_entries(repo: Path, entries: dict[str, Any]) -> None:
     """Add dotted entries to the repo profile's own ``config:`` block."""
     profile_path = repo / "profile.yml"
-    with profile_path.open("r", encoding="utf-8") as handle:
-        profile = _ruamel.load(handle)
+    profile = _ruamel.load(profile_path)
     for key, value in entries.items():
         profile["config"][key] = value
-    with profile_path.open("w", encoding="utf-8") as handle:
-        _ruamel.dump(profile, handle)
+    _ruamel.dump(profile, profile_path)
 
 
 def _drop_profile_blocks(repo: Path, names: tuple[str, ...]) -> None:
     """Remove whole top-level blocks from the repo's profile."""
     profile_path = repo / "profile.yml"
-    with profile_path.open("r", encoding="utf-8") as handle:
-        profile = _ruamel.load(handle)
+    profile = _ruamel.load(profile_path)
     for name in names:
         profile.pop(name, None)
-    with profile_path.open("w", encoding="utf-8") as handle:
-        _ruamel.dump(profile, handle)
-
-
-def _invoke_build(repo: Path):
-    """Run ``osprey build`` the way an operator standing in the repo would."""
-    previous = Path.cwd()
-    os.chdir(repo)
-    try:
-        return CliRunner().invoke(build_command, CI_FLAGS)
-    finally:
-        os.chdir(previous)
+    _ruamel.dump(profile, profile_path)
 
 
 def _build(repo: Path) -> Path:
-    result = _invoke_build(repo)
+    result = invoke_build_in(repo)
     assert result.exit_code == 0, (
         f"build failed (exit={result.exit_code})\n{result.output}\n{result.exception}"
     )
@@ -379,6 +366,26 @@ class TestTheRenderedConfigDescribesTheStandIn:
         prose = "\n".join(row for row in reversed(rows[:key]) if row.strip().startswith("#"))
         assert LIMITS_COMMENT in prose, "the comment explaining the key no longer sits above it"
 
+    def test_live_standin_render_publishes_the_stand_in_as_the_rehearsal(
+        self, standin_build
+    ) -> None:
+        """Every rendered config names its own stand-in the rehearsal (C-WORDS).
+
+        The label is what the roster, the identity line and a tool error read,
+        so a whole build is where the words are pinned against the endpoint
+        the build itself pointed the ``standin`` slot at. The facility's own
+        machine never says "nothing moves", and the simulator carries its own
+        banner, never the rehearsal's.
+        """
+        for name, config in _rendered_configs(standin_build).items():
+            metadata = target_display_metadata(config)
+            assert metadata["standin"]["label"] == REHEARSAL_LABEL, name
+            assert metadata["standin"]["machine_kind"] == "rehearsal", name
+            assert "LIVE MACHINE" not in metadata["standin"]["label"], name
+            assert NOTHING_MOVES not in metadata["live"]["label"].lower(), name
+            assert metadata["va"]["label"] != REHEARSAL_LABEL, name
+            assert metadata["va"]["machine_kind"] == "simulator", name
+
     def test_live_standin_render_derives_no_operator_acknowledgment(self, standin_build) -> None:
         """``live`` has nothing to acknowledge that the operator did not say.
 
@@ -418,12 +425,10 @@ def test_live_standin_render_adds_only_the_standin_block_to_an_epics_deployment(
     catches a build consuming a comment the facility was meant to keep reading.
 
     ``va_archiver:`` comes off both profiles because the exemplar ships one and
-    ``standin_archive_errors`` refuses that block beside a stand-in on an
-    ``epics`` baseline: the archive belongs to the machine it records, and a
-    deployment whose real machine is live cannot have its recorder follow the
-    stand-in. That refusal has its own test; what this one is about is the
-    ``epics`` block, so the archive is taken out of the picture on BOTH sides —
-    keeping the two profiles identical apart from the one key under test.
+    the archiver pairing refuses a simulated store on an ``epics`` baseline.
+    What this test is about is the ``epics`` block, so the archive is taken
+    out of the picture on BOTH sides — keeping the two profiles identical apart
+    from the one key under test.
     """
     epics_baseline = {"control_system.type": "epics"}
     standin_repo = _exemplar(
@@ -492,18 +497,20 @@ class TestTheRenderedComposeStandsTwoMachinesUp:
         # their Channel Access stack.
         assert standin["image"] == compose["services"]["virtual-accelerator"]["image"]
 
-    def test_live_standin_render_records_the_stand_in_not_the_sandbox(self, standin_build) -> None:
-        """The archive belongs to the machine, so the recorder follows the stand-in.
+    def test_live_standin_render_records_the_sandbox_not_the_stand_in(self, standin_build) -> None:
+        """The archive belongs to the machine it records, and that is the simulator.
 
+        The stand-in rehearses the facility's real machine and is shown that
+        machine's past; the deployment's own store is the virtual accelerator's.
         Both wiring sites are read back separately because they have to name
         the same instance: a recorder that waits on one machine and reads from
         another is a deploy-time race that looks like an empty archive.
         """
         recorder = _compose(standin_build, "archiver_recorder")["services"]["archiver-recorder"]
 
-        assert recorder["environment"]["EPICS_CA_NAME_SERVERS"] == f"live-standin:{STANDIN_PORT}"
-        assert recorder["depends_on"]["live-standin"] == {"condition": "service_healthy"}
-        assert "virtual-accelerator" not in recorder["depends_on"]
+        assert recorder["environment"]["EPICS_CA_NAME_SERVERS"] == f"virtual-accelerator:{VA_PORT}"
+        assert recorder["depends_on"]["virtual-accelerator"] == {"condition": "service_healthy"}
+        assert "live-standin" not in recorder["depends_on"]
 
 
 # ── FR-7: the row ``osprey health`` grows ────────────────────────────────────
@@ -536,7 +543,11 @@ async def test_live_standin_render_grows_a_container_health_row(
     stands up. Fed the REAL rendered config rather than a hand-built one, since
     the list is exactly what the build is being asked about.
     """
-    monkeypatch.setattr(containers_mod, "get_runtime_command", lambda *_a, **_k: ["docker"])
+    monkeypatch.setattr(
+        containers_mod,
+        "read_deployment_record",
+        lambda _root: DeploymentRecord("docker", "standin"),
+    )
 
     async def _fake_exec(*_a: object, **_k: object) -> _FakeProc:
         return _FakeProc(b"Docker version 27.0.0")
@@ -572,6 +583,23 @@ class TestABuildWithoutTheKeyIsUntouched:
             assert "live_standin" not in (config.get("deployed_services") or []), name
             connector = config["control_system"].get("connector") or {}
             assert "live_standin" not in connector, name
+
+    def test_live_standin_render_off_never_publishes_a_rehearsal(self, plain_build) -> None:
+        """No stand-in built: no slot, in any rendered config, is a rehearsal.
+
+        A ``standin`` target that is not this deployment's stand-in reads as
+        the real machine — the label and the kind both — as it did before the
+        rehearsal had a name. Only the simulator says "nothing moves", under
+        its own banner.
+        """
+        for name, config in _rendered_configs(plain_build).items():
+            metadata = target_display_metadata(config)
+            for target, meta in metadata.items():
+                assert meta["label"] != REHEARSAL_LABEL, f"{name}/{target}"
+                assert meta["machine_kind"] != "rehearsal", f"{name}/{target}"
+                if meta["machine_kind"] != "simulator":
+                    assert NOTHING_MOVES not in meta["label"].lower(), f"{name}/{target}"
+            assert metadata["standin"]["machine_kind"] == "real", name
 
     def test_live_standin_render_off_leaves_no_stand_in_container(self, plain_build) -> None:
         """No second instance, and nothing waiting on or reading from one."""
@@ -655,7 +683,7 @@ class TestTheBuildRefusesAnIncoherentStandIn:
 
     def _refuse(self, repo: Path, caplog: pytest.LogCaptureFixture) -> str:
         with caplog.at_level(logging.ERROR):
-            result = _invoke_build(repo)
+            result = invoke_build_in(repo)
         assert result.exit_code != 0, result.output
         return caplog.text
 

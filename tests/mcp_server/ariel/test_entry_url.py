@@ -12,12 +12,12 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from osprey.mcp_server.ariel import server
-from osprey.mcp_server.ariel.server_context import initialize_ariel_context
 from osprey.services.ariel_search.models import DEFAULT_LISTING_TEXT_CHARS
 from tests.mcp_server.ariel.conftest import (
     attach_fake_attachment_reader,
     get_tool_fn,
     make_mock_entry,
+    patch_ariel_service,
 )
 
 # A generic template; each deployment supplies its own in configuration.
@@ -50,11 +50,23 @@ def test_native_source_system_constant():
     assert server.ARIEL_NATIVE_SOURCE_SYSTEM == "ARIEL MCP"
 
 
-def test_build_entry_url_renders_with_template():
-    """FR1/FR2: a facility entry renders the template with its id."""
+@pytest.mark.parametrize(
+    ("entry_id", "expected"),
+    [
+        # FR1/FR2: a facility entry renders the template with its id.
+        pytest.param("175353", "https://logbook.example/olog.php?id=175353", id="renders-id"),
+        # FR4: entry_id is URL-encoded with safe='' when substituted.
+        pytest.param(
+            "a b/c?d&e",
+            "https://logbook.example/olog.php?id=a%20b%2Fc%3Fd%26e",
+            id="url-encodes-id",
+        ),
+    ],
+)
+def test_build_entry_url_substitutes_the_id_into_the_template(entry_id, expected):
     with patch("osprey_connectors.config.get_config_value", _fake_config(GENERIC_TEMPLATE)):
-        url = server.build_entry_url("175353", "Facility eLog")
-    assert url == "https://logbook.example/olog.php?id=175353"
+        url = server.build_entry_url(entry_id, "Facility eLog")
+    assert url == expected
 
 
 def test_build_entry_url_source_system_defaults_to_facility():
@@ -62,13 +74,6 @@ def test_build_entry_url_source_system_defaults_to_facility():
     with patch("osprey_connectors.config.get_config_value", _fake_config(GENERIC_TEMPLATE)):
         url = server.build_entry_url("42")
     assert url == "https://logbook.example/olog.php?id=42"
-
-
-def test_build_entry_url_url_encodes_id():
-    """FR4: entry_id is URL-encoded with safe='' when substituted."""
-    with patch("osprey_connectors.config.get_config_value", _fake_config(GENERIC_TEMPLATE)):
-        url = server.build_entry_url("a b/c?d&e", "Facility eLog")
-    assert url == "https://logbook.example/olog.php?id=a%20b%2Fc%3Fd%26e"
 
 
 def test_build_entry_url_none_when_template_unset():
@@ -193,24 +198,9 @@ def test_server_instructions_forbid_fabricated_urls():
 # ---------------------------------------------------------------------------
 
 
-def _setup_registry(tmp_path, monkeypatch):
-    monkeypatch.chdir(tmp_path)
-    (tmp_path / "config.yml").write_text(
-        '{"ariel": {"database": {"uri": "postgresql://localhost/test"}}}'
-    )
-    initialize_ariel_context()
-
-
-def _patch_service(mock_service):
-    return patch(
-        "osprey.mcp_server.ariel.server_context.ARIELContext.service",
-        new=AsyncMock(return_value=mock_service),
-    )
-
-
-async def test_entry_get_includes_entry_url(tmp_path, monkeypatch):
+async def test_entry_get_includes_entry_url(ariel_registry):
     """FR1: entry_get's inline dict carries entry_url for a facility entry."""
-    _setup_registry(tmp_path, monkeypatch)
+    ariel_registry()
     entry = make_mock_entry(entry_id="175353", source_system="Facility eLog")
 
     mock_service = AsyncMock()
@@ -218,7 +208,7 @@ async def test_entry_get_includes_entry_url(tmp_path, monkeypatch):
     attach_fake_attachment_reader(mock_service)
 
     with (
-        _patch_service(mock_service),
+        patch_ariel_service(mock_service),
         patch("osprey_connectors.config.get_config_value", _fake_config(GENERIC_TEMPLATE)),
     ):
         fn = get_tool_fn(_import_entry_get())
@@ -228,9 +218,9 @@ async def test_entry_get_includes_entry_url(tmp_path, monkeypatch):
     assert data["entry_url"] == "https://logbook.example/olog.php?id=175353"
 
 
-async def test_entry_get_omits_entry_url_for_native(tmp_path, monkeypatch):
+async def test_entry_get_omits_entry_url_for_native(ariel_registry):
     """FR7: entry_get on an ARIEL-native entry emits no entry_url."""
-    _setup_registry(tmp_path, monkeypatch)
+    ariel_registry()
     entry = make_mock_entry(entry_id="ariel-deadbeef", source_system="ARIEL MCP")
 
     mock_service = AsyncMock()
@@ -238,7 +228,7 @@ async def test_entry_get_omits_entry_url_for_native(tmp_path, monkeypatch):
     attach_fake_attachment_reader(mock_service)
 
     with (
-        _patch_service(mock_service),
+        patch_ariel_service(mock_service),
         patch("osprey_connectors.config.get_config_value", _fake_config(GENERIC_TEMPLATE)),
     ):
         fn = get_tool_fn(_import_entry_get())
@@ -247,10 +237,10 @@ async def test_entry_get_omits_entry_url_for_native(tmp_path, monkeypatch):
     assert "entry_url" not in json.loads(result)
 
 
-async def test_sql_query_rows_gain_entry_url(tmp_path, monkeypatch):
+async def test_sql_query_rows_gain_entry_url(ariel_registry):
     """FR8: sql_query rows selecting entry_id gain entry_url; aggregate rows
     without an entry_id column are unchanged."""
-    _setup_registry(tmp_path, monkeypatch)
+    ariel_registry()
 
     mock_rows = [
         {"entry_id": "e1", "source_system": "Facility eLog", "author": "Alice"},
@@ -261,7 +251,7 @@ async def test_sql_query_rows_gain_entry_url(tmp_path, monkeypatch):
     mock_service.pool = AsyncMock()
 
     with (
-        _patch_service(mock_service),
+        patch_ariel_service(mock_service),
         patch(
             "osprey.mcp_server.ariel.tools.sql_query.execute_sql_query",
             new=AsyncMock(return_value=mock_rows),
@@ -277,11 +267,11 @@ async def test_sql_query_rows_gain_entry_url(tmp_path, monkeypatch):
     assert "entry_url" not in rows[2]  # aggregate row
 
 
-async def test_entry_publish_includes_entry_url(tmp_path, monkeypatch):
+async def test_entry_publish_includes_entry_url(ariel_registry):
     """FR8/CF-4: entry_publish result carries entry_url for the facility id."""
     from osprey.services.ariel_search.models import FacilityEntryCreateResult, SyncStatus
 
-    _setup_registry(tmp_path, monkeypatch)
+    ariel_registry()
 
     mock_service = AsyncMock()
     mock_service.publish_entry.return_value = FacilityEntryCreateResult(
@@ -292,7 +282,7 @@ async def test_entry_publish_includes_entry_url(tmp_path, monkeypatch):
     )
 
     with (
-        _patch_service(mock_service),
+        patch_ariel_service(mock_service),
         patch("osprey_connectors.config.get_config_value", _fake_config(GENERIC_TEMPLATE)),
     ):
         fn = get_tool_fn(_import_entry_publish())
@@ -301,16 +291,16 @@ async def test_entry_publish_includes_entry_url(tmp_path, monkeypatch):
     assert json.loads(result)["entry_url"] == "https://logbook.example/olog.php?id=published-001"
 
 
-async def test_entry_create_emits_no_entry_url(tmp_path, monkeypatch):
+async def test_entry_create_emits_no_entry_url(ariel_registry):
     """MI-1: entry_create (native/draft ids) never emits entry_url, even when a
     template is configured — its entries are not in the facility logbook."""
-    _setup_registry(tmp_path, monkeypatch)
+    ariel_registry()
 
     mock_service = AsyncMock()
     mock_service.repository.upsert_entry.return_value = None
 
     with (
-        _patch_service(mock_service),
+        patch_ariel_service(mock_service),
         patch("osprey_connectors.config.get_config_value", _fake_config(GENERIC_TEMPLATE)),
     ):
         fn = get_tool_fn(_import_entry_create())

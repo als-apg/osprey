@@ -19,7 +19,7 @@ from __future__ import annotations
 import pytest
 
 from osprey_connectors.standin import (
-    ARCHIVER_RECORDER_BLOCK_KEY,
+    _ARCHIVER_RECORDER_BLOCK_KEY,
     ARCHIVER_RECORDER_SERVICE,
     LIVE_STANDIN_PORT_KEY,
     archive_belongs_to_standin,
@@ -99,29 +99,38 @@ class TestNotActive:
 
         assert not live_standin_active(tunnelled, endpoint_host="localhost", endpoint_port=5064)
 
-    def test_stale_port_after_the_deployment_went_live(self) -> None:
-        """The label follows the endpoint, never a leftover services block."""
+    @pytest.mark.parametrize(
+        "port",
+        [
+            # The label follows the endpoint, never a leftover services block.
+            pytest.param(5064, id="stale-port-after-the-deployment-went-live"),
+            # No port dialled means no endpoint to match against.
+            pytest.param(None, id="unresolved-endpoint-port"),
+        ],
+    )
+    def test_a_loopback_endpoint_off_the_standin_port_is_not_active(self, port) -> None:
         assert not live_standin_active(
-            config_with_standin(), endpoint_host="127.0.0.1", endpoint_port=5064
+            config_with_standin(), endpoint_host="127.0.0.1", endpoint_port=port
         )
 
-    def test_non_loopback_host_on_the_matching_port(self) -> None:
-        """An SSH-tunnel-style named gateway is off this host, so it is not ours."""
-        assert not live_standin_active(
-            config_with_standin(), endpoint_host="cagw.example.com", endpoint_port=STANDIN_PORT
-        )
-
-    @pytest.mark.parametrize("host", ["", "   ", "not a host", "127.0.0.1:5074", "[::1]"])
-    def test_unreadable_host_fails_toward_live_machine(self, host: str) -> None:
-        """A host this module cannot read is a machine it cannot vouch for."""
+    @pytest.mark.parametrize(
+        "host",
+        [
+            # An SSH-tunnel-style named gateway is off this host, so it is not ours.
+            pytest.param("cagw.example.com", id="non-loopback-host-on-the-matching-port"),
+            # A host this module cannot read is a machine it cannot vouch for.
+            pytest.param("", id="unreadable-empty"),
+            pytest.param("   ", id="unreadable-blank"),
+            pytest.param("not a host", id="unreadable-not-a-host"),
+            pytest.param("127.0.0.1:5074", id="unreadable-host-with-port"),
+            pytest.param("[::1]", id="unreadable-bracketed-ipv6"),
+        ],
+    )
+    def test_a_host_that_is_not_ours_to_vouch_for_fails_toward_live_machine(
+        self, host: str
+    ) -> None:
         assert not live_standin_active(
             config_with_standin(), endpoint_host=host, endpoint_port=STANDIN_PORT
-        )
-
-    def test_unresolved_endpoint_port(self) -> None:
-        """No port dialled means no endpoint to match against."""
-        assert not live_standin_active(
-            config_with_standin(), endpoint_host="127.0.0.1", endpoint_port=None
         )
 
 
@@ -273,4 +282,4 @@ class TestArchiveBelongsToStandin:
 
     def test_the_block_key_is_the_one_the_build_projects(self) -> None:
         """Pinned because the reach contract projects a leaf of this exact block."""
-        assert ARCHIVER_RECORDER_BLOCK_KEY == "services.archiver_recorder"
+        assert _ARCHIVER_RECORDER_BLOCK_KEY == "services.archiver_recorder"

@@ -1,14 +1,17 @@
 // @ts-check
-/* OSPREY Web Terminal — Control-Target Header Chip
+/* OSPREY Web Terminal — Control-Target Chip
  *
  * The one-glance answer to "if the agent writes now, where does it land, and
- * will it be refused?". A 28 px chip in the global header reading
- * `● Rehearsal · writes on ▾`: the name of the machine this deployment stands
- * on, the effective write state on THAT machine, and a dot whose colour says
- * how much a write there matters and whose shape says who is holding writes
- * back. The popover behind it (control-target-popover.js) lists every
- * configured target and owns every gesture that CHANGES something; this module
- * owns the chip, the read, and the state every renderer shares.
+ * will it be refused?". A chip reading `● Rehearsal · writes asked ▾`: the name
+ * of the machine this deployment stands on, the effective write state on THAT
+ * machine, and a dot whose colour says how much a write there matters and
+ * whose shape says who is holding writes back. On the hub it is the button of
+ * the sidebar's control-system block (sidebar-target.js lays it out); on a
+ * popped-out JupyterLab page it is a 28 px chip in the Lab menu bar
+ * (control-target-lab-bar.js). The popover behind it
+ * (control-target-popover.js) lists every configured target and owns every
+ * gesture that CHANGES something; this module owns the chip, the read, and the
+ * state every renderer shares.
  *
  * ONE truth: `GET /api/terminal/posture`. The chip renders what that route
  * says and never what this page last did — a posture narrowed in another tab,
@@ -18,8 +21,9 @@
  *
  * **The roster is a fact about the DEPLOYMENT, not about a session.** One
  * control-context record says where this deployment's control system points,
- * so the read carries no session id and nothing here subscribes to a session
- * change. That is also what lets this module load on a page that has no
+ * and nothing here subscribes to a session change. The one session-scoped field
+ * is `held`: a page that has a session names it through {@link setSessionSource},
+ * and a page without one reads the roster with no session id. That is also what lets this module load on a page that has no
  * terminal at all: THIS module imports only `control-target-facts.js`,
  * `api.js` and `activity-format.js` — the JupyterLab bar suite pins the
  * closure this module belongs to — and the JupyterLab bar mounts it by handing
@@ -57,13 +61,17 @@
 
 import {
   REASON_SWITCH_FAILED,
+  STOP_NOT_TAKEN_SENTENCE,
   contextWritable,
   displayName,
+  isPosition,
+  machineKind,
+  reasonPhrase,
   resolvePendingSwitch,
   statePhrase,
   switchFailureNote,
 } from './control-target-facts.js';
-import { withPrefix, createEventSource } from './api.js';
+import { withPrefix, createEventSource, pageEventsUrl } from './api.js';
 import { AGENT_ACTIVITY_FRAME } from './activity-format.js';
 
 /**
@@ -73,21 +81,29 @@ import { AGENT_ACTIVITY_FRAME } from './activity-format.js';
  *   state key, never display text
  * @property {string} label  what the controls server calls that machine
  * @property {string} short_label  the chip's word: LIVE / STAND-IN / VIRTUAL,
- *   derived server-side from `real_machine` and the label's shape
- * @property {string} kind  the plain-language word for the same derivation
- *   (`live machine` / `stand-in` / `virtual accelerator`)
+ *   derived server-side from `machine_kind`
+ * @property {'real'|'rehearsal'|'simulator'} machine_kind  the write verdict's
+ *   kind, read from the controls server's published report (C-KIND) — a
+ *   stand-in no live server vouched for is `real`
+ * @property {string} [display_name]  the deployment's configured name, or `''`
  * @property {string} endpoint
  * @property {boolean} real_machine  true for the facility's own machine AND
- *   for a stand-in — both get every limit and prompt hardware gets
+ *   for a stand-in. Nothing here keys on it: the kind is `machine_kind`'s
  * @property {boolean} active  the target the deployment stands on
  * @property {boolean} is_baseline
  * @property {boolean} available_now  whether a Switch is offered
  * @property {string|null} reason  the switch tool's own refusal code when not
  * @property {string|null} reason_detail  the eligibility verdict's operator
  *   sentence for that code — the popover's tooltip, never its row text
- * @property {boolean} ceiling_writes  what the render permits
- * @property {'writes'|'sandbox'} posture  the deployment's recorded narrowing
- * @property {boolean} effective  the whole rule the connector applies
+ * @property {'off'|'asked'|'allowed'|null} switch  this login's stored position
+ *   for the machine; `null` when the record cannot be read
+ * @property {boolean} prompt  whether this login's next write here prompts: the
+ *   effective position, so a stored `allowed` capped at `asked` answers true
+ * @property {boolean} write_allowed  the verdict a new write by this login
+ *   would meet
+ * @property {string|null} write_reason  the verdict's refusal reason, or null
+ * @property {string|null} write_phrase  that refusal's operator sentence —
+ *   what stopped the write and who lifts it (C-PHRASE)
  * @property {{state: string, role: string|null, probed_at: string|null,
  *             age_s: number|null, role_detail?: Record<string, string>}} reachability
  */
@@ -115,8 +131,10 @@ import { AGENT_ACTIVITY_FRAME } from './activity-format.js';
 /**
  * The payload of `GET /api/terminal/posture`.
  * @typedef {object} PostureView
- * @property {null} session_id  the route echoes the query, and this read sends
- *   none — so it is always `null` here. Nothing may key behaviour on it
+ * @property {string|null} session_id  the route echoes the query. Nothing may key
+ *   behaviour on it
+ * @property {boolean} [held]  the named session has an unanswered watchdog hold,
+ *   so its writes are refused whatever the switch says
  * @property {string} control_target
  * @property {number|null} generation  the record's, and what a live server's
  *   `applied_generation` is compared against
@@ -129,6 +147,14 @@ import { AGENT_ACTIVITY_FRAME } from './activity-format.js';
  *             age_s: number|null}[]} execution_in_flight
  * @property {LastSwitch|null} last_switch
  * @property {{state: string, at?: string}|null} last_posture_realign
+ * @property {string|null} switch_epoch  the login's switch epoch as read, a
+ *   decimal string kept opaque (nanoseconds exceed a JS number's exact range);
+ *   a turn-on carries it back unchanged so a stop that landed since refuses it
+ *   (C-POST)
+ * @property {boolean} any_armed  whether any machine's switch is armed for this
+ *   login — what enables "Turn all writes off"
+ * @property {{readonly_run?: boolean, tier?: string}} [locks]  the locks no
+ *   chip gesture lifts
  * @property {TargetRow[]} targets
  */
 
@@ -176,6 +202,12 @@ export const REQUEST_TTL_S = 30;
 export const CONTROL_CONTEXT_FRAME = 'control_context';
 
 /**
+ * The type prefix of a watchdog's change notice. A flag opened or answered moves
+ * the session's `held`, so each one is a refetch hint.
+ */
+export const WATCHDOG_FRAME_PREFIX = 'watchdog_';
+
+/**
  * The activity tool whose frame means "the control target may have moved".
  * Mirrors `osprey.mcp_server.http.TARGET_SWITCH_TOOL`; a rename on either side
  * costs a refetch hint, never a wrong render (the route stays the truth).
@@ -183,33 +215,19 @@ export const CONTROL_CONTEXT_FRAME = 'control_context';
 export const TARGET_SWITCH_TOOL = 'control_target_set';
 
 /**
- * Dispatched on the chip element when the operator clicks it. The chip owns
- * `aria-expanded` and nothing else; the popover module listens for this and
- * opens or closes itself, then calls {@link setExpanded} for any dismissal it
- * drives on its own (outside click, Escape, a completed switch).
+ * Dispatched on the chip element when the operator clicks it. The chip flips
+ * its own `aria-expanded` and nothing else; the popover module listens for
+ * this and opens or closes itself, and the design system's popover.js keeps
+ * `aria-expanded` in step for every close it drives on its own (a press
+ * outside, Escape, a resize).
  *
  * `detail.expanded` carries the state the chip has just moved TO.
  */
 export const CHIP_TOGGLE_EVENT = 'osprey-control-target-toggle';
 
 /**
- * The plain-language `kind` the route publishes → the `data-target-kind` value
- * the stylesheet keys the dot and the border on. Two vocabularies on purpose:
- * the route's is what the popover SHOWS a simple-mode operator, this one is a
- * CSS selector value.
- */
-/** @type {Record<string, string>} */
-const KIND_ATTR = {
-  'live machine': 'live',
-  'stand-in': 'standin',
-  'virtual accelerator': 'va',
-};
-
-/**
- * The chip and the popover travel together inside one positioning context —
- * the popover is `position: absolute` under its trigger and `.ctc-anchor` is
- * `position: relative` (terminal.css), so the pair keeps its own anchoring
- * wherever the layout parks the item's shell.
+ * The chip's wrapper inside its host: what hides while there is nothing to
+ * say, so an empty box never holds the host's layout open.
  * @type {HTMLElement|null}
  */
 let anchor = null;
@@ -262,6 +280,9 @@ let idleTimer = null;
 let fastTimer = null;
 /** @type {{stop: () => void}|null} */
 let sse = null;
+/** Who names the session `held` is read for; absent on a page with no session. */
+/** @type {(() => string|null)|null} */
+let sessionSource = null;
 
 /** Render subscribers (the popover). */
 /** @type {((state: PostureView|null) => void)[]} */
@@ -270,37 +291,20 @@ let listeners = [];
 /* ---- mount ---- */
 
 /**
- * Mount the chip into a host and keep it current.
+ * Mount the chip into `host` and keep it current.
  *
- * WHERE the chip sits is the layout's answer, not this module's. On the
- * terminal page the header is a bar-item host and the `control-target` item
- * has a `.bar-item` shell that the server renders and bar-host.js reconciles
- * into the operator's order, so the chip only ever APPENDS into that shell.
- * It does not position itself relative to any neighbour — the palette trigger
- * it used to sit in front of now lives inside a shell of its own and is no
- * longer a child of the host, so a positional insert against it would both
- * misplace the chip and throw.
- *
- * `.header-actions` remains as a fallback host for a header rendered without
- * shells; appending there degrades to "somewhere in the action run", which is
- * strictly better than not mounting the chip at all.
- *
- * A caller that already knows its host passes one. That is how the JupyterLab
- * bar mounts the chip: its page has neither shell nor `.header-actions`, and
- * an element it owns is the only honest answer to where the chip goes.
+ * WHERE the chip sits is the caller's answer, not this module's: the hub hands
+ * it the sidebar's control-system block (`#sidebar-target`), and the
+ * JupyterLab bar an element of its own. The chip only ever APPENDS into its
+ * host; it never positions itself relative to a neighbour.
  *
  * Idempotent: a second call re-renders rather than mounting a second chip, and
- * re-homes the existing anchor if the host turned up after a fallback mount.
+ * re-homes the existing anchor when called with a different host.
  *
  * @param {{host?: HTMLElement|null}} [opts]
  */
 export function initControlTargetChip({ host } = {}) {
-  const mountPoint = /** @type {HTMLElement|null} */ (
-    host ??
-      document.querySelector('[data-bar-item="control-target"]') ??
-      document.querySelector('.header-actions')
-  );
-  if (!mountPoint) return;
+  if (!host) return;
 
   if (!chip || !anchor || !anchor.isConnected) {
     anchor = document.createElement('div');
@@ -308,18 +312,26 @@ export function initControlTargetChip({ host } = {}) {
     anchor.hidden = true;
     chip = buildChip();
     anchor.appendChild(chip);
-    mountPoint.appendChild(anchor);
-  } else if (anchor.parentElement !== mountPoint) {
-    // A host that arrived after a fallback mount. Move the whole positioning
-    // context rather than rebuilding it: the popover, the click listener and
-    // the chip's current paint all ride along, and a rebuild would leave the
-    // old chip orphaned in the header.
-    mountPoint.appendChild(anchor);
+    host.appendChild(anchor);
+  } else if (anchor.parentElement !== host) {
+    // A different host. Move the wrapper rather than rebuilding it: the click
+    // listener and the chip's current paint ride along, and a rebuild would
+    // leave the old chip orphaned.
+    host.appendChild(anchor);
   }
 
   if (!sse) sse = subscribeRefetchHints();
 
   void refetch();
+}
+
+/**
+ * Name the session the chip's `held` is read for. Injected rather than imported:
+ * this module's import closure is pinned, and it loads on pages with no terminal.
+ * @param {(() => string|null)|null} source
+ */
+export function setSessionSource(source) {
+  sessionSource = source;
 }
 
 /**
@@ -333,8 +345,7 @@ export function teardownControlTargetChip() {
     sse.stop();
     sse = null;
   }
-  // The anchor goes with it, popover and all: a positioning context with
-  // nothing to position is a stray flex child in the header's action gap.
+  // The wrapper goes with it: an empty one is a stray box in its host.
   if (anchor) anchor.remove();
   else chip?.remove();
   anchor = null;
@@ -354,7 +365,7 @@ function buildChip() {
   el.className = 'control-target-chip';
   el.id = 'control-target-chip';
   el.hidden = true;
-  el.setAttribute('aria-haspopup', 'true');
+  el.setAttribute('aria-haspopup', 'dialog');
   el.setAttribute('aria-expanded', 'false');
 
   const dot = span('ctc-dot');
@@ -371,6 +382,23 @@ function buildChip() {
   return el;
 }
 
+/**
+ * Write the state phrase with its leading "writes " in a span of its own: the
+ * sidebar block hides that word, and the element's text keeps the whole phrase.
+ * @param {HTMLElement} node
+ * @param {string} phrase
+ */
+function paintState(node, phrase) {
+  const lead = 'writes ';
+  if (!phrase.startsWith(lead)) {
+    node.textContent = phrase;
+    return;
+  }
+  const word = span('ctc-state-lead');
+  word.textContent = lead;
+  node.replaceChildren(word, phrase.slice(lead.length));
+}
+
 /** @param {string} cls @returns {HTMLElement} */
 function span(cls) {
   const el = document.createElement('span');
@@ -381,16 +409,14 @@ function span(cls) {
 /**
  * Status and action are separate gestures: the chip only opens. Every change
  * is a labelled action inside the popover, where the row it applies to is on
- * screen — a header chip that toggled something on click would be a one-click
+ * screen — a chip that toggled something on click would be a one-click
  * path to arming writes on a real machine.
  */
 function onChipClick() {
   if (!chip) return;
   const expanded = chip.getAttribute('aria-expanded') !== 'true';
   chip.setAttribute('aria-expanded', String(expanded));
-  chip.dispatchEvent(
-    new CustomEvent(CHIP_TOGGLE_EVENT, { bubbles: true, detail: { expanded } })
-  );
+  chip.dispatchEvent(new CustomEvent(CHIP_TOGGLE_EVENT, { bubbles: true, detail: { expanded } }));
 }
 
 /* ---- the read ---- */
@@ -406,10 +432,16 @@ function onChipClick() {
  * the refusal word under a Switch, the reason a toggle 409'd — so this reads
  * the body itself and unwraps the sentence.
  *
+ * A refusal keeps its status and its `detail` beside the sentence: the posture
+ * route answers `{detail: {reason, phrase?, epoch?, stamped?, taken?}}`, and a
+ * stamped 409 is retried with the epoch it carries, which a message alone
+ * could not say.
+ *
  * @param {string} path
  * @param {{method?: string, json?: any}} [opts]
  * @returns {Promise<any>} the parsed body
- * @throws {Error} on a non-OK response, carrying the server's own message
+ * @throws {TargetRequestError} on a non-OK response, carrying the server's own
+ *   sentence, the status and the detail
  */
 export async function targetRequest(path, { method = 'GET', json } = {}) {
   /** @type {RequestInit} */
@@ -420,22 +452,118 @@ export async function targetRequest(path, { method = 'GET', json } = {}) {
   }
   const resp = await fetch(withPrefix(path), init);
   const body = await resp.json().catch(() => null);
-  if (!resp.ok) throw new Error(refusalMessage(body, resp.status));
+  if (!resp.ok) {
+    const detail = body && typeof body === 'object' ? body.detail : null;
+    throw new TargetRequestError(refusalMessage(body, resp.status), resp.status, detail ?? null);
+  }
   return body;
 }
 
 /**
- * The most specific human sentence a refusal body carries. Handles all three
- * shapes rather than guessing at one: FastAPI's dict detail (what these routes
- * raise), the plain string detail every other route uses, and a body with
- * neither — where the status code is all there is to say.
+ * A refused request: the sentence to show, plus what the route answered it
+ * with. `detail` is the body's `detail` as sent — a dict for these routes, a
+ * string for most others, a list for a body FastAPI could not parse — or
+ * `null` when the body carried none.
+ */
+export class TargetRequestError extends Error {
+  /** @param {string} message @param {number} status @param {any} detail */
+  constructor(message, status, detail) {
+    super(message);
+    this.name = 'TargetRequestError';
+    /** @type {number} */
+    this.status = status;
+    /** @type {any} */
+    this.detail = detail;
+  }
+}
+
+/* ---- the switch gesture (C-POST) ---- */
+
+/**
+ * What a turn-on a stop overtook says. The 409 carries no phrase of its own:
+ * it is an answer about the request, and the operator is owed the next step.
+ */
+export const STOPPED_SINCE_SENTENCE =
+  'Writes were turned off after this turn-on began — nothing was turned on. Click again to turn them on.';
+
+/**
+ * POST one switch gesture: `{session_id, target, state, epoch, waived}`, where
+ * `epoch` is the `switch_epoch` string the chip read (`null` when it read none),
+ * sent back exactly as read: it is never turned into a number. `waived` says the
+ * confirm was skipped; the route refuses it on a move no confirm may be skipped
+ * for.
+ *
+ * A 409 that says it just STAMPED the record's first epoch is retried once
+ * with that epoch and the same `waived` — the route never retries itself. Any
+ * other 409 is a stop that landed after the gesture began, and is thrown: a
+ * turn-on never silently re-arms after a stop.
+ * @param {string|null} sessionId
+ * @param {string} target  a configured target name, or `all` (off only)
+ * @param {'off'|'asked'|'allowed'} position
+ * @param {string|null} epoch
+ * @param {boolean} [waived]
+ * @returns {Promise<any>} the route's `{target, state, switch_epoch}`
+ * @throws {TargetRequestError} the refusal, after at most one retry
+ */
+export async function postSwitch(sessionId, target, position, epoch, waived = false) {
+  /** @param {string|null} at */
+  const send = (at) =>
+    targetRequest('/api/terminal/posture', {
+      method: 'POST',
+      json: { session_id: sessionId, target, state: position, epoch: at, waived },
+    });
+  try {
+    return await send(epoch);
+  } catch (err) {
+    const detail = err instanceof TargetRequestError ? err.detail : null;
+    const stamped =
+      err instanceof TargetRequestError &&
+      err.status === 409 &&
+      detail?.stamped === true &&
+      typeof detail.epoch === 'string';
+    if (!stamped) throw err;
+    return send(detail.epoch);
+  }
+}
+
+/**
+ * The sentence a refused switch gesture shows, and whether the confirm that
+ * raised it should close. The route's `phrase` wins; a 409 is a stop that
+ * overtook the gesture (the dialog's question no longer holds); a 503 on a
+ * stop is the stop sentence even with no phrase — the one thing the operator
+ * must not miss is that writes are still on.
+ * @param {unknown} err
+ * @param {'off'|'asked'|'allowed'} to
+ * @returns {{message: string, close: boolean}}
+ */
+export function switchRefusal(err, to) {
+  const e = err instanceof TargetRequestError ? err : null;
+  const detail =
+    e?.detail && typeof e.detail === 'object' && !Array.isArray(e.detail) ? e.detail : {};
+  if (e?.status === 409) return { message: STOPPED_SINCE_SENTENCE, close: true };
+  /** @param {string} message */
+  const say = (message) => ({ message, close: false });
+  if (typeof detail.phrase === 'string' && detail.phrase.trim()) return say(detail.phrase);
+  if (e?.status === 503 && to === 'off') return say(STOP_NOT_TAKEN_SENTENCE);
+  if (typeof detail.reason === 'string' && detail.reason) return say(reasonPhrase(detail.reason));
+  return say(err instanceof Error ? err.message : String(err));
+}
+
+/**
+ * The most specific human sentence a refusal body carries. Handles every
+ * shape rather than guessing at one: the posture route's dict detail (its
+ * `phrase`), the target route's (its `message`), the plain string detail every
+ * other route uses, and a body with neither — where the status code is all
+ * there is to say.
  * @param {any} body @param {number} status @returns {string}
  */
 function refusalMessage(body, status) {
   const detail = body && typeof body === 'object' ? body.detail : null;
   if (typeof detail === 'string' && detail.trim()) return detail;
-  if (detail && typeof detail === 'object' && typeof detail.message === 'string') {
-    if (detail.message.trim()) return detail.message;
+  if (detail && typeof detail === 'object' && !Array.isArray(detail)) {
+    for (const key of ['phrase', 'message']) {
+      if (typeof detail[key] === 'string' && detail[key].trim()) return detail[key];
+    }
   }
   if (body && typeof body === 'object' && typeof body.message === 'string' && body.message.trim()) {
     return body.message;
@@ -447,8 +575,8 @@ function refusalMessage(body, status) {
  * Re-read the roster and repaint.
  *
  * The one refresh path: mount, the pushed frame, the activity hint, the idle
- * tick, the fast tick and every popover mutation all land here. The read
- * carries no session id — one record answers for the whole deployment.
+ * tick, the fast tick and every popover mutation all land here. One record
+ * answers for the whole deployment; a session id only adds the `held` field.
  * @returns {Promise<void>}
  */
 export async function refetch() {
@@ -457,7 +585,12 @@ export async function refetch() {
 
   const seq = ++readSeq;
   try {
-    const data = await targetRequest('/api/terminal/posture');
+    const session = sessionSource?.();
+    const data = await targetRequest(
+      session
+        ? `/api/terminal/posture?session_id=${encodeURIComponent(session)}`
+        : '/api/terminal/posture'
+    );
     // A newer read has been issued since this one left — most importantly the
     // re-read a mutation does — so this answer is already history.
     if (seq !== readSeq) return;
@@ -660,7 +793,7 @@ function stopFastPolling() {
 /**
  * Subscribe to the server event stream for anything that means "read again".
  *
- * Two frames qualify, and both are HINTS and only hints — nothing is read out
+ * Three frames qualify, and all are HINTS and only hints — nothing is read out
  * of either, because the route is the only thing that knows what the context
  * now is:
  *
@@ -672,6 +805,7 @@ function stopFastPolling() {
  *   is broadcast on deployments whose terminal owns no context to push from.
  *   Its `detail` is the agent's narration of a switch that may belong to any
  *   client on this stream, so only the tool name is read.
+ * - any `watchdog_*` frame, since a flag moves the session's `held`.
  *
  * One subscription, and api.js shares one socket per URL across the page's
  * modules, so the chip adds no connection of its own to the browser's per-host
@@ -679,7 +813,7 @@ function stopFastPolling() {
  * chip must work on a page where no panel workspace ever boots.
  */
 function subscribeRefetchHints() {
-  return createEventSource('/api/files/events', {
+  return createEventSource(pageEventsUrl(), {
     onMessage: (data) => {
       if (!data || typeof data !== 'object') return;
       if (!isRefetchHint(data)) return;
@@ -690,8 +824,16 @@ function subscribeRefetchHints() {
 
 /** @param {any} frame @returns {boolean} */
 function isRefetchHint(frame) {
-  if (frame.type === CONTROL_CONTEXT_FRAME) return true;
+  if (frame.type === CONTROL_CONTEXT_FRAME || isWatchdogFrame(frame)) return true;
   return frame.type === AGENT_ACTIVITY_FRAME && frame.tool === TARGET_SWITCH_TOOL;
+}
+
+/**
+ * @param {any} frame
+ * @returns {boolean} whether *frame* is a watchdog's change notice
+ */
+export function isWatchdogFrame(frame) {
+  return typeof frame?.type === 'string' && frame.type.startsWith(WATCHDOG_FRAME_PREFIX);
 }
 
 /* ---- render ---- */
@@ -764,27 +906,6 @@ export function getChipElement() {
 }
 
 /**
- * The positioning context the popover mounts into (`.ctc-anchor`, the chip's
- * own parent). The popover is `position: absolute` under its trigger and only
- * `.ctc-anchor` is guaranteed `position: relative` — appending the popover
- * anywhere else would anchor it to whatever ancestor happens to be positioned.
- */
-export function getAnchorElement() {
-  return anchor;
-}
-
-/**
- * Mirror the popover's open state onto the chip. The popover dismisses itself
- * for reasons the chip never sees (an outside click, Escape); without this the
- * chip would keep claiming `aria-expanded=true` and the hover/open styling
- * would stay lit over a closed popover.
- * @param {boolean} expanded
- */
-export function setExpanded(expanded) {
-  chip?.setAttribute('aria-expanded', String(Boolean(expanded)));
-}
-
-/**
  * The row the chip speaks for: the one the deployment stands on.
  *
  * Two fallbacks, in the order of how much they claim. The baseline row is what
@@ -807,14 +928,14 @@ function activeRow(state) {
 }
 
 /**
- * The `data-target-kind` value for one row.
+ * The `data-target-kind` value for one row: its `machine_kind`, exactly as GET
+ * published it.
  *
- * The route already made this decision (from `real_machine` and the label's
- * SHAPE, never from the target name, so a stand-in never renders as the
- * facility's own machine); this restates the mapping onto CSS values and keeps
- * the same derivation as a fallback for a row that carries no `kind`. The
- * fallback fails loud on purpose — an unrecognised real machine is `live`, the
- * direction this stack must fail in.
+ * The route already made this decision from the controls server's report
+ * (C-KIND) — never from the target name or the label's shape — so a `standin`
+ * no live server vouched for arrives as `real` and renders as the real
+ * machine. A row with no recognised `machine_kind` reads as `real` too: the
+ * loud answer is the direction this stack must fail in.
  *
  * Exported for the popover, which keys each ROW's dot and tints on the same
  * attribute: one derivation for the chip and the row it speaks for, so a
@@ -823,37 +944,37 @@ function activeRow(state) {
  * @returns {string}
  */
 export function kindAttr(row) {
-  const published = KIND_ATTR[String(row.kind || '').trim().toLowerCase()];
-  if (published) return published;
-  const label = String(row.label || '').trim().toLowerCase();
-  if (row.real_machine) return label.includes('(stand-in)') ? 'standin' : 'live';
-  return 'va';
+  return machineKind(row);
 }
 
 /**
- * The effective state word for one row: `writes`, `sandbox` or `read-only`.
+ * The state word for one row: `off`, `asked`, `allowed` or `locked`.
  *
- * Three terms collapse to one word here, and which of the two "no" cases it is
- * matters: `sandbox` is the operator's own narrowing and one click undoes it,
- * `read-only` is the deployment's ceiling (or a read-only run) and no gesture
- * in this interface will move it. A single "no" word would leave an operator
- * clicking a toggle that was never going to open.
+ * The EFFECTIVE state, derived from `switch`, `write_allowed` and `prompt` only
+ * — never from the legacy `posture` mirror. `off` is a switch that is off, which
+ * one click undoes; `locked` is an armed switch that is still refused (its row
+ * shows `write_phrase` and keeps the off control), or a switch nobody can read.
+ * A single "no" word would leave an operator clicking a toggle that was never
+ * going to open. Otherwise `prompt` decides, so a stored `allowed` capped at
+ * `asked` reads `asked`: the word says what the next write meets, not what was
+ * stored. A row that does not say reads `allowed`, the louder of the two.
  *
  * Exported for the popover, whose rows and confirms have to name the state in
- * the same three words the chip does — the confirm for a switch tells the
- * operator the posture they will land in, and it must be the word the chip
- * shows a moment later.
+ * the same words the chip does — the confirm for a switch tells the operator
+ * the state they will land in, and it must be the word the chip shows a
+ * moment later.
  * @param {TargetRow} row
- * @returns {'writes'|'sandbox'|'read-only'}
+ * @returns {'off'|'asked'|'allowed'|'locked'}
  */
 export function stateWord(row) {
-  if (row.effective) return 'writes';
-  return row.posture === 'sandbox' ? 'sandbox' : 'read-only';
+  if (row?.switch === 'off') return 'off';
+  if (!isPosition(row?.switch) || row.write_allowed !== true) return 'locked';
+  return row.prompt ? 'asked' : 'allowed';
 }
 
 /**
- * The kind of machine the deployment stands on — `live`, `standin` or `va` —
- * or `null` while nothing has been read yet.
+ * The kind of machine the deployment stands on — `real`, `rehearsal` or
+ * `simulator` — or `null` while nothing has been read yet.
  *
  * The chip's own two steps, the row it speaks for and that row's kind, handed
  * out as one answer. A consumer that phrases what a read or a write MEANS here
@@ -874,6 +995,28 @@ export function activeKind() {
 }
 
 /**
+ * What the chip says right now: the machine's name, the write state in words
+ * (`switching…` under a pending request), and the kind and state word its
+ * attributes carry — or null while nothing is known. The one derivation the
+ * chip paints from and any surface that repeats the chip's words reads (the
+ * sidebar block's tooltip), so the two cannot word the same machine apart.
+ * @returns {{name: string, state: string, kind: string, word: 'off'|'asked'|'allowed'|'locked'}|null}
+ */
+export function targetReading() {
+  const state = getState();
+  const row = state ? activeRow(state) : null;
+  if (!row) return null;
+  const kind = kindAttr(row);
+  const word = stateWord(row);
+  return {
+    name: displayName(row, kind),
+    state: pending ? 'switching…' : statePhrase(word),
+    kind,
+    word,
+  };
+}
+
+/**
  * Paint the chip from {@link getState}, then tell the subscribers.
  *
  * Everything visual is a data attribute; not one colour name is spelled here.
@@ -884,36 +1027,41 @@ export function activeKind() {
 function render() {
   const state = getState();
   if (chip && shortEl && stateEl) {
+    const reading = targetReading();
     const row = state ? activeRow(state) : null;
-    if (!state || !row) {
-      // The ANCHOR is what hides: hiding the chip alone would leave a
-      // zero-width flex child holding open the header's action gap.
+    if (!state || !row || !reading) {
+      // The ANCHOR is what hides: hiding the chip alone would leave an empty
+      // positioning context holding its host's layout open.
       if (anchor) anchor.hidden = true;
       chip.hidden = true;
       chip.removeAttribute('data-pending');
     } else {
-      const word = stateWord(row);
       if (anchor) anchor.hidden = false;
       chip.hidden = false;
-      chip.dataset.targetKind = kindAttr(row);
-      chip.dataset.state = word;
-      // A question about the CONTEXT, not about the ceiling: whether a change
-      // made here would be written at all, or refused because there is no
-      // context to write or because another terminal holds it. When it would
-      // be refused the chip is dimmed and still opens — the roster is worth
-      // reading even where every gesture on it is refused.
+      chip.dataset.targetKind = reading.kind;
+      chip.dataset.state = reading.word;
+      const held = state.held === true;
+      chip.dataset.held = String(held);
+      // A question about the CONTEXT, not about the switch: whether a target
+      // switch made here would be written at all, or refused because there is
+      // no context to write or because another terminal holds it. When it
+      // would be refused the chip is dimmed and still opens — the roster is
+      // worth reading, and this login's own switches still work.
       chip.dataset.enforceable = String(contextWritable(state));
       if (pending) chip.dataset.pending = 'true';
       else chip.removeAttribute('data-pending');
-      shortEl.textContent = displayName(row, kindAttr(row));
+      shortEl.textContent = reading.name;
       // `data-state` keeps the real state under a pending request: the dot and
       // the border still describe the machine the deployment is on until the
       // switch actually lands.
-      stateEl.textContent = pending ? 'switching…' : statePhrase(word);
+      // Held outranks the switch: a write here is refused until the flag is
+      // answered, whatever the switch says.
+      const phrase = held ? 'held' : reading.state;
+      paintState(stateEl, pending ? reading.state : phrase);
       chip.title = row.label || row.target;
       chip.setAttribute(
         'aria-label',
-        `Control target: ${displayName(row, kindAttr(row))} · ${pending ? 'switching' : statePhrase(word)}`
+        `Control target: ${reading.name} · ${pending ? 'switching' : phrase}`
       );
     }
   }

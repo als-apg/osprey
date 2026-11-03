@@ -8,7 +8,9 @@ misbehaviour it needs: a hanging channel, a failing ``connect()``, a
 two-IOC Channel Access suite beside this file covers the real protocol.
 
 Each test runs in a scratch directory with ``CONFIG_FILE`` removed from the
-environment, so a child reads only the config file its test hands the pool.
+environment, so a child reads only the config file its test hands the pool, and
+with an agent-data root of its own, so the parent's write verdict and the
+child's read the same record: every switch off unless the test turns one on.
 """
 
 import asyncio
@@ -20,14 +22,23 @@ import signal
 import subprocess
 import sys
 import textwrap
-import time
 from pathlib import Path
 
 import pytest
 import yaml
 
+import osprey_connectors
+from osprey_connectors import control_context
+from osprey_connectors import recovery as recovery_module
 from osprey_connectors.control_system._base import WriteOutcome
-from osprey_connectors.errors import ChannelNotFoundError
+from osprey_connectors.errors import (
+    ChannelNotFoundError,
+    ChannelReadFailedError,
+    ChannelUnreachableError,
+    ClientLibraryRefusedError,
+    ConnectorInternalError,
+    ConnectorUnavailableError,
+)
 from osprey_connectors.ipc import _pool as pool_module
 from osprey_connectors.ipc._host import START_PHASES
 from osprey_connectors.ipc._pool import (
@@ -39,15 +50,28 @@ from osprey_connectors.ipc._pool import (
     ConnectorHostWriteTimeoutError,
     PooledConnector,
 )
+from osprey_connectors.ipc._proxy import ChildUnresponsiveError, raised_by_child
+from osprey_connectors.recovery import RecoveryAction, Timing
+from osprey_connectors.refusals import refusal_phrase
+from osprey_connectors_tests._harness._control_context_fixtures import write_control_context
+from osprey_connectors_tests._write_fakes import arm_switch
 from osprey_connectors_tests.ipc._pool_connectors import WRITE_LOG_ENV
+from tests._child_stubs import CHILD_STUBS
+from tests._live import async_wait_until, wait_until
+from tests._processes import pid_alive
 from tests.facility.served_tree import in_process_config, served_tree
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
+# The connectors under test, wherever they are installed: the workspace member
+# here, the floor release in the framework-at-connectors-floor lane.
+CONNECTORS_ROOT = Path(osprey_connectors.__file__).resolve().parents[1]
 PYTHONPATH = os.pathsep.join(
     [
+        # Stand-ins first: skips the slow beamphysics import (tests/_child_stubs).
+        str(CHILD_STUBS),
         str(REPO_ROOT),
         str(REPO_ROOT / "src"),
-        str(REPO_ROOT / "packages" / "osprey-connectors" / "src"),
+        str(CONNECTORS_ROOT),
         # The connectors suite's test-support connectors (osprey_connectors_tests).
         str(REPO_ROOT / "packages" / "osprey-connectors" / "tests"),
     ]
@@ -71,9 +95,12 @@ CHILD_START_TIMEOUT_S = 120.0
 
 
 #: Every address a child here reads or writes, each a writable setpoint. The
-#: ``SLOW:``, ``GONE:`` and ``WEDGE:`` ones misbehave before the mock serves them.
+#: ``SLOW:``, ``GONE:``, ``LOST:``, ``BUG:`` and ``WEDGE:`` ones misbehave before the mock
+#: serves them.
 SERVED = (
+    "BUG:X",
     "GONE:X",
+    "LOST:X",
     "SLOW:RB",
     "SLOW:SP",
     "SLOW:SP2",
@@ -100,9 +127,10 @@ def served_view(tmp_path_factory):
 
 
 def _section(connector_type: str, *, writes_enabled: bool = False, block=None) -> dict:
+    """A section serving *connector_type* as ``live``; *writes_enabled* is its write tier."""
     return {
         "type": connector_type,
-        "writes_enabled": writes_enabled,
+        "writes": "allowed" if writes_enabled else "never",
         "connector": {
             connector_type: in_process_config(_VIEW["view"], response_delay_ms=1, **(block or {}))
         },
@@ -116,12 +144,19 @@ def isolated(tmp_path, monkeypatch):
     monkeypatch.delenv("CONFIG_FILE", raising=False)
     monkeypatch.delenv("OSPREY_EXECUTION_MODE", raising=False)
     monkeypatch.setenv("PYTHONPATH", PYTHONPATH)
+    arm_switch(monkeypatch, tmp_path / "agent-data", None, stamp=False)
     return tmp_path
 
 
 @pytest.fixture
-def writable(isolated, monkeypatch):
-    """A config file on disk that arms the slow mock, and a write log."""
+def switched_on(isolated, monkeypatch):
+    """The login's switch on for ``live``, in the record parent and child both read."""
+    return arm_switch(monkeypatch, isolated / "agent-data", "live", stamp=False)
+
+
+@pytest.fixture
+def writable(isolated, switched_on, monkeypatch):  # noqa: ARG001 - the switch is on
+    """A config file on disk whose tier allows writes, the switch on, and a write log."""
     section = _section(SLOW, writes_enabled=True)
     config_file = isolated / "config.yml"
     config_file.write_text(yaml.safe_dump({"control_system": section}))
@@ -173,12 +208,13 @@ def asyncio_errors(caplog):
     return collected
 
 
-def _alive(pid: int) -> bool:
-    try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        return False
-    return True
+def _abandon(pid: int) -> None:
+    """Kill a child left holding a hung call, so teardown skips the 2 s disconnect bound.
+
+    Closing over a hung call is test_close_with_a_call_in_flight_fails_it_as_stopped's subject.
+    """
+    with contextlib.suppress(ProcessLookupError):
+        os.kill(pid, signal.SIGKILL)
 
 
 # ------------------------------------------------------------ keys and spawn
@@ -251,6 +287,7 @@ async def test_a_hung_call_on_one_target_does_not_hold_up_another(pools):
     hung.cancel()
     with contextlib.suppress(asyncio.CancelledError):
         await hung
+    _abandon(live.pid)
 
 
 async def test_an_unknown_execution_mode_is_refused(pools):
@@ -279,15 +316,18 @@ async def test_a_readonly_child_refuses_writes_the_config_arms(pools, writable):
     assert [line.split() for line in log.read_text().splitlines()] == [["SR:SP", "1.0"]]
 
 
-async def test_a_section_that_arms_writes_without_a_config_file_is_refused(pools):
-    # The child reads its posture from a config file, and there is none: its
-    # writes are off. The section says they are armed, and the pool will not
+@pytest.mark.usefixtures("switched_on")
+async def test_a_section_that_arms_writes_without_a_config_file_is_refused(pools, spawns):
+    # The child takes its write tier from a config file, and there is none: its
+    # writes are off. The section's verdict allows them, and the pool will not
     # hand out a connector whose posture is not the one its caller described.
     pool = pools(_section(SLOW, writes_enabled=True))
     with pytest.raises(ConnectorHostStartError) as caught:
         await pool.connector("live")
 
     assert caught.value.stage == "verify"
+    # The verdict did not move, so the disagreement is not retried.
+    assert len(spawns) == 1
     assert "writes off" in str(caught.value) and "config_file" in str(caught.value)
     assert pool.pids() == {}
 
@@ -313,6 +353,166 @@ async def test_a_config_file_that_arms_what_the_section_does_not_is_refused(
     assert not log.exists()
 
 
+async def test_writes_follow_the_switch_at_spawn_time(pools, writable):
+    """Off at spawn: the child refuses. A fresh child after the turn-on writes."""
+    section, config_file, log = writable
+    control_context.set_switch(["live"], "off")
+    control_context.invalidate_cache()
+    pool = pools(section, config_file=config_file)
+
+    off = await pool.connector("live")
+    refused = await off.write_channel("SR:SP", 1.0)
+    assert off.report["writes_enabled"] is False
+    assert refused.outcome is WriteOutcome.REFUSED
+
+    await off.disconnect()
+    write_control_context(isolated_root(log), target="live", owned_by=None, switch={"live": "on"})
+    on = await pool.connector("live")
+    written = await on.write_channel("SR:SP", 2.0)
+
+    assert on.report["writes_enabled"] is True
+    assert written.outcome is not WriteOutcome.REFUSED
+    assert [line.split() for line in log.read_text().splitlines()] == [["SR:SP", "2.0"]]
+
+
+async def test_a_switch_turned_between_derive_and_report_respawns_once(
+    pools, writable, spawns, monkeypatch
+):
+    """The verdict moved while the child started: a fresh child, not an aborted start."""
+    section, config_file, log = writable
+    control_context.set_switch(["live"], "off")
+    control_context.invalidate_cache()
+    real = pool_module.ConnectorHostPool._writes_allowed
+    asked: list[bool] = []
+
+    def turned_on_after_the_first_verdict(section, target):
+        allowed = real(section, target)
+        if not asked:
+            write_control_context(
+                isolated_root(log), target="live", owned_by=None, switch={"live": "on"}
+            )
+        asked.append(allowed)
+        return allowed
+
+    monkeypatch.setattr(
+        pool_module.ConnectorHostPool,
+        "_writes_allowed",
+        staticmethod(turned_on_after_the_first_verdict),
+    )
+    pool = pools(section, config_file=config_file)
+
+    live = await pool.connector("live")
+    written = await live.write_channel("SR:SP", 3.0)
+
+    assert asked[0] is False and asked[-1] is True
+    assert len(spawns) == 2
+    first = spawns[0][1]
+    assert first.returncode is not None
+    assert live.report["writes_enabled"] is True
+    assert written.outcome is not WriteOutcome.REFUSED
+
+
+def isolated_root(log: Path) -> Path:
+    """The agent-data root :func:`isolated` armed, beside the test's write log."""
+    return log.parent / "agent-data"
+
+
+# ------------------------------------------------------------ gateway role (no spawn)
+
+_CA_ROW_RO = {"address": "ro.example.org", "port": 5064}
+_CA_ROW_RW = {"address": "rw.example.org", "port": 5065}
+
+
+def _epics_section(gateways: dict) -> dict:
+    return {"type": "epics", "writes": "allowed", "connector": {"epics": {"gateways": gateways}}}
+
+
+@pytest.mark.parametrize(
+    ("switch", "role", "writes"),
+    [(None, "read_only", False), ("on", "write_access", True)],
+    ids=["off", "on"],
+)
+def test_the_derived_role_follows_the_switch(isolated, switch, role, writes):
+    if switch:
+        write_control_context(
+            isolated / "agent-data", target="live", owned_by=None, switch={"live": switch}
+        )
+    pool = ConnectorHostPool(_epics_section({"read_only": _CA_ROW_RO, "write_access": _CA_ROW_RW}))
+
+    derivation, readonly_run, derived_writes = pool._derive(("live", None), pool._section)
+
+    assert (derivation.selected_role, derived_writes, readonly_run) == (role, writes, False)
+
+
+@pytest.mark.usefixtures("switched_on")
+def test_a_launch_pin_holds_the_derived_role_on_read_only(monkeypatch):
+    monkeypatch.setenv(pool_module.posture_store.LAUNCH_POSTURE_ENV_VAR, "live=sandbox")
+    pool = ConnectorHostPool(_epics_section({"read_only": _CA_ROW_RO, "write_access": _CA_ROW_RW}))
+
+    derivation, _, writes = pool._derive(("live", None), pool._section)
+
+    assert (derivation.selected_role, writes) == ("read_only", False)
+
+
+@pytest.mark.parametrize("switch", [None, "on"], ids=["off", "on"])
+def test_a_write_gateway_only_machine_is_derived_reading_through_it(isolated, switch):
+    if switch:
+        write_control_context(
+            isolated / "agent-data", target="live", owned_by=None, switch={"live": switch}
+        )
+    pool = ConnectorHostPool(_epics_section({"write_access": _CA_ROW_RW}))
+    key = ("live", None)
+
+    derivation, _, writes = pool._derive(key, pool._section)
+
+    assert writes is (switch == "on")
+    assert derivation.selected_role == "write_access"
+    assert derivation.selected_endpoint() is not None
+    # Not refused as a gatewayless Channel Access child.
+    assert pool._config_refusal(key, pool._section, derivation) is None
+
+
+@pytest.mark.parametrize("switch", [None, "on"], ids=["off", "on"])
+def test_a_readonly_run_on_a_write_gateway_only_machine_is_derived_on_the_read_role(
+    isolated, switch
+):
+    if switch:
+        write_control_context(
+            isolated / "agent-data", target="live", owned_by=None, switch={"live": switch}
+        )
+    pool = ConnectorHostPool(_epics_section({"write_access": _CA_ROW_RW}))
+    key = ("live", "readonly")
+
+    derivation, readonly_run, writes = pool._derive(key, pool._section)
+
+    assert (derivation.selected_role, readonly_run, writes) == ("read_only", True, False)
+    assert derivation.selected_endpoint() is None
+    # Refused as a readonly run, naming the gateway it lacks, not as a
+    # broadcast hazard: a readonly run never reads through the write gateway.
+    refusal = pool._config_refusal(key, pool._section, derivation)
+    assert refusal is not None
+    assert "no read-only gateway" in refusal
+    assert "deployment admin" in refusal
+    # A connect error, not a write refusal: the chip cannot fix it.
+    assert refusal_phrase("readonly_run") not in refusal
+
+
+@pytest.mark.usefixtures("isolated")
+async def test_a_readonly_child_on_a_write_gateway_only_machine_is_never_spawned(pools, spawns):
+    pool = pools(_epics_section({"write_access": _CA_ROW_RW}))
+
+    with pytest.raises(ConnectorHostStartError) as caught:
+        await pool.connector("live", execution_mode="readonly")
+
+    assert caught.value.stage == "config"
+    assert caught.value.pid is None
+    assert "no read-only gateway" in str(caught.value)
+    assert "deployment admin" in str(caught.value)
+    # A connect error, not a write refusal: the chip cannot fix it.
+    assert refusal_phrase("readonly_run") not in str(caught.value)
+    assert spawns == []
+
+
 # ------------------------------------------------------------ losing a child
 
 
@@ -323,7 +523,7 @@ async def test_a_killed_child_fails_its_call_once_and_the_next_call_respawns(poo
     first_pid = live.pid
 
     write = asyncio.create_task(live.write_channel("SLOW:SP", 7.0))
-    await _wait_for(lambda: log.exists() and log.read_text().strip())
+    await async_wait_until(lambda: log.exists() and log.read_text().strip())
     os.kill(first_pid, signal.SIGKILL)
 
     with pytest.raises(ConnectorHostLostError) as caught:
@@ -362,11 +562,12 @@ async def test_a_wedged_child_is_killed_and_replaced(pools):
     assert isinstance(caught.value, ConnectorHostLostError)
     assert caught.value.cause == "unresponsive"
     assert "nor a ping" in str(caught.value)
+    assert [record["action"] for record in caught.value.recovery] == ["child_replaced"]
     with pytest.raises(ConnectorHostUnresponsiveError) as also:
         await asyncio.wait_for(bystander, 10.0)
     assert also.value.cause == "unresponsive"
 
-    assert not _alive(first_pid)
+    assert not pid_alive(first_pid)
     assert (await live.read_channel("SR:DCCT", timeout=OK_TIMEOUT_S)).value is not None
     assert live.pid != first_pid
 
@@ -384,9 +585,11 @@ async def test_a_slow_but_alive_child_times_out_the_call_and_keeps_running(pools
 
     assert not isinstance(caught.value, ConnectorHostLostError)
     assert "still answers a ping" in str(caught.value)
-    assert live.pid == pid and _alive(pid)
+    assert [record["action"] for record in caught.value.recovery] == ["child_kept"]
+    assert live.pid == pid and pid_alive(pid)
     assert (await live.read_channel("SR:DCCT", timeout=OK_TIMEOUT_S)).value is not None
     assert len(log.read_text().splitlines()) == 1
+    _abandon(pid)
 
 
 async def test_with_kill_on_write_timeout_a_write_that_misses_its_deadline_kills_its_child(
@@ -408,7 +611,7 @@ async def test_with_kill_on_write_timeout_a_write_that_misses_its_deadline_kills
     assert isinstance(timed_out, ConnectorHostLostError)
     assert (timed_out.target, timed_out.pid, timed_out.cause) == ("live", pid, "write_timeout")
     assert "may or may not have landed" in str(timed_out)
-    assert not _alive(pid)
+    assert not pid_alive(pid)
     assert pool.pids() == {}
 
     assert (await live.read_channel("SR:DCCT", timeout=OK_TIMEOUT_S)).value is not None
@@ -427,7 +630,8 @@ async def test_kill_on_write_timeout_leaves_a_read_that_times_out_on_the_ping_ru
 
     assert not isinstance(caught.value, ConnectorHostLostError)
     assert "still answers a ping" in str(caught.value)
-    assert live.pid == pid and _alive(pid)
+    assert live.pid == pid and pid_alive(pid)
+    _abandon(pid)
 
 
 async def test_a_wedged_child_is_caught_by_the_call_deadline_too(pools):
@@ -438,7 +642,7 @@ async def test_a_wedged_child_is_caught_by_the_call_deadline_too(pools):
     with pytest.raises(ConnectorHostUnresponsiveError):
         await live.read_channel("WEDGE:X")
 
-    assert not _alive(first_pid)
+    assert not pid_alive(first_pid)
     assert (await live.read_channel("SR:DCCT", timeout=OK_TIMEOUT_S)).value is not None
     assert live.pid != first_pid
 
@@ -448,7 +652,7 @@ async def test_a_stale_failure_never_drops_the_replacement_child(pools):
     live = await pool.connector("live")
     old = pool._children[("live", None)]
     os.kill(old.pid, signal.SIGKILL)
-    await _wait_for(lambda: old.proxy.dead_reason is not None)
+    await async_wait_until(lambda: old.proxy.dead_reason is not None)
 
     # The next call replaces the child ...
     assert (await live.read_channel("SR:DCCT", timeout=OK_TIMEOUT_S)).value is not None
@@ -458,20 +662,223 @@ async def test_a_stale_failure_never_drops_the_replacement_child(pools):
     # ... and a failure for the OLD child processed afterwards leaves it alone.
     await pool._discard(old, "stale failure", "exited")
     assert live.pid == replacement
-    assert _alive(replacement)
+    assert pid_alive(replacement)
 
 
-async def test_a_connection_error_from_a_healthy_child_leaves_it_in_place(pools):
+async def test_an_unreachable_channel_in_a_healthy_child_leaves_it_in_place(pools):
     pool = pools(_section(SLOW))
     live = await pool.connector("live")
     pid = live.pid
 
-    with pytest.raises(ConnectionError, match="GONE:X is unreachable") as caught:
+    with pytest.raises(ChannelUnreachableError, match="GONE:X is unreachable") as caught:
         await live.read_channel("GONE:X")
 
-    assert not isinstance(caught.value, ConnectorHostLostError)
+    assert caught.value.channel_address == "GONE:X"
+    assert not isinstance(caught.value, ConnectionError)
     assert live.pid == pid
     assert (await live.read_channel("SR:DCCT")).value is not None
+
+
+async def test_a_child_whose_connector_is_unavailable_is_replaced_once(pools):
+    pool = pools(_section(SLOW))
+    live = await pool.connector("live")
+    pid = live.pid
+
+    with pytest.raises(ConnectorHostLostError) as caught:
+        await live.read_channel("LOST:X")
+
+    lost = caught.value
+    assert isinstance(lost, ConnectorUnavailableError)
+    assert lost.cause == "unavailable"
+    assert "transport is gone" in str(lost)
+    assert [record["action"] for record in lost.recovery] == ["child_replaced"]
+    assert pool.pids() == {}
+    assert not pid_alive(pid)
+    # The next call starts one fresh child and is served by it.
+    assert (await live.read_channel("SR:DCCT", timeout=OK_TIMEOUT_S)).value is not None
+    assert live.pid not in (None, pid)
+
+
+async def test_a_connector_bug_in_a_healthy_child_crosses_as_the_contract_fault_and_leaves_it_in_place(
+    pools,
+):
+    pool = pools(_section(SLOW))
+    live = await pool.connector("live")
+    pid = live.pid
+
+    with pytest.raises(ConnectorInternalError) as caught:
+        await live.read_channel("BUG:X")
+
+    assert raised_by_child(caught.value)
+    assert "KeyError" in str(caught.value)
+    assert live.pid == pid
+    assert (await live.read_channel("SR:DCCT")).value is not None
+
+
+class _ParityProcess:
+    pid = 4242
+    returncode = None
+
+
+class _ParityReader:
+    def retire(self, reason):
+        self.reason = reason
+
+
+class _ParityProxy:
+    """A child's proxy whose every call fails with the one error a parity case names."""
+
+    dead_reason = None
+
+    def __init__(self, exc, *, answers_ping):
+        self.exc = exc
+        self.answers_ping = answers_ping
+
+    async def _fail(self, *args, **kwargs):
+        raise self.exc
+
+    read_channel = write_channel = _fail
+
+    async def supervisor_request(self, *_request):
+        if not self.answers_ping:
+            raise TimeoutError("no pong")
+
+
+def _parity_cases():
+    """One real instance per row of the policy's table, raised the way the pool meets it."""
+
+    def child(exc):
+        setattr(exc, recovery_module._RAISED_BY_CHILD, True)
+        return exc
+
+    return [
+        ("read_channel", child(ConnectorInternalError("KeyError('x')", "KeyError")), False),
+        ("read_channel", child(ChannelUnreachableError("SR:A")), False),
+        ("read_channel", child(ChannelReadFailedError(["SR:A"])), False),
+        ("read_channel", child(ClientLibraryRefusedError(package="epics")), False),
+        ("write_channel", ChildUnresponsiveError("deadline"), True),
+        ("read_channel", ChildUnresponsiveError("deadline"), True),
+        ("read_channel", child(ConnectorUnavailableError("transport is gone")), False),
+        ("read_channel", ConnectionError("the child's pipe ended"), False),
+        ("read_channel", child(ValueError("anything else")), False),
+    ]
+
+
+@pytest.mark.parametrize("answers_ping", [True, False])
+@pytest.mark.parametrize(("method", "exc", "kill_on_write_timeout"), _parity_cases())
+async def test_the_pool_and_the_policy_table_agree(
+    monkeypatch, method, exc, kill_on_write_timeout, answers_ping
+):
+    pool = ConnectorHostPool(_section(SLOW), kill_on_write_timeout=kill_on_write_timeout)
+    child = pool_module._PoolChild(
+        key=("live", None),
+        process=_ParityProcess(),
+        proxy=_ParityProxy(exc, answers_ping=answers_ping),
+        reader=_ParityReader(),
+        report={},
+    )
+
+    async def ensure(_key):
+        return child
+
+    async def kill(_child):
+        return None
+
+    monkeypatch.setattr(pool, "_ensure", ensure)
+    monkeypatch.setattr(pool, "_kill", kill)
+    target = pool_module._PoolTarget(pool, child, method, exc)
+    step = pool._policy._step(exc, target, write=method in pool_module._WRITE_METHODS)
+    kept = step is recovery_module._Step.PROBE and answers_ping
+    failure = (
+        recovery_module._Failure.UNRESPONSIVE
+        if step is recovery_module._Step.PROBE
+        else recovery_module._Failure.UNAVAILABLE
+    )
+
+    with pytest.raises(BaseException) as caught:
+        await pool._invoke(("live", None), method, "SR:A")
+
+    raised = caught.value
+    if step is recovery_module._Step.NONE:
+        assert raised is exc
+        assert child.retired is None
+        return
+    action = RecoveryAction.CHILD_KEPT if kept else RecoveryAction.CHILD_REPLACED
+    expected = {
+        "action": action,
+        "text": recovery_module._SENTENCES[(action, Timing.LAZY, failure)],
+    }
+    assert list(raised.recovery) == [expected]
+    if kept:
+        assert type(raised) is TimeoutError
+        assert child.retired is None
+    else:
+        assert isinstance(raised, ConnectorHostLostError)
+        assert child.retired == raised.cause
+
+
+def _parity_child(pool, monkeypatch, proxy):
+    child = pool_module._PoolChild(
+        key=("live", None),
+        process=_ParityProcess(),
+        proxy=proxy,
+        reader=_ParityReader(),
+        report={},
+    )
+
+    async def ensure(_key):
+        return child
+
+    async def kill(_child):
+        return None
+
+    monkeypatch.setattr(pool, "_ensure", ensure)
+    monkeypatch.setattr(pool, "_kill", kill)
+    return child
+
+
+@pytest.mark.parametrize(
+    "first",
+    [
+        ChildUnresponsiveError("deadline"),
+        ConnectorUnavailableError("transport is gone"),
+    ],
+)
+async def test_a_call_whose_deadline_passes_after_its_child_was_replaced_carries_that_record(
+    monkeypatch, first
+):
+    if isinstance(first, ConnectorUnavailableError):
+        setattr(first, recovery_module._RAISED_BY_CHILD, True)
+    pool = ConnectorHostPool(_section(SLOW))
+    proxy = _ParityProxy(first, answers_ping=False)
+    child = _parity_child(pool, monkeypatch, proxy)
+
+    with pytest.raises(ConnectorHostLostError) as replaced:
+        await pool._invoke(("live", None), "read_channel", "SR:A")
+    proxy.exc = ChildUnresponsiveError("deadline")
+    with pytest.raises(ConnectorHostLostError) as bystander:
+        await pool._invoke(("live", None), "read_channel", "SR:B")
+
+    assert bystander.value.cause == child.retired == replaced.value.cause
+    assert "was retired" in str(bystander.value)
+    assert list(bystander.value.recovery) == list(replaced.value.recovery)
+    assert [record["action"] for record in bystander.value.recovery] == ["child_replaced"]
+
+
+async def test_a_call_whose_deadline_passes_after_the_pool_stopped_its_child_carries_no_record(
+    monkeypatch,
+):
+    pool = ConnectorHostPool(_section(SLOW))
+    child = _parity_child(
+        pool, monkeypatch, _ParityProxy(ChildUnresponsiveError("deadline"), answers_ping=False)
+    )
+    child.retired = pool_module.CAUSE_STOPPED
+
+    with pytest.raises(ConnectorHostLostError) as caught:
+        await pool._invoke(("live", None), "read_channel", "SR:A")
+
+    assert caught.value.cause == "stopped"
+    assert caught.value.recovery == ()
 
 
 # ------------------------------------------------------------ start failures
@@ -519,7 +926,7 @@ async def test_a_child_that_never_finishes_connecting_hits_the_start_timeout(poo
         await pool.connector("live")
 
     assert caught.value.stage == "init"
-    await _wait_for(lambda: not _alive(caught.value.pid))
+    await async_wait_until(lambda: not pid_alive(caught.value.pid))
     names = [name for name, _ in caught.value.phases]
     assert names == list(START_PHASES[: len(names)])
     assert "connected" not in names
@@ -594,9 +1001,11 @@ def _ca_gateways(address: str, read_port, write_port=None) -> dict:
     [
         ("live", "epics", {}),
         ("live", "epics", {"gateways": {}}),
-        # A write-only table on a run that selects read_only: rows exist, but
-        # none for the role connect() will look up, so it configures nothing.
-        ("live", "epics", {"gateways": {"write_access": {"address": "10.0.0.1", "port": 5064}}}),
+        # A write-only table is not here: it reads through its write gateway,
+        # and a readonly run on one is refused as readonly. The two tests named
+        # test_a_write_gateway_only_machine_is_derived_reading_through_it and
+        # test_a_readonly_child_on_a_write_gateway_only_machine_is_never_spawned
+        # cover those cases.
         ("standin", "live_standin", {}),
         ("va", "virtual_accelerator", {}),
     ],
@@ -720,7 +1129,7 @@ async def test_close_stops_every_child(pools):
 
     await pool.close()
 
-    await _wait_for(lambda: not any(_alive(pid) for pid in pids))
+    await async_wait_until(lambda: not any(pid_alive(pid) for pid in pids))
     with pytest.raises(RuntimeError, match="closed"):
         await pool.connector("live")
 
@@ -728,7 +1137,7 @@ async def test_close_stops_every_child(pools):
 async def test_close_during_a_start_leaves_nothing_running(pools, spawns):
     pool = pools(_section(SLOW_START))
     starting = asyncio.create_task(pool.connector("live"))
-    await _wait_for(lambda: spawns)
+    await async_wait_until(lambda: spawns)
 
     await pool.close()
 
@@ -743,7 +1152,7 @@ async def test_close_during_a_start_leaves_nothing_running(pools, spawns):
 async def test_disconnect_during_a_start_waits_for_it_and_leaves_no_child_running(pools, spawns):
     pool = pools(_section(SLOW_START))
     starting = asyncio.create_task(pool.connector("live"))
-    await _wait_for(lambda: spawns)
+    await async_wait_until(lambda: spawns)
 
     # A handle on the key, from before the start has handed one out.
     await PooledConnector(pool, ("live", None)).disconnect()
@@ -751,7 +1160,7 @@ async def test_disconnect_during_a_start_waits_for_it_and_leaves_no_child_runnin
     # The disconnect waited for the start and stopped the child it produced ...
     process = spawns[0][1]
     assert process.returncode is not None
-    assert not _alive(process.pid)
+    assert not pid_alive(process.pid)
     assert pool.pids() == {}
     # ... and the start itself completed, handing back a handle whose child is
     # already gone; its next call would start a fresh one.
@@ -773,7 +1182,7 @@ async def test_close_with_a_call_in_flight_fails_it_as_stopped(pools):
         await asyncio.wait_for(hung, 10.0)
     assert not isinstance(caught.value, ConnectorHostUnresponsiveError)
     assert caught.value.cause == "stopped"
-    assert not _alive(pid)
+    assert not pid_alive(pid)
 
 
 async def test_the_pool_refuses_a_second_event_loop(pools):
@@ -811,15 +1220,16 @@ def test_children_do_not_outlive_a_parent_that_is_killed(isolated):
         line = parent.stdout.readline()
         pids = [int(pid) for pid in line.split()]
         assert len(pids) == 2, line
-        assert all(_alive(pid) for pid in pids)
+        assert all(pid_alive(pid) for pid in pids)
     finally:
         parent.kill()
         parent.wait()
 
-    deadline = time.monotonic() + 10.0
-    while time.monotonic() < deadline and any(_alive(pid) for pid in pids):
-        time.sleep(0.1)
-    assert not any(_alive(pid) for pid in pids), "a child outlived its parent"
+    wait_until(
+        lambda: not any(pid_alive(pid) for pid in pids),
+        interval=0.1,
+        what="every child exiting with its parent",
+    )
 
 
 # ------------------------------------------------------------ handles and batches
@@ -888,7 +1298,7 @@ async def test_a_call_in_flight_on_a_child_killed_for_another_writes_timeout_is_
     assert "killed because another write on it missed its deadline" in str(lost)
     assert f"while {method!r} was in flight" in str(lost)
     assert ("The write may or may not have landed." in str(lost)) is lands
-    assert not _alive(pid)
+    assert not pid_alive(pid)
 
 
 # ------------------------------------------------------------ start refusals
@@ -1020,7 +1430,7 @@ async def test_a_child_whose_report_disagrees_with_the_derivation_is_refused_and
     process = spawns[0][1]
     assert caught.value.pid == process.pid
     assert process.returncode is not None
-    assert not _alive(process.pid)
+    assert not pid_alive(process.pid)
     assert pool.pids() == {}
 
 
@@ -1074,16 +1484,16 @@ async def test_served_va_without_gateway_still_refused(pools, spawns):
     assert spawns == []
 
 
-# ------------------------------------------------------------ lifetime, continued
+# ----------------------------------------------------- the lifetime tests, continued
 
 
 async def test_leaving_an_async_with_block_stops_every_child_and_closes_the_pool():
     async with ConnectorHostPool(_section(SLOW), start_timeout_s=CHILD_START_TIMEOUT_S) as pool:
         live = await pool.connector("live")
         pid = live.pid
-        assert _alive(pid)
+        assert pid_alive(pid)
 
-    await _wait_for(lambda: not _alive(pid))
+    await async_wait_until(lambda: not pid_alive(pid))
     assert pool.pids() == {}
     with pytest.raises(RuntimeError, match="ConnectorHostPool is closed"):
         await pool.connector("live")
@@ -1094,7 +1504,7 @@ async def test_a_caller_queued_behind_a_start_that_close_interrupts_is_refused_a
 ):
     pool = pools(_section(SLOW_START))
     starting = asyncio.create_task(pool.connector("live"))
-    await _wait_for(lambda: spawns)
+    await async_wait_until(lambda: spawns)
     queued = asyncio.create_task(pool.connector("live"))
     # Past the pool's first closed check, and waiting on the key's lock.
     await asyncio.sleep(0.1)
@@ -1115,14 +1525,3 @@ async def test_disconnecting_a_key_with_no_child_starts_nothing(pools, spawns):
 
     assert spawns == []
     assert pool.pids() == {}
-
-
-# ------------------------------------------------------------ helpers
-
-
-async def _wait_for(predicate, timeout: float = 10.0) -> None:
-    deadline = time.monotonic() + timeout
-    while not predicate():
-        if time.monotonic() > deadline:
-            raise AssertionError("condition never became true")
-        await asyncio.sleep(0.05)

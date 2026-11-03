@@ -12,12 +12,13 @@ destination it names has to land inside the Target Tree.
 
 from __future__ import annotations
 
-import importlib.util
 import subprocess
 from pathlib import Path
 
 import pytest
 import yaml
+
+from tests._by_path import load_module
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _SCRIPT = _REPO_ROOT / "scripts" / "docs" / "check_split_accounting.py"
@@ -45,15 +46,7 @@ Gamma body line.
 """
 
 
-def _load_checker():
-    spec = importlib.util.spec_from_file_location("check_split_accounting", _SCRIPT)
-    assert spec and spec.loader
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
-
-
-checker = _load_checker()
+checker = load_module("check_split_accounting", _SCRIPT)
 
 
 class SyntheticSplit:
@@ -65,7 +58,7 @@ class SyntheticSplit:
         (self.docs_root / "old").mkdir(parents=True)
         (self.docs_root / "old" / "page.rst").write_text(OLD_PAGE, encoding="utf-8")
         for args in (["init", "-q"], ["add", "-A"]):
-            subprocess.run(["git", "-C", str(root), *args], check=True)
+            subprocess.run(["git", "-C", str(root), *args], check=True, timeout=60)
         subprocess.run(
             [
                 "git",
@@ -80,6 +73,7 @@ class SyntheticSplit:
                 "baseline",
             ],
             check=True,
+            timeout=60,
         )
         # The tree as it looks after the split: Beta has moved to its own page.
         (self.docs_root / "old" / "page.rst").write_text(

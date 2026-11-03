@@ -13,7 +13,6 @@ Log excerpts below are verbatim from als-apg/osprey CI, ANSI codes and all.
 
 from __future__ import annotations
 
-import importlib.util
 import json
 import subprocess
 import types
@@ -21,10 +20,10 @@ from pathlib import Path
 
 import pytest
 
+from tests._by_path import load_module
+
 _MODULE_PATH = Path(__file__).resolve().parents[2] / "scripts" / "ci" / "flake_report.py"
-_spec = importlib.util.spec_from_file_location("flake_report", _MODULE_PATH)
-flake_report = importlib.util.module_from_spec(_spec)
-_spec.loader.exec_module(flake_report)
+flake_report = load_module("flake_report", _MODULE_PATH)
 
 
 class TestParseTestFailures:

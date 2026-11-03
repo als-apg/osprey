@@ -30,10 +30,7 @@ from osprey.services.auth_sidecar.sessions import (
     SessionState,
     UnlockedUser,
 )
-
-SESSION_SECRET = "session-secret-value"
-STATE_SECRET = "state-secret-value"
-SESSION_LIFETIME = 3600
+from tests.services.auth_sidecar._helpers import SESSION_LIFETIME, SESSION_SECRET, STATE_SECRET
 
 ALICE_HASH = hash_password("alice-password")
 ROTATED_ALICE_HASH = hash_password("alice-new-password")
@@ -826,12 +823,22 @@ class TestOwnerAdmissionOnASharedCard:
         assert response.headers[self.ACCOUNT_HEADER] == "alice"
         assert response.headers[self.SUBJECT_HEADER] == "alice"
 
-    def test_the_owner_of_a_domain_only_card_is_denied(self) -> None:
-        """Dropping ``self`` is a real narrowing and not a formality: the owner
-        reaches this card only by being admitted like everybody else, which an
-        own-shape session is not evidence of."""
+    @pytest.mark.parametrize(
+        "access",
+        [
+            # Dropping ``self`` is a real narrowing and not a formality: the owner
+            # reaches this card only by being admitted like everybody else, which an
+            # own-shape session is not evidence of.
+            pytest.param('["domain:example.org"]', id="domain-only-card"),
+            # ``any`` resolves to ``[roster]`` and names no ``self``, so the owner
+            # reaches their own card there as a roster member -- with an opener --
+            # and an own-shape session on it stays refused exactly as before.
+            pytest.param("any", id="whole-roster-card"),
+        ],
+    )
+    def test_a_card_that_does_not_name_self_refuses_an_own_shape_session(self, access) -> None:
         cookie = _mint(_unlocked("alice"))
-        env = {**PASSWORD_ENV, "OSPREY_AUTH_ROSTER_ACCESS_ALICE": '["domain:example.org"]'}
+        env = {**PASSWORD_ENV, "OSPREY_AUTH_ROSTER_ACCESS_ALICE": access}
         with TestClient(_app(env)) as client:
             assert _verify(client, "alice", cookie).status_code == 401
 
@@ -874,15 +881,6 @@ class TestOwnerAdmissionOnASharedCard:
         assert "www-authenticate" not in response.headers
         assert self.ACCOUNT_HEADER.lower() not in response.headers
         assert self.SUBJECT_HEADER.lower() not in response.headers
-
-    def test_a_whole_roster_card_still_refuses_an_own_shape_session(self) -> None:
-        """``any`` resolves to ``[roster]`` and names no ``self``, so the owner
-        reaches their own card there as a roster member — with an opener — and
-        an own-shape session on it stays refused exactly as before."""
-        cookie = _mint(_unlocked("alice"))
-        env = {**PASSWORD_ENV, "OSPREY_AUTH_ROSTER_ACCESS_ALICE": "any"}
-        with TestClient(_app(env)) as client:
-            assert _verify(client, "alice", cookie).status_code == 401
 
 
 class TestSharedCardPassword:

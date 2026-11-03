@@ -14,11 +14,11 @@ from osprey_connectors.control_system._epics_connector import EPICSConnector
 from osprey_connectors.control_system._va_connector import VirtualAcceleratorConnector
 from osprey_connectors.factory import (
     ConnectorFactory,
-    isolated_connector_registries,
     register_builtin_connectors,
 )
 from osprey_connectors.types import VIRTUAL_ACCELERATOR
 from osprey_connectors_tests._epics_fakes import fake_aioca  # noqa: F401 - fixture, used by name
+from osprey_connectors_tests._harness import isolated_connector_registries
 
 
 @pytest.fixture(autouse=True)

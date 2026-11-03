@@ -11,6 +11,8 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
+from osprey.interfaces.web_terminal.file_watcher import STREAM_END
+from osprey.interfaces.web_terminal.routes.panel_ops import dock_stream_closed
 from osprey.interfaces.web_terminal.session_key import is_posture_key
 
 router = APIRouter()
@@ -56,15 +58,9 @@ def _resolve_workspace(request: Request) -> Path:
 
 #: The server-side stores the file routes never show, each named by the
 #: ``app.state`` attribute its directory is published under and by what a
-#: warning calls it. All three are the server's own state, written through their
-#: own routes: the feedback store holds session context users submitted
-#: privately, the bar-items store holds each operator's saved bar layout, and
-#: the panel-status store holds what the terminal recorded about its sidecars.
-_CONCEALED_STORES: tuple[tuple[str, str], ...] = (
-    ("feedback_dir", "feedback store"),
-    ("bar_items_dir", "bar-items store"),
-    ("panel_status_dir", "panel-status store"),
-)
+#: warning calls it. The panel-status store is the server's own state: what the
+#: terminal recorded about its sidecars.
+_CONCEALED_STORES: tuple[tuple[str, str], ...] = (("panel_status_dir", "panel-status store"),)
 
 
 def _concealed_stores(request: Request, workspace_root: Path) -> tuple[Path, ...]:
@@ -78,8 +74,8 @@ def _concealed_stores(request: Request, workspace_root: Path) -> tuple[Path, ...
     it. An empty tuple conceals nothing.
 
     Identity is the resolved path, never the directory name, so a directory a
-    user legitimately named ``feedback`` or ``bar_items`` elsewhere in the
-    workspace stays browsable.
+    user legitimately named ``panel_status`` elsewhere in the workspace stays
+    browsable.
     """
     stores: list[Path] = []
     for attribute, label in _CONCEALED_STORES:
@@ -250,20 +246,46 @@ async def file_content(filepath: str, request: Request):
     }
 
 
+#: Longest ``client_id`` the event stream accepts, the same bound the dock report
+#: route puts on it.
+_CLIENT_ID_MAX = 128
+
+
 @router.get("/api/files/events")
-async def file_events(request: Request):
-    """SSE endpoint for real-time file change events."""
+async def file_events(request: Request, client_id: str | None = None):
+    """SSE endpoint for real-time file change events and panel frames.
+
+    A dock page passes its ``client_id`` so the server knows which stream is the
+    page whose dock report is current. When that stream closes the server stops
+    addressing ops to it and asks the remaining dock clients to report
+    (:func:`~osprey.interfaces.web_terminal.routes.panel_ops.dock_stream_closed`).
+    Every subscriber on a page names the page's one id, so the page holds one
+    socket; a page with no dock (the session view) is never the current dock
+    client, so its stream closing changes nothing. A stream the broadcaster
+    dropped for falling too far behind
+    (:data:`~osprey.interfaces.web_terminal.file_watcher.RELIABLE_CAP`) ends here
+    the same way, and the page reconnects.
+
+    Raises:
+        HTTPException: 400 ``invalid_client_id`` for an empty or over-long id.
+    """
+    if client_id is not None and not 0 < len(client_id) <= _CLIENT_ID_MAX:
+        raise HTTPException(status_code=400, detail="invalid_client_id")
     broadcaster = request.app.state.broadcaster
-    q = broadcaster.subscribe()
+    q = broadcaster.subscribe(client_id)
 
     async def stream():
         try:
             while True:
                 data = await q.get()
+                if data is STREAM_END:
+                    break
                 yield f"data: {json.dumps(data)}\n\n"
         except asyncio.CancelledError:
             pass
         finally:
             broadcaster.unsubscribe(q)
+            if client_id is not None:
+                dock_stream_closed(request.app.state, client_id)
 
     return StreamingResponse(stream(), media_type="text/event-stream")

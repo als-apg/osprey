@@ -11,10 +11,10 @@ Two things here look like a copy-paste of
 ``tests/va/e2e/test_target_switch.py``'s container helpers and are not:
 
 * ``tests/va/e2e/test_target_switch.py`` keeps its own
-  ``_free_port``/``_docker``/``_serving`` trio, predating this module and not
-  yet folded into it. This module exists precisely so the *bench* IOC's
-  version of that trio is spelled once and imported, so new callers get the
-  boot contract (ephemeral port, port-suffixed name, stale cleanup, readiness
+  port, container and readiness helpers, predating this module and not yet
+  folded into it. This module exists precisely so the *bench* IOC's version of
+  those helpers is spelled once and imported, so new callers get the
+  boot contract (reserved port, port-suffixed name, stale cleanup, readiness
   gate, ``rm -f`` in ``finally``) rather than re-deriving it.
 * The image precondition is different in kind. The virtual accelerator's
   ``_require_image()`` greps the image's ``Cmd`` for a variable name; this one
@@ -41,7 +41,6 @@ from __future__ import annotations
 import contextlib
 import functools
 import json
-import socket
 import subprocess
 import sys
 import time
@@ -51,6 +50,9 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+
+from osprey_connectors.types import TARGET_LIVE
+from osprey_connectors_tests._harness._ports import reserved_port
 
 # ---------------------------------------------------------------------------
 # The image, and what it serves
@@ -77,9 +79,24 @@ CONTAINER_PREFIX = "osprey-bench-ioc"
 # The seeded record set, named here so callers assert against one spelling.
 # Values are constants in docker/bench-ioc/bench.db and hold from the first
 # read: the IOC has no autosave and no persistence, so every boot starts again
-# from these and no run can inherit what an earlier run wrote.
+# from these and no run can inherit what an earlier run wrote. The names are
+# vouched against bench.db and the example facility by tests/va/test_suite_world.py.
+
+# -- readbacks --
 PROBE_CHANNEL = "SR:MAG:HCM:01:CURRENT:RB"
 PROBE_VALUE = 7.25
+#: The one bench record carrying alarm limits (``HIHI``, ``HHSV MAJOR``): a
+#: readback, since no setpoint in bench.db sets any alarm field.
+ALARM_CHANNEL = "SR:MAG:VCM:02:CURRENT:RB"
+ALARM_SEEDED_VALUE = -3.5
+ALARM_HIHI_THRESHOLD = 11.0
+
+# -- monitors --
+#: A monitor reading the bench and the example facility both serve.
+SHARED_BPM_X = "SR:DIAG:BPM:01:POSITION:X"
+SHARED_BPM_X_VALUE = 0.412
+
+# -- setpoints --
 #: Writable setpoint -- accepts a caput and latches it (no readback echo: the
 #: bench IOC is constants, not a simulation, so read this channel back, not RB).
 WRITABLE_SP = "SR:MAG:HCM:01:CURRENT:SP"
@@ -87,6 +104,11 @@ WRITABLE_SP = "SR:MAG:HCM:01:CURRENT:SP"
 #: refused by the control system itself, not by any client-side check.
 PROTECTED_SP = "SR:MAG:VCM:02:CURRENT:SP"
 PROTECTED_VALUE = -3.5
+#: What a lane writes to a setpoint on the virtual accelerator: inside the
+#: band the example facility's limits give :data:`WRITABLE_SP`.
+VA_WRITE_VALUE = 1.25
+
+# -- records the example facility does not carry --
 #: An mbbi: the value is the state index, the label names the state it is in.
 MODE_STATE = "SR:DIAG:STRIPLINE:01:MODE:STATE"
 MODE_STATE_VALUE = 2
@@ -98,6 +120,13 @@ MODE_STATE_LABELS = ("OFFLINE", "STANDBY", "ACQUIRING", "FAULT")
 #: from boot rather than only after its first scan.
 SCALED_AMPLITUDE = "SR:DIAG:STRIPLINE:01:AMPLITUDE:SCALED"
 SCALED_AMPLITUDE_VALUE = 6.375
+#: An amplitude only the bench serves: the example facility has no such channel.
+BENCH_ONLY_AMPLITUDE = "SR:DIAG:STRIPLINE:01:AMPLITUDE:RB"
+BENCH_ONLY_AMPLITUDE_VALUE = 12.75
+
+# -- absent from the bench --
+#: An example-facility reading bench.db deliberately omits.
+VA_ONLY_CHANNEL = "SR:DIAG:DCCT:01:CURRENT:RB"
 
 # ---------------------------------------------------------------------------
 # Bounds
@@ -129,13 +158,6 @@ CA_RESULT_MARKER = "__HOST_CA_RESULT__"
 # ---------------------------------------------------------------------------
 # Container lifecycle
 # ---------------------------------------------------------------------------
-
-
-def free_port() -> int:
-    """An ephemeral TCP port, from the OS rather than from a guess."""
-    with socket.socket() as probe:
-        probe.bind(("127.0.0.1", 0))
-        return int(probe.getsockname()[1])
 
 
 def docker(*args: str, timeout: float = DOCKER_TIMEOUT_S) -> subprocess.CompletedProcess:
@@ -234,60 +256,58 @@ def bench_ioc(
     or startup problem, while an IOC that initialized but never answered on the
     port is a publishing or port-derivation problem.
     """
-    port = free_port()
-    name = f"{prefix}-{port}"
-    # Stale cleanup only. The port belongs to this run, so this can name nothing
-    # a concurrent run is using -- which is the point of the suffix.
-    docker("rm", "-f", name, timeout=60)
+    with reserved_port() as port:
+        name = f"{prefix}-{port}"
+        # Stale cleanup only. The port belongs to this run, so this can name nothing
+        # a concurrent run is using -- which is the point of the suffix.
+        docker("rm", "-f", name, timeout=60)
 
-    started = docker(
-        "run",
-        "-d",
-        "--name",
-        name,
-        "-e",
-        f"EPICS_CA_SERVER_PORT={port}",
-        "-p",
-        f"127.0.0.1:{port}:{port}/tcp",
-        IMAGE,
-    )
-    if started.returncode != 0:
-        # Clean up before raising, which the test_target_switch.py trio this
-        # mirrors does not do. A run that fails AFTER the name is claimed --
-        # another process taking the port between the bind probe and here, a
-        # daemon that dies mid-start -- leaves a Created container under a name
-        # carrying this run's port. No later run picks that port, so no later
-        # stale cleanup ever names it, and it accumulates until someone prunes
-        # by hand.
-        with contextlib.suppress(subprocess.SubprocessError):
-            docker("rm", "-f", name, timeout=60)
-        raise RuntimeError(f"docker run failed for {name}:\n{started.stdout}\n{started.stderr}")
+        started = docker(
+            "run",
+            "-d",
+            "--name",
+            name,
+            "-e",
+            f"EPICS_CA_SERVER_PORT={port}",
+            "-p",
+            f"127.0.0.1:{port}:{port}/tcp",
+            IMAGE,
+        )
+        if started.returncode != 0:
+            # Clean up before raising, which the test_target_switch.py trio this
+            # mirrors does not do. A run that fails AFTER the name is claimed --
+            # a daemon that dies mid-start -- leaves a Created container under a
+            # name carrying this run's port, and only a later run that happens to
+            # reserve the same port would ever clean it up.
+            with contextlib.suppress(subprocess.SubprocessError):
+                docker("rm", "-f", name, timeout=60)
+            raise RuntimeError(f"docker run failed for {name}:\n{started.stdout}\n{started.stderr}")
 
-    try:
-        deadline = time.monotonic() + boot_timeout
-        initialized = False
-        while time.monotonic() < deadline:
-            if not initialized:
-                initialized = _initialized(name)
-            if initialized and _serving(port):
-                break
-            time.sleep(POLL_INTERVAL_S)
-        else:
-            stage = (
-                f"initialized but never answered {PROBE_CHANNEL} on port {port}"
-                if initialized
-                else f"never printed {READY_MARKER!r}"
-            )
-            raise RuntimeError(f"{name} {stage} within {boot_timeout}s.\n{_logs(name)}")
-        yield BenchIOC(port=port, container=name)
-    finally:
-        # A wedged daemon makes this call time out, and a raise from a finally
-        # block replaces whatever was already propagating -- turning a boot
-        # failure that carries the container's own log into a bare
-        # TimeoutExpired naming only docker. The cleanup is best effort; the
-        # diagnosis is not.
-        with contextlib.suppress(subprocess.SubprocessError):
-            docker("rm", "-f", name, timeout=60)
+        try:
+            deadline = time.monotonic() + boot_timeout
+            initialized = False
+            while time.monotonic() < deadline:
+                if not initialized:
+                    initialized = _initialized(name)
+                if initialized and _serving(port):
+                    break
+                time.sleep(POLL_INTERVAL_S)
+            else:
+                stage = (
+                    f"initialized but never answered {PROBE_CHANNEL} on port {port}"
+                    if initialized
+                    else f"never printed {READY_MARKER!r}"
+                )
+                raise RuntimeError(f"{name} {stage} within {boot_timeout}s.\n{_logs(name)}")
+            yield BenchIOC(port=port, container=name)
+        finally:
+            # A wedged daemon makes this call time out, and a raise from a finally
+            # block replaces whatever was already propagating -- turning a boot
+            # failure that carries the container's own log into a bare
+            # TimeoutExpired naming only docker. The cleanup is best effort; the
+            # diagnosis is not.
+            with contextlib.suppress(subprocess.SubprocessError):
+                docker("rm", "-f", name, timeout=60)
 
 
 # ---------------------------------------------------------------------------
@@ -349,15 +369,24 @@ def ca_op(
     a client-side refusal would mask the only refusal these suites care about --
     the one the control system itself issues.
     """
+    config = connector_config(port)
     spec = {
-        "connector_config": connector_config(port),
+        "connector_config": config,
         "config_overrides": {
-            "control_system.writes_enabled": writes_enabled,
+            # The connector's own type, so the section names the machine the
+            # write lands on and ``live`` resolves to it.
+            "control_system.type": config["type"],
+            # The write tier (ruling PR-3): only ``allowed`` arms anything.
+            "control_system.writes": "allowed" if writes_enabled else "never",
             "control_system.limits_checking.enabled": False,
         },
         "read": read,
         "write": write,
         "settle_read": settle_read,
+        # The tier alone arms nothing: the connector must know the machine it
+        # writes to, and the login's switch must be on for it. The script stamps
+        # and arms that target in a record of its own.
+        "arm_target": TARGET_LIVE if writes_enabled else None,
     }
     proc = subprocess.run(
         [sys.executable, str(CA_OP_SCRIPT), json.dumps(spec)],

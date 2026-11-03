@@ -477,7 +477,7 @@ describe('initSplitter', () => {
       const { handle, pane, api } = setup();
       expect(api.restoreSize()).toBeNull();
       expect(() =>
-        handle.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true })),
+        handle.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }))
       ).not.toThrow();
       // The split still holds for this page lifetime.
       expect(pane.style.flexBasis).toBe('180px');

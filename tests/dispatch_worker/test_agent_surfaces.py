@@ -9,6 +9,8 @@ dispatch policy treats as non-delegable.
 import logging
 from pathlib import Path
 
+import pytest
+
 from osprey.mcp_server.dispatch_worker.agent_surfaces import parse_project_agents
 
 
@@ -28,40 +30,58 @@ def _agents_dir(tmp_path: Path) -> Path:
 
 
 class TestParseProjectAgents:
-    def test_comma_string_tools_parsed(self, tmp_path):
-        # Arrange — templates render tools: as a comma-separated scalar
-        _write_agent(
-            _agents_dir(tmp_path),
-            "channel-finder.md",
-            "---\n"
-            "name: channel-finder\n"
-            "tools: mcp__channel-finder__search, mcp__osprey_workspace__submit_response\n"
-            "---\n\n# Channel Finder Agent\n",
-        )
+    @pytest.mark.parametrize(
+        ("filename", "text", "expected"),
+        [
+            # Templates render tools: as a comma-separated scalar.
+            pytest.param(
+                "channel-finder.md",
+                "---\n"
+                "name: channel-finder\n"
+                "tools: mcp__channel-finder__search, mcp__osprey_workspace__submit_response\n"
+                "---\n\n# Channel Finder Agent\n",
+                {
+                    "channel-finder": frozenset(
+                        {"mcp__channel-finder__search", "mcp__osprey_workspace__submit_response"}
+                    )
+                },
+                id="comma_string_tools_parsed",
+            ),
+            # Customized files may legally use YAML list form.
+            pytest.param(
+                "custom.md",
+                "---\nname: custom\ntools:\n  - mcp__ariel__keyword_search\n  - Read\n---\nbody\n",
+                {"custom": frozenset({"mcp__ariel__keyword_search", "Read"})},
+                id="yaml_list_tools_parsed",
+            ),
+            # A trailing comma, as rendered by the Jinja loop.
+            pytest.param(
+                "trail.md",
+                "---\nname: trail\ntools: ToolA, ToolB, \n---\n",
+                {"trail": frozenset({"ToolA", "ToolB"})},
+                id="comma_string_strips_and_drops_empties",
+            ),
+            # tools: as a mapping is not a valid surface declaration.
+            pytest.param(
+                "odd.md",
+                "---\nname: odd\ntools:\n  key: val\n---\n",
+                {"odd": None},
+                id="tools_odd_type_yields_none",
+            ),
+            pytest.param(
+                "readme.md", "# Not an agent file\n", {}, id="file_without_frontmatter_skipped"
+            ),
+            pytest.param("empty.md", "", {}, id="empty_file_skipped"),
+            # YAML that parses to a scalar, not a mapping.
+            pytest.param(
+                "scalar.md", "---\njust a string\n---\n", {}, id="non_dict_frontmatter_skipped"
+            ),
+        ],
+    )
+    def test_parses(self, tmp_path, filename, text, expected):
+        _write_agent(_agents_dir(tmp_path), filename, text)
 
-        # Act
-        surfaces = parse_project_agents(_project(tmp_path))
-
-        # Assert
-        assert surfaces == {
-            "channel-finder": frozenset(
-                {"mcp__channel-finder__search", "mcp__osprey_workspace__submit_response"}
-            )
-        }
-
-    def test_yaml_list_tools_parsed(self, tmp_path):
-        # Arrange — customized files may legally use YAML list form
-        _write_agent(
-            _agents_dir(tmp_path),
-            "custom.md",
-            "---\nname: custom\ntools:\n  - mcp__ariel__keyword_search\n  - Read\n---\nbody\n",
-        )
-
-        # Act
-        surfaces = parse_project_agents(_project(tmp_path))
-
-        # Assert
-        assert surfaces == {"custom": frozenset({"mcp__ariel__keyword_search", "Read"})}
+        assert parse_project_agents(_project(tmp_path)) == expected
 
     def test_missing_tools_key_yields_none(self, tmp_path, caplog):
         # Arrange — inherits-all agent: declared but non-delegable
@@ -94,20 +114,6 @@ class TestParseProjectAgents:
         # Assert
         assert surfaces == {}
         assert any("broken.md" in r.message for r in caplog.records)
-
-    def test_file_without_frontmatter_skipped(self, tmp_path):
-        # Arrange
-        _write_agent(_agents_dir(tmp_path), "readme.md", "# Not an agent file\n")
-
-        # Act / Assert
-        assert parse_project_agents(_project(tmp_path)) == {}
-
-    def test_empty_file_skipped(self, tmp_path):
-        # Arrange
-        _write_agent(_agents_dir(tmp_path), "empty.md", "")
-
-        # Act / Assert
-        assert parse_project_agents(_project(tmp_path)) == {}
 
     def test_duplicate_name_last_wins_with_warning(self, tmp_path, caplog):
         # Arrange — two files declaring the same frontmatter name
@@ -158,34 +164,3 @@ class TestParseProjectAgents:
 
         # Act / Assert
         assert parse_project_agents(_project(tmp_path)) == {}
-
-    def test_non_dict_frontmatter_skipped(self, tmp_path):
-        # Arrange — YAML that parses to a scalar, not a mapping
-        _write_agent(_agents_dir(tmp_path), "scalar.md", "---\njust a string\n---\n")
-
-        # Act / Assert
-        assert parse_project_agents(_project(tmp_path)) == {}
-
-    def test_tools_odd_type_yields_none(self, tmp_path):
-        # Arrange — tools: as a mapping is not a valid surface declaration
-        _write_agent(_agents_dir(tmp_path), "odd.md", "---\nname: odd\ntools:\n  key: val\n---\n")
-
-        # Act
-        surfaces = parse_project_agents(_project(tmp_path))
-
-        # Assert
-        assert surfaces == {"odd": None}
-
-    def test_comma_string_strips_and_drops_empties(self, tmp_path):
-        # Arrange — trailing comma as rendered by the Jinja loop
-        _write_agent(
-            _agents_dir(tmp_path),
-            "trail.md",
-            "---\nname: trail\ntools: ToolA, ToolB, \n---\n",
-        )
-
-        # Act
-        surfaces = parse_project_agents(_project(tmp_path))
-
-        # Assert
-        assert surfaces == {"trail": frozenset({"ToolA", "ToolB"})}

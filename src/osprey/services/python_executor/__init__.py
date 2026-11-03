@@ -12,7 +12,7 @@ from .analysis import (
     detect_control_system_operations,
     get_framework_standard_patterns,
 )
-from .execution.control import ExecutionControlConfig, ExecutionMode
+from .execution.control import ExecutionMode
 from .services import (
     make_json_serializable,
     serialize_results_to_file,
@@ -26,7 +26,6 @@ __all__ = [
     "LimitsValidator",
     # Configuration
     "ExecutionMode",
-    "ExecutionControlConfig",
     # Serialization utilities
     "make_json_serializable",
     "serialize_results_to_file",

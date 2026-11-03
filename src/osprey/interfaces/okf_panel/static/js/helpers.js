@@ -9,7 +9,7 @@
 
 // History marker for the structure overview (B.3): a hash distinct from any
 // concept id so popstate can tell the overview apart from a concept view.
-export const STRUCTURE_MARKER = "__structure";
+export const STRUCTURE_MARKER = '__structure';
 
 /**
  * Create a DOM element with a flat string-valued attribute map and a list
@@ -26,8 +26,8 @@ export function el(tag, attrs, children) {
   const node = document.createElement(tag);
   if (attrs) {
     for (const k in attrs) {
-      if (k === "class") node.className = attrs[k];
-      else if (k === "text") node.textContent = attrs[k];
+      if (k === 'class') node.className = attrs[k];
+      else if (k === 'text') node.textContent = attrs[k];
       else node.setAttribute(k, attrs[k]);
     }
   }
@@ -48,7 +48,7 @@ export function el(tag, attrs, children) {
  */
 export function isFallback(id, title) {
   if (!id || !title) return false;
-  const last = String(id).split("/").pop();
+  const last = String(id).split('/').pop();
   return title === last;
 }
 
@@ -64,7 +64,7 @@ export function isFallback(id, title) {
  * @returns {PanelParams}
  */
 export function readPanelParams() {
-  const hash = (location.hash || "").replace(/^#/, "");
+  const hash = (location.hash || '').replace(/^#/, '');
   /** @type {PanelParams} */
   const params = { concept: null, structure: false, raw: hash };
   if (!hash) return params;
@@ -96,4 +96,59 @@ export function hashChangeTarget(params, historyState, knownIds) {
   if (historyState && historyState.id === target) return null;
   if (target !== STRUCTURE_MARKER && knownIds && !knownIds.has(target)) return null;
   return target;
+}
+
+// -- facility links ----------------------------------------------------------
+//
+// A knowledge page names a facility channel or device with a markdown link
+// `[label](facility:ADDRESS)`. The concept response lists each link as a span
+// (`facility_references`) carrying the records its target resolves to: a list,
+// empty for a target the facility file does not hold, or null when no facility
+// file was read.
+
+export const FACILITY_SCHEME = 'facility:';
+
+/** @typedef {{kind: string, id: string, unit?: string, description?: string}} FacilityRecordView */
+/**
+ * @typedef {{start: number, end: number, target: string, kinds: string[],
+ *   label: string | null, records: FacilityRecordView[] | null}} FacilityReferenceView
+ */
+
+/**
+ * What the reading pane shows for one facility link.
+ *
+ * marked percent-encodes a destination, so `[x](<facility:A B>)` reaches the
+ * DOM as `facility:A%20B`; the target is decoded before the lookup.
+ *
+ * @param {string} href - the anchor's href, starting with `facility:`
+ * @param {FacilityReferenceView[] | null | undefined} references - the concept
+ *   response's `facility_references`
+ * @returns {{text: string, title: string, dangling: boolean}} the target, the
+ *   hover text, and whether the facility file holds no record for it
+ */
+export function facilityLinkView(href, references) {
+  let text = href.startsWith(FACILITY_SCHEME) ? href.slice(FACILITY_SCHEME.length) : href;
+  try {
+    text = decodeURI(text);
+  } catch {
+    // A malformed escape keeps the target as written.
+  }
+  const span = Array.isArray(references)
+    ? references.find(function (entry) {
+        return entry.target === text;
+      })
+    : undefined;
+  const records = span ? span.records : undefined;
+  if (!Array.isArray(records)) {
+    return { text, title: text + ' · facility file not loaded', dangling: false };
+  }
+  if (records.length === 0) {
+    return { text, title: text + ' · not in the facility file', dangling: true };
+  }
+  const title = records
+    .map(function (record) {
+      return [record.kind, record.unit, record.description].filter(Boolean).join(' · ');
+    })
+    .join('\n');
+  return { text, title, dangling: false };
 }

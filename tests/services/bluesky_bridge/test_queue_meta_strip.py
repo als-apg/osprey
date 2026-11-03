@@ -28,23 +28,17 @@ from __future__ import annotations
 
 import asyncio
 import json
-from pathlib import Path
 from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
 
-from osprey.services.bluesky_bridge import app as app_module
-from osprey.services.bluesky_bridge import document_plane, draft, live_rows, plan_loader, queue
+from osprey.services.bluesky_bridge import document_plane, live_rows, queue
 from osprey.services.bluesky_bridge import queue_backend as qb
 from osprey.services.bluesky_bridge.app import app
 from osprey.services.bluesky_bridge.queue_backend import QueueBackend, QueueItemInvalidError
 from osprey_connectors.posture_store import RESERVED_OWNER_KWARG
-
-_SESSION_PLAN_DIR_ENV = "BLUESKY_SESSION_PLAN_DIR"
-_PLAN_DIRS_ENV = "BLUESKY_PLAN_DIRS"
-_PLAN_MODULE_ENV = "BLUESKY_PLAN_MODULE"
-_TOKEN_ENV = "BLUESKY_LAUNCH_TOKEN"
+from tests.services.bluesky_bridge._queue_fakes import FakeManager, install_backend, status_doc
 
 _GRID_SCAN_ARGS: dict[str, Any] = {
     "readbacks": ["BPM1"],
@@ -54,45 +48,6 @@ _RUN_ID = "run-abc"
 
 # The stamp `queue_backend.add_item` puts on an item enqueued with a run id.
 _STAMP = {"name": "grid_scan", "kwargs": _GRID_SCAN_ARGS}
-
-
-class FakeManager:
-    """A scripted ``REManagerAPI`` stand-in (same contract as `test_queue_routes.py`'s)."""
-
-    def __init__(self, **responses: Any) -> None:
-        self.calls: list[tuple[str, dict[str, Any]]] = []
-        self.responses = responses
-
-    def __getattr__(self, method: str) -> Any:
-        async def call(**kwargs: Any) -> Any:
-            self.calls.append((method, kwargs))
-            response = self.responses.get(method, {"success": True, "msg": ""})
-            if isinstance(response, Exception):
-                raise response
-            return response
-
-        return call
-
-    async def close(self) -> None:  # pragma: no cover - lifespan only
-        pass
-
-
-def status_doc(**overrides: Any) -> dict[str, Any]:
-    """A manager status document: idle, environment open, nothing running."""
-    doc = {
-        "success": True,
-        "manager_state": "idle",
-        "worker_environment_exists": True,
-        "items_in_queue": 1,
-        "items_in_history": 0,
-        "running_item_uid": None,
-        "plan_queue_uid": "q-1",
-        "plan_history_uid": "h-1",
-        "queue_stop_pending": False,
-        "queue_autostart_enabled": False,
-    }
-    doc.update(overrides)
-    return doc
 
 
 def stamped_item(uid: str = "u1", **overrides: Any) -> dict[str, Any]:
@@ -108,34 +63,9 @@ def stamped_item(uid: str = "u1", **overrides: Any) -> dict[str, Any]:
     return item
 
 
-@pytest.fixture(autouse=True)
-def _isolated_state(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    monkeypatch.delenv(_PLAN_DIRS_ENV, raising=False)
-    monkeypatch.delenv(_PLAN_MODULE_ENV, raising=False)
-    monkeypatch.delenv(_TOKEN_ENV, raising=False)
-    monkeypatch.setenv(_SESSION_PLAN_DIR_ENV, str(tmp_path / "plans_session"))
-    plan_loader.reset_facility_plans()
-    draft._clear()
-    queue._clear()
-    document_plane._clear()
-    app_module.set_queue_backend(None)
-    yield
-    plan_loader.reset_facility_plans()
-    draft._clear()
-    queue._clear()
-    document_plane._clear()
-    app_module.set_queue_backend(None)
-
-
 @pytest.fixture
 def client() -> TestClient:
     return TestClient(app)
-
-
-def _install(manager: Any) -> QueueBackend:
-    backend = QueueBackend(manager)
-    app_module.set_queue_backend(backend)
-    return backend
 
 
 def _parse_frame(raw: str) -> dict[str, Any]:
@@ -184,14 +114,14 @@ def test_public_item_does_not_mutate_the_item_it_was_given() -> None:
 
 def test_get_queue_relays_items_without_the_plan_stamp(client: TestClient) -> None:
     manager = FakeManager(
-        status=status_doc(),
+        status=status_doc(items_in_queue=1),
         queue_get={
             "success": True,
             "items": [stamped_item("u1")],
             "running_item": stamped_item("u2"),
         },
     )
-    _install(manager)
+    install_backend(manager)
 
     body = client.get("/queue").json()
 
@@ -209,9 +139,9 @@ def test_get_queue_relays_items_without_the_plan_stamp(client: TestClient) -> No
 def test_the_running_items_progress_survives_the_strip(client: TestClient) -> None:
     """`_with_progress` and `_public_item` compose on the running item — one
     adds a key, the other removes one, and neither undoes the other."""
-    _install(
+    install_backend(
         FakeManager(
-            status=status_doc(running_item_uid="u2"),
+            status=status_doc(items_in_queue=1, running_item_uid="u2"),
             queue_get={"success": True, "items": [], "running_item": stamped_item("u2")},
         )
     )
@@ -240,9 +170,9 @@ def test_a_streamed_hello_frame_carries_no_plan_stamp(
     point is production code — the route, `_frame_from`, `_format_sse`, and the
     ASGI transport.
     """
-    _install(
+    install_backend(
         FakeManager(
-            status=status_doc(),
+            status=status_doc(items_in_queue=1),
             queue_get={
                 "success": True,
                 "items": [stamped_item("u1")],
@@ -281,7 +211,7 @@ async def test_a_streamed_change_frame_carries_no_plan_stamp(
         status=status_doc(items_in_queue=0),
         queue_get={"success": True, "items": [], "running_item": {}},
     )
-    _install(manager)
+    install_backend(manager)
 
     resp = await queue.queue_events()
     gen = resp.body_iterator
@@ -290,7 +220,7 @@ async def test_a_streamed_change_frame_carries_no_plan_stamp(
 
         # An enqueue lands out of band: the poller notices and pushes a full
         # snapshot, which is the second place a stamp could escape.
-        manager.responses["status"] = status_doc(plan_queue_uid="q-2")
+        manager.responses["status"] = status_doc(items_in_queue=1, plan_queue_uid="q-2")
         manager.responses["queue_get"] = {
             "success": True,
             "items": [stamped_item("u1")],

@@ -1,4 +1,4 @@
-"""Every pre-flight verdict is filed in the queueserver's audit ledger.
+"""Every pre-flight verdict is recorded as an audit entry of the queueserver's.
 
 The generator is driven by hand, the way a RunEngine would: ``next()`` yields
 the ``wait_for`` message, and ``.send([finished])`` hands back a done future
@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import concurrent.futures
 import hashlib
-import json
 from types import SimpleNamespace
 
 import pytest
@@ -62,23 +61,24 @@ def _drive(declared: dict, answer) -> BaseException | None:
 
 
 @pytest.fixture
-def ledger(tmp_path, monkeypatch):
-    """The preflight ledger this process writes, under a pinned identity."""
-    zone = tmp_path / "var" / "audit"
-    monkeypatch.setattr(writer, "audit_dir", lambda: zone)
+def ledger(monkeypatch, spool_for, recorded_entries):
+    """The preflight entries this process records, written as the queueserver."""
+    spool_for("queueserver")
     monkeypatch.setenv("OSPREY_AUDIT_IDENTITY", "queueserver")
     monkeypatch.delenv("OSPREY_TERMINAL_USER", raising=False)
-    monkeypatch.delenv(writer.AUDIT_WRITER_ENV, raising=False)
     monkeypatch.setattr(
         "osprey.services.bluesky_bridge.queue_backend.resolve_lane_identity",
         lambda: ("bluesky_va", "va"),
     )
-    path = zone / "queueserver" / "preflight.jsonl"
 
     def records() -> list[dict]:
-        if not path.exists():
-            return []
-        return [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
+        entries = [
+            entry
+            for entry in recorded_entries("audit")
+            if entry.body["surface"] == preflight.SURFACE_PREFLIGHT
+        ]
+        assert all(entry.identity == "queueserver" for entry in entries)
+        return [dict(entry.body) for entry in sorted(entries, key=lambda entry: entry.body["ts"])]
 
     return records
 
@@ -134,7 +134,7 @@ def test_a_walk_files_nothing(ledger):
 
 
 @pytest.mark.usefixtures("ledger")
-def test_a_ledger_failure_never_costs_the_run(monkeypatch):
+def test_an_audit_failure_never_costs_the_run(monkeypatch):
     def broken(**_fields):
         raise OSError("disk gone")
 

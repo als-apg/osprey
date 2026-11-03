@@ -213,22 +213,21 @@ def create_proxy_app(
                 media_type="text/event-stream",
                 headers={"Cache-Control": "no-cache", "Connection": "keep-alive"},
             )
-        else:
-            try:
-                resp = await upstream_client.post(url, json=translated.body, headers=headers)
-                resp.raise_for_status()
-            except httpx.HTTPStatusError as exc:
-                return _translate_error(
-                    exc.response, images_sent=translated.images_sent, provider=provider
-                )
-            except httpx.RequestError as exc:
-                return JSONResponse(
-                    {"type": "error", "error": {"type": "api_error", "message": str(exc)}},
-                    status_code=502,
-                )
+        try:
+            resp = await upstream_client.post(url, json=translated.body, headers=headers)
+            resp.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            return _translate_error(
+                exc.response, images_sent=translated.images_sent, provider=provider
+            )
+        except httpx.RequestError as exc:
+            return JSONResponse(
+                {"type": "error", "error": {"type": "api_error", "message": str(exc)}},
+                status_code=502,
+            )
 
-            anthropic_resp = openai_to_anthropic_response(resp.json(), model)
-            return JSONResponse(anthropic_resp)
+        anthropic_resp = openai_to_anthropic_response(resp.json(), model)
+        return JSONResponse(anthropic_resp)
 
     return app
 

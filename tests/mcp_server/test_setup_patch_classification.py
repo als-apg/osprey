@@ -1,6 +1,7 @@
-"""`setup_patch` change classification must not oversell `writes_enabled`.
+"""`setup_patch` change classification must not oversell the write posture key.
 
-`control_system.writes_enabled` is enforced at three layers: the PreToolUse hook
+`control_system.writes` (which replaced the retired `writes_enabled` leaves) is
+enforced at three layers: the PreToolUse hook
 (fresh subprocess per call, genuinely re-reads config), the connector (reads the
 value through a process-cached config), and the rendered ``permissions.deny``
 list in ``settings.json`` (re-rendered only by ``osprey build``). Calling the key
@@ -23,7 +24,7 @@ from osprey.mcp_server.workspace.tools.setup import (
     _classify_change,
 )
 
-WRITES_ENABLED = "control_system.writes_enabled"
+WRITES_ENABLED = "control_system.writes"
 
 #: The verb that re-renders ``settings.json`` (and with it ``permissions.deny``).
 #: One name, in one place: when the lifecycle surface renames it again, this line

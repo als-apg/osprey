@@ -208,14 +208,14 @@ Exits 0 only if all of that holds; tears the container down either way.
 | --- | --- | --- |
 | `OSPREY_VA_CA_PORT` | `5164` | Channel Access port to bind and publish. |
 | `OSPREY_VA_PVA_PORT` | `5175` | PVAccess port to bind and publish. |
-| `OSPREY_VA_RUNTIME` | auto-detected | Container runtime, podman or docker. |
+| `CONTAINER_RUNTIME` | auto-detected | docker or podman; the same decision osprey up makes. |
 | `OSPREY_VA_BOOT_TIMEOUT_SECS` | `240` | Seconds to wait for the ready line; covers a linux/amd64 boot under emulation on an arm64 host. |
 
 Building the image needs BuildKit (`docker buildx`): the `Containerfile`'s
 `FROM --platform=linux/amd64` is honoured by BuildKit only, and a legacy
 builder pulls the host's own architecture and stops at the `Containerfile`'s
-architecture guard; with docker as the runtime, the script checks for it before
-staging the context and says how to enable it.
+architecture guard. The runtime helper checks for it before the script stages
+the context and says how to enable it.
 
 Worth knowing if you extend it: **a quiescent BPM read proves connectivity,
 not physics.** The demo deck's closed orbit with no corrector excited is

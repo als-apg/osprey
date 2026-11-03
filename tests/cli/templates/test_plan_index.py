@@ -302,28 +302,33 @@ def test_no_description_exceeds_the_limit(repo_root: Path, tmp_path: Path) -> No
         assert len(row.description) <= DESCRIPTION_LIMIT, row.name
 
 
-def test_description_is_truncated_to_the_first_sentence(repo_root: Path, tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    ("name", "description", "expected"),
+    [
+        pytest.param(
+            "two_sentences",
+            "The first sentence. The second one should not survive.",
+            "The first sentence.",
+            id="truncated-to-the-first-sentence",
+        ),
+        pytest.param(
+            "wrapped",
+            "Wrapped\n   across   lines.",
+            "Wrapped across lines.",
+            id="whitespace-collapsed",
+        ),
+    ],
+)
+def test_description_is_cleaned_up_in_the_index(
+    repo_root: Path, tmp_path: Path, name: str, description: str, expected: str
+) -> None:
     plans = tmp_path / "preset_plans"
-    write_plan(
-        plans,
-        "two_sentences",
-        description="The first sentence. The second one should not survive.",
-    )
+    write_plan(plans, name, description=description)
 
     index = build_plan_index({"bluesky": {"plan_dirs": str(plans)}}, repo_root)
 
     by_name = {row.name: row for row in index.rows}
-    assert by_name["two_sentences"].description == "The first sentence."
-
-
-def test_description_whitespace_is_collapsed(repo_root: Path, tmp_path: Path) -> None:
-    plans = tmp_path / "preset_plans"
-    write_plan(plans, "wrapped", description="Wrapped\n   across   lines.")
-
-    index = build_plan_index({"bluesky": {"plan_dirs": str(plans)}}, repo_root)
-
-    by_name = {row.name: row for row in index.rows}
-    assert by_name["wrapped"].description == "Wrapped across lines."
+    assert by_name[name].description == expected
 
 
 def test_row_count_is_capped_and_the_rest_are_counted_as_overflow(
@@ -397,6 +402,7 @@ def test_importing_the_builder_does_not_import_bluesky(tmp_path: Path) -> None:
         cwd=tmp_path,
         env=env,
         check=False,
+        timeout=120,
     )
 
     assert result.returncode == 0, result.stderr

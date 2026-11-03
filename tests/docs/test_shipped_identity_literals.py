@@ -42,10 +42,12 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from functools import cache
+from functools import cache, partial
 from pathlib import Path
 
 import pytest
+
+from tests._text_sweep import matching_lines_each, text_files
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _THIS_FILE = Path(__file__).resolve()
@@ -322,37 +324,48 @@ def _sources(repo_root: Path, roots: tuple[str, ...]) -> tuple[Path, ...]:
     test that repoints :data:`_REPO_ROOT` at a fixture tree gets its own
     listing rather than the repository's.
     """
-    files: list[Path] = []
-    for root in roots:
-        base = repo_root / root
-        if not base.exists():
-            continue
-        for path in base.rglob("*"):
-            if not path.is_file():
-                continue
-            if path.suffix not in SCAN_SUFFIXES and path.name not in SCAN_NAMES:
-                continue
-            if "__pycache__" in path.parts or path == _THIS_FILE:
-                continue
-            files.append(path)
+    files = text_files(
+        repo_root,
+        roots,
+        suffixes=SCAN_SUFFIXES,
+        names=SCAN_NAMES,
+        skip=lambda path: path == _THIS_FILE,
+    )
     return tuple(files)
+
+
+def _hits_by_name(repo_root: Path, roots: tuple[str, ...]) -> dict[str, list[tuple[str, int, str]]]:
+    """:func:`_hits` under *repo_root* of every entry that sweeps *roots*, by its name.
+
+    Reading the swept tree is most of what a sweep costs, so it is read once
+    for all the entries.
+    """
+    sweeping = [denied for denied in DENIED if denied.roots == roots]
+    patterns = {denied.name: denied.pattern for denied in sweeping}
+    assert len(patterns) == len(sweeping), "two entries share a name"
+    return {
+        name: [(path, number, line.strip()) for path, number, line in hits]
+        for name, hits in matching_lines_each(
+            repo_root, _sources(repo_root, roots), patterns
+        ).items()
+    }
+
+
+#: The repository this module sweeps, before any test repoints :data:`_REPO_ROOT`.
+_THE_REPOSITORY = _REPO_ROOT
+
+#: :func:`_hits_by_name` of the repository, made once: each entry asks for its
+#: hits twice (its offenders and its stale exemptions), and the tree does not
+#: change while the suite runs. A fixture tree is never cached: a later test's
+#: tree can reuse a removed one's path with other contents.
+_repository_hits_by_name = cache(partial(_hits_by_name, _THE_REPOSITORY))
 
 
 def _hits(denied: Denied) -> list[tuple[str, int, str]]:
     """Every ``(repo-relative path, line number, stripped line)`` naming it."""
-    found: list[tuple[str, int, str]] = []
-    for path in _sources(_REPO_ROOT, denied.roots):
-        try:
-            content = path.read_text(encoding="utf-8", errors="ignore")
-        except OSError:  # pragma: no cover - defensive
-            continue
-        if not denied.pattern.search(content):
-            continue
-        relative = str(path.relative_to(_REPO_ROOT))
-        for number, line in enumerate(content.splitlines(), start=1):
-            if denied.pattern.search(line):
-                found.append((relative, number, line.strip()))
-    return found
+    if _REPO_ROOT == _THE_REPOSITORY:
+        return list(_repository_hits_by_name(denied.roots)[denied.name])
+    return _hits_by_name(_REPO_ROOT, denied.roots)[denied.name]
 
 
 @pytest.mark.parametrize("denied", DENIED, ids=lambda d: d.name)

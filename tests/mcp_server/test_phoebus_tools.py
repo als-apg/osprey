@@ -15,6 +15,12 @@ import yaml
 
 from osprey.mcp_server.phoebus.tools import bridge_tools
 from osprey.mcp_server.phoebus.tools.bridge_tools import _OPEN_READY_TIMEOUT
+from osprey_connectors_tests._harness import (
+    isolate_verdict_environment,
+    reset_verdict_state,
+    write_control_context,
+)
+from tests._approval_stamp_fixture import ApprovalStamps, use_stamp_dir
 from tests.mcp_server.conftest import assert_raises_error, extract_response_dict, get_tool_fn
 
 _MOD = "osprey.mcp_server.phoebus.tools.bridge_tools"
@@ -43,16 +49,31 @@ def _register_panels(tmp_path, monkeypatch, panels, filename="config.yml"):
 
 
 @pytest.fixture
-def drive_offered(tmp_path, monkeypatch):
-    """Point OSPREY_CONFIG at a config whose ``phoebus.agent_access`` is ``read_write``.
+def drive_offered(tmp_path, monkeypatch) -> ApprovalStamps:
+    """A deployment that offers the drive, with its machine switched on.
 
-    The drive tests exercise a deployment that offers the drive; the switch
-    itself is tested in ``test_phoebus_agent_access.py``.
+    ``phoebus.agent_access`` is ``read_write`` (tested in
+    ``test_phoebus_agent_access.py``), the tier allows writes and the record
+    under ``tmp_path`` has the baseline's switch on, so the write verdict
+    allows the drive (tested in ``test_phoebus_drive_stage1.py``). Approval is
+    unstated, so it asks: the returned stamps file the record a drive needs,
+    ``with drive_offered.approved("phoebus_drive"):`` around the call.
     """
+    isolate_verdict_environment(monkeypatch, tmp_path / "agent_data")
     config_file = tmp_path / "drive_offered.yml"
-    config_file.write_text(yaml.dump({"phoebus": {"agent_access": "read_write"}}))
+    config_file.write_text(
+        yaml.dump(
+            {
+                "phoebus": {"agent_access": "read_write"},
+                "control_system": {"type": "epics", "writes": "allowed"},
+            }
+        )
+    )
     monkeypatch.setenv("OSPREY_CONFIG", str(config_file))
-    return config_file
+    write_control_context(tmp_path / "agent_data", target="live", switch={"live": "on"})
+    reset_verdict_state()
+    yield use_stamp_dir(monkeypatch, tmp_path / "state")
+    reset_verdict_state()
 
 
 # ── list_displays ──────────────────────────────────────────────────────────
@@ -174,7 +195,6 @@ async def test_snapshot_store_failure_still_names_the_file(tmp_path):
 
 
 # ── drive ──────────────────────────────────────────────────────────────────
-@pytest.mark.usefixtures("drive_offered")
 @pytest.mark.parametrize(
     "kwargs",
     [
@@ -183,55 +203,59 @@ async def test_snapshot_store_failure_still_names_the_file(tmp_path):
         {"widget": "0", "verb": "type"},  # type without value
     ],
 )
-async def test_drive_validation(kwargs):
-    with assert_raises_error(error_type="validation_error"):
-        await _fn("phoebus_drive")(**kwargs)
+async def test_drive_validation(drive_offered, kwargs):
+    with drive_offered.approved("phoebus_drive"):
+        with assert_raises_error(error_type="validation_error"):
+            await _fn("phoebus_drive")(**kwargs)
 
 
-@pytest.mark.usefixtures("drive_offered")
-async def test_drive_success():
-    with patch(
-        f"{_MOD}._http_post_drive",
-        return_value=(200, {"fired": True, "detail": "fired via ButtonBase.fire()"}),
-    ) as m:
-        result = await _fn("phoebus_drive")(widget="SetButton", verb="click")
-    payload = m.call_args.args[0]
-    assert payload == {
-        "display": "active",
-        "widget": "SetButton",
-        "verb": "click",
-        "value": None,
-        "mode": "synthetic",
-    }
-    data = extract_response_dict(result)
-    assert data["status"] == "success" and data["fired"] is True
+async def test_drive_success(drive_offered):
+    with drive_offered.approved("phoebus_drive"):
+        with patch(
+            f"{_MOD}._http_post_drive",
+            return_value=(200, {"fired": True, "detail": "fired via ButtonBase.fire()"}),
+        ) as m:
+            result = await _fn("phoebus_drive")(widget="SetButton", verb="click")
+        payload = m.call_args.args[0]
+        assert payload == {
+            "display": "active",
+            "widget": "SetButton",
+            "verb": "click",
+            "value": None,
+            "mode": "synthetic",
+        }
+        data = extract_response_dict(result)
+        assert data["status"] == "success" and data["fired"] is True
 
 
-@pytest.mark.usefixtures("drive_offered")
-async def test_drive_type_lowercases_and_forwards_value():
-    with patch(
-        f"{_MOD}._http_post_drive", return_value=(200, {"fired": True, "detail": "ok"})
-    ) as m:
-        await _fn("phoebus_drive")(widget="Setpoint", verb="TYPE", value="42", mode="SEMANTIC")
-    payload = m.call_args.args[0]
-    assert payload["verb"] == "type" and payload["mode"] == "semantic" and payload["value"] == "42"
+async def test_drive_type_lowercases_and_forwards_value(drive_offered):
+    with drive_offered.approved("phoebus_drive"):
+        with patch(
+            f"{_MOD}._http_post_drive", return_value=(200, {"fired": True, "detail": "ok"})
+        ) as m:
+            await _fn("phoebus_drive")(widget="Setpoint", verb="TYPE", value="42", mode="SEMANTIC")
+        payload = m.call_args.args[0]
+        assert (
+            payload["verb"] == "type" and payload["mode"] == "semantic" and payload["value"] == "42"
+        )
 
 
-@pytest.mark.usefixtures("drive_offered")
-async def test_drive_rejected():
-    with patch(
-        f"{_MOD}._http_post_drive", return_value=(400, {"error": "Unknown verb 'x'", "status": 400})
-    ):
-        with assert_raises_error(error_type="phoebus_rejected") as ctx:
-            await _fn("phoebus_drive")(widget="0", verb="click")
-    assert "Unknown verb" in ctx["envelope"]["error_message"]
+async def test_drive_rejected(drive_offered):
+    with drive_offered.approved("phoebus_drive"):
+        with patch(
+            f"{_MOD}._http_post_drive",
+            return_value=(400, {"error": "Unknown verb 'x'", "status": 400}),
+        ):
+            with assert_raises_error(error_type="phoebus_rejected") as ctx:
+                await _fn("phoebus_drive")(widget="0", verb="click")
+        assert "Unknown verb" in ctx["envelope"]["error_message"]
 
 
-@pytest.mark.usefixtures("drive_offered")
-async def test_drive_unreachable():
-    with patch(f"{_MOD}._http_post_drive", side_effect=urllib.error.URLError("refused")):
-        with assert_raises_error(error_type="phoebus_unreachable"):
-            await _fn("phoebus_drive")(widget="0", verb="click")
+async def test_drive_unreachable(drive_offered):
+    with drive_offered.approved("phoebus_drive"):
+        with patch(f"{_MOD}._http_post_drive", side_effect=urllib.error.URLError("refused")):
+            with assert_raises_error(error_type="phoebus_unreachable"):
+                await _fn("phoebus_drive")(widget="0", verb="click")
 
 
 # ── open_panel ─────────────────────────────────────────────────────────────
@@ -302,22 +326,22 @@ async def test_open_panel_timeout_returns_not_ready(tmp_path, monkeypatch):
 
 # ── open_panel auto-focus ──────────────────────────────────────────────────
 async def test_open_panel_focuses_own_web_panel_by_default(tmp_path, monkeypatch):
-    """A successful open notifies the web terminal to focus THIS instance's
-    panel tab, identified by OSPREY_SERVER_NAME (set per-clone by the registry)."""
+    """A successful open asks the web terminal to open THIS instance's panel
+    (one ``open`` op), identified by OSPREY_SERVER_NAME (set per-clone by the registry)."""
     _register_demo_panel(tmp_path, monkeypatch)
     monkeypatch.setenv("OSPREY_SERVER_NAME", "phoebus2")
 
     body = {"id": "d-1", "resource": "/path/osprey_demo.bob", "ready": True}
     with (
         patch(f"{_MOD}._http_post_open", return_value=(200, body)),
-        patch(f"{_MOD}.notify_panel_focus") as mock_focus,
+        patch(f"{_MOD}.panel_op", return_value={"ok": True}) as mock_open,
     ):
         result = await _fn("phoebus_open_panel")(name="osprey_demo")
 
     data = extract_response_dict(result)
     assert data["status"] == "success"
     assert data["focused"] is True
-    mock_focus.assert_called_once_with("phoebus2")
+    mock_open.assert_called_once_with("open", {"member": "phoebus2"})
 
 
 async def test_open_panel_focus_defaults_to_phoebus_panel(tmp_path, monkeypatch):
@@ -329,11 +353,11 @@ async def test_open_panel_focus_defaults_to_phoebus_panel(tmp_path, monkeypatch)
     body = {"id": "d-1", "resource": "/path/osprey_demo.bob", "ready": True}
     with (
         patch(f"{_MOD}._http_post_open", return_value=(200, body)),
-        patch(f"{_MOD}.notify_panel_focus") as mock_focus,
+        patch(f"{_MOD}.panel_op", return_value={"ok": True}) as mock_open,
     ):
         await _fn("phoebus_open_panel")(name="osprey_demo")
 
-    mock_focus.assert_called_once_with("phoebus")
+    mock_open.assert_called_once_with("open", {"member": "phoebus"})
 
 
 async def test_open_panel_focus_opt_out(tmp_path, monkeypatch):
@@ -343,14 +367,14 @@ async def test_open_panel_focus_opt_out(tmp_path, monkeypatch):
     body = {"id": "d-1", "resource": "/path/osprey_demo.bob", "ready": True}
     with (
         patch(f"{_MOD}._http_post_open", return_value=(200, body)),
-        patch(f"{_MOD}.notify_panel_focus") as mock_focus,
+        patch(f"{_MOD}.panel_op") as mock_open,
     ):
         result = await _fn("phoebus_open_panel")(name="osprey_demo", focus=False)
 
     data = extract_response_dict(result)
     assert data["status"] == "success"
     assert data["focused"] is False
-    mock_focus.assert_not_called()
+    mock_open.assert_not_called()
 
 
 async def test_open_panel_focus_failure_is_nonfatal(tmp_path, monkeypatch):
@@ -361,7 +385,7 @@ async def test_open_panel_focus_failure_is_nonfatal(tmp_path, monkeypatch):
     body = {"id": "d-1", "resource": "/path/osprey_demo.bob", "ready": True}
     with (
         patch(f"{_MOD}._http_post_open", return_value=(200, body)),
-        patch(f"{_MOD}.notify_panel_focus", side_effect=OSError("terminal gone")),
+        patch(f"{_MOD}.panel_op", side_effect=OSError("terminal gone")),
     ):
         result = await _fn("phoebus_open_panel")(name="osprey_demo")
 
@@ -595,25 +619,27 @@ async def test_perceive_with_handle():
     assert data["display"] == "handle:d-1"
 
 
-@pytest.mark.usefixtures("drive_offered")
-async def test_drive_with_handle_passes_through():
+async def test_drive_with_handle_passes_through(drive_offered):
     """handle:<id> is forwarded unchanged in the drive payload."""
-    with patch(
-        f"{_MOD}._http_post_drive",
-        return_value=(200, {"fired": True, "detail": "fired via ButtonBase.fire()"}),
-    ) as m:
-        result = await _fn("phoebus_drive")(widget="SetButton", verb="click", display="handle:d-1")
-    payload = m.call_args.args[0]
-    assert payload["display"] == "handle:d-1"
-    data = extract_response_dict(result)
-    assert data["status"] == "success" and data["fired"] is True
+    with drive_offered.approved("phoebus_drive"):
+        with patch(
+            f"{_MOD}._http_post_drive",
+            return_value=(200, {"fired": True, "detail": "fired via ButtonBase.fire()"}),
+        ) as m:
+            result = await _fn("phoebus_drive")(
+                widget="SetButton", verb="click", display="handle:d-1"
+            )
+        payload = m.call_args.args[0]
+        assert payload["display"] == "handle:d-1"
+        data = extract_response_dict(result)
+        assert data["status"] == "success" and data["fired"] is True
 
 
-@pytest.mark.usefixtures("drive_offered")
-async def test_drive_validation_still_enforced_with_handle():
+async def test_drive_validation_still_enforced_with_handle(drive_offered):
     """drive verb/mode validation is enforced even when display is a handle string."""
-    with assert_raises_error(error_type="validation_error"):
-        await _fn("phoebus_drive")(widget="0", verb="frobnicate", display="handle:d-1")
+    with drive_offered.approved("phoebus_drive"):
+        with assert_raises_error(error_type="validation_error"):
+            await _fn("phoebus_drive")(widget="0", verb="frobnicate", display="handle:d-1")
 
 
 # ── require-handle addressing (PHOEBUS_REQUIRE_HANDLE) ─────────────────────
@@ -625,17 +651,19 @@ _REQUIRE_HANDLE_CASES = [
 ]
 
 
-@pytest.mark.usefixtures("drive_offered")
 @pytest.mark.parametrize("tool_name,kwargs", _REQUIRE_HANDLE_CASES)
-async def test_require_handle_env_rejects_implicit_active(tool_name, kwargs, monkeypatch):
+async def test_require_handle_env_rejects_implicit_active(
+    drive_offered, tool_name, kwargs, monkeypatch
+):
     """PHOEBUS_REQUIRE_HANDLE=1 rejects the implicit 'active' fallback on all four tools.
 
     No bridge patch needed: the rejection happens before any network call.
     """
-    monkeypatch.setenv("PHOEBUS_REQUIRE_HANDLE", "1")
-    with assert_raises_error(error_type="phoebus_handle_required") as ctx:
-        await _fn(tool_name)(**kwargs)
-    assert "phoebus_open_panel" in ctx["envelope"]["error_message"]
+    with drive_offered.approved("phoebus_drive"):
+        monkeypatch.setenv("PHOEBUS_REQUIRE_HANDLE", "1")
+        with assert_raises_error(error_type="phoebus_handle_required") as ctx:
+            await _fn(tool_name)(**kwargs)
+        assert "phoebus_open_panel" in ctx["envelope"]["error_message"]
 
 
 async def test_require_handle_config_key_rejects_implicit_active(tmp_path, monkeypatch):
@@ -693,15 +721,17 @@ async def test_require_handle_snapshot_with_handle_succeeds(tmp_path, monkeypatc
     assert extract_response_dict(result)["status"] == "success"
 
 
-@pytest.mark.usefixtures("drive_offered")
-async def test_require_handle_drive_with_handle_succeeds(monkeypatch):
-    monkeypatch.setenv("PHOEBUS_REQUIRE_HANDLE", "1")
-    with patch(
-        f"{_MOD}._http_post_drive",
-        return_value=(200, {"fired": True, "detail": "fired via ButtonBase.fire()"}),
-    ):
-        result = await _fn("phoebus_drive")(widget="SetButton", verb="click", display="handle:d-1")
-    assert extract_response_dict(result)["status"] == "success"
+async def test_require_handle_drive_with_handle_succeeds(drive_offered, monkeypatch):
+    with drive_offered.approved("phoebus_drive"):
+        monkeypatch.setenv("PHOEBUS_REQUIRE_HANDLE", "1")
+        with patch(
+            f"{_MOD}._http_post_drive",
+            return_value=(200, {"fired": True, "detail": "fired via ButtonBase.fire()"}),
+        ):
+            result = await _fn("phoebus_drive")(
+                widget="SetButton", verb="click", display="handle:d-1"
+            )
+        assert extract_response_dict(result)["status"] == "success"
 
 
 async def test_require_handle_off_by_default_active_still_works():

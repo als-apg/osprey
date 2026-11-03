@@ -13,10 +13,10 @@ deployment's own control system). That runs the entire real path — resolver,
 factory, ``connect()`` — with no EPICS, no gateway and no network.
 
 The child runs with ``cwd`` set to a scratch directory and no ``CONFIG_FILE``,
-so no project config is reachable: writes are disabled, which is the posture
-the write tests assert against. The write-posture tests are the exception —
-posture is read from the project config, so they put a real config file in
-reach and point the child at it.
+so no project config is reachable: the write tier is then ``never``, which is
+the posture the write tests assert against. The write-posture tests are the
+exception — the tier is read from the project config and the switch from the
+record the environment names, so they put both in reach of the child.
 
 The report-derivation helpers are unit-tested in-process at the bottom, since
 the interesting cases (name-server vs address-list mode, which gateway role was
@@ -48,14 +48,28 @@ from osprey_connectors.control_system._base import (
     WriteOutcome,
 )
 from osprey_connectors.control_system._va_in_process_connector import VAInProcessConnector
+from osprey_connectors.errors import ConnectorInternalError
 from osprey_connectors.ipc import _frames as frames
 from osprey_connectors.ipc import _host as host
+from osprey_connectors.refusals import refusal_phrase
 from osprey_connectors_tests._harness import write_control_context
+from osprey_connectors_tests._write_fakes import arm_switch
+from tests._child_stubs import CHILD_STUBS
+from tests._live import wait_until
+from tests._processes import pid_alive
 from tests.facility.served_tree import in_process_config, served_tree
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
+# The connectors under test, wherever they are installed: the workspace member
+# here, the floor release in the framework-at-connectors-floor lane.
+CONNECTORS_ROOT = Path(posture_store.__file__).resolve().parents[1]
 PYTHONPATH = os.pathsep.join(
-    [str(REPO_ROOT / "src"), str(REPO_ROOT / "packages" / "osprey-connectors" / "src")]
+    [
+        # Stand-ins first: skips the slow beamphysics import (tests/_child_stubs).
+        str(CHILD_STUBS),
+        str(REPO_ROOT / "src"),
+        str(CONNECTORS_ROOT),
+    ]
 )
 
 #: The mock connector by dotted path, so ``live`` resolves to it.
@@ -83,12 +97,11 @@ def _control_system(root: Path) -> dict:
     }
 
 
-#: A deployment whose real machine is EPICS and whose simulator is armed: the
-#: deployment-wide posture is off, the virtual accelerator's own block turns
-#: writes on, and the live machine's block says nothing about them at all.
+#: A deployment whose real machine is EPICS and whose write tier allows writes;
+#: :func:`mixed_deployment` turns the login's switch on for the simulator only.
 MIXED_CONTROL_SYSTEM = {
     "type": "epics",
-    "writes_enabled": False,
+    "writes": "allowed",
     "connector": {
         "epics": {
             "gateways": {
@@ -97,7 +110,6 @@ MIXED_CONTROL_SYSTEM = {
             }
         },
         "virtual_accelerator": {
-            "writes_enabled": True,
             "gateways": {
                 "read_only": {"address": "va-ro.example.org", "port": 5074},
                 "write_access": {"address": "va-rw.example.org", "port": 5075},
@@ -340,9 +352,10 @@ def test_an_unresolvable_target_fails_the_launch_with_a_typed_error(child):
     frame = child.init(target="somewhere")
 
     assert isinstance(frame, frames.ErrorFrame)
-    # ValueError is outside the typed registry, so it fails closed to
-    # ConnectionError carrying what the child actually reported.
-    assert isinstance(frame.exception, ConnectionError)
+    # ValueError is outside the typed registry, so it fails closed to the
+    # contract fault carrying what the child actually reported.
+    assert isinstance(frame.exception, ConnectorInternalError)
+    assert frame.exception.class_tag == "ValueError"
     assert "somewhere" in frame.message
     assert child.proc.wait(timeout=REPLY_TIMEOUT_S) == host.EXIT_INIT_FAILED
 
@@ -351,7 +364,7 @@ def test_an_init_whose_control_system_is_not_a_mapping_fails_the_launch(child):
     frame = child.init(control_system=["type", IN_PROCESS_TYPE])
 
     assert isinstance(frame, frames.ErrorFrame)
-    assert isinstance(frame.exception, ConnectionError)
+    assert isinstance(frame.exception, ConnectorInternalError)
     assert "'control_system' must be the config section dict" in frame.message
     assert child.proc.wait(timeout=REPLY_TIMEOUT_S) == host.EXIT_INIT_FAILED
 
@@ -428,7 +441,8 @@ def test_write_on_a_writes_disabled_deployment_returns_the_refused_result(ready_
     # outcome is a WriteOutcome member on this side of the boundary.
     assert result.outcome is WriteOutcome.REFUSED
     assert result.refusal_reason == "WRITES_DISABLED"
-    assert "writes are disabled" in result.error_message
+    # No config in reach: the write tier is never.
+    assert refusal_phrase("tier_never") in result.error_message
 
 
 def test_write_multiple_channels_refuses_every_operation(ready_child):
@@ -443,32 +457,32 @@ def test_write_multiple_channels_refuses_every_operation(ready_child):
     assert all(result.refusal_reason == "WRITES_DISABLED" for result in results)
 
 
-def test_the_child_reports_the_posture_of_the_block_for_its_own_type(tmp_path):
-    """Write posture is per connector type, end to end through a real child.
+@pytest.mark.parametrize("switched_on", [True, False], ids=["on", "off"])
+def test_the_child_reports_the_verdict_for_its_own_target(tmp_path, monkeypatch, switched_on):
+    """Write posture is the write verdict, end to end through a real child.
 
-    The deployment-wide posture is off and the block for the type this child
-    resolved arms writes, so only a report that looked its own type up can say
-    the child is armed.
+    The tier comes from the project config the child is pointed at and the
+    switch from the record its inherited environment names, so the report says
+    armed only when the login's switch is on for the child's own target.
     """
     project = tmp_path / "project"
     project.mkdir()
     view = served_tree(tmp_path / "served")
     control_system = {
         "type": IN_PROCESS_TYPE,
-        "writes_enabled": False,
-        "connector": {
-            IN_PROCESS_TYPE: in_process_config(view, response_delay_ms=10, writes_enabled=True)
-        },
+        "writes": "allowed",
+        "connector": {IN_PROCESS_TYPE: in_process_config(view, response_delay_ms=10)},
     }
     config_file = project / "config.yml"
     config_file.write_text(yaml.safe_dump({"control_system": control_system}))
+    arm_switch(monkeypatch, tmp_path / "agent-data", "live" if switched_on else None, stamp=False)
 
     spawned = Child(cwd=tmp_path)
     try:
         report = spawned.init(control_system=control_system, config_file=str(config_file)).value
 
         assert report["connector_type"] == IN_PROCESS_TYPE
-        assert report["writes_enabled"] is True
+        assert report["writes_enabled"] is switched_on
     finally:
         spawned.close()
 
@@ -535,7 +549,7 @@ def test_an_unknown_method_is_refused_without_killing_the_child(ready_child):
     frame = ready_child.call("subscribe", channel_address="SR:BEAM:CURRENT")
 
     assert isinstance(frame, frames.ErrorFrame)
-    assert isinstance(frame.exception, ConnectionError)
+    assert isinstance(frame.exception, ConnectorInternalError)
     assert "subscribe" in frame.message
 
     follow_up = ready_child.call("read_channel", channel_address="SR:BEAM:CURRENT")
@@ -555,10 +569,13 @@ def test_closing_stdin_before_the_init_frame_exits_the_child_cleanly(child):
     child.proc.stdin.close()
 
     assert child.proc.wait(timeout=REPLY_TIMEOUT_S) == host.EXIT_OK
-    deadline = time.monotonic() + REPLY_TIMEOUT_S
-    while "stdin closed before the init frame" not in child.stderr():
-        assert time.monotonic() < deadline, child.stderr()
-        time.sleep(0.05)
+    # Wait, then assert: the failure message carries the child's whole stderr.
+    with contextlib.suppress(AssertionError):
+        wait_until(
+            lambda: "stdin closed before the init frame" in child.stderr(),
+            timeout=REPLY_TIMEOUT_S,
+        )
+    assert "stdin closed before the init frame" in child.stderr(), child.stderr()
 
 
 def test_closing_stdin_lets_a_call_in_flight_reply_before_the_child_exits(child):
@@ -620,21 +637,26 @@ def test_the_watchdog_exits_a_child_whose_parent_died(tmp_path):
         )
         # The orphan has to start before its watchdog can notice anything.
         bound = CHILD_STARTUP_TIMEOUT_S + REPLY_TIMEOUT_S
-        deadline = time.monotonic() + bound
-        while not pid_file.exists() and time.monotonic() < deadline:
-            time.sleep(0.05)
-        orphan_pid = int(pid_file.read_text())
+        orphan_pid = int(
+            wait_until(
+                lambda: pid_file.exists() and pid_file.read_text(),
+                timeout=bound,
+                what="the orphan's pid file",
+            )
+        )
 
         # The write end is still open here, so the child sees no EOF; it is the
         # reparenting to init that has to end it.
-        while time.monotonic() < deadline:
-            try:
-                os.kill(orphan_pid, 0)
-            except ProcessLookupError:
-                return
-            time.sleep(0.1)
-        os.kill(orphan_pid, signal.SIGKILL)
-        pytest.fail(f"orphaned child {orphan_pid} was still alive after {bound}s")
+        try:
+            wait_until(
+                lambda: not pid_alive(orphan_pid),
+                timeout=bound,
+                interval=0.1,
+                what=f"orphaned child {orphan_pid} exiting",
+            )
+        except AssertionError:
+            os.kill(orphan_pid, signal.SIGKILL)
+            raise
     finally:
         os.close(read_fd)
         os.close(write_fd)
@@ -772,11 +794,19 @@ def test_scrub_removes_every_epics_variable_and_nothing_else():
     assert environ == {"CA_CLIENT_LIBRARY": "/opt/libca.dylib", "PATH": "/usr/bin"}
 
 
-def test_installed_endpoint_reads_back_name_server_mode(monkeypatch):
-    monkeypatch.setenv("EPICS_CA_NAME_SERVERS", "cagw.example.org:5074")
+@pytest.mark.parametrize(
+    ("name_servers", "endpoint"),
+    [
+        ("cagw.example.org:5074", ("name_server", "cagw.example.org", 5074)),
+        ("cagw.example.org", ("name_server", "cagw.example.org", None)),
+    ],
+    ids=["with-port", "with-no-port-as-a-bare-host"],
+)
+def test_installed_endpoint_reads_back_name_server_mode(monkeypatch, name_servers, endpoint):
+    monkeypatch.setenv("EPICS_CA_NAME_SERVERS", name_servers)
     monkeypatch.delenv("EPICS_CA_ADDR_LIST", raising=False)
 
-    assert host._installed_endpoint() == ("name_server", "cagw.example.org", 5074)
+    assert host._installed_endpoint() == endpoint
 
 
 def test_installed_endpoint_reads_back_address_list_mode(monkeypatch):
@@ -792,13 +822,6 @@ def test_installed_endpoint_is_empty_when_nothing_was_configured(monkeypatch):
     monkeypatch.delenv("EPICS_CA_ADDR_LIST", raising=False)
 
     assert host._installed_endpoint() == (None, None, None)
-
-
-def test_installed_endpoint_reads_a_name_server_with_no_port_as_a_bare_host(monkeypatch):
-    monkeypatch.setenv("EPICS_CA_NAME_SERVERS", "cagw.example.org")
-    monkeypatch.delenv("EPICS_CA_ADDR_LIST", raising=False)
-
-    assert host._installed_endpoint() == ("name_server", "cagw.example.org", None)
 
 
 @pytest.mark.parametrize(
@@ -856,7 +879,7 @@ GATEWAYS = {
 
 
 def test_selected_role_is_the_write_gateway_when_writes_are_on():
-    role = host._selected_role(
+    role = host._installed_role(
         GATEWAYS, "addr_list", "rw.example.org", 5065, writes_enabled=True, readonly_run=False
     )
 
@@ -864,7 +887,7 @@ def test_selected_role_is_the_write_gateway_when_writes_are_on():
 
 
 def test_selected_role_stays_read_only_in_a_readonly_run():
-    role = host._selected_role(
+    role = host._installed_role(
         GATEWAYS, "addr_list", "ro.example.org", 5064, writes_enabled=True, readonly_run=True
     )
 
@@ -874,7 +897,7 @@ def test_selected_role_stays_read_only_in_a_readonly_run():
 def test_selected_role_follows_the_endpoint_that_was_actually_installed():
     # The rule would say read_only, but the environment names the write
     # gateway: the report describes what was used, not what was expected.
-    role = host._selected_role(
+    role = host._installed_role(
         GATEWAYS, "addr_list", "rw.example.org", 5065, writes_enabled=False, readonly_run=False
     )
 
@@ -882,7 +905,7 @@ def test_selected_role_follows_the_endpoint_that_was_actually_installed():
 
 
 def test_selected_role_is_none_when_no_gateway_was_configured():
-    role = host._selected_role(GATEWAYS, None, None, None, writes_enabled=True, readonly_run=False)
+    role = host._installed_role(GATEWAYS, None, None, None, writes_enabled=True, readonly_run=False)
 
     assert role is None
 
@@ -892,7 +915,7 @@ def test_a_gateway_without_a_port_matches_the_one_that_was_filled_in():
     # so the block never carries the number the environment ends up showing.
     gateways = {"read_only": {"address": "localhost", "use_name_server": True}}
 
-    role = host._selected_role(
+    role = host._installed_role(
         gateways, "name_server", "localhost", 5064, writes_enabled=False, readonly_run=False
     )
 
@@ -902,7 +925,7 @@ def test_a_gateway_without_a_port_matches_the_one_that_was_filled_in():
 def test_a_gateway_in_the_other_mode_is_not_a_match():
     gateways = {"read_only": {"address": "localhost", "port": 5064, "use_name_server": True}}
 
-    role = host._selected_role(
+    role = host._installed_role(
         gateways, "addr_list", "localhost", 5064, writes_enabled=False, readonly_run=False
     )
 
@@ -913,7 +936,7 @@ def test_a_gateway_in_the_other_mode_is_not_a_match():
 def test_a_resolved_off_placeholder_matches_the_address_list_mode(off):
     gateways = {"read_only": {"address": "localhost", "port": 5064, "use_name_server": off}}
 
-    role = host._selected_role(
+    role = host._installed_role(
         gateways, "addr_list", "localhost", 5064, writes_enabled=False, readonly_run=False
     )
 
@@ -943,17 +966,18 @@ def _posture_carrier(connector_type, control_target, *, epics_configured=False):
 def mixed_deployment(tmp_path, monkeypatch):
     """Put :data:`MIXED_CONTROL_SYSTEM` on disk and in reach of this process.
 
-    Posture is read from the project config, where the connector reads it, so a
-    test about posture has to point at a real file rather than hand a section
-    in.
+    The tier is read from the project config, where the connector reads it, so
+    a test about posture has to point at a real file rather than hand a section
+    in. The login's switch is on for ``va`` and off for ``live``.
     """
     config_file = tmp_path / "config.yml"
     config_file.write_text(yaml.safe_dump({"control_system": MIXED_CONTROL_SYSTEM}))
     monkeypatch.setenv("CONFIG_FILE", str(config_file))
+    arm_switch(monkeypatch, tmp_path / "agent-data", "va", stamp=False)
     return MIXED_CONTROL_SYSTEM
 
 
-def test_the_report_arms_the_target_whose_own_block_says_so(mixed_deployment):
+def test_the_report_arms_the_target_whose_switch_is_on(mixed_deployment):
     report = host._post_connect_report(
         _posture_carrier("virtual_accelerator", "va"), "virtual_accelerator", "va", mixed_deployment
     )
@@ -963,10 +987,9 @@ def test_the_report_arms_the_target_whose_own_block_says_so(mixed_deployment):
     assert report["writes_enabled"] is True
 
 
-def test_a_target_whose_block_says_nothing_inherits_the_disabled_deployment(mixed_deployment):
-    # The epics block configures gateways and no posture, so this target keeps
-    # the deployment-wide answer — which is off, whatever the simulator's block
-    # says about the simulator.
+def test_a_target_whose_switch_is_off_reports_off(mixed_deployment):
+    # The tier allows writes and the simulator's switch is on; this target's is
+    # not, so its report is off whatever the simulator's says.
     report = host._post_connect_report(
         _posture_carrier("epics", "live"), "epics", "live", mixed_deployment
     )
@@ -989,10 +1012,10 @@ def test_a_readonly_run_keeps_an_armed_target_off_the_write_gateway(mixed_deploy
         mixed_deployment,
     )
 
-    # The block arms this target and the report says so: that is the deployment
-    # posture, and the same input connect() made its selection with. What the
-    # readonly run collapses is the selection itself — an armed target still
-    # went through the read gateway.
+    # The tier allows writes and the report says so: that is the deployment
+    # half, reported where the run mode collapses the verdict. What the readonly
+    # run collapses is the selection itself — an armed target still went
+    # through the read gateway.
     assert report["writes_enabled"] is True
     assert report["readonly_run"] is True
     assert report["selected_role"] == "read_only"
@@ -1022,15 +1045,15 @@ VA_SERVICE_PORT = 5064
 
 
 def _va_config(gateways):
-    """A switch-capable deployment whose virtual accelerator is armed."""
+    """A switch-capable deployment whose write tier allows writes."""
     return {
         "services": {"virtual_accelerator": {"port": VA_SERVICE_PORT}},
         "control_system": {
             "type": "epics",
-            "writes_enabled": False,
+            "writes": "allowed",
             "connector": {
                 "epics": {"gateways": {"read_only": {"address": "ro.example.org", "port": 5064}}},
-                "virtual_accelerator": {"writes_enabled": True, "gateways": gateways},
+                "virtual_accelerator": {"gateways": gateways},
             },
         },
     }
@@ -1082,7 +1105,8 @@ def _limits_control_system(database_path: Path, view: Path) -> dict:
 
 @pytest.fixture
 def va_deployment(tmp_path, monkeypatch):
-    """Put an armed virtual accelerator on disk and in reach of this process."""
+    """Put a virtual accelerator on disk, with the login's switch on for it."""
+    arm_switch(monkeypatch, tmp_path / "agent-data", "va", stamp=False)
 
     def _build(gateways):
         config = _va_config(gateways)
@@ -1096,15 +1120,15 @@ def va_deployment(tmp_path, monkeypatch):
 
 
 @pytest.fixture
-def narrowed_va(tmp_path, monkeypatch):
-    """An operator narrowing of ``va`` to read-only, in reach of this process.
+def switched_off_va(tmp_path, monkeypatch, va_deployment):  # noqa: ARG001 - arms the switch first
+    """The operator's switch for ``va`` turned off, in reach of this process.
 
-    The narrowing lives in the deployment's control-context record under
+    The switch lives in the deployment's control-context record under
     ``OSPREY_AGENT_DATA_ROOT``, so every process on the deployment — this one
     and the connector-host child it spawns — reads the same one.
     """
     root = tmp_path / "agent-data"
-    write_control_context(root, posture={"va": posture_store.POSTURE_SANDBOX})
+    write_control_context(root, switch={})
     monkeypatch.setenv(posture_store.AGENT_DATA_ROOT_ENV_VAR, str(root))
     posture_store.invalidate_cache()
     yield root
@@ -1133,11 +1157,11 @@ def _verify(config, report, writes_enabled):
     return derivation, verify_child_report(derivation, report)
 
 
-@pytest.mark.usefixtures("narrowed_va")
-def test_identical_gateways_report_the_role_the_narrowed_posture_selected(
+@pytest.mark.usefixtures("switched_off_va")
+def test_identical_gateways_report_the_role_the_switched_off_posture_selected(
     va_deployment, monkeypatch
 ):
-    """The shipped VA shape, with the operator holding ``va`` read-only.
+    """The shipped VA shape, with the operator's switch for ``va`` off.
 
     Both roles name the same endpoint, so there is no evidence in the
     environment to tell them apart and the reported role is decided by the
@@ -1155,7 +1179,7 @@ def test_identical_gateways_report_the_role_the_narrowed_posture_selected(
         connector, "virtual_accelerator", "va", config["control_system"]
     )
 
-    # The deployment arms this target; only the operator's narrowing is holding
+    # The deployment arms this target; only the operator's switch is holding
     # it down, and the report is the connector's own answer rather than a
     # second reading of the config.
     assert connector._writes_enabled is False
@@ -1169,10 +1193,10 @@ def test_identical_gateways_report_the_role_the_narrowed_posture_selected(
     assert report["readonly_run"] is False
 
 
-def test_identical_gateways_still_report_write_access_when_nothing_narrows(
+def test_identical_gateways_still_report_write_access_when_the_switch_is_on(
     va_deployment, monkeypatch
 ):
-    """The same deployment with no narrowing — the armed answer still stands.
+    """The same deployment with the switch on — the armed answer still stands.
 
     The read-only report above is the store's doing, not a report that has been
     pinned to the read gateway.
@@ -1194,8 +1218,8 @@ def test_identical_gateways_still_report_write_access_when_nothing_narrows(
     assert verification.ok, verification.detail
 
 
-@pytest.mark.usefixtures("narrowed_va")
-async def test_a_narrowed_target_reports_the_posture_its_writes_are_refused_on(
+@pytest.mark.usefixtures("switched_off_va")
+async def test_a_switched_off_target_reports_the_posture_its_writes_are_refused_on(
     va_deployment, monkeypatch
 ):
     """Distinct gateways: the report's posture is the connector's, end to end.
@@ -1218,7 +1242,7 @@ async def test_a_narrowed_target_reports_the_posture_its_writes_are_refused_on(
     assert report["selected_role"] == "read_only"
 
     # Same instance, same rule: the deployment arms this target, so the refusal
-    # can only be the narrowing the report is now reporting.
+    # can only be the switch the report is now reporting.
     result = await connector.write_channel("SR:CORR:1:SP", 0.5)
     assert result.outcome is WriteOutcome.REFUSED
 
@@ -1284,6 +1308,7 @@ def test_a_child_stuck_in_connect_has_marked_everything_before_it(tmp_path):
         cwd=tmp_path,
         env_extra={
             host.START_MARKS_FD_ENV: str(write_fd),
+            # Neither test root has a beamphysics package, so the stand-in still applies.
             "PYTHONPATH": os.pathsep.join(
                 [
                     str(REPO_ROOT),
@@ -1301,6 +1326,10 @@ def test_a_child_stuck_in_connect_has_marked_everything_before_it(tmp_path):
         marks = _marks_until(read_fd, "imports")
         assert [name for name, _ in marks] == ["main", "init", "imports"]
     finally:
+        # Killed, not closed: a child inside connect() never reads its stdin, so
+        # close() would wait out REPLY_TIMEOUT_S before killing it anyway. How a
+        # child stuck there ends is not what this test checks.
+        spawned.proc.kill()
         spawned.close()
         os.close(read_fd)
 
@@ -1363,3 +1392,64 @@ def test_child_limits_posture_falls_back_to_the_deployment_wide_block(limits_dep
     # relaxation, two keys away in the same file, does not reach it.
     assert policy["mode"] == "exclusive"
     assert policy["mode_key"] == DEPLOYMENT_WIDE_MODE_KEY
+
+
+# ------------------------------------- the role a write-gateway-only block reads by
+
+
+@pytest.mark.parametrize("writes_enabled", [False, True], ids=["off", "on"])
+def test_a_write_gateway_only_block_reports_the_write_gateway(monkeypatch, writes_enabled):
+    gateways = {"write_access": {"address": "rw.example.org", "port": 5065}}
+    _install_addr_list(monkeypatch, "rw.example.org", 5065)
+
+    role = host._installed_role(
+        gateways,
+        "addr_list",
+        "rw.example.org",
+        5065,
+        writes_enabled=writes_enabled,
+        readonly_run=False,
+    )
+
+    assert role == "write_access"
+
+
+@pytest.mark.parametrize("writes_enabled", [False, True], ids=["off", "on"])
+def test_a_readonly_run_on_a_write_gateway_only_block_rules_the_read_role(writes_enabled):
+    # The read role has no endpoint on this block: connect() refuses rather than
+    # reading through the write gateway, so nothing is installed to report.
+    gateways = {"write_access": {"address": "rw.example.org", "port": 5065}}
+
+    assert host._rule_role(gateways, writes_enabled, readonly_run=True) == "read_only"
+    assert (
+        host._installed_role(
+            gateways, None, None, None, writes_enabled=writes_enabled, readonly_run=True
+        )
+        is None
+    )
+
+
+def test_an_empty_gateways_table_rules_no_role():
+    assert host._rule_role({}, writes_enabled=True, readonly_run=False) is None
+
+
+# ----------------------------------------- the deployment half of the report
+
+
+@pytest.mark.parametrize(
+    ("section", "expected"),
+    [
+        ({"writes": "allowed"}, True),
+        ({"writes": "never", "connector": {"epics": {"writes_enabled": True}}}, False),
+        # A retired leaf is read by nothing at runtime (row tier-absent-old-armed-connector).
+        ({"connector": {"epics": {"writes_enabled": True}}}, False),
+        ({}, False),
+    ],
+    ids=["allowed", "never-beats-a-block", "old-armed-block", "silent"],
+)
+def test_the_readonly_mirror_reports_the_write_tier(tmp_path, monkeypatch, section, expected):
+    config_file = tmp_path / "config.yml"
+    config_file.write_text(yaml.safe_dump({"control_system": section}))
+    monkeypatch.setenv("CONFIG_FILE", str(config_file))
+
+    assert host._writes_enabled_input() is expected

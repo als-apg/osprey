@@ -21,8 +21,16 @@ vi.mock('../../../src/osprey/interfaces/channel_finder/static/js/app.js', () => 
   showToast: vi.fn(),
 }));
 
-import { mountFeedback, unmountFeedback } from '../../../src/osprey/interfaces/channel_finder/static/js/feedback.js';
-import { FACILITY_ZONE, VIEWER_ZONE, stampFacilityZone, zoneName } from '../_support/facility-zone.mjs';
+import {
+  mountFeedback,
+  unmountFeedback,
+} from '../../../src/osprey/interfaces/channel_finder/static/js/feedback.js';
+import {
+  FACILITY_ZONE,
+  VIEWER_ZONE,
+  stampFacilityZone,
+  zoneName,
+} from '../_support/facility-zone.mjs';
 
 afterEach(() => {
   unmountFeedback();
@@ -37,10 +45,18 @@ afterEach(() => {
  * @param {Record<string, any>} routes
  */
 function stubApi(routes) {
-  vi.stubGlobal('fetch', vi.fn(async (/** @type {string} */ path) => {
-    if (path in routes) return { ok: true, json: async () => routes[path] };
-    return { ok: false, status: 404, statusText: 'Not Found', json: async () => ({ detail: `no stub: ${path}` }) };
-  }));
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (/** @type {string} */ path) => {
+      if (path in routes) return { ok: true, json: async () => routes[path] };
+      return {
+        ok: false,
+        status: 404,
+        statusText: 'Not Found',
+        json: async () => ({ detail: `no stub: ${path}` }),
+      };
+    })
+  );
 }
 
 /** @returns {HTMLElement} a fresh mount point. */
@@ -62,7 +78,12 @@ const PENDING_ITEM = {
 test('graph mode shows the capture queue, not the lock screen', async () => {
   const container = freshContainer();
   stubApi({
-    '/api/feedback/status': { available: false, paradigm: 'graph', entry_count: 0, store_path: null },
+    '/api/feedback/status': {
+      available: false,
+      paradigm: 'graph',
+      entry_count: 0,
+      store_path: null,
+    },
     '/api/pending-reviews/status': { available: true, item_count: 1, can_promote: false },
     '/api/pending-reviews': { items: [PENDING_ITEM] },
   });
@@ -84,7 +105,12 @@ test('graph mode shows the capture queue, not the lock screen', async () => {
 test('graph mode with an empty queue still explains itself', async () => {
   const container = freshContainer();
   stubApi({
-    '/api/feedback/status': { available: false, paradigm: 'graph', entry_count: 0, store_path: null },
+    '/api/feedback/status': {
+      available: false,
+      paradigm: 'graph',
+      entry_count: 0,
+      store_path: null,
+    },
     '/api/pending-reviews/status': { available: true, item_count: 0, can_promote: false },
     '/api/pending-reviews': { items: [] },
   });
@@ -100,7 +126,12 @@ test('graph mode with an empty queue still explains itself', async () => {
 test('a store-backed paradigm with feedback off gets the operator pane, no config key', async () => {
   const container = freshContainer();
   stubApi({
-    '/api/feedback/status': { available: false, paradigm: 'hierarchical', entry_count: 0, store_path: null },
+    '/api/feedback/status': {
+      available: false,
+      paradigm: 'hierarchical',
+      entry_count: 0,
+      store_path: null,
+    },
   });
 
   mountFeedback(container);
@@ -114,12 +145,23 @@ test('a store-backed paradigm with feedback off gets the operator pane, no confi
 test('an available store still lists entries and offers promotion', async () => {
   const container = freshContainer();
   stubApi({
-    '/api/feedback/status': { available: true, paradigm: 'hierarchical', entry_count: 1, store_path: '/tmp/fb.json' },
+    '/api/feedback/status': {
+      available: true,
+      paradigm: 'hierarchical',
+      entry_count: 1,
+      store_path: '/tmp/fb.json',
+    },
     '/api/feedback': {
-      entries: [{
-        key: 'k1', query: 'bpms', facility: 'ERF',
-        success_count: 3, failure_count: 1, last_activity: '2026-08-27T10:00:00Z',
-      }],
+      entries: [
+        {
+          key: 'k1',
+          query: 'bpms',
+          facility: 'ERF',
+          success_count: 3,
+          failure_count: 1,
+          last_activity: '2026-08-27T10:00:00Z',
+        },
+      ],
     },
     '/api/pending-reviews/status': { available: true, item_count: 1, can_promote: true },
     '/api/pending-reviews': { items: [PENDING_ITEM] },
@@ -135,12 +177,23 @@ test('an available store still lists entries and offers promotion', async () => 
 
 /** The store-backed routes of one entry, as an available store answers them. */
 const STORE_ROUTES = {
-  '/api/feedback/status': { available: true, paradigm: 'hierarchical', entry_count: 1, store_path: '/tmp/fb.json' },
+  '/api/feedback/status': {
+    available: true,
+    paradigm: 'hierarchical',
+    entry_count: 1,
+    store_path: '/tmp/fb.json',
+  },
   '/api/feedback': {
-    entries: [{
-      key: 'k1', query: 'bpms', facility: 'ERF',
-      success_count: 3, failure_count: 1, last_activity: '2026-08-27T10:00:00Z',
-    }],
+    entries: [
+      {
+        key: 'k1',
+        query: 'bpms',
+        facility: 'ERF',
+        success_count: 3,
+        failure_count: 1,
+        last_activity: '2026-08-27T10:00:00Z',
+      },
+    ],
   },
   '/api/pending-reviews/status': { available: true, item_count: 1, can_promote: true },
   '/api/pending-reviews': { items: [PENDING_ITEM] },
@@ -156,7 +209,9 @@ test('the Last Activity column reads the facility clock and names its zone', asy
 
   const headers = container.querySelectorAll('.data-table th');
   expect(headers[4].textContent).toBe(`Last Activity (${zoneName(FACILITY_ZONE)})`);
-  const cells = /** @type {Element} */ (container.querySelector('.fb-table-row')).querySelectorAll('td');
+  const cells = /** @type {Element} */ (container.querySelector('.fb-table-row')).querySelectorAll(
+    'td'
+  );
   const expected = new Intl.DateTimeFormat(undefined, {
     month: 'short',
     day: 'numeric',

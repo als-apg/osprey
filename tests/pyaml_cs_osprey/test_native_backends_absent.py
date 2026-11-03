@@ -332,8 +332,13 @@ class TestDependencyClosure:
         assert violations == [], f"{member.name} depends on {violations}"
 
     @pytest.mark.parametrize("preset", list_presets())
-    def test_rendered_dockerfile_installs_no_native_backend(self, preset, tmp_path):
-        dockerfile = _render_dockerfile(tmp_path / "deploy", preset)
+    def test_rendered_dockerfile_installs_no_native_backend(self, preset, tmp_path, request):
+        if preset == "control-assistant":
+            # The run's shared build of this preset (tests/_builds.py).
+            built = request.getfixturevalue("built_control_assistant")
+            dockerfile = (built.build_dir / "Dockerfile").read_text()
+        else:
+            dockerfile = _render_dockerfile(tmp_path / "deploy", preset)
         install_lines = _pip_install_lines(dockerfile)
         assert install_lines, "the rendered Dockerfile no longer installs anything with pip"
         violations = [v for line in install_lines for v in _text_violations(line)]

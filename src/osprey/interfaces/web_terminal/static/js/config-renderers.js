@@ -88,7 +88,6 @@ export function renderSettingsJson(jsonString) {
   return container;
 }
 
-
 // ---------------------------------------------------------------------------
 // Permission column builder
 // ---------------------------------------------------------------------------
@@ -122,7 +121,6 @@ function _permissionColumn(level, entries) {
   return col;
 }
 
-
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -145,5 +143,5 @@ function _humanizeEnvKey(key) {
   return key
     .replace(/^ANTHROPIC_/, '')
     .replace(/_/g, ' ')
-    .replace(/\b\w/g, c => c.toUpperCase());
+    .replace(/\b\w/g, (c) => c.toUpperCase());
 }

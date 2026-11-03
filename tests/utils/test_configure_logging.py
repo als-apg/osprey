@@ -19,7 +19,7 @@ from rich.logging import RichHandler
 import osprey
 import osprey_connectors.logger
 from osprey_connectors.logger import (
-    QUIET_THIRD_PARTY_LOGGERS,
+    _QUIET_THIRD_PARTY_LOGGERS,
     _build_rich_handler,
     configure_logging,
     get_logger,
@@ -44,7 +44,7 @@ def restore_root_logging():
     root = logging.getLogger()
     saved_level = root.level
     saved_handlers = list(root.handlers)
-    saved_lib_levels = {name: logging.getLogger(name).level for name in QUIET_THIRD_PARTY_LOGGERS}
+    saved_lib_levels = {name: logging.getLogger(name).level for name in _QUIET_THIRD_PARTY_LOGGERS}
 
     def restore(*, strip_rich: bool = False) -> None:
         root.setLevel(saved_level)
@@ -165,25 +165,25 @@ class TestStreamRouting:
 
 class TestThirdPartyQuieting:
     def test_quiets_the_documented_loggers(self):
-        for name in QUIET_THIRD_PARTY_LOGGERS:
+        for name in _QUIET_THIRD_PARTY_LOGGERS:
             logging.getLogger(name).setLevel(logging.DEBUG)
 
         configure_logging()
 
-        for name in QUIET_THIRD_PARTY_LOGGERS:
+        for name in _QUIET_THIRD_PARTY_LOGGERS:
             assert logging.getLogger(name).level == logging.WARNING
 
     def test_get_logger_does_not_quiet_them(self):
-        for name in QUIET_THIRD_PARTY_LOGGERS:
+        for name in _QUIET_THIRD_PARTY_LOGGERS:
             logging.getLogger(name).setLevel(logging.DEBUG)
 
         get_logger("purity_check")
 
-        for name in QUIET_THIRD_PARTY_LOGGERS:
+        for name in _QUIET_THIRD_PARTY_LOGGERS:
             assert logging.getLogger(name).level == logging.DEBUG
 
     def test_quiet_list_matches_the_documented_set(self):
-        assert set(QUIET_THIRD_PARTY_LOGGERS) == {
+        assert set(_QUIET_THIRD_PARTY_LOGGERS) == {
             "httpx",
             "httpcore",
             "requests",

@@ -1,6 +1,6 @@
 // @ts-check
 /**
- * OSPREY Web Terminal — Simple-mode chat: the activity line's phrases.
+ * OSPREY Web Terminal — operator chat: the activity line's phrases.
  *
  * The operator phrase for each tool the agent is likely to use, and the label
  * the activity line shows for a `tool_use` event. A mapped tool reads as a
@@ -18,8 +18,7 @@
  * Operator phrases for the tools a turn is likely to use, keyed by normalised
  * tool name (see {@link normaliseToolName}).
  *
- * In Simple mode the chat is the whole interface, so this line is the only
- * account an operator gets of what the agent is doing. Phrases say it in
+ * In the chat this line is the only account an operator gets of what the agent is doing. Phrases say it in
  * control-room terms and share the activity strip's vocabulary (open/close/
  * focus/arrange for panels, "wrote" for channels).
  *
@@ -29,9 +28,11 @@
  * reads as plain English ("List Panels", "Session Summary") falls through to
  * the raw-name fallback instead of earning a row. Adding one is a single line.
  *
- * Phrases cannot name the specific panel, channel, or file involved: the chat
- * route (`_strip_for_chat`) drops a `tool_use` event's `input` before it leaves
- * the server, so no arguments reach this module.
+ * Phrases cannot name the specific panel, channel, or file involved: they are
+ * fixed text per tool, whatever the call's arguments. The chat route
+ * (`_strip_for_chat` in routes/chat.py) does keep a `tool_use` event's `input`,
+ * clipped, and {@link activityLabel} reads it for one thing only: the name of
+ * a skill.
  *
  * The keyspace is server-agnostic by design: keys are short tool names with
  * the `mcp__<server>__` prefix stripped, so a name owned by two servers
@@ -56,7 +57,10 @@ export const TOOL_PHRASES = Object.freeze({
   add_panel_to_rail: 'making a panel available',
   remove_panel_from_rail: 'removing a panel',
   open_panel: 'opening a panel',
-  close_panel: 'closing a panel',
+  open_panel_set: 'opening panels',
+  drop_panel: 'moving a panel',
+  close_panel_tab: 'closing a panel',
+  close_panel_tile: 'closing a tile',
   arrange_workspace: 'arranging the workspace',
   register_panel: 'adding a panel',
   manage_window: 'arranging a window',
@@ -107,6 +111,9 @@ export const TOOL_PHRASES = Object.freeze({
   phoebus_snapshot: 'capturing a Phoebus display',
   phoebus_drive: 'operating a Phoebus display',
 
+  // CANOPY panels.
+  list_collections: 'listing collections',
+
   // Logbook (ARIEL).
   browse: 'browsing the logbook',
   keyword_search: 'searching the logbook',
@@ -156,8 +163,13 @@ export const TOOL_PHRASES = Object.freeze({
   bash: 'running a shell command',
   glob: 'looking for files',
   grep: 'searching files',
+  skill: 'loading a skill',
   task: 'delegating to a helper agent',
   todowrite: 'updating its plan',
+  taskcreate: 'updating its plan',
+  taskupdate: 'updating its plan',
+  tasklist: 'reading its plan',
+  taskget: 'reading its plan',
   enterplanmode: 'planning',
   exitplanmode: 'finishing its plan',
   webfetch: 'fetching a web page',
@@ -179,14 +191,16 @@ export const TOOL_PHRASES = Object.freeze({
  * @returns {string}
  */
 export function normaliseToolName(name) {
-  return name
-    // Non-greedy: the FIRST `__` after the server name ends the prefix — the
-    // server name may itself contain single underscores (osprey_workspace,
-    // osprey_facility_knowledge, or a facility-declared server named that way).
-    .replace(/^mcp__.+?__/, '')
-    .trim()
-    .replace(/[\s-]+/g, '_')
-    .toLowerCase();
+  return (
+    name
+      // Non-greedy: the FIRST `__` after the server name ends the prefix — the
+      // server name may itself contain single underscores (osprey_workspace,
+      // osprey_facility_knowledge, or a facility-declared server named that way).
+      .replace(/^mcp__.+?__/, '')
+      .trim()
+      .replace(/[\s-]+/g, '_')
+      .toLowerCase()
+  );
 }
 
 /**
@@ -199,21 +213,32 @@ export function normaliseToolName(name) {
 export function toolPhrase(event) {
   for (const name of [event.tool_name_raw, event.tool_name]) {
     if (!name) continue;
-    const phrase = TOOL_PHRASES[normaliseToolName(name)];
+    const key = normaliseToolName(name);
+    const phrase = Object.hasOwn(TOOL_PHRASES, key) ? TOOL_PHRASES[key] : null;
     if (phrase) return phrase;
   }
   return null;
 }
 
+/** Longest skill name the status line shows before it is cut. */
+const SKILL_NAME_MAX = 60;
+
 /**
  * The activity-line label for a `tool_use` event. A mapped tool reads as a
  * sentence ("Writing control channels…"); anything unmapped keeps its raw name
  * ("Using Queue Reorder…"), so a tool added elsewhere in the codebase is never
- * invisible here — only terse until it earns a phrase.
+ * invisible here — only terse until it earns a phrase. A skill is named once
+ * its input says which one ("Using skill diagnose…").
  * @param {ChatEvent} event
  * @returns {string}
  */
 export function activityLabel(event) {
+  const input = /** @type {{ skill?: unknown } | undefined} */ (event.input);
+  const skill = typeof input?.skill === 'string' ? input.skill.trim() : '';
+  if (skill && normaliseToolName(event.tool_name_raw ?? event.tool_name ?? '') === 'skill') {
+    const shown = skill.slice(0, SKILL_NAME_MAX);
+    return `Using skill ${shown}…`;
+  }
   const phrase = toolPhrase(event);
   if (phrase !== null) return `${phrase.charAt(0).toUpperCase()}${phrase.slice(1)}…`;
   return `Using ${event.tool_name ?? event.tool_name_raw ?? 'tool'}…`;

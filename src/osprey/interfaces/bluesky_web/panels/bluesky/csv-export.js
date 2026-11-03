@@ -89,9 +89,7 @@ export function toCsv(columns, rows) {
  * @returns {string}
  */
 function slug(text) {
-  return text
-    .replace(/[^A-Za-z0-9._-]+/g, '-')
-    .replace(/^[-.]+|[-.]+$/g, '');
+  return text.replace(/[^A-Za-z0-9._-]+/g, '-').replace(/^[-.]+|[-.]+$/g, '');
 }
 
 /**

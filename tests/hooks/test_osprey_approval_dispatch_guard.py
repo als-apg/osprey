@@ -27,9 +27,7 @@ def test_allow_path_emits_no_decision_in_dispatch_context(
 ):
     """approval.enabled=false normally emits explicit allow — not under dispatch."""
     monkeypatch.setenv("OSPREY_DISPATCH_RUN", "1")
-    config = make_config(
-        {"approval": {"enabled": False}, "control_system": {"writes_enabled": True}}
-    )
+    config = make_config({"approval": {"enabled": False}, "control_system": {"writes": "allowed"}})
 
     result = hook_runner(
         "osprey_approval.py",
@@ -49,9 +47,7 @@ def test_allow_path_unchanged_outside_dispatch_context(
 ):
     """Without the env var the explicit allow is preserved (web-terminal behavior)."""
     monkeypatch.delenv("OSPREY_DISPATCH_RUN", raising=False)
-    config = make_config(
-        {"approval": {"enabled": False}, "control_system": {"writes_enabled": True}}
-    )
+    config = make_config({"approval": {"enabled": False}, "control_system": {"writes": "allowed"}})
 
     result = hook_runner(
         "osprey_approval.py",
@@ -77,7 +73,7 @@ def test_skip_policy_emits_no_decision_in_dispatch_context(
                 "default_policy": "always",
                 "tools": {"archiver_read": "skip"},
             },
-            "control_system": {"writes_enabled": True},
+            "control_system": {"writes": "allowed"},
         }
     )
 
@@ -94,8 +90,17 @@ def test_skip_policy_emits_no_decision_in_dispatch_context(
 
 
 def test_ask_path_still_asks_in_dispatch_context(tmp_path, hook_runner, make_config, monkeypatch):
-    """The approval ask-gate for writes is untouched by the dispatch guard."""
+    """The approval ask-gate for writes is untouched by the dispatch guard.
+
+    The job is scheduled the way the dispatcher stamps it, with its owner's
+    switch on for the target: an unscheduled job's write is refused by the
+    write verdict and deferred before any prompt.
+    """
+    from osprey_connectors_tests._harness import pin_identity, write_control_context
+
     monkeypatch.setenv("OSPREY_DISPATCH_RUN", "1")
+    monkeypatch.setenv("OSPREY_CONTROL_OWNER", pin_identity(monkeypatch))
+    write_control_context(tmp_path / "var" / "agent_data", target="va", switch={"va": "on"})
     config = make_config(
         {
             "approval": {
@@ -103,7 +108,7 @@ def test_ask_path_still_asks_in_dispatch_context(tmp_path, hook_runner, make_con
                 "default_policy": "selective",
                 "requires_approval": ["channel_write", "execute"],
             },
-            "control_system": {"writes_enabled": True},
+            "control_system": {"writes": "allowed"},
         }
     )
 

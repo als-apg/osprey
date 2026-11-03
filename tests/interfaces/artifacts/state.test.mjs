@@ -3,7 +3,7 @@
  *
  * Pure-logic/DOM guard, happy-dom environment (configured globally), `fetch`
  * mocked via vi.stubGlobal — mirrors tests/interfaces/lattice_dashboard/net.test.mjs
- * and tests/interfaces/web_terminal/scaffold-data.test.mjs:
+ * and tests/interfaces/web_terminal/scaffold/data.test.mjs:
  *   npx vitest run tests/interfaces/artifacts/state.test.mjs
  *
  * Covers accessor correctness (every get/set pair round-trips), fileUrl,
@@ -38,12 +38,10 @@ import {
   fetchMoreArtifacts,
   fetchFocus,
   getFilteredArtifacts,
-  getArtifactTotal,
   hasMoreArtifacts,
   inCurrentScope,
   addArtifact,
   removeArtifact,
-  getListSearch,
   getPickedIds,
   setPicked,
   togglePicked,
@@ -98,7 +96,9 @@ describe('accessor correctness', () => {
 
 describe('fileUrl', () => {
   test('builds a /files/{id}/{filename} URL, encoding the filename', () => {
-    expect(fileUrl({ id: 'abc123', filename: 'plot one.png' })).toBe('/files/abc123/plot%20one.png');
+    expect(fileUrl({ id: 'abc123', filename: 'plot one.png' })).toBe(
+      '/files/abc123/plot%20one.png'
+    );
   });
 
   test('percent-encodes a hostile id, so no raw path-breakout/query/quote characters survive', () => {
@@ -109,7 +109,9 @@ describe('fileUrl', () => {
   });
 
   test('is byte-identical for a real 12-hex artifact id (encodeURIComponent is a no-op)', () => {
-    expect(fileUrl({ id: '0123456789ab', filename: 'plot.png' })).toBe('/files/0123456789ab/plot.png');
+    expect(fileUrl({ id: '0123456789ab', filename: 'plot.png' })).toBe(
+      '/files/0123456789ab/plot.png'
+    );
   });
 });
 
@@ -148,10 +150,13 @@ describe('fetchArtifacts', () => {
     setCurrentSessionId(null);
     setShowAllSessions(false);
     showErrorBanner('stale error');
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
-      ok: true,
-      json: () => Promise.resolve({ artifacts: [{ id: 'a1' }] }),
-    }));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({ artifacts: [{ id: 'a1' }] }),
+      })
+    );
 
     const onHealthChange = vi.fn();
     const onArtifactsUpdated = vi.fn();
@@ -166,7 +171,9 @@ describe('fetchArtifacts', () => {
   test('scopes the request to the current session unless showAllSessions is set', async () => {
     setCurrentSessionId('sess-42');
     setShowAllSessions(false);
-    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve({ artifacts: [] }) });
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue({ ok: true, json: () => Promise.resolve({ artifacts: [] }) });
     vi.stubGlobal('fetch', fetchMock);
 
     await fetchArtifacts();
@@ -181,11 +188,14 @@ describe('fetchArtifacts', () => {
     setCurrentSessionId(null);
     setShowAllSessions(false);
     setArtifacts([{ id: 'kept' }]);
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
-      ok: false,
-      status: 500,
-      text: () => Promise.resolve('boom'),
-    }));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: false,
+        status: 500,
+        text: () => Promise.resolve('boom'),
+      })
+    );
 
     const onHealthChange = vi.fn();
     await fetchArtifacts({ onHealthChange });
@@ -207,28 +217,34 @@ describe('fetchArtifacts', () => {
     expect(byId('error-banner').textContent).toBe('Failed to fetch artifacts: network down');
   });
 
-  test('records the total and the cursor, and defaults the total to the returned length', async () => {
+  test('records the cursor', async () => {
     setCurrentSessionId(null);
     setShowAllSessions(false);
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
-      ok: true,
-      json: () => Promise.resolve({ artifacts: [{ id: 'a1' }], total: 40, next_cursor: 'c1' }),
-    }));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({ artifacts: [{ id: 'a1' }], total: 40, next_cursor: 'c1' }),
+      })
+    );
     await fetchArtifacts();
-    expect(getArtifactTotal()).toBe(40);
     expect(hasMoreArtifacts()).toBe(true);
 
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
-      ok: true,
-      json: () => Promise.resolve({ artifacts: [{ id: 'a1' }, { id: 'a2' }] }),
-    }));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({ artifacts: [{ id: 'a1' }, { id: 'a2' }] }),
+      })
+    );
     await fetchArtifacts();
-    expect(getArtifactTotal()).toBe(2);
     expect(hasMoreArtifacts()).toBe(false);
   });
 
   test('carries an escaped search, with and without a session scope', async () => {
-    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve({ artifacts: [] }) });
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue({ ok: true, json: () => Promise.resolve({ artifacts: [] }) });
     vi.stubGlobal('fetch', fetchMock);
 
     setCurrentSessionId(null);
@@ -245,7 +261,10 @@ describe('fetchArtifacts', () => {
   test('is safe to call with no callbacks at all', async () => {
     setCurrentSessionId(null);
     setShowAllSessions(false);
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve({ artifacts: [] }) }));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve({ artifacts: [] }) })
+    );
     await expect(fetchArtifacts()).resolves.toBeUndefined();
   });
 });
@@ -253,10 +272,13 @@ describe('fetchArtifacts', () => {
 describe('fetchFocus', () => {
   test('sets focusedArtifact from a successful response', async () => {
     setFocusedArtifact(null);
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
-      ok: true,
-      json: () => Promise.resolve({ artifact: { id: 'focused-1' } }),
-    }));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({ artifact: { id: 'focused-1' } }),
+      })
+    );
 
     await fetchFocus();
     expect(getFocusedArtifact()).toEqual({ id: 'focused-1' });
@@ -264,7 +286,10 @@ describe('fetchFocus', () => {
 
   test('leaves focusedArtifact untouched when the response has no artifact', async () => {
     setFocusedArtifact({ id: 'unchanged' });
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve({}) }));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve({}) })
+    );
 
     await fetchFocus();
     expect(getFocusedArtifact()).toEqual({ id: 'unchanged' });
@@ -279,10 +304,43 @@ describe('fetchFocus', () => {
 describe('getFilteredArtifacts', () => {
   function makeFixtures() {
     return [
-      { id: '1', title: 'Beam Profile', filename: 'beam_profile.png', artifact_type: 'plot_png', category: 'visualization', pinned: false, timestamp: '2026-07-01T10:00:00Z' },
-      { id: '2', title: 'Channel Values', filename: 'channels.json', artifact_type: 'json', category: 'channel_values', pinned: true, timestamp: '2026-07-03T10:00:00Z' },
-      { id: '3', title: 'Lattice Table', filename: 'lattice.html', artifact_type: 'table_html', category: 'visualization', description: 'A summary of magnet strengths', pinned: false, timestamp: '2026-07-02T10:00:00Z' },
-      { id: '4', title: 'Old Report', filename: 'report.md', artifact_type: 'markdown', category: 'document', pinned: true, timestamp: '2026-06-30T10:00:00Z' },
+      {
+        id: '1',
+        title: 'Beam Profile',
+        filename: 'beam_profile.png',
+        artifact_type: 'plot_png',
+        category: 'visualization',
+        pinned: false,
+        timestamp: '2026-07-01T10:00:00Z',
+      },
+      {
+        id: '2',
+        title: 'Channel Values',
+        filename: 'channels.json',
+        artifact_type: 'json',
+        category: 'channel_values',
+        pinned: true,
+        timestamp: '2026-07-03T10:00:00Z',
+      },
+      {
+        id: '3',
+        title: 'Lattice Table',
+        filename: 'lattice.html',
+        artifact_type: 'table_html',
+        category: 'visualization',
+        description: 'A summary of magnet strengths',
+        pinned: false,
+        timestamp: '2026-07-02T10:00:00Z',
+      },
+      {
+        id: '4',
+        title: 'Old Report',
+        filename: 'report.md',
+        artifact_type: 'markdown',
+        category: 'document',
+        pinned: true,
+        timestamp: '2026-06-30T10:00:00Z',
+      },
     ];
   }
 
@@ -332,8 +390,14 @@ describe('paging', () => {
   }
 
   test('fetchMoreArtifacts appends the next page, sends the held cursor, and fires onArtifactsUpdated', async () => {
-    await loadFirstPage({ artifacts: [{ id: 'a1' }, { id: 'a2' }], total: 3, next_cursor: 'cur 1' });
-    const fetchMock = vi.fn().mockResolvedValue(okResponse({ artifacts: [{ id: 'a3' }], total: 3, next_cursor: null }));
+    await loadFirstPage({
+      artifacts: [{ id: 'a1' }, { id: 'a2' }],
+      total: 3,
+      next_cursor: 'cur 1',
+    });
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(okResponse({ artifacts: [{ id: 'a3' }], total: 3, next_cursor: null }));
     vi.stubGlobal('fetch', fetchMock);
 
     const onArtifactsUpdated = vi.fn();
@@ -359,7 +423,11 @@ describe('paging', () => {
     await loadFirstPage({ artifacts: [{ id: 'a1' }], total: 2, next_cursor: 'c1' });
     /** @type {(v: any) => void} */
     let release = () => {};
-    const fetchMock = vi.fn().mockReturnValue(new Promise((r) => { release = r; }));
+    const fetchMock = vi.fn().mockReturnValue(
+      new Promise((r) => {
+        release = r;
+      })
+    );
     vi.stubGlobal('fetch', fetchMock);
 
     const first = fetchMoreArtifacts();
@@ -375,7 +443,11 @@ describe('paging', () => {
     await loadFirstPage({ artifacts: [{ id: 'a1' }], total: 2, next_cursor: 'c1' });
     /** @type {(v: any) => void} */
     let release = () => {};
-    const fetchMock = vi.fn().mockReturnValue(new Promise((r) => { release = r; }));
+    const fetchMock = vi.fn().mockReturnValue(
+      new Promise((r) => {
+        release = r;
+      })
+    );
     vi.stubGlobal('fetch', fetchMock);
 
     const first = fetchArtifacts({ search: 'b' });
@@ -386,7 +458,9 @@ describe('paging', () => {
     await first;
     expect(getArtifacts().map((a) => a.id)).toEqual(['b1']);
 
-    fetchMock.mockResolvedValue(okResponse({ artifacts: [{ id: 'b2' }], total: 2, next_cursor: null }));
+    fetchMock.mockResolvedValue(
+      okResponse({ artifacts: [{ id: 'b2' }], total: 2, next_cursor: null })
+    );
     await fetchMoreArtifacts();
     expect(fetchMock).toHaveBeenLastCalledWith('/api/artifacts?search=b&cursor=cb');
     expect(getArtifacts().map((a) => a.id)).toEqual(['b1', 'b2']);
@@ -404,7 +478,11 @@ describe('paging', () => {
 
     /** @type {Promise<void>[]} */
     const chained = [];
-    const callbacks = { onArtifactsUpdated: () => { chained.push(fetchMoreArtifacts(callbacks)); } };
+    const callbacks = {
+      onArtifactsUpdated: () => {
+        chained.push(fetchMoreArtifacts(callbacks));
+      },
+    };
     await fetchMoreArtifacts(callbacks);
     while (chained.length) await chained.shift();
 
@@ -416,14 +494,23 @@ describe('paging', () => {
     await loadFirstPage({ artifacts: [{ id: 'a1' }], total: 3, next_cursor: 'c1' });
     /** @type {(v: any) => void} */
     let release = () => {};
-    const fetchMock = vi.fn()
+    const fetchMock = vi
+      .fn()
       .mockResolvedValueOnce(okResponse({ artifacts: [{ id: 'a2' }], total: 3, next_cursor: 'c2' }))
-      .mockReturnValueOnce(new Promise((r) => { release = r; }));
+      .mockReturnValueOnce(
+        new Promise((r) => {
+          release = r;
+        })
+      );
     vi.stubGlobal('fetch', fetchMock);
 
     /** @type {Promise<void>[]} */
     const chained = [];
-    const callbacks = { onArtifactsUpdated: () => { chained.push(fetchMoreArtifacts(callbacks)); } };
+    const callbacks = {
+      onArtifactsUpdated: () => {
+        chained.push(fetchMoreArtifacts(callbacks));
+      },
+    };
     await fetchMoreArtifacts(callbacks);
     expect(fetchMock).toHaveBeenCalledTimes(2);
 
@@ -437,9 +524,14 @@ describe('paging', () => {
 
   test('a duplicate id in the appended page is not added twice', async () => {
     await loadFirstPage({ artifacts: [{ id: 'a1' }, { id: 'a2' }], total: 3, next_cursor: 'c1' });
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(
-      okResponse({ artifacts: [{ id: 'a2' }, { id: 'a3' }], total: 3, next_cursor: null }),
-    ));
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValue(
+          okResponse({ artifacts: [{ id: 'a2' }, { id: 'a3' }], total: 3, next_cursor: null })
+        )
+    );
 
     await fetchMoreArtifacts();
 
@@ -473,96 +565,48 @@ describe('paging', () => {
   test('addArtifact returns false while a search is active and leaves the list alone', async () => {
     setCurrentSessionId(null);
     setShowAllSessions(false);
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(okResponse({ artifacts: [{ id: 'a1' }], total: 1 })));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(okResponse({ artifacts: [{ id: 'a1' }], total: 1 }))
+    );
     await fetchArtifacts({ search: 'beam' });
 
     expect(addArtifact({ id: 'new' })).toBe(false);
     expect(getArtifacts().map((a) => a.id)).toEqual(['a1']);
-    expect(getArtifactTotal()).toBe(1);
   });
 
   test('addArtifact returns true without adding a foreign-session entry', async () => {
     setCurrentSessionId('s1');
     setShowAllSessions(false);
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(okResponse({ artifacts: [{ id: 'a1' }], total: 1 })));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(okResponse({ artifacts: [{ id: 'a1' }], total: 1 }))
+    );
     await fetchArtifacts();
 
     expect(addArtifact({ id: 'foreign', session_id: 's2' })).toBe(true);
     expect(getArtifacts().map((a) => a.id)).toEqual(['a1']);
-    expect(getArtifactTotal()).toBe(1);
     setCurrentSessionId(null);
   });
 
-  test('addArtifact adds, bumps the total, and refuses a duplicate', async () => {
+  test('addArtifact adds an entry and refuses a duplicate', async () => {
     await loadFirstPage({ artifacts: [{ id: 'a1' }], total: 1 });
 
     expect(addArtifact({ id: 'a2' })).toBe(true);
     expect(getArtifacts().map((a) => a.id)).toEqual(['a1', 'a2']);
-    expect(getArtifactTotal()).toBe(2);
 
     expect(addArtifact({ id: 'a2' })).toBe(true);
     expect(getArtifacts().map((a) => a.id)).toEqual(['a1', 'a2']);
-    expect(getArtifactTotal()).toBe(2);
   });
 
-  test('addArtifact holds an entry the total already counts without bumping the total', async () => {
-    await loadFirstPage({ artifacts: [{ id: 'a1' }], total: 3, next_cursor: 'c1' });
-
-    expect(addArtifact({ id: 'older' }, { counted: true })).toBe(true);
-    expect(getArtifacts().map((a) => a.id)).toEqual(['a1', 'older']);
-    expect(getArtifactTotal()).toBe(3);
-  });
-
-  test('an entry held on its own before its save event is counted once when that event arrives', async () => {
-    await loadFirstPage({ artifacts: [{ id: 'a1' }], total: 3 });
-
-    addArtifact({ id: 'new' }, { counted: true });
-    expect(getArtifactTotal()).toBe(3);
-    expect(addArtifact({ id: 'new' })).toBe(true);
-    expect(getArtifactTotal()).toBe(4);
-    expect(getArtifacts().map((a) => a.id)).toEqual(['a1', 'new']);
-    addArtifact({ id: 'new' });
-    expect(getArtifactTotal()).toBe(4);
-  });
-
-  test('a fresh first page settles the count of an entry held on its own', async () => {
-    await loadFirstPage({ artifacts: [{ id: 'a1' }], total: 3 });
-    addArtifact({ id: 'new' }, { counted: true });
-
-    await loadFirstPage({ artifacts: [{ id: 'new' }, { id: 'a1' }], total: 4 });
-    addArtifact({ id: 'new' });
-    expect(getArtifactTotal()).toBe(4);
-  });
-
-  test('getListSearch names the search the held list was fetched with', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(okResponse({ artifacts: [] })));
-    await fetchArtifacts({ search: 'orbit' });
-    expect(getListSearch()).toBe('orbit');
-    await fetchArtifacts();
-    expect(getListSearch()).toBe('');
-  });
-
-  test('removeArtifact drops the entry, decrements the total, and floors it at zero', async () => {
+  test('removeArtifact drops the entry and tolerates an id the list does not hold', async () => {
     await loadFirstPage({ artifacts: [{ id: 'a1' }, { id: 'a2' }], total: 5 });
 
     removeArtifact('a1');
     expect(getArtifacts().map((a) => a.id)).toEqual(['a2']);
-    expect(getArtifactTotal()).toBe(4);
 
-    await loadFirstPage({ artifacts: [], total: 0 });
-    setArtifacts([{ id: 'stray' }]);
-    removeArtifact('stray');
-    expect(getArtifacts()).toEqual([]);
-    expect(getArtifactTotal()).toBe(0);
-  });
-
-  test('removeArtifact of an entry held uncounted drops it and leaves the total alone', async () => {
-    await loadFirstPage({ artifacts: [{ id: 'a1' }], total: 3 });
-    addArtifact({ id: 'x' }, { counted: true });
-
-    removeArtifact('x');
-    expect(getArtifacts().map((a) => a.id)).toEqual(['a1']);
-    expect(getArtifactTotal()).toBe(3);
+    removeArtifact('missing');
+    expect(getArtifacts().map((a) => a.id)).toEqual(['a2']);
   });
 });
 
@@ -619,10 +663,13 @@ describe('picks', () => {
   test('a first-page fetch clears the picks and the anchor', async () => {
     setCurrentSessionId(null);
     setShowAllSessions(false);
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
-      ok: true,
-      json: () => Promise.resolve({ artifacts: [{ id: 'a' }, { id: 'b' }] }),
-    }));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({ artifacts: [{ id: 'a' }, { id: 'b' }] }),
+      })
+    );
     setPicked(['a', 'b']);
     setPickAnchor('a');
 

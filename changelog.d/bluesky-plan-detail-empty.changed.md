@@ -1,0 +1,1 @@
+The BLUESKY Plans view now shows a sentence in the plan detail pane when no plan is selected ("Select a plan to see its parameters."). Before, the pane was an empty bordered box. The sentence goes as soon as a plan is selected.

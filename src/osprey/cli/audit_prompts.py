@@ -43,9 +43,11 @@ explicit user approval via ask-permission.
 - **python server**: `execute` requires explicit user approval. No tools are \
 auto-allowed.
 - **workspace server**: Read/visualization tools are auto-allowed, as are the \
-layout verbs (`open_panel`, `close_panel`, `arrange_workspace` -- which states a \
-whole layout, including rail membership, and under a `preset` drops non-members \
-from the rail) and the lattice dashboard's own scratch state. `setup_patch` \
+layout verbs (`open_panel`, `open_panel_set`, `drop_panel`, `close_panel_tab`, \
+`close_panel_tile`, `arrange_workspace` -- which lays out the service tiles from \
+a preset or an exact layout and, under a `preset`, drops non-members from the \
+rail; none of them moves or closes the terminal) and the lattice dashboard's own \
+scratch state. `setup_patch` \
 requires approval, and so do the three tools whose whole effect is rail \
 membership: `add_panel_to_rail`, `remove_panel_from_rail` and `register_panel`.
 
@@ -69,7 +71,8 @@ Under a readonly posture each write route is refused by the layer that owns it: 
 gate, and the remaining writes-check-gated tools by the writes_check hook \
 (best-effort — it is the first hook in the chain). Independently of the \
 posture, executed Python may not write into the render zone (`build/`), the \
-profile sources, or the audit ledger (`var/audit/`) in ANY mode; that runtime \
+profile sources, or the agent record and archive (`var/agent_record/`, \
+`var/spool/`, `var/archive/`) in ANY mode; that runtime \
 guard is defense in depth, and the enforcing boundary is the container's \
 privilege split.
 

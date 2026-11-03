@@ -7,20 +7,19 @@
 # never carries a deployment fact (services, data, ports); those stay the
 # deployment's, and every tier's render dials the deployment's services.
 #
-# This tier arms the write gate on the sandbox simulator alone: write posture
-# is per connector type, so the session writes on the virtual accelerator and
-# is read-only on both hardware-shaped targets, the live machine and its
-# stand-in. Which of them a call reaches is the deployment's control TARGET, so
-# the target switch arms and disarms this tier while nothing in the profile
-# changes.
+# `control_system.writes` is this tier's write ceiling, one of `never`, `asked`
+# and `allowed`; it ships at `asked`, so each write prompts. A session may write
+# to every machine the deployment configures; whether the next write goes
+# through is each login's own write switch, so the build arms nothing by itself.
 #
-# Armed does NOT mean unguarded: every channel write still passes the
-# writes-check hook, per-channel min/max limits, and the mandatory human
-# approval prompt before the connector executes it. The tier difference is
-# whether the write path exists at all, not whether it is supervised.
+# Armed does NOT mean unguarded: every channel write under this ceiling passes
+# the writes-check hook, per-channel min/max limits, and the human approval
+# prompt before the connector executes it. A tier's ceiling decides whether the
+# write path exists and how high a login's switch may reach.
 #
-# The read-only counterpart is the `readonly` tier. The `admin` tier carries
-# this same posture plus deployment editing.
+# The read-only counterpart is the `readonly` tier. The `admin` tier's ceiling
+# is `allowed`, which also offers the position that does not prompt, plus
+# deployment editing.
 
 name: Control Assistant (Read-Write)
 
@@ -37,16 +36,6 @@ web_panels:
 # ── Config overrides ─────────────────────────────────────────────────────────
 # Dotted keys ONLY, as in the deployment's own config: block.
 config:
-  # The tier boundary, and it takes three keys. Armed on the simulator alone.
-  # The flat key is what every connector type inherits when its own block says
-  # nothing, so its false is what the stand-in reads. The epics block is pinned
-  # by name so a per-type `true` in the deployment's profile cannot lift the
-  # live machine's ceiling. Only a literal `true` arms a type, and a per-type
-  # value never falls back to the flat key.
-  control_system.writes_enabled: false
-  control_system.connector.epics.writes_enabled: false
-  control_system.connector.virtual_accelerator.writes_enabled: true
-  # Full split-pane terminal + workspace layout for the write-armed operator.
-  # Pinned on both sides of the tier boundary (readonly pins `simple`) rather
-  # than left to the server default, for the same reason writes_enabled is.
-  web.ui_mode: expert
+  # The tier boundary, pinned rather than left to the deployment's root, so
+  # a root that says `never` does not take this tier's writes away.
+  control_system.writes: asked

@@ -15,6 +15,11 @@ import pytest
 
 from osprey.deployment import container_lifecycle
 from osprey.deployment.container_lifecycle import unhealthy_containers
+from osprey.deployment.deployment_record import (
+    DEPLOYMENT_RECORD_RELPATH,
+    DeploymentRecord,
+    write_deployment_record,
+)
 
 DOCKER_LISTING = "\n".join(
     json.dumps(row)
@@ -46,10 +51,9 @@ class _FakePs:
 
 
 @pytest.fixture
-def repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    monkeypatch.setattr(
-        container_lifecycle, "get_runtime_command", lambda config=None: ["docker", "compose"]
-    )
+def repo(tmp_path: Path) -> Path:
+    """A repo whose last start drove docker."""
+    write_deployment_record(tmp_path, DeploymentRecord("docker", "demo"))
     return tmp_path
 
 
@@ -97,34 +101,35 @@ def test_a_listing_that_fails_is_not_a_failure(repo: Path, monkeypatch: pytest.M
     assert unhealthy_containers(repo) == []
 
 
-def test_no_runtime_is_not_a_failure(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    def _none(_config=None):
-        raise RuntimeError("no container runtime")
-
-    monkeypatch.setattr(container_lifecycle, "get_runtime_command", _none)
+def test_no_record_asks_nothing(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    fake = _FakePs(DOCKER_LISTING)
+    monkeypatch.setattr(container_lifecycle.subprocess, "run", fake)
 
     assert unhealthy_containers(tmp_path) == []
+    assert fake.calls == []
 
 
-def test_the_rendered_config_selects_the_runtime(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_an_unreadable_record_asks_nothing(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    (tmp_path / DEPLOYMENT_RECORD_RELPATH).parent.mkdir(parents=True)
+    (tmp_path / DEPLOYMENT_RECORD_RELPATH).write_text("{not json", encoding="utf-8")
+    fake = _FakePs(DOCKER_LISTING)
+    monkeypatch.setattr(container_lifecycle.subprocess, "run", fake)
+
+    assert unhealthy_containers(tmp_path) == []
+    assert fake.calls == []
+
+
+def test_the_record_selects_the_runtime(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     build = tmp_path / "build"
     build.mkdir()
-    (build / "config.yml").write_text("project_name: demo\ncontainer_runtime: podman\n")
-    seen: list[object] = []
-
-    def _select(config=None):
-        seen.append(config)
-        return ["podman", "compose"]
-
-    monkeypatch.setattr(container_lifecycle, "get_runtime_command", _select)
+    (build / "config.yml").write_text("project_name: demo\ncontainer_runtime: docker\n")
+    monkeypatch.setenv("CONTAINER_RUNTIME", "docker")
+    write_deployment_record(tmp_path, DeploymentRecord("podman", "demo"))
     fake = _FakePs("[]")
     monkeypatch.setattr(container_lifecycle.subprocess, "run", fake)
 
     unhealthy_containers(tmp_path)
 
-    assert seen and seen[0]["container_runtime"] == "podman"
     assert fake.calls[0][0] == "podman"
 
 

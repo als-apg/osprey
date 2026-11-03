@@ -35,7 +35,7 @@ from pathlib import Path
 import pytest
 
 from osprey.cli import build_environment
-from osprey.cli.build_environment import _create_project_venv
+from osprey.cli.build_environment import _create_project_venv, _plan_project_venv
 from osprey.cli.build_profile import BuildProfile, EnvironmentConfig
 from osprey_connectors.errors import BuildProfileError
 
@@ -90,7 +90,7 @@ def test_install_timeout_allows_a_full_dependency_download(monkeypatch, tmp_path
 
     monkeypatch.setattr("osprey.cli.build_environment.subprocess.run", fake_run)
 
-    _create_project_venv(tmp_path, _profile())
+    _create_project_venv(tmp_path, _plan_project_venv(_profile()))
 
     install_calls = [(cmd, kw) for cmd, kw in seen if _is_install(cmd)]
     assert install_calls, f"no install call recorded; saw {[c for c, _ in seen]}"
@@ -114,7 +114,7 @@ def test_install_timeout_is_reported_as_an_actionable_build_error(monkeypatch, t
     monkeypatch.setattr("osprey.cli.build_environment.subprocess.run", fake_run)
 
     with pytest.raises(BuildProfileError) as excinfo:
-        _create_project_venv(tmp_path, _profile())
+        _create_project_venv(tmp_path, _plan_project_venv(_profile()))
 
     message = str(excinfo.value)
     assert "project venv" in message.lower(), message
@@ -135,7 +135,7 @@ def test_venv_creation_failure_still_reports_its_own_error(monkeypatch, tmp_path
     monkeypatch.setattr("osprey.cli.build_environment.subprocess.run", fake_run)
 
     with pytest.raises(BuildProfileError, match="Failed to create project venv"):
-        _create_project_venv(Path(tmp_path), _profile())
+        _create_project_venv(Path(tmp_path), _plan_project_venv(_profile()))
 
 
 @pytest.mark.parametrize("branch", ["with_uv", "without_uv"])
@@ -155,7 +155,7 @@ def test_a_venv_creation_timeout_is_reported_as_a_build_error_naming_the_step(
     monkeypatch.setattr("osprey.cli.build_environment.subprocess.run", fake_run)
 
     with pytest.raises(BuildProfileError) as excinfo:
-        _create_project_venv(tmp_path, _profile())
+        _create_project_venv(tmp_path, _plan_project_venv(_profile()))
 
     message = str(excinfo.value)
     assert "creating the project venv" in message, message
@@ -178,7 +178,7 @@ def test_the_venv_creation_bound_leaves_a_loaded_host_room(monkeypatch, tmp_path
 
     monkeypatch.setattr("osprey.cli.build_environment.subprocess.run", fake_run)
 
-    _create_project_venv(tmp_path, _profile())
+    _create_project_venv(tmp_path, _plan_project_venv(_profile()))
 
     create_calls = [(cmd, kw) for cmd, kw in seen if not _is_install(cmd)]
     assert create_calls, f"no venv-creation call recorded; saw {[c for c, _ in seen]}"
@@ -217,7 +217,7 @@ def test_a_failed_install_mentioning_litellm_fails_closed(monkeypatch, tmp_path)
     monkeypatch.setattr("osprey.cli.build_environment.subprocess.run", fake_run)
 
     with pytest.raises(BuildProfileError) as excinfo:
-        _create_project_venv(tmp_path, _profile())
+        _create_project_venv(tmp_path, _plan_project_venv(_profile()))
 
     # The resolver's own output is what tells the operator which package failed.
     assert "litellm" in str(excinfo.value), str(excinfo.value)
@@ -240,7 +240,7 @@ def test_install_timeout_names_the_mirror_remedy(monkeypatch, tmp_path):
     monkeypatch.setattr("osprey.cli.build_environment.subprocess.run", fake_run)
 
     with pytest.raises(BuildProfileError) as excinfo:
-        _create_project_venv(tmp_path, _profile())
+        _create_project_venv(tmp_path, _plan_project_venv(_profile()))
 
     message = str(excinfo.value)
     assert message.endswith(build_environment._INSTALL_NETWORK_REMEDY), message
@@ -307,7 +307,7 @@ def test_a_network_install_failure_ends_with_the_mirror_remedy(
     )
 
     with pytest.raises(BuildProfileError) as excinfo:
-        _create_project_venv(tmp_path, _profile())
+        _create_project_venv(tmp_path, _plan_project_venv(_profile()))
 
     message = str(excinfo.value)
     assert message.startswith(f"Failed to install project dependencies (exit {returncode}):"), (
@@ -334,7 +334,7 @@ def test_a_non_network_install_failure_carries_no_mirror_remedy(output, monkeypa
     monkeypatch.setattr("osprey.cli.build_environment.subprocess.run", _failing_install(1, output))
 
     with pytest.raises(BuildProfileError) as excinfo:
-        _create_project_venv(tmp_path, _profile())
+        _create_project_venv(tmp_path, _plan_project_venv(_profile()))
 
     message = str(excinfo.value)
     assert "UV_INDEX_URL" not in message, message

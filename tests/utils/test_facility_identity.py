@@ -88,22 +88,22 @@ def test_an_unreadable_file_is_refused(tmp_path: Path):
         facility_identity(tmp_path, "demo")
 
 
-def test_a_file_that_is_not_json_is_refused(tmp_path: Path):
-    (tmp_path / "facility.json").write_text("{not json", encoding="utf-8")
+@pytest.mark.parametrize(
+    ("content", "match"),
+    [
+        pytest.param("{not json", r"facility\.json.*not JSON", id="not-json"),
+        pytest.param("[]", r"facility\.json.*names no identity code", id="not-an-object"),
+    ],
+)
+def test_a_file_that_cannot_hold_an_identity_is_refused(tmp_path: Path, content: str, match: str):
+    (tmp_path / "facility.json").write_text(content, encoding="utf-8")
 
-    with pytest.raises(FacilityFileError, match=r"facility\.json.*not JSON"):
+    with pytest.raises(FacilityFileError, match=match):
         facility_identity(tmp_path, "demo")
 
 
 def test_a_file_without_an_identity_code_is_refused(tmp_path: Path):
     _write_facility_file(tmp_path, {"name": "Demo Lab"})
-
-    with pytest.raises(FacilityFileError, match=r"facility\.json.*names no identity code"):
-        facility_identity(tmp_path, "demo")
-
-
-def test_a_file_that_is_not_an_object_is_refused(tmp_path: Path):
-    (tmp_path / "facility.json").write_text("[]", encoding="utf-8")
 
     with pytest.raises(FacilityFileError, match=r"facility\.json.*names no identity code"):
         facility_identity(tmp_path, "demo")
@@ -119,7 +119,7 @@ def test_reading_the_identity_leaves_the_facility_build_unimported(tmp_path: Pat
     )
 
     result = subprocess.run(
-        [sys.executable, "-c", probe], capture_output=True, text=True, check=True
+        [sys.executable, "-c", probe], capture_output=True, text=True, check=True, timeout=120
     )
 
     assert result.stdout.strip() == "False"

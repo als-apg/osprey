@@ -14,15 +14,12 @@ Skips cleanly when the chromium headless binary is not installed.
 
 from __future__ import annotations
 
-import pathlib
 from typing import TYPE_CHECKING
 
 import pytest
-from fastapi import FastAPI
-from fastapi.responses import HTMLResponse
-from fastapi.staticfiles import StaticFiles
 
-from tests.interfaces.conftest import _run_app_server
+from osprey.interfaces._serving import run_app_server
+from tests.interfaces.design_system._dispatch_dashboard import create_dispatch_dashboard_app
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -33,14 +30,6 @@ pytestmark = [pytest.mark.browser, pytest.mark.slow]
 
 VIEWPORT = {"width": 1100, "height": 900}
 
-DESIGN_SYSTEM_STATIC_DIR = (
-    pathlib.Path(__file__).resolve().parents[3]
-    / "src"
-    / "osprey"
-    / "interfaces"
-    / "design_system"
-    / "static"
-)
 
 TRIGGER_NAME = "morning-report"
 
@@ -68,42 +57,18 @@ STATE = {
 }
 
 
-def _create_dispatch_dashboard_app() -> FastAPI:
-    """Serve the real dashboard beside the real design system and a fixed state."""
-    from osprey.dispatch.dashboard import render_dashboard_html
-
-    app = FastAPI()
-    app.mount(
-        "/design-system", StaticFiles(directory=DESIGN_SYSTEM_STATIC_DIR), name="design-system"
-    )
-
-    @app.get("/", response_class=HTMLResponse)
-    async def root() -> str:
-        return str(render_dashboard_html(facility_name="Test Facility", channel_strip_prefix="SR:"))
-
-    @app.get("/dashboard/state")
-    async def dashboard_state() -> dict:
-        return STATE
-
-    return app
-
-
 @pytest.fixture
 def dashboard_url() -> Iterator[str]:
-    with _run_app_server(_create_dispatch_dashboard_app()) as base_url:
+    with run_app_server(create_dispatch_dashboard_app(STATE)) as base_url:
         yield base_url
 
 
 def test_a_clock_trigger_shows_its_times_and_next_fire(
     chromium_browser: Browser, dashboard_url: str
 ) -> None:
-    """In Expert mode, the trigger row names the times, the days and the next fire."""
+    """The trigger row names the times, the days and the next fire."""
     page = chromium_browser.new_page(viewport=VIEWPORT)
-    page.goto(f"{dashboard_url}/?mode=expert", wait_until="domcontentloaded")
-    page.wait_for_function(
-        "() => document.documentElement.getAttribute('data-ui-mode') === 'expert'",
-        timeout=10_000,
-    )
+    page.goto(f"{dashboard_url}/", wait_until="domcontentloaded")
     page.click("#tab-triggers")
     page.wait_for_selector("#trigger-list .trigger-row", timeout=10_000)
     # The next fire renders once the facility-time module has loaded.

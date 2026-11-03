@@ -266,14 +266,16 @@ class GenericJSONAdapter(FacilityAdapter):
             try:
                 import aiohttp
 
-                async with aiohttp.ClientSession(connector=self._create_connector()) as session:
-                    async with session.get(self.source_url, ssl=self._ssl_context()) as response:
-                        if response.status != 200:
-                            raise IngestionError(
-                                f"HTTP request failed with status {response.status}",
-                                source_system=self.source_system_name,
-                            )
-                        return cast(dict[str, Any], await response.json())
+                async with (
+                    aiohttp.ClientSession(connector=self._create_connector()) as session,
+                    session.get(self.source_url, ssl=self._ssl_context()) as response,
+                ):
+                    if response.status != 200:
+                        raise IngestionError(
+                            f"HTTP request failed with status {response.status}",
+                            source_system=self.source_system_name,
+                        )
+                    return cast(dict[str, Any], await response.json())
             except ImportError as err:
                 raise IngestionError(
                     "aiohttp is required for HTTP sources. Install with: pip install aiohttp",
@@ -301,10 +303,7 @@ class GenericJSONAdapter(FacilityAdapter):
 
         title = data.get("title", "")
         text = data.get("text", "")
-        if title and text:
-            raw_text = f"{title}\n\n{text}"
-        else:
-            raw_text = title or text
+        raw_text = f"{title}\n\n{text}" if title and text else title or text
 
         attachments: list[AttachmentInfo] = []
         file_source = self.attachment_file_base() is not None

@@ -56,7 +56,9 @@ const MODES = /** @type {ReadonlyArray<ThemeMode>} */ (['dark', 'light']);
  */
 const MANIFEST = {
   ids: THEMES.map((theme) => theme.id),
-  families: [...new Set([DEFAULT_FAMILY, ...Object.keys(DEFAULTS), ...THEMES.map((t) => t.family)])],
+  families: [
+    ...new Set([DEFAULT_FAMILY, ...Object.keys(DEFAULTS), ...THEMES.map((t) => t.family)]),
+  ],
 };
 
 /**
@@ -476,7 +478,9 @@ function initLab(wheel, context) {
   const copyButton = requireElement('copy-export', HTMLButtonElement);
 
   const targetRow = requireElement('target-row', HTMLElement);
-  const targetButtons = /** @type {HTMLElement[]} */ ([...targetRow.querySelectorAll('[data-target]')]);
+  const targetButtons = /** @type {HTMLElement[]} */ ([
+    ...targetRow.querySelectorAll('[data-target]'),
+  ]);
   /** @type {Array<[HTMLElement, LabState]>} */
   const targetSwatches = [...targetRow.querySelectorAll('[data-target-swatch]')].map((node) => [
     /** @type {HTMLElement} */ (node),

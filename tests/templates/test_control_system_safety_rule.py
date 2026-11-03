@@ -19,49 +19,15 @@ The block belongs to the Channel Access wire: every deployment whose connector
 speaks Channel Access gets it, and no other render does.
 """
 
-from pathlib import Path
-
 import pytest
 import yaml
 from jinja2 import TemplateRuntimeError
 from tests._control_system import IN_PROCESS, section_for
-from tests._preset_data import bundle_data_root
+from tests._preset_data import create_project_as_built
 
 from osprey.cli.templates import claude_code
 from osprey.cli.templates.manager import TemplateManager
 from osprey_connectors.types import SET_CONTROL_SYSTEM_TYPES, connector_transport
-
-
-def _create_project(manager: TemplateManager, **kwargs) -> Path:
-    """``create_project`` plus the three steps a real build takes next.
-
-    A build renders the framework template, overlays the resolved profile's
-    ``config:`` block onto the result, stamps ``.osprey-manifest.json``, and
-    regenerates ``.claude/`` from the finished config. The template carries
-    only derived and profile-field-derived keys, so a fixture that stops after
-    the render holds half a config — the declarative half is the preset's, and
-    the artifacts rendered before it landed do not know about the deployment's
-    control system, services or servers. These fixtures render from a bundle
-    rather than from a profile, so they overlay the preset ``osprey init``
-    pairs with that bundle.
-    """
-    from osprey.cli.build_profile import resolve_build_profile
-    from osprey.utils.config_writer import config_update_fields
-
-    bundle = kwargs.setdefault("data_bundle", "control_assistant")
-    preset = bundle.replace("_", "-")
-    kwargs.setdefault("data_root", bundle_data_root(bundle))
-    project = manager.create_project(**kwargs)
-    profile, _preset_dir = resolve_build_profile(None, preset=preset)
-    config_update_fields(project / "config.yml", profile.config)
-    manager.generate_manifest(
-        project, kwargs["project_name"], preset, {}, artifacts=kwargs.get("artifacts")
-    )
-    # The build's last render, and the one that ships: `create_project` wrote
-    # `.claude/` from a config.yml that did not yet carry the preset's block.
-    manager.regenerate_claude_code(project)
-    return project
-
 
 #: Lines the p4p block must contain, verbatim.
 P4P_LINES = (
@@ -121,7 +87,7 @@ def _render_safety_rule(
     """Scaffold a project, set ``control_system.type``, render the Claude Code
     integration files, and return the rendered safety-rule content."""
     manager = TemplateManager()
-    project_dir = _create_project(
+    project_dir = create_project_as_built(
         manager,
         project_name=project_name,
         output_dir=tmp_path,
@@ -148,20 +114,20 @@ def _render_safety_rule(
     return (project_dir / ".claude" / "rules" / "control-system-safety.md").read_text()
 
 
-def test_epics_rule_names_p4p(tmp_path):
-    """The ``epics`` branch carries the full p4p prohibition block."""
-    content = _render_safety_rule(tmp_path, "p4p-epics", "epics")
+@pytest.mark.parametrize(
+    ("project_name", "control_system_type"),
+    [
+        # The ``epics`` branch carries the full p4p prohibition block.
+        pytest.param("p4p-epics", "epics", id="epics"),
+        # ``virtual_accelerator`` shares the EPICS branch, so it shares the block.
+        pytest.param("p4p-va", "virtual_accelerator", id="virtual-accelerator"),
+    ],
+)
+def test_rule_names_p4p(tmp_path, project_name, control_system_type):
+    content = _render_safety_rule(tmp_path, project_name, control_system_type)
 
     for marker in P4P_MARKERS:
-        assert marker in content, f"epics rule missing p4p marker: {marker!r}"
-
-
-def test_virtual_accelerator_rule_names_p4p(tmp_path):
-    """``virtual_accelerator`` shares the EPICS branch, so it shares the block."""
-    content = _render_safety_rule(tmp_path, "p4p-va", "virtual_accelerator")
-
-    for marker in P4P_MARKERS:
-        assert marker in content, f"virtual_accelerator rule missing p4p marker: {marker!r}"
+        assert marker in content, f"{control_system_type} rule missing p4p marker: {marker!r}"
 
 
 def test_both_client_flavors_and_rpc_carry_bypass_annotations(tmp_path):
@@ -352,7 +318,12 @@ def test_rule_heading_contract_intact(tmp_path):
 
 def test_routing_section_renders_for_every_control_system_type(tmp_path):
     """The routing cases are about tools, not protocols, so every render gets
-    them -- an in-process deployment routes requests the same way an EPICS one does."""
+    them -- an in-process deployment routes requests the same way an EPICS one does.
+
+    The section must also carry no protocol-specific text: ``epics`` and
+    ``virtual_accelerator`` are included because those are the only renders
+    where the string ``EPICS`` exists elsewhere in the document -- they are
+    where a leak into the routing section would actually be caught."""
     for cs_type in (
         "epics",
         "virtual_accelerator",
@@ -367,24 +338,6 @@ def test_routing_section_renders_for_every_control_system_type(tmp_path):
         assert ROUTING_HEADING in content, f"{label}: routing section missing"
         for case in ROUTING_CASES:
             assert case in content, f"{label}: missing routing case: {case!r}"
-
-
-def test_routing_section_is_protocol_neutral(tmp_path):
-    """The section must carry no protocol-specific text: it renders on every
-    control-system type, and ``epics``/``virtual_accelerator`` are included
-    because those are the only renders where the string ``EPICS`` exists
-    elsewhere in the document -- they are where a leak into the routing
-    section would actually be caught."""
-    for cs_type in (
-        "epics",
-        "virtual_accelerator",
-        "live_standin",
-        "tango",
-        IN_PROCESS,
-        None,
-    ):
-        label = cs_type or "preset"
-        content = _render_safety_rule(tmp_path / label, f"neutral-{label}", cs_type)
 
         start = content.index(ROUTING_HEADING)
         next_heading = content.find("\n## ", start + len(ROUTING_HEADING))
@@ -411,10 +364,10 @@ def test_routing_section_states_the_write_path_asymmetry(tmp_path):
     assert f"`{OUTCOME_KEY}`" in WRITE_PATH_SENTENCE
 
 
-def test_routing_section_without_bluesky_refuses_the_write_loop(tmp_path):
+def test_routing_section_without_bluesky_leaves_the_form_to_the_agent(tmp_path):
     """The scaffolded hello_world project runs only the ``controls`` server, so
     this is the shape a real queue-less deployment renders: the multi-setting
-    case still appears, and it forbids substituting a loop of writes.
+    case still appears, and it names both forms without forbidding either.
 
     hello-world rather than control-assistant: the latter's preset arms the
     Bluesky lane, so a project built from it has a queue and cannot reach this
@@ -424,9 +377,10 @@ def test_routing_section_without_bluesky_refuses_the_write_loop(tmp_path):
 
     prose = " ".join(content.split())
     assert "**Multi-setting measurements** — no queue is configured in this deployment." in prose
-    assert "Do not stand in for one with a loop of `channel_write` calls" in prose
-    assert "an `execute` script that steps the setpoint" in prose
-    assert "tell the operator what the measurement would require" in prose
+    assert "Pick the form that fits the work" in prose
+    assert "separate `channel_write` calls" in prose
+    assert "one `execute` script through `osprey.runtime`" in prose
+    assert "Do not stand in for one" not in prose
 
     # Nothing may point at a queue this deployment does not have.
     assert "Bluesky" not in content
@@ -521,15 +475,6 @@ def test_non_epics_branches_have_no_pvaccess_lines(cs_type):
     assert "RpcClient" not in content
 
 
-def test_the_simulator_in_process_renders_no_epics_prohibition(tmp_path):
-    """The simulator in process speaks no Channel Access, so the rule names no
-    EPICS client to keep away from — there is no wire for one to reach."""
-    content = _render_safety_rule(tmp_path, "safety-in-process", IN_PROCESS)
-
-    assert "epics.caput" not in content
-    assert "p4p" not in content
-
-
 #: Every section word a direct render is asked about, with the wire's libraries.
 CA_TYPES = ("epics", "virtual_accelerator", "live_standin")
 NO_WIRE_TYPES = (IN_PROCESS, CUSTOM_TYPE)
@@ -606,3 +551,35 @@ def test_a_wire_with_no_block_stops():
 def test_every_transport_the_seam_returns_has_a_block(cs_type):
     """A transport the connector seam gains without a block here fails this."""
     _render_template_directly(cs_type, set())
+
+
+def _render_switch_section() -> str:
+    """The switch-aware rule, whitespace-normalised (the prose is hard-wrapped)."""
+    template = TemplateManager().jinja_env.get_template(
+        "claude_code/claude/rules/control-system-safety.md.j2"
+    )
+    raw = template.render(
+        control_system_transport="ca",
+        enabled_servers={"controls"},
+        target_switch_enabled=True,
+    )
+    return " ".join(raw.split())
+
+
+def test_the_stand_in_is_described_in_the_owner_facing_machine_words():
+    """The rule says what the chip and the approval card say: the rehearsal's
+    "nothing moves" holds only while the stand-in is actually stood up, and a
+    ``standin`` that is not reads as the real machine."""
+    content = _render_switch_section()
+
+    assert "**Rehearsal — nothing moves** only while this deployment has actually stood" in content
+    assert "shows as **Live — writes move hardware**" in content
+
+
+def test_the_stand_in_is_no_longer_called_a_live_machine():
+    """The retired label words: a rule naming them sends the agent looking for
+    a label no surface prints any more."""
+    content = _render_switch_section()
+
+    assert "LIVE MACHINE" not in content
+    assert "(stand-in)" not in content

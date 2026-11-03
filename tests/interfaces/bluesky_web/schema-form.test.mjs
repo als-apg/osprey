@@ -186,7 +186,13 @@ describe('orm schema (channel lists + segmented sweep + bounded scalars + layout
 
     // Five labeled rows, in schema order.
     const names = $$(form, '.field-name').map((n) => n.textContent);
-    expect(names).toEqual(['Correctors', 'BPMs', 'Max kick (A)', 'Number of steps', 'Sweep direction']);
+    expect(names).toEqual([
+      'Correctors',
+      'BPMs',
+      'Max kick (A)',
+      'Number of steps',
+      'Sweep direction',
+    ]);
 
     // Both device lists render as the vertical channel-list widget — not the
     // wrapping chip well, and not a lone text box.
@@ -741,9 +747,9 @@ describe('applyValues (field registry / programmatic draft application)', () => 
     collect.applyValues({ correctors: ['HCM9'] });
 
     expect(addInput.value).toBe('');
-    expect($$(correctors, '.channel-item').map((li) => $(li, '.channel-name').textContent)).toEqual([
-      'HCM9',
-    ]);
+    expect($$(correctors, '.channel-item').map((li) => $(li, '.channel-name').textContent)).toEqual(
+      ['HCM9']
+    );
     expect(collect().correctors).toEqual(['HCM9']);
 
     // A subsequent apply-to-empty clears the list entirely.

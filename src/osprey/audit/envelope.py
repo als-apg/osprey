@@ -16,11 +16,23 @@ executor surface, where the refused code *is* the artifact under audit and a
 record without it would be an alert rather than an audit trail; that field is
 therefore refused on every other surface (:data:`SURFACE_EXECUTOR`).
 
+The second documented exception is a control-session write
+(:class:`osprey.runtime.session.ControlSession`, recorded under the surface its
+caller names): it records the value it sent, as the last two ``detail`` tokens
+``value_len=<n> value=<text>`` (the text cut at :data:`SESSION_VALUE_CHARS`,
+then written as a JSON string with no whitespace, so a value cannot forge a
+token).
+Such a write is one operator click with no tool call behind it, so there is no
+``tool_call`` record to hold the value, and an audit of a machine write that
+cannot say what was written is not one. The tokens are named in
+:data:`SESSION_VALUE_TOKENS`; every other field of a session-write record
+follows the rule above.
+
 The audit trail has two kinds of surface. The default surfaces are built from
-this envelope and are value-free by the rule above. The opt-in ``tool_call``
+this envelope and are value-free by the rule above. The ``tool_call``
 surface (:mod:`osprey.audit.tool_call`) is the one place values are recorded —
-the full arguments and result of each tool call — and it does not use this
-envelope; the ``tool_use_id`` both carry is what joins them.
+what each tool call ran against and the facts it noted — and it does not use
+this envelope; the ``tool_use_id`` both carry is what joins them.
 
 **Provenance is stated, never inferred.** :attr:`~AuditEnvelope.posture_source`
 is a closed set (:data:`POSTURE_SOURCES`) that says *how* the posture in the
@@ -37,8 +49,8 @@ flagged via :attr:`~AuditEnvelope.source_truncated`, because a truncated script
 that did not say so would read like the whole script.
 
 This module is **schema only** — it writes nothing. The writer that turns an
-envelope into a line of ``var/audit/<identity>/<surface>.jsonl`` lives beside
-it in ``osprey.audit.writer``. Like ``osprey.utils.sensitive_env``, it stays a
+envelope into an ``audit`` entry of the agent record lives beside it in
+``osprey.audit.writer``. Like ``osprey.utils.sensitive_env``, it stays a
 stdlib-only leaf: the writer, the MCP middleware, the HTTP layer and the hooks
 all import it, and none of them may inherit an import cycle by doing so.
 """
@@ -92,6 +104,15 @@ POSTURE_SOURCES: tuple[str, ...] = (
 #: a payload leak rather than evidence.
 SURFACE_EXECUTOR = "executor"
 
+#: The ``detail`` tokens that carry a value, on a control-session write only
+#: (see the module docstring). Its tokens, in order:
+#: ``channel= screen= rev= ca_user= ca_host= value_len= value=``. The value
+#: tokens come last, so a long value never hides the identifiers before them.
+SESSION_VALUE_TOKENS: tuple[str, ...] = ("value_len", "value")
+
+#: Characters of the written value kept in the ``value=`` token.
+SESSION_VALUE_CHARS = 256
+
 #: Canonical spellings for :attr:`AuditEnvelope.decision`. Unlike
 #: :data:`POSTURE_SOURCES` this set is *not* enforced — a future surface may
 #: need a word these two do not cover — but an emitter with nothing better to
@@ -103,7 +124,12 @@ DECISIONS: tuple[str, ...] = (DECISION_ALLOWED, DECISION_REFUSED)
 #: The answer to an approval prompt, each filed as its own record on the
 #: approval hook's surface: ``approved`` when the call the prompt asked about
 #: ran, ``denied`` when the turn ended without it. Canonical spellings only,
-#: like the two above.
+#: like the two above. A governed write the write switch's ``allowed`` position
+#: approved files ``approved`` too, with reason ``switch``.
+#:
+#: The switch position never rides in ``decision``: ``allowed`` here is the
+#: admitted-call word whatever the switch said. The position's one home is the
+#: approval stamp's ``position`` field, copied into ``tool_call.approval``.
 DECISION_APPROVED = "approved"
 DECISION_DENIED = "denied"
 
@@ -144,7 +170,7 @@ def terminal_session() -> str | None:
     """The terminal session this process was launched under, or ``None``.
 
     What a record's ``session`` falls back to when its emitter had no posture
-    session to give. Both record shapes — :class:`AuditEnvelope` and the full
+    session to give. Both record shapes — :class:`AuditEnvelope` and the
     ``tool_call`` record — resolve the fallback here, so no emitter does.
     Read per call: a launcher sets the variable on the child it spawns, and a
     value captured at import would be the parent's. Bounded like every other
@@ -216,8 +242,8 @@ class AuditEnvelope:
         config value, a prompt, or an agent message.
     :param role: The role the actor held, where the decision was identity-bound.
     :param tool_use_id: The agent harness's id for the tool call this decision
-        is about — an identifier that joins this record to the full
-        ``tool_call`` record and to the harness's own telemetry. Omitted where
+        is about — an identifier that joins this record to the
+        ``tool_call`` record and to the harness's own transcript. Omitted where
         no tool call exists (HTTP, login, restore).
     :param source: The offending code, on :data:`SURFACE_EXECUTOR` only.
         Bounded to :data:`MAX_SOURCE_CHARS`; a :class:`ValueError` on any other

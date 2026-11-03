@@ -17,14 +17,14 @@ CONFIG_TEMPLATE = """\
 services:
   postgresql:
     path: ./services/postgresql
-  telemetry_store:
-    path: ./services/telemetry_store
-    port: 10804         # Host port
+  qmd:
+    path: ./services/qmd
+    port: 10060         # Host port
 
 # Services to deploy with `osprey up`
 deployed_services:
   - postgresql
-  - telemetry_store
+  - qmd
 
 # ============================================================
 # SAFETY CONTROLS
@@ -59,8 +59,32 @@ def test_inject_va_keeps_section_banner_after_deployed_services(tmp_path):
     assert _line_no(text, "# Approval workflow") < _line_no(text, "approval:")
 
     config = pyyaml.safe_load(text)
-    assert config["deployed_services"] == ["postgresql", "telemetry_store", "virtual_accelerator"]
+    assert config["deployed_services"] == ["postgresql", "qmd", "virtual_accelerator"]
     assert config["services"]["virtual_accelerator"] == {
         "path": "./services/virtual_accelerator",
         "port": 5064,
     }
+
+
+def test_init_set_pva_port_stays_in_the_virtual_accelerator_section() -> None:
+    """A key ``osprey init --set`` adds to a block renders before the next section's comment."""
+    from osprey.cli.build_profile_emit import emit_standalone_profile_yaml
+
+    text = emit_standalone_profile_yaml(
+        "control-assistant",
+        ("virtual_accelerator.pva_port=5175",),
+        "demo",
+        project_name="demo",
+    )
+
+    live = _line_no(text, "  pva_port: 5175")
+    assert _line_no(text, "virtual_accelerator:") < live
+    # The comment introducing the next top-level key still sits directly above it.
+    assert live < _line_no(text, "# The block's presence is the switch, and its only key")
+    assert _line_no(text, "# The block's presence is the switch, and its only key") < _line_no(
+        text, "bluesky_web:"
+    )
+
+    profile = pyyaml.safe_load(text)
+    assert profile["virtual_accelerator"]["pva_port"] == 5175
+    assert profile["bluesky_web"] == {}

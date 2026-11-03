@@ -14,10 +14,11 @@ are hot. `control_system.type` stays cold too, but its note now has a job the
 others do not have: telling the operator that changing control *target* is a
 run-time tool call (`control_target_set`), not a config edit and a rebuild.
 
-Write posture is per connector type, so the skill table carries a row for
-`control_system.connector.<type>.writes_enabled` as well. Like the probe
-channel, that key is per-type and so has no exact-match note in the tool — the
-table is the only place an operator learns it exists.
+Write posture is one tier key, `control_system.writes`, for every machine the
+deployment has. The per-type `writes_enabled` leaves are retired: the skill
+table carries the tier row and no row for a retired spelling (the upgrade path
+lives in the connector contracts page, and tests/test_no_retired_write_keys.py
+keeps it there).
 """
 
 import pytest
@@ -118,20 +119,21 @@ def test_per_type_write_posture_keeps_the_generic_connector_classification(key_p
     assert note.startswith("cold")
 
 
-def test_skill_table_documents_the_per_type_write_posture():
-    """The table must name the key that answers instead of the flat one.
+def test_skill_table_documents_the_tier_and_no_retired_write_key():
+    """The table names the tier key once and no retired per-type spelling.
 
-    A per-type block is what makes a deployment armed on one machine and not
-    the other, so a table that lists only `control_system.writes_enabled`
-    describes a posture the deployment may not have.
+    The per-type `writes_enabled` leaves were retired for `control_system.writes`
+    (a ceiling for every machine); a row for a retired key would send an
+    operator to a spelling the build warns on and later refuses.
     """
     # Arrange / Act
-    rows = _skill_rows("control_system.connector.<type>.writes_enabled")
+    tier_rows = _skill_rows("control_system.writes")
+    retired_rows = _skill_rows("control_system.connector.<type>.writes_enabled")
 
     # Assert
-    assert len(rows) == 1, f"expected one per-type writes_enabled row, got {rows}"
-    assert "| Cold |" in rows[0]
-    assert "| Hot |" not in rows[0]
+    assert len(tier_rows) == 1, f"expected one control_system.writes row, got {tier_rows}"
+    assert "| Cold |" in tier_rows[0]
+    assert retired_rows == [], f"retired per-type row still listed: {retired_rows}"
 
 
 def test_control_system_type_stays_cold_and_points_at_the_run_time_switch():

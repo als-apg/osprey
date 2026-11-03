@@ -24,7 +24,7 @@ import json
 import pytest
 
 from osprey.registry.mcp import FRAMEWORK_SERVERS, RENDERED_CONFIG_ENV_VALUE, resolve_servers
-from osprey_connectors.workspace import DEFAULT_AGENT_DATA_BASE_DIR
+from tests.registry._ctx import render_ctx
 
 #: The full graph tool vocabulary, spelled as a literal so a renamed or dropped
 #: tool fails here rather than silently shrinking the allowlist.
@@ -44,22 +44,9 @@ _GRAPH_TOOLS = {"capabilities", "example_queries", "get_schema", "read_cypher"}
 _CONDITION_KEY = "graphdb_configured"
 
 
-def _base_ctx(**overrides):
-    ctx = {
-        "project_root": "/tmp/test-project",
-        "current_python_env": "/usr/bin/python3",
-        # Part of the render funnel's minimum: settings.json.j2 concatenates it
-        # into the Read() globs, so a ctx without it renders filesystem-root
-        # grants that no real render produces.
-        "agent_data_root": DEFAULT_AGENT_DATA_BASE_DIR,
-    }
-    ctx.update(overrides)
-    return ctx
-
-
 def _configured_ctx(**overrides):
     """A context that declares a graph store, so the condition is truthy."""
-    return _base_ctx(**{_CONDITION_KEY: True, **overrides})
+    return render_ctx(**{_CONDITION_KEY: True, **overrides})
 
 
 def _get_graph(servers: list[dict]) -> dict:
@@ -142,7 +129,7 @@ class TestGraphResolved:
     """The resolved server dict has the correct shape for template rendering."""
 
     def test_disabled_without_a_configured_graph_store(self):
-        graph = _get_graph(resolve_servers({}, _base_ctx()))
+        graph = _get_graph(resolve_servers({}, render_ctx()))
         assert graph["enabled"] is False
 
     def test_enabled_when_the_context_declares_a_graph_store(self):
@@ -226,14 +213,8 @@ class TestGraphToolVocabulary:
 class TestGraphTemplates:
     """The graph server renders correctly — and only when it is configured."""
 
-    @pytest.fixture()
-    def template_manager(self):
-        from osprey.cli.templates.manager import TemplateManager
-
-        return TemplateManager()
-
     def _full_ctx(self, **overrides):
-        ctx = _base_ctx(**overrides)
+        ctx = render_ctx(**overrides)
         ctx.setdefault("facility_permissions", {})
         ctx["servers"] = resolve_servers({}, ctx)
         ctx["agents"] = []

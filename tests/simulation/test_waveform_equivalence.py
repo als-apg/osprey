@@ -205,7 +205,7 @@ def store(mongodb_container):  # noqa: F811
 @pytest.fixture
 def connector_config(mongodb_container, store, monkeypatch):  # noqa: F811
     """The connector config of the store, password by environment name."""
-    from osprey_connectors.archiver import HOST_OVERRIDE_ENV, PORT_OVERRIDE_ENV
+    from osprey_connectors.archiver._mongo_client import HOST_OVERRIDE_ENV, PORT_OVERRIDE_ENV
 
     monkeypatch.delenv(HOST_OVERRIDE_ENV, raising=False)
     monkeypatch.delenv(PORT_OVERRIDE_ENV, raising=False)
@@ -257,7 +257,13 @@ def read_tool(connector, tmp_path, monkeypatch):
     from tests.mcp_server.conftest import get_tool_fn
 
     monkeypatch.chdir(tmp_path)
-    (tmp_path / "config.yml").write_text("archiver:\n  type: mongodb_archiver\n")
+    # A deployment that built its simulator: the store is then the va target's
+    # archive, the only machine a seeded (and recorded) past belongs to.
+    (tmp_path / "config.yml").write_text(
+        "archiver:\n  type: mongodb_archiver\n"
+        "control_system:\n  type: virtual_accelerator\n"
+        "services:\n  virtual_accelerator:\n    port: 5064\n"
+    )
     reset_artifact_store()
     initialize_server_context()
     try:
@@ -368,7 +374,21 @@ async def test_a_live_hour_records_sixty_traces_each_the_pulse_of_its_minute(
         retention_days=1,
     )
     config_path = tmp_path / "config.yml"
-    config_path.write_text(yaml.safe_dump({"control_system": {"type": "virtual_accelerator"}}))
+    # The recorder samples the va target only, and only when the va target
+    # dials the simulator this deployment built (loopback, published port).
+    config_path.write_text(
+        yaml.safe_dump(
+            {
+                "control_system": {
+                    "type": "virtual_accelerator",
+                    "connector": {
+                        "virtual_accelerator": {"gateways": {"read_only": {"address": "localhost"}}}
+                    },
+                },
+                "services": {"virtual_accelerator": {"port": 5064}},
+            }
+        )
+    )
     writer = ArchiveWriter(settings, mongo_login["password"])
     writer.connect()
     recorder = Recorder(

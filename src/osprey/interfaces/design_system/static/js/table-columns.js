@@ -178,7 +178,10 @@ export function setColumnHidden(specs, layout, key, hidden) {
  * @returns {boolean}
  */
 export function isDefaultLayout(specs, layout) {
-  return JSON.stringify(serializeLayout(layout)) === JSON.stringify(serializeLayout(defaultLayout(specs)));
+  return (
+    JSON.stringify(serializeLayout(layout)) ===
+    JSON.stringify(serializeLayout(defaultLayout(specs)))
+  );
 }
 
 /**
@@ -186,7 +189,11 @@ export function isDefaultLayout(specs, layout) {
  * @returns {StoredLayout}
  */
 export function serializeLayout(layout) {
-  return { order: [...layout.order], widths: { ...layout.widths }, hidden: [...layout.hidden].sort() };
+  return {
+    order: [...layout.order],
+    widths: { ...layout.widths },
+    hidden: [...layout.hidden].sort(),
+  };
 }
 
 /**
@@ -221,7 +228,10 @@ export function restoreLayout(specs, stored) {
   // predecessor, so a new release's column appears where it was designed to.
   for (const [i, key] of base.order.entries()) {
     if (unique.includes(key)) continue;
-    const prev = base.order.slice(0, i).reverse().find((k) => unique.includes(k));
+    const prev = base.order
+      .slice(0, i)
+      .reverse()
+      .find((k) => unique.includes(k));
     unique.splice(prev === undefined ? 0 : unique.indexOf(prev) + 1, 0, key);
   }
 
@@ -230,13 +240,18 @@ export function restoreLayout(specs, stored) {
     for (const spec of specs) {
       const w = Number(raw.widths[spec.key]);
       if (!isPinned(spec) && Number.isFinite(w)) {
-        widths[spec.key] = Math.min(MAX_WIDTH, Math.max(spec.minWidth ?? DEFAULT_MIN_WIDTH, Math.round(w)));
+        widths[spec.key] = Math.min(
+          MAX_WIDTH,
+          Math.max(spec.minWidth ?? DEFAULT_MIN_WIDTH, Math.round(w))
+        );
       }
     }
   }
 
   const hidden = Array.isArray(raw.hidden)
-    ? new Set(raw.hidden.filter((/** @type {unknown} */ k) => typeof k === 'string' && movable.has(k)))
+    ? new Set(
+        raw.hidden.filter((/** @type {unknown} */ k) => typeof k === 'string' && movable.has(k))
+      )
     : base.hidden;
   const layout = { order: unique, widths, hidden: /** @type {Set<string>} */ (hidden) };
   // Never restore into a table with every movable column hidden.
@@ -301,9 +316,10 @@ export function attachColumnGestures(region, gestures) {
   let drag = null;
   let swallowClick = false;
 
-  const movableHeads = () => /** @type {HTMLElement[]} */ (
-    [...region.querySelectorAll('thead th[data-col]:not([data-pinned])')]
-  );
+  const movableHeads = () =>
+    /** @type {HTMLElement[]} */ ([
+      ...region.querySelectorAll('thead th[data-col]:not([data-pinned])'),
+    ]);
 
   const endDrag = () => {
     if (drag && drag.kind !== 'resize') {
@@ -316,75 +332,100 @@ export function attachColumnGestures(region, gestures) {
     drag = null;
   };
 
-  region.addEventListener('pointerdown', (e) => {
-    if (e.button !== 0 || !(e.target instanceof Element)) return;
-    const handle = e.target.closest('.col-resize[data-resize]');
-    if (handle instanceof HTMLElement) {
-      const key = handle.dataset.resize ?? '';
-      const th = handle.closest('th');
-      drag = { kind: 'resize', key, x0: e.clientX, w0: th ? th.getBoundingClientRect().width : 0 };
-      handle.setPointerCapture?.(e.pointerId);
-      doc.body.classList.add('col-resizing');
-      e.preventDefault();
-      return;
-    }
-    const th = e.target.closest('thead th[data-col]:not([data-pinned])');
-    if (th instanceof HTMLElement && !e.target.closest('input, button, a')) {
-      // No text selection from a header press: the press may become a drag,
-      // and the click that sorts still fires without the default.
-      e.preventDefault();
-      drag = { kind: 'press', key: th.dataset.col ?? '', x0: e.clientX, th, target: null, before: true, ghost: null, line: null };
-    }
-  }, { signal });
+  region.addEventListener(
+    'pointerdown',
+    (e) => {
+      if (e.button !== 0 || !(e.target instanceof Element)) return;
+      const handle = e.target.closest('.col-resize[data-resize]');
+      if (handle instanceof HTMLElement) {
+        const key = handle.dataset.resize ?? '';
+        const th = handle.closest('th');
+        drag = {
+          kind: 'resize',
+          key,
+          x0: e.clientX,
+          w0: th ? th.getBoundingClientRect().width : 0,
+        };
+        handle.setPointerCapture?.(e.pointerId);
+        doc.body.classList.add('col-resizing');
+        e.preventDefault();
+        return;
+      }
+      const th = e.target.closest('thead th[data-col]:not([data-pinned])');
+      if (th instanceof HTMLElement && !e.target.closest('input, button, a')) {
+        // No text selection from a header press: the press may become a drag,
+        // and the click that sorts still fires without the default.
+        e.preventDefault();
+        drag = {
+          kind: 'press',
+          key: th.dataset.col ?? '',
+          x0: e.clientX,
+          th,
+          target: null,
+          before: true,
+          ghost: null,
+          line: null,
+        };
+      }
+    },
+    { signal }
+  );
 
-  region.addEventListener('pointermove', (e) => {
-    if (!drag) return;
-    if (drag.kind === 'resize') {
-      gestures.onResizing(drag.key, drag.w0 + (e.clientX - drag.x0));
-      return;
-    }
-    if (drag.kind === 'press') {
-      if (Math.abs(e.clientX - drag.x0) < DRAG_THRESHOLD) return;
-      drag.kind = 'move';
-      // A press on header text may already have begun a text selection that
-      // would otherwise sweep across the rows for the rest of the drag.
-      doc.getSelection?.()?.removeAllRanges();
-      drag.th.setPointerCapture?.(e.pointerId);
-      drag.th.classList.add('col-drag-source');
-      doc.body.classList.add('col-dragging');
-      drag.ghost = doc.createElement('div');
-      drag.ghost.className = 'col-drag-ghost';
-      drag.ghost.textContent = drag.th.textContent?.trim() ?? '';
-      doc.body.appendChild(drag.ghost);
-      drag.line = doc.createElement('div');
-      drag.line.className = 'col-drop-line';
-      doc.body.appendChild(drag.line);
-    }
-    if (drag.ghost) {
-      drag.ghost.style.left = `${e.clientX + 12}px`;
-      drag.ghost.style.top = `${e.clientY + 12}px`;
-    }
-    // The drop slot is the gap nearest the cursor: before the first header
-    // whose midpoint lies right of it, else after the last.
-    const heads = movableHeads();
-    let target = null;
-    let before = true;
-    for (const head of heads) {
-      const r = head.getBoundingClientRect();
-      target = head;
-      if (e.clientX < r.left + r.width / 2) { before = true; break; }
-      before = false;
-    }
-    drag.target = target?.dataset.col ?? null;
-    drag.before = before;
-    if (target && drag.line) {
-      const r = target.getBoundingClientRect();
-      const wrap = target.closest('table')?.parentElement?.getBoundingClientRect() ?? r;
-      drag.line.style.left = `${(before ? r.left : r.right) - 1}px`;
-      drag.line.style.top = `${r.top}px`;
-      drag.line.style.height = `${Math.max(r.height, wrap.bottom - r.top)}px`;
-    }
-  }, { signal });
+  region.addEventListener(
+    'pointermove',
+    (e) => {
+      if (!drag) return;
+      if (drag.kind === 'resize') {
+        gestures.onResizing(drag.key, drag.w0 + (e.clientX - drag.x0));
+        return;
+      }
+      if (drag.kind === 'press') {
+        if (Math.abs(e.clientX - drag.x0) < DRAG_THRESHOLD) return;
+        drag.kind = 'move';
+        // A press on header text may already have begun a text selection that
+        // would otherwise sweep across the rows for the rest of the drag.
+        doc.getSelection?.()?.removeAllRanges();
+        drag.th.setPointerCapture?.(e.pointerId);
+        drag.th.classList.add('col-drag-source');
+        doc.body.classList.add('col-dragging');
+        drag.ghost = doc.createElement('div');
+        drag.ghost.className = 'col-drag-ghost';
+        drag.ghost.textContent = drag.th.textContent?.trim() ?? '';
+        doc.body.appendChild(drag.ghost);
+        drag.line = doc.createElement('div');
+        drag.line.className = 'col-drop-line';
+        doc.body.appendChild(drag.line);
+      }
+      if (drag.ghost) {
+        drag.ghost.style.left = `${e.clientX + 12}px`;
+        drag.ghost.style.top = `${e.clientY + 12}px`;
+      }
+      // The drop slot is the gap nearest the cursor: before the first header
+      // whose midpoint lies right of it, else after the last.
+      const heads = movableHeads();
+      let target = null;
+      let before = true;
+      for (const head of heads) {
+        const r = head.getBoundingClientRect();
+        target = head;
+        if (e.clientX < r.left + r.width / 2) {
+          before = true;
+          break;
+        }
+        before = false;
+      }
+      drag.target = target?.dataset.col ?? null;
+      drag.before = before;
+      if (target && drag.line) {
+        const r = target.getBoundingClientRect();
+        const wrap = target.closest('table')?.parentElement?.getBoundingClientRect() ?? r;
+        drag.line.style.left = `${(before ? r.left : r.right) - 1}px`;
+        drag.line.style.top = `${r.top}px`;
+        drag.line.style.height = `${Math.max(r.height, wrap.bottom - r.top)}px`;
+      }
+    },
+    { signal }
+  );
 
   const finish = (/** @type {PointerEvent} */ e) => {
     if (!drag) return;
@@ -393,7 +434,8 @@ export function attachColumnGestures(region, gestures) {
       swallowClick = true;
     } else if (drag.kind === 'move') {
       swallowClick = true;
-      if (drag.target && drag.target !== drag.key) gestures.onMove(drag.key, drag.target, drag.before);
+      if (drag.target && drag.target !== drag.key)
+        gestures.onMove(drag.key, drag.target, drag.before);
     }
     endDrag();
   };
@@ -401,24 +443,38 @@ export function attachColumnGestures(region, gestures) {
   region.addEventListener('pointercancel', () => endDrag(), { signal });
 
   // Capture phase: runs before the caller's own click handler on the header.
-  region.addEventListener('click', (e) => {
-    if (!swallowClick) return;
-    swallowClick = false;
-    e.stopPropagation();
-    e.preventDefault();
-  }, { signal, capture: true });
+  region.addEventListener(
+    'click',
+    (e) => {
+      if (!swallowClick) return;
+      swallowClick = false;
+      e.stopPropagation();
+      e.preventDefault();
+    },
+    { signal, capture: true }
+  );
   // A gesture that ended without a click (released outside) must not leave
   // the flag armed for the next, unrelated click.
-  region.addEventListener('pointerdown', () => { swallowClick = false; }, { signal, capture: true });
+  region.addEventListener(
+    'pointerdown',
+    () => {
+      swallowClick = false;
+    },
+    { signal, capture: true }
+  );
 
-  region.addEventListener('dblclick', (e) => {
-    if (!(e.target instanceof Element)) return;
-    const handle = e.target.closest('.col-resize[data-resize]');
-    if (handle instanceof HTMLElement) {
-      e.preventDefault();
-      gestures.onAutosize(handle.dataset.resize ?? '');
-    }
-  }, { signal });
+  region.addEventListener(
+    'dblclick',
+    (e) => {
+      if (!(e.target instanceof Element)) return;
+      const handle = e.target.closest('.col-resize[data-resize]');
+      if (handle instanceof HTMLElement) {
+        e.preventDefault();
+        gestures.onAutosize(handle.dataset.resize ?? '');
+      }
+    },
+    { signal }
+  );
 
   return () => {
     endDrag();

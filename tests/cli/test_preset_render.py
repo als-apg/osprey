@@ -62,14 +62,14 @@ from osprey.cli.init_cmd import init
 from osprey.cli.profile_conventions import SETUP_PATCH_TOOL, is_setup_patch_capable
 from osprey.deployment.web_terminals.auth_credentials import seeded_logins
 from osprey.deployment.web_terminals.lint import lint_web_terminals
-from osprey_connectors.workspace import APPS_DIRNAME, TIERS_DIRNAME
+from osprey.utils.workspace import APPS_DIRNAME, TIERS_DIRNAME
+from tests.cli._lifecycle_build import rendered_config
 
 CONTROL_SYSTEM_TYPE_KEY = "control_system.type"
 DENY_KEY = "claude_code.permissions.deny"
 REMOVE_DENY_KEY = "claude_code.permissions.remove_deny"
 CONFIG_PANEL_KEY = "web.config_panel.enabled"
 SCAFFOLD_WRITE_KEY = "web.scaffold_gallery.write_enabled"
-UI_MODE_KEY = "web.ui_mode"
 WEB_TERMINALS_KEY = "modules.web_terminals"
 SEEDED_PASSWORD_CODE = "web_terminals.auth_seeded_password"
 
@@ -305,7 +305,7 @@ class TestControlAssistantSeededLogins:
 
     def test_the_shipped_demo_starts_on_loopback(self, rendered_preset_repo: Path) -> None:
         """On this machine the demo logins are the demo, and nothing refuses them."""
-        config = yaml.safe_load((rendered_preset_repo / "build" / "config.yml").read_text())
+        config = rendered_config(rendered_preset_repo)
 
         findings = lint_web_terminals(config, project_root=rendered_preset_repo)
 
@@ -314,7 +314,7 @@ class TestControlAssistantSeededLogins:
     def test_the_shipped_demo_is_refused_off_loopback(self, rendered_preset_repo: Path) -> None:
         """Pointed at a real host, every demo login with a published password is
         named, and the shared cards, which publish none, are not."""
-        config = yaml.safe_load((rendered_preset_repo / "build" / "config.yml").read_text())
+        config = rendered_config(rendered_preset_repo)
         config = copy.deepcopy(config)
         config["deploy"]["fqdn"] = "ops.example.org"
 
@@ -391,7 +391,6 @@ class TestControlAssistantAdminPreset:
         admin = resolve_preset(ADMIN_LAYER)
         assert admin.deploy_services is False
         assert admin.config.get(f"{WEB_TERMINALS_KEY}.enabled") is False
-        assert admin.config.get(UI_MODE_KEY) == "expert"
 
     def test_base_catalog_deploys_the_admin_render(self) -> None:
         """The admin tier exists because a bundled file ships it: ``osprey
@@ -535,4 +534,3 @@ class TestControlAssistantRenderedAdmin:
         config = yaml.safe_load((rendered_admin_project / "config.yml").read_text("utf-8"))
         assert config["web"]["config_panel"]["enabled"] is True
         assert config["web"]["scaffold_gallery"]["write_enabled"] is True
-        assert config["web"]["ui_mode"] == "expert"

@@ -142,7 +142,7 @@ def _card_parts(repo_root: Path | str, state: str) -> tuple[str, list[tuple[str,
         rows.append(
             (
                 DANGEROUSLY_ALLOW_BASH_KEY,
-                "ON -- a render may run Bash while holding a launch token",
+                "ON -- a render may run a shell (Bash or Monitor) while holding a launch token",
             )
         )
     rows.append(("command output", str(root / SPOOL_DIR)))

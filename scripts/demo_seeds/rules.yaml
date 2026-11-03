@@ -165,19 +165,19 @@
 - class: BeamCurrentMonitor
   signal: beam_intensity_readback
   machine: SR
-  noise: {value: 0.05, unit: A}
-  source: DCCT resolution
+  noise: {value: 0.05, unit: mA}
+  source: DCCT resolution, ~100 ppm of the ~500 mA stored beam
 
 - class: BeamCurrentMonitor
   signal: beam_intensity_readback
   machine: BR
-  noise: {value: 5.0, unit: A}
-  source: shot-to-shot booster current
+  noise: {value: 0.01, unit: mA}
+  source: shot-to-shot booster current, ~1 % of the ~1.2 mA ramped beam
 
 - class: BeamLossMonitor
   signal: dose_rate_readback
-  noise: {value: 1.0, unit: mrem/hr}
-  source: counting statistics at 100 mrem/hr
+  noise: {value: 0.005, unit: mrem/hr}
+  source: counting statistics of an area monitor outside the shield, about 0.05-0.35 mrem/hr
 
 - class: AcceleratingCavity
   signal: frequency_readback
@@ -213,7 +213,7 @@
 
 - class: AcceleratingCavity
   signal: voltage_readback
-  noise: {value: 0.0025, unit: V}
+  noise: {value: 0.0025, unit: MV}
   source: amplitude loop, 0.1 %
 
 - class: Modulator
@@ -228,23 +228,71 @@
 
 - class: Gauge
   signal: vacuum_readback
-  noise: {value: 1.5e-09, unit: Pa}
-  source: gauge reading scatter, 3 % of nominal
+  noise: {value: 1e-11, unit: Torr}
+  source: cold-cathode gauge scatter, about 3 % of 0.3-0.6 nTorr
 
 - class: Pump
   signal: vacuum_readback
-  noise: {value: 1e-11, unit: Pa}
-  source: gauge reading scatter, 1 % of nominal
+  noise: {value: 1e-11, unit: Torr}
+  source: pressure derived from the pump current, about 1 % of 0.5-1.5 nTorr
 
 - class: Pump
   signal: current_readback
-  noise: {value: 1.5, unit: A}
-  source: pump controller readout
+  noise: {value: 0.01, unit: uA}
+  source: pump controller readout of a sub-uA current
 
 - class: Pump
   signal: voltage_readback
   noise: {value: 5, unit: V}
   source: pump HV regulation, 0.1 %
+
+- class: InsertionDevice
+  signal: gap_readback
+  noise: {value: 1, unit: µm}
+  source: gap encoder resolution
+
+- class: InsertionDevice
+  signal: offset_readback
+  noise: {value: 1, unit: µm}
+  source: row-phase encoder resolution
+
+- class: Aperture
+  signal: blade_position_readback
+  noise: {value: 1, unit: µm}
+  source: scraper stepper encoder resolution
+
+- class: TemperatureSensor
+  signal: temperature_readback
+  noise: {value: 0.05, unit: degC}
+  drift:
+    amplitude: {value: 0.2, unit: degC}
+    period_s: {value: 86400, unit: s}
+  source: thermocouple readout; diurnal wander of the tunnel and of the heat load
+
+- class: AirHandler
+  signal: valve_position_readback
+  noise: {value: 0.5, unit: "%"}
+  source: chilled-water valve hunting around its control point
+
+- class: HarmonicCavity
+  signal: tuner_position_readback
+  noise: {value: 1, unit: µm}
+  source: tuner encoder resolution
+
+- class: HarmonicCavity
+  signal: temperature_readback
+  noise: {value: 0.05, unit: degC}
+  source: cavity-body RTD readout
+
+- class: HarmonicCavity
+  signal: coolant_flow_readback
+  noise: {value: 0.1, unit: L/min}
+  source: turbine flow meter scatter
+
+- class: HarmonicCavity
+  signal: power_readback
+  noise: {value: 0.03, unit: kW}
+  source: beam-induced power, scatter with the fill pattern
 
 - class: BeamPositionMonitor
   signal: position_x_readback
@@ -427,7 +475,7 @@
 
 - class: AcceleratingCavity
   signal: voltage_setpoint
-  tolerance: {value: 0.02, unit: V}
+  tolerance: {value: 0.02, unit: MV}
   source: amplitude loop settle band
 
 - class: Modulator
@@ -439,6 +487,26 @@
   signal: voltage_setpoint
   tolerance: {value: 50, unit: V}
   source: ion-pump controller settle band
+
+- class: InsertionDevice
+  signal: gap_setpoint
+  tolerance: {value: 10, unit: µm}
+  source: gap motion deadband
+
+- class: InsertionDevice
+  signal: offset_setpoint
+  tolerance: {value: 10, unit: µm}
+  source: row-phase motion deadband
+
+- class: Aperture
+  signal: blade_position_setpoint
+  tolerance: {value: 10, unit: µm}
+  source: scraper motion deadband
+
+- class: HarmonicCavity
+  signal: tuner_position_setpoint
+  tolerance: {value: 10, unit: µm}
+  source: tuner motion deadband
 
 - class: Dipole
   signal: ramp_offset_setpoint

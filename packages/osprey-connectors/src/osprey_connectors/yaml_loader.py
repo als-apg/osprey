@@ -21,7 +21,6 @@ import yaml
 
 __all__ = [
     "safe_dump",
-    "safe_dumper",
     "safe_load",
     "safe_loader",
 ]
@@ -52,7 +51,7 @@ def safe_load(stream: str | bytes | IO[str] | IO[bytes]) -> Any:
     return yaml.load(stream, Loader=safe_loader())
 
 
-def safe_dumper() -> type[Any]:
+def _safe_dumper() -> type[Any]:
     """The safe dumper class to emit with: libyaml's when present, else PyYAML's.
 
     Resolved at call time, like :func:`safe_loader`.
@@ -83,5 +82,5 @@ def safe_dump(data: Any, stream: IO[str] | None = None, **kwargs: Any) -> str | 
     Raises:
         yaml.representer.RepresenterError: On an object the safe dumper cannot represent.
     """
-    text: str | None = yaml.dump(data, stream, Dumper=safe_dumper(), **kwargs)
+    text: str | None = yaml.dump(data, stream, Dumper=_safe_dumper(), **kwargs)
     return text

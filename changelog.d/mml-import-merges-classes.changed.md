@@ -1,0 +1,1 @@
+`osprey facility import mml` into a tree that already has a `classes.yaml` now appends the classes the import derives and the file lacks, instead of leaving them out and stopping the build on an unknown class. Rows already in the file are kept as written.

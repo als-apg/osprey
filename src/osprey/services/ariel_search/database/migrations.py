@@ -385,7 +385,7 @@ MIGRATION_ARGS: dict[str, Callable[["MigrationRunner"], tuple]] = {
     "image_embedding": _image_embedding_args,
 }
 
-# Format: (name, module_path, class_name, requires_module)
+# Format: (name, module_path, class_name, requires_module)  # noqa: ERA001 -- a tuple shape
 # requires_module is None for core_schema (always runs), otherwise module name
 KNOWN_MIGRATIONS: list[tuple[str, str, str, str | None]] = [
     (

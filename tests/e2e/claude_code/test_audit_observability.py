@@ -4,8 +4,9 @@ Consolidates the execute functional tests and audit verification into
 a single test that exercises the natural user workflow:
   channel_find → archiver_read → plot → PNG artifact
 
-Then verifies that Claude Code native transcripts contain the expected OSPREY
-tool-call events and (optionally) lifecycle events (read via TranscriptReader).
+Then verifies that the agent record holds the expected OSPREY tool-call events
+and (optionally) lifecycle events of the session, read through the record's
+client with a drain naming the session (``read_audit_events``).
 
 Requires:
 - Claude Code CLI installed
@@ -23,6 +24,7 @@ from tests.e2e.sdk_helpers import (
     e2e_budget_scale,
     find_png_files,
     init_project,
+    print_run_summary,
     read_audit_events,
     run_sdk_query_with_hooks,
 )
@@ -41,7 +43,7 @@ _WORKSPACE_PLOT_TOOLS = (
 
 
 class TestAuditObservability:
-    """Natural workflow + transcript-based audit verification."""
+    """Natural workflow + audit verification read from the agent record."""
 
     # Multi-step agentic pipeline (channel-finder -> archiver -> plot -> PNG)
     # on Haiku. Reruns absorb ordinary model non-determinism; the strict
@@ -57,7 +59,7 @@ class TestAuditObservability:
 
         Prompts Claude to find horizontal BPM channels, read archiver data for
         the first one, and create a timeseries plot saved as PNG. Then verifies
-        that session_log can read OSPREY events from Claude Code transcripts.
+        that session_log can read OSPREY events from the agent record.
 
         Runs through ``run_sdk_query_with_hooks`` rather than the bypass runner:
         ``mcp__python__execute`` ships in ``settings.json`` ``permissions.ask``
@@ -97,14 +99,7 @@ class TestAuditObservability:
         )
 
         # -- Debug output --
-        print("\n--- audit + workflow test ---")
-        print(f"  tools called ({len(result.tool_traces)}): {result.tool_names}")
-        print(f"  num_turns: {result.num_turns}")
-        print(f"  cost: ${result.cost_usd:.4f}" if result.cost_usd else "  cost: N/A")
-        print(f"  approval events: {[(e.tool_name, e.decision) for e in result.hook_events]}")
-        print(
-            f"  errored tools: {[(t.name, str(t.result)[:80]) for t in result.tool_traces if t.is_error]}"
-        )
+        print_run_summary("audit + workflow test", result)
 
         # ================================================================
         # TIER 1: Functional assertions (the workflow worked)
@@ -183,7 +178,7 @@ class TestAuditObservability:
         # is unreconstructable from append order.
 
         # ================================================================
-        # TIER 2: Audit observability (transcript-based)
+        # TIER 2: Audit observability (read from the agent record)
         # ================================================================
         events = read_audit_events(repo)
 
@@ -194,10 +189,10 @@ class TestAuditObservability:
                 f"server={ev.get('server', '-')}"
             )
 
-        # 1. At least one event was found in the transcript
+        # 1. At least one event was found in the session's record
         assert len(events) >= 1, (
-            "No OSPREY tool events found in Claude Code transcripts — "
-            "TranscriptReader may not have found a matching session."
+            "No OSPREY tool events found in the agent record — "
+            "the record may not list the session, or its transcript was not ingested."
         )
 
         # 2. At least one tool_call event
@@ -227,11 +222,11 @@ class TestAuditObservability:
         )
         assert has_summary, (
             "No tool_call has a non-empty result_summary — "
-            "TranscriptReader may not be extracting tool_result content"
+            "the record's timeline may not join tool_result content to its call"
         )
 
         # ================================================================
-        # LIFECYCLE EVENTS (derived from Task tool calls in transcript)
+        # LIFECYCLE EVENTS (derived from Agent/Task tool calls in the record)
         # ================================================================
         agent_starts = [e for e in events if e.get("type") == "agent_start"]
         agent_stops = [e for e in events if e.get("type") == "agent_stop"]

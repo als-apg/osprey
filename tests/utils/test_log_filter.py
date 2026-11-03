@@ -6,7 +6,7 @@ functionality that is used throughout the codebase to suppress verbose output.
 
 import logging
 
-from osprey_connectors.log_filter import LoggerFilter, quiet_logger
+from osprey_connectors.log_filter import quiet_logger
 
 
 class TestQuietLogger:
@@ -97,46 +97,3 @@ class TestQuietLogger:
         # Should have 2 messages (before and after exception context)
         info_messages = [r.message for r in caplog.records if r.levelno == logging.INFO]
         assert len(info_messages) == 2
-
-
-class TestLoggerFilter:
-    """Test the LoggerFilter class directly."""
-
-    def test_filters_specific_logger_only(self, caplog):
-        """Test that filter only affects specified logger."""
-        target_logger = logging.getLogger("TARGET")
-        other_logger = logging.getLogger("OTHER")
-
-        log_filter = LoggerFilter(logger_names=["TARGET"])
-        target_logger.addFilter(log_filter)
-
-        with caplog.at_level(logging.INFO):
-            target_logger.info("Filtered")
-            other_logger.info("Not filtered")
-
-        messages = [r.message for r in caplog.records]
-        assert "Not filtered" in messages
-        assert "Filtered" not in messages
-
-        target_logger.removeFilter(log_filter)
-
-    def test_message_pattern_filtering(self, caplog):
-        """Test filtering by message pattern."""
-        logger = logging.getLogger("PATTERN_TEST")
-
-        log_filter = LoggerFilter(
-            logger_names=["PATTERN_TEST"],
-            message_patterns=[r"Configured.*registry", r"Added.*path"],
-        )
-        logger.addFilter(log_filter)
-
-        with caplog.at_level(logging.INFO):
-            logger.info("Configured the registry")  # Should be filtered
-            logger.info("Added to sys.path")  # Should be filtered
-            logger.info("Normal message")  # Should appear
-
-        messages = [r.message for r in caplog.records]
-        assert len(messages) == 1
-        assert "Normal message" in messages[0]
-
-        logger.removeFilter(log_filter)

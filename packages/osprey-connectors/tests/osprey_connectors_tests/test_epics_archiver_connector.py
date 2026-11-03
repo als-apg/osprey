@@ -15,7 +15,9 @@ import pytest
 from osprey_connectors.archiver._base import ArchiverMetadata
 from osprey_connectors.archiver._epics_archiver_connector import EPICSArchiverConnector
 from osprey_connectors.archiver._timerange import Processing
-from osprey_connectors.factory import ConnectorFactory, isolated_connector_registries
+from osprey_connectors.errors import ConnectorUnavailableError
+from osprey_connectors.factory import ConnectorFactory
+from osprey_connectors_tests._harness import isolated_connector_registries
 from osprey_connectors_tests._loopback_https import Reply, loopback_pair
 
 
@@ -316,7 +318,7 @@ class TestGetDataErrorHandling:
 
     @pytest.mark.asyncio
     async def test_url_error_raises_connection_error(self):
-        """Test that urllib.error.URLError is mapped to ConnectionError."""
+        """A urllib.error.URLError is the archiver connector being unavailable."""
         with patch(
             "urllib.request.OpenerDirector.open",
             side_effect=urllib.error.URLError("connection refused"),
@@ -324,7 +326,7 @@ class TestGetDataErrorHandling:
             connector = EPICSArchiverConnector()
             await connector.connect({"url": "https://archiver.example.com"})
 
-            with pytest.raises(ConnectionError):
+            with pytest.raises(ConnectorUnavailableError):
                 await connector.get_data(
                     channels=["BEAM:CURRENT"],
                     start_date=datetime(2024, 1, 1),
@@ -334,7 +336,15 @@ class TestGetDataErrorHandling:
             await connector.disconnect()
 
     @pytest.mark.asyncio
-    async def test_timeout_raises_timeout_error(self):
+    @pytest.mark.parametrize(
+        ("connect_timeout", "match", "timeout"),
+        [
+            pytest.param(0.01, "timed out", 0.01, id="short-timeout"),
+            # timeout=0 should trigger immediate timeout, not fall back to self._timeout=60
+            pytest.param(60, "after 0s", 0, id="zero-is-respected-not-falsy"),
+        ],
+    )
+    async def test_an_elapsed_timeout_raises_timeout_error(self, connect_timeout, match, timeout):
         """Test that asyncio timeout raises TimeoutError."""
         import asyncio
 
@@ -343,21 +353,23 @@ class TestGetDataErrorHandling:
 
         with patch("asyncio.to_thread", side_effect=slow_fetch):
             connector = EPICSArchiverConnector()
-            await connector.connect({"url": "https://archiver.example.com", "timeout_s": 0.01})
+            await connector.connect(
+                {"url": "https://archiver.example.com", "timeout_s": connect_timeout}
+            )
 
-            with pytest.raises(TimeoutError, match="timed out"):
+            with pytest.raises(TimeoutError, match=match):
                 await connector.get_data(
                     channels=["BEAM:CURRENT"],
                     start_date=datetime(2024, 1, 1),
                     end_date=datetime(2024, 1, 2),
-                    timeout=0.01,
+                    timeout=timeout,
                 )
 
             await connector.disconnect()
 
     @pytest.mark.asyncio
     async def test_connection_refused_raises_connection_error(self):
-        """Test that ConnectionRefusedError is wrapped as ConnectionError."""
+        """A ConnectionRefusedError is the archiver connector being unavailable."""
         with patch(
             "urllib.request.OpenerDirector.open",
             side_effect=ConnectionRefusedError("Connection refused"),
@@ -365,7 +377,7 @@ class TestGetDataErrorHandling:
             connector = EPICSArchiverConnector()
             await connector.connect({"url": "https://archiver.example.com"})
 
-            with pytest.raises(ConnectionError, match="Cannot connect to the archiver"):
+            with pytest.raises(ConnectorUnavailableError, match="Cannot connect to the archiver"):
                 await connector.get_data(
                     channels=["BEAM:CURRENT"],
                     start_date=datetime(2024, 1, 1),
@@ -376,7 +388,7 @@ class TestGetDataErrorHandling:
 
     @pytest.mark.asyncio
     async def test_generic_connection_error_raised(self):
-        """Test that generic exceptions with 'connection' in message raise ConnectionError."""
+        """A generic exception with 'connection' in its message is the connector unavailable."""
         with patch(
             "urllib.request.OpenerDirector.open",
             side_effect=Exception("Connection timed out: could not reach server"),
@@ -384,7 +396,7 @@ class TestGetDataErrorHandling:
             connector = EPICSArchiverConnector()
             await connector.connect({"url": "https://archiver.example.com"})
 
-            with pytest.raises(ConnectionError, match="Network connectivity issue"):
+            with pytest.raises(ConnectorUnavailableError, match="Network connectivity issue"):
                 await connector.get_data(
                     channels=["BEAM:CURRENT"],
                     start_date=datetime(2024, 1, 1),
@@ -410,29 +422,6 @@ class TestGetDataErrorHandling:
                     channels=["CAM:IMAGE"],
                     start_date=datetime(2024, 1, 1),
                     end_date=datetime(2024, 1, 2),
-                )
-
-            await connector.disconnect()
-
-    @pytest.mark.asyncio
-    async def test_timeout_zero_respected_not_falsy(self):
-        """Test that timeout=0 is respected and treated as zero, not as falsy."""
-        import asyncio
-
-        async def slow_fetch(*args, **kwargs):
-            await asyncio.sleep(10)
-
-        with patch("asyncio.to_thread", side_effect=slow_fetch):
-            connector = EPICSArchiverConnector()
-            await connector.connect({"url": "https://archiver.example.com", "timeout_s": 60})
-
-            # timeout=0 should trigger immediate timeout, not fall back to self._timeout=60
-            with pytest.raises(TimeoutError, match="after 0s"):
-                await connector.get_data(
-                    channels=["BEAM:CURRENT"],
-                    start_date=datetime(2024, 1, 1),
-                    end_date=datetime(2024, 1, 2),
-                    timeout=0,
                 )
 
             await connector.disconnect()
@@ -1047,7 +1036,7 @@ class TestLoginAndTrust:
         connector = EPICSArchiverConnector()
         await connector.connect(self._config(appliance, auth={"token_env": "ARCHIVER_TEST_TOKEN"}))
 
-        with pytest.raises(ConnectionError) as exc:
+        with pytest.raises(ConnectorUnavailableError) as exc:
             await connector.get_data(channels=["SR:DCCT"], **self._WINDOW)
 
         message = str(exc.value)
@@ -1065,7 +1054,7 @@ class TestLoginAndTrust:
         connector = EPICSArchiverConnector()
         await connector.connect(self._config(appliance))
 
-        with pytest.raises(ConnectionError) as exc:
+        with pytest.raises(ConnectorUnavailableError) as exc:
             await connector.get_data(channels=["SR:DCCT"], **self._WINDOW)
 
         message = str(exc.value)
@@ -1079,7 +1068,7 @@ class TestLoginAndTrust:
         connector = EPICSArchiverConnector()
         await connector.connect({"url": appliance.https.url})
 
-        with pytest.raises(ConnectionError) as exc:
+        with pytest.raises(ConnectorUnavailableError) as exc:
             await connector.get_data(channels=["SR:DCCT"], **self._WINDOW)
 
         message = str(exc.value)
@@ -1094,7 +1083,7 @@ class TestLoginAndTrust:
         connector = EPICSArchiverConnector()
         await connector.connect(self._config(appliance))
 
-        with pytest.raises(ConnectionError, match="Cannot connect to archiver at"):
+        with pytest.raises(ConnectorUnavailableError, match="Cannot connect to archiver at"):
             await connector.get_data(channels=["SR:DCCT"], **self._WINDOW)
         await connector.disconnect()
 

@@ -1,5 +1,5 @@
 /**
- * Unit tests for the Simple view's attention signal (chat-attention.js):
+ * Unit tests for the chat's attention signal (chat-attention.js):
  *   npx vitest run tests/interfaces/web_terminal/chat-attention.test.mjs
  *
  * The signal reads the chat's frames and turn ends from the bus, so the tests
@@ -10,7 +10,10 @@
 import { test, expect, describe, vi, beforeEach, afterEach } from 'vitest';
 
 import { initChatAttention } from '../../../src/osprey/interfaces/web_terminal/static/js/chat-attention.js';
-import { emitChat } from '../../../src/osprey/interfaces/web_terminal/static/js/chat-events.js';
+import {
+  emitChat,
+  onChat,
+} from '../../../src/osprey/interfaces/web_terminal/static/js/chat-events.js';
 
 const BASE_TITLE = 'Osprey Console';
 const STORAGE_KEY = 'osprey-chat-notify';
@@ -105,7 +108,7 @@ beforeEach(() => {
 afterEach(() => {
   dispose();
   messages.remove();
-  delete (/** @type {any} */ (document)).visibilityState;
+  Reflect.deleteProperty(document, 'visibilityState');
   vi.unstubAllGlobals();
   vi.useRealTimers();
   localStorage.clear();
@@ -169,7 +172,14 @@ describe('tab title count', () => {
     ['answering the card', resolved('a')],
     [
       'the server declining it for want of an answer',
-      { type: 'permission_resolved', request_id: 'a', allow: false, for_session: false, answers: null, expired: true },
+      {
+        type: 'permission_resolved',
+        request_id: 'a',
+        allow: false,
+        for_session: false,
+        answers: null,
+        expired: true,
+      },
     ],
   ])('%s clears the badge and closes its notification', (_name, resolution) => {
     turnBellOn();
@@ -194,6 +204,41 @@ describe('tab title count', () => {
     frame(resolved('a'));
     frame(resolved('b'));
     expect(document.title).toBe('Other page');
+  });
+});
+
+describe('waiting count on the chat bus', () => {
+  /** @type {number[]} */
+  let said;
+  /** @type {() => void} */
+  let stop;
+
+  beforeEach(() => {
+    said = [];
+    stop = onChat('attention', ({ waiting }) => said.push(waiting));
+  });
+  afterEach(() => stop());
+
+  test('follows every change of the pending-card count', () => {
+    frame(approval('a'));
+    frame(question('q'));
+    frame(resolved('a'));
+    frame(resolved('q'));
+    expect(said).toEqual([1, 2, 1, 0]);
+  });
+
+  test('a re-delivered request and replayed history do not change it', () => {
+    frame(approval('a'));
+    frame(approval('a'));
+    frame(approval('old'), true);
+    expect(said).toEqual([1]);
+  });
+
+  test('a turn end and a reset say zero, even when nothing was waiting', () => {
+    frame(approval('a'));
+    emitChat('turn-end', {});
+    emitChat('reset', {});
+    expect(said).toEqual([1, 0, 0]);
   });
 });
 
@@ -259,6 +304,12 @@ describe('desktop notifications', () => {
 });
 
 describe('the bell', () => {
+  test('is a named icon button in the Agent bar', () => {
+    expect(bell().classList.contains('osprey-icon-btn')).toBe(true);
+    expect(bell().querySelector('svg.osprey-ic')).not.toBeNull();
+    expect(bell().getAttribute('aria-label')).toBe('Desktop notifications');
+  });
+
   test('a click requests permission and turns the bell on when granted', async () => {
     const Fake = stubNotification({ permission: 'default', answer: 'granted' });
     dispose();

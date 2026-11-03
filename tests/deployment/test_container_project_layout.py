@@ -28,8 +28,8 @@ which cannot run in the fast suite; these are the cheap pins that fail first.
 
 from __future__ import annotations
 
+import contextlib
 import json
-import os
 import re
 from importlib import resources
 from pathlib import Path
@@ -50,15 +50,9 @@ from osprey.cli.repo_resolver import PROFILE_FILENAME, RepoNotFoundError, find_r
 from osprey.deployment.staleness import profile_fingerprint
 from osprey.port_layout import DEFAULT_PORT_BASE, layout_ports
 from osprey.registry.mcp import RENDERED_CONFIG_ENV_VALUE
-from osprey_connectors.types import CONTROL_TARGETS, target_writes_enabled
-from osprey_connectors.workspace import (
-    APPS_DIRNAME,
-    BUILD_DIR_NAME,
-    IMAGE_DIR_NAME,
-    RENDERED_CONFIG_RELPATH,
-    STATE_DIR_NAME,
-    TIERS_DIRNAME,
-)
+from osprey.utils.workspace import APPS_DIRNAME, IMAGE_DIR_NAME, STATE_DIR_NAME, TIERS_DIRNAME
+from osprey_connectors.types import WRITES_KEY, tier_writes
+from osprey_connectors.workspace import BUILD_DIR_NAME, RENDERED_CONFIG_RELPATH
 
 PROJECT_NAME = "layout-fixture"
 
@@ -382,23 +376,21 @@ def test_the_context_root_dockerignore_matches_at_container_depth(tmp_path: Path
 # Every test below renders the exemplar for real (seconds, not milliseconds), so
 # each one carries `@pytest.mark.slow`.
 
-#: The exemplar's renders and the write posture each delta pins for the
-#: simulator, the one target any shipped tier arms. Every tier pins the flat
-#: ``control_system.writes_enabled`` off while the deployment's own render
-#: arms it, and the simulator's posture differs between tiers, so together they
-#: prove an image context carries ITS OWN merged config rather than the
-#: deployment's — the defect that made layers invisible to their own
-#: MCP servers. ``admin`` carries readwrite's posture exactly: what makes it the
-#: admin tier is deployment editing, not a wider write surface. The apps
-#: (``channel-finder``, ``knowledge``, ``logbook``) are separate agents with no
-#: control surface at all.
+#: The exemplar's renders and the word each one's ``control_system.writes``
+#: resolves to. The deployment's own render is ``asked``, and the ``readonly``
+#: tier and every app pin ``never`` over it while ``admin`` pins ``allowed``, so
+#: together they prove an image context carries ITS OWN merged config rather than
+#: the deployment's — the defect that made layers invisible to their own MCP
+#: servers. ``readwrite`` pins the root's ``asked``; ``admin`` sits one ceiling
+#: above it. The apps (``channel-finder``, ``knowledge``, ``logbook``) are
+#: separate agents with no control surface at all, so the build pins them ``never``.
 RENDER_WRITES = {
-    "admin": True,
-    "channel-finder": False,
-    "knowledge": False,
-    "logbook": False,
-    "readonly": False,
-    "readwrite": True,
+    "admin": "allowed",
+    "channel-finder": "never",
+    "knowledge": "never",
+    "logbook": "never",
+    "readonly": "never",
+    "readwrite": "asked",
 }
 
 
@@ -423,13 +415,8 @@ def built_repo(tmp_path_factory) -> Path:
     (repo / ".mcp.json").write_text('{"mcpServers": {"dev": {}}}\n', encoding="utf-8")
     (repo / ".claude" / "skills" / "dev").mkdir(parents=True)
     (repo / ".claude" / "skills" / "dev" / "SKILL.md").write_text("# dev\n", encoding="utf-8")
-    previous = Path.cwd()
-    os.chdir(repo)
-    try:
-        with preserved_environ():
-            result = CliRunner().invoke(build_command, ["--skip-deps", "--skip-lifecycle"])
-    finally:
-        os.chdir(previous)
+    with contextlib.chdir(repo), preserved_environ():
+        result = CliRunner().invoke(build_command, ["--skip-deps", "--skip-lifecycle"])
     assert result.exit_code == 0, result.output
     return repo
 
@@ -522,22 +509,37 @@ def test_every_produced_context_is_a_container_repo(built_repo: Path, tier: str 
 @pytest.mark.slow
 @pytest.mark.parametrize("tier,writes", sorted(RENDER_WRITES.items()))
 def test_a_render_context_carries_its_own_merged_config(
-    built_repo: Path, tier: str, writes: bool
+    built_repo: Path, tier: str, writes: str
 ) -> None:
     """A render image's config is the delta merged over the root, not the deployment's.
 
     Its ``.mcp.json`` names ``/app/<repo>-<render>/build/config.yml``, and only
     this context holds that file — so this is where the render's own write
     posture has to be, or the servers in its container read a config that never
-    heard of the delta. Read per target, the way every write surface reads it:
-    ``logbook`` writes no per-type block, and its simulator inherits the flat key.
+    heard of the delta. The posture is the one tier key, spelled in the render
+    itself and read the way every write surface reads it (``tier_writes``), with
+    no retired ``writes_enabled`` leaf — flat or per connector type — left in it.
     """
+    root_context = _contexts(built_repo)[built_repo.name]
+    root_config = yaml.safe_load(
+        (root_context / RENDERED_CONFIG_RELPATH).read_text(encoding="utf-8")
+    )
+    assert root_config["control_system"]["writes"] == "asked", (
+        "the deployment's own render must allow writes, or a never render proves nothing"
+    )
+
     context = _contexts(built_repo)[f"{built_repo.name}-{tier}"]
     config = yaml.safe_load((context / RENDERED_CONFIG_RELPATH).read_text(encoding="utf-8"))
     section = config["control_system"]
-    assert section["writes_enabled"] is False
-    resolved = {target: target_writes_enabled(section, target) for target in CONTROL_TARGETS}
-    assert resolved == {"live": False, "va": writes, "standin": False}
+    expected = writes
+    assert section[WRITES_KEY.split(".")[-1]] == expected
+    assert tier_writes(section) == expected
+    assert "writes_enabled" not in section
+    assert not [
+        connector_type
+        for connector_type, block in (section.get("connector") or {}).items()
+        if isinstance(block, dict) and "writes_enabled" in block
+    ]
 
 
 @pytest.mark.slow
@@ -722,13 +724,8 @@ def test_a_regenerable_file_under_a_fold_input_is_neither_folded_nor_shipped(
     (data_root / "__pycache__").mkdir(exist_ok=True)
     (data_root / "__pycache__" / "loader.cpython-312.pyc").write_bytes(b"\x00compiled")
 
-    previous = Path.cwd()
-    os.chdir(repo)
-    try:
-        with preserved_environ():
-            result = CliRunner().invoke(build_command, ["--skip-deps", "--skip-lifecycle"])
-    finally:
-        os.chdir(previous)
+    with contextlib.chdir(repo), preserved_environ():
+        result = CliRunner().invoke(build_command, ["--skip-deps", "--skip-lifecycle"])
     assert result.exit_code == 0, result.output
 
     for name, context in _contexts(repo).items():

@@ -24,33 +24,7 @@ import pytest
 from osprey.services.bluesky_bridge import plan_loader
 from osprey.services.bluesky_bridge.plan_validation import hash_plan_body
 from osprey.services.bluesky_bridge.validation_record import validation_records
-
-_SESSION_PLAN_DIR_ENV = "BLUESKY_SESSION_PLAN_DIR"
-_PLAN_DIRS_ENV = "BLUESKY_PLAN_DIRS"
-_PLAN_MODULE_ENV = "BLUESKY_PLAN_MODULE"
-
-
-@pytest.fixture(autouse=True)
-def _isolated_plan_loader(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    """Every test gets its own session-plan directory, a clean loader cache,
-    and a clean validation-record store (the module-level singleton is shared
-    process-wide, so it must be snapshotted and restored like any other
-    global test double)."""
-    monkeypatch.delenv(_PLAN_DIRS_ENV, raising=False)
-    monkeypatch.delenv(_PLAN_MODULE_ENV, raising=False)
-    monkeypatch.setenv(_SESSION_PLAN_DIR_ENV, str(tmp_path / "plans_session"))
-    plan_loader.reset_facility_plans()
-
-    with validation_records.lock:
-        saved_hashes = set(validation_records._passing_hashes)
-        validation_records._passing_hashes.clear()
-
-    yield
-
-    plan_loader.reset_facility_plans()
-    with validation_records.lock:
-        validation_records._passing_hashes.clear()
-        validation_records._passing_hashes.update(saved_hashes)
+from tests.services.bluesky_bridge._session_plans import write_session_plan
 
 
 def _sentinel_plan_source(name: str, sentinel_path: Path) -> str:
@@ -70,20 +44,12 @@ def _sentinel_plan_source(name: str, sentinel_path: Path) -> str:
     )
 
 
-def _write_session_plan(tmp_path: Path, filename: str, source: str) -> Path:
-    session_dir = tmp_path / "plans_session"
-    session_dir.mkdir(parents=True, exist_ok=True)
-    path = session_dir / filename
-    path.write_text(source)
-    return path
-
-
 def test_unvalidated_session_file_is_never_exec_moduled_or_discovered(
     tmp_path: Path,
 ) -> None:
     sentinel_path = tmp_path / "sentinel_unvalidated.txt"
     source = _sentinel_plan_source("unvalidated_plan", sentinel_path)
-    _write_session_plan(tmp_path, "unvalidated_plan.py", source)
+    write_session_plan("unvalidated_plan", source)
     # Deliberately NOT recording a passing validation for this content hash.
 
     facility = plan_loader.get_facility_plans()
@@ -97,7 +63,7 @@ def test_same_file_once_hash_is_recorded_loads_and_registers_as_session(
 ) -> None:
     sentinel_path = tmp_path / "sentinel_validated.txt"
     source = _sentinel_plan_source("validated_plan", sentinel_path)
-    _write_session_plan(tmp_path, "validated_plan.py", source)
+    write_session_plan("validated_plan", source)
     validation_records.record(hash_plan_body(source))
 
     facility = plan_loader.get_facility_plans()
@@ -115,7 +81,7 @@ def test_session_layer_rescans_on_write_without_reset(tmp_path: Path) -> None:
     assert "new_session_plan" not in first.plans
 
     source = _sentinel_plan_source("new_session_plan", tmp_path / "unused_sentinel.txt")
-    _write_session_plan(tmp_path, "new_session_plan.py", source)
+    write_session_plan("new_session_plan", source)
     validation_records.record(hash_plan_body(source))
 
     second = plan_loader.get_facility_plans()
@@ -149,7 +115,7 @@ def test_startup_layers_stay_cached_across_session_rescans(
 
     # Write and validate a session plan, forcing a fresh session-layer scan.
     source = _sentinel_plan_source("another_session_plan", tmp_path / "unused.txt")
-    _write_session_plan(tmp_path, "another_session_plan.py", source)
+    write_session_plan("another_session_plan", source)
     validation_records.record(hash_plan_body(source))
 
     second = plan_loader.get_facility_plans()
@@ -170,7 +136,7 @@ def test_malformed_session_file_is_quarantined_and_siblings_still_register(
     itself (see `test_unvalidated_session_file_is_never_exec_moduled_or_discovered`).
     Both must leave a well-formed, validated sibling plan registered."""
     good_source = _sentinel_plan_source("good_session_plan", tmp_path / "good_sentinel.txt")
-    _write_session_plan(tmp_path, "good_session_plan.py", good_source)
+    write_session_plan("good_session_plan", good_source)
     validation_records.record(hash_plan_body(good_source))
 
     # Syntactically valid, PLAN_METADATA present, but no `build_plan` — and
@@ -183,7 +149,7 @@ def test_malformed_session_file_is_quarantined_and_siblings_still_register(
         '    "writes": False,\n'
         "}\n"
     )
-    _write_session_plan(tmp_path, "missing_build_plan.py", missing_build_plan_source)
+    write_session_plan("missing_build_plan", missing_build_plan_source)
     validation_records.record(hash_plan_body(missing_build_plan_source))
 
     with caplog.at_level(logging.WARNING, logger="osprey.services.bluesky_bridge.plan_loader"):

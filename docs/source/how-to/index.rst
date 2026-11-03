@@ -67,7 +67,7 @@ Operate
       :link-type: doc
 
       Is it up, and what is it doing — facility health checks you can extend,
-      plus the agent's own logs and metrics over OTLP.
+      plus the agent record of what the agent was asked and did.
 
    .. grid-item-card:: Control Systems
       :link: control-systems/index
@@ -75,6 +75,13 @@ Operate
 
       Connectors for your control system, the virtual accelerator to rehearse
       on, switching to the live machine, and what the agent may not touch.
+
+   .. grid-item-card:: Safety Watchdogs
+      :link: safety-watchdogs
+      :link-type: doc
+
+      Have facility-written checks judge each operator prompt, hold the agent's
+      writes when one flags it, and ask the operator to stop or continue.
 
 Facility services
 -----------------
@@ -139,6 +146,7 @@ Facility services
    agent-interfaces/index
    health-and-monitoring/index
    control-systems/index
+   safety-watchdogs
    describe-your-facility
    measure-with-pyaml
    use-channel-finder

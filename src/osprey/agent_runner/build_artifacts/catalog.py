@@ -316,6 +316,16 @@ def _get_default_artifacts() -> list[BuildArtifact]:
             requires=("hooks/hook-log",),
         ),
         BuildArtifact(
+            canonical_name="hooks/code-review",
+            template_path="claude/hooks/osprey_code_review.py",
+            output_path=".claude/hooks/osprey_code_review.py",
+            description=(
+                "PreToolUse review of the code cells an agent writes with NotebookEdit, "
+                "under the code_review config section"
+            ),
+            requires=("hooks/hook-log",),
+        ),
+        BuildArtifact(
             canonical_name="hooks/focus-validate",
             template_path="claude/hooks/osprey_focus_validate.py",
             output_path=".claude/hooks/osprey_focus_validate.py",
@@ -355,6 +365,12 @@ def _get_default_artifacts() -> list[BuildArtifact]:
             template_path="claude/hooks/osprey_turn_state.py",
             output_path=".claude/hooks/osprey_turn_state.py",
             description="Reports the agent's turn edges to the web terminal, so a view switch knows when the process is between turns",
+        ),
+        BuildArtifact(
+            canonical_name="hooks/watchdog-trigger",
+            template_path="claude/hooks/osprey_watchdog_trigger.py",
+            output_path=".claude/hooks/osprey_watchdog_trigger.py",
+            description="UserPromptSubmit hook that hands each prompt to the deployment's watchdogs; ships whenever a watchdog is enabled",
         ),
         # ── Skills ──────────────────────────────────────────────────
         BuildArtifact(
@@ -416,6 +432,24 @@ def _get_default_artifacts() -> list[BuildArtifact]:
             template_path="claude/skills/bluesky-plans/SKILL.md.j2",
             output_path=".claude/skills/bluesky-plans/SKILL.md",
             description="Index of the plans this deployment can run. The template renders an index built from the operator's own plan directory, so this artifact's framework hash tracks that directory: a claimed copy reports drift whenever a plan's docstring changes, not only when the framework template does.",
+        ),
+        BuildArtifact(
+            canonical_name="skills/canopy-panel-builder",
+            template_path="claude/skills/canopy-panel-builder/SKILL.md",
+            output_path=".claude/skills/canopy-panel-builder/SKILL.md",
+            description="Build, port and check CANOPY screens. The file is CANOPY's own skill, copied byte for byte from the canopy_mcp package, so it is never edited here: a new CANOPY release replaces it.",
+        ),
+        BuildArtifact(
+            canonical_name="skills/canopy-operator",
+            template_path="claude/skills/canopy-operator/SKILL.md",
+            output_path=".claude/skills/canopy-operator/SKILL.md",
+            description="Open, arrange, zoom and close what the operator's CANOPY window shows. The file is CANOPY's own skill, copied byte for byte from the canopy_mcp package, so it is never edited here: a new CANOPY release replaces it.",
+        ),
+        BuildArtifact(
+            canonical_name="skills/canopy-screens",
+            template_path="claude/skills/canopy-screens/SKILL.md.j2",
+            output_path=".claude/skills/canopy-screens/SKILL.md",
+            description="Which CANOPY screen shows which device: an index built from the project's screen library, its devices, collections and the tools' default views; renders only with the CANOPY panel",
         ),
         BuildArtifact(
             canonical_name="skills/pyaml-tools",
@@ -524,18 +558,18 @@ def _get_default_artifacts() -> list[BuildArtifact]:
             is_directory=True,
         ),
         BuildArtifact(
-            canonical_name="services/telemetry_gateway",
-            template_path="telemetry_gateway",
-            output_path="services/telemetry_gateway",
-            description="Telemetry gateway compose template + Collector config",
-            template_root="services",
-            is_directory=True,
-        ),
-        BuildArtifact(
             canonical_name="services/history",
             template_path="history",
             output_path="services/history",
             description="History page (across-users agent record) compose template",
+            template_root="services",
+            is_directory=True,
+        ),
+        BuildArtifact(
+            canonical_name="services/agent_record",
+            template_path="agent_record",
+            output_path="services/agent_record",
+            description="Agent record service compose template + ClickHouse config",
             template_root="services",
             is_directory=True,
         ),
@@ -552,14 +586,6 @@ def _get_default_artifacts() -> list[BuildArtifact]:
             template_path="bluesky_web",
             output_path="services/bluesky_web",
             description="Bluesky operator-facing web sidecar compose template",
-            template_root="services",
-            is_directory=True,
-        ),
-        BuildArtifact(
-            canonical_name="services/telemetry_store",
-            template_path="telemetry_store",
-            output_path="services/telemetry_store",
-            description="Telemetry store (ClickHouse) compose template + server config",
             template_root="services",
             is_directory=True,
         ),

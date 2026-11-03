@@ -44,7 +44,6 @@ import math
 import multiprocessing
 import os
 import shutil
-import socket
 import threading
 import time
 from collections.abc import Callable, Coroutine, Iterator, Mapping
@@ -56,6 +55,8 @@ from typing import Any
 
 import pytest
 import yaml
+
+from osprey_connectors_tests._harness._ports import hold_ports, reserved_ports
 
 pytest.importorskip(
     "lume_pva_apg",
@@ -71,27 +72,41 @@ if importlib.util.find_spec("aioca") is None:
     pytest.skip("the Channel Access client is aioca", allow_module_level=True)
 
 
-def _free_port() -> str:
-    """An unused loopback TCP port, as a string ready for the environment."""
-    with socket.socket() as probe:
-        probe.bind(("127.0.0.1", 0))
-        return str(probe.getsockname()[1])
-
-
 #: The served views, each in a process of its own: the three below, and the
 #: stub view again for a start-up pass that fails.
 SERVERS = ("names", "demo", "stub", "first_pass")
 
-# import-time required because libca latches the EPICS_CA_* environment when
-# the CA context is created, which happens on the first Channel Access call
-# anywhere in the process. Each server listens on a Channel Access port of its own, so the client
-# searches them all; the pairing of server and port is fixed here, once.
-CA_PORTS: dict[str, str] = {server: _free_port() for server in SERVERS}
-# import-time required because libca reads the search list once, when the CA
-# context is created.
-os.environ["EPICS_CA_ADDR_LIST"] = " ".join(f"127.0.0.1:{CA_PORTS[s]}" for s in SERVERS)
-os.environ["EPICS_CA_AUTO_ADDR_LIST"] = "NO"
-os.environ.setdefault("EPICS_CA_REPEATER_PORT", _free_port())
+#: Whether this is the pytest process rather than a server it spawns. A spawned
+#: server re-imports this module and takes its ports from the spec its parent
+#: passes, so it reserves nothing.
+_IN_PYTEST = multiprocessing.parent_process() is None
+
+# Each server listens on a Channel Access port of its own, held for the
+# process, so the client searches them all; the pairing of server and port is
+# fixed here, once.
+CA_PORTS: dict[str, str] = (
+    {server: str(port) for server, port in zip(SERVERS, hold_ports(len(SERVERS)), strict=True)}
+    if _IN_PYTEST
+    else dict.fromkeys(SERVERS, "")
+)
+# What this module's client searches with. libca reads its settings once, when
+# the process's CA context is created, and other modules collected into the same
+# process write their own at import (test_apply_fault.py names a port of its own).
+# So these are not written into os.environ at import: `_served` hands them to
+# CaLoop.point_at before it starts a server, which writes them and drops a
+# context already created under different ones, whichever module ran first.
+CA_CLIENT_ENV: dict[str, str | None] = {
+    "EPICS_CA_ADDR_LIST": " ".join(f"127.0.0.1:{CA_PORTS[s]}" for s in SERVERS),
+    "EPICS_CA_AUTO_ADDR_LIST": "NO",
+    "EPICS_CA_SERVER_PORT": None,
+    "EPICS_CA_NAME_SERVERS": None,
+}
+# import-time required because libca reads the repeater port when the first CA
+# context in the process is created, which may be another module's, before any
+# of this module's fixtures run; point_at does not carry it. The port is held
+# for the process unless the environment pins one.
+if _IN_PYTEST and "EPICS_CA_REPEATER_PORT" not in os.environ:
+    os.environ["EPICS_CA_REPEATER_PORT"] = str(hold_ports(1)[0])
 
 # Found, never imported: pcaspy's extension bundles its own EPICS base, and
 # loaded beside aioca's libca it drops the client on every write. The servers
@@ -138,6 +153,10 @@ SAFETY = {
     "clamp_writes": True,
     "control_pvs": False,
 }
+
+#: The display precision a float channel stating none is served, spelled out
+#: like :data:`SAFETY`.
+FLOAT_PRECISION = 4
 
 #: (severity, status) of an undefined output on each wire.
 CA_UDF = (3, 17)
@@ -720,24 +739,28 @@ def _served(
     stub: bool = False,
     first_pass_fault: str | None = None,
 ) -> Iterator[_Server]:
-    spec = {
-        "view": str(view_dir),
-        "state": None if state_dir is None else str(state_dir),
-        "tick": tick_interval_s,
-        "ca_port": CA_PORTS[server],
-        "pva_port": _free_port(),
-        "pva_broadcast": _free_port(),
-        "physics": physics,
-        "stub": stub,
-        "first_pass_fault": first_pass_fault,
-        "health_file": str(view_dir.parent / f"{server}-health" / "health.json"),
-    }
-    view = json.loads((view_dir / "variables.json").read_text(encoding="utf-8"))
-    served = _Server(spec, view, state_dir)
-    try:
-        yield served
-    finally:
-        served.stop()
+    from osprey_connectors.control_system._ca_loop import get_ca_loop
+
+    with reserved_ports(2) as (pva_port, pva_broadcast):
+        spec = {
+            "view": str(view_dir),
+            "state": None if state_dir is None else str(state_dir),
+            "tick": tick_interval_s,
+            "ca_port": CA_PORTS[server],
+            "pva_port": str(pva_port),
+            "pva_broadcast": str(pva_broadcast),
+            "physics": physics,
+            "stub": stub,
+            "first_pass_fault": first_pass_fault,
+            "health_file": str(view_dir.parent / f"{server}-health" / "health.json"),
+        }
+        view = json.loads((view_dir / "variables.json").read_text(encoding="utf-8"))
+        _on_ca_loop(get_ca_loop().point_at(CA_CLIENT_ENV))
+        served = _Server(spec, view, state_dir)
+        try:
+            yield served
+        finally:
+            served.stop()
 
 
 # =============================================================================
@@ -801,11 +824,16 @@ def _ca(address: str) -> dict[str, Any]:
 
 
 def _ca_text(address: str) -> str:
-    """A string channel's text, read once over CA."""
+    """A string channel's text, read once over CA.
+
+    The server serves a string variable as a char array, so its text is the
+    array read as a NUL-terminated string (``DBR_CHAR_STR``); a ``DBR_STRING``
+    read of it answers one number per character.
+    """
     import aioca
 
     text = _on_ca_loop(
-        aioca.caget(address, datatype=aioca.DBR_STRING, timeout=CA_TIMEOUT_S, throw=False)
+        aioca.caget(address, datatype=aioca.DBR_CHAR_STR, timeout=CA_TIMEOUT_S, throw=False)
     )
     assert text.ok, f"{address} returned nothing over CA"
     return str(text)
@@ -848,6 +876,56 @@ def _pva_alarm(value: Any) -> tuple[int, int]:
     return (int(value["alarm.severity"]), int(value["alarm.status"]))
 
 
+def _pva_stamp(value: Any) -> float:
+    """A PVAccess value's time stamp, in epoch seconds."""
+    return float(value["timeStamp.secondsPastEpoch"]) + 1e-9 * float(value["timeStamp.nanoseconds"])
+
+
+class _Events:
+    """How many monitor events one channel delivered on each wire."""
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._counts = {"pva": 0, "ca": 0}
+
+    def arrived(self, wire: str) -> None:
+        with self._lock:
+            self._counts[wire] += 1
+
+    def counts(self) -> dict[str, int]:
+        with self._lock:
+            return dict(self._counts)
+
+
+@contextmanager
+def _monitored(server: _Server, address: str) -> Iterator[_Events]:
+    """Monitor ``address`` on both wires; yields once each has delivered its connect event."""
+    import aioca
+
+    events = _Events()
+
+    def on_pva(value: Any) -> None:
+        if not isinstance(value, Exception):
+            events.arrived("pva")
+
+    async def subscribe() -> Any:
+        # On the CA loop: aioca binds a monitor to the loop it is opened on.
+        return aioca.camonitor(address, lambda _: events.arrived("ca"), format=aioca.FORMAT_TIME)
+
+    async def unsubscribe() -> None:
+        ca_monitor.close()
+
+    pva_monitor = server.pva.monitor(address, on_pva, notify_disconnect=False)
+    ca_monitor = _on_ca_loop(subscribe())
+    try:
+        connected = _wait_until(lambda: all(events.counts().values()), timeout=CA_TIMEOUT_S)
+        assert connected, f"{address}: a monitor never delivered its connect event"
+        yield events
+    finally:
+        pva_monitor.close()
+        _on_ca_loop(unsubscribe())
+
+
 def _assert_safety_config(
     config: Mapping[str, Any],
     view: Mapping[str, Any],
@@ -879,8 +957,9 @@ def _assert_safety_config(
             assert entry.get("value_range") == band, address
         else:
             assert "value_range" not in entry, address
-        if channel.get("value_type", "float") == "float" and channel.get("precision") is not None:
-            assert entry["precision"] == channel["precision"], address
+        if channel.get("value_type", "float") == "float":
+            stated = channel.get("precision")
+            assert entry["precision"] == (FLOAT_PRECISION if stated is None else stated), address
         else:
             assert "precision" not in entry, address
 
@@ -938,6 +1017,23 @@ class TestNamesServedVerbatim:
         assert _caput(SR_SETPOINT, 13.0)
         echo = _ca(SR_READBACK)
         assert (echo["value"], (echo["severity"], echo["status"])) == (13.0, NO_ALARM)
+
+    def test_every_served_ca_record_has_a_value_at_attach(self, names_server: _Server) -> None:
+        """No Channel Access record is served undefined because nothing has posted it.
+
+        The CA server creates every record in the ``UDF``/``INVALID`` alarm
+        state and keeps it there until the record is posted once; a client
+        write posts it, and so does a value source, but a setpoint nobody
+        writes and its echoed readback have neither. The start-up pass is what
+        posts them. The set checked is every channel the view serves, not a
+        hand-picked list, so a channel added to the tree is held to this too;
+        ``BTS_SETPOINT`` and its readback are written by no test in this class.
+        """
+        assert names_server.channels, "the view serves no channel"
+        for address in names_server.channels:
+            reading = _ca(address)
+            assert reading["value"] is not None, address
+            assert (reading["severity"], reading["status"]) == NO_ALARM, address
 
     def test_the_applied_config_holds_the_safety_keys_and_the_limits_bands(
         self, names_server: _Server, names_build: BuiltProject
@@ -1055,6 +1151,58 @@ class TestDemoComposite:
         after_tick = demo_server.ask("counts")
         assert after_tick["chromatic_solves"] - after_put["chromatic_solves"] == 1
 
+    def test_a_corrector_put_posts_nothing_on_an_unrelated_setpoint(
+        self, demo_server: _Server
+    ) -> None:
+        corrector = demo_server.channels[CORRECTOR]
+        unrelated = sorted(
+            address
+            for address, channel in demo_server.channels.items()
+            if channel.get("role") == "setpoint"
+            and channel.get("writable")
+            and channel.get("value_type") == "float"
+            and channel.get("owner") == corrector["owner"]
+            and address != CORRECTOR
+        )[0]
+        readback = str(corrector["pair"])
+        readback_before = _ca(readback)["value"]
+        held = _ca(CORRECTOR)["value"]
+        target = 0.75 if abs(held - 0.75) > 0.1 else -0.75
+
+        with _monitored(demo_server, unrelated) as events:
+            connected = events.counts()
+            put_at = time.time()
+            assert _caput(CORRECTOR, target)
+            assert _wait_until(lambda: _ca(readback)["value"] != readback_before), readback
+            time.sleep(2.0)
+            after_put = events.counts()
+            stamps_after_put = (_pva_stamp(demo_server.pva_get(unrelated)), _ca(unrelated))
+
+            tick_at = time.time()
+            _tick_and_wait(demo_server)
+            heartbeat = _wait_until(lambda: events.counts()["pva"] > connected["pva"])
+
+        assert after_put == connected
+        assert stamps_after_put[0] < put_at
+        assert stamps_after_put[1]["timestamp"] < put_at
+        # Channel Access sends no event for a scalar that kept its value, so the
+        # periodic pass shows there as the restamp alone.
+        assert heartbeat, f"{unrelated}: the periodic pass posted nothing on PVAccess"
+        assert _ca(unrelated)["timestamp"] >= tick_at
+
+    def test_a_put_of_the_held_value_still_publishes_the_setpoint(
+        self, demo_server: _Server
+    ) -> None:
+        held = demo_server.pva_get(CORRECTOR)
+        stamp_before = _pva_stamp(held)
+
+        assert _caput(CORRECTOR, float(held["value"]))
+
+        after = demo_server.pva_get(CORRECTOR)
+        assert float(after["value"]) == float(held["value"])
+        assert _pva_stamp(after) > stamp_before
+        assert _ca(CORRECTOR)["timestamp"] > stamp_before
+
     def test_an_rpc_offset_fault_moves_the_ca_reading_before_the_reply(
         self, demo_server: _Server
     ) -> None:
@@ -1166,6 +1314,8 @@ class TestStubComposite:
         assert config["variables"][STUB_RANGE]["precision"] == STUB_PRECISION
         assert _ca_precision(STUB_RANGE) == STUB_PRECISION
         assert int(stub_server.pva_get(STUB_RANGE)["display.precision"]) == STUB_PRECISION
+        # A float channel stating no precision is served the default, not CA's 0.
+        assert _ca_precision(STUB_SETPOINT) == FLOAT_PRECISION
 
     def test_a_failed_childs_bool_and_enum_outputs_are_invalid(self, stub_server: _Server) -> None:
         for address in (STUB_FLAG, STUB_MODE):

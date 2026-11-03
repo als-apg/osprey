@@ -15,12 +15,7 @@
 /* A pill that sits among the header's bordered-chip controls but is wider and
  * carries a magnifier + muted placeholder-style label + a keyboard hint, so it
  * reads as "search" rather than a plain icon button. Tone (bg-panel border,
- * radius, muted text) matches `.header .header-icon-btn` in terminal.css.
- *
- * Deliberately NOT gated on html[data-ui-mode]: the trigger renders identically
- * in Expert and Simple so the header's action cluster never shifts under an
- * operator on a mode flip. palette-boot.js trims the palette's REGISTRY in
- * simple mode instead — see its docstring. */
+ * radius, muted text) matches `.header .header-icon-btn` in terminal.css. */
 .command-palette-trigger {
   display: inline-flex;
   align-items: center;
@@ -182,7 +177,7 @@
   flex: 1;
 }
 
-/* ---- Group heading (Recent / Settings / Panels / Layouts / Actions) ----
+/* ---- Group heading (Recent / Settings files / Settings / Panels / Layouts / Actions) ----
    "Recent" is not a registry group — palette.js builds that section at
    render time when the query is empty — but it is a heading over rows like
    any other, so it borrows this style rather than introducing its own. */
@@ -239,6 +234,19 @@
   font-family: var(--font-mono);
   font-size: var(--text-2xs);
   color: var(--text-muted);
+}
+
+/* ---- CANOPY rows ----
+ * Rows from the CANOPY provider (screens and collections). The detail is the
+ * screen's category/id path or the collection's source; a long path gives way
+ * to the label rather than pushing it out. */
+.command-palette-item--canopy .command-palette-item-detail {
+  flex-shrink: 1;
+  min-width: 0;
+  max-width: 45%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* ---- Matched-character highlight ----

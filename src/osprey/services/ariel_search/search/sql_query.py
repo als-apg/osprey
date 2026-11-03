@@ -169,7 +169,7 @@ def _scan_relations(normalized: str) -> list[str]:
         upper = token.upper()
         scope = scopes[-1]
 
-        if token == "(":
+        if token == "(":  # noqa: S105 -- names a grammar token, holds no secret
             if previous in ("FROM", "JOIN"):
                 following = tokens[index + 1].upper() if index + 1 < len(tokens) else ""
                 if following not in ("SELECT", "WITH"):
@@ -178,13 +178,13 @@ def _scan_relations(normalized: str) -> list[str]:
                         "with SELECT or WITH."
                     )
             scopes.append(_Scope())
-        elif token == ")":
+        elif token == ")":  # noqa: S105 -- names a grammar token, holds no secret
             if len(scopes) > 1:
                 scopes.pop()
                 if scopes[-1].pending:  # the CTE body just closed; its name binds now
                     scopes[-1].ctes.add(scopes[-1].pending)
                     scopes[-1].pending = None
-        elif token == ",":
+        elif token == ",":  # noqa: S105 -- names a grammar token, holds no secret
             if scope.in_from:
                 raise ValueError("comma-separated FROM lists are not allowed; use JOIN")
         elif token.startswith("'"):
@@ -268,7 +268,7 @@ def validate_sql_query(query: str) -> None:
     upper = normalized.upper()
 
     # Must start with SELECT or WITH
-    if not (upper.startswith("SELECT") or upper.startswith("WITH")):
+    if not upper.startswith(("SELECT", "WITH")):
         raise ValueError(
             "Only SELECT and WITH (CTE) queries are allowed. "
             f"Query starts with: {normalized.split()[0]!r}"
@@ -348,18 +348,17 @@ async def sql_query(
 
     from psycopg.rows import dict_row
 
-    async with pool.connection() as conn:
-        async with conn.cursor(row_factory=dict_row) as cur:
-            # Read-only transaction with timeout
-            await cur.execute("BEGIN READ ONLY")
-            await cur.execute("SET LOCAL statement_timeout = '10s'")
+    async with pool.connection() as conn, conn.cursor(row_factory=dict_row) as cur:
+        # Read-only transaction with timeout
+        await cur.execute("BEGIN READ ONLY")
+        await cur.execute("SET LOCAL statement_timeout = '10s'")
 
-            try:
-                await cur.execute(query)
-                rows = await cur.fetchmany(max_rows)
-                return [dict(row) for row in rows]
-            finally:
-                await cur.execute("ROLLBACK")
+        try:
+            await cur.execute(query)
+            rows = await cur.fetchmany(max_rows)
+            return [dict(row) for row in rows]
+        finally:
+            await cur.execute("ROLLBACK")
 
 
 def format_sql_result(rows: list[dict[str, Any]]) -> str:

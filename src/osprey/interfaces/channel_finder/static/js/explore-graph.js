@@ -34,11 +34,10 @@
  * the panel it was asked for is still mounted, so a slow answer to an abandoned
  * query can never overwrite a faster answer to the current one.
  *
- * Embedded in the web terminal (outside Simple mode) the toolbar's search box
- * and ⋯ menu move into the hub's tile bar (graph-finder-verbs.js
- * contributeHeader → state.setViewHeader → app.js), so the panel body starts
- * at the filters like every other tile. Simple mode hides the hub's tile bar,
- * so there the in-body toolbar stays.
+ * Embedded in the web terminal the toolbar's search box and ⋯ menu move into
+ * the hub's tile bar (graph-finder-verbs.js contributeHeader →
+ * state.setViewHeader → app.js), so the panel body starts at the filters like
+ * every other tile; only standalone keeps the in-body toolbar.
  */
 
 import { state } from './state.js';
@@ -49,8 +48,19 @@ import { copyText as writeClipboard } from '/design-system/js/clipboard.js';
 import { isEmbedded } from '/design-system/js/frame-params.js';
 import { initSplitter } from '/design-system/js/splitter.js';
 import { scopedStorageKey } from '/design-system/js/storage-scope.js';
-import { attachColumnGestures, moveColumn, resizeColumn, visibleColumns } from '/design-system/js/table-columns.js';
-import { activeChips, clampPage, copyText, createFinderState, toSearchParams } from './graph-finder-state.js';
+import {
+  attachColumnGestures,
+  moveColumn,
+  resizeColumn,
+  visibleColumns,
+} from '/design-system/js/table-columns.js';
+import {
+  activeChips,
+  clampPage,
+  copyText,
+  createFinderState,
+  toSearchParams,
+} from './graph-finder-state.js';
 import {
   chipsHtml,
   deviceCardErrorHtml,
@@ -59,11 +69,20 @@ import {
   fmt,
   footerHtml,
   resultsHtml,
+  FINDER_IDS,
+  skeletonHtml,
 } from './graph-finder-render.js';
-import { buildForest, classNameIn, fetchJson, stringList } from './graph-finder-data.js';
+import { buildForest, classNameIn, createFlights, stringList } from './graph-finder-data.js';
 import { contributeHeader, createActions } from './graph-finder-verbs.js';
 import { bindFinderEvents } from './graph-finder-events.js';
-import { COLUMN_SPECS, INSPECTOR_KEY, RAIL_KEY, loadColumns, loadPrefs, saveColumns } from './graph-finder-prefs.js';
+import {
+  COLUMN_SPECS,
+  INSPECTOR_KEY,
+  RAIL_KEY,
+  loadColumns,
+  loadPrefs,
+  saveColumns,
+} from './graph-finder-prefs.js';
 
 /** @typedef {import('./graph-finder-state.js').FinderState} FinderState */
 /** @typedef {import('./graph-finder-data.js').ClassNode} ClassNode */
@@ -71,22 +90,9 @@ import { COLUMN_SPECS, INSPECTOR_KEY, RAIL_KEY, loadColumns, loadPrefs, saveColu
 /** @typedef {import('./graph-finder-verbs.js').FinderHost} FinderHost */
 /** @typedef {import('/design-system/js/splitter.js').SplitterApi} SplitterApi */
 
-/** One request kind's in-flight controller and its generation counter. */
-/** @typedef {{controller: AbortController|null, generation: number}} Flight */
-
 const ONTOLOGY_PATH = '/api/graph/ontology';
 const SEARCH_PATH = '/api/graph/search';
 const DEVICE_PATH = '/api/graph/device';
-
-const SEARCH_INPUT_ID = 'graph-finder-q';
-const COUNT_ID = 'graph-finder-count';
-const CHIPS_ID = 'graph-finder-chips';
-const RAIL_ID = 'graph-finder-rail';
-const RAIL_SPLIT_ID = 'graph-finder-rail-split';
-const CAUTION_ID = 'graph-finder-caution';
-const CARD_ID = 'graph-finder-card';
-const CARD_SPLIT_ID = 'graph-finder-card-split';
-const TABLE_ID = 'graph-finder-table';
 
 /** Splitters only drive the side-by-side layout; a narrow viewport stacks. */
 const WIDE_QUERY = '(min-width: 769px)';
@@ -94,10 +100,9 @@ const WIDE_QUERY = '(min-width: 769px)';
 const LOADING_HTML =
   '<div class="loading-center"><div class="loading-spinner"></div> Searching the facility graph&hellip;</div>';
 const EMPTY_TITLE = 'The graph store is reachable, but holds no facility corpus yet.';
-const SEARCH_PLACEHOLDER = 'Search devices, addresses and descriptions';
 const TRUNCATED_TEXT =
-  'The store holds more values than this query returned, so the rail below is a '
-  + 'partial view of its vocabulary.';
+  'The store holds more values than this query returned, so the rail below is a ' +
+  'partial view of its vocabulary.';
 
 /** The element the panel is mounted into, or null when nothing is mounted. */
 /** @type {HTMLElement|null} */
@@ -139,16 +144,8 @@ let unbindEvents = null;
 /** @type {Array<() => void>} */
 let skeletonTeardown = [];
 
-/**
- * One flight per request kind. A new request of a kind aborts the previous one
- * and takes the next generation; a reply from an older generation is dropped.
- * @type {Record<'ontology'|'search'|'device', Flight>}
- */
-const flights = {
-  ontology: { controller: null, generation: 0 },
-  search: { controller: null, generation: 0 },
-  device: { controller: null, generation: 0 },
-};
+/** The finder's requests, one in flight per kind. */
+const flights = createFlights(() => paneEl);
 
 /** The mount as the verbs and handlers see it. @type {FinderHost} */
 const host = {
@@ -156,13 +153,15 @@ const host = {
   results: () => results,
   card: () => card,
   layout: () => layout,
-  setLayout: (next) => { layout = next; },
+  setLayout: (next) => {
+    layout = next;
+  },
   prefs: () => prefs,
   embedded: () => embedded,
   railSplit: () => railSplit,
   pane: () => paneEl,
   part,
-  searchInputId: SEARCH_INPUT_ID,
+  searchInputId: FINDER_IDS.search,
   runSearch,
   renderTable,
   renderRail,
@@ -213,7 +212,7 @@ export async function mountGraph(content) {
  * @returns {void}
  */
 export function unmountGraph() {
-  for (const kind of /** @type {const} */ (['ontology', 'search', 'device'])) abort(kind);
+  for (const kind of /** @type {const} */ (['ontology', 'search', 'device'])) flights.abort(kind);
   teardownSkeleton();
   unbindEvents?.();
   unbindEvents = null;
@@ -225,44 +224,6 @@ export function unmountGraph() {
   results = null;
   cardHtml = '';
   card = null;
-}
-
-/**
- * Abort the in-flight request of one kind, if there is one, and retire its
- * generation so a reply already on its way is discarded.
- *
- * @param {'ontology'|'search'|'device'} kind - Which request to abandon.
- * @returns {void}
- */
-function abort(kind) {
-  const flight = flights[kind];
-  flight.controller?.abort();
-  flight.controller = null;
-  flight.generation += 1;
-}
-
-/**
- * Run one request of `kind`, superseding whatever else that kind had running.
- *
- * @param {'ontology'|'search'|'device'} kind - Which request this is.
- * @param {string} url - The url to read.
- * @returns {Promise<Reply>} The reply, or null when it no longer applies.
- */
-async function request(kind, url) {
-  abort(kind);
-  const flight = flights[kind];
-  const mine = flight.generation;
-  const pane = paneEl;
-  const controller = new AbortController();
-  flight.controller = controller;
-
-  const reply = await fetchJson(url, controller.signal);
-
-  // A newer request of this kind, or an unmount, happened while this one was
-  // in flight.
-  if (mine !== flight.generation || paneEl === null || paneEl !== pane) return null;
-  flight.controller = null;
-  return reply;
 }
 
 /** @returns {string} The search url for the current state. */
@@ -288,8 +249,8 @@ async function load() {
   body.innerHTML = LOADING_HTML;
 
   const [ontReply, searchReply] = await Promise.all([
-    request('ontology', ONTOLOGY_PATH),
-    request('search', searchUrl()),
+    flights.request('ontology', ONTOLOGY_PATH),
+    flights.request('search', searchUrl()),
   ]);
   if (ontReply === null || searchReply === null) return;
 
@@ -313,7 +274,7 @@ async function load() {
  * @returns {Promise<void>} Resolves once the answer has been rendered.
  */
 async function runSearch() {
-  const reply = await request('search', searchUrl());
+  const reply = await flights.request('search', searchUrl());
   if (reply === null) return;
   if (!reply.ok) return renderInfo(reply.detail, reply.suggestions);
   await applySearch(reply.data);
@@ -359,44 +320,6 @@ function part(id) {
 }
 
 /**
- * The finder's skeleton. The query box lives here rather than in a re-rendered
- * region: replacing an input while it has focus would drop the caret mid-word.
- * @returns {string} Markup for the toolbar, the panes and the regions inside them.
- */
-function skeletonHtml() {
-  const density = (/** @type {'comfortable'|'compact'} */ d, /** @type {string} */ label) =>
-    `<button type="button" data-density="${d}" aria-pressed="${prefs.density === d}">${label}</button>`;
-  return `
-    <div class="cf-toolbar">
-      <label class="cf-search">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
-        <input type="search" id="${SEARCH_INPUT_ID}" placeholder="${esc(SEARCH_PLACEHOLDER)}"
-               aria-label="${esc(SEARCH_PLACEHOLDER)}" autocomplete="off" spellcheck="false">
-        <kbd title="Press / to search">/</kbd>
-      </label>
-      <span class="finder-count" id="${COUNT_ID}"></span>
-      <span class="cf-spacer"></span>
-      <span class="cf-seg" role="group" aria-label="Row density">${density('comfortable', 'Comfortable')}${density('compact', 'Compact')}</span>
-      <button type="button" class="cf-iconbtn" data-more aria-haspopup="menu"
-              title="More options" aria-label="More options">⋯</button>
-    </div>
-    <div class="active-filters" id="${CHIPS_ID}"></div>
-    <div class="finder-layout">
-      <div class="facet-rail" id="${RAIL_ID}"></div>
-      <div class="osprey-splitter" id="${RAIL_SPLIT_ID}" role="separator" aria-orientation="vertical"
-           aria-label="Resize the filters" tabindex="0" title="Drag to resize · double-click to hide"></div>
-      <div class="finder-results">
-        <div id="${CAUTION_ID}"></div>
-        <div class="finder-table" id="${TABLE_ID}"></div>
-      </div>
-      <div class="osprey-splitter" id="${CARD_SPLIT_ID}" role="separator" aria-orientation="vertical"
-           aria-label="Resize the device inspector" tabindex="0" hidden></div>
-      <div class="finder-inspector" id="${CARD_ID}" hidden></div>
-    </div>
-  `;
-}
-
-/**
  * Wire what the skeleton carries: the two splitters and the column gestures.
  * Called each time the skeleton is (re)written, after any previous wiring is
  * torn down.
@@ -406,8 +329,8 @@ function wireSkeleton() {
   teardownSkeleton();
   const wide = () => window.matchMedia?.(WIDE_QUERY).matches ?? true;
   const rail = initSplitter({
-    handle: part(RAIL_SPLIT_ID),
-    pane: part(RAIL_ID),
+    handle: part(FINDER_IDS.railSplit),
+    pane: part(FINDER_IDS.rail),
     storageKey: scopedStorageKey(RAIL_KEY),
     min: 160,
     max: 480,
@@ -416,8 +339,8 @@ function wireSkeleton() {
     onCommit: () => contributeHeader(host),
   });
   const inspector = initSplitter({
-    handle: part(CARD_SPLIT_ID),
-    pane: part(CARD_ID),
+    handle: part(FINDER_IDS.cardSplit),
+    pane: part(FINDER_IDS.card),
     storageKey: scopedStorageKey(INSPECTOR_KEY),
     anchor: 'end',
     min: 260,
@@ -430,23 +353,23 @@ function wireSkeleton() {
   }
   railSplit = rail;
 
-  const table = part(TABLE_ID);
+  const table = part(FINDER_IDS.table);
   const detach = table
     ? attachColumnGestures(table, {
-      onResizing: (key, width) => {
-        resizeColumn(COLUMN_SPECS, layout, key, width);
-        applyWidths();
-      },
-      onResize: (key, width) => {
-        resizeColumn(COLUMN_SPECS, layout, key, width);
-        saveColumns(layout);
-        applyWidths();
-      },
-      onMove: (key, target, before) => {
-        if (moveColumn(layout, key, target, before)) commitColumns();
-      },
-      onAutosize: (key) => createActions(host).autosize(key),
-    })
+        onResizing: (key, width) => {
+          resizeColumn(COLUMN_SPECS, layout, key, width);
+          applyWidths();
+        },
+        onResize: (key, width) => {
+          resizeColumn(COLUMN_SPECS, layout, key, width);
+          saveColumns(layout);
+          applyWidths();
+        },
+        onMove: (key, target, before) => {
+          if (moveColumn(layout, key, target, before)) commitColumns();
+        },
+        onAutosize: (key) => createActions(host).autosize(key),
+      })
     : () => {};
   skeletonTeardown = [() => rail.destroy(), () => inspector.destroy(), detach];
 }
@@ -473,33 +396,39 @@ function renderFinder() {
   const body = bodyEl();
   if (!body || !results) return;
 
-  if (!part(TABLE_ID)) {
-    body.innerHTML = skeletonHtml();
-    const input = /** @type {HTMLInputElement|null} */ (part(SEARCH_INPUT_ID));
+  if (!part(FINDER_IDS.table)) {
+    body.innerHTML = skeletonHtml(prefs.density);
+    const input = /** @type {HTMLInputElement|null} */ (part(FINDER_IDS.search));
     if (input) input.value = finder.q;
     wireSkeleton();
   }
 
   renderRail();
 
-  const chips = part(CHIPS_ID);
+  const chips = part(FINDER_IDS.chips);
   if (chips) {
     // A class chip is named by its class, not its URI.
-    const list = activeChips(finder).map((chip) => (chip.key.startsWith('cls:')
-      ? { ...chip, label: `Device class: ${classNameIn(ontology.tree, chip.key.slice(4))}` }
-      : chip));
-    chips.innerHTML = chipsHtml(list)
-      + (list.length > 1 ? '<button type="button" class="clear-all-filters" data-clear-all>Clear all</button>' : '');
+    const list = activeChips(finder).map((chip) =>
+      chip.key.startsWith('cls:')
+        ? { ...chip, label: `Device class: ${classNameIn(ontology.tree, chip.key.slice(4))}` }
+        : chip
+    );
+    chips.innerHTML =
+      chipsHtml(list) +
+      (list.length > 1
+        ? '<button type="button" class="clear-all-filters" data-clear-all>Clear all</button>'
+        : '');
   }
 
-  const count = part(COUNT_ID);
+  const count = part(FINDER_IDS.count);
   if (count) count.innerHTML = `<strong>${fmt(results.total)}</strong> channels`;
 
-  const caution = part(CAUTION_ID);
+  const caution = part(FINDER_IDS.caution);
   if (caution) {
-    caution.innerHTML = ontology.truncated || results.truncated === true
-      ? `<div class="graph-truncated">${esc(TRUNCATED_TEXT)}</div>`
-      : '';
+    caution.innerHTML =
+      ontology.truncated || results.truncated === true
+        ? `<div class="graph-truncated">${esc(TRUNCATED_TEXT)}</div>`
+        : '';
   }
 
   renderCard();
@@ -509,8 +438,9 @@ function renderFinder() {
 
 /** Redraw the facet rail. @returns {void} */
 function renderRail() {
-  const rail = part(RAIL_ID);
-  if (rail && results) rail.innerHTML = facetRailHtml(results.facets || {}, ontology.tree, finder, prefs.collapsed);
+  const rail = part(FINDER_IDS.rail);
+  if (rail && results)
+    rail.innerHTML = facetRailHtml(results.facets || {}, ontology.tree, finder, prefs.collapsed);
 }
 
 /**
@@ -521,16 +451,27 @@ function renderRail() {
  * @returns {void}
  */
 function renderTable() {
-  const table = part(TABLE_ID);
+  const table = part(FINDER_IDS.table);
   if (!table || !results) return;
   const active = document.activeElement;
   const hadFocus = active instanceof HTMLTableRowElement && table.contains(active);
-  const stop = table.querySelector('tbody tr[data-pv][tabindex="0"]')?.getAttribute('data-pv') ?? null;
-  table.innerHTML = resultsHtml(results.rows || [], finder, visibleColumns(COLUMN_SPECS, layout), stop)
-    + footerHtml(results.total, results.devices, finder.page, results.pages, finder.selected.size, embedded);
+  const stop =
+    table.querySelector('tbody tr[data-pv][tabindex="0"]')?.getAttribute('data-pv') ?? null;
+  table.innerHTML =
+    resultsHtml(results.rows || [], finder, visibleColumns(COLUMN_SPECS, layout), stop) +
+    footerHtml(
+      results.total,
+      results.devices,
+      finder.page,
+      results.pages,
+      finder.selected.size,
+      embedded
+    );
   markOpenRows();
   if (hadFocus) {
-    /** @type {HTMLElement|null} */ (table.querySelector('tbody tr[data-pv][tabindex="0"]'))?.focus();
+    /** @type {HTMLElement|null} */ (
+      table.querySelector('tbody tr[data-pv][tabindex="0"]')
+    )?.focus();
   }
 }
 
@@ -540,13 +481,16 @@ function renderTable() {
  * @returns {void}
  */
 function applyWidths() {
-  const table = /** @type {HTMLTableElement|null} */ (paneEl?.querySelector('.result-table') ?? null);
+  const table = /** @type {HTMLTableElement|null} */ (
+    paneEl?.querySelector('.result-table') ?? null
+  );
   if (!table) return;
   let floor = 0;
   for (const col of visibleColumns(COLUMN_SPECS, layout)) {
     floor += col.width;
     const el = table.querySelector(`col[data-col="${col.key}"]`);
-    if (el instanceof HTMLElement && !el.hasAttribute('data-fill')) el.style.width = `${col.width}px`;
+    if (el instanceof HTMLElement && !el.hasAttribute('data-fill'))
+      el.style.width = `${col.width}px`;
   }
   table.style.minWidth = `${floor}px`;
 }
@@ -564,15 +508,24 @@ function markOpenRows() {
   }
 }
 
-/** Redraw the inspector region from `cardHtml`. @returns {void} */
+/**
+ * Redraw the inspector region from `cardHtml`. Opening it takes room from the
+ * results (all of it below them in a narrow tile), so the row it was opened
+ * from is scrolled back into the results' view; `nearest` leaves a row that is
+ * still visible where it is.
+ * @returns {void}
+ */
 function renderCard() {
-  const region = part(CARD_ID);
+  const region = part(FINDER_IDS.card);
   if (!region) return;
   region.innerHTML = cardHtml;
   region.hidden = cardHtml === '';
-  const split = part(CARD_SPLIT_ID);
+  const split = part(FINDER_IDS.cardSplit);
   if (split) split.hidden = cardHtml === '';
   markOpenRows();
+  if (cardHtml !== '') {
+    paneEl?.querySelector('.result-table tbody tr.open')?.scrollIntoView?.({ block: 'nearest' });
+  }
 }
 
 /**
@@ -669,7 +622,10 @@ async function copyAndSay(text, what) {
  */
 function sendAddresses(pvs) {
   if (pvs.length === 0 || !embedded) return;
-  window.parent.postMessage({ type: 'osprey-paste-to-terminal', text: pvs.join(' ') }, window.location.origin);
+  window.parent.postMessage(
+    { type: 'osprey-paste-to-terminal', text: pvs.join(' ') },
+    window.location.origin
+  );
   showToast(`Posted ${addresses(pvs.length)} to the prompt`, 'success');
 }
 
@@ -699,7 +655,7 @@ async function toggleDevice(uri) {
  */
 async function openDevice(uri) {
   if (!uri) return;
-  const reply = await request('device', `${DEVICE_PATH}?uri=${encodeURIComponent(uri)}`);
+  const reply = await flights.request('device', `${DEVICE_PATH}?uri=${encodeURIComponent(uri)}`);
   if (reply === null) return;
   if (reply.ok) {
     card = { uri, data: reply.data };
@@ -715,7 +671,7 @@ async function openDevice(uri) {
 
 /** Close the inspector and abandon a lookup still in flight. @returns {void} */
 function closeCard() {
-  abort('device');
+  flights.abort('device');
   card = null;
   cardHtml = '';
   renderCard();

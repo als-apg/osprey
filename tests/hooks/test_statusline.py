@@ -51,6 +51,7 @@ def _run(payload, cwd=None):
         capture_output=True,
         text=True,
         cwd=str(cwd) if cwd else None,
+        timeout=120,
     )
     return result.returncode, _strip(result.stdout)
 
@@ -197,23 +198,21 @@ def test_optional_segments_omitted_when_absent(tmp_path):
     assert not re.search(r"\bv\d", out.replace("osprey-v", ""))
 
 
-def test_empty_stdin_is_handled_gracefully():
-    """Empty stdin -> {} -> a line with the '?' model placeholder, exit 0."""
-    rc, out = _run("")
-    assert rc == 0
-    assert "?" in out
-
-
-def test_malformed_json_is_handled_gracefully():
-    """Non-JSON stdin must not crash the statusline (exit 0, '?' model)."""
-    rc, out = _run("this is not json{{{")
-    assert rc == 0
-    assert "?" in out
-
-
-@pytest.mark.parametrize("raw", ["[1, 2]", "42", '"text"'])
-def test_non_object_json_is_handled_gracefully(raw):
-    """JSON that is not an object renders the placeholder line, like unreadable input."""
+@pytest.mark.parametrize(
+    "raw",
+    [
+        # Empty stdin -> {} -> a line with the '?' model placeholder, exit 0.
+        pytest.param("", id="empty-stdin"),
+        # Non-JSON stdin must not crash the statusline.
+        pytest.param("this is not json{{{", id="malformed-json"),
+        # JSON that is not an object renders the placeholder line, like unreadable input.
+        pytest.param("[1, 2]", id="non-object-list"),
+        pytest.param("42", id="non-object-number"),
+        pytest.param('"text"', id="non-object-string"),
+    ],
+)
+def test_unusable_stdin_is_handled_gracefully(raw):
+    """Unusable stdin renders the line with the '?' model placeholder, exit 0."""
     rc, out = _run(raw)
     assert rc == 0
     assert "?" in out

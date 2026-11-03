@@ -154,6 +154,7 @@ from osprey_connectors.simulation.view import (  # noqa: E402
     SimulatorView,
 )
 from tests.fixtures.mml._trees import names  # noqa: E402
+from tests.va._collection import assert_module_collected  # noqa: E402
 from tests.va.e2e import conftest as e2e_conftest  # noqa: E402
 
 pytestmark = [
@@ -505,10 +506,6 @@ def _declared_kinds(mapping: Path, view: SimulatorView) -> frozenset[str]:
 # ===================================================================
 
 
-def _docker(*arguments: str, timeout: float = 120.0) -> subprocess.CompletedProcess:
-    return subprocess.run(["docker", *arguments], capture_output=True, text=True, timeout=timeout)
-
-
 @dataclass(frozen=True)
 class ServedTree:
     """A built tree with a container serving it, the port it answers on, and its oracle.
@@ -530,13 +527,7 @@ class ServedTree:
         variables a developer's shell may carry would otherwise send it to
         whatever else is serving Channel Access on this machine.
         """
-        environment = {
-            **os.environ,
-            "EPICS_CA_NAME_SERVERS": f"localhost:{self.port}",
-            "EPICS_CA_AUTO_ADDR_LIST": "NO",
-        }
-        for stale in ("EPICS_CA_ADDR_LIST", "EPICS_CA_SERVER_PORT", "EPICS_CAS_SERVER_PORT"):
-            environment.pop(stale, None)
+        environment = e2e_conftest.ca_client_environment(self.port)
         result = subprocess.run(
             [sys.executable, __file__, "--worker", json.dumps(request)],
             capture_output=True,
@@ -622,7 +613,7 @@ def _serving(tree: BuiltTree, state_dir: Path | None = None):
         _wait_until_ready(name, served)
         yield served
     finally:
-        _docker("rm", "-f", name)
+        e2e_conftest.docker("rm", "-f", name, timeout=120)
 
 
 def _wait_until_ready(container: str, served: ServedTree) -> None:
@@ -650,7 +641,7 @@ def _wait_until_ready(container: str, served: ServedTree) -> None:
             last_attempt = f"{type(exc).__name__}: {exc}"
         time.sleep(2.0)
 
-    logs = _docker("logs", "--tail", "60", container)
+    logs = e2e_conftest.docker("logs", "--tail", "60", container, timeout=120)
     raise AssertionError(
         f"{served.tree.name}: the container never served {probe} within {BOOT_TIMEOUT_S}s.\n"
         f"The client's last attempt: {last_attempt}\n"
@@ -985,10 +976,4 @@ class TestTheServedTree:
 
 def test_this_module_collects_its_whole_suite(request: pytest.FixtureRequest) -> None:
     """Vacuous-green guard: an empty or half-collected module fails here."""
-    collected = [
-        item
-        for item in request.session.items
-        if item.nodeid.split("::")[0].endswith("test_mml_trees_boot.py")
-    ]
-
-    assert len(collected) >= MIN_COLLECTED_TESTS
+    assert_module_collected(request, __file__, MIN_COLLECTED_TESTS)

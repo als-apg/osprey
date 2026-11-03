@@ -17,7 +17,6 @@ import pytest
 from osprey.services.ariel_search.attachments import attachment_id_for
 from osprey.stores import artifact_store as artifact_store_module
 from osprey.stores.artifact_store import (
-    AUDIT_ORIGIN,
     ArtifactStore,
     register_artifact_listener,
     unregister_artifact_listener,
@@ -99,7 +98,6 @@ async def test_is_a_gallery_artifact_not_an_audit_spill(keyset_harness, store, g
         unregister_artifact_listener(seen.append)
 
     assert [e.id for e in store.list_entries()] == [result["artifact_id"]]
-    assert all(e.origin != AUDIT_ORIGIN for e in store.list_entries())
     assert [e.id for e in seen] == [result["artifact_id"]]
 
 

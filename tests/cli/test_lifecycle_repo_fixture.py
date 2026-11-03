@@ -22,9 +22,10 @@ from osprey.cli.build_profile_deploy import deploy_aware_config_errors
 from osprey.cli.build_profile_merge import compute_preset_hash
 from osprey.cli.profile_root import ProfileKind, layer_files
 from osprey.cli.repo_resolver import find_repo_root
-from osprey_connectors.workspace import APPS_DIRNAME, TIERS_DIRNAME
+from osprey.utils.workspace import APPS_DIRNAME, TIERS_DIRNAME
 from tests.fixtures.lifecycle_repo import (
     APP_PRESETS,
+    CANOPY_LIBRARY_RELPATH,
     EXEMPLAR_DIRNAME,
     EXEMPLAR_PRESET,
     IGNORED_ZONE_PATTERNS,
@@ -33,6 +34,7 @@ from tests.fixtures.lifecycle_repo import (
     TIER_PRESETS,
     build_exemplar_repo,
     exemplar_source_files,
+    packaged_canopy_library,
 )
 
 #: Command strings the redesign retires. None may survive in an artifact the
@@ -214,6 +216,7 @@ def test_git_status_is_clean_from_birth(lifecycle_repo_factory, tmp_path: Path) 
         check=True,
         capture_output=True,
         text=True,
+        timeout=60,
     )
     assert status.stdout == "", f"unexpected git status:\n{status.stdout}"
 
@@ -274,12 +277,12 @@ def test_layer_delta_resolves_over_the_repo_profile(lifecycle_repo: Path, render
     assert profile_dir == lifecycle_repo
     assert profile.name == f"Als Exemplar ({render})"
     assert profile.deploy_services is False
-    # readwrite and admin are armed on the simulator alone; every tier pins the
-    # flat key off, so only the simulator's own block separates them.
-    assert profile.config["control_system.writes_enabled"] is False
-    assert profile.config.get(
-        "control_system.connector.virtual_accelerator.writes_enabled", False
-    ) is (render in ("readwrite", "admin"))
+    # One key states the tier's ceiling, and no retired leaf survives beside it.
+    assert profile.config["control_system.writes"] == {
+        "readwrite": "asked",
+        "admin": "allowed",
+    }.get(render, "never")
+    assert not [key for key in profile.config if key.endswith("writes_enabled")]
 
 
 def test_render_catalog_names_only_each_renders_source(lifecycle_repo: Path) -> None:
@@ -327,11 +330,42 @@ def test_repo_is_discoverable_from_any_subdirectory(lifecycle_repo: Path) -> Non
 
 
 def _all_text_files(root: Path) -> dict[str, str]:
+    """Every text file the exemplar writes; the screen library holds images."""
     return {
         str(path.relative_to(root)): path.read_text(encoding="utf-8")
         for path in sorted(root.rglob("*"))
-        if path.is_file() and ".git/" not in str(path.relative_to(root))
+        if path.is_file()
+        and ".git/" not in str(path.relative_to(root))
+        and not path.relative_to(root).as_posix().startswith(CANOPY_LIBRARY_RELPATH + "/")
     }
+
+
+def _tree(root: Path) -> dict[str, tuple[int, bytes | None]]:
+    """Each path under ``root`` with its permission bits and, for a file, its bytes."""
+    return {
+        path.relative_to(root).as_posix(): (
+            path.stat().st_mode & 0o777,
+            path.read_bytes() if path.is_file() else None,
+        )
+        for path in sorted(root.rglob("*"))
+    }
+
+
+def test_the_screen_library_is_the_packaged_one(lifecycle_repo: Path) -> None:
+    """The exemplar carries the preset's screen library, byte for byte.
+
+    Modes are the ones a fresh checkout gives: files 0644, directories 0755.
+    """
+    library = lifecycle_repo / CANOPY_LIBRARY_RELPATH
+    packaged = packaged_canopy_library()
+    expected = {
+        rel: (0o644 if data is not None else 0o755, data)
+        for rel, (_mode, data) in _tree(packaged).items()
+    }
+
+    assert (library / "LIBRARY-REPORT.json").is_file()
+    assert _tree(library) == expected
+    assert library.stat().st_mode & 0o777 == 0o755
 
 
 def test_no_retired_command_strings(lifecycle_repo: Path) -> None:

@@ -1,0 +1,13 @@
+# gitleaks configuration: the default rules, plus allowlists for known false positives.
+
+[extend]
+useDefault = true
+
+# The dock-engine case pin maps each copied case to its git blob. Case names such as
+# validate-dock-bad-key.json make generic-api-key read the blob as a key; only a bare
+# 40-hex blob in that file is exempt.
+[[allowlists]]
+description = "dock-engine case blobs in tests/dock_engine/cases-pin.json"
+condition = "AND"
+paths = ['''^tests/dock_engine/cases-pin\.json$''']
+regexes = ['''^[0-9a-f]{40}$''']

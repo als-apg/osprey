@@ -1,23 +1,22 @@
-"""LLM API Call Logging for Transparency and Debugging.
+"""LLM API Call Recording for Transparency and Debugging.
 
-This module provides comprehensive logging of all LLM API interactions through the
-get_chat_completion function. It captures raw input/output data along with rich
-metadata including caller information, timestamps, and model parameters.
+This module records every LLM API interaction made through the
+get_chat_completion function as an ``api_call`` entry in the agent record. Each
+entry carries the raw input and output along with caller information and the
+model parameters.
 
 Key capabilities:
 - Automatic capture of caller context using Python's inspect module
 - Context variable propagation through async/thread boundaries
-- Structured logging with metadata headers
-- Integration with debug logging patterns
-- Configurable output directory and file naming
-- Support for both timestamped and latest-only file modes
+- One record entry per call, written through the record writer
 
 .. note::
-   This logging is controlled by development.api_calls configuration:
+   This recording is controlled by development.api_calls configuration:
 
-   - save_all: Enable file output to configured api_calls directory
-   - latest_only: Use latest.txt filenames vs timestamped files
-   - include_stack_trace: Include full stack trace in metadata
+   - save_all: Record every API call
+   - include_stack_trace: Include the full stack trace in the entry
+
+   The record's off switch (``OSPREY_AGENT_RECORD_OFF=1``) suppresses it.
 
 .. seealso::
    :func:`~completion.get_chat_completion` : Main chat completion interface
@@ -27,14 +26,14 @@ Key capabilities:
 import contextvars
 import inspect
 import json
-import textwrap
 import traceback
 import warnings
-from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from osprey_connectors.config import get_agent_dir, get_config_value
+from osprey.agent_record import writer as record_writer
+from osprey.agent_record.contract import KIND_API_CALL
+from osprey_connectors.config import get_config_value
 from osprey_connectors.logger import get_logger
 
 logger = get_logger("osprey.models")
@@ -294,103 +293,11 @@ def _get_caller_info(skip_frames: int = 2) -> dict[str, Any]:
         }
 
 
-def _format_metadata_header(
-    caller_info: dict,
-    provider: str,
-    model_id: str,
-    max_tokens: int,
-    temperature: float,
-    enable_thinking: bool,
-    budget_tokens: int | None,
-    output_model: Any,
-    include_stack_trace: bool = False,
-) -> str:
-    """Format a comprehensive metadata header for the log file.
-
-    :param caller_info: Dictionary with caller information from _get_caller_info
-    :param provider: AI provider name
-    :param model_id: Model identifier
-    :param max_tokens: Maximum tokens for response
-    :param temperature: Model temperature setting
-    :param enable_thinking: Whether extended thinking is enabled
-    :param budget_tokens: Thinking budget tokens if applicable
-    :param output_model: Structured output model if used
-    :param include_stack_trace: Whether to include full stack trace
-    :return: Formatted metadata header string
-    :rtype: str
-    """
-    timestamp_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-    # Build class context if available
-    class_context = ""
-    if "class" in caller_info:
-        class_context = f"\n# Class: {caller_info['class']}"
-
-    # Build threading context if available
-    threading_context = ""
-    if "threading" in caller_info:
-        threading_context = f"\n# Threading: {caller_info['threading']}"
-
-    # Build capability context if available (for classifier)
-    capability_context = ""
-    if "capability" in caller_info:
-        capability_context = f"\n# Capability: {caller_info['capability']}"
-
-    # Build skipped frames info for debugging complex call chains
-    skipped_info = ""
-    if include_stack_trace and "skipped_frames" in caller_info:
-        skipped_list = "\n# ".join(caller_info["skipped_frames"])
-        skipped_info = f"\n# Skipped Frames: \n# {skipped_list}"
-
-    # Build output model info
-    output_model_info = "None"
-    if output_model is not None:
-        output_model_info = getattr(output_model, "__name__", str(output_model))
-
-    header = textwrap.dedent(
-        f"""
-        # ==========================================
-        # LLM API CALL LOG
-        # ==========================================
-        # Timestamp: {timestamp_str}
-        #
-        # CALLER INFORMATION
-        # ------------------------------------------
-        # Function: {caller_info.get("function", "Unknown")}
-        # Module: {caller_info.get("module", "Unknown")}{class_context}
-        # File: {caller_info.get("filename", "Unknown")}
-        # Line: {caller_info.get("line_number", 0)}{threading_context}{capability_context}{skipped_info}
-        #
-        # MODEL CONFIGURATION
-        # ------------------------------------------
-        # Provider: {provider}
-        # Model ID: {model_id}
-        # Max Tokens: {max_tokens}
-        # Temperature: {temperature}
-        # Enable Thinking: {enable_thinking}
-        # Budget Tokens: {budget_tokens}
-        # Output Model: {output_model_info}
-        #
-        # ==========================================
-    """
-    ).strip()
-
-    # Add stack trace if requested
-    if include_stack_trace:
-        stack_trace = "".join(
-            traceback.format_stack()[:-2]
-        )  # Exclude this function and log_api_call
-        header += "\n\n# FULL STACK TRACE\n# ------------------------------------------\n"
-        header += "# " + stack_trace.replace("\n", "\n# ")
-
-    return header
-
-
 def _sanitize_result_for_logging(result: Any) -> str:
     """Convert API result to string format suitable for logging.
 
     Handles different result types (str, BaseModel, list, dict) and
-    converts them to readable string format for file output.
+    converts them to readable string format for the entry's ``output`` field.
 
     Note: LiteLLM response objects (Message, Choices, StreamingChoices) have model_dump()
     but aren't standard Pydantic models - they have provider-specific fields that may not
@@ -402,7 +309,7 @@ def _sanitize_result_for_logging(result: Any) -> str:
     """
     if isinstance(result, str):
         return result
-    elif hasattr(result, "model_dump"):
+    if hasattr(result, "model_dump"):
         # Pydantic BaseModel or Pydantic-like objects (LiteLLM responses)
         # Suppress warnings for non-standard Pydantic objects like LiteLLM's Message/Choices
         try:
@@ -422,6 +329,58 @@ def _sanitize_result_for_logging(result: Any) -> str:
         return str(result)
 
 
+#: The caller-info fields an ``api_call`` entry carries, in the order they are
+#: written. ``skipped_frames`` is added only with ``include_stack_trace``.
+_CALLER_FIELDS: tuple[str, ...] = (
+    "function",
+    "module",
+    "class",
+    "filename",
+    "line_number",
+    "threading",
+    "capability",
+)
+
+
+def _api_call_body(
+    *,
+    caller_info: dict[str, Any],
+    message: str,
+    result: Any,
+    provider: str,
+    model_id: str,
+    max_tokens: int,
+    temperature: float,
+    enable_thinking: bool,
+    budget_tokens: int | None,
+    output_model: Any,
+    include_stack_trace: bool,
+) -> dict[str, Any]:
+    """The body of one ``api_call`` entry: who called, how, what went in and out."""
+    caller = {key: caller_info[key] for key in _CALLER_FIELDS if key in caller_info}
+    if include_stack_trace and "skipped_frames" in caller_info:
+        caller["skipped_frames"] = list(caller_info["skipped_frames"])
+
+    body: dict[str, Any] = {
+        "caller": caller,
+        "provider": provider,
+        "model_id": model_id,
+        "max_tokens": max_tokens,
+        "temperature": temperature,
+        "enable_thinking": enable_thinking,
+        "budget_tokens": budget_tokens,
+        "output_model": (
+            None if output_model is None else getattr(output_model, "__name__", str(output_model))
+        ),
+        "input": message,
+        "output": _sanitize_result_for_logging(result),
+    }
+    if include_stack_trace:
+        # Every frame above this helper and log_api_call.
+        body["stack"] = "".join(traceback.format_stack()[:-2])
+    return body
+
+
 def log_api_call(
     message: str,
     result: Any,
@@ -433,20 +392,17 @@ def log_api_call(
     budget_tokens: int | None = None,
     output_model: Any = None,
 ) -> None:
-    """Log complete LLM API call with input, output, and rich metadata.
+    """Record one LLM API call as an ``api_call`` entry in the agent record.
 
-    This function captures every interaction with LLM APIs through get_chat_completion,
-    saving both the raw input message and the complete response along with context
-    about where the call originated. This provides complete transparency and enables
-    debugging, auditing, and analysis of LLM usage patterns.
+    Each call is one entry, written through the record writer: the caller's
+    context, the model configuration, the input message and the response. The
+    record's own off switch (``OSPREY_AGENT_RECORD_OFF``) is honoured by the
+    writer, so a switched-off run records nothing.
 
-    The function integrates with the development configuration system:
-    - Controlled by development.api_calls.save_all flag
-    - Respects development.api_calls.latest_only for file naming
-    - Uses development.api_calls.include_stack_trace for detailed debugging
+    Gated by ``development.api_calls``:
 
-    Files are saved to the ``api_calls`` directory under the agent-data root
-    (``agent_data.base_dir``), named from the calling function and a timestamp.
+    - ``save_all``: record every call (off by default)
+    - ``include_stack_trace``: add the full stack and the skipped frames
 
     :param message: Input message/prompt sent to the LLM
     :type message: str
@@ -468,69 +424,35 @@ def log_api_call(
     :type output_model: Any | None
 
     .. note::
-       This function is designed to be called from get_chat_completion and
-       will silently handle any errors to prevent debugging from breaking
-       the main application flow.
+       Called from get_chat_completion; it never raises, so recording can
+       never break the call it records.
 
     .. seealso::
        :func:`~completion.get_chat_completion` : Function that calls this logger
        :func:`_get_caller_info` : Extracts caller context from stack
-       :func:`~prompts.base.debug_print_prompt` : Similar pattern for prompts
 
     Examples:
         Configuration in config.yml::
 
             development:
               api_calls:
-                save_all: true          # Enable API call logging
-                latest_only: false      # Create timestamped files
+                save_all: true             # Record every API call
                 include_stack_trace: true  # Add full stack traces
     """
     try:
-        # Check if API call logging is enabled
         development_config = get_config_value("development", {})
         api_calls_config = development_config.get("api_calls", {})
 
-        if not api_calls_config.get("save_all", False):
+        if not api_calls_config.get("save_all", False) or record_writer.record_off():
             return
 
-        # Get caller information
-        caller_info = _get_caller_info(
-            skip_frames=3
-        )  # Skip: this func, wrapper in completion.py, get_chat_completion
+        # Skip: this func, wrapper in completion.py, get_chat_completion
+        caller_info = _get_caller_info(skip_frames=3)
 
-        # Create api_calls directory
-        api_calls_dir = Path(get_agent_dir("api_calls_dir"))
-        api_calls_dir.mkdir(exist_ok=True, parents=True)
-
-        # Determine filename
-        latest_only = api_calls_config.get("latest_only", True)
-        caller_function = caller_info.get("function", "unknown")
-        caller_module = caller_info.get("module", "unknown")
-        caller_class = caller_info.get("class", None)
-
-        # Build descriptive filename
-        if caller_class:
-            base_name = f"{caller_module}_{caller_class}_{caller_function}"
-        else:
-            base_name = f"{caller_module}_{caller_function}"
-
-        # Add extra metadata to filename if provided (e.g., capability)
-        if "capability" in caller_info:
-            base_name = f"{base_name}_{caller_info['capability']}"
-
-        if latest_only:
-            filename = f"{base_name}_latest.txt"
-        else:
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            filename = f"{base_name}_{timestamp}.txt"
-
-        filepath = api_calls_dir / filename
-
-        # Format metadata header
-        include_stack_trace = api_calls_config.get("include_stack_trace", False)
-        header = _format_metadata_header(
+        body = _api_call_body(
             caller_info=caller_info,
+            message=message,
+            result=result,
             provider=provider,
             model_id=model_id,
             max_tokens=max_tokens,
@@ -538,30 +460,15 @@ def log_api_call(
             enable_thinking=enable_thinking,
             budget_tokens=budget_tokens,
             output_model=output_model,
-            include_stack_trace=include_stack_trace,
+            include_stack_trace=api_calls_config.get("include_stack_trace", False),
         )
-
-        # Format output
-        result_str = _sanitize_result_for_logging(result)
-
-        # Build complete log entry
-        log_content = f"{header}\n\n"
-        log_content += "=" * 80 + "\n"
-        log_content += "INPUT MESSAGE\n"
-        log_content += "=" * 80 + "\n\n"
-        log_content += message + "\n\n"
-        log_content += "=" * 80 + "\n"
-        log_content += "OUTPUT RESPONSE\n"
-        log_content += "=" * 80 + "\n\n"
-        log_content += result_str + "\n"
-
-        # Write to file
-        with open(filepath, "w", encoding="utf-8") as f:
-            f.write(log_content)
-
-        logger.debug(f"API call logged to {filepath}")
+        entry_id = record_writer.write(KIND_API_CALL, body)
+        if entry_id is None:
+            logger.debug("API call was not recorded (the record writer stored nothing)")
+        else:
+            logger.debug(f"API call recorded as {entry_id}")
 
     except Exception as e:
-        # Don't break execution if logging fails, but make errors visible
-        logger.warning(f"Failed to log API call: {e}")
-        logger.debug(f"API logging traceback: {traceback.format_exc()}")
+        # Don't break execution if recording fails, but make errors visible
+        logger.warning(f"Failed to record API call: {e}")
+        logger.debug(f"API call recording traceback: {traceback.format_exc()}")

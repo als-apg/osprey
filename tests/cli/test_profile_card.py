@@ -36,7 +36,6 @@ from osprey.cli.build_profile import (
 )
 from osprey.cli.build_profile_model import BuildProfile
 from osprey.cli.main import cli
-from osprey.cli.phase_reporter import PhaseReporter, install_reporter
 from osprey.cli.profile_card import card_rows, format_profile_card, print_profile_card
 from osprey.cli.profile_cmd import (
     _layer_profile_texts,
@@ -45,6 +44,7 @@ from osprey.cli.profile_cmd import (
 )
 from osprey.cli.styles import osprey_theme
 from osprey.port_layout import DEFAULT_PORT_BASE, default_port, layout_ports
+from tests.cli._reporters import ConsoleReporter, installed
 
 #: Every port the exemplar lands on, at the base a profile with no
 #: ``deployment.port_base`` resolves. Spelled through the layout rather than as
@@ -104,13 +104,13 @@ def test_each_user_row_carries_rights_auth_and_port(exemplar_lines: list[str]) -
     band rather than at whatever the profile happened to spell.
     """
     alice = line_with(exemplar_lines, "alice")
-    assert "readwrite · live read-only · va rights approval-gated" in alice
+    assert "readwrite · rights asked" in alice
     assert "password" in alice
     assert alice.rstrip().endswith(f":{_PORTS['web']}")
 
     bob = line_with(exemplar_lines, "bob")
     assert "readonly" in bob
-    assert "rights approval-gated" not in bob
+    assert "rights" not in bob
     assert bob.rstrip().endswith(f":{_PORTS['web'] + 1}")
 
 
@@ -133,10 +133,8 @@ def test_the_card_shows_every_family_the_deployment_publishes(exemplar_lines: li
 
 
 def test_a_single_target_render_keeps_one_unqualified_write_right() -> None:
-    # A render that reaches one machine names no target on the rights item —
-    # a target-by-target posture needs a second half the render does not have.
-    # Every one of the exemplar's write tiers now reaches two machines, so the
-    # one-target reading is pinned at the renderer's own seam instead.
+    # A render that reaches one machine reads as it always has: one item when
+    # its tier allows writes, nothing when it does not.
     from types import SimpleNamespace
 
     from osprey.cli.profile_card import _write_rights
@@ -145,7 +143,7 @@ def test_a_single_target_render_keeps_one_unqualified_write_right() -> None:
         config={
             "control_system.type": "virtual_accelerator",
             "control_system.connector.virtual_accelerator.serving": "in_process",
-            "control_system.writes_enabled": True,
+            "control_system.writes": "allowed",
         }
     )
     cold = SimpleNamespace(
@@ -154,25 +152,91 @@ def test_a_single_target_render_keeps_one_unqualified_write_right() -> None:
             "control_system.connector.virtual_accelerator.serving": "in_process",
         }
     )
-    assert _write_rights(armed, {}, "readwrite") == ["rights approval-gated"]
+    assert _write_rights(armed, {}, "readwrite") == ["rights allowed"]
     assert _write_rights(cold, {}, "readonly") == []
 
 
-def test_a_switch_capable_render_answers_per_target(exemplar_lines: list[str]) -> None:
-    # The readonly tier pins BOTH connector types off by name, which is also
-    # what makes its render switch-capable: two machines a session could be
-    # pointed at, so the card answers for each rather than once for the login.
+_TIER_KEY = "control_system.writes"
+
+
+@pytest.mark.parametrize(
+    ("word", "rights"),
+    [("never", []), ("asked", ["rights asked"]), ("allowed", ["rights allowed"])],
+)
+def test_the_right_prints_the_ceiling_word_on_every_tier(word: str, rights: list[str]) -> None:
+    """The word is the tier's own: asked and allowed cap the slider differently."""
+    from types import SimpleNamespace
+
+    from osprey.cli.profile_card import _write_rights
+
+    host = SimpleNamespace(config={_TIER_KEY: word})
+    assert _write_rights(host, {}, "plain") == rights
+
+    # A layer's word beats the host's, in either direction.
+    for other in ("never", "asked", "allowed"):
+        over = SimpleNamespace(config={_TIER_KEY: other})
+        assert _write_rights(over, {"r": {"config": {_TIER_KEY: word}}}, "r") == rights
+
+
+@pytest.mark.parametrize("value", ["Asked", "on", True, None])
+def test_a_tier_value_outside_the_three_words_prints_no_right(value: object) -> None:
+    from types import SimpleNamespace
+
+    from osprey.cli.profile_card import _write_rights
+
+    assert _write_rights(SimpleNamespace(config={_TIER_KEY: value}), {}, "plain") == []
+
+
+def test_a_retired_spelling_that_armed_prints_allowed_never_asked() -> None:
+    """The rewrite of a retired armed leaf is ``allowed``; only the tier key says ``asked``."""
+    from types import SimpleNamespace
+
+    from osprey.cli.profile_card import _write_rights
+
+    host = SimpleNamespace(config={"control_system.writes_enabled": True})
+    assert _write_rights(host, {}, "plain") == ["rights allowed"]
+
+
+def test_the_roster_row_prints_each_tier_word() -> None:
+    profile = BuildProfile(
+        name="three-tiers",
+        config={
+            "modules.web_terminals.enabled": True,
+            "modules.web_terminals.users": [
+                {"name": "dana", "index": 0, "tier": "gated"},
+                {"name": "evan", "index": 1, "tier": "free"},
+                {"name": "finn", "index": 2, "tier": "cold"},
+            ],
+        },
+    )
+    deltas = {
+        "gated": {"config": {_TIER_KEY: "asked"}},
+        "free": {"config": {_TIER_KEY: "allowed"}},
+        "cold": {"config": {_TIER_KEY: "never"}},
+    }
+
+    lines = format_profile_card(profile, deltas)
+
+    assert "gated · rights asked" in line_with(lines, "dana")
+    assert "free · rights allowed" in line_with(lines, "evan")
+    assert "rights" not in line_with(lines, "finn")
+
+
+def test_a_switch_capable_render_answers_once_for_its_tier(exemplar_lines: list[str]) -> None:
+    # The tier is target-blind (PR-3): a login whose tier allows writes may
+    # write to every machine its render reaches, and the person's switch picks
+    # which one. So a render that reaches two machines still answers once, and
+    # the readonly tier's `never` answers with nothing.
     bob = line_with(exemplar_lines, "bob")
-    assert "readonly · live read-only · va read-only" in bob
+    assert "readonly" in bob
+    assert "rights" not in bob
+    assert "read-only" not in bob
 
 
-def test_a_mixed_render_arms_only_the_target_its_own_block_names() -> None:
-    # Write posture is per connector type: `control_system.writes_enabled`
-    # answers only for a type whose own block says nothing. A render that
-    # says `false` deployment-wide and `true` under the simulator's block is
-    # armed on the simulator and read-only on the live machine — and the card
-    # has to show both halves, because which one carries the write path is
-    # the whole point of saying it.
+def test_a_render_arming_one_block_is_allowed_on_every_machine() -> None:
+    # A retired spelling that armed only the simulator's block is rewritten to
+    # `control_system.writes: allowed` (PR-3), and the tier allows writes for
+    # every machine — so the card no longer splits the login by target.
     profile = BuildProfile(
         name="mixed",
         config={
@@ -194,7 +258,8 @@ def test_a_mixed_render_arms_only_the_target_its_own_block_names() -> None:
 
     dana = line_with(format_profile_card(profile, deltas), "dana")
 
-    assert "va-write · live read-only · va rights approval-gated" in dana
+    assert "va-write · rights allowed" in dana
+    assert "read-only" not in dana
 
 
 def test_a_shared_app_is_not_a_roster_row(exemplar_lines: list[str]) -> None:
@@ -300,9 +365,13 @@ def test_the_panels_row_is_the_union_across_renders(exemplar_lines: list[str]) -
     # come from `web.panels.<id>.label` — they are not built-ins.
     # The order is declaration order: the host profile's `web_panels` first, in
     # the order it lists them, then whatever the layers add. JUPYTER
-    # follows SYSTEM because the profile lists `jupyter` after `system-health`.
+    # follows SYSTEM because the profile lists `jupyter` after `system-health`,
+    # and CANOPY follows JUPYTER because the profile lists `canopy` next.
     panels = line_with(exemplar_lines, "panels")
-    assert "ARIEL · CHANNELS · LATTICE · KNOWLEDGE · SYSTEM · JUPYTER · EVENTS · BLUESKY" in panels
+    assert (
+        "ARIEL · CHANNELS · LATTICE · KNOWLEDGE · SYSTEM · JUPYTER · CANOPY · EVENTS · BLUESKY"
+        in panels
+    )
 
 
 def test_the_agent_group_names_servers_and_counts_its_toolkit(
@@ -406,6 +475,52 @@ def test_the_card_reads_the_renders_own_gate_predicates(
     servers = mcp_servers_on(format_profile_card(profile, deltas))
     assert "graph" not in servers
     assert "event_dispatcher" not in servers
+
+
+def test_a_panel_served_mcp_server_is_listed_only_with_its_panel(monkeypatch) -> None:
+    """A server derived from a sidecar panel follows each render's enabled panels.
+
+    The card holds profiles, not rendered configs, so it asks the question the
+    render asks of ``web.panels`` of each render's projected panel blocks: the
+    host's selection, and each layer's on top of it.
+    """
+    from osprey.cli.profile_card import _enabled_mcp_servers
+    from osprey.profiles.sidecar_panels import SidecarPanel
+    from osprey.registry.mcp import FRAMEWORK_SERVERS, derive_panel_servers
+
+    panel = SidecarPanel(
+        "Synthetic screens",
+        "tests.synthetic:Sidecar",
+        mcp_path="/mcp",
+        agent_hop=True,
+        mcp_ask=("push_screen",),
+    )
+    monkeypatch.setitem(
+        FRAMEWORK_SERVERS, "screens", derive_panel_servers({"screens": panel})["screens"]
+    )
+
+    with_panel = BuildProfile(name="with", web_panels=["jupyter", "screens"])
+    without_panel = BuildProfile(name="without", web_panels=["jupyter"])
+    forced = BuildProfile(
+        name="forced",
+        web_panels=["jupyter"],
+        config={"claude_code": {"servers": {"screens": {"enabled": True}}}},
+    )
+
+    assert "screens" in _enabled_mcp_servers(with_panel, {})
+    assert "screens" not in _enabled_mcp_servers(without_panel, {})
+    assert "screens" not in _enabled_mcp_servers(forced, {})
+    assert "screens" in line_with(format_profile_card(with_panel, {}), "mcp ")
+    assert "controls" in _enabled_mcp_servers(without_panel, {})
+    # A layer that adds the panel ships the server for that render.
+    assert "screens" in _enabled_mcp_servers(without_panel, {"ops": {"web_panels": ["screens"]}})
+
+
+def test_the_mcp_row_lists_the_canopy_server_the_host_panel_ships(
+    exemplar_lines: list[str],
+) -> None:
+    """The host profile selects the CANOPY panel, so every render ships its server."""
+    assert "canopy" in mcp_servers_on(exemplar_lines)
 
 
 def test_the_model_row_names_the_provider_default_when_the_profile_names_none(
@@ -515,17 +630,6 @@ def test_a_profile_with_nothing_to_say_prints_nothing() -> None:
 # ---------------------------------------------------------------------------
 
 
-class RecordingReporter(PhaseReporter):
-    """A real reporter whose console is a buffer, not the terminal."""
-
-    def __init__(self, console: Console, *, color: bool) -> None:
-        super().__init__(color=color)
-        self._console = console
-
-    def out(self) -> Console:
-        return self._console
-
-
 def recording_console(*, terminal: bool) -> tuple[Console, io.StringIO]:
     buffer = io.StringIO()
     return (
@@ -546,11 +650,8 @@ def test_the_printed_card_is_the_plain_renderer_byte_for_byte(
 ) -> None:
     profile, deltas = exemplar
     console, buffer = recording_console(terminal=False)
-    previous = install_reporter(RecordingReporter(console, color=False))
-    try:
+    with installed(ConsoleReporter(console, color=False)):
         print_profile_card(profile, deltas)
-    finally:
-        install_reporter(previous)
     assert buffer.getvalue().splitlines() == format_profile_card(profile, deltas)
 
 
@@ -559,11 +660,8 @@ def test_the_styled_card_strips_to_the_plain_renderer(
 ) -> None:
     profile, deltas = exemplar
     console, buffer = recording_console(terminal=True)
-    previous = install_reporter(RecordingReporter(console, color=True))
-    try:
+    with installed(ConsoleReporter(console, color=True)):
         print_profile_card(profile, deltas)
-    finally:
-        install_reporter(previous)
     styled = buffer.getvalue()
     assert "\x1b[" in styled  # it really was styled
     stripped = [line.rstrip() for line in re.sub(r"\x1b\[[0-9;]*m", "", styled).splitlines()]
@@ -793,9 +891,11 @@ def test_card_rows_carry_the_layer_deltas_read_off_disk(
     assert {"alice", "bob"} <= set(roster)
     assert roster["alice"].startswith("readwrite")
     assert roster["bob"].startswith("readonly")
-    # The readonly tier pins both connectors read-only in its own file.
-    assert "read-only" in roster["bob"]
+    # The readonly tier states `never` in its own file; the host it is merged
+    # over asks for writes, which is what bob reads as with no delta.
+    assert "rights" not in roster["bob"]
     bare = {row["label"]: row["value"] for row in card_rows(profile, {})}
+    assert "rights asked" in bare["bob"]
     assert bare["bob"] != roster["bob"]
 
 

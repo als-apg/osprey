@@ -12,6 +12,7 @@ from osprey.registry.mcp import (
     HOOK_PRESETS,
     MIXED_READ_WRITE_TEMPLATES,
     framework_mixed_read_write_tools,
+    governed_write_tools,
     mixed_read_write_tools,
     resolve_agents,
     resolve_servers,
@@ -42,6 +43,9 @@ def _base_ctx(**overrides):
         "current_python_env": "/usr/bin/python3",
         "agent_data_root": DEFAULT_AGENT_DATA_BASE_DIR,
         "phoebus_agent_access": "read_write",
+        # The render funnel derives it from agent_record.retention_days;
+        # settings.json.j2 renders it unconditionally.
+        "cleanup_period_days": 30,
     }
     ctx.update(overrides)
     return ctx
@@ -123,28 +127,24 @@ class TestResolveServers:
         assert s["permissions_ask"] == ["write_data"]
         assert s["is_custom"] is True
 
-    def test_resolve_external_command_resolves_current_python_env(self):
-        """An external server's ``command`` resolves {current_python_env}
-        the same way ``args`` and ``env`` already do."""
+    @pytest.mark.parametrize(
+        ("command", "expected"),
+        [
+            # An external server's ``command`` resolves {current_python_env}
+            # the same way ``args`` and ``env`` already do.
+            pytest.param("{current_python_env}", "/usr/bin/python3", id="current-python-env"),
+            # An external server's ``command`` resolves {project_root}.
+            pytest.param("{project_root}/bin/x", "/tmp/test-project/bin/x", id="project-root"),
+            # ``${VAR}`` in an external server's ``command`` survives verbatim,
+            # matching the existing behavior for ``args`` and ``env``.
+            pytest.param("${TOOL_HOME}/bin/x", "${TOOL_HOME}/bin/x", id="dollar-var-untouched"),
+        ],
+    )
+    def test_resolve_external_command_resolves_its_placeholders(self, command, expected):
         ctx = _base_ctx()
-        cfg = {"servers": {"my-server": {"command": "{current_python_env}"}}}
+        cfg = {"servers": {"my-server": {"command": command}}}
         s = _resolve_one(cfg, "my-server", ctx)
-        assert s["command"] == "/usr/bin/python3"
-
-    def test_resolve_external_command_resolves_project_root(self):
-        """An external server's ``command`` resolves {project_root}."""
-        ctx = _base_ctx()
-        cfg = {"servers": {"my-server": {"command": "{project_root}/bin/x"}}}
-        s = _resolve_one(cfg, "my-server", ctx)
-        assert s["command"] == "/tmp/test-project/bin/x"
-
-    def test_resolve_external_command_leaves_dollar_var_untouched(self):
-        """``${VAR}`` in an external server's ``command`` survives verbatim,
-        matching the existing behavior for ``args`` and ``env``."""
-        ctx = _base_ctx()
-        cfg = {"servers": {"my-server": {"command": "${TOOL_HOME}/bin/x"}}}
-        s = _resolve_one(cfg, "my-server", ctx)
-        assert s["command"] == "${TOOL_HOME}/bin/x"
+        assert s["command"] == expected
 
     def test_resolve_custom_server_url_defaults_to_http_transport(self):
         """A URL server without a transport key resolves as streamable-HTTP."""
@@ -200,29 +200,27 @@ class TestResolveServers:
         assert not [s for s in servers if s["name"] == "typo-api"]
         assert "invalid transport" in caplog.text
 
-    def test_resolve_custom_server_double_underscore_name_rejected(self, caplog):
-        """A ``__`` in a custom server name is rejected loudly, like extends clones.
-
-        Tool names are ``mcp__<server>__<tool>``, so a server named
-        ``my__server`` would make every consumer that splits on the first
-        ``__`` (transcript reader, display formatting) silently mis-attribute
-        its calls to a server named ``my``.
-        """
+    @pytest.mark.parametrize(
+        "name",
+        [
+            # A ``__`` in a custom server name is rejected loudly, like extends clones.
+            #
+            # Tool names are ``mcp__<server>__<tool>``, so a server named
+            # ``my__server`` would make every consumer that splits on the first
+            # ``__`` (transcript reader, display formatting) silently mis-attribute
+            # its calls to a server named ``my``.
+            pytest.param("my__server", id="double-underscore"),
+            # A trailing ``_`` makes ``mcp__<server>__`` ambiguous, so it is rejected.
+            pytest.param("srv_", id="trailing-underscore"),
+        ],
+    )
+    def test_resolve_custom_server_name_that_breaks_the_tool_prefix_rejected(self, caplog, name):
         ctx = _base_ctx()
-        cfg = {"servers": {"my__server": {"command": "node", "args": ["s.js"]}}}
+        cfg = {"servers": {name: {"command": "node", "args": ["s.js"]}}}
         with caplog.at_level("WARNING"):
             servers = resolve_servers(cfg, ctx)
-        assert not [s for s in servers if s["name"] == "my__server"]
-        assert "my__server" in caplog.text
-
-    def test_resolve_custom_server_trailing_underscore_rejected(self, caplog):
-        """A trailing ``_`` makes ``mcp__<server>__`` ambiguous — rejected."""
-        ctx = _base_ctx()
-        cfg = {"servers": {"srv_": {"command": "node", "args": ["s.js"]}}}
-        with caplog.at_level("WARNING"):
-            servers = resolve_servers(cfg, ctx)
-        assert not [s for s in servers if s["name"] == "srv_"]
-        assert "srv_" in caplog.text
+        assert not [s for s in servers if s["name"] == name]
+        assert name in caplog.text
 
     def test_resolve_custom_server_transport_on_stdio_ignored(self, caplog):
         """A command server declaring transport keeps working; the key is ignored loudly."""
@@ -323,7 +321,15 @@ class TestResolveServers:
         allow = set(workspace["permissions_allow"])
         ask = set(workspace["permissions_ask"])
         gated = {"add_panel_to_rail", "remove_panel_from_rail", "register_panel"}
-        assert {"list_panels", "open_panel", "close_panel", "arrange_workspace"} <= allow
+        assert {
+            "list_panels",
+            "open_panel",
+            "open_panel_set",
+            "arrange_workspace",
+            "drop_panel",
+            "close_panel_tab",
+            "close_panel_tile",
+        } <= allow
         assert allow.isdisjoint(gated)
         assert gated <= ask
         # A literal matcher per tool: the approval hook and the SDK's disallow
@@ -1326,12 +1332,6 @@ class TestResolveAgents:
 class TestTemplateRendering:
     """Tests that templates render valid JSON with the new data-driven approach."""
 
-    @pytest.fixture()
-    def template_manager(self):
-        from osprey.cli.templates.manager import TemplateManager
-
-        return TemplateManager()
-
     def _render(self, tm, template_path, ctx):
         template = tm.jinja_env.get_template(template_path)
         return template.render(**ctx)
@@ -1632,6 +1632,52 @@ class TestTemplateRendering:
 # ---------------------------------------------------------------------------
 
 
+class TestGovernedWriteTools:
+    """Both write hooks and no ``keeps_policy``; the preset cases are in tests/cli."""
+
+    def test_the_arming_pairs_preflight_budget_counts_as_approval(self):
+        servers = resolve_servers({"servers": {"bluesky": {"enabled": True}}}, _base_ctx())
+        governed = governed_write_tools(servers)
+        assert {"mcp__bluesky__queue_add", "mcp__bluesky__queue_start"} <= set(governed)
+
+    def test_keeps_policy_is_set_on_the_drive_rule_alone(self):
+        flagged = [
+            rule.matcher
+            for sdef in FRAMEWORK_SERVERS.values()
+            for rule in sdef.hooks_pre
+            if rule.keeps_policy
+        ]
+        assert flagged == ["mcp__phoebus__phoebus_drive"]
+
+    def test_the_flag_reaches_the_resolved_rule(self):
+        servers = resolve_servers({"servers": {"phoebus": {"enabled": True}}}, _base_ctx())
+        phoebus = next(s for s in servers if s["name"] == "phoebus")
+        assert [r["keeps_policy"] for r in phoebus["hooks_pre"]] == [True]
+
+    def test_an_extends_clone_keeps_the_flag(self):
+        cfg = {"servers": {"phoebus2": {"extends": "phoebus"}}}
+        governed = governed_write_tools(resolve_servers(cfg, _base_ctx()))
+        assert not [tool for tool in governed if "phoebus" in tool]
+
+    def test_an_extends_clones_tools_are_named_for_the_clone(self):
+        cfg = {"servers": {"pyva": {"extends": "python"}}}
+        governed = governed_write_tools(resolve_servers(cfg, _base_ctx()))
+        assert "mcp__pyva__execute" in governed
+        assert "mcp__python__execute" in governed
+
+    def test_a_disabled_server_contributes_nothing(self):
+        cfg = {"servers": {"python": {"enabled": False}}}
+        governed = governed_write_tools(resolve_servers(cfg, _base_ctx()))
+        assert not [tool for tool in governed if tool.startswith("mcp__python__")]
+
+    def test_the_order_is_resolved_server_then_hook_order(self):
+        governed = governed_write_tools(resolve_servers({}, _base_ctx()))
+        assert governed.index("mcp__controls__channel_write") < governed.index(
+            "mcp__python__execute"
+        )
+        assert governed.index("mcp__python__execute") < governed.index("mcp__python__execute_file")
+
+
 class TestMixedReadWriteTools:
     """The registry owns which templates are read/write-mixed, and the
     fully-qualified tool list derived from them.
@@ -1772,8 +1818,9 @@ class TestEventDispatcherServer:
 
         The agent never holds ``EVENT_DISPATCHER_TOKEN``; the terminal's panel
         proxy does, and it is reached on loopback at the terminal's own port
-        with the panel token every agent child already carries. The ``:-`` form
-        matters in both places: Claude Code leaves a bare ``${VAR}`` in place
+        with the panel token every agent child already carries, and the session
+        header names who is calling so the proxy can refuse a job fired from a
+        held session. The ``:-`` form matters in every place: Claude Code leaves a bare ``${VAR}`` in place
         when the variable is unset, so the entry would carry the literal text
         of the placeholder as a port number or as a bearer.
         """
@@ -1781,7 +1828,10 @@ class TestEventDispatcherServer:
 
         assert entry["enabled"] is True
         assert entry["url"] == "http://127.0.0.1:${OSPREY_WEB_PORT:-}/panel/events/mcp"
-        assert entry["headers"] == {"Authorization": "Bearer ${OSPREY_PANEL_TOKEN:-}"}
+        assert entry["headers"] == {
+            "Authorization": "Bearer ${OSPREY_PANEL_TOKEN:-}",
+            "X-Osprey-Session": "${OSPREY_SESSION_ID:-}",
+        }
         assert entry["transport"] == "http"
         assert entry["command"] == ""
         assert entry["args"] == []
@@ -1854,7 +1904,10 @@ class TestEventDispatcherServer:
         assert rendered["event_dispatcher"] == {
             "type": "http",
             "url": "http://127.0.0.1:${OSPREY_WEB_PORT:-}/panel/events/mcp",
-            "headers": {"Authorization": "Bearer ${OSPREY_PANEL_TOKEN:-}"},
+            "headers": {
+                "Authorization": "Bearer ${OSPREY_PANEL_TOKEN:-}",
+                "X-Osprey-Session": "${OSPREY_SESSION_ID:-}",
+            },
         }
 
         assert "event_dispatcher" not in _render({})
@@ -1880,6 +1933,68 @@ class TestEventDispatcherServer:
         assert EVENT_DISPATCHER_PROXY_URL == (
             f"http://127.0.0.1:${{{WEB_PORT_ENV}:-}}/panel/{EVENTS_PANEL_ID}{DISPATCHER_MCP_PATH}"
         )
+
+    def test_the_proxy_origin_is_the_dispatcher_urls_own_prefix(self):
+        """Panel-derived entries dial the same terminal the dispatcher entry does."""
+        from osprey.registry.mcp import EVENT_DISPATCHER_PROXY_URL, PANEL_PROXY_ORIGIN
+
+        assert EVENT_DISPATCHER_PROXY_URL == f"{PANEL_PROXY_ORIGIN}/panel/events/mcp"
+
+    @pytest.mark.parametrize(
+        "spec",
+        [
+            {"url": "http://elsewhere.example/mcp"},
+            {"command": "other-mcp"},
+            {"url": "http://elsewhere.example/mcp", "command": "other-mcp"},
+        ],
+        ids=["url", "command", "both"],
+    )
+    def test_a_spec_cannot_repoint_a_framework_server(self, caplog, spec):
+        """``url`` / ``command`` on a framework name are ignored, and said to be.
+
+        Read silently, they would let a facility believe it had moved a
+        framework server while the render kept dialing the framework's own
+        definition — the same trap ``extends`` on a framework name is.
+        """
+        ctx = _base_ctx(event_dispatcher_wired=True)
+        with caplog.at_level(logging.WARNING):
+            entry = [
+                s
+                for s in resolve_servers({"servers": {"event_dispatcher": spec}}, ctx)
+                if s["name"] == "event_dispatcher"
+            ][0]
+
+        assert entry["url"] == "http://127.0.0.1:${OSPREY_WEB_PORT:-}/panel/events/mcp"
+        assert entry["command"] == ""
+        (warning,) = [
+            r.message
+            for r in caplog.records
+            if "event_dispatcher" in r.message and "cannot be shadowed" in r.message
+        ]
+        for key in spec:
+            assert repr(key) in warning
+
+    def test_enabled_alone_on_a_framework_server_warns_about_nothing(self, caplog):
+        with caplog.at_level(logging.WARNING):
+            resolve_servers({"servers": {"controls": {"enabled": True}}}, _base_ctx())
+
+        assert not [r for r in caplog.records if "cannot be shadowed" in r.message]
+
+    def test_enabled_true_still_overrides_the_dispatchers_condition(self):
+        """Only a panel-derived server is held to a false condition.
+
+        The dispatcher keeps the override it has always had; see
+        ``tests/registry/test_panel_servers.py`` for the entries that do not.
+        """
+        entry = [
+            s
+            for s in resolve_servers(
+                {"servers": {"event_dispatcher": {"enabled": True}}}, _base_ctx()
+            )
+            if s["name"] == "event_dispatcher"
+        ][0]
+
+        assert entry["enabled"] is True
 
     def test_extends_of_the_dispatcher_is_refused(self, caplog):
         """A second instance cannot be cloned out of the conditioned entry.

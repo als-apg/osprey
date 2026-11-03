@@ -13,14 +13,16 @@
  * **One naming rule.** Every machine is named by what writing to it does and
  * what it is for — never by how it is wired. The deployment may override the
  * name per target (`control_system.target_display_names`, published by the
- * route as `display_name`); the defaults live in {@link KIND_WORDS}. The
- * server's own label ("LIVE MACHINE (stand-in)") stays on tooltips, where the
- * implementation vocabulary belongs.
+ * route as `display_name`); the defaults live in {@link KIND_WORDS}, keyed on
+ * the `machine_kind` GET publishes (`real` | `rehearsal` | `simulator`). The
+ * server's own label stays on tooltips, where the implementation vocabulary
+ * belongs.
  *
- * **No process claims.** Nothing here says whether a write will ask for
- * approval, what limits apply, or who is prompted — all of that is deployment
- * configuration this module cannot see. What it may state is consequence:
- * writes move hardware, or nothing moves.
+ * **One process claim.** The switch's position decides whether a write prompts
+ * first, and the row publishes it, so that is the one thing about process this
+ * module says. What limits apply and who approves are deployment configuration
+ * it cannot see. Beyond that it states consequence: writes move hardware, or
+ * nothing moves.
  */
 
 /** The refusal word for a row whose Switch is missing because the store is. */
@@ -70,6 +72,45 @@ export const REPORT_FAILED = 'failed';
 export const REASON_SWITCH_FAILED = 'switch_failed';
 
 /**
+ * The three switch positions, narrowest first: a move to a later one widens.
+ * @type {readonly ('off'|'asked'|'allowed')[]}
+ */
+export const POSITIONS = ['off', 'asked', 'allowed'];
+
+/**
+ * Whether *value* is one of the {@link POSITIONS}: exactly, no folding.
+ * @param {unknown} value
+ * @returns {value is 'off'|'asked'|'allowed'}
+ */
+export function isPosition(value) {
+  return POSITIONS.includes(/** @type {any} */ (value));
+}
+
+/**
+ * The machine kinds, as GET publishes them in each row's `machine_kind`
+ * (C-KIND) and as the stylesheet keys `data-target-kind` on. One vocabulary
+ * for the wire, the tables below and the CSS, so no surface translates.
+ */
+export const KIND_REAL = 'real';
+export const KIND_REHEARSAL = 'rehearsal';
+export const KIND_SIMULATOR = 'simulator';
+
+/**
+ * A row's machine kind: its published `machine_kind` when it is one of the
+ * three, the real machine otherwise — never derived from the target name or
+ * the label, and failing toward the loud answer. The one normalisation;
+ * {@link module:control-target-chip.kindAttr} is this, said for the CSS.
+ * @param {any} row
+ * @returns {string}
+ */
+export function machineKind(row) {
+  const published = String(row?.machine_kind || '')
+    .trim()
+    .toLowerCase();
+  return published === KIND_REHEARSAL || published === KIND_SIMULATOR ? published : KIND_REAL;
+}
+
+/**
  * The operator word for each machine kind, keyed on the `data-target-kind`
  * value {@link module:control-target-chip.kindAttr} derives. Used wherever a
  * row has no configured `display_name`. Consequence-first on purpose: an
@@ -78,23 +119,61 @@ export const REASON_SWITCH_FAILED = 'switch_failed';
  * @type {Record<string, string>}
  */
 export const KIND_WORDS = {
-  live: 'Real machine',
-  standin: 'Rehearsal',
-  va: 'Simulator',
+  [KIND_REAL]: 'Live',
+  [KIND_REHEARSAL]: 'Rehearsal',
+  [KIND_SIMULATOR]: 'Simulator',
 };
+
+/**
+ * The banner each machine kind is named by beside the machine — what a write
+ * there does, in the owner's words (C-WORDS, D4). A restated copy of
+ * `osprey_connectors.write_target.KIND_BANNERS`; a test pins the two. A
+ * confirm carries the real machine's (red) and the rehearsal's (amber); the
+ * simulator's confirm carries none ({@link hardwareNote}): nothing about it
+ * needs saying before a click.
+ * @type {Record<string, string>}
+ */
+export const KIND_BANNERS = {
+  [KIND_REAL]: 'Live — writes move hardware',
+  [KIND_REHEARSAL]: 'Rehearsal — nothing moves',
+  [KIND_SIMULATOR]: 'Simulator — nothing moves',
+};
+
+/**
+ * The sentence every widening carries (C-WORDS): in its confirm, or — when the
+ * confirm was waived — once in the popover's status line after the move lands.
+ * Never beside the off control: off reaches running sandboxes.
+ */
+export const TURN_ON_SENTENCE =
+  'Runs already going — a sandbox run or a notebook cell — keep the state they started with; the next one follows.';
+
+/**
+ * What an operator reads when a turn-off could not be recorded (C-POST 503 on
+ * off): writes are still on, which is the one thing they must not miss.
+ */
+export const STOP_NOT_TAKEN_SENTENCE =
+  'The stop did not take effect — writes are still on. Retry; if it fails again, ask the deployment admin.';
+
+/**
+ * What stands in for a position above the login's tier: as the row's reason
+ * ({@link lockReason}) and as the phrase of the route's `tier_caps` refusal.
+ * `asked` is the one ceiling that caps a position: `allowed` is the top one, and
+ * `never` is a lock on every armed position with a sentence of its own.
+ */
+const TIER_CAPS_SENTENCE = 'your tier caps writes at asked';
 
 /**
  * The "read" capability phrase first contact and the tour put in front of an
  * operator, keyed on the same `data-target-kind` value as {@link KIND_WORDS}.
  * Keyed rather than fixed because the sentence is a promise about where the
- * numbers come from: the simulator saying "read live machine values" would be
+ * numbers come from: the simulator saying "read values from the real machine" would be
  * the one claim this vocabulary exists to prevent.
  * @type {Record<string, string>}
  */
 export const KIND_READ_PHRASES = {
-  live: 'read live machine values',
-  standin: 'read values from the rehearsal copy',
-  va: 'read values from the simulator',
+  [KIND_REAL]: 'read values from the live machine',
+  [KIND_REHEARSAL]: 'read values from the rehearsal copy',
+  [KIND_SIMULATOR]: 'read values from the simulator',
 };
 
 /**
@@ -104,14 +183,14 @@ export const KIND_READ_PHRASES = {
  * @type {Record<string, string>}
  */
 const KIND_DESCRIPTORS = {
-  live: 'Writes move hardware',
-  standin: "Copy of the real machine's controls · nothing moves",
-  va: 'Physics model · nothing moves',
+  [KIND_REAL]: 'Writes move hardware',
+  [KIND_REHEARSAL]: "Copy of the live machine's controls · nothing moves",
+  [KIND_SIMULATOR]: 'Physics model · nothing moves',
 };
 
 /**
  * The `reason` codes that all mean "the deployment has not authored this
- * machine yet". On a stock render this is the live target's DELIBERATE state —
+ * machine yet". On a stock render this is the real machine's DELIBERATE state —
  * authoring it is the go-live edit — so the descriptor says "not set up"
  * rather than implying a fault.
  */
@@ -124,8 +203,8 @@ const NOT_SET_UP_REASONS = new Set([
 /**
  * The name a row renders: the deployment's configured name where one is set,
  * the kind's own word otherwise. The server label survives untouched for the
- * tooltip; falling back to it here would put "LIVE MACHINE (stand-in)" back on
- * the one surface this vocabulary exists to clean up, so the label is last.
+ * tooltip; it is the kind's banner, longer than a name, so the label is
+ * last.
  * @param {any} row
  * @param {string} kind  a `data-target-kind` value (kindAttr's answer)
  * @returns {string}
@@ -137,14 +216,14 @@ export function displayName(row, kind) {
 }
 
 /**
- * The consequence line under the name. A live machine nothing has authored
+ * The consequence line under the name. A real machine nothing has authored
  * yet reads "Not set up yet" instead of promising hardware that is not there.
  * @param {any} row
  * @param {string} kind
  * @returns {string}
  */
 export function descriptor(row, kind) {
-  if (kind === 'live' && NOT_SET_UP_REASONS.has(String(row?.reason || ''))) {
+  if (kind === KIND_REAL && NOT_SET_UP_REASONS.has(String(row?.reason || ''))) {
     return 'Not set up yet';
   }
   return KIND_DESCRIPTORS[kind] || '';
@@ -152,7 +231,7 @@ export function descriptor(row, kind) {
 
 /**
  * The tone the descriptor renders in: `hazard` for the one line that names
- * hardware moving, `null` for every line that promises nothing moves. A live
+ * hardware moving, `null` for every line that promises nothing moves. A real
  * machine nothing has authored yet is not a hazard — its descriptor says "not
  * set up", and painting that red would flag a healthy render as broken.
  * @param {any} row
@@ -160,21 +239,22 @@ export function descriptor(row, kind) {
  * @returns {'hazard'|null}
  */
 export function descriptorTone(row, kind) {
-  return kind === 'live' && descriptor(row, kind) === KIND_DESCRIPTORS.live ? 'hazard' : null;
+  return kind === KIND_REAL && descriptor(row, kind) === KIND_DESCRIPTORS[KIND_REAL]
+    ? 'hazard'
+    : null;
 }
 
 /**
- * The display phrase for a state word. The internal three-word vocabulary
- * (`writes` / `sandbox` / `read-only`, {@link module:control-target-chip.stateWord})
- * stays the wire and CSS truth; what an operator reads is on / off / locked —
- * off is the state you put it in and one click undoes, locked is the
- * deployment's and no click here moves it.
- * @param {'writes'|'sandbox'|'read-only'|string} word
+ * The display phrase for a state word ({@link module:control-target-chip.stateWord}):
+ * asked writes prompt first, allowed writes do not, off is the state you put it
+ * in and one click undoes, and locked is an armed switch still refused (or a
+ * switch that cannot be read), whose row says why. Anything unrecognised reads
+ * as locked — the direction that promises nothing.
+ * @param {'off'|'asked'|'allowed'|'locked'|string} word
  * @returns {string}
  */
 export function statePhrase(word) {
-  if (word === 'writes') return 'writes on';
-  if (word === 'sandbox') return 'writes off';
+  if (isPosition(word)) return `writes ${word}`;
   return 'writes locked';
 }
 
@@ -205,16 +285,16 @@ export const REASON_PHRASES = {
   connector_not_switchable: 'switching not supported',
   target_unresolvable: 'unavailable',
   operator_ack_missing: 'needs gateway ack',
-  archive_belongs_to_standin: 'archive conflict',
   invented_history: 'no archive',
   standin_not_deployed: 'stand-in not deployed',
-  reaches_live_machine: 'points at live machine',
+  reaches_live_machine: 'points at the live machine',
   selected_role_missing: 'no endpoint for role',
   [REASON_STORE_UNAVAILABLE]: 'store unavailable',
   [REASON_CONTEXT_OWNED_ELSEWHERE]: 'held elsewhere',
   [REASON_SWITCH_FAILED]: 'not applied',
   // Minted by the chip for a request nothing answered before its deadline.
   request_expired: 'no answer',
+  tier_caps: TIER_CAPS_SENTENCE,
 };
 
 /**
@@ -230,11 +310,14 @@ export function reasonPhrase(code) {
 }
 
 /**
- * Whether a change made here would actually be written.
+ * Whether a TARGET SWITCH made here would actually be written. Posture
+ * gestures do not ask this: a follower turns its login's switch on and off
+ * exactly as the holder does (C-POST), so {@link lockReason} never reads the
+ * owner.
  *
- * Two ways it would not, and both are refusals the write routes already make,
- * so a surface that offered the gesture anyway would be sending the operator
- * to find out by clicking:
+ * Two ways a switch would not be written, and both are refusals the target
+ * route already makes, so a surface that offered the gesture anyway would be
+ * sending the operator to find out by clicking:
  *
  * - there is no control context to write to (`store_available: false`, or an
  *   `owner` of `null` — nothing owns the context anywhere). Both answer 503.
@@ -262,9 +345,7 @@ export function contextWritable(state) {
  */
 export function contextRefusalCode(state) {
   if (contextWritable(state)) return '';
-  return state?.owner?.self === false
-    ? REASON_CONTEXT_OWNED_ELSEWHERE
-    : REASON_STORE_UNAVAILABLE;
+  return state?.owner?.self === false ? REASON_CONTEXT_OWNED_ELSEWHERE : REASON_STORE_UNAVAILABLE;
 }
 
 /**
@@ -325,45 +406,44 @@ export function contextRefusalPhrase(state) {
 }
 
 /**
- * Whether the run, and nothing an operator can do here, is holding this row's
- * writes off.
- *
- * Read from the route's own `readonly_run`, never inferred from the columns:
- * "ceiling up, not narrowed, still off" is also what a posture store that
- * failed to resolve leaves behind, and that must not be reported as the
- * deployment running read-only. A row the deployment never armed is not held
- * by the run either — the ceiling holds it, and {@link lockReason} says so.
- * @param {any} row
- * @param {any} state
+ * The verdict reasons a turn-on lifts: the switch itself being off, or a stop
+ * that came after a turn-on began. Every other `write_reason` is a lock no
+ * chip gesture moves, and its `write_phrase` already says who lifts it.
  */
-function writesHeldByTheRun(row, state) {
-  return Boolean(state?.readonly_run) && Boolean(row.ceiling_writes);
-}
+export const LIFTED_BY_TURN_ON = new Set(['switch_off', 'stopped_since']);
 
 /**
- * Why this row's writes cannot be turned on or off, or `null` when they can.
+ * Why this row's writes cannot be moved to *position*, or `null` when they can
+ * — read from C-GET alone (`switch`, `write_reason`, `write_phrase`, `locks`).
  *
- * Ordered from the widest cause to the narrowest, so an operator reads the one
- * they could act on: a context nothing here can write outranks a run that
- * would ignore the write, which outranks a deployment that never arms this
- * target, which outranks a gateway table with nowhere to narrow TO. Spoken in
- * the operator's words; the machine vocabulary stays in the route payload.
+ * Turning off is never locked by what this answers: off is refused for no
+ * tier, run or follower (C-POST), and a locked row keeps its off control.
+ * Nor does the owner enter it — a follower turns its login's switch exactly as
+ * the holder does; only target switching stays the holder's
+ * ({@link contextWritable}).
+ *
+ * Ordered widest first: no record to write, then a record nobody can read,
+ * then the verdict's own phrase for a lock no click here lifts, then the two
+ * published locks (a readonly run, a login whose tier never writes) for a row
+ * whose verdict named the switch first, and last the tier's ceiling, which
+ * locks `allowed` alone: a capped login still arms at `asked`.
  * @param {any} row
  * @param {any} state
+ * @param {'asked'|'allowed'} [position]  the armed position asked about
  * @returns {string|null}
  */
-export function lockReason(row, state) {
-  if (!contextWritable(state)) {
-    return state?.owner?.self === false
-      ? `held by ${contextHolderWords(state.owner).short}`
-      : 'changes cannot be recorded right now';
+export function lockReason(row, state, position = 'asked') {
+  if (state?.store_available === false) return 'changes cannot be recorded right now';
+  const reason = typeof row?.write_reason === 'string' ? row.write_reason : '';
+  const phrase = typeof row?.write_phrase === 'string' ? row.write_phrase : '';
+  if (!isPosition(row?.switch)) {
+    return phrase || 'the write switch cannot be read';
   }
-  if (writesHeldByTheRun(row, state)) return 'the whole deployment is running read-only';
-  if (!row.ceiling_writes) return 'kept read-only by the deployment';
-  // Narrowing this row would select a gateway role the deployment has not
-  // configured. The route only reports it for a row a narrowing would CHANGE,
-  // so when it is set the only move on offer is the blocked one.
-  if (row.narrowing_refusal) return 'no read-only endpoint configured';
+  if (reason && !LIFTED_BY_TURN_ON.has(reason)) return phrase || reason;
+  const locks = state?.locks && typeof state.locks === 'object' ? state.locks : {};
+  if (locks.readonly_run || state?.readonly_run) return 'the whole deployment is running read-only';
+  if (locks.tier === 'never') return "this login's write tier does not allow writes";
+  if (locks.tier === 'asked' && position === 'allowed') return TIER_CAPS_SENTENCE;
   return null;
 }
 
@@ -379,12 +459,14 @@ export function bannerNote(state) {
     return { text: contextHolderWords(state.owner).long, tone: 'warn' };
   }
   if (!contextWritable(state)) {
-    return { text: 'Changes cannot be recorded right now — the posture store is unavailable.', tone: 'error' };
+    return {
+      text: 'Changes cannot be recorded right now — the posture store is unavailable.',
+      tone: 'error',
+    };
   }
-  // The run alone decides this line. Keying it on every row would hide the
-  // banner from a readonly run with one unarmed row — that row is held by the
-  // ceiling, not the run, but the run is still the widest fact on the page.
-  if (state.readonly_run) {
+  // The run alone decides this line, never the rows: it is the widest fact on
+  // the page whatever each row's verdict names first.
+  if (state.readonly_run || state.locks?.readonly_run) {
     return { text: 'The whole deployment is running read-only.', tone: 'warn' };
   }
   return null;
@@ -424,22 +506,22 @@ export function reachException(reachability) {
  */
 
 /**
- * The consequence sentence a confirm about the facility's own machine
- * carries, and only that machine: writing there moves hardware. Deliberately
- * the whole of what the confirms say about safety — whether a write prompts
- * for approval, and what limits apply, are deployment configuration this
- * module cannot see, so it makes no claim about them.
+ * The banner a confirm carries ({@link KIND_BANNERS}): the real machine's
+ * "writes move hardware", the others' "nothing moves". It says what a write does to the machine; whether the write
+ * prompts first is the confirm's body, from the position. What limits apply is
+ * deployment configuration this module cannot see, so it makes no claim about
+ * them. The stylesheet tones it from the dialog's `data-to` and `data-target-kind`.
  * @param {string} kind
  * @returns {string|null}
  */
 function hardwareNote(kind) {
-  return kind === 'live' ? 'Real machine — writes move hardware.' : null;
+  return KIND_BANNERS[kind] || null;
 }
 
 /**
- * The tooltip a machine's name carries: the server's own label (the
- * implementation truth — "LIVE MACHINE (stand-in)"), the endpoint, and the
- * measured reachability. The at-rest surface names consequences; hover is
+ * The tooltip a machine's name carries: the row's label (its kind's banner,
+ * such as "Rehearsal — nothing moves"), the endpoint, and the measured
+ * reachability. The at-rest surface names consequences; hover is
  * where the machine vocabulary lives.
  * @param {any} row
  * @returns {string}
@@ -454,80 +536,88 @@ export function identTitle(row) {
 }
 
 /**
- * Everything the turn-writes-on confirm says. Only this direction asks —
- * turning off removes reach and is undone by a click; turning on is the
- * gesture after which a write the agent makes can land. The body names no
- * endpoint: the one the roster carries is where reads go under the recorded
- * posture, not where the write this dialog allows would land.
-
- * The scope line is the first thing it says, because one control context per
- * login identity means arming writes here arms them for every session,
- * notebook kernel and hook of that login — not for the page the click was
- * made on.
+ * Everything a widening's confirm says, for a move to *to*. Only a widening
+ * asks — a narrowing removes reach and is undone by a click; a widening is the
+ * gesture after which a write the agent makes can land, or land unprompted.
+ * The body names no endpoint: the one the roster carries is where reads go, not
+ * where the write this dialog allows would land.
+ *
+ * The scope line is the first thing it says, because a switch is one login's:
+ * moving it here moves it for every session, notebook and agent run of the
+ * signed-in login — and for nobody else's. Then whether writes to this machine
+ * will still prompt, the one thing the two positions differ on, then the
+ * turn-on sentence (C-WORDS): runs already going keep the state they started
+ * with. The move's start adds nothing: off→allowed and asked→allowed arrive at
+ * the same place.
  * @param {any} row
  * @param {string} kind
- * @returns {{title: string, body: ConfirmRun[][], live: string|null, confirmLabel: string}}
+ * @param {'asked'|'allowed'} [to]  the position the move arrives at
+ * @returns {{title: string, body: ConfirmRun[][], live: string|null,
+ *            confirmLabel: string, targetKind: string, to: string|null}}
  */
-export function turnOnConfirm(row, kind) {
+export function turnOnConfirm(row, kind, to = 'asked') {
+  const name = displayName(row, kind);
+  const allowed = to === 'allowed';
+  const position = allowed ? 'allowed' : 'asked';
   return {
-    title: `Turn writes on for ${displayName(row, kind)}?`,
+    title: `Set writes to ${position} on ${name}?`,
     body: [
-      ['For ', { em: 'every session on this deployment' }, '.'],
-      ['Takes effect at the next write — nothing restarts.'],
+      ['For ', { em: 'your login' }, ' — every session, notebook and agent run you start.'],
+      allowed
+        ? ['Writes to ', { em: name }, ' will run with ', { em: 'no prompt' }, '.']
+        : ['Writes to ', { em: name }, ' will ', { em: 'still prompt' }, ' before each one runs.'],
+      [TURN_ON_SENTENCE],
     ],
     live: hardwareNote(kind),
-    confirmLabel: 'Turn writes on',
+    confirmLabel: `Set writes to ${position}`,
+    targetKind: kind,
+    to: position,
   };
 }
+
+/**
+ * The clause that follows `Writes are <word>` in the switch confirm's arrival
+ * line, per word stateWord can answer; a word not listed ends the sentence.
+ * @type {Record<string, string>}
+ */
+const ARRIVAL_ENDINGS = {
+  asked: ' there — each one prompts first.',
+  allowed: ' there — they run with no prompt.',
+  off: ' there — nothing moves until you turn them on.',
+};
 
 /**
  * Everything the switch confirm says. The first line states the consequence —
  * where control goes next, naming writes only when the deployment arrives able
- * to make them. The second names the write state it will ARRIVE in, because
- * writes on/off is per machine and does not travel; the word is stateWord's
- * own, so the dialog and the chip a moment later can never disagree. Neither
- * line claims a scope: the switch moves the whole deployment, and saying so
- * twice per dialog is filler.
+ * to make them. The second names the write state it will ARRIVE in, because a
+ * position is per machine and does not travel; the word is stateWord's own, so
+ * the dialog and the chip a moment later can never disagree. Neither line
+ * claims a scope: the switch moves the whole deployment, and saying so twice
+ * per dialog is filler.
  * @param {any} row
  * @param {string} kind
- * @param {'writes'|'sandbox'|'read-only'} word  stateWord's answer for the row
- * @returns {{title: string, body: ConfirmRun[][], live: string|null, confirmLabel: string}}
+ * @param {'off'|'asked'|'allowed'|'locked'} word  stateWord's answer for the row
+ * @returns {{title: string, body: ConfirmRun[][], live: string|null,
+ *            confirmLabel: string, targetKind: string, to: string|null}}
  */
 export function switchConfirm(row, kind, word) {
-  const arrival =
-    word === 'writes'
-      ? ['Writes are ', { em: 'on' }, ' there.']
-      : word === 'sandbox'
-        ? ['Writes are ', { em: 'off' }, ' there — nothing moves until you turn them on.']
-        : ['Writes are ', { em: 'locked' }, ' read-only there by the deployment.'];
+  const armed = word === 'asked' || word === 'allowed';
+  const known = armed || word === 'off';
   return {
     title: `Switch to ${displayName(row, kind)}?`,
     body: [
       [
-        word === 'writes' ? 'All control reads and writes go to ' : 'All control reads go to ',
+        armed ? 'All control reads and writes go to ' : 'All control reads go to ',
         { em: String(row.endpoint || row.target) },
         '.',
       ],
-      arrival,
+      ['Writes are ', { em: known ? word : 'locked' }, known ? ARRIVAL_ENDINGS[word] : ' there.'],
     ],
-    live: word === 'writes' ? hardwareNote(kind) : null,
+    live: armed ? hardwareNote(kind) : null,
     confirmLabel: 'Switch',
+    targetKind: kind,
+    to: known ? word : null,
   };
-}
-
-/**
- * Whether one confirm may offer "don't ask again". Per gesture and per
- * machine kind, because the two dialogs guard different things: a switch is
- * recoverable (switch back, and the write state does not travel), so its
- * ceremony may be waived anywhere; turning writes on is the gesture after
- * which a write can land, and on a live machine that write moves hardware —
- * that one dialog keeps asking, always.
- * @param {'switch'|'writes-on'} gesture
- * @param {string} kind  kindAttr's answer for the row
- * @returns {boolean}
- */
-export function confirmSkippable(gesture, kind) {
-  return gesture === 'switch' || kind !== 'live';
 }
 
 /* ---- has the switch this browser asked for landed? ---------------------- */
@@ -679,15 +769,11 @@ export function switchFailureNote(pid, detail = null) {
 }
 
 /**
- * The localStorage key BASE under which a waived confirm is remembered — one
- * slot per gesture per machine, so the first switch to each machine still
- * explains itself once. Callers resolve it through `scopedStorageKey()`
- * (storage-scope.js): on a multi-user mount one operator's waiver must not
- * silence the dialog for everyone else.
- * @param {'switch'|'writes-on'} gesture
- * @param {any} row
- * @returns {string}
+ * The localStorage key BASES under which a waived confirm is remembered: one
+ * slot for every move of the writes switch, to asked or allowed on any machine,
+ * and one for every switch of target. Callers resolve them through
+ * `scopedStorageKey()` (storage-scope.js): on a multi-user mount one operator's
+ * waiver must not silence the dialog for everyone else.
  */
-export function confirmSkipKeyBase(gesture, row) {
-  return `osprey-ctc-skip-confirm:${gesture}:${row.target}`;
-}
+export const SKIP_KEY_MOVE = 'osprey-ctc-skip-confirm:move';
+export const SKIP_KEY_SWITCH = 'osprey-ctc-skip-confirm:switch';

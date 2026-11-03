@@ -5,7 +5,8 @@ conditions the model's ``pyat.twiss_in`` states and leaves at the far end.
 :class:`SinglePassSimulator` replaces the closed-orbit solve of
 :class:`~lume_pyat.simulator.PyATSimulator` with one pass of
 ``at.lattice_track`` from ``twiss_in``'s ``closed_orbit``, then propagates the
-optics from ``twiss_in`` with ``at.get_optics``. Its solution has the same
+optics from ``twiss_in`` with ``at.get_optics`` on a 4D copy of the line, so
+an enabled cavity acts on the tracked pass only. Its solution has the same
 shape as the closed-orbit solve's -- ``FamName -> (x, y)`` at every monitor --
 and also carries the beta functions at those monitors, so a solution and the
 optics it was solved with are snapshotted and restored together.
@@ -33,7 +34,7 @@ class SinglePassSolution(dict[str, tuple[float, float]]):
 
     Attributes:
         beta: ``FamName -> (beta_x, beta_y)`` at every monitor, propagated
-            from ``twiss_in`` through the same lattice.
+            from ``twiss_in`` through a 4D copy of the same lattice.
     """
 
     def __init__(
@@ -107,8 +108,11 @@ class SinglePassSimulator(PyATSimulator):
     def solve(self) -> SinglePassSolution:
         """Track one particle once through the line and read every monitor.
 
-        The particle starts at ``twiss_in``'s ``closed_orbit``; the beta
-        functions at the monitors are propagated from ``twiss_in``. On success
+        The particle starts at ``twiss_in``'s ``closed_orbit`` and is tracked
+        through the lattice as it stands, an enabled cavity included. The beta
+        functions at the monitors are propagated from ``twiss_in`` through a
+        4D copy of the lattice, so a line with an enabled cavity has optics
+        too; the lattice itself is left as it is. On success
         :attr:`last_solution` is replaced; on failure it is left alone.
 
         Returns:
@@ -127,8 +131,11 @@ class SinglePassSimulator(PyATSimulator):
             lost = loss_text(lattice, data["loss_map"])
             if lost is not None:
                 raise OrbitSolveError(lost)
+            # Propagating optics from ``twiss_in`` is a 4D calculation: pyAT
+            # cannot do it through an enabled cavity. The copy shares every
+            # element it does not switch off, so the indices are the same.
             _, _, element_data = at.get_optics(
-                lattice, refpts=self._monitors, twiss_in=self._twiss_in
+                lattice.disable_6d(copy=True), refpts=self._monitors, twiss_in=self._twiss_in
             )
         except (at.AtError, np.linalg.LinAlgError, ValueError) as exc:
             raise OrbitSolveError(f"optics solve raised {type(exc).__name__}: {exc}") from exc

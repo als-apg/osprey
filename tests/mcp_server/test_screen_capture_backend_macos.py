@@ -33,6 +33,41 @@ def _sips_output(width=1920, height=1080):
     return (f"/path/to/file.png\n  pixelWidth: {width}\n  pixelHeight: {height}\n").encode()
 
 
+async def _with_fake_tools(call, *, sips=None, windows=None):
+    """Await ``call()`` with every spawned macOS tool faked; return its result and the argvs.
+
+    ``swift`` lists ``windows`` as JSON, ``screencapture`` writes PNG bytes to the
+    file it was given last, ``sips`` reports ``sips`` (1920x1080 by default), and any
+    other command succeeds silently.
+    """
+    spawned = []
+
+    async def mock_exec(*args, **kwargs):
+        spawned.append(args)
+        if args[0] == "swift" and windows is not None:
+            return _make_mock_process(returncode=0, stdout=json.dumps(windows).encode())
+        if args[0] == "screencapture":
+            open(args[-1], "wb").write(b"PNG_DATA")
+            return _make_mock_process(returncode=0)
+        if args[0] == "sips":
+            return _make_mock_process(returncode=0, stdout=sips or _sips_output())
+        return _make_mock_process(returncode=0)
+
+    with patch(_SUBPROCESS_PATCH, side_effect=mock_exec):
+        result = await call()
+    return result, spawned
+
+
+def _screencapture_args(spawned):
+    return [a for a in spawned if a[0] == "screencapture"][0]
+
+
+_WINDOWS = [
+    {"wid": 1, "app": "Finder", "title": "", "x": 0, "y": 0, "width": 800, "height": 600},
+    {"wid": 2, "app": "Terminal", "title": "bash", "x": 100, "y": 100, "width": 600, "height": 400},
+]
+
+
 @pytest.fixture
 def backend():
     return MacOSBackend()
@@ -47,16 +82,9 @@ async def test_capture_full(backend, tmp_path):
     """capture_full runs screencapture and sips, returns ImageInfo."""
     filepath = str(tmp_path / "test.png")
 
-    async def mock_exec(*args, **kwargs):
-        if args[0] == "screencapture":
-            open(args[-1], "wb").write(b"PNG_DATA")
-            return _make_mock_process(returncode=0)
-        elif args[0] == "sips":
-            return _make_mock_process(returncode=0, stdout=_sips_output(2560, 1440))
-        return _make_mock_process()
-
-    with patch(_SUBPROCESS_PATCH, side_effect=mock_exec):
-        info = await backend.capture_full(filepath)
+    info, _ = await _with_fake_tools(
+        lambda: backend.capture_full(filepath), sips=_sips_output(2560, 1440)
+    )
 
     assert info.width == 2560
     assert info.height == 1440
@@ -72,23 +100,11 @@ async def test_capture_full(backend, tmp_path):
 async def test_capture_display(backend, tmp_path):
     """capture_display passes -D flag."""
     filepath = str(tmp_path / "test.png")
-    captured_args = []
 
-    async def mock_exec(*args, **kwargs):
-        captured_args.append(args)
-        if args[0] == "screencapture":
-            open(filepath, "wb").write(b"PNG_DATA")
-            return _make_mock_process(returncode=0)
-        elif args[0] == "sips":
-            return _make_mock_process(returncode=0, stdout=_sips_output())
-        return _make_mock_process()
-
-    with patch(_SUBPROCESS_PATCH, side_effect=mock_exec):
-        info = await backend.capture_display("2", filepath)
+    info, spawned = await _with_fake_tools(lambda: backend.capture_display("2", filepath))
 
     assert info.width == 1920
-    sc_args = [a for a in captured_args if a[0] == "screencapture"][0]
-    assert "-D2" in sc_args
+    assert "-D2" in _screencapture_args(spawned)
 
 
 # ---------------------------------------------------------------------------
@@ -99,24 +115,14 @@ async def test_capture_display(backend, tmp_path):
 async def test_capture_region(backend, tmp_path):
     """capture_region passes -R flag with coordinates."""
     filepath = str(tmp_path / "test.png")
-    captured_args = []
 
-    async def mock_exec(*args, **kwargs):
-        captured_args.append(args)
-        if args[0] == "screencapture":
-            open(filepath, "wb").write(b"PNG_DATA")
-            return _make_mock_process(returncode=0)
-        elif args[0] == "sips":
-            return _make_mock_process(returncode=0, stdout=_sips_output(800, 600))
-        return _make_mock_process()
-
-    with patch(_SUBPROCESS_PATCH, side_effect=mock_exec):
-        info = await backend.capture_region(100, 200, 800, 600, filepath)
+    info, spawned = await _with_fake_tools(
+        lambda: backend.capture_region(100, 200, 800, 600, filepath), sips=_sips_output(800, 600)
+    )
 
     assert info.width == 800
     assert info.height == 600
-    sc_args = [a for a in captured_args if a[0] == "screencapture"][0]
-    assert "-R100,200,800,600" in sc_args
+    assert "-R100,200,800,600" in _screencapture_args(spawned)
 
 
 # ---------------------------------------------------------------------------
@@ -127,21 +133,10 @@ async def test_capture_region(backend, tmp_path):
 async def test_capture_window_by_wid(backend, tmp_path):
     """capture_window with numeric WID uses -l flag."""
     filepath = str(tmp_path / "test.png")
-    captured_args = []
 
-    async def mock_exec(*args, **kwargs):
-        captured_args.append(args)
-        if args[0] == "screencapture":
-            open(filepath, "wb").write(b"PNG_DATA")
-            return _make_mock_process(returncode=0)
-        elif args[0] == "sips":
-            return _make_mock_process(returncode=0, stdout=_sips_output())
-        return _make_mock_process()
+    _, spawned = await _with_fake_tools(lambda: backend.capture_window("12345", filepath))
 
-    with patch(_SUBPROCESS_PATCH, side_effect=mock_exec):
-        await backend.capture_window("12345", filepath)
-
-    sc_args = [a for a in captured_args if a[0] == "screencapture"][0]
+    sc_args = _screencapture_args(spawned)
     assert "-l12345" in sc_args
     assert "-o" in sc_args
 
@@ -149,41 +144,23 @@ async def test_capture_window_by_wid(backend, tmp_path):
 async def test_capture_window_by_name(backend, tmp_path):
     """capture_window with app name resolves WID via Swift."""
     filepath = str(tmp_path / "test.png")
-    mock_windows = [
+    windows = [
         {"wid": 42, "app": "Phoebus", "title": "Main", "x": 0, "y": 0, "width": 800, "height": 600},
     ]
-    captured_args = []
 
-    async def mock_exec(*args, **kwargs):
-        captured_args.append(args)
-        if args[0] == "swift":
-            return _make_mock_process(returncode=0, stdout=json.dumps(mock_windows).encode())
-        elif args[0] == "screencapture":
-            open(filepath, "wb").write(b"PNG_DATA")
-            return _make_mock_process(returncode=0)
-        elif args[0] == "sips":
-            return _make_mock_process(returncode=0, stdout=_sips_output())
-        return _make_mock_process()
+    _, spawned = await _with_fake_tools(
+        lambda: backend.capture_window("Phoebus", filepath), windows=windows
+    )
 
-    with patch(_SUBPROCESS_PATCH, side_effect=mock_exec):
-        await backend.capture_window("Phoebus", filepath)
-
-    sc_args = [a for a in captured_args if a[0] == "screencapture"][0]
-    assert "-l42" in sc_args
+    assert "-l42" in _screencapture_args(spawned)
 
 
 async def test_capture_window_not_found(backend, tmp_path):
     """capture_window raises WindowNotFoundError for unknown app."""
     filepath = str(tmp_path / "test.png")
 
-    async def mock_exec(*args, **kwargs):
-        if args[0] == "swift":
-            return _make_mock_process(returncode=0, stdout=b"[]")
-        return _make_mock_process()
-
-    with patch(_SUBPROCESS_PATCH, side_effect=mock_exec):
-        with pytest.raises(WindowNotFoundError):
-            await backend.capture_window("NonExistent", filepath)
+    with pytest.raises(WindowNotFoundError):
+        await _with_fake_tools(lambda: backend.capture_window("NonExistent", filepath), windows=[])
 
 
 # ---------------------------------------------------------------------------
@@ -193,24 +170,7 @@ async def test_capture_window_not_found(backend, tmp_path):
 
 async def test_list_windows_basic(backend):
     """list_windows returns WindowInfo objects."""
-    mock_windows = [
-        {"wid": 1, "app": "Finder", "title": "", "x": 0, "y": 0, "width": 800, "height": 600},
-        {
-            "wid": 2,
-            "app": "Terminal",
-            "title": "bash",
-            "x": 100,
-            "y": 100,
-            "width": 600,
-            "height": 400,
-        },
-    ]
-
-    async def mock_exec(*args, **kwargs):
-        return _make_mock_process(returncode=0, stdout=json.dumps(mock_windows).encode())
-
-    with patch(_SUBPROCESS_PATCH, side_effect=mock_exec):
-        windows = await backend.list_windows()
+    windows, _ = await _with_fake_tools(backend.list_windows, windows=_WINDOWS)
 
     assert len(windows) == 2
     assert windows[0].app == "Finder"
@@ -219,24 +179,9 @@ async def test_list_windows_basic(backend):
 
 async def test_list_windows_filter(backend):
     """list_windows filters by app name."""
-    mock_windows = [
-        {"wid": 1, "app": "Finder", "title": "", "x": 0, "y": 0, "width": 800, "height": 600},
-        {
-            "wid": 2,
-            "app": "Terminal",
-            "title": "bash",
-            "x": 100,
-            "y": 100,
-            "width": 600,
-            "height": 400,
-        },
-    ]
-
-    async def mock_exec(*args, **kwargs):
-        return _make_mock_process(returncode=0, stdout=json.dumps(mock_windows).encode())
-
-    with patch(_SUBPROCESS_PATCH, side_effect=mock_exec):
-        windows = await backend.list_windows(app_filter="terminal")
+    windows, _ = await _with_fake_tools(
+        lambda: backend.list_windows(app_filter="terminal"), windows=_WINDOWS
+    )
 
     assert len(windows) == 1
     assert windows[0].app == "Terminal"
@@ -249,18 +194,11 @@ async def test_list_windows_filter(backend):
 
 async def test_bring_to_front(backend):
     """bring_to_front runs osascript with activate."""
-    captured_args = []
+    _, spawned = await _with_fake_tools(lambda: backend.bring_to_front("Phoebus"))
 
-    async def mock_exec(*args, **kwargs):
-        captured_args.append(args)
-        return _make_mock_process(returncode=0)
-
-    with patch(_SUBPROCESS_PATCH, side_effect=mock_exec):
-        await backend.bring_to_front("Phoebus")
-
-    assert captured_args[0][0] == "osascript"
-    assert "activate" in captured_args[0][2]
-    assert "Phoebus" in captured_args[0][2]
+    assert spawned[0][0] == "osascript"
+    assert "activate" in spawned[0][2]
+    assert "Phoebus" in spawned[0][2]
 
 
 async def test_injection_prevention(backend):
@@ -271,29 +209,15 @@ async def test_injection_prevention(backend):
 
 async def test_move_window(backend):
     """move_window runs osascript with position."""
-    captured_args = []
+    _, spawned = await _with_fake_tools(lambda: backend.move_window("Terminal", 100, 200))
 
-    async def mock_exec(*args, **kwargs):
-        captured_args.append(args)
-        return _make_mock_process(returncode=0)
-
-    with patch(_SUBPROCESS_PATCH, side_effect=mock_exec):
-        await backend.move_window("Terminal", 100, 200)
-
-    assert "position" in captured_args[0][2]
-    assert "{100, 200}" in captured_args[0][2]
+    assert "position" in spawned[0][2]
+    assert "{100, 200}" in spawned[0][2]
 
 
 async def test_resize_window(backend):
     """resize_window runs osascript with size."""
-    captured_args = []
+    _, spawned = await _with_fake_tools(lambda: backend.resize_window("Terminal", 1024, 768))
 
-    async def mock_exec(*args, **kwargs):
-        captured_args.append(args)
-        return _make_mock_process(returncode=0)
-
-    with patch(_SUBPROCESS_PATCH, side_effect=mock_exec):
-        await backend.resize_window("Terminal", 1024, 768)
-
-    assert "size" in captured_args[0][2]
-    assert "{1024, 768}" in captured_args[0][2]
+    assert "size" in spawned[0][2]
+    assert "{1024, 768}" in spawned[0][2]

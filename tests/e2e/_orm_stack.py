@@ -41,23 +41,19 @@ readable before the build through :func:`channel_limits`.
 
 from __future__ import annotations
 
-import contextlib
 import inspect
 import json
 import os
 import shutil
-import socket
 import subprocess
-import sys
-import time
-import urllib.error
-import urllib.request
 from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, TypeVar
 
 import yaml
 
+from osprey_connectors_tests._harness._ports import hold_ports
+from tests.e2e._deploy_support import find_osprey_console_script, format_failure, wait_for_health
 from tests.e2e._facility_select import corrector_addresses, monitor_addresses, repo_view
 from tests.e2e.profile_edits import set_pairs
 from tests.e2e.provider import forced_model
@@ -78,7 +74,7 @@ _T = TypeVar("_T")
 # `control_system.connector.virtual_accelerator.gateways.*.port` UNSET, so the
 # connector follows `services.virtual_accelerator.port` and moving the deployed
 # soft-IOC's port is a one-place edit that carries the connector with it.
-# The default is an ephemeral free port rather than 5064: the tutorial default
+# The default is a port reserved for the process rather than 5064: the tutorial default
 # is routinely held by a real deployment on a dev host (`port_layout.
 # CA_DEFAULT_PORT` keeps VA instance 1 there on purpose), and every caller of
 # this module already gets the one value plumbed through both the service port
@@ -86,30 +82,14 @@ _T = TypeVar("_T")
 #
 # The pvAccess port the VA publishes its model surface on moves the same way,
 # through `virtual_accelerator.pva_port`. Its default, 5075, is the one every
-# other VA on the host publishes too, so every caller gets a free one reserved
-# here. Pass an explicit `va_pva_port=` to pin one.
-
-
-def _reserve_free_ports(count: int) -> tuple[int, ...]:
-    """Reserve ``count`` distinct free loopback ports.
-
-    Every socket stays bound until all are, so the ports are distinct by
-    construction rather than by the kernel's choice.
-    """
-    with contextlib.ExitStack() as stack:
-        socks = [
-            stack.enter_context(socket.socket(socket.AF_INET, socket.SOCK_STREAM))
-            for _ in range(count)
-        ]
-        for sock in socks:
-            sock.bind(("127.0.0.1", 0))
-        return tuple(sock.getsockname()[1] for sock in socks)
+# other VA on the host publishes too, so every caller gets one reserved here.
+# Pass an explicit `va_pva_port=` to pin one.
 
 
 # import-time required because VA_CA_PORT and VA_PVA_PORT bind into `va_port=`
 # and `va_pva_port=` default arguments across the importing e2e modules, which
-# evaluate at import.
-VA_CA_PORT, VA_PVA_PORT = _reserve_free_ports(2)
+# evaluate at import. The reservations are held until the process exits.
+VA_CA_PORT, VA_PVA_PORT = hold_ports(2)
 
 # Bluesky bridge HTTP port. Distinct from the other e2e modules' pinned
 # ports (test_bluesky_deploy.py's 18090, test_va_substrate_equivalence.py's
@@ -284,7 +264,7 @@ def merged_profile_edits(extra_config: dict[str, Any]) -> dict[str, Any]:
     """``profile_edits()`` with ``extra_config`` deep-merged into it.
 
     Reaches the keys ``init_args`` has no named parameter for -- e.g. the
-    postgres/telemetry/tiled/panels HOST ports a module must move to run
+    postgres/tiled/panels HOST ports a module must move to run
     concurrently with another deployed stack::
 
         merged_profile_edits({"config": {"services.postgresql.port_host": 15433}})
@@ -332,7 +312,7 @@ def init_args(
 
     ``extra_config``, when given, is deep-merged into ``profile_edits()`` --
     the way to reach config keys that have no named parameter here
-    (postgres/telemetry/tiled/panels host ports). Empty or ``None`` is a
+    (postgres/tiled/panels host ports). Empty or ``None`` is a
     no-op: the shared pins go out on their own.
 
     ``va_port``/``va_pva_port`` pin the VA's Channel Access and pvAccess host
@@ -362,8 +342,8 @@ def init_args(
         # Every framework port the caller does NOT pin explicitly follows this
         # block (`deployment.port_base`); a caller that actually starts the
         # stack passes its own thousand-port block so the deploy cannot land
-        # on a real deployment's default 10000 block (the telemetry gateway,
-        # tiled, live-standin, the stores). Build-only callers may leave it unset —
+        # on a real deployment's default 10000 block (tiled, live-standin,
+        # the stores). Build-only callers may leave it unset —
         # a render binds nothing.
         args += ["--set", f"port_base={port_base}"]
     if provider is not None:
@@ -509,23 +489,6 @@ def build_via_cli_runner(
     return repo / "build"
 
 
-def find_osprey_console_script() -> Path:
-    """Locate the ``osprey`` console script for subprocess invocations.
-
-    Centralized here since every real-container e2e that builds this stack
-    (task 5.2, and the agentic e2e in 5.3/5.4) needs it, mirroring the
-    identical helper duplicated in test_va_substrate_equivalence.py /
-    test_tiled_roundtrip.py / test_bluesky_deploy.py.
-    """
-    candidate = Path(sys.executable).parent / "osprey"
-    if candidate.exists():
-        return candidate
-    found = shutil.which("osprey")
-    if found:
-        return Path(found)
-    raise RuntimeError("Could not locate the 'osprey' console script.")
-
-
 def build_project_subprocess(
     project_name: str,
     *,
@@ -588,10 +551,7 @@ def build_project_subprocess(
             env={**os.environ, "CLAUDECODE": ""},
         )
         if result.returncode != 0:
-            raise RuntimeError(
-                f"{label} failed (rc={result.returncode}):\n"
-                f"--- stdout ---\n{result.stdout}\n--- stderr ---\n{result.stderr}"
-            )
+            raise RuntimeError(format_failure(label, result))
 
     run_step("osprey init", cmd)
     if pre_build is not None:
@@ -662,23 +622,6 @@ def minted_launch_token(project_dir: Path) -> str:
         "mints it for every deployed service that declares it"
     )
     return token
-
-
-def wait_for_health(url: str, timeout: float) -> None:
-    """Poll ``url`` until it answers HTTP 200, or fail after ``timeout``
-    seconds with the last error seen."""
-    deadline = time.monotonic() + timeout
-    last_err = "(no response yet)"
-    while time.monotonic() < deadline:
-        try:
-            with urllib.request.urlopen(url, timeout=3.0) as resp:  # localhost
-                if resp.status == 200:
-                    return
-                last_err = f"HTTP {resp.status}"
-        except (urllib.error.URLError, ConnectionError, OSError) as exc:
-            last_err = str(exc)
-        time.sleep(1.0)
-    raise AssertionError(f"timed out after {timeout:.0f}s waiting for {url} (last: {last_err})")
 
 
 #: The bridge's compose SERVICE name -- the key under ``services:`` in
@@ -811,10 +754,7 @@ def restart_bridge(
         timeout=RESTART_TIMEOUT_SEC,
     )
     if restart.returncode != 0:
-        raise AssertionError(
-            f"compose restart {BRIDGE_SERVICE} failed (rc={restart.returncode}):\n"
-            f"--- stdout ---\n{restart.stdout}\n--- stderr ---\n{restart.stderr}"
-        )
+        raise AssertionError(format_failure(f"compose restart {BRIDGE_SERVICE}", restart))
 
     started_after = _container_started_at(container)
     if started_after == started_before:

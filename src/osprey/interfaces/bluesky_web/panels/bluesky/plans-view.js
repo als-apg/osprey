@@ -111,7 +111,6 @@ const PLAN_SIDEBAR_WIDTH_KEY = 'osprey-plan-sidebar-width';
  * @property {(text: string) => void} setFilter  Apply a plan-name filter. The
  *   ONE function behind both the in-body search box and the tile bar's
  *   contributed `search` item, so the two can never diverge.
- * @property {(mode: 'expert'|'simple') => void} onModeChange
  * @property {(status: import('./queue-client.js').QueueStatus|null) => void} setQueueStatus
  *   The queue's latest manager summary (`null` = unknown), for the enqueue
  *   button's wording.
@@ -273,9 +272,7 @@ export function createPlansView({
   const rootErrorEl = /** @type {HTMLElement} */ (byId('root-error'));
   const planTreeEl = /** @type {HTMLElement} */ (byId('plan-tree'));
   const plansEmptyEl = /** @type {HTMLElement} */ (byId('plans-empty'));
-  const plansFilteredEmptyEl = /** @type {HTMLElement} */ (
-    byId('plans-filtered-empty')
-  );
+  const plansFilteredEmptyEl = /** @type {HTMLElement} */ (byId('plans-filtered-empty'));
   const searchEl = /** @type {HTMLInputElement} */ (byId('plan-search'));
   const detailEmptyEl = /** @type {HTMLElement} */ (byId('detail-empty'));
   const detailBodyEl = /** @type {HTMLElement} */ (byId('detail-body'));
@@ -286,12 +283,8 @@ export function createPlansView({
   const detailSourceEl = /** @type {HTMLElement} */ (byId('detail-source'));
   const paramFormEl = /** @type {HTMLFormElement} */ (byId('param-form'));
   const paramSummaryEl = /** @type {HTMLElement} */ (byId('param-summary'));
-  const launchOutcomeBannerEl = /** @type {HTMLElement} */ (
-    byId('launch-outcome-banner')
-  );
-  const capabilityBannerEl = /** @type {HTMLElement} */ (
-    byId('capability-banner')
-  );
+  const launchOutcomeBannerEl = /** @type {HTMLElement} */ (byId('launch-outcome-banner'));
+  const capabilityBannerEl = /** @type {HTMLElement} */ (byId('capability-banner'));
   const unvalidatedNoteEl = /** @type {HTMLElement} */ (byId('unvalidated-note'));
   const queueAddBtnEl = /** @type {HTMLButtonElement} */ (byId('queue-add-btn'));
   const queueFootnoteEl = /** @type {HTMLElement} */ (byId('queue-footnote'));
@@ -300,23 +293,13 @@ export function createPlansView({
   const tabSourceEl = /** @type {HTMLButtonElement} */ (byId('tab-source'));
   const panelParamsEl = /** @type {HTMLElement} */ (byId('panel-params'));
   const panelSourceEl = /** @type {HTMLElement} */ (byId('panel-source'));
-  const draftUnknownBannerEl = /** @type {HTMLElement} */ (
-    byId('draft-unknown-banner')
-  );
+  const draftUnknownBannerEl = /** @type {HTMLElement} */ (byId('draft-unknown-banner'));
   const draftIndicatorEl = /** @type {HTMLElement} */ (byId('draft-indicator'));
-  const draftDiscardBtnEl = /** @type {HTMLButtonElement} */ (
-    byId('draft-discard-btn')
-  );
-  const draftDiscardNoteEl = /** @type {HTMLElement} */ (
-    byId('draft-discard-note')
-  );
-  const draftAffordanceEl = /** @type {HTMLButtonElement} */ (
-    byId('draft-affordance')
-  );
+  const draftDiscardBtnEl = /** @type {HTMLButtonElement} */ (byId('draft-discard-btn'));
+  const draftDiscardNoteEl = /** @type {HTMLElement} */ (byId('draft-discard-note'));
+  const draftAffordanceEl = /** @type {HTMLButtonElement} */ (byId('draft-affordance'));
   const draftAgentNoteEl = /** @type {HTMLElement} */ (byId('draft-agent-note'));
-  const draftRejectedBannerEl = /** @type {HTMLElement} */ (
-    byId('draft-rejected-banner')
-  );
+  const draftRejectedBannerEl = /** @type {HTMLElement} */ (byId('draft-rejected-banner'));
   // The launched-banner has no static markup in index.html — it is a
   // transient, SSE-driven note, so build it once here and hang it beside the
   // launch-outcome banner (both live in the detail footer). Created via `h`
@@ -376,18 +359,14 @@ export function createPlansView({
    * Apply a plan filter and re-render the sidebar.
    *
    * The ONE place the filter is set. Two surfaces drive it — the in-body search
-   * box and, when the panel is embedded in Expert mode, the tile bar's
-   * contributed `search` item — and they must not be able to disagree, so the
-   * header path calls this rather than reimplementing the trim/re-render. The
-   * in-body input is kept in sync (never overwritten with what it already
-   * holds, which would move the caret) so a flip back to Simple, where the
-   * bar's copy disappears, does not lose the filter the operator typed.
+   * box and, when the panel is embedded, the tile bar's contributed `search`
+   * item — and they must not be able to disagree, so the header path calls this
+   * rather than reimplementing the trim/re-render.
    *
    * @param {string} text
    */
   function setFilter(text) {
     filterText = text.trim();
-    if (searchEl.value !== text) searchEl.value = text;
     renderPlanTree();
   }
 
@@ -791,7 +770,6 @@ export function createPlansView({
         return;
       }
 
-
       const { status, body } = await fetchJson('/queue/items', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -1058,20 +1036,6 @@ export function createPlansView({
 
   return {
     setFilter,
-    /**
-     * Live Expert<->Simple flip broadcast by the hub, fanned out by the shell.
-     * mode-boot.js set the initial data-ui-mode pre-paint; this is the runtime
-     * flip. Every layout delta is CSS (Simple hides the Source tab, draft
-     * chrome, and trust internals, and promotes Add-to-queue); the one
-     * behavioral concern is that Simple hides the Source tab — force the
-     * Parameters view so a flip made while Source was active doesn't leave the
-     * operator on a now-hidden pane.
-     *
-     * @param {'expert'|'simple'} mode
-     */
-    onModeChange(mode) {
-      if (mode === 'simple') setActiveTab('params');
-    },
     /**
      * The queue view's latest manager summary, forwarded by the shell. Only
      * the enqueue button's wording depends on it.

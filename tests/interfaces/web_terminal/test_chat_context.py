@@ -1,4 +1,4 @@
-"""The context frame the Simple view's meter reads.
+"""The context frame the chat's meter reads.
 
 A chat child is asked for its context window as each response ends, and the
 reading goes out as a ``context`` frame before the result, carrying the window's

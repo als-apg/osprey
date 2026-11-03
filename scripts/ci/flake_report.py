@@ -285,19 +285,17 @@ def list_rerun_runs(repo: str, workflow: str, since: str) -> list[dict] | None:
     )
     if raw is None:
         return None
-    runs = []
-    for payload in iter_json_documents(raw):
-        for run in payload.get("workflow_runs", []):
-            if run.get("run_attempt", 1) > 1 and run.get("status") == "completed":
-                runs.append(
-                    {
-                        "run_id": run["id"],
-                        "branch": run.get("head_branch") or "?",
-                        "final_attempt": run["run_attempt"],
-                        "created_at": run.get("created_at", ""),
-                    }
-                )
-    return runs
+    return [
+        {
+            "run_id": run["id"],
+            "branch": run.get("head_branch") or "?",
+            "final_attempt": run["run_attempt"],
+            "created_at": run.get("created_at", ""),
+        }
+        for payload in iter_json_documents(raw)
+        for run in payload.get("workflow_runs", [])
+        if run.get("run_attempt", 1) > 1 and run.get("status") == "completed"
+    ]
 
 
 def fetch_attempt_jobs(repo: str, run_id: int, attempt: int, cache: Path | None):
@@ -348,10 +346,10 @@ def render_table(ranked: list[dict], limit: int) -> str:
         f"  {'runs':>4}  {'brs':>4}  {'last seen':>10}  test",
         f"  {'-' * 4}  {'-' * 4}  {'-' * 10}  {'-' * width}",
     ]
-    for row in rows:
-        lines.append(
-            f"  {row['runs']:>4}  {row['branches']:>4}  {row['last_seen']:>10}  {row['test']}"
-        )
+    lines.extend(
+        f"  {row['runs']:>4}  {row['branches']:>4}  {row['last_seen']:>10}  {row['test']}"
+        for row in rows
+    )
     return "\n".join(lines)
 
 

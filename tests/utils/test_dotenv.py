@@ -15,10 +15,8 @@ from pathlib import Path
 
 import pytest
 
-from osprey_connectors.dotenv import (
-    env_lock_path,
-    parse_dotenv_file,
-)
+from osprey.deployment.dotenv import env_lock_path
+from osprey_connectors.dotenv import parse_dotenv_file
 
 
 class TestParseDotenvFile:
@@ -29,70 +27,53 @@ class TestParseDotenvFile:
         p.write_text(text, encoding="utf-8")
         return p
 
-    def test_basic_key_value(self, tmp_path):
-        env = parse_dotenv_file(self._write(tmp_path, "KEY=value\n"))
-        assert env == {"KEY": "value"}
-
-    def test_comments_and_blank_lines_skipped(self, tmp_path):
-        text = "# a comment\n\nKEY=value\n   \n# trailing comment\n"
-        env = parse_dotenv_file(self._write(tmp_path, text))
-        assert env == {"KEY": "value"}
-
-    def test_export_prefix_stripped(self, tmp_path):
-        env = parse_dotenv_file(self._write(tmp_path, "export KEY=value\n"))
-        assert env == {"KEY": "value"}
-
-    def test_double_quotes_stripped(self, tmp_path):
-        env = parse_dotenv_file(self._write(tmp_path, 'KEY="quoted value"\n'))
-        assert env == {"KEY": "quoted value"}
-
-    def test_single_quotes_stripped(self, tmp_path):
-        env = parse_dotenv_file(self._write(tmp_path, "KEY='quoted value'\n"))
-        assert env == {"KEY": "quoted value"}
-
-    def test_mismatched_quotes_preserved(self, tmp_path):
-        """Only matching surrounding quotes are stripped."""
-        env = parse_dotenv_file(self._write(tmp_path, 'KEY="unterminated\n'))
-        assert env == {"KEY": '"unterminated'}
-
-    def test_single_char_value_not_dequoted(self, tmp_path):
-        """A lone quote char is a value, not an empty quoted string."""
-        env = parse_dotenv_file(self._write(tmp_path, 'KEY="\n'))
-        assert env == {"KEY": '"'}
-
-    def test_value_with_equals_sign(self, tmp_path):
-        """Partition on the first ``=`` keeps later ``=`` in the value."""
-        env = parse_dotenv_file(self._write(tmp_path, "URL=postgres://u:p@h/db?a=b\n"))
-        assert env == {"URL": "postgres://u:p@h/db?a=b"}
-
-    def test_quoted_value_containing_equals(self, tmp_path):
-        env = parse_dotenv_file(self._write(tmp_path, 'KEY="a=b=c"\n'))
-        assert env == {"KEY": "a=b=c"}
-
-    def test_empty_value(self, tmp_path):
-        env = parse_dotenv_file(self._write(tmp_path, "KEY=\n"))
-        assert env == {"KEY": ""}
-
-    def test_key_and_value_whitespace_trimmed(self, tmp_path):
-        env = parse_dotenv_file(self._write(tmp_path, "  KEY  =  value  \n"))
-        assert env == {"KEY": "value"}
-
-    def test_line_without_equals_skipped(self, tmp_path):
-        env = parse_dotenv_file(self._write(tmp_path, "NOT_A_PAIR\nKEY=value\n"))
-        assert env == {"KEY": "value"}
-
-    def test_empty_key_skipped(self, tmp_path):
-        """A leading ``=`` yields an empty key, which is dropped."""
-        env = parse_dotenv_file(self._write(tmp_path, "=orphan\nKEY=value\n"))
-        assert env == {"KEY": "value"}
-
-    def test_later_duplicate_key_wins(self, tmp_path):
-        env = parse_dotenv_file(self._write(tmp_path, "KEY=first\nKEY=second\n"))
-        assert env == {"KEY": "second"}
-
-    def test_utf8_value(self, tmp_path):
-        env = parse_dotenv_file(self._write(tmp_path, "NAME=Grüße\n"))
-        assert env == {"NAME": "Grüße"}
+    @pytest.mark.parametrize(
+        ("text", "expected"),
+        [
+            pytest.param("KEY=value\n", {"KEY": "value"}, id="basic_key_value"),
+            pytest.param(
+                "# a comment\n\nKEY=value\n   \n# trailing comment\n",
+                {"KEY": "value"},
+                id="comments_and_blank_lines_skipped",
+            ),
+            pytest.param("export KEY=value\n", {"KEY": "value"}, id="export_prefix_stripped"),
+            pytest.param(
+                'KEY="quoted value"\n', {"KEY": "quoted value"}, id="double_quotes_stripped"
+            ),
+            pytest.param(
+                "KEY='quoted value'\n", {"KEY": "quoted value"}, id="single_quotes_stripped"
+            ),
+            # Only matching surrounding quotes are stripped.
+            pytest.param(
+                'KEY="unterminated\n', {"KEY": '"unterminated'}, id="mismatched_quotes_preserved"
+            ),
+            # A lone quote char is a value, not an empty quoted string.
+            pytest.param('KEY="\n', {"KEY": '"'}, id="single_char_value_not_dequoted"),
+            # Partition on the first ``=`` keeps later ``=`` in the value.
+            pytest.param(
+                "URL=postgres://u:p@h/db?a=b\n",
+                {"URL": "postgres://u:p@h/db?a=b"},
+                id="value_with_equals_sign",
+            ),
+            pytest.param('KEY="a=b=c"\n', {"KEY": "a=b=c"}, id="quoted_value_containing_equals"),
+            pytest.param("KEY=\n", {"KEY": ""}, id="empty_value"),
+            pytest.param(
+                "  KEY  =  value  \n", {"KEY": "value"}, id="key_and_value_whitespace_trimmed"
+            ),
+            pytest.param(
+                "NOT_A_PAIR\nKEY=value\n", {"KEY": "value"}, id="line_without_equals_skipped"
+            ),
+            # A leading ``=`` yields an empty key, which is dropped.
+            pytest.param("=orphan\nKEY=value\n", {"KEY": "value"}, id="empty_key_skipped"),
+            pytest.param(
+                "KEY=first\nKEY=second\n", {"KEY": "second"}, id="later_duplicate_key_wins"
+            ),
+            pytest.param("NAME=Grüße\n", {"NAME": "Grüße"}, id="utf8_value"),
+            pytest.param("", {}, id="empty_file_yields_empty_dict"),
+        ],
+    )
+    def test_parses(self, tmp_path, text, expected):
+        assert parse_dotenv_file(self._write(tmp_path, text)) == expected
 
     def test_full_passthrough_not_narrowed_to_auth(self, tmp_path):
         """LOAD-BEARING: every key lands, not just auth-looking ones.
@@ -123,9 +104,6 @@ class TestParseDotenvFile:
         """The parser does not guard existence — callers check ``is_file()``."""
         with pytest.raises(FileNotFoundError):
             parse_dotenv_file(tmp_path / "nonexistent.env")
-
-    def test_empty_file_yields_empty_dict(self, tmp_path):
-        assert parse_dotenv_file(self._write(tmp_path, "")) == {}
 
 
 class TestEnvLockPath:

@@ -19,6 +19,7 @@ import pytest
 from osprey.health.core import systemd_unit as mod
 from osprey.health.core.systemd_unit import systemd_unit
 from osprey.health.models import Status
+from tests.health._fakes import FakeProc
 
 _UNIT = "osprey.service"
 
@@ -287,31 +288,9 @@ class TestCwdDefault:
 # --------------------------------------------------------------------------- #
 
 
-class _FakeProc:
-    def __init__(self, stdout=b"", stderr=b"", returncode=0, hang=False):
-        self._stdout = stdout
-        self._stderr = stderr
-        self.returncode = returncode
-        self._hang = hang
-        self.killed = False
-        self.reaped = False
-
-    async def communicate(self):
-        if self._hang:
-            await asyncio.sleep(10)
-        return (self._stdout, self._stderr)
-
-    def kill(self):
-        self.killed = True
-
-    async def wait(self):
-        self.reaped = True
-        return self.returncode
-
-
 class TestRunSystemctl:
     async def test_success_decodes_output(self, monkeypatch):
-        proc = _FakeProc(stdout=b"loaded\n", stderr=b"", returncode=0)
+        proc = FakeProc(stdout=b"loaded\n", stderr=b"", returncode=0)
 
         async def _fake_exec(*argv, **kwargs):
             return proc
@@ -323,7 +302,7 @@ class TestRunSystemctl:
         assert err == ""
 
     async def test_timeout_kills_and_reaps_process(self, monkeypatch):
-        proc = _FakeProc(hang=True)
+        proc = FakeProc(hang=True)
 
         async def _fake_exec(*argv, **kwargs):
             return proc

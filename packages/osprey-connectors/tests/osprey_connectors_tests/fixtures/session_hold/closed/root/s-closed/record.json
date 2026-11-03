@@ -1,0 +1,20 @@
+{
+  "schema": 1,
+  "session_key": "s-closed",
+  "flags": [
+    {
+      "flag_id": "f-closed",
+      "source": "watchdog:guard-circumvention",
+      "reason": "An earlier prompt.",
+      "prompt_ref": "22222222-2222-4222-8222-222222222222",
+      "prompt_excerpt": "loosen the hook config",
+      "opened_at": "2026-10-31T11:00:00Z",
+      "state": "closed",
+      "stop_unconfirmed": true,
+      "started": ["caput SR:BEAM 1"],
+      "answer": "stop",
+      "operator": "alice",
+      "answered_at": "2026-10-31T11:01:00Z"
+    }
+  ]
+}

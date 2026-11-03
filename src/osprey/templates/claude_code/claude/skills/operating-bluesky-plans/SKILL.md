@@ -217,7 +217,8 @@ queue or refuses, and every refusal carries a code you branch on (see below).
 
 The approval prompt is the whole gate. One human sees one start, says yes, and
 the queue runs; there is no second confirmation anywhere. If the start is
-refused with `launch_token_required`, that is not a step you can complete —
+refused with `launch_token_invalid` or `launch_token_required`, that is not a
+step you can complete —
 never hunt for a token, edit configuration, or enter a setup mode. Hand the
 action to the operator, who can start the queue from the BLUESKY panel's own
 *Start* control.
@@ -247,10 +248,10 @@ them apart is what lets you explain a blocked plan instead of retrying it.
 ### Layer 1: the write posture of the machine the lane drives, applied before the tool runs
 
 Write posture is per control target, not one switch for the deployment.
-`control_system.writes_enabled` is the posture a connector type inherits, and a
-`control_system.connector.<type>.writes_enabled` block answers for that type
-instead — so a deployment can be armed on its virtual accelerator and left
-unarmed on the live machine. Each queue lane is bound at build time to one
+`control_system.writes` is the tier's ceiling, `allowed` or `never`, for every
+machine; the owner's switch, turned on per machine from the chip, picks which
+— so a deployment can be armed on its virtual accelerator and left unarmed on
+the live machine. Each queue lane is bound at build time to one
 target, and that target's posture is what applies to a call on that lane.
 
 **When no target here may write**, `queue_add` and `queue_start` are not yours
@@ -297,13 +298,15 @@ what decides whether a particular call was armed:
   is approval-gated so a human sees the start. The requirement is never
   waived. A server holding a valid token starts the queue; one holding none,
   or one whose token the bridge rejects, is refused with
-  `launch_token_required` and the operator starts the queue themselves.
+  `launch_token_invalid` (or `launch_token_required` when the bridge has no
+  token at all) and the operator starts the queue themselves.
 - **`queue_add`** is armed only *sometimes*. Adding to an idle queue moves
   nothing; adding to a queue that is already draining (`manager_state` of
   `executing_queue`, `starting_queue`, `executing_task` or `paused`, or
   autostart observed on) hands the item straight to hardware, and the bridge
   requires the token for exactly that case — refusing with
-  `launch_token_required` and the `manager_state` that made it armed.
+  `launch_token_invalid` (or `launch_token_required`) and the `manager_state`
+  that made it armed.
 - **`queue_stop()`** (plain) is completely ungated — see below.
 - **`queue_stop(cancel=True)`** is gated exactly like `queue_start`.
 
@@ -317,17 +320,18 @@ envelope's `error_type`, its sentence becomes the `error_message`, and the
 whole detail object comes through as `details`. Nothing is reworded, so branch
 on the code and relay the bridge's sentence to the operator as written.
 
-- **`launch_token_required`** — this operation is armed and the token was
-  missing or rejected. You will see it from `queue_start`, from `queue_add`
-  onto an already-draining queue, and from `queue_stop(cancel=True)` — whether
-  this server holds no token at all, holds one the bridge rejects, or the
-  bridge itself was never given one. The code is the same in every case: it
-  tells you the operation was refused for want of a token, not which of those
-  is true. Not agent-recoverable, and NOT a configuration task for you: which
+- **`launch_token_invalid`** / **`launch_token_required`** — this operation
+  is armed and was refused for want of a token. You will see them from
+  `queue_start`, from `queue_add` onto an already-draining queue, and from
+  `queue_stop(cancel=True)`. `launch_token_invalid` means the token was
+  missing or rejected — this server holds none, or holds one the bridge does
+  not match; it does not tell you which. `launch_token_required` means the
+  bridge itself was never given one. Not agent-recoverable, and NOT a configuration task for you: which
   agents may arm this deployment is an operator's decision, so hand the action
   to the human — the BLUESKY queue panel performs these operations with its
-  own token. Never edit config.yml, `.env`, or settings to obtain a token. For
-  a `queue_add`, `details.manager_state` names the state that made it armed,
+  own token. A launch token reaches you only from the operator; do not go
+  looking for one. For a `queue_add`, `details.manager_state` names the state
+  that made it armed,
   and the suggestions say whether this server withheld the token because
   writes are disabled (then enabling writes, an operator action, is what
   unblocks it). If `details.item_left_behind` is true, an item could not be

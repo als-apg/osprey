@@ -481,6 +481,26 @@ class SignalRoleEnum(str, Enum):
     """
     Measured longitudinal offset (phase) of an insertion device's magnet rows.
     """
+    temperature_limit_readback = "temperature_limit_readback"
+    """
+    Temperature above which a device's over-temperature interlock trips.
+    """
+    blade_position_setpoint = "blade_position_setpoint"
+    """
+    Commanded insertion of a scraper blade into the beam aperture.
+    """
+    blade_position_readback = "blade_position_readback"
+    """
+    Measured insertion of a scraper blade into the beam aperture.
+    """
+    coolant_flow_readback = "coolant_flow_readback"
+    """
+    Measured cooling-water flow through a device.
+    """
+    valve_position_readback = "valve_position_readback"
+    """
+    Measured opening of a modulating valve, in percent.
+    """
     temperature_readback = "temperature_readback"
     """
     Measured temperature.
@@ -548,6 +568,14 @@ class SignalRoleEnum(str, Enum):
     temperature_setpoint = "temperature_setpoint"
     """
     Commanded temperature of a regulated loop (e.g. a cooling-water heater).
+    """
+    beam_lifetime_readback = "beam_lifetime_readback"
+    """
+    Measured lifetime readback of the stored beam.
+    """
+    operation_mode_status = "operation_mode_status"
+    """
+    Current operating mode of the machine (e.g. user operation, machine development, shutdown).
     """
 
 
@@ -635,6 +663,56 @@ class RoleEnum(str, Enum):
     """
 
 
+class WiringRoleEnum(str, Enum):
+    """
+    What a model's engine says a wiring record is.
+    """
+    setpoint = "setpoint"
+    """
+    Written; the engine applies the value to the deck.
+    """
+    readback = "readback"
+    """
+    Read; the engine reads a setting or a deck property back.
+    """
+    monitor = "monitor"
+    """
+    Read; the engine reads a position at a monitor.
+    """
+    output = "output"
+    """
+    Read; the engine computes an optics output such as a tune.
+    """
+
+
+class PlaneEnum(str, Enum):
+    """
+    The transverse plane a wiring record steers or reads.
+    """
+    x = "x"
+    """
+    Horizontal.
+    """
+    y = "y"
+    """
+    Vertical.
+    """
+
+
+class RefreshEnum(str, Enum):
+    """
+    When a wiring record's value is recomputed.
+    """
+    pass_ = "pass"
+    """
+    With each write's solve.
+    """
+    periodic = "periodic"
+    """
+    With the periodic solve alone.
+    """
+
+
 class ValueTypeEnum(str, Enum):
     """
     The type of the value a channel carries.
@@ -670,6 +748,10 @@ class PlaceFromEnum(str, Enum):
     fix = "fix"
     """
     Set by a fix.
+    """
+    imported = "imported"
+    """
+    Stated by an importing layer alone, where no span holds the device.
     """
 
 
@@ -1334,7 +1416,7 @@ class Channel(ConfiguredBaseModel):
     linkml_meta: ClassVar[LinkMLMeta] = LinkMLMeta({'from_schema': 'https://narad.example.org/schema/osprey.facility.core'})
 
     id: str = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['Place', 'Device', 'Channel', 'Group', 'Wiring']} })
-    role: Optional[RoleEnum] = Field(default=None, description="""Absent means readback.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Channel']} })
+    role: Optional[RoleEnum] = Field(default=None, description="""Absent means readback.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Channel', 'Wiring']} })
     pair: Optional[str] = Field(default=None, description="""The readback address of a setpoint. Absent, the build pairs the setpoint with the one readback on the same device, place or nothing whose signal names the same quantity, else with itself.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Channel']} })
     tolerance: Optional[Tolerance] = Field(default=None, description="""On a float setpoint: how close its readback (its pair, else itself) must come.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Channel']} })
     on: Optional[OnTarget] = Field(default=None, description="""Absent means the channel belongs to nothing.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Channel']} })
@@ -1374,6 +1456,28 @@ class Seed(ConfiguredBaseModel):
     linear: Optional[dict[str, Union[float, LinearTerm]]] = Field(default=None, description="""The value as a weighted sum of other channels, `{<address>: <coefficient>}`.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Seed', 'Curve'], 'list_elements_ordered': True} })
     pulse: Optional[Pulse] = Field(default=None, description="""The trace of a waveform channel, shaped in code and scaled by a driving channel.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Seed']} })
     gate: Optional[Gate] = Field(default=None, description="""What the channel does while any of `inputs` reads its blocking label, beside `nominal`.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Seed']} })
+    topoff: Optional[Topoff] = Field(default=None, description="""A stored current refilled every `period_s` and decaying between refills with lifetime `lifetime_h`; it holds the level the decay averages to, so it carries no `nominal`.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Seed']} })
+    topoff_lifetime: Optional[TopoffLifetime] = Field(default=None, description="""The lifetime of a `topoff` channel, read as a constant.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Seed']} })
+
+
+class Topoff(ConfiguredBaseModel):
+    """
+    A top-off sawtooth: the reading falls from `ceiling` with lifetime `lifetime_h` and returns to it every `period_s`.
+    """
+    linkml_meta: ClassVar[LinkMLMeta] = LinkMLMeta({'from_schema': 'https://narad.example.org/schema/osprey.facility.core'})
+
+    ceiling: float = Field(default=..., description="""The reading just after a refill, in the channel's unit.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Topoff']} })
+    lifetime_h: float = Field(default=..., description="""The decay lifetime in hours; above 0.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Topoff']} })
+    period_s: float = Field(default=..., description="""The seconds between refills; above 0.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Topoff', 'Drift']} })
+
+
+class TopoffLifetime(ConfiguredBaseModel):
+    """
+    A channel that reads the `lifetime_h` of another channel's `topoff` seed.
+    """
+    linkml_meta: ClassVar[LinkMLMeta] = LinkMLMeta({'from_schema': 'https://narad.example.org/schema/osprey.facility.core'})
+
+    of: str = Field(default=..., description="""The address of the channel whose `topoff` seed's lifetime this channel reads.""", json_schema_extra = { "linkml_meta": {'domain_of': ['TopoffLifetime']} })
 
 
 class Pulse(ConfiguredBaseModel):
@@ -1427,7 +1531,7 @@ class Drift(ConfiguredBaseModel):
     linkml_meta: ClassVar[LinkMLMeta] = LinkMLMeta({'from_schema': 'https://narad.example.org/schema/osprey.facility.core'})
 
     amplitude: float = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['Drift']} })
-    period_s: float = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['Drift']} })
+    period_s: float = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['Topoff', 'Drift']} })
 
 
 class LinearTerm(ConfiguredBaseModel):
@@ -1501,6 +1605,9 @@ class Wiring(ConfiguredBaseModel):
     unit: Optional[str] = Field(default=None, description="""Computed from the channel.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Channel', 'Wiring']} })
     default: Optional[Any] = Field(default=None, description="""Computed; the operating point from the deck.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Wiring']} })
     value_range: Optional[list[float]] = Field(default=None, description="""Computed from the channel's limits record.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Wiring'], 'list_elements_ordered': True} })
+    role: Optional[WiringRoleEnum] = Field(default=None, description="""Computed; what the model's engine says the record is.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Channel', 'Wiring']} })
+    plane: Optional[PlaneEnum] = Field(default=None, description="""Computed; the plane the engine says the record steers or reads, null for none.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Wiring']} })
+    refresh: Optional[RefreshEnum] = Field(default=None, description="""Computed; when the engine recomputes the record's value.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Wiring']} })
     provenance: Optional[Provenance] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['Place', 'Device', 'Channel', 'Group', 'Model', 'Wiring']} })
 
 
@@ -1689,6 +1796,8 @@ Device.model_rebuild()
 OnTarget.model_rebuild()
 Channel.model_rebuild()
 Seed.model_rebuild()
+Topoff.model_rebuild()
+TopoffLifetime.model_rebuild()
 Pulse.model_rebuild()
 Gate.model_rebuild()
 GateInput.model_rebuild()

@@ -170,7 +170,7 @@ def main(argv: list[str] | None = None) -> int:
         LLAMA_CPP_DEFAULT_MODEL,
         LlamaCppProviderAdapter,
     )
-    from osprey.services.ariel_search.search.image_lane import IMAGE_QUERY_TIMEOUT_S
+    from osprey.services.ariel_search.search._offload import QUERY_EMBEDDING_TIMEOUT_S
 
     parser = argparse.ArgumentParser(description=(__doc__ or "").split("\n\n")[0])
     parser.add_argument("--base-url", default="http://127.0.0.1:8080", help="llama-server root")
@@ -273,9 +273,9 @@ def main(argv: list[str] | None = None) -> int:
             "bulk_errors": bulk_errors,
             "queries_over_gate": sum(1 for value in under_bulk if value > args.gate_seconds),
             "queries_over_lane_timeout": sum(
-                1 for value in under_bulk if value > IMAGE_QUERY_TIMEOUT_S
+                1 for value in under_bulk if value > QUERY_EMBEDDING_TIMEOUT_S
             ),
-            "lane_timeout_s": IMAGE_QUERY_TIMEOUT_S,
+            "lane_timeout_s": QUERY_EMBEDDING_TIMEOUT_S,
             "gate": ("pass" if passed else "fail") if counts else "informative only",
             "fallback_lane_timeout_s": round(max(5.0, 2 * p95), 2),
             "image_embedding_timeout_seconds": max(

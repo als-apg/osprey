@@ -21,12 +21,7 @@ ABORT = "dependency failed to start: container demo-bluesky-bridge is unhealthy\
 TAIL = "RuntimeError: refusing to start writable: the limits database could not be parsed\n"
 
 
-@pytest.fixture(autouse=True)
-def _container_runtime_is_up(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(
-        "osprey.deployment.runtime_helper.verify_runtime_is_running",
-        lambda config=None: (True, ""),
-    )
+pytestmark = pytest.mark.usefixtures("container_runtime_is_up")
 
 
 @pytest.fixture

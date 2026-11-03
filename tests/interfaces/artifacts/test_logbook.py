@@ -23,6 +23,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
+from osprey.agent_record.contract import Drain
 from osprey.registry.web import framework_web_port_default
 
 _MODULE = "osprey.interfaces.artifacts.logbook"
@@ -77,17 +78,44 @@ def _patch_model_resolution():
     )
 
 
+def _node(kind, line, ts, body, **extra):
+    """A timeline node of the session, as the record's ``timeline`` read answers it."""
+    node = {"kind": kind, "key": f"cc:alice:sess-logbook:{line}:0", "ts": ts, "body": body}
+    node.update(extra)
+    return node
+
+
+@pytest.fixture
+def session_record(monkeypatch):
+    """The session ``sess-logbook`` and a fake record serving its timeline.
+
+    ``dirs`` holds every project dir the current session was looked up in;
+    ``serve(nodes)`` sets the timeline the record answers.
+    """
+    from types import SimpleNamespace
+
+    from osprey.agent_record.client import ClientAnswer
+    from osprey.mcp_server import session as session_mod
+    from tests.agent_record.fakes import FakeRecordClient
+
+    state = SimpleNamespace(client=FakeRecordClient(), dirs=[])
+
+    def current(project_dir=None):
+        state.dirs.append(project_dir)
+        return "sess-logbook"
+
+    def serve(nodes):
+        state.client.answers["timeline"] = ClientAnswer(data=nodes, complete=True)
+
+    state.serve = serve
+    monkeypatch.setattr(session_mod, "current_session_id", current)
+    monkeypatch.setattr(session_mod, "record_client", lambda: state.client)
+    monkeypatch.delenv("OSPREY_DISPATCH_RUN", raising=False)
+    return state
+
+
 class TestLogbookCompose:
     """Tests for POST /api/logbook/compose."""
-
-    @pytest.fixture
-    def app_client(self, tmp_path):
-        from fastapi.testclient import TestClient
-
-        from osprey.interfaces.artifacts.app import create_app
-
-        app = create_app(workspace_root=tmp_path)
-        return TestClient(app)
 
     def test_compose_requires_id(self, app_client):
         """422 when no artifact_id provided."""
@@ -194,15 +222,6 @@ class TestLogbookCompose:
 
 class TestLogbookSubmit:
     """Tests for POST /api/logbook/submit."""
-
-    @pytest.fixture
-    def app_client(self, tmp_path):
-        from fastapi.testclient import TestClient
-
-        from osprey.interfaces.artifacts.app import create_app
-
-        app = create_app(workspace_root=tmp_path)
-        return TestClient(app)
 
     def test_submit_creates_draft(self, app_client, tmp_path):
         """Draft JSON written to workspace/drafts/."""
@@ -353,15 +372,6 @@ class TestAssemblePrompt:
         result = assemble_prompt(detail_level="nonexistent")
         assert DETAIL_FRAGMENTS["standard"] in result
 
-    @pytest.fixture
-    def app_client(self, tmp_path):
-        from fastapi.testclient import TestClient
-
-        from osprey.interfaces.artifacts.app import create_app
-
-        app = create_app(workspace_root=tmp_path)
-        return TestClient(app)
-
     def test_assemble_endpoint(self, app_client):
         """POST /api/logbook/assemble-prompt returns assembled prompt."""
         resp = app_client.post(
@@ -397,15 +407,6 @@ class TestAssemblePrompt:
 
 class TestComposeWithSteering:
     """Tests for compose endpoint with steering/custom_prompt fields."""
-
-    @pytest.fixture
-    def app_client(self, tmp_path):
-        from fastapi.testclient import TestClient
-
-        from osprey.interfaces.artifacts.app import create_app
-
-        app = create_app(workspace_root=tmp_path)
-        return TestClient(app)
 
     def test_compose_backward_compat(self, app_client):
         """POST with only artifact_id (no steering) still uses legacy prompt."""
@@ -498,7 +499,7 @@ class TestComposeWithSteering:
         system_msg = call_args.kwargs["chat_request"].messages[0].content
         assert system_msg == custom
 
-    def test_compose_session_log_disabled(self, app_client):
+    def test_compose_session_log_disabled(self, app_client, session_record):
         """include_session_log=False omits audit trail from user prompt."""
         store = app_client.app.state.artifact_store
         entry = _make_artifact(store)
@@ -510,21 +511,15 @@ class TestComposeWithSteering:
             p1,
             p2,
             patch("osprey.models.completion.aget_chat_completion", mock_llm),
-            patch(
-                "osprey.mcp_server.workspace.transcript_reader.TranscriptReader"
-            ) as mock_reader_cls,
         ):
-            mock_reader_cls.return_value.read_current_session.return_value = [
-                {"tool": "channel_read", "timestamp": "2026-02-22T10:00:00"},
-            ]
             resp = app_client.post(
                 "/api/logbook/compose",
                 json={"artifact_id": entry.id, "include_session_log": False},
             )
 
         assert resp.status_code == 200
-        # TranscriptReader should NOT have been instantiated
-        mock_reader_cls.assert_not_called()
+        # The session is not read at all.
+        assert session_record.client.calls == []
 
     def test_compose_multiple_artifacts(self, app_client):
         """artifact_ids sends multiple artifacts to the LLM context."""
@@ -657,14 +652,6 @@ class TestComposeWithSteering:
 class TestLogbookModels:
     """GET /api/logbook/models fills the compose panel's selector."""
 
-    @pytest.fixture
-    def app_client(self, tmp_path):
-        from fastapi.testclient import TestClient
-
-        from osprey.interfaces.artifacts.app import create_app
-
-        return TestClient(create_app(workspace_root=tmp_path))
-
     def test_lists_the_served_models_with_display_names(self, app_client):
         p1, p2 = _patch_model_resolution()
         with p1, p2:
@@ -697,15 +684,6 @@ class TestUserPromptContent:
     ``mock_llm.call_args.kwargs["chat_request"].messages[1].content`` to
     assert on the user prompt that is actually sent.
     """
-
-    @pytest.fixture
-    def app_client(self, tmp_path):
-        from fastapi.testclient import TestClient
-
-        from osprey.interfaces.artifacts.app import create_app
-
-        app = create_app(workspace_root=tmp_path)
-        return TestClient(app)
 
     def _get_user_prompt(self, mock_llm) -> str:
         """Extract the user message content from the mocked LLM call."""
@@ -770,36 +748,35 @@ class TestUserPromptContent:
         user_msg = self._get_user_prompt(mock_llm)
         assert "Summary:" not in user_msg
 
-    def test_prompt_includes_chat_history(self, app_client):
+    def test_prompt_includes_chat_history(self, app_client, session_record):
         """Chat history between user and assistant appears in the user prompt."""
         store = app_client.app.state.artifact_store
         entry = _make_artifact(store)
 
         mock_llm = AsyncMock(return_value=_llm_json_response())
-        mock_chat = [
-            {
-                "role": "user",
-                "content": "What is the beam current?",
-                "timestamp": "2026-02-22T10:00:00",
-            },
-            {
-                "role": "assistant",
-                "content": "The beam current is 500 mA.",
-                "timestamp": "2026-02-22T10:00:05",
-            },
-        ]
+        session_record.serve(
+            [
+                _node(
+                    "prompt",
+                    "u1",
+                    "2026-02-22T10:00:00+00:00",
+                    {"text": "What is the beam current?"},
+                ),
+                _node(
+                    "answer",
+                    "a1",
+                    "2026-02-22T10:00:05+00:00",
+                    {"text": "The beam current is 500 mA."},
+                ),
+            ]
+        )
 
         p1, p2 = _patch_model_resolution()
         with (
             p1,
             p2,
             patch("osprey.models.completion.aget_chat_completion", mock_llm),
-            patch(
-                "osprey.mcp_server.workspace.transcript_reader.TranscriptReader"
-            ) as mock_reader_cls,
         ):
-            mock_reader_cls.return_value.read_current_session.return_value = []
-            mock_reader_cls.return_value.read_current_chat_history.return_value = mock_chat
             resp = app_client.post(
                 "/api/logbook/compose",
                 json={"artifact_id": entry.id},
@@ -810,8 +787,11 @@ class TestUserPromptContent:
         assert "## Conversation log" in user_msg
         assert "USER: What is the beam current?" in user_msg
         assert "ASSISTANT: The beam current is 500 mA." in user_msg
+        (call,) = session_record.client.calls_to("timeline")
+        assert call["session_id"] == "sess-logbook"
+        assert call["wait"] == Drain(session_id="sess-logbook")
 
-    def test_prompt_excludes_tool_arguments(self, app_client):
+    def test_prompt_excludes_tool_arguments(self, app_client, session_record):
         """Audit trail entries carry tool names and results but NOT arguments.
 
         Arguments are the part of a session most likely to hold values the
@@ -823,27 +803,28 @@ class TestUserPromptContent:
         entry = _make_artifact(store)
 
         mock_llm = AsyncMock(return_value=_llm_json_response())
-        mock_events = [
-            {
-                "type": "tool_call",
-                "tool": "channel_read",
-                "timestamp": "2026-02-22T10:00:00",
-                "arguments": {"channels": ["SR:CURRENT"]},
-                "result_summary": '{"status": "success", "value": 500.0}',
-            },
-        ]
+        session_record.serve(
+            [
+                _node(
+                    "tool_call",
+                    "c1",
+                    "2026-02-22T10:00:00+00:00",
+                    {
+                        "id": "t1",
+                        "name": "mcp__controls__channel_read",
+                        "input": {"channels": ["SR:CURRENT"]},
+                    },
+                    result={"body": {"content": '{"status": "success", "value": 500.0}'}},
+                ),
+            ]
+        )
 
         p1, p2 = _patch_model_resolution()
         with (
             p1,
             p2,
             patch("osprey.models.completion.aget_chat_completion", mock_llm),
-            patch(
-                "osprey.mcp_server.workspace.transcript_reader.TranscriptReader"
-            ) as mock_reader_cls,
         ):
-            mock_reader_cls.return_value.read_current_session.return_value = mock_events
-            mock_reader_cls.return_value.read_current_chat_history.return_value = []
             resp = app_client.post(
                 "/api/logbook/compose",
                 json={"artifact_id": entry.id},
@@ -857,28 +838,43 @@ class TestUserPromptContent:
         assert "SR:CURRENT" not in user_msg
         assert "args=" not in user_msg
 
-    def test_prompt_chat_history_excluded_when_session_log_disabled(self, app_client):
+    def test_prompt_says_when_the_record_is_unavailable(self, app_client, session_record):
+        """A session the record could not answer is named as such, never shown as empty."""
+        store = app_client.app.state.artifact_store
+        entry = _make_artifact(store)
+        session_record.client.unavailable = "connection refused"
+
+        mock_llm = AsyncMock(return_value=_llm_json_response())
+        p1, p2 = _patch_model_resolution()
+        with (
+            p1,
+            p2,
+            patch("osprey.models.completion.aget_chat_completion", mock_llm),
+        ):
+            resp = app_client.post("/api/logbook/compose", json={"artifact_id": entry.id})
+
+        assert resp.status_code == 200
+        user_msg = self._get_user_prompt(mock_llm)
+        assert "The session record is unavailable (connection refused)" in user_msg
+
+    def test_prompt_chat_history_excluded_when_session_log_disabled(
+        self, app_client, session_record
+    ):
         """include_session_log=False omits both chat history and audit trail."""
         store = app_client.app.state.artifact_store
         entry = _make_artifact(store)
 
         mock_llm = AsyncMock(return_value=_llm_json_response())
+        session_record.serve(
+            [_node("prompt", "u1", "2026-02-22T10:00:00+00:00", {"text": "hello"})]
+        )
 
         p1, p2 = _patch_model_resolution()
         with (
             p1,
             p2,
             patch("osprey.models.completion.aget_chat_completion", mock_llm),
-            patch(
-                "osprey.mcp_server.workspace.transcript_reader.TranscriptReader"
-            ) as mock_reader_cls,
         ):
-            mock_reader_cls.return_value.read_current_session.return_value = [
-                {"tool": "channel_read", "timestamp": "2026-02-22T10:00:00"},
-            ]
-            mock_reader_cls.return_value.read_current_chat_history.return_value = [
-                {"role": "user", "content": "hello", "timestamp": "2026-02-22T10:00:00"},
-            ]
             resp = app_client.post(
                 "/api/logbook/compose",
                 json={"artifact_id": entry.id, "include_session_log": False},
@@ -888,7 +884,7 @@ class TestUserPromptContent:
         user_msg = self._get_user_prompt(mock_llm)
         assert "Conversation log" not in user_msg
         assert "Recent session activity" not in user_msg
-        mock_reader_cls.assert_not_called()
+        assert session_record.client.calls == []
 
 
 class TestTranscriptDirIsResolvedOnce:
@@ -898,9 +894,8 @@ class TestTranscriptDirIsResolvedOnce:
     ``Path.cwd()`` on every request. That happens to be right for the in-process
     chat companion, whose cwd IS the agent's Claude project dir, and wrong for
     the standalone ``osprey artifacts`` gallery, which is a uvicorn factory
-    launchable from anywhere. The failure was silent — the reader's own
-    exception guard swallowed it, so the composed entry simply came back with no
-    audit trail and no chat history, and nothing said why.
+    launchable from anywhere. The directory is where the current transcript —
+    and so the session the record is read for — is looked up.
     """
 
     def _get_user_prompt(self, mock_llm) -> str:
@@ -913,7 +908,9 @@ class TestTranscriptDirIsResolvedOnce:
 
         assert getattr(app.state, "agent_project_dir", None) is not None
 
-    def test_compose_reads_the_transcript_from_app_state_not_cwd(self, tmp_path, monkeypatch):
+    def test_compose_reads_the_session_of_app_state_not_cwd(
+        self, tmp_path, monkeypatch, session_record
+    ):
         from pathlib import Path
 
         from fastapi.testclient import TestClient
@@ -933,23 +930,16 @@ class TestTranscriptDirIsResolvedOnce:
         # The gallery process is launched from an unrelated directory, which is
         # what the standalone `osprey artifacts` launch actually does.
         monkeypatch.chdir(elsewhere)
-
-        seen: list[Path] = []
-
-        class _DirRecordingReader:
-            """Yields a transcript only for the directory it was pointed at."""
-
-            def __init__(self, project_dir):
-                self.project_dir = Path(project_dir)
-                seen.append(self.project_dir)
-
-            def read_current_session(self):
-                if self.project_dir != agent_project_dir:
-                    return []
-                return [{"tool": "channel_read", "timestamp": "2026-02-22T10:00:00"}]
-
-            def read_current_chat_history(self):
-                return []
+        session_record.serve(
+            [
+                _node(
+                    "tool_call",
+                    "c1",
+                    "2026-02-22T10:00:00+00:00",
+                    {"id": "t1", "name": "mcp__controls__channel_read", "input": {}},
+                )
+            ]
+        )
 
         mock_llm = AsyncMock(return_value=_llm_json_response())
         p1, p2 = _patch_model_resolution()
@@ -957,10 +947,6 @@ class TestTranscriptDirIsResolvedOnce:
             p1,
             p2,
             patch("osprey.models.completion.aget_chat_completion", mock_llm),
-            patch(
-                "osprey.mcp_server.workspace.transcript_reader.TranscriptReader",
-                _DirRecordingReader,
-            ),
         ):
             resp = client.post(
                 "/api/logbook/compose",
@@ -968,7 +954,6 @@ class TestTranscriptDirIsResolvedOnce:
             )
 
         assert resp.status_code == 200, resp.text
-        # The trail resolved, from the state-held directory rather than the cwd.
-        assert seen == [agent_project_dir]
-        assert Path.cwd() not in seen
+        # The session resolved from the state-held directory rather than the cwd.
+        assert [Path(d) for d in session_record.dirs] == [agent_project_dir]
         assert "channel_read" in self._get_user_prompt(mock_llm)

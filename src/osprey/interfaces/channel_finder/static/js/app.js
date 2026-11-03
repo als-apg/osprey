@@ -6,7 +6,7 @@
  */
 
 import { initTheme } from '/design-system/js/theme-manager.js';
-import { applyEmbedded, isEmbedded, onModeChange } from '/design-system/js/frame-params.js';
+import { applyEmbedded, isEmbedded } from '/design-system/js/frame-params.js';
 import { contributeHeader, onHeaderAction } from '/design-system/js/header-contrib.js';
 import '/design-system/js/components/osprey-display-menu.js';
 import { fetchJSON, putJSON } from './api.js';
@@ -27,20 +27,11 @@ initTheme({ role: isEmbedded() ? 'follower' : 'hub' });
 
 applyEmbedded();
 
-// Live Expert<->Simple switch broadcast by the hub's header toggle. The
-// pre-paint rung (mode-boot.js) already set the initial data-ui-mode; this is
-// the runtime flip. frame-params.js's shared receive side normalizes the
-// mode, re-stamps the attribute (CSS deltas key off it) and calls back only
-// on an actual change; the follow-up re-mounts the active view so the
-// in-context renderer repaints its plain cards <-> dense table. Mirrors the
-// ARIEL panel's app.js listener.
-onModeChange(() => remountCurrentView());
-
 /** @typedef {{ mount: (container: HTMLElement) => void, unmount: () => void }} ViewModule */
 
 /** @type {Record<string, ViewModule>} */
 const VIEWS = {
-  explore:  { mount: mountExplore,  unmount: unmountExplore },
+  explore: { mount: mountExplore, unmount: unmountExplore },
   feedback: { mount: mountFeedback, unmount: unmountFeedback },
 };
 
@@ -114,7 +105,7 @@ function activateView(viewName) {
   container.innerHTML = '';
 
   // Update nav links
-  document.querySelectorAll('.nav-link').forEach(link => {
+  document.querySelectorAll('.nav-link').forEach((link) => {
     link.classList.toggle('active', /** @type {HTMLElement} */ (link).dataset.view === viewName);
   });
 
@@ -125,18 +116,10 @@ function activateView(viewName) {
   contributeViewNav();
 }
 
-/** Force a re-mount of the active view (e.g. after a live UI-mode flip). */
-function remountCurrentView() {
-  if (!currentView) return;
-  const view = currentView;
-  currentView = null;
-  activateView(view);
-}
-
 // ---- Navigation ----
 
 function setupNav() {
-  document.querySelectorAll('.nav-link').forEach(link => {
+  document.querySelectorAll('.nav-link').forEach((link) => {
     link.addEventListener('click', (e) => {
       e.preventDefault();
       const view = /** @type {HTMLElement} */ (link).dataset.view;
@@ -151,17 +134,9 @@ function setupNav() {
  * graph finder's search box and ⋯ menu). The view's items come first: they
  * exist only in one view, and the header contract puts conditional items
  * before the persistent switcher so the switcher never slides. Sent whole on
- * every change — the hub renders only the latest contribution. No-op
- * standalone, where `.header-nav` carries the same tabs; Simple mode hides
- * those tabs there and collapses the tile bar, so it contributes nothing
- * here either and the view keeps its in-body controls (a mode flip
- * re-mounts, so this re-runs).
+ * every change — the hub renders only the latest contribution. No-op standalone, where `.header-nav` carries the same tabs.
  */
 function contributeViewNav() {
-  if (document.documentElement.getAttribute('data-ui-mode') === 'simple') {
-    contributeHeader([]);
-    return;
-  }
   contributeHeader([
     ...(state.viewHeader?.items ?? []),
     {
@@ -215,10 +190,12 @@ function buildPipelineDropdown() {
     return;
   }
 
-  dropdown.innerHTML = available.map(pt => {
-    const active = pt === state.pipelineType ? ' active' : '';
-    return `<button class="pipeline-dropdown-item${active}" data-pipeline="${esc(pt)}">${esc(PIPELINE_LABELS[pt] || pt)}</button>`;
-  }).join('');
+  dropdown.innerHTML = available
+    .map((pt) => {
+      const active = pt === state.pipelineType ? ' active' : '';
+      return `<button class="pipeline-dropdown-item${active}" data-pipeline="${esc(pt)}">${esc(PIPELINE_LABELS[pt] || pt)}</button>`;
+    })
+    .join('');
 
   // Toggle dropdown on badge click
   badge.addEventListener('click', (e) => {
@@ -230,7 +207,7 @@ function buildPipelineDropdown() {
   document.addEventListener('click', () => dropdown.classList.remove('open'));
 
   // Switch pipeline on item click
-  dropdown.querySelectorAll('.pipeline-dropdown-item').forEach(btn => {
+  dropdown.querySelectorAll('.pipeline-dropdown-item').forEach((btn) => {
     btn.addEventListener('click', async (e) => {
       e.stopPropagation();
       dropdown.classList.remove('open');
@@ -257,13 +234,16 @@ async function switchPipeline(newType) {
     updatePipelineBadge(info.pipeline_type);
 
     // Update dropdown active state
-    document.querySelectorAll('.pipeline-dropdown-item').forEach(btn => {
-      btn.classList.toggle('active', /** @type {HTMLElement} */ (btn).dataset.pipeline === info.pipeline_type);
+    document.querySelectorAll('.pipeline-dropdown-item').forEach((btn) => {
+      btn.classList.toggle(
+        'active',
+        /** @type {HTMLElement} */ (btn).dataset.pipeline === info.pipeline_type
+      );
     });
 
     // Refresh stats and re-mount current view
     refreshStatsBadges();
-    currentView = null;  // Force re-mount
+    currentView = null; // Force re-mount
     routeFromHash();
 
     showToast(`Switched to ${PIPELINE_LABELS[newType] || newType}`, 'success');

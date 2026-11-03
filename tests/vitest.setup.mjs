@@ -18,7 +18,7 @@ for (const key of ['localStorage', 'sessionStorage']) {
     Object.defineProperty(globalThis, key, {
       value: new Storage(),
       configurable: true,
-      writable: true
+      writable: true,
     });
   }
 }
@@ -106,7 +106,7 @@ const unstubbed = [];
 Object.defineProperty(globalThis, UNSTUBBED_RECORD_KEY, {
   value: unstubbed,
   configurable: true,
-  writable: true
+  writable: true,
 });
 
 /**
@@ -134,6 +134,6 @@ if (happyDOM?.settings?.fetch) {
     /** @param {{ request: { url: string } }} context */
     beforeAsyncRequest: async ({ request }) => refuse(request.url),
     /** @param {{ request: { url: string } }} context */
-    beforeSyncRequest: ({ request }) => refuse(request.url)
+    beforeSyncRequest: ({ request }) => refuse(request.url),
   };
 }

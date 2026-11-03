@@ -3,8 +3,7 @@
 The stand-in is a SECOND soft-IOC standing up a THIRD control target, so it can
 be wrong in ways the baseline soft-IOC cannot: it can land on a port some other
 block already spends, it can land on the very gateway the simulation is dialed
-through, it can be named as a deployment's baseline without being built, and it
-can record a store that would be read as the real machine's past.
+through, and it can be named as a deployment's baseline without being built.
 
 What it can no longer be is refused for standing beside a facility's own
 machine: ``live`` keeps meaning the authored ``epics`` block, so an ``epics``
@@ -25,27 +24,9 @@ from typing import Any
 import pytest
 
 from osprey.cli.build_profile import BuildProfile, _parse_profile
-from osprey_connectors.errors import BuildProfileError
+from tests.cli._profiles import validation_errors
 
-
-def _errors(profile: BuildProfile, profile_dir: Path) -> list[str]:
-    """Validate ``profile`` and return the individual accumulated failures."""
-    with pytest.raises(BuildProfileError) as exc:
-        profile.validate(profile_dir)
-    header, _, body = str(exc.value).partition(":\n  - ")
-    assert header == "Build profile validation failed"
-    return body.split("\n  - ")
-
-
-@pytest.fixture(autouse=True)
-def _facility_data_tree(tmp_path: Path) -> None:
-    """The tree every profile's ``data:`` key names, beside the profile.
-
-    ``data:`` is required of a repo profile and must resolve to a real
-    directory, so without this each profile below would report one extra
-    failure about a key none of these tests is about.
-    """
-    (tmp_path / "data").mkdir(exist_ok=True)
+pytestmark = pytest.mark.usefixtures("facility_data_tree")
 
 
 def _standin_profile(live_standin: int = 5074, **extra: Any) -> BuildProfile:
@@ -62,50 +43,59 @@ def _standin_profile(live_standin: int = 5074, **extra: Any) -> BuildProfile:
 # --- the port itself -------------------------------------------------------
 
 
-def test_live_standin_validate_rejects_a_port_out_of_range(tmp_path: Path) -> None:
-    """The stand-in's Channel Access port must be a usable TCP port."""
-    assert _errors(_standin_profile(70000), tmp_path) == [
-        "virtual_accelerator.live_standin must be in 1..65535 (got 70000)"
-    ]
-
-
-def test_live_standin_validate_rejects_the_baseline_ioc_port(tmp_path: Path) -> None:
-    """Sandbox and stand-in are two containers; one port cannot serve both."""
-    assert _errors(_standin_profile(5064), tmp_path) == [
-        "virtual_accelerator.live_standin must differ from virtual_accelerator.port (both 5064)"
-    ]
+@pytest.mark.parametrize(
+    ("port", "message"),
+    [
+        # The stand-in's Channel Access port must be a usable TCP port.
+        (70000, "virtual_accelerator.live_standin must be in 1..65535 (got 70000)"),
+        # Sandbox and stand-in are two containers; one port cannot serve both.
+        (
+            5064,
+            "virtual_accelerator.live_standin must differ from virtual_accelerator.port (both 5064)",
+        ),
+    ],
+    ids=["out-of-range", "baseline-ioc-port"],
+)
+def test_live_standin_validate_rejects_an_unusable_port(
+    tmp_path: Path, port: int, message: str
+) -> None:
+    assert validation_errors(_standin_profile(port), tmp_path) == [message]
 
 
 def test_live_standin_validate_rejects_a_port_another_block_claims(tmp_path: Path) -> None:
     """A collision names the block key that has to move, not just the number."""
     profile = _standin_profile(5074, bluesky={"port": 5074})
-    assert _errors(profile, tmp_path) == [
+    assert validation_errors(profile, tmp_path) == [
         "virtual_accelerator.live_standin (5074) collides with bluesky.port (5074)"
     ]
 
 
-def test_live_standin_validate_rejects_a_port_a_config_service_claims(tmp_path: Path) -> None:
-    """The ``config:`` block is a port-authoring surface too, and is swept the same."""
-    profile = _standin_profile(5074, config={"services.postgresql.port_host": 5074})
-    assert _errors(profile, tmp_path) == [
-        "virtual_accelerator.live_standin (5074) collides with services.postgresql.port_host (5074)"
-    ]
+@pytest.mark.parametrize(
+    ("config", "message"),
+    [
+        # The ``config:`` block is a port-authoring surface too, and is swept the same.
+        (
+            {"services.postgresql.port_host": 5074},
+            "virtual_accelerator.live_standin (5074) collides with services.postgresql.port_host (5074)",
+        ),
+        # A hand-authored gateway port equal to the stand-in's is one endpoint for two targets.
+        (
+            {"control_system.connector.virtual_accelerator.gateways.write_access.port": 5074},
+            "virtual_accelerator.live_standin (5074) collides with the profile's `config:` "
+            "control_system.connector.virtual_accelerator.gateways.write_access.port (5074) — "
+            "the virtual accelerator and its live stand-in are two endpoints, never one",
+        ),
+    ],
+    ids=["config-service", "dotted-gateway"],
+)
+def test_live_standin_validate_rejects_a_port_the_config_block_claims(
+    tmp_path: Path, config: dict[str, int], message: str
+) -> None:
+    profile = _standin_profile(5074, config=config)
+    assert validation_errors(profile, tmp_path) == [message]
 
 
 # --- the VA gateways the simulation is dialed through ----------------------
-
-
-def test_live_standin_validate_rejects_a_dotted_gateway_port(tmp_path: Path) -> None:
-    """A hand-authored gateway port equal to the stand-in's is one endpoint for two targets."""
-    profile = _standin_profile(
-        5074,
-        config={"control_system.connector.virtual_accelerator.gateways.write_access.port": 5074},
-    )
-    assert _errors(profile, tmp_path) == [
-        "virtual_accelerator.live_standin (5074) collides with the profile's `config:` "
-        "control_system.connector.virtual_accelerator.gateways.write_access.port (5074) — "
-        "the virtual accelerator and its live stand-in are two endpoints, never one"
-    ]
 
 
 def test_live_standin_validate_reads_a_nested_gateway_port_the_same(tmp_path: Path) -> None:
@@ -118,7 +108,7 @@ def test_live_standin_validate_reads_a_nested_gateway_port_the_same(tmp_path: Pa
             }
         },
     )
-    assert _errors(profile, tmp_path) == [
+    assert validation_errors(profile, tmp_path) == [
         "virtual_accelerator.live_standin (5074) collides with the profile's `config:` "
         "control_system.connector.virtual_accelerator.gateways.read_only.port (5074) — "
         "the virtual accelerator and its live stand-in are two endpoints, never one"
@@ -156,7 +146,7 @@ def test_live_standin_validate_refuses_a_standin_baseline_with_no_standin(
             },
         }
     )
-    assert _errors(profile, tmp_path) == [
+    assert validation_errors(profile, tmp_path) == [
         "control_system.type: live_standin with no virtual_accelerator.live_standin — "
         "the baseline names a machine this deployment does not stand up, so every "
         "session would dial a port nothing serves. Set "
@@ -180,7 +170,7 @@ def test_live_standin_validate_refuses_a_standin_baseline_with_no_va_block(
             },
         }
     )
-    reported = _errors(profile, tmp_path)
+    reported = validation_errors(profile, tmp_path)
     assert len(reported) == 1
     assert reported[0].startswith("control_system.type: live_standin with no ")
 
@@ -198,70 +188,36 @@ def test_live_standin_validate_accepts_a_standin_baseline_that_builds_one(
     ).validate(tmp_path)
 
 
-# --- the archive belongs to the machine it records -------------------------
+# --- the archive is the virtual accelerator's, whatever the baseline --------
 
 
-def test_live_standin_validate_refuses_a_recorded_archive_on_a_live_baseline(
-    tmp_path: Path,
+@pytest.mark.parametrize(
+    "config",
+    [
+        pytest.param({"control_system.type": "epics"}, id="epics"),
+        pytest.param(
+            {"control_system.type": "virtual_accelerator", "archiver.type": "mongodb_archiver"},
+            id="virtual_accelerator",
+        ),
+        pytest.param(
+            {"control_system.type": "live_standin", "archiver.type": "mongodb_archiver"},
+            id="live_standin",
+        ),
+    ],
+)
+def test_live_standin_validate_accepts_a_recorded_archive_on_any_baseline(
+    tmp_path: Path, config: dict[str, Any]
 ) -> None:
-    """A store recorded off the stand-in, served as the real machine's past."""
-    profile = _standin_profile(5074, config={"control_system.type": "epics"}, va_archiver={})
-    assert _errors(profile, tmp_path) == [
-        "virtual_accelerator.live_standin with a va_archiver block on a "
-        "control_system.type: epics baseline — the archive belongs to the machine it "
-        "records. The recorder writes THIS deployment's store from the stand-in, and "
-        "on a baseline naming the facility's own machine that store is served as the "
-        "real machine's past. Either delete `va_archiver` and let the deployment read "
-        "the facility's own archiver, or baseline this deployment on the machine "
-        "being recorded (`control_system.type: live_standin`, or "
-        "`virtual_accelerator` for the simulation)."
-    ]
+    """A stand-in beside a ``va_archiver`` block is no fault on any baseline.
 
-
-def test_live_standin_validate_accepts_a_recorded_archive_on_a_va_baseline(
-    tmp_path: Path,
-) -> None:
-    """A simulated baseline records its own machine, which is what the store holds."""
-    profile = _standin_profile(
-        5074,
-        config={
-            "control_system.type": "virtual_accelerator",
-            "archiver.type": "mongodb_archiver",
-        },
-        va_archiver={},
-    )
-    profile.validate(tmp_path)
-
-
-def test_live_standin_validate_accepts_a_recorded_archive_on_a_standin_baseline(
-    tmp_path: Path,
-) -> None:
-    """The stand-in as its own baseline is the other machine a deployment stands up."""
-    profile = _standin_profile(
-        5074,
-        config={
-            "control_system.type": "live_standin",
-            "archiver.type": "mongodb_archiver",
-        },
-        va_archiver={},
-    )
-    profile.validate(tmp_path)
-
-
-def test_live_standin_validate_leaves_an_archive_without_a_standin_alone(
-    tmp_path: Path,
-) -> None:
-    """No stand-in, no rule: the store records whatever the baseline names."""
-    profile = _parse_profile(
-        {
-            "name": "standin",
-            "data": "data",
-            "virtual_accelerator": {"port": 5064},
-            "config": {"control_system.type": "epics"},
-            "va_archiver": {},
-        }
-    )
-    profile.validate(tmp_path)
+    The store the block stands up is the virtual accelerator's — the recorder
+    samples the simulator, never the stand-in — and the stand-in is shown the
+    facility's own archive. Whether the store is honest to serve is the
+    archiver pairing's question (hence ``archiver.type`` on the simulated
+    baselines), asked of the baseline with or without a stand-in; the stand-in
+    adds nothing to it.
+    """
+    _standin_profile(5074, config=config, va_archiver={}).validate(tmp_path)
 
 
 # --- the lattice -----------------------------------------------------------
@@ -286,13 +242,21 @@ def test_live_standin_validate_reports_every_violation_in_one_error(tmp_path: Pa
     """Two unrelated stand-in faults arrive in one raise, not one rebuild each."""
     profile = _standin_profile(
         5074,
-        config={"control_system.type": "epics", "services.postgresql.port_host": 5074},
-        va_archiver={},
+        config={
+            "control_system.type": "epics",
+            "services.postgresql.port_host": 5074,
+            "control_system.connector.virtual_accelerator.gateways.read_only.port": 5074,
+        },
     )
-    reported = _errors(profile, tmp_path)
+    reported = validation_errors(profile, tmp_path)
     assert len(reported) == 2
-    assert reported[0].startswith("virtual_accelerator.live_standin (5074) collides with")
-    assert reported[1].startswith("virtual_accelerator.live_standin with a va_archiver block on a")
+    assert reported[0] == (
+        "virtual_accelerator.live_standin (5074) collides with services.postgresql.port_host (5074)"
+    )
+    assert reported[1].startswith(
+        "virtual_accelerator.live_standin (5074) collides with the profile's `config:` "
+        "control_system.connector.virtual_accelerator.gateways.read_only.port (5074)"
+    )
 
 
 def test_live_standin_validate_accepts_a_clean_profile(tmp_path: Path) -> None:

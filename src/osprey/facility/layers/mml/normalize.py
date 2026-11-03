@@ -171,7 +171,7 @@ def _optional_str(value: Any) -> str | None:
     if isinstance(value, np.ndarray):
         value = _decode_matlab(value)
     if isinstance(value, str):
-        return value if value else None
+        return value or None
     return None
 
 

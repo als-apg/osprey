@@ -15,6 +15,8 @@ import ast
 import json
 from pathlib import Path
 
+import pytest
+
 import osprey
 from osprey.agent_runner.tool_names import READ_ONLY_DENIED_BUILTINS
 from osprey.agent_runner.write_tools import (
@@ -22,40 +24,7 @@ from osprey.agent_runner.write_tools import (
     load_write_tools,
     read_only_disallowed_tools,
 )
-from osprey.cli.templates.manager import TemplateManager
-from tests._preset_data import bundle_data_root
-
-
-def _create_project(manager: TemplateManager, **kwargs) -> Path:
-    """``create_project`` plus the three steps a real build takes next.
-
-    A build renders the framework template, overlays the resolved profile's
-    ``config:`` block onto the result, stamps ``.osprey-manifest.json``, and
-    regenerates ``.claude/`` from the finished config. The template carries
-    only derived and profile-field-derived keys, so a fixture that stops after
-    the render holds half a config — the declarative half is the preset's, and
-    the artifacts rendered before it landed do not know about the deployment's
-    control system, services or servers. These fixtures render from a bundle
-    rather than from a profile, so they overlay the preset ``osprey init``
-    pairs with that bundle.
-    """
-    from osprey.cli.build_profile import resolve_build_profile
-    from osprey.utils.config_writer import config_update_fields
-
-    bundle = kwargs.setdefault("data_bundle", "control_assistant")
-    preset = bundle.replace("_", "-")
-    kwargs.setdefault("data_root", bundle_data_root(bundle))
-    project = manager.create_project(**kwargs)
-    profile, _preset_dir = resolve_build_profile(None, preset=preset)
-    config_update_fields(project / "config.yml", profile.config)
-    manager.generate_manifest(
-        project, kwargs["project_name"], preset, {}, artifacts=kwargs.get("artifacts")
-    )
-    # The build's last render, and the one that ships: `create_project` wrote
-    # `.claude/` from a config.yml that did not yet carry the preset's block.
-    manager.regenerate_claude_code(project)
-    return project
-
+from tests._preset_data import create_project_as_built
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -123,20 +92,20 @@ def test_load_write_tools_malformed_json_returns_fallback(tmp_path: Path) -> Non
 # ---------------------------------------------------------------------------
 
 
-def test_load_write_tools_missing_key_returns_fallback(tmp_path: Path) -> None:
-    """hook_config.json present but lacks write_tools key → returns fallback."""
+@pytest.mark.parametrize(
+    "hook_config",
+    [
+        # hook_config.json present but lacks write_tools key
+        pytest.param({"other_key": []}, id="missing-key"),
+        # hook_config.json with empty write_tools list
+        pytest.param({"write_tools": []}, id="empty-list"),
+    ],
+)
+def test_load_write_tools_without_any_listed_tools_returns_fallback(
+    tmp_path: Path, hook_config: dict
+) -> None:
     hooks = _hook_config_dir(tmp_path)
-    (hooks / "hook_config.json").write_text(json.dumps({"other_key": []}))
-
-    result = load_write_tools(tmp_path)
-
-    assert result == _FALLBACK_WRITE_TOOLS
-
-
-def test_load_write_tools_empty_list_returns_fallback(tmp_path: Path) -> None:
-    """hook_config.json with empty write_tools list → returns fallback."""
-    hooks = _hook_config_dir(tmp_path)
-    (hooks / "hook_config.json").write_text(json.dumps({"write_tools": []}))
+    (hooks / "hook_config.json").write_text(json.dumps(hook_config))
 
     result = load_write_tools(tmp_path)
 
@@ -342,21 +311,56 @@ def test_read_only_blocks_custom_server_destructive_allow_tool(tmp_path: Path) -
     assert "mcp__my-archive__list_runs" not in result  # non-destructive read preserved
 
 
-def test_read_only_blocks_writes_check_custom_server_at_server_level(tmp_path: Path) -> None:
-    """A custom server that writes-check-gates ALL its tools is blocked
-    server-level (the per-tool ``mcp__name__.*`` matcher is a no-op in the SDK
-    disallow engine, so server-level is the only form that actually blocks)."""
-    (tmp_path / "config.yml").write_text(
-        "claude_code:\n"
-        "  servers:\n"
-        "    danger-server:\n"
-        "      hooks: {pre_tool_use: [writes_check]}\n"
-        "      permissions: {allow: [do_thing]}\n"
-    )
+@pytest.mark.parametrize(
+    ("config", "blocked"),
+    [
+        # A custom server that writes-check-gates ALL its tools is blocked
+        # server-level (the per-tool ``mcp__name__.*`` matcher is a no-op in the SDK
+        # disallow engine, so server-level is the only form that actually blocks).
+        pytest.param(
+            "claude_code:\n"
+            "  servers:\n"
+            "    danger-server:\n"
+            "      hooks: {pre_tool_use: [writes_check]}\n"
+            "      permissions: {allow: [do_thing]}\n",
+            "mcp__danger-server",
+            id="writes-check-custom-server",
+        ),
+        # An unresolvable extends target (typo/version skew) must contribute a
+        # server-level disallow, not nothing — a stale .mcp.json from a previous
+        # build can still launch the server.
+        pytest.param(
+            "claude_code:\n  servers:\n    phoebus2:\n      extends: no_such_template\n",
+            "mcp__phoebus2",
+            id="extends-unknown-target",
+        ),
+        # A non-string extends value (e.g. ``extends: [phoebus]``) must not crash
+        # the classifier with a TypeError — it fails closed with the same
+        # server-level disallow as any other unresolvable extends spec.
+        pytest.param(
+            "claude_code:\n  servers:\n    phoebus2:\n      extends: [phoebus]\n",
+            "mcp__phoebus2",
+            id="extends-non-string-target",
+        ),
+        # A spec with NONE of extends/command/url (legacy form
+        # ``phoebus2: {enabled: true}``) must fail closed with the server-level
+        # disallow, exactly like an unresolvable extends — resolve_servers skips it,
+        # but a stale .mcp.json from a previous build can still launch the server.
+        pytest.param(
+            "claude_code:\n  servers:\n    phoebus2:\n      enabled: true\n",
+            "mcp__phoebus2",
+            id="legacy-enabled-only-spec",
+        ),
+    ],
+)
+def test_read_only_blocks_these_servers_at_server_level(
+    tmp_path: Path, config: str, blocked: str
+) -> None:
+    (tmp_path / "config.yml").write_text(config)
 
     result = read_only_disallowed_tools(tmp_path)
 
-    assert "mcp__danger-server" in result
+    assert blocked in result
 
 
 def test_read_only_blocks_extends_clone_drive(tmp_path: Path) -> None:
@@ -424,46 +428,6 @@ def test_read_only_extends_override_cannot_narrow(tmp_path: Path) -> None:
 
     assert "mcp__phoebus2__phoebus_drive" in result
     assert "mcp__phoebus2__phoebus_perceive" not in result
-
-
-def test_read_only_extends_unknown_target_fails_closed(tmp_path: Path) -> None:
-    """An unresolvable extends target (typo/version skew) must contribute a
-    server-level disallow, not nothing — a stale .mcp.json from a previous
-    build can still launch the server."""
-    (tmp_path / "config.yml").write_text(
-        "claude_code:\n  servers:\n    phoebus2:\n      extends: no_such_template\n"
-    )
-
-    result = read_only_disallowed_tools(tmp_path)
-
-    assert "mcp__phoebus2" in result
-
-
-def test_read_only_extends_non_string_target_fails_closed(tmp_path: Path) -> None:
-    """A non-string extends value (e.g. ``extends: [phoebus]``) must not crash
-    the classifier with a TypeError — it fails closed with the same
-    server-level disallow as any other unresolvable extends spec."""
-    (tmp_path / "config.yml").write_text(
-        "claude_code:\n  servers:\n    phoebus2:\n      extends: [phoebus]\n"
-    )
-
-    result = read_only_disallowed_tools(tmp_path)
-
-    assert "mcp__phoebus2" in result
-
-
-def test_read_only_legacy_enabled_only_spec_fails_closed(tmp_path: Path) -> None:
-    """A spec with NONE of extends/command/url (legacy form
-    ``phoebus2: {enabled: true}``) must fail closed with the server-level
-    disallow, exactly like an unresolvable extends — resolve_servers skips it,
-    but a stale .mcp.json from a previous build can still launch the server."""
-    (tmp_path / "config.yml").write_text(
-        "claude_code:\n  servers:\n    phoebus2:\n      enabled: true\n"
-    )
-
-    result = read_only_disallowed_tools(tmp_path)
-
-    assert "mcp__phoebus2" in result
 
 
 def test_read_only_extends_disabled_not_enumerated(tmp_path: Path) -> None:
@@ -774,7 +738,7 @@ def test_caller_context_cannot_soften_the_deny_floor(tmp_path: Path) -> None:
     from osprey.agent_runner.tool_names import DENY_DEFAULTS
     from osprey.cli.templates.manager import TemplateManager
 
-    project_dir = _create_project(
+    project_dir = create_project_as_built(
         TemplateManager(),
         project_name="deny-floor-override",
         output_dir=tmp_path,
@@ -789,3 +753,202 @@ def test_caller_context_cannot_soften_the_deny_floor(tmp_path: Path) -> None:
     # is a facility's auditable config.yml adjustment rather than a caller's.
     # What the caller may not do is take anything AWAY.
     assert set(DENY_DEFAULTS) <= set(deny), sorted(set(DENY_DEFAULTS) - set(deny))
+
+
+# ---------------------------------------------------------------------------
+# Facility write declarations (C-FW): the headless block is the union of the
+# declared `writes:` tools, permissions.ask tools, destructive-marker names,
+# whole-server writes-check servers and control_system.write_tools.
+# ---------------------------------------------------------------------------
+
+_DECLARING_PLC = (
+    "claude_code:\n"
+    "  servers:\n"
+    "    plc:\n"
+    "      command: plc-server\n"
+    "      writes: [set_value, ramp]\n"
+    "      permissions:\n"
+    "        allow: [get_value, list_tags, wipe_log]\n"
+    "        ask: [reset_fault]\n"
+)
+
+
+def test_headless_blocks_declared_writes_exactly(tmp_path: Path) -> None:
+    """Each declared `writes:` tool is blocked by its exact name."""
+    (tmp_path / "config.yml").write_text(_DECLARING_PLC)
+
+    result = read_only_disallowed_tools(tmp_path)
+
+    assert "mcp__plc__set_value" in result
+    assert "mcp__plc__ramp" in result
+
+
+def test_headless_keeps_a_declaring_servers_other_tools(tmp_path: Path) -> None:
+    """A tool on a declaring server that is not declared, not asked and not
+    destructive stays callable headless: the server is not blocked whole."""
+    (tmp_path / "config.yml").write_text(_DECLARING_PLC)
+
+    result = read_only_disallowed_tools(tmp_path)
+
+    assert "mcp__plc__get_value" not in result
+    assert "mcp__plc__list_tags" not in result
+    assert "mcp__plc" not in result
+
+
+@pytest.mark.parametrize(
+    "tool",
+    [
+        # An undeclared permissions.ask tool on a declaring server stays blocked.
+        pytest.param("mcp__plc__reset_fault", id="ask-tool"),
+        # An undeclared destructive-marker tool on a declaring server stays blocked,
+        # even though the facility auto-allows it.
+        pytest.param("mcp__plc__wipe_log", id="destructive-tool"),
+    ],
+)
+def test_headless_blocks_an_undeclared_tool_on_declaring_server(tmp_path: Path, tool: str) -> None:
+    (tmp_path / "config.yml").write_text(_DECLARING_PLC)
+
+    assert tool in read_only_disallowed_tools(tmp_path)
+
+
+def test_headless_empty_writes_list_still_blocks_ask_and_destructive(tmp_path: Path) -> None:
+    """`writes: []` declares that nothing writes; asked and destructive tools
+    are still blocked and the reads stay open."""
+    (tmp_path / "config.yml").write_text(
+        "claude_code:\n"
+        "  servers:\n"
+        "    plc:\n"
+        "      command: plc-server\n"
+        "      writes: []\n"
+        "      permissions:\n"
+        "        allow: [get_value, delete_cache]\n"
+        "        ask: [reset_fault]\n"
+    )
+
+    result = read_only_disallowed_tools(tmp_path)
+
+    assert "mcp__plc__reset_fault" in result
+    assert "mcp__plc__delete_cache" in result
+    assert "mcp__plc__get_value" not in result
+    assert "mcp__plc" not in result
+
+
+def test_headless_malformed_writes_fails_closed(tmp_path: Path) -> None:
+    """A `writes:` that is not a list cannot be resolved: block the server whole."""
+    (tmp_path / "config.yml").write_text(
+        "claude_code:\n"
+        "  servers:\n"
+        "    plc:\n"
+        "      command: plc-server\n"
+        "      writes: set_value\n"
+        "      permissions: {allow: [get_value]}\n"
+    )
+
+    assert "mcp__plc" in read_only_disallowed_tools(tmp_path)
+
+
+def test_headless_writes_list_with_writes_check_preset_fails_closed(tmp_path: Path) -> None:
+    """A declaring server that also attaches the whole-server writes-check
+    preset is a contradictory spec the registry refuses: block it whole."""
+    (tmp_path / "config.yml").write_text(
+        "claude_code:\n"
+        "  servers:\n"
+        "    plc:\n"
+        "      command: plc-server\n"
+        "      writes: [set_value]\n"
+        "      hooks: {pre_tool_use: [writes_check]}\n"
+    )
+
+    assert "mcp__plc" in read_only_disallowed_tools(tmp_path)
+
+
+def test_headless_reads_facility_write_tools_from_hook_config(tmp_path: Path) -> None:
+    """The rendered `facility_write_tools` key is read: exact names are kept and
+    a whole-server matcher becomes the server-level form the SDK honors."""
+    hooks = _hook_config_dir(tmp_path)
+    (hooks / "hook_config.json").write_text(
+        json.dumps(
+            {
+                "write_tools": ["mcp__controls__channel_write"],
+                "facility_write_tools": ["mcp__plc__set_value", "mcp__dz__.*"],
+            }
+        )
+    )
+
+    result = read_only_disallowed_tools(tmp_path)
+
+    assert "mcp__plc__set_value" in result
+    assert "mcp__dz" in result
+    assert "mcp__plc" not in result
+
+
+def test_headless_ignores_malformed_facility_write_tools(tmp_path: Path) -> None:
+    """A scalar `facility_write_tools` is not character-split into names; the
+    config.yml path and the floor still apply."""
+    hooks = _hook_config_dir(tmp_path)
+    (hooks / "hook_config.json").write_text(
+        json.dumps(
+            {
+                "write_tools": ["mcp__controls__channel_write"],
+                "facility_write_tools": "mcp__plc__set_value",
+            }
+        )
+    )
+
+    result = read_only_disallowed_tools(tmp_path)
+
+    assert "m" not in result
+    assert "mcp__controls__channel_write" in result
+
+
+def test_headless_blocks_control_system_write_tools_from_config(tmp_path: Path) -> None:
+    """`control_system.write_tools` entries are blocked even with no rendered
+    hook config (a whole-server regex entry becomes server-level)."""
+    (tmp_path / "config.yml").write_text(
+        "control_system:\n  write_tools:\n    - mcp__beamline__move_motor\n    - mcp__vacuum__.*\n"
+    )
+
+    result = read_only_disallowed_tools(tmp_path)
+
+    assert "mcp__beamline__move_motor" in result
+    assert "mcp__vacuum" in result
+
+
+def test_headless_blocks_control_system_write_tools_from_hook_config(tmp_path: Path) -> None:
+    """The extras a render appended to `write_tools` stay blocked."""
+    hooks = _hook_config_dir(tmp_path)
+    (hooks / "hook_config.json").write_text(
+        json.dumps(
+            {
+                "write_tools": ["mcp__controls__channel_write", "mcp__beamline__move_motor"],
+                "control_system_write_tools": ["mcp__beamline__move_motor"],
+            }
+        )
+    )
+
+    assert "mcp__beamline__move_motor" in read_only_disallowed_tools(tmp_path)
+
+
+def test_headless_covers_the_registry_facility_set(tmp_path: Path) -> None:
+    """Every entry of the registry's facility write set for a spec is blocked
+    headless from config.yml alone (the two cannot drift)."""
+    import yaml
+
+    from osprey.registry.mcp import facility_write_tools, resolve_servers
+
+    cfg_text = (
+        _DECLARING_PLC + "    dz:\n"
+        "      command: dz-server\n"
+        "      hooks: {pre_tool_use: [writes_check]}\n"
+    )
+    (tmp_path / "config.yml").write_text(cfg_text)
+    servers = resolve_servers(yaml.safe_load(cfg_text)["claude_code"], {})
+
+    expected = [
+        t[: -len("__.*")] if t.endswith("__.*") else t for t in facility_write_tools(servers)
+    ]
+    result = read_only_disallowed_tools(tmp_path)
+
+    assert expected, "fixture must yield a facility write set"
+    for tool in expected:
+        assert tool in result, tool

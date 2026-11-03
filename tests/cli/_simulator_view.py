@@ -22,7 +22,7 @@ from lume.variables import ScalarVariable, Variable
 from osprey_connectors.simulation import composite as composite_module
 from osprey_connectors.simulation.composite import ENGINE_GROUP
 from osprey_connectors.simulation.view import SCHEMAS
-from tests._simulator_view import write_scenarios_view
+from tests._simulator_view import view_channel, write_scenarios_view
 
 #: The rendered config of a deployment serving the view's simulator in process.
 IN_PROCESS_CONFIG = """\
@@ -96,21 +96,6 @@ def register_stub_engine(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(composite_module, "metadata", SimpleNamespace(entry_points=entry_points))
 
 
-def _channel(address: str, owner: str, role: str) -> dict[str, Any]:
-    return {
-        "address": address,
-        "role": role,
-        "pair": address if role == "setpoint" else None,
-        "value_type": "float",
-        "unit": None,
-        "description": None,
-        "writable": False,
-        "value_range": None,
-        "owner": owner,
-        "on": None,
-    }
-
-
 def write_simulator_view(
     build: Path, scenarios: Sequence[Mapping[str, Any]] = (NOMINAL, SR_BROKEN)
 ) -> Path:
@@ -123,7 +108,7 @@ def write_simulator_view(
     Returns:
         The view directory.
     """
-    channels = [_channel(_BPM, "SR", "readback"), _channel(_TEXTURE_SP, "texture", "setpoint")]
+    channels = [view_channel(_BPM, "SR"), view_channel(_TEXTURE_SP, role="setpoint")]
     documents = {
         "served_models.json": {"models": ["SR", "texture"]},
         "addresses.json": {

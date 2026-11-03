@@ -476,7 +476,15 @@ test('the header click cycles ascending, descending, then address order', () => 
 });
 
 test('the sortable columns are the ones the server orders by', () => {
-  expect([...SORT_KEYS].sort()).toEqual(['address', 'description', 'device', 'dir', 'section', 'signal', 'system']);
+  expect([...SORT_KEYS].sort()).toEqual([
+    'address',
+    'description',
+    'device',
+    'dir',
+    'section',
+    'signal',
+    'system',
+  ]);
 });
 
 // ---- facet verbs ----

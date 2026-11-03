@@ -87,13 +87,21 @@ Each line is a login URL — the ``?token=`` carries this session's operator
 secret. Open it in a browser to reach the service while the OSPREY agent runs
 in your terminal; the address without the token will not sign you in. Which
 servers start depends on your ``config.yml`` — each server respects its own
-``auto_launch`` setting. Unlike ``osprey web``, chat does not consult
+``auto_launch`` setting, and the ARIEL server starts only when the build
+rendered an ``ariel:`` section, which it does when the ARIEL server is on
+(``claude_code.servers.ariel.enabled``). A deployment with no logbook, such as
+the ``hello-world`` preset, gets no ARIEL companion and no connection warnings
+from a database it never declared. Unlike ``osprey web``, chat does not consult
 ``web.panels``: a panel switched off there still gets its companion server
 here, because chat opens companions as browser tabs rather than as a panel
 rail.
 
 The servers run as background threads and stop automatically when you exit
-the OSPREY agent.
+the OSPREY agent. Once the agent's screen is up, what they log goes to a file
+rather than over that screen: ``var/logs/chat-<timestamp>.log`` in the
+deployment repo, named in the line before the launch. A health check that
+passes late or a database that times out is recorded there; only an error
+still reaches the terminal.
 
 When to Use CLI vs. Web Terminal
 --------------------------------
@@ -144,11 +152,11 @@ as it was last rendered. ``--repo DIRECTORY`` names another one.
 .. code-block:: bash
 
    # The deployment you are standing in
-   cd ~/deployments/als-assistant
+   cd ~/deployments/my-assistant
    osprey query "List vacuum sections"
 
    # A deployment somewhere else
-   osprey query --repo ~/deployments/als-assistant "List vacuum sections"
+   osprey query --repo ~/deployments/my-assistant "List vacuum sections"
 
 When ``profile.yml`` or a file it points at has changed since that build, a
 warning on stderr says so and the query runs anyway. The command exits with
@@ -288,7 +296,7 @@ For a deployment not in the current directory:
 .. code-block:: bash
 
    osprey query \
-     --repo /opt/osprey/als-assistant \
+     --repo /opt/osprey/my-assistant \
      "List all vacuum sections" \
      || exit 1
 

@@ -7,7 +7,7 @@
  * a second bar when embedded — it describes those controls to the hub with
  * {@link contributeHeader} and the hub renders them in the tile bar, between
  * the tile's name and its close button. User interaction round-trips back as
- * an `osprey-header-action` message (see {@link onHeaderAction}); the panel
+ * an `canopy-host-header-action` message (see {@link onHeaderAction}); the panel
  * reacts internally and re-sends the WHOLE contribution with its new state.
  * The hub renders only what the last contribution says — it never mutates
  * item state locally, so a contribution is an idempotent replace, not a diff.
@@ -45,8 +45,8 @@
  *
  * So order the array by how STABLE each item is, least stable first:
  *
- *   1. items contributed CONDITIONALLY — only in one view, only outside
- *      Simple, only while something is running;
+ *   1. items contributed CONDITIONALLY — only in one view, only while
+ *      something is running;
  *   2. items whose label CHANGES WIDTH at runtime — an arming button's
  *      "Confirm?", a count, an activity marker;
  *   3. the control the operator aims at repeatedly — the view switcher, the
@@ -68,13 +68,6 @@
  * lowest priority can fold ITSELF into the ⋯ menu at the moment it grows.
  * Both helpers are strict no-ops outside an embedded frame, so panels call
  * them unconditionally.
- *
- * SIMPLE MODE: the hub collapses a service tile's whole bar to zero height in
- * Simple mode, so anything contributed is invisible there. That suits chrome
- * Simple already drops (view switchers), but NOT a search box, which Simple
- * deliberately enlarges — nor anything safety-bearing. Gate those on
- * {@link isSimpleMode} and keep the in-body control for Simple; re-contribute
- * from the panel's existing `osprey-mode-change` handler.
  *
  * @module header-contrib
  */
@@ -118,19 +111,6 @@ function isEmbedded() {
 }
 
 /**
- * True when the shell is in Simple mode. Panels use this to decide whether a
- * control belongs in the bar at all: the hub collapses a service tile's bar
- * in Simple, so a search box (or anything safety-bearing) must stay in the
- * body there. Reads the same `data-ui-mode` attribute mode-boot.js stamps
- * pre-paint and the hub's `osprey-mode-change` handler keeps current, so it
- * is correct from first paint onward.
- * @returns {boolean}
- */
-export function isSimpleMode() {
-  return document.documentElement.getAttribute('data-ui-mode') === 'simple';
-}
-
-/**
  * Send (replace) this panel's tile-bar contribution. Call once after init and
  * again WHOLE whenever any item's state changes (active nav entry, button
  * label/disabled, live text). No-op standalone.
@@ -140,7 +120,7 @@ export function contributeHeader(items) {
   if (!isEmbedded()) return;
   try {
     window.parent.postMessage(
-      { type: 'osprey-header-contribution', version: HEADER_CONTRACT_VERSION, items },
+      { type: 'canopy-host-header-contribution', version: HEADER_CONTRACT_VERSION, items },
       window.location.origin
     );
   } catch {
@@ -158,7 +138,7 @@ export function onHeaderAction(callback) {
   window.addEventListener('message', (e) => {
     if (e.origin !== window.location.origin) return;
     const data = e.data;
-    if (!data || data.type !== 'osprey-header-action' || typeof data.id !== 'string') return;
+    if (!data || data.type !== 'canopy-host-header-action' || typeof data.id !== 'string') return;
     callback(data.id, typeof data.value === 'string' ? data.value : undefined);
   });
 }

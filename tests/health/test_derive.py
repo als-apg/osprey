@@ -141,20 +141,19 @@ def test_host_url_chosen_on_host(monkeypatch):
     assert check.params["url"] == "http://localhost:9000/mcp"
 
 
-def test_docker_url_chosen_via_dockerenv(monkeypatch):
+@pytest.mark.parametrize(
+    "marker",
+    [
+        pytest.param("/.dockerenv", id="dockerenv"),
+        # Podman writes /run/.containerenv and no /.dockerenv, so a Docker-only
+        # probe read every podman deployment as a host and sent the derived MCP
+        # probes at host_url from inside the container.
+        pytest.param("/run/.containerenv", id="podman-containerenv"),
+    ],
+)
+def test_docker_url_chosen_via_a_container_marker_file(monkeypatch, marker):
     monkeypatch.delenv("OSPREY_IN_CONTAINER", raising=False)
-    monkeypatch.setattr("os.path.exists", lambda p: p == "/.dockerenv")
-    record = derive_mcp_servers(_settings(), _expanded({"matlab": _server()}))
-    check = _only_check(record)
-    assert check.params["url"] == "http://matlab:9000/mcp"
-
-
-def test_docker_url_chosen_via_podman_containerenv(monkeypatch):
-    # Podman writes /run/.containerenv and no /.dockerenv, so a Docker-only
-    # probe read every podman deployment as a host and sent the derived MCP
-    # probes at host_url from inside the container.
-    monkeypatch.delenv("OSPREY_IN_CONTAINER", raising=False)
-    monkeypatch.setattr("os.path.exists", lambda p: p == "/run/.containerenv")
+    monkeypatch.setattr("os.path.exists", lambda p: p == marker)
     record = derive_mcp_servers(_settings(), _expanded({"matlab": _server()}))
     check = _only_check(record)
     assert check.params["url"] == "http://matlab:9000/mcp"

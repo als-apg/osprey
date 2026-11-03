@@ -36,6 +36,8 @@ from dataclasses import dataclass
 from fnmatch import fnmatch
 from pathlib import Path
 
+from tests._text_sweep import text_files
+
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 
 # Shipped sources only.  ``tests/`` and each package's own ``tests/`` are
@@ -76,6 +78,10 @@ _NUMBER_RE = re.compile(r"(?<![\d.#])(\d{4,5})(?![\d.])")
 # in the tree today -- this guards the 8085-8097 / 9070-9100 ranges, where a
 # plausible colour literal could land.)
 _HEX_COLOUR_RE = re.compile(r"#(?:[0-9a-fA-F]{8}|[0-9a-fA-F]{6}|[0-9a-fA-F]{3,4})\b")
+
+# Content digests pinned in source (``sha256:<64 hex>``, as init_revalidate.py
+# spells them): a run inside one lands in the retired ranges by chance.
+_HEX_DIGEST_RE = re.compile(r"\b[0-9a-fA-F]{32,}\b")
 
 
 def _retired_ports() -> frozenset[int]:
@@ -178,6 +184,7 @@ def _retired_on_line(line: str) -> list[int]:
     if MARKER in line:
         return []
     colour_spans = [m.span() for m in _HEX_COLOUR_RE.finditer(line)]
+    colour_spans += [m.span() for m in _HEX_DIGEST_RE.finditer(line)]
     found: list[int] = []
     for match in _NUMBER_RE.finditer(line):
         if any(start <= match.start() and match.end() <= end for start, end in colour_spans):
@@ -198,21 +205,15 @@ def _is_excluded(rel_path: str) -> bool:
 
 
 def _scan_files() -> list[Path]:
-    files: list[Path] = []
-    for root in SCAN_ROOTS:
-        base = _REPO_ROOT / root
-        if not base.exists():
-            continue
-        for path in sorted(base.rglob("*")):
-            if not path.is_file() or path.suffix not in SCAN_SUFFIXES:
-                continue
-            if "__pycache__" in path.parts or path.name.endswith(".bak"):
-                continue
-            rel_path = path.relative_to(_REPO_ROOT).as_posix()
-            if _is_excluded(rel_path):
-                continue
-            files.append(path)
-    return files
+    files = text_files(
+        _REPO_ROOT,
+        SCAN_ROOTS,
+        suffixes=SCAN_SUFFIXES,
+        skip=lambda path: (
+            path.name.endswith(".bak") or _is_excluded(path.relative_to(_REPO_ROOT).as_posix())
+        ),
+    )
+    return sorted(files)
 
 
 @dataclass(frozen=True)
@@ -286,6 +287,13 @@ def test_guard_drops_a_retired_run_inside_a_hex_colour() -> None:
     assert _retired_on_line("  --teal: #0d8090;") == []
     # ...and the immediate-hash form is handled by the lookbehind alone.
     assert _retired_on_line("  --brand: #8090ab;") == []
+
+
+def test_guard_drops_a_retired_run_inside_a_digest() -> None:
+    """A pinned sha256 digest can end in 8096 by chance; the digest rule drops it."""
+    digest = "186325d335e1f00d44104d4cd0da7d7e928117eea5c8257369259cabbf0b8096"
+    assert _retired_on_line(f'    "sha256:{digest}",') == []
+    assert _retired_on_line("PORT = 8096  # a bare number still counts") == [8096]
 
 
 def test_marker_suppresses_the_line_it_sits_on() -> None:

@@ -80,7 +80,7 @@ Which machine a kernel writes to
 
 A kernel has no control-system identity of its own, and it follows no chat
 session. Cells read and write through the deployment's current control target
-and write posture — the same one the chip in the header shows and the agent
+and write posture — the same one the control-target block in the sidebar shows and the agent
 uses.
 
 The kernel re-reads that before **every cell**, so a switch made anywhere, by
@@ -95,13 +95,14 @@ with:
    os.environ["OSPREY_CONTROL_TARGET_GENERATION"]  # which switch it belongs to
    os.environ["OSPREY_LAUNCH_POSTURE"]             # what this cell may write
 
-**Nothing restarts.** Switch the control target from the chip, or turn writes
-on or off, and the next cell you run is routed by the new state.
+**Nothing restarts.** Switch the control target from the chip, or move the
+write switch, and the next cell you run is routed by the new state.
 
-Inside the web terminal the header chip is the only place to do that; the
-JUPYTER tab carries no chip of its own. A notebook opened in its own window —
-popped out of the terminal, or opened at its own address — has no header above
-it, so that page shows the same chip in its top-right corner. It is the same
+Inside the web terminal the control-target block in the sidebar is the only
+place to do that; the JUPYTER tab carries no chip of its own. A notebook
+opened in its own window — popped out of the terminal, or opened at its own
+address — has no sidebar beside it, so that page shows the same chip in its
+top-right corner. It is the same
 switch either way: a change made from either place lands deployment-wide.
 
 A cell already running is not re-routed --- but taking writes away still
@@ -110,7 +111,7 @@ knowing:
 
 - **Turning writes off lands at once.** The connector re-reads the write
   posture on every write, so the running cell's very next write is refused.
-- **Turning writes on waits for the next cell.** A cell can never write more
+- **Widening waits for the next cell.** A cell can never write more
   than it was allowed when it started, so widening cannot reach it.
 - **Switching the machine waits for the next cell** as well, so a switch never
   lands halfway through your work.
@@ -121,7 +122,7 @@ one you are in:
 .. code-block:: text
 
    The control target changed while this cell ran. Re-run the cell.
-   Writes are off for this cell. Turn writes on from the chip, then re-run the cell.
+   Writes are off for this cell. Set the machine to asked or allowed on the chip, then re-run the cell.
 
 A switch takes a moment to reach the machines, and a cell run in that window is
 routed nowhere rather than to a guess:
@@ -147,8 +148,8 @@ gives the container it runs in --- is what survives the stripping. In a
 multi-user deployment both answers are the user whose terminal the kernel
 belongs to, so a cell reads that user's own chip settings and nobody else's.
 
-Each channel a cell writes leaves one ``allowed`` record in
-``notebook_kernel.jsonl``, filed after the put. Its reason says how the write
+Each channel a cell writes leaves one ``allowed`` record on the
+``notebook_kernel`` surface, filed after the put. Its reason says how the write
 ended: ``write_landed`` when the write was verified, ``write_unconfirmed`` when
 the value was sent but not verified. The record's ``detail`` names the channel
 and the account and host the control system saw the write come from, which is
@@ -176,7 +177,7 @@ nothing is loaded, and the cell prints one line above the traceback:
 
    Client libraries are not available in a notebook. Read and write through osprey.runtime.read_channel / write_channel instead.
 
-Turning writes on does not change that answer. Replace the import with the
+No switch position changes that answer. Replace the import with the
 runtime's calls, which take the same address and value:
 
 .. code-block:: python
@@ -193,8 +194,8 @@ runtime's calls, which take the same address and value:
 ophyd, and ophyd-async's EPICS modules such as ``ophyd_async.epics.core``, are
 refused with them, because they load a client library underneath; ``bluesky``
 and ``ophyd_async.core`` import. Submit a plan that drives devices to a Bluesky
-lane queue instead, where it runs unchanged. Each refusal is filed in
-``notebook_kernel.jsonl`` with reason ``raw_client_import``.
+lane queue instead, where it runs unchanged. Each refusal is filed on the
+``notebook_kernel`` surface with reason ``raw_client_import``.
 
 The refusal keeps a cell on the connector path; it is not a sandbox. A shell
 escape or a subprocess starts a fresh interpreter without it, and what closes
@@ -211,7 +212,7 @@ Notebooks the agent also edits
 
 The OSPREY agent may edit a notebook under ``notebooks/`` (and, as before,
 under ``artifacts/``); an edit anywhere else is refused by the memory guard.
-When it edits one, the rail's JUPYTER entry badges and the history row reads
+When it edits one, the JUPYTER row in the sidebar badges and the history row reads
 *agent edited <notebook>*.
 
 What you see next depends on what the notebook was doing at the time:
@@ -231,19 +232,55 @@ volumes, which a redeploy never touches (:doc:`multi-user/index`), so
 notebooks are per user. There is no shared notebook folder in this release.
 Sharing a notebook means handing over the file.
 
+.. _notebooks-outputs-no-script:
+
+What a notebook output cannot run
+---------------------------------
+
+Output an agent or a kernel writes can no longer run script inside the
+console's JupyterLab. The page's policy admits only the scripts the terminal
+served itself, because script in an output would run on the console's origin
+and could move the write switch.
+
+No longer run:
+
+- ``IPython.display.Javascript`` and ``application/javascript`` outputs.
+- ``<script>`` in an HTML output, and inline handlers such as ``onerror``.
+- bokeh's in-notebook renderer (``output_notebook()``).
+- Vega and Altair outputs, whose renderer is disabled with
+  ``@jupyterlab/javascript-extension``.
+- Frontend code a kernel supplies for itself, which is unsupported.
+
+Still work: matplotlib, Plotly ``fig.show()``, standard ipywidgets, tables,
+markdown, math and images. Bokeh dashboards in the artifact gallery are
+unaffected.
+
+The policy keeps ``'unsafe-eval'``, because Plotly and JupyterLab's own
+settings need it. Script in outputs is blocked by the nonce, not by that
+keyword.
+
 .. _notebooks-theming:
 
 How the tab is themed
 ---------------------
 
-JupyterLab starts in the deployment's pinned theme. A ``web.theme`` that names
-a dark or a light look (:doc:`theming`) starts the tab in JupyterLab's matching
-built-in theme; a family name on its own pins nothing.
+The JUPYTER tab follows the light or dark side of the terminal's theme. A dark
+theme shows *JupyterLab Dark*, and a light theme shows *JupyterLab Light*.
+When you change the terminal theme (:doc:`theming`), the tab changes too. In
+the tab, the terminal theme replaces a theme that you pick from
+*Settings → Theme*.
 
-Unlike the other panels, this one does not follow the terminal's Appearance
-toggle. Switching the terminal between light and dark leaves JupyterLab as it
-is. Pick a theme inside the tab from *Settings → Theme* instead. That pick is
-stored on the durable volume, so it comes back after a sidecar restart.
+The tab changes its theme after JupyterLab starts. Until then, JupyterLab
+shows the theme that it stored last. If it has no stored theme, it shows the
+pinned theme of the deployment. A ``web.theme`` that names a dark or a light
+look pins the JupyterLab theme for that look. A family name on its own pins
+nothing.
+
+JupyterLab stores each theme change on the durable volume, so the theme comes
+back after a sidecar restart. A JupyterLab page that you open at its own
+address does not follow the terminal. It starts in the theme that the tab used
+last. A theme that you pick there from *Settings → Theme* stays until the tab
+follows the terminal again.
 
 When the tab fails to start
 ---------------------------
@@ -277,8 +314,6 @@ Not in this release
 - No real-time collaborative editing. Two people in one notebook fall back to
   the save-time dialog above.
 - No health probe of the sidecar; the row reports what the terminal recorded.
-- No live theme following. The tab starts in the pinned theme and stays there
-  until you pick another one inside it.
 
 .. seealso::
 

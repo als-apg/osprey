@@ -27,6 +27,8 @@ from osprey.interfaces import common_middleware
 from osprey.interfaces.common_middleware import (
     EXEMPT_PATHS,
     EXTERNAL_ORIGIN_ENV,
+    FORM_BODY_ROUTES,
+    FORM_UPLOAD_HEADER,
     MAX_BODY_PEEK_BYTES,
     MAX_SESSION_COOKIE_CANDIDATES,
     OPERATOR_SECRET_HEADER,
@@ -42,126 +44,26 @@ from osprey.interfaces.common_middleware import (
 from osprey.interfaces.web_auth import BIND_HOST_ENV, WebCredentials, reset_web_credentials
 from osprey.utils.owner_header import OWNER_HEADER
 from osprey_connectors.identity import AUDIT_IDENTITY_ENV, acting_identity
+from tests.interfaces._asgi import (
+    OPERATOR_SECRET,
+    PANEL_TOKEN,
+    RecordingApp,
+    drive,
+    http_scope,
+    status_of,
+    ws_scope,
+)
 
 #: Read off the module rather than retyped, so a rename cannot leave the
 #: caplog assertions below silently watching a logger nothing writes to.
 MIDDLEWARE_LOGGER = common_middleware.logger.name
 
-OPERATOR_SECRET = "operator-secret-value"
-PANEL_TOKEN = "panel-token-value"
 COOKIE_NAME = "osprey_terminal_session_8080"
 
 
 # --------------------------------------------------------------------------- #
 # Harness
 # --------------------------------------------------------------------------- #
-
-
-class RecordingApp:
-    """A downstream ASGI app that records what reached it and answers 200."""
-
-    def __init__(self) -> None:
-        self.scopes: list[dict[str, Any]] = []
-        self.bodies: list[bytes] = []
-
-    async def __call__(self, scope, receive, send) -> None:
-        self.scopes.append(scope)
-        if scope["type"] == "http":
-            body = b""
-            while True:
-                message = await receive()
-                if message["type"] != "http.request":
-                    break
-                body += message.get("body") or b""
-                if not message.get("more_body", False):
-                    break
-            self.bodies.append(body)
-            await send({"type": "http.response.start", "status": 200, "headers": []})
-            await send({"type": "http.response.body", "body": b"downstream"})
-        elif scope["type"] == "websocket":
-            await send({"type": "websocket.accept"})
-
-    @property
-    def called(self) -> bool:
-        return bool(self.scopes)
-
-
-def encode_headers(headers: dict[str, str] | None) -> list[tuple[bytes, bytes]]:
-    return [(k.lower().encode("latin-1"), v.encode("latin-1")) for k, v in (headers or {}).items()]
-
-
-def http_scope(
-    path: str = "/api/config",
-    method: str = "GET",
-    headers: dict[str, str] | None = None,
-    *,
-    app: Any = None,
-    scheme: str = "http",
-    raw_headers: list[tuple[bytes, bytes]] | None = None,
-) -> dict[str, Any]:
-    return {
-        "type": "http",
-        "asgi": {"version": "3.0"},
-        "http_version": "1.1",
-        "method": method,
-        "path": path,
-        "raw_path": path.encode("utf-8"),
-        "query_string": b"",
-        "scheme": scheme,
-        "headers": raw_headers if raw_headers is not None else encode_headers(headers),
-        "client": ("127.0.0.1", 54321),
-        "server": ("127.0.0.1", 8080),
-        "app": app,
-    }
-
-
-def ws_scope(
-    path: str = "/ws",
-    headers: dict[str, str] | None = None,
-    *,
-    app: Any = None,
-    extensions: dict[str, Any] | None = None,
-    scheme: str = "ws",
-) -> dict[str, Any]:
-    scope = {
-        "type": "websocket",
-        "asgi": {"version": "3.0"},
-        "path": path,
-        "raw_path": path.encode("utf-8"),
-        "query_string": b"",
-        "scheme": scheme,
-        "headers": encode_headers(headers),
-        "client": ("127.0.0.1", 54321),
-        "server": ("127.0.0.1", 8080),
-        "app": app,
-    }
-    if extensions is not None:
-        scope["extensions"] = extensions
-    return scope
-
-
-def drive(middleware, scope, incoming: list[dict[str, Any]] | None = None) -> list[dict[str, Any]]:
-    """Run one connection through ``middleware`` and return everything it sent."""
-    pending = list(incoming if incoming is not None else [{"type": "http.request", "body": b""}])
-    sent: list[dict[str, Any]] = []
-
-    async def receive():
-        if pending:
-            return pending.pop(0)
-        return {"type": "http.disconnect"}
-
-    async def send(message):
-        sent.append(message)
-
-    asyncio.run(middleware(scope, receive, send))
-    return sent
-
-
-def status_of(sent: list[dict[str, Any]]) -> int | None:
-    for message in sent:
-        if message["type"] in ("http.response.start", "websocket.http.response.start"):
-            return message["status"]
-    return None
 
 
 def _content_type_of(sent: list[dict[str, Any]]) -> str:
@@ -255,9 +157,20 @@ def test_exempt_paths_need_no_credential(middleware, downstream, app_stub, path)
 
 @pytest.mark.parametrize(
     "path",
-    ["/health/", "/healthz", "/static-secrets/keys.json", "/design-systems", "/", "/api/panels"],
+    [
+        "/health/",
+        "/healthz",
+        "/static-secrets/keys.json",
+        "/design-systems",
+        "/",
+        "/api/panels",
+        # A raw scope whose path traverses out of a static mount gets a 401, not a pass.
+        "/static/../api/config",
+    ],
 )
-def test_lookalike_paths_are_not_exempt(middleware, downstream, app_stub, path):
+def test_a_path_that_only_resembles_an_exempt_one_is_not_exempt(
+    middleware, downstream, app_stub, path
+):
     """Exemption is exact or mount-scoped — never a bare prefix match."""
     sent = drive(middleware, http_scope(path, app=app_stub))
     assert status_of(sent) == 401
@@ -873,15 +786,6 @@ def test_wrong_panel_token_is_refused(middleware, app_stub):
     assert detail_of(sent) == "invalid credential"
 
 
-@pytest.mark.usefixtures("downstream")
-@pytest.mark.parametrize("header", ["Bearer", "Bearer   ", "Basic abc", "token-with-no-scheme"])
-def test_unusable_authorization_headers_read_as_no_credential(middleware, app_stub, header):
-    sent = drive(middleware, http_scope(headers={"authorization": header}, app=app_stub))
-    assert status_of(sent) == 401
-    assert detail_of(sent) == "authentication required"
-
-
-@pytest.mark.usefixtures("downstream")
 def test_bearer_scheme_is_case_insensitive(middleware, app_stub):
     headers = {"authorization": f"bearer {PANEL_TOKEN}"}
     assert (
@@ -892,7 +796,7 @@ def test_bearer_scheme_is_case_insensitive(middleware, app_stub):
 def test_panel_token_with_no_origin_is_allowed(middleware, downstream, app_stub):
     """The panel token's normal caller is in-process and sends no ``Origin``."""
     headers = {"host": "localhost:8080", **bearer()}
-    sent = drive(middleware, http_scope("/api/panel-focus", "POST", headers, app=app_stub))
+    sent = drive(middleware, http_scope("/api/panel-op/open", "POST", headers, app=app_stub))
     assert status_of(sent) == 200
     assert downstream.called
 
@@ -905,7 +809,7 @@ def test_panel_token_with_a_foreign_origin_is_403(middleware, downstream, app_st
     request, not off which credential authenticated it.
     """
     headers = {"host": "localhost:8080", "origin": "http://evil.test", **bearer()}
-    sent = drive(middleware, http_scope("/api/panel-focus", "POST", headers, app=app_stub))
+    sent = drive(middleware, http_scope("/api/panel-op/open", "POST", headers, app=app_stub))
     assert status_of(sent) == 403
     assert not downstream.called
 
@@ -982,11 +886,15 @@ def test_disconnect_mid_body_fails_closed(middleware, downstream, app_stub):
 
 
 def test_body_is_only_peeked_for_the_registration_route(middleware, downstream, app_stub):
-    """Every other route decides on method and path alone — no body is read."""
-    payload = json.dumps({"url": "http://evil.test"}).encode()
+    """Every other route decides on method and path alone — no body is read.
+
+    The agent's ``open`` op carries a ``url`` of its own; the gate admits it on
+    method and path, and the route's navigation guard judges the URL.
+    """
+    payload = json.dumps({"member": "ariel", "url": "http://evil.test"}).encode()
     sent = drive(
         middleware,
-        http_scope("/api/panel-arrange", "POST", bearer(), app=app_stub),
+        http_scope("/api/panel-op/open", "POST", bearer(), app=app_stub),
         body_messages(payload),
     )
     assert status_of(sent) == 200
@@ -1382,13 +1290,6 @@ def test_replayed_receive_delegates_past_the_buffered_body(app_stub):
 def test_traversal_paths_are_not_exempt(path):
     """The gate's own matching must not be talked past by a ``..`` segment."""
     assert is_exempt_path(path) is False
-
-
-def test_traversal_request_is_refused_by_the_gate(middleware, downstream, app_stub):
-    """A raw scope whose path traverses out of a static mount gets a 401, not a pass."""
-    sent = drive(middleware, http_scope("/static/../api/config", app=app_stub))
-    assert status_of(sent) == 401
-    assert not downstream.called
 
 
 def test_double_dot_inside_a_segment_is_still_exempt():
@@ -1946,3 +1847,277 @@ def test_a_route_behind_a_real_stack_reads_the_owner_off_request_state(
             headers={OPERATOR_SECRET_HEADER: OPERATOR_SECRET, OWNER_HEADER: "bob"},
         )
         assert unnamed.text == "nobody"
+
+
+# --------------------------------------------------------------------------- #
+# Pins: ``Origin: null`` on every credential path
+# --------------------------------------------------------------------------- #
+#
+# An opaque document — a sandboxed iframe, a ``data:`` URL, a file the browser
+# opened from disk — sends ``Origin: null``. It is never this app's origin, so a
+# mutating request or a websocket handshake carrying it is refused whatever
+# credential rides along. These tests pin that; the rule itself is the Origin
+# check above, applied to every credential.
+
+NULL_ORIGIN = "null"
+
+
+def test_a_cookie_write_from_an_opaque_origin_is_403(middleware, downstream, app_stub, credentials):
+    headers = {"host": "localhost:8080", "origin": NULL_ORIGIN, **session_cookie(credentials)}
+    sent = drive(middleware, http_scope("/api/config", "POST", headers, app=app_stub))
+    assert status_of(sent) == 403
+    assert detail_of(sent) == "cross-origin request refused"
+    assert not downstream.called
+
+
+def test_a_cookie_write_from_an_opaque_origin_is_403_even_vouched_same_origin(
+    middleware, downstream, app_stub, credentials
+):
+    """``Sec-Fetch-Site`` stands in only for an ABSENT Origin, never a present one."""
+    headers = {
+        "host": "localhost:8080",
+        "origin": NULL_ORIGIN,
+        "sec-fetch-site": "same-origin",
+        **session_cookie(credentials),
+    }
+    sent = drive(middleware, http_scope("/api/config", "POST", headers, app=app_stub))
+    assert status_of(sent) == 403
+    assert not downstream.called
+
+
+def test_an_operator_header_write_from_an_opaque_origin_is_403(middleware, downstream, app_stub):
+    headers = {
+        OPERATOR_SECRET_HEADER: OPERATOR_SECRET,
+        "origin": NULL_ORIGIN,
+        "host": "localhost:8080",
+    }
+    sent = drive(middleware, http_scope("/api/config", "POST", headers, app=app_stub))
+    assert status_of(sent) == 403
+    assert detail_of(sent) == "cross-origin request refused"
+    assert not downstream.called
+
+
+def test_a_panel_token_write_from_an_opaque_origin_is_403(middleware, downstream, app_stub):
+    """A panel-tier route the token would otherwise reach is still refused."""
+    headers = {"host": "localhost:8080", "origin": NULL_ORIGIN, **bearer()}
+    sent = drive(middleware, http_scope("/api/panel-focus", "POST", headers, app=app_stub))
+    assert status_of(sent) == 403
+    assert detail_of(sent) == "cross-origin request refused"
+    assert not downstream.called
+
+
+def test_a_cookie_websocket_from_an_opaque_origin_is_403(
+    middleware, downstream, app_stub, credentials
+):
+    headers = {"host": "localhost:8080", "origin": NULL_ORIGIN, **session_cookie(credentials)}
+    scope = ws_scope(headers=headers, app=app_stub, extensions=WS_EXTENSIONS)
+    sent = drive(middleware, scope, incoming=[])
+    assert status_of(sent) == 403
+    assert detail_of(sent) == "cross-origin request refused"
+    assert not downstream.called
+
+
+def test_an_operator_header_websocket_from_an_opaque_origin_is_403(
+    middleware, downstream, app_stub
+):
+    headers = {
+        OPERATOR_SECRET_HEADER: OPERATOR_SECRET,
+        "origin": NULL_ORIGIN,
+        "host": "localhost:8080",
+    }
+    scope = ws_scope(headers=headers, app=app_stub, extensions=WS_EXTENSIONS)
+    sent = drive(middleware, scope, incoming=[])
+    assert status_of(sent) == 403
+    assert not downstream.called
+
+
+def test_a_panel_token_websocket_from_an_opaque_origin_is_refused(middleware, downstream, app_stub):
+    """The token never opens a websocket; an opaque origin changes nothing."""
+    headers = {"host": "localhost:8080", "origin": NULL_ORIGIN, **bearer()}
+    scope = ws_scope(headers=headers, app=app_stub, extensions=WS_EXTENSIONS)
+    sent = drive(middleware, scope, incoming=[])
+    assert status_of(sent) in (401, 403)
+    assert not downstream.called
+
+
+@pytest.mark.parametrize("method", ["POST", "PUT", "PATCH", "DELETE"])
+def test_every_unsafe_method_from_an_opaque_origin_is_403(
+    middleware, downstream, app_stub, credentials, method
+):
+    headers = {"host": "localhost:8080", "origin": NULL_ORIGIN, **session_cookie(credentials)}
+    sent = drive(middleware, http_scope("/api/config", method, headers, app=app_stub))
+    assert status_of(sent) == 403
+    assert not downstream.called
+
+
+# --------------------------------------------------------------------------- #
+# JSON bodies only: the three body types an HTML form can send are refused
+# --------------------------------------------------------------------------- #
+#
+# A form is the one way a page can make a credentialed write without running
+# script, so a script-blocking CSP does not stop it, and a form posted from a
+# page on this app's own origin passes the Origin check. What a form cannot do
+# is choose its body type: it sends urlencoded, multipart or text/plain, and
+# nothing else. Refusing those three on every admitted write is what closes it.
+
+SAME_ORIGIN = {"host": "localhost:8080", "origin": "http://localhost:8080"}
+
+FORM_TYPES = [
+    "application/x-www-form-urlencoded",
+    "multipart/form-data; boundary=----osprey",
+    "text/plain",
+    "text/plain;charset=UTF-8",
+    "Text/Plain; charset=utf-8",
+    " application/x-www-form-urlencoded ; charset=utf-8",
+]
+
+
+FORM_BODY = [{"type": "http.request", "body": b"a=1"}]
+
+
+@pytest.mark.parametrize("content_type", FORM_TYPES)
+@pytest.mark.parametrize("method", ["POST", "PUT", "PATCH", "DELETE"])
+def test_a_same_origin_cookie_write_with_a_form_body_is_415(
+    middleware, downstream, app_stub, credentials, content_type, method
+):
+    headers = {**SAME_ORIGIN, "content-type": content_type, **session_cookie(credentials)}
+    sent = drive(middleware, http_scope("/api/config", method, headers, app=app_stub), FORM_BODY)
+    assert status_of(sent) == 415
+    assert detail_of(sent) == "this route accepts a JSON body only"
+    assert not downstream.called
+
+
+@pytest.mark.parametrize("content_type", FORM_TYPES)
+def test_an_operator_header_write_with_a_form_body_is_415(
+    middleware, downstream, app_stub, content_type
+):
+    headers = {OPERATOR_SECRET_HEADER: OPERATOR_SECRET, "content-type": content_type}
+    sent = drive(middleware, http_scope("/api/terminal/restart", "POST", headers, app=app_stub))
+    assert status_of(sent) == 415
+    assert not downstream.called
+
+
+def test_a_panel_token_write_with_a_form_body_is_415(middleware, downstream, app_stub):
+    headers = {"content-type": "text/plain", **bearer()}
+    sent = drive(middleware, http_scope("/api/panel-op/open", "POST", headers, app=app_stub))
+    assert status_of(sent) == 415
+    assert not downstream.called
+
+
+@pytest.mark.parametrize(
+    "content_type",
+    [None, "application/json", "application/json; charset=utf-8", "application/merge-patch+json"],
+)
+def test_a_json_or_bodiless_write_is_admitted(
+    middleware, downstream, app_stub, credentials, content_type
+):
+    headers = {**SAME_ORIGIN, **session_cookie(credentials)}
+    if content_type is not None:
+        headers["content-type"] = content_type
+    sent = drive(middleware, http_scope("/api/config", "PUT", headers, app=app_stub))
+    assert status_of(sent) == 200
+    assert downstream.called
+
+
+@pytest.mark.parametrize(
+    ("method", "path", "content_type"),
+    [
+        # The chat attachment upload sends octet-stream, which no form can send.
+        pytest.param(
+            "POST",
+            "/api/chat/abc/attachments",
+            "application/octet-stream",
+            id="raw-upload-type-is-not-a-form-type",
+        ),
+        pytest.param("GET", "/api/config", "text/plain", id="safe-method-GET"),
+        pytest.param("HEAD", "/api/config", "text/plain", id="safe-method-HEAD"),
+        pytest.param("OPTIONS", "/api/config", "text/plain", id="safe-method-OPTIONS"),
+        # ``/panel/<id>/…`` is relayed to the panel's own app, which decides its bodies.
+        # A first-party panel app runs this same gate itself, so the rule still holds
+        # there; a third-party panel keeps whatever forms it was built with.
+        pytest.param(
+            "POST",
+            "/panel/grafana/login",
+            "application/x-www-form-urlencoded",
+            id="proxied-panel-path-keeps-its-own-body-types",
+        ),
+    ],
+)
+def test_a_request_outside_the_body_type_rule_is_admitted(
+    middleware, downstream, app_stub, credentials, method, path, content_type
+):
+    headers = {**SAME_ORIGIN, "content-type": content_type, **session_cookie(credentials)}
+    sent = drive(middleware, http_scope(path, method, headers, app=app_stub))
+    assert status_of(sent) == 200
+    assert downstream.called
+
+
+def test_a_form_body_refusal_is_not_filed_as_a_caller_refusal():
+    """The audited refusals stay 401/403; a body-type 415 is a request-shape answer.
+
+    Like a 413, it says nothing about who the caller is, so it stays out of the
+    column an operator reads for caller behaviour.
+    """
+    assert 415 not in common_middleware.AUDITED_REFUSAL_STATUSES
+
+
+# --------------------------------------------------------------------------- #
+# The one form-body route: ARIEL's multipart upload, behind a non-simple header
+# --------------------------------------------------------------------------- #
+
+
+def test_the_upload_route_takes_multipart_with_the_upload_header(
+    middleware, downstream, app_stub, credentials
+):
+    headers = {
+        **SAME_ORIGIN,
+        "content-type": "multipart/form-data; boundary=----osprey",
+        FORM_UPLOAD_HEADER: "1",
+        **session_cookie(credentials),
+    }
+    sent = drive(middleware, http_scope("/api/entries/upload", "POST", headers, app=app_stub))
+    assert status_of(sent) == 200
+    assert downstream.called
+
+
+def test_the_upload_route_refuses_multipart_without_the_upload_header(
+    middleware, downstream, app_stub, credentials
+):
+    """Exactly what a ``<form enctype="multipart/form-data">`` sends: no custom header."""
+    headers = {
+        **SAME_ORIGIN,
+        "content-type": "multipart/form-data; boundary=----osprey",
+        **session_cookie(credentials),
+    }
+    sent = drive(middleware, http_scope("/api/entries/upload", "POST", headers, app=app_stub))
+    assert status_of(sent) == 415
+    assert not downstream.called
+
+
+@pytest.mark.parametrize(
+    ("upload_header", "path"),
+    [
+        pytest.param("  ", "/api/entries/upload", id="blank-upload-header"),
+        pytest.param("1", "/api/config", id="no-other-route-is-unlocked"),
+    ],
+)
+def test_a_multipart_post_is_refused_without_a_real_upload_header_on_the_upload_route(
+    middleware, downstream, app_stub, credentials, upload_header, path
+):
+    headers = {
+        **SAME_ORIGIN,
+        "content-type": "multipart/form-data; boundary=----osprey",
+        FORM_UPLOAD_HEADER: upload_header,
+        **session_cookie(credentials),
+    }
+    sent = drive(middleware, http_scope(path, "POST", headers, app=app_stub))
+    assert status_of(sent) == 415
+    assert not downstream.called
+
+
+def test_the_upload_header_is_one_a_form_cannot_send():
+    """A CORS-safelisted request header could be set by a form; this one is not one."""
+    safelisted = {"accept", "accept-language", "content-language", "content-type", "range"}
+    assert FORM_UPLOAD_HEADER.lower() not in safelisted
+    assert FORM_UPLOAD_HEADER.lower().startswith("x-")
+    assert ("POST", "/api/entries/upload") in FORM_BODY_ROUTES

@@ -28,9 +28,10 @@ Allowed differences: the delta table
 from its fixture by, save the host-resolved ones below. It is exact in both
 directions. A difference that is not
 declared fails, and a declared difference that is not observed fails too, so a
-delta cannot outlive the change that justified it. The table is empty while the
-fixtures match the live render; a change that moves the render either declares
-its leaves here or re-freezes the fixtures with ``freeze.py``. A delta is spelt
+delta cannot outlive the change that justified it. A change that moves the
+render either declares its leaves here or re-freezes the fixtures with
+``freeze.py``; the three-way write switch declares, so the frozen baseline
+render stays the proof of render-identity. A delta is spelt
 like this::
 
     "hello-world/unset": (
@@ -39,6 +40,16 @@ like this::
 
 ``execution.environment.*`` can never surface as a delta: the freeze strips that
 whole mapping (it resolves to an interpreter path).
+
+The staged login map is not a delta either. ``control_system.login_tiers`` is
+staged into the shared containers' ``build/services/*`` copies only, never into
+a root, tier or app render, so the completeness check compares those copies
+with it removed and the map is frozen on its own at
+``<cell>/staged/login_tiers.yml``. :func:`test_staged_login_map_equals_frozen_map`
+compares it exactly — same presence, same logins, same tier per login — save
+the logins :data:`STAGED_LOGIN_DELTAS` declares, exact in both directions. Both
+sides build as the pinned account (``freeze.FROZEN_BUILD_ACCOUNT``), which is
+how the build account's own entry can be compared at all.
 
 One leaf is exempt from the table rather than declared in it. ``osprey build``
 answers the presets' ``container_runtime: auto`` with the runtime that served
@@ -75,7 +86,6 @@ and no ``xdist_group`` is needed.
 from __future__ import annotations
 
 import json
-import shutil
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -86,11 +96,14 @@ import yaml
 
 from tests.fixtures.explicit_config.freeze import (
     FIXTURE_ROOT,
+    LOGIN_TIERS_FILE,
     PROJECT_NAME,
+    STAGED_DIR,
     UNSET_MODE_DIR,
     _cli_env,
     _failure_reason,
     _run_cli,
+    collect_login_tiers,
     collect_rendered_configs,
     mask_document,
     verify_capture_is_complete,
@@ -202,11 +215,130 @@ class Delta:
         return None
 
 
+#: Provider catalog entries ``providers.yml`` carries beyond the frozen fixtures.
+#: Every render lists the whole catalog under ``api.providers``, so every document
+#: of every frozen cell gains them.
+_CATALOG_ADDITIONS = ("openrouter",)
+
+
+#: The leaves the three-way write switch moves in every render, root, tier or
+#: app: the governed tools' per-tool approval policies retire, so the presets no
+#: longer spell ``approval.tools.channel_write: always`` or
+#: ``approval.tools.execute: selective`` and the position decides instead.
+def _retired_governed_policies(document: str) -> tuple[Delta, ...]:
+    return (
+        Delta(document=document, path="approval.tools.channel_write", fixture="always"),
+        Delta(document=document, path="approval.tools.execute", fixture="selective"),
+    )
+
+
+#: The control-assistant renders the feature moves: its root and its
+#: ``readwrite`` tier open at ``asked`` instead of ``allowed``. ``admin``,
+#: ``readonly`` and the apps keep their writes posture.
+_ASKED_RENDERS = ("root", "readwrite")
+
+#: Every render a control-assistant cell freezes.
+_CONTROL_ASSISTANT_RENDERS = (
+    "root",
+    "admin",
+    "channel-finder",
+    "knowledge",
+    "logbook",
+    "readonly",
+    "readwrite",
+)
+
+
+#: The control-assistant renders that show the CANOPY panel and open on it: the
+#: root and its login tiers. The apps render the panel's block switched off and
+#: keep their own default tab.
+_CANOPY_RENDERS = ("root", "admin", "readonly", "readwrite")
+
+
+def _canopy_panel_deltas(document: str) -> tuple[Delta, ...]:
+    """The leaves the CANOPY panel adds to one control-assistant render."""
+    shown = document in _CANOPY_RENDERS
+    deltas = [
+        Delta(document=document, path="web.panels.canopy.enabled", fixture=ABSENT, live=shown),
+        Delta(
+            document=document,
+            path="web.panels.canopy.home_screen",
+            fixture=ABSENT,
+            live="facility/overview",
+        ),
+        Delta(
+            document=document,
+            path="web.panels.canopy.vole_bytes_max",
+            fixture=ABSENT,
+            live=268435456,
+        ),
+    ]
+    if shown:
+        deltas.append(
+            Delta(document=document, path="web.default_panel", fixture=ABSENT, live="canopy")
+        )
+    return tuple(deltas)
+
+
+def _catalog_addition_deltas(*documents: str) -> tuple[Delta, ...]:
+    """The ``api.providers`` delta each of *documents* gains from the catalog additions.
+
+    Args:
+        documents: The rendered documents the cell emits.
+
+    Returns:
+        One delta per document.
+    """
+    return tuple(
+        Delta(document=document, path="api.providers", added=_CATALOG_ADDITIONS)
+        for document in documents
+    )
+
+
+def _control_assistant_deltas() -> tuple[Delta, ...]:
+    deltas: list[Delta] = []
+    for document in _CONTROL_ASSISTANT_RENDERS:
+        deltas.extend(_retired_governed_policies(document))
+        deltas.extend(_canopy_panel_deltas(document))
+        if document in _ASKED_RENDERS:
+            deltas.append(
+                Delta(
+                    document=document,
+                    path="control_system.writes",
+                    fixture="allowed",
+                    live="asked",
+                )
+            )
+    return tuple(deltas)
+
+
 #: Every leaf each cell is allowed to differ from its frozen fixture by, keyed by
 #: the cell directory as ``cells.json`` spells it. A cell absent from this
-#: mapping must equal its fixture exactly. Empty while the fixtures match the
-#: live render; see the module docstring for how to spell a delta.
-CELL_DELTAS: dict[str, tuple[Delta, ...]] = {}
+#: mapping must equal its fixture exactly. See the module docstring for how to
+#: spell a delta. The fixtures stay frozen at the baseline: the render-identity
+#: proof is the baseline render plus exactly these leaves.
+CELL_DELTAS: dict[str, tuple[Delta, ...]] = {
+    "hello-world/unset": _retired_governed_policies("root") + _catalog_addition_deltas("root"),
+    **{
+        f"control-assistant/{mode}": _control_assistant_deltas()
+        + _catalog_addition_deltas(*_CONTROL_ASSISTANT_RENDERS)
+        for mode in ("in_context", "hierarchical", "middle_layer", "graph")
+    },
+}
+
+#: Logins whose staged tier posture each cell is allowed to differ from its
+#: frozen ``staged/login_tiers.yml`` by, as ``login -> (fixture, live)`` — the
+#: login-map twin of :data:`CELL_DELTAS`, exact in both directions. A login that
+#: lands on the deployment's default or on ``readwrite`` follows that render's
+#: ``control_system.writes`` from ``allowed`` to ``asked``; one granted another
+#: tier (``admin``'s ``allowed``, ``readonly``'s ``never``) does not move.
+STAGED_LOGIN_DELTAS: dict[str, dict[str, tuple[Any, Any]]] = {
+    f"control-assistant/{mode}": {
+        "alice": ("allowed", "asked"),
+        "osprey-freeze-builder": ("allowed", "asked"),
+    }
+    for mode in ("in_context", "hierarchical", "middle_layer", "graph")
+}
 
 #: Build-relative ``config.yml`` documents a cell's build gains over the count
 #: its freeze recorded, keyed by cell directory — the completeness twin of
@@ -286,10 +418,13 @@ class Rendered(NamedTuple):
         documents: Masked documents, keyed by render name (``root`` + renders).
         build_configs_checked: Build-relative paths of every ``config.yml`` in
             the build tree, each proved equal to one of *documents*.
+        login_tiers: The login map staged into the shared containers, or
+            ``None`` when the build stages none.
     """
 
     documents: dict[str, dict[str, Any]]
     build_configs_checked: list[str]
+    login_tiers: dict[str, Any] | None
 
 
 class Refused(NamedTuple):
@@ -312,13 +447,11 @@ class CellRenderer:
     refused — is cached under the cell directory.
     """
 
-    def __init__(self, root: Path, build_env: Mapping[str, str]) -> None:
+    def __init__(self, root: Path) -> None:
         """Args:
         root: An existing directory to build the cells under.
-        build_env: Environment additions each cell's ``osprey build`` runs under.
         """
         self._root = root
-        self._build_env = build_env
         self._outcomes: dict[str, Rendered | Refused] = {}
 
     def attempt(self, cell: Cell) -> Rendered | Refused:
@@ -376,24 +509,40 @@ class CellRenderer:
             return Refused("init", _failure_reason(result))
 
         project = scratch / PROJECT_NAME
-        result = _run_cli(["build"], cwd=project, env={**env, **self._build_env})
-        # The comparison reads only rendered documents, never the venv, and a
-        # refused build has no reader at all.
-        shutil.rmtree(project / "build" / ".venv", ignore_errors=True)
+        # --skip-deps: the comparison reads only rendered documents, never a
+        # venv. The one key a venv reaches is the interpreter under
+        # execution.environment, which mask_document deletes, so the masked
+        # documents are the ones the freeze's full build captured.
+        result = _run_cli(["build", "--skip-deps"], cwd=project, env=env)
         if result.returncode != 0:
             return Refused("build", _failure_reason(result))
 
         captured = collect_rendered_configs(project)
         masked = {name: mask_document(document or {}) for name, document in captured.items()}
-        return Rendered(masked, verify_capture_is_complete(project, masked))
+        return Rendered(
+            masked, verify_capture_is_complete(project, masked), collect_login_tiers(project)
+        )
 
 
 @pytest.fixture(scope="module")
-def rendered_cells(
-    tmp_path_factory: pytest.TempPathFactory, offline_build_env: dict[str, str]
-) -> CellRenderer:
+def rendered_cells(tmp_path_factory: pytest.TempPathFactory) -> CellRenderer:
     """One renderer for the whole module, so no cell is built twice."""
-    return CellRenderer(tmp_path_factory.mktemp("explicit-config-equivalence"), offline_build_env)
+    return CellRenderer(tmp_path_factory.mktemp("explicit-config-equivalence"))
+
+
+def _fixture_login_tiers(cell: Cell) -> dict[str, Any] | None:
+    """The frozen staged login map of *cell*, or ``None`` when it froze none.
+
+    Args:
+        cell: A cell the freeze recorded as frozen.
+
+    Returns:
+        The parsed ``<cell>/staged/login_tiers.yml``.
+    """
+    path = FIXTURE_ROOT / cell.directory / STAGED_DIR / LOGIN_TIERS_FILE
+    if not path.is_file():
+        return None
+    return yaml.safe_load(path.read_text(encoding="utf-8")) or {}
 
 
 def _fixture_documents(cell: Cell) -> dict[str, dict[str, Any]]:
@@ -634,6 +783,60 @@ def test_every_pending_delta_names_a_task() -> None:
                 assert delta.pending.strip(), f"{cell} {delta.key}: empty pending marker"
 
 
+def _write_build_config(build: Path, relative: str, document: Mapping[str, Any]) -> None:
+    path = build / relative
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(yaml.safe_dump(dict(document)), encoding="utf-8")
+
+
+def test_a_service_copy_is_compared_without_its_login_map(tmp_path: Path) -> None:
+    """Only ``build/services/*`` copies may carry the map; it is frozen apart from them."""
+    root = {"project_name": PROJECT_NAME, "control_system": {"writes": "allowed"}}
+    staged = {**root, "control_system": {"writes": "allowed", "login_tiers": {"a": "never"}}}
+    build = tmp_path / "build"
+    _write_build_config(build, "config.yml", root)
+    _write_build_config(build, "services/bluesky/config.yml", staged)
+    _write_build_config(build, "services/dispatch_worker/config.yml", staged)
+
+    assert verify_capture_is_complete(tmp_path, {"root": root}) == [
+        "config.yml",
+        "services/bluesky/config.yml",
+        "services/dispatch_worker/config.yml",
+    ]
+    assert collect_login_tiers(tmp_path) == {"a": "never"}
+
+    # The map anywhere but a service copy is a document of its own.
+    _write_build_config(build, ".image/x/build/config.yml", staged)
+    with pytest.raises(RuntimeError, match="match no captured render"):
+        verify_capture_is_complete(tmp_path, {"root": root})
+
+
+def test_staged_copies_that_disagree_on_the_login_map_refuse(tmp_path: Path) -> None:
+    """One cell stages one map; two different ones cannot be frozen as one."""
+    build = tmp_path / "build"
+    _write_build_config(
+        build, "services/bluesky/config.yml", {"control_system": {"login_tiers": {"a": "never"}}}
+    )
+    _write_build_config(
+        build,
+        "services/dispatch_worker/config.yml",
+        {"control_system": {"login_tiers": {"a": "allowed"}}},
+    )
+    with pytest.raises(RuntimeError, match="different login maps"):
+        collect_login_tiers(tmp_path)
+
+    assert collect_login_tiers(tmp_path / "nothing-built") is None
+
+
+def test_the_build_account_is_pinned_for_both_sides(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The freeze and this module build as the same account, whoever runs them."""
+    monkeypatch.setenv("OSPREY_TERMINAL_USER", "someone")
+    monkeypatch.setenv("OSPREY_AUDIT_IDENTITY", "someone-else")
+    env = _cli_env([])
+    assert "OSPREY_TERMINAL_USER" not in env
+    assert env["OSPREY_AUDIT_IDENTITY"] == META["build_account"]
+
+
 def test_a_list_difference_names_what_it_gained_and_lost() -> None:
     """The failure line summarizes a list instead of printing both of them."""
     line = _describe("root", "api.providers", ["a", "b"], ["a", "c"])
@@ -657,6 +860,8 @@ def test_every_recorded_cell_is_covered() -> None:
     assert sorted(META["completeness"]) == sorted(cell.directory for cell in FROZEN_CELLS)
     stale = sorted(set(CELL_DELTAS) - {cell.directory for cell in FROZEN_CELLS})
     assert not stale, f"CELL_DELTAS names cells that are not frozen: {stale}"
+    stale = sorted(set(STAGED_LOGIN_DELTAS) - {cell.directory for cell in FROZEN_CELLS})
+    assert not stale, f"STAGED_LOGIN_DELTAS names cells that are not frozen: {stale}"
 
 
 @pytest.mark.parametrize("cell", FROZEN_CELLS, ids=FROZEN_IDS)
@@ -739,6 +944,44 @@ def test_live_render_is_as_complete_as_the_baseline(
         f"{len(rendered.build_configs_checked)} config.yml documents, the baseline "
         f"{expected['build_configs_checked']} plus {len(gains)} declared. Live paths: "
         f"{sorted(rendered.build_configs_checked)}"
+    )
+
+
+@pytest.mark.parametrize("cell", FROZEN_CELLS, ids=FROZEN_IDS)
+def test_staged_login_map_equals_frozen_map(cell: Cell, rendered_cells: CellRenderer) -> None:
+    """The login map the build stages equals the frozen one exactly, presence included."""
+    rendered = rendered_cells.render(cell)
+    frozen = _fixture_login_tiers(cell)
+    expected_presence = META["completeness"][cell.directory]["login_tiers"]
+    assert (frozen is not None) == expected_presence, (
+        f"{cell.directory}: meta.json says login_tiers={expected_presence}, the fixture "
+        f"{'has' if frozen is not None else 'has no'} {STAGED_DIR}/{LOGIN_TIERS_FILE}"
+    )
+    live = rendered.login_tiers
+    if frozen is None or live is None:
+        assert live == frozen, f"{cell.directory}: frozen={frozen} live={live}"
+        return
+    declared = STAGED_LOGIN_DELTAS.get(cell.directory, {})
+    problems: list[str] = []
+    for login in sorted(set(frozen) | set(live)):
+        observed = (frozen.get(login, ABSENT), live.get(login, ABSENT))
+        expected = declared.get(login)
+        if expected is None:
+            if observed[0] != observed[1]:
+                problems.append(
+                    f"  undeclared  {login}: {_render_value(observed[0])} -> "
+                    f"{_render_value(observed[1])}"
+                )
+        elif observed[0] == observed[1]:
+            problems.append(f"  stale delta {login}: declared {expected}, but it did not move")
+        elif observed != expected:
+            problems.append(
+                f"  wrong delta {login}: declared {expected[0]!r} -> {expected[1]!r}, observed "
+                f"{_render_value(observed[0])} -> {_render_value(observed[1])}"
+            )
+    assert not problems, (
+        f"{cell.directory}: the staged login map moved outside STAGED_LOGIN_DELTAS. "
+        f"frozen={frozen} live={live}\n" + "\n".join(problems)
     )
 
 

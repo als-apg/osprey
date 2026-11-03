@@ -22,13 +22,13 @@ from typing import Any
 import pytest
 
 from osprey_connectors.types import (
+    _ONE_REAL_MACHINE,
     CONTROL_TARGETS,
     DOOCS,
     EPICS,
     IN_PROCESS,
     INVENTED_HISTORY_TYPES,
     LIVE_STANDIN,
-    ONE_REAL_MACHINE,
     STANDIN_TYPES,
     TARGET_LIVE,
     TARGET_STANDIN,
@@ -200,11 +200,11 @@ def test_live_on_a_simulated_baseline_refuses_without_a_connector_table(connecto
     [
         (
             {"virtual_accelerator": {"timeout_s": 5.0}},
-            ["control_system.connector", VIRTUAL_ACCELERATOR, ONE_REAL_MACHINE],
+            ["control_system.connector", VIRTUAL_ACCELERATOR, _ONE_REAL_MACHINE],
         ),
         (
             {"epics": {"address": "gw"}, "doocs": {"address": "gw"}},
-            [DOOCS, EPICS, ONE_REAL_MACHINE],
+            [DOOCS, EPICS, _ONE_REAL_MACHINE],
         ),
     ],
     ids=["no-live-block", "two-live-blocks"],
@@ -236,7 +236,7 @@ def test_a_second_real_block_beside_a_real_baseline_is_reported(caplog: Any):
     assert len(caplog.records) == 1
     message = caplog.records[0].getMessage()
     assert DOOCS in message
-    assert ONE_REAL_MACHINE in message
+    assert _ONE_REAL_MACHINE in message
 
 
 def test_the_stand_in_and_the_simulator_are_not_a_second_real_machine(caplog: Any):
@@ -341,7 +341,7 @@ def test_an_unrecognized_target_raises_and_resolves_to_nothing(target: Any):
     assert TARGET_LIVE in message
     assert TARGET_VA in message
     assert TARGET_STANDIN in message
-    assert ONE_REAL_MACHINE in message
+    assert _ONE_REAL_MACHINE in message
 
 
 # ---------------------------------------------------------------------------

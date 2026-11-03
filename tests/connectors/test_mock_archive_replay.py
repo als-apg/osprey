@@ -4,11 +4,11 @@ from __future__ import annotations
 
 import hashlib
 import json
-import os
 import subprocess
 import sys
-from collections.abc import Mapping
+from collections.abc import Iterator, Mapping
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any
 
@@ -22,6 +22,9 @@ from osprey_connectors.simulation import series
 from osprey_connectors.simulation.archive import build
 from osprey_connectors.simulation.composite import Composite
 from osprey_connectors.simulation.view import SCHEMAS, SimulatorView, ViewSchemaError
+from tests._archive_composites import archives_closed, held_state_directories
+from tests._simulator_view import view_channel
+from tests.connectors._view_records import activate
 
 if TYPE_CHECKING:
     from tests._builds import BuiltProject
@@ -29,6 +32,12 @@ if TYPE_CHECKING:
 T0 = 1_760_000_000.0
 HOUR = np.arange(T0, T0 + 3600.0, 1.0)
 BPM_X = "SR:DIAG:BPM:01:POSITION:X"
+
+
+@pytest.fixture(autouse=True)
+def _close_archives(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+    with archives_closed(monkeypatch, sys.modules[__name__]):
+        yield
 
 
 # -- a stub engine that counts its builds and its reads ------------------------
@@ -87,23 +96,6 @@ def engine(monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
 # -- a synthetic view ----------------------------------------------------------
 
 
-def _channel(address: str, owner: str = "texture", **fields: Any) -> dict[str, Any]:
-    role = fields.pop("role", "readback")
-    return {
-        "address": address,
-        "role": role,
-        "pair": fields.pop("pair", address if role == "setpoint" else None),
-        "value_type": fields.pop("value_type", "float"),
-        "unit": None,
-        "description": None,
-        "writable": fields.pop("writable", False),
-        "value_range": None,
-        "owner": owner,
-        "on": None,
-        **fields,
-    }
-
-
 def _view(
     path: Path,
     *,
@@ -111,13 +103,13 @@ def _view(
     seeds: Mapping[str, Any] | None = None,
 ) -> Path:
     channels = [
-        _channel("M:SP", "M", role="setpoint", writable=True),
-        _channel("M:RB", "M"),
-        _channel("T:SP", role="setpoint", pair="T:RB", writable=True),
-        _channel("T:RB"),
-        _channel("T:NOISY"),
-        _channel("T:MODE", value_type="enum", options=["OFF", "STANDBY", "ON"]),
-        _channel("T:FLAG", value_type="bool"),
+        view_channel("M:SP", "M", role="setpoint", writable=True),
+        view_channel("M:RB", "M"),
+        view_channel("T:SP", role="setpoint", pair="T:RB", writable=True),
+        view_channel("T:RB"),
+        view_channel("T:NOISY"),
+        view_channel("T:MODE", value_type="enum", options=["OFF", "STANDBY", "ON"]),
+        view_channel("T:FLAG", value_type="bool"),
     ]
     documents = {
         "served_models.json": {"models": ["M", "texture"]},
@@ -394,7 +386,7 @@ def test_a_real_readout_fault_archives_the_monitor_the_composite_serves(
     planes = ["SR:DIAG:BPM:17:POSITION:X", "SR:DIAG:BPM:17:POSITION:Y"]
     times = HOUR[:5]
     state = tmp_path / "state"
-    _activate(state, "bpm-polarity")
+    activate(state, "bpm-polarity")
     now = [float(times[0])]
     served = Composite(demo_view, state_dir=state, clock=lambda: now[0])
 
@@ -408,14 +400,6 @@ def test_a_real_readout_fault_archives_the_monitor_the_composite_serves(
     assert served.status("SR") == "ok"
     for plane in planes:
         assert archived[plane] == [read[plane] for read in reads]
-
-
-def _activate(state: Path, *names: str) -> None:
-    state.mkdir(parents=True, exist_ok=True)
-    target = state / "active_scenarios"
-    before = target.stat().st_mtime_ns if target.exists() else 0
-    target.write_text("\n".join(names or ("nominal",)) + "\n", encoding="utf-8")
-    os.utime(target, ns=(before + 1_000_000_000, before + 1_000_000_000))
 
 
 # -- what the served composite reads -------------------------------------------
@@ -470,6 +454,86 @@ def test_a_physics_model_that_fails_to_build_stops_the_archive(
         build(_view(tmp_path), [])
 
 
+@pytest.fixture
+def recorded_state(monkeypatch: pytest.MonkeyPatch) -> Iterator[list[TemporaryDirectory[str]]]:
+    """Every state directory ``build`` makes, none released by the collector."""
+    with held_state_directories(monkeypatch) as held:
+        yield held
+
+
+def test_close_removes_the_state_directory_and_a_second_close_does_nothing(
+    tmp_path: Path, engine: SimpleNamespace, recorded_state: list[TemporaryDirectory[str]]
+) -> None:
+    del engine
+    archive = build(_view(tmp_path), [])
+    [state] = recorded_state
+    assert Path(state.name).is_dir()
+
+    archive.close()
+    archive.close()
+
+    assert not Path(state.name).exists()
+
+
+def test_a_with_block_removes_the_state_directory_on_exit(
+    tmp_path: Path, engine: SimpleNamespace, recorded_state: list[TemporaryDirectory[str]]
+) -> None:
+    del engine
+    with build(_view(tmp_path), []) as archive:
+        assert archive.addresses
+
+    [state] = recorded_state
+    assert not Path(state.name).exists()
+
+
+def test_a_with_block_removes_the_state_directory_on_an_exception(
+    tmp_path: Path, engine: SimpleNamespace, recorded_state: list[TemporaryDirectory[str]]
+) -> None:
+    del engine
+    with pytest.raises(LookupError, match="inside"), build(_view(tmp_path), []):
+        raise LookupError("inside")
+
+    [state] = recorded_state
+    assert not Path(state.name).exists()
+
+
+def test_a_failed_build_leaves_no_state_directory(
+    tmp_path: Path,
+    engine: SimpleNamespace,
+    recorded_state: list[TemporaryDirectory[str]],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    del engine
+
+    def missing(self: Composite, addresses: Any) -> None:
+        del self, addresses
+        raise KeyError("T:RB")
+
+    monkeypatch.setattr(Composite, "held", missing)
+
+    with pytest.raises(KeyError, match="T:RB"):
+        build(_view(tmp_path), [])
+
+    [state] = recorded_state
+    assert not Path(state.name).exists()
+
+
+def test_a_failed_model_leaves_no_state_directory(
+    tmp_path: Path, engine: SimpleNamespace, recorded_state: list[TemporaryDirectory[str]]
+) -> None:
+    def refuse(*args: Any, **kwargs: Any) -> None:
+        del args, kwargs
+        raise RuntimeError("deck unreadable")
+
+    engine.build = refuse
+
+    with pytest.raises(RuntimeError, match="M: deck unreadable"):
+        build(_view(tmp_path), [])
+
+    [state] = recorded_state
+    assert not Path(state.name).exists()
+
+
 def test_building_an_archive_appends_nothing_to_the_model_log(
     tmp_path: Path, engine: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -502,6 +566,7 @@ def test_importing_the_archive_module_loads_no_lume() -> None:
         capture_output=True,
         text=True,
         check=True,
+        timeout=120,
     )
     assert result.stdout.strip() == "CLEAN"
 

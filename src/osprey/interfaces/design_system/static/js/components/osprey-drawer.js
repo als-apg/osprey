@@ -475,7 +475,9 @@ export class OspreyDrawer extends HTMLElement {
     tab.classList.add('active');
     targetPanel.classList.add('active');
 
-    targetPanel.dispatchEvent(new CustomEvent('drawer:tab-activate', { bubbles: true, composed: true }));
+    targetPanel.dispatchEvent(
+      new CustomEvent('drawer:tab-activate', { bubbles: true, composed: true })
+    );
   }
 
   // ---- Resizable (opt-in via the `resizable` attribute) ----
@@ -566,7 +568,9 @@ export class OspreyDrawer extends HTMLElement {
     this.dispatchEvent(new CustomEvent('drawer:open', { bubbles: true, composed: true }));
     const activePanel = this.querySelector('.drawer-tab-panel.active');
     if (activePanel) {
-      activePanel.dispatchEvent(new CustomEvent('drawer:tab-activate', { bubbles: true, composed: true }));
+      activePanel.dispatchEvent(
+        new CustomEvent('drawer:tab-activate', { bubbles: true, composed: true })
+      );
     }
   }
 

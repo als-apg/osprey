@@ -235,11 +235,6 @@ def test_packaged_bundle_seeds_its_servers(tmp_path: Path) -> None:
 SENTINEL = "written-by-the-operator\n"
 
 
-@pytest.fixture
-def runner() -> CliRunner:
-    return CliRunner()
-
-
 def _init(runner: CliRunner, target: Path, preset: str = PRESET, *extra: str):
     """Run the verb the way an operator does, minus the git repository.
 
@@ -273,14 +268,14 @@ def _reset_runs_without_a_container_runtime(monkeypatch: pytest.MonkeyPatch) -> 
 
     monkeypatch.setattr(
         "osprey.deployment.runtime_helper.verify_runtime_is_running",
-        lambda config=None: (True, ""),
+        lambda config=None, **_: (True, ""),
     )
     monkeypatch.setattr(
         "osprey.deployment.reset.reset_for_reinit",
         lambda repo_root, **kw: ResetOutcome.COMPLETED,
     )
     monkeypatch.setattr(
-        "osprey.cli.init_cmd._surviving_project_resources", lambda target, runtime: []
+        "osprey.cli.init_cmd._surviving_project_resources", lambda runtime, project: []
     )
 
 

@@ -31,11 +31,19 @@ from osprey.mcp_server.control_system.error_handling import (
     describe_active_target,
 )
 from osprey.mcp_server.control_system.server_context import MCPServerConfig
-from osprey_connectors.errors import ChannelLimitsViolationError, ChannelWriteBlockedError
+from osprey_connectors.errors import (
+    ChannelLimitsViolationError,
+    ChannelWriteBlockedError,
+    ConnectorInternalError,
+)
 from tests.mcp_server.conftest import assert_raises_error
 
-IDENTITY = {"name": "live", "label": "LIVE MACHINE", "endpoint": "localhost:5064"}
-CLAUSE = "(active target: LIVE MACHINE at localhost:5064)"
+IDENTITY = {
+    "name": "live",
+    "label": "Live — writes move hardware",
+    "endpoint": "localhost:5064",
+}
+CLAUSE = "(active target: Live — writes move hardware at localhost:5064)"
 
 
 # ------------------------------------------------------------- the resolver
@@ -44,8 +52,8 @@ CLAUSE = "(active target: LIVE MACHINE at localhost:5064)"
 def _slot(endpoint: str = "localhost:5064", role: str = "write_access") -> dict:
     """One target slot in the shape the supervisor's display cache holds."""
     return {
-        "label": "LIVE MACHINE",
-        "display_name": "the live machine",
+        "label": "Live — writes move hardware",
+        "display_name": "Live",
         "endpoint": endpoint,
         "selected_role": role,
         "real_machine": True,
@@ -114,7 +122,7 @@ def test_the_resolver_prints_the_read_gateway_the_writer_rendered(monkeypatch):
     monkeypatch.setattr(server_context, "get_server_context", lambda: _FakeContext(slot))
     assert describe_active_target() == {
         "name": "live",
-        "label": "LIVE MACHINE",
+        "label": "Live — writes move hardware",
         "endpoint": "localhost:5065",
     }
 
@@ -153,11 +161,6 @@ def resolved_identity(monkeypatch):
     """Pin the resolver so each branch's wiring is tested in isolation."""
     monkeypatch.setattr(error_handling, "describe_active_target", lambda: dict(IDENTITY))
 
-    async def no_invalidate(connector_name: str) -> None:  # noqa: ARG001 - invalidate_active_connector fixes this stand-in's signature
-        return None
-
-    monkeypatch.setattr(error_handling, "invalidate_active_connector", no_invalidate)
-
 
 async def _envelope_for(exc: BaseException, connector_name: str = "control_system") -> dict:
     with assert_raises_error() as captured:
@@ -173,7 +176,7 @@ async def test_a_connection_failure_names_the_machine():
     assert CLAUSE in envelope["error_message"]
     assert envelope["details"]["active_target"] == IDENTITY
     # The first suggestion points at the actual machine, not a generic service.
-    assert "LIVE MACHINE at localhost:5064" in envelope["suggestions"][0]
+    assert "Live — writes move hardware at localhost:5064" in envelope["suggestions"][0]
 
 
 @pytest.mark.usefixtures("resolved_identity")
@@ -219,6 +222,18 @@ async def test_an_internal_error_names_the_machine():
     assert envelope["error_type"] == "internal_error"
     assert CLAUSE in envelope["error_message"]
     assert envelope["details"]["active_target"] == IDENTITY
+
+
+@pytest.mark.usefixtures("resolved_identity")
+async def test_a_contract_fault_is_an_internal_error_that_names_the_machine():
+    envelope = await _envelope_for(
+        ConnectorInternalError(
+            "connector host reported an unrecognised error: KeyError('X:Y')", class_tag="KeyError"
+        )
+    )
+    assert envelope["error_type"] == "internal_error"
+    assert CLAUSE in envelope["error_message"]
+    assert "recovery" not in envelope["details"]
 
 
 @pytest.mark.usefixtures("resolved_identity")

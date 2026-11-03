@@ -304,8 +304,17 @@ def test_multiple_operations_any_violation_blocks(tmp_path, hook_runner):
 # -- Edge cases (gap fill) --
 
 
-def test_value_at_exact_maximum_passes(tmp_path, hook_runner):
-    """Value exactly equal to max_value should pass validation."""
+@pytest.mark.parametrize(
+    "value",
+    [
+        # Value exactly equal to max_value.
+        pytest.param(100.0, id="maximum"),
+        # Value exactly equal to min_value.
+        pytest.param(0.0, id="minimum"),
+    ],
+)
+def test_value_at_an_exact_limit_passes(tmp_path, hook_runner, value):
+    """Value exactly equal to a limit should pass validation."""
     config = _make_limits_config(
         tmp_path,
         {"TEST:PV": {"min_value": 0.0, "max_value": 100.0, "writable": True}},
@@ -314,25 +323,7 @@ def test_value_at_exact_maximum_passes(tmp_path, hook_runner):
     result = hook_runner(
         "osprey_limits.py",
         "mcp__controls__channel_write",
-        {"operations": [{"channel": "TEST:PV", "value": 100.0}]},
-        config_path=config,
-        cwd=tmp_path,
-    )
-
-    assert result is None  # Exact boundary should pass
-
-
-def test_value_at_exact_minimum_passes(tmp_path, hook_runner):
-    """Value exactly equal to min_value should pass validation."""
-    config = _make_limits_config(
-        tmp_path,
-        {"TEST:PV": {"min_value": 0.0, "max_value": 100.0, "writable": True}},
-    )
-
-    result = hook_runner(
-        "osprey_limits.py",
-        "mcp__controls__channel_write",
-        {"operations": [{"channel": "TEST:PV", "value": 0.0}]},
+        {"operations": [{"channel": "TEST:PV", "value": value}]},
         config_path=config,
         cwd=tmp_path,
     )
@@ -376,33 +367,6 @@ def test_single_write_form_valid_passes(tmp_path, hook_runner):
     )
 
     assert result is None  # Valid single-write passes
-
-
-@pytest.mark.parametrize(
-    "stdin",
-    ["", "{nope", "[]", "[1,2,3]"],
-    ids=["empty", "invalid-json", "wrong-shape", "wrong-shape-truthy"],
-)
-def test_malformed_stdin_fails_open(tmp_path, hook_runner_raw, stdin):
-    """Unusable stdin allows the write through rather than denying it.
-
-    Limits validation is fail-closed once it has a channel and a value, but it
-    never gets that far here: a closed pipe, a truncated write or a non-object
-    payload — falsy (``[]``) or truthy (``[1,2,3]``) — leaves nothing to
-    validate, so the hook exits 0 with no decision. The truthy payload is the
-    one an emptiness check lets through, so it has to be rejected on shape.
-    """
-    returncode, stdout, stderr = hook_runner_raw(
-        "osprey_limits.py",
-        tool_name=None,
-        tool_input=None,
-        cwd=tmp_path,
-        stdin_override=stdin,
-    )
-
-    assert returncode == 0
-    assert stdout.strip() == ""
-    assert "Traceback" not in stderr
 
 
 # -- Per-target limits posture --

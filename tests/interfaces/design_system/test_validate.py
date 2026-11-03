@@ -20,11 +20,16 @@ from pathlib import Path
 import pytest
 
 import osprey.interfaces.design_system as design_system_pkg
+from osprey.interfaces.design_system.generator import validate as validate_module
 from osprey.interfaces.design_system.generator.model import (
     AliasStatus,
     ResolvedToken,
     TokenTree,
     load_token_tree,
+)
+from osprey.interfaces.design_system.generator.naming import (
+    FORBIDDEN_PROMOTED_PREFIXES,
+    PROMOTED_PRIMITIVE_GROUPS,
 )
 from osprey.interfaces.design_system.generator.validate import (
     WCAG_GATES,
@@ -39,6 +44,7 @@ from osprey.interfaces.design_system.generator.validate import (
     check_interface_mode_completeness,
     check_namespace_collisions,
     check_promoted_primitive_collisions,
+    check_promoted_primitive_prefixes,
     check_terminal_serialization,
     check_theme_completeness,
     check_theme_metadata,
@@ -377,23 +383,15 @@ def test_check_theme_metadata_flags_invalid_mode_value() -> None:
     assert "mode" in errors[0].message
 
 
-def test_check_theme_metadata_accepts_well_formed_metadata() -> None:
-    tree = _tree(
-        themes={"dark": {"bg.primary": _token("bg.primary", "#000")}},
-        theme_metadata={"dark": {"mode": "dark", "id": "dark", "label": "Dark", "family": "main"}},
-    )
-
-    assert check_theme_metadata(tree) == []
-
-
 # --- check_theme_metadata: $extensions.family_label (optional family display name) ---
 
 
-def test_check_theme_metadata_accepts_absent_family_label() -> None:
+@pytest.mark.parametrize("family", ["main", "high-contrast"])
+def test_check_theme_metadata_accepts_a_well_formed_family_without_a_label(family: str) -> None:
     """family_label is optional — consumers derive one from the family id."""
     tree = _tree(
         themes={"dark": {"bg.primary": _token("bg.primary", "#000")}},
-        theme_metadata={"dark": {"mode": "dark", "id": "dark", "label": "Dark", "family": "main"}},
+        theme_metadata={"dark": {"mode": "dark", "id": "dark", "label": "Dark", "family": family}},
     )
 
     assert check_theme_metadata(tree) == []
@@ -503,10 +501,18 @@ def test_check_theme_metadata_allows_one_member_to_label_the_family() -> None:
 # --- check_theme_metadata: $extensions.family (theme "family" grouping) ---------
 
 
-def test_check_theme_metadata_flags_missing_family_field() -> None:
+@pytest.mark.parametrize(
+    "family",
+    [
+        pytest.param({}, id="missing"),
+        pytest.param({"family": ""}, id="blank"),
+        pytest.param({"family": 42}, id="non-string"),
+    ],
+)
+def test_check_theme_metadata_flags_a_bad_family(family: dict[str, object]) -> None:
     tree = _tree(
         themes={"dark": {"bg.primary": _token("bg.primary", "#000", source_file=Path("d.json"))}},
-        theme_metadata={"dark": {"mode": "dark", "id": "dark", "label": "Dark"}},
+        theme_metadata={"dark": {"mode": "dark", "id": "dark", "label": "Dark", **family}},
     )
 
     errors = check_theme_metadata(tree)
@@ -514,41 +520,6 @@ def test_check_theme_metadata_flags_missing_family_field() -> None:
     assert len(errors) == 1
     assert errors[0].rule == ValidationRule.INVALID_THEME_METADATA
     assert "family" in errors[0].message
-
-
-def test_check_theme_metadata_flags_blank_family_value() -> None:
-    tree = _tree(
-        themes={"dark": {"bg.primary": _token("bg.primary", "#000")}},
-        theme_metadata={"dark": {"mode": "dark", "id": "dark", "label": "Dark", "family": ""}},
-    )
-
-    errors = check_theme_metadata(tree)
-
-    assert len(errors) == 1
-    assert "family" in errors[0].message
-
-
-def test_check_theme_metadata_flags_non_string_family_value() -> None:
-    tree = _tree(
-        themes={"dark": {"bg.primary": _token("bg.primary", "#000")}},
-        theme_metadata={"dark": {"mode": "dark", "id": "dark", "label": "Dark", "family": 42}},
-    )
-
-    errors = check_theme_metadata(tree)
-
-    assert len(errors) == 1
-    assert "family" in errors[0].message
-
-
-def test_check_theme_metadata_accepts_well_formed_family() -> None:
-    tree = _tree(
-        themes={"dark": {"bg.primary": _token("bg.primary", "#000")}},
-        theme_metadata={
-            "dark": {"mode": "dark", "id": "dark", "label": "Dark", "family": "high-contrast"}
-        },
-    )
-
-    assert check_theme_metadata(tree) == []
 
 
 # --- check_default_flag -----------------------------------------------------------
@@ -582,30 +553,26 @@ def test_check_default_flag_accepts_explicit_false_and_absent_flags() -> None:
     assert check_default_flag(tree) == []
 
 
-def test_check_default_flag_rejects_non_boolean_value() -> None:
+@pytest.mark.parametrize(
+    ("mode", "default", "complaint"),
+    [
+        pytest.param("dark", "yes", "boolean", id="non-boolean"),
+        pytest.param("light", True, "dark theme", id="light-theme-default"),
+    ],
+)
+def test_check_default_flag_rejects_a_bad_default(
+    mode: str, default: object, complaint: str
+) -> None:
     tree = _tree(
-        themes={"dark": {"bg.primary": _token("bg.primary", "#000")}},
-        theme_metadata={"dark": _flag_metadata("dark", "yes")},
+        themes={mode: {"bg.primary": _token("bg.primary", "#000")}},
+        theme_metadata={mode: _flag_metadata(mode, default)},
     )
 
     errors = check_default_flag(tree)
 
     assert len(errors) == 1
     assert errors[0].rule is ValidationRule.INVALID_DEFAULT_FLAG
-    assert "boolean" in errors[0].message
-
-
-def test_check_default_flag_rejects_light_theme_default() -> None:
-    tree = _tree(
-        themes={"light": {"bg.primary": _token("bg.primary", "#fff")}},
-        theme_metadata={"light": _flag_metadata("light", True)},
-    )
-
-    errors = check_default_flag(tree)
-
-    assert len(errors) == 1
-    assert errors[0].rule is ValidationRule.INVALID_DEFAULT_FLAG
-    assert "dark theme" in errors[0].message
+    assert complaint in errors[0].message
 
 
 def test_check_default_flag_rejects_duplicate_defaults() -> None:
@@ -860,6 +827,60 @@ def test_check_promoted_primitive_collisions_allows_non_colliding_tokens() -> No
     )
 
     assert check_promoted_primitive_collisions(tree) == []
+
+
+# --- check_promoted_primitive_prefixes ---------------------------------------------
+
+
+@pytest.mark.parametrize("prefix", ["canopy", "cds", "dv", "pydm", "bar"])
+def test_check_promoted_primitive_prefixes_flags_forbidden_prefix(
+    prefix: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Promote a group whose names would land in a foreign namespace.
+    monkeypatch.setattr(
+        validate_module, "PROMOTED_PRIMITIVE_GROUPS", (*PROMOTED_PRIMITIVE_GROUPS, prefix)
+    )
+    path = f"{prefix}.h"
+    tree = _tree(primitives={path: _token(path, "36px", type_="dimension")})
+
+    errors = check_promoted_primitive_prefixes(tree)
+
+    assert len(errors) == 1
+    assert errors[0].rule == ValidationRule.FORBIDDEN_PROMOTED_PREFIX
+    assert f"--{prefix}-h" in errors[0].message
+    assert errors[0].path == path
+
+
+def test_check_promoted_primitive_prefixes_ignores_unpromoted_groups() -> None:
+    # "canopy" is not a promoted group, so it is never emitted and never checked.
+    tree = _tree(primitives={"canopy.h": _token("canopy.h", "36px", type_="dimension")})
+
+    assert check_promoted_primitive_prefixes(tree) == []
+
+
+def test_check_promoted_primitive_prefixes_allows_chrome_group() -> None:
+    tree = _tree(primitives={"chrome.bar-h": _token("chrome.bar-h", "36px", type_="dimension")})
+
+    assert check_promoted_primitive_prefixes(tree) == []
+
+
+def test_promoted_groups_never_start_with_a_forbidden_prefix() -> None:
+    # Guard on the naming authority itself: every promoted group's names are
+    # "--<group>-...", so the group name must not open a forbidden prefix.
+    for group in PROMOTED_PRIMITIVE_GROUPS:
+        name = f"--{group}-x"
+        assert not name.startswith(FORBIDDEN_PROMOTED_PREFIXES), group
+
+
+def test_validate_token_tree_runs_promoted_prefix_check(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        validate_module, "PROMOTED_PRIMITIVE_GROUPS", (*PROMOTED_PRIMITIVE_GROUPS, "dv")
+    )
+    tree = _tree(primitives={"dv.h": _token("dv.h", "36px", type_="dimension")})
+
+    rules = {finding.rule for finding in validate_token_tree(tree)}
+
+    assert ValidationRule.FORBIDDEN_PROMOTED_PREFIX in rules
 
 
 # --- check_wcag_gates --------------------------------------------------------------

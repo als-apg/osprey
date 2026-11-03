@@ -22,10 +22,7 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
-import {
-  attachChannelCombobox,
-  DEFAULT_DEBOUNCE_MS,
-} from '/design-system/js/channel-combobox.js';
+import { attachChannelCombobox, DEFAULT_DEBOUNCE_MS } from '/design-system/js/channel-combobox.js';
 import { RENDER_CAP } from '/design-system/js/channel-matcher.js';
 
 /**
@@ -349,7 +346,12 @@ describe('attachChannelCombobox', () => {
     // the fuzzy matcher may bind the query's "B" to the "b" inside "<b>".
     const marks = Array.from(row.querySelectorAll('.channel-combobox-match'));
     expect(marks.length).toBeGreaterThan(0);
-    expect(marks.map((m) => m.textContent).join('').toUpperCase()).toContain('BPM');
+    expect(
+      marks
+        .map((m) => m.textContent)
+        .join('')
+        .toUpperCase()
+    ).toContain('BPM');
   });
 
   it('FREE-FORM: a value outside the catalog keeps the popup closed and the input untouched', () => {

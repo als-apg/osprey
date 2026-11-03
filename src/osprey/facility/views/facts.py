@@ -39,9 +39,11 @@ any other file for the zero-source facts, which every build rewrites.
 
 from __future__ import annotations
 
+import copy
+import hashlib
 import json
 import logging
-from collections import defaultdict
+from collections import OrderedDict, defaultdict
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
@@ -74,6 +76,30 @@ NO_CLASS = "-"
 
 #: The page's template, relative to the packaged templates directory.
 FACTS_TEMPLATE = "claude_code/_facility_facts.md.j2"
+
+#: The facility file last parsed and the document it parsed to: every render of
+#: one build carries byte-equal ``facility.json``, so it is parsed once and the
+#: views it is handed to see one document, whose wiring they memoize.
+_parsed: tuple[bytes, dict[str, Any]] | None = None
+
+
+def parsed_facility(raw: bytes) -> Any:
+    """``facility.json`` parsed from its bytes, once for each new bytes.
+
+    Args:
+        raw: The file's bytes.
+
+    Returns:
+        The parsed document, shared with every caller handed the same bytes;
+        callers read it and never change it.
+
+    Raises:
+        ValueError: The bytes are not UTF-8 JSON.
+    """
+    global _parsed
+    if _parsed is None or _parsed[0] != raw:
+        _parsed = (raw, json.loads(raw.decode("utf-8")))
+    return _parsed[1]
 
 
 def _identity(doc: Mapping[str, Any], project_name: str | None) -> dict[str, Any]:
@@ -320,7 +346,7 @@ def read_facts(render_root: Path, project_name: str) -> dict[str, Any]:
     if (
         isinstance(document, dict)
         and document.get("schema") == FACTS_SCHEMA
-        and FACTS_KEYS <= document.keys()
+        and document.keys() >= FACTS_KEYS
         and isinstance(document["identity"], dict)
         and "name" in document["identity"]
     ):
@@ -351,8 +377,6 @@ def measurement_records(data_root: Path) -> dict[str, dict[str, Any]]:
         other file of the view by its name in the view's directory, with its
         digest.
     """
-    import hashlib
-
     from osprey.facility.views.pyaml import CONFIGURATION_FILE, PYAML_DIR
 
     records: dict[str, dict[str, Any]] = {}
@@ -370,12 +394,22 @@ def measurement_records(data_root: Path) -> dict[str, dict[str, Any]]:
     return records
 
 
+#: The most recent measurement blocks, keyed by the digests of the bytes each was
+#: read from and the ``entry_points`` its engines' descriptions came from: a
+#: replaced ``entry_points`` (a test registering an engine) reads the block afresh.
+_MEASUREMENT_MEMO: OrderedDict[tuple[Any, ...], dict[str, dict[str, Any]]] = OrderedDict()
+_MEASUREMENT_MEMO_KEYS = 8
+
+
 def hook_measurement(facts: Mapping[str, Any], render_root: Path) -> dict[str, dict[str, Any]]:
     """The approval hook's ``measurement`` block of one render.
 
     Read from each pyAML view the facts record: its arrays and the addresses
     their members stand for, through the view's one name mapping. A render
-    whose facts record no view reads no file.
+    whose facts record no view reads no file. The block is a function of the
+    bytes it reads and of the engines that describe its models' wiring, so it
+    is computed once per distinct content and registry; each caller gets its
+    own copy.
 
     Args:
         facts: The facts document.
@@ -393,18 +427,47 @@ def hook_measurement(facts: Mapping[str, Any], render_root: Path) -> dict[str, d
     recorded = facts.get("measurement_models") or {}
     if not recorded:
         return {}
+    from importlib import metadata
+
     from osprey.facility import FACILITY_FILE
+
+    facility = (render_root / FACILITY_FILE).read_bytes()
+    views = {
+        str(model): (record, (render_root / record["path"]).read_bytes())
+        for model, record in recorded.items()
+    }
+    key = (
+        metadata.entry_points,
+        hashlib.sha256(facility).hexdigest(),
+        tuple(
+            (model, record["path"], record.get("sha256"), hashlib.sha256(view).hexdigest())
+            for model, (record, view) in sorted(views.items())
+        ),
+    )
+    block = _MEASUREMENT_MEMO.get(key)
+    if block is None:
+        block = _measurement_block(facility, views)
+        _MEASUREMENT_MEMO[key] = block
+        while len(_MEASUREMENT_MEMO) > _MEASUREMENT_MEMO_KEYS:
+            _MEASUREMENT_MEMO.popitem(last=False)
+    else:
+        _MEASUREMENT_MEMO.move_to_end(key)
+    return copy.deepcopy(block)
+
+
+def _measurement_block(
+    facility: bytes, views: Mapping[str, tuple[Mapping[str, Any], bytes]]
+) -> dict[str, dict[str, Any]]:
+    """The ``measurement`` block read from a facility file and its pyAML views' bytes."""
     from osprey.facility.views.pyaml import KIND_STEPPED, RF_PLANT_TYPE, view_names
     from osprey_connectors import yaml_loader
     from pyaml_cs_osprey.catalog import parse_reference
 
-    doc = json.loads((render_root / FACILITY_FILE).read_text(encoding="utf-8"))
+    doc = parsed_facility(facility)
     models = {str(model["name"]): model for model in doc.get("models", [])}
     block: dict[str, dict[str, Any]] = {}
-    for model, record in sorted(recorded.items()):
-        configuration = yaml_loader.safe_load(
-            (render_root / record["path"]).read_text(encoding="utf-8")
-        )
+    for model, (record, view) in sorted(views.items()):
+        configuration = yaml_loader.safe_load(view.decode("utf-8"))
         arrays = {str(a["name"]): list(a["elements"]) for a in configuration.get("arrays") or []}
         devices = {str(d["name"]): d for d in configuration.get("devices") or []}
         measurement = models[str(model)].get("measurement") or {}

@@ -99,9 +99,10 @@ concepts:
 class _StubService:
     """Async-context-manager stub standing in for the ARIEL service."""
 
-    def __init__(self, *, repository=None, health=(True, "OK")):
+    def __init__(self, *, repository=None, health=(True, "OK"), refusal=None):
         self.repository = repository or MagicMock()
         self._health = health
+        self._refusal = refusal
 
     async def __aenter__(self):
         return self
@@ -111,6 +112,26 @@ class _StubService:
 
     async def health_check(self):
         return self._health
+
+    async def verify_search_model_table(self):
+        if self._refusal is not None:
+            raise self._refusal
+
+    async def search(self, **_kwargs):
+        await self.verify_search_model_table()
+        raise AssertionError("a refusing stub never reaches the search modules")
+
+
+async def _missing_table_refusal(fake_pool_factory):
+    """The refusal the real repository raises for a missing embedding table."""
+    from osprey.services.ariel_search.config import ARIELConfig
+    from osprey.services.ariel_search.database.repository import ARIELRepository
+    from osprey.services.ariel_search.exceptions import ConfigurationError
+
+    repo = ARIELRepository(fake_pool_factory(results=[[(False,)]]), ARIELConfig.from_dict(_DB))
+    with pytest.raises(ConfigurationError) as exc_info:
+        await repo.validate_search_model_table("nomic-embed-text")
+    return exc_info.value
 
 
 def _patch_service(monkeypatch, service):
@@ -185,10 +206,14 @@ def _status_repo(
     return repo
 
 
+#: What the render probe answers for a worker that is unavailable.
+_PROBE_REASON = "render worker exited before its ready line (exit code 1)"
+
+
 @pytest.fixture(autouse=True)
 def render_probe(monkeypatch):
     """Answer the render probe ``ok`` without spawning a worker; tests may flip it."""
-    probe = AsyncMock(return_value=True)
+    probe = AsyncMock(return_value=None)
     monkeypatch.setattr("osprey.imaging.render.probe_render_worker", probe)
     return probe
 
@@ -269,6 +294,31 @@ class TestGetStatus:
         assert "enhancement_modules" in out
         assert "search_modules" in out
 
+    async def test_healthy_status_reports_no_errors(self, monkeypatch):
+        repo = _status_repo(stats={"total_entries": 1}, tables=[_embedding_table()])
+        _patch_service(monkeypatch, _StubService(repository=repo))
+
+        out = await ops.get_status(dict(_DB))
+
+        assert out["errors"] == []
+
+    async def test_missing_embedding_table_is_an_error_line_in_a_full_report(
+        self, monkeypatch, fake_pool_factory
+    ):
+        refusal = await _missing_table_refusal(fake_pool_factory)
+        repo = _status_repo(stats={"total_entries": 42}, tables=[_embedding_table()])
+        service = _StubService(repository=repo, health=(True, "connected"), refusal=refusal)
+        _patch_service(monkeypatch, service)
+
+        out = await ops.get_status(dict(_DB))
+
+        assert out["status"] == "unhealthy"
+        assert out["errors"] == [f"{refusal.message}. {refusal.remedy}"]
+        assert "osprey ariel" in out["errors"][0]
+        assert "search_modules.semantic" in out["errors"][0]
+        assert out["embedding_tables"][0]["table"] == "text_embeddings_nomic"
+        assert out["entries"] == 42
+
     async def test_unhealthy_flag_when_health_check_fails(self, monkeypatch):
         repo = _status_repo(stats={})
         service = _StubService(repository=repo, health=(False, "no schema"))
@@ -342,14 +392,21 @@ class TestGetStatus:
         assert out["status"] == "error"
         assert "boom-ingestion" in out["message"]
 
-    async def test_registered_module_with_no_rows_owes_every_entry(self, monkeypatch):
-        """One table over every registered module, whether the store knows it or not.
-
-        A module that has never run has written no status key, so every entry is
-        still pending for it: the same count a module that processed one entry
-        reports as the rest, never a zero that reads as "nothing to do".
-        """
-        repo = _status_repo(stats={"total_entries": 3})
+    @pytest.mark.parametrize(
+        "entries",
+        [
+            # One table over every registered module, whether the store knows it or not.
+            #
+            # A module that has never run has written no status key, so every entry is
+            # still pending for it: the same count a module that processed one entry
+            # reports as the rest, never a zero that reads as "nothing to do".
+            pytest.param(3, id="entries-present"),
+            # No entries, nothing owed: a never-run module reads all zeros.
+            pytest.param(0, id="empty-store"),
+        ],
+    )
+    async def test_registered_module_with_no_rows_owes_every_entry(self, monkeypatch, entries):
+        repo = _status_repo(stats={"total_entries": entries})
         _patch_service(monkeypatch, _StubService(repository=repo))
 
         out = await ops.get_status(dict(_DB))
@@ -358,22 +415,7 @@ class TestGetStatus:
             "enabled": False,
             "complete": 0,
             "failed": 0,
-            "pending": 3,
-            "gave_up": 0,
-        }
-
-    async def test_registered_module_on_an_empty_store_reports_zeros(self, monkeypatch):
-        """No entries, nothing owed: a never-run module reads all zeros."""
-        repo = _status_repo(stats={"total_entries": 0})
-        _patch_service(monkeypatch, _StubService(repository=repo))
-
-        out = await ops.get_status(dict(_DB))
-
-        assert out["enhancement_modules"]["text_embedding"] == {
-            "enabled": False,
-            "complete": 0,
-            "failed": 0,
-            "pending": 0,
+            "pending": entries,
             "gave_up": 0,
         }
 
@@ -490,6 +532,7 @@ class TestGetStatusAttachments:
             "pending",
             "skipped",
             "render",
+            "render_unavailable",
         ]
         assert attachments["copy_on_ingest"] == "images"
         assert "png" in attachments["formats"]["viewable"]
@@ -501,6 +544,7 @@ class TestGetStatusAttachments:
         assert attachments["pending"] == 3
         assert attachments["skipped"] == {"too_large": 2}
         assert attachments["render"] == "ok"
+        assert attachments["render_unavailable"] is None
 
     async def test_attachments_matches_the_capability_block(self, monkeypatch):
         from osprey.services.ariel_search.capabilities import attachments_capability
@@ -516,12 +560,13 @@ class TestGetStatusAttachments:
         assert out["attachments"]["copy_on_ingest"] == "all"
 
     async def test_attachments_render_unavailable_when_probe_fails(self, monkeypatch, render_probe):
-        render_probe.return_value = False
+        render_probe.return_value = _PROBE_REASON
         _patch_service(monkeypatch, _StubService(repository=_status_repo()))
 
         out = await ops.get_status(dict(_DB))
 
         assert out["attachments"]["render"] == "unavailable"
+        assert out["attachments"]["render_unavailable"] == _PROBE_REASON
         render_probe.assert_awaited_once()
 
     async def test_attachments_schema_behind_nulls_pending_and_skipped(self, monkeypatch):
@@ -583,9 +628,11 @@ class TestStatusTextAttachments:
         assert "schema behind code" not in text
 
     def test_attachments_text_render_unavailable(self, monkeypatch, render_probe):
-        render_probe.return_value = False
+        render_probe.return_value = _PROBE_REASON
 
-        assert "render: unavailable" in self._run(monkeypatch, _status_repo())
+        text = self._run(monkeypatch, _status_repo())
+
+        assert f"render: unavailable: {_PROBE_REASON}" in text
 
     def test_attachments_text_schema_behind_code(self, monkeypatch):
         text = self._run(monkeypatch, _status_repo(copy_state=False))
@@ -1003,6 +1050,18 @@ class TestRunSearch:
         _patch_service_raises(monkeypatch, RuntimeError("weird failure"))
         out = await ops.run_search(dict(_DB), "q", "keyword", 5)
         assert out == {"error": "weird failure"}
+
+    async def test_missing_embedding_table_refusal_is_reported_verbatim(
+        self, monkeypatch, fake_pool_factory
+    ):
+        # Neither the connection hint nor the missing-schema hint may claim it:
+        # the repository's own refusal names the fix.
+        refusal = await _missing_table_refusal(fake_pool_factory)
+        _patch_service(monkeypatch, _StubService(refusal=refusal))
+
+        out = await ops.run_search(dict(_DB), "q", "keyword", 5)
+
+        assert out == {"error": f"{refusal.message}. {refusal.remedy}"}
 
     async def test_success_projects_answer_sources_and_entries(self, monkeypatch):
         result = SimpleNamespace(
@@ -1604,31 +1663,35 @@ class TestGetStatusModuleHealth:
         }
 
     async def test_checks_run_concurrently(self, monkeypatch):
-        """Two checks of 4 s each finish in under 6 s together."""
+        """Each check answers only once both have started, so both answer only together.
+
+        Run one after the other, the first check waits alone until the
+        per-check timeout reports it unreachable.
+        """
         import asyncio
-        import time
 
         from osprey.models.providers.health import HealthResult
 
-        async def four_seconds():
-            await asyncio.sleep(4)
+        both_started = asyncio.Barrier(2)
+
+        async def meet():
+            await both_started.wait()
             return HealthResult(True, "OK", None)
 
         _patch_service(monkeypatch, _StubService(repository=_status_repo()))
         _patch_modules(
             monkeypatch,
             {
-                "qmd_export": _HealthModule("qmd_export", check=four_seconds),
-                "text_embedding": _HealthModule("text_embedding", check=four_seconds),
+                "qmd_export": _HealthModule("qmd_export", check=meet),
+                "text_embedding": _HealthModule("text_embedding", check=meet),
             },
         )
 
-        started = time.monotonic()
         out = await ops.get_status(_enable("qmd_export", "text_embedding"))
 
-        assert time.monotonic() - started < 6
-        assert _health(out, "qmd_export")["reachable"] is True
-        assert _health(out, "text_embedding")["reachable"] is True
+        healthy = {"reachable": True, "reason": None, "probed_from": "this process"}
+        assert _health(out, "qmd_export") == healthy
+        assert _health(out, "text_embedding") == healthy
 
 
 @pytest.fixture

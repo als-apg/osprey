@@ -10,13 +10,20 @@
  *                localStorage['osprey-theme'] (per-render scoped on a
  *                multi-user mount — see storage-scope.js), live-follows the OS
  *                color-scheme preference while that preference is 'auto',
- *                and broadcasts every resolved change to every same-origin
- *                <iframe> panel via postMessage.
+ *                and broadcasts every resolved change to every <iframe>
+ *                panel via postMessage (target "*", so opaque frames hear it).
  *   'follower' — every embedded interface. Never persists or broadcasts;
  *                applies its own '?theme=' query param if present (panel-
  *                manager.js appends a validated one to each panel's iframe
  *                URL), otherwise trusts whatever theme-boot.js already set
- *                pre-paint, and applies whatever the hub broadcasts.
+ *                pre-paint, and applies whatever the hub broadcasts --
+ *                matched by origin, or by source (its parent) on an opaque
+ *                page, where localStorage is unavailable and is skipped.
+ *                A page the web terminal popped out into its own window
+ *                (`?popout=true`, frame-params.js) is a follower too, whatever
+ *                role it asks for: the hub that opened it keeps posting its
+ *                theme to the window, and the stored preference the page
+ *                first-painted from is that hub's own.
  *
  * Family model: a THEMES entry is `{id, label, mode, family}` -- a family
  * is a `{light, dark}` pair (e.g. the built-in 'main' family, or the
@@ -69,6 +76,7 @@
  */
 
 import { scopedStorageKey } from '/design-system/js/storage-scope.js';
+import { isPopout } from '/design-system/js/frame-params.js';
 
 import {
   DEFAULT_FAMILY as _EMITTED_DEFAULT_FAMILY,
@@ -422,10 +430,7 @@ function _readStoredPreference() {
  */
 function _persistPreference(family, mode) {
   try {
-    window.localStorage.setItem(
-      scopedStorageKey(STORAGE_KEY),
-      JSON.stringify({ family, mode })
-    );
+    window.localStorage.setItem(scopedStorageKey(STORAGE_KEY), JSON.stringify({ family, mode }));
   } catch {
     // Storage unavailable (private browsing, quota) -- non-fatal; the
     // preference just won't survive a reload this session.
@@ -492,7 +497,10 @@ function _broadcast(id) {
   const iframes = document.querySelectorAll('iframe');
   for (const iframe of iframes) {
     try {
-      iframe.contentWindow?.postMessage({ type: MESSAGE_TYPE, theme: id }, window.location.origin);
+      // Intentional "*" (same-origin contract exception): an opaque artifact
+      // frame or panel has origin "null" and is unreachable by a named
+      // target. Only this message may use "*" -- it carries a public theme id.
+      iframe.contentWindow?.postMessage({ type: MESSAGE_TYPE, theme: id }, '*');
     } catch {
       // Cross-origin -- expected for some iframes; nothing to do.
     }
@@ -554,7 +562,17 @@ function _applyPreference(family, mode) {
 
 /** @param {MessageEvent} event */
 function _handleMessage(event) {
-  if (event.origin !== window.location.origin) return;
+  // A same-origin page takes the hub by origin. On an opaque page (sandboxed,
+  // origin "null") an origin match proves nothing -- every opaque sender is
+  // "null" too -- so it takes the message by its source alone: the frame's
+  // parent, which is the hub that embeds it. `self.origin` is the document's
+  // effective origin; `location.origin` comes from the URL and stays the
+  // server's on a page a CSP header sandboxes.
+  const fromHub =
+    self.origin === 'null'
+      ? window.parent !== window && event.source === window.parent
+      : event.origin === window.location.origin;
+  if (!fromHub) return;
   const data = event.data;
   if (!data || data.type !== MESSAGE_TYPE) return;
   // Never applies an arbitrary string to data-theme: _resolve() falls
@@ -606,7 +624,7 @@ function _attachMediaQueryListener() {
  * @param {{role?: 'hub'|'follower'}} [options]
  */
 export function initTheme({ role = 'follower' } = {}) {
-  _role = role === 'hub' ? 'hub' : 'follower';
+  _role = role === 'hub' && !isPopout() ? 'hub' : 'follower';
 
   const queryTheme = _readQueryTheme();
   const attrTheme = document.documentElement.getAttribute('data-theme');
@@ -626,10 +644,11 @@ export function initTheme({ role = 'follower' } = {}) {
     // paint correctly and then be discarded one frame later by 'auto'
     // re-resolving the mode from the OS. A stored preference still outranks
     // it: config sets the DEFAULT, not a lock.
-    const preference = queryPreference || storedPreference || {
-      family: _isKnownId(attrTheme) ? _familyOf(attrTheme) : DEFAULT_FAMILY,
-      mode: _readServerMode(),
-    };
+    const preference = queryPreference ||
+      storedPreference || {
+        family: _isKnownId(attrTheme) ? _familyOf(attrTheme) : DEFAULT_FAMILY,
+        mode: _readServerMode(),
+      };
     _preferenceFamily = preference.family;
     _preferenceMode = preference.mode;
     _applyTheme(_resolvePreference(_preferenceFamily, _preferenceMode));
@@ -663,6 +682,16 @@ export function getTheme() {
  */
 export function getFamily() {
   return _currentId ? _familyOf(_currentId) : null;
+}
+
+/**
+ * The hub's light/dark PREFERENCE: 'auto' while it follows the OS, else the
+ * mode the operator (or the deployment's `data-theme-mode`) pinned. A
+ * follower has no preference of its own and always reads 'auto'.
+ * @returns {ModePreference}
+ */
+export function modePreference() {
+  return _role === 'hub' ? _preferenceMode : 'auto';
 }
 
 /**

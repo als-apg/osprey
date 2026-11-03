@@ -20,7 +20,6 @@ would have started, which is the only moment the assertions are about.
 from __future__ import annotations
 
 import logging
-import os
 import sys
 from collections import defaultdict
 from dataclasses import dataclass
@@ -30,9 +29,15 @@ from types import SimpleNamespace
 import pytest
 from click.testing import CliRunner
 
-from osprey.cli.altitude import gate_installed, install_gate
+from osprey.cli.altitude import (
+    _root_rich_handler,
+    gate_installed,
+    handoff_gate_installed,
+    install_gate,
+)
 from osprey.cli.chat_cmd import (
     _launch_companion_servers,
+    _stand_back_up,
     _stand_down_output_policy,
     chat,
 )
@@ -49,29 +54,9 @@ class Handoff:
     gate_installed: bool
     root_level: int
     reporter: object
-
-
-@pytest.fixture
-def runner() -> CliRunner:
-    return CliRunner()
-
-
-@pytest.fixture(autouse=True)
-def _restore_process_state():
-    """Undo what an in-process launch does to the interpreter's globals.
-
-    ``chat`` chdirs into ``build/``, overlays the deployment's ``.env`` onto
-    ``os.environ``, and installs a reporter — all deliberate, all process-global,
-    and all able to reach every test that runs after this one in the same worker.
-    """
-    cwd = Path.cwd()
-    environ = dict(os.environ)
-    reporter = current_reporter()
-    yield
-    install_reporter(reporter)
-    os.chdir(cwd)
-    os.environ.clear()
-    os.environ.update(environ)
+    handoff_gate_installed: bool = False
+    session_logs: tuple[Path, ...] = ()
+    painted: tuple[str, ...] = ()
 
 
 @pytest.fixture(autouse=True)
@@ -88,7 +73,10 @@ def _no_managed_policy(monkeypatch: pytest.MonkeyPatch):
 
 
 @pytest.fixture
-def gated(monkeypatch: pytest.MonkeyPatch) -> None:
+def gated(
+    monkeypatch: pytest.MonkeyPatch,
+    restore_installed_reporter: None,  # noqa: ARG001 - snapshots the reporter before this installs one
+) -> None:
     """Put the CLI's normal starting state on the root logger.
 
     ``runner.invoke(chat, ...)`` reaches the subcommand without passing through
@@ -98,6 +86,12 @@ def gated(monkeypatch: pytest.MonkeyPatch) -> None:
 
     A live reporter goes with it: the default reporter is already the quiet one,
     so a switch asserted against that default would pass while doing nothing.
+    The reporter is a process singleton, so the restore fixture is requested
+    here rather than left to the module's ``usefixtures`` mark: a test-level
+    mark sets its fixtures up before a module-level one, which would let the
+    restore snapshot this live reporter and put it back after the test. Left
+    installed, it tells the altitude gate a lifecycle verb owns the terminal,
+    and every later CLI run on the worker paints no WARNING at all.
     """
     monkeypatch.setattr("osprey_connectors.config.load_project_dotenv", lambda *a, **k: None)
     configure_logging()
@@ -112,11 +106,34 @@ def handoff(monkeypatch: pytest.MonkeyPatch) -> list[Handoff]:
     recorded: list[Handoff] = []
 
     def fake_run(argv, *args, **kwargs):  # noqa: ARG001 - the command position subprocess.run is called at
+        # What a companion thread would say while the agent owns the screen,
+        # and which of it the terminal handler would still paint.
+        thread_logger = logging.getLogger("tests.companion-thread")
+        rich = _root_rich_handler()
+        painted = []
+        for level, text in (
+            (logging.INFO, "late health check passed"),
+            (logging.WARNING, "pool initialization incomplete"),
+            (logging.ERROR, "companion thread crashed"),
+        ):
+            record = thread_logger.makeRecord(
+                thread_logger.name, level, __file__, 0, text, (), None
+            )
+            thread_logger.handle(record)
+            if rich is not None and rich.filter(record):
+                painted.append(text)
         recorded.append(
             Handoff(
                 gate_installed=gate_installed(),
                 root_level=logging.getLogger().level,
                 reporter=current_reporter(),
+                handoff_gate_installed=handoff_gate_installed(),
+                session_logs=tuple(
+                    Path(h.baseFilename)
+                    for h in logging.getLogger().handlers
+                    if isinstance(h, logging.FileHandler)
+                ),
+                painted=tuple(painted),
             )
         )
         return SimpleNamespace(returncode=0)
@@ -155,6 +172,50 @@ class TestTheSwitchItself:
             logging.getLogger().removeHandler(handler)
         _stand_down_output_policy()
         assert gate_installed() is False
+
+    @pytest.mark.usefixtures("gated")
+    def test_with_a_session_log_the_terminal_paints_error_and_above_only(
+        self, tmp_path: Path
+    ) -> None:
+        """INFO and WARNING go to the file; ERROR still reaches the screen too."""
+        session_log = tmp_path / "var" / "logs" / "chat.log"
+        sink = _stand_down_output_policy(session_log)
+        try:
+            assert sink is not None
+            assert handoff_gate_installed() is True
+            rich = _root_rich_handler()
+            assert rich is not None
+            thread_logger = logging.getLogger("tests.companion-thread")
+            verdicts = {}
+            for level in (logging.INFO, logging.WARNING, logging.ERROR):
+                record = thread_logger.makeRecord(
+                    thread_logger.name, level, __file__, 0, f"at {level}", (), None
+                )
+                thread_logger.handle(record)
+                verdicts[level] = bool(rich.filter(record))
+            sink.flush()
+        finally:
+            _stand_back_up(sink)
+        assert verdicts == {logging.INFO: False, logging.WARNING: False, logging.ERROR: True}
+        written = session_log.read_text(encoding="utf-8")
+        for level in (logging.INFO, logging.WARNING, logging.ERROR):
+            assert f"at {level}" in written, "every record reaches the log"
+
+    @pytest.mark.usefixtures("gated")
+    def test_standing_back_up_leaves_nothing_behind(self, tmp_path: Path) -> None:
+        sink = _stand_down_output_policy(tmp_path / "chat.log")
+        _stand_back_up(sink)
+        assert handoff_gate_installed() is False
+        assert sink not in logging.getLogger().handlers
+
+    @pytest.mark.usefixtures("gated")
+    def test_a_log_that_cannot_be_opened_keeps_the_terminal_painting(self, tmp_path: Path) -> None:
+        """Painting over the screen loses less than dropping the record."""
+        blocker = tmp_path / "var"
+        blocker.write_text("not a directory")
+        sink = _stand_down_output_policy(blocker / "logs" / "chat.log")
+        assert sink is None
+        assert handoff_gate_installed() is False
 
 
 class TestAtTheHandoff:
@@ -196,6 +257,52 @@ class TestAtTheHandoff:
 
         assert result.exit_code == 0
         assert isinstance(handoff[0].reporter, NullReporter)
+
+    @pytest.mark.usefixtures("gated")
+    def test_companion_records_go_to_the_session_log_not_the_screen(
+        self, runner: CliRunner, handoff: list[Handoff], lifecycle_repo: Path
+    ) -> None:
+        """While the agent owns the screen, INFO and WARNING land in var/logs/.
+
+        A health check that passes late or a pool that times out used to be
+        painted over the agent's first screen on a slow host. ERROR keeps
+        painting: a dead companion thread outranks the screen's tidiness.
+        """
+        stub_build(lifecycle_repo)
+
+        result = runner.invoke(chat, ["--repo", str(lifecycle_repo)])
+
+        assert result.exit_code == 0
+        state = handoff[0]
+        assert state.handoff_gate_installed is True
+        assert state.painted == ("companion thread crashed",)
+        session_logs = [
+            p for p in state.session_logs if p.parent == lifecycle_repo / "var" / "logs"
+        ]
+        assert len(session_logs) == 1, state.session_logs
+        assert session_logs[0].name.startswith("chat-")
+        written = session_logs[0].read_text(encoding="utf-8")
+        assert "late health check passed" in written
+        assert "pool initialization incomplete" in written
+        assert "companion thread crashed" in written
+        assert str(session_logs[0]) in result.output
+
+    @pytest.mark.usefixtures("gated")
+    def test_the_terminal_is_handed_back_when_the_agent_exits(
+        self, runner: CliRunner, handoff: list[Handoff], lifecycle_repo: Path
+    ) -> None:
+        stub_build(lifecycle_repo)
+
+        result = runner.invoke(chat, ["--repo", str(lifecycle_repo)])
+
+        assert result.exit_code == 0
+        assert handoff[0].handoff_gate_installed is True
+        assert handoff_gate_installed() is False
+        assert not any(
+            isinstance(h, logging.FileHandler)
+            and Path(h.baseFilename).parent == lifecycle_repo / "var" / "logs"
+            for h in logging.getLogger().handlers
+        )
 
 
 class TestCompanionServers:

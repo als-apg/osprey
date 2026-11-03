@@ -3,7 +3,7 @@
  * Unit tests for the browser's session pointer (session-pointer.js):
  *   npx vitest run tests/interfaces/web_terminal/session-pointer.test.mjs
  *
- * The pointer is the one slot both views read to decide which session they
+ * The pointer is the one slot both surfaces read to decide which session they
  * are on, so the contract under test is small and load-bearing: the key is
  * resolved per user, a write of an unchanged value is not a change, and
  * subscribers hear every value the tab settles on — including the null of a
@@ -25,7 +25,8 @@ const SCOPE_ATTR = 'data-osprey-storage-scope';
 beforeEach(async () => {
   vi.resetModules();
   localStorage.clear();
-  pointer = await import('../../../src/osprey/interfaces/web_terminal/static/js/session-pointer.js');
+  pointer =
+    await import('../../../src/osprey/interfaces/web_terminal/static/js/session-pointer.js');
 });
 
 afterEach(() => {
@@ -38,7 +39,7 @@ describe('reading and writing', () => {
     expect(pointer.getPointer()).toBeNull();
   });
 
-  test('a set key reads back, and lands in the storage slot both views read', () => {
+  test('a set key reads back, and lands in the storage slot both surfaces read', () => {
     pointer.setPointer('session-k');
 
     expect(pointer.getPointer()).toBe('session-k');
@@ -137,7 +138,9 @@ describe('subscribers', () => {
 
   test('every subscriber hears the change, even when one throws', () => {
     vi.spyOn(console, 'error').mockImplementation(() => {});
-    const first = vi.fn(() => { throw new Error('listener blew up'); });
+    const first = vi.fn(() => {
+      throw new Error('listener blew up');
+    });
     const second = vi.fn();
     pointer.subscribe(first);
     pointer.subscribe(second);
@@ -162,7 +165,7 @@ describe('subscribers', () => {
 describe('storage unavailable', () => {
   // Private browsing and disabled storage both throw on access. The pointer
   // is a convenience there, not a hard dependency: nothing may throw out, and
-  // the value still has to hold for the life of the page so a flip mid-session
+  // the value still has to hold for the life of the page so a surface change mid-session
   // does not lose the key.
 
   /** Make every localStorage access throw, as a locked-down browser does. */

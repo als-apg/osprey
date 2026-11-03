@@ -36,9 +36,15 @@ vi.mock('/design-system/js/clipboard.js', () => ({ copyText: mocks.copyText }));
 
 vi.mock('/design-system/js/frame-params.js', () => ({ isEmbedded: mocks.isEmbedded }));
 
-import { mountGraph, unmountGraph } from '../../../src/osprey/interfaces/channel_finder/static/js/explore-graph.js';
+import {
+  mountGraph,
+  unmountGraph,
+} from '../../../src/osprey/interfaces/channel_finder/static/js/explore-graph.js';
 import { state } from '../../../src/osprey/interfaces/channel_finder/static/js/state.js';
-import { COLUMNS_KEY, PREFS_KEY } from '../../../src/osprey/interfaces/channel_finder/static/js/graph-finder-prefs.js';
+import {
+  COLUMNS_KEY,
+  PREFS_KEY,
+} from '../../../src/osprey/interfaces/channel_finder/static/js/graph-finder-prefs.js';
 
 const ONTOLOGY_PATH = '/api/graph/ontology';
 const SEARCH_PATH = '/api/graph/search';
@@ -128,11 +134,23 @@ function searchPayload(overrides = {}) {
     truncated: false,
     rows: DEMO_ROWS.map((row) => ({ ...row })),
     facets: {
-      section: [{ value: 'SR01C', count: 2 }, { value: 'SR02C', count: 1 }],
+      section: [
+        { value: 'SR01C', count: 2 },
+        { value: 'SR02C', count: 1 },
+      ],
       system: [{ value: 'MG', count: 3 }],
-      class: [{ value: `${SEM}Quadrupole`, count: 1 }, { value: `${SEM}Magnet`, count: 1 }],
-      signal: [{ value: 'current', count: 2 }, { value: 'beamPositionX', count: 1 }],
-      dir: [{ value: 'R', count: 2 }, { value: 'W', count: 1 }],
+      class: [
+        { value: `${SEM}Quadrupole`, count: 1 },
+        { value: `${SEM}Magnet`, count: 1 },
+      ],
+      signal: [
+        { value: 'current', count: 2 },
+        { value: 'beamPositionX', count: 1 },
+      ],
+      dir: [
+        { value: 'R', count: 2 },
+        { value: 'W', count: 1 },
+      ],
     },
     empty: false,
     suggestions: [],
@@ -160,22 +178,24 @@ function devicePayload(overrides = {}) {
     ordinalInPlace: 1,
     systemDescription: 'Storage ring magnets',
     familyDescription: 'Focusing quadrupole, family A',
-    signals: [{
-      uri: `${SEM}current`,
-      name: 'current',
-      bindings: [
-        {
-          fullPv: 'SR01C___QFA____AM00',
-          edges: ['READSSIGNAL'],
-          description: 'current readback',
-        },
-        {
-          fullPv: 'SR01C___QFA____SP00',
-          edges: ['WRITESSIGNAL'],
-          description: 'current setpoint',
-        },
-      ],
-    }],
+    signals: [
+      {
+        uri: `${SEM}current`,
+        name: 'current',
+        bindings: [
+          {
+            fullPv: 'SR01C___QFA____AM00',
+            edges: ['READSSIGNAL'],
+            description: 'current readback',
+          },
+          {
+            fullPv: 'SR01C___QFA____SP00',
+            edges: ['WRITESSIGNAL'],
+            description: 'current setpoint',
+          },
+        ],
+      },
+    ],
     ...overrides,
   };
 }
@@ -240,8 +260,9 @@ function callsTo(fetchMock, path) {
  * @returns {AbortSignal} The signal that request was given.
  */
 function signalFor(fetchMock, path, index = 0) {
-  const calls = fetchMock.mock.calls
-    .filter((/** @type {any[]} */ call) => String(call[0]).startsWith(path));
+  const calls = fetchMock.mock.calls.filter((/** @type {any[]} */ call) =>
+    String(call[0]).startsWith(path)
+  );
   const call = calls[index];
   if (!call) throw new Error(`no request ${index} to ${path}`);
   return call[1].signal;
@@ -292,8 +313,9 @@ function type(value) {
 
 /** @returns {string[]} The addresses of the rows currently drawn. */
 function drawnPvs() {
-  return [...host().querySelectorAll('.result-table tbody tr[data-pv]')]
-    .map((row) => row.getAttribute('data-pv') ?? '');
+  return [...host().querySelectorAll('.result-table tbody tr[data-pv]')].map(
+    (row) => row.getAttribute('data-pv') ?? ''
+  );
 }
 
 beforeEach(() => {
@@ -334,27 +356,37 @@ describe('the first render', () => {
 
     // The rail carries every facet group, with the class tree nested by depth.
     expect(container.querySelectorAll('.facet').length).toBe(5);
-    expect(container.querySelector('.facet-item[data-facet="section"][data-value="SR01C"]'))
-      .not.toBeNull();
+    expect(
+      container.querySelector('.facet-item[data-facet="section"][data-value="SR01C"]')
+    ).not.toBeNull();
     const root = container.querySelector(`.facet-item[data-value="${SEM}AcceleratorDevice"]`);
     expect(root?.getAttribute('data-depth')).toBe('0');
-    expect(container.querySelector(`.facet-item[data-value="${SEM}Quadrupole"]`)
-      ?.getAttribute('data-depth')).toBe('2');
+    expect(
+      container
+        .querySelector(`.facet-item[data-value="${SEM}Quadrupole"]`)
+        ?.getAttribute('data-depth')
+    ).toBe('2');
 
     // The page of rows, the counts, and the pager.
     expect(drawnPvs()).toEqual(DEMO_ROWS.map((row) => row.fullPv));
-    expect(container.querySelector('.finder-count')?.textContent)
-      .toBe(`${(128).toLocaleString()} channels`);
-    expect(container.querySelector('.result-counts')?.textContent)
-      .toContain(`${(64).toLocaleString()} devices`);
+    expect(container.querySelector('.finder-count')?.textContent).toBe(
+      `${(128).toLocaleString()} channels`
+    );
+    expect(container.querySelector('.result-counts')?.textContent).toContain(
+      `${(64).toLocaleString()} devices`
+    );
     expect(container.querySelector('.pager-pos')?.textContent).toBe('1 / 3');
 
     // Panel chrome: the toolbar and the three panes, and no failure pane.
     // Provenance lives in the corpus strip now (stats-badges.js), not here.
     expect(container.querySelector('.cf-toolbar #graph-finder-q')).not.toBeNull();
     expect(container.querySelector('.finder-layout > .facet-rail')).not.toBeNull();
-    expect(container.querySelector('.finder-layout > .finder-results #graph-finder-table')).not.toBeNull();
-    expect(container.querySelector('.finder-layout > .finder-inspector')?.hasAttribute('hidden')).toBe(true);
+    expect(
+      container.querySelector('.finder-layout > .finder-results #graph-finder-table')
+    ).not.toBeNull();
+    expect(
+      container.querySelector('.finder-layout > .finder-inspector')?.hasAttribute('hidden')
+    ).toBe(true);
     expect(container.querySelector('.graph-store-badge')).toBeNull();
     expect(container.querySelector('.explore-unknown')).toBeNull();
     expect(container.querySelector('.graph-truncated')).toBeNull();
@@ -379,20 +411,29 @@ describe('the first render', () => {
     // Multi declares two parents that are both present, so it hangs under the
     // one whose uri sorts first and appears once. Orphan's only parent is not
     // in the payload at all, which leaves it a root rather than dropping it.
-    stubDemo(searchPayload(), ontologyPayload({
-      classes: [
-        { uri: `${SEM}Alpha`, name: 'Alpha', altLabel: [], parents: [], rollup: 8 },
-        { uri: `${SEM}Zed`, name: 'Zed', altLabel: [], parents: [], rollup: 8 },
-        {
-          uri: `${SEM}Multi`,
-          name: 'Multi',
-          altLabel: [],
-          parents: [`${SEM}Zed`, `${SEM}Alpha`],
-          rollup: 4,
-        },
-        { uri: `${SEM}Orphan`, name: 'Orphan', altLabel: [], parents: [`${SEM}Absent`], rollup: 2 },
-      ],
-    }));
+    stubDemo(
+      searchPayload(),
+      ontologyPayload({
+        classes: [
+          { uri: `${SEM}Alpha`, name: 'Alpha', altLabel: [], parents: [], rollup: 8 },
+          { uri: `${SEM}Zed`, name: 'Zed', altLabel: [], parents: [], rollup: 8 },
+          {
+            uri: `${SEM}Multi`,
+            name: 'Multi',
+            altLabel: [],
+            parents: [`${SEM}Zed`, `${SEM}Alpha`],
+            rollup: 4,
+          },
+          {
+            uri: `${SEM}Orphan`,
+            name: 'Orphan',
+            altLabel: [],
+            parents: [`${SEM}Absent`],
+            rollup: 2,
+          },
+        ],
+      })
+    );
 
     await mountGraph(host());
 
@@ -401,28 +442,37 @@ describe('the first render', () => {
       (item.getAttribute('data-value') ?? '').slice(SEM.length),
       item.getAttribute('data-depth'),
     ]);
-    expect(drawn).toEqual([['Alpha', '0'], ['Multi', '1'], ['Orphan', '0'], ['Zed', '0']]);
+    expect(drawn).toEqual([
+      ['Alpha', '0'],
+      ['Multi', '1'],
+      ['Orphan', '0'],
+      ['Zed', '0'],
+    ]);
   });
 
   test('a cyclic taxonomy still draws, and a class below the cycle keeps its parent', async () => {
     // Alpha and Beta declare each other a parent, and Ex hangs under Beta. The
     // cycle has to be cut somewhere, but Ex is not part of it and must not be
     // promoted to a root just for descending from one.
-    stubDemo(searchPayload(), ontologyPayload({
-      classes: [
-        { uri: `${SEM}Alpha`, name: 'Alpha', altLabel: [], parents: [`${SEM}Beta`], rollup: 4 },
-        { uri: `${SEM}Beta`, name: 'Beta', altLabel: [], parents: [`${SEM}Alpha`], rollup: 4 },
-        { uri: `${SEM}Ex`, name: 'Ex', altLabel: [], parents: [`${SEM}Beta`], rollup: 2 },
-      ],
-    }));
+    stubDemo(
+      searchPayload(),
+      ontologyPayload({
+        classes: [
+          { uri: `${SEM}Alpha`, name: 'Alpha', altLabel: [], parents: [`${SEM}Beta`], rollup: 4 },
+          { uri: `${SEM}Beta`, name: 'Beta', altLabel: [], parents: [`${SEM}Alpha`], rollup: 4 },
+          { uri: `${SEM}Ex`, name: 'Ex', altLabel: [], parents: [`${SEM}Beta`], rollup: 2 },
+        ],
+      })
+    );
 
     await mountGraph(host());
     const container = host();
 
     /** @param {string} name @returns {string|null} */
     const depthOf = (name) =>
-      container.querySelector(`.facet-item[data-value="${SEM}${name}"]`)?.getAttribute('data-depth')
-      ?? null;
+      container
+        .querySelector(`.facet-item[data-value="${SEM}${name}"]`)
+        ?.getAttribute('data-depth') ?? null;
 
     // Exactly one class is cut loose, and it is one of the two on the cycle.
     const roots = [...container.querySelectorAll('.facet-item[data-depth="0"]')];
@@ -440,10 +490,12 @@ describe('the first render', () => {
     const container = host();
 
     /** @param {string} name @returns {boolean} */
-    const isAbstract = (name) => Boolean(
-      container.querySelector(`.facet-item[data-value="${SEM}${name}"]`)
-        ?.classList.contains('abstract'),
-    );
+    const isAbstract = (name) =>
+      Boolean(
+        container
+          .querySelector(`.facet-item[data-value="${SEM}${name}"]`)
+          ?.classList.contains('abstract')
+      );
 
     expect(isAbstract('Magnet')).toBe(true);
     expect(isAbstract('Quadrupole')).toBe(false);
@@ -458,7 +510,7 @@ describe('the first render', () => {
       }),
       ontologyPayload({
         classes: [{ uri: `${SEM}Magnet`, name: attack, altLabel: [], parents: [], rollup: 4 }],
-      }),
+      })
     );
 
     await mountGraph(host());
@@ -466,14 +518,16 @@ describe('the first render', () => {
 
     expect(container.querySelectorAll('img, script')).toHaveLength(0);
     const hasOnAttr = [...container.querySelectorAll('*')].some((el) =>
-      [...el.attributes].some((attr) => attr.name.startsWith('on')));
+      [...el.attributes].some((attr) => attr.name.startsWith('on'))
+    );
     expect(hasOnAttr, 'no on* event-handler attribute').toBe(false);
     // The value still reaches the reader, as inert text...
     expect(container.textContent).toContain(attack);
     // ...and travels back to the server as data: the facet the mount sends is
     // the string the store gave it, not a fragment the parser rewrote.
-    expect(container.querySelector('.facet-item[data-facet="section"]')
-      ?.getAttribute('data-value')).toBe(attack);
+    expect(
+      container.querySelector('.facet-item[data-facet="section"]')?.getAttribute('data-value')
+    ).toBe(attack);
   });
 });
 
@@ -540,12 +594,14 @@ describe('searching', () => {
 
     click('.facet-item[data-facet="section"][data-value="SR01C"]');
     await vi.waitFor(() =>
-      expect(host().querySelector('.active-filter[data-chip="section:SR01C"]')).not.toBeNull());
+      expect(host().querySelector('.active-filter[data-chip="section:SR01C"]')).not.toBeNull()
+    );
 
     expect(callsTo(fetchMock, SEARCH_PATH)).toHaveLength(2);
     expect(callsTo(fetchMock, SEARCH_PATH)[1]).toBe(`${SEARCH_PATH}?q=&section=SR01C&page=1`);
-    expect(host().querySelector('.active-filter[data-chip="section:SR01C"]')?.textContent)
-      .toContain('Section: SR01C');
+    expect(
+      host().querySelector('.active-filter[data-chip="section:SR01C"]')?.textContent
+    ).toContain('Section: SR01C');
 
     click('.active-filter[data-chip="section:SR01C"]');
     await vi.waitFor(() => expect(host().querySelector('.active-filter')).toBeNull());
@@ -631,7 +687,7 @@ describe('the informational pane', () => {
         empty: true,
         suggestions: ['Seed it with `osprey build && osprey up`.'],
       }),
-      ontologyPayload({ classes: [], relationship_types: [], empty: true }),
+      ontologyPayload({ classes: [], relationship_types: [], empty: true })
     );
 
     await mountGraph(host());
@@ -647,19 +703,19 @@ describe('the informational pane', () => {
   });
 
   test('an unreachable store shows its detail and remedies, and Retry re-asks', async () => {
-    const fetchMock = stubFetch((path) => (
+    const fetchMock = stubFetch((path) =>
       path.startsWith(ONTOLOGY_PATH) || path.startsWith(SEARCH_PATH)
         ? {
-          ok: false,
-          status: 503,
-          body: {
-            detail: 'Graph store is not reachable at bolt://localhost:7687.',
-            error_type: 'service_unavailable',
-            suggestions: ['Start the graphdb service.', 'Check services.graphdb.uri.'],
-          },
-        }
+            ok: false,
+            status: 503,
+            body: {
+              detail: 'Graph store is not reachable at bolt://localhost:7687.',
+              error_type: 'service_unavailable',
+              suggestions: ['Start the graphdb service.', 'Check services.graphdb.uri.'],
+            },
+          }
         : { ok: true, body: {} }
-    ));
+    );
 
     await mountGraph(host());
     const pane = host().querySelector('.explore-unknown--info');
@@ -691,12 +747,16 @@ describe('the informational pane', () => {
 
     expect(container.querySelectorAll('img, script')).toHaveLength(0);
     const hasOnAttr = [...container.querySelectorAll('*')].some((el) =>
-      [...el.attributes].some((attr) => attr.name.startsWith('on')));
+      [...el.attributes].some((attr) => attr.name.startsWith('on'))
+    );
     expect(hasOnAttr, 'no on* event-handler attribute').toBe(false);
     // Both halves still reach the reader, as text.
-    expect(container.querySelector('.explore-unknown-title')?.textContent)
-      .toBe(`Store said: ${attack}`);
-    expect(container.querySelector('.explore-unknown-body')?.textContent).toContain(`Try ${attack}`);
+    expect(container.querySelector('.explore-unknown-title')?.textContent).toBe(
+      `Store said: ${attack}`
+    );
+    expect(container.querySelector('.explore-unknown-body')?.textContent).toContain(
+      `Try ${attack}`
+    );
   });
 
   test('a recovered store draws the finder on the retry', async () => {
@@ -764,8 +824,9 @@ describe('the device card', () => {
     click('.result-table td.dev button.dev');
 
     await vi.waitFor(() => expect(host().querySelector('.device-card-error')).not.toBeNull());
-    expect(host().querySelector('.card-error')?.textContent)
-      .toBe(`No device at ${DEV}SR01C___QFA____`);
+    expect(host().querySelector('.card-error')?.textContent).toBe(
+      `No device at ${DEV}SR01C___QFA____`
+    );
     // The finder underneath is untouched, and the miss closes like a hit.
     expect(drawnPvs()).toHaveLength(3);
     click('.device-card [data-action="close-card"]');
@@ -824,8 +885,7 @@ describe('the device card', () => {
 
     // A 503 is not a missing device: it goes to the panel's own pane, which is
     // the one place with room for the remedy the store sent.
-    await vi.waitFor(() =>
-      expect(host().querySelector('.explore-unknown--info')).not.toBeNull());
+    await vi.waitFor(() => expect(host().querySelector('.explore-unknown--info')).not.toBeNull());
     const pane = host().querySelector('.explore-unknown--info');
     expect(pane?.textContent).toContain('Graph store is not reachable at bolt://localhost:7687.');
     expect(pane?.textContent).toContain('Start the graphdb service.');
@@ -878,7 +938,9 @@ describe('the selection', () => {
 
     await vi.waitFor(() => expect(mocks.showToast).toHaveBeenCalledTimes(1));
     expect(mocks.showToast).toHaveBeenCalledWith(
-      'Copy failed — select the text and copy manually', 'error');
+      'Copy failed — select the text and copy manually',
+      'error'
+    );
   });
 
   test("a row's copy button copies that one address", async () => {
@@ -893,7 +955,7 @@ describe('the selection', () => {
 });
 
 describe('sending to the assistant', () => {
-  test('embedded, Send posts one message to this page\'s own origin', async () => {
+  test("embedded, Send posts one message to this page's own origin", async () => {
     mocks.isEmbedded.mockReturnValue(true);
     const post = vi.fn();
     vi.stubGlobal('parent', { postMessage: post });
@@ -906,7 +968,7 @@ describe('sending to the assistant', () => {
     expect(post).toHaveBeenCalledTimes(1);
     expect(post).toHaveBeenCalledWith(
       { type: 'osprey-paste-to-terminal', text: DEMO_ROWS.map((r) => r.fullPv).join(' ') },
-      window.location.origin,
+      window.location.origin
     );
     expect(mocks.showToast).toHaveBeenCalledWith('Posted 3 addresses to the prompt', 'success');
   });
@@ -947,15 +1009,21 @@ test('unmounting clears the pane', async () => {
 function rightClick(selector) {
   const el = host().querySelector(selector);
   if (!el) throw new Error(`no element for ${selector}`);
-  const event = new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 40, clientY: 40 });
+  const event = new MouseEvent('contextmenu', {
+    bubbles: true,
+    cancelable: true,
+    clientX: 40,
+    clientY: 40,
+  });
   el.dispatchEvent(event);
   return event;
 }
 
 /** @returns {string[]} The rows of the open context menu, by label. */
 function menuLabels() {
-  return [...document.querySelectorAll('.osprey-context-menu .osprey-context-label')]
-    .map((label) => label.textContent ?? '');
+  return [...document.querySelectorAll('.osprey-context-menu .osprey-context-label')].map(
+    (label) => label.textContent ?? ''
+  );
 }
 
 /**
@@ -964,8 +1032,9 @@ function menuLabels() {
  * @returns {void}
  */
 function pick(label) {
-  const rowEl = [...document.querySelectorAll('.osprey-context-menu .osprey-context-item')]
-    .find((item) => item.querySelector('.osprey-context-label')?.textContent === label);
+  const rowEl = [...document.querySelectorAll('.osprey-context-menu .osprey-context-item')].find(
+    (item) => item.querySelector('.osprey-context-label')?.textContent === label
+  );
   if (!rowEl) throw new Error(`no menu row "${label}" in ${menuLabels().join(' | ')}`);
   /** @type {HTMLElement} */ (rowEl).click();
 }
@@ -983,7 +1052,9 @@ function press(el, key, init = {}) {
 
 /** @returns {string[]} The data columns drawn, in order. */
 function drawnColumns() {
-  return [...host().querySelectorAll('.result-table thead th[data-col]')].map((th) => th.getAttribute('data-col') ?? '');
+  return [...host().querySelectorAll('.result-table thead th[data-col]')].map(
+    (th) => th.getAttribute('data-col') ?? ''
+  );
 }
 
 describe('sorting', () => {
@@ -993,8 +1064,14 @@ describe('sorting', () => {
 
     click('.result-table th[data-col="device"]');
     await vi.waitFor(() => expect(callsTo(fetchMock, SEARCH_PATH)).toHaveLength(2));
-    expect(callsTo(fetchMock, SEARCH_PATH)[1]).toBe(`${SEARCH_PATH}?q=&page=1&sort=device&order=asc`);
-    await vi.waitFor(() => expect(host().querySelector('th[data-col="device"]')?.getAttribute('aria-sort')).toBe('ascending'));
+    expect(callsTo(fetchMock, SEARCH_PATH)[1]).toBe(
+      `${SEARCH_PATH}?q=&page=1&sort=device&order=asc`
+    );
+    await vi.waitFor(() =>
+      expect(host().querySelector('th[data-col="device"]')?.getAttribute('aria-sort')).toBe(
+        'ascending'
+      )
+    );
 
     click('.result-table th[data-col="device"]');
     await vi.waitFor(() => expect(callsTo(fetchMock, SEARCH_PATH)).toHaveLength(3));
@@ -1108,7 +1185,16 @@ describe('columns', () => {
 
     rightClick('.result-table th[data-col="device"]');
     pick('Reset columns');
-    expect(drawnColumns()).toEqual(['chk', 'device', 'section', 'address', 'dir', 'signal', 'description', 'act']);
+    expect(drawnColumns()).toEqual([
+      'chk',
+      'device',
+      'section',
+      'address',
+      'dir',
+      'signal',
+      'description',
+      'act',
+    ]);
   });
 
   test('Alt+arrow moves a focused header and keeps focus on it', async () => {
@@ -1129,7 +1215,9 @@ describe('the rail', () => {
     await mountGraph(host());
 
     click('button[data-facet-toggle="signal"]');
-    expect(host().querySelector('.facet[data-facet-group="signal"]')?.classList.contains('collapsed')).toBe(true);
+    expect(
+      host().querySelector('.facet[data-facet-group="signal"]')?.classList.contains('collapsed')
+    ).toBe(true);
     expect(JSON.parse(localStorage.getItem(PREFS_KEY) ?? '{}').collapsed).toEqual(['signal']);
   });
 
@@ -1137,7 +1225,9 @@ describe('the rail', () => {
     const fetchMock = stubDemo();
     await mountGraph(host());
     click('.facet-item[data-facet="section"][data-value="SR01C"]');
-    await vi.waitFor(() => expect(host().querySelector('button[data-clear-facet="section"]')).not.toBeNull());
+    await vi.waitFor(() =>
+      expect(host().querySelector('button[data-clear-facet="section"]')).not.toBeNull()
+    );
 
     click('button[data-clear-facet="section"]');
     await vi.waitFor(() => expect(callsTo(fetchMock, SEARCH_PATH)).toHaveLength(3));
@@ -1151,11 +1241,15 @@ describe('the inspector and the keyboard', () => {
     await mountGraph(host());
 
     click('.result-table td.dev button.dev');
-    await vi.waitFor(() => expect(host().querySelector('.finder-inspector .device-card')).not.toBeNull());
+    await vi.waitFor(() =>
+      expect(host().querySelector('.finder-inspector .device-card')).not.toBeNull()
+    );
     expect(host().querySelector('.finder-inspector')?.hasAttribute('hidden')).toBe(false);
     expect(host().querySelectorAll('tbody tr.open')).toHaveLength(2);
 
-    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+    document.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })
+    );
     expect(host().querySelector('.device-card')).toBeNull();
     expect(host().querySelector('.finder-inspector')?.hasAttribute('hidden')).toBe(true);
     expect(host().querySelectorAll('tbody tr.open')).toHaveLength(0);
@@ -1178,7 +1272,9 @@ describe('the inspector and the keyboard', () => {
     await vi.waitFor(() => expect(host().querySelector('.device-card')).not.toBeNull());
 
     click('.device-card [data-action="copy-device"]');
-    await vi.waitFor(() => expect(mocks.copyText).toHaveBeenCalledWith('SR01C___QFA____AM00\nSR01C___QFA____SP00'));
+    await vi.waitFor(() =>
+      expect(mocks.copyText).toHaveBeenCalledWith('SR01C___QFA____AM00\nSR01C___QFA____SP00')
+    );
     expect(mocks.showToast).toHaveBeenCalledWith('Copied 2 addresses', 'success');
   });
 
@@ -1186,7 +1282,8 @@ describe('the inspector and the keyboard', () => {
     const fetchMock = stubDemo();
     await mountGraph(host());
 
-    const rows = () => /** @type {HTMLElement[]} */ ([...host().querySelectorAll('tbody tr[data-pv]')]);
+    const rows = () =>
+      /** @type {HTMLElement[]} */ ([...host().querySelectorAll('tbody tr[data-pv]')]);
     rows()[0].focus();
     press(rows()[0], 'ArrowDown');
     expect(document.activeElement).toBe(rows()[1]);
@@ -1208,7 +1305,9 @@ describe('the inspector and the keyboard', () => {
     vi.spyOn(input, 'getClientRects').mockReturnValue(/** @type {any} */ ([{}]));
 
     document.body.focus();
-    document.dispatchEvent(new KeyboardEvent('keydown', { key: '/', bubbles: true, cancelable: true }));
+    document.dispatchEvent(
+      new KeyboardEvent('keydown', { key: '/', bubbles: true, cancelable: true })
+    );
     expect(document.activeElement).toBe(input);
   });
 });
@@ -1220,7 +1319,9 @@ describe('density', () => {
 
     click('button[data-density="compact"]');
     expect(host().querySelector('.graph-explorer')?.classList.contains('compact')).toBe(true);
-    expect(host().querySelector('button[data-density="compact"]')?.getAttribute('aria-pressed')).toBe('true');
+    expect(
+      host().querySelector('button[data-density="compact"]')?.getAttribute('aria-pressed')
+    ).toBe('true');
     expect(JSON.parse(localStorage.getItem(PREFS_KEY) ?? '{}').density).toBe('compact');
   });
 });
@@ -1231,7 +1332,10 @@ describe('the hub tile bar', () => {
     await mountGraph(host());
 
     const items = state.viewHeader?.items ?? [];
-    expect(items.map((item) => `${item.kind}:${item.id}`)).toEqual(['search:graph-search', 'menu:graph-more']);
+    expect(items.map((item) => `${item.kind}:${item.id}`)).toEqual([
+      'search:graph-search',
+      'menu:graph-more',
+    ]);
     const menu = items.find((item) => item.kind === 'menu');
     expect(menu?.items?.map((entry) => entry.id)).toContain('columns');
 
@@ -1246,7 +1350,9 @@ describe('the hub tile bar', () => {
     state.viewHeader?.onAction('graph-search', 'qfa');
     await vi.waitFor(() => expect(callsTo(fetchMock, SEARCH_PATH)).toHaveLength(2));
     expect(callsTo(fetchMock, SEARCH_PATH)[1]).toBe(`${SEARCH_PATH}?q=qfa&page=1`);
-    expect(/** @type {HTMLInputElement} */ (host().querySelector('#graph-finder-q')).value).toBe('qfa');
+    expect(/** @type {HTMLInputElement} */ (host().querySelector('#graph-finder-q')).value).toBe(
+      'qfa'
+    );
   });
 
   test('the tile-bar menu reaches the same verbs', async () => {
@@ -1255,8 +1361,9 @@ describe('the hub tile bar', () => {
 
     state.viewHeader?.onAction('graph-more', 'density-compact');
     expect(host().querySelector('.graph-explorer')?.classList.contains('compact')).toBe(true);
-    const compact = state.viewHeader?.items.find((item) => item.kind === 'menu')?.items
-      ?.find((entry) => entry.id === 'density-compact');
+    const compact = state.viewHeader?.items
+      .find((item) => item.kind === 'menu')
+      ?.items?.find((entry) => entry.id === 'density-compact');
     expect(/** @type {any} */ (compact)?.checked).toBe(true);
 
     state.viewHeader?.onAction('graph-more', 'columns');

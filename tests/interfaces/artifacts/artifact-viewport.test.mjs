@@ -3,13 +3,13 @@
  * (artifact-viewport.js).
  *
  * This module exists to be the ONE answer to "how does artifact X render?".
- * Before it, Expert's preview pane (preview.js) and Simple's result card
- * (gallery.js) each had their own dispatch — Expert's a full 9-branch switch
- * with async markdown/JSON/timeseries mounting, Simple's a borrowed
- * `thumbnailHtml()` that only knew <img>/<iframe> types and dropped markdown,
- * JSON, text, PDF and timeseries to a placeholder. Everything below is
- * therefore a parity guard as much as a dispatch guard: both panes call
- * exactly these two functions, so a type that renders here renders in both.
+ * Before it, the gallery had two full-size surfaces with a dispatch each —
+ * one a full 9-branch switch with async markdown/JSON/timeseries mounting,
+ * the other a borrowed `thumbnailHtml()` that only knew <img>/<iframe> types
+ * and dropped markdown, JSON, text, PDF and timeseries to a placeholder. The
+ * preview pane (preview.js) now calls exactly these two functions, standalone
+ * and as the embedded viewer alike, so a type that renders here renders
+ * wherever an artifact is shown full-size.
  *
  * Pure DOM/logic guard, happy-dom environment (configured globally) —
  * mirrors preview.test.mjs/preview-content.test.mjs:
@@ -101,7 +101,9 @@ describe('artifactViewportHtml: embedded pages carry the gallery theme', () => {
   test('the notebook rendered endpoint carries it too', () => {
     themeState.current = 'high-contrast-dark';
     const container = document.createElement('div');
-    container.innerHTML = artifactViewportHtml(makeArtifact({ id: 'nb1', artifact_type: 'notebook' }));
+    container.innerHTML = artifactViewportHtml(
+      makeArtifact({ id: 'nb1', artifact_type: 'notebook' })
+    );
 
     expect(qs(container, 'iframe').getAttribute('src')).toBe(
       '/api/notebooks/nb1/rendered?theme=high-contrast-dark'
@@ -114,6 +116,57 @@ describe('artifactViewportHtml: embedded pages carry the gallery theme', () => {
     container.innerHTML = artifactViewportHtml(makeArtifact({ artifact_type: 'plot_png' }));
 
     expect(qs(container, 'img').getAttribute('src')).not.toContain('theme=');
+  });
+});
+
+// C-OPAQUE / C-MSG: an iframe of a type the server serves sandboxed carries the
+// same token set as its `sandbox` attribute (the two intersect, and printing
+// needs `allow-modals` in both); never `allow-same-origin`, which would hand
+// agent-written script the console's origin. Inert types (PDF, text) carry no
+// attribute at all -- Chrome's PDF viewer does not render sandboxed.
+const OPAQUE_TOKENS = ['allow-downloads', 'allow-modals', 'allow-popups', 'allow-scripts'];
+
+/** @param {Element} el */
+function sandboxTokens(el) {
+  return (el.getAttribute('sandbox') ?? '').split(/\s+/).filter(Boolean).sort();
+}
+
+describe('artifactViewportHtml: iframe sandbox follows the served type', () => {
+  test.each([
+    ['plot_html', 'text/html'],
+    ['table_html', 'text/html'],
+    ['dashboard_html', 'text/html'],
+    ['html', 'text/html'],
+    ['html', undefined],
+    ['notebook', 'application/x-ipynb+json'],
+  ])(
+    'artifact_type "%s" (%s) is framed with exactly the C-OPAQUE tokens',
+    (artifact_type, mime_type) => {
+      const container = document.createElement('div');
+      container.innerHTML = artifactViewportHtml(makeArtifact({ artifact_type, mime_type }));
+
+      const frame = qs(container, 'iframe');
+      expect(sandboxTokens(frame)).toEqual(OPAQUE_TOKENS);
+      expect(frame.getAttribute('sandbox')).not.toContain('allow-same-origin');
+    }
+  );
+
+  test('a PDF frame carries no sandbox attribute', () => {
+    const container = document.createElement('div');
+    container.innerHTML = artifactViewportHtml(
+      makeArtifact({ artifact_type: 'weird_type', mime_type: 'application/pdf' })
+    );
+
+    expect(qs(container, 'iframe').hasAttribute('sandbox')).toBe(false);
+  });
+
+  test('a text frame (served text/plain whatever its own type) carries no sandbox attribute', () => {
+    const container = document.createElement('div');
+    container.innerHTML = artifactViewportHtml(
+      makeArtifact({ artifact_type: 'text', mime_type: 'application/x-tex' })
+    );
+
+    expect(qs(container, 'iframe').hasAttribute('sandbox')).toBe(false);
   });
 });
 
@@ -187,7 +240,7 @@ describe('artifactViewportHtml: per-type dispatch', () => {
     expect(container.querySelector('img')).toBeNull();
   });
 
-  test('emits no ids — both panes mount this markup, so ids would collide', () => {
+  test('emits no ids — each mount is found through its own container', () => {
     for (const artifact_type of ['markdown', 'json', 'text', 'html', 'image']) {
       const html = artifactViewportHtml(makeArtifact({ artifact_type }));
       expect(html).not.toMatch(/\sid=/);
@@ -258,32 +311,31 @@ describe('mountArtifactViewport: post-mount renderers', () => {
   });
 });
 
-describe('mountArtifactViewport: container scoping (the parity property)', () => {
+describe('mountArtifactViewport: container scoping', () => {
   test('mounting two viewports targets each container, not the first in the document', () => {
-    // The Expert pane and the Simple card can both hold a mounted viewport at
-    // once (renderPreview still runs while Simple is on screen). A dispatch
-    // that looked its containers up by document id would resolve both mounts
-    // to whichever came first in document order — the whole reason this markup
-    // carries classes instead.
-    const expertPane = document.createElement('div');
-    const simpleCard = document.createElement('div');
-    document.body.append(expertPane, simpleCard);
+    // The post-mount step must find its element through the container it is
+    // handed. A dispatch that looked its containers up by document id would
+    // resolve both mounts below to whichever came first in document order —
+    // the whole reason this markup carries classes instead.
+    const firstPane = document.createElement('div');
+    const secondPane = document.createElement('div');
+    document.body.append(firstPane, secondPane);
 
-    const expertArtifact = makeArtifact({ id: 'expert', artifact_type: 'markdown' });
-    const simpleArtifact = makeArtifact({ id: 'simple', artifact_type: 'markdown' });
+    const firstArtifact = makeArtifact({ id: 'first', artifact_type: 'markdown' });
+    const secondArtifact = makeArtifact({ id: 'second', artifact_type: 'markdown' });
 
-    expertPane.innerHTML = artifactViewportHtml(expertArtifact);
-    mountArtifactViewport(expertPane, expertArtifact, {});
-    simpleCard.innerHTML = artifactViewportHtml(simpleArtifact);
-    mountArtifactViewport(simpleCard, simpleArtifact, {});
+    firstPane.innerHTML = artifactViewportHtml(firstArtifact);
+    mountArtifactViewport(firstPane, firstArtifact, {});
+    secondPane.innerHTML = artifactViewportHtml(secondArtifact);
+    mountArtifactViewport(secondPane, secondArtifact, {});
 
     const calls = vi.mocked(renderMarkdownView).mock.calls;
     expect(calls).toHaveLength(2);
-    expect(calls[0][0]).toBe(expertPane.querySelector('.md-preview-container'));
-    expect(calls[1][0]).toBe(simpleCard.querySelector('.md-preview-container'));
+    expect(calls[0][0]).toBe(firstPane.querySelector('.md-preview-container'));
+    expect(calls[1][0]).toBe(secondPane.querySelector('.md-preview-container'));
     expect(calls[0][0]).not.toBe(calls[1][0]);
 
-    expertPane.remove();
-    simpleCard.remove();
+    firstPane.remove();
+    secondPane.remove();
   });
 });

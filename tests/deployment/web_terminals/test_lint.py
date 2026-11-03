@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 import yaml
 
+from osprey.agent_record.config import RETIRED_CONFIG_KEYS
 from osprey.deployment.web_terminals import lint
 from osprey.deployment.web_terminals.lint import (
     Finding,
@@ -25,7 +26,8 @@ from osprey.port_layout import (
     default_port,
 )
 from osprey.services.auth_sidecar.passwords import hash_password
-from osprey_connectors.workspace import APPS_DIRNAME, RETIRED_LAYER_DIRS, TIERS_DIRNAME
+from osprey.utils.workspace import APPS_DIRNAME, RETIRED_LAYER_DIRS, TIERS_DIRNAME
+from osprey_connectors.types import WRITES_KEY
 from tests._renders import app_render, tier_render
 
 # A second, non-default base whose block the explicit per-family overrides
@@ -39,7 +41,6 @@ _CLEAN_CONFIG = {
     "facility": {"prefix": "test"},
     "registry": {"url": "registry.example.org/demo"},
     "services": {
-        "telemetry_gateway": {"port": 4318},
         "postgresql": {"port_host": 5432},
         "event_dispatcher": {"port": 8020},
         # Reaches the dispatcher over the compose network and publishes nothing
@@ -90,18 +91,29 @@ def test_lint_clean_config_reports_no_error_findings() -> None:
     assert _errors(findings) == []
 
 
-def test_lint_duplicate_user_is_an_error() -> None:
-    """Repeating a username breaks the one-service-per-user invariant."""
+@pytest.mark.parametrize(
+    ("users", "code"),
+    [
+        # Repeating a username breaks the one-service-per-user invariant.
+        pytest.param(["alice", "alice"], "web_terminals.duplicate_user", id="duplicate-user"),
+        # Usernames become nginx `location` keys and URL path segments — must be
+        # ``^[a-z0-9][a-z0-9_-]*$``.
+        pytest.param(
+            ["Bad_User", "bob"], "web_terminals.invalid_username_charset", id="bad-charset"
+        ),
+    ],
+)
+def test_lint_an_unusable_roster_name_is_an_error(users: list[str], code: str) -> None:
     # Arrange
     config = copy.deepcopy(_CLEAN_CONFIG)
-    config["modules"]["web_terminals"]["users"] = ["alice", "alice"]
+    config["modules"]["web_terminals"]["users"] = users
 
     # Act
     findings = lint_web_terminals(config)
 
     # Assert
     errors = _errors(findings)
-    assert any(f.code == "web_terminals.duplicate_user" for f in errors)
+    assert any(f.code == code for f in errors)
 
 
 def test_lint_port_family_overlap_with_a_deployed_service_is_an_error() -> None:
@@ -109,9 +121,9 @@ def test_lint_port_family_overlap_with_a_deployed_service_is_an_error() -> None:
     any port a deployed service publishes."""
     # Arrange
     config = copy.deepcopy(_CLEAN_CONFIG)
-    # artifact_base_port's band starts at index 0 above; move the telemetry gateway onto
+    # artifact_base_port's band starts at index 0 above; move the event dispatcher onto
     # index 1, the port the second configured user would bind.
-    config["services"]["telemetry_gateway"]["port"] = default_port(
+    config["services"]["event_dispatcher"]["port"] = default_port(
         "artifact", 1, base=_OVERRIDE_PORT_BASE
     )
 
@@ -123,7 +135,7 @@ def test_lint_port_family_overlap_with_a_deployed_service_is_an_error() -> None:
     overlap_findings = [f for f in errors if f.code == "web_terminals.port_overlap"]
     assert overlap_findings
     assert any("artifact_base_port" in f.message for f in overlap_findings)
-    assert any("services.telemetry_gateway.port" in f.message for f in overlap_findings)
+    assert any("services.event_dispatcher.port" in f.message for f in overlap_findings)
 
 
 def test_lint_nginx_port_colliding_with_a_user_port_is_an_error() -> None:
@@ -229,9 +241,9 @@ def test_lint_username_matching_a_service_name_is_not_an_error() -> None:
 
 @pytest.mark.parametrize("name", ["sidecar", "dispatch-worker-1"])
 def test_lint_username_matching_a_service_audit_identity_is_an_error(name: str) -> None:
-    """Each user's container binds `var/audit/<user>/` read-write, so a user
-    named after a service's audit identity would read and rewrite the trail of
-    the component that records them. The render refuses it outright; this is the
+    """Each user's container binds `var/spool/<user>/` and `var/state/<user>/`
+    read-write, so a user named after a service's identity would read and
+    rewrite that service's spool and state. The render refuses it outright; this is the
     same rejection at scaffold time, before a deploy is attempted."""
     # Arrange
     config = copy.deepcopy(_CLEAN_CONFIG)
@@ -348,21 +360,6 @@ def test_lint_missing_base_port_is_not_an_error() -> None:
     assert not any(f.code == "web_terminals.incomplete_port_families" for f in _errors(findings))
 
 
-def test_lint_username_bad_charset_is_an_error() -> None:
-    """Usernames become nginx `location` keys and URL path segments — must be
-    ``^[a-z0-9][a-z0-9_-]*$``."""
-    # Arrange
-    config = copy.deepcopy(_CLEAN_CONFIG)
-    config["modules"]["web_terminals"]["users"] = ["Bad_User", "bob"]
-
-    # Act
-    findings = lint_web_terminals(config)
-
-    # Assert
-    errors = _errors(findings)
-    assert any(f.code == "web_terminals.invalid_username_charset" for f in errors)
-
-
 def test_lint_username_charset_rejects_leading_dash_underscore_space_and_uppercase() -> None:
     """Each of these must be rejected: leading `-`, leading `_`, an embedded space,
     and an uppercase-only name."""
@@ -448,25 +445,47 @@ def test_lint_tls_disabled_does_not_add_443_to_port_overlap_set() -> None:
 # --- index-related findings for object-form users ---------------------------
 
 
-def test_lint_duplicate_explicit_index_is_an_error() -> None:
-    """Two object-form users sharing an index would collide on every port family."""
+@pytest.mark.parametrize(
+    ("users", "code"),
+    [
+        # Two object-form users sharing an index would collide on every port family.
+        pytest.param(
+            [{"name": "alice", "index": 0}, {"name": "bob", "index": 0}],
+            "web_terminals.duplicate_index",
+            id="explicit-index",
+        ),
+        # Object-form users must still be caught by the pre-existing duplicate-name
+        # check (a dict is unhashable, so this exercises the name-based comparison).
+        pytest.param(
+            [{"name": "alice", "index": 0}, {"name": "alice", "index": 1}],
+            "web_terminals.duplicate_user",
+            id="object-form-name",
+        ),
+    ],
+)
+def test_lint_a_duplicate_object_form_user_is_an_error(users: list[dict], code: str) -> None:
     # Arrange
     config = copy.deepcopy(_CLEAN_CONFIG)
-    config["modules"]["web_terminals"]["users"] = [
-        {"name": "alice", "index": 0},
-        {"name": "bob", "index": 0},
-    ]
+    config["modules"]["web_terminals"]["users"] = users
 
     # Act
     findings = lint_web_terminals(config)
 
     # Assert
     errors = _errors(findings)
-    assert any(f.code == "web_terminals.duplicate_index" for f in errors)
+    assert any(f.code == code for f in errors)
 
 
-def test_lint_distinct_explicit_indices_are_not_a_duplicate_index_error() -> None:
-    """Distinct explicit indices must not falsely trigger the duplicate-index check."""
+@pytest.mark.parametrize(
+    "code",
+    [
+        # Distinct explicit indices must not falsely trigger the duplicate-index check.
+        pytest.param("web_terminals.duplicate_index", id="distinct-indices"),
+        # A well-formed object-form name must not trip the name-validation check.
+        pytest.param("web_terminals.invalid_username_charset", id="valid-name"),
+    ],
+)
+def test_lint_well_formed_object_form_users_report_no_roster_error(code: str) -> None:
     # Arrange
     config = copy.deepcopy(_CLEAN_CONFIG)
     config["modules"]["web_terminals"]["users"] = [
@@ -479,7 +498,7 @@ def test_lint_distinct_explicit_indices_are_not_a_duplicate_index_error() -> Non
 
     # Assert
     errors = _errors(findings)
-    assert not any(f.code == "web_terminals.duplicate_index" for f in errors)
+    assert not any(f.code == code for f in errors)
 
 
 def test_lint_missing_index_on_object_form_user_is_an_error() -> None:
@@ -496,32 +515,37 @@ def test_lint_missing_index_on_object_form_user_is_an_error() -> None:
     assert any(f.code == "web_terminals.invalid_index" for f in errors)
 
 
-def test_lint_non_integer_index_is_an_error() -> None:
-    """A string index (e.g. from a hand-edited YAML) is not a valid port offset."""
+@pytest.mark.parametrize(
+    ("users", "code"),
+    [
+        # A string index (e.g. from a hand-edited YAML) is not a valid port offset.
+        pytest.param(
+            [{"name": "alice", "index": "0"}], "web_terminals.invalid_index", id="non-integer-index"
+        ),
+        # `bool` is an `int` subclass in Python, but `index: true`/`false` is invalid.
+        pytest.param(
+            [{"name": "alice", "index": True}], "web_terminals.invalid_index", id="boolean-index"
+        ),
+        # Object-form entries must be held to the same charset rule as bare
+        # strings — usernames still become nginx location keys either way.
+        pytest.param(
+            [{"name": "Bad_User", "index": 0}],
+            "web_terminals.invalid_username_charset",
+            id="object-form-bad-charset",
+        ),
+    ],
+)
+def test_lint_an_unusable_object_form_user_is_an_error(users: list[dict], code: str) -> None:
     # Arrange
     config = copy.deepcopy(_CLEAN_CONFIG)
-    config["modules"]["web_terminals"]["users"] = [{"name": "alice", "index": "0"}]
+    config["modules"]["web_terminals"]["users"] = users
 
     # Act
     findings = lint_web_terminals(config)
 
     # Assert
     errors = _errors(findings)
-    assert any(f.code == "web_terminals.invalid_index" for f in errors)
-
-
-def test_lint_boolean_index_is_an_error() -> None:
-    """`bool` is an `int` subclass in Python, but `index: true`/`false` is invalid."""
-    # Arrange
-    config = copy.deepcopy(_CLEAN_CONFIG)
-    config["modules"]["web_terminals"]["users"] = [{"name": "alice", "index": True}]
-
-    # Act
-    findings = lint_web_terminals(config)
-
-    # Assert
-    errors = _errors(findings)
-    assert any(f.code == "web_terminals.invalid_index" for f in errors)
+    assert any(f.code == code for f in errors)
 
 
 def test_lint_negative_index_is_an_error() -> None:
@@ -615,41 +639,25 @@ def test_lint_has_no_rule_about_the_retired_login_key(method: str) -> None:
     assert not any("login: false" in f.message for f in findings)
 
 
-def test_lint_non_literal_user_access_is_an_error() -> None:
-    """An `access` value that is neither shorthand nor a principal list deploys
-    fail-closed as `own`, which may be the opposite of what the author believes
-    — so the typo is an ERROR rather than a silent narrowing."""
+@pytest.mark.parametrize(
+    "access",
+    [
+        # An `access` value that is neither shorthand nor a principal list deploys
+        # fail-closed as `own`, which may be the opposite of what the author believes
+        # — so the typo is an ERROR rather than a silent narrowing.
+        pytest.param("maybe", id="non-literal"),
+        # The vocabulary is lowercase — `access: ANY` silently deploys as `own`,
+        # so lint must call the spelling out.
+        pytest.param("ANY", id="wrong-case"),
+        # `access: true` (a plausible YAML slip for 'any') is neither shorthand nor
+        # a principal list, and deploys as `own` — an ERROR, not a widened entry.
+        pytest.param(True, id="boolean"),
+    ],
+)
+def test_lint_an_unusable_user_access_is_an_error(access: object) -> None:
     # Arrange
     config = copy.deepcopy(_CLEAN_CONFIG)
-    config["modules"]["web_terminals"]["users"] = [{"name": "alice", "index": 0, "access": "maybe"}]
-
-    # Act
-    findings = lint_web_terminals(config)
-
-    # Assert
-    assert any(f.code == "web_terminals.invalid_user_access" for f in _errors(findings))
-
-
-def test_lint_wrong_case_user_access_is_an_error() -> None:
-    """The vocabulary is lowercase — `access: ANY` silently deploys as `own`,
-    so lint must call the spelling out."""
-    # Arrange
-    config = copy.deepcopy(_CLEAN_CONFIG)
-    config["modules"]["web_terminals"]["users"] = [{"name": "alice", "index": 0, "access": "ANY"}]
-
-    # Act
-    findings = lint_web_terminals(config)
-
-    # Assert
-    assert any(f.code == "web_terminals.invalid_user_access" for f in _errors(findings))
-
-
-def test_lint_boolean_user_access_is_an_error() -> None:
-    """`access: true` (a plausible YAML slip for 'any') is neither shorthand nor
-    a principal list, and deploys as `own` — an ERROR, not a widened entry."""
-    # Arrange
-    config = copy.deepcopy(_CLEAN_CONFIG)
-    config["modules"]["web_terminals"]["users"] = [{"name": "alice", "index": 0, "access": True}]
+    config["modules"]["web_terminals"]["users"] = [{"name": "alice", "index": 0, "access": access}]
 
     # Act
     findings = lint_web_terminals(config)
@@ -779,28 +787,17 @@ def test_lint_roster_without_access_keys_reports_no_access_findings() -> None:
         ["domain:example.com"],
         ["user:alice@example.com"],
         ["self", "domain:example.com"],
+        # An authored ``access:`` with no value (YAML null) is the default spelled
+        # out: the resolver reads it as the entry's own login, so lint stays silent.
+        None,
     ],
 )
-def test_lint_well_formed_access_principal_lists_report_nothing(access: list[str]) -> None:
+def test_lint_well_formed_access_principal_lists_report_nothing(access: list[str] | None) -> None:
     """A well-formed principal list is the authored form the shorthands are
     sugar for — lint accepts every member kind the resolver does."""
     # Arrange
     config = copy.deepcopy(_CLEAN_CONFIG)
     config["modules"]["web_terminals"]["users"] = [{"name": "alice", "index": 0, "access": access}]
-
-    # Act
-    findings = lint_web_terminals(config)
-
-    # Assert
-    assert not any(f.code == "web_terminals.invalid_user_access" for f in findings)
-
-
-def test_lint_null_user_access_is_silent() -> None:
-    """An authored ``access:`` with no value (YAML null) is the default spelled
-    out: the resolver reads it as the entry's own login, so lint stays silent."""
-    # Arrange
-    config = copy.deepcopy(_CLEAN_CONFIG)
-    config["modules"]["web_terminals"]["users"] = [{"name": "alice", "index": 0, "access": None}]
 
     # Act
     findings = lint_web_terminals(config)
@@ -826,13 +823,27 @@ def test_lint_empty_access_list_is_an_error() -> None:
     assert "empty access list" in offenders[0].message
 
 
-def test_lint_unknown_access_prefix_is_an_error() -> None:
-    """A member carrying a prefix outside the vocabulary is refused, quoting the
+@pytest.mark.parametrize(
+    ("member", "reason"),
+    [
+        pytest.param("team:controls", "unknown prefix", id="unknown-prefix"),
+        # `group:` is the kind the vocabulary is expected to grow next, so lint
+        # refuses it by name — "not supported yet" is a different instruction to
+        # an operator than "unknown prefix".
+        pytest.param("group:operators", "not supported yet", id="group-prefix"),
+        # Only `self` and `roster` are written bare. A word that names no kind at
+        # all is the slip a reader of the shorthands makes, so the refusal says
+        # which members carry a prefix rather than only that this one is wrong.
+        pytest.param("everyone", "names no principal kind", id="bare-word"),
+    ],
+)
+def test_lint_access_member_outside_the_vocabulary_is_an_error(member: str, reason: str) -> None:
+    """A member outside the vocabulary is refused with its reason, quoting the
     member so the operator knows which line to edit."""
     # Arrange
     config = copy.deepcopy(_CLEAN_CONFIG)
     config["modules"]["web_terminals"]["users"] = [
-        {"name": "alice", "index": 0, "access": ["team:controls"]}
+        {"name": "alice", "index": 0, "access": [member]}
     ]
 
     # Act
@@ -841,8 +852,8 @@ def test_lint_unknown_access_prefix_is_an_error() -> None:
     # Assert
     offenders = [f for f in _errors(findings) if f.code == "web_terminals.invalid_user_access"]
     assert len(offenders) == 1
-    assert "'team:controls'" in offenders[0].message
-    assert "unknown prefix" in offenders[0].message
+    assert f"'{member}'" in offenders[0].message
+    assert reason in offenders[0].message
 
 
 def test_lint_non_string_access_member_is_an_error() -> None:
@@ -864,14 +875,29 @@ def test_lint_non_string_access_member_is_an_error() -> None:
     assert "not a string" in offenders[0].message
 
 
-def test_lint_group_access_member_says_not_supported_yet() -> None:
-    """`group:` is the kind the vocabulary is expected to grow next, so lint
-    refuses it by name — "not supported yet" is a different instruction to an
-    operator than "unknown prefix"."""
+@pytest.mark.parametrize(
+    ("member", "reason"),
+    [
+        # No identity claim holds a value with a space in it, and the member is
+        # compared byte-exact — so a pasted display name never matches anybody, and
+        # saying so at lint time is the only place it is caught.
+        pytest.param(
+            "user:alice smith@example.com",
+            "no usable identity after 'user:'",
+            id="whitespace",
+        ),
+        # The member is written into the deployment's compose file, where docker
+        # compose substitutes `$NAME` before the sidecar reads it — so a card would
+        # admit something other than what the roster says. Lint says it at author
+        # time, in the resolver's own words.
+        pytest.param("user:$ALICE@example.com", "'$'", id="dollar"),
+    ],
+)
+def test_lint_an_unusable_user_access_member_is_an_error(member: str, reason: str) -> None:
     # Arrange
     config = copy.deepcopy(_CLEAN_CONFIG)
     config["modules"]["web_terminals"]["users"] = [
-        {"name": "alice", "index": 0, "access": ["group:operators"]}
+        {"name": "alice", "index": 0, "access": [member]}
     ]
 
     # Act
@@ -880,48 +906,8 @@ def test_lint_group_access_member_says_not_supported_yet() -> None:
     # Assert
     offenders = [f for f in _errors(findings) if f.code == "web_terminals.invalid_user_access"]
     assert len(offenders) == 1
-    assert "'group:operators'" in offenders[0].message
-    assert "not supported yet" in offenders[0].message
-
-
-def test_lint_bare_access_word_outside_the_vocabulary_is_an_error() -> None:
-    """Only `self` and `roster` are written bare. A word that names no kind at
-    all is the slip a reader of the shorthands makes, so the refusal says which
-    members carry a prefix rather than only that this one is wrong."""
-    # Arrange
-    config = copy.deepcopy(_CLEAN_CONFIG)
-    config["modules"]["web_terminals"]["users"] = [
-        {"name": "alice", "index": 0, "access": ["everyone"]}
-    ]
-
-    # Act
-    findings = lint_web_terminals(config)
-
-    # Assert
-    offenders = [f for f in _errors(findings) if f.code == "web_terminals.invalid_user_access"]
-    assert len(offenders) == 1
-    assert "'everyone'" in offenders[0].message
-    assert "names no principal kind" in offenders[0].message
-
-
-def test_lint_user_access_member_with_whitespace_is_an_error() -> None:
-    """No identity claim holds a value with a space in it, and the member is
-    compared byte-exact — so a pasted display name never matches anybody, and
-    saying so at lint time is the only place it is caught."""
-    # Arrange
-    config = copy.deepcopy(_CLEAN_CONFIG)
-    config["modules"]["web_terminals"]["users"] = [
-        {"name": "alice", "index": 0, "access": ["user:alice smith@example.com"]}
-    ]
-
-    # Act
-    findings = lint_web_terminals(config)
-
-    # Assert
-    offenders = [f for f in _errors(findings) if f.code == "web_terminals.invalid_user_access"]
-    assert len(offenders) == 1
-    assert "'user:alice smith@example.com'" in offenders[0].message
-    assert "no usable identity after 'user:'" in offenders[0].message
+    assert f"'{member}'" in offenders[0].message
+    assert reason in offenders[0].message
 
 
 def test_lint_domain_access_member_holding_an_address_is_an_error() -> None:
@@ -943,27 +929,6 @@ def test_lint_domain_access_member_holding_an_address_is_an_error() -> None:
     assert "'domain:alice@example.com'" in offenders[0].message
     assert "not a bare domain" in offenders[0].message
     assert "'user:'" in offenders[0].message
-
-
-def test_lint_access_member_carrying_a_dollar_is_an_error() -> None:
-    """The member is written into the deployment's compose file, where docker
-    compose substitutes `$NAME` before the sidecar reads it — so a card would
-    admit something other than what the roster says. Lint says it at author
-    time, in the resolver's own words."""
-    # Arrange
-    config = copy.deepcopy(_CLEAN_CONFIG)
-    config["modules"]["web_terminals"]["users"] = [
-        {"name": "alice", "index": 0, "access": ["user:$ALICE@example.com"]}
-    ]
-
-    # Act
-    findings = lint_web_terminals(config)
-
-    # Assert
-    offenders = [f for f in _errors(findings) if f.code == "web_terminals.invalid_user_access"]
-    assert len(offenders) == 1
-    assert "'user:$ALICE@example.com'" in offenders[0].message
-    assert "'$'" in offenders[0].message
 
 
 def test_lint_malformed_access_reports_one_finding_per_entry() -> None:
@@ -1135,56 +1100,6 @@ def test_lint_mixed_roster_does_not_crash_and_does_not_warn_about_port_drift_ris
     assert not any(f.code == "web_terminals.bare_list_port_drift_risk" for f in warnings)
 
 
-def test_lint_object_form_bad_charset_is_an_error() -> None:
-    """Object-form entries must be held to the same charset rule as bare
-    strings — usernames still become nginx location keys either way."""
-    # Arrange
-    config = copy.deepcopy(_CLEAN_CONFIG)
-    config["modules"]["web_terminals"]["users"] = [{"name": "Bad_User", "index": 0}]
-
-    # Act
-    findings = lint_web_terminals(config)
-
-    # Assert
-    errors = _errors(findings)
-    assert any(f.code == "web_terminals.invalid_username_charset" for f in errors)
-
-
-def test_lint_object_form_valid_name_reports_no_charset_error() -> None:
-    """A well-formed object-form name must not trip the name-validation check."""
-    # Arrange
-    config = copy.deepcopy(_CLEAN_CONFIG)
-    config["modules"]["web_terminals"]["users"] = [
-        {"name": "alice", "index": 0},
-        {"name": "bob", "index": 1},
-    ]
-
-    # Act
-    findings = lint_web_terminals(config)
-
-    # Assert
-    errors = _errors(findings)
-    assert not any(f.code == "web_terminals.invalid_username_charset" for f in errors)
-
-
-def test_lint_object_form_duplicate_name_is_still_a_duplicate_user_error() -> None:
-    """Object-form users must still be caught by the pre-existing duplicate-name
-    check (a dict is unhashable, so this exercises the name-based comparison)."""
-    # Arrange
-    config = copy.deepcopy(_CLEAN_CONFIG)
-    config["modules"]["web_terminals"]["users"] = [
-        {"name": "alice", "index": 0},
-        {"name": "alice", "index": 1},
-    ]
-
-    # Act
-    findings = lint_web_terminals(config)
-
-    # Assert
-    errors = _errors(findings)
-    assert any(f.code == "web_terminals.duplicate_user" for f in errors)
-
-
 # --- render catalog identity/reference checks -------------------------------
 
 
@@ -1300,29 +1215,21 @@ def test_lint_default_tier_in_catalog_reports_no_error() -> None:
     assert not any(f.code == "web_terminals.unknown_default_tier" for f in errors)
 
 
-def test_lint_render_bad_charset_is_an_error() -> None:
-    """A render name becomes an image-tag suffix and a path component; it's
-    held to the same charset as usernames."""
+@pytest.mark.parametrize(
+    "render_name",
+    [
+        # A render name becomes an image-tag suffix and a path component; it's
+        # held to the same charset as usernames.
+        pytest.param("Bad Render", id="bad-charset"),
+        # Same `fullmatch`-not-`match` rule as the username charset check: a render
+        # name with a trailing newline is not clean.
+        pytest.param("ops\n", id="trailing-newline"),
+    ],
+)
+def test_lint_render_bad_charset_is_an_error(render_name: str) -> None:
     # Arrange
     config = _tier_config(
-        {"Bad Render": {"project": "als-x"}},
-        users=[{"name": "alice", "index": 0}],
-    )
-
-    # Act
-    findings = lint_web_terminals(config)
-
-    # Assert
-    errors = _errors(findings)
-    assert any(f.code == "web_terminals.invalid_render_charset" for f in errors)
-
-
-def test_lint_render_charset_rejects_a_trailing_newline() -> None:
-    """Same `fullmatch`-not-`match` rule as the username charset check: a render
-    name with a trailing newline is not clean."""
-    # Arrange
-    config = _tier_config(
-        {"ops\n": {"project": "als-x"}},
+        {render_name: {"project": "als-x"}},
         users=[{"name": "alice", "index": 0}],
     )
 
@@ -1476,8 +1383,17 @@ def test_lint_registry_mode_without_registry_url_is_an_error() -> None:
     assert any(f.code == "web_terminals.registry_mode_missing_url" for f in errors)
 
 
-def test_lint_registry_mode_with_registry_url_reports_no_missing_url_error() -> None:
-    """A registry.url that is actually set clears the coherence error."""
+@pytest.mark.parametrize(
+    "code",
+    [
+        # A registry.url that is actually set clears the coherence error.
+        pytest.param("web_terminals.registry_mode_missing_url", id="registry-url-set"),
+        # The default tier's image is built by the core CI job, not a
+        # per-render one — it never needs `build_profile`.
+        pytest.param("web_terminals.render_missing_build_profile", id="default-tier-exempt"),
+    ],
+)
+def test_lint_registry_mode_with_registry_url_reports_no_coherence_error(code: str) -> None:
     # Arrange
     config = _render_config(registry={"url": "registry.example.org:5050"})
 
@@ -1486,7 +1402,7 @@ def test_lint_registry_mode_with_registry_url_reports_no_missing_url_error() -> 
 
     # Assert
     errors = _errors(findings)
-    assert not any(f.code == "web_terminals.registry_mode_missing_url" for f in errors)
+    assert not any(f.code == code for f in errors)
 
 
 def test_lint_no_render_catalog_still_requires_registry_url() -> None:
@@ -1506,8 +1422,17 @@ def test_lint_no_render_catalog_still_requires_registry_url() -> None:
     assert "deploy.registry.url" in missing[0].message
 
 
-def test_lint_no_render_catalog_with_registry_url_reports_no_missing_url_error() -> None:
-    """A no-catalog config that sets registry.url carries no coherence error."""
+@pytest.mark.parametrize(
+    "code",
+    [
+        # A no-catalog config that sets registry.url carries no coherence error.
+        pytest.param("web_terminals.registry_mode_missing_url", id="no-catalog-with-registry-url"),
+        # The default (unset) `image_tag` resolves to `latest`, so the empty-tag
+        # check stays silent for an ordinary registry-mode config.
+        pytest.param("web_terminals.empty_image_tag", id="default-image-tag"),
+    ],
+)
+def test_lint_an_ordinary_registry_mode_config_reports_no_coherence_finding(code: str) -> None:
     # Arrange
     config = copy.deepcopy(_CLEAN_CONFIG)
 
@@ -1515,7 +1440,7 @@ def test_lint_no_render_catalog_with_registry_url_reports_no_missing_url_error()
     findings = lint_web_terminals(config)
 
     # Assert
-    assert not any(f.code == "web_terminals.registry_mode_missing_url" for f in findings)
+    assert not any(f.code == code for f in findings)
 
 
 def test_lint_local_mode_with_registry_url_is_a_warning() -> None:
@@ -1676,18 +1601,36 @@ def test_lint_local_mode_project_path_not_a_directory_is_an_error(tmp_path) -> N
     assert any(f.code == "web_terminals.render_project_path_not_dir" for f in errors)
 
 
-def test_lint_local_mode_missing_dockerfile_is_an_error(tmp_path) -> None:
-    """A project_path directory with no Dockerfile can't be built."""
+@pytest.mark.parametrize(
+    ("present", "missing_code"),
+    [
+        # A project_path directory with no Dockerfile can't be built.
+        pytest.param("config.yml", "render_missing_dockerfile", id="no-dockerfile"),
+        # One with no config.yml can't be existence-checked for its own
+        # project_name, and can't confirm the render's identity.
+        pytest.param("Dockerfile", "render_missing_config_yml", id="no-config-yml"),
+    ],
+)
+@pytest.mark.parametrize("build_profile", [False, True], ids=["unbuilt", "with-build-profile"])
+def test_lint_local_mode_incomplete_project_dir_is_an_error(
+    tmp_path, present: str, missing_code: str, build_profile: bool
+) -> None:
+    """A local-mode project_path directory missing its Dockerfile or config.yml is
+    a hard error. A build_profile does NOT rescue a directory that already exists
+    but is incomplete: the warning is for a render that has not happened yet, and
+    a directory that is there but missing one of the two is a partial render."""
     # Arrange
     project_dir = tmp_path / "als-assistant"
     project_dir.mkdir()
-    (project_dir / "config.yml").write_text("project_name: als-assistant\n")
+    contents = {"config.yml": "project_name: als-assistant\n", "Dockerfile": "FROM scratch\n"}
+    (project_dir / present).write_text(contents[present])
+    extra = {"build_profile": f"{TIERS_DIRNAME}/assistant.yml"} if build_profile else {}
     config = _render_config(
         web_terminals={
             "image_source": "local",
             "renders": {
                 "assistant": tier_render(
-                    "assistant", "als-assistant", project_path=str(project_dir)
+                    "assistant", "als-assistant", project_path=str(project_dir), **extra
                 ),
             },
         }
@@ -1698,33 +1641,11 @@ def test_lint_local_mode_missing_dockerfile_is_an_error(tmp_path) -> None:
 
     # Assert
     errors = _errors(findings)
-    assert any(f.code == "web_terminals.render_missing_dockerfile" for f in errors)
-
-
-def test_lint_local_mode_missing_config_yml_is_an_error(tmp_path) -> None:
-    """A project_path directory with no config.yml can't be existence-checked
-    for its own project_name, and can't confirm the render's identity."""
-    # Arrange
-    project_dir = tmp_path / "als-assistant"
-    project_dir.mkdir()
-    (project_dir / "Dockerfile").write_text("FROM scratch\n")
-    config = _render_config(
-        web_terminals={
-            "image_source": "local",
-            "renders": {
-                "assistant": tier_render(
-                    "assistant", "als-assistant", project_path=str(project_dir)
-                ),
-            },
-        }
-    )
-
-    # Act
-    findings = lint_web_terminals(config)
-
-    # Assert
-    errors = _errors(findings)
-    assert any(f.code == "web_terminals.render_missing_config_yml" for f in errors)
+    assert any(f.code == f"web_terminals.{missing_code}" for f in errors)
+    if build_profile:
+        assert not any(
+            f.code == "web_terminals.render_project_path_not_rendered_yet" for f in findings
+        )
 
 
 def test_lint_local_mode_well_formed_project_path_reports_no_error(tmp_path) -> None:
@@ -1888,68 +1809,6 @@ def test_lint_local_mode_missing_project_path_without_build_profile_stays_an_err
     # Assert
     errors = _errors(findings)
     assert any(f.code == "web_terminals.render_project_path_not_dir" for f in errors)
-    assert not any(f.code == "web_terminals.render_project_path_not_rendered_yet" for f in findings)
-
-
-def test_lint_local_mode_partial_render_missing_dockerfile_stays_an_error(tmp_path) -> None:
-    """A build_profile does NOT rescue a directory that already exists but is
-    incomplete. The warning is for a render that has not happened yet; a
-    directory that is there but missing its Dockerfile is a partial render, and
-    that stays a hard error."""
-    # Arrange
-    project_dir = tmp_path / "als-assistant"
-    project_dir.mkdir()
-    (project_dir / "config.yml").write_text("project_name: als-assistant\n")
-    config = _render_config(
-        web_terminals={
-            "image_source": "local",
-            "renders": {
-                "assistant": tier_render(
-                    "assistant",
-                    "als-assistant",
-                    project_path=str(project_dir),
-                    build_profile=f"{TIERS_DIRNAME}/assistant.yml",
-                ),
-            },
-        }
-    )
-
-    # Act
-    findings = lint_web_terminals(config)
-
-    # Assert
-    errors = _errors(findings)
-    assert any(f.code == "web_terminals.render_missing_dockerfile" for f in errors)
-    assert not any(f.code == "web_terminals.render_project_path_not_rendered_yet" for f in findings)
-
-
-def test_lint_local_mode_partial_render_missing_config_yml_stays_an_error(tmp_path) -> None:
-    """Same partial-render rule for a missing config.yml inside an existing dir:
-    the build_profile does not demote it."""
-    # Arrange
-    project_dir = tmp_path / "als-assistant"
-    project_dir.mkdir()
-    (project_dir / "Dockerfile").write_text("FROM scratch\n")
-    config = _render_config(
-        web_terminals={
-            "image_source": "local",
-            "renders": {
-                "assistant": tier_render(
-                    "assistant",
-                    "als-assistant",
-                    project_path=str(project_dir),
-                    build_profile=f"{TIERS_DIRNAME}/assistant.yml",
-                ),
-            },
-        }
-    )
-
-    # Act
-    findings = lint_web_terminals(config)
-
-    # Assert
-    errors = _errors(findings)
-    assert any(f.code == "web_terminals.render_missing_config_yml" for f in errors)
     assert not any(f.code == "web_terminals.render_project_path_not_rendered_yet" for f in findings)
 
 
@@ -2349,20 +2208,6 @@ def test_lint_registry_mode_non_default_tier_without_build_profile_is_an_error()
     assert any("analysis" in f.message for f in missing_profile)
 
 
-def test_lint_registry_mode_default_tier_is_exempt_from_build_profile() -> None:
-    """The default tier's image is built by the core CI job, not a
-    per-render one — it never needs `build_profile`."""
-    # Arrange
-    config = _render_config(registry={"url": "registry.example.org:5050"})
-
-    # Act
-    findings = lint_web_terminals(config)
-
-    # Assert
-    errors = _errors(findings)
-    assert not any(f.code == "web_terminals.render_missing_build_profile" for f in errors)
-
-
 def test_lint_registry_mode_non_default_tier_with_build_profile_reports_no_error() -> None:
     """Setting build_profile on the non-default tier clears the error."""
     # Arrange
@@ -2518,19 +2363,6 @@ def test_lint_omitted_mcp_topology_reports_no_error() -> None:
     assert not any(f.code == "web_terminals.unknown_mcp_topology" for f in errors)
 
 
-def test_lint_default_image_tag_reports_no_warning() -> None:
-    """The default (unset) `image_tag` resolves to `latest`, so the empty-tag
-    check stays silent for an ordinary registry-mode config."""
-    # Arrange
-    config = copy.deepcopy(_CLEAN_CONFIG)
-
-    # Act
-    findings = lint_web_terminals(config)
-
-    # Assert
-    assert not any(f.code == "web_terminals.empty_image_tag" for f in findings)
-
-
 def test_lint_empty_expanded_image_tag_is_a_warning(monkeypatch) -> None:
     """A registry-mode `image_tag` referencing an unset env var expands to empty
     and must produce a (non-fatal) warning, never an error."""
@@ -2571,33 +2403,50 @@ def test_lint_empty_image_tag_in_local_mode_reports_no_warning(monkeypatch) -> N
 # --- nginx_image override -----------------------------------------------------
 
 
-def test_lint_omitted_nginx_image_reports_nothing() -> None:
-    """No `nginx_image` key (the common case) applies the render-time default and
-    must never be flagged."""
+@pytest.mark.parametrize(
+    "key",
+    [
+        # No `nginx_image` key (the common case) applies the render-time default and
+        # must never be flagged.
+        pytest.param("nginx_image", id="nginx-image"),
+        # No `external_origin` key (the common case) derives the origin from
+        # `deploy.fqdn` and must never be flagged.
+        pytest.param("external_origin", id="external-origin"),
+    ],
+)
+def test_lint_an_omitted_optional_key_reports_nothing(key: str) -> None:
     # Arrange
     config = copy.deepcopy(_CLEAN_CONFIG)
-    assert "nginx_image" not in config["modules"]["web_terminals"]
+    assert key not in config["modules"]["web_terminals"]
 
     # Act
     findings = lint_web_terminals(config)
 
     # Assert
-    assert not any("nginx_image" in f.code for f in findings)
+    assert not any(key in f.code for f in findings)
 
 
-def test_lint_valid_nginx_image_string_reports_nothing() -> None:
-    """A non-empty string image reference is accepted silently."""
+@pytest.mark.parametrize(
+    ("key", "value"),
+    [
+        # A non-empty string image reference is accepted silently.
+        pytest.param(
+            "nginx_image", "registry.example.com:5050/mirrors/nginx:1.31-alpine", id="nginx-image"
+        ),
+        # scheme://host[:port] is exactly what a browser sends as `Origin`.
+        pytest.param("external_origin", "https://terminals.example.org", id="external-origin"),
+    ],
+)
+def test_lint_a_valid_optional_string_reports_nothing(key: str, value: str) -> None:
     # Arrange
     config = copy.deepcopy(_CLEAN_CONFIG)
-    config["modules"]["web_terminals"]["nginx_image"] = (
-        "registry.example.com:5050/mirrors/nginx:1.31-alpine"
-    )
+    config["modules"]["web_terminals"][key] = value
 
     # Act
     findings = lint_web_terminals(config)
 
     # Assert
-    assert not any("nginx_image" in f.code for f in findings)
+    assert not any(key in f.code for f in findings)
 
 
 def test_lint_non_string_nginx_image_is_an_error() -> None:
@@ -2633,57 +2482,26 @@ def test_lint_empty_nginx_image_is_a_warning() -> None:
 # --- external_origin override -------------------------------------------------
 
 
-def test_lint_omitted_external_origin_reports_nothing() -> None:
-    """No `external_origin` key (the common case) derives the origin from
-    `deploy.fqdn` and must never be flagged."""
+@pytest.mark.parametrize(
+    "external_origin",
+    [
+        # The quiet failure this exists to catch.
+        #
+        # The value is compared against the browser's `Origin` header as a whole
+        # string, and no browser sends a trailing slash — so the deployment's pages
+        # all load and its every write answers 403, with the only signal inside a
+        # container.
+        pytest.param("https://terminals.example.org/", id="trailing-slash"),
+        # The origin's host is nginx's server name, where a leading `~` is a pattern.
+        pytest.param("https://~terminals.example.org", id="nginx-would-read-as-a-pattern"),
+        # A non-string cannot be an origin — fail closed, as render does.
+        pytest.param(20000, id="non-string"),
+    ],
+)
+def test_lint_an_unusable_external_origin_is_an_error(external_origin: object) -> None:
     # Arrange
     config = copy.deepcopy(_CLEAN_CONFIG)
-    assert "external_origin" not in config["modules"]["web_terminals"]
-
-    # Act
-    findings = lint_web_terminals(config)
-
-    # Assert
-    assert not any("external_origin" in f.code for f in findings)
-
-
-def test_lint_valid_external_origin_reports_nothing() -> None:
-    """scheme://host[:port] is exactly what a browser sends as `Origin`."""
-    # Arrange
-    config = copy.deepcopy(_CLEAN_CONFIG)
-    config["modules"]["web_terminals"]["external_origin"] = "https://terminals.example.org"
-
-    # Act
-    findings = lint_web_terminals(config)
-
-    # Assert
-    assert not any("external_origin" in f.code for f in findings)
-
-
-def test_lint_external_origin_with_a_trailing_slash_is_an_error() -> None:
-    """The quiet failure this exists to catch.
-
-    The value is compared against the browser's `Origin` header as a whole
-    string, and no browser sends a trailing slash — so the deployment's pages
-    all load and its every write answers 403, with the only signal inside a
-    container.
-    """
-    # Arrange
-    config = copy.deepcopy(_CLEAN_CONFIG)
-    config["modules"]["web_terminals"]["external_origin"] = "https://terminals.example.org/"
-
-    # Act
-    findings = lint_web_terminals(config)
-
-    # Assert
-    assert any(f.code == "web_terminals.invalid_external_origin" for f in _errors(findings))
-
-
-def test_lint_external_origin_nginx_would_read_as_a_pattern_is_an_error() -> None:
-    """The origin's host is nginx's server name, where a leading `~` is a pattern."""
-    # Arrange
-    config = copy.deepcopy(_CLEAN_CONFIG)
-    config["modules"]["web_terminals"]["external_origin"] = "https://~terminals.example.org"
+    config["modules"]["web_terminals"]["external_origin"] = external_origin
 
     # Act
     findings = lint_web_terminals(config)
@@ -2702,19 +2520,6 @@ def test_lint_cleartext_external_origin_under_tls_is_an_error() -> None:
         "key": "/etc/nginx/certs/dls.key",
     }
     config["modules"]["web_terminals"]["external_origin"] = "http://terminals.example.org:10000"
-
-    # Act
-    findings = lint_web_terminals(config)
-
-    # Assert
-    assert any(f.code == "web_terminals.invalid_external_origin" for f in _errors(findings))
-
-
-def test_lint_non_string_external_origin_is_an_error() -> None:
-    """A non-string cannot be an origin — fail closed, as render does."""
-    # Arrange
-    config = copy.deepcopy(_CLEAN_CONFIG)
-    config["modules"]["web_terminals"]["external_origin"] = 20000
 
     # Act
     findings = lint_web_terminals(config)
@@ -2898,23 +2703,19 @@ def test_lint_absent_auth_stanza_reports_no_auth_findings() -> None:
     assert _auth_findings(findings) == []
 
 
-def test_lint_auth_method_none_reports_no_auth_findings() -> None:
-    """`method: none` is the explicit spelling of the default, over plain HTTP."""
+@pytest.mark.parametrize(
+    "method",
+    [
+        # `method: none` is the explicit spelling of the default, over plain HTTP.
+        pytest.param("none", id="none"),
+        # `method:` with nothing after it parses to None — an omitted value, which
+        # is the documented default, not a typo to reject.
+        pytest.param(None, id="written-with-no-value"),
+    ],
+)
+def test_lint_auth_method_spelling_the_default_reports_no_auth_findings(method: str | None) -> None:
     # Arrange
-    config = _auth_config({"method": "none"}, tls=False, fqdn=None)
-
-    # Act
-    findings = lint_web_terminals(config)
-
-    # Assert
-    assert _auth_findings(findings) == []
-
-
-def test_lint_auth_method_written_with_no_value_reports_no_auth_findings() -> None:
-    """`method:` with nothing after it parses to None — an omitted value, which
-    is the documented default, not a typo to reject."""
-    # Arrange
-    config = _auth_config({"method": None}, tls=False, fqdn=None)
+    config = _auth_config({"method": method}, tls=False, fqdn=None)
 
     # Act
     findings = lint_web_terminals(config)
@@ -2937,17 +2738,27 @@ def test_lint_unknown_auth_method_is_an_error() -> None:
     assert any("'basic'" in f.message for f in errors)
 
 
-def test_lint_empty_auth_method_string_is_an_error() -> None:
-    """An empty `method` silently falls back to 'token' at render time (no login wall),
-    so lint is where an operator learns the stanza is inert."""
+@pytest.mark.parametrize(
+    ("auth", "code"),
+    [
+        # An empty `method` silently falls back to 'token' at render time (no login wall),
+        # so lint is where an operator learns the stanza is inert.
+        pytest.param({"method": ""}, "web_terminals.unknown_auth_method", id="empty-method"),
+        # The issuer has no default: without it there is no IdP to redirect to.
+        pytest.param(
+            {"method": "oidc"}, "web_terminals.auth_oidc_missing_issuer", id="oidc-without-issuer"
+        ),
+    ],
+)
+def test_lint_an_unusable_auth_stanza_is_an_error(auth: dict, code: str) -> None:
     # Arrange
-    config = _auth_config({"method": ""})
+    config = _auth_config(auth)
 
     # Act
     findings = lint_web_terminals(config)
 
     # Assert
-    assert any(f.code == "web_terminals.unknown_auth_method" for f in _errors(findings))
+    assert any(f.code == code for f in _errors(findings))
 
 
 def test_lint_non_string_auth_method_is_an_error() -> None:
@@ -3683,18 +3494,6 @@ def test_lint_clean_oidc_auth_config_reports_no_auth_findings() -> None:
     assert _auth_findings(findings) == []
 
 
-def test_lint_auth_oidc_without_issuer_is_an_error() -> None:
-    """The issuer has no default: without it there is no IdP to redirect to."""
-    # Arrange
-    config = _auth_config({"method": "oidc"})
-
-    # Act
-    findings = lint_web_terminals(config)
-
-    # Assert
-    assert any(f.code == "web_terminals.auth_oidc_missing_issuer" for f in _errors(findings))
-
-
 def test_lint_auth_oidc_with_empty_issuer_is_an_error() -> None:
     """An empty issuer is as unusable as an absent one."""
     # Arrange
@@ -3707,9 +3506,17 @@ def test_lint_auth_oidc_with_empty_issuer_is_an_error() -> None:
     assert any(f.code == "web_terminals.auth_oidc_missing_issuer" for f in _errors(findings))
 
 
-def test_lint_auth_oidc_omitted_client_env_names_report_no_error() -> None:
-    """Both env-var names carry a documented OSPREY_AUTH_OIDC_* default, so
-    omitting them is a valid config, not a missing field."""
+@pytest.mark.parametrize(
+    "code",
+    [
+        # Both env-var names carry a documented OSPREY_AUTH_OIDC_* default, so
+        # omitting them is a valid config, not a missing field.
+        pytest.param("web_terminals.auth_oidc_invalid_client_env", id="client-env-names"),
+        # The sidecar ships `openid profile email`, so omitting the key is valid.
+        pytest.param("web_terminals.auth_oidc_invalid_scopes", id="scopes"),
+    ],
+)
+def test_lint_auth_oidc_omitted_optional_keys_report_no_error(code: str) -> None:
     # Arrange
     config = _auth_config({"method": "oidc", "oidc": {"issuer": "https://idp.example.org"}})
 
@@ -3717,9 +3524,7 @@ def test_lint_auth_oidc_omitted_client_env_names_report_no_error() -> None:
     findings = lint_web_terminals(config)
 
     # Assert
-    assert not any(
-        f.code == "web_terminals.auth_oidc_invalid_client_env" for f in _errors(findings)
-    )
+    assert not any(f.code == code for f in _errors(findings))
 
 
 def test_lint_auth_oidc_empty_client_id_env_is_an_error() -> None:
@@ -3757,18 +3562,6 @@ def test_lint_auth_oidc_non_string_client_secret_env_is_an_error() -> None:
     errors = _errors(findings)
     assert any(f.code == "web_terminals.auth_oidc_invalid_client_env" for f in errors)
     assert any("client_secret_env" in f.message for f in errors)
-
-
-def test_lint_auth_oidc_omitted_scopes_report_no_error() -> None:
-    """The sidecar ships `openid profile email`, so omitting the key is valid."""
-    # Arrange
-    config = _auth_config({"method": "oidc", "oidc": {"issuer": "https://idp.example.org"}})
-
-    # Act
-    findings = lint_web_terminals(config)
-
-    # Assert
-    assert not any(f.code == "web_terminals.auth_oidc_invalid_scopes" for f in _errors(findings))
 
 
 @pytest.mark.parametrize(
@@ -4067,14 +3860,27 @@ def test_lint_duplicate_email_subjects_differing_only_in_case_are_an_error() -> 
     assert "alice-admin" in offenders[0].message
 
 
-def test_lint_sub_subjects_differing_only_in_case_are_distinct() -> None:
-    """The default ``sub`` claim is case-sensitive at the sidecar, so the
-    same two spellings are two identities there — and two here."""
+@pytest.mark.parametrize(
+    ("second_name", "first_subject", "second_subject"),
+    [
+        # The default ``sub`` claim is case-sensitive at the sidecar, so the
+        # same two spellings are two identities there — and two here.
+        pytest.param(
+            "alice-admin", "IDP|Thorsten", "idp|thorsten", id="sub-differing-only-in-case"
+        ),
+        # A shared card alone is not the finding — every subject mapping to one
+        # entry resolves unambiguously.
+        pytest.param("bob", "thorsten@example.org", "bob@example.org", id="distinct-subjects"),
+    ],
+)
+def test_lint_distinct_subjects_on_a_shared_card_are_not_a_duplicate_subject(
+    second_name: str, first_subject: str, second_subject: str
+) -> None:
     # Arrange
     config = _auth_config({"method": "oidc", "oidc": {"issuer": "https://idp.example.org"}})
     config["modules"]["web_terminals"]["users"] = [
-        {"name": "alice", "index": 0, "oidc_subject": "IDP|Thorsten"},
-        {"name": "alice-admin", "index": 1, "oidc_subject": "idp|thorsten"},
+        {"name": "alice", "index": 0, "oidc_subject": first_subject},
+        {"name": second_name, "index": 1, "oidc_subject": second_subject},
         {"name": "control", "index": 2, "access": "any"},
     ]
 
@@ -4094,24 +3900,6 @@ def test_lint_duplicate_subject_without_a_shared_card_reports_nothing() -> None:
     config["modules"]["web_terminals"]["users"] = [
         {"name": "alice", "index": 0, "oidc_subject": "thorsten@example.org"},
         {"name": "alice-admin", "index": 1, "oidc_subject": "thorsten@example.org"},
-    ]
-
-    # Act
-    findings = lint_web_terminals(config)
-
-    # Assert
-    assert not any(f.code == "web_terminals.shared_card_duplicate_subject" for f in findings)
-
-
-def test_lint_distinct_subjects_with_a_shared_card_report_nothing() -> None:
-    """A shared card alone is not the finding — every subject mapping to one
-    entry resolves unambiguously."""
-    # Arrange
-    config = _auth_config({"method": "oidc", "oidc": {"issuer": "https://idp.example.org"}})
-    config["modules"]["web_terminals"]["users"] = [
-        {"name": "alice", "index": 0, "oidc_subject": "thorsten@example.org"},
-        {"name": "bob", "index": 1, "oidc_subject": "bob@example.org"},
-        {"name": "control", "index": 2, "access": "any"},
     ]
 
     # Act
@@ -4282,16 +4070,44 @@ def test_lint_roster_shorthands_under_password_report_nothing() -> None:
     assert _coded(findings, "access_principal_without_idp") == []
 
 
-def test_lint_access_principal_under_oidc_reports_no_password_finding() -> None:
-    """The rule is about the method that asserts no claims; oidc asserts them."""
+@pytest.mark.parametrize(
+    ("claim", "members", "code"),
+    [
+        # The rule is about the method that asserts no claims; oidc asserts them.
+        pytest.param(
+            "email",
+            ["user:alice@example.com"],
+            "access_principal_without_idp",
+            id="principal-under-oidc",
+        ),
+        # The one claim that carries a domain — the shape this feature exists for.
+        pytest.param(
+            "email",
+            ["domain:example.com"],
+            "access_domain_without_email_claim",
+            id="domain-with-the-email-claim",
+        ),
+        # `user:` names the value of whatever claim the deployment maps on, so an
+        # opaque one is exactly what it is for.
+        pytest.param(
+            "sub",
+            ["user:8a41-ff02"],
+            "access_domain_without_email_claim",
+            id="user-needs-no-email-claim",
+        ),
+    ],
+)
+def test_lint_access_principal_under_oidc_reports_nothing(
+    claim: str, members: list[str], code: str
+) -> None:
     # Arrange
-    config = _principal_config(_oidc(claim="email"), ["user:alice@example.com"])
+    config = _principal_config(_oidc(claim=claim), members)
 
     # Act
     findings = lint_web_terminals(config)
 
     # Assert
-    assert _coded(findings, "access_principal_without_idp") == []
+    assert _coded(findings, code) == []
 
 
 def test_lint_access_principal_without_a_wall_reports_nothing() -> None:
@@ -4363,31 +4179,6 @@ def test_lint_domain_principal_with_an_opaque_claim_is_an_error() -> None:
     assert "auth.oidc.claim is 'sub'" in offenders[0].message
 
 
-def test_lint_domain_principal_with_the_email_claim_reports_nothing() -> None:
-    """The one claim that carries a domain — the shape this feature exists for."""
-    # Arrange
-    config = _principal_config(_oidc(claim="email"), ["domain:example.com"])
-
-    # Act
-    findings = lint_web_terminals(config)
-
-    # Assert
-    assert _coded(findings, "access_domain_without_email_claim") == []
-
-
-def test_lint_user_principal_needs_no_email_claim() -> None:
-    """`user:` names the value of whatever claim the deployment maps on, so an
-    opaque one is exactly what it is for."""
-    # Arrange
-    config = _principal_config(_oidc(claim="sub"), ["user:8a41-ff02"])
-
-    # Act
-    findings = lint_web_terminals(config)
-
-    # Assert
-    assert _coded(findings, "access_domain_without_email_claim") == []
-
-
 def test_lint_domain_claim_check_is_mode_gated() -> None:
     """Under `password` the member is already reported once, by the rule that
     says no claim arrives at all; saying it twice buries both."""
@@ -4423,10 +4214,19 @@ def test_lint_user_principals_differing_only_in_case_are_an_error() -> None:
     assert "'email' claim" in offenders[0].message
 
 
-def test_lint_repeated_user_principal_is_an_error() -> None:
-    """An exact repeat is a duplicate under every claim, opaque ones included."""
+@pytest.mark.parametrize(
+    "members",
+    [
+        # An exact repeat is a duplicate under every claim, opaque ones included.
+        pytest.param(["user:8a41-ff02", "user:8a41-ff02"], id="user"),
+        # A literal repeat, and under a claim that folds nothing: the domain fold
+        # is the resolver's, not the claim's, so it holds for every deployment.
+        pytest.param(["domain:example.com", "domain:example.com"], id="domain"),
+    ],
+)
+def test_lint_repeated_principal_is_an_error(members: list[str]) -> None:
     # Arrange
-    config = _principal_config(_oidc(claim="sub"), ["user:8a41-ff02", "user:8a41-ff02"])
+    config = _principal_config(_oidc(claim="sub"), members)
 
     # Act
     findings = lint_web_terminals(config)
@@ -4437,26 +4237,24 @@ def test_lint_repeated_user_principal_is_an_error() -> None:
     assert "the same member more than once" in offenders[0].message
 
 
-def test_lint_user_principals_differing_in_case_under_an_opaque_claim_are_kept() -> None:
-    """Outside an `email` claim the value is opaque and compared byte-exact, so
-    two cases of one string are two identities an identity provider may well
-    keep distinct — the resolver leaves `user:` byte-exact for that reason."""
+@pytest.mark.parametrize(
+    ("claim", "members"),
+    [
+        # Outside an `email` claim the value is opaque and compared byte-exact, so
+        # two cases of one string are two identities an identity provider may well
+        # keep distinct — the resolver leaves `user:` byte-exact for that reason.
+        pytest.param("sub", ["user:8A41-FF02", "user:8a41-ff02"], id="case-under-opaque-claim"),
+        # The shape this rule must never touch: a card admitting two people.
+        pytest.param(
+            "email", ["user:alice@example.com", "user:bob@example.com"], id="distinct-users"
+        ),
+        # Two facilities on one card is the shape this rule must never touch.
+        pytest.param("email", ["domain:example.com", "domain:example.net"], id="distinct-domains"),
+    ],
+)
+def test_lint_distinct_principals_report_no_duplicate(claim: str, members: list[str]) -> None:
     # Arrange
-    config = _principal_config(_oidc(claim="sub"), ["user:8A41-FF02", "user:8a41-ff02"])
-
-    # Act
-    findings = lint_web_terminals(config)
-
-    # Assert
-    assert _coded(findings, "duplicate_access_principal") == []
-
-
-def test_lint_distinct_user_principals_report_nothing() -> None:
-    """The shape this rule must never touch: a card admitting two people."""
-    # Arrange
-    config = _principal_config(
-        _oidc(claim="email"), ["user:alice@example.com", "user:bob@example.com"]
-    )
+    config = _principal_config(_oidc(claim=claim), members)
 
     # Act
     findings = lint_web_terminals(config)
@@ -4522,33 +4320,6 @@ def test_lint_domain_principals_differing_only_in_case_are_an_error() -> None:
     assert "domain:Example.com" in offenders[0].message
     assert "domain:example.com" in offenders[0].message
     assert "domains compare without regard to case" in offenders[0].message
-
-
-def test_lint_repeated_domain_principal_is_an_error() -> None:
-    """A literal repeat, and under a claim that folds nothing: the domain fold
-    is the resolver's, not the claim's, so it holds for every deployment."""
-    # Arrange
-    config = _principal_config(_oidc(claim="sub"), ["domain:example.com", "domain:example.com"])
-
-    # Act
-    findings = lint_web_terminals(config)
-
-    # Assert
-    offenders = _coded(_errors(findings), "duplicate_access_principal")
-    assert len(offenders) == 1
-    assert "the same member more than once" in offenders[0].message
-
-
-def test_lint_distinct_domain_principals_report_nothing() -> None:
-    """Two facilities on one card is the shape this rule must never touch."""
-    # Arrange
-    config = _principal_config(_oidc(claim="email"), ["domain:example.com", "domain:example.net"])
-
-    # Act
-    findings = lint_web_terminals(config)
-
-    # Assert
-    assert _coded(findings, "duplicate_access_principal") == []
 
 
 def test_lint_shared_card_subject_warning_quotes_the_authored_access() -> None:
@@ -4706,14 +4477,14 @@ def test_lint_profile_config_reports_a_port_collision_with_a_declared_service() 
     config = _profile_config()
     # The second user's web-terminal port: a facility service parked on a port
     # the layout has already spent is what the rule is for.
-    config["services.telemetry_gateway.port"] = default_port("web", 1)
+    config["services.event_dispatcher.port"] = default_port("web", 1)
 
     # Act
     findings = lint_profile_config(config)
 
     # Assert
     overlap = [f for f in _errors(findings) if f.code == "web_terminals.port_overlap"]
-    assert any("services.telemetry_gateway.port" in f.message for f in overlap)
+    assert any("services.event_dispatcher.port" in f.message for f in overlap)
 
 
 def test_lint_profile_config_lets_a_deeper_dotted_key_refine_the_subtree() -> None:
@@ -4777,18 +4548,27 @@ def _write_posture_config(tmp_path, delta_config: dict, **profile_keys: object) 
     return config
 
 
-def test_lint_readonly_tier_inheriting_an_armed_connector_block_is_an_error(
-    tmp_path,
+@pytest.mark.parametrize(
+    "flat_key",
+    [
+        # The write hole this check was written for — the delta pins the flat key
+        # off while the profile it is merged over arms one connector type — no longer
+        # opens. Each document's retired leaves are rewritten to `control_system.writes`
+        # before any merge (PR-3), so the delta states `never`, the tier overrides the
+        # root, and the render resolves `never`: nothing to report.
+        pytest.param(False, id="readonly-tier-over-an-armed-connector-block"),
+        # Nothing is hidden from an author who wrote `writes_enabled: true`: that
+        # render claims no read-only posture for an inherited block to contradict.
+        pytest.param(True, id="render-arms-the-flat-key"),
+    ],
+)
+def test_lint_a_render_over_an_armed_connector_block_is_not_a_write_hole(
+    tmp_path, flat_key: bool
 ) -> None:
-    """The write hole this check exists for: the delta pins the flat key off, so
-    it reads as a read-only tier, while the profile it is merged over arms one
-    connector type — and a per-type key never falls back to the flat one, so the
-    render is armed. The message has to name the file that was written and the
-    inherited key, because those are the two things the author cannot see."""
     # Arrange
     config = _write_posture_config(
         tmp_path,
-        {"control_system.writes_enabled": False},
+        {"control_system.writes_enabled": flat_key},
         **{"control_system.connector.epics.writes_enabled": True},
     )
 
@@ -4796,12 +4576,7 @@ def test_lint_readonly_tier_inheriting_an_armed_connector_block_is_an_error(
     findings = lint_profile_config(config, profile_root=tmp_path)
 
     # Assert
-    holes = [f for f in _errors(findings) if f.code == _WRITE_HOLE_CODE]
-    assert len(holes) == 1, findings
-    message = holes[0].message
-    assert f"{TIERS_DIRNAME}/tier.yml" in message
-    assert "control_system.connector.epics.writes_enabled" in message
-    assert "control_system.writes_enabled" in message
+    assert [f for f in findings if f.code == _WRITE_HOLE_CODE] == []
 
 
 def test_lint_render_that_pins_the_inherited_block_itself_is_not_a_write_hole(
@@ -4847,23 +4622,6 @@ def test_lint_render_that_arms_the_block_itself_is_not_a_write_hole(tmp_path) ->
     assert [f for f in findings if f.code == _WRITE_HOLE_CODE] == []
 
 
-def test_lint_render_that_arms_the_flat_key_is_not_a_write_hole(tmp_path) -> None:
-    """Nothing is hidden from an author who wrote `writes_enabled: true`: that
-    render claims no read-only posture for an inherited block to contradict."""
-    # Arrange
-    config = _write_posture_config(
-        tmp_path,
-        {"control_system.writes_enabled": True},
-        **{"control_system.connector.epics.writes_enabled": True},
-    )
-
-    # Act
-    findings = lint_profile_config(config, profile_root=tmp_path)
-
-    # Assert
-    assert [f for f in findings if f.code == _WRITE_HOLE_CODE] == []
-
-
 def test_lint_render_that_says_nothing_about_write_posture_is_not_a_write_hole(
     tmp_path,
 ) -> None:
@@ -4873,7 +4631,7 @@ def test_lint_render_that_says_nothing_about_write_posture_is_not_a_write_hole(
     # Arrange
     config = _write_posture_config(
         tmp_path,
-        {"web.ui_mode": "simple"},
+        {"web.theme": "main"},
         **{
             "control_system.writes_enabled": False,
             "control_system.connector.epics.writes_enabled": True,
@@ -4887,10 +4645,10 @@ def test_lint_render_that_says_nothing_about_write_posture_is_not_a_write_hole(
     assert [f for f in findings if f.code == _WRITE_HOLE_CODE] == []
 
 
-def test_lint_write_hole_is_found_through_a_nested_spelling(tmp_path) -> None:
+def test_lint_write_hole_stays_closed_through_a_nested_spelling(tmp_path) -> None:
     """The inherited block may be written as a nested subtree rather than as one
-    dotted key. A guard that reads only one of two equivalent spellings is a
-    guard an author steps around without knowing there was one."""
+    dotted key; the rewrite reads every spelling, so the nested block is `allowed`
+    at the root and the delta's `never` still wins."""
     # Arrange
     config = _write_posture_config(
         tmp_path,
@@ -4902,9 +4660,123 @@ def test_lint_write_hole_is_found_through_a_nested_spelling(tmp_path) -> None:
     findings = lint_profile_config(config, profile_root=tmp_path)
 
     # Assert
-    holes = [f for f in _errors(findings) if f.code == _WRITE_HOLE_CODE]
-    assert len(holes) == 1, findings
-    assert "control_system.connector.epics.writes_enabled" in holes[0].message
+    assert [f for f in findings if f.code == _WRITE_HOLE_CODE] == []
+
+
+@pytest.mark.parametrize(
+    ("tier_word", "root_word"),
+    [
+        ("asked", "allowed"),
+        ("allowed", "asked"),
+        ("asked", "never"),
+        ("never", "asked"),
+        ("never", "allowed"),
+    ],
+)
+def test_lint_a_tier_word_over_a_root_word_is_not_a_write_hole(
+    tmp_path, tier_word, root_word
+) -> None:
+    """An authored arming word claims no read-only posture, and an authored `never`
+    is the last layer, so it wins: the chain resolves to what the tier wrote."""
+    # Arrange
+    config = _write_posture_config(tmp_path, {WRITES_KEY: tier_word}, **{WRITES_KEY: root_word})
+
+    # Act
+    findings = lint_profile_config(config, profile_root=tmp_path)
+
+    # Assert
+    assert [f for f in findings if f.code == _WRITE_HOLE_CODE] == []
+
+
+@pytest.mark.parametrize("resolved", ["allowed", "asked"])
+def test_lint_write_hole_names_the_word_the_chain_resolves_to(
+    tmp_path, monkeypatch, resolved
+) -> None:
+    """The guard's one reachable shape: the chain disagrees with the authored `never`.
+    The merge cannot produce it today, so the chain is stated here directly."""
+    # Arrange
+    config = _write_posture_config(tmp_path, {WRITES_KEY: "never"})
+    chain = lint._TierLayers(
+        layers=({WRITES_KEY: resolved},),
+        authored={WRITES_KEY: "never"},
+        source=f"{TIERS_DIRNAME}/tier.yml",
+        is_delta=True,
+    )
+    monkeypatch.setattr(lint, "_profile_tier_layers", lambda *_a, **_k: chain)
+
+    # Act
+    findings = lint_profile_config(config, profile_root=tmp_path)
+
+    # Assert
+    [finding] = [f for f in findings if f.code == _WRITE_HOLE_CODE]
+    assert finding.severity == "error"
+    assert f"sets {WRITES_KEY}: never" in finding.message
+    assert f"resolves {WRITES_KEY}: {resolved} from" in finding.message
+
+
+def test_lint_write_hole_skips_an_authored_word_that_is_not_never(tmp_path, monkeypatch) -> None:
+    """`asked` is not a read-only claim, whatever the rest of the chain says."""
+    # Arrange
+    config = _write_posture_config(tmp_path, {WRITES_KEY: "asked"})
+    chain = lint._TierLayers(
+        layers=({WRITES_KEY: "allowed"},),
+        authored={WRITES_KEY: "asked"},
+        source=f"{TIERS_DIRNAME}/tier.yml",
+        is_delta=True,
+    )
+    monkeypatch.setattr(lint, "_profile_tier_layers", lambda *_a, **_k: chain)
+
+    # Act
+    findings = lint_profile_config(config, profile_root=tmp_path)
+
+    # Assert
+    assert [f for f in findings if f.code == _WRITE_HOLE_CODE] == []
+
+
+@pytest.mark.parametrize(
+    ("layers", "expected"),
+    [
+        pytest.param((), False, id="no-layers"),
+        pytest.param(({}, {}), False, id="silent-chain-is-never"),
+        pytest.param(({WRITES_KEY: "allowed"},), True, id="allowed"),
+        pytest.param(({WRITES_KEY: "asked"},), True, id="asked"),
+        pytest.param(({WRITES_KEY: "never"},), False, id="never"),
+        pytest.param(({WRITES_KEY: "asked"}, {WRITES_KEY: "never"}), False, id="never-last"),
+        pytest.param(({WRITES_KEY: "never"}, {WRITES_KEY: "asked"}), True, id="asked-last"),
+        pytest.param(({WRITES_KEY: "asked"}, {}), True, id="silent-layer-inherits"),
+        pytest.param(({WRITES_KEY: True},), False, id="raw-non-string-is-never"),
+        pytest.param(({WRITES_KEY: "on"},), False, id="retired-word-is-never"),
+        pytest.param(
+            ({"control_system.writes_enabled": True},), True, id="retired-leaf-reads-allowed"
+        ),
+    ],
+)
+def test_layers_allow_writes_reads_the_resolved_word(layers, expected) -> None:
+    assert lint._layers_allow_writes(*layers) is expected
+
+
+@pytest.mark.parametrize(
+    ("layer", "expected"),
+    [
+        ({WRITES_KEY: "never"}, "never"),
+        ({WRITES_KEY: "asked"}, "asked"),
+        ({WRITES_KEY: "allowed"}, "allowed"),
+        ({}, None),
+    ],
+)
+def test_layer_writes_returns_the_word_the_layer_states(layer, expected) -> None:
+    assert lint._layer_writes(layer) == expected
+
+
+def test_lint_app_render_refuses_asked() -> None:
+    """Only the literal `never` is an app's pin: `asked` arms."""
+    # Arrange / Act
+    findings = lint.lint_app_render({"config": {WRITES_KEY: "asked"}, "hooks": []})
+
+    # Assert
+    [finding] = findings
+    assert finding.code == "web_terminals.app_render_holds_privilege"
+    assert f"{WRITES_KEY} is not pinned to never" in finding.message
 
 
 def test_lint_rendered_project_reports_no_write_hole(tmp_path) -> None:
@@ -4975,11 +4847,13 @@ def test_lint_shipped_write_posture_tiers_report_no_write_hole(tmp_path: Path, t
     assert [f.message for f in findings if f.code == _WRITE_HOLE_CODE] == []
 
 
-def test_lint_preset_render_inheriting_an_armed_block_is_an_error(tmp_path, monkeypatch) -> None:
-    """The same hole on the other authoring path: a catalog entry naming a
-    bundled preset, whose posture is split between the preset and the parent it
-    extends. Read after `extends` resolution the two files are indistinguishable
-    from one, which is why the preset is read a second time unresolved."""
+def test_lint_preset_render_over_an_armed_parent_is_closed_by_construction(
+    tmp_path, monkeypatch
+) -> None:
+    """The same shape on the other authoring path: a catalog entry naming a
+    bundled preset whose parent arms one connector block. The preset's own flat
+    `false` is `never` and overrides the parent's `allowed`, so the render
+    resolves `never` and there is no hole."""
     # Arrange
     from osprey.cli import build_profile_presets
 
@@ -5024,10 +4898,7 @@ def test_lint_preset_render_inheriting_an_armed_block_is_an_error(tmp_path, monk
     findings = lint_profile_config(config)
 
     # Assert
-    holes = [f for f in _errors(findings) if f.code == _WRITE_HOLE_CODE]
-    assert len(holes) == 1, findings
-    assert "facility-readonly" in holes[0].message
-    assert "control_system.connector.epics.writes_enabled" in holes[0].message
+    assert [f for f in findings if f.code == _WRITE_HOLE_CODE] == []
 
 
 def _shipped_preset_names() -> list[str]:
@@ -5976,10 +5847,44 @@ def test_lint_live_writer_inheriting_the_global_flag_is_a_warn(tmp_path) -> None
     assert len(findings) == 1, findings
 
 
-def test_lint_live_writer_with_control_identity_reports_nothing(tmp_path) -> None:
-    """Setting control_identity is the remedy the WARN asks for."""
+@pytest.mark.parametrize("word", ["allowed", "asked"])
+def test_lint_live_writer_acknowledgment_runs_for_both_arming_words(tmp_path, word) -> None:
+    """Both words reach the real machine; the WARN names the one the render holds."""
     # Arrange
-    config = _live_writer_config(tmp_path, user={"control_identity": "ahellert"})
+    config = _live_writer_config(tmp_path, {"control_system.type": "epics", WRITES_KEY: word})
+
+    # Act
+    findings = _live_writer_findings(lint_profile_config(config, profile_root=tmp_path))
+
+    # Assert
+    [finding] = findings
+    assert finding.severity == "warn"
+    assert f"{WRITES_KEY}: {word} reaches the live machine" in finding.message
+
+
+def test_lint_live_writer_on_a_never_tier_reports_nothing(tmp_path) -> None:
+    # Arrange
+    config = _live_writer_config(tmp_path, {"control_system.type": "epics", WRITES_KEY: "never"})
+
+    # Act
+    findings = _live_writer_findings(lint_profile_config(config, profile_root=tmp_path))
+
+    # Assert
+    assert findings == []
+
+
+@pytest.mark.parametrize(
+    "user",
+    [
+        # Setting control_identity is the remedy the WARN asks for.
+        pytest.param({"control_identity": "ahellert"}, id="with-control-identity"),
+        # A shared card must not carry one person's identity, so it is not asked for.
+        pytest.param({"access": "any"}, id="on-a-shared-card"),
+    ],
+)
+def test_lint_live_writer_with_nothing_to_ask_reports_nothing(tmp_path, user: dict) -> None:
+    # Arrange
+    config = _live_writer_config(tmp_path, user=user)
 
     # Act
     findings = lint_profile_config(config, profile_root=tmp_path)
@@ -6033,8 +5938,9 @@ def test_lint_walled_mock_deployment_armed_for_writes_reports_nothing(tmp_path) 
     assert _live_writer_findings(findings) == []
 
 
-def test_lint_live_type_pinned_off_under_an_armed_flat_key_reports_nothing(tmp_path) -> None:
-    """A per-type `false` does not fall back to a flat `true`."""
+def test_lint_live_type_pinned_off_under_an_armed_flat_key_is_a_live_writer(tmp_path) -> None:
+    """The tier is target-blind (PR-3): any literal `true` rewrites to `allowed`,
+    and an `allowed` tier may write to `live` whatever its type's retired leaf says."""
     # Arrange
     config = _live_writer_config(
         tmp_path,
@@ -6049,7 +5955,7 @@ def test_lint_live_type_pinned_off_under_an_armed_flat_key_reports_nothing(tmp_p
     findings = lint_profile_config(config, profile_root=tmp_path)
 
     # Assert
-    assert _live_writer_findings(findings) == []
+    assert [f.severity for f in _live_writer_findings(findings)] == ["warn"], findings
 
 
 @pytest.mark.parametrize("auth", [{"method": "none"}, {"method": "token"}])
@@ -6057,18 +5963,6 @@ def test_lint_live_writer_on_an_unwalled_deployment_reports_nothing(tmp_path, au
     """With no login wall there is no person behind a card to name."""
     # Arrange
     config = _live_writer_config(tmp_path, auth=auth)
-
-    # Act
-    findings = lint_profile_config(config, profile_root=tmp_path)
-
-    # Assert
-    assert _live_writer_findings(findings) == []
-
-
-def test_lint_live_writer_on_a_shared_card_reports_nothing(tmp_path) -> None:
-    """A shared card must not carry one person's identity, so it is not asked for."""
-    # Arrange
-    config = _live_writer_config(tmp_path, user={"access": "any"})
 
     # Act
     findings = lint_profile_config(config, profile_root=tmp_path)
@@ -6087,6 +5981,50 @@ def test_lint_live_writer_rule_is_silent_on_the_shipped_preset() -> None:
 
     # Assert
     assert _live_writer_findings(findings) == []
+
+
+_SIMULATOR_BASELINE_DELTA = {
+    "control_system.type": "virtual_accelerator",
+    "control_system.writes": "allowed",
+    "control_system.connector.epics.timeout_s": 5.0,
+}
+
+
+def test_lint_unauthored_live_beside_a_simulator_baseline_is_not_reached(tmp_path) -> None:
+    """A `live` block with no gateways or probe_channel is never switched to, so
+    an `allowed` tier on a simulator baseline writes nothing there to attribute."""
+    # Arrange
+    config = _live_writer_config(tmp_path, dict(_SIMULATOR_BASELINE_DELTA))
+
+    # Act
+    findings = lint_profile_config(config, profile_root=tmp_path)
+
+    # Assert
+    assert _live_writer_findings(findings) == []
+
+
+def test_lint_switchable_live_beside_a_simulator_baseline_is_a_live_writer(tmp_path) -> None:
+    """Once `live` names its gateways and a probe_channel, the switch can move an
+    `allowed` session onto it, and the card must say who is writing."""
+    # Arrange
+    gateway = {"address": "gw.example.org", "port": 5064}
+    config = _live_writer_config(
+        tmp_path,
+        {
+            **_SIMULATOR_BASELINE_DELTA,
+            "control_system.connector.epics.probe_channel": "SR:DCCT",
+            "control_system.connector.epics.gateways": {
+                "read_only": dict(gateway),
+                "write_access": dict(gateway),
+            },
+        },
+    )
+
+    # Act
+    findings = lint_profile_config(config, profile_root=tmp_path)
+
+    # Assert
+    assert [f.severity for f in _live_writer_findings(findings)] == ["warn"], findings
 
 
 # --- profile altitude: the tiers/ and apps/ files are the renders -------------
@@ -6168,3 +6106,259 @@ def test_lint_profile_tier_files_do_not_mutate_the_caller_config(tmp_path) -> No
 
     # Assert
     assert "renders" not in config["modules.web_terminals"]
+
+
+# ── The history page ─────────────────────────────────────────────────────────
+#
+# The history page's origin, its scope values, its readers' carriers and who is
+# starting a deployment that records host sessions: the rules about the page are
+# this lint's, asked where the page is deployed and with no store in sight.
+
+#: Password sign-in over TLS, which is what deploys the history page.
+_HISTORY_WEB = {"tls": {"enabled": True}, "auth": {"method": "password"}}
+
+
+def _history_config(web=None, **top):
+    return {"modules": {"web_terminals": {"enabled": True, **_HISTORY_WEB, **(web or {})}}, **top}
+
+
+def _history_codes(config, prefix="web_terminals.") -> list[str]:
+    history = (
+        "history",
+        "history_origin",
+        "unbound_history_role",
+        "invalid_history",
+        "history_carrier_collision",
+    )
+    return [
+        f.code
+        for f in lint.lint_web_terminals(config)
+        if f.code.startswith(prefix) and any(word in f.code for word in history)
+    ]
+
+
+def _history_one(config, code: str):
+    (finding,) = [f for f in lint.lint_web_terminals(config) if f.code == code]
+    return finding
+
+
+def test_an_external_origin_needs_a_history_origin_beside_it() -> None:
+    web = {"external_origin": "https://osprey.lab.example"}
+    finding = _history_one(_history_config(web), "web_terminals.history_origin_required")
+    assert finding.severity == "error"
+    assert "modules.web_terminals.history_origin" in finding.message
+    web["history_origin"] = "https://osprey.lab.example:8443"
+    assert _history_codes(_history_config(web)) == []
+
+
+def test_the_two_origins_share_a_host() -> None:
+    web = {
+        "external_origin": "https://osprey.lab.example",
+        "history_origin": "https://history.lab.example",
+    }
+    finding = _history_one(_history_config(web), "web_terminals.history_origin_host")
+    assert finding.severity == "error"
+    assert "'history.lab.example'" in finding.message and "'osprey.lab.example'" in finding.message
+    web["history_origin"] = "https://OSPREY.lab.example:8443"
+    assert _history_codes(_history_config(web)) == []
+
+
+@pytest.mark.parametrize(
+    "origin",
+    ["osprey.lab.example", "https://h/", "https://h/path", "ftp://h", "https://h:port", "", 7],
+)
+def test_a_history_origin_is_an_origin_and_nothing_else(origin) -> None:
+    config = _history_config({"history_origin": origin})
+    assert _history_one(config, "web_terminals.invalid_history_origin").severity == "error"
+
+
+def test_a_history_origin_alone_is_allowed() -> None:
+    config = _history_config({"history_origin": "https://osprey.lab.example:8443"})
+    assert _history_codes(config) == []
+
+
+@pytest.mark.parametrize("port", ["10002", 0, 70000, True])
+def test_a_history_port_is_a_port(port) -> None:
+    finding = _history_one(
+        _history_config({"history_port": port}), "web_terminals.invalid_history_port"
+    )
+    assert "modules.web_terminals.history_port" in finding.message
+
+
+def test_without_the_history_page_there_is_no_history_origin_to_check() -> None:
+    """Token sign-in serves no history page, so ``history_origin`` is read by nothing."""
+    config = {
+        "modules": {
+            "web_terminals": {
+                "enabled": True,
+                "tls": {"enabled": True},
+                "auth": {"method": "token"},
+                "external_origin": "https://osprey.lab.example",
+                "history_port": "not a port",
+            }
+        }
+    }
+    codes = [f.code for f in lint.lint_web_terminals(config)]
+    assert "web_terminals.history_origin_required" not in codes
+    assert "web_terminals.invalid_history_port" not in codes
+
+
+def test_no_history_rule_names_the_retired_reader_keys() -> None:
+    retired_web_keys = [
+        key.rsplit(".", 1)[1]
+        for key in RETIRED_CONFIG_KEYS
+        if key.startswith("modules.web_terminals.")
+    ]
+    assert len(retired_web_keys) == 2, retired_web_keys
+    web = {"external_origin": "https://osprey.lab.example", "history_port": "x"}
+    for finding in lint.lint_web_terminals(_history_config(web)):
+        for key in retired_web_keys:
+            assert key not in finding.message
+        assert "readers' origin" not in finding.message
+
+
+def _record_readers(config, *names: str):
+    config["agent_record"] = {"readers": [{"name": name} for name in names]}
+    return config
+
+
+def test_jean_luc_and_jean_underscore_luc_share_a_carrier_suffix() -> None:
+    """The sidecar's reader carriers are keyed by the agent record's reader names."""
+    config = _record_readers(_history_config(), "jean-luc", "jean_luc", "carol")
+    finding = _history_one(config, lint.HISTORY_CARRIER_COLLISION)
+    assert finding.severity == "error"
+    assert "agent_record.readers 'jean-luc' and 'jean_luc'" in finding.message
+    assert "JEAN_LUC" in finding.message
+    assert lint.history_carrier_collision_problems(_history_config()) == []
+
+
+def test_a_carrier_collision_is_refused_only_with_the_page() -> None:
+    with_page = _record_readers(_history_config(), "jean-luc", "jean_luc")
+    assert lint.HISTORY_CARRIER_COLLISION in _history_codes(with_page)
+    no_page = _record_readers(
+        {"modules": {"web_terminals": {"enabled": True, "auth": {"method": "token"}}}},
+        "jean-luc",
+        "jean_luc",
+    )
+    assert lint.HISTORY_CARRIER_COLLISION not in _history_codes(no_page)
+    assert lint.history_preflight_problems(no_page) == []
+
+
+def test_the_history_preflight_holds_the_carrier_rule() -> None:
+    config = _record_readers(_history_config(), "jean-luc", "jean_luc")
+    ((problem, remedy),) = lint.history_preflight_problems(config)
+    assert "'jean-luc' and 'jean_luc'" in problem and remedy == "Rename one of them"
+    assert lint.history_preflight_problems(_history_config()) == []
+
+
+def _roles_web(**extra):
+    return {
+        "users": [{"name": "alice", "index": 0, "role": "operator", "history": "own"}],
+        "authorization": {
+            "roles": {
+                "operator": {"tier": "operator"},
+                "lead": {"tier": "operator", "history": "all"},
+            },
+        },
+        **extra,
+    }
+
+
+def test_history_all_on_a_role_nobody_holds_draws_a_warning() -> None:
+    finding = _history_one(_history_config(_roles_web()), "web_terminals.unbound_history_role")
+    assert finding.severity == "warn"
+    assert "roles.lead" in finding.message
+
+
+def test_a_roster_bound_role_is_bound() -> None:
+    web = _roles_web()
+    web["users"].append({"name": "bob", "index": 1, "role": "lead"})
+    assert "web_terminals.unbound_history_role" not in _history_codes(_history_config(web))
+
+
+@pytest.mark.parametrize("wrong", [["lead"], {"lead": 1}, 7, None])
+def test_a_wrong_typed_role_or_claim_target_binds_nothing_and_raises_nothing(wrong) -> None:
+    web = _roles_web()
+    web["users"].append({"name": "bob", "index": 1, "role": wrong})
+    web["authorization"]["claims"] = {"claim": "groups", "map": {"lab-leads": wrong}}
+    assert "web_terminals.unbound_history_role" in _history_codes(_history_config(web))
+
+
+def test_a_claim_granted_role_is_bound() -> None:
+    web = _roles_web()
+    web["authorization"]["claims"] = {"claim": "groups", "map": {"lab-leads": "lead"}}
+    assert "web_terminals.unbound_history_role" not in _history_codes(_history_config(web))
+
+
+@pytest.mark.parametrize("value", ["everyone", "All", True, None, ["all"]])
+def test_history_is_own_or_all_on_a_user_and_on_a_role(value) -> None:
+    web = _roles_web()
+    web["users"][0]["history"] = value
+    finding = _history_one(_history_config(web), "web_terminals.invalid_history")
+    assert finding.severity == "error" and "'alice'" in finding.message
+
+    web = _roles_web()
+    web["authorization"]["roles"]["operator"]["history"] = value
+    message = _history_one(_history_config(web), "web_terminals.invalid_history").message
+    assert "roles.operator" in message
+
+
+def test_a_history_value_is_checked_without_the_page_too() -> None:
+    web = _roles_web()
+    web["users"][0]["history"] = "everyone"
+    web["auth"] = {"method": "token"}
+    assert "web_terminals.invalid_history" in _history_codes(_history_config(web))
+
+
+def test_a_different_runtime_account_draws_an_advisory() -> None:
+    config = {"deployment": {"host_identity": "builder"}}
+    (said,) = lint.host_identity_advisories(config, "operator")
+    assert "'builder'" in said and "'operator'" in said
+
+
+def test_the_same_account_an_unasked_command_and_an_unstamped_config_draw_none() -> None:
+    config = {"deployment": {"host_identity": "builder"}}
+    assert lint.host_identity_advisories(config, "builder") == []
+    assert lint.host_identity_advisories(config, None) == []
+    assert lint.host_identity_advisories({}, "operator") == []
+
+
+def test_a_start_says_so_and_goes_on(tmp_path, monkeypatch) -> None:
+    from osprey.deployment import container_lifecycle
+
+    said: list[str] = []
+    monkeypatch.setattr(container_lifecycle, "_required_env_problems", lambda *a, **k: [])
+    monkeypatch.setattr(container_lifecycle, "_unreleased_pin_problem", lambda *a, **k: None)
+    monkeypatch.setattr(container_lifecycle, "_invoking_account", lambda: "operator")
+    monkeypatch.setattr(container_lifecycle, "_warn_fact", said.append)
+    monkeypatch.setattr(
+        "osprey.agent_record.credentials.credential_file_problems", lambda *a, **k: []
+    )
+    config = {"deployment": {"host_identity": "builder"}}
+
+    container_lifecycle._collect_unmet_preconditions(
+        config, tmp_path, {}, dev_mode=False, web_terminals_enabled=False
+    )
+
+    assert said == lint.host_identity_advisories(config, "operator")
+    assert len(said) == 1
+
+
+def test_osprey_up_refuses_a_start_over_a_carrier_collision(tmp_path, monkeypatch) -> None:
+    from osprey.deployment import container_lifecycle
+    from osprey.deployment.errors import UnmetPreconditionsError
+
+    monkeypatch.setattr(container_lifecycle, "_required_env_problems", lambda *a, **k: [])
+    monkeypatch.setattr(container_lifecycle, "_unreleased_pin_problem", lambda *a, **k: None)
+    monkeypatch.setattr(
+        "osprey.agent_record.credentials.credential_file_problems", lambda *a, **k: []
+    )
+    config = _record_readers(_history_config(), "jean-luc", "jean_luc")
+    with pytest.raises(UnmetPreconditionsError) as raised:
+        container_lifecycle._collect_unmet_preconditions(
+            config, tmp_path, {}, dev_mode=False, web_terminals_enabled=False
+        )
+    assert "'jean-luc' and 'jean_luc'" in str(raised.value.reason)
+    container_lifecycle._collect_unmet_preconditions(
+        _history_config(), tmp_path, {}, dev_mode=False, web_terminals_enabled=False
+    )

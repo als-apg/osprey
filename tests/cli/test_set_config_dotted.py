@@ -24,7 +24,6 @@ import pytest
 import yaml
 from click.testing import CliRunner
 
-from osprey.cli.build_cmd import build
 from osprey.cli.build_profile_load import CONNECTOR_CONFIG_KEY
 from osprey.cli.build_profile_presets import list_presets
 from osprey.cli.build_profile_resolve import (
@@ -38,11 +37,8 @@ from osprey.cli.build_profile_resolve import (
 from osprey.cli.init_cmd import init
 from osprey.cli.set_cmd import set as set_cmd
 from osprey_connectors.errors import BuildProfileError
-
-
-def _flat(text: str) -> str:
-    """Collapse whitespace so assertions survive terminal line wrapping."""
-    return " ".join(text.split())
+from tests._text import flat
+from tests.cli._lifecycle_build import invoke_build, rendered_config
 
 
 def _set_args(pairs: tuple[str, ...]) -> list[str]:
@@ -55,11 +51,11 @@ def _init(runner: CliRunner, repo: Path, preset: str, *extra: str) -> None:
     assert result.exit_code == 0, result.output
 
 
-def _build(runner: CliRunner, repo: Path) -> dict:
+def _build(repo: Path) -> dict:
     """Render *repo* and return its ``build/config.yml``."""
-    result = runner.invoke(build, ["--repo", str(repo), "--skip-deps", "--skip-lifecycle"])
+    result = invoke_build(repo)
     assert result.exit_code == 0, result.output
-    return yaml.safe_load((repo / "build" / "config.yml").read_text(encoding="utf-8"))
+    return rendered_config(repo)
 
 
 # ── the spelling ─────────────────────────────────────────────────────────────
@@ -322,7 +318,7 @@ def test_connector_with_a_literal_type_set_is_refused() -> None:
             set_pairs=("connector=epics", "config.control_system.type=doocs"),
         )
 
-    message = _flat(str(excinfo.value))
+    message = flat(str(excinfo.value))
     assert "Conflicting connector overrides" in message
     assert "connector='epics'" in message
     assert f"config.{CONNECTOR_CONFIG_KEY}='doocs'" in message
@@ -334,20 +330,18 @@ def test_the_conflict_is_caught_when_the_edit_is_parsed() -> None:
         cli_edit_layer(("connector=epics", "config.control_system.type=doocs"))
 
 
-def test_the_shorthand_alone_still_overrides_the_preset_literal_key() -> None:
-    """The preset's own literal key is what the shorthand exists to override."""
-    profile, _dir = resolve_build_profile(
-        None, "control-assistant", set_pairs=("connector=live_standin",)
-    )
-
-    assert profile.config[CONNECTOR_CONFIG_KEY] == "live_standin"
-
-
-def test_a_literal_type_set_now_reaches_the_render() -> None:
-    """No shorthand needed: the dotted key replaces the preset's own entry."""
-    profile, _dir = resolve_build_profile(
-        None, "control-assistant", set_pairs=("config.control_system.type=live_standin",)
-    )
+@pytest.mark.parametrize(
+    "pair",
+    [
+        # The preset's own literal key is what the shorthand exists to override.
+        "connector=live_standin",
+        # No shorthand needed: the dotted key replaces the preset's own entry.
+        "config.control_system.type=live_standin",
+    ],
+    ids=["shorthand-alone", "literal-type-key"],
+)
+def test_a_set_pair_for_the_connector_reaches_the_render(pair: str) -> None:
+    profile, _dir = resolve_build_profile(None, "control-assistant", set_pairs=(pair,))
 
     assert profile.config[CONNECTOR_CONFIG_KEY] == "live_standin"
 
@@ -360,7 +354,7 @@ def test_init_set_reaches_the_rendered_config(runner_repo: tuple[CliRunner, Path
     runner, repo = runner_repo
     _init(runner, repo, "hello-world", "--set", "config.approval.tools.channel_read=always")
 
-    assert _build(runner, repo)["approval"]["tools"]["channel_read"] == "always"
+    assert _build(repo)["approval"]["tools"]["channel_read"] == "always"
 
 
 def test_osprey_set_reaches_the_rendered_config(runner_repo: tuple[CliRunner, Path]) -> None:
@@ -373,7 +367,7 @@ def test_osprey_set_reaches_the_rendered_config(runner_repo: tuple[CliRunner, Pa
     )
     assert written.exit_code == 0, written.output
 
-    assert _build(runner, repo)["approval"]["tools"]["channel_read"] == "always"
+    assert _build(repo)["approval"]["tools"]["channel_read"] == "always"
 
 
 def test_osprey_set_with_a_mapping_value_prunes_the_file_beneath_it(
@@ -398,7 +392,7 @@ def test_osprey_set_with_a_mapping_value_prunes_the_file_beneath_it(
     assert config["approval.tools"] == {"channel_read": "always"}
     assert not [key for key in config if key.startswith("approval.tools.")]
     assert config["approval.enabled"] is True
-    assert _build(runner, repo)["approval"]["tools"] == {"channel_read": "always"}
+    assert _build(repo)["approval"]["tools"] == {"channel_read": "always"}
 
 
 def test_osprey_set_moves_a_service_port_and_the_ledger_with_it(
@@ -420,7 +414,7 @@ def test_osprey_set_moves_a_service_port_and_the_ledger_with_it(
 
     profile, _dir = resolve_build_profile(repo / "profile.yml", None)
     assert profile._claimed_ports()["services.graphdb.port_host"] == 9999
-    assert _build(runner, repo)["services"]["graphdb"]["port_host"] == 9999
+    assert _build(repo)["services"]["graphdb"]["port_host"] == 9999
 
 
 def test_osprey_set_with_a_leaf_key_keeps_the_siblings_in_the_file(
@@ -430,7 +424,7 @@ def test_osprey_set_with_a_leaf_key_keeps_the_siblings_in_the_file(
     runner, repo = runner_repo
     _init(runner, repo, "hello-world")
     before = _profile_config(repo)
-    sibling = "approval.tools.execute"
+    sibling = "approval.tools.archiver_read"
     assert sibling in before
 
     written = runner.invoke(
@@ -522,3 +516,25 @@ def test_init_set_and_osprey_set_write_the_same_profile_text(tmp_path: Path) -> 
 @pytest.fixture
 def runner_repo(tmp_path: Path) -> tuple[CliRunner, Path]:
     return CliRunner(), tmp_path / "deployment"
+
+
+def test_an_edit_wins_over_a_mapping_key_above_it() -> None:
+    """A mapping key above the stated path loses its leaf, and the edit lands last.
+
+    ``config_update_fields`` assigns a mapping value whole, so an inherited
+    ``control_system: {writes: never}`` applied after the edited dotted key
+    would put the old value back.
+    """
+    resolved = {
+        "config": {
+            "control_system.writes": "never",
+            "control_system": {"writes": "never", "type": "epics"},
+        }
+    }
+
+    edited = apply_cli_edits(resolved, ("config.control_system.writes=allowed",))
+
+    config = edited["config"]
+    assert config["control_system"] == {"type": "epics"}
+    assert list(config)[-1] == "control_system.writes"
+    assert config["control_system.writes"] == "allowed"

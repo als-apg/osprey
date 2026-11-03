@@ -4,9 +4,10 @@ A pyAML write is an ordinary checked connector write
 (``osprey.runtime.write_channel`` / ``write_channels``), accepted only while a
 :func:`pyaml_cs_osprey.run_tool.run_tool` call is in progress in this process;
 anywhere else it is refused as :data:`OUTSIDE_A_RUN` and nothing is read or
-written. The run records, in memory for the call's result, each address's value
-before the first write the runtime sent or landed; a refused write records
-nothing. Nothing is written back.
+written. The run lists, in memory for the call's result, each address's value
+before its first write. An address is listed unless the runtime showed its
+write never went out (no attempt, or ``refused``); a write whose outcome is
+unknown is listed. Nothing is written back.
 
 The run belongs to the process, not to the thread that opened it: a
 ``run_tool`` on any thread joins the one run, and the last one to leave ends
@@ -26,7 +27,6 @@ from dataclasses import dataclass, field
 from typing import Any
 
 import osprey.runtime
-from osprey_connectors.errors import ChannelLimitsViolationError, ChannelWriteBlockedError
 from pyaml_cs_osprey.errors import OspreyWriteRefused
 
 #: Why a device write outside a ``run_tool`` call is refused.
@@ -43,9 +43,9 @@ class _PyamlRun:
 
     Attributes:
         target: The control target whose run lock the run holds.
-        moved: Each address's value before the first write the runtime sent
-            or landed, in the order those writes went out. A refused write
-            records nothing.
+        moved: Each address's value before its first write, in the order the
+            writes were made. An address is listed unless the runtime showed
+            its write never went out.
         abort: A Ctrl-C asked every tool of the run to stop.
         depth: How many ``run_tool`` calls are inside the run.
     """
@@ -104,8 +104,8 @@ def abort_requested() -> bool:
 def moved() -> dict[str, Any]:
     """A copy of what the process's run moved.
 
-    Each address whose write the runtime sent or landed, with its value before
-    the first such write.
+    Each address whose write may have gone out, with its value before its
+    first write.
     """
     with _GUARD:
         run = _RUN
@@ -122,12 +122,14 @@ def write(
 ) -> None:
     """Write ``addresses`` inside the process's run only, recording what moved.
 
-    The addresses not yet recorded are read in one ``read_channels`` call
-    before the write. Each of them is recorded with that value once the runtime
-    sent or landed its write, whether or not the call then raised; a refused
-    write records nothing. An escape that is not an ``Exception`` records every
-    one of them, since the write may still go out, and propagates unchanged. An
-    address already recorded keeps its first value.
+    The addresses not yet listed are read in one ``read_channels`` call before
+    the write and listed with that value before the write is called. Once the
+    call ends, an address is taken off the list only when the runtime showed
+    its write never went out (no attempt, or ``refused``), whether or not the
+    call raised. An escape anywhere after the read, the write still running or
+    the list half pruned, leaves every address not yet taken off listed. An
+    escape that is not an ``Exception`` propagates unchanged. An address
+    already listed keeps its first value.
 
     Args:
         addresses: Every address the write touches.
@@ -158,6 +160,7 @@ def write(
                 pending = dict(zip(missing, osprey.runtime.read_channels(missing), strict=True))
             except Exception as exc:
                 raise map_read(exc, list(addresses)) from exc
+        run.moved.update(pending)
         raised: BaseException | None = None
         with osprey.runtime.record_writes() as records:
             try:
@@ -169,41 +172,29 @@ def write(
                 raised = exc
                 raise
             finally:
-                run.moved.update(
-                    (address, value)
-                    for address, value in pending.items()
-                    if _moved(address, records, raised)
-                )
+                for address in pending:
+                    if not _moved(address, records, raised):
+                        del run.moved[address]
 
 
 def _moved(address: str, records: Sequence[tuple[str, str]], raised: BaseException | None) -> bool:
     """Whether ``address``'s write may have put its value on the control system.
 
     An escape that is not an ``Exception``, such as a ``KeyboardInterrupt``
-    while the write keeps running elsewhere, lists every address, failing
-    closed: the write may still go out. Otherwise the runtime's phases decide:
-    ``sent`` or ``landed`` moved it, and no ``attempt`` means it never reached
-    a connector. An ``attempt`` with no later phase is listed, failing closed,
-    unless the call raised a refusal of that address: a
-    ``ChannelWriteBlockedError``, which the runtime raises only after every
-    channel of the call has reported its outcome, so a channel with no outcome
-    was refused; or a ``ChannelLimitsViolationError`` naming the address, which
-    a connector raises before that channel is sent. Any other exception, such
-    as a transport error partway through a batch, leaves unknown whether the
-    value went out.
+    while the write keeps running elsewhere, keeps every address, failing
+    closed: the write may still go out. Otherwise the runtime's phases alone
+    decide: ``sent`` or ``landed`` moved it, ``refused`` and no ``attempt``
+    mean it never went out, and an ``attempt`` with no later phase is an
+    unknown outcome, kept.
     """
     if raised is not None and not isinstance(raised, Exception):
         return True
     phases = {phase for recorded, phase in records if recorded == address}
     if phases & {"sent", "landed"}:
         return True
-    if "attempt" not in phases:
+    if "refused" in phases:
         return False
-    if isinstance(raised, ChannelWriteBlockedError):
-        return False
-    return not (
-        isinstance(raised, ChannelLimitsViolationError) and raised.channel_address == address
-    )
+    return "attempt" in phases
 
 
 def _reset() -> None:

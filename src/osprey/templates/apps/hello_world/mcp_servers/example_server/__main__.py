@@ -14,7 +14,7 @@ if __name__ == "__main__":
     # server does. Until this line a launcher cannot tell a server still
     # importing from one that is stuck: both are silence on stdout. Stdlib
     # only, so this package keeps depending on nothing but ``fastmcp``.
-    print(
+    print(  # noqa: T201 -- stderr carries the IOC's diagnostics
         f"[STARTUP-TIMING] example_server | total_startup: "
         f"{(time.perf_counter() - _started) * 1000:.0f}ms",
         file=sys.stderr,

@@ -103,11 +103,14 @@ export function createScaffoldGalleryEdit(gallery) {
   /** @returns {Promise<void>} */
   async function takeOwnership() {
     if (!gallery.selectedArtifact) return;
-    if (!confirm(
-      'Take ownership of this file? A project copy is written into .claude/, and '
-      + 'OSPREY stops overwriting it when artifacts are regenerated — later framework '
-      + 'updates to it will not reach your project. You can release ownership again.'
-    )) return;
+    if (
+      !confirm(
+        'Take ownership of this file? A project copy is written into .claude/, and ' +
+          'OSPREY stops overwriting it when artifacts are regenerated — later framework ' +
+          'updates to it will not reach your project. You can release ownership again.'
+      )
+    )
+      return;
 
     try {
       await apiRequest(`/api/scaffold/${encodeURIComponent(gallery.selectedArtifact.name)}/claim`, {
@@ -124,10 +127,13 @@ export function createScaffoldGalleryEdit(gallery) {
   /** @returns {Promise<void>} */
   async function releaseToFramework() {
     if (!gallery.selectedArtifact) return;
-    if (!confirm(
-      'Release this file back to the framework? Your project copy is deleted from '
-      + 'disk and the framework version takes over again.'
-    )) return;
+    if (
+      !confirm(
+        'Release this file back to the framework? Your project copy is deleted from ' +
+          'disk and the framework version takes over again.'
+      )
+    )
+      return;
 
     await unoverrideArtifact();
   }
@@ -135,10 +141,13 @@ export function createScaffoldGalleryEdit(gallery) {
   /** @returns {Promise<void>} */
   async function handleEditFramework() {
     if (!gallery.selectedArtifact) return;
-    if (!confirm(
-      'Editing this file takes ownership of it: a project copy is written into '
-      + '.claude/, and OSPREY stops overwriting it when artifacts are regenerated.'
-    )) return;
+    if (
+      !confirm(
+        'Editing this file takes ownership of it: a project copy is written into ' +
+          '.claude/, and OSPREY stops overwriting it when artifacts are regenerated.'
+      )
+    )
+      return;
 
     try {
       await apiRequest(`/api/scaffold/${encodeURIComponent(gallery.selectedArtifact.name)}/claim`, {
@@ -206,11 +215,14 @@ export function createScaffoldGalleryEdit(gallery) {
     }
 
     try {
-      const result = await apiRequest(`/api/scaffold/${encodeURIComponent(gallery.selectedArtifact.name)}/override`, {
-        method: 'PUT',
-        json: { content },
-        errorPrefix: 'Save failed',
-      });
+      const result = await apiRequest(
+        `/api/scaffold/${encodeURIComponent(gallery.selectedArtifact.name)}/override`,
+        {
+          method: 'PUT',
+          json: { content },
+          errorPrefix: 'Save failed',
+        }
+      );
 
       gallery.editDirty = false;
       await reloadAndReopen();
@@ -220,9 +232,9 @@ export function createScaffoldGalleryEdit(gallery) {
       // refresh that follows it.
       if (result && result.applies_on_restart) {
         showWriteNotice(
-          'Saved — applies on container restart. The project tree here is read-only, '
-          + 'so your change is held on the claude-config volume and reaches the agent '
-          + 'when the container next starts.'
+          'Saved — applies on container restart. The project tree here is read-only, ' +
+            'so your change is held on the claude-config volume and reaches the agent ' +
+            'when the container next starts.'
         );
       }
     } catch (e) {
@@ -235,10 +247,13 @@ export function createScaffoldGalleryEdit(gallery) {
     if (!gallery.selectedArtifact) return;
 
     try {
-      await apiRequest(`/api/scaffold/${encodeURIComponent(gallery.selectedArtifact.name)}/override?delete_file=true`, {
-        method: 'DELETE',
-        errorPrefix: 'Reset failed',
-      });
+      await apiRequest(
+        `/api/scaffold/${encodeURIComponent(gallery.selectedArtifact.name)}/override?delete_file=true`,
+        {
+          method: 'DELETE',
+          errorPrefix: 'Reset failed',
+        }
+      );
 
       await reloadAndReopen();
     } catch (e) {

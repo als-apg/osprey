@@ -32,6 +32,8 @@ from typing import TYPE_CHECKING, Any
 
 import pytest
 
+from tests.services.ariel_search.integration._support import migrated_repository
+
 if TYPE_CHECKING:
     from osprey.services.ariel_search.config import ARIELConfig
 
@@ -416,6 +418,16 @@ def scratch_database(database_url: str):
             conn.execute(
                 sql.SQL("DROP DATABASE IF EXISTS {} WITH (FORCE)").format(sql.Identifier(name))
             )
+
+
+@pytest.fixture
+async def scratch_repo(scratch_database: str):
+    """An ``ARIELRepository`` on :func:`scratch_database`, brought to today's schema."""
+    from osprey.services.ariel_search.config import ARIELConfig
+
+    config = ARIELConfig.from_dict({"database": {"uri": scratch_database}})
+    async with migrated_repository(config) as repository:
+        yield repository
 
 
 @pytest.fixture

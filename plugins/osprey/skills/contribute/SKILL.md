@@ -132,7 +132,9 @@ Tell the contributor what you observed and which phase you're entering.
 The contributor edits code; the skill is mostly absent. Two reminders:
 
 - **Add a changelog fragment as you go**, not at the end. One file per change
-  that touches `src/` or `packages/`, in `changelog.d/`, named
+  under a directory the changelog gate covers
+  (`uv run python scripts/changelog_fragments.py check --base origin/main`
+  names them in every verdict), in `changelog.d/`, named
   `<name>.<type>.md` — user-visible work gets a real type, work users never see
   gets `internal`. Use the issue number as the name when there is one —
   `745.fixed.md`, where the leading number becomes the `(#745)` reference in
@@ -152,7 +154,7 @@ The contributor edits code; the skill is mostly absent. Two reminders:
 
 ## Phase 3: Commit
 
-> **Hard block: run `./scripts/quick_check.sh` (~30 s) before the commit.**
+> **Hard block: run `uv run python scripts/check.py quick` before the commit.**
 > Catches formatting drift and broken imports before they enter history.
 > Fixing a polluted commit later is much more expensive than failing fast.
 
@@ -160,8 +162,8 @@ The contributor edits code; the skill is mostly absent. Two reminders:
    what's about to land.
 2. Stage surgically — list specific paths rather than `git add -A`. Blanket
    adds occasionally sweep up `.env`, scratch files, or large binaries.
-3. Run `./scripts/quick_check.sh`. On failure, surface the output, suggest the
-   minimal fix, re-run. Don't commit until clean.
+3. Run `uv run python scripts/check.py quick`. On failure, surface the output,
+   suggest the minimal fix, re-run. Don't commit until clean.
 4. Compose a conventional commit message:
 
    ```
@@ -183,16 +185,19 @@ The contributor edits code; the skill is mostly absent. Two reminders:
    **Soft prompt**: if the contributor's preferred message doesn't match the
    conventional form, propose a rewrite once. Accept their version on insist.
 
-5. **Soft prompt — changelog fragment**: if the commit touches `src/` or
-   `packages/` and nothing under `changelog.d/` is staged, ask whether it needs
-   a fragment. Pure internal work takes an `internal` fragment. Don't block
+5. **Soft prompt — changelog fragment**: the check judges the committed
+   range and, with `--worktree`, staged and unstaged changes too, so run it
+   before committing:
+   `uv run python scripts/changelog_fragments.py check --base origin/main --worktree`.
+   When it reports a missing fragment, ask whether the branch needs one and
+   stage it. Pure internal work takes an `internal` fragment. Don't block
    here; CI is the gate.
 
 6. Commit, then `git log -1 --stat` so the contributor sees what was recorded.
 
 ## Phase 4: Push
 
-> **Hard block: run `./scripts/ci_check.sh` (~2-3 min) before the push.** CI
+> **Hard block: run `uv run python scripts/check.py full` before the push.** CI
 > minutes are shared and PR dashboards get noisy when obviously-broken
 > branches sit waiting for triage. Pushing only what would have passed CI
 > respects everyone's time.
@@ -203,8 +208,9 @@ The contributor edits code; the skill is mostly absent. Two reminders:
    - Internal mode → `origin` (which is `als-apg/osprey`).
    - Fork mode → `origin` (which is the contributor's fork).
 
-2. Run `./scripts/ci_check.sh`. On failure, surface output, suggest the
-   minimal fix, ask the contributor to amend or add a follow-up commit.
+2. Run `uv run python scripts/check.py full`. On failure, surface output,
+   suggest the minimal fix, ask the contributor to amend or add a follow-up
+   commit.
 
 3. Push with upstream tracking the first time. Confirm before — this is the
    first visible-to-others state-change in the journey:
@@ -215,8 +221,8 @@ The contributor edits code; the skill is mostly absent. Two reminders:
 
 ## Phase 5: Open the PR
 
-> **Hard block: run `./scripts/premerge_check.sh main` before
-> `gh pr create`.** Catches drift from `main` that surfaces only at merge
+> **Hard block: run `uv run python scripts/check.py quick --changed origin/main`
+> before `gh pr create`.** Catches drift from `main` that surfaces only at merge
 > time. Cheaper to find now than after CI burns minutes on the PR.
 
 1. Compose the PR title and body:

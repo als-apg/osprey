@@ -1,0 +1,894 @@
+{
+  "about": [
+    "Shared vectors for the canopy push grammar and the forbidden-character predicate.",
+    "Authored in canopy (tests/canopy_mcp/fixtures/grammar-vectors.json); every other holder keeps a byte-identical copy.",
+    "ASCII-only: forbidden characters are spelled as \\u escapes, a lone surrogate included. No trailing whitespace, one final newline.",
+    "A segment is accepted when it fullmatches its pattern and is not reserved; every reserved rule compares segment.casefold().",
+    "Every case runs with reserved.configuredNames as the deployment's own reserved names (CANOPY_LIBRARY_IGNORED_NAMES); without them those names are free.",
+    "A character is forbidden when it is C0 other than tab, LF and CR, DEL, C1, a bidi control, any other format character (category Cf) or a lone surrogate (category Cs).",
+    "A pointer is the RFC 6901 pointer of the first string, in document order, that holds a forbidden character; an offending object key reports the pointer of the object that holds it; null means none.",
+    "Casefold collisions are taken over the member paths plus every directory prefix of them; each collision lists its spellings sorted by code point, and a single spelling is a path that is both a member and a directory."
+  ],
+  "patterns": {
+    "idSegment": "[A-Za-z0-9_-]+",
+    "assetSegment": "[A-Za-z0-9 ._-]+"
+  },
+  "reserved": {
+    "names": [
+      ".git",
+      ".pytest_cache",
+      ".venv",
+      "__pycache__"
+    ],
+    "configuredNames": [
+      "claude.local.md",
+      "dockerfile",
+      "prefetched-models",
+      "var"
+    ],
+    "prefixes": [
+      ".",
+      "-"
+    ],
+    "endings": [
+      ".log",
+      ".pid",
+      ".pyc",
+      ".pyd",
+      ".pyo",
+      ".swo",
+      ".swp"
+    ],
+    "cases": [
+      {
+        "segment": "var",
+        "rule": "configured"
+      },
+      {
+        "segment": "__pycache__",
+        "rule": "name"
+      },
+      {
+        "segment": ".git",
+        "rule": "name"
+      },
+      {
+        "segment": ".venv",
+        "rule": "name"
+      },
+      {
+        "segment": ".pytest_cache",
+        "rule": "name"
+      },
+      {
+        "segment": "prefetched-models",
+        "rule": "configured"
+      },
+      {
+        "segment": "CLAUDE.local.md",
+        "rule": "configured"
+      },
+      {
+        "segment": "dockerfile",
+        "rule": "configured"
+      },
+      {
+        "segment": "__PYCACHE__",
+        "rule": "name"
+      },
+      {
+        "segment": "VAR",
+        "rule": "configured"
+      },
+      {
+        "segment": "Dockerfile",
+        "rule": "configured"
+      },
+      {
+        "segment": "Prefetched-Models",
+        "rule": "configured"
+      },
+      {
+        "segment": ".hidden",
+        "rule": "prefix"
+      },
+      {
+        "segment": ".",
+        "rule": "prefix"
+      },
+      {
+        "segment": ".env",
+        "rule": "prefix"
+      },
+      {
+        "segment": ".DS_Store",
+        "rule": "prefix"
+      },
+      {
+        "segment": "-x",
+        "rule": "prefix"
+      },
+      {
+        "segment": "-",
+        "rule": "prefix"
+      },
+      {
+        "segment": "--flag",
+        "rule": "prefix"
+      },
+      {
+        "segment": "x.swp",
+        "rule": "ending"
+      },
+      {
+        "segment": "x.swo",
+        "rule": "ending"
+      },
+      {
+        "segment": "x.pyc",
+        "rule": "ending"
+      },
+      {
+        "segment": "x.pyo",
+        "rule": "ending"
+      },
+      {
+        "segment": "x.pyd",
+        "rule": "ending"
+      },
+      {
+        "segment": "x.log",
+        "rule": "ending"
+      },
+      {
+        "segment": "x.pid",
+        "rule": "ending"
+      },
+      {
+        "segment": "x.SWP",
+        "rule": "ending"
+      },
+      {
+        "segment": "X.Log",
+        "rule": "ending"
+      },
+      {
+        "segment": "a.b.PID",
+        "rule": "ending"
+      }
+    ],
+    "free": [
+      "variable",
+      "pycache",
+      "__pycache",
+      "git",
+      "x.swpx",
+      "swp",
+      "log",
+      "pid",
+      "a-b",
+      "a.b",
+      "x_",
+      "x-",
+      "mydockerfile",
+      "dockerfile.txt",
+      "claude.local.md.bak",
+      "x.py",
+      "x.logs"
+    ]
+  },
+  "idSegments": {
+    "accepted": [
+      "a",
+      "A_b-9",
+      "_x",
+      "x-",
+      "screen_1",
+      "variable",
+      "logs",
+      "pid",
+      "prefetched_models",
+      "dockerfiles"
+    ],
+    "refused": [
+      {
+        "segment": "",
+        "why": "pattern"
+      },
+      {
+        "segment": "a.b",
+        "why": "pattern"
+      },
+      {
+        "segment": "a b",
+        "why": "pattern"
+      },
+      {
+        "segment": "x.swp",
+        "why": "pattern"
+      },
+      {
+        "segment": ".git",
+        "why": "pattern"
+      },
+      {
+        "segment": "caf\u00e9",
+        "why": "pattern"
+      },
+      {
+        "segment": "a\n",
+        "why": "pattern"
+      },
+      {
+        "segment": "a\\b",
+        "why": "pattern"
+      },
+      {
+        "segment": "a:b",
+        "why": "pattern"
+      },
+      {
+        "segment": "var",
+        "why": "reserved"
+      },
+      {
+        "segment": "VAR",
+        "why": "reserved"
+      },
+      {
+        "segment": "Var",
+        "why": "reserved"
+      },
+      {
+        "segment": "__pycache__",
+        "why": "reserved"
+      },
+      {
+        "segment": "__PYCACHE__",
+        "why": "reserved"
+      },
+      {
+        "segment": "prefetched-models",
+        "why": "reserved"
+      },
+      {
+        "segment": "Prefetched-Models",
+        "why": "reserved"
+      },
+      {
+        "segment": "dockerfile",
+        "why": "reserved"
+      },
+      {
+        "segment": "Dockerfile",
+        "why": "reserved"
+      },
+      {
+        "segment": "DOCKERFILE",
+        "why": "reserved"
+      },
+      {
+        "segment": "-",
+        "why": "reserved"
+      },
+      {
+        "segment": "-x",
+        "why": "reserved"
+      },
+      {
+        "segment": "--",
+        "why": "reserved"
+      }
+    ]
+  },
+  "assetSegments": {
+    "accepted": [
+      "x.png",
+      "Logo.PNG",
+      "a b",
+      "c-d_e.1.jpeg",
+      "x.swp.png",
+      "log",
+      "x.logs",
+      "x.py",
+      "var.png",
+      "claude.local.md.bak",
+      "a.-",
+      "x_"
+    ],
+    "refused": [
+      {
+        "segment": "",
+        "why": "pattern"
+      },
+      {
+        "segment": "a/b",
+        "why": "pattern"
+      },
+      {
+        "segment": "a\\b",
+        "why": "pattern"
+      },
+      {
+        "segment": "caf\u00e9.png",
+        "why": "pattern"
+      },
+      {
+        "segment": "a\tb",
+        "why": "pattern"
+      },
+      {
+        "segment": "a:b",
+        "why": "pattern"
+      },
+      {
+        "segment": "x.png\n",
+        "why": "pattern"
+      },
+      {
+        "segment": ".git",
+        "why": "reserved"
+      },
+      {
+        "segment": ".GIT",
+        "why": "reserved"
+      },
+      {
+        "segment": ".venv",
+        "why": "reserved"
+      },
+      {
+        "segment": ".pytest_cache",
+        "why": "reserved"
+      },
+      {
+        "segment": ".env",
+        "why": "reserved"
+      },
+      {
+        "segment": ".DS_Store",
+        "why": "reserved"
+      },
+      {
+        "segment": ".",
+        "why": "reserved"
+      },
+      {
+        "segment": "..",
+        "why": "reserved"
+      },
+      {
+        "segment": "...",
+        "why": "reserved"
+      },
+      {
+        "segment": "-x.png",
+        "why": "reserved"
+      },
+      {
+        "segment": "-",
+        "why": "reserved"
+      },
+      {
+        "segment": "x.swp",
+        "why": "reserved"
+      },
+      {
+        "segment": "x.SWP",
+        "why": "reserved"
+      },
+      {
+        "segment": "x.swo",
+        "why": "reserved"
+      },
+      {
+        "segment": "x.pyc",
+        "why": "reserved"
+      },
+      {
+        "segment": "x.PYC",
+        "why": "reserved"
+      },
+      {
+        "segment": "x.pyo",
+        "why": "reserved"
+      },
+      {
+        "segment": "x.pyd",
+        "why": "reserved"
+      },
+      {
+        "segment": "x.log",
+        "why": "reserved"
+      },
+      {
+        "segment": "X.Log",
+        "why": "reserved"
+      },
+      {
+        "segment": "x.pid",
+        "why": "reserved"
+      },
+      {
+        "segment": "CLAUDE.local.md",
+        "why": "reserved"
+      },
+      {
+        "segment": "claude.local.md",
+        "why": "reserved"
+      },
+      {
+        "segment": "Claude.Local.MD",
+        "why": "reserved"
+      },
+      {
+        "segment": "Dockerfile",
+        "why": "reserved"
+      },
+      {
+        "segment": "dockerfile",
+        "why": "reserved"
+      },
+      {
+        "segment": "var",
+        "why": "reserved"
+      },
+      {
+        "segment": "__PYCACHE__",
+        "why": "reserved"
+      },
+      {
+        "segment": "prefetched-models",
+        "why": "reserved"
+      }
+    ]
+  },
+  "suffixes": {
+    "image": [
+      ".bmp",
+      ".gif",
+      ".ico",
+      ".jpeg",
+      ".jpg",
+      ".png",
+      ".svg",
+      ".webp"
+    ],
+    "pushImage": [
+      ".bmp",
+      ".gif",
+      ".ico",
+      ".jpeg",
+      ".jpg",
+      ".png",
+      ".webp"
+    ]
+  },
+  "characters": {
+    "forbidden": {
+      "c0": [
+        "\u0000",
+        "\u0001",
+        "\b",
+        "\u000b",
+        "\f",
+        "\u001b",
+        "\u001f"
+      ],
+      "del": [
+        "\u007f"
+      ],
+      "c1": [
+        "\u0080",
+        "\u0085",
+        "\u009b",
+        "\u009f"
+      ],
+      "bidi": [
+        "\u061c",
+        "\u200e",
+        "\u200f",
+        "\u202a",
+        "\u202b",
+        "\u202c",
+        "\u202d",
+        "\u202e",
+        "\u2066",
+        "\u2067",
+        "\u2068",
+        "\u2069"
+      ],
+      "format": [
+        "\u00ad",
+        "\u0600",
+        "\u200b",
+        "\u200c",
+        "\u200d",
+        "\u2060",
+        "\ufeff",
+        "\udb40\udc01"
+      ],
+      "surrogate": [
+        "\ud800",
+        "\udbff",
+        "\udc00",
+        "\udfff"
+      ]
+    },
+    "allowed": [
+      "\t",
+      "\n",
+      "\r",
+      " ",
+      "~",
+      "\u00a0",
+      "\u00e9",
+      "\u2028",
+      "\u2029",
+      "\u3000",
+      "\ue000",
+      "\ufffd",
+      "\ud83d\ude00"
+    ]
+  },
+  "pointers": [
+    {
+      "name": "c0 in a nested child",
+      "class": "c0",
+      "doc": {
+        "root": {
+          "children": [
+            {
+              "type": "label",
+              "text": "ok"
+            },
+            {
+              "type": "label",
+              "text": "a\u0007b"
+            }
+          ]
+        }
+      },
+      "pointer": "/root/children/1/text"
+    },
+    {
+      "name": "del in a pv name",
+      "class": "del",
+      "doc": {
+        "root": {
+          "pv": "SR:\u007fCURRENT"
+        }
+      },
+      "pointer": "/root/pv"
+    },
+    {
+      "name": "c1 in a rule value",
+      "class": "c1",
+      "doc": {
+        "root": {
+          "rules": [
+            {
+              "conditions": [
+                {
+                  "value": "x"
+                },
+                {
+                  "value": "\u009b31m"
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "pointer": "/root/rules/0/conditions/1/value"
+    },
+    {
+      "name": "bidi override in the title",
+      "class": "bidi",
+      "doc": {
+        "metadata": {
+          "title": "abc\u202edef"
+        },
+        "root": {}
+      },
+      "pointer": "/metadata/title"
+    },
+    {
+      "name": "zero-width space in a name",
+      "class": "format",
+      "doc": {
+        "root": {
+          "name": "a\u200bb"
+        }
+      },
+      "pointer": "/root/name"
+    },
+    {
+      "name": "lone surrogate in a text",
+      "class": "surrogate",
+      "doc": {
+        "root": {
+          "children": [
+            {
+              "text": "\ud800"
+            }
+          ]
+        }
+      },
+      "pointer": "/root/children/0/text"
+    },
+    {
+      "name": "the first of two in member order",
+      "class": "c0",
+      "doc": {
+        "a": "ok",
+        "b": "\u0000",
+        "c": "\u0000"
+      },
+      "pointer": "/b"
+    },
+    {
+      "name": "depth first: a nested string precedes a later sibling",
+      "class": "c0",
+      "doc": {
+        "a": {
+          "z": [
+            "ok",
+            "\u0001"
+          ]
+        },
+        "b": "\u0001"
+      },
+      "pointer": "/a/z/1"
+    },
+    {
+      "name": "an offending key reports the object that holds it",
+      "class": "c0",
+      "doc": {
+        "root": {
+          "ok": 1,
+          "bad\u0000key": "x"
+        }
+      },
+      "pointer": "/root"
+    },
+    {
+      "name": "a key is read before its own value and after earlier members",
+      "class": "bidi",
+      "doc": {
+        "a": {
+          "b": "ok"
+        },
+        "k\u200f": "\u0001"
+      },
+      "pointer": ""
+    },
+    {
+      "name": "an earlier value precedes a later offending key",
+      "class": "c0",
+      "doc": {
+        "a": "\u0001",
+        "k\u200f": "x"
+      },
+      "pointer": "/a"
+    },
+    {
+      "name": "tilde and slash in keys are escaped",
+      "class": "c0",
+      "doc": {
+        "a/b": {
+          "c~d": [
+            "x",
+            "\u0001"
+          ]
+        }
+      },
+      "pointer": "/a~1b/c~0d/1"
+    },
+    {
+      "name": "an empty key",
+      "class": "c0",
+      "doc": {
+        "": "\u0001"
+      },
+      "pointer": "/"
+    },
+    {
+      "name": "a root string",
+      "class": "c1",
+      "doc": "\u0085",
+      "pointer": ""
+    },
+    {
+      "name": "a root list",
+      "class": "bidi",
+      "doc": [
+        "a",
+        [
+          "b",
+          "\u200f"
+        ]
+      ],
+      "pointer": "/1/1"
+    },
+    {
+      "name": "a clean document",
+      "class": null,
+      "doc": {
+        "metadata": {
+          "title": "Tab\there, line\nbreak\r\n, caf\u00e9 \ud83d\ude00 \u2028"
+        },
+        "root": {
+          "x": 1,
+          "y": 2.5,
+          "on": true,
+          "none": null,
+          "children": []
+        }
+      },
+      "pointer": null
+    },
+    {
+      "name": "an empty document",
+      "class": null,
+      "doc": {},
+      "pointer": null
+    }
+  ],
+  "casefold": [
+    {
+      "name": "no collision",
+      "paths": [
+        "a/x.screen.json",
+        "a/y.png",
+        "b/x.screen.json",
+        "b/X2.png"
+      ],
+      "collisions": []
+    },
+    {
+      "name": "no paths",
+      "paths": [],
+      "collisions": []
+    },
+    {
+      "name": "the same name in two directories",
+      "paths": [
+        "a/x.png",
+        "b/X.png"
+      ],
+      "collisions": []
+    },
+    {
+      "name": "a repeated path is one member",
+      "paths": [
+        "a/x.png",
+        "a/x.png"
+      ],
+      "collisions": []
+    },
+    {
+      "name": "a file pair",
+      "paths": [
+        "Pump.screen.json",
+        "pump.screen.json"
+      ],
+      "collisions": [
+        [
+          "Pump.screen.json",
+          "pump.screen.json"
+        ]
+      ]
+    },
+    {
+      "name": "a nested file pair",
+      "paths": [
+        "a/Logo.png",
+        "a/logo.PNG"
+      ],
+      "collisions": [
+        [
+          "a/Logo.png",
+          "a/logo.PNG"
+        ]
+      ]
+    },
+    {
+      "name": "a directory pair",
+      "paths": [
+        "img/a.png",
+        "IMG/b.png"
+      ],
+      "collisions": [
+        [
+          "IMG",
+          "img"
+        ]
+      ]
+    },
+    {
+      "name": "a nested directory pair",
+      "paths": [
+        "a/Sub/x.png",
+        "a/sub/y.png"
+      ],
+      "collisions": [
+        [
+          "a/Sub",
+          "a/sub"
+        ]
+      ]
+    },
+    {
+      "name": "a directory pair and the file pair under it",
+      "paths": [
+        "A/x.png",
+        "a/X.png"
+      ],
+      "collisions": [
+        [
+          "A",
+          "a"
+        ],
+        [
+          "A/x.png",
+          "a/X.png"
+        ]
+      ]
+    },
+    {
+      "name": "a file against a directory in another case",
+      "paths": [
+        "Lib",
+        "lib/x.png"
+      ],
+      "collisions": [
+        [
+          "Lib",
+          "lib"
+        ]
+      ]
+    },
+    {
+      "name": "a path that is both a member and a directory",
+      "paths": [
+        "lib",
+        "lib/x.png"
+      ],
+      "collisions": [
+        [
+          "lib"
+        ]
+      ]
+    },
+    {
+      "name": "three spellings",
+      "paths": [
+        "Ab",
+        "aB",
+        "AB",
+        "c"
+      ],
+      "collisions": [
+        [
+          "AB",
+          "Ab",
+          "aB"
+        ]
+      ]
+    },
+    {
+      "name": "casefold, not lower",
+      "paths": [
+        "stra\u00dfe.png",
+        "STRASSE.png"
+      ],
+      "collisions": [
+        [
+          "STRASSE.png",
+          "stra\u00dfe.png"
+        ]
+      ]
+    }
+  ]
+}

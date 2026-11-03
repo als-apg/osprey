@@ -7,8 +7,6 @@ actually raises, not to hand-built ones.
 
 from __future__ import annotations
 
-import socket
-
 import pytest
 import requests
 
@@ -34,26 +32,23 @@ def _embed(url: str, *, dimensions: int = 1024, timeout: float = 10.0) -> BaseEx
     return caught.value
 
 
-def _refused_url() -> str:
-    with socket.socket() as sock:
-        sock.bind(("127.0.0.1", 0))
-        return f"http://127.0.0.1:{sock.getsockname()[1]}"
+def _refused_url(port: int) -> str:
+    return f"http://127.0.0.1:{port}"
 
 
 class TestAgainstLlamaCpp:
-    def test_401_is_unavailable_auth(self, llama_stub):
+    @pytest.mark.parametrize(
+        ("status", "reason"),
+        [pytest.param(401, "auth", id="401-auth"), pytest.param(404, "model", id="404-model")],
+    )
+    def test_an_auth_or_model_status_is_unavailable_with_its_reason(
+        self, llama_stub, status, reason
+    ):
         stub = llama_stub()
-        stub.status = 401
+        stub.status = status
         exc = _embed(stub.url)
         assert classify_vision_error(exc) == "unavailable"
-        assert availability.unavailable_reason(exc) == "auth"
-
-    def test_404_is_unavailable_model(self, llama_stub):
-        stub = llama_stub()
-        stub.status = 404
-        exc = _embed(stub.url)
-        assert classify_vision_error(exc) == "unavailable"
-        assert availability.unavailable_reason(exc) == "model"
+        assert availability.unavailable_reason(exc) == reason
 
     def test_400_is_deterministic(self, llama_stub):
         stub = llama_stub()
@@ -69,8 +64,8 @@ class TestAgainstLlamaCpp:
         assert isinstance(exc, requests.Timeout)
         assert classify_vision_error(exc) == "transient"
 
-    def test_connection_refused_is_unavailable_unreachable(self):
-        exc = _embed(_refused_url())
+    def test_connection_refused_is_unavailable_unreachable(self, reserve_port):
+        exc = _embed(_refused_url(reserve_port()))
         assert classify_vision_error(exc) == "unavailable"
         assert availability.unavailable_reason(exc) == "unreachable"
 

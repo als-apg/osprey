@@ -25,26 +25,25 @@ tests, and starting it buys nothing but a 30-second window of foreign events.
 Opt back in with ``@pytest.mark.real_workspace_watcher`` when a test genuinely
 needs live file watching through the app factory.
 
-The **audit zone** every test here records into is redirected by
-``tests/conftest.py::_isolate_audit_zone``, suite-wide rather than per
-directory. Any test that drives ``create_app`` files real records —
-``HttpAuditMiddleware`` records one ``http_mutation`` line per state-changing
+The **record spool** every test here writes into is redirected by
+``tests/conftest.py::_isolate_spool_zone``, suite-wide rather than per
+directory. Any test that drives ``create_app`` records real audit entries —
+``HttpAuditMiddleware`` records one ``http_mutation`` entry per state-changing
 request — and those would otherwise land in the developer's or the runner's own
-``var/audit/<identity>/`` ledger, indistinguishable from records of things that
-really happened.
+``var/spool/<identity>/``, indistinguishable from records of things that really
+happened. A test reads what it recorded through ``recorded_entries("audit")``.
 
-The **feedback and bar-items stores** are sited under
-``resolve_shared_data_root()``, which reads ``agent_data.base_dir`` anchored on
-the project root and never consults ``OSPREY_AGENT_DATA_ROOT``.
-``tests/interfaces/conftest.py::_agent_data_root_in_tmp`` stamps that variable
-for every test in this tree, and it moves the control-context record only. A
-test that needs its own stores patches
+The **feedback store** is sited under ``resolve_shared_data_root()``, which
+reads ``agent_data.base_dir`` anchored on the project root and never consults
+``OSPREY_AGENT_DATA_ROOT``. ``tests/interfaces/conftest.py::_agent_data_root_in_tmp``
+stamps that variable for every test in this tree, and it moves the
+control-context record only. A test that needs its own store patches
 ``osprey_connectors.workspace.resolve_shared_data_root``, the name the lifespan
-imports at call time, as ``test_bar_items_routes.py``'s ``client`` fixture
-does. A lifespan left unpatched resolves the stores to the checkout's
-``var/agent_data``; ``tests/conftest.py::agent_data_never_the_checkout``
-diverts that to one throwaway root per worker session, so the stores are then
-isolated from the checkout but shared with every other test in the worker.
+imports at call time, as :func:`isolated_app` does. A lifespan left unpatched
+resolves the store to the checkout's ``var/agent_data``;
+``tests/conftest.py::agent_data_never_the_checkout`` diverts that to one
+throwaway root per worker session, so the store is then isolated from the
+checkout but shared with every other test in the worker.
 
 The second autouse fixture here keeps the panel-register route's deploy-host
 check off the real machine, and resets that check's TTL cache between tests
@@ -59,8 +58,15 @@ no-durable-store notice in ``ownership`` — and the deployment-identity
 variables a developer shell may export are unset, so an "unset" row means
 unset.
 
+``workspace_dir`` is the empty watched directory most app tests boot over;
+``_started_app.terminal_client`` is the boot itself. ``ws_app`` and ``sessions_dir``
+are the unstarted app and the transcript directory the ``/ws/terminal`` suites
+drive through the harness in ``_ws``. ``agent_data_root`` and ``ledger`` are
+the throwaway record root and the captured audit ledger of the posture and
+target route suites (``_control_context`` holds their helpers).
+
 Two non-autouse builders serve the tests that ask for them:
-:func:`bar_items_app` boots the whole app with both agent-data stores on
+:func:`isolated_app` boots the whole app with its agent-data stores on
 ``tmp_path``, and :func:`bare_route_app` mounts routers on a bare ``FastAPI``
 carrying the ``app.state`` the lifespan would have seeded.
 """
@@ -69,7 +75,7 @@ from __future__ import annotations
 
 from collections import deque
 from collections.abc import Callable, Iterator, Sequence
-from contextlib import ExitStack, contextmanager
+from contextlib import AbstractContextManager, ExitStack, contextmanager
 from pathlib import Path, PurePath
 from typing import Any
 from unittest.mock import MagicMock, patch
@@ -224,56 +230,131 @@ def web_identity_env_unset(monkeypatch):
 
 
 @pytest.fixture
-def bar_items_app(tmp_path) -> Callable[..., Any]:
-    """A factory booting the whole app with both agent-data stores on ``tmp_path``.
+def workspace_dir(tmp_path) -> Path:
+    """An empty watched directory, ``tmp_path / "_agent_data"``."""
+    ws = tmp_path / "_agent_data"
+    ws.mkdir()
+    return ws
 
-    The feedback and bar-items stores sit under ``resolve_shared_data_root()``,
-    which an unpatched lifespan resolves to the per-worker shared root — so a
-    bar-items test booted without this shares its document with every other
-    test on the worker, and passes or fails by run order. Here the resolver
-    always answers ``tmp_path / "agent_data"``, the watched tree is
-    ``tmp_path / "_watch"``, the panel roster is fixed and no panel server is
-    launched.
+
+@pytest.fixture
+def ws_app(tmp_path) -> Iterator[FastAPI]:
+    """The app the ``/ws/terminal`` suites drive, built over ``tmp_path`` and not started.
+
+    Each test enters its own ``TestClient``; the spawn is swapped out through
+    ``_ws.patch_spawn``, so the shell command is never run.
+    """
+    from osprey.interfaces.web_terminal.app import create_app
+
+    with patch(
+        "osprey.interfaces.web_terminal.app._load_web_config",
+        return_value={"watch_dir": str(tmp_path / "ws")},
+    ):
+        yield create_app(shell_command="fake-not-used", project_dir=str(tmp_path))
+
+
+@pytest.fixture
+def sessions_dir(tmp_path, monkeypatch) -> Path:
+    """Point ``SessionDiscovery`` at an empty transcript directory and return it."""
+    from osprey.interfaces.web_terminal.session_discovery import SessionDiscovery
+
+    sessions = tmp_path / "claude_sessions"
+    sessions.mkdir()
+    monkeypatch.setattr(SessionDiscovery, "_resolve_sessions_dir", lambda self: sessions)
+    return sessions
+
+
+@pytest.fixture
+def agent_data_root(tmp_path, monkeypatch) -> Iterator[Path]:
+    """Point every resolver at one throwaway agent-data root, verdict env clean.
+
+    ``OSPREY_AGENT_DATA_ROOT`` is the single stamp the record reader and
+    ``posture_store`` both prefer — the stamp this feature puts in every
+    session child's environment. Patching ``resolve_shared_data_root`` instead
+    would redirect only one of them: ``posture_store`` binds the resolver at
+    import, so the other half would write into the repository's own
+    ``var/agent_data``. Every variable that changes a write verdict behind a
+    test's back — a stamped owner, a bound tree, a launch pin, a read-only run
+    — is cleared, so each case states the one it means. Both caches are
+    dropped on the way in and out.
+    """
+    from osprey_connectors import control_context, posture_store
+    from osprey_connectors_tests._harness import VERDICT_ENV_VARS, state_dir_under
+
+    root = tmp_path / "agent_data"
+    state_dir_under(root).mkdir(parents=True)
+    for name in VERDICT_ENV_VARS:
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("OSPREY_AGENT_DATA_ROOT", str(root))
+    posture_store.invalidate_cache()
+    control_context.invalidate_cache()
+    yield root
+    posture_store.invalidate_cache()
+    control_context.invalidate_cache()
+
+
+@pytest.fixture
+def ledger() -> Iterator[list[dict]]:
+    """Capture every audit record a request would have written.
+
+    Patches ``osprey.audit.writer.record``, which BOTH recorders resolve at
+    call time — a route's ``record_and_mark`` and
+    ``HttpAuditMiddleware._emit_audit_record`` — so the count is the true
+    number of ledger lines one request produces, not just the route's own.
+    """
+    from osprey.audit import writer as audit_writer
+
+    records: list[dict] = []
+
+    def _record(**fields):
+        records.append(fields)
+        return Path("/dev/null/ledger.jsonl")
+
+    with patch.object(audit_writer, "record", side_effect=_record):
+        yield records
+
+
+@pytest.fixture
+def readable_process_table(monkeypatch):
+    """Read the real process table through a wait for a readable one.
+
+    A real table that is momentarily unreadable, or does not yet hold a
+    just-spawned pid, makes the test wait, never decide: every
+    ``process_table.snapshot`` call goes through
+    :func:`tests.interfaces.web_terminal._pty_child.readable_rows`. A test that
+    injects an unknown table patches ``snapshot`` after it.
+    """
+    from osprey.deployment import process_table
+    from tests.interfaces.web_terminal._pty_child import readable_rows
+
+    monkeypatch.setattr(process_table, "snapshot", readable_rows)
+
+
+@pytest.fixture
+def isolated_app(tmp_path) -> Callable[[], AbstractContextManager[TestClient]]:
+    """A factory booting the whole app with its agent-data stores on ``tmp_path``.
+
+    The agent-data stores sit under ``resolve_shared_data_root()``, which an
+    unpatched lifespan resolves to the per-worker shared root, so an app booted
+    without this shares its stores with every other test on the worker. Here
+    the resolver always answers ``tmp_path / "agent_data"``, the watched tree is
+    ``tmp_path / "_watch"``, the panel roster is ``{"artifacts"}`` and no panel
+    server is launched.
 
     Call it as a context manager; it yields the started ``TestClient``
     (``client.app`` is the app)::
 
-        with bar_items_app(stored=b"{...}") as client:
+        with isolated_app() as client:
             ...
-
-    Keyword Args:
-        enabled_panels: Enabled built-in panel ids; ``None`` means ``{"artifacts"}``.
-        custom_panels: Config-declared panel dicts; ``None`` means none.
-        env: Environment overrides applied across ``create_app`` and the lifespan.
-        stored: Document bytes written to the bar-items store before boot.
-        web: The ``web:`` section ``_load_web_ui_config`` answers; ``None``
-            leaves the real reader in place.
-        config_path: Set on ``app.state.config_path`` once the app has started.
-        project_dir: Passed to ``create_app``.
     """
     from osprey.interfaces.web_terminal.app import create_app
-    from osprey.interfaces.web_terminal.bar_items_store import LAYOUT_FILENAME
 
     @contextmanager
-    def _boot(
-        *,
-        enabled_panels: set[str] | None = None,
-        custom_panels: list[dict] | None = None,
-        env: dict[str, str] | None = None,
-        stored: bytes | None = None,
-        web: dict | None = None,
-        config_path: Path | None = None,
-        project_dir: Path | None = None,
-    ) -> Iterator[TestClient]:
+    def _boot() -> Iterator[TestClient]:
         agent_data_root = tmp_path / "agent_data"
         agent_data_root.mkdir(exist_ok=True)
         watch_dir = tmp_path / "_watch"
         watch_dir.mkdir(exist_ok=True)
-        if stored is not None:
-            store = agent_data_root / "bar_items"
-            store.mkdir(parents=True, exist_ok=True)
-            (store / LAYOUT_FILENAME).write_bytes(stored)
-        panels = {"artifacts"} if enabled_panels is None else set(enabled_panels)
         with ExitStack() as stack:
             stack.enter_context(
                 patch(
@@ -290,22 +371,12 @@ def bar_items_app(tmp_path) -> Callable[..., Any]:
             stack.enter_context(
                 patch(
                     "osprey.interfaces.web_terminal.app._load_panel_config",
-                    return_value=(panels, list(custom_panels or []), None),
+                    return_value=({"artifacts"}, [], None),
                 )
             )
             stack.enter_context(patch("osprey.interfaces.web_terminal.app._launch_panel_server"))
-            if web is not None:
-                stack.enter_context(
-                    patch(
-                        "osprey.interfaces.web_terminal.app._load_web_ui_config",
-                        return_value=web,
-                    )
-                )
-            stack.enter_context(patch.dict("os.environ", env or {}, clear=False))
-            app = create_app(shell_command="echo", project_dir=project_dir)
+            app = create_app(shell_command="echo")
             with TestClient(app) as client:
-                if config_path is not None:
-                    app.state.config_path = config_path
                 yield client
 
     return _boot

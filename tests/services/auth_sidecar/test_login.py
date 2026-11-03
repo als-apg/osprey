@@ -45,11 +45,13 @@ from osprey.services.auth_sidecar.routes.login import (
 from osprey.services.auth_sidecar.routes.recheck import RosterRoles
 from osprey.services.auth_sidecar.sessions import SESSION_COOKIE_NAME, SessionCodec, SessionState
 from osprey.services.auth_sidecar.throttle import AttemptThrottle
-
-SESSION_SECRET = "session-secret-value"
-STATE_SECRET = "state-secret-value"
-SESSION_LIFETIME = 3600
-EXTERNAL_ORIGIN = "https://terminals.example.org"
+from tests.services.auth_sidecar._helpers import (
+    SESSION_LIFETIME,
+    SESSION_SECRET,
+    STATE_SECRET,
+    FakeClock,
+)
+from tests.services.auth_sidecar._oidc import EXTERNAL_ORIGIN
 
 ALICE_PASSWORD = "alice-password"
 ALICE_HASH = hash_password(ALICE_PASSWORD)
@@ -162,25 +164,6 @@ def _inputs(body: str) -> list[str]:
     return re.findall(r"<input[^>]*>", body, flags=re.IGNORECASE | re.DOTALL)
 
 
-class FakeClock:
-    """A monotonic clock the test moves by hand.
-
-    The throttle's windows are seconds long, so tests that let them lapse in real
-    time would be pinning the machine's speed rather than the route's behaviour —
-    and tests that stay inside one would be assuming two requests land within a
-    second of each other.
-    """
-
-    def __init__(self) -> None:
-        self.time = 1000.0
-
-    def advance(self, seconds: float) -> None:
-        self.time += seconds
-
-    def __call__(self) -> float:
-        return self.time
-
-
 def _throttled_client(
     env: dict[str, str] | None = None,
 ) -> tuple[TestClient, AttemptThrottle, FakeClock]:
@@ -236,14 +219,6 @@ def test_page_escapes_the_username_it_echoes() -> None:
     assert "&lt;script&gt;" in response.text
 
 
-def test_empty_next_falls_back_to_the_users_own_terminal() -> None:
-    """nginx emits an empty ``next`` when the original path fails its allowlist."""
-    response = _client().get(LOGIN_PATH, params={"user": "alice", "next": ""})
-
-    assert response.status_code == 200
-    assert 'name="next" value="/u/alice/"' in response.text
-
-
 def test_a_same_origin_next_is_carried_into_the_form() -> None:
     response = _client().get(LOGIN_PATH, params={"user": "alice", "next": "/u/alice/files/log"})
 
@@ -251,8 +226,11 @@ def test_a_same_origin_next_is_carried_into_the_form() -> None:
 
 
 @pytest.mark.parametrize(
-    "hostile",
+    "next_param",
     [
+        # nginx emits an empty ``next`` when the original path fails its allowlist.
+        "",
+        # The rest could leave this origin: replaced, never repaired.
         "https://evil.example/",
         "//evil.example/",
         "/\\evil.example/",
@@ -263,9 +241,8 @@ def test_a_same_origin_next_is_carried_into_the_form() -> None:
         "/u/alice/\r\nSet-Cookie: x=y",
     ],
 )
-def test_an_off_origin_next_is_discarded(hostile: str) -> None:
-    """Anything that could leave this origin is replaced, never repaired."""
-    response = _client().get(LOGIN_PATH, params={"user": "alice", "next": hostile})
+def test_an_unusable_next_falls_back_to_the_users_own_terminal(next_param: str) -> None:
+    response = _client().get(LOGIN_PATH, params={"user": "alice", "next": next_param})
 
     assert response.status_code == 200
     assert 'name="next" value="/u/alice/"' in response.text
@@ -1120,13 +1097,21 @@ def test_the_deployments_declared_origin_is_accepted(origin: str) -> None:
     assert response.status_code == 303
 
 
-def test_the_declared_origin_outranks_the_host_the_request_arrived_on() -> None:
-    """``external_origin`` is the deployment's own word about where it lives;
-    ``Host`` is the client's. Where the two disagree, the client does not win."""
+@pytest.mark.parametrize(
+    "origin",
+    [
+        # ``external_origin`` is the deployment's own word about where it lives;
+        # ``Host`` is the client's. Where the two disagree, the client does not win.
+        pytest.param("https://testserver", id="host-the-request-arrived-on"),
+        # Sandboxed iframes and some redirect chains send the literal string.
+        pytest.param("null", id="null-origin"),
+    ],
+)
+def test_an_origin_other_than_the_declared_one_is_refused(origin: str) -> None:
     response = _post(
         _client(),
         {"user": "alice", "next": "", "password": ALICE_PASSWORD},
-        headers={"Origin": "https://testserver"},
+        headers={"Origin": origin},
     )
 
     assert response.status_code == 400
@@ -1186,17 +1171,6 @@ def test_a_post_that_declares_no_origin_at_all_is_refused() -> None:
 
     assert response.status_code == 400
     assert "set-cookie" not in response.headers
-
-
-def test_a_null_origin_is_not_an_origin() -> None:
-    """Sandboxed iframes and some redirect chains send the literal string."""
-    response = _post(
-        _client(),
-        {"user": "alice", "next": "", "password": ALICE_PASSWORD},
-        headers={"Origin": "null"},
-    )
-
-    assert response.status_code == 400
 
 
 @pytest.mark.parametrize(

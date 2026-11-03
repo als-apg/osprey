@@ -34,6 +34,7 @@ from osprey.dispatch import server
 from osprey.dispatch.registry import TriggerRegistry
 from osprey.dispatch.trigger_config import TriggerConfig
 from osprey.utils.owner_header import OWNER_HEADER
+from tests._live import async_wait_until
 from tests.conftest import dispatcher_route_registry
 
 # The route rows build the app through ``create_server()``, which configures a
@@ -177,7 +178,7 @@ async def test_owner_less_history_entries_carry_no_owner_key():
 
 
 # ---------------------------------------------------------------------------
-# POST /retry/{trigger_name}
+# Tests of POST /retry/{trigger_name}
 # ---------------------------------------------------------------------------
 
 
@@ -246,14 +247,12 @@ async def _retry_and_record(app, owner_header: str | None) -> tuple[dict[str, An
 
 async def _wait_for_history(registry: TriggerRegistry, name: str) -> list[dict[str, Any]]:
     """Poll *name*'s history until it holds an entry, bounded at 5 s."""
-    loop = asyncio.get_running_loop()
-    deadline = loop.time() + 5
-    while True:
-        history = await registry.get_history(name)
-        if history:
-            return history
-        assert loop.time() < deadline, f"no history entry for {name!r} within 5 s"
-        await asyncio.sleep(0.01)
+    return await async_wait_until(
+        lambda: registry.get_history(name),
+        timeout=5,
+        interval=0.01,
+        what=f"a history entry for {name!r}",
+    )
 
 
 async def _retry_over_the_wire(app, owner_header: str | None) -> dict[str, Any]:
@@ -269,21 +268,20 @@ async def test_retry_credits_the_owner_named_by_the_header(dispatcher_app):
     assert body["owner"] == "alice"
 
 
-async def test_retry_without_the_header_is_owner_less(dispatcher_app):
-    """A call straight at the dispatcher's port names nobody, as cron does."""
-    body = await _retry_over_the_wire(dispatcher_app, None)
-
-    assert "owner" not in body
-
-
-async def test_retry_with_a_malformed_header_is_owner_less(dispatcher_app):
-    """A header that names nobody costs the owner, never the re-fire.
-
-    The route reads the header through the shared guard, whose refusals are
-    pinned in ``tests/utils/test_owner_header.py``; what matters here is that a
-    refusal degrades to an owner-less dispatch instead of failing the request.
-    """
-    body = await _retry_over_the_wire(dispatcher_app, "${OSPREY_TERMINAL_USER}")
+@pytest.mark.parametrize(
+    "owner_header",
+    [
+        # A call straight at the dispatcher's port names nobody, as cron does.
+        pytest.param(None, id="without-the-header"),
+        # The route reads the header through the shared guard, whose refusals are
+        # pinned in ``tests/utils/test_owner_header.py``; what matters here is that a
+        # refusal degrades to an owner-less dispatch instead of failing the request.
+        pytest.param("${OSPREY_TERMINAL_USER}", id="with-a-malformed-header"),
+    ],
+)
+async def test_retry_with_a_header_that_names_nobody_is_owner_less(dispatcher_app, owner_header):
+    """A header that names nobody costs the owner, never the re-fire."""
+    body = await _retry_over_the_wire(dispatcher_app, owner_header)
 
     assert "owner" not in body
 

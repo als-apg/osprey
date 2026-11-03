@@ -29,7 +29,6 @@ layout default instead of from the profile cannot pass by coincidence.
 from __future__ import annotations
 
 import logging
-import os
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -39,7 +38,6 @@ import pytest
 import yaml
 from click.testing import CliRunner
 
-from osprey.cli import build_cmd
 from osprey.cli.set_cmd import set as set_command
 from osprey.deployment.web_terminals.ports import base_ports_from_config, resolve_nginx_port
 from osprey.deployment.web_terminals.render import render_web_terminals
@@ -52,6 +50,7 @@ from osprey.port_layout import (
     default_port,
     resolve_port_base,
 )
+from tests.cli._lifecycle_build import invoke_build_in
 from tests.fixtures.lifecycle_repo import EXEMPLAR_DIRNAME, build_exemplar_repo
 
 #: The base this deployment moves to. Two blocks away from the default, so no
@@ -87,8 +86,7 @@ SERVICE_PORT_KEYS = (
     ("mongo", "services.mongodb.port_host"),
     ("graphdb_bolt", "services.graphdb.port_host"),
     ("graphdb_http", "services.graphdb.http_port_host"),
-    ("telemetry_store", "services.telemetry_store.port"),
-    ("telemetry_gateway", "services.telemetry_gateway.port"),
+    ("agent_record", "agent_record.port"),
     ("qmd", "services.qmd.port"),
     ("dispatcher", "services.event_dispatcher.port"),
     ("bluesky", "services.bluesky.port"),
@@ -107,8 +105,7 @@ SERVICE_COMPOSE_DIRS = (
     "postgresql",
     "mongodb",
     "graphdb",
-    "telemetry_store",
-    "telemetry_gateway",
+    "agent_record",
     "qmd",
     "bluesky",
     "bluesky_web",
@@ -271,26 +268,6 @@ class Rendered:
         ]
 
 
-def _run_build(repo: Path):
-    """Run ``osprey build`` in *repo*, in process.
-
-    ``--skip-deps``/``--skip-lifecycle`` drop the virtualenv install and the
-    profile's shell phases. Neither renders a port, and both cost minutes.
-
-    Args:
-        repo: The deployment repo to build.
-
-    Returns:
-        The Click result, so a caller can assert on the exit code and output.
-    """
-    previous = Path.cwd()
-    os.chdir(repo)
-    try:
-        return CliRunner().invoke(build_cmd.build, ["--skip-deps", "--skip-lifecycle"])
-    finally:
-        os.chdir(previous)
-
-
 def _read_render(repo: Path) -> Rendered:
     """Read both halves of the render a build left in *repo*.
 
@@ -327,7 +304,7 @@ def dotted_render(tmp_path_factory: pytest.TempPathFactory) -> Rendered:
     )
     assert written.exit_code == 0, written.output
 
-    built = _run_build(repo)
+    built = invoke_build_in(repo)
     assert built.exit_code == 0, built.output
     return _read_render(repo)
 
@@ -349,7 +326,7 @@ def nested_render(tmp_path_factory: pytest.TempPathFactory) -> Rendered:
         encoding="utf-8",
     )
 
-    built = _run_build(repo)
+    built = invoke_build_in(repo)
     assert built.exit_code == 0, built.output
     return _read_render(repo)
 
@@ -495,7 +472,7 @@ class TestThePanelsMove:
     def test_nginx_listens_on_the_base_itself(self, dotted_render: Rendered) -> None:
         """The landing page is the first port of the block, by definition.
 
-        The only other server nginx runs is the readers' origin, on its own
+        The only other server nginx runs is the history page's origin, on its own
         slot so that a page from the terminal origin is a different origin.
         """
         listens = {
@@ -507,7 +484,7 @@ class TestThePanelsMove:
             )
         }
         assert _slot_port("nginx") in listens
-        assert listens <= {_slot_port("nginx"), _slot_port("reader")}
+        assert listens <= {_slot_port("nginx"), _slot_port("history_origin")}
 
     def test_the_auth_sidecar_sits_one_above_it(self, dotted_render: Rendered) -> None:
         """The gateway tier is two ports, and both belong to the block."""
@@ -661,7 +638,7 @@ class TestAnUnusableBaseStopsTheBuild:
         assert written.exit_code == 0, written.output
 
         with caplog.at_level(logging.ERROR):
-            built = _run_build(repo)
+            built = invoke_build_in(repo)
 
         assert built.exit_code != 0, built.output
         refusal = "\n".join(

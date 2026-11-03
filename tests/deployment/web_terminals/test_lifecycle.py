@@ -18,7 +18,10 @@ import yaml
 from ruamel.yaml import YAML
 
 from osprey.agent_runner.tool_names import DENY_DEFAULTS
-from osprey.deployment.compose_generator import resolve_user_volume_names
+from osprey.deployment.compose_generator import (
+    resolve_user_projects_volume_name,
+    resolve_user_volume_names,
+)
 from osprey.deployment.errors import RemovalIncompleteError
 from osprey.deployment.web_terminals import lifecycle
 from osprey.deployment.web_terminals.artifacts import (
@@ -119,8 +122,7 @@ def _stub_rendered_web_stack(tmp_path, body: str = "services: {}\n"):
 
 def _reload_users(config_path):
     """Reload config.yml and return modules.web_terminals.users as written."""
-    with open(config_path, encoding="utf-8") as f:
-        data = yaml.safe_load(f)
+    data = yaml.safe_load(config_path.read_text(encoding="utf-8"))
     return data["modules"]["web_terminals"]["users"]
 
 
@@ -152,62 +154,68 @@ def _ps_json(names, *, project: str = "demo-project") -> str:
     )
 
 
-@pytest.fixture
-def fake_runtime(monkeypatch):
-    """Patch subprocess.run + get_runtime_command; return the list of captured argvs."""
-    calls: list[list[str]] = []
+def _install_fake_runtime(monkeypatch, *, image_labels=None, down_result=None):
+    """Patch subprocess.run + get_runtime_command; return ``(calls, listing)``.
 
-    def _fake_run(
-        argv,
-        capture_output=True,  # noqa: ARG001 - subprocess.run's keywords
-        text=True,  # noqa: ARG001 - subprocess.run's keywords
-        env=None,  # noqa: ARG001 - subprocess.run's keywords
-        check=False,  # noqa: ARG001 - subprocess.run's keywords
-        **kwargs,
-    ):
+    ``calls`` records every emitted argv. ``listing`` is a mutable
+    ``{"containers": [...], "volumes": [...]}`` dict that answers ``ps -a`` and
+    ``volume ls`` discovery — empty, it answers both with no output. Passing
+    ``image_labels`` makes ``image inspect`` answer from it, and passing
+    ``down_result`` makes ``compose down`` answer with its exit code/stderr;
+    otherwise both succeed silently like every other argv.
+    """
+    calls: list[list[str]] = []
+    listing: dict[str, list[str]] = {"containers": [], "volumes": []}
+
+    def _fake_run(argv, **kwargs):
         calls.append(list(argv))
+        if argv[1:3] == ["ps", "-a"]:
+            return subprocess.CompletedProcess(
+                argv, returncode=0, stdout=_ps_json(listing["containers"]), stderr=""
+            )
+        if argv[1:3] == ["volume", "ls"]:
+            return subprocess.CompletedProcess(
+                argv, returncode=0, stdout="\n".join(listing["volumes"]), stderr=""
+            )
+        if image_labels is not None and argv[1:3] == ["image", "inspect"]:
+            tag = argv[3]
+            if tag not in image_labels:
+                return subprocess.CompletedProcess(
+                    argv, returncode=1, stdout="", stderr=f"Error: no such image: {tag}"
+                )
+            label_value = image_labels[tag]
+            labels_json = (
+                "null" if label_value is None else f'{{"com.osprey.project":"{label_value}"}}'
+            )
+            return subprocess.CompletedProcess(argv, returncode=0, stdout=labels_json, stderr="")
+        if down_result is not None and "down" in argv:
+            return subprocess.CompletedProcess(
+                argv, returncode=down_result["returncode"], stdout="", stderr=down_result["stderr"]
+            )
         return subprocess.CompletedProcess(argv, returncode=0, stdout="", stderr="")
 
     monkeypatch.setattr(lifecycle.subprocess, "run", _fake_run)
     monkeypatch.setattr(lifecycle, "get_runtime_command", lambda config=None: ["docker", "compose"])
-    monkeypatch.setattr(lifecycle, "verify_runtime_is_running", lambda config=None: (True, ""))
+    monkeypatch.setattr(lifecycle, "verify_runtime_is_running", lambda config=None, **_: (True, ""))
+    return calls, listing
+
+
+@pytest.fixture
+def fake_runtime(monkeypatch):
+    """Patch subprocess.run + get_runtime_command; return the list of captured argvs."""
+    calls, _listing = _install_fake_runtime(monkeypatch)
     return calls
 
 
 @pytest.fixture
 def fake_runtime_prune(monkeypatch):
-    """Like ``fake_runtime``, but also stubs ``ps -a``/``volume ls`` discovery output.
+    """Like ``fake_runtime``, but also returns the ``ps -a``/``volume ls`` listing.
 
-    Returns ``(calls, listing)``: ``calls`` records every emitted argv (same
-    contract as ``fake_runtime``); ``listing`` is a mutable
-    ``{"containers": [...], "volumes": [...]}`` dict tests populate *before*
-    calling ``prune_users`` to control what the (mocked) runtime reports as
-    existing containers/volumes.
+    Returns ``(calls, listing)``: tests populate ``listing`` *before* calling
+    ``prune_users`` to control what the (mocked) runtime reports as existing
+    containers/volumes.
     """
-    calls: list[list[str]] = []
-    listing: dict[str, list[str]] = {"containers": [], "volumes": []}
-
-    def _fake_run(
-        argv,
-        capture_output=True,  # noqa: ARG001 - subprocess.run's keywords
-        text=True,  # noqa: ARG001 - subprocess.run's keywords
-        env=None,  # noqa: ARG001 - subprocess.run's keywords
-        check=False,  # noqa: ARG001 - subprocess.run's keywords
-        **kwargs,
-    ):
-        calls.append(list(argv))
-        if argv[1:3] == ["ps", "-a"]:
-            stdout = _ps_json(listing["containers"])
-        elif argv[1:3] == ["volume", "ls"]:
-            stdout = "\n".join(listing["volumes"])
-        else:
-            stdout = ""
-        return subprocess.CompletedProcess(argv, returncode=0, stdout=stdout, stderr="")
-
-    monkeypatch.setattr(lifecycle.subprocess, "run", _fake_run)
-    monkeypatch.setattr(lifecycle, "get_runtime_command", lambda config=None: ["docker", "compose"])
-    monkeypatch.setattr(lifecycle, "verify_runtime_is_running", lambda config=None: (True, ""))
-    return calls, listing
+    return _install_fake_runtime(monkeypatch)
 
 
 @pytest.fixture
@@ -228,48 +236,11 @@ def fake_runtime_nuke(monkeypatch):
     this host); a tag present with value ``None`` simulates an image that
     exists but carries no ``com.osprey.project`` label at all.
     """
-    calls: list[list[str]] = []
-    listing: dict[str, list[str]] = {"containers": [], "volumes": []}
     down_result = {"returncode": 0, "stderr": ""}
     image_labels: dict[str, str | None] = {}
-
-    def _fake_run(
-        argv,
-        capture_output=True,  # noqa: ARG001 - subprocess.run's keywords
-        text=True,  # noqa: ARG001 - subprocess.run's keywords
-        env=None,  # noqa: ARG001 - subprocess.run's keywords
-        check=False,  # noqa: ARG001 - subprocess.run's keywords
-        **kwargs,
-    ):
-        calls.append(list(argv))
-        if argv[1:3] == ["ps", "-a"]:
-            return subprocess.CompletedProcess(
-                argv, returncode=0, stdout=_ps_json(listing["containers"]), stderr=""
-            )
-        if argv[1:3] == ["volume", "ls"]:
-            return subprocess.CompletedProcess(
-                argv, returncode=0, stdout="\n".join(listing["volumes"]), stderr=""
-            )
-        if argv[1:3] == ["image", "inspect"]:
-            tag = argv[3]
-            if tag not in image_labels:
-                return subprocess.CompletedProcess(
-                    argv, returncode=1, stdout="", stderr=f"Error: no such image: {tag}"
-                )
-            label_value = image_labels[tag]
-            labels_json = (
-                "null" if label_value is None else f'{{"com.osprey.project":"{label_value}"}}'
-            )
-            return subprocess.CompletedProcess(argv, returncode=0, stdout=labels_json, stderr="")
-        if "down" in argv:
-            return subprocess.CompletedProcess(
-                argv, returncode=down_result["returncode"], stdout="", stderr=down_result["stderr"]
-            )
-        return subprocess.CompletedProcess(argv, returncode=0, stdout="", stderr="")
-
-    monkeypatch.setattr(lifecycle.subprocess, "run", _fake_run)
-    monkeypatch.setattr(lifecycle, "get_runtime_command", lambda config=None: ["docker", "compose"])
-    monkeypatch.setattr(lifecycle, "verify_runtime_is_running", lambda config=None: (True, ""))
+    calls, listing = _install_fake_runtime(
+        monkeypatch, image_labels=image_labels, down_result=down_result
+    )
     return calls, listing, down_result, image_labels
 
 
@@ -317,7 +288,7 @@ def test_decommission_retain_by_default_removes_container_not_volumes(
 # =============================================================================
 
 
-def test_decommission_purge_removes_both_exact_volumes(tmp_path, monkeypatch, fake_runtime):
+def test_decommission_purge_removes_every_exact_volume(tmp_path, monkeypatch, fake_runtime):
     monkeypatch.chdir(tmp_path)
     config = _config(["alice", "bob"])
     config_path = _write_config(tmp_path, config)
@@ -325,12 +296,16 @@ def test_decommission_purge_removes_both_exact_volumes(tmp_path, monkeypatch, fa
 
     lifecycle.decommission_user(str(config_path), "alice", purge=True, assume_yes=True)
 
+    projects_vol = resolve_user_projects_volume_name(config, "alice")
+
     volume_rm_calls = [c for c in fake_runtime if c[1:3] == ["volume", "rm"]]
     assert volume_rm_calls == [
         ["docker", "volume", "rm", claude_vol],
+        ["docker", "volume", "rm", projects_vol],
         ["docker", "volume", "rm", agent_vol],
     ]
     assert claude_vol == "demo-project_alice-claude-config"
+    assert projects_vol == "demo-project_alice-claude-projects"
     assert agent_vol == "demo-project_alice-agent-data"
 
     # No archive ("run") call when purging.
@@ -363,6 +338,7 @@ def test_removing_a_volume_the_archive_holds_runs_a_last_pass_and_removes_it(
         ["docker", "exec", "demo-project-archive", "osprey", "archive", "--once"],
         ["docker", "rm", "-f", "demo-project-archive"],
         ["docker", "volume", "rm", claude_vol],
+        ["docker", "volume", "rm", resolve_user_projects_volume_name(config, "alice")],
         ["docker", "volume", "rm", agent_vol],
     ]
 
@@ -391,6 +367,7 @@ def test_a_stopped_archive_container_is_removed_without_a_last_pass(
         ["docker", "inspect", "-f", "{{.State.Running}}", "demo-project-archive"],
         ["docker", "rm", "-f", "demo-project-archive"],
         ["docker", "volume", "rm", claude_vol],
+        ["docker", "volume", "rm", resolve_user_projects_volume_name(config, "alice")],
         ["docker", "volume", "rm", agent_vol],
     ]
 
@@ -471,7 +448,7 @@ def test_decommission_purge_assume_yes_skips_prompt_and_proceeds(
     lifecycle.decommission_user(str(config_path), "alice", purge=True, assume_yes=True)
 
     volume_rm_calls = [c for c in fake_runtime if c[1:3] == ["volume", "rm"]]
-    assert len(volume_rm_calls) == 2
+    assert len(volume_rm_calls) == 3
 
 
 def test_decommission_purge_typed_username_confirms(tmp_path, monkeypatch, fake_runtime):
@@ -483,7 +460,7 @@ def test_decommission_purge_typed_username_confirms(tmp_path, monkeypatch, fake_
     lifecycle.decommission_user(str(config_path), "alice", purge=True, assume_yes=False)
 
     volume_rm_calls = [c for c in fake_runtime if c[1:3] == ["volume", "rm"]]
-    assert len(volume_rm_calls) == 2
+    assert len(volume_rm_calls) == 3
 
 
 def test_decommission_purge_generic_yes_does_not_confirm(tmp_path, monkeypatch, fake_runtime):
@@ -598,7 +575,7 @@ def test_downed_runtime_raises_instead_of_touching_anything(tmp_path, monkeypatc
     monkeypatch.setattr(lifecycle.subprocess, "run", _fake_run)
     monkeypatch.setattr(lifecycle, "get_runtime_command", lambda config=None: ["docker", "compose"])
     monkeypatch.setattr(
-        lifecycle, "verify_runtime_is_running", lambda config=None: (False, "daemon is down")
+        lifecycle, "verify_runtime_is_running", lambda config=None, **_: (False, "daemon is down")
     )
     monkeypatch.chdir(tmp_path)
     config_path = _write_config(tmp_path, _config(["alice"]))
@@ -659,8 +636,13 @@ def test_prune_removes_only_off_roster_resources(tmp_path, monkeypatch, fake_run
 
     lifecycle.prune_users(str(config_path), purge=True, assume_yes=True)
 
+    # eve's terminal, then the agent record that mounts her transcripts volume,
+    # which must let go of it before the volume can be removed.
     container_calls = [c for c in calls if c[1] == "rm"]
-    assert container_calls == [["docker", "rm", "-f", "demo-project-web-eve"]]
+    assert container_calls == [
+        ["docker", "rm", "-f", "demo-project-web-eve"],
+        ["docker", "rm", "-f", "demo-project-agent-record"],
+    ]
 
     volume_rm_calls = [c for c in calls if c[1:3] == ["volume", "rm"]]
     assert volume_rm_calls == [
@@ -669,16 +651,26 @@ def test_prune_removes_only_off_roster_resources(tmp_path, monkeypatch, fake_run
     ]
 
 
-def test_prune_retain_default_removes_container_not_volumes(
-    tmp_path, monkeypatch, fake_runtime_prune
-):
-    calls, listing = fake_runtime_prune
+def _orphaned_eve(tmp_path, monkeypatch, listing):
+    """An empty roster whose runtime still reports eve's container and both volumes.
+
+    Returns ``(config_path, eve_claude, eve_agent)``; *listing* is
+    ``fake_runtime_prune``'s discovery stub, populated in place.
+    """
     monkeypatch.chdir(tmp_path)
     config = _config([])
     config_path = _write_config(tmp_path, config)
     eve_claude, eve_agent = resolve_user_volume_names(config, "eve")
     listing["containers"] = ["demo-project-web-eve"]
     listing["volumes"] = [eve_claude, eve_agent]
+    return config_path, eve_claude, eve_agent
+
+
+def test_prune_retain_default_removes_container_not_volumes(
+    tmp_path, monkeypatch, fake_runtime_prune
+):
+    calls, listing = fake_runtime_prune
+    config_path, eve_claude, eve_agent = _orphaned_eve(tmp_path, monkeypatch, listing)
 
     lifecycle.prune_users(str(config_path), assume_yes=True)
 
@@ -688,12 +680,7 @@ def test_prune_retain_default_removes_container_not_volumes(
 
 def test_prune_purge_removes_volumes_after_confirmation(tmp_path, monkeypatch, fake_runtime_prune):
     calls, listing = fake_runtime_prune
-    monkeypatch.chdir(tmp_path)
-    config = _config([])
-    config_path = _write_config(tmp_path, config)
-    eve_claude, eve_agent = resolve_user_volume_names(config, "eve")
-    listing["containers"] = ["demo-project-web-eve"]
-    listing["volumes"] = [eve_claude, eve_agent]
+    config_path, eve_claude, eve_agent = _orphaned_eve(tmp_path, monkeypatch, listing)
     monkeypatch.setattr("builtins.input", lambda prompt="": "prune")
 
     lifecycle.prune_users(str(config_path), purge=True, assume_yes=False)
@@ -709,12 +696,7 @@ def test_prune_archive_tars_then_removes_each_volume_in_order(
     tmp_path, monkeypatch, fake_runtime_prune
 ):
     calls, listing = fake_runtime_prune
-    monkeypatch.chdir(tmp_path)
-    config = _config([])
-    config_path = _write_config(tmp_path, config)
-    eve_claude, eve_agent = resolve_user_volume_names(config, "eve")
-    listing["containers"] = ["demo-project-web-eve"]
-    listing["volumes"] = [eve_claude, eve_agent]
+    config_path, eve_claude, eve_agent = _orphaned_eve(tmp_path, monkeypatch, listing)
 
     lifecycle.prune_users(str(config_path), archive=True, assume_yes=True)
 
@@ -731,12 +713,7 @@ def test_prune_without_confirmation_leaves_everything_untouched(
     tmp_path, monkeypatch, fake_runtime_prune
 ):
     calls, listing = fake_runtime_prune
-    monkeypatch.chdir(tmp_path)
-    config = _config([])
-    config_path = _write_config(tmp_path, config)
-    eve_claude, eve_agent = resolve_user_volume_names(config, "eve")
-    listing["containers"] = ["demo-project-web-eve"]
-    listing["volumes"] = [eve_claude, eve_agent]
+    config_path, eve_claude, eve_agent = _orphaned_eve(tmp_path, monkeypatch, listing)
     monkeypatch.setattr("builtins.input", lambda prompt="": "")  # blank, non-matching response
 
     with pytest.raises(RuntimeError):
@@ -748,12 +725,7 @@ def test_prune_without_confirmation_leaves_everything_untouched(
 
 def test_prune_assume_yes_skips_prompt_and_proceeds(tmp_path, monkeypatch, fake_runtime_prune):
     calls, listing = fake_runtime_prune
-    monkeypatch.chdir(tmp_path)
-    config = _config([])
-    config_path = _write_config(tmp_path, config)
-    eve_claude, eve_agent = resolve_user_volume_names(config, "eve")
-    listing["containers"] = ["demo-project-web-eve"]
-    listing["volumes"] = [eve_claude, eve_agent]
+    config_path, eve_claude, eve_agent = _orphaned_eve(tmp_path, monkeypatch, listing)
     _assert_no_input_prompt(monkeypatch)
 
     lifecycle.prune_users(str(config_path), purge=True, assume_yes=True)
@@ -902,7 +874,7 @@ def test_nuke_typed_confirmation_proceeds(tmp_path, monkeypatch, fake_runtime_nu
     assert len(down_calls) == 1
 
     volume_rm_calls = [c for c in calls if c[1:3] == ["volume", "rm"]]
-    assert len(volume_rm_calls) == 4  # 2 users * 2 volumes each
+    assert len(volume_rm_calls) == 6  # 2 users * 3 volumes each
 
 
 def test_nuke_assume_yes_skips_prompt_removes_project_scoped_containers_and_all_volumes(
@@ -924,8 +896,10 @@ def test_nuke_assume_yes_skips_prompt_removes_project_scoped_containers_and_all_
     volume_rm_calls = [c for c in calls if c[1:3] == ["volume", "rm"]]
     assert volume_rm_calls == [
         ["docker", "volume", "rm", alice_claude],
+        ["docker", "volume", "rm", resolve_user_projects_volume_name(config, "alice")],
         ["docker", "volume", "rm", alice_agent],
         ["docker", "volume", "rm", bob_claude],
+        ["docker", "volume", "rm", resolve_user_projects_volume_name(config, "bob")],
         ["docker", "volume", "rm", bob_agent],
     ]
 
@@ -957,7 +931,13 @@ def test_nuke_sweeps_off_roster_orphan_volumes_too(
 
     volume_rm_calls = [c for c in calls if c[1:3] == ["volume", "rm"]]
     removed_names = {c[3] for c in volume_rm_calls}
-    assert removed_names == {alice_claude, alice_agent, eve_claude, eve_agent}
+    assert removed_names == {
+        alice_claude,
+        resolve_user_projects_volume_name(config, "alice"),
+        alice_agent,
+        eve_claude,
+        eve_agent,
+    }
 
     plan_output = capsys.readouterr().out
     assert eve_claude in plan_output
@@ -1029,7 +1009,9 @@ def test_nuke_compose_down_emits_the_podman_shape_on_a_podman_host(
     from osprey.deployment import container_lifecycle
 
     monkeypatch.setattr(
-        container_lifecycle, "_compose_provider", lambda config=None: ComposeProvider.PODMAN_COMPOSE
+        container_lifecycle,
+        "_compose_provider",
+        lambda config=None, **_: ComposeProvider.PODMAN_COMPOSE,
     )
     down_envs: list[dict] = []
     fixture_run = lifecycle.subprocess.run
@@ -1596,24 +1578,22 @@ def test_passwd_recreate_carries_no_env_file_argument_without_a_dotenv(tmp_path,
     assert "--env-file" not in argv[0]
 
 
-def test_passwd_refuses_when_authentication_is_off(tmp_path, monkeypatch, fake_runtime):
-    """`auth.method: none` has no password to change — writing a hash would
-    produce a credential nothing ever checks, over a success message."""
+@pytest.mark.parametrize(
+    ("method", "match"),
+    [
+        # `auth.method: none` has no password to change — writing a hash would
+        # produce a credential nothing ever checks, over a success message.
+        pytest.param("none", "none", id="authentication-is-off"),
+        pytest.param("oidc", "identity provider", id="credentials-held-by-the-idp"),
+    ],
+)
+def test_passwd_refuses_when_there_is_no_local_password_to_change(
+    tmp_path, monkeypatch, fake_runtime, method, match
+):
     monkeypatch.chdir(tmp_path)
-    config_path = _write_config(tmp_path, _auth_config(["alice"], method="none"))
+    config_path = _write_config(tmp_path, _auth_config(["alice"], method=method))
 
-    with pytest.raises(ValueError, match="none"):
-        lifecycle.rotate_user_password(str(config_path), "alice", "alices-new-password")
-
-    assert not (tmp_path / AUTH_ENV_FILENAME).exists()
-    assert fake_runtime == []
-
-
-def test_passwd_refuses_when_credentials_are_held_by_the_idp(tmp_path, monkeypatch, fake_runtime):
-    monkeypatch.chdir(tmp_path)
-    config_path = _write_config(tmp_path, _auth_config(["alice"], method="oidc"))
-
-    with pytest.raises(ValueError, match="identity provider"):
+    with pytest.raises(ValueError, match=match):
         lifecycle.rotate_user_password(str(config_path), "alice", "alices-new-password")
 
     assert not (tmp_path / AUTH_ENV_FILENAME).exists()
@@ -1676,7 +1656,9 @@ def test_passwd_refuses_before_writing_when_the_runtime_is_down(tmp_path, monkey
     """Gate on the runtime BEFORE the write: otherwise the operator is handed a
     password the deployment was never told about."""
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setattr(lifecycle, "verify_runtime_is_running", lambda config=None: (False, "down"))
+    monkeypatch.setattr(
+        lifecycle, "verify_runtime_is_running", lambda config=None, **_: (False, "down")
+    )
     config_path = _write_config(tmp_path, _auth_config(["alice"]))
 
     with pytest.raises(RuntimeError, match="down"):
@@ -2248,8 +2230,7 @@ def _render_roster_config(users):
 
 def _resolved_by_name(config_path):
     """resolve_cards() over the config as it now stands ON DISK."""
-    with open(config_path, encoding="utf-8") as f:
-        data = yaml.safe_load(f)
+    data = yaml.safe_load(config_path.read_text(encoding="utf-8"))
     web_terminals = data["modules"]["web_terminals"]
     resolved = resolve_cards(web_terminals, data.get("registry", {}), strict=True)
     return {entry["name"]: entry for entry in resolved}
@@ -2523,11 +2504,11 @@ def test_passwd_recreate_argv_addresses_the_repos_web_stack_from_any_directory(
 def _conflicted_render_config(tmp_path, users, *, renders):
     """A roster whose render projects are really on disk under *tmp_path*.
 
-    `renders` maps a render name to `(writes_enabled, denies_bash)`, so a case
+    `renders` maps a render name to `(writes, denies_bash)`, so a case
     can pair the launch-token entitlement with either shipped permission state.
     Every project runs the bluesky server explicitly -- the server is opt-in in
     the registry, so omitting the key would leave no project entitled and no
-    conflict to refuse -- which leaves `writes_enabled` as the only tier switch.
+    conflict to refuse -- which leaves the `writes` tier as the only tier switch.
     """
     import json as _json
 
@@ -2539,7 +2520,7 @@ def _conflicted_render_config(tmp_path, users, *, renders):
             yaml.safe_dump(
                 {
                     "project_name": name,
-                    "control_system": {"writes_enabled": writes},
+                    "control_system": {"writes": "allowed" if writes else "never"},
                     "claude_code": {"servers": {"bluesky": {"enabled": True}}},
                 }
             ),
@@ -2595,7 +2576,7 @@ def _open_mode_roster_config(tmp_path, users, *, renders):
         project_dir = tmp_path / "profiles" / name
         (project_dir / ".claude").mkdir(parents=True)
         (project_dir / "config.yml").write_text(
-            yaml.safe_dump({"project_name": name, "control_system": {"writes_enabled": False}}),
+            yaml.safe_dump({"project_name": name, "control_system": {"writes": "never"}}),
             encoding="utf-8",
         )
         (project_dir / ".claude" / "settings.json").write_text(
@@ -2921,7 +2902,7 @@ def test_nuke_attempts_every_volume_then_fails_naming_each_one_kept(
     with pytest.raises(RemovalIncompleteError) as exc_info:
         lifecycle.nuke_stack(str(config_path), assume_yes=True)
 
-    assert len([c for c in calls if c[1:3] == ["volume", "rm"]]) == 4
+    assert len([c for c in calls if c[1:3] == ["volume", "rm"]]) == 6
     assert exc_info.value.left == ((f"volume {alice_claude!r}", _in_use(alice_claude)),)
     out = capsys.readouterr()
     printed = out.out + out.err
@@ -2939,7 +2920,7 @@ def test_nuke_treats_a_volume_already_gone_as_removed(tmp_path, monkeypatch, fak
 
     lifecycle.nuke_stack(str(config_path), assume_yes=True)
 
-    assert len([c for c in calls if c[1:3] == ["volume", "rm"]]) == 4
+    assert len([c for c in calls if c[1:3] == ["volume", "rm"]]) == 6
 
 
 def test_nuke_still_removes_images_after_a_refused_volume_and_names_a_refused_image(
@@ -2983,6 +2964,7 @@ def test_decommission_purge_names_each_volume_the_runtime_kept(tmp_path, monkeyp
     assert ["docker", "rm", "-f", "demo-project-web-alice"] in fake_runtime
     assert [c for c in fake_runtime if c[1:3] == ["volume", "rm"]] == [
         ["docker", "volume", "rm", claude_vol],
+        ["docker", "volume", "rm", resolve_user_projects_volume_name(config, "alice")],
         ["docker", "volume", "rm", agent_vol],
     ]
     assert exc_info.value.left == ((f"volume {agent_vol!r}", _in_use(agent_vol)),)
@@ -2999,10 +2981,13 @@ def test_decommission_archive_names_a_volume_archived_but_not_removed(tmp_path, 
     with pytest.raises(RemovalIncompleteError) as exc_info:
         lifecycle.decommission_user(str(config_path), "alice", archive=True, assume_yes=True)
 
-    [(subject, reason)] = exc_info.value.left
+    [(subject, reason), (projects_subject, projects_reason)] = exc_info.value.left
     assert subject == f"volume {claude_vol!r}"
     assert "archived to" in reason
     assert f"{claude_vol}.tar.gz" in reason
+    projects_vol = resolve_user_projects_volume_name(config, "alice")
+    assert projects_subject == f"volume {projects_vol!r}"
+    assert projects_reason == f"kept with {claude_vol!r}, which was not removed"
 
 
 def test_decommission_archive_failure_keeps_that_volume_and_still_handles_the_next(
@@ -3017,14 +3002,20 @@ def test_decommission_archive_failure_keeps_that_volume_and_still_handles_the_ne
     with pytest.raises(RemovalIncompleteError) as exc_info:
         lifecycle.decommission_user(str(config_path), "alice", archive=True, assume_yes=True)
 
+    projects_vol = resolve_user_projects_volume_name(config, "alice")
     volume_rm_calls = [c for c in fake_runtime if c[1:3] == ["volume", "rm"]]
     assert volume_rm_calls == [["docker", "volume", "rm", agent_vol]]
     agent_mount = f"type=volume,source={agent_vol},destination=/from,readonly"
     assert any(c[1] == "run" and agent_mount in c for c in fake_runtime)
-    [(subject, reason)] = exc_info.value.left
+    # The transcripts volume stays with the claude-config parent that was kept.
+    projects_mount = f"type=volume,source={projects_vol},destination=/from,readonly"
+    assert not any(c[1] == "run" and projects_mount in c for c in fake_runtime)
+    [(subject, reason), (projects_subject, projects_reason)] = exc_info.value.left
     assert subject == f"volume {claude_vol!r}"
     assert reason.startswith("not archived, so not removed:")
     assert "tar: write error" in reason
+    assert projects_subject == f"volume {projects_vol!r}"
+    assert projects_reason == f"kept with {claude_vol!r}, which was not removed"
 
 
 @pytest.mark.usefixtures("fake_runtime", "auth_reconcile_runtime")
@@ -3092,4 +3083,4 @@ def test_decommission_treats_a_volume_already_gone_as_removed(tmp_path, monkeypa
 
     lifecycle.decommission_user(str(config_path), "alice", purge=True, assume_yes=True)
 
-    assert len([c for c in fake_runtime if c[1:3] == ["volume", "rm"]]) == 2
+    assert len([c for c in fake_runtime if c[1:3] == ["volume", "rm"]]) == 3

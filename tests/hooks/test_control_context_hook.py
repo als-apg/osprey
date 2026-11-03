@@ -11,10 +11,17 @@ nothing moved, and nothing at all without a record.
 from __future__ import annotations
 
 import json
+import os
 
 import pytest
 
-from osprey_connectors_tests._harness import write_control_context
+from osprey_connectors.write_target import KIND_BANNERS
+from osprey_connectors_tests._harness import (
+    state_dir_under,
+    write_control_context,
+    write_server_report,
+)
+from tests.hooks.conftest import hook_debug_records
 
 SESSION_ID = "4f1c2a7e-0000-4000-8000-0000000000aa"
 
@@ -22,7 +29,7 @@ SESSION_ID = "4f1c2a7e-0000-4000-8000-0000000000aa"
 ARMED_BOTH = {
     "control_system": {
         "type": "epics",
-        "writes_enabled": True,
+        "writes": "allowed",
         "connector": {
             "epics": {"prefix": "RING:"},
             "virtual_accelerator": {"prefix": "VA:"},
@@ -30,22 +37,78 @@ ARMED_BOTH = {
     }
 }
 
-#: The same deployment with its ring disarmed in config.
-DISARMED_LIVE = {
+#: The same deployment whose login tier never writes.
+TIER_NEVER = {
     "control_system": {
         "type": "epics",
-        "writes_enabled": True,
+        "writes": "never",
         "connector": {
-            "epics": {"prefix": "RING:", "writes_enabled": False},
+            "epics": {"prefix": "RING:"},
             "virtual_accelerator": {"prefix": "VA:"},
         },
     }
 }
 
+#: A deployment that runs the live stand-in beside its ring and its simulator.
+WITH_STANDIN = {
+    "control_system": {
+        "type": "epics",
+        "writes": "allowed",
+        "connector": {
+            "epics": {"prefix": "RING:"},
+            "virtual_accelerator": {"prefix": "VA:"},
+            "live_standin": {"prefix": "SI:"},
+        },
+    }
+}
 
-def _record(repo_root, target, generation, posture=None):
+REAL = f'"{KIND_BANNERS["real"]}"'
+REHEARSAL = f'"{KIND_BANNERS["rehearsal"]}"'
+SIMULATOR = f'"{KIND_BANNERS["simulator"]}"'
+
+#: The same two-machine deployment whose login tier caps writes at asked.
+TIER_ASKED = {
+    "control_system": {
+        "type": "epics",
+        "writes": "asked",
+        "connector": {
+            "epics": {"prefix": "RING:"},
+            "virtual_accelerator": {"prefix": "VA:"},
+        },
+    }
+}
+
+#: The line that says what each position means for the next write.
+POSITIONS = (
+    'positions: off="the next write is refused until the chip moves the switch" '
+    'asked="a person approves the next write" '
+    'allowed="the login\'s switch position approves the next write; limits still apply"'
+)
+
+#: The machines line of the two-machine deployment.
+MACHINES = f"machines: live={REAL} va={SIMULATOR}"
+
+
+def _agent_data(repo_root):
+    return repo_root / "var" / "agent_data"
+
+
+def _record(repo_root, target, generation, posture=None, switch=None):
     write_control_context(
-        repo_root / "var" / "agent_data", target=target, generation=generation, posture=posture
+        _agent_data(repo_root),
+        target=target,
+        generation=generation,
+        posture=posture,
+        switch=switch,
+    )
+
+
+def _publish_standin(repo_root, machine_kind):
+    """A live controls server (this process) publishing the stand-in's kind."""
+    write_server_report(
+        _agent_data(repo_root),
+        os.getpid(),
+        targets={"standin": {"machine_kind": machine_kind}},
     )
 
 
@@ -89,8 +152,61 @@ def test_a_session_start_describes_the_context(tmp_path, run):
     _record(tmp_path, "va", 2)
 
     assert run("SessionStart", source="startup") == (
-        "--- osprey control-context ---\ntarget: va  gen: 2\nwrites: live=armed va=armed"
+        "--- osprey control-context ---\n"
+        "target: va  gen: 2\n"
+        "writes: live=off va=off\n"
+        f"{POSITIONS}\n"
+        f"{MACHINES}"
     )
+
+
+def test_a_machine_at_a_position_reads_it_and_the_others_off(tmp_path, run):
+    _record(tmp_path, "va", 2, switch={"va": "asked"})
+
+    assert run("SessionStart") == (
+        "--- osprey control-context ---\n"
+        "target: va  gen: 2\n"
+        "writes: live=off va=asked\n"
+        f"{POSITIONS}\n"
+        f"{MACHINES}"
+    )
+
+
+@pytest.mark.parametrize("target,other", [("live", "va"), ("va", "live")])
+@pytest.mark.parametrize(
+    "position,config,word",
+    [
+        (None, ARMED_BOTH, "off"),
+        ("asked", ARMED_BOTH, "asked"),
+        ("allowed", ARMED_BOTH, "allowed"),
+        ("allowed", TIER_NEVER, "refused:tier_never"),
+    ],
+)
+def test_each_target_reads_each_of_the_four_words(
+    tmp_path, run, target, other, position, config, word
+):
+    _record(tmp_path, "va", 2, switch={target: position} if position else {})
+
+    block = run("SessionStart", config=config)
+    other_word = "refused:tier_never" if config is TIER_NEVER else "off"
+    words = {target: word, other: other_word}
+    assert f"writes: live={words['live']} va={words['va']}\n" in block
+
+
+def test_a_tier_capped_at_asked_reads_a_stored_allowed_as_asked(tmp_path, run):
+    """The word is the verdict's position, never the stored one."""
+    _record(tmp_path, "va", 2, switch={"live": "allowed", "va": "asked"})
+
+    assert "writes: live=asked va=asked\n" in run("SessionStart", config=TIER_ASKED)
+
+
+def test_a_legacy_stored_on_reads_as_asked(tmp_path, run):
+    """The retired word is read as the narrowest arming position, and never echoed."""
+    _record(tmp_path, "va", 2, switch={"va": "on"})
+
+    block = run("SessionStart")
+    assert "writes: live=off va=asked\n" in block
+    assert "=on" not in block
 
 
 def test_a_compaction_describes_it_again(tmp_path, run):
@@ -101,16 +217,75 @@ def test_a_compaction_describes_it_again(tmp_path, run):
     assert run("SessionStart", source="compact") is not None
 
 
-def test_a_narrowing_shows_as_sandbox(tmp_path, run):
-    _record(tmp_path, "va", 2, posture={"live": "sandbox"})
+def test_an_old_sandbox_narrowing_is_not_a_state_word(tmp_path, run):
+    """The switch decides; the retired ``posture`` field is not read."""
+    _record(tmp_path, "va", 2, posture={"live": "sandbox"}, switch={"live": "asked", "va": "asked"})
 
-    assert run("SessionStart").endswith("writes: live=sandbox va=armed")
+    block = run("SessionStart")
+    assert "writes: live=asked va=asked\n" in block
+    assert "sandbox" not in block
+    assert "armed" not in block
 
 
-def test_a_target_the_deployment_does_not_arm_shows_as_off(tmp_path, run):
-    _record(tmp_path, "va", 2)
+def test_a_tier_that_never_writes_reads_as_refused_not_off(tmp_path, run):
+    """The chip cannot lift a tier: the block names the reason, not a switch state."""
+    _record(tmp_path, "va", 2, switch={"live": "asked", "va": "allowed"})
 
-    assert run("SessionStart", config=DISARMED_LIVE).endswith("writes: live=off va=armed")
+    block = run("SessionStart", config=TIER_NEVER)
+    assert "writes: live=refused:tier_never va=refused:tier_never\n" in block
+
+
+def test_an_unreadable_record_says_writes_are_refused_never_off(tmp_path, run):
+    """An unreadable switch is not a switch someone turned off."""
+    _record(tmp_path, "va", 2, switch={"va": "allowed"})
+    record = state_dir_under(_agent_data(tmp_path)) / "control_context.json"
+    record.write_text("{not json", encoding="utf-8")
+
+    block = run("SessionStart")
+    assert block == (
+        "--- osprey control-context ---\n"
+        "target: unknown  gen: unknown\n"
+        "writes: live=refused:record_unavailable va=refused:record_unavailable\n"
+        f"{POSITIONS}\n"
+        f"{MACHINES}"
+    )
+    assert "=off" not in block
+    assert "=asked" not in block
+    assert "=allowed" not in block
+
+
+def test_the_stand_in_reads_as_the_rehearsal_only_when_published_so(tmp_path, run):
+    _record(tmp_path, "standin", 1)
+    _publish_standin(tmp_path, "rehearsal")
+
+    block = run("SessionStart", config=WITH_STANDIN)
+    assert block.endswith(f"machines: live={REAL} standin={REHEARSAL} va={SIMULATOR}")
+
+
+def test_a_stand_in_not_stood_up_reads_as_the_real_machine(tmp_path, run):
+    """No live report, or a report that does not say rehearsal: never "nothing moves"."""
+    _record(tmp_path, "standin", 1)
+
+    assert run("SessionStart", config=WITH_STANDIN).endswith(
+        f"machines: live={REAL} standin={REAL} va={SIMULATOR}"
+    )
+
+    _publish_standin(tmp_path, "real")
+    block = run("SessionStart", config=WITH_STANDIN)
+    assert block.endswith(f"machines: live={REAL} standin={REAL} va={SIMULATOR}")
+    # The simulator's banner also says "nothing moves"; the stand-in must not.
+    assert f"standin={REHEARSAL}" not in block
+    assert block.count("nothing moves") == 1
+
+
+def test_a_stand_in_coming_up_under_the_session_is_marked(tmp_path, run):
+    _record(tmp_path, "standin", 1)
+    run("SessionStart", config=WITH_STANDIN)
+    _publish_standin(tmp_path, "rehearsal")
+
+    block = run("UserPromptSubmit", config=WITH_STANDIN)
+    assert block.startswith("--- osprey control-context (changed) ---\n")
+    assert f"standin={REHEARSAL} (was {REAL})" in block
 
 
 def test_an_unchanged_prompt_says_nothing(tmp_path, run):
@@ -129,20 +304,42 @@ def test_a_switch_under_the_session_is_marked_with_where_it_was(tmp_path, run):
     assert run("UserPromptSubmit") == (
         "--- osprey control-context (changed) ---\n"
         "target: live  gen: 3  (was va)\n"
-        "writes: live=armed va=armed"
+        "writes: live=off va=off\n"
+        f"{POSITIONS}\n"
+        f"{MACHINES}"
     )
     assert run("UserPromptSubmit") is None, "reported once, not on every prompt after it"
 
 
-def test_a_narrowing_under_the_session_is_marked_on_its_target(tmp_path, run):
+def test_a_position_moved_under_the_session_is_marked_on_its_target(tmp_path, run):
     _record(tmp_path, "live", 3)
     run("SessionStart")
-    _record(tmp_path, "live", 3, posture={"live": "sandbox"})
+    _record(tmp_path, "live", 3, switch={"live": "asked"})
 
     assert run("UserPromptSubmit") == (
         "--- osprey control-context (changed) ---\n"
         "target: live  gen: 3\n"
-        "writes: live=sandbox (was armed) va=armed"
+        "writes: live=asked (was off) va=off\n"
+        f"{POSITIONS}\n"
+        f"{MACHINES}"
+    )
+
+
+def test_a_widening_under_the_session_is_marked_with_the_position_it_left(tmp_path, run):
+    _record(tmp_path, "live", 3, switch={"live": "asked"})
+    run("SessionStart")
+    _record(tmp_path, "live", 3, switch={"live": "allowed"})
+
+    assert "writes: live=allowed (was asked) va=off\n" in run("UserPromptSubmit")
+
+
+def test_a_turn_off_under_the_session_is_marked_on_its_target(tmp_path, run):
+    _record(tmp_path, "live", 3, switch={"live": "allowed"})
+    run("SessionStart")
+    _record(tmp_path, "live", 3, switch={})
+
+    assert run("UserPromptSubmit").endswith(
+        f"writes: live=off (was allowed) va=off\n{POSITIONS}\n{MACHINES}"
     )
 
 
@@ -172,11 +369,11 @@ def test_an_unrelated_event_is_ignored(tmp_path, run):
 
 
 def test_the_block_is_plain_text_with_no_instruction(tmp_path, run):
-    """Harness state, not a message: fixed keys, and not a sentence in it."""
+    """Harness state, not a message: fixed keys, defining its words, asking nothing."""
     _record(tmp_path, "va", 2)
     block = run("SessionStart")
 
-    assert block.count("\n") == 2
+    assert block.count("\n") == 4
     assert not any(word in block.lower() for word in ("you", "please", "must", "should"))
     json.dumps(block)  # what the hook emitted round-trips as the JSON it came in
 
@@ -206,30 +403,26 @@ def test_the_envelope_names_the_event_it_was_emitted_for(tmp_path, envelope):
 # ---------------------------------------------------------------------------
 
 
-def _debug_records(project_dir):
-    """Every ``control_context`` record in the run's ``hook_debug.jsonl``."""
-    log_path = project_dir / ".claude" / "hooks" / "hook_debug.jsonl"
-    records = [json.loads(line) for line in log_path.read_text().splitlines() if line.strip()]
-    return [record for record in records if record["hook"] == "control_context"]
+def _debug_records(spool_root):
+    """Every ``control_context`` hook debug entry the run put on the record's spool."""
+    return hook_debug_records(spool_root, hook="control_context")
 
 
 def test_every_way_the_hook_ends_leaves_one_debug_record(
-    tmp_path, hook_runner_raw, make_config, monkeypatch
+    tmp_path, hook_runner_raw, make_config, monkeypatch, spool_zone
 ):
     """Silence has five meanings; the JSONL channel is what tells them apart.
 
     The hook is registered with ``2>/dev/null`` and its memo lives in ``TMPDIR``,
     so a run that said nothing is indistinguishable from a run that never
     happened — which is exactly the state the envelope bug shipped in. Drive all
-    seven exits and assert the file, not stderr: the file is what the web
-    terminal's hook-activity feed reads and what survives the shell redirect.
+    seven exits and assert the record's debug entries, not stderr: they are what
+    the web terminal's hook-activity feed reads and what survives the redirect.
     """
     monkeypatch.setenv("TMPDIR", str(tmp_path / "tmp"))
     (tmp_path / "tmp").mkdir()
     monkeypatch.setenv("OSPREY_HOOK_DEBUG", "1")
     monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(tmp_path))
-    # log_hook appends; it does not create the directory it appends into.
-    (tmp_path / ".claude" / "hooks").mkdir(parents=True)
     config_path = make_config(ARMED_BOTH)
 
     session = SESSION_ID
@@ -265,7 +458,7 @@ def test_every_way_the_hook_ends_leaves_one_debug_record(
     )
     _run("UserPromptSubmit", session_id=corrupt)  # error
 
-    statuses = [record["status"] for record in _debug_records(tmp_path)]
+    statuses = [record["status"] for record in _debug_records(spool_zone.root)]
 
     assert statuses == [
         "skip:no-record",
@@ -280,14 +473,13 @@ def test_every_way_the_hook_ends_leaves_one_debug_record(
 
 
 def test_the_error_record_names_what_went_wrong(
-    tmp_path, hook_runner_raw, make_config, monkeypatch
+    tmp_path, hook_runner_raw, make_config, monkeypatch, spool_zone
 ):
     """An ``error`` with no exception in it is a dead end for whoever reads it."""
     monkeypatch.setenv("TMPDIR", str(tmp_path / "tmp"))
     (tmp_path / "tmp").mkdir()
     monkeypatch.setenv("OSPREY_HOOK_DEBUG", "1")
     monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(tmp_path))
-    (tmp_path / ".claude" / "hooks").mkdir(parents=True)
     _record(tmp_path, "va", 2)
     (tmp_path / "tmp" / f"osprey-control-context-{SESSION_ID}.json").write_text(
         json.dumps({"target": "live", "generation": 1, "writes": 0})
@@ -302,20 +494,19 @@ def test_the_error_record_names_what_went_wrong(
         hook_input_extra={"hook_event_name": "UserPromptSubmit", "session_id": SESSION_ID},
     )
 
-    (record,) = _debug_records(tmp_path)
+    (record,) = _debug_records(spool_zone.root)
     assert record["status"] == "error"
     assert record["detail"] == "exception=TypeError"
 
 
 def test_the_trace_stays_off_until_it_is_asked_for(
-    tmp_path, hook_runner_raw, make_config, monkeypatch
+    tmp_path, hook_runner_raw, make_config, monkeypatch, spool_zone
 ):
     """A debug facility that files on every deployment is not a debug facility."""
     monkeypatch.setenv("TMPDIR", str(tmp_path / "tmp"))
     (tmp_path / "tmp").mkdir()
     monkeypatch.delenv("OSPREY_HOOK_DEBUG", raising=False)
     monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(tmp_path))
-    (tmp_path / ".claude" / "hooks").mkdir(parents=True)
     _record(tmp_path, "va", 2)
 
     hook_runner_raw(
@@ -327,4 +518,4 @@ def test_the_trace_stays_off_until_it_is_asked_for(
         hook_input_extra={"hook_event_name": "SessionStart", "session_id": SESSION_ID},
     )
 
-    assert not (tmp_path / ".claude" / "hooks" / "hook_debug.jsonl").exists()
+    assert _debug_records(spool_zone.root) == []

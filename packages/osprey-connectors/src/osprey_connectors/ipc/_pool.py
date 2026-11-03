@@ -64,21 +64,34 @@ check the controls MCP server's target switch runs), and the report must name
 the target and connector type this process resolved. A child that fails any of
 it is stopped before the caller sees anything.
 
-Write posture is never granted by the pool. The child reads
-``control_system.connector.<type>.writes_enabled`` from the project config at
-``config_file`` — not from the section it was sent — and with no config file
-reachable its writes stay off. ``execution_mode="readonly"`` can only take
-writes away. Verification compares the write posture the child reports with
-the one this process derives from the section it was given, for every
-connector type, gateways or none: a child armed where the section says it is
-not — or unarmed where the section arms it — is refused, so the section a
-caller hands the pool and ``config_file`` must agree.
+Write posture is never granted by the pool. The child decides every write by
+the write verdict (:func:`osprey_connectors.posture_store.write_verdict`) over
+the ``control_system`` section of the project config at ``config_file`` — not
+the section it was sent — and the login's switch for its target, read from the
+record its inherited environment names; with no config file reachable its
+writes stay off. ``execution_mode="readonly"`` can only take writes away.
+Verification compares the write posture the child reports with the verdict this
+process takes over the section it was given, for every connector type, gateways
+or none: a child armed where that verdict refuses — or unarmed where it allows —
+is refused, so the section a caller hands the pool and ``config_file`` must
+agree. A switch turned between this process's verdict and the child's report
+is not such a disagreement: the verdict is taken again, and when it moved the
+child is replaced by a fresh one, once, before the start fails.
+
+The gateway a child selects follows the verdict at spawn time and does not
+follow a switch turned later; a caller that wants the next write to use the
+write gateway after a turn-on asks for a fresh child (the notebook kernel's
+runtime does, by disconnecting the handle). Until then the child refuses an
+allowed write ``switching`` when a write gateway is configured and was not
+selected. A block with a ``write_access`` gateway and no ``read_only`` one is
+read through the write gateway while writes are off.
 
 Failure
 -------
 Every error the pool raises of its own is a :class:`ConnectorHostError`, which
-is a :class:`ConnectionError`, so a generic connection-error handler treats it as
-"the connector is gone". Its message is the operator-facing sentence.
+is a :class:`~osprey_connectors.errors.ConnectorUnavailableError`: the
+connector is gone. Its message is the operator-facing sentence, and its
+``recovery`` names what the pool did about it.
 
 * :class:`ConnectorHostStartError` — the child could not be brought up, and
   nothing was left running: unresolved config, spawn failure, no answer to its
@@ -92,7 +105,12 @@ is a :class:`ConnectionError`, so a generic connection-error handler treats it a
   flight: it exited (``cause="exited"``), or the pool stopped it because it was
   closed or :meth:`PooledConnector.disconnect` was called
   (``cause="stopped"``). The call fails; the child is dropped; the **next**
-  call to that key brings up a fresh one.
+  call to that key brings up a fresh one. The same error, with
+  ``cause="unavailable"``, answers a call whose connector reported itself
+  unavailable (a :class:`~osprey_connectors.errors.ConnectorUnavailableError`,
+  or a bare :class:`ConnectionError` from a connector that does not say which)
+  in a child that answered: the child is discarded once and the next call
+  starts a fresh one, and ``recovery`` says so (``child_replaced``).
 * :class:`ConnectorHostUnresponsiveError` — a ``ConnectorHostLostError`` that
   is also a :class:`TimeoutError` (``cause="unresponsive"``): the child let a
   call's own ``timeout`` plus ``timeout_grace_s`` pass — or ``call_deadline_s``
@@ -106,13 +124,23 @@ is a :class:`ConnectionError`, so a generic connection-error handler treats it a
   its child was killed **without** being pinged. Any other call in flight on
   that child fails as a ``ConnectorHostLostError`` with the same cause.
 
+Which failure restarts what is decided by the one recovery policy,
+:mod:`osprey_connectors.recovery`, at lazy timing: the rules this section
+states are that policy's table, and every call that fails on a child the
+policy replaced carries the policy's record in ``recovery``, whichever error
+reached the pool first.
+A child the pool stopped itself (``cause="stopped"``) is the pool's own answer
+and no recovery.
+
 A failed call is **never retried**: a write may already have reached the IOC,
 and only the caller can decide whether to send it again.
 
 A child that misses a call's deadline but **does** answer the ping is alive and
 merely slow — a batched or confirmed write can legitimately take several of its
 call's timeouts — so it is left running, and the call raises a plain
-:class:`TimeoutError`; it may still complete in the child.
+:class:`TimeoutError`; it may still complete in the child. Its ``recovery``
+says the child was kept (``child_kept``); a child that missed the ping too is
+replaced (``child_replaced``).
 
 That has an ordering hazard for writes. The child serves each request as a task
 of its own, so a write that timed out here may still reach the machine **after
@@ -123,11 +151,13 @@ the child of any write that misses its deadline, answering or not, so nothing
 left in it can send the stale write later. The write itself still may or may
 not have landed; reads keep the ping rule either way.
 
-An error the
-*connector* raised in a healthy child — a :class:`ConnectionError` for a channel
-that cannot be reached, say — is passed through unchanged and leaves the child
-in place. The two are told apart by origin
-(:func:`~osprey_connectors.ipc.raised_by_child`), never by timing.
+A failure about one channel the *connector* raised in a healthy child — a
+:class:`~osprey_connectors.errors.ChannelUnreachableError`, say — is passed
+through unchanged and leaves the child in place, as is a connector bug
+(:class:`~osprey_connectors.errors.ConnectorInternalError`). A connection
+failure the proxy made itself (the pipe is gone) and one the child sent are
+told apart by origin (:func:`~osprey_connectors.ipc.raised_by_child`),
+never by timing.
 
 Event-loop affinity
 -------------------
@@ -171,11 +201,8 @@ from typing import Any
 
 from osprey_connectors import posture_store
 from osprey_connectors.config import resolve_env_vars, unresolved_placeholders
-from osprey_connectors.control_system._base import (
-    ChannelValue,
-    ChannelWriteResult,
-    is_readonly_run,
-)
+from osprey_connectors.control_system._base import ChannelValue, ChannelWriteResult
+from osprey_connectors.errors import ConnectorUnavailableError
 from osprey_connectors.ipc._host import START_PHASES
 from osprey_connectors.ipc._launch import (
     AttributedReader,
@@ -190,14 +217,18 @@ from osprey_connectors.ipc._proxy import (
     raised_by_child,
 )
 from osprey_connectors.ipc._verification import (
+    ROLE_WRITE_ACCESS,
     TargetDerivation,
     connector_block,
     derive_endpoints,
     live_collision,
+    readonly_gateway_refusal,
     verify_host_report,
 )
+from osprey_connectors.posture_env import is_readonly_run
 from osprey_connectors.process import DEFAULT_TERMINATE_GRACE_S, reap_exit_code, terminate
-from osprey_connectors.types import TRANSPORT_CA
+from osprey_connectors.recovery import RecoveryAction, RecoveryPolicy, Timing
+from osprey_connectors.types import TRANSPORT_CA, machine_kind
 
 __all__ = [
     "DEFAULT_CALL_DEADLINE_S",
@@ -241,6 +272,7 @@ CAUSE_EXITED = "exited"
 CAUSE_UNRESPONSIVE = "unresponsive"
 CAUSE_STOPPED = "stopped"
 CAUSE_WRITE_TIMEOUT = "write_timeout"
+CAUSE_UNAVAILABLE = "unavailable"
 
 #: The calls that can move the machine, as :class:`PooledConnector` names them
 #: to :meth:`ConnectorHostPool._invoke`. ``write_channel_checked`` is composed
@@ -255,7 +287,7 @@ _Key = tuple[str, str | None]
 # ---------------------------------------------------------------------------
 
 
-class ConnectorHostError(ConnectionError):
+class ConnectorHostError(ConnectorUnavailableError):
     """A connector-host child could not serve a call (see the module docstring).
 
     Attributes:
@@ -265,9 +297,15 @@ class ConnectorHostError(ConnectionError):
     """
 
     def __init__(
-        self, message: str, *, target: str, execution_mode: str | None, pid: int | None
+        self,
+        message: str,
+        *,
+        target: str,
+        execution_mode: str | None,
+        pid: int | None,
+        recovery: tuple[dict[str, str], ...] = (),
     ) -> None:
-        super().__init__(message)
+        super().__init__(message, recovery=recovery)
         self.target = target
         self.execution_mode = execution_mode
         self.pid = pid
@@ -384,10 +422,12 @@ class ConnectorHostLostError(ConnectorHostError):
     Attributes:
         cause: ``"exited"`` (the child died), ``"stopped"`` (the pool was closed
             or the key disconnected), ``"unresponsive"`` (see
-            :class:`ConnectorHostUnresponsiveError`) or ``"write_timeout"``
+            :class:`ConnectorHostUnresponsiveError`), ``"write_timeout"``
             (a write on the child missed its deadline and the pool, built with
             ``kill_on_write_timeout``, killed it; see
-            :class:`ConnectorHostWriteTimeoutError`).
+            :class:`ConnectorHostWriteTimeoutError`) or ``"unavailable"`` (the
+            child's connector reported itself unavailable and the pool
+            discarded the child).
         returncode: The child's exit status once reaped, when known.
     """
 
@@ -400,8 +440,15 @@ class ConnectorHostLostError(ConnectorHostError):
         pid: int | None,
         cause: str,
         returncode: int | None,
+        recovery: tuple[dict[str, str], ...] = (),
     ) -> None:
-        super().__init__(message, target=target, execution_mode=execution_mode, pid=pid)
+        super().__init__(
+            message,
+            target=target,
+            execution_mode=execution_mode,
+            pid=pid,
+            recovery=recovery,
+        )
         self.cause = cause
         self.returncode = returncode
 
@@ -450,6 +497,48 @@ class _PoolChild:
             and self.process.returncode is None
             and self.proxy.dead_reason is None
         )
+
+
+class _PoolTarget:
+    """One failed call's child, as the recovery policy acts on it.
+
+    The incarnation is the child's proxy. Retiring discards the child under the
+    cause the failure names; the pool is lazy, so the next call starts a fresh
+    child and nothing here respawns one.
+    """
+
+    in_child = True
+
+    def __init__(
+        self, pool: ConnectorHostPool, child: _PoolChild, method: str, exc: BaseException
+    ) -> None:
+        self._pool = pool
+        self._child = child
+        self._method = method
+        self._exc = exc
+        self._pinged = False
+
+    @property
+    def incarnation(self) -> ConnectorHostProxy:
+        return self._child.proxy
+
+    async def ping(self) -> bool:
+        self._pinged = True
+        return await self._pool._answers_ping(self._child)
+
+    async def retire(self) -> None:
+        if isinstance(self._exc, ChildUnresponsiveError):
+            cause = CAUSE_UNRESPONSIVE if self._pinged else CAUSE_WRITE_TIMEOUT
+        elif raised_by_child(self._exc):
+            cause = CAUSE_UNAVAILABLE
+        else:
+            cause = CAUSE_EXITED
+        reason = self._pool._replaced_reason(self._child, self._method, self._exc, cause)
+        await self._pool._discard(self._child, reason, cause)
+
+
+class _WritesMoved(Exception):
+    """A starting child's writes disagreed with a verdict that has since moved to agree."""
 
 
 def _label(key: _Key) -> str:
@@ -516,7 +605,9 @@ class ConnectorHostPool:
         self._timeout_grace_s = timeout_grace_s
         self._ping_timeout_s = ping_timeout_s
         self._terminate_grace_s = terminate_grace_s
-        self._kill_on_write_timeout = kill_on_write_timeout
+        self._policy = RecoveryPolicy(
+            timing=Timing.LAZY, replace_on_write_timeout=kill_on_write_timeout
+        )
         self._teardowns: set[asyncio.Task[None]] = set()
         self._children: dict[_Key, _PoolChild] = {}
         self._locks: dict[_Key, asyncio.Lock] = {}
@@ -582,6 +673,7 @@ class ConnectorHostPool:
     async def _invoke(self, key: _Key, method: str, *args: Any, **kwargs: Any) -> Any:
         """Run one call on *key*'s child. Never retried."""
         child = await self._ensure(key)
+        ticket = self._policy.begin()
         try:
             return await getattr(child.proxy, method)(*args, **kwargs)
         except ChildUnresponsiveError as exc:
@@ -593,60 +685,102 @@ class ConnectorHostPool:
                     f"not retried.{_landing(method)}"
                 )
                 await self._discard(child, reason, child.retired)
-                raise self._lost(child, reason, child.retired, method) from exc
-            if self._kill_on_write_timeout and method in _WRITE_METHODS:
-                # Not pinged: a child that answers is exactly the one that could
-                # still send this write after a newer one to the same target, and
-                # the caller asked for that ordering hazard to be closed.
-                reason = (
-                    f"The connector-host child (pid {child.pid}) serving {_label(key)} did not "
-                    f"answer {method!r} in time ({exc}) and was killed, as this pool kills a "
-                    "child on any write timeout. The write may or may not have landed; it was "
-                    "not retried, and the next call starts a fresh child."
-                )
-                await self._discard(child, reason, CAUSE_WRITE_TIMEOUT)
-                raise self._lost(child, reason, CAUSE_WRITE_TIMEOUT, method) from exc
-            if await self._answers_ping(child):
-                raise TimeoutError(
-                    f"The connector-host child (pid {child.pid}) serving {_label(key)} did not "
-                    f"answer {method!r} in time ({exc}), but it still answers a ping, so it was "
-                    "left running. The call may yet complete in the child; it was not retried."
+                raise self._lost(
+                    child,
+                    reason,
+                    child.retired,
+                    method,
+                    recovery=await self._recovered(child, method, exc, ticket),
                 ) from exc
-            reason = (
-                f"The connector-host child (pid {child.pid}) serving {_label(key)} did not "
-                f"answer {method!r} in time, nor a ping afterwards, and was killed; the call "
-                "was not retried, and the next call starts a fresh child."
-            )
-            await self._discard(child, reason, CAUSE_UNRESPONSIVE)
-            raise self._lost(child, reason, CAUSE_UNRESPONSIVE, method) from exc
+            await self._recover(child, method, exc, ticket)
+            raise
         except ConnectionError as exc:
-            if raised_by_child(exc):
-                # The connector's own error, sent by a child that answered.
-                raise
-            # Made by the proxy: the pipe is gone. If the pool already retired
-            # this child, its cause is the true one; otherwise it exited.
-            cause = child.retired or CAUSE_EXITED
-            if cause == CAUSE_STOPPED:
+            if not raised_by_child(exc) and child.retired == CAUSE_STOPPED:
+                # The pool stopped this child itself; that is no failure to recover from.
                 reason = (
                     f"The connector-host child (pid {child.pid}) serving {_label(key)} was "
                     f"stopped — the pool was closed, or the target disconnected — while "
                     f"{method!r} was in flight; the call was not retried."
                 )
-            elif cause == CAUSE_WRITE_TIMEOUT:
-                reason = (
-                    f"The connector-host child (pid {child.pid}) serving {_label(key)} was "
-                    f"killed because another write on it missed its deadline, while "
-                    f"{method!r} was in flight; the call was not retried, and the next call "
-                    f"starts a fresh child.{_landing(method)}"
+                await self._discard(child, reason, CAUSE_EXITED)
+                raise self._lost(child, reason, CAUSE_STOPPED, method) from exc
+            await self._recover(child, method, exc, ticket)
+            raise
+
+    async def _recover(
+        self, child: _PoolChild, method: str, exc: BaseException, ticket: int
+    ) -> None:
+        """Answer a failed call as the recovery policy decides; return only when it restarts nothing."""
+        target = _PoolTarget(self, child, method, exc)
+        record = await self._policy.recover(
+            exc, target, ticket=ticket, write=method in _WRITE_METHODS
+        )
+        if record is None:
+            return
+        if record.action is RecoveryAction.CHILD_KEPT:
+            slow = TimeoutError(
+                f"The connector-host child (pid {child.pid}) serving {_label(child.key)} did not "
+                f"answer {method!r} in time ({exc}), but it still answers a ping, so it was "
+                "left running. The call may yet complete in the child; it was not retried."
+            )
+            slow.recovery = (record.as_dict(),)  # type: ignore[attr-defined]
+            raise slow from exc
+        cause = child.retired or CAUSE_EXITED
+        reason = self._replaced_reason(child, method, exc, cause)
+        raise self._lost(child, reason, cause, method, recovery=(record.as_dict(),)) from exc
+
+    async def _recovered(
+        self, child: _PoolChild, method: str, exc: BaseException, ticket: int
+    ) -> tuple[dict[str, str], ...]:
+        """The record of the recovery that replaced a retired child; none when the pool stopped it."""
+        if child.retired == CAUSE_STOPPED:
+            return ()
+        record = await self._policy.recover(
+            exc,
+            _PoolTarget(self, child, method, exc),
+            ticket=ticket,
+            write=method in _WRITE_METHODS,
+        )
+        if record is None or record.action is RecoveryAction.CHILD_KEPT:
+            return ()
+        return (record.as_dict(),)
+
+    def _replaced_reason(
+        self, child: _PoolChild, method: str, exc: BaseException, cause: str
+    ) -> str:
+        """The sentence a call fails with once the pool has replaced the child it was on."""
+        label = _label(child.key)
+        if cause == CAUSE_UNAVAILABLE and raised_by_child(exc):
+            return (
+                f"The connector in the connector-host child (pid {child.pid}) serving "
+                f"{label} is unavailable ({exc}); the child was discarded, the call "
+                "was not retried, and the next call starts a fresh child."
+            )
+        if cause == CAUSE_WRITE_TIMEOUT:
+            if method in _WRITE_METHODS and isinstance(exc, ChildUnresponsiveError):
+                return (
+                    f"The connector-host child (pid {child.pid}) serving {label} did not "
+                    f"answer {method!r} in time ({exc}) and was killed, as this pool kills a "
+                    "child on any write timeout. The write may or may not have landed; it was "
+                    "not retried, and the next call starts a fresh child."
                 )
-            else:
-                reason = (
-                    f"The connector-host child (pid {child.pid}) serving {_label(key)} was lost "
-                    f"while {method!r} was in flight ({exc}); the call was not retried, and "
-                    "the next call starts a fresh child."
-                )
-            await self._discard(child, reason, CAUSE_EXITED)
-            raise self._lost(child, reason, cause, method) from exc
+            return (
+                f"The connector-host child (pid {child.pid}) serving {label} was "
+                f"killed because another write on it missed its deadline, while "
+                f"{method!r} was in flight; the call was not retried, and the next call "
+                f"starts a fresh child.{_landing(method)}"
+            )
+        if cause == CAUSE_UNRESPONSIVE and isinstance(exc, ChildUnresponsiveError):
+            return (
+                f"The connector-host child (pid {child.pid}) serving {label} did not "
+                f"answer {method!r} in time, nor a ping afterwards, and was killed; the call "
+                "was not retried, and the next call starts a fresh child."
+            )
+        return (
+            f"The connector-host child (pid {child.pid}) serving {label} was lost "
+            f"while {method!r} was in flight ({exc}); the call was not retried, and "
+            "the next call starts a fresh child."
+        )
 
     async def _answers_ping(self, child: _PoolChild) -> bool:
         """Whether a child that missed a deadline is still alive enough to answer."""
@@ -659,7 +793,13 @@ class ConnectorHostPool:
         return True
 
     def _lost(
-        self, child: _PoolChild, detail: str, cause: str, method: str
+        self,
+        child: _PoolChild,
+        detail: str,
+        cause: str,
+        method: str,
+        *,
+        recovery: tuple[dict[str, str], ...] = (),
     ) -> ConnectorHostLostError:
         target, mode = child.key
         error_class: type[ConnectorHostLostError] = ConnectorHostLostError
@@ -676,6 +816,7 @@ class ConnectorHostPool:
             pid=child.pid,
             cause=cause,
             returncode=child.process.returncode,
+            recovery=recovery,
         )
 
     async def _retire_key(self, key: _Key) -> None:
@@ -738,6 +879,24 @@ class ConnectorHostPool:
             return child
 
     async def _start(self, key: _Key) -> _PoolChild:
+        try:
+            return await self._start_once(key, may_respawn=True)
+        except _WritesMoved:
+            logger.info(
+                "connector host pool: the write verdict for %s moved while its child "
+                "was starting; starting a fresh one",
+                _label(key),
+            )
+            return await self._start_once(key, may_respawn=False)
+
+    async def _start_once(self, key: _Key, *, may_respawn: bool) -> _PoolChild:
+        """Spawn, initialise and verify one child for *key*.
+
+        With *may_respawn*, a child whose reported writes disagree with the
+        verdict taken before it was spawned — where the verdict taken again now
+        agrees with the child, so the switch moved in between — is discarded and
+        :class:`_WritesMoved` raised for :meth:`_start` to try once more.
+        """
         target, mode = key
         readonly = mode == READONLY
         section = resolve_env_vars(copy.deepcopy(self._section))
@@ -849,6 +1008,8 @@ class ConnectorHostPool:
                     "not the post-connect report.",
                 )
             child.report = report
+            if may_respawn and self._writes_moved(key, section, readonly_run, writes, report):
+                raise _WritesMoved
             self._verify(derivation, readonly_run, writes, report, failure)
         except BaseException:
             await self._discard(
@@ -872,11 +1033,12 @@ class ConnectorHostPool:
     def _derive(self, key: _Key, section: dict[str, Any]) -> tuple[TargetDerivation, bool, bool]:
         """The derivation for *key*, and the ``(readonly_run, writes)`` it was taken under.
 
-        That posture is what the child will select its gateway on.
+        That posture is what the child will select its gateway on, and the
+        derivation's role is :func:`derive_endpoints`'s own: the one gateway rule.
         """
         target, mode = key
         readonly_run = mode == READONLY or is_readonly_run()
-        writes = False if readonly_run else posture_store.effective_writes(section, target)
+        writes = False if readonly_run else self._writes_allowed(section, target)
         derivation = derive_endpoints(
             {"control_system": section},
             target,
@@ -887,6 +1049,35 @@ class ConnectorHostPool:
             config_path=self._config_file,
         )
         return derivation, readonly_run, writes
+
+    @staticmethod
+    def _writes_allowed(section: dict[str, Any], target: str) -> bool:
+        """Whether the write verdict allows a write to *target*, launch pin honoured.
+
+        The verdict the child's own write guard takes, over the same record: the
+        child inherits this process's environment, so it names the same owner
+        and the same agent-data root.
+        """
+        return posture_store.write_verdict(section, target).allowed
+
+    def _writes_moved(
+        self,
+        key: _Key,
+        section: dict[str, Any],
+        readonly_run: bool,
+        writes: bool,
+        report: dict[str, Any],
+    ) -> bool:
+        """Whether a writes mismatch in *report* is a switch that moved, not a disagreement.
+
+        True only when the child reports the other posture *and* the verdict,
+        taken again now, has moved to it. A mismatch the verdict does not
+        explain — ``config_file`` arming what the section does not — is left
+        for :meth:`_verify` to refuse.
+        """
+        if readonly_run or report.get("writes_enabled") is not (not writes):
+            return False
+        return self._writes_allowed(section, key[0]) is not writes
 
     def _config_refusal(
         self, key: _Key, section: dict[str, Any], derivation: TargetDerivation
@@ -925,6 +1116,11 @@ class ConnectorHostPool:
         block_key = f"control_system.connector.{connector_type}"
 
         if derivation.transport == TRANSPORT_CA and selected is None:
+            if ROLE_WRITE_ACCESS in derivation.endpoints:
+                # Only a readonly run selects no endpoint while a write gateway
+                # is configured: it never selects write_access, and this block
+                # has no read gateway for it.
+                return readonly_gateway_refusal(machine_kind(section, target))
             configured = sorted(derivation.endpoints) or "none"
             return (
                 f"it resolves to {connector_type!r}, which speaks Channel Access, and "
@@ -989,7 +1185,7 @@ class ConnectorHostPool:
                 STAGE_VERIFY,
                 f"reports writes {'armed' if child_writes else 'off'} where the section "
                 f"given to the pool has them {'armed' if writes else 'off'}. The child "
-                f"reads its write posture from config_file ({source}), not from the "
+                f"takes its write tier from config_file ({source}), not from the "
                 "section; the two must agree.",
             )
         raise failure(

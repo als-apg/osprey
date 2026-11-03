@@ -35,7 +35,6 @@ from typing import Any
 
 __all__ = [
     "DEFAULT_TERMINATE_GRACE_S",
-    "REAP_WINDOW_S",
     "ChildExit",
     "ChildJob",
     "ExitCause",
@@ -51,7 +50,7 @@ DEFAULT_TERMINATE_GRACE_S = 2.0
 #: already have exited, before it treats the child as running. Collection
 #: follows the exit within milliseconds; the window only bounds the cost to a
 #: child that is in fact still running.
-REAP_WINDOW_S = 0.5
+_REAP_WINDOW_S = 0.5
 
 
 async def reap_exit_code(process: Any, window_s: float) -> int | None:
@@ -74,14 +73,14 @@ async def terminate(process: Any, grace_s: float) -> int | None:
     signals it: a signal sent to an exited, uncollected child reaps it out from
     under the loop's watcher, which then loses the child's own exit code and
     reports 255. The wait for that collection is bounded by
-    ``min(grace_s, REAP_WINDOW_S)``, so it only delays putting down a child
+    ``min(grace_s, _REAP_WINDOW_S)``, so it only delays putting down a child
     that is in fact still running.
 
     Returns:
         The reaped exit code, or ``None`` if the child outlived ``SIGKILL``'s
         grace period.
     """
-    if await reap_exit_code(process, min(grace_s, REAP_WINDOW_S)) is not None:
+    if await reap_exit_code(process, min(grace_s, _REAP_WINDOW_S)) is not None:
         return _returncode(process)
     with contextlib.suppress(OSError):
         process.terminate()
@@ -284,7 +283,7 @@ class ChildJob:
                 returncode = await terminate(self.process, grace_s)
             if self._drain is not None:
                 with contextlib.suppress(Exception):
-                    await asyncio.wait_for(asyncio.shield(self._drain), REAP_WINDOW_S)
+                    await asyncio.wait_for(asyncio.shield(self._drain), _REAP_WINDOW_S)
                 self._drain.cancel()
             if self.process is None:
                 cause = ExitCause.CANCELLED

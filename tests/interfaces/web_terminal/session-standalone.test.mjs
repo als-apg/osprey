@@ -40,11 +40,13 @@ async function bootAt(url) {
     <section class="view active" id="view-agents"></section>
     <div class="toast" id="toast"></div>
   `;
-  fetchStub = vi.fn(() => Promise.resolve({
-    status: 200,
-    ok: true,
-    json: () => Promise.resolve({ total_events: 0, agents: [], tool_calls_by_agent: {} }),
-  }));
+  fetchStub = vi.fn(() =>
+    Promise.resolve({
+      status: 200,
+      ok: true,
+      json: () => Promise.resolve({ total_events: 0, agents: [], tool_calls_by_agent: {} }),
+    })
+  );
   vi.stubGlobal('fetch', fetchStub);
   vi.resetModules();
   await import(ENTRY_PATH);
@@ -64,7 +66,7 @@ describe('theme role', () => {
     ThemeManager.setTheme('light');
 
     expect(localStorage.getItem('osprey-theme')).toBe(
-      JSON.stringify({ family: 'main', mode: 'light' }),
+      JSON.stringify({ family: 'main', mode: 'light' })
     );
   });
 
@@ -106,7 +108,7 @@ describe('session scope', () => {
 
     window.postMessage(
       { type: 'osprey-session-change', session_id: OTHER_KEY },
-      window.location.origin,
+      window.location.origin
     );
     await new Promise((resolve) => setTimeout(resolve, 0));
 

@@ -23,6 +23,7 @@ import sys
 import pytest
 
 from osprey.deployment.web_terminals.ports import FAMILY_BASE_FIELDS
+from osprey.profiles import sidecar_panels, web_panels
 from osprey.profiles.web_panels import (
     BUILTIN_PANEL_LABELS,
     BUILTIN_PANELS,
@@ -34,10 +35,41 @@ from osprey.registry.web import PANEL_ID_TO_REGISTRY_KEY, panel_url_state_attr
 SIDECAR_IDS = sorted(SIDECAR_PANELS)
 
 
-def test_the_notebooks_panel_is_the_registered_sidecar():
-    """The one entry, pinned so the id and its label cannot drift apart."""
-    assert SIDECAR_IDS == ["jupyter"]
+def test_the_notebooks_and_canopy_panels_are_the_registered_sidecars():
+    """The two entries, pinned so each id and its label cannot drift apart."""
+    assert SIDECAR_IDS == ["canopy", "jupyter"]
     assert BUILTIN_PANEL_LABELS["jupyter"] == "JUPYTER"
+    assert BUILTIN_PANEL_LABELS["canopy"] == "CANOPY"
+
+
+def test_the_notebooks_panel_keeps_the_first_row():
+    """Registry order is sidebar order: a sidecar added later sits after the notebooks."""
+    assert list(SIDECAR_PANELS) == ["jupyter", "canopy"]
+
+
+@pytest.mark.parametrize("name", ["SidecarPanel", "SIDECAR_PANELS", "JUPYTER_PANEL_ID"])
+def test_the_panel_module_re_exports_the_leaf_registry(name):
+    """One registry under two names. A test that adds a panel through
+    ``web_panels.SIDECAR_PANELS`` has to reach a reader that imported the leaf,
+    which a copy of the mapping would not."""
+    assert getattr(web_panels, name) is getattr(sidecar_panels, name)
+
+
+def test_the_notebooks_panel_declares_no_agent_surface():
+    """It serves no MCP transport, so every field a panel opts in with is at
+    its default."""
+    panel = SIDECAR_PANELS["jupyter"]
+
+    assert panel.mcp_path is None
+    assert panel.agent_hop is False
+    assert (panel.mcp_allow, panel.mcp_ask, panel.mcp_writes) == ((), (), ())
+
+
+def test_a_panel_waits_for_nothing_on_stop_unless_it_says_so():
+    """The notebooks panel gives jupyter-server its kernels' shutdown; a panel
+    that declares nothing is stopped without a wait."""
+    assert sidecar_panels.SidecarPanel("x", "a:b").stop_grace_s == 0
+    assert SIDECAR_PANELS["jupyter"].stop_grace_s == 5
 
 
 @pytest.mark.parametrize("panel_id", SIDECAR_IDS)
@@ -95,7 +127,7 @@ def test_importing_the_package_does_not_build_the_web_application():
         "print(pkg.run_web.__module__)"
     )
     result = subprocess.run(
-        [sys.executable, "-c", probe], capture_output=True, text=True, check=True
+        [sys.executable, "-c", probe], capture_output=True, text=True, check=True, timeout=120
     )
     imported, run_web_module = result.stdout.split()
 

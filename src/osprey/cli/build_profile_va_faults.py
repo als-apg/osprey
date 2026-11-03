@@ -16,16 +16,11 @@ rules belong beside the block, but they are *reported* from validate's single
 accumulator so a facility fixing a profile meets every problem it has in one
 pass.
 
-Two of them are about the third target rather than about ports:
+One of them is about the third target rather than about ports:
 
 * :func:`standin_baseline_errors` — a deployment baselined on ``live_standin``
   that builds no stand-in. The baseline names a machine this build does not
   stand up, so every session would dial a port nothing serves.
-* :func:`standin_archive_errors` — the archive belongs to the machine it
-  records. A stand-in plus a ``va_archiver`` recorder writes the deployment's
-  OWN store, which is legal only where the baseline is a simulated machine or
-  the stand-in itself; on a baseline naming the facility's own machine that
-  store would be read as the real machine's past.
 """
 
 from __future__ import annotations
@@ -40,8 +35,6 @@ from osprey.port_layout import VA_PVA_PORT_CONFIG_KEY
 from osprey_connectors.types import (
     EPICS,
     LIVE_STANDIN,
-    SIMULATED_TYPES,
-    STANDIN_TYPES,
     VIRTUAL_ACCELERATOR,
     resolve_control_system_type,
 )
@@ -50,7 +43,7 @@ from osprey_connectors.types import (
 # `config:` block addresses the same leaf through a dotted key or a nested
 # mapping, and a second implementation of "which leaves does this reach" is a
 # second answer free to disagree with the renderer's.
-from .build_profile_archiver import VAArchiverConfig, _expand_dotted
+from .build_profile_archiver import _expand_dotted
 from .build_profile_schema import VAConfig
 
 #: Key of the VA gateway table, in the nested spelling a rendered config reads.
@@ -63,11 +56,6 @@ _VA_GATEWAYS_KEY = f"control_system.connector.{VIRTUAL_ACCELERATOR}.gateways"
 #: lookup, so an absent ``type:`` resolves the way every other reader resolves
 #: it (to the mock) instead of to a second answer invented here.
 _CONTROL_SYSTEM_KEY = "control_system"
-
-#: Baseline types a deployment's own recorded store may legally belong to: the
-#: machines a deployment stands up for itself. Spelled as the union the target
-#: vocabulary already defines, so widening either half widens this rule with it.
-_OWN_MACHINE_TYPES = SIMULATED_TYPES + STANDIN_TYPES
 
 
 def live_standin_errors(
@@ -105,12 +93,12 @@ def live_standin_errors(
         # endpoint, so "collides with" would be a second complaint about one
         # fault. Sorted so the report is stable whatever order the blocks
         # were read in.
-        for key in sorted(claimed_ports):
-            if claimed_ports[key] == live_standin:
-                errors.append(
-                    f"virtual_accelerator.live_standin ({live_standin}) "
-                    f"collides with {key} ({claimed_ports[key]})"
-                )
+        errors.extend(
+            f"virtual_accelerator.live_standin ({live_standin}) "
+            f"collides with {key} ({claimed_ports[key]})"
+            for key in sorted(claimed_ports)
+            if claimed_ports[key] == live_standin
+        )
         errors.extend(_gateway_collision_errors(live_standin, config))
     return errors
 
@@ -160,12 +148,11 @@ def pva_port_errors(va: VAConfig, claimed_ports: Mapping[str, int], config: Any)
             f"virtual_accelerator.pva_port must differ from "
             f"virtual_accelerator.live_standin (both {pva_port})"
         )
-    for key in sorted(claimed_ports):
-        if claimed_ports[key] == pva_port:
-            errors.append(
-                f"virtual_accelerator.pva_port ({pva_port}) "
-                f"collides with {key} ({claimed_ports[key]})"
-            )
+    errors.extend(
+        f"virtual_accelerator.pva_port ({pva_port}) collides with {key} ({claimed_ports[key]})"
+        for key in sorted(claimed_ports)
+        if claimed_ports[key] == pva_port
+    )
     return errors
 
 
@@ -229,48 +216,6 @@ def standin_baseline_errors(config: Any, va: VAConfig | None) -> list[str]:
         f"serves. Set `virtual_accelerator.live_standin` to the port the stand-in "
         f"should serve, or set `control_system.type` back to the connector that "
         f"reaches this machine (`{EPICS}` for a facility's own)."
-    ]
-
-
-def standin_archive_errors(
-    config: Any, va: VAConfig | None, va_archiver: VAArchiverConfig | None
-) -> list[str]:
-    """Refuse a recorded archive that would be read as the real machine's past.
-
-    **The archive belongs to the machine it records.** A ``va_archiver:`` block
-    is a store this deployment writes for itself, filled by the recorder
-    sampling whatever machine the deployment runs — with a stand-in built, that
-    machine is the stand-in. Where the baseline names the facility's own
-    control system, the same store is served to every session as the history of
-    the real machine, and nothing in the readout says otherwise.
-
-    Legal exactly where the baseline is a machine the deployment stands up for
-    itself (:data:`_OWN_MACHINE_TYPES`): a simulated baseline, or the stand-in
-    as its own baseline.
-
-    Args:
-        config: The profile's resolved ``config:`` block.
-        va: The parsed ``virtual_accelerator:`` block, or ``None``.
-        va_archiver: The parsed ``va_archiver:`` block, or ``None`` when the
-            profile records no store of its own.
-
-    Returns:
-        The single failure, or an empty list.
-    """
-    if va is None or va.live_standin is None or va_archiver is None:
-        return []
-    baseline = _baseline_type(config)
-    if baseline in _OWN_MACHINE_TYPES:
-        return []
-    return [
-        f"virtual_accelerator.live_standin with a va_archiver block on a "
-        f"control_system.type: {baseline} baseline — the archive belongs to the "
-        f"machine it records. The recorder writes THIS deployment's store from the "
-        f"stand-in, and on a baseline naming the facility's own machine that store "
-        f"is served as the real machine's past. Either delete `va_archiver` and let "
-        f"the deployment read the facility's own archiver, or baseline this "
-        f"deployment on the machine being recorded (`control_system.type: "
-        f"{LIVE_STANDIN}`, or `{VIRTUAL_ACCELERATOR}` for the simulation)."
     ]
 
 

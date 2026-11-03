@@ -9,7 +9,6 @@ loads back.
 """
 
 import struct
-from contextlib import nullcontext
 from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -21,6 +20,7 @@ from osprey.interfaces.artifacts.app import create_app
 from osprey.mcp_server.control_system.server_context import initialize_server_context
 from osprey.stores.artifact_store import get_artifact_store, initialize_artifact_store
 from osprey_connectors.control_system._base import ChannelMetadata, ChannelValue
+from tests.mcp_server._channel_read import config_patch
 from tests.mcp_server.conftest import extract_response_dict, get_tool_fn
 
 ADDRESS = "CAM:1:IMAGE"
@@ -55,23 +55,6 @@ class _FakeConnector:
         return _channel_value(self._values[address], self._color_modes.get(address))
 
 
-def _config_patch(overrides: dict):
-    """Patch only the named config keys, delegating everything else."""
-    if not overrides:
-        return nullcontext()
-
-    from osprey_connectors import config as config_module
-
-    real = config_module.get_config_value
-
-    def fake(path, default=None, *args, **kwargs):
-        if path in overrides:
-            return overrides[path]
-        return real(path, default, *args, **kwargs)
-
-    return patch("osprey_connectors.config.get_config_value", side_effect=fake)
-
-
 async def _read(tmp_path, monkeypatch, values, *, color_modes=None, overrides=None, **kwargs):
     """Run the real channel_read tool body against a mock connector."""
     monkeypatch.chdir(tmp_path)
@@ -91,7 +74,7 @@ async def _read(tmp_path, monkeypatch, values, *, color_modes=None, overrides=No
             return_value=connector,
         ),
         patch("osprey.infrastructure.server_launcher.ensure_web_server", lambda *a, **k: None),
-        _config_patch(overrides or {}),
+        config_patch(overrides or {}),
     ):
         result = await get_tool_fn(channel_read)(channels=list(values), **kwargs)
     return extract_response_dict(result)
@@ -252,10 +235,18 @@ async def test_reported_color_mode_places_the_colour_axis_first(tmp_path, monkey
     assert _png_size(png) == (40, 32)
 
 
-async def test_mono_color_mode_is_not_drawn_as_rgb(tmp_path, monkeypatch):
-    """A frame the control system calls Mono is not RGB, however its dims line up."""
+@pytest.mark.parametrize(
+    "color_mode",
+    [
+        pytest.param("Mono", id="named"),
+        # areaDetector's enum code for Mono.
+        pytest.param(0, id="enum-code"),
+    ],
+)
+async def test_mono_color_mode_is_not_drawn_as_rgb(tmp_path, monkeypatch, color_mode):
+    """A frame the control system calls Mono is a 3-plane stack, not RGB, however its dims line up."""
     frame = np.arange(3 * 32 * 40, dtype=np.uint16).reshape(3, 32, 40)
-    data = await _read(tmp_path, monkeypatch, {ADDRESS: frame}, color_modes={ADDRESS: "Mono"})
+    data = await _read(tmp_path, monkeypatch, {ADDRESS: frame}, color_modes={ADDRESS: color_mode})
 
     entry = data["summary"]["readings"][ADDRESS]
     assert entry["no_preview_reason"]
@@ -305,18 +296,6 @@ async def test_integer_color_mode_rgb3_places_the_colour_axis_last(tmp_path, mon
     png = (get_artifact_store().get_file_path(entry["artifact_id"])).read_bytes()
     # 800 wide by 3 high - the trailing axis was colour this time.
     assert _png_size(png) == (800, 3)
-
-
-async def test_integer_mono_color_mode_is_not_drawn_as_rgb(tmp_path, monkeypatch):
-    """Enum 0 is Mono: a 3-plane stack, not a colour frame, whatever its dims."""
-    frame = np.arange(3 * 32 * 40, dtype=np.uint16).reshape(3, 32, 40)
-    data = await _read(tmp_path, monkeypatch, {ADDRESS: frame}, color_modes={ADDRESS: 0})
-
-    entry = data["summary"]["readings"][ADDRESS]
-    assert entry["no_preview_reason"]
-    stored = get_artifact_store().get_entry(entry["artifact_id"])
-    assert stored is not None and stored.mime_type != "image/png"
-    np.testing.assert_array_equal(np.load(_resolve(entry)), frame)
 
 
 async def test_unknown_integer_color_mode_falls_back_to_inference(tmp_path, monkeypatch):
@@ -469,7 +448,7 @@ async def test_retention_keeps_only_the_configured_window(tmp_path, monkeypatch)
             return_value=connector,
         ),
         patch("osprey.infrastructure.server_launcher.ensure_web_server", lambda *a, **k: None),
-        _config_patch({"control_system.channel_read_artifact_retention": 2}),
+        config_patch({"control_system.channel_read_artifact_retention": 2}),
     ):
         for _ in range(4):
             await get_tool_fn(channel_read)(channels=[ADDRESS])

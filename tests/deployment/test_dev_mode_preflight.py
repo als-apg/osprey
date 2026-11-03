@@ -127,13 +127,20 @@ class TestPreflightDevMode:
 class TestWheelBuildFailuresRaise:
     """A failed wheel build must not degrade into a released-code deploy."""
 
-    def test_missing_build_module_raises(self, editable_checkout, monkeypatch):
+    @pytest.mark.parametrize(
+        ("returncode", "stderr"),
+        [
+            pytest.param(1, "No module named build", id="missing-build-module"),
+            pytest.param(0, "", id="no-wheel-produced"),
+        ],
+    )
+    def test_a_build_that_yields_no_wheel_raises(
+        self, editable_checkout, monkeypatch, returncode, stderr
+    ):
         monkeypatch.setattr(
             subprocess,
             "run",
-            lambda *a, **k: subprocess.CompletedProcess(
-                a[0] if a else [], 1, "", "No module named build"
-            ),
+            lambda *a, **k: subprocess.CompletedProcess(a[0] if a else [], returncode, "", stderr),
         )
 
         with pytest.raises(DevModeUnavailableError):
@@ -169,16 +176,6 @@ class TestWheelBuildFailuresRaise:
                 _build_dev_wheel_cached(editable_checkout)
 
         assert len(calls) == 2, "failed builds must not be cached"
-
-    def test_build_producing_no_wheel_raises(self, editable_checkout, monkeypatch):
-        monkeypatch.setattr(
-            subprocess,
-            "run",
-            lambda *a, **k: subprocess.CompletedProcess(a[0] if a else [], 0, "", ""),
-        )
-
-        with pytest.raises(DevModeUnavailableError):
-            _build_dev_wheel_cached(editable_checkout)
 
 
 class TestStagingNeverSilentlyFallsBack:
@@ -286,11 +283,17 @@ class TestMemberWheelsSatisfyTheFramework:
         for member in WORKSPACE_MEMBERS:
             root = checkout / "packages" / member
             root.mkdir(parents=True)
-            glob = cls.CONNECTORS_GLOB if member == "osprey-connectors" else "v[0-9]*"
+            # The same shapes the real members use: connectors' describe command
+            # sits in setuptools-scm's `scm.git` table, the others' in the flat key.
+            if member == "osprey-connectors":
+                options = (
+                    "{ scm = { git = { describe_command = "
+                    f'"git describe --match {cls.CONNECTORS_GLOB}" }} }} }}'
+                )
+            else:
+                options = '{ git_describe_command = "git describe --match v[0-9]*" }'
             (root / "pyproject.toml").write_text(
-                f"[project]\nname='{member}'\n"
-                "[tool.hatch.version]\n"
-                f'raw-options = {{ git_describe_command = "git describe --match {glob}" }}\n'
+                f"[project]\nname='{member}'\n[tool.hatch.version]\nraw-options = {options}\n"
             )
 
     @staticmethod
@@ -348,6 +351,18 @@ class TestMemberWheelsSatisfyTheFramework:
 
         assert _copy_local_framework_for_override(str(ctx)) is True
         assert len(list(ctx.glob("*.whl"))) == 1 + len(WORKSPACE_MEMBERS)
+
+
+def test_the_refusal_names_each_real_members_describe_glob():
+    """The remedy names the glob from the member's real pyproject, whichever key holds it."""
+    from osprey.deployment.wheel_build import _describe_glob
+
+    repo = Path(__file__).resolve().parents[2]
+    assert (
+        _describe_glob(repo / "packages" / "osprey-connectors")
+        == TestMemberWheelsSatisfyTheFramework.CONNECTORS_GLOB
+    )
+    assert _describe_glob(repo / "packages" / "pyaml-cs-osprey") == "v[0-9]*"
 
 
 class TestPrepareComposeFilesPreflight:

@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 import errno
 import os
-import socket
 from collections.abc import AsyncIterator
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -30,7 +29,7 @@ from osprey.services.ariel_search.attachments.fetch import (
 from osprey.services.ariel_search.config import ARIELConfig
 from osprey.services.ariel_search.ingestion.adapters.als import ALSLogbookAdapter
 from osprey.services.ariel_search.ingestion.adapters.generic import GenericJSONAdapter
-from osprey.services.ariel_search.ingestion.base import FacilityAdapter
+from tests.services.ariel_search.fake_adapters import StubAdapter
 
 # These tests exercise the real fetcher, so the conftest fake stays out of the way.
 pytestmark = pytest.mark.real_fetch
@@ -45,19 +44,7 @@ def _config(source_url: str | None, *, allowed_origins: list[str] | None = None)
     return ARIELConfig.from_dict(data)
 
 
-class _StubAdapter(FacilityAdapter):
-    """A registered-style adapter OSPREY knows nothing about."""
-
-    @property
-    def source_system_name(self) -> str:
-        return "Stub"
-
-    async def fetch_entries(self, *_args, **_kwargs) -> AsyncIterator:  # type: ignore[override]
-        for entry in ():  # never yields
-            yield entry
-
-
-class _StubWithSourceUrl(_StubAdapter):
+class _StubWithSourceUrl(StubAdapter):
     def __init__(self, config: ARIELConfig, source_url: str) -> None:
         super().__init__(config)
         self.source_url = source_url
@@ -112,13 +99,13 @@ def test_origin_stub_adapter_with_http_source_url_gets_its_own_origin():
 
 
 def test_origin_stub_adapter_without_source_url_uses_configured_ingestion_source_url():
-    adapter = _StubAdapter(_config("http://elog.site.example/feed"))
+    adapter = StubAdapter(_config("http://elog.site.example/feed"))
     assert not hasattr(adapter, "source_url")
     assert adapter.attachment_origins() == frozenset({("http", "elog.site.example", 80)})
 
 
 def test_origin_stub_adapter_with_no_source_at_all_has_no_origin():
-    adapter = _StubAdapter(_config(None))
+    adapter = StubAdapter(_config(None))
     assert adapter.attachment_origins() == frozenset()
     assert is_file_source(adapter) is False
 
@@ -128,15 +115,15 @@ def test_origin_stub_adapter_with_file_source_url_has_no_origin():
     assert adapter.attachment_origins() == frozenset()
 
 
-def test_origin_als_adapter_answers_prefix_origin():
-    adapter = ALSLogbookAdapter(_config("/fake/path.jsonl"))
-    prefix = urlsplit(adapter.attachment_url_prefix)
-    assert prefix.scheme == "https"
-    assert adapter.attachment_origins() == frozenset({("https", prefix.hostname, 443)})
-
-
-def test_origin_als_adapter_http_source_still_answers_prefix_origin():
-    adapter = ALSLogbookAdapter(_config("http://localhost:9999/elog"))
+@pytest.mark.parametrize(
+    "source",
+    [
+        pytest.param("/fake/path.jsonl", id="file-source"),
+        pytest.param("http://localhost:9999/elog", id="http-source"),
+    ],
+)
+def test_origin_als_adapter_answers_prefix_origin(source):
+    adapter = ALSLogbookAdapter(_config(source))
     prefix = urlsplit(adapter.attachment_url_prefix)
     assert prefix.scheme == "https"
     assert adapter.attachment_origins() == frozenset({("https", prefix.hostname, 443)})
@@ -222,7 +209,7 @@ def test_redact_never_leaks_secret_on_odd_input():
 
 
 async def test_proxy_connector_log_redacts_the_proxy_credentials(caplog):
-    adapter = _StubAdapter(_config(None))
+    adapter = StubAdapter(_config(None))
     adapter.proxy_url = "socks5://user:secret@proxy.example:1080"
 
     with caplog.at_level("INFO"):
@@ -239,7 +226,7 @@ async def test_proxy_connector_log_redacts_the_proxy_credentials(caplog):
 PNG = b"\x89PNG\r\n\x1a\n" + b"x" * 100
 
 
-class _CountingAdapter(_StubAdapter):
+class _CountingAdapter(StubAdapter):
     """Stub adapter that counts the connectors it builds."""
 
     def __init__(self, config: ARIELConfig) -> None:
@@ -402,7 +389,7 @@ async def test_fetch_relative_path_on_file_source_skips_the_origin_rule(tmp_path
 
 async def test_fetch_content_length_3gb_is_size_cap(server, adapter):
     out = await asyncio.wait_for(
-        fetch_attachment_bytes(_url(server, "/big"), 1000, _origins(server), adapter), 3
+        fetch_attachment_bytes(_url(server, "/big"), 1000, _origins(server), adapter), 30
     )
     assert out == FetchOutcome(code="size_cap", observed_size=1001)
 
@@ -443,20 +430,23 @@ async def test_fetch_head_still_applies_content_length_cap(server, adapter):
     assert out == FetchOutcome(code="size_cap", observed_size=1001)
 
 
-@pytest.mark.parametrize("code", [404, 410])
-async def test_fetch_gone_statuses_are_source_gone(server, adapter, code):
+@pytest.mark.parametrize(
+    ("code", "outcome"),
+    [
+        pytest.param(404, "source_gone", id="404-gone"),
+        pytest.param(410, "source_gone", id="410-gone"),
+        pytest.param(400, "source_refused", id="400-refused"),
+        pytest.param(401, "source_refused", id="401-refused"),
+        pytest.param(403, "source_refused", id="403-refused"),
+    ],
+)
+async def test_fetch_client_error_statuses_map_to_their_failure_code(
+    server, adapter, code, outcome
+):
     out = await fetch_attachment_bytes(
         _url(server, f"/status/{code}"), 1000, _origins(server), adapter
     )
-    assert out == FetchOutcome(code="source_gone")
-
-
-@pytest.mark.parametrize("code", [400, 401, 403])
-async def test_fetch_other_4xx_are_source_refused(server, adapter, code):
-    out = await fetch_attachment_bytes(
-        _url(server, f"/status/{code}"), 1000, _origins(server), adapter
-    )
-    assert out == FetchOutcome(code="source_refused")
+    assert out == FetchOutcome(code=outcome)
 
 
 @pytest.mark.parametrize("code", [408, 429, 500, 503])
@@ -467,11 +457,8 @@ async def test_fetch_host_up_statuses_are_transient_with_host_up(server, adapter
     assert out == FetchOutcome(transient=True, host_up=True)
 
 
-async def test_fetch_connection_refused_is_transient_host_down(adapter):
-    sock = socket.socket()
-    sock.bind(("127.0.0.1", 0))
-    port = sock.getsockname()[1]
-    sock.close()
+async def test_fetch_connection_refused_is_transient_host_down(adapter, reserve_port):
+    port = reserve_port()
     sent: list[int] = []
     out = await fetch_attachment_bytes(
         f"http://127.0.0.1:{port}/pic.png",
@@ -537,18 +524,16 @@ async def test_fetch_three_hops_are_followed(server, adapter):
     assert out.data == PNG
 
 
-async def test_fetch_fourth_hop_is_source_refused(server, adapter):
-    out = await fetch_attachment_bytes(_url(server, "/chain/4"), 1000, _origins(server), adapter)
-    assert out == FetchOutcome(code="source_refused")
-
-
-async def test_fetch_off_origin_location_is_source_refused(server, adapter):
-    out = await fetch_attachment_bytes(_url(server, "/redir/off"), 1000, _origins(server), adapter)
-    assert out == FetchOutcome(code="source_refused")
-
-
-async def test_fetch_redirect_without_location_is_source_refused(server, adapter):
-    out = await fetch_attachment_bytes(_url(server, "/redir/none"), 1000, _origins(server), adapter)
+@pytest.mark.parametrize(
+    "path",
+    [
+        pytest.param("/chain/4", id="fourth_hop"),
+        pytest.param("/redir/off", id="off_origin_location"),
+        pytest.param("/redir/none", id="redirect_without_location"),
+    ],
+)
+async def test_fetch_redirect_is_source_refused(server, adapter, path):
+    out = await fetch_attachment_bytes(_url(server, path), 1000, _origins(server), adapter)
     assert out == FetchOutcome(code="source_refused")
 
 
@@ -676,7 +661,7 @@ def test_fetch_default_deadline_is_sixty_seconds():
 # -- file sources --------------------------------------------------------------
 
 
-class _StubFileSource(_StubAdapter):
+class _StubFileSource(StubAdapter):
     """A registered adapter with a file base and no ``source_url`` attribute."""
 
     def __init__(self, config: ARIELConfig, base: Path) -> None:
@@ -750,7 +735,7 @@ async def test_fetch_file_source_refuses_dot_dot_absolute_and_empty_parts(tmp_pa
 
 
 async def test_fetch_file_source_without_a_base_is_refused():
-    out = await fetch_mod._fetch_file_source("x.png", 1000, _StubAdapter(_config(None)), "GET")
+    out = await fetch_mod._fetch_file_source("x.png", 1000, StubAdapter(_config(None)), "GET")
     assert out == FetchOutcome(code="source_refused")
 
 

@@ -1,9 +1,10 @@
 Web Terminal
 ============
 
-The OSPREY Web Terminal is a browser-based cockpit for the OSPREY agent: a real
-terminal on the left, your live workspace on the right, and themed side panels
-for your control-system tools. Launch it from any project directory:
+The OSPREY Web Terminal is a browser-based cockpit for the OSPREY agent: a
+sidebar on the left, your live artifacts and themed panels for your
+control-system tools in the middle, and the agent on the right. Launch it
+from any project directory:
 
 .. code-block:: bash
 
@@ -17,12 +18,13 @@ there you chat with the agent, watch files and plots appear the moment they are
 created, and switch between companion tools without ever leaving the page.
 
 .. figure:: /_static/screenshots/web_terminal_hero_light.png
-   :alt: The OSPREY Web Terminal — a live agent session on the left, the workspace with a beam-current plot on the right
+   :alt: The OSPREY Web Terminal — the sidebar on the left, a beam-current plot in the middle, the agent chat on the right
    :align: center
    :width: 100%
 
-   A live agent session on the left; the workspace and its artifacts on the
-   right. Captured with OSPREY |captured_web_terminal_hero|.
+   The sidebar and its artifacts on the left, the plot the agent made in the
+   middle, and the chat with the agent on the right. Captured with OSPREY
+   |captured_web_terminal_hero|.
 
 .. grid:: 1 1 3 3
    :gutter: 3
@@ -66,6 +68,14 @@ created, and switch between companion tools without ever leaving the page.
       Run JupyterLab in a tab, with kernels that read and write the control
       system through the session you already have open.
 
+   .. grid-item-card:: CANOPY
+      :link: canopy
+      :link-type: doc
+      :shadow: md
+
+      Control-room screens and archived history in a tab, which the agent
+      opens, arranges and builds with you — and a shared screen library.
+
    .. grid-item-card:: Multi-user
       :link: multi-user/index
       :link-type: doc
@@ -82,5 +92,7 @@ created, and switch between companion tools without ever leaving the page.
    panels
    lattice-dashboard
    notebooks
+   canopy
+   canopy-library
    send-feedback
    multi-user/index

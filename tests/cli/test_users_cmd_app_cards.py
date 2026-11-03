@@ -24,6 +24,7 @@ from osprey.deployment.web_terminals.auth_credentials import (
     TERMINAL_SECRET_VAR_PREFIX,
 )
 from osprey_connectors.dotenv import ENV_LOCAL_FILENAME
+from tests._text import flat
 
 REFUSAL = (
     "logbook is a shared app card; remove it from modules.web_terminals.shared "
@@ -135,10 +136,6 @@ def _snapshot(root: Path) -> dict[str, str]:
     }
 
 
-def _flat(output: str) -> str:
-    return " ".join(output.split())
-
-
 # ---------------------------------------------------------------------------
 # The engines
 # ---------------------------------------------------------------------------
@@ -225,7 +222,7 @@ def test_users_remove_refuses_an_app_card_and_touches_nothing(repo_root, engine_
 
     # Assert
     assert result.exit_code != 0
-    assert REFUSAL in _flat(result.output)
+    assert REFUSAL in flat(result.output)
     assert engine_calls["decommission_user"] == []
     assert _snapshot(repo_root) == before
 
@@ -242,7 +239,7 @@ def test_users_remove_refuses_an_app_card_listed_only_in_the_profile(repo_root, 
 
     # Assert
     assert result.exit_code != 0
-    assert REFUSAL in _flat(result.output)
+    assert REFUSAL in flat(result.output)
     assert engine_calls["decommission_user"] == []
     assert _snapshot(repo_root) == before
 
@@ -256,7 +253,7 @@ def test_users_passwd_refuses_an_app_card_before_prompting(repo_root, engine_cal
 
     # Assert
     assert result.exit_code != 0
-    assert REFUSAL in _flat(result.output)
+    assert REFUSAL in flat(result.output)
     assert "New web-terminal password" not in result.output
     assert engine_calls["rotate_user_password"] == []
     assert _snapshot(repo_root) == before

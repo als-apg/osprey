@@ -1,0 +1,168 @@
+{
+  "schemaVersion": "1.1",
+  "kind": "screen",
+  "id": "common/embedded/_bpm",
+  "metadata": {
+    "title": "_bpm",
+    "source": {
+      "type": "bob-converter"
+    },
+    "size": {
+      "width": 148,
+      "height": 208
+    }
+  },
+  "macros": [
+    {
+      "name": "BPM",
+      "default": ""
+    },
+    {
+      "name": "BPM_X",
+      "default": ""
+    },
+    {
+      "name": "BPM_Y",
+      "default": ""
+    }
+  ],
+  "root": {
+    "id": "w-001",
+    "type": "absolute-canvas",
+    "props": {
+      "width": 148,
+      "height": 208,
+      "backgroundColor": {
+        "$role": "Display_Background",
+        "fallback": "#ffffff"
+      }
+    },
+    "geometry": {
+      "x": 0,
+      "y": 0,
+      "width": 148,
+      "height": 208
+    },
+    "children": [
+      {
+        "id": "w-002",
+        "type": "xy-plot",
+        "props": {
+          "curves": [
+            {
+              "name": "",
+              "x_channel": "${BPM_X}",
+              "y_channel": "${BPM_Y}",
+              "color": {
+                "$role": "MAJOR",
+                "fallback": "#ff0000"
+              },
+              "lineWidth": 1,
+              "lineStyle": 1,
+              "symbol": "circle",
+              "symbolSize": 7,
+              "traceType": "none",
+              "yAxisName": "y0"
+            }
+          ],
+          "xAxis": {
+            "name": "x",
+            "label": "",
+            "minRange": 10,
+            "maxRange": -10,
+            "autoRange": false,
+            "logMode": false,
+            "grid": true,
+            "visible": true
+          },
+          "yAxes": [
+            {
+              "name": "y0",
+              "label": "",
+              "minRange": -10,
+              "maxRange": 10,
+              "autoRange": false,
+              "logMode": false,
+              "grid": true,
+              "visible": true
+            }
+          ],
+          "showLegend": false
+        },
+        "geometry": {
+          "x": 0,
+          "y": 20,
+          "width": 140,
+          "height": 140
+        }
+      },
+      {
+        "id": "w-003",
+        "type": "pv-label",
+        "props": {
+          "pv": "${BPM_X}",
+          "precision": 2,
+          "foregroundColor": {
+            "$role": "Text",
+            "fallback": "#000000"
+          },
+          "backgroundColor": {
+            "$role": "Read_Background",
+            "fallback": "#f0f0f0"
+          },
+          "fontSize": 14,
+          "align": "center"
+        },
+        "geometry": {
+          "x": 0,
+          "y": 160,
+          "width": 140,
+          "height": 20
+        }
+      },
+      {
+        "id": "w-004",
+        "type": "pv-label",
+        "props": {
+          "pv": "${BPM_Y}",
+          "precision": 2,
+          "foregroundColor": {
+            "$role": "Text",
+            "fallback": "#000000"
+          },
+          "backgroundColor": {
+            "$role": "Read_Background",
+            "fallback": "#f0f0f0"
+          },
+          "fontSize": 14,
+          "align": "center"
+        },
+        "geometry": {
+          "x": 0,
+          "y": 180,
+          "width": 140,
+          "height": 20
+        }
+      },
+      {
+        "id": "w-005",
+        "type": "text-label",
+        "props": {
+          "text": "${BPM}",
+          "align": "center",
+          "foregroundColor": {
+            "$role": "Text",
+            "fallback": "#000000"
+          },
+          "fontSize": 10
+        },
+        "geometry": {
+          "x": 0,
+          "y": 0,
+          "width": 140,
+          "height": 20
+        }
+      }
+    ]
+  }
+}

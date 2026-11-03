@@ -26,7 +26,7 @@ export const STATUS_RANK = Object.freeze({ ok: 0, skip: 1, warning: 2, error: 3 
  * @returns {string}
  */
 export function worstStatus(checks) {
-  let worst = "ok";
+  let worst = 'ok';
   for (const check of checks) {
     if ((STATUS_RANK[check.status] ?? 0) > (STATUS_RANK[worst] ?? 0)) worst = check.status;
   }

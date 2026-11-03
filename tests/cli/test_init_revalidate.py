@@ -60,6 +60,7 @@ def _git(root: Path, *args: str) -> str:
         check=True,
         capture_output=True,
         text=True,
+        timeout=60,
     ).stdout
 
 
@@ -82,6 +83,19 @@ def _previous_release_repo(dest: Path, *, git: bool = False) -> Path:
         _git(dest, "add", "-A")
         _git(dest, "commit", "-q", "-m", "previous release")
     return dest
+
+
+#: The retired write keys the previous release's readwrite and logbook files spell.
+_READWRITE_RETIRED_KEYS = (
+    "  control_system.writes_enabled: false\n"
+    "  control_system.connector.epics.writes_enabled: false\n"
+    "  control_system.connector.virtual_accelerator.writes_enabled: true\n"
+)
+_LOGBOOK_RETIRED_KEYS = (
+    "  control_system.writes_enabled: false\n"
+    "  control_system.connector.epics.writes_enabled: false\n"
+    "  control_system.connector.virtual_accelerator.writes_enabled: false\n"
+)
 
 
 def _without_channel_finder(root: Path) -> None:
@@ -107,6 +121,21 @@ def _revalidate(root: Path, *extra: str) -> object:
     return CliRunner().invoke(init, [str(root), "--revalidate", *extra], catch_exceptions=False)
 
 
+#: The previous release's root armed writes (``writes_enabled: true``), which
+#: the parse point reads as ``allowed``; the rewrite keeps that ceiling (an
+#: existing ``allowed`` is never lowered), where a fresh repo ships ``asked``.
+_KEPT_CEILING = ("  control_system.writes: asked\n", "  control_system.writes: allowed\n")
+
+
+def revalidated_exemplar() -> dict[str, str]:
+    """The new exemplar as the previous release's repo revalidates to it."""
+    files = exemplar_source_files()
+    asked, allowed = _KEPT_CEILING
+    assert files["profile.yml"].count(asked) == 1
+    files["profile.yml"] = files["profile.yml"].replace(asked, allowed)
+    return files
+
+
 # ── The gate ────────────────────────────────────────────────────────────────
 
 
@@ -118,7 +147,7 @@ def test_revalidated_previous_release_repo_is_byte_equal_to_the_new_exemplar(
     result = _revalidate(root)
 
     assert result.exit_code == 0, result.output
-    expected = exemplar_source_files()
+    expected = revalidated_exemplar()
     actual = _repo_files(root)
     assert sorted(actual) == sorted(expected)
     for rel, text in expected.items():
@@ -158,7 +187,7 @@ def test_previous_release_without_shared_gains_the_shared_block(tmp_path: Path) 
     result = _revalidate(root)
 
     assert result.exit_code == 0, result.output
-    expected = exemplar_source_files()["profile.yml"].replace(_CHANNEL_FINDER_ITEM, "")
+    expected = revalidated_exemplar()["profile.yml"].replace(_CHANNEL_FINDER_ITEM, "")
     assert (root / "profile.yml").read_text(encoding="utf-8") == expected
     assert sorted(p.name for p in (root / "apps").iterdir()) == ["knowledge.yml", "logbook.yml"]
 
@@ -210,6 +239,22 @@ def test_an_edited_logbook_retired_tier_stays_a_tier_and_the_manual_step_is_prin
     assert "      - name: knowledge\n" not in profile
     assert "Left for you to do by hand" in result.output
     assert "tiers/logbook.yml was made from `control-assistant-logbook`" in result.output
+
+
+def test_the_manual_step_for_an_edited_logbook_names_its_model(tmp_path: Path) -> None:
+    root = _previous_release_repo(tmp_path / "als-exemplar")
+    layer_file = root / f"{RETIRED_CATALOG_KEY}" / "logbook.yml"
+    layer_file.write_text(
+        layer_file.read_text(encoding="utf-8") + "model: claude-sonnet-5\n", encoding="utf-8"
+    )
+
+    result = _revalidate(root)
+
+    assert result.exit_code == 0, result.output
+    assert (root / "tiers" / "logbook.yml").is_file()
+    assert "its `model: claude-sonnet-5` among them, into apps/logbook.yml" in " ".join(
+        result.output.split()
+    )
 
 
 def test_an_edited_tier_retired_tier_is_kept_as_written(tmp_path: Path) -> None:
@@ -360,7 +405,7 @@ def test_the_rewrite_does_not_depend_on_the_retired_presets_shipping(
 
 
 def _assert_is_the_new_exemplar(root: Path) -> None:
-    expected = exemplar_source_files()
+    expected = revalidated_exemplar()
     actual = _repo_files(root)
     assert sorted(actual) == sorted(expected)
     for rel, text in expected.items():
@@ -429,8 +474,19 @@ def test_a_comment_only_edit_keeps_the_file_and_prints_the_manual_step(tmp_path:
     result = _revalidate(root)
 
     assert result.exit_code == 0, result.output
-    assert (root / "tiers" / "readwrite.yml").read_text(encoding="utf-8") == edited
+    # Kept as written, but for the write posture: the three retired keys become
+    # the tier key they amount to (simulator armed: `allowed`), and the comment
+    # the previous release shipped above `web.ui_mode` leaves with the preset's.
+    assert (root / "tiers" / "readwrite.yml").read_text(encoding="utf-8") == edited.replace(
+        _READWRITE_RETIRED_KEYS, "  control_system.writes: allowed\n"
+    ).replace(
+        "  # Full split-pane terminal + workspace layout for the write-armed operator.\n"
+        "  # Pinned on both sides of the tier boundary (readonly pins `simple`) rather\n"
+        "  # than left to the server default, for the same reason writes_enabled is.\n",
+        "",
+    )
     assert "tiers/readwrite.yml was made from `control-assistant-readwrite`" in result.output
+    assert "# The tier boundary, and it takes three keys." in result.output
 
 
 def test_a_comment_only_edit_keeps_a_logbook_retired_tier_a_tier(tmp_path: Path) -> None:
@@ -441,7 +497,9 @@ def test_a_comment_only_edit_keeps_a_logbook_retired_tier_a_tier(tmp_path: Path)
 
     result = _revalidate(root)
 
-    assert (root / "tiers" / "logbook.yml").read_text(encoding="utf-8") == edited
+    assert (root / "tiers" / "logbook.yml").read_text(encoding="utf-8") == edited.replace(
+        _LOGBOOK_RETIRED_KEYS, "  control_system.writes: never\n"
+    )
     assert not (root / "apps" / "logbook.yml").exists()
     assert "        tier: logbook\n" in (root / "profile.yml").read_text(encoding="utf-8")
     assert "tiers/logbook.yml was made from `control-assistant-logbook`" in result.output
@@ -583,3 +641,33 @@ def test_an_unrelated_mention_of_a_migrated_app_is_not_reported(tmp_path: Path) 
     result = _revalidate(root)
 
     assert "Left for you to do by hand" not in result.output
+
+
+def test_dropping_the_catalog_keeps_a_flow_list_before_it_on_one_line(tmp_path: Path) -> None:
+    """B25: a roster whose last entry ends in a flow list (`access: [roster]`).
+
+    The comments after the dropped catalog belong to whatever follows it; they
+    were handed to the flow list's last item and written inside its brackets.
+    """
+    root = _previous_release_repo(tmp_path / "als-exemplar")
+    profile = root / "profile.yml"
+    text = profile.read_text(encoding="utf-8")
+    carol = '        display_name: "Deployment Admin (Carol)"\n'
+    catalog = f"    {RETIRED_CATALOG_KEY}:\n"
+    assert text.count(carol + catalog) == 1
+    profile.write_text(
+        text.replace(carol + catalog, carol + "        access: [roster]\n" + catalog),
+        encoding="utf-8",
+    )
+
+    _revalidate(root)
+
+    written = profile.read_text(encoding="utf-8")
+    assert "        access: [roster]\n" in written
+    assert "access: [roster\n" not in written
+    # The comment introducing `shared:` still introduces it.
+    assert "    # Apps everyone above may open" in written
+    lines = written.splitlines()
+    shared = lines.index("    shared:")
+    assert lines[shared - 4].lstrip().startswith("# Apps everyone above may open")
+    assert lines[shared - 5] == "        access: [roster]"

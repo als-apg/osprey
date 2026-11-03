@@ -329,6 +329,7 @@ class TestRdflibImportIsolation:
             [sys.executable, "-c", code],
             capture_output=True,
             text=True,
+            timeout=120,
         )
         assert result.returncode == 0, (
             f"Seeder leaked into facility_knowledge namespace:\n{result.stderr}"
@@ -361,6 +362,7 @@ class TestRdflibImportIsolation:
             [sys.executable, "-c", code],
             capture_output=True,
             text=True,
+            timeout=120,
         )
         assert result.returncode == 0, (
             f"graph_seeder leaked into facility_knowledge namespace:\n{result.stderr}"
@@ -401,16 +403,26 @@ class TestIsolationDetectorsFire:
         assert not ok, "the rdflib detector passed a subprocess that imported rdflib"
         assert "rdflib leaked into sys.modules" in stderr, stderr
 
-    def test_neo4j_detector_fires_when_neo4j_is_imported(self):
+    @pytest.mark.parametrize(
+        ("statement", "message"),
+        [
+            pytest.param(
+                "import neo4j",
+                "the neo4j detector passed a subprocess that imported neo4j",
+                id="neo4j-imported",
+            ),
+            # Importing a submodule without the parent must still be detected.
+            pytest.param(
+                "import neo4j.exceptions",
+                "the neo4j detector missed a submodule-only import",
+                id="submodule-only-import",
+            ),
+        ],
+    )
+    def test_neo4j_detector_fires_when_neo4j_is_imported(self, statement, message):
         """A subprocess that imports neo4j on purpose must be reported as a leak."""
-        ok, stderr = _run_neo4j_isolation_check("import neo4j")
-        assert not ok, "the neo4j detector passed a subprocess that imported neo4j"
-        assert "neo4j leaked into sys.modules" in stderr, stderr
-
-    def test_submodule_only_import_is_still_a_leak(self):
-        """Importing a submodule without the parent must still be detected."""
-        ok, stderr = _run_neo4j_isolation_check("import neo4j.exceptions")
-        assert not ok, "the neo4j detector missed a submodule-only import"
+        ok, stderr = _run_neo4j_isolation_check(statement)
+        assert not ok, message
         assert "neo4j leaked into sys.modules" in stderr, stderr
 
 

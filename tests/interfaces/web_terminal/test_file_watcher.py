@@ -24,6 +24,8 @@ from watchdog.events import (
 from watchdog.observers.polling import PollingObserver
 
 from osprey.interfaces.web_terminal.file_watcher import (
+    RELIABLE_CAP,
+    STREAM_END,
     FileEventBroadcaster,
     WorkspaceWatcher,
     _WorkspaceHandler,
@@ -35,6 +37,7 @@ from tests.interfaces.fsevents_wait import (
     polled_frames,
     wait_for_polling_baseline,
 )
+from tests.interfaces.web_terminal._started_app import terminal_client
 
 #: Tighter than the unit lane's 600 s cap, because this file is the one that
 #: has actually hung: ``test_start_creates_directory_if_missing`` sat inside
@@ -105,6 +108,48 @@ class TestFileEventBroadcaster:
         assert q.qsize() == 64
         assert q.get_nowait()["path"] == "file_0.py"
         assert late.get_nowait()["path"] == "after.py"
+
+    def test_a_reliable_frame_is_queued_past_the_ordinary_cap(self):
+        broadcaster = FileEventBroadcaster()
+        q = broadcaster.subscribe("page")
+        for i in range(70):
+            broadcaster.broadcast({"type": "modified", "path": f"file_{i}.py"})
+
+        broadcaster.broadcast({"type": "panel_report_request"}, reliable=True)
+
+        assert q.qsize() == 65
+        assert broadcaster.has_client("page")
+
+    def test_a_stream_at_the_reliable_cap_is_dropped_and_ended(self):
+        broadcaster = FileEventBroadcaster()
+        stalled = broadcaster.subscribe("stalled")
+        live = broadcaster.subscribe("live")
+        for _ in range(RELIABLE_CAP):
+            broadcaster.broadcast({"type": "panel_report_request"}, reliable=True)
+            live.get_nowait()
+
+        broadcaster.broadcast({"type": "panel_report_request"}, reliable=True)
+
+        assert stalled.qsize() == 1
+        assert stalled.get_nowait() is STREAM_END
+        assert not broadcaster.has_client("stalled")
+        assert live.get_nowait()["type"] == "panel_report_request"
+        broadcaster.broadcast({"type": "modified", "path": "after.py"})
+        assert stalled.empty()
+
+    def test_send_to_reaches_only_the_named_clients_streams(self):
+        broadcaster = FileEventBroadcaster()
+        first = broadcaster.subscribe("dock")
+        second = broadcaster.subscribe("dock")
+        other = broadcaster.subscribe("other")
+        anonymous = broadcaster.subscribe()
+
+        broadcaster.send_to("dock", {"type": "panel_op", "request_id": "r1"}, reliable=True)
+
+        assert first.get_nowait()["request_id"] == "r1"
+        assert second.get_nowait()["request_id"] == "r1"
+        assert other.empty()
+        assert anonymous.empty()
 
 
 class TestWorkspaceWatcher:
@@ -285,10 +330,11 @@ class TestSeveralStoresAreConcealed:
     """``concealed`` is a collection: every server-side store the watched tree
     happens to contain is dropped, not just the feedback one.
 
-    The feedback store and the bar-items store both land under the agent-data
-    root, which *is* the watched tree in a default deployment. A layout PUT
-    writes ``bar_items/layout.json``; without concealment every save would push
-    a ``created``/``modified`` frame to every connected browser. The file
+    A server-side store lands under the agent-data root, which *is* the watched
+    tree in a default deployment. The names below are stand-ins for any two
+    stores: an atomic store write passes through a dot-prefixed temp name, and
+    without concealment every write would push a ``created``/``modified`` frame
+    to every connected browser. The file
     panel's own listing is a separate predicate in ``routes/files.py`` and is
     not what these tests are about.
     """
@@ -462,10 +508,6 @@ class TestLifespanConcealsItsStores:
     """``app.py`` resolves every server-side store and hands the watcher all of them."""
 
     def _boot(self, tmp_path):
-        from fastapi.testclient import TestClient
-
-        from osprey.interfaces.web_terminal.app import create_app
-
         workspace_dir = tmp_path / "_agent_data"
         workspace_dir.mkdir(exist_ok=True)
         constructed: list[tuple] = []
@@ -480,11 +522,8 @@ class TestLifespanConcealsItsStores:
             def stop(self):
                 pass
 
-        with (
-            patch(
-                "osprey.interfaces.web_terminal.app._load_web_config",
-                return_value={"watch_dir": str(workspace_dir)},
-            ),
+        with terminal_client(
+            workspace_dir,
             patch(
                 "osprey_connectors.workspace.resolve_shared_data_root",
                 return_value=workspace_dir,
@@ -493,19 +532,14 @@ class TestLifespanConcealsItsStores:
                 "osprey.interfaces.web_terminal.app.WorkspaceWatcher",
                 RecordingWatcher,
             ),
-        ):
-            app = create_app(shell_command="echo")
-            with TestClient(app) as client:
-                yield_state = client.app.state
-                return workspace_dir, constructed, yield_state
+        ) as client:
+            yield_state = client.app.state
+            return workspace_dir, constructed, yield_state
 
     def test_every_store_path_reaches_the_watcher(self, tmp_path):
         workspace_dir, constructed, state = self._boot(tmp_path)
 
-        stores = (PurePath("feedback"), PurePath("bar_items"), PurePath("panel_status"))
-        assert constructed == [(workspace_dir, stores)]
-        assert state.feedback_rel == PurePath("feedback")
-        assert state.bar_items_rel == PurePath("bar_items")
+        assert constructed == [(workspace_dir, (PurePath("panel_status"),))]
         assert state.panel_status_rel == PurePath("panel_status")
 
 
@@ -955,25 +989,18 @@ class TestFirstEverStartup:
         case-sensitive, yields ``None``, and leaves concealment off for the
         life of the process."""
         _require_case_insensitive_fs(tmp_path)
-        from fastapi.testclient import TestClient
-
-        from osprey.interfaces.web_terminal.app import create_app
 
         workspace_dir = tmp_path / "_agent_data"  # deliberately NOT created
         store_root = tmp_path / "_AGENT_DATA"
 
-        with (
-            patch(
-                "osprey.interfaces.web_terminal.app._load_web_config",
-                return_value={"watch_dir": str(workspace_dir)},
-            ),
+        with terminal_client(
+            workspace_dir,
             patch(
                 "osprey_connectors.workspace.resolve_shared_data_root",
                 return_value=store_root,
             ),
-        ):
-            with TestClient(create_app(shell_command="echo")) as client:
-                assert client.app.state.feedback_rel == PurePath("feedback")
+        ) as client:
+            assert client.app.state.panel_status_rel == PurePath("panel_status")
 
 
 class TestStoreRelDerivation:

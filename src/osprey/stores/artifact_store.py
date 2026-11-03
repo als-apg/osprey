@@ -340,11 +340,37 @@ EXAMPLE_ORIGIN = "demo"
 run: the example the gallery seeds into an empty workspace. Listed by the
 gallery, hidden from every agent-facing listing (``exclude_examples``)."""
 
-AUDIT_ORIGIN = "tool_call"
-"""``origin`` of a payload the tool-call audit surface spilled to the store
-(:mod:`osprey.audit.tool_call`). An audit record, not something a tool
-produced: hidden from every listing unless ``include_audit`` is passed, and
-never announced to a live surface."""
+RUN_RECORD_KEY = "run_record"
+"""``metadata`` key, set to True, on an artifact that records a script run rather
+than holding its result: the approval hook's approval preview, and the
+executor's notebook and result record. Plots and files the script saves carry no
+such key. The web terminal's sidebar lists these under "Script runs" (it asks the
+gallery for them through ``GET /api/artifacts?run=true``) and keeps them out of its
+Artifacts list; :func:`is_run_record` is the verdict both listings share."""
+
+
+def is_run_record(entry: ArtifactEntry) -> bool:
+    """Whether ``entry`` records a script run rather than holding its result.
+
+    True when the entry carries :data:`RUN_RECORD_KEY` in its metadata, or — for
+    entries saved before that key existed — when it has what the writers always
+    gave a run record: the ``code_output`` category, the ``osprey_approval`` tool
+    source, or a notebook titled ``Notebook: …`` from ``execute`` or
+    ``execute_file``. The gallery sends this verdict to the browser as the
+    ``run_record`` field so no client re-derives it.
+    """
+    if entry.metadata.get(RUN_RECORD_KEY) is True:
+        return True
+    if entry.category == "code_output":
+        return True
+    if entry.tool_source == "osprey_approval":
+        return True
+    return (
+        entry.artifact_type == "notebook"
+        and entry.tool_source in ("execute", "execute_file")
+        and entry.title.startswith("Notebook: ")
+    )
+
 
 EXAMPLE_REMOVED_SENTINEL = ".example-removed"
 """File in the artifact directory written when an example is deleted, so no
@@ -549,8 +575,7 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
         long as it is still being seen); otherwise ``save_kwargs`` (the
         :meth:`save_file` arguments) are saved as a new entry with *origin*.
         Lookup and save share the lock, so two concurrent callers with the same
-        bytes produce one entry. Listeners fire for a new entry only; the
-        gallery is not launched for an audit spill.
+        bytes produce one entry. Listeners fire for a new entry only.
         """
         kwargs = {k: v for k, v in save_kwargs.items() if k != "origin"}
         with self._with_index_lock():
@@ -562,8 +587,7 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
             created = self._save_file_locked(**kwargs, origin=origin)
 
         self._notify_listeners(created)
-        if origin != AUDIT_ORIGIN:
-            self._launch_gallery()
+        self._launch_gallery()
         return created
 
     def save_object(
@@ -834,9 +858,9 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
         source_agent_filter: str | None = None,
         session_filter: str | None = None,
         run_filter: str | None = None,
+        run_record: bool | None = None,
         last_n: int | None = None,
         exclude_examples: bool = False,
-        include_audit: bool = False,
     ) -> list[ArtifactEntry]:
         """Return artifact entries, optionally filtered.
 
@@ -844,23 +868,20 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
         note on its clause below. ``session_filter`` is deliberately NOT such a
         boundary (it also matches untagged artifacts).
 
+        ``run_record`` keeps run records (``True``) or everything else
+        (``False``) by :func:`is_run_record`; it has nothing to do with
+        ``run_filter``, which names a dispatch run.
+
         ``exclude_examples`` drops the shipped example (``origin ==
         EXAMPLE_ORIGIN``). Every listing the agent reads passes it: the
         example is for the person at the gallery, never something the agent
         produced or may cite.
-
-        Audit spills (``origin == AUDIT_ORIGIN``) are dropped unless
-        ``include_audit`` is passed: they are records of what a tool returned,
-        not artifacts. Only the retention sweep and an explicit audit viewer ask
-        for them; :meth:`get_entry` finds them regardless.
 
         ``search`` is a case-insensitive substring match on the title, file
         name, description and artifact type.
         """
         self._refresh_if_stale()
         entries = list(self._entries)
-        if not include_audit:
-            entries = [e for e in entries if e.origin != AUDIT_ORIGIN]
         if exclude_examples:
             entries = [e for e in entries if e.origin != EXAMPLE_ORIGIN]
         if type_filter:
@@ -885,6 +906,8 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
             if run_filter == "":
                 return []
             entries = [e for e in entries if e.run_id == run_filter]
+        if run_record is not None:
+            entries = [e for e in entries if is_run_record(e) == run_record]
         if pinned is not None:
             entries = [e for e in entries if e.pinned == pinned]
         if search:
@@ -917,6 +940,7 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
         source_agent_filter: str | None = None,
         session_filter: str | None = None,
         run_filter: str | None = None,
+        run_record: bool | None = None,
         exclude_examples: bool = False,
     ) -> ArtifactPage:
         """Return one newest-first page of the entries the filters admit.
@@ -944,6 +968,7 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
             source_agent_filter=source_agent_filter,
             session_filter=session_filter,
             run_filter=run_filter,
+            run_record=run_record,
             exclude_examples=exclude_examples,
         )
         ordered = sorted(entries, key=_page_key, reverse=True)

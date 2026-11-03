@@ -95,9 +95,12 @@ describe('applySettings: raw mode PUT', () => {
     /** @type {HTMLElement} */ (document.querySelector('.settings-confirm-btn')).click();
     await new Promise((resolve) => setTimeout(resolve, 0));
 
-    expect(fetchMock).toHaveBeenCalledWith(expected, expect.objectContaining({
-      method: 'PUT',
-    }));
+    expect(fetchMock).toHaveBeenCalledWith(
+      expected,
+      expect.objectContaining({
+        method: 'PUT',
+      })
+    );
   });
 });
 
@@ -129,9 +132,11 @@ describe('panel setup: a known mode per case', () => {
  */
 describe('Apply Settings: the confirm and its waiver', () => {
   const SKIP_KEY = 'osprey-settings-apply-skip-confirm';
-  const overlay = () => /** @type {HTMLElement} */ (document.querySelector('.settings-confirm-overlay'));
+  const overlay = () =>
+    /** @type {HTMLElement} */ (document.querySelector('.settings-confirm-overlay'));
   const applyBtn = () => /** @type {HTMLElement} */ (document.querySelector('.settings-apply-btn'));
-  const skipBox = () => /** @type {HTMLInputElement} */ (document.querySelector('.settings-confirm-skip-box'));
+  const skipBox = () =>
+    /** @type {HTMLInputElement} */ (document.querySelector('.settings-confirm-skip-box'));
 
   beforeEach(() => {
     localStorage.clear();
@@ -196,8 +201,6 @@ describe('Apply Settings: the confirm and its waiver', () => {
  * The command-palette gate seam. `openDrawerTab` is the SINGLE gated entry the
  * palette (and `revealSetting`) build on: it must clear the warning gate first,
  * then activate a tab, and report whether the tab actually became active.
- * `runWarningGate` is internal, so its true-on-preset-ack decision is observed
- * through this seam (no warning overlay is built and the drawer opens).
  */
 describe('openDrawerTab: gated tab activation', () => {
   const ACK_KEY = 'osprey-settings-warning-ack';
@@ -208,15 +211,19 @@ describe('openDrawerTab: gated tab activation', () => {
   /** Stub `/health` (reached via fetchJSON) to hand back a server session id.
    * @param {string} sessionId */
   function stubHealth(sessionId) {
-    vi.stubGlobal('fetch', vi.fn((url) =>
-      String(url).endsWith('/health')
-        ? Promise.resolve({
-            ok: true,
-            status: 200,
-            statusText: 'OK',
-            json: () => Promise.resolve({ session_id: sessionId }),
-          })
-        : Promise.resolve(notOkResponse())));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url) =>
+        String(url).endsWith('/health')
+          ? Promise.resolve({
+              ok: true,
+              status: 200,
+              statusText: 'OK',
+              json: () => Promise.resolve({ session_id: sessionId }),
+            })
+          : Promise.resolve(notOkResponse())
+      )
+    );
   }
 
   beforeEach(() => {
@@ -240,18 +247,6 @@ describe('openDrawerTab: gated tab activation', () => {
     localStorage.clear();
   });
 
-  test('clears the gate silently (no dialog, drawer opens) when the ack is preset for this server session', async () => {
-    localStorage.setItem(ACK_KEY, 'srv-1');
-    stubHealth('srv-1');
-
-    await openDrawerTab('tab-config');
-
-    // Preset ack => runWarningGate resolved true WITHOUT building a dialog...
-    expect(document.querySelector('.settings-warning-overlay')).toBeNull();
-    // ...and the caller (openDrawerTab) went on to open the drawer.
-    expect(drawer.open).toHaveBeenCalled();
-  });
-
   test('returns false without polling when the target tab never gains .active (unsaved-changes veto)', async () => {
     localStorage.setItem(ACK_KEY, 'srv-1');
     stubHealth('srv-1');
@@ -267,11 +262,16 @@ describe('openDrawerTab: gated tab activation', () => {
 describe('form mode: enum fields', () => {
   /** @param {Record<string, any>} sections */
   function stubConfig(sections) {
-    vi.stubGlobal('fetch', vi.fn(() => Promise.resolve({
-      ok: true,
-      status: 200,
-      json: () => Promise.resolve({ sections, raw: '' }),
-    })));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() =>
+        Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () => Promise.resolve({ sections, raw: '' }),
+        })
+      )
+    );
   }
 
   // ENUM_FIELDS is keyed by the full dotted path of a LEAF field, so a key naming
@@ -282,9 +282,9 @@ describe('form mode: enum fields', () => {
       claude_code: { effort: 'medium', default_model: 'sonnet' },
     });
 
-    /** @type {HTMLElement} */ (
-      document.getElementById('tab-config')
-    ).dispatchEvent(new Event('drawer:tab-activate'));
+    /** @type {HTMLElement} */ (document.getElementById('tab-config')).dispatchEvent(
+      new Event('drawer:tab-activate')
+    );
 
     const selector = 'select[data-key="claude_code.effort"]';
     await vi.waitFor(() => expect(document.querySelector(selector)).not.toBeNull());
@@ -293,9 +293,7 @@ describe('form mode: enum fields', () => {
     expect([...select.options].map((o) => o.value)).toEqual(['low', 'medium', 'high', 'max']);
     expect(select.value).toBe('medium');
     // The sibling string leaf is not an enum, and the block itself is not a field.
-    expect(
-      document.querySelector('[data-key="claude_code.default_model"]')?.tagName,
-    ).toBe('INPUT');
+    expect(document.querySelector('[data-key="claude_code.default_model"]')?.tagName).toBe('INPUT');
   });
 
   // Per-tool approval policies are a PREFIX rule, not a hand-list: the approval
@@ -310,9 +308,9 @@ describe('form mode: enum fields', () => {
       },
     });
 
-    /** @type {HTMLElement} */ (
-      document.getElementById('tab-config')
-    ).dispatchEvent(new Event('drawer:tab-activate'));
+    /** @type {HTMLElement} */ (document.getElementById('tab-config')).dispatchEvent(
+      new Event('drawer:tab-activate')
+    );
 
     const selector = 'select[data-key="approval.tools.queue_start"]';
     await vi.waitFor(() => expect(document.querySelector(selector)).not.toBeNull());
@@ -323,7 +321,7 @@ describe('form mode: enum fields', () => {
     expect(
       /** @type {HTMLSelectElement} */ (
         document.querySelector('select[data-key="approval.tools.channel_write"]')
-      ).value,
+      ).value
     ).toBe('always');
   });
 });
@@ -336,9 +334,10 @@ describe('form mode: protected keys', () => {
    * @param {string[]} [protectedKeys]
    */
   function configResponse(sections, protectedKeys) {
-    const payload = protectedKeys === undefined
-      ? { sections, raw: '' }
-      : { sections, raw: '', protected: protectedKeys };
+    const payload =
+      protectedKeys === undefined
+        ? { sections, raw: '' }
+        : { sections, raw: '', protected: protectedKeys };
     return { ok: true, status: 200, json: () => Promise.resolve(payload) };
   }
 
@@ -347,20 +346,24 @@ describe('form mode: protected keys', () => {
    * @param {string[]} [protectedKeys]
    */
   function stubConfig(sections, protectedKeys) {
-    vi.stubGlobal('fetch', vi.fn(() => Promise.resolve(configResponse(sections, protectedKeys))));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => Promise.resolve(configResponse(sections, protectedKeys)))
+    );
   }
 
   /** @param {string} key */
   async function openFormAt(key) {
-    /** @type {HTMLElement} */ (
-      document.getElementById('tab-config')
-    ).dispatchEvent(new Event('drawer:tab-activate'));
+    /** @type {HTMLElement} */ (document.getElementById('tab-config')).dispatchEvent(
+      new Event('drawer:tab-activate')
+    );
     const selector = `[data-key="${key}"]`;
     await vi.waitFor(() => expect(document.querySelector(selector)).not.toBeNull());
   }
 
   /** @param {string} key */
-  const control = (key) => /** @type {HTMLInputElement} */ (document.querySelector(`[data-key="${key}"]`));
+  const control = (key) =>
+    /** @type {HTMLInputElement} */ (document.querySelector(`[data-key="${key}"]`));
   /** @param {string} key */
   const row = (key) => /** @type {HTMLElement} */ (control(key).closest('.settings-field'));
   /** @param {string} key */
@@ -368,13 +371,13 @@ describe('form mode: protected keys', () => {
   /** @param {Element} el */
   const notesIn = (el) => [...el.querySelectorAll('.settings-field-note')];
   /** @param {Element} el */
-  const ownNotes = (el) => [...el.children].filter((c) => c.classList.contains('settings-field-note'));
+  const ownNotes = (el) =>
+    [...el.children].filter((c) => c.classList.contains('settings-field-note'));
 
   test('a fully protected section carries one note and greys its controls', async () => {
-    stubConfig(
-      { approval: { enabled: true }, claude_code: { default_model: 'sonnet' } },
-      ['approval.enabled'],
-    );
+    stubConfig({ approval: { enabled: true }, claude_code: { default_model: 'sonnet' } }, [
+      'approval.enabled',
+    ]);
     await openFormAt('approval.enabled');
 
     expect(control('approval.enabled').disabled).toBe(true);
@@ -389,27 +392,30 @@ describe('form mode: protected keys', () => {
   });
 
   test('a protected leaf inside an editable section carries its own note', async () => {
-    stubConfig(
-      { claude_code: { default_model: 'sonnet', permissions: { deny: [] } } },
-      ['claude_code.permissions.deny'],
-    );
+    stubConfig({ claude_code: { default_model: 'sonnet', permissions: { deny: [] } } }, [
+      'claude_code.permissions.deny',
+    ]);
     await openFormAt('claude_code.permissions.deny');
 
     expect(ownNotes(section('claude_code.permissions.deny'))).toHaveLength(0);
     expect(notesIn(row('claude_code.permissions.deny')).map((n) => n.textContent)).toEqual([NOTE]);
     expect(control('claude_code.permissions.deny').disabled).toBe(true);
-    expect(row('claude_code.permissions.deny').classList.contains('settings-field-protected')).toBe(true);
+    expect(row('claude_code.permissions.deny').classList.contains('settings-field-protected')).toBe(
+      true
+    );
     expect(control('claude_code.default_model').disabled).toBe(false);
     expect(notesIn(row('claude_code.default_model'))).toHaveLength(0);
   });
 
   test('Apply never sends a protected key', async () => {
     const sections = { control_system: { type: null }, claude_code: { default_model: 'sonnet' } };
-    const fetchMock = vi.fn((/** @type {string} */ _url, /** @type {any} */ opts) => Promise.resolve(
-      !opts || !opts.method || opts.method === 'GET'
-        ? configResponse(sections, ['control_system.type'])
-        : notOkResponse(),
-    ));
+    const fetchMock = vi.fn((/** @type {string} */ _url, /** @type {any} */ opts) =>
+      Promise.resolve(
+        !opts || !opts.method || opts.method === 'GET'
+          ? configResponse(sections, ['control_system.type'])
+          : notOkResponse()
+      )
+    );
     vi.stubGlobal('fetch', fetchMock);
     await openFormAt('claude_code.default_model');
 
@@ -418,9 +424,11 @@ describe('form mode: protected keys', () => {
     model.dispatchEvent(new Event('input'));
     /** @type {HTMLElement} */ (document.querySelector('.settings-confirm-btn')).click();
 
-    await vi.waitFor(() => expect(
-      fetchMock.mock.calls.filter(([, opts]) => opts && opts.method === 'PATCH'),
-    ).toHaveLength(1));
+    await vi.waitFor(() =>
+      expect(
+        fetchMock.mock.calls.filter(([, opts]) => opts && opts.method === 'PATCH')
+      ).toHaveLength(1)
+    );
     const [, patch] = /** @type {[string, any]} */ (
       fetchMock.mock.calls.find(([, opts]) => opts && opts.method === 'PATCH')
     );

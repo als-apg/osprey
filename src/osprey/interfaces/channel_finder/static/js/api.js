@@ -3,7 +3,7 @@
  * OSPREY Channel Finder — REST + WebSocket Client
  */
 
-const BASE = '';  // Same-origin
+const BASE = ''; // Same-origin
 
 /**
  * Fetch JSON from the API.

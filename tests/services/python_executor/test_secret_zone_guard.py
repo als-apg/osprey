@@ -145,6 +145,30 @@ def test_env_chain_files_are_refused_in_both_postures(layout, posture):
         assert _SECRET_DETAIL in outcome, (label, outcome)
 
 
+@pytest.mark.parametrize("posture", ["denylist", "allowlist"])
+def test_a_secret_spelled_in_another_case_is_refused(layout, posture):
+    # On a case-insensitive filesystem (macOS's default) each of these opens a
+    # real secret file; on a case-sensitive one the guard refuses the spelling.
+    guard = (_denylist if posture == "denylist" else _allowlist)(layout)
+    project = layout["project"]
+    recased = project.parent / project.name.upper()
+
+    results = _probe(
+        layout["tmp"],
+        guard,
+        {
+            "read .ENV": f"open({str(project / '.ENV')!r}).read()",
+            "read .Env.shared": f"open({str(project / '.Env.shared')!r}).read()",
+            "read BUILD/.ENV.MERGED": f"open({str(project / 'BUILD' / '.ENV.MERGED')!r}).read()",
+            "read PROJECT/.env": f"open({str(recased / '.env')!r}).read()",
+        },
+    )
+
+    for label, outcome in results.items():
+        assert "read denied" in outcome, (label, outcome)
+        assert _SECRET_DETAIL in outcome, (label, outcome)
+
+
 def test_env_file_outside_every_secret_root_is_not_refused(layout):
     results = _probe(
         layout["tmp"],
@@ -237,27 +261,6 @@ def test_bare_wrapper_still_renders_and_runs(tmp_path):
 # --------------------------------------------------------------------------- #
 # The python executor, real subprocess
 # --------------------------------------------------------------------------- #
-
-
-@pytest.fixture
-def reset_config_caches(monkeypatch):
-    """Reset every config cache around a test that writes its own ``config.yml``."""
-    from osprey_connectors.workspace import reset_config_cache
-
-    reset_config_cache()
-
-    import osprey_connectors.config as _cfg
-
-    monkeypatch.setattr(_cfg, "_default_config", None)
-    monkeypatch.setattr(_cfg, "_default_configurable", None)
-    saved_cache = _cfg._config_cache.copy()
-    _cfg._config_cache.clear()
-
-    yield
-
-    reset_config_cache()
-    _cfg._config_cache.clear()
-    _cfg._config_cache.update(saved_cache)
 
 
 @pytest.fixture

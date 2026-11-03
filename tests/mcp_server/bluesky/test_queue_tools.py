@@ -3,14 +3,15 @@
 
 Three properties are load-bearing and are asserted directly, never inferred:
 
-1. **The kill switch beats a valid token, with zero HTTP calls.**
-   ``queue_start`` and ``queue_stop(cancel=True)`` re-read
-   ``control_system.writes_enabled`` fresh from config before any network call,
-   so a caller that bypassed the PreToolUse hook and holds a correct
-   ``BLUESKY_LAUNCH_TOKEN`` is still refused. ``queue_add`` applies the same
-   switch to the armed half of enqueue by WITHHOLDING the token header — the
-   assertion there is on the header, not on the status code, because that is
-   the mechanism.
+1. **The write verdict beats a valid token, with zero HTTP calls.**
+   ``queue_start`` and ``queue_stop(cancel=True)`` ask the write verdict
+   (``posture_store.write_verdict``) fresh before any POST, so a caller that
+   bypassed the PreToolUse hook and holds a correct ``BLUESKY_LAUNCH_TOKEN`` is
+   still refused while the machine's switch is off. ``queue_add`` applies the
+   same verdict to the armed half of enqueue by WITHHOLDING the token header —
+   the assertion there is on the header, not on the status code, because that
+   is the mechanism. Writes are armed here the way a person arms them: a tier
+   that allows writes and a record whose switch is on.
 
 2. **Refusal bodies, not just status codes.** Every bridge refusal is
    ``{"code", "detail", ...extras}``; these tools must relay the code and
@@ -35,6 +36,7 @@ import json
 import logging
 import re
 import time
+from pathlib import Path
 from unittest.mock import patch
 
 import pytest
@@ -46,17 +48,47 @@ from osprey.mcp_server.bluesky.tools import queue
 from osprey.utils.owner_header import OWNER_HEADER
 from osprey_connectors.identity import TERMINAL_USER_ENV
 from osprey_connectors.posture_store import CONTROL_CONTEXT_TREE_ENV_VAR, CONTROL_OWNER_ENV_VAR
+from osprey_connectors.refusals import refusal_phrase
+from osprey_connectors.types import baseline_target
+from osprey_connectors_tests._harness import (
+    isolate_verdict_environment,
+    reset_verdict_state,
+    write_control_context,
+)
+from tests.mcp_server._bluesky import (
+    as_owner_less_tree_container,
+    as_terminal_user,
+    headers_without_owner,
+)
 from tests.mcp_server.conftest import assert_raises_error, extract_response_dict, get_tool_fn
+
+pytestmark = pytest.mark.usefixtures("silence_queue_activity_emit")
 
 _MOD = "osprey.mcp_server.bluesky.tools.queue"
 
 _TOKEN = "genuinely-valid-token"
 
 
+#: A tier that allows writes, on a deployment whose baseline (``live``) is real.
+#: The single lane these tests render declares no target, so it serves ``live``.
+_ALLOWED_SECTION = {"type": "epics", "writes": "allowed"}
+
+#: The phrase a switched-off real machine is refused with.
+_OFF_PHRASE = refusal_phrase("switch_off", "real")
+
+
 @pytest.fixture(autouse=True)
 def _reset_bluesky_context():
     yield
     reset_server_context()
+
+
+@pytest.fixture(autouse=True)
+def _clean_verdict_env(tmp_path, monkeypatch):
+    """No ambient verdict state: a pinned identity and a record root under tmp_path."""
+    isolate_verdict_environment(monkeypatch, tmp_path / "agent_data")
+    yield
+    reset_verdict_state()
 
 
 def _configure(
@@ -69,14 +101,27 @@ def _configure(
 ) -> None:
     """Put the process in a deployment posture: writes on/off, token set/unset.
 
-    ``writes=None`` writes no config.yml at all — the fail-closed case.
-    ``control_system`` writes that whole section instead of the deployment-wide
-    flag alone, which is how a per-connector-type posture is staged.
+    ``writes=True`` is a tier that allows writes and a record, filed under the
+    acting identity of the moment, whose switch is on for the baseline.
+    ``writes=False`` is the same tier with the switch off. ``writes=None``
+    writes no config.yml at all — the fail-closed case. ``control_system``
+    writes that whole section instead.
     """
     monkeypatch.chdir(tmp_path)
-    section = control_system if control_system is not None else {"writes_enabled": writes}
+    section = control_system if control_system is not None else _ALLOWED_SECTION
     if control_system is not None or writes is not None:
-        (tmp_path / "config.yml").write_text(yaml.dump({"control_system": section}))
+        # No approval hook runs in front of these direct calls, so approval is
+        # off and stage 1 asks for no record (test_queue_approval_record.py).
+        (tmp_path / "config.yml").write_text(
+            yaml.dump({"control_system": section, "approval": {"enabled": False}})
+        )
+    if control_system is not None or writes is not None:
+        # The record points at the baseline, the target the single lane serves.
+        target = baseline_target(section)
+        write_control_context(
+            tmp_path / "agent_data", target=target, switch={target: "on"} if writes else None
+        )
+    reset_verdict_state()
     if token is None:
         monkeypatch.delenv("BLUESKY_LAUNCH_TOKEN", raising=False)
     else:
@@ -85,7 +130,7 @@ def _configure(
 
 
 def _armed(tmp_path, monkeypatch) -> None:
-    """The fully-armed posture: writes enabled and a valid token configured."""
+    """The fully-armed posture: the switch on for ``live`` and a valid token configured."""
     _configure(tmp_path, monkeypatch, writes=True, token=_TOKEN)
 
 
@@ -109,39 +154,9 @@ def _stop_fn():
     return get_tool_fn(queue.queue_stop)
 
 
-def _headers_without_owner(m) -> dict[str, str]:
-    """The headers one forwarded request carried, minus the owner stamp.
-
-    Every write to the bridge carries ``X-Osprey-Owner`` whenever the ladder can
-    name an owner, and under test the process account always can. The launch
-    token rows below are about the token and nothing else, so they compare the
-    rest of the header dict exactly: a stray third header still fails them,
-    while the owner half is pinned by the owner section at the end of the file.
-    """
-    headers = m.call_args.kwargs["headers"] or {}
-    return {name: value for name, value in headers.items() if name != OWNER_HEADER}
-
-
 def _owner_sent(m) -> str | None:
     """The owner one forwarded request named, or ``None`` when it named nobody."""
     return (m.call_args.kwargs["headers"] or {}).get(OWNER_HEADER)
-
-
-def _as_terminal_user(monkeypatch, user: str) -> None:
-    """Put the process in a terminal container: the roster account, no stamp over it."""
-    monkeypatch.delenv(CONTROL_OWNER_ENV_VAR, raising=False)
-    monkeypatch.delenv(CONTROL_CONTEXT_TREE_ENV_VAR, raising=False)
-    monkeypatch.setenv(TERMINAL_USER_ENV, user)
-
-
-def _as_owner_less_tree_container(monkeypatch, tmp_path) -> None:
-    """Put the process in a container holding the state tree and owning nothing.
-
-    The account such a container runs as names nobody whose chip anyone set, so
-    the ladder answers NO_OWNER rather than falling through to that account.
-    """
-    monkeypatch.delenv(CONTROL_OWNER_ENV_VAR, raising=False)
-    monkeypatch.setenv(CONTROL_CONTEXT_TREE_ENV_VAR, str(tmp_path / "control-context"))
 
 
 def _refusal(code: str, detail: str, **extras) -> dict:
@@ -285,12 +300,11 @@ async def test_queue_add_posts_the_pinned_revision_with_the_token_when_armed(tmp
     _armed(tmp_path, monkeypatch)
     body = {"run_id": "abc123", "revision": 7, "item": {"item_uid": "u1"}}
     with patch(f"{_MOD}._http_post_json", return_value=(200, body)) as m:
-        with patch(f"{_MOD}.notify_agent_activity_async"):
-            result = await _add_fn()(draft_revision=7)
+        result = await _add_fn()(draft_revision=7)
 
     assert m.call_args.args[0] == "/queue/items"
     assert m.call_args.args[1] == {"draft_revision": 7}
-    assert _headers_without_owner(m) == {"X-Launch-Token": _TOKEN}
+    assert headers_without_owner(m) == {"X-Launch-Token": _TOKEN}
     assert extract_response_dict(result) == body
 
 
@@ -310,10 +324,9 @@ async def test_queue_add_withholds_the_token_when_writes_are_disabled(tmp_path, 
     _configure(tmp_path, monkeypatch, writes=False, token=_TOKEN)
     body = {"run_id": "r1", "revision": 3, "item": {"item_uid": "u1"}}
     with patch(f"{_MOD}._http_post_json", return_value=(200, body)) as m:
-        with patch(f"{_MOD}.notify_agent_activity_async"):
-            result = await _add_fn()(draft_revision=3)
+        result = await _add_fn()(draft_revision=3)
 
-    assert _headers_without_owner(m) == {}
+    assert headers_without_owner(m) == {}
     assert extract_response_dict(result)["run_id"] == "r1"
 
 
@@ -321,21 +334,19 @@ async def test_queue_add_missing_config_fails_closed_and_withholds_the_token(tmp
     """No config.yml at all is not "writes enabled" by omission."""
     _configure(tmp_path, monkeypatch, writes=None, token=_TOKEN)
     with patch(f"{_MOD}._http_post_json", return_value=(200, {"run_id": "r1"})) as m:
-        with patch(f"{_MOD}.notify_agent_activity_async"):
-            await _add_fn()(draft_revision=3)
+        await _add_fn()(draft_revision=3)
 
-    assert _headers_without_owner(m) == {}
+    assert headers_without_owner(m) == {}
 
 
 async def test_queue_add_without_a_configured_token_still_composes(tmp_path, monkeypatch):
     """An unarmed deployment may still build a queue; only starting it is gated."""
     _configure(tmp_path, monkeypatch, writes=True, token=None)
     with patch(f"{_MOD}._http_post_json", return_value=(200, {"run_id": "r1"})) as m:
-        with patch(f"{_MOD}.notify_agent_activity_async"):
-            await _add_fn()(draft_revision=3)
+        await _add_fn()(draft_revision=3)
 
     m.assert_called_once()
-    assert _headers_without_owner(m) == {}
+    assert headers_without_owner(m) == {}
 
 
 async def test_queue_add_armed_refusal_relays_code_manager_state_and_stranded_item(
@@ -349,7 +360,7 @@ async def test_queue_add_armed_refusal_relays_code_manager_state_and_stranded_it
     """
     _armed(tmp_path, monkeypatch)
     body = _refusal(
-        "launch_token_required",
+        "launch_token_invalid",
         "the queue is running, starting, or set to autostart, so adding an item "
         "requires the launch token: missing or invalid launch token",
         manager_state="executing_queue",
@@ -357,7 +368,7 @@ async def test_queue_add_armed_refusal_relays_code_manager_state_and_stranded_it
         item_uid="u9",
     )
     with patch(f"{_MOD}._http_post_json", return_value=(403, body)):
-        with assert_raises_error(error_type="launch_token_required") as ctx:
+        with assert_raises_error(error_type="launch_token_invalid") as ctx:
             await _add_fn()(draft_revision=7)
 
     details = ctx["envelope"]["details"]
@@ -372,61 +383,91 @@ async def test_queue_add_armed_refusal_names_the_kill_switch_when_writes_are_off
 ):
     """Writes-off is WHY the token was withheld — say so without rewriting the code.
 
-    The bridge's ``launch_token_required`` is relayed unchanged (that is what
+    The bridge's ``launch_token_invalid`` is relayed unchanged (that is what
     happened on the wire); the extra suggestion adds the piece the bridge could
     not know, so nobody goes hunting for a token that would change nothing.
     """
     _configure(tmp_path, monkeypatch, writes=False, token=_TOKEN)
     body = _refusal(
-        "launch_token_required",
+        "launch_token_invalid",
         "the queue is running, so adding an item requires the launch token",
         manager_state="executing_queue",
     )
     with patch(f"{_MOD}._http_post_json", return_value=(403, body)) as m:
-        with assert_raises_error(error_type="launch_token_required") as ctx:
+        with assert_raises_error(error_type="launch_token_invalid") as ctx:
             await _add_fn()(draft_revision=7)
 
     # The other half of the compose-while-unarmed contract: the same tokenless
     # request that an idle queue accepts is what a draining queue refuses.
-    assert _headers_without_owner(m) == {}
+    assert headers_without_owner(m) == {}
     envelope = ctx["envelope"]
-    assert envelope["details"]["code"] == "launch_token_required"
+    assert envelope["details"]["code"] == "launch_token_invalid"
     assert envelope["details"]["manager_state"] == "executing_queue"
-    assert any("writes_enabled" in s for s in envelope["suggestions"])
+    assert any(_OFF_PHRASE in s for s in envelope["suggestions"])
+    assert not any("writes_enabled" in s for s in envelope["suggestions"])
 
 
-async def test_queue_add_names_the_bound_lanes_own_posture_key_in_the_withheld_hint(
-    tmp_path, monkeypatch
-):
-    """The hint names the key that would arm THIS lane's machine, not the global one.
+async def test_queue_add_unconfigured_bridge_refusal_still_names_the_verdict(tmp_path, monkeypatch):
+    """A bridge with NO token answers 503 ``launch_token_required``, not 403.
 
-    A deployment that resolves its live target to a connector type has a
-    per-type key to point at, and pointing at the deployment-wide one instead
-    would tell an operator to arm every target in order to run a plan on one.
+    The withheld-token hint keys on both launch-token codes: the verdict is
+    still why this server sent no header, whichever of the two the bridge
+    answered, and it says so in the verdict's words — never a config key.
     """
     _configure(
         tmp_path,
         monkeypatch,
-        writes=None,
+        writes=True,
         token=_TOKEN,
-        control_system={
-            "type": "epics",
-            "writes_enabled": False,
-            "connector": {"epics": {"gateways": {"read_only": {"host": "gw-ro"}}}},
-        },
+        control_system={"type": "epics", "writes": "never"},
     )
     body = _refusal(
         "launch_token_required",
-        "the queue is running, so adding an item requires the launch token",
+        "the queue is running, so adding an item requires the launch token: "
+        "launch disabled: BLUESKY_LAUNCH_TOKEN is not configured",
         manager_state="executing_queue",
     )
-    with patch(f"{_MOD}._http_post_json", return_value=(403, body)):
+    with patch(f"{_MOD}._http_post_json", return_value=(503, body)) as m:
         with assert_raises_error(error_type="launch_token_required") as ctx:
             await _add_fn()(draft_revision=7)
 
+    assert headers_without_owner(m) == {}
+    envelope = ctx["envelope"]
+    assert envelope["details"]["code"] == "launch_token_required"
+    suggestions = envelope["suggestions"]
+    assert any("'bluesky'" in s and refusal_phrase("tier_never", "real") in s for s in suggestions)
+    assert not any("writes_enabled" in s or "profile.yml" in s for s in suggestions)
+
+
+async def test_queue_add_names_the_bound_lane_and_the_verdict_in_the_withheld_hint(
+    tmp_path, monkeypatch
+):
+    """The hint names THIS lane and the verdict's phrase, never a config key.
+
+    A tier that allows no writes withholds the token as surely as a switch that
+    is off, and the hint says so in the verdict's words: who can lift it, not a
+    key the agent might be tempted to edit.
+    """
+    _configure(
+        tmp_path,
+        monkeypatch,
+        writes=True,
+        token=_TOKEN,
+        control_system={"type": "epics", "writes": "never"},
+    )
+    body = _refusal(
+        "launch_token_invalid",
+        "the queue is running, so adding an item requires the launch token",
+        manager_state="executing_queue",
+    )
+    with patch(f"{_MOD}._http_post_json", return_value=(403, body)) as m:
+        with assert_raises_error(error_type="launch_token_invalid") as ctx:
+            await _add_fn()(draft_revision=7)
+
+    assert headers_without_owner(m) == {}
     suggestions = ctx["envelope"]["suggestions"]
-    assert any("control_system.connector.epics.writes_enabled" in s for s in suggestions)
-    assert any("'bluesky'" in s and "'live'" in s for s in suggestions)
+    assert any("'bluesky'" in s and refusal_phrase("tier_never", "real") in s for s in suggestions)
+    assert not any("writes_enabled" in s or "profile.yml" in s for s in suggestions)
 
 
 async def test_queue_add_still_composes_in_a_readonly_session(tmp_path, monkeypatch):
@@ -440,10 +481,9 @@ async def test_queue_add_still_composes_in_a_readonly_session(tmp_path, monkeypa
     monkeypatch.setenv("OSPREY_EXECUTION_MODE", "readonly")
     body = {"run_id": "r1", "revision": 3, "item": {"item_uid": "u1"}}
     with patch(f"{_MOD}._http_post_json", return_value=(200, body)) as m:
-        with patch(f"{_MOD}.notify_agent_activity_async"):
-            result = await _add_fn()(draft_revision=3)
+        result = await _add_fn()(draft_revision=3)
 
-    assert _headers_without_owner(m) == {}
+    assert headers_without_owner(m) == {}
     assert extract_response_dict(result)["run_id"] == "r1"
 
 
@@ -458,16 +498,16 @@ async def test_queue_add_readonly_refusal_names_the_sandbox_posture_not_a_config
     _armed(tmp_path, monkeypatch)
     monkeypatch.setenv("OSPREY_EXECUTION_MODE", "readonly")
     body = _refusal(
-        "launch_token_required",
+        "launch_token_invalid",
         "the queue is running, so adding an item requires the launch token",
         manager_state="executing_queue",
     )
     with patch(f"{_MOD}._http_post_json", return_value=(403, body)):
-        with assert_raises_error(error_type="launch_token_required") as ctx:
+        with assert_raises_error(error_type="launch_token_invalid") as ctx:
             await _add_fn()(draft_revision=7)
 
     suggestions = ctx["envelope"]["suggestions"]
-    assert any("OSPREY_EXECUTION_MODE=readonly" in s for s in suggestions)
+    assert any(refusal_phrase("readonly_run", "real") in s for s in suggestions)
     assert all("profile.yml" not in s for s in suggestions)
 
 
@@ -479,12 +519,12 @@ async def test_queue_add_writes_enabled_refusal_does_not_blame_the_kill_switch(
     Otherwise the previous test would pass on a tool that always appends it.
     """
     _armed(tmp_path, monkeypatch)
-    body = _refusal("launch_token_required", "requires the launch token", manager_state="paused")
+    body = _refusal("launch_token_invalid", "requires the launch token", manager_state="paused")
     with patch(f"{_MOD}._http_post_json", return_value=(403, body)):
-        with assert_raises_error(error_type="launch_token_required") as ctx:
+        with assert_raises_error(error_type="launch_token_invalid") as ctx:
             await _add_fn()(draft_revision=7)
 
-    assert not any("writes_enabled" in s for s in ctx["envelope"]["suggestions"])
+    assert not any("withheld the launch token" in s for s in ctx["envelope"]["suggestions"])
 
 
 async def test_queue_add_stale_revision_relays_the_fresh_baseline(tmp_path, monkeypatch):
@@ -645,9 +685,11 @@ async def test_queue_start_missing_config_fails_closed(tmp_path, monkeypatch):
     """No config.yml is not "writes enabled" by omission, token notwithstanding."""
     _configure(tmp_path, monkeypatch, writes=None, token=_TOKEN)
     with patch(f"{_MOD}._http_post_json") as mock_post:
-        with assert_raises_error(error_type="writes_disabled"):
+        with assert_raises_error(error_type="writes_disabled") as ctx:
             await _start_fn()()
     mock_post.assert_not_called()
+    # No config cannot even be read for a section, so the verdict is unreachable.
+    assert ctx["envelope"]["details"]["reason"] == "record_unavailable"
 
 
 async def test_queue_start_without_a_token_asks_the_bridge_and_relays_its_refusal(
@@ -658,17 +700,17 @@ async def test_queue_start_without_a_token_asks_the_bridge_and_relays_its_refusa
     The bridge is the one authority on arming, so a deployment that withheld
     the launch token from this agent posts ``/queue/start`` anyway, with NO
     token header (never a header carrying ``None``, which would not survive
-    the HTTP client), and relays the bridge's own ``launch_token_required``.
+    the HTTP client), and relays the bridge's own ``launch_token_invalid``.
     """
     _configure(tmp_path, monkeypatch, writes=True, token=None)
-    body = _refusal("launch_token_required", "starting the queue requires the launch token")
+    body = _refusal("launch_token_invalid", "starting the queue requires the launch token")
     with patch(f"{_MOD}._http_post_json", return_value=(403, body)) as m:
-        with assert_raises_error(error_type="launch_token_required") as ctx:
+        with assert_raises_error(error_type="launch_token_invalid") as ctx:
             await _start_fn()()
 
     assert m.call_args.args[0] == "/queue/start"
-    assert _headers_without_owner(m) == {}
-    assert ctx["envelope"]["details"]["code"] == "launch_token_required"
+    assert headers_without_owner(m) == {}
+    assert ctx["envelope"]["details"]["code"] == "launch_token_invalid"
 
 
 async def test_a_tokenless_start_still_respects_the_kill_switch(tmp_path, monkeypatch):
@@ -692,7 +734,7 @@ async def test_arming_ops_report_the_kill_switch_before_the_missing_token(
     """Gate ORDER, not just gate presence: writes-off is reported first.
 
     With BOTH gates failing — writes disabled AND no token — the refusal must
-    name ``writes_disabled``, never ``launch_token_required``. Both refuse, so
+    name ``writes_disabled``, never ``launch_token_invalid``. Both refuse, so
     no test that only checks "it refused" can tell the order; but the two send
     an operator to opposite places. Reporting the missing token would have them
     chase a credential that changes nothing while the kill switch is off, at
@@ -704,18 +746,18 @@ async def test_arming_ops_report_the_kill_switch_before_the_missing_token(
             await get_tool_fn(getattr(queue, tool))(**kwargs)
 
     mock_post.assert_not_called()
-    assert "writes_enabled" in ctx["envelope"]["error_message"]
+    assert _OFF_PHRASE in ctx["envelope"]["error_message"]
+    assert ctx["envelope"]["details"]["reason"] == "switch_off"
 
 
 async def test_queue_start_armed_posts_with_the_token(tmp_path, monkeypatch):
     """Contrast case: proves the refusals above are gated, not vacuous."""
     _armed(tmp_path, monkeypatch)
     with patch(f"{_MOD}._http_post_json", return_value=(200, {"started": True, "msg": ""})) as m:
-        with patch(f"{_MOD}.notify_agent_activity_async"):
-            result = await _start_fn()()
+        result = await _start_fn()()
 
     assert m.call_args.args[0] == "/queue/start"
-    assert _headers_without_owner(m) == {"X-Launch-Token": _TOKEN}
+    assert headers_without_owner(m) == {"X-Launch-Token": _TOKEN}
     assert extract_response_dict(result)["started"] is True
 
 
@@ -734,19 +776,91 @@ async def test_queue_start_session_plan_refusal_names_the_blocking_plan(tmp_path
     assert ctx["envelope"]["details"]["plan"] == "orbit_sweep"
 
 
-async def test_queue_start_bridge_token_mismatch_relays_launch_token_required(
-    tmp_path, monkeypatch
-):
+async def test_queue_start_bridge_token_mismatch_relays_launch_token_invalid(tmp_path, monkeypatch):
     """The bridge's own token verdict is relayed in the same vocabulary."""
     _armed(tmp_path, monkeypatch)
     body = _refusal(
-        "launch_token_required", "starting the queue requires the launch token: invalid token"
+        "launch_token_invalid", "starting the queue requires the launch token: invalid token"
     )
     with patch(f"{_MOD}._http_post_json", return_value=(403, body)):
+        with assert_raises_error(error_type="launch_token_invalid") as ctx:
+            await _start_fn()()
+
+    assert ctx["envelope"]["details"]["code"] == "launch_token_invalid"
+
+
+async def test_queue_start_unconfigured_bridge_relays_launch_token_required(tmp_path, monkeypatch):
+    """A bridge with no token configured answers its own code, relayed as-is."""
+    _armed(tmp_path, monkeypatch)
+    body = _refusal(
+        "launch_token_required",
+        "starting the queue requires the launch token: "
+        "launch disabled: BLUESKY_LAUNCH_TOKEN is not configured",
+    )
+    with patch(f"{_MOD}._http_post_json", return_value=(503, body)):
         with assert_raises_error(error_type="launch_token_required") as ctx:
             await _start_fn()()
 
     assert ctx["envelope"]["details"]["code"] == "launch_token_required"
+    assert any("no launch token configured" in s for s in ctx["envelope"]["suggestions"])
+
+
+#: Words that point an agent at a place a token could be dug out of. A token
+#: refusal names the operator and the panel; naming the files is a map.
+_CONFIG_SURFACES = re.compile(r"config\.ya?ml|\.env\b|environment file|settings", re.I)
+
+
+async def _bridge_refuses(code: str, status: int, tmp_path, monkeypatch) -> dict:
+    _armed(tmp_path, monkeypatch)
+    with patch(f"{_MOD}._http_post_json", return_value=(status, _refusal(code, "refused"))):
+        with assert_raises_error(error_type=code) as ctx:
+            await _start_fn()()
+    return ctx["envelope"]
+
+
+async def _local_refuses(tmp_path, monkeypatch) -> dict:
+    _configure(tmp_path, monkeypatch, writes=True, token=None)
+    with patch(f"{_MOD}._http_post_json"):
+        with assert_raises_error(error_type="launch_token_invalid") as ctx:
+            await _stop_fn()(cancel=True)
+    return ctx["envelope"]
+
+
+@pytest.mark.parametrize(
+    "refuse",
+    [
+        pytest.param(lambda t, m: _bridge_refuses("launch_token_invalid", 403, t, m), id="invalid"),
+        pytest.param(
+            lambda t, m: _bridge_refuses("launch_token_required", 503, t, m), id="required"
+        ),
+        pytest.param(_local_refuses, id="local-unarmed"),
+    ],
+)
+async def test_a_token_refusal_names_the_operator_and_no_config_file(refuse, tmp_path, monkeypatch):
+    envelope = await refuse(tmp_path, monkeypatch)
+    text = " ".join([envelope["error_message"], *envelope["suggestions"]])
+
+    assert not _CONFIG_SURFACES.search(text), _CONFIG_SURFACES.findall(text)
+    assert "operator" in text and "BLUESKY queue panel" in text
+
+
+@pytest.mark.parametrize("code", sorted(queue._REFUSAL_HINTS))
+def test_no_refusal_hint_names_a_config_file(code):
+    text = " ".join(queue._REFUSAL_HINTS[code])
+
+    assert not _CONFIG_SURFACES.search(text), (code, _CONFIG_SURFACES.findall(text))
+
+
+def test_the_skill_on_token_refusals_names_no_config_file():
+    skill = (
+        Path(queue.__file__).resolve().parents[3]
+        / "templates/claude_code/claude/skills/operating-bluesky-plans/SKILL.md"
+    ).read_text()
+    entry = re.search(r"^- \*\*`launch_token_invalid`\*\*.*?(?=^- \*\*)", skill, re.M | re.S)
+    assert entry is not None, "the skill has no launch_token_invalid entry"
+
+    assert not _CONFIG_SURFACES.search(entry.group(0)), _CONFIG_SURFACES.findall(entry.group(0))
+    assert "operator" in entry.group(0)
 
 
 async def test_queue_start_environment_unavailable_is_relayed_as_retryable(tmp_path, monkeypatch):
@@ -824,8 +938,7 @@ async def test_queue_start_sends_the_uid_the_approval_prompt_stamped(tmp_path, m
     _write_start_stamp(_stamp_dir(tmp_path, monkeypatch), _SESSION, "bluesky", "q7")
 
     with patch(f"{_MOD}._http_post_json", return_value=(200, {"started": True, "msg": ""})) as m:
-        with patch(f"{_MOD}.notify_agent_activity_async"):
-            await _start_fn()()
+        await _start_fn()()
 
     assert m.call_args.args[1] == {"expected_plan_queue_uid": "q7"}
 
@@ -842,8 +955,7 @@ async def test_queue_start_ignores_an_expired_stamp(tmp_path, monkeypatch):
     _write_start_stamp(_stamp_dir(tmp_path, monkeypatch), _SESSION, "bluesky", "q7", age_s=7200.0)
 
     with patch(f"{_MOD}._http_post_json", return_value=(200, {"started": True, "msg": ""})) as m:
-        with patch(f"{_MOD}.notify_agent_activity_async"):
-            await _start_fn()()
+        await _start_fn()()
 
     assert m.call_args.args[1] == {}
 
@@ -869,8 +981,7 @@ async def test_a_stamp_naming_another_lane_is_not_quoted_and_warns_once(
         with patch(
             f"{_MOD}._http_post_json", return_value=(200, {"started": True, "msg": ""})
         ) as m:
-            with patch(f"{_MOD}.notify_agent_activity_async"):
-                await _start_fn()()
+            await _start_fn()()
 
     assert m.call_args.args[1] == {}
     warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
@@ -897,8 +1008,7 @@ async def test_a_session_less_start_sends_no_uid(tmp_path, monkeypatch):
     )
 
     with patch(f"{_MOD}._http_post_json", return_value=(200, {"started": True, "msg": ""})) as m:
-        with patch(f"{_MOD}.notify_agent_activity_async"):
-            await _start_fn()()
+        await _start_fn()()
 
     assert m.call_args.args[1] == {}
 
@@ -916,14 +1026,12 @@ async def test_a_null_or_missing_stamp_sends_no_uid(tmp_path, monkeypatch):
     _write_start_stamp(directory, _SESSION, "bluesky", None)
 
     with patch(f"{_MOD}._http_post_json", return_value=(200, {"started": True, "msg": ""})) as m:
-        with patch(f"{_MOD}.notify_agent_activity_async"):
-            await _start_fn()()
+        await _start_fn()()
     assert m.call_args.args[1] == {}
 
     (directory / _stamp_name(_SESSION, "bluesky")).unlink()
     with patch(f"{_MOD}._http_post_json", return_value=(200, {"started": True, "msg": ""})) as m:
-        with patch(f"{_MOD}.notify_agent_activity_async"):
-            await _start_fn()()
+        await _start_fn()()
     assert m.call_args.args[1] == {}
 
 
@@ -974,12 +1082,12 @@ async def test_plain_queue_stop_works_with_writes_disabled_and_no_token(tmp_path
 
     assert m.call_args.args[0] == "/queue/stop"
     assert m.call_args.args[1] == {"cancel": False}
-    assert _headers_without_owner(m) == {}
+    assert headers_without_owner(m) == {}
     assert extract_response_dict(result)["stop_pending"] is True
 
 
 async def test_plain_queue_stop_does_not_even_consult_the_kill_switch(tmp_path, monkeypatch):
-    """Ungated means ungated: a plain stop never reads writes_enabled at all.
+    """Ungated means ungated: a plain stop never asks the write verdict at all.
 
     Stronger than "it happens to succeed with writes off" — this pins that no
     gate exists on the halting path, so a future change that starts consulting
@@ -988,10 +1096,12 @@ async def test_plain_queue_stop_does_not_even_consult_the_kill_switch(tmp_path, 
     """
     _configure(tmp_path, monkeypatch, writes=False, token=_TOKEN)
     with patch(f"{_MOD}._http_post_json", return_value=(200, {"stop_pending": True})):
-        with patch(f"{_MOD}._writes_enabled") as writes_gate:
-            await _stop_fn()()
+        with patch(f"{_MOD}._lane_verdict") as writes_gate:
+            with patch(f"{_MOD}._halt_lane_target") as halt_target:
+                await _stop_fn()()
 
     writes_gate.assert_not_called()
+    halt_target.assert_not_called()
 
 
 async def test_queue_stop_cancel_refused_when_writes_are_disabled_with_zero_http_calls(
@@ -1012,7 +1122,7 @@ async def test_queue_stop_cancel_refused_without_a_token_with_zero_http_calls(
 ):
     _configure(tmp_path, monkeypatch, writes=True, token=None)
     with patch(f"{_MOD}._http_post_json") as mock_post:
-        with assert_raises_error(error_type="launch_token_required"):
+        with assert_raises_error(error_type="launch_token_invalid"):
             await _stop_fn()(cancel=True)
     mock_post.assert_not_called()
 
@@ -1025,7 +1135,7 @@ async def test_queue_stop_cancel_armed_posts_the_token_and_the_cancel_flag(tmp_p
         result = await _stop_fn()(cancel=True)
 
     assert m.call_args.args[1] == {"cancel": True}
-    assert _headers_without_owner(m) == {"X-Launch-Token": _TOKEN}
+    assert headers_without_owner(m) == {"X-Launch-Token": _TOKEN}
     assert extract_response_dict(result)["stop_pending"] is False
 
 
@@ -1168,7 +1278,7 @@ async def test_queue_remove_is_ungated_by_writes_and_token(tmp_path, monkeypatch
     # No launch token header on a removal — there is nothing to arm. The owner
     # stamp is not a credential and rides on regardless; it is pinned by the
     # owner section at the end of the file.
-    assert _headers_without_owner(m) == {}
+    assert headers_without_owner(m) == {}
 
 
 # =========================================================================
@@ -1184,11 +1294,10 @@ async def test_queue_add_names_the_terminal_user_as_the_owner(tmp_path, monkeypa
     runs. The assertion is on the exact header dict, which pins that the owner
     rides ALONGSIDE the launch token rather than in place of it.
     """
-    _as_terminal_user(monkeypatch, "rosterbob")
+    as_terminal_user(monkeypatch, "rosterbob")
     _armed(tmp_path, monkeypatch)
     with patch(f"{_MOD}._http_post_json", return_value=(200, {"run_id": "r1"})) as m:
-        with patch(f"{_MOD}.notify_agent_activity_async"):
-            await _add_fn()(draft_revision=3)
+        await _add_fn()(draft_revision=3)
 
     assert m.call_args.kwargs["headers"] == {
         "X-Launch-Token": _TOKEN,
@@ -1200,16 +1309,17 @@ async def test_a_tree_container_with_no_stamped_owner_sends_no_owner_header(tmp_
     """Owner-less means the header is ABSENT, never present-and-empty.
 
     A blank or sentinel-shaped value would be read back as a name by nothing and
-    warned about by the reader; the absent header is the ordinary owner-less
-    case, and the bridge records the item at the ceiling.
+    warned about by the reader. An owner-less add is also refused writes by the
+    verdict (``owner_unknown``), so the token is withheld with the owner: the
+    item is added unarmed, and the request carries no headers at all.
     """
-    _as_owner_less_tree_container(monkeypatch, tmp_path)
+    as_owner_less_tree_container(monkeypatch, tmp_path)
     _armed(tmp_path, monkeypatch)
     with patch(f"{_MOD}._http_post_json", return_value=(200, {"run_id": "r1"})) as m:
-        with patch(f"{_MOD}.notify_agent_activity_async"):
-            await _add_fn()(draft_revision=3)
+        result = await _add_fn()(draft_revision=3)
 
-    assert m.call_args.kwargs["headers"] == {"X-Launch-Token": _TOKEN}
+    assert m.call_args.kwargs["headers"] is None
+    assert extract_response_dict(result)["writes_refused"]["reason"] == "owner_unknown"
 
 
 async def test_a_stamped_owner_beats_the_account_the_process_runs_as(tmp_path, monkeypatch):
@@ -1223,19 +1333,17 @@ async def test_a_stamped_owner_beats_the_account_the_process_runs_as(tmp_path, m
     monkeypatch.setenv(CONTROL_OWNER_ENV_VAR, "alice")
     _armed(tmp_path, monkeypatch)
     with patch(f"{_MOD}._http_post_json", return_value=(200, {"run_id": "r1"})) as m:
-        with patch(f"{_MOD}.notify_agent_activity_async"):
-            await _add_fn()(draft_revision=3)
+        await _add_fn()(draft_revision=3)
 
     assert _owner_sent(m) == "alice"
 
 
 async def test_queue_start_carries_the_owner(tmp_path, monkeypatch):
     """Starting a queue is attributed too: the run record names who released it."""
-    _as_terminal_user(monkeypatch, "rosterbob")
+    as_terminal_user(monkeypatch, "rosterbob")
     _armed(tmp_path, monkeypatch)
     with patch(f"{_MOD}._http_post_json", return_value=(200, {"started": True})) as m:
-        with patch(f"{_MOD}.notify_agent_activity_async"):
-            await _start_fn()()
+        await _start_fn()()
 
     assert m.call_args.args[0] == "/queue/start"
     assert _owner_sent(m) == "rosterbob"
@@ -1248,7 +1356,7 @@ async def test_an_ungated_stop_still_carries_the_owner(tmp_path, monkeypatch):
     because of the owner — which pins that the stamp does not hitch a ride on
     the token decision.
     """
-    _as_terminal_user(monkeypatch, "rosterbob")
+    as_terminal_user(monkeypatch, "rosterbob")
     _configure(tmp_path, monkeypatch, writes=False, token=None)
     with patch(f"{_MOD}._http_post_json", return_value=(200, {"stop_pending": True})) as m:
         await _stop_fn()()
@@ -1260,7 +1368,7 @@ async def test_a_removal_names_who_withdrew_the_work(tmp_path, monkeypatch):
     """Withdrawing queued work is a change to the queue like any other, so it
     is attributed like any other. The removal carries no launch token — it arms
     nothing — which pins that the stamp does not ride the gating decision."""
-    _as_terminal_user(monkeypatch, "rosterbob")
+    as_terminal_user(monkeypatch, "rosterbob")
     _configure(tmp_path, monkeypatch, writes=False, token=None)
     with patch(f"{_MOD}._http_delete_json", return_value=(200, {"removed": True})) as m:
         await _remove_fn()("u1")
@@ -1270,7 +1378,7 @@ async def test_a_removal_names_who_withdrew_the_work(tmp_path, monkeypatch):
 
 async def test_an_owner_less_removal_sends_no_headers_at_all(tmp_path, monkeypatch):
     """The same absent-not-empty rule the other writes keep."""
-    _as_owner_less_tree_container(monkeypatch, tmp_path)
+    as_owner_less_tree_container(monkeypatch, tmp_path)
     _configure(tmp_path, monkeypatch, writes=False, token=None)
     with patch(f"{_MOD}._http_delete_json", return_value=(200, {"removed": True})) as m:
         await _remove_fn()("u1")
@@ -1285,7 +1393,7 @@ async def test_an_owner_less_stop_sends_no_headers_at_all(tmp_path, monkeypatch)
     make "this request carries nothing" indistinguishable from "this request
     carries something the client dropped".
     """
-    _as_owner_less_tree_container(monkeypatch, tmp_path)
+    as_owner_less_tree_container(monkeypatch, tmp_path)
     _configure(tmp_path, monkeypatch, writes=False, token=None)
     with patch(f"{_MOD}._http_post_json", return_value=(200, {"stop_pending": True})) as m:
         await _stop_fn()()
@@ -1303,12 +1411,11 @@ async def test_queue_add_sends_the_call_ids(tmp_path, monkeypatch):
     from osprey.audit.call import call_scope
     from osprey.utils.call_attribution import CONVERSATION_HEADER, TOOL_USE_HEADER
 
-    _as_terminal_user(monkeypatch, "rosterbob")
+    as_terminal_user(monkeypatch, "rosterbob")
     _armed(tmp_path, monkeypatch)
     with patch(f"{_MOD}._http_post_json", return_value=(200, {"run_id": "r1"})) as m:
-        with patch(f"{_MOD}.notify_agent_activity_async"):
-            with call_scope("toolu_queue1", "conv-7"):
-                await _add_fn()(draft_revision=3)
+        with call_scope("toolu_queue1", "conv-7"):
+            await _add_fn()(draft_revision=3)
 
     assert m.call_args.kwargs["headers"] == {
         "X-Launch-Token": _TOKEN,
@@ -1321,11 +1428,10 @@ async def test_queue_add_sends_the_call_ids(tmp_path, monkeypatch):
 async def test_no_scope_sends_no_call_headers(tmp_path, monkeypatch):
     from osprey.utils.call_attribution import CONVERSATION_HEADER, TOOL_USE_HEADER
 
-    _as_terminal_user(monkeypatch, "rosterbob")
+    as_terminal_user(monkeypatch, "rosterbob")
     _armed(tmp_path, monkeypatch)
     with patch(f"{_MOD}._http_post_json", return_value=(200, {"run_id": "r1"})) as m:
-        with patch(f"{_MOD}.notify_agent_activity_async"):
-            await _add_fn()(draft_revision=3)
+        await _add_fn()(draft_revision=3)
 
     headers = m.call_args.kwargs["headers"]
     assert CONVERSATION_HEADER not in headers

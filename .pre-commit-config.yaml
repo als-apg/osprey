@@ -6,7 +6,7 @@
 repos:
   # Ruff - Fast Python linter and formatter
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.16.10
+    rev: v0.17.3
     hooks:
       # Run the linter
       - id: ruff
@@ -18,6 +18,18 @@ repos:
       - id: ruff
         name: ruff (import-private-name)
         args: [--preview, --select=PLC2701]
+
+  # Prettier - JavaScript formatter, scoped to .js and .mjs. The version is the
+  # package.json pin; tests/scripts/test_check.py fails while the two disagree.
+  # Prettier honours .prettierignore for the paths pre-commit passes it.
+  - repo: local
+    hooks:
+      - id: prettier
+        name: prettier
+        language: node
+        additional_dependencies: ["prettier@3.9.9"]
+        entry: prettier --write --ignore-unknown
+        files: \.(js|mjs)$
 
   # General file quality checks
   - repo: https://github.com/pre-commit/pre-commit-hooks
@@ -35,16 +47,17 @@ repos:
         # and trimming it rewrites the thing the fixture exists to preserve.
         # The demo element table is tab-separated with a fixed column count,
         # so a row whose last cells are empty ends in tabs.
-        # The clickhouseexporter insert templates are verbatim copies of the
-        # upstream release they are named for, whose last line need not end
-        # in a newline; a byte normalized here is a byte upstream never shipped.
+        # The vendored dock engine and its copied cases are pinned by git blob
+        # (tests/dock_engine/test_cases_pin.py); a byte rewritten here fails
+        # the pin. A formatter added later must skip them too.
         exclude: |
           (?x)^(
             .*\.min\.(js|css)|
+            src/osprey/interfaces/web_terminal/static/vendor/dock-engine\.(mjs|d\.mts)|
+            tests/dock_engine/cases/.*|
             scripts/facility_demo/injector_elements\.tsv|
             tests/deployment/web_terminals/golden/.*|
             tests/deployment/fixtures/.*\.log|
-            tests/deployment/telemetry_store/fixtures/clickhouseexporter-[^/]+/.*\.sql|
             tests/templates/render_defaults/.*|
             tests/templates/render_axis_shapes/.*
           )$
@@ -53,9 +66,10 @@ repos:
         exclude: |
           (?x)^(
             .*\.min\.(js|css)|
+            src/osprey/interfaces/web_terminal/static/vendor/dock-engine\.(mjs|d\.mts)|
+            tests/dock_engine/cases/.*|
             tests/deployment/web_terminals/golden/.*|
             tests/deployment/fixtures/.*\.log|
-            tests/deployment/telemetry_store/fixtures/clickhouseexporter-[^/]+/.*\.sql|
             tests/templates/render_defaults/.*|
             tests/templates/render_axis_shapes/.*
           )$
@@ -84,6 +98,8 @@ repos:
       - id: detect-private-key
       # Check JSON syntax
       - id: check-json
+        # This hold record is invalid JSON on purpose: the tests read a corrupt record.
+        exclude: ^packages/osprey-connectors/tests/osprey_connectors_tests/fixtures/session_hold/corrupt/
       # Check for debugger imports
       - id: debug-statements
 

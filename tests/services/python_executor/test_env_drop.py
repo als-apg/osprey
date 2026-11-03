@@ -22,26 +22,7 @@ import yaml
 
 from osprey.mcp_server.python_executor.executor import execute_code
 
-
-@pytest.fixture(autouse=True)
-def _reset_all_config_caches(monkeypatch):
-    """Reset ALL config caches before each test (see test_executor_adapter.py)."""
-    from osprey_connectors.workspace import reset_config_cache
-
-    reset_config_cache()
-
-    import osprey_connectors.config as _cfg
-
-    monkeypatch.setattr(_cfg, "_default_config", None)
-    monkeypatch.setattr(_cfg, "_default_configurable", None)
-    saved_cache = _cfg._config_cache.copy()
-    _cfg._config_cache.clear()
-
-    yield
-
-    reset_config_cache()
-    _cfg._config_cache.clear()
-    _cfg._config_cache.update(saved_cache)
+pytestmark = pytest.mark.usefixtures("reset_config_caches")
 
 
 def _write_subprocess_config(tmp_path):
@@ -83,30 +64,22 @@ async def _spawn_env(tmp_path) -> dict[str, str]:
 # ---------------------------------------------------------------------------
 
 
-async def test_sandbox_env_excludes_web_port(tmp_path, monkeypatch):
-    """``OSPREY_WEB_PORT`` never reaches the sandbox child."""
-    monkeypatch.chdir(tmp_path)
-    monkeypatch.setenv("OSPREY_WEB_PORT", "8080")
-
-    passed_env = await _spawn_env(tmp_path)
-
-    assert "OSPREY_WEB_PORT" not in passed_env
-
-
 @pytest.mark.parametrize(
-    "name",
+    ("name", "value"),
     [
-        "OSPREY_TERMINAL_USER",
-        "OSPREY_TERMINAL_LANDING_URL",
-        "OSPREY_TERMINAL_BIND_HOST",
-        "OSPREY_TERMINAL_WEB_PORT",
-        "OSPREY_TERMINAL_EXTERNAL_ORIGIN",
+        ("OSPREY_WEB_PORT", "8080"),
+        # Every ``OSPREY_TERMINAL_*`` name is dropped, matched by prefix.
+        ("OSPREY_TERMINAL_USER", "value"),
+        ("OSPREY_TERMINAL_LANDING_URL", "value"),
+        ("OSPREY_TERMINAL_BIND_HOST", "value"),
+        ("OSPREY_TERMINAL_WEB_PORT", "value"),
+        ("OSPREY_TERMINAL_EXTERNAL_ORIGIN", "value"),
     ],
 )
-async def test_sandbox_env_excludes_terminal_family(tmp_path, monkeypatch, name):
-    """Every ``OSPREY_TERMINAL_*`` name is dropped, matched by prefix."""
+async def test_sandbox_env_excludes_the_web_terminal_family(tmp_path, monkeypatch, name, value):
+    """A web-terminal name never reaches the sandbox child."""
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setenv(name, "value")
+    monkeypatch.setenv(name, value)
 
     passed_env = await _spawn_env(tmp_path)
 

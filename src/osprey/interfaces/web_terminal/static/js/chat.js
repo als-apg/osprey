@@ -1,28 +1,29 @@
 // @ts-check
-/* OSPREY Web Terminal — Simple-mode operator chat controller.
+/* OSPREY Web Terminal — The operator chat controller.
  *
  * Thin glue between the SSE transport (chat-client.js) and the message-list
  * renderer (chat-render.js). It mounts the console that chat-console.js builds
  * inside #operator-container, binds it to the tab's session pointer, and owns
- * the streaming/idle UI state, turning user intent (submit, stop, switch view)
+ * the streaming/idle UI state, turning user intent (submit, stop, switch surface)
  * into transport calls. All rendering and sanitisation live in the renderer;
- * all networking and SSE parsing live in the client, and the copy for refusals
+ * all networking and SSE parsing live in the client; what the live feed's
+ * frames mean for the log lives in chat-follow.js, and the copy for refusals
  * and failures lives in chat-notices.js. This file holds no innerHTML and no
  * parsing, so the interesting logic stays in the unit-tested modules.
  *
- * The console does not mint a conversation of its own. Both views are windows
- * onto one session key, held in the browser by session-pointer.js, and this
- * console addresses whatever key the pointer names: it replays that key's
- * transcript when it binds, and a change of pointer rebinds it. Only one view
- * may run the agent at a time, so arriving from the Expert view is a
- * negotiation rather than a connect — see {@link enterFromExpert}.
+ * The console does not mint a conversation of its own. The chat and the
+ * terminal are windows onto one session key, held in the browser by
+ * session-pointer.js, and this console addresses whatever key the pointer names:
+ * it replays that key's transcript when it binds, and a change of pointer
+ * rebinds it. Only one surface may run the agent at a time, so arriving from the
+ * terminal is a negotiation rather than a connect — see
+ * {@link enterFromTerminal}.
  *
- * Mode visibility is pure CSS: #operator-container is display-gated off
- * html[data-ui-mode] (operator.css), so the console is built once at boot and
- * simply hidden in expert mode — never torn down or toggled from here.
+ * Visibility is pure CSS: #operator-container is display-gated off
+ * html[data-agent-surface] (operator.css), so the console is built once at boot
+ * and simply hidden while the terminal shows — never torn down from here.
  */
 
-import { pickUiMode } from '/design-system/js/frame-params.js';
 import { uuid4 } from '/design-system/js/uuid.js';
 
 import {
@@ -36,11 +37,19 @@ import {
 } from './chat-client.js';
 import { createChatRenderer, elem } from './chat-render.js';
 import { buildConsole } from './chat-console.js';
-import { emitChat } from './chat-events.js';
+import { isTerminalSurface, showTerminalSurface } from './agent-surface.js';
+import { emitChat, setChatNoticeSink } from './chat-events.js';
+import { createTurnFollower } from './chat-follow.js';
 import { initChatFeatures } from './chat-features.js';
 import { handoffRefusal, HANDOFF_FALLBACK, transportNotice } from './chat-notices.js';
-import { buildEmptyState, onKindChange, onSettled, renderEmptyStateContent } from './first-contact.js';
+import {
+  buildEmptyState,
+  onKindChange,
+  onSettled,
+  renderEmptyStateContent,
+} from './first-contact.js';
 import { getPointer, setPointer, subscribe as subscribeToPointer } from './session-pointer.js';
+import { attachConversationMenu } from './sessions.js';
 import { attachSlashComplete } from './slash-complete.js';
 import { askAboutStartedCommands } from './started-commands.js';
 import { notifySessionChange } from './terminal.js';
@@ -60,16 +69,16 @@ const STICK_THRESHOLD = 40;
 
 /**
  * The console's hand-off entry point, bound by {@link initChat}. Module-level
- * because the flip that calls it (app.js) has no handle on the console.
+ * because the surface change that calls it (app.js) has no handle on the console.
  * @type {((options?: { interrupt?: boolean }) => Promise<void>) | null}
  */
-let enterFromExpertBinding = null;
+let enterFromTerminalBinding = null;
 
 /**
- * Take the session over from the Expert view and show it here.
+ * Take the session over from the terminal and show it here.
  *
  * Shows the transitional state, asks the server to hand the key's transcript
- * to the Simple view, and replays it once the outgoing agent is dead. `interrupt`
+ * to the chat, and replays it once the outgoing agent is dead. `interrupt`
  * says the operator chose to cut a turn that was still running rather than wait
  * for it. Resolves when the console is usable, when the refusal is on screen,
  * or when the server abandoned the request and left the wait as it was; a
@@ -77,12 +86,12 @@ let enterFromExpertBinding = null;
  * @param {{ interrupt?: boolean }} [options]
  * @returns {Promise<void>}
  */
-export function enterFromExpert(options = {}) {
-  return enterFromExpertBinding ? enterFromExpertBinding(options) : Promise.resolve();
+export function enterFromTerminal(options = {}) {
+  return enterFromTerminalBinding ? enterFromTerminalBinding(options) : Promise.resolve();
 }
 
 /**
- * Mount the Simple-mode operator chat into #operator-container. Called once in
+ * Mount the operator chat into #operator-container. Called once in
  * the boot sequence; binds one console to the tab's session pointer. A missing
  * container is a no-op so the rest of the page still boots.
  * @param {string} [containerId]
@@ -96,7 +105,7 @@ export function initChat(containerId = 'operator-container') {
   const container = /** @type {HTMLElement} */ (found);
 
   const handles = buildConsole();
-  const { bar, led, newBtn, messages, overlay, overlayMessage, overlayAction } = handles;
+  const { bar, newBtn, moreBtn, messages, overlay, overlayMessage, overlayAction } = handles;
   const { inputArea, textarea, cmdBtn, sendBtn, stopBtn } = handles;
   container.append(bar, messages, overlay, inputArea);
   const slash = attachSlashComplete(textarea, { load: fetchCommands, mount: inputArea });
@@ -128,14 +137,26 @@ export function initChat(containerId = 'operator-container') {
    */
   let feed = /** @type {import('./chat-client.js').ChatFeed | null} */ (null);
 
-  /**
-   * How the console is following a turn it did not send: `live` saw it start
-   * (another tab's prompt, or the CLI's own response), `joined` came in part-way
-   * (a reload, a second tab opened mid-turn) and re-reads the transcript when
-   * it ends; null when it is not following one.
-   * @type {null | 'live' | 'joined'}
-   */
-  let mirroring = null;
+  /** What the feed's frames mean for the log: the turns this tab did not send. */
+  const follower = createTurnFollower({
+    renderer,
+    draw,
+    fetchHistory,
+    key: () => boundKey,
+    sending: () => handle !== null,
+    setStreaming,
+    dismissInvitation: () => {
+      emptyState?.remove();
+      emptyState = null;
+    },
+    scrollToBottom: () => scrollToBottom(),
+    redraw: (turns) => {
+      renderer.reset();
+      emptyState = null;
+      renderer.replay(turns);
+      inviteIfEmpty();
+    },
+  });
 
   /** Whether a turn is streaming. */
   let streaming = false;
@@ -157,15 +178,18 @@ export function initChat(containerId = 'operator-container') {
 
   /**
    * The session key this console is showing. Adopted from the pointer at boot,
-   * or minted for a tab that has none — the Expert view resumes the same slot,
-   * so a second key here would be a second conversation. A minted key is not
-   * written to the pointer here: the pointer names the session the tab is on,
-   * and in the Expert view that is the id the terminal's server confirms. The
-   * console claims the pointer only where it is the surface running the
-   * session — the Simple-mode branch at the end of this function.
+   * or minted for a tab that has none — the terminal resumes the same slot, so a
+   * second key here would be a second conversation. A minted key is not written
+   * to the pointer here: the pointer names the session the tab is on, and on the
+   * terminal surface that is the id the terminal's server confirms. The console
+   * claims the pointer only where it is the surface running the session — the
+   * chat branch at the end of this function.
    * @type {string}
    */
   let boundKey = adopted ?? uuid4();
+
+  /** Whether the hand-off on screen began with the operator leaving the terminal. */
+  let cameFromTerminal = false;
 
   /** Which hand-off attempt is current; a retry supersedes the one before it. */
   let handoffGeneration = 0;
@@ -184,9 +208,6 @@ export function initChat(containerId = 'operator-container') {
 
   /** Whether the wait is on screen; it never steps back to a restart. */
   let waiting = false;
-
-  const isSimpleMode = () =>
-    document.documentElement.getAttribute('data-ui-mode') === 'simple';
 
   const isPinned = () =>
     messages.scrollHeight - messages.scrollTop - messages.clientHeight < STICK_THRESHOLD;
@@ -236,19 +257,18 @@ export function initChat(containerId = 'operator-container') {
 
   /**
    * Flip the whole console between streaming and idle: the azure top-edge
-   * affordance (via the `streaming` class), the session LED, input enablement,
-   * and Stop-button visibility.
+   * affordance (via the `streaming` class), input enablement, and Stop-button
+   * visibility.
    * @param {boolean} on
    */
   function setStreaming(on) {
     streaming = on;
     container.classList.toggle('streaming', on);
-    led.classList.toggle('active', on);
     applyControls();
     // Return focus to the input when a turn ends, but only while the console is
-    // the visible view and reachable — focusing a hidden or disabled textarea
+    // the visible surface and reachable — focusing a hidden or disabled textarea
     // is pointless.
-    if (!on && !transitioning && isSimpleMode()) textarea.focus();
+    if (!on && !transitioning && !isTerminalSurface()) textarea.focus();
   }
 
   /**
@@ -259,7 +279,7 @@ export function initChat(containerId = 'operator-container') {
   function setTransitioning(on) {
     transitioning = on;
     applyControls();
-    if (!on && !streaming && isSimpleMode()) textarea.focus();
+    if (!on && !streaming && !isTerminalSurface()) textarea.focus();
   }
 
   /** @param {string} message */
@@ -268,6 +288,13 @@ export function initChat(containerId = 'operator-container') {
     scrollToBottom();
     emitChat('notice', { text: message });
   }
+  // News from outside the conversation lands here only while the chat is on
+  // screen; otherwise its sender shows it its own way.
+  setChatNoticeSink((text) => {
+    if (isTerminalSurface() || container.getClientRects().length === 0) return false;
+    showNotice(text);
+    return true;
+  });
 
   /** Update the elapsed counter in place. */
   function renderElapsed() {
@@ -324,16 +351,16 @@ export function initChat(containerId = 'operator-container') {
     overlayAction.disabled = false;
     overlayAction.onclick = onPress
       ? () => {
-        overlayAction.disabled = true;
-        onPress();
-      }
+          overlayAction.disabled = true;
+          onPress();
+        }
       : null;
   }
 
   /**
    * Show the transitional state. The hand-off route answers only once the
    * session is this view's, so nothing here says up front whether the other
-   * view's agent is mid-turn: the restart is shown first — the agent is being
+   * surface's agent is mid-turn: the restart is shown first — the agent is being
    * stopped there and started here — and the wait, with its clock and its way
    * out, once the restart outlasts its budget. A hand-off that cuts a running
    * turn short is a wait from the start.
@@ -378,7 +405,7 @@ export function initChat(containerId = 'operator-container') {
   /**
    * Show why the server would not hand the session over, and what remains to
    * be done about it. The input stays out of reach: the session is not this
-   * view's, and a refusal with no action is final for this view.
+   * surface's, and a refusal with no action is final for this view.
    * @param {{ message: string, action: 'interrupt'|'retry'|null }} refusal
    */
   function showHandoffRefused(refusal) {
@@ -407,24 +434,30 @@ export function initChat(containerId = 'operator-container') {
   }
 
   /**
-   * Abandon the hand-off and give the session back to the Expert view.
+   * Abandon the hand-off. Nothing was ended: the agent and the commands it
+   * started keep running where they are.
    *
-   * Nothing was ended: the agent and the commands it started keep running
-   * there. The console stays transitioning, because the session is not this
-   * view's.
+   * An operator who came from the terminal goes back to it, which resumes the
+   * session there. Otherwise the terminal was never theirs to return to (the
+   * holder is another tab), so the refusal and its action stay on screen; the
+   * console stays transitioning either way, because the session is not this
+   * surface's.
    */
   function cancelHandoff() {
     ++handoffGeneration;
     handoffAbort?.abort();
     handoffAbort = null;
+    if (!cameFromTerminal) return;
+    cameFromTerminal = false;
     hideOverlay();
-    pickUiMode('expert');
+    showTerminalSurface();
   }
 
   /** Clear the log and everything the old conversation left behind. */
   function resetLog() {
     handle?.abort();
     handle = null;
+    follower.logChanged();
     renderer.reset();
     emptyState = null;
     setStreaming(false);
@@ -432,15 +465,16 @@ export function initChat(containerId = 'operator-container') {
 
   /**
    * Point the console at *key*: clear the log, then replay what the session
-   * has already said so the Simple view opens on the conversation rather than
-   * on an empty console.
+   * has already said so the chat opens on the conversation rather than
+   * on an empty console. A turn the transcript shows still running is left
+   * open; the feed's snapshot then says whether it goes on.
    * @param {string} key
    * @returns {Promise<void>}
    */
-  async function bindTo(key, { keepFeed = false } = {}) {
+  async function bindTo(key) {
     boundKey = key;
     resetLog();
-    if (isSimpleMode()) notifySessionChange(key);
+    if (!isTerminalSurface()) notifySessionChange(key);
 
     /** @type {import('./chat-client.js').ChatTurn[]} */
     let turns = [];
@@ -456,7 +490,7 @@ export function initChat(containerId = 'operator-container') {
     scrollToBottom();
     // Follow the agent from here on, so a turn still running — after a reload,
     // or sent from another tab — keeps drawing.
-    if (!keepFeed) follow(key);
+    follow(key);
   }
 
   /**
@@ -465,11 +499,14 @@ export function initChat(containerId = 'operator-container') {
    */
   function follow(key) {
     feed?.close();
-    mirroring = null;
+    follower.restart();
     const mine = followChat(key, {
       onEvent: (frame) => {
         // A closed feed can still hand over a frame it had already read.
-        if (feed === mine && boundKey === key) onFeedFrame(frame);
+        if (feed === mine && boundKey === key) follower.frame(frame);
+      },
+      onNoAgent: () => {
+        if (feed === mine && boundKey === key) follower.noAgent();
       },
     });
     feed = mine;
@@ -494,80 +531,6 @@ export function initChat(containerId = 'operator-container') {
     const pinned = isPinned();
     renderer.handleEvent(event);
     if (pinned) scrollToBottom();
-  }
-
-  /** @param {import('./chat-client.js').ChatEvent} frame */
-  const endsTurn = (frame) =>
-    frame.type === 'result' ||
-    (frame.type === 'error' && frame.error_type !== 'AssistantMessageError');
-
-  /** Frame types that belong to a response, as opposed to notices about one. */
-  const RESPONSE_FRAMES = new Set([
-    'text',
-    'delta',
-    'thinking',
-    'tool_use',
-    'tool_result',
-    'permission_request',
-  ]);
-
-  /**
-   * One frame from the feed: the snapshot it opens with, then everything the
-   * agent does. The feed is closed while this tab's own turn streams, so what
-   * it brings is a turn sent elsewhere (another tab) or never sent (the CLI
-   * answering a background agent's report).
-   * @param {import('./chat-client.js').ChatEvent} frame
-   */
-  function onFeedFrame(frame) {
-    if (frame.type === 'hello') {
-      if (frame.in_flight && !mirroring) {
-        startMirror('joined', null);
-        for (const pending of frame.pending ?? []) draw(pending);
-      }
-      // The window's last reading, so the meter is right on a tab that opens mid-session.
-      if (frame.context) draw(frame.context);
-      return;
-    }
-    if (frame.type === 'turn_start') {
-      if (!mirroring) startMirror('live', frame.prompt ?? null);
-      return;
-    }
-    if (!mirroring) {
-      // Part of a response this tab is not drawing yet (its start came before
-      // the feed connected); join it. A notice on its own just draws.
-      if (!RESPONSE_FRAMES.has(frame.type)) {
-        draw(frame);
-        return;
-      }
-      startMirror('joined', null);
-    }
-    draw(frame);
-    if (endsTurn(frame)) endMirror();
-  }
-
-  /**
-   * Start drawing a turn this tab did not send.
-   * @param {'live' | 'joined'} how
-   * @param {string | null} prompt - the operator's prompt, when the turn has one
-   */
-  function startMirror(how, prompt) {
-    mirroring = how;
-    emptyState?.remove();
-    emptyState = null;
-    if (prompt) renderer.addUserMessage(prompt);
-    setStreaming(true);
-    renderer.beginTurn();
-    scrollToBottom();
-  }
-
-  function endMirror() {
-    const joined = mirroring === 'joined';
-    mirroring = null;
-    setStreaming(false);
-    renderer.endTurn();
-    // A turn joined part-way missed what it said before the feed connected;
-    // the transcript has all of it.
-    if (joined) void bindTo(boundKey, { keepFeed: true });
   }
 
   /**
@@ -608,7 +571,7 @@ export function initChat(containerId = 'operator-container') {
       showHandoffRefused(refusal ?? HANDOFF_FALLBACK);
       const refused = /** @type {import('./chat-client.js').TransportError} */ (err);
       if (refused?.slug === 'handoff_started_commands') {
-        askAboutStartedCommands(Array.isArray(refused.commands) ? refused.commands : [], {
+        askAboutStartedCommands(refused.commands, {
           onStop: () => void runHandoff(cutRunningTurn, true),
           onCancel: cancelHandoff,
           unread: refused.unread === true,
@@ -624,6 +587,7 @@ export function initChat(containerId = 'operator-container') {
     // never answered would be a claim the server did not make.
     if (!handed) return;
     handoffAbort = null;
+    cameFromTerminal = false;
     hideOverlay();
     await bindTo(key);
     // The replay is awaited, so a retry can start and put its own wait on
@@ -646,29 +610,36 @@ export function initChat(containerId = 'operator-container') {
     textarea.value = '';
     slash.close();
     autoResize();
-    scrollToBottom();
     setStreaming(true);
     renderer.beginTurn();
+    // After beginTurn: its status line lands at the foot of the log, and a log
+    // left above it is no longer pinned, so the reply would not be followed.
+    scrollToBottom();
 
     pauseFeed();
+    follower.logChanged();
     const sent = sendTransforms.reduce((text, transform) => transform(text), prompt);
+    /** Whether any frame of the turn came back: the agent has the prompt. */
+    let answered = false;
     const current = sendPrompt(boundKey, sent, {
       onEvent: (event) => {
+        answered = true;
         if (event.type !== 'turn_start') draw(event);
       },
       onError: (err) => {
-        const refusal = handoffRefusal(err);
-        if (!refusal) {
-          showNotice(transportNotice(err));
-          return;
-        }
-        // The other view holds the session, so the prompt never ran. Take the
+        // A send that no frame answered never reached the agent. Take the
         // bubble back and return the text to the input the operator typed it
-        // in; the overlay carries the one thing left to do.
-        entry.remove();
-        textarea.value = prompt;
-        autoResize();
-        showHandoffRefused(refusal);
+        // in, as the files attached to it return to the tray.
+        if (!answered) {
+          entry.remove();
+          textarea.value = prompt;
+          autoResize();
+        }
+        // The other view holds the session; the overlay carries the one thing
+        // left to do.
+        const refusal = handoffRefusal(err);
+        if (refusal) showHandoffRefused(refusal);
+        else showNotice(transportNotice(err));
       },
       onClose: () => {
         // A turn that a reset cut short can close after its successor has started;
@@ -686,7 +657,7 @@ export function initChat(containerId = 'operator-container') {
   /** Stop the in-flight turn: interrupt server-side first, then abort locally. */
   async function stop() {
     const current = handle;
-    if (!current && !mirroring) return;
+    if (!current && !follower.following()) return;
     stopBtn.disabled = true;
     // Interrupt the server turn first, then abort the local fetch. Either
     // arrival order is safe server-side; the abort makes the client stop
@@ -703,7 +674,7 @@ export function initChat(containerId = 'operator-container') {
 
   /**
    * Start a conversation on a new session key. The pointer is the shared slot,
-   * so writing it here is what moves both views; the old key's transcript is
+   * so writing it here is what moves both surfaces; the old key's transcript is
    * left alone — it is a session the operator can still resume.
    */
   function newConversation() {
@@ -714,7 +685,7 @@ export function initChat(containerId = 'operator-container') {
     setPointer(key);
     resetLog();
     inviteIfEmpty();
-    if (isSimpleMode()) {
+    if (!isTerminalSurface()) {
       notifySessionChange(key);
       follow(key);
     }
@@ -736,16 +707,18 @@ export function initChat(containerId = 'operator-container') {
   newBtn.addEventListener('click', newConversation);
 
   // The pointer is the tab's session, not this console's: a key chosen
-  // anywhere else (the session picker, another view) moves the log here too. A
-  // cleared pointer means the key is dead for both views and the page is on
+  // anywhere else (the session picker, the terminal) moves the log here too. A
+  // cleared pointer means the key is dead for both surfaces and the page is on
   // its way out — there is no conversation to move to.
   subscribeToPointer((key) => {
     if (!key || key === boundKey) return;
     void bindTo(key);
   });
 
-  enterFromExpertBinding = ({ interrupt: cutRunningTurn = false } = {}) =>
-    runHandoff(cutRunningTurn);
+  enterFromTerminalBinding = ({ interrupt: cutRunningTurn = false } = {}) => {
+    cameFromTerminal = true;
+    return runHandoff(cutRunningTurn);
+  };
 
   initChatFeatures({
     ...handles,
@@ -754,13 +727,16 @@ export function initChat(containerId = 'operator-container') {
     getKey: () => boundKey,
     onBeforeSend: (transform) => void sendTransforms.push(transform),
   });
+  // Last in the bar, after the bell and Export the features appended.
+  bar.append(moreBtn);
+  attachConversationMenu(moreBtn);
 
-  // A page that opens in Simple mode never went through a flip: the terminal
-  // does not connect here, so this console is the surface running the
+  // A page that opens on the chat never went through a surface change: the
+  // terminal does not connect here, so this console is the surface running the
   // session. That makes it the one to name the session the tab is on — it
   // claims the pointer for a key it minted, replays a key it adopted, and
   // either way is what tells the panels which session they are on.
-  if (isSimpleMode()) {
+  if (!isTerminalSurface()) {
     if (adopted) void bindTo(adopted);
     else {
       setPointer(boundKey);
@@ -773,8 +749,8 @@ export function initChat(containerId = 'operator-container') {
 /**
  * Put a visible failure where the operator console would have been.
  *
- * A console that threw during init leaves an EMPTY container, and in Simple
- * view an empty container is indistinguishable from an agent with nothing to
+ * A console that threw during init leaves an EMPTY container, and an empty
+ * container is indistinguishable from an agent with nothing to
  * say — the operator waits at a page that is never going to answer. A console
  * log line is not a user-facing surface; this is.
  *
@@ -785,7 +761,6 @@ export function renderChatBootFailure(containerId) {
   if (!container) return;
   const notice = document.createElement('p');
   notice.className = 'chat-boot-failure';
-  notice.textContent =
-    'The operator console failed to start. Reload the page, or switch to the Expert view.';
+  notice.textContent = 'The agent console failed to start. Reload the page.';
   container.replaceChildren(notice);
 }

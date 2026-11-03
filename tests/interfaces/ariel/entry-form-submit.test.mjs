@@ -128,7 +128,7 @@ function stubFetch(routes) {
             source_system: 'TestLog',
             entry_fields: [],
           },
-          routes.publishInfoStatus ?? 200,
+          routes.publishInfoStatus ?? 200
         );
       }
       if (url.includes('/api/drafts/')) return json(routes.draft ?? {});
@@ -140,7 +140,7 @@ function stubFetch(routes) {
         return new Response(new Blob(['png-bytes'], { type: 'image/png' }));
       }
       return json({ detail: `unrouted ${url}` }, 404);
-    }),
+    })
   );
   return calls;
 }
@@ -178,9 +178,7 @@ function formWithoutPublishing() {
  */
 async function submit(formModule) {
   const form = theForm();
-  await formModule.handleCreateEntry(
-    /** @type {any} */ ({ preventDefault() {}, target: form }),
-  );
+  await formModule.handleCreateEntry(/** @type {any} */ ({ preventDefault() {}, target: form }));
 }
 
 /**
@@ -190,7 +188,7 @@ async function submit(formModule) {
  */
 function createCall(calls) {
   const call = calls.find(
-    (c) => c.url.endsWith('/api/entries') || c.url.endsWith('/api/entries/upload'),
+    (c) => c.url.endsWith('/api/entries') || c.url.endsWith('/api/entries/upload')
   );
   if (!call) throw new Error('no create request was made');
   return call;
@@ -323,6 +321,23 @@ describe('submission merges the declared values into metadata', () => {
     expect(call.url.endsWith('/api/entries/upload')).toBe(true);
     const sent = /** @type {FormData} */ (call.init.body);
     expect(JSON.parse(String(sent.get('metadata')))).toEqual(DECLARED);
+  });
+
+  test('the multipart upload carries the header a plain form cannot send', async () => {
+    const calls = stubFetch({
+      publishInfo: { supports_write: true, requires_auth: false, entry_fields: FIELDS },
+    });
+    const { entries, form, fields } = await loadModules();
+    await renderDeclared(entries, fields);
+    stageAttachment();
+    await submit(form);
+
+    const call = createCall(calls);
+    expect(call.url.endsWith('/api/entries/upload')).toBe(true);
+    const headers = new Headers(call.init.headers);
+    expect(headers.get('X-Osprey-Upload')).toBe('1');
+    // The browser must write multipart/form-data with its own boundary.
+    expect(headers.has('Content-Type')).toBe(false);
   });
 
   test('declared values win over draft metadata keys, which are kept', async () => {
@@ -471,7 +486,11 @@ describe('an entry-field error marks the named input', () => {
   test('invalid_entry_field marks the input and keeps the form populated', async () => {
     await submitRejected({
       status: 422,
-      body: { detail: 'Beam current must be at most 500', code: 'invalid_entry_field', field: 'beam_current' },
+      body: {
+        detail: 'Beam current must be at most 500',
+        code: 'invalid_entry_field',
+        field: 'beam_current',
+      },
     });
 
     const input = control('beam_current');
@@ -483,7 +502,9 @@ describe('an entry-field error marks the named input', () => {
     const subject = /** @type {HTMLInputElement} */ (document.getElementById('entry-subject'));
     expect(subject.value).toBe('Beam dump');
     expect(window.alert).not.toHaveBeenCalled();
-    const button = /** @type {HTMLButtonElement} */ (theForm().querySelector('button[type="submit"]'));
+    const button = /** @type {HTMLButtonElement} */ (
+      theForm().querySelector('button[type="submit"]')
+    );
     expect(button.disabled).toBe(false);
   });
 
@@ -491,14 +512,18 @@ describe('an entry-field error marks the named input', () => {
     await submitRejected(
       {
         status: 502,
-        body: { detail: 'Book choices unavailable', code: 'entry_field_options_unavailable', field: 'book' },
+        body: {
+          detail: 'Book choices unavailable',
+          code: 'entry_field_options_unavailable',
+          field: 'book',
+        },
       },
-      true,
+      true
     );
 
     expect(control('book').getAttribute('aria-invalid')).toBe('true');
     expect(document.querySelector('[data-entry-field-error="book"]')?.textContent).toBe(
-      'Book choices unavailable',
+      'Book choices unavailable'
     );
     expect(window.alert).not.toHaveBeenCalled();
   });
@@ -529,5 +554,80 @@ describe('an entry-field error marks the named input', () => {
     expect(error.field).toBe('book');
     expect(error.status).toBe(422);
     expect(new api.ApiError(400, 'x', 'c').field).toBeUndefined();
+  });
+});
+
+describe('leaving the create form leaves nothing behind', () => {
+  const DRAFT = {
+    subject: 'Beam dump',
+    details: 'Lost beam at 10:02',
+    tags: ['rf'],
+    metadata: { session_metadata: { id: 's-1' } },
+    attachment_paths: ['/tmp/plot.png'],
+  };
+
+  afterEach(() => {
+    window.location.hash = '';
+  });
+
+  test("a submitted draft's attachments are not sent again with the next entry", async () => {
+    const calls = stubFetch({});
+    const { form } = await loadModules();
+    stageAttachment();
+    await submit(form);
+    expect(createCall(calls).url.endsWith('/api/entries/upload')).toBe(true);
+
+    calls.length = 0;
+    await submit(form);
+
+    expect(createCall(calls).url.endsWith('/api/entries')).toBe(true);
+  });
+
+  test('resetCreateForm drops a loaded draft: tags, metadata, attachments, banner', async () => {
+    const calls = stubFetch({ draft: DRAFT });
+    const { entries, form } = await loadModules();
+    await entries.adaptCreateForm();
+    await form.loadDraft('d-1');
+    expect(document.getElementById('draft-banner')).not.toBeNull();
+    expect(document.querySelectorAll('#entry-tags .tag')).toHaveLength(1);
+
+    form.resetCreateForm();
+
+    expect(document.getElementById('draft-banner')).toBeNull();
+    expect(document.querySelectorAll('#entry-tags .tag')).toHaveLength(0);
+    const preview = /** @type {HTMLElement} */ (document.getElementById('file-preview'));
+    expect(preview.children).toHaveLength(0);
+    expect(preview.dataset.draftAttachments).toBeUndefined();
+
+    calls.length = 0;
+    await submit(form);
+    const call = createCall(calls);
+    expect(call.url.endsWith('/api/entries')).toBe(true);
+    const body = JSON.parse(call.init.body);
+    expect(body.metadata).toBeNull();
+    expect(body.tags).toEqual([]);
+  });
+
+  test('resetCreateForm clears an entry-field error mark', async () => {
+    stubFetch({
+      publishInfo: { supports_write: true, requires_auth: false, entry_fields: FIELDS },
+    });
+    const { entries, form, fields } = await loadModules();
+    await entries.adaptCreateForm();
+    await fields.entryFieldsRendered();
+    fields.markEntryFieldError('book', 'Unknown book');
+
+    form.resetCreateForm();
+
+    expect(document.querySelector('[aria-invalid="true"]')).toBeNull();
+    expect(document.querySelector('[data-entry-field-error]')).toBeNull();
+  });
+
+  test('a created entry opens over Browse, where closing it lands', async () => {
+    stubFetch({});
+    const { form } = await loadModules();
+    await submit(form);
+
+    expect(window.location.hash).toBe('#entry?id=e-1');
   });
 });

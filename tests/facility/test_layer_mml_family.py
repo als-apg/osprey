@@ -268,9 +268,9 @@ class TestCounts:
                 "Partial": {"TangoNames": ["p/1", "p/2"]},
             }
         )
-        # raw: 3 + 1 + 3 + 0 + 2
+        # raw: 3 + 1 + 3 + 0 + 2  # noqa: ERA001 -- an arithmetic tally
         assert view.raw_slot_count == 9
-        # bindings: 2 + 3 (broadcast) + 2 + 0 + 2
+        # bindings: 2 + 3 (broadcast) + 2 + 0 + 2  # noqa: ERA001 -- an arithmetic tally
         assert view.channel_count == 9
         assert view.fields["Monitor"].raw_slot_count == 3
         assert view.fields["Monitor"].channel_count == 2

@@ -2,22 +2,15 @@
 
 from unittest.mock import MagicMock, PropertyMock, patch
 
-from osprey.mcp_server.channel_finder_middle_layer.server_context import (
-    initialize_cf_ml_context,
-)
-from tests.mcp_server.channel_finder_middle_layer.conftest import get_tool_fn
-from tests.mcp_server.conftest import assert_raises_error, extract_response_dict
+import pytest
+
+from tests.mcp_server.conftest import assert_raises_error, extract_response_dict, get_tool_fn
+
+pytestmark = pytest.mark.usefixtures("cf_ml_context")
 
 
-def _setup(tmp_path, monkeypatch):
-    monkeypatch.chdir(tmp_path)
-    (tmp_path / "config.yml").write_text("{}")
-    initialize_cf_ml_context()
-
-
-def test_statistics_returns_stats(tmp_path, monkeypatch):
+def test_statistics_returns_stats():
     """Happy path: returns database statistics."""
-    _setup(tmp_path, monkeypatch)
     mock_db = MagicMock()
     mock_db.get_statistics.return_value = {
         "total_channels": 1500,
@@ -42,9 +35,8 @@ def test_statistics_returns_stats(tmp_path, monkeypatch):
     assert data["total_families"] == 25
 
 
-def test_statistics_empty_database(tmp_path, monkeypatch):
+def test_statistics_empty_database():
     """Returns zero counts for empty database."""
-    _setup(tmp_path, monkeypatch)
     mock_db = MagicMock()
     mock_db.get_statistics.return_value = {
         "total_channels": 0,
@@ -68,9 +60,8 @@ def test_statistics_empty_database(tmp_path, monkeypatch):
     assert data["total_systems"] == 0
 
 
-def test_statistics_internal_error(tmp_path, monkeypatch):
+def test_statistics_internal_error():
     """Internal error returns standard error envelope."""
-    _setup(tmp_path, monkeypatch)
     mock_db = MagicMock()
     mock_db.get_statistics.side_effect = Exception("Stats computation failed")
     with patch(

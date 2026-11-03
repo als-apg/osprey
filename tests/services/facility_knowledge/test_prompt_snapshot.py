@@ -29,7 +29,8 @@ from types import SimpleNamespace
 from typing import Any
 
 from osprey.services.facility_knowledge.seeder import prompt_snapshot as mod
-from osprey_connectors.workspace import BUILD_DIR_NAME, IMAGE_DIR_NAME
+from osprey.utils.workspace import IMAGE_DIR_NAME
+from osprey_connectors.workspace import BUILD_DIR_NAME
 
 # ---------------------------------------------------------------------------
 # A recording Cypher seam

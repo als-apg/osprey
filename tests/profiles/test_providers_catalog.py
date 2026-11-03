@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import tomllib
 from pathlib import Path
 
 import pytest
@@ -18,10 +19,10 @@ from osprey.profiles.providers import (
 )
 from osprey_connectors.errors import BuildProfileError
 
-# The eleven providers the packaged catalog ships: the ten chat providers the
-# control-assistant app template carried under `api.providers`, plus the
-# embeddings-only llama-cpp. Frozen here so a dropped entry is a test failure,
-# not a silently smaller catalog.
+# The providers the packaged catalog ships: the ten chat providers the
+# control-assistant app template carried under `api.providers`, the
+# embeddings-only llama-cpp, and openrouter. Frozen here so a dropped entry is a
+# test failure, not a silently smaller catalog.
 EXPECTED_PROVIDERS = {
     "als-apg",
     "amsc-i2",
@@ -33,6 +34,7 @@ EXPECTED_PROVIDERS = {
     "llama-cpp",
     "ollama",
     "openai",
+    "openrouter",
     "stanford",
 }
 
@@ -59,7 +61,7 @@ class TestPackagedCatalog:
         assert path.is_file()
         assert path.parent.name == "profiles"
 
-    def test_packaged_catalog_holds_the_eleven_providers(self):
+    def test_packaged_catalog_holds_the_expected_providers(self):
         catalog = load_provider_catalog(None)
         assert set(catalog.entries) == EXPECTED_PROVIDERS
         assert catalog.source == "packaged"
@@ -176,17 +178,26 @@ class TestValidationRefusals:
         assert PROVIDERS_FILENAME in message
         return message
 
-    def test_non_mapping_document_refused(self, tmp_path):
-        assert "mapping" in self._refuses(tmp_path, "- one\n- two\n")
-
-    def test_missing_providers_key_refused(self, tmp_path):
-        assert "providers" in self._refuses(tmp_path, "something_else: {}\n")
-
-    def test_non_mapping_providers_refused(self, tmp_path):
-        assert "mapping" in self._refuses(tmp_path, "providers:\n  - cborg\n")
-
-    def test_non_mapping_entry_refused_naming_the_key(self, tmp_path):
-        assert "providers.cborg" in self._refuses(tmp_path, "providers:\n  cborg: https://x\n")
+    @pytest.mark.parametrize(
+        ("text", "expected"),
+        [
+            pytest.param("- one\n- two\n", "mapping", id="non-mapping-document"),
+            pytest.param("something_else: {}\n", "providers", id="missing-providers-key"),
+            pytest.param("providers:\n  - cborg\n", "mapping", id="non-mapping-providers"),
+            pytest.param(
+                "providers:\n  cborg: https://x\n",
+                "providers.cborg",
+                id="non-mapping-entry-naming-the-key",
+            ),
+            pytest.param(
+                "providers:\n  gw: [unclosed\n",
+                "Cannot read",
+                id="unparseable-yaml-naming-the-file",
+            ),
+        ],
+    )
+    def test_a_malformed_catalog_is_refused_naming_the_problem(self, tmp_path, text, expected):
+        assert expected in self._refuses(tmp_path, text)
 
     def test_entry_without_base_url_refused_naming_the_key(self, tmp_path):
         message = self._refuses(tmp_path, "providers:\n  gw:\n    api_key: k\n")
@@ -262,9 +273,6 @@ class TestValidationRefusals:
             message = self._refuses_entry(tmp_path, **_entry(supports_images=value))
             assert "providers.gw.supports_images" in message, value
 
-    def test_unparseable_yaml_refused_naming_the_file(self, tmp_path):
-        assert "Cannot read" in self._refuses(tmp_path, "providers:\n  gw: [unclosed\n")
-
     def test_missing_file_refused_naming_the_file(self, tmp_path):
         with pytest.raises(BuildProfileError) as exc:
             compute_providers_hash(tmp_path / PROVIDERS_FILENAME)
@@ -305,6 +313,7 @@ class TestPackaging:
     def test_catalog_is_not_excluded_from_the_wheel(self):
         """Hatchling packages everything under src/osprey bar the exclude list."""
         text = (REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8")
-        assert 'packages = ["src/osprey"]' in text
+        wheel = tomllib.loads(text)["tool"]["hatch"]["build"]["targets"]["wheel"]
+        assert "src/osprey" in wheel["packages"], wheel["packages"]
         excluded = text.split("exclude = [", 1)[1].split("]", 1)[0]
         assert "profiles" not in excluded

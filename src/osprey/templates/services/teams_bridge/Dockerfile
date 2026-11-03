@@ -194,6 +194,12 @@ RUN --mount=type=cache,target=/root/.cache/pip \
 # force-reinstalled --no-deps to guarantee their own modules win, and `pip
 # check` guards against residual mismatches. No wheel staged → no-op, image
 # already complete after the deps layer.
+#
+# The overlay then asserts that the `pyaml` import package has exactly one
+# owning distribution (osprey.deployment.pyaml_owner): every pyAML distribution
+# writes the same `pyaml/` files, and neither the resolver nor `pip check` sees
+# two of them installed together. The manifest above is staged only beside these
+# wheels, so every build that installed it runs the assertion.
 COPY .osprey-layer-anchor *.wh[l] /tmp/ctx/
 RUN --mount=type=cache,target=/root/.cache/pip \
     if ls /tmp/ctx/*.whl >/dev/null 2>&1; then \
@@ -201,6 +207,7 @@ RUN --mount=type=cache,target=/root/.cache/pip \
         && whl="$(ls /tmp/ctx/osprey_framework-*.whl)" \
         && pip install "${whl}[teams]" $(ls /tmp/ctx/*.whl | grep -v /osprey_framework-) \
         && pip install --no-deps --force-reinstall /tmp/ctx/*.whl \
+        && python -m osprey.deployment.pyaml_owner \
         && pip check ; \
     fi \
     && rm -rf /tmp/ctx

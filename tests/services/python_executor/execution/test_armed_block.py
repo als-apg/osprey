@@ -15,11 +15,9 @@ every test after it.
 
 import ast
 import json
-import os
 import subprocess
 import sys
 import textwrap
-from pathlib import Path
 
 import pytest
 
@@ -42,13 +40,12 @@ from osprey_connectors.control_system._limits_validator import (
     LimitsValidator,
 )
 from osprey_connectors.errors import RAW_CLIENT_WRITE_MARKER
+from tests.services.python_executor._child_env import child_env
 
 P4P_RPC_TEXT = "rpc is not mediated and cannot be approved — use the supervised write path"
 TANGO_COMMAND_TEXT = (
     "Tango command refused in a limits-checked run: a command carries no value to bound"
 )
-
-_SRC_ROOT = str(Path(__file__).resolve().parents[4] / "src")
 
 
 def _validator() -> LimitsValidator:
@@ -88,12 +85,6 @@ def _grouped(table: dict[tuple[str, str], str]) -> dict[str, list[str]]:
     for dotted, attr in table:
         rows.setdefault(dotted, []).append(attr)
     return rows
-
-
-def _env() -> dict[str, str]:
-    env = os.environ.copy()
-    env["PYTHONPATH"] = os.pathsep.join(filter(None, [_SRC_ROOT, env.get("PYTHONPATH")]))
-    return env
 
 
 # --------------------------------------------------------------------------
@@ -323,7 +314,7 @@ def _run_block(block: str) -> dict:
         [sys.executable, "-c", script],
         capture_output=True,
         text=True,
-        env=_env(),
+        env=child_env(),
         timeout=120,
     )
     assert proc.returncode == 0, proc.stderr
@@ -374,7 +365,7 @@ def test_failed_install_aborts_the_whole_wrapper_before_user_code(tmp_path, monk
         capture_output=True,
         text=True,
         cwd=str(tmp_path),
-        env=_env(),
+        env=child_env(),
         timeout=300,
     )
 
@@ -398,7 +389,7 @@ def test_whole_readwrite_wrapper_runs_clean_with_the_block(tmp_path):
         capture_output=True,
         text=True,
         cwd=str(tmp_path),
-        env=_env(),
+        env=child_env(),
         timeout=300,
     )
     assert proc.returncode == 0, proc.stderr
@@ -505,7 +496,7 @@ def _run_pvaccess_block(block: str) -> dict:
         [sys.executable, "-c", script],
         capture_output=True,
         text=True,
-        env=_env(),
+        env=child_env(),
         timeout=120,
     )
     assert proc.returncode == 0, proc.stderr
@@ -619,7 +610,7 @@ def test_real_pvaccess_split_under_the_readwrite_guards(tmp_path):
         ),
         encoding="utf-8",
     )
-    env = _env()
+    env = child_env()
     # Keep both protocols' searches on this host.
     env.update(
         EPICS_PVA_ADDR_LIST="127.0.0.1",

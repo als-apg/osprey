@@ -4,9 +4,10 @@ Three live lanes drive ``pyaml_measure`` against a container: the guarded-run
 cases, check B and the chain. Each needs the same pieces, kept here once:
 
 * **The deployment.** A real ``osprey init`` and ``osprey build`` of a repo
-  whose only control target is the virtual accelerator on loopback, armed for
-  writes, whose default set -- the built-in ``still`` scenario -- is
-  activated in its state directory as ``osprey up`` activates it. The connector table is
+  whose only control target is the virtual accelerator on loopback, whose
+  write tier is stated (``asked`` for a deployment whose governed tools ask,
+  ``allowed`` for one that asks nobody), whose default set -- the built-in
+  ``still`` scenario -- is activated in its state directory as ``osprey up`` activates it. The connector table is
   stated whole, so no block of the preset's that names another machine
   survives into the render: every target the render configures resolves to the
   simulator (:func:`only_simulated_targets`).
@@ -16,8 +17,10 @@ cases, check B and the chain. Each needs the same pieces, kept here once:
   posture session, set the way a session child carries them; the hook, the
   tool and the sandbox the tool spawns all resolve from them.
 * **The approval hook.** The build's own rendered ``osprey_approval.py`` run as
-  the harness runs it, on a PreToolUse payload; an ``ask`` that is approved
-  hands the tool the input the hook rewrote, under the same tool-use id, which
+  the harness runs it, on a PreToolUse payload, for every governed call: at
+  ``asked`` it answers ``ask`` and a person's yes is assumed; at ``allowed`` it
+  answers ``allow`` and files a ``write_switch`` stamp itself. Either way the
+  tool is handed the input the hook rewrote, under the same tool-use id, which
   is how the executor finds the stamp the hook left.
 
 Every Channel Access read here runs in a subprocess that leaves through
@@ -40,7 +43,7 @@ from collections.abc import Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import pytest
 import yaml
@@ -77,6 +80,10 @@ APPROVAL_HOOK = Path(".claude") / "hooks" / "osprey_approval.py"
 #: The scenario every deployment here starts in.
 STILL = "still"
 
+#: A write position: the tier a build states, and the switch a session sets.
+#: ``asked`` puts every governed call to a person; ``allowed`` asks nobody.
+Position = Literal["asked", "allowed"]
+
 
 # ---------------------------------------------------------------------------
 # The deployment
@@ -111,26 +118,29 @@ def isolation_settings(port: int, pva_port: int, probe: str, *, approval: bool) 
     """The ``osprey set`` arguments of a deployment whose one machine is the simulator.
 
     The connector table is stated whole, so every block the preset carried is
-    replaced by one ``virtual_accelerator`` block on ``127.0.0.1:<port>``
-    armed for writes, and the stand-in is switched off. The build names both of
+    replaced by one ``virtual_accelerator`` block on ``127.0.0.1:<port>``,
+    and the stand-in is switched off. The write tier is not among them:
+    ``osprey set`` cannot raise it, so :func:`build` states it in the profile. The build names both of
     instance 1's protocol ports, Channel Access ``port`` and pvAccess
     ``pva_port``, which sit outside the deployment's port block, so two
     deployments on one host collide on neither. The approval block is
-    stated, never left to a default: ``approval`` false is a deployment that
-    asks nobody, true one whose every guarded tool asks.
+    stated, never left to a default, for the tools the write switch does not
+    govern: ``approval`` false asks nobody about them, true asks about every
+    one. Whether a governed tool (``pyaml_measure``, ``execute``) asks is not
+    the approval block's to say -- it is the write position, which the build
+    states as the tier (:func:`build`) and a session sets as its switch
+    (:func:`acting_in`).
     """
     gateway = {"address": "127.0.0.1", "port": port, "use_name_server": True}
     connector = {
         "virtual_accelerator": {
             "gateways": {"read_only": gateway, "write_access": gateway},
             "probe_channel": probe,
-            "writes_enabled": True,
             "timeout_s": 30.0,
         }
     }
     return [
         "connector=virtual_accelerator",
-        "config.control_system.writes_enabled=true",
         f"config.control_system.connector={json.dumps(connector)}",
         f"virtual_accelerator.port={port}",
         f"virtual_accelerator.pva_port={pva_port}",
@@ -138,8 +148,6 @@ def isolation_settings(port: int, pva_port: int, probe: str, *, approval: bool) 
         f"config.simulation.default_scenarios=[{STILL}]",
         f"config.approval.enabled={'true' if approval else 'false'}",
         "config.approval.default_policy=always",
-        "config.approval.tools.pyaml_measure=always",
-        "config.approval.tools.execute=always",
         f"config.python_executor.execution_timeout_seconds={EXECUTION_TIMEOUT_S}",
     ]
 
@@ -163,9 +171,35 @@ def set_measurement(repo: Path, model: str, **changes: Any) -> None:
     path.write_text(yaml.safe_dump(document, sort_keys=False), encoding="utf-8")
 
 
-def build(repo: Path, settings: Sequence[str]) -> None:
-    """Apply ``settings`` to ``repo`` and build it."""
+def state_tier(repo: Path, tier: Position) -> None:
+    """State ``control_system.writes: <tier>`` in the repo's profile, as a deployer does.
+
+    ``osprey set`` only ever lowers the write ceiling, so raising it is an edit to
+    the profile's ``config:`` block, which the build then renders. Any other
+    spelling of the leaf already there is removed, so the profile states it once.
+    """
+    from osprey_connectors.types import WRITES_KEY
+
+    path = repo / "profile.yml"
+    profile = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    config = profile.get("config")
+    if not isinstance(config, dict):
+        config = {}
+    section, leaf = WRITES_KEY.split(".", 1)
+    nested = config.get(section)
+    if isinstance(nested, dict):
+        nested.pop(leaf, None)
+        if not nested:
+            del config[section]
+    config[WRITES_KEY] = tier
+    profile["config"] = config
+    path.write_text(yaml.safe_dump(profile, sort_keys=False), encoding="utf-8")
+
+
+def build(repo: Path, settings: Sequence[str], *, writes: Position = "asked") -> None:
+    """Apply ``settings`` to ``repo``, state its write tier ``writes``, and build it."""
     osprey("set", "--repo", str(repo), *settings)
+    state_tier(repo, writes)
     osprey("build", "--repo", str(repo), "--skip-deps", "--skip-lifecycle")
 
 
@@ -275,27 +309,18 @@ def only_simulated_targets(config: Mapping[str, Any]) -> list[str]:
 # ---------------------------------------------------------------------------
 
 
-def _docker(*args: str, timeout: float = 180.0) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(["docker", *args], capture_output=True, text=True, timeout=timeout)
-
-
-def require_image() -> None:
-    """Fail loudly unless the image is present."""
-    inspected = _docker("image", "inspect", IMAGE, "--format", "{{.Id}}", timeout=60)
-    if inspected.returncode != 0:
-        pytest.fail(f"image {IMAGE!r} is not present. {e2e_conftest.IMAGE_REMEDY}")
-
-
 class PortTaken(RuntimeError):
     """The port a build named was taken before its container could publish it."""
 
 
 @contextmanager
-def deployed(repo: Path, settings: Any, *, prefix: str, probe: str) -> Iterator[Deployment]:
+def deployed(
+    repo: Path, settings: Any, *, prefix: str, probe: str, writes: Position = "asked"
+) -> Iterator[Deployment]:
     """Build ``repo`` on a fresh port and serve it; the deployment, while it is served.
 
     ``settings`` maps the Channel Access and pvAccess ports to the ``osprey set``
-    arguments of the build. A port taken between the build and the boot is
+    arguments of the build; ``writes`` is the tier the build states. A port taken between the build and the boot is
     replaced, both re-reserved, and the repo rebuilt, since the ports are part
     of the render.
     """
@@ -304,7 +329,7 @@ def deployed(repo: Path, settings: Any, *, prefix: str, probe: str) -> Iterator[
         pva_port = reserve_port()
         while pva_port == port:
             pva_port = reserve_port()
-        build(repo, settings(port, pva_port))
+        build(repo, settings(port, pva_port), writes=writes)
         deployment = Deployment(repo=repo, port=port, pva_port=pva_port)
         deployment.activate_default_scenarios()
         try:
@@ -323,10 +348,10 @@ def serving(deployment: Deployment, *, pva_port: int, prefix: str, probe: str) -
     The published ports and the servers' own are the same numbers; the Channel
     Access port also names the container, so a concurrent run cannot remove it.
     """
-    require_image()
+    e2e_conftest.require_image()
     port = deployment.port
     name = f"{prefix}-{port}-{uuid.uuid4().hex[:8]}"
-    started = _docker(
+    started = e2e_conftest.docker(
         "run",
         "-d",
         "--name",
@@ -350,7 +375,7 @@ def serving(deployment: Deployment, *, pva_port: int, prefix: str, probe: str) -
         IMAGE,
     )
     if started.returncode != 0:
-        _docker("rm", "-f", name, timeout=60)
+        e2e_conftest.docker("rm", "-f", name, timeout=60)
         if "address already in use" in started.stderr:
             raise PortTaken(port)
         raise RuntimeError(f"docker run failed: {started.stdout}\n{started.stderr}")
@@ -366,14 +391,14 @@ def serving(deployment: Deployment, *, pva_port: int, prefix: str, probe: str) -
                 last = f"{type(exc).__name__}: {exc}"
             time.sleep(1.0)
         else:
-            logs = _docker("logs", "--tail", "60", name, timeout=60)
+            logs = e2e_conftest.docker("logs", "--tail", "60", name, timeout=60)
             raise AssertionError(
                 f"{name} never served {probe} within {BOOT_TIMEOUT_S}s ({last}).\n"
                 f"{logs.stdout}\n{logs.stderr}"
             )
         yield
     finally:
-        _docker("rm", "-f", name, timeout=60)
+        e2e_conftest.docker("rm", "-f", name, timeout=60)
 
 
 def ca_read(port: int, addresses: Sequence[str], *, timeout: float = 10.0) -> dict[str, Any]:
@@ -394,13 +419,7 @@ def ca_read(port: int, addresses: Sequence[str], *, timeout: float = 10.0) -> di
         "sys.stdout.flush()\n"
         "os._exit(0)\n"
     )
-    environment = {
-        **os.environ,
-        "EPICS_CA_NAME_SERVERS": f"localhost:{port}",
-        "EPICS_CA_AUTO_ADDR_LIST": "NO",
-    }
-    for stale in ("EPICS_CA_ADDR_LIST", "EPICS_CA_SERVER_PORT", "EPICS_CAS_SERVER_PORT"):
-        environment.pop(stale, None)
+    environment = e2e_conftest.ca_client_environment(port)
     run = subprocess.run(
         [sys.executable, "-c", code],
         capture_output=True,
@@ -424,6 +443,7 @@ def acting_in(
     deployment: Deployment,
     agent_data: Path,
     *,
+    position: Position = "asked",
     environment: Mapping[str, str] | None = None,
 ) -> Iterator[None]:
     """Run the block as a session of ``deployment`` whose agent-data root is ``agent_data``.
@@ -431,11 +451,20 @@ def acting_in(
     Two sessions with different roots are two containers of one deployment:
     they share the repo's guarded-run directory and nothing else. Every stamp
     a session child must not inherit from this process is removed.
+
+    The session's switch is at ``position`` for the simulator: a write needs
+    the login tier (``control_system.writes``, which :func:`build` states) AND
+    the switch armed for its machine, and a fresh session's switch is off; the
+    lower of the two decides whether a governed call asks. The record is
+    written once per root, ownerless at generation 0 on the simulator, the way
+    a controls server's claim would start it; a root that already holds one
+    keeps it.
     """
     from osprey.audit.posture import POSTURE_SESSION_ENV_VAR
     from osprey.runtime import ENV_CONTROL_TARGET, ENV_CONTROL_TARGET_GENERATION
-    from osprey_connectors import posture_store
+    from osprey_connectors import control_context, posture_store
     from osprey_connectors.workspace import reset_config_cache
+    from osprey_connectors_tests._harness import write_control_context
 
     agent_data.mkdir(parents=True, exist_ok=True)
     values = {
@@ -462,11 +491,21 @@ def acting_in(
             patch.setenv(name, value)
         reset_config_cache()
         posture_store.invalidate_cache()
+        control_context.invalidate_cache()
+        if not control_context._record_path_under(agent_data).exists():
+            write_control_context(
+                agent_data,
+                target=VA_TARGET,
+                generation=0,
+                owned_by=None,
+                switch={VA_TARGET: position},
+            )
         try:
             yield
         finally:
             reset_config_cache()
             posture_store.invalidate_cache()
+            control_context.invalidate_cache()
 
 
 # ---------------------------------------------------------------------------
@@ -596,13 +635,47 @@ async def call(tool: str, arguments: Mapping[str, Any], tool_use_id: str | None 
         return await _answer(_tool(tool)(**dict(arguments)))
 
 
+#: The fields the hook binds into every guarded ``pyaml_measure`` call it lets through.
+MEASURE_BOUND_FIELDS = ("approved_target", "approved_view_sha256")
+
+
+async def decided(
+    deployment: Deployment,
+    tool: str,
+    tool_input: Mapping[str, Any],
+    *,
+    expect: Literal["ask", "allow"],
+) -> tuple[Asked, Answer]:
+    """Run the hook on one call, insist it decided ``expect``, and run the call it let through.
+
+    ``ask`` is the ``asked`` position: the hook prompts, and the person's yes
+    is assumed. ``allow`` is the ``allowed`` position: the hook asks nobody,
+    binds the call (the target, and for ``pyaml_measure`` the view digest)
+    into its rewritten input, and files a ``write_switch`` stamp under the
+    call's id, which is the record the executor reads. Either way the tool
+    runs with the hook's input under the hook's tool-use id.
+    """
+    from osprey.mcp_server.approval_record import APPROVER_WRITE_SWITCH, approval_ask_stamp
+
+    asked = ask(deployment, tool, tool_input)
+    assert asked.decision == expect, (
+        f"the hook answered {asked.decision}, not {expect}: {asked.reason}"
+    )
+    if expect == "allow":
+        bound = MEASURE_BOUND_FIELDS if tool == "pyaml_measure" else MEASURE_BOUND_FIELDS[:1]
+        missing = [field for field in bound if not asked.updated_input.get(field)]
+        assert not missing, f"the hook let the call through unbound ({missing}): {asked}"
+        stamp = approval_ask_stamp(asked.tool_use_id)
+        assert stamp is not None, f"the hook allowed {asked.tool_use_id} and filed no stamp"
+        assert stamp.get("approver") == APPROVER_WRITE_SWITCH, stamp
+    return asked, await call(tool, asked.updated_input, asked.tool_use_id)
+
+
 async def approved(
     deployment: Deployment, tool: str, tool_input: Mapping[str, Any]
 ) -> tuple[Asked, Answer]:
-    """Ask the hook, insist it asked, and run the call it approved."""
-    asked = ask(deployment, tool, tool_input)
-    assert asked.decision == "ask", f"the hook answered {asked.decision}: {asked.reason}"
-    return asked, await call(tool, asked.updated_input, asked.tool_use_id)
+    """Ask the hook at ``asked``, insist it asked, and run the call it approved."""
+    return await decided(deployment, tool, tool_input, expect="ask")
 
 
 # ---------------------------------------------------------------------------
@@ -613,9 +686,10 @@ async def approved(
 POLL_S = 0.2
 
 #: The settle time the deployments here give every measurement step, in
-#: seconds: long enough that a signal sent once a stepped setpoint reads
-#: displaced lands before the measurement's next step. The members of one
-#: group write are sent back to back, with no settle between them.
+#: seconds: long enough, against :data:`POLL_S`, that a signal sent once the
+#: stepped setpoints read displaced and still lands before the next step. The
+#: members of one group write are sent back to back, with no settle between
+#: them.
 SETTLE_S = 2.0
 
 #: Bound on a run reaching its first write.
@@ -654,13 +728,16 @@ async def signalled_after_first_write(
     """Start a call, signal its sandbox once a watched setpoint reads displaced; the outcome.
 
     The sandbox holds the target's run lock, so its pid is the lock's holder.
-    The signal is sent once that holder is known and a setpoint of
-    ``watched`` reads, over Channel Access, other than it did before the call;
-    the measurement then waits its settle time (:data:`SETTLE_S`) before its
-    next step, so the signal lands after the first write and before the next
-    step. It can land inside a group write: a put the sandbox sent before the
-    signal is still applied by the server, so the run loop is drained
-    (:func:`drain_run_loop`) before the setpoints are read.
+    The signal is sent once that holder is known and the watched setpoints
+    read, over Channel Access, displaced from where they were before the call
+    and unchanged across two consecutive polls. A step may write several
+    setpoints at once (a whole group), so the first displaced reading only
+    says the step has begun; readings that hold still say every write of the
+    step has landed and the measurement is in its settle time
+    (:data:`SETTLE_S`), so the signal lands after the first step and before
+    the next. A put the sandbox sent before the signal is still applied by the
+    server, so the run loop is drained (:func:`drain_run_loop`) before the
+    setpoints are read.
 
     Returns:
         What the call answered, and the watched setpoints' readings once every
@@ -675,13 +752,15 @@ async def signalled_after_first_write(
     deadline = time.monotonic() + FIRST_WRITE_TIMEOUT_S
     held: dict[str, Any] | None = None
     displaced: dict[str, Any] = {}
+    previous: dict[str, Any] | None = None
     while time.monotonic() < deadline and not task.done():
         held = holder(deployment)
         if held is not None:
             readings = ca_read(deployment.port, list(watched))
             displaced = {a: v for a, v in readings.items() if v != home[a]}
-            if displaced:
+            if displaced and readings == previous:
                 break
+            previous = readings if displaced else None
         await asyncio.sleep(POLL_S)
     assert not task.done(), f"the run ended before its first write: {(await task).text}"
     assert held is not None and displaced, f"no setpoint moved within {FIRST_WRITE_TIMEOUT_S}s"

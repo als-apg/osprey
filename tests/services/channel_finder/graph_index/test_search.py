@@ -23,9 +23,9 @@ from statistics import median
 import pytest
 from tests._builds import BuiltProject
 from tests.services.channel_finder.graph_index import corpora
+from tests.services.channel_finder.graph_index._index import corpus_meta
 
 from osprey.services.channel_finder.graph_index.builder import (
-    CALLER_META_KEYS,
     ParsedCorpus,
     build_from_rows,
     parse_corpus,
@@ -72,29 +72,13 @@ def _combined(*sources: str) -> str:
     return _HEAD + "".join(source.removeprefix(_HEAD) for source in sources)
 
 
-def _meta(parsed: ParsedCorpus, **overrides: object) -> dict:
-    """The ``meta`` mapping a corpus build states for *parsed*."""
-    values = {
-        "corpus_sha256": "b" * 64,
-        "corpus_filename": "facility.ttl",
-        "binding_count": len(parsed.binding_rows),
-        "device_count": len({row.device_uri for row in parsed.binding_rows}),
-        "class_count": len(parsed.class_rows),
-        "signal_count": parsed.signal_count,
-        "section_count": len(parsed.section_codes),
-    }
-    values.update(overrides)
-    assert set(values) == set(CALLER_META_KEYS)
-    return values
-
-
 def _write(parsed: ParsedCorpus, index_path: Path, **overrides: object) -> Path:
     """Write *parsed* to *index_path* and hand the path back."""
     build_from_rows(
         parsed.binding_rows,
         parsed.class_rows,
         index_path,
-        _meta(parsed, **overrides),
+        corpus_meta(parsed, **overrides),
     )
     return index_path
 
@@ -586,7 +570,7 @@ class TestDemoCorpusTiming:
             payload = index.search()
             elapsed = time.perf_counter() - started
 
-        assert payload["total"] == 3338
+        assert payload["total"] == 4731
         # Budgeted at 100 ms; asserted well above it, because a shared CI
         # machine is slower than a workstation by more than the margin.
         print(f"first search on the demo index: {elapsed * 1000:.1f} ms")

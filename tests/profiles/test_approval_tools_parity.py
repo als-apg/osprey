@@ -17,13 +17,13 @@ manifest documents every shipped row, and documents no row that is unshipped.
 
 from __future__ import annotations
 
-import importlib.util
 import re
-import sys
 from pathlib import Path
 
 import pytest
 import yaml
+
+from tests._by_path import load_module
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 PRESET_DIR = REPO_ROOT / "src" / "osprey" / "profiles" / "presets"
@@ -39,12 +39,7 @@ _ROW_RE = re.compile(r"^\s*approval\.tools\.([a-z_]+):", re.MULTILINE)
 
 def _load_guard():
     """Import ``scripts/check_config_keys.py`` by path, as its own suite does."""
-    spec = importlib.util.spec_from_file_location("check_config_keys", GUARD_PATH)
-    assert spec and spec.loader
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
-    return module
+    return load_module("check_config_keys", GUARD_PATH, register=True)
 
 
 @pytest.fixture(scope="module")

@@ -109,9 +109,9 @@ from osprey.mcp_server.control_system.target_eligibility import (
     REASON_EXECUTION_IN_FLIGHT,
     REASON_READONLY_RUN,
     GateVerdict,
-    effective_writes_for_target,
     evaluate_switch,
     target_availability,
+    target_write_verdict,
 )
 from osprey.mcp_server.control_system.target_state import (
     INFLIGHT_FILE_GLOB,
@@ -125,7 +125,7 @@ from osprey.mcp_server.http import (
     SWITCH_OUTCOME_SUCCESS,
     notify_target_switch_async,
 )
-from osprey_connectors import control_context
+from osprey_connectors import control_context, posture_store
 from osprey_connectors.ipc import derive_endpoints
 from osprey_connectors.types import configured_targets, target_limits_posture
 
@@ -332,13 +332,13 @@ def target_rows(
     # malformed one with the baseline alone.
     section = config.get("control_system") if isinstance(config, dict) else None
     for target in configured_targets(section):
-        # The deployment's real posture for the target, read ONCE and then used
-        # for every answer this row carries. The eligibility verdict, the
-        # gateway role and the `writes_permitted` flag are three views of the
-        # same fact, and a row that read the store separately for each could
-        # report a role the operator narrowed away beside a flag saying they
-        # had not.
-        writes_permitted = _writes_permitted(config, target)
+        # The write verdict for the target, taken ONCE and then used for every
+        # answer this row carries. The eligibility verdict, the gateway role
+        # and the `writes_permitted` flag are three views of the same fact, and
+        # a row that took the verdict separately for each could report a role
+        # the operator's switch turned off beside a flag saying it was on.
+        write_verdict = _write_verdict(config, target)
+        writes_permitted = write_verdict.allowed
         availability = target_availability(
             config,
             target,
@@ -359,12 +359,15 @@ def target_rows(
             "detail": availability.detail,
             "eligible": availability.eligible,
             "eligible_from_baseline": availability.eligible_from_baseline,
-            # This target's own write posture, carried on every row so a reader
-            # never has to pair a row with a flag from somewhere else. Rows of
-            # one deployment may differ: posture is per connector type, so a
-            # simulator can be armed beside a live machine that is not. The
-            # gateway those writes would leave by is `selected_role`.
+            # The write verdict for this target, carried on every row so a
+            # reader never has to pair a row with a flag from somewhere else.
+            # Rows of one deployment may differ: the switch is per target, so a
+            # simulator can be on beside a live machine that is off. The
+            # gateway those writes would leave by is `selected_role`, and
+            # `writes_reason` is the verdict's refusal reason (None when
+            # writes are allowed).
             "writes_permitted": writes_permitted,
+            "writes_reason": write_verdict.reason,
             # This target's own limits posture, per connector type for the same
             # reason the write posture is: a deployment may run its simulator
             # in the optional mode while its live machine runs exclusive.
@@ -372,7 +375,7 @@ def target_rows(
             # exclusive; a target whose config states neither is not strict,
             # because a deployment that stated nothing has refused nothing.
             # Unlike `writes_permitted`, this is a deployment fact, not a
-            # session one: the store narrows what a session may write, never
+            # session one: the switch decides what a session may write, never
             # which channels a target's limits database governs.
             "limits_strict": target_limits_posture(section, target).strict,
         }
@@ -398,22 +401,25 @@ def target_rows(
     return rows
 
 
-def _writes_permitted(config: Any, target: str) -> bool:
-    """Whether a write to *target* would be permitted on this deployment, now.
+def _write_verdict(config: Any, target: str) -> posture_store.WriteVerdict:
+    """The write verdict for *target* on this deployment, now.
 
-    Three things decide it: that target's own posture
-    (``control_system.connector.<type>.writes_enabled``, falling back to
-    ``control_system.writes_enabled`` where its type states none), this run's
-    own claim (``OSPREY_EXECUTION_MODE``), and the operator's narrowing from
-    the header chip. All three are combined by
-    :func:`~osprey.mcp_server.control_system.target_eligibility.effective_writes_for_target`,
-    which is also the value the roster hands
-    :func:`~osprey_connectors.ipc.derive_endpoints`
-    — so the flag a row reports and the gateway that row names are the same
-    answer rather than two readings that could drift apart.
+    :func:`~osprey.mcp_server.control_system.target_eligibility.target_write_verdict`:
+    the tier, this run's mode, the owner and the login's switch for *target*,
+    decided once by :func:`~osprey_connectors.posture_store.write_verdict`. Its
+    ``allowed`` is also the value the roster hands
+    :func:`~osprey_connectors.ipc.derive_endpoints`, so the flag a row reports
+    and the gateway that row names are the same answer rather than two
+    readings that could drift apart, and its ``reason`` is what the row reports
+    when writes are refused.
     """
     section = config.get("control_system") if isinstance(config, dict) else None
-    return effective_writes_for_target(section, target)
+    return target_write_verdict(section, target)
+
+
+def _writes_permitted(config: Any, target: str) -> bool:
+    """Whether the write verdict for *target* allows writes (:func:`_write_verdict`)."""
+    return _write_verdict(config, target).allowed
 
 
 @mcp.tool()
@@ -431,7 +437,7 @@ async def control_target() -> str:
     reachability observation where it has one (``endpoint_tcp``, ``probed_at``,
     and ``stale`` once an observation is too old to stand); whether writes are
     permitted on that target, which is a per-target answer and not one flag for
-    the deployment; whether that target's limits are exclusive
+    the deployment, and ``writes_reason``, why not when they are not; whether that target's limits are exclusive
     (``limits_strict`` — limits checking on and channels the limits database
     does not list refused), which is per-target for the same reason; whether
     the target is the real machine; and the channel a switch would read to
@@ -560,9 +566,9 @@ def _gate(
 
     The inputs are gathered here because the gate opens no file: the record's
     target rather than this manager's, because the answer is written into the
-    record and it is the record the deployment routes by; and the deployment's
-    effective write posture, so a target the operator narrowed is not refused
-    for a gateway role the child would never have selected.
+    record and it is the record the deployment routes by; and the write
+    verdict for *wanted*, so a target whose switch is off is not refused for a
+    gateway role the child would never have selected.
     """
     return evaluate_switch(
         context.config.raw,

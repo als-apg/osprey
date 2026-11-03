@@ -9,23 +9,22 @@ renders is a target described one way in a single-user session and another way
 through a login — and one of those two operators would be wrong about where
 they are.
 
-Three projections are asserted here, all on a real build of the exemplar:
+Two projections are asserted here, all on a real build of the exemplar:
 
 * ``services.live_standin.port`` — ungated, alone among the service ports,
   because it is the whole evidence the ``standin`` slot's label is derived
-  from. The stand-in is its own target now: the parenthesis belongs to the
-  ``standin`` slot, and ``live`` stays plain ``LIVE MACHINE`` — it names the
+  from. The stand-in is its own target now: the rehearsal words belong to the
+  ``standin`` slot, and ``live`` stays the real machine's banner — it names the
   machine authored under ``epics:``, which a deployment running a stand-in
   does not rewrite.
 * ``services.virtual_accelerator.port`` — the port a render session that
   switches to ``va`` would dial, gated on the ``va`` target resolving rather
   than on the deployment baseline (SC-9). A stand-in-baselined deployment
   still offers the simulator.
-* ``services.archiver_recorder.path`` — not an endpoint at all: the host's
-  fact THAT it records its own store, which is what
-  ``archive_belongs_to_standin`` reads to decide whose history the archive
-  holds, and on that answer the ``live`` target is refused. A render queries
-  that same store, so the gate has to hold in a render session too.
+
+The archive recorder projects nothing. It writes the virtual accelerator's
+store, and whose history that is follows from the control system a render
+already carries; no gate reads the recorder, so no render is told of it.
 
 The unit behind the labels (``tests/mcp_server/test_control_target_roster.py``)
 stages its config by hand; what only a build can show is that the config a
@@ -40,18 +39,19 @@ either half alone would be satisfiable by breaking the other.
 
 from __future__ import annotations
 
-import os
+import json
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
 import pytest
 import yaml
-from click.testing import CliRunner
 
-from osprey.cli.build_cmd import build as build_command
+from osprey.deployment import status_display
 from osprey.deployment.reach import reach_errors
 from osprey.mcp_server.control_system.connector_host_manager import target_display_metadata
-from osprey_connectors.standin import archive_belongs_to_standin
+from osprey_connectors.write_target import KIND_BANNERS
+from tests.cli._lifecycle_build import invoke_build_in
 from tests.fixtures.lifecycle_repo import (
     EXEMPLAR_DIRNAME,
     build_exemplar_repo,
@@ -61,8 +61,6 @@ from tests.fixtures.lifecycle_repo import (
 #: Every test here renders a deployment and its renders for real.
 pytestmark = pytest.mark.slow
 
-CI_FLAGS = ["--skip-deps", "--skip-lifecycle"]
-
 STANDIN_PORT = 5074
 
 #: The exemplar's two web-terminal renders. Both are checked because the
@@ -70,8 +68,12 @@ STANDIN_PORT = 5074
 #: are pointed at the same deployment and must be told the same thing about it.
 RENDERS = ("readonly", "readwrite")
 
-STANDIN_LABEL = "LIVE MACHINE (stand-in)"
-LIVE_LABEL = "LIVE MACHINE"
+#: The stand-in's published label (C-WORDS): the rehearsal, never the real machine.
+STANDIN_LABEL = "Rehearsal — nothing moves"
+#: The words only this deployment's own stand-in may carry.
+NOTHING_MOVES = "nothing moves"
+#: The real machine's published label (C-WORDS, D4): its kind's banner.
+LIVE_LABEL = "Live — writes move hardware"
 
 
 def _build_exemplar(dest: Path, *, standin: int | None) -> Path:
@@ -91,8 +93,7 @@ def _build_exemplar(dest: Path, *, standin: int | None) -> Path:
     repo = build_exemplar_repo(dest / EXEMPLAR_DIRNAME, seed_env=True)
     ruamel = YAML(typ="rt")
     profile_path = repo / "profile.yml"
-    with profile_path.open("r", encoding="utf-8") as handle:
-        profile = ruamel.load(handle)
+    profile = ruamel.load(profile_path)
     block = profile["virtual_accelerator"]
     if standin is None:
         block.pop("live_standin", None)
@@ -100,16 +101,10 @@ def _build_exemplar(dest: Path, *, standin: int | None) -> Path:
     else:
         block["live_standin"] = standin
         profile["config"]["control_system.type"] = "live_standin"
-    with profile_path.open("w", encoding="utf-8") as handle:
-        ruamel.dump(profile, handle)
+    ruamel.dump(profile, profile_path)
 
-    previous = Path.cwd()
-    os.chdir(repo)
-    try:
-        with preserved_environ():
-            result = CliRunner().invoke(build_command, CI_FLAGS)
-    finally:
-        os.chdir(previous)
+    with preserved_environ():
+        result = invoke_build_in(repo)
     assert result.exit_code == 0, result.output
     return repo
 
@@ -140,18 +135,15 @@ def test_live_standin_render_projects_the_port_and_nothing_else(standin_repo, re
     """The stand-in reaches a render as one key: where to dial it.
 
     ``path`` is the deployment's own business — a render runs no containers
-    and resolves no compose file — so its absence from the stand-in's block is
-    what makes this a projection rather than a copy of the deployment's
-    service block. The recorder's ``path`` is the one exception in the render
-    and is not an endpoint at all; it has its own test below.
+    and resolves no compose file — so its absence from every block is what
+    makes this a projection rather than a copy of the deployment's service
+    block.
     """
     config = _render_config(standin_repo, render)
 
     assert config["services"]["live_standin"] == {"port": STANDIN_PORT}
     assert not config.get("deployed_services")
     for name, block in config["services"].items():
-        if name == "archiver_recorder":
-            continue
         assert "path" not in block, f"{name}: {block}"
 
 
@@ -169,6 +161,8 @@ def test_the_standin_slot_is_labelled_a_stand_in(standin_repo, render: str) -> N
     metadata = target_display_metadata(_render_config(standin_repo, render))["standin"]
 
     assert metadata["label"] == STANDIN_LABEL
+    assert LIVE_LABEL not in metadata["label"]
+    assert metadata["machine_kind"] == "rehearsal"
     assert metadata["real_machine"] is True
     assert metadata["endpoint"] == f"localhost:{STANDIN_PORT}"
 
@@ -187,6 +181,7 @@ def test_the_live_slot_is_never_renamed_a_stand_in(standin_repo, render: str) ->
     metadata = target_display_metadata(_render_config(standin_repo, render))["live"]
 
     assert metadata["label"] == LIVE_LABEL
+    assert NOTHING_MOVES not in metadata["label"].lower()
     assert metadata["real_machine"] is True
     host, _, port = metadata["endpoint"].rpartition(":")
     assert host not in ("localhost", "127.0.0.1"), metadata["endpoint"]
@@ -250,24 +245,19 @@ def test_the_render_is_reachable_as_the_build_reads_it(standin_repo, render: str
 
 
 @pytest.mark.parametrize("render", RENDERS)
-def test_the_recorder_fact_reaches_a_render_of_a_recording_host(standin_repo, render: str) -> None:
-    """A render is told THAT its host records its own store, not where.
+def test_the_recorder_reaches_no_render(standin_repo, render: str) -> None:
+    """The host records its own store and tells its renders nothing of it.
 
-    ``deployed_services`` is the deploying render's spelling of that fact and
-    is empty in every render, so the recorder's block is projected
-    ungated beside the stand-in's port. Its only reader is
-    ``archive_belongs_to_standin``, and on that answer the ``live`` target is
-    refused: a real machine's readings spliced onto a stand-in's synthesized
-    past is the one thing an archive must never contain. The path is the
-    host's, and projecting it grows no surface — a service is rendered and
-    started off ``deployed_services``, never off a ``services:`` block.
+    The store is the virtual accelerator's, whichever render reads it, and no
+    gate on any target reads the recorder — so there is no fact to project
+    and no ``services.archiver_recorder`` block in a tier render.
     """
-    host_path = _host_config(standin_repo)["services"]["archiver_recorder"]["path"]
+    assert "archiver_recorder" in _host_config(standin_repo)["services"]
+
     config = _render_config(standin_repo, render)
 
-    assert config["services"]["archiver_recorder"] == {"path": host_path}
+    assert "archiver_recorder" not in config["services"]
     assert not config.get("deployed_services")
-    assert archive_belongs_to_standin(config) is True
 
 
 @pytest.mark.parametrize("render", RENDERS)
@@ -282,10 +272,127 @@ def test_a_render_of_a_deployment_with_no_stand_in_is_told_of_none(plain_repo, r
     """
     config = _render_config(plain_repo, render)
     assert "live_standin" not in config["services"]
-    assert not archive_belongs_to_standin(config)
 
     metadata = target_display_metadata(config)
     assert metadata["live"]["label"] == LIVE_LABEL
     assert metadata["live"]["real_machine"] is True
     assert metadata["standin"]["label"] != STANDIN_LABEL
+    assert NOTHING_MOVES not in metadata["standin"]["label"].lower()
+    assert metadata["standin"]["machine_kind"] == "real"
     assert metadata["standin"]["endpoint"] == ""
+
+
+# ---------------------------------------------------------------------------
+# ``osprey status``'s Target cell: the machine's words beside the raw key (D4)
+# ---------------------------------------------------------------------------
+#
+# Status runs on the host. In a containerised deployment a controls server's
+# report is named for a PID in the container's namespace, so the host cannot
+# ask the kernel whether that server lives; the cell trusts a report only by
+# its own ``updated_at``. Every way of failing to trust one reads ``standin``
+# as the real machine — never the other way round.
+
+
+_NOW = datetime(2026, 10, 26, 12, 0, tzinfo=UTC)
+
+
+def _write_report(state_dir: Path, pid: int, *, kind: str | None, age_s: float) -> None:
+    """A controls server's report naming *standin*'s *kind*, written *age_s* before now."""
+    state_dir.mkdir(parents=True, exist_ok=True)
+    targets = {} if kind is None else {"standin": {"machine_kind": kind}}
+    payload = {
+        "server_pid": pid,
+        "targets": targets,
+        "updated_at": (_NOW - timedelta(seconds=age_s)).isoformat(),
+    }
+    (state_dir / f"server_{pid}.json").write_text(json.dumps(payload), encoding="utf-8")
+
+
+@pytest.mark.parametrize(("target", "kind"), [("live", "real"), ("va", "simulator")])
+def test_status_names_live_and_va_from_the_name_table(tmp_path, target, kind) -> None:
+    # A report cannot rename them, so even one claiming a rehearsal is ignored.
+    _write_report(tmp_path, 4242, kind="rehearsal", age_s=1)
+
+    cell = status_display._target_cell(target, tmp_path, now=_NOW)
+
+    assert cell == f"{target} ({KIND_BANNERS[kind]})"
+
+
+def test_status_names_a_standin_a_fresh_report_vouches_for_a_rehearsal(tmp_path) -> None:
+    # PID 999999 is not a host process: freshness, not os.kill, is the signal.
+    _write_report(tmp_path, 999999, kind="rehearsal", age_s=10)
+
+    cell = status_display._target_cell("standin", tmp_path, now=_NOW)
+
+    assert cell == "standin (Rehearsal — nothing moves)"
+    assert cell == f"standin ({KIND_BANNERS['rehearsal']})"
+
+
+@pytest.mark.parametrize(
+    "setup",
+    ["no_report", "stale_report", "future_report", "no_standin_entry", "newest_says_real"],
+)
+def test_status_names_an_unvouched_standin_the_real_machine(tmp_path, setup) -> None:
+    if setup == "stale_report":
+        # A dead server's report — or a host PID that merely collides — is old.
+        _write_report(tmp_path, 1, kind="rehearsal", age_s=status_display.REPORT_FRESH_S + 1)
+    elif setup == "future_report":
+        _write_report(tmp_path, 1, kind="rehearsal", age_s=-60)
+    elif setup == "no_standin_entry":
+        _write_report(tmp_path, 1, kind=None, age_s=1)
+    elif setup == "newest_says_real":
+        _write_report(tmp_path, 1, kind="rehearsal", age_s=30)
+        _write_report(tmp_path, 2, kind="real", age_s=5)
+
+    cell = status_display._target_cell("standin", tmp_path, now=_NOW)
+
+    assert cell == f"standin ({KIND_BANNERS['real']})"
+
+
+def test_status_never_borrows_another_directory_for_an_unnamed_login(tmp_path, monkeypatch) -> None:
+    """A login whose directory cannot be named reads real, not the caller's reports."""
+    from osprey_connectors import posture_store
+
+    _write_report(tmp_path, 1, kind="rehearsal", age_s=1)
+    monkeypatch.setattr(posture_store, "state_dir", lambda: tmp_path)
+
+    assert status_display._target_cell("standin", None, now=_NOW) == (
+        f"standin ({KIND_BANNERS['real']})"
+    )
+
+
+@pytest.mark.parametrize("cell", ["—", "?"])
+def test_status_leaves_a_cell_that_names_no_target_as_it_is(tmp_path, cell) -> None:
+    assert status_display._target_cell(cell, tmp_path, now=_NOW) == cell
+
+
+def test_status_prints_the_words_beside_the_key(tmp_path, monkeypatch) -> None:
+    """The printed Writes table carries the cell, not only the raw key."""
+    rows = [
+        ("alice", "allowed", "live", "live"),
+        ("bob", "allowed", "standin", "standin"),
+        ("carol", "allowed", "—", "off"),
+    ]
+    printed: list[tuple] = []
+
+    class _Table:
+        def add_column(self, *a, **k) -> None:
+            pass
+
+        def add_row(self, *cells) -> None:
+            printed.append(cells)
+
+    monkeypatch.setattr(status_display, "writes_rows", lambda config, repo: rows)
+    monkeypatch.setattr(status_display, "data_table", _Table)
+    monkeypatch.setattr(status_display, "_login_state_dir", lambda c, r, login: tmp_path)
+    monkeypatch.setattr(status_display.output, "table", lambda table: None)
+    monkeypatch.setattr(status_display.output, "report", lambda *a, **k: None)
+    monkeypatch.setattr(status_display.output, "section", lambda *a, **k: None)
+
+    status_display._print_writes_section({}, tmp_path)
+
+    assert [row[2] for row in printed] == [
+        "live (Live — writes move hardware)",
+        "standin (Live — writes move hardware)",
+        "—",
+    ]

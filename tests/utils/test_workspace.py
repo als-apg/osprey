@@ -21,12 +21,12 @@ from pathlib import Path
 
 import pytest
 
+from osprey.utils.workspace import repo_root_for_agent_data
 from osprey_connectors.workspace import (
     DEFAULT_AGENT_DATA_BASE_DIR,
     RENDERED_CONFIG_RELPATH,
     load_osprey_config,
     rendered_config_path,
-    repo_root_for_agent_data,
     reset_config_cache,
     resolve_agent_data_root,
     resolve_config_path,
@@ -298,21 +298,17 @@ class TestResolveSharedDataRoot:
 class TestRepoRootForAgentData:
     """The anchor that turns an agent-data root back into the repo root."""
 
-    def test_strips_a_multi_segment_base_dir(self):
-        assert repo_root_for_agent_data(Path("/srv/repo/var/agent_data"), "var/agent_data") == Path(
-            "/srv/repo"
-        )
-
-    def test_strips_a_single_segment_base_dir(self):
-        assert repo_root_for_agent_data(Path("/srv/repo/agent_data"), "agent_data") == Path(
-            "/srv/repo"
-        )
-
-    def test_falls_back_to_the_parent_when_the_tail_does_not_match(self):
-        # A root that was not produced by this base_dir: the pre-base_dir answer.
-        assert repo_root_for_agent_data(Path("/srv/repo/elsewhere"), "var/agent_data") == Path(
-            "/srv/repo"
-        )
+    @pytest.mark.parametrize(
+        ("root", "base_dir"),
+        [
+            pytest.param("/srv/repo/var/agent_data", "var/agent_data", id="multi-segment-base-dir"),
+            pytest.param("/srv/repo/agent_data", "agent_data", id="single-segment-base-dir"),
+            # A root that was not produced by this base_dir: the pre-base_dir answer.
+            pytest.param("/srv/repo/elsewhere", "var/agent_data", id="tail-does-not-match"),
+        ],
+    )
+    def test_answers_the_repo_root(self, root, base_dir):
+        assert repo_root_for_agent_data(Path(root), base_dir) == Path("/srv/repo")
 
     @pytest.mark.parametrize("base_dir", ["/data/agent", "/data", "/srv/deploy/data/agent"])
     def test_an_absolute_base_dir_answers_instead_of_raising(self, base_dir):
@@ -348,3 +344,32 @@ class TestResolvePath:
         _write_config(tmp_path, f"project_root: {tmp_path}\n")
         monkeypatch.setenv("CONFIG_FILE", str(tmp_path / "config.yml"))
         assert resolve_path("data/limits.json") == tmp_path / "data" / "limits.json"
+
+
+class TestFrameworkCopiesOfConnectorPrivates:
+    """The layout names the framework owns and the connector package spells privately.
+
+    The connector package's resolvers need the repo-root marker and the state
+    zone, but those names are the framework's vocabulary, so the package keeps
+    its own spelling private and the framework's is the public one. Two
+    spellings of one path drift silently; this holds them equal.
+    """
+
+    def test_the_repo_root_marker_is_spelled_once(self):
+        from osprey.utils import workspace as framework_workspace
+        from osprey_connectors import workspace as connector_workspace
+
+        assert framework_workspace.PROFILE_FILENAME == connector_workspace._PROFILE_FILENAME
+
+    def test_the_state_zone_is_spelled_once(self):
+        from osprey.utils import workspace as framework_workspace
+        from osprey_connectors import workspace as connector_workspace
+
+        assert framework_workspace.STATE_DIR_NAME == connector_workspace._STATE_DIR_NAME
+        assert DEFAULT_AGENT_DATA_BASE_DIR.startswith(f"{framework_workspace.STATE_DIR_NAME}/")
+
+    def test_the_runtime_write_keys_are_the_ones_the_config_load_warns_about(self):
+        from osprey.utils.workspace import RUNTIME_WRITE_PATH_KEYS
+        from osprey_connectors import config as connector_config
+
+        assert connector_config._RUNTIME_WRITE_PATH_KEYS == RUNTIME_WRITE_PATH_KEYS

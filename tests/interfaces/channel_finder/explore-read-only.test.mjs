@@ -21,9 +21,18 @@ vi.mock('../../../src/osprey/interfaces/channel_finder/static/js/app.js', () => 
   showToast: vi.fn(),
 }));
 
-import { mountInContext, unmountInContext } from '../../../src/osprey/interfaces/channel_finder/static/js/explore-in-context.js';
-import { mountHierarchical, unmountHierarchical } from '../../../src/osprey/interfaces/channel_finder/static/js/explore-hierarchical.js';
-import { mountMiddleLayer, unmountMiddleLayer } from '../../../src/osprey/interfaces/channel_finder/static/js/explore-middle-layer.js';
+import {
+  mountInContext,
+  unmountInContext,
+} from '../../../src/osprey/interfaces/channel_finder/static/js/explore-in-context.js';
+import {
+  mountHierarchical,
+  unmountHierarchical,
+} from '../../../src/osprey/interfaces/channel_finder/static/js/explore-hierarchical.js';
+import {
+  mountMiddleLayer,
+  unmountMiddleLayer,
+} from '../../../src/osprey/interfaces/channel_finder/static/js/explore-middle-layer.js';
 
 // `import.meta.dirname` is a plain path string, so it sidesteps happy-dom's URL.
 const JS_DIR = join(import.meta.dirname, '../../../src/osprey/interfaces/channel_finder/static/js');
@@ -39,7 +48,10 @@ const EDIT_CONTROLS = [
 
 /** Read-route fixtures, matched by path prefix. */
 const ROUTES = {
-  '/api/channels': { channels: [{ channel: 'CH:A', address: 'CH:A', description: 'first' }], total: 1 },
+  '/api/channels': {
+    channels: [{ channel: 'CH:A', address: 'CH:A', description: 'first' }],
+    total: 1,
+  },
   '/api/explore/hierarchy-info': {
     hierarchy_levels: ['system', 'device'],
     hierarchy_config: { levels: { system: { type: 'tree' }, device: { type: 'instances' } } },
@@ -54,13 +66,22 @@ let requested = [];
 
 function stubReadRoutes() {
   requested = [];
-  vi.stubGlobal('fetch', vi.fn(async (/** @type {string} */ url) => {
-    requested.push(url);
-    const path = url.split('?')[0];
-    const body = /** @type {Record<string, any>} */ (ROUTES)[path];
-    if (body === undefined) return { ok: false, status: 404, statusText: 'Not Found', json: async () => ({ detail: 'Not Found' }) };
-    return { ok: true, json: async () => body };
-  }));
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (/** @type {string} */ url) => {
+      requested.push(url);
+      const path = url.split('?')[0];
+      const body = /** @type {Record<string, any>} */ (ROUTES)[path];
+      if (body === undefined)
+        return {
+          ok: false,
+          status: 404,
+          statusText: 'Not Found',
+          json: async () => ({ detail: 'Not Found' }),
+        };
+      return { ok: true, json: async () => body };
+    })
+  );
 }
 
 /** @returns {HTMLElement} */
@@ -87,7 +108,7 @@ afterEach(() => {
 });
 
 test('no explore renderer imports a write helper from api.js', () => {
-  const files = readdirSync(JS_DIR).filter(f => f.startsWith('explore') && f.endsWith('.js'));
+  const files = readdirSync(JS_DIR).filter((f) => f.startsWith('explore') && f.endsWith('.js'));
   expect(files.length).toBeGreaterThan(0);
   for (const file of files) {
     const src = readFileSync(join(JS_DIR, file), 'utf8');
@@ -114,7 +135,7 @@ test('hierarchical view names the corrections route and renders no edit control'
   await mountHierarchical(container);
   expect(container.textContent).toContain('SYS');
   expectReadOnly(container);
-  expect(requested.some(u => u.startsWith('/api/tree/'))).toBe(false);
+  expect(requested.some((u) => u.startsWith('/api/tree/'))).toBe(false);
 });
 
 test('middle-layer view names the corrections route and renders no edit control', async () => {

@@ -1,24 +1,20 @@
-"""The ``ring`` word is gone from the shipped code (lattice/deck instead), and the
-engine's own words stay inside the engine's zones.
+"""The engine's own words stay inside the engine's zones, and retired words stay gone.
 
-The scan runs ``git grep`` over the tracked text files under ``SCAN_PATHS``, and
-every file it reports is a failure: no file carries the word.
-
-A line quoting an outside format word for word carries ``QUOTE_MARKER`` and is
-not reported.
-
-The engine words (``ENGINE_WORDS``) are a second, permanent token: a file
+The engine words (``ENGINE_WORDS``) are a permanent token: a file
 outside ``ENGINE_ZONES`` that names a pyAT attribute or the ``axis`` key is
 classifying a binding by the engine's words rather than by the ``role`` and
 ``plane`` the simulator view states.
 
-The roster's retired word (``RETIRED_ROSTER_WORD``) is a third token, scanned
+The roster's retired word (``RETIRED_ROSTER_WORD``) is a second token, scanned
 over every tracked file by content and by path. Only the code that reads the old
 spelling, the frozen previous-release repo and the released notes keep it
 (``RETIRED_ROSTER_READERS``); ``RETIRED_ROSTER_INTERIM`` names the trees a later
 task still rewords, each row deleted by that task. A data line that must spell
 the old key carries ``RETIRED_SPELLING_MARKER``. An allowlist row that stops
 matching anything fails, so the list only shrinks.
+
+The example deployment name that named a site (``SITE_EXAMPLE_WORD``) is a
+third token, scanned over the core text under ``SITE_SCAN_PATHS``.
 """
 
 from __future__ import annotations
@@ -30,111 +26,13 @@ from pathlib import Path
 
 import pytest
 
-from tests._vocabulary import ENGINE_WORDS, RATCHET_WORD, RETIRED_ROSTER_WORD
+from tests._vocabulary import (
+    ENGINE_WORDS,
+    RETIRED_ROSTER_WORD,
+    SITE_EXAMPLE_WORD,
+)
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-
-#: The word the scan matches, shared with the agent-facing guard.
-PATTERN = RATCHET_WORD
-
-SCAN_PATHS: tuple[str, ...] = (
-    "src",
-    "packages",
-    "scripts/facility_schema",
-)
-
-#: The MATLAB Middle Layer exporter the mml layer ships: MATLAB source written
-#: in the Middle Layer's own words (``THERING``, "the ring"), an outside format.
-OUTSIDE_FORMAT_FILES: tuple[str, ...] = ("src/osprey/facility/layers/mml/mml_export.m",)
-
-EXCLUDED: tuple[str, ...] = (
-    *OUTSIDE_FORMAT_FILES,
-    "**/templates/apps/*/data/**",
-    "**/templates/facilities/**",
-    "**/data/facility/**",
-    "**/static/**/vendor/**",
-    "**/*.min.js",
-    "**/*.svg",
-    "packages/*/tests/**",
-)
-
-QUOTE_MARKER = "outside-format-quote"
-
-
-def scan(root: Path) -> set[str]:
-    """Return the tracked files under ``root`` with an unmarked matching line."""
-    pathspec = [*SCAN_PATHS, *(f":(exclude,glob){glob}" for glob in EXCLUDED)]
-    result = subprocess.run(
-        ["git", "grep", "-I", "-z", "-P", "-e", PATTERN, "--", *pathspec],
-        cwd=root,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    assert result.returncode in (0, 1), result.stderr
-    hits: set[str] = set()
-    for line in result.stdout.split("\n"):
-        if not line:
-            continue
-        path, _, content = line.partition("\0")
-        if QUOTE_MARKER not in content:
-            hits.add(path)
-    return hits
-
-
-def violations(hits: set[str]) -> list[str]:
-    """Return one line per reported file, sorted."""
-    return [f"{path}: carries the word and has no allowlist entry" for path in sorted(hits)]
-
-
-# --- the pattern ------------------------------------------------------------------
-
-
-@pytest.mark.parametrize("text", ["strings", "wirings", "string_field", "Spring", "ringing"])
-def test_pattern_leaves_other_words(text: str) -> None:
-    assert re.search(PATTERN, text) is None
-
-
-@pytest.mark.parametrize(
-    "text", ["storage ring", "PyATRingModel", "ring_buffer", "RING", "load_ring", "Ring_Model"]
-)
-def test_pattern_finds_the_word(text: str) -> None:
-    assert re.search(PATTERN, text) is not None
-
-
-# --- the scan ---------------------------------------------------------------------
-
-
-def test_the_exporter_is_the_only_excluded_file_under_the_facility_package() -> None:
-    def listed(*excludes: str) -> set[str]:
-        """The tracked non-empty files under the package the scan's pathspec keeps."""
-        pathspec = ["src/osprey/facility", *(f":(exclude,glob){glob}" for glob in excludes)]
-        result = subprocess.run(
-            ["git", "grep", "-l", "-z", "-a", "-e", "", "--", *pathspec],
-            cwd=REPO_ROOT,
-            capture_output=True,
-            text=True,
-            check=True,
-        )
-        return set(filter(None, result.stdout.split("\0")))
-
-    assert listed() - listed(*EXCLUDED) == set(OUTSIDE_FORMAT_FILES)
-
-
-def test_scan_covers_the_facility_scripts() -> None:
-    assert {"scripts/facility_schema"} <= set(SCAN_PATHS)
-
-
-def test_binary_fonts_are_never_reported() -> None:
-    fonts = subprocess.run(
-        ["git", "ls-files", "--", "src/**/*.ttf"],
-        cwd=REPO_ROOT,
-        capture_output=True,
-        text=True,
-        check=True,
-    ).stdout.split()
-    assert fonts, "no tracked .ttf under src/ to prove the binary skip on"
-    assert [path for path in scan(REPO_ROOT) if path.endswith(".ttf")] == []
 
 
 def _planted_repo(root: Path, files: Mapping[str, str]) -> Path:
@@ -145,35 +43,6 @@ def _planted_repo(root: Path, files: Mapping[str, str]) -> Path:
         path.write_text(text, encoding="utf-8")
     subprocess.run(["git", "add", "-A"], cwd=root, check=True)
     return root
-
-
-def test_planted_word_under_facility_schema_is_flagged(tmp_path: Path) -> None:
-    root = _planted_repo(
-        tmp_path,
-        {
-            "scripts/facility_schema/planted.py": "LATTICE = 'storage ring'\n",
-            "scripts/facility_schema/quoted.py": f"KEY = 'ring'  # {QUOTE_MARKER}\n",
-            "src/pkg/templates/apps/demo/data/notes.md": "the ring\n",
-            "src/pkg/data/facility/identity.yaml": "name: ring\n",
-            "src/pkg/static/js/vendor/lib.js": "ring\n",
-            "src/pkg/static/app.min.js": "ring\n",
-            "src/pkg/static/icon.svg": "<svg>ring</svg>\n",
-            "src/pkg/clean.py": "strings = wirings = 'string_field'\n",
-            "docs/page.md": "storage ring\n",
-        },
-    )
-    hits = scan(root)
-    assert hits == {"scripts/facility_schema/planted.py"}
-    assert violations(hits) == [
-        "scripts/facility_schema/planted.py: carries the word and has no allowlist entry"
-    ]
-
-
-# --- the tree ---------------------------------------------------------------------
-
-
-def test_no_shipped_file_carries_the_word() -> None:
-    assert violations(scan(REPO_ROOT)) == []
 
 
 # --- the engine words -------------------------------------------------------------
@@ -371,3 +240,62 @@ def test_every_retired_word_allowlist_entry_still_matches() -> None:
         if not hit_paths.intersection(covered):
             stale.append(glob)
     assert stale == [], f"allowlist rows that cover no hit any more, delete them: {stale}"
+
+
+# --- the site example name --------------------------------------------------------
+
+#: The core text the site example name never enters.
+SITE_SCAN_PATHS: tuple[str, ...] = ("src", "packages", "docs", "plugins", "README.md")
+
+
+def site_example_hits(root: Path) -> list[str]:
+    """Every ``path:line`` under ``SITE_SCAN_PATHS`` naming the site example name."""
+    result = subprocess.run(
+        [
+            "git",
+            "grep",
+            "-I",
+            "-n",
+            "-P",
+            "-e",
+            SITE_EXAMPLE_WORD,
+            "--",
+            *SITE_SCAN_PATHS,
+        ],
+        cwd=root,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode in (0, 1), result.stderr
+    return sorted(":".join(line.split(":", 2)[:2]) for line in result.stdout.splitlines() if line)
+
+
+@pytest.mark.parametrize("text", ["als-assistant", "~/deployments/als-assistant/tiers"])
+def test_site_example_word_finds_the_name(text: str) -> None:
+    assert re.search(SITE_EXAMPLE_WORD, text) is not None
+
+
+@pytest.mark.parametrize("text", ["my-assistant", "als-assistants-guide", "pals-assistant"])
+def test_site_example_word_leaves_other_words(text: str) -> None:
+    assert re.search(SITE_EXAMPLE_WORD, text) is None
+
+
+def test_a_planted_site_example_is_flagged(tmp_path: Path) -> None:
+    line = "osprey init als-assistant\n"
+    root = _planted_repo(
+        tmp_path,
+        {
+            "src/x.py": line,
+            "docs/x.rst": line,
+            "plugins/x/SKILL.md": line,
+            "tests/x.py": line,
+            "CHANGELOG.md": line,
+        },
+    )
+
+    assert site_example_hits(root) == ["docs/x.rst:1", "plugins/x/SKILL.md:1", "src/x.py:1"]
+
+
+def test_no_core_text_names_the_site_example() -> None:
+    assert site_example_hits(REPO_ROOT) == []

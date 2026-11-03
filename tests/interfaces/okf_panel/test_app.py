@@ -59,6 +59,22 @@ def test_root_serves_spa_shell(client):
     assert '<div id="app">' in r.text
 
 
+def test_root_loads_dompurify_from_the_cdn_by_default(client, monkeypatch):
+    from osprey.interfaces.vendor import asset_cdn_url
+
+    monkeypatch.setenv("OSPREY_OFFLINE", "0")
+    body = client.get("/").text
+    assert f'<script src="{asset_cdn_url("DOMPurify")}"></script>' in body
+    assert body.index("purify.min.js") < body.index("/static/js/app.js")
+
+
+def test_root_loads_the_vendored_dompurify_offline(client, monkeypatch):
+    monkeypatch.setenv("OSPREY_OFFLINE", "1")
+    body = client.get("/").text
+    assert '<script src="/static/vendor/purify.min.js"></script>' in body
+    assert "{{" not in body
+
+
 def test_concepts_grouped_and_sorted(client):
     groups = client.get("/api/concepts").json()["groups"]
     ids = [g["id"] for g in groups]
@@ -399,6 +415,121 @@ def test_unreadable_config_degrades_to_substring_not_to_a_dead_panel(monkeypatch
     assert c.get("/health").json()["configured"] is True
     assert c.get("/api/search", params={"q": "Example Research Facility"}).json()["results"]
     assert any("misconfigured" in r.message for r in caplog.records)
+
+
+# ---------------------------------------------------------------------------
+# Facility links: resolved against the render's facility file
+# ---------------------------------------------------------------------------
+
+_LINKED_BODY = (
+    "Read [X](facility:SR:DIAG:BPM:01:POSITION:X) on [the monitor](facility:SR/BPM01), "
+    "the [twin](facility:TWIN) and [a gone one](<facility:NO SUCH>)."
+)
+
+
+def _linked_bundle(root: Path) -> Path:
+    bundle = root / "bundle"
+    (bundle / "devices").mkdir(parents=True)
+    (bundle / "devices" / "bpm.md").write_text(
+        f"---\ntype: device\ntitle: BPM\ndescription: A monitor.\n---\n\n{_LINKED_BODY}\n",
+        encoding="utf-8",
+    )
+    return bundle
+
+
+def test_concept_carries_its_facility_references_resolved(monkeypatch, tmp_path):
+    import json
+
+    import osprey_connectors.workspace as workspace
+
+    render = tmp_path / "render"
+    render.mkdir()
+    (render / "facility.json").write_text(
+        json.dumps(
+            {
+                "channels": [
+                    {"id": "SR:DIAG:BPM:01:POSITION:X", "unit": "mm", "description": "Beam X."},
+                    {"id": "TWIN"},
+                ],
+                "devices": [{"id": "SR/BPM01", "description": "A monitor."}, {"id": "TWIN"}],
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(workspace, "load_osprey_config", lambda: {"config_dir": str(render)})
+    c = TestClient(create_app(str(_linked_bundle(tmp_path))))
+
+    body = c.get("/api/concept", params={"id": "devices/bpm"}).json()
+
+    assert body["unresolved"] is False
+    references = body["facility_references"]
+    assert [body["body"][entry["start"] : entry["end"]] for entry in references] == [
+        "[X](facility:SR:DIAG:BPM:01:POSITION:X)",
+        "[the monitor](facility:SR/BPM01)",
+        "[twin](facility:TWIN)",
+        "[a gone one](<facility:NO SUCH>)",
+    ]
+    assert [(e["target"], e["label"], e["kinds"], e["records"]) for e in references] == [
+        (
+            "SR:DIAG:BPM:01:POSITION:X",
+            "X",
+            ["channel"],
+            [
+                {
+                    "kind": "channel",
+                    "id": "SR:DIAG:BPM:01:POSITION:X",
+                    "unit": "mm",
+                    "description": "Beam X.",
+                }
+            ],
+        ),
+        (
+            "SR/BPM01",
+            "the monitor",
+            ["device"],
+            [{"kind": "device", "id": "SR/BPM01", "description": "A monitor."}],
+        ),
+        (
+            "TWIN",
+            "twin",
+            ["channel", "device"],
+            [{"kind": "channel", "id": "TWIN"}, {"kind": "device", "id": "TWIN"}],
+        ),
+        ("NO SUCH", "a gone one", [], []),
+    ]
+
+
+def test_concept_without_a_facility_file_marks_links_unresolved(monkeypatch, tmp_path):
+    import osprey_connectors.workspace as workspace
+
+    monkeypatch.setattr(workspace, "load_osprey_config", lambda: {"config_dir": str(tmp_path)})
+    c = TestClient(create_app(str(_linked_bundle(tmp_path))))
+
+    r = c.get("/api/concept", params={"id": "devices/bpm"})
+
+    assert r.status_code == 200
+    assert r.json()["unresolved"] is True
+    references = r.json()["facility_references"]
+    assert [entry["target"] for entry in references] == [
+        "SR:DIAG:BPM:01:POSITION:X",
+        "SR/BPM01",
+        "TWIN",
+        "NO SUCH",
+    ]
+    assert [entry["records"] for entry in references] == [None] * 4
+
+
+def test_an_unreadable_facility_file_marks_links_unresolved(monkeypatch, tmp_path):
+    import osprey_connectors.workspace as workspace
+
+    (tmp_path / "facility.json").write_text("{not json", encoding="utf-8")
+    monkeypatch.setattr(workspace, "load_osprey_config", lambda: {"config_dir": str(tmp_path)})
+    c = TestClient(create_app(str(_linked_bundle(tmp_path))))
+
+    r = c.get("/api/concept", params={"id": "devices/bpm"})
+
+    assert r.status_code == 200
+    assert r.json()["unresolved"] is True
 
 
 # ---------------------------------------------------------------------------

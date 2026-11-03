@@ -1261,22 +1261,19 @@ class TestExecutePurge:
         assert not any(m.startswith("  Dropped ") for m in messages)
         assert pool.closed
 
-    async def test_full_purge_unrecords_migration_even_with_no_embedding_tables(
-        self, monkeypatch, fake_pool
+    @pytest.mark.parametrize(
+        "embeddings_only",
+        [
+            pytest.param(False, id="full-purge"),
+            pytest.param(True, id="embeddings-only"),
+        ],
+    )
+    async def test_purge_unrecords_migration_even_with_no_embedding_tables(
+        self, monkeypatch, fake_pool, embeddings_only
     ):
         _patch_pool(monkeypatch, fake_pool)
 
-        await ops.execute_purge(dict(_DB), embeddings_only=False, progress=None)
-
-        assert not fake_pool.matching("DROP TABLE IF EXISTS")
-        assert fake_pool.matching(_UNRECORD_MIGRATION)
-
-    async def test_embeddings_only_unrecords_migration_with_no_tables_present(
-        self, monkeypatch, fake_pool
-    ):
-        _patch_pool(monkeypatch, fake_pool)
-
-        await ops.execute_purge(dict(_DB), embeddings_only=True, progress=None)
+        await ops.execute_purge(dict(_DB), embeddings_only=embeddings_only, progress=None)
 
         assert not fake_pool.matching("DROP TABLE IF EXISTS")
         assert fake_pool.matching(_UNRECORD_MIGRATION)

@@ -1,0 +1,1 @@
+Ending a web-terminal or chat session no longer signals started processes it could not re-identify when the process table is unreadable, and names them as possibly still running instead of as survivors.

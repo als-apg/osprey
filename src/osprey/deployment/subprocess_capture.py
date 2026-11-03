@@ -28,13 +28,17 @@ is the safe default, and the spool path is reported on failure either way.
 
 from __future__ import annotations
 
+import contextlib
 import os
 import re
 import signal
 import subprocess
+import sys
 import time
 from collections.abc import Callable, Mapping, Sequence
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Generic, NamedTuple, TypeVar
 
 from osprey.cli.phase_reporter import current_reporter, is_verbose
 from osprey.deployment.errors import CapturedProcessError, CapturedProcessTimeout
@@ -57,6 +61,18 @@ _QUOTED = re.compile(r'"([^"]+)"')
 #: How long a stopped child's process group gets to exit on SIGTERM before it
 #: is killed outright.
 _STOP_GRACE_S = 10.0
+
+#: How long a process group gets to be gone after SIGKILL. A process still there
+#: after this is stuck in the kernel, not slow.
+_KILL_WAIT_S = 5.0
+
+#: How often a stopping process group is checked for members still running.
+_GROUP_POLL_S = 0.05
+
+#: How long a liveness probe waits for another thread's reap of a child to set
+#: its ``returncode``. A reap that does not land in this window was made by
+#: something other than the child's stop.
+_REAP_SETTLE_S = 1.0
 
 #: Called while a bounded run is still going: the seconds it has run, and the
 #: spool its output is going to (``None`` under ``--verbose``).
@@ -428,54 +444,373 @@ def _wait_bounded(
         raise
 
 
+_T = TypeVar("_T")
+
+
+def _pid_name(pid: object) -> str:
+    return f"pid {pid}"
+
+
+def _group_name(pgid: object) -> str:
+    return f"group {pgid}"
+
+
+@dataclass(frozen=True)
+class StopOutcome(Generic[_T]):
+    """What a stop proved about the things it ended.
+
+    ``ended`` holds what the stop signalled; ``survivors`` what a read of the
+    process table still found running after SIGKILL; ``unknown`` what could not
+    be re-identified because the process table could not be read. Unknown is
+    never folded into survivors, and a thing in ``unknown`` was never signalled
+    after the read that failed.
+
+    An instance is always true: it defines neither ``__bool__`` nor
+    ``__len__``, so a truth test can never read an outcome as gone. Ask
+    :attr:`gone`, :attr:`survivors` or :attr:`unknown`.
+    """
+
+    ended: tuple[_T, ...] = ()
+    survivors: tuple[_T, ...] = ()
+    unknown: tuple[_T, ...] = ()
+
+    @property
+    def gone(self) -> bool:
+        """Whether everything the stop ended is proven gone."""
+        return not self.survivors and not self.unknown
+
+    def describe(
+        self,
+        *,
+        survivor: Callable[[_T], str] = _pid_name,
+        unknown: Callable[[_T], str] = _group_name,
+    ) -> str:
+        """The outcome in the words every log line uses, one renderer per set."""
+        if self.gone:
+            return "gone"
+        clauses = []
+        if self.survivors:
+            clauses.append(
+                "still running after SIGKILL: " + ", ".join(survivor(x) for x in self.survivors)
+            )
+        if self.unknown:
+            clauses.append(
+                "process table unreadable: "
+                + ", ".join(unknown(x) for x in self.unknown)
+                + " may still be running"
+            )
+        return "; ".join(clauses)
+
+
 def _stop(process: subprocess.Popen, *, own_group: bool) -> None:
     """Stop ``process`` — and its process group, if it leads one: SIGTERM, then SIGKILL.
 
     The whole group is waited out, not just its leader: the leader of a
     ``podman compose`` is the dispatcher, and the provider it started can take
-    longer to go. Only ever called on a run that is being abandoned; a child
-    that exits on its own leaves its group alone.
+    longer to go. A member still running after SIGKILL is named in a warning,
+    and the outcome of the stop is logged in its own words when the group is
+    not proven gone.
+    Only ever called on a run that is being abandoned; a child that exits on its
+    own leaves its group alone.
     """
-
-    def alive() -> bool:
-        """Anything left to stop, after a tenth of a second's wait for it to go."""
-        if process.poll() is None:
-            try:
-                process.wait(timeout=0.1)  # reaps the leader, so a dead one stops counting
-            except subprocess.TimeoutExpired:
-                return True
-        elif own_group:
-            time.sleep(0.1)
-        return own_group and _group_alive(process.pid)
-
+    if own_group:
+        outcome = stop_child(process, grace=_STOP_GRACE_S)
+        if not outcome.gone:
+            logger.warning("%s", outcome.describe())
+        return
     for sig in (signal.SIGTERM, signal.SIGKILL):
-        try:
-            if own_group:
-                os.killpg(process.pid, sig)
-            elif process.poll() is None:
-                process.send_signal(sig)
-        except (ProcessLookupError, PermissionError):
+        if process.poll() is not None:
             return
-        deadline = time.monotonic() + _STOP_GRACE_S
+        with contextlib.suppress(ProcessLookupError, PermissionError):
+            process.send_signal(sig)
         try:
-            while alive():
-                if time.monotonic() >= deadline:
-                    break
-            else:
-                return
+            process.wait(timeout=_STOP_GRACE_S)
+            return
+        except subprocess.TimeoutExpired:
+            continue
         except KeyboardInterrupt:
             # A second Ctrl-C during the grace period asks for it to be cut
-            # short, not for the group to be left running.
+            # short, not for the child to be left running.
             continue
 
 
-def _group_alive(pgid: int) -> bool:
-    """Whether any process is left in process group ``pgid``."""
+class _ChildState(NamedTuple):
+    """What ``waitid(2)`` reports about a child that changed state."""
+
+    si_pid: int
+    si_code: int
+    si_status: int
+
+
+def _waitid(pid: int, flags: int) -> _ChildState | None:
+    """``waitid(P_PID, pid, flags)``: the child's state, or ``None`` while it runs.
+
+    ``flags`` are the ``os.W*`` constants; with ``os.WNOWAIT`` the child is left
+    unreaped. Raises :class:`ChildProcessError` when ``pid`` is not an unreaped
+    child of this process.
+    """
+    waitid = getattr(os, "waitid", None)
+    if waitid is None:
+        # Interim until the Python floor is 3.13: macOS CPython binds no os.waitid before it.
+        return _libc_waitid(pid, flags)
+    result = waitid(os.P_PID, pid, flags)
+    if result is None:
+        return None
+    return _ChildState(result.si_pid, result.si_code, result.si_status)
+
+
+def _libc_waitid(pid: int, flags: int) -> _ChildState | None:
+    """``waitid(2)`` called in the C library, for an interpreter that has no ``os.waitid``.
+
+    Interim: CPython binds ``os.waitid`` on macOS only from 3.13, so on 3.11 and
+    3.12 the call goes through ctypes with Darwin's ``siginfo_t`` layout. Removed,
+    and ``os.waitid`` used everywhere, once the supported Python floor is 3.13.
+    """
+    import ctypes
+    import errno
+
+    if sys.platform != "darwin":
+        raise OSError(errno.ENOSYS, f"waitid is not available on {sys.platform}")
+
+    class _SigInfo(ctypes.Structure):
+        # Darwin's siginfo_t (sys/signal.h).
+        _fields_ = [
+            ("si_signo", ctypes.c_int),
+            ("si_errno", ctypes.c_int),
+            ("si_code", ctypes.c_int),
+            ("si_pid", ctypes.c_int),
+            ("si_uid", ctypes.c_uint),
+            ("si_status", ctypes.c_int),
+            ("si_addr", ctypes.c_void_p),
+            ("si_value", ctypes.c_void_p),
+            ("si_band", ctypes.c_long),
+            ("_pad", ctypes.c_ulong * 7),
+        ]
+
+    waitid = ctypes.CDLL(None, use_errno=True).waitid
+    waitid.argtypes = [ctypes.c_int, ctypes.c_uint, ctypes.POINTER(_SigInfo), ctypes.c_int]
+    waitid.restype = ctypes.c_int
+    info = _SigInfo()
+    while waitid(os.P_PID, pid, ctypes.byref(info), flags) != 0:
+        err = ctypes.get_errno()
+        if err != errno.EINTR:
+            # OSError picks the subclass from the errno: ECHILD is ChildProcessError.
+            raise OSError(err, os.strerror(err))
+    if info.si_pid == 0:
+        return None
+    return _ChildState(info.si_pid, info.si_code, info.si_status)
+
+
+def observe_exit(process: subprocess.Popen, *, within: float | None = 0.0) -> int | None:
+    """The exit status of a child this process owns, or ``None`` while it runs.
+
+    The public liveness probe for an owned child. The status follows
+    ``Popen``'s convention: the exit code, or the negated signal number for a
+    child a signal ended. ``within=0`` gives one look; a positive ``within``
+    looks until the child has exited or that many seconds have passed;
+    ``within=None`` blocks until it exits.
+
+    It never reaps: the reap is left to :func:`stop_child`, so the group id the
+    child leads stays pinned by its unreaped leader while a stop runs. The rule
+    is one of correctness, not tidiness: ``Popen.wait()`` and ``poll()`` report
+    exit status 0 for a child something else reaped, so a second reaper turns a
+    real exit status into a false one.
+
+    Raises:
+        RuntimeError: the child was reaped by something other than its stop.
+    """
+    if process.returncode is not None:
+        return int(process.returncode)
+    flags = os.WEXITED | os.WNOWAIT
+    if within is not None:
+        flags |= os.WNOHANG
+    deadline = None if within is None else time.monotonic() + within
+    while True:
+        try:
+            result = _waitid(process.pid, flags)
+        except ChildProcessError:
+            return _settled_returncode(process)
+        if result is not None:
+            if result.si_code == os.CLD_EXITED:
+                return int(result.si_status)
+            return -int(result.si_status)
+        if deadline is None or time.monotonic() >= deadline:
+            return None
+        time.sleep(_GROUP_POLL_S)
+
+
+def _settled_returncode(process: subprocess.Popen) -> int:
+    """The status a reap in flight on another thread is about to record.
+
+    Between ``waitpid`` returning and ``Popen`` storing ``returncode`` there is
+    a short window in which the child is reaped but its status not yet set.
+    """
+    deadline = time.monotonic() + _REAP_SETTLE_S
+    while process.returncode is None:
+        if time.monotonic() >= deadline:
+            raise RuntimeError(f"pid {process.pid} was reaped by something other than its stop")
+        time.sleep(_GROUP_POLL_S)
+    return int(process.returncode)
+
+
+def group_is_gone(pgid: int, *, within: float = 0.0) -> bool:
+    """Whether no process of the process group ``pgid`` is still running.
+
+    The group is named by its leader's pid. The group is looked at until it is
+    gone or ``within`` seconds have passed; ``within=0`` gives one look. An
+    exited process nobody has reaped (a zombie) counts as gone. A member this
+    user may not signal counts as present.
+
+    Raises:
+        ProcessTableUnreadable: the process table could not be read by the
+            deadline (at once when the failure is not retryable).
+    """
+    from osprey.deployment.process_table import snapshot_within
+
+    deadline = time.monotonic() + within
+    while True:
+        try:
+            os.killpg(pgid, 0)
+        except ProcessLookupError:
+            return True
+        except PermissionError:
+            # Either a member this user may not signal, or (on macOS) a group whose
+            # only members are zombies: the process table tells the two apart.
+            pass
+        rows = snapshot_within(max(deadline - time.monotonic(), 0.0))
+        if not any(row.pgid == pgid and not row.exited for row in rows.values()):
+            return True
+        if time.monotonic() >= deadline:
+            return False
+        time.sleep(_GROUP_POLL_S)
+
+
+def _signal_group(pgid: int, sig: int) -> None:
+    with contextlib.suppress(ProcessLookupError, PermissionError):
+        os.killpg(pgid, sig)
+
+
+def _wait_group_gone(pgid: int, seconds: float) -> bool:
+    """Wait up to ``seconds`` for the group to be gone; a Ctrl-C ends the wait.
+
+    A process table that cannot be read is read again until the deadline, so a
+    group whose state is unknown gets the whole wait.
+    """
+    from osprey.deployment.process_table import ProcessTableUnreadable
+
+    deadline = time.monotonic() + seconds
     try:
-        os.killpg(pgid, 0)
-    except (ProcessLookupError, PermissionError):
+        while True:
+            try:
+                return group_is_gone(pgid, within=max(deadline - time.monotonic(), 0.0))
+            except ProcessTableUnreadable:
+                if time.monotonic() >= deadline:
+                    return False
+                time.sleep(_GROUP_POLL_S)
+    except KeyboardInterrupt:
         return False
-    return True
+
+
+def _stop_group(pgid: int, *, dump: float | None = None, grace: float) -> list[int] | None:
+    """Stop the process group ``pgid`` and return the pids still running after SIGKILL.
+
+    The engine of :func:`stop_child`, which checks the group's leader first and
+    reaps it after. The group is named by its leader's pid. When ``dump`` is
+    given the group is first sent SIGABRT, which makes every process with
+    ``faulthandler`` enabled write each thread's stack before it dies, and gets
+    ``dump`` seconds to be gone. Then SIGTERM and ``grace`` seconds, then
+    SIGKILL and :data:`_KILL_WAIT_S`. Every wait is on the whole group, not
+    only its leader. A Ctrl-C during a wait ends that wait and moves on to the
+    next signal; it is not re-raised.
+
+    An exited process nobody has reaped counts as gone; a member this user may
+    not signal counts as present.
+
+    Returns:
+        ``[]`` when the group is gone; the pids of members still running after
+        SIGKILL; ``None`` when the process table could not be read to tell.
+    """
+    if dump is not None:
+        _signal_group(pgid, signal.SIGABRT)
+        if _wait_group_gone(pgid, dump):
+            return []
+    _signal_group(pgid, signal.SIGTERM)
+    if _wait_group_gone(pgid, grace):
+        return []
+    _signal_group(pgid, signal.SIGKILL)
+    if _wait_group_gone(pgid, _KILL_WAIT_S):
+        return []
+    from osprey.deployment.process_table import ProcessTableUnreadable, snapshot_within
+
+    try:
+        rows = snapshot_within(_KILL_WAIT_S)
+    except ProcessTableUnreadable:
+        return None
+    return sorted(row.pid for row in rows.values() if row.pgid == pgid and not row.exited)
+
+
+def stop_child(
+    process: subprocess.Popen, *, dump: float | None = None, grace: float
+) -> StopOutcome[int]:
+    """Stop the child ``process`` and its process group, reap it, and say what is left.
+
+    ``process`` leads its own process group (every caller starts it with
+    ``process_group=0``, ``start_new_session=True`` or ``setsid()``), so the
+    group is named by its pid. The signal ladder is SIGABRT and ``dump``
+    seconds when ``dump`` is given, SIGTERM and ``grace`` seconds, then
+    SIGKILL; every wait is on the whole group.
+
+    The leader must be unreaped when the stop starts: an unreaped leader holds
+    the group's id, so nothing else can take it while the stop signals and
+    reads it. A leader that already exited and nobody reaped is a zombie that
+    still holds the id, and is stopped like a running one. The stop reaps the
+    leader once it has exited; a leader still running after SIGKILL is stuck in
+    the kernel, is not waited on, and is named among the survivors.
+
+    Two concurrent calls on one child are harmless: both pass the check, and the
+    second ``wait()`` returns the status the first stored under ``Popen``'s lock.
+    A call made after another call has reaped the child is refused.
+
+    Returns:
+        An outcome whose ``ended`` is the group. ``survivors`` names the pids
+        a read of the process table found running after SIGKILL; ``unknown``
+        names the group when the table could not be read, and then the leader
+        is a survivor if it was seen running.
+
+    Raises:
+        ValueError: the leader was already reaped, or it does not lead its own
+            process group.
+    """
+    pid = process.pid
+    _check_leader(process)
+    pids = _stop_group(pid, dump=dump, grace=grace)
+    leader_running = observe_exit(process) is None
+    if not leader_running:
+        process.wait()
+    if pids is None:
+        return StopOutcome(ended=(pid,), survivors=(pid,) if leader_running else (), unknown=(pid,))
+    return StopOutcome(ended=(pid,), survivors=tuple(pids))
+
+
+def _check_leader(process: subprocess.Popen) -> None:
+    """Refuse a leader that is reaped or that does not lead its own group."""
+    pid = process.pid
+    reaped = ValueError(f"the leader {pid} is already reaped; its group id is no longer pinned")
+    if process.returncode is not None:
+        raise reaped
+    while True:
+        try:
+            if _waitid(pid, os.WEXITED | os.WNOWAIT | os.WNOHANG) is not None:
+                return  # a zombie: its group id is still pinned
+        except ChildProcessError:
+            raise reaped from None
+        try:
+            pgid = os.getpgid(pid)
+        except ProcessLookupError:
+            continue  # it exited between the two looks
+        if pgid != pid:
+            raise ValueError(f"pid {pid} does not lead its own process group (group {pgid})")
+        return
 
 
 def diagnose_captured_failure(exc: BaseException) -> str | None:
@@ -562,7 +897,11 @@ __all__ = [
     "SPOOL_DIR",
     "SPOOL_RETENTION",
     "CapturedProcess",
+    "StopOutcome",
     "captured_failure_detail",
     "diagnose_captured_failure",
+    "group_is_gone",
+    "observe_exit",
     "run_captured",
+    "stop_child",
 ]

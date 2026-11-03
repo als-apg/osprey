@@ -3,16 +3,14 @@
 Standalone ARIEL mounts the shared display-preferences popover in its header
 (``<osprey-display-menu settings-drawer="settings-drawer">``). Everything the
 popover does is runtime browser behavior — custom-element upgrade, the theme
-manager's live apply, the pre-paint boot scripts, ``localStorage`` persistence,
-the ``?mode=`` strip — so a real Chromium page is the only oracle for it.
+manager's live apply, the pre-paint boot script, ``localStorage`` persistence —
+so a real Chromium page is the only oracle for it.
 
 Covered here, one concern per test:
 
-- the popover opens from the header trigger and renders its three fixed rows;
-- a family / appearance / view pick applies immediately (``data-theme``,
-  ``data-ui-mode``);
-- both preferences survive a reload, including from a page first opened with a
-  one-shot ``?mode=`` deep-link — the explicit pick strips the param and wins;
+- the popover opens from the header trigger and renders its two fixed rows;
+- a family / appearance pick applies immediately (``data-theme``);
+- the preference survives a reload;
 - a family picked on standalone ARIEL is adopted by the web-terminal hub on its
   next load (the two surfaces share one origin-scoped preference);
 - embedded (``?embedded=true``), the component's own hide rule takes the
@@ -38,20 +36,18 @@ import threading
 import time
 from contextlib import contextmanager, suppress
 from typing import TYPE_CHECKING
-from unittest.mock import patch
 from urllib.parse import urlparse
 
 import pytest
 import uvicorn
 
 from tests.interfaces._browser import assert_page_loads_clean
-from tests.interfaces._panel_launch import publish_artifact_url
-from tests.interfaces.conftest import _apply_all
+from tests.interfaces._hub import hub_app
 
 # The standalone-ARIEL launcher the seven-interface smoke suite already owns —
 # imported rather than re-declared so this suite boots the app exactly the way
 # that suite does (cwd isolation included).
-from tests.interfaces.test_load_smokes import _launch_ariel
+from tests.interfaces._launchers import launch_ariel
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -169,31 +165,11 @@ def _serve_on_port(app: FastAPI, port: int) -> Iterator[str]:
 def _launch_hub_on_port(workspace_dir: Path, port: int) -> Iterator[str]:
     """Launch a real web-terminal hub on *port*.
 
-    Same patch set as ``design_system/test_behavioral.py``'s
-    ``_hub_live_server`` (config lookup, panel config, panel-server spawn); the
-    only difference is the fixed port.
+    The standard hub (:func:`tests.interfaces._hub.hub_app`); the only
+    difference is the fixed port.
     """
-    patches = [
-        patch(
-            "osprey.interfaces.web_terminal.app._load_web_config",
-            return_value={"watch_dir": str(workspace_dir)},
-        ),
-        patch(
-            "osprey.interfaces.web_terminal.app._load_panel_config",
-            return_value=({"artifacts"}, [], None),
-        ),
-        patch(
-            "osprey.interfaces.web_terminal.app._launch_panel_server",
-            side_effect=publish_artifact_url(),
-        ),
-    ]
-
-    with _apply_all(patches):
-        from osprey.interfaces.web_terminal.app import create_app
-
-        app = create_app(shell_command=["echo", "hello"])
-        with _serve_on_port(app, port) as base_url:
-            yield base_url
+    with hub_app(workspace_dir) as app, _serve_on_port(app, port) as base_url:
+        yield base_url
 
 
 # ---------------------------------------------------------------------------
@@ -232,15 +208,13 @@ def _open_menu(page: Page) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Test 1: the popover opens and renders its three fixed rows
+# Test 1: the popover opens and renders its two fixed rows
 # ---------------------------------------------------------------------------
 
 
-def test_popover_opens_with_its_three_rows(
-    tmp_path, monkeypatch, chromium_browser: Browser
-) -> None:
-    """The trigger reveals a card carrying Appearance, View and Theme."""
-    with _launch_ariel(tmp_path, monkeypatch) as base_url:
+def test_popover_opens_with_its_two_rows(tmp_path, monkeypatch, chromium_browser: Browser) -> None:
+    """The trigger reveals a card carrying Appearance and Theme."""
+    with launch_ariel(tmp_path, monkeypatch) as base_url:
         page = chromium_browser.new_page()
         menu = _goto_ariel(page, base_url)
 
@@ -251,11 +225,9 @@ def test_popover_opens_with_its_three_rows(
         # a `text-transform`, which inner_text would report back.
         assert menu.locator(".display-menu-heading").all_text_contents() == [
             "Appearance",
-            "View",
             "Theme",
         ]
         expect(menu.locator(".display-seg-option[data-appearance]")).to_have_count(2)
-        expect(menu.locator(".display-seg-option[data-mode]")).to_have_count(2)
 
         # The Theme row offers exactly the registry's families, in its order —
         # asserted against theme-manager.js itself rather than a hardcoded list,
@@ -284,13 +256,12 @@ def test_popover_opens_with_its_three_rows(
 
 
 def test_picks_apply_immediately(tmp_path, monkeypatch, chromium_browser: Browser) -> None:
-    """Family, appearance and view picks land on <html> without a reload."""
-    with _launch_ariel(tmp_path, monkeypatch) as base_url:
+    """Family and appearance picks land on <html> without a reload."""
+    with launch_ariel(tmp_path, monkeypatch) as base_url:
         page = chromium_browser.new_page()
         menu = _goto_ariel(page, base_url)
         _seed_explicit_theme(page, "dark")
         html = page.locator("html")
-        expect(html).to_have_attribute("data-ui-mode", "expert", timeout=10_000)
 
         _open_menu(page)
 
@@ -305,10 +276,6 @@ def test_picks_apply_immediately(tmp_path, monkeypatch, chromium_browser: Browse
         menu.locator('.display-seg-option[data-appearance="light"]').click()
         expect(html).to_have_attribute("data-theme", "desy-light", timeout=5_000)
 
-        # View: the pick round-trips through the same-window mode broadcast.
-        menu.locator('.display-seg-option[data-mode="simple"]').click()
-        expect(html).to_have_attribute("data-ui-mode", "simple", timeout=5_000)
-
         # Display picks leave the card open — only the Settings entry closes it.
         expect(page.locator(_CARD)).to_be_visible()
 
@@ -316,40 +283,26 @@ def test_picks_apply_immediately(tmp_path, monkeypatch, chromium_browser: Browse
 
 
 # ---------------------------------------------------------------------------
-# Test 3: both preferences survive a reload, and outrank a ?mode= deep-link
+# Test 3: the theme preference survives a reload
 # ---------------------------------------------------------------------------
 
 
-def test_theme_and_view_survive_reload_over_a_query_mode_deep_link(
-    tmp_path, monkeypatch, chromium_browser: Browser
-) -> None:
-    """An explicit view pick strips a leftover ``?mode=`` and wins on reload."""
-    with _launch_ariel(tmp_path, monkeypatch) as base_url:
+def test_theme_survives_reload(tmp_path, monkeypatch, chromium_browser: Browser) -> None:
+    """A family pick is what the page boots into after a reload."""
+    with launch_ariel(tmp_path, monkeypatch) as base_url:
         page = chromium_browser.new_page()
-        menu = _goto_ariel(page, f"{base_url}/?mode=simple")
+        menu = _goto_ariel(page, base_url)
         html = page.locator("html")
-        expect(html).to_have_attribute("data-ui-mode", "simple", timeout=10_000)
 
         _seed_explicit_theme(page, "dark")
-        assert page.evaluate("location.search") == "?mode=simple", (
-            "the deep-link must still be on the URL when the pick is made"
-        )
 
         _open_menu(page)
-        menu.locator('.display-seg-option[data-mode="expert"]').click()
-        expect(html).to_have_attribute("data-ui-mode", "expert", timeout=5_000)
-        assert page.evaluate("location.search") == "", (
-            "an explicit view pick must drop the one-shot ?mode= param"
-        )
-
         menu.locator('.display-family-pill[data-family="retro"]').click()
         expect(html).to_have_attribute("data-theme", "retro-dark", timeout=5_000)
 
         page.reload(wait_until="load")
         expect(page.locator(_TRIGGER)).to_be_attached(timeout=10_000)
         expect(html).to_have_attribute("data-theme", "retro-dark", timeout=5_000)
-        expect(html).to_have_attribute("data-ui-mode", "expert", timeout=5_000)
-        assert page.evaluate("location.search") == ""
 
         page.close()
 
@@ -374,7 +327,7 @@ def test_family_picked_on_ariel_is_adopted_by_the_hub(
     context = chromium_browser.new_context()
     page = context.new_page()
     try:
-        with _launch_ariel(tmp_path, monkeypatch) as ariel_url:
+        with launch_ariel(tmp_path, monkeypatch) as ariel_url:
             port = urlparse(ariel_url).port
             assert port is not None
             menu = _goto_ariel(page, ariel_url)
@@ -412,7 +365,7 @@ def test_embedded_hides_the_popover(tmp_path, monkeypatch, chromium_browser: Bro
     proves the ``body.embedded osprey-display-menu`` rule the component injects
     for itself is what took the popover out.
     """
-    with _launch_ariel(tmp_path, monkeypatch) as base_url:
+    with launch_ariel(tmp_path, monkeypatch) as base_url:
         page = chromium_browser.new_page()
         _goto_ariel(page, f"{base_url}/?embedded=true")
 

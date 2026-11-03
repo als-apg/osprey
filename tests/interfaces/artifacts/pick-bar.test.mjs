@@ -43,16 +43,22 @@ function makeDeps({ ids, pinned = [], selected = null, focused = null }) {
     confirm: vi.fn().mockReturnValue(true),
     log: vi.fn(),
     getPickedIds: () => new Set(picked),
-    clearPicked: vi.fn(() => { picked = new Set(); }),
+    clearPicked: vi.fn(() => {
+      picked = new Set();
+    }),
     getArtifacts: () => artifacts,
     removeArtifact: vi.fn((/** @type {string} */ id) => {
       artifacts = artifacts.filter((a) => a.id !== id);
       picked.delete(id);
     }),
     getSelectedArtifact: () => selectedArtifact,
-    setSelectedArtifact: vi.fn((/** @type {any} */ a) => { selectedArtifact = a; }),
+    setSelectedArtifact: vi.fn((/** @type {any} */ a) => {
+      selectedArtifact = a;
+    }),
     getFocusedArtifact: () => focusedArtifact,
-    setFocusedArtifact: vi.fn((/** @type {any} */ a) => { focusedArtifact = a; }),
+    setFocusedArtifact: vi.fn((/** @type {any} */ a) => {
+      focusedArtifact = a;
+    }),
     onDeleted: vi.fn(),
     onCleared: vi.fn(),
   };
@@ -139,7 +145,9 @@ describe('Delete', () => {
     els.deleteBtn.click();
     await settle();
 
-    expect(deps.confirm).toHaveBeenCalledWith('Delete 3 artifacts? 2 pinned stay. This cannot be undone.');
+    expect(deps.confirm).toHaveBeenCalledWith(
+      'Delete 3 artifacts? 2 pinned stay. This cannot be undone.'
+    );
     expect(deps.fetch).toHaveBeenCalledTimes(1);
     const [url, init] = deps.fetch.mock.calls[0];
     expect(url).toBe('/api/artifacts/delete');

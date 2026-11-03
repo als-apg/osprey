@@ -3,7 +3,7 @@
 ``test_osprey_drawer.py`` style (see
 ``tests/interfaces/design_system/test_osprey_drawer.py``): a real uvicorn
 lattice_dashboard server over an empty ``tmp_path`` (mirrors
-``test_load_smokes.py``'s ``_launch_lattice_dashboard``) driven by a real
+``_launchers.py``'s ``launch_lattice_dashboard``) driven by a real
 chromium page via the shared ``chromium_browser`` fixture. This is the
 per-cluster behavioral regression net for the computation-settings layer
 (``static/js/settings.js``): it proves the real frontend JS, attached to the
@@ -42,7 +42,8 @@ from contextlib import contextmanager
 from typing import TYPE_CHECKING
 
 import pytest
-from tests.interfaces.conftest import _run_app_server
+
+from osprey.interfaces._serving import run_app_server
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -79,7 +80,7 @@ def _launch_lattice_dashboard(tmp_path, monkeypatch) -> Iterator[str]:
     from osprey.interfaces.lattice_dashboard.app import create_app
 
     app = create_app(workspace_root=tmp_path, render_root=tmp_path)
-    with _run_app_server(app) as base_url:
+    with run_app_server(app) as base_url:
         yield base_url
 
 

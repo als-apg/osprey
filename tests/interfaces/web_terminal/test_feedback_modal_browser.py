@@ -8,7 +8,7 @@ document listeners racing in registration order. The ``inert`` question is
 about what the drawer's ``_syncBackgroundInert()`` pass did to a node that no
 longer exists — the reason the dialog is destroyed on close instead of parked.
 And the Local send is the only test in the tree that drives a report from a
-keystroke in the textarea all the way to an ``fb-*.json`` on the server's disk.
+keystroke in the textarea all the way to a ``feedback`` entry in the agent record.
 
 Coverage:
 
@@ -19,7 +19,7 @@ Coverage:
   (3) Escape with the palette layered over the dialog closes only the palette.
   (4) A settings-drawer open/close cycle leaves no ``inert`` on a reopened
       dialog.
-  (5) Local send: type, Send, and the record lands in the server's store.
+  (5) Local send: type, Send, and the entry lands in the agent record.
 
 Run:
     .venv/bin/pytest tests/interfaces/web_terminal/test_feedback_modal_browser.py -v
@@ -36,8 +36,7 @@ from unittest.mock import patch
 
 import pytest
 
-from tests.interfaces._panel_launch import publish_artifact_url
-from tests.interfaces.conftest import _apply_all, _run_app_server
+from tests.interfaces._hub import hub_server
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -121,37 +120,22 @@ _SETTLE_TWO_FRAMES = (
 
 @contextmanager
 def _hub_server(workspace_dir: Path, data_root: Path) -> Iterator[str]:
-    """Launch a real web-terminal hub with the feedback store under *data_root*.
+    """Launch a real web-terminal hub with its shared data under *data_root*.
 
-    ``app.py``'s lifespan sites the store at ``resolve_shared_data_root() /
-    "feedback"``, deliberately not on ``workspace_dir``. That resolver reads the
-    deployment's config, so it is patched at its source module (the lifespan
-    imports it lazily) to keep the records this suite writes inside ``tmp_path``.
+    ``app.py``'s lifespan sites the server's own stores under
+    ``resolve_shared_data_root()``, deliberately not on ``workspace_dir``. That
+    resolver reads the deployment's config, so it is patched at its source
+    module (the lifespan imports it lazily) to keep what this suite writes
+    inside ``tmp_path``.
 
     Yields:
         The hub's base URL.
     """
-    patches = [
-        patch(
-            "osprey.interfaces.web_terminal.app._load_web_config",
-            return_value={"watch_dir": str(workspace_dir)},
-        ),
-        patch(
-            "osprey.interfaces.web_terminal.app._load_panel_config",
-            return_value=({"artifacts"}, [], None),
-        ),
-        patch(
-            "osprey.interfaces.web_terminal.app._launch_panel_server",
-            side_effect=publish_artifact_url(),
-        ),
+    with hub_server(
+        workspace_dir,
         patch("osprey_connectors.workspace.resolve_shared_data_root", return_value=data_root),
-    ]
-    with _apply_all(patches):
-        from osprey.interfaces.web_terminal.app import create_app
-
-        app = create_app(shell_command=["echo", "hello"])
-        with _run_app_server(app) as base_url:
-            yield base_url
+    ) as (base_url, _app):
+        yield base_url
 
 
 def _open_hub_page(browser: Browser, url: str) -> Page:
@@ -408,19 +392,23 @@ def test_settings_drawer_leaves_no_inert_on_a_reopened_dialog(tmp_path, chromium
             page.close()
 
 
-def test_local_send_writes_a_record_and_reports_its_id(tmp_path, chromium_browser):
-    """Type, Send, and the deployment has the report on disk under that id.
+def test_local_send_writes_a_record_and_reports_its_id(
+    tmp_path, chromium_browser, spool_for, recorded_entries
+):
+    """Type, Send, and the agent record holds the report under that id.
 
     The Local channel is the one that needs no configuration, so it is live the
     moment the dialog is — the outbound channels wait on ``/api/panels`` and are
     deliberately not exercised here. The notice must carry the same id the
-    store filed the record under: that id is what an operator quotes and what
-    ``osprey feedback show`` takes.
+    record filed the feedback entry under: that id is what an operator quotes
+    and what ``osprey feedback show`` takes.
     """
+    from osprey.agent_record.contract import KIND_FEEDBACK
+
     workspace = tmp_path / "_agent_data"
     workspace.mkdir()
     data_root = tmp_path / "data"
-    feedback_dir = data_root / "feedback"
+    spool_for()
 
     with _hub_server(workspace, data_root) as base_url:
         page = _open_hub_page(chromium_browser, base_url)
@@ -434,13 +422,16 @@ def test_local_send_writes_a_record_and_reports_its_id(tmp_path, chromium_browse
             notice = page.locator(".feedback-modal-body .feedback-notice")
             expect(notice).to_contain_text("Recorded on this deployment", timeout=15_000)
 
-            records = sorted(feedback_dir.glob("fb-*.json"))
-            assert len(records) == 1, f"expected one record in {feedback_dir}, got {records}"
+            entries = recorded_entries(KIND_FEEDBACK)
+            assert len(entries) == 1, f"expected one feedback entry in the record, got {entries}"
+            (entry,) = entries
+            assert entry.body["channel"] == "local"
+            assert entry.body["text"].startswith("The rail's utility cluster")
 
             reported = re.search(r"\(([^)]+)\)", notice.inner_text() or "")
             assert reported is not None, f"the notice carries no record id: {notice.inner_text()!r}"
-            assert reported.group(1) == records[0].stem, (
-                f"notice reports {reported.group(1)!r} but the store filed {records[0].stem!r}"
+            assert reported.group(1) == entry.body["id"], (
+                f"notice reports {reported.group(1)!r} but the record filed {entry.body['id']!r}"
             )
         finally:
             page.close()

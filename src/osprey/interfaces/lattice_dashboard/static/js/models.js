@@ -127,7 +127,11 @@ function clearFigureUnavailable(name) {
 export function syncAvailability(state, figureNames, fetchFigure) {
   for (const name of figureNames) {
     const placeholder = document.querySelector(`#plot-${name} > .figure-placeholder`);
-    if (placeholder && !placeholders.has(name) && !placeholder.classList.contains('figure-unavailable')) {
+    if (
+      placeholder &&
+      !placeholders.has(name) &&
+      !placeholder.classList.contains('figure-unavailable')
+    ) {
       placeholders.set(name, placeholder.cloneNode(true));
     }
   }
@@ -147,8 +151,7 @@ export function syncAvailability(state, figureNames, fetchFigure) {
 export function selectionNotice(state) {
   if (state?.notice) return state.notice;
   const selection = state?.selection;
-  const shown =
-    selection?.status === 'failed' || (selection?.status === 'none' && selection.error);
+  const shown = selection?.status === 'failed' || (selection?.status === 'none' && selection.error);
   if (!shown) return null;
   const headline = selection.model ? `${selection.model} did not load` : 'No model loaded';
   return selection.error ? `${headline}: ${selection.error}` : headline;

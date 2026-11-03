@@ -283,8 +283,7 @@ async def artifact_read(artifact_id: str) -> str:
                 },
             )
 
-        content = file_path.read_text(encoding="utf-8")
-        return content
+        return file_path.read_text(encoding="utf-8")
 
     except ToolError:
         raise

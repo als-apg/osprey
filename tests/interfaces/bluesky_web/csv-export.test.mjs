@@ -147,9 +147,7 @@ describe('saveCsv', () => {
 
     expect(result).toEqual({ saved: true, method: 'picker' });
     expect(handle.written).toEqual(['a,b\r\n1,2\r\n']);
-    expect(picker).toHaveBeenCalledWith(
-      expect.objectContaining({ suggestedName: 'run.csv' })
-    );
+    expect(picker).toHaveBeenCalledWith(expect.objectContaining({ suggestedName: 'run.csv' }));
   });
 
   test('cancelling the picker saves NOTHING — no silent download behind it', async () => {

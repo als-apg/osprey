@@ -21,12 +21,12 @@ from typing import Any
 
 import pytest
 import yaml
-from click.testing import CliRunner, Result
+from click.testing import Result
 
-from osprey.cli.build_cmd import build
 from osprey.cli.build_profile_model import provider_catalog_key_errors
 from osprey.cli.templates.manager import TemplateManager
 from osprey.profiles.providers import PROVIDERS_FILENAME, load_provider_catalog
+from tests.cli._lifecycle_build import invoke_build
 
 #: A catalog an operator wrote: the built-in name the profiles below select,
 #: plus a gateway no packaged catalog knows. Both are entries, so both are
@@ -74,11 +74,6 @@ def _hello_world(**overrides: Any) -> dict[str, Any]:
     }
 
 
-def _run(repo: Path) -> Result:
-    """``osprey build`` over *repo*, with the venv and lifecycle skipped."""
-    return CliRunner().invoke(build, ["--repo", str(repo), "--skip-deps", "--skip-lifecycle"])
-
-
 def _build_capturing_contexts(
     repo: Path, monkeypatch: pytest.MonkeyPatch
 ) -> tuple[Result, list[dict[str, Any]]]:
@@ -96,7 +91,7 @@ def _build_capturing_contexts(
         return original(self, *args, **kwargs)
 
     monkeypatch.setattr(TemplateManager, "create_project", spy)
-    return _run(repo), contexts
+    return invoke_build(repo), contexts
 
 
 class TestRenderContext:
@@ -139,7 +134,7 @@ class TestBuildSummary:
     """The build says which catalog it read."""
 
     def test_names_the_repo_catalog(self, tmp_path: Path) -> None:
-        result = _run(_repo(tmp_path, "own", _hello_world(), _REPO_CATALOG))
+        result = invoke_build(_repo(tmp_path, "own", _hello_world(), _REPO_CATALOG))
 
         assert result.exit_code == 0, result.output
         assert f"provider catalog {PROVIDERS_FILENAME}" in result.output
@@ -147,7 +142,7 @@ class TestBuildSummary:
     def test_names_the_packaged_catalog(self, tmp_path: Path) -> None:
         """Named, not silent: the repo has no file to edit, and an operator
         adding a gateway has to be told that."""
-        result = _run(_repo(tmp_path, "packaged", _hello_world()))
+        result = invoke_build(_repo(tmp_path, "packaged", _hello_world()))
 
         assert result.exit_code == 0, result.output
         assert "provider catalog packaged" in result.output
@@ -158,7 +153,7 @@ class TestProviderMustBeInTheCatalog:
     """``provider:`` may name a catalog entry and nothing else."""
 
     def test_unknown_provider_is_refused_naming_the_packaged_catalog(self, tmp_path: Path) -> None:
-        result = _run(_repo(tmp_path, "unknown", _hello_world(provider="no-such-gateway")))
+        result = invoke_build(_repo(tmp_path, "unknown", _hello_world(provider="no-such-gateway")))
 
         assert result.exit_code != 0
         assert "no-such-gateway" in result.output
@@ -166,7 +161,9 @@ class TestProviderMustBeInTheCatalog:
 
     def test_unknown_provider_lists_the_catalog_entries_sorted(self, tmp_path: Path) -> None:
         """The fix is a name from the file, so the refusal hands over the names."""
-        result = _run(_repo(tmp_path, "listing", _hello_world(provider="nope"), _REPO_CATALOG))
+        result = invoke_build(
+            _repo(tmp_path, "listing", _hello_world(provider="nope"), _REPO_CATALOG)
+        )
 
         assert result.exit_code != 0
         assert "anthropic, house" in " ".join(result.output.split())
@@ -180,7 +177,7 @@ class TestProviderMustBeInTheCatalog:
         """
         narrow = {"providers": {"house": _REPO_CATALOG["providers"]["house"]}}
 
-        result = _run(_repo(tmp_path, "narrow", _hello_world(), narrow))
+        result = invoke_build(_repo(tmp_path, "narrow", _hello_world(), narrow))
 
         assert result.exit_code != 0
         assert "anthropic" in result.output
@@ -193,7 +190,7 @@ class TestProviderMustBeInTheCatalog:
         # names a provider, so a profile that merely omits the key inherits one.
         profile = _hello_world(provider=None)
 
-        result = _run(_repo(tmp_path, "none", profile, _REPO_CATALOG))
+        result = invoke_build(_repo(tmp_path, "none", profile, _REPO_CATALOG))
 
         assert result.exit_code != 0
         assert "names no provider" in result.output
@@ -285,7 +282,7 @@ class TestConfigMayNotDeclareAProvider:
         )
 
         with caplog.at_level("ERROR"):
-            result = _run(repo)
+            result = invoke_build(repo)
 
         assert result.exit_code != 0
         assert "api.providers.house" in caplog.text

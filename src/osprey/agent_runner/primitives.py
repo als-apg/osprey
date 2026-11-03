@@ -447,7 +447,7 @@ def sdk_env(project_dir: Path | None = None, *, provider: str | None = None) -> 
     them: the ``Agent`` tool returns ``"Async agent launched successfully"``,
     the turn ends, and the subagent results arrive later as a
     ``<task-notification>`` on a *new* turn. Our SDK drain
-    (:func:`_drain_response`) stops at the first ``ResultMessage``, so it never
+    (``receive_response()``) stops at the first ``ResultMessage``, so it never
     sees that continuation — the agent would end at "I've launched the
     investigations" with none of the delegated results, silently under-running
     every benchmark and e2e that relies on delegation. Disabling background
@@ -523,9 +523,7 @@ def combined_text(result: SDKWorkflowResult) -> str:
         non-empty tool-result string, joined by spaces.
     """
     parts = list(result.text_blocks)
-    for trace in result.tool_traces:
-        if trace.result:
-            parts.append(trace.result)
+    parts.extend(trace.result for trace in result.tool_traces if trace.result)
     return " ".join(parts).lower()
 
 
@@ -616,6 +614,9 @@ def build_agent_options(
     pre_tool_use_hooks: Sequence[HookCallback] = (),
     stderr: Callable[[str], None] | None = None,
     include_partial_messages: bool = False,
+    tools: Sequence[str] | None = None,
+    cwd: Path | None = None,
+    env_overrides: Mapping[str, str] | None = None,
 ) -> ClaudeAgentOptions:
     """Build ``ClaudeAgentOptions`` for a run in *project_dir*.
 
@@ -673,6 +674,14 @@ def build_agent_options(
         stderr: Sink for each line the agent process writes to stderr.
         include_partial_messages: Stream text and reasoning as it is generated
             (``DeltaEvent`` records) ahead of each whole block.
+        tools: The toolset the agent is offered; empty for none. ``None`` leaves
+            the CLI's default set.
+        cwd: The agent process's working directory, when it is not *project_dir*.
+            Only the working directory: the config, provider, launcher and secrets
+            still resolve from *project_dir*.
+        env_overrides: Variables set over the finished environment, whoever routed
+            the run; an empty string is set, not dropped. Unlike *env*, this leaves
+            provider routing, the model and the proxy start as they were.
 
     Returns:
         Configured ``ClaudeAgentOptions`` ready to open a ``ClaudeSDKClient``.
@@ -710,6 +719,9 @@ def build_agent_options(
             "so the run was refused: without an absolute path the Agent SDK would run "
             "the copy bundled inside its own package."
         )
+    # From the same resolution as the path, so the flag is judged against the
+    # binary that runs; a build too old for it gets none (the resolver warns).
+    thinking = launcher.project_thinking_display(project_dir)
 
     if env is not None:
         run_env = dict(env)
@@ -736,6 +748,8 @@ def build_agent_options(
     # Over the caller's environment as well as the routed one: the SDK overlays
     # this dict on the parent's, so the switch has to be in it to hold.
     run_env.update(TASK_TOOLS_ENV)
+    if env_overrides is not None:
+        run_env.update(env_overrides)
 
     sources: list[SettingSource] = ["project"] if setting_sources is None else list(setting_sources)
     run_mcp_servers: dict[str, McpServerConfig] | str
@@ -751,7 +765,7 @@ def build_agent_options(
 
     options = ClaudeAgentOptions(
         model=resolved_model,
-        cwd=str(project_dir),
+        cwd=str(cwd if cwd is not None else project_dir),
         permission_mode=permission_mode,
         max_turns=max_turns,
         max_budget_usd=max_budget_usd,
@@ -761,6 +775,7 @@ def build_agent_options(
         strict_mcp_config=True,
         disallowed_tools=list(disallowed_tools),
         allowed_tools=list(allowed_tools),
+        tools=list(tools) if tools is not None else None,
         system_prompt=system_prompt,
         session_id=session_id,
         resume=resume,
@@ -768,6 +783,7 @@ def build_agent_options(
         stderr=stderr,
         cli_path=cli_path,
         include_partial_messages=include_partial_messages,
+        extra_args={"thinking-display": thinking.value} if thinking.flag_allowed else {},
     )
     if pre_tool_use_hooks:
         options.hooks = {"PreToolUse": [HookMatcher(matcher=None, hooks=list(pre_tool_use_hooks))]}
@@ -798,30 +814,6 @@ def _absorb_message(
     else:
         for event in translate_message(message):
             _record_event(event, workflow.text_blocks, workflow.tool_traces, pending_tools)
-
-
-async def _drain_response(
-    client: ClaudeSDKClient,
-    workflow: SDKWorkflowResult,
-) -> None:
-    """Consume one response stream from *client* into *workflow*.
-
-    Iterates ``client.receive_response()`` (which terminates after the
-    ResultMessage) and collects assistant text, tool-call traces, tool results
-    (which arrive in a following ``UserMessage`` per the Anthropic contract, or
-    embedded in an ``AssistantMessage`` when the SDK forwards them), system
-    messages, and the final ResultMessage.
-
-    Args:
-        client: An open, connected ``ClaudeSDKClient`` with a query in flight.
-        workflow: Result accumulator; a fresh instance collects one turn, a
-            reused instance accumulates across turns.
-    """
-    # ``tool_use_id`` → ``ToolTrace`` map for matching results to their calls;
-    # purely local to this drain, reset for each response stream.
-    pending_tools: dict[str, ToolTrace] = {}
-    async for message in client.receive_response():
-        _absorb_message(message, workflow, pending_tools)
 
 
 async def _send_turn(client: ClaudeSDKClient, prompt: str | Sequence[Mapping[str, Any]]) -> None:
@@ -925,14 +917,38 @@ _MCP_READY_POLL_S = 0.3
 _MCP_TERMINAL_STATUSES = frozenset({"connected", "failed", "needs-auth"})
 
 
+def _presents_panel_token(entry: Any) -> bool:
+    """Whether a rendered ``.mcp.json`` entry authenticates with the panel token."""
+    from osprey.registry.mcp import PANEL_TOKEN_ENV_NAME
+
+    headers = entry.get("headers") if isinstance(entry, dict) else None
+    if not isinstance(headers, dict):
+        return False
+    placeholder = f"${{{PANEL_TOKEN_ENV_NAME}"
+    return any(isinstance(value, str) and placeholder in value for value in headers.values())
+
+
 def expected_mcp_servers(project_dir: Path) -> set[str]:
     """The MCP server names a project declares in ``.mcp.json`` — the set the
-    readiness barrier waits for. Returns an empty set if the file is unreadable."""
+    readiness barrier waits for. Returns an empty set if the file is unreadable.
+
+    A server whose rendered headers present the panel token is left out while
+    this process holds no such token. Only a web terminal mints one, so outside
+    a terminal session the entry sends an empty bearer to a route that is not
+    there, and it can never register — the barrier would spend its whole
+    budget, and then fail the run, on a server the session was never going to
+    have.
+    """
+    from osprey.registry.mcp import PANEL_TOKEN_ENV_NAME
+
     try:
         cfg = json.loads((project_dir / RENDERED_MCP_CONFIG).read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return set()
-    return set(cfg.get("mcpServers", {}).keys())
+    servers = cfg.get("mcpServers", {})
+    if os.environ.get(PANEL_TOKEN_ENV_NAME):
+        return set(servers.keys())
+    return {name for name, entry in servers.items() if not _presents_panel_token(entry)}
 
 
 async def await_mcp_ready(

@@ -15,12 +15,12 @@ tools themselves:
   call an outright failure rather than a review comment.
 """
 
-import asyncio
 from pathlib import Path
 
 import pytest
 
 from osprey.mcp_server.channel_finder_graph import server as cf_graph_server
+from tests.mcp_server.conftest import registered_tool_names
 
 TOOL_MODULES = (
     "capabilities",
@@ -29,16 +29,6 @@ TOOL_MODULES = (
     "read_cypher",
     "search_channels",
 )
-
-
-def _tool_names(mcp) -> set[str]:
-    """Tool names registered on a FastMCP server, across FastMCP versions."""
-    tools = mcp.get_tools() if hasattr(mcp, "get_tools") else mcp.list_tools()
-    if asyncio.iscoroutine(tools):
-        tools = asyncio.run(tools)
-    if isinstance(tools, dict):
-        return set(tools)
-    return {t.name for t in tools}
 
 
 @pytest.fixture
@@ -171,5 +161,5 @@ def test_create_server_registers_every_tool():
 
     server = cf_graph_server.create_server()
 
-    assert _tool_names(server) == set(TOOL_MODULES)
+    assert set(registered_tool_names(server)) == set(TOOL_MODULES)
     assert "osprey.mcp_server.graph.server" in sys.modules

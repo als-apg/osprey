@@ -22,6 +22,7 @@ import sys
 
 import pytest
 
+from tests.va._collection import assert_module_collected
 from tests.va.e2e.conftest import REPO_ROOT, sweep_check
 
 #: The frozen channel-finder indexes of the demo facility, one file per paradigm.
@@ -125,13 +126,7 @@ class TestFinderLiveReads:
 
 def test_this_module_collects_its_whole_suite(request: pytest.FixtureRequest) -> None:
     """Vacuous-green guard: an empty or half-collected module fails here."""
-    collected = [
-        item
-        for item in request.session.items
-        if item.nodeid.split("::")[0].endswith("test_finder_live_reads.py")
-    ]
-
-    assert len(collected) >= MIN_COLLECTED_TESTS
+    assert_module_collected(request, __file__, MIN_COLLECTED_TESTS)
 
 
 if __name__ == "__main__":

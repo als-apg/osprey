@@ -1,12 +1,12 @@
 """An unset ``control_system.type`` must resolve to the simulator in process, never to a network.
 
-Both readers of the key are pinned here because they are read independently:
 :meth:`ConnectorFactory.create_control_system_connector` decides which connector
-the runtime actually talks to, and
-:func:`get_execution_control_config` reports the deployment's control system to
-the Python executor. A config that omits the key is under-specified, not a
-declaration that hardware is present, so both sites fall back to the simulator
-served in process and say so at WARNING level.
+the runtime actually talks to. A config that omits the key is under-specified,
+not a declaration that hardware is present, so the factory falls back to the
+simulator served in process and says so at WARNING level.
+
+The executor's own reader of the key is gone together with its config class;
+``TestFactoryTypeFallback`` is the one reader left and covers the same fallback.
 """
 
 from __future__ import annotations
@@ -15,14 +15,13 @@ import logging
 
 import pytest
 
-from osprey.services.python_executor.execution.control import get_execution_control_config
 from osprey_connectors import types
 from osprey_connectors.control_system._va_in_process_connector import VAInProcessConnector
-from osprey_connectors.factory import ConnectorFactory, isolated_connector_registries
+from osprey_connectors.factory import ConnectorFactory
+from osprey_connectors_tests._harness import isolated_connector_registries
 from tests.facility.served_tree import in_process_config, served_tree
 
 FACTORY_LOGGER = "connector_factory"
-EXECUTION_CONTROL_LOGGER = "execution_control"
 
 # One phrase for both the "warns" and the "does not warn" checks, so rewording the
 # warning breaks the positives instead of letting the negatives pass vacuously.
@@ -110,37 +109,3 @@ class TestFactoryTypeFallback:
         assert UNSET_WARNING not in caplog.text
 
         await connector.disconnect()
-
-
-class TestExecutionControlTypeFallback:
-    @pytest.mark.parametrize(
-        "control_system",
-        [
-            # A sibling key keeps the section non-empty, so only ``type`` is missing.
-            pytest.param({"writes_enabled": False}, id="missing"),
-            pytest.param({"type": None}, id="blank"),
-        ],
-    )
-    def test_unset_type_resolves_to_the_simulator(self, caplog, monkeypatch, control_system):
-        monkeypatch.setattr(
-            "osprey_connectors.config.get_config_value",
-            lambda path, default=None, config_path=None: control_system,
-        )
-
-        with caplog.at_level(logging.WARNING, logger=EXECUTION_CONTROL_LOGGER):
-            cfg = get_execution_control_config()
-
-        assert cfg.control_system_type == types.VIRTUAL_ACCELERATOR
-        assert caplog.messages == [types.UNSET_TYPE_WARNING]
-
-    def test_explicit_type_is_honoured_without_warning(self, caplog, monkeypatch):
-        monkeypatch.setattr(
-            "osprey_connectors.config.get_config_value",
-            lambda path, default=None, config_path=None: {"type": types.EPICS},
-        )
-
-        with caplog.at_level(logging.WARNING, logger=EXECUTION_CONTROL_LOGGER):
-            cfg = get_execution_control_config()
-
-        assert cfg.control_system_type == types.EPICS
-        assert UNSET_WARNING not in caplog.text

@@ -37,33 +37,6 @@ from osprey.services.ariel_search.enhancement.text_embedding.embedder import (
 # ---------------------------------------------------------------------------
 
 
-class _SpyExpander:
-    """Wraps an expander and records the ``limit`` of every ``expand`` call."""
-
-    def __init__(self, inner):
-        self.inner = inner
-        self.limits = []
-
-    def expand(self, text, *, limit=None, tokens=None):
-        self.limits.append(limit)
-        return self.inner.expand(text, limit=limit, tokens=tokens)
-
-
-@pytest.fixture
-def expander(unit_vocabulary_file):
-    """The unit vocabulary's entry expander, wrapped in a scan-counting spy."""
-    from osprey.services.ariel_search.vocabulary import EntryExpander
-    from osprey.services.ariel_search.vocabulary.loader import load_vocabulary
-
-    loaded, errors, _warnings = load_vocabulary(
-        unit_vocabulary_file, canonical_to_acronym=True, canonical_to_shorthand=False
-    )
-    assert errors == []
-    return _SpyExpander(
-        EntryExpander(loaded, canonical_to_acronym=True, canonical_to_shorthand=False)
-    )
-
-
 def _tokens_for(room):
     """``max_input_tokens`` whose byte room for an entry without picture text is ``room``."""
     return room + RESERVED_TOKENS

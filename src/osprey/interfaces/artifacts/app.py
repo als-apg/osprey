@@ -24,7 +24,10 @@ from pydantic import BaseModel, Field
 
 from osprey.agent_runner.artifact_resolve import deployed_render_dir
 from osprey.interfaces._app_setup import configure_interface_app
-from osprey.interfaces.vendor import html_has_plotly_bundle, vendor_url
+from osprey.interfaces.artifacts import inline_assets
+from osprey.interfaces.artifacts.content_sandbox import ContentSandboxMiddleware, not_content
+from osprey.interfaces.opaque_origin import document_headers, opaque_headers
+from osprey.interfaces.vendor import html_has_plotly_bundle, is_offline, vendor_url
 from osprey.port_layout import default_port
 from osprey.utils.timeseries import (
     downsample_channel_map,
@@ -39,6 +42,23 @@ STATIC_DIR = Path(__file__).parent / "static"
 templates = Jinja2Templates(directory=str(STATIC_DIR))
 templates.env.globals["vendor_url"] = vendor_url
 
+
+def _shell_vendor_script(name: str) -> str:
+    """A vendor ``<script>`` for the gallery shell: CDN online, inline offline.
+
+    For assets the manifest does not ship into this app's own ``/static``
+    (DOMPurify ships to the web terminal's vendor directory), so the shell
+    cannot reference a local path for them.
+    """
+    from markupsafe import Markup
+
+    return Markup(
+        inline_assets.vendor_script(name, offline=is_offline())
+    )  # vendor file or CDN tag, never agent text
+
+
+templates.env.globals["vendor_script"] = _shell_vendor_script
+
 # Head of every injected snippet: it makes the served artifact a design-system
 # page like any other.  theme-boot.js resolves `data-theme` pre-paint (?theme=
 # from the gallery, then the operator's stored preference, then the
@@ -49,6 +69,37 @@ templates.env.globals["vendor_url"] = vendor_url
 _DESIGN_SYSTEM_HEAD = """<script src="/design-system/js/theme-boot.js"></script>
 <link rel="stylesheet" href="/design-system/css/tokens.css">"""
 
+# Every page below is served into the content sandbox's opaque origin
+# (``self.origin === 'null'``). Each one's module script calls theme-manager.js's
+# ``initTheme({ role: 'follower' })``, which on an opaque page takes the hub's
+# live ``osprey-theme-change`` broadcast that the gallery relays to its preview
+# iframes from the embedding parent only.
+
+# C-MSG: every page served on the opaque origin carries this listener.  The
+# gallery cannot reach into an opaque document, so the document announces
+# itself (``osprey-artifact-ready``, to whichever window opened or embeds it,
+# with target "*" -- an opaque frame cannot name the console's origin and the
+# message carries nothing) and prints itself when asked
+# (``osprey-artifact-print``, accepted only from that opener or parent).  Theme
+# messages are the design-system follower's, imported beside this listener.
+_ARTIFACT_MESSAGE_LISTENER = """<script>
+/* OSPREY: C-MSG ready/print listener. */
+(function () {
+  var peer = window.opener || window.parent;
+  window.addEventListener('message', function (event) {
+    var data = event.data;
+    if (!data || data.type !== 'osprey-artifact-print') { return; }
+    if (event.source !== window.opener && event.source !== window.parent) { return; }
+    window.print();
+  });
+  function ready() {
+    if (peer && peer !== window) { peer.postMessage({ type: 'osprey-artifact-ready' }, '*'); }
+  }
+  if (document.readyState === 'complete') { ready(); }
+  else { window.addEventListener('load', ready); }
+})();
+</script>"""
+
 # Snippet injected into Plotly artifacts so they fill the iframe viewport in
 # Focus Mode and follow the OSPREY theme.  CSS alone is not enough for the
 # sizing: Plotly.newPlot() applies layout.width/height via JS *after* load,
@@ -58,6 +109,8 @@ _DESIGN_SYSTEM_HEAD = """<script src="/design-system/js/theme-boot.js"></script>
 # here needs to know what "light" or "dark" looks like.
 _RESPONSIVE_PLOTLY = (
     _DESIGN_SYSTEM_HEAD
+    + "\n"
+    + _ARTIFACT_MESSAGE_LISTENER
     + r"""
 <style>
 /* OSPREY: fill iframe viewport; page background from the theme in force,
@@ -68,6 +121,8 @@ html, body { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden;
 .plotly-graph-div { width: 100% !important; height: 100vh !important; }
 .js-plotly-plot { width: 100% !important; height: 100vh !important; visibility: hidden; }
 table { max-width: 100%; }
+/* OSPREY: the browser's own print of the sandboxed page omits plot chrome. */
+@media print { .plotly-notifier, .modebar, .modebar-container { display: none !important; } }
 </style>
 <script type="module">
 /* OSPREY: responsive sizing + live re-theming from the design tokens. */
@@ -125,6 +180,8 @@ window.addEventListener('resize', resizeAll);
 # ``.artifact-table`` is the class serialize_object() puts on DataFrame tables.
 _RESPONSIVE_TABLE_HTML = (
     _DESIGN_SYSTEM_HEAD
+    + "\n"
+    + _ARTIFACT_MESSAGE_LISTENER
     + """
 <style>
 /* OSPREY: fill iframe viewport */
@@ -160,7 +217,14 @@ body.jp-Notebook { padding: 0 16px; overflow-x: hidden; overflow-y: auto; }
 .jp-Cell { max-width: 100%; }
 /* Classic nbconvert fallback */
 #notebook-container, .container { max-width: 100% !important; width: 100% !important; padding: 0 16px; }
+/* OSPREY: the browser's own print of the sandboxed page omits the toolbar. */
+@media print { .jp-Toolbar, .jp-mod-toolbar { display: none !important; } }
 </style>"""
+
+# The notebook page renders light whatever the theme (the gallery frames it as
+# ``preview-iframe-light``), so it carries the C-MSG listener without a theme
+# follower.
+_NOTEBOOK_SNIPPET = _NOTEBOOK_RESPONSIVE_CSS + "\n" + _ARTIFACT_MESSAGE_LISTENER
 
 _RESPONSIVE_SNIPPETS = {
     "plot_html": _RESPONSIVE_PLOTLY,
@@ -174,6 +238,13 @@ _RESPONSIVE_SNIPPETS = {
 # Standalone HTML page for server-side rendered markdown.
 # Embeds raw markdown as JSON inside a non-executable <script> tag, then
 # renders client-side using the same marked + hljs + KaTeX pipeline as gallery.js.
+#
+# The page is served into an opaque origin (content sandbox), where every
+# server path answers 401 on a multi-user deployment. So the template below is
+# written with ordinary server paths for the first-party parts and passed
+# through ``inline_assets.self_contained`` (design-system scripts, stylesheets
+# and modules become inline / ``data:`` URL), and the vendor libraries come
+# from ``_markdown_vendor_head`` (CDN online, inline offline).
 _MARKDOWN_PAGE_TEMPLATE = """\
 <!DOCTYPE html>
 <html lang="en">
@@ -181,6 +252,7 @@ _MARKDOWN_PAGE_TEMPLATE = """\
 <meta charset="UTF-8">
 <script src="/design-system/js/theme-boot.js"></script>
 <link rel="stylesheet" href="/design-system/css/tokens.css">
+{msg_listener}
 <script type="module">
 // Follower role: this standalone page is never the theme hub (web-terminal
 // is) -- it just applies whatever theme-boot.js already resolved pre-paint
@@ -198,10 +270,7 @@ initTheme({{ role: 'follower' }});
       href="{hljs_dark_href}"
       data-href-dark="{hljs_dark_href}"
       data-href-light="{hljs_light_href}">
-<script src="/static/js/vendor/highlight.min.js"></script>
-<script src="/static/js/vendor/marked.min.js"></script>
-<link rel="stylesheet" href="/static/css/vendor/katex.min.css">
-<script src="/static/js/vendor/katex.min.js"></script>
+{vendor_head}
 <style>
 body {{
   margin: 0; padding: 24px 32px;
@@ -248,62 +317,64 @@ body {{
 // Renders markdown from the embedded JSON source through the gallery's
 // shared marked + hljs + KaTeX pipeline (md-render.js) — one algorithm for
 // the preview pane and this standalone page. Module scripts defer, so the
-// classic vendor <script> tags above have populated the marked/hljs/katex
-// globals by the time this runs.
-import {{ configureMarked, renderMathInMarkdown }} from '/static/js/md-render.js';
+// classic vendor <script> tags above have populated the marked/hljs/katex/
+// DOMPurify globals by the time this runs. md-render.js owns the one
+// HTML sink and sanitises it with DOMPurify (agent markdown is untrusted).
+import {{ renderMarkdownInto }} from '/static/js/md-render.js';
 
-configureMarked();
 const src = JSON.parse(document.getElementById('md-source').textContent);
-// Safe: marked.parse() and katex.renderToString() produce sanitized HTML
-// from trusted local artifact content (not user input from the web).
-document.getElementById('md-rendered').innerHTML = renderMathInMarkdown(src);  // trusted content
+renderMarkdownInto(document.getElementById('md-rendered'), src);
 </script>
 </body>
 </html>"""
 
 
-def _build_markdown_page(md_source: str, title: str) -> str:
-    """Build a standalone HTML page that renders markdown client-side."""
-    # Escape for safe embedding inside <script type="application/json">
-    md_json = json.dumps(md_source).replace("</", r"<\/")
-    return _MARKDOWN_PAGE_TEMPLATE.format(
-        title=title.replace("&", "&amp;").replace("<", "&lt;"),
-        md_json=md_json,
-        hljs_dark_href=vendor_url(
-            "highlight.js atom-one-dark theme", "/static/css/vendor/atom-one-dark.min.css"
-        ),
-        hljs_light_href=vendor_url(
-            "highlight.js atom-one-light theme", "/static/css/vendor/atom-one-light.min.css"
-        ),
+def _markdown_vendor_head(offline: bool) -> str:
+    """highlight.js, marked, KaTeX (script and stylesheet) and DOMPurify for the markdown page."""
+    return "\n".join(
+        (
+            inline_assets.vendor_script("highlight.js", offline=offline),
+            inline_assets.vendor_script("marked", offline=offline),
+            inline_assets.katex_stylesheet(offline=offline),
+            inline_assets.vendor_script("KaTeX JS", offline=offline),
+            inline_assets.vendor_script("DOMPurify", offline=offline),
+        )
     )
 
 
-_CDN_PLOTLY_RE = re.compile(r'(src=["\'])https://cdn\.plot\.ly/plotly[^"\']*\.min\.js(["\'])')
-
-# Strip SRI attributes — the local copy may differ from the CDN version.
-_SRI_ATTR_RE = re.compile(r'\s+(?:integrity|crossorigin)=["\'][^"\']*["\']')
+_PAGE_SLOT_RE = re.compile("\x00OSPREY_SLOT_([a-z_]+)\x00")
 
 
-def _rewrite_plotly_cdn(html_bytes: bytes) -> bytes:
-    """In offline mode, replace CDN Plotly URLs with the local bundled copy.
-
-    Also strips ``integrity`` and ``crossorigin`` attributes from the same
-    ``<script>`` tag, since the local file may differ from the CDN version
-    and SRI would block execution.
-
-    In default (CDN) mode this is a no-op — the browser fetches plotly
-    directly from ``cdn.plot.ly`` with its original SRI attributes intact.
-    """
-    from osprey.interfaces.vendor import is_offline
-
-    if not is_offline():
-        return html_bytes
-    html = html_bytes.decode("utf-8", errors="replace")
-    if "cdn.plot.ly/plotly" not in html:
-        return html_bytes
-    html = _CDN_PLOTLY_RE.sub(r"\1/static/js/vendor/plotly-3.3.1.min.js\2", html)
-    html = _SRI_ATTR_RE.sub("", html)
-    return html.encode("utf-8")
+def _build_markdown_page(md_source: str, title: str) -> str:
+    """Build a standalone, self-contained HTML page that renders markdown client-side."""
+    offline = is_offline()
+    # The template's first-party parts are inlined while the agent-authored
+    # title and source, and the vendor libraries, are still slots: the rewrite
+    # must never scan (or touch) text it did not write. The slots are then
+    # filled in one pass, so no filled value is ever re-scanned for a slot.
+    page = inline_assets.self_contained(
+        _MARKDOWN_PAGE_TEMPLATE.format(
+            title="\x00OSPREY_SLOT_title\x00",
+            md_json="\x00OSPREY_SLOT_md_json\x00",
+            hljs_dark_href="\x00OSPREY_SLOT_hljs_dark\x00",
+            hljs_light_href="\x00OSPREY_SLOT_hljs_light\x00",
+            vendor_head="\x00OSPREY_SLOT_vendor_head\x00",
+            msg_listener=_ARTIFACT_MESSAGE_LISTENER,
+        )
+    )
+    slots = {
+        "title": title.replace("&", "&amp;").replace("<", "&lt;"),
+        # Escape for safe embedding inside <script type="application/json">
+        "md_json": json.dumps(md_source).replace("</", r"<\/"),
+        "hljs_dark": inline_assets.vendor_stylesheet_href(
+            "highlight.js atom-one-dark theme", offline=offline
+        ),
+        "hljs_light": inline_assets.vendor_stylesheet_href(
+            "highlight.js atom-one-light theme", offline=offline
+        ),
+        "vendor_head": _markdown_vendor_head(offline),
+    }
+    return _PAGE_SLOT_RE.sub(lambda m: slots[m.group(1)], page)
 
 
 #: The opening ``<html`` tag, provided it carries no ``data-theme`` of its own.
@@ -425,6 +496,9 @@ def _inject_html_snippet(html_bytes: bytes, snippet: str) -> bytes:
 class FocusRequest(BaseModel):
     artifact_id: str
     fullscreen: bool = False
+    #: Set by a sender acting on its own (the approval hook), not for a person or
+    #: an agent that chose the artifact; broadcast so a layout can tell them apart.
+    automatic: bool = False
 
 
 class PinRequest(BaseModel):
@@ -451,9 +525,8 @@ class _SSEBroadcaster:
         return q
 
     def unsubscribe(self, q: asyncio.Queue[dict]) -> None:
-        with self._lock:
-            with suppress(ValueError):
-                self._queues.remove(q)
+        with self._lock, suppress(ValueError):
+            self._queues.remove(q)
 
     def broadcast(self, data: dict) -> None:
         """Push data to all connected SSE clients (called from sync context)."""
@@ -673,10 +746,10 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
     """
     from osprey.interfaces.artifacts.store_watcher import StoreIndexWatcher
     from osprey.stores.artifact_store import (
-        AUDIT_ORIGIN,
         ArtifactEntry,
         ArtifactStore,
         artifact_mutation_actor,
+        is_run_record,
         register_artifact_delete_listener,
         register_artifact_listener,
         unregister_artifact_delete_listener,
@@ -733,7 +806,7 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
 
     # Also after config priming: the one gallery process each workspace has
     # (single-user `osprey web` and every render container alike) seeds the
-    # shipped example here, so the WORKSPACE is not empty on a first visit.
+    # shipped example here, so the Artifacts panel is not empty on a first visit.
     # Idempotent and sentinel-aware — see example_artifact.py.
     if _example_artifact_enabled():
         try:
@@ -745,16 +818,25 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
 
     broadcaster = _SSEBroadcaster()
 
+    def _entry_payload(entry: ArtifactEntry) -> dict[str, Any]:
+        """The entry as every browser-bound frame and response carries it.
+
+        ``entry.to_dict()`` is the index format and stays as it is; the server's
+        :func:`~osprey.stores.artifact_store.is_run_record` verdict rides along
+        as ``run_record`` so the web terminal's sidebar sorts Script runs from
+        Artifacts without re-deriving the rule in JavaScript.
+        """
+        return {**entry.to_dict(), "run_record": is_run_record(entry)}
+
     index_watcher = StoreIndexWatcher(
         workspace_root=data_root,
         broadcaster=broadcaster,
         artifact_store=store,
+        payload=_entry_payload,
     )
 
     def _on_artifact_saved(entry: ArtifactEntry) -> None:
-        if entry.origin == AUDIT_ORIGIN:
-            return
-        broadcaster.broadcast({"type": "artifact", **entry.to_dict()})
+        broadcaster.broadcast({"type": "artifact", **_entry_payload(entry)})
 
     def _on_artifact_deleted(entry: ArtifactEntry) -> None:
         if app.state.focused_artifact_id == entry.id:
@@ -803,9 +885,7 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
                 lines.append(f'  artifact: "{entry.title}" (id={aid})')
         # List pinned artifacts
         pinned = store.list_entries(pinned=True)
-        for p in pinned:
-            if p.id != aid:
-                lines.append(f'  pinned:   "{p.title}" (id={p.id})')
+        lines.extend(f'  pinned:   "{p.title}" (id={p.id})' for p in pinned if p.id != aid)
         if lines:
             focus_file.write_text("[Gallery Focus]\n" + "\n".join(lines) + "\n")
         elif focus_file.exists():
@@ -814,6 +894,7 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
     # --- Routes ---
 
     @app.get("/")
+    @not_content
     async def root(request: Request):
         # A pinned web.theme reaches the gallery shell too. Embedded, the hub's
         # ?theme= outranks it in theme-boot.js's ladder, so this only shows up
@@ -865,7 +946,16 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
         session_id: str | None = None,
         limit: int = Query(page_size, ge=1, le=MAX_PAGE_SIZE),
         cursor: str | None = Query(None),
+        run: bool | None = Query(None),
     ):
+        """List one newest-first page of artifacts.
+
+        ``run`` splits the store by the server's run-record verdict
+        (:func:`~osprey.stores.artifact_store.is_run_record`): ``true`` returns
+        only run records, ``false`` everything else, absent both. ``total`` and
+        ``next_cursor`` count and walk the filtered set. Every entry carries
+        its verdict as ``run_record``.
+        """
         try:
             page = store.page_entries(
                 limit=limit,
@@ -875,6 +965,7 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
                 pinned=pinned,
                 category_filter=category,
                 session_filter=session_id,
+                run_record=run,
             )
         except ValueError as exc:
             raise HTTPException(
@@ -884,7 +975,7 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
             "count": len(page.entries),
             "total": page.total,
             "next_cursor": page.next_cursor,
-            "artifacts": [e.to_dict() for e in page.entries],
+            "artifacts": [_entry_payload(e) for e in page.entries],
         }
 
     @app.get("/api/artifacts/{artifact_id}")
@@ -892,7 +983,7 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
         entry = store.get_entry(artifact_id)
         if not entry:
             raise HTTPException(status_code=404, detail=f"Artifact {artifact_id} not found")
-        return entry.to_dict()
+        return _entry_payload(entry)
 
     @app.post("/api/artifacts/{artifact_id}/pin")
     async def pin_artifact(artifact_id: str, req: PinRequest):
@@ -900,7 +991,7 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
         if not entry:
             raise HTTPException(status_code=404, detail=f"Artifact {artifact_id} not found")
         _write_focus_file()
-        broadcaster.broadcast({"type": "artifact_updated", **entry.to_dict()})
+        broadcaster.broadcast({"type": "artifact_updated", **_entry_payload(entry)})
         return {"status": "ok", "artifact_id": artifact_id, "pinned": entry.pinned}
 
     @app.get("/api/artifacts/{artifact_id}/data")
@@ -1014,14 +1105,14 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
         if focused_id:
             entry = store.get_entry(focused_id)
             if entry:
-                return {"focused": True, "artifact": entry.to_dict()}
+                return {"focused": True, "artifact": _entry_payload(entry)}
             # Stale focus — clear it and fall back to latest
             app.state.focused_artifact_id = None
 
         # Fall back to latest artifact
         entries = store.list_entries()
         if entries:
-            return {"focused": False, "artifact": entries[-1].to_dict()}
+            return {"focused": False, "artifact": _entry_payload(entries[-1])}
         return {"focused": False, "artifact": None}
 
     @app.post("/api/focus")
@@ -1037,6 +1128,8 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
         event: dict[str, Any] = {"type": "focus", "domain": "artifact", "id": req.artifact_id}
         if req.fullscreen:
             event["fullscreen"] = True
+        if req.automatic:
+            event["automatic"] = True
         broadcaster.broadcast(event)
         return {"status": "ok", "artifact_id": req.artifact_id}
 
@@ -1068,27 +1161,38 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
                 media_type=media_type,
                 filename=entry.filename,
                 content_disposition_type="inline",
+                headers=document_headers(media_type),
             )
 
-        # HTML types may need responsive snippet injection + CDN rewriting.
+        # HTML types get the responsive/theming snippet and a self-contained
+        # Plotly. The page is served into the content sandbox's opaque origin,
+        # where every server path answers 401 on a multi-user deployment, so
+        # nothing it loads may be a /static or /design-system URL.
+        offline = is_offline()
         content = filepath.read_bytes()
-        # Always rewrite CDN Plotly URLs to local — artifacts may have been
-        # generated with include_plotlyjs='cdn' regardless of what OSPREY's
-        # own code paths use, and the CDN is unreachable in offline deployments.
-        content = _rewrite_plotly_cdn(content)
-        if entry.artifact_type == "plot_html":
-            # Inject the Plotly bundle unless the page already loads one, by
-            # script tag or inlined (include_plotlyjs=True). Avoid duplicates —
-            # the 4.8MB file takes ~1s through the reverse proxy per load.
-            if not html_has_plotly_bundle(content):
-                plotly_src = vendor_url("Plotly.js", "/static/js/vendor/plotly-3.3.1.min.js")
-                snippet = f'<script src="{plotly_src}"></script>\n' + snippet
+        # Artifacts may have been generated with include_plotlyjs='cdn' (or
+        # pointing at a local /static copy) whatever OSPREY's own code paths
+        # use: offline the CDN is unreachable and a /static path is never
+        # loadable in the sandbox, so those tags become one inline copy.
+        html = inline_assets.self_contain_plotly(
+            content.decode("utf-8", errors="replace"), offline=offline
+        )
+        content = html.encode("utf-8")
+        snippet = inline_assets.self_contained(snippet)
+        # Supply the Plotly bundle unless the page already loads one, by
+        # script tag or inlined (include_plotlyjs=True). Avoid duplicates —
+        # the bundle is 4.8 MB.
+        if entry.artifact_type == "plot_html" and not html_has_plotly_bundle(content):
+            snippet = inline_assets.plotly_script(offline=offline) + "\n" + snippet
         content = _inject_html_snippet(content, snippet)
         page = _stamp_data_theme(content.decode("utf-8", errors="replace"), web_theme_pin)
         return Response(
             content=page.encode("utf-8"),
             media_type=entry.mime_type,
-            headers={"Content-Disposition": f'inline; filename="{entry.filename}"'},
+            headers={
+                "Content-Disposition": f'inline; filename="{entry.filename}"',
+                **document_headers(entry.mime_type),
+            },
         )
 
     @app.delete("/api/artifacts/{artifact_id}")
@@ -1129,9 +1233,10 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
 
             cache_dir = store.artifact_dir / "_notebook_cache"
             html, _ = get_or_render_html(filepath, cache_dir=cache_dir)
-            html_bytes = _inject_html_snippet(html.encode("utf-8"), _NOTEBOOK_RESPONSIVE_CSS)
+            html_bytes = _inject_html_snippet(html.encode("utf-8"), _NOTEBOOK_SNIPPET)
             return HTMLResponse(
-                content=_stamp_data_theme(html_bytes.decode("utf-8"), web_theme_pin)
+                content=_stamp_data_theme(html_bytes.decode("utf-8"), web_theme_pin),
+                headers=opaque_headers(),
             )
         except Exception as exc:
             raise HTTPException(
@@ -1153,13 +1258,21 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
 
         md_source = filepath.read_text(encoding="utf-8", errors="replace")
         html = _build_markdown_page(md_source, entry.title or entry.filename or "Markdown")
-        return HTMLResponse(content=_stamp_data_theme(html, web_theme_pin))
+        return HTMLResponse(
+            content=_stamp_data_theme(html, web_theme_pin), headers=opaque_headers()
+        )
 
     # Logbook entry composer
     from osprey.interfaces.artifacts.logbook import logbook_router
 
     app.include_router(logbook_router)
 
+    # Added before the shared stack, so it sits inside the auth gate (which
+    # must stay outermost) and against the router: every response the app
+    # produces that is not marked ``not_content`` -- the content routes, any
+    # route added later, error statuses and unmatched paths alike -- is
+    # served into an opaque sandbox origin.
+    app.add_middleware(ContentSandboxMiddleware)
     configure_interface_app(app, static_dir=STATIC_DIR)
 
     return app
@@ -1207,7 +1320,7 @@ def run_server(
     announce = not (os.environ.get(OPERATOR_SECRET_ENV) or "").strip()
     login_url = mint_and_announce(host, port)
     if announce:
-        print(f"Open: {login_url}")
+        print(f"Open: {login_url}")  # noqa: T201 -- the server announces its login URL on stdout
 
     app = create_app(workspace_root=workspace_root)
     uvicorn.run(app, host=host, port=port, log_level="info")

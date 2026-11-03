@@ -91,7 +91,8 @@ def run_is_dead(run_log_path: str) -> bool:
     threshold it does not depend on how soon after death the dashboard is
     rendered."""
     try:
-        txt = open(run_log_path, errors="ignore").read()
+        with open(run_log_path, errors="ignore") as fh:
+            txt = fh.read()
     except OSError:
         return False
     banners = list(_TIMEOUT_BANNER.finditer(txt))
@@ -127,7 +128,8 @@ def load_exclusions(config_path: str) -> list[tuple[str, str]]:
     tests leak into the grid: the basename ``test_x.py`` never equals canon_name's
     ``claude_code/test_x.py``.) The footer basenames these only for display."""
     try:
-        cfg = json.load(open(config_path))
+        with open(config_path) as fh:
+            cfg = json.load(fh)
     except Exception as exc:
         # LOUD failure: silently returning [] disables EVERY exclusion and the
         # grid fills with non-model tests (dispatch_tutorial, proxy smokes, ...)
@@ -158,7 +160,8 @@ def load(results_dir: str) -> dict:
         if f.endswith(".lanes.json"):
             continue  # per-cell lane manifest, not a run summary (load_lanes reads it)
         try:
-            d = json.load(open(f))
+            with open(f) as fh:
+                d = json.load(fh)
         except Exception:
             continue
         d["_partial"] = False
@@ -182,11 +185,12 @@ def load(results_dir: str) -> dict:
         if (model, seed) in runs:
             continue
         raw = []
-        for line in open(f):
-            line = line.strip()
-            if line:
-                with contextlib.suppress(Exception):
-                    raw.append(json.loads(line))
+        with open(f) as fh:
+            for line in fh:
+                line = line.strip()
+                if line:
+                    with contextlib.suppress(Exception):
+                        raw.append(json.loads(line))
         if not raw:
             continue
         tests = collapse_reruns(raw)
@@ -247,7 +251,8 @@ def load_lanes(results_dir: str) -> dict[tuple, str]:
     lanes: dict[tuple, str] = {}
     for f in glob.glob(os.path.join(results_dir, "*.lanes.json")):
         try:
-            manifest = json.load(open(f))
+            with open(f) as fh:
+                manifest = json.load(fh)
         except Exception:
             continue
         for nodeid, lane in manifest.items():
@@ -269,11 +274,12 @@ def load_query_timing(results_dir: str) -> dict[str, list[dict]]:
     for f in glob.glob(os.path.join(results_dir, "*__seed*.queries.jsonl")):
         model = os.path.basename(f)[: -len(".queries.jsonl")].rsplit("__seed", 1)[0]
         model = model.replace("__", "/")
-        for line in open(f):
-            line = line.strip()
-            if line:
-                with contextlib.suppress(Exception):
-                    out[model].append(json.loads(line))
+        with open(f) as fh:
+            for line in fh:
+                line = line.strip()
+                if line:
+                    with contextlib.suppress(Exception):
+                        out[model].append(json.loads(line))
     return out
 
 
@@ -349,12 +355,13 @@ def parse_progress(results_dir: str):
     if not os.path.exists(path):
         return started, ended, done
     rx = re.compile(r">> (START|END)\s+(\S+)\s+seed(\d+)")
-    for line in open(path):
-        if "MATRIX_EXIT_0" in line:
-            done = True
-        m = rx.search(line)
-        if m:
-            (started if m.group(1) == "START" else ended).add((m.group(2), int(m.group(3))))
+    with open(path) as fh:
+        for line in fh:
+            if "MATRIX_EXIT_0" in line:
+                done = True
+            m = rx.search(line)
+            if m:
+                (started if m.group(1) == "START" else ended).add((m.group(2), int(m.group(3))))
     return started, ended, done
 
 
@@ -811,7 +818,7 @@ def main() -> int:
                     dots = []
                     for s in m_seeds:  # ref models render a single square, not 3
                         o = seeds_map.get(s)
-                        col = OUTCOME_COLORS[o] if o in OUTCOME_COLORS else "#eaeef2"
+                        col = OUTCOME_COLORS.get(o, "#eaeef2")
                         dots.append(
                             f"<span title='seed{s}: {o or 'pending'}' style='display:inline-block;"
                             f"width:13px;height:13px;border-radius:2px;margin:1px;background:{col}'></span>"
@@ -888,7 +895,8 @@ def main() -> int:
     H.append("</div>")
 
     os.makedirs(os.path.dirname(args.out) or ".", exist_ok=True)
-    open(args.out, "w").write("\n".join(H))
+    with open(args.out, "w") as fh:
+        fh.write("\n".join(H))
     print(f"wrote {args.out}  ({done}/{total_cells} runs, {len(models)} models)")
     return 0
 

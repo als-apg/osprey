@@ -17,8 +17,7 @@ from osprey.mcp_server.channel_finder_middle_layer.server_context import (
     DEFAULT_QUERY_MAX_ROWS,
     QUERY_MAX_ROWS_CONFIG_KEY,
 )
-from tests.mcp_server.channel_finder_middle_layer.conftest import get_tool_fn
-from tests.mcp_server.conftest import assert_raises_error
+from tests.mcp_server.conftest import assert_raises_error, get_tool_fn
 
 _TOOL_MODULE = "osprey.mcp_server.channel_finder_middle_layer.tools.run_sql"
 

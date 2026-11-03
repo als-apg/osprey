@@ -22,8 +22,7 @@ const rule = {
   meta: {
     type: 'problem',
     docs: {
-      description:
-        'ban `// @ts-nocheck`, which silently opts a file out of the type checker',
+      description: 'ban `// @ts-nocheck`, which silently opts a file out of the type checker',
     },
     schema: [],
     messages: {

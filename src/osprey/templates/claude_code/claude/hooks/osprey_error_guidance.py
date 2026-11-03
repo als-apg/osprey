@@ -77,6 +77,8 @@ ERROR_CLASS_MAP = {
     # envelope; "control system" only when the controls server says so.
     "connection_error": "Connection",
     "timeout_error": "Connection",
+    # One channel's device did not answer; the control system as a whole did.
+    "channel_unreachable": "Connection",
     "service_unavailable": "Connection",
     # A switch that was attempted and did not complete: the destination did
     # not answer, and the previous target is still active.
@@ -85,6 +87,14 @@ ERROR_CLASS_MAP = {
     "phoebus_unreachable": "Connection",
     "gallery_unreachable": "Connection",
     "web_terminal_unreachable": "Connection",
+    # The panel tools' workspace is not there to answer: no Web Terminal is
+    # running, or no browser showing the dock answered the op in time.
+    "no_web_terminal": "Connection",
+    "no_dock_client": "Connection",
+    # The agent record did not answer, or could not yet serve the read in
+    # full; the read comes back once it does.
+    "record_unavailable": "Connection",
+    "incomplete": "Connection",
     # Bluesky bridge refusals relayed verbatim: the queue manager or worker
     # environment did not come up, or did not answer a pause in time.
     "manager_unreachable": "Connection",
@@ -106,6 +116,10 @@ ERROR_CLASS_MAP = {
     "target_switch_unavailable": "Validation",
     "invalid_query": "Validation",
     "invalid_pattern": "Validation",
+    # A panel url that is not a root-relative path or an http(s) URL: pass one.
+    "invalid_url": "Validation",
+    # A url for a panel driven by its own workspace tool: use that tool instead.
+    "agent_hop_panel_url": "Validation",
     "sql_error": "Validation",
     "file_too_large": "Validation",
     "conversion_not_supported": "Validation",
@@ -138,6 +152,15 @@ ERROR_CLASS_MAP = {
     "figure_not_current": "Validation",
     # A lattice figure the selected model cannot draw: pick another figure.
     "figure_unavailable": "Validation",
+    # Panel-tool refusals the agent fixes by changing the request: re-read the
+    # layout and retry with its rev, leave the terminal out of a layout, open
+    # as tabs or give an exact layout, or leave a panel in its own window alone.
+    "stale_base": "Validation",
+    "terminal_in_layout": "Validation",
+    "too_many_for_side": "Validation",
+    "popped_out": "Validation",
+    # The reviewer refused this code: revise it and resubmit.
+    "review_blocked": "Validation",
     # ---- Data: a lookup that missed. Report what was asked for and that
     # nothing was found; suggest refining.
     "not_found": "Data",
@@ -171,6 +194,7 @@ ERROR_CLASS_MAP = {
     "target_changed": "Safety",
     "writes_disabled": "Safety",
     "launch_token_required": "Safety",
+    "launch_token_invalid": "Safety",
     "path_traversal": "Safety",
     "protected_key": "Safety",
     "control_target_mismatch": "Safety",
@@ -179,12 +203,18 @@ ERROR_CLASS_MAP = {
     # route around the gate.
     "switch_in_progress": "Safety",
     "lane_mismatch": "Safety",
+    # The terminal, and a tile holding it, is never an agent drop source or
+    # close target: move or close service panels instead, never route around.
+    "terminal_not_agent_movable": "Safety",
     # This deployment cannot do what was asked (a connector that cannot
     # execute plans, a logbook adapter that cannot write): explain, do not
     # look for another path.
     "browse_only_connector": "Safety",
     "unsupported_connector": "Safety",
     "not_supported": "Safety",
+    # The session's target has no archive here: the deployment's archive holds
+    # other machines' past, and showing it would answer from the wrong machine.
+    "no_archive": "Safety",
     # An interrupted plan is back at the head of the queue; a human decides
     # whether to remove it (approval-gated), never the agent by retrying.
     "interrupted_item_in_queue": "Safety",
@@ -218,6 +248,8 @@ ERROR_CLASS_MAP = {
     # Bluesky bridge refusals that need an operator.
     "config_unreadable": "Internal",
     "manager_not_configured": "Internal",
+    # The reviewer could not run: report it verbatim and do not retry.
+    "review_unavailable": "Internal",
 }
 
 

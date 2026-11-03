@@ -1,0 +1,1 @@
+`osprey up` records the runtime and compose project it started in `var/deployment.json`, and `scripts/verify.sh` checks that deployment instead of guessing it; `osprey reset` plans against the recorded project.

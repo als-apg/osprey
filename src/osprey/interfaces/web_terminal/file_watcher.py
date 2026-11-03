@@ -7,7 +7,6 @@ WorkspaceWatcher uses watchdog to detect file changes and broadcast them.
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import logging
 import os
 import threading
@@ -34,30 +33,100 @@ from osprey.interfaces.fs_watch import (
 logger = logging.getLogger(__name__)
 
 
+#: How many ordinary frames a slow subscriber may have waiting before further
+#: ordinary frames are dropped for it. Reliable frames are never dropped.
+QUEUE_CAP = 64
+
+#: How many frames of any kind a subscriber may have waiting before a reliable
+#: frame drops the subscriber itself: its backlog is discarded and its stream
+#: ends with :data:`STREAM_END`. A stream that far behind is stalled, and the
+#: page reconnects with a fresh one.
+RELIABLE_CAP = 1024
+
+#: The last item a dropped subscriber's queue holds. A stream reader ends its
+#: response when it reads this object (compared by identity).
+STREAM_END: dict = {"type": "stream_end"}
+
+
 class FileEventBroadcaster:
-    """Manages per-client asyncio.Queue instances for SSE push."""
+    """Manages per-client asyncio.Queue instances for SSE push.
+
+    A subscriber may name the page's ``client_id``. Ordinary frames are
+    best-effort: a subscriber with :data:`QUEUE_CAP` frames already waiting
+    misses the next one. A ``reliable`` frame (a dock op or a report request) is
+    queued whatever the ordinary backlog, so it is never lost to a slow stream,
+    up to :data:`RELIABLE_CAP`: a subscriber with that many frames waiting is
+    dropped instead. Its backlog is discarded and its queue gets
+    :data:`STREAM_END`, which ends its stream; the page reconnects, and the
+    ``panel_report_request`` sent when a dock client's stream closes elects the
+    current dock client again. So no queue grows without bound.
+
+    :meth:`send_to` addresses a frame to the streams of one ``client_id`` only.
+    The dock's ``panel_op`` frames go that way: another page on the same
+    session never sees an op's ``request_id``, so it cannot answer the op in
+    the dock client's place.
+    """
 
     def __init__(self) -> None:
         self._queues: list[asyncio.Queue[dict]] = []
+        self._client_ids: dict[asyncio.Queue[dict], str | None] = {}
         self._lock = threading.Lock()
 
-    def subscribe(self) -> asyncio.Queue[dict]:
-        q: asyncio.Queue[dict] = asyncio.Queue(maxsize=64)
+    def subscribe(self, client_id: str | None = None) -> asyncio.Queue[dict]:
+        q: asyncio.Queue[dict] = asyncio.Queue()
         with self._lock:
             self._queues.append(q)
+            self._client_ids[q] = client_id
         return q
 
     def unsubscribe(self, q: asyncio.Queue[dict]) -> None:
         with self._lock:
-            with contextlib.suppress(ValueError):
+            if q in self._client_ids:
+                del self._client_ids[q]
                 self._queues.remove(q)
 
-    def broadcast(self, data: dict) -> None:
-        """Push data to all connected SSE clients (called from sync context)."""
+    def has_client(self, client_id: str) -> bool:
+        """Whether an open stream was subscribed under ``client_id``."""
         with self._lock:
-            for q in self._queues:
-                with contextlib.suppress(asyncio.QueueFull):
-                    q.put_nowait(data)
+            return client_id in self._client_ids.values()
+
+    def broadcast(self, data: dict, *, reliable: bool = False) -> None:
+        """Push data to all connected SSE clients (called from sync context).
+
+        Args:
+            data: The frame.
+            reliable: Queue the frame even for a subscriber at :data:`QUEUE_CAP`.
+        """
+        with self._lock:
+            for q in list(self._queues):
+                self._put(q, data, reliable)
+
+    def send_to(self, client_id: str, data: dict, *, reliable: bool = False) -> None:
+        """Push data to the streams subscribed under ``client_id`` only.
+
+        Args:
+            client_id: The page the frame is addressed to.
+            data: The frame.
+            reliable: As for :meth:`broadcast`.
+        """
+        with self._lock:
+            for q in [q for q in self._queues if self._client_ids[q] == client_id]:
+                self._put(q, data, reliable)
+
+    def _put(self, q: asyncio.Queue[dict], data: dict, reliable: bool) -> None:
+        """Queue one frame for one subscriber; the caller holds the lock."""
+        if not reliable:
+            if q.qsize() < QUEUE_CAP:
+                q.put_nowait(data)
+            return
+        if q.qsize() < RELIABLE_CAP:
+            q.put_nowait(data)
+            return
+        del self._client_ids[q]
+        self._queues.remove(q)
+        while not q.empty():
+            q.get_nowait()
+        q.put_nowait(STREAM_END)
 
 
 # Patterns to ignore in file watching

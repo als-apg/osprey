@@ -21,31 +21,15 @@ from pathlib import Path
 import click
 import pytest
 
-from osprey.cli import deploy_cmd, phase_reporter
-from osprey.cli.phase_reporter import PhaseReporter, current_reporter, install_reporter
+from osprey.cli import deploy_cmd
+from osprey.cli.phase_reporter import PhaseReporter, install_reporter
 
 #: The provider whose key the seed offer harvests, and the variable it lives in.
 _PROVIDER = "anthropic"
 _SECRET_VAR = "ANTHROPIC_API_KEY"
 
 
-@pytest.fixture(autouse=True)
-def parked_monitor(monkeypatch):
-    """Park the monitor's tick, so no thread of it lands mid-test.
-
-    A reporter that is rendering runs a real thread on the real clock. One
-    tick arriving while these tests are counting seam calls appends work
-    nobody asked about and silences the assertions after it.
-    """
-    monkeypatch.setattr(phase_reporter, "_MONITOR_INTERVAL", 3600.0)
-
-
-@pytest.fixture(autouse=True)
-def restore_installed_reporter():
-    """Leave the module singleton exactly as the test found it."""
-    original = current_reporter()
-    yield
-    install_reporter(original)
+pytestmark = pytest.mark.usefixtures("parked_monitor")
 
 
 class SeamRecorder(PhaseReporter):

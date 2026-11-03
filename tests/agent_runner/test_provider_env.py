@@ -232,17 +232,22 @@ class TestUnrecognisedApiProtocol:
 class TestUnsupportedProvider:
     """Unknown provider without api_providers entry raises ValueError."""
 
-    def test_raises_value_error(self):
-        with pytest.raises(ValueError, match="Unknown.*'openai'"):
-            ClaudeCodeModelResolver.resolve({"provider": "openai"})
-
-    def test_error_lists_built_ins(self):
-        with pytest.raises(ValueError, match="anthropic.*cborg"):
-            ClaudeCodeModelResolver.resolve({"provider": "bad"})
-
-    def test_error_mentions_api_providers(self):
-        with pytest.raises(ValueError, match="api.providers"):
-            ClaudeCodeModelResolver.resolve({"provider": "my-proxy"})
+    @pytest.mark.parametrize(
+        ("provider", "match"),
+        [
+            pytest.param("openai", "Unknown.*'openai'", id="raises-value-error"),
+            pytest.param("bad", "anthropic.*cborg", id="lists-built-ins"),
+            pytest.param("my-proxy", "api.providers", id="mentions-api-providers"),
+            pytest.param(
+                "bad",
+                r"from api.providers in config.yml: none",
+                id="without-api-providers-says-none-configured",
+            ),
+        ],
+    )
+    def test_an_unknown_provider_is_refused_with_an_error_that_says_why(self, provider, match):
+        with pytest.raises(ValueError, match=match):
+            ClaudeCodeModelResolver.resolve({"provider": provider})
 
     def test_error_names_the_configured_providers_too(self):
         """The resolver accepts the UNION of built-ins and api.providers, so the
@@ -263,10 +268,6 @@ class TestUnsupportedProvider:
         assert "Available providers: als-apg, anthropic, argo, cborg, stanford" in message
         assert "built-in: als-apg, anthropic, cborg" in message
         assert "from api.providers in config.yml: argo, stanford" in message
-
-    def test_error_without_api_providers_says_none_configured(self):
-        with pytest.raises(ValueError, match=r"from api.providers in config.yml: none"):
-            ClaudeCodeModelResolver.resolve({"provider": "bad"})
 
     def test_error_suggests_a_close_match(self):
         api_providers = {"stanford": _gateway()}
@@ -490,8 +491,8 @@ class TestCatalogAuthority:
         )
         assert spec.served_models == load_provider_catalog(None).entries["cborg"]["models"]
 
-    def test_a_tier_map_is_refused_with_the_refresh_command(self):
-        with pytest.raises(ValueError, match="osprey init --revalidate"):
+    def test_a_tier_map_is_refused_with_the_shape_to_write(self):
+        with pytest.raises(ValueError, match=r"models: \[<id>, \.\.\.\]"):
             ClaudeCodeModelResolver.resolve(
                 {"provider": "my-proxy"},
                 api_providers={
@@ -714,17 +715,18 @@ class TestAgentTemplatesNameAModelId:
 class TestEnvBlockAliasModels:
     """Env block contains ANTHROPIC_DEFAULT_*_MODEL vars for all providers."""
 
-    def test_anthropic_has_all_alias_model_vars(self):
-        spec = ClaudeCodeModelResolver.resolve({"provider": "anthropic"})
+    @pytest.mark.parametrize(
+        ("provider", "opus"),
+        [
+            pytest.param("anthropic", "claude-opus-5-5", id="anthropic"),
+            pytest.param("cborg", "claude-opus-5", id="cborg"),
+        ],
+    )
+    def test_a_provider_has_all_alias_model_vars(self, provider, opus):
+        spec = ClaudeCodeModelResolver.resolve({"provider": provider})
         assert spec.env_block["ANTHROPIC_DEFAULT_HAIKU_MODEL"] == "claude-haiku-4-5"
         assert spec.env_block["ANTHROPIC_DEFAULT_SONNET_MODEL"] == "claude-sonnet-5"
-        assert spec.env_block["ANTHROPIC_DEFAULT_OPUS_MODEL"] == "claude-opus-5-5"
-
-    def test_cborg_has_all_alias_model_vars(self):
-        spec = ClaudeCodeModelResolver.resolve({"provider": "cborg"})
-        assert spec.env_block["ANTHROPIC_DEFAULT_HAIKU_MODEL"] == "claude-haiku-4-5"
-        assert spec.env_block["ANTHROPIC_DEFAULT_SONNET_MODEL"] == "claude-sonnet-5"
-        assert spec.env_block["ANTHROPIC_DEFAULT_OPUS_MODEL"] == "claude-opus-5"
+        assert spec.env_block["ANTHROPIC_DEFAULT_OPUS_MODEL"] == opus
 
     def test_custom_alias_override_propagates_to_env_block(self):
         spec = ClaudeCodeModelResolver.resolve(

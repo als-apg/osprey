@@ -52,11 +52,17 @@ rot.
 The entrypoint, the runner and the model surface read the view through
 ``osprey_connectors.simulation.view.SimulatorView``, the one reader every
 consumer of a view opens it with. Each wiring record of ``variables.json``
-states what its engine's ``describe()`` said of it at build time: its ``role``
+states what its engine's ``describe()`` said of it at build time, written
+into the facility file: its ``role``
 (``setpoint``, ``readback``, ``monitor`` or ``output``), the transverse
 ``plane`` it steers or reads (``x``, ``y`` or none) and its ``refresh``. A
-write's pass publishes every served channel except those whose binding
-refreshes ``periodic``, which the next periodic pass publishes. Each channel
+write's pass reads what the write can change, and never a channel whose binding
+refreshes ``periodic``, which the next periodic pass publishes: a physics
+setting reads itself, its readback and what its model computes from its
+settings; any other write reads every served channel. Of what it reads, a
+write's pass posts the written channels and those whose value or undefined
+condition changed; an unchanged channel keeps the timestamp of its last post.
+The start-up pass and every periodic pass post every channel. Each channel
 also names the node it is ``on``. A view an older OSPREY wrote is refused
 before the ready line, with a message asking for ``osprey build``.
 
@@ -248,6 +254,28 @@ was. A ``frozen`` reading serves the value it served when the scenario became
 active. A ``disconnected`` channel holds writes as ``stuck`` does, and its
 reading serves not-a-number, or for a non-float the value it served when the
 scenario became active, with the ``udf`` condition.
+
+Element errors are the magnets' own imperfections. One series supply address
+feeds many magnets, so these are keyed by the served deck element's name
+rather than by an address: ``<element>/dx``, ``<element>/dy`` and
+``<element>/roll`` on every element a setpoint or a non-monitor readback binds,
+and ``<element>/dB<n>`` and ``<element>/dA<n>`` (``n`` from 0 to 9, the index
+into ``PolynomB`` or ``PolynomA``) on every element bound on a polynomial. A
+scenario writes them under ``faults.<model>`` like any engine-named fault,
+either as ``{QF_01_1/dx: 1.0e-4}`` or as ``{QF_01_1: {dx: 1.0e-4, dB2: 0.3}}``.
+Each takes an explicit value; ``dx`` and ``dy`` are bounded to 1 cm and
+``roll`` to 0.1 rad, and a multipole delta must be finite. The engine draws
+nothing at random: a random realisation of errors is the scenario author's to
+draw and write down, so the same scenario always boots the same machine.
+
+The errors are seeded once, when the model is built. A misalignment becomes
+the element's entrance and exit transforms. A multipole delta is added to its
+coefficient and held there: a setpoint write on the same coefficient moves the
+nominal strength and keeps the delta, and the setpoint reads back what was
+written. Systematic multipoles are facts of the deck, written into the lattice
+file, not scenario faults. A scenario whose errors leave no closed orbit does
+not boot quietly wrong: its model fails with the solve error, which names the
+elements seeded, and the model's status names the scenario.
 
 A readout fault never moves the orbit; it changes what a monitor reports.
 ``diff`` is where it becomes visible, as a served reading that has parted from

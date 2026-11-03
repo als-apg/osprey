@@ -16,36 +16,41 @@ new tests.
 
 ```bash
 # Parallel — what CI runs, and what your change has to pass
-pytest tests/ --ignore=tests/e2e packages/osprey-connectors/tests -m "not pty and not wallclock" -n 4 --dist loadgroup
+pytest tests/ --ignore=tests/e2e packages/osprey-connectors/tests -m "not pty and not wallclock and not canopy" -n 4 --dist loadgroup
 
 # Serial — for debugging one failure, or reading full output in order
 pytest tests/ --ignore=tests/e2e packages/osprey-connectors/tests
 ```
 
-The `pty` and `wallclock` markers are run serially by `scripts/ci_check.sh`,
-by `scripts/gate.sh` and by their own CI steps.
-
-`scripts/gate.sh` is the one local spelling of the merge gate: anything that
-gates a branch calls it and adds nothing to its marker expression. It runs every
-CI step that needs no secret or Docker, and `--base <ref>` (default
-`origin/main`) is what its changelog and plugin-version checks compare against.
+The `pty` and `wallclock` markers are run serially by the full tier of
+`scripts/check.py` (its `pytest-pty` and `pytest-wallclock` checks) and by their
+own CI steps; the `canopy` marker by the CANOPY contract's own check and CI job.
 
 Both must pass. Parallel is the real gate; serial is the one that gives you
 readable output when something is wrong.
 
-The four helper scripts already use the parallel invocation, so you normally
-just run one of them:
+`scripts/check.py` runs the merge gate: every check is declared once, by the
+code that owns it, in a `repo_checks.py` module (`scripts/repo_checks.py` for
+the framework, one beside each package that brings its own), the command
+collects them, CI's caller jobs call it, and its `pytest` check already uses
+the parallel invocation, so you normally just run a tier:
 
-| Script | What it is for |
+| Command | What it is for |
 |---|---|
-| `scripts/quick_check.sh` | Fast loop while working; skips `@pytest.mark.slow` |
-| `scripts/premerge_check.sh` | Quiet pass/fail before opening a PR |
-| `scripts/ci_check.sh` | Full CI mirror, with coverage |
-| `scripts/gate.sh full` | The merge gate: lint, lockfile, config keys, changelog, plugin version, types, the parallel sweep, each serial step, JS typecheck/lint/tests, and the docs build. `fast [--base <ref>] <paths>` sends `.py` paths to pytest and `*.test.js`/`*.test.mjs` to vitest |
+| `scripts/check.py quick` | Every commit: the fast checks and the parallel sweep; skips `@pytest.mark.slow` |
+| `scripts/check.py quick --changed origin/main` | Before a PR: the checks and tests the diff touches, plus the changelog and plugin-version checks against the base; names the CI lanes the diff touches |
+| `scripts/check.py full` | Before a push: adds the slow tests, each serial suite, and the builds (docs, packages) |
+| `scripts/check.py run <id>` | One check as declared; what each CI step calls |
 
-Each script bounds its pytest runs with `scripts/run_bounded.py`, which exits
-124 when a run passes its bound. A run stopped by its bound prints every
-process's Python stacks before it is killed. Every pytest process the suite
+`scripts/check.py list` prints every check and the tiers that run it.
+
+The check bounds its pytest runs with `scripts/run_bounded.py`, which exits
+124 when a run passes its bound, after naming any process of its group that
+SIGKILL did not end, or saying the process table could not be read. A run stopped by its bound prints every
+process's Python stacks before it is killed. `Popen.wait()` and `poll()` report
+exit status 0 for a child something else reaped, so a child OSPREY owns is
+reaped only by its stop (`stop_child`); every liveness question asks
+`observe_exit`. Every pytest process the suite
 starts carries an exit report (the harness's `_live_threads.py`): after its last test it
 names the non-daemon threads and child processes keeping it alive, and a slow
 final garbage collection (`SLOW_CLEANUP_SECONDS`). A serial run or the xdist
@@ -56,12 +61,16 @@ holding it, and the exit callbacks registered with `atexit`.
 `tests/integration/test_suite_exit_bound.py` (`wallclock`) holds a facility
 test module under `-n 2` to that bound.
 
-A run keeps only failing tests' `tmp_path` directories
-(`tmp_path_retention_policy = "failed"` in `pyproject.toml`): a passing test's
-files are gone after the run, and a failing test's files stay under
-`{temproot}/pytest-of-<user>/pytest-N/`. A run that exits in silence after its
-summary while that root holds other runs' trees is pytest pruning them at exit;
-the exit report names it (`cleanup_numbered_dir`).
+Each run creates its own temporary root, `{temproot}/osprey-tests-*`
+(`PYTEST_DEBUG_TEMPROOT` or the system temp dir), in `tests/conftest.py`;
+an xdist run's workers live under it. A green run removes it. A red run keeps
+it, with only its failing tests' `tmp_path` directories
+(`tmp_path_retention_policy = "failed"` in `pyproject.toml`), and names it in
+the summary (`temporary files kept at …`). Nothing else on the host numbers or
+prunes it. Pass `--basetemp` to choose the place yourself; it is then never
+removed. Never add `--basetemp` to a launcher.
+
+A run owns its ports the same way; section 6 says how a test takes one.
 
 **E2E tests are separate.** Run them with `pytest tests/e2e/`, never with
 `-m e2e`.
@@ -89,10 +98,16 @@ harness's `_guards.py`) that changes how work is handed to workers:
   and the whole group goes to one worker. Use this only when *separate files*
   must not run at the same time as each other.
 
-There is exactly **one** sanctioned group today: `"docker"`, shared by the ten
-files that start real containers (the MongoDB connector tests and the
-Postgres-backed ARIEL tests). One group means one worker, one testcontainers
-session, one reaper — see section 6.
+There are exactly **two** sanctioned groups today:
+
+- `"docker"`, shared by the ten files that start real containers (the MongoDB
+  connector tests and the Postgres-backed ARIEL tests). One group means one
+  worker, one testcontainers session, one reaper — see section 6.
+- `"soft-ioc"`, shared by the files that start real EPICS soft IOCs through
+  `packages/osprey-connectors/tests/osprey_connectors_tests/_soft_ioc.py`. Each
+  IOC binds four probed ports (CA server TCP+UDP, PVA server, PVA broadcast, CA
+  repeater) a moment after the probe, so two workers probing at once can pick
+  the same port; one worker closes that window. See section 6 for the port rules.
 
 **Adding a group is a last resort, and every use carries a comment saying why.**
 Copy the shape from `tests/connectors/test_mongodb_archiver_connector.py`:
@@ -164,7 +179,7 @@ The ones that exist today:
 - `osprey.deployment.compose_generator._reset_wheel_build_cache()` — defined in
   `wheel_build.py` and re-exported by `compose_generator`; import it from either,
   but `wheel_build.py` is where it lives if you need to read it.
-- `osprey_connectors.factory.isolated_connector_registries(clear=True)` — a
+- `osprey_connectors_tests._harness.isolated_connector_registries(clear=True)` — a
   context manager that snapshots and restores the connector registries. Use it
   instead of `ConnectorFactory._registry.clear()`, which destroys registrations
   other files depend on.
@@ -259,15 +274,27 @@ Markers are declared in `pyproject.toml` under `[tool.pytest.ini_options]`.
 when you pass it on the command line yourself: in a normal run an undeclared
 marker is a `PytestUnknownMarkWarning`, not an error. So declare your marker, and
 run `pytest --strict-markers …` when you want a typo to fail collection rather
-than scroll past in the warnings summary. Four groups matter day to day:
+than scroll past in the warnings summary. Five groups matter day to day:
 
 - **`requires_<resource>`** (`requires_ollama`, `requires_als_apg`, …) — declares
   an external dependency. `pytest_collection_modifyitems` in `tests/conftest.py`
   turns it into a real skip when the resource is missing. To add a resource,
   append a zero-argument, side-effect-free predicate to `_RESOURCE_CHECKS` there
   and declare the marker in `pyproject.toml`.
-- **`slow`** — deselected by `scripts/quick_check.sh` (`-m "not slow"`). Mark a
+- **`slow`** — deselected by `scripts/check.py quick` (`-m "not slow"`). Mark a
   test slow if it would make the fast loop annoying to run; it still runs in CI.
+- **`canopy`** — a test that needs CANOPY; its rule is the marker's text in
+  pyproject.toml (`pytest --markers`). To run the contract, install CANOPY and
+  PyDMConverter at the commits `python3 src/osprey/integrations/canopy/proven.py --pins`
+  prints and run `uv run python scripts/check.py run canopy-contract`.
+  `tests/integrations/canopy/fixtures/canopy-copies.json` is the one record of
+  every CANOPY file copied into this repository (the three fixtures beside it and
+  the bundled `canopy-panel-builder` `SKILL.md`), and a test holds its commit
+  equal to the canopy pin and each copy equal to its recorded blob. When the pin
+  moves, regenerate each copy with one line per entry,
+  `git -C <canopy> show <pin>:<canopy_path> > <osprey_path>`, taking `<pin>` from
+  `python3 src/osprey/integrations/canopy/proven.py --pins`, then write the new
+  commit and blob ids (`git hash-object <osprey_path>`) into the record.
 - **`xdist_group`** — the worker pin from section 1. Self-registered by xdist, so
   it needs no declaration.
 - **`real_<seam>`** (`real_workspace_watcher`, `real_http_posters`,
@@ -475,20 +502,49 @@ import time. "It was easier" is not a reason; move it into a fixture instead.
 
 ### Ports
 
-Take ports from the shared helpers in `src/osprey/interfaces/_serving.py`:
+Let the server bind port 0 and read the port it was given back from its socket.
+`run_app_server(app)` in `src/osprey/interfaces/_serving.py` does this for a
+FastAPI app and yields its URL:
 
 ```python
-from osprey.interfaces._serving import free_port, wait_for_port
+from osprey.interfaces._serving import run_app_server
 
-port = free_port()          # an unused TCP port on 127.0.0.1
-...
-wait_for_port(port)         # block until the server accepts, or raise
+with run_app_server(app) as url:   # the app listens on a socket it owns
+    ...
 ```
 
-Never hardcode a port number. Four workers running the same hardcoded port is a
-guaranteed intermittent failure. Some older files still carry a private
-`_free_port` copy; those are untouched debt — new and modified tests use the
-shared helpers.
+Where the number must be known before the server binds (a config file, a
+subprocess argument), hold a `reserved_port()` from
+`osprey_connectors_tests._harness._ports` for as long as the server needs it;
+in a test, the `reserve_port` fixture hands out such ports, held until the test
+ends. Where a port must be busy (a bind-conflict test), hold a `bound_socket()`
+from the same module.
+
+Never hardcode a port number, and never pick one by binding port 0 and
+releasing it (`free_port()`, `find_free_port()`, or an inline
+`bind((host, 0))` + `getsockname()` + close): the released port lies in the
+kernel's ephemeral range, and any socket on the host can take it before the
+server binds it. `tests/infrastructure/test_no_released_ports.py` freezes the
+files that still do, with their counts; a new site fails it, and a converted
+site means lowering its count there.
+
+The one exception is the soft-IOC fixture
+(`packages/osprey-connectors/tests/osprey_connectors_tests/_soft_ioc.py`):
+EPICS servers bind TCP *and* UDP on one port number, so it probes both with its
+own `probe_free_port()`, and it never hands out a port in its `OCCUPIED_PORTS`
+list (the CA/PVA defaults and the ports long-lived stacks hold on the
+development host). Start an IOC with `SoftIOC(records)` and point a
+client at it with `ioc.client_env()`; never set EPICS ports by hand.
+
+### Waiting vs timing
+
+A liveness wait returns on its condition under a generous deadline, and a speed
+claim asserts its own named budget, never the liveness deadline. A deadline that
+doubles as a speed limit fails setup the moment a loaded host is slow, and raising
+it then silently weakens the speed assert. The soft-IOC fixture keeps the two
+apart: `start()` waits up to `READY_TIMEOUT_S` for "IOC Running" and returns the
+moment it appears, while the fixture's own speed tests assert elapsed time
+against `STARTUP_BUDGET_S`.
 
 ### Containers
 
@@ -556,8 +612,9 @@ Checklist for a new test area:
       the whole run (`Interrupted: 1 error during collection`), but under `-n 4`
       it degrades — exit 1, and the colliding file's tests simply never run,
       which later reads as a coverage shortfall rather than a collection failure.
-- [ ] **Reuse the shared fixtures and helpers.** `free_port()` / `wait_for_port()`
-      for ports, the existing reset seams for global state, `patch_subprocess()`
+- [ ] **Reuse the shared fixtures and helpers.** `run_app_server()` / `reserved_port()`
+      for ports (section 6), `tests._live.wait_until()` / `async_wait_until()` for polling a
+      condition, the existing reset seams for global state, `patch_subprocess()`
       for subprocess fakes, `isolated_home` for anything touching `$HOME`.
 - [ ] **New global state gets a public reset seam in `src/`**, plus an autouse
       fixture in the area's `conftest.py` in the house style — reset before and

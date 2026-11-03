@@ -4,7 +4,7 @@ One question per test, asked of the two instruments together:
 
 * **printed** -- did the fact reach the default view, as the verb's own output?
   Echo-class lines go through :mod:`osprey.cli.output`, which resolves
-  ``current_reporter().out()`` per call, so the capture reporter below is what
+  ``current_reporter().out()`` per call, so a ``ConsoleReporter`` is what
   reads them.
 * **painted / recorded** -- did the *old* log form stay out of the terminal
   while its record stayed in the sink? That pair is the honesty half: a
@@ -29,10 +29,10 @@ from __future__ import annotations
 
 import ast
 import logging
-import os
 import re
 import subprocess
 from collections.abc import Iterator
+from contextlib import nullcontext
 from io import StringIO
 from pathlib import Path
 from types import SimpleNamespace
@@ -44,9 +44,7 @@ from rich.console import Console
 from osprey.cli import build_cmd, build_persistence, deploy_cmd, output
 from osprey.cli.build_persistence import _apply_conventions
 from osprey.cli.main import cli
-from osprey.cli.phase_reporter import PhaseReporter, install_reporter
 from osprey.cli.profile_conventions import PROJECT_MIRROR_DIR
-from osprey.cli.templates.manager import TemplateManager
 from osprey.deployment import compose_generator, container_lifecycle, wheel_build
 from osprey.deployment.web_terminals import (
     auth_credentials,
@@ -57,41 +55,11 @@ from osprey.deployment.web_terminals import (
     seeding,
 )
 from osprey.simulation import apply
-from tests._preset_data import bundle_data_root
+from tests._preset_data import create_project_as_built
 from tests._renders import tier_render
+from tests.cli._lifecycle_build import invoke_build_in
+from tests.cli._reporters import ConsoleReporter, installed
 from tests.cli.conftest import TerminalProbe
-
-
-def _create_project(manager: TemplateManager, **kwargs) -> Path:
-    """``create_project`` plus the three steps a real build takes next.
-
-    A build renders the framework template, overlays the resolved profile's
-    ``config:`` block onto the result, stamps ``.osprey-manifest.json``, and
-    regenerates ``.claude/`` from the finished config. The template carries
-    only derived and profile-field-derived keys, so a fixture that stops after
-    the render holds half a config — the declarative half is the preset's, and
-    the artifacts rendered before it landed do not know about the deployment's
-    control system, services or servers. These fixtures render from a bundle
-    rather than from a profile, so they overlay the preset ``osprey init``
-    pairs with that bundle.
-    """
-    from osprey.cli.build_profile import resolve_build_profile
-    from osprey.utils.config_writer import config_update_fields
-
-    bundle = kwargs.setdefault("data_bundle", "control_assistant")
-    preset = bundle.replace("_", "-")
-    kwargs.setdefault("data_root", bundle_data_root(bundle))
-    project = manager.create_project(**kwargs)
-    profile, _preset_dir = resolve_build_profile(None, preset=preset)
-    config_update_fields(project / "config.yml", profile.config)
-    manager.generate_manifest(
-        project, kwargs["project_name"], preset, {}, artifacts=kwargs.get("artifacts")
-    )
-    # The build's last render, and the one that ships: `create_project` wrote
-    # `.claude/` from a config.yml that did not yet carry the preset's block.
-    manager.regenerate_claude_code(project)
-    return project
-
 
 # The witness logger and its marker. An ERROR is above the altitude gate on
 # every path -- WARNING no longer is while a reporter is installed, which these
@@ -107,27 +75,10 @@ _WITNESS = "PROMOTIONWITNESSMARKER"
 # ---------------------------------------------------------------------------
 
 
-class _CaptureReporter(PhaseReporter):
-    """A reporter whose console is a buffer, so printed lines are readable.
-
-    ``out()`` is the seam every echo-class primitive resolves per call, and
-    :meth:`osprey.cli.phase_reporter.Phase.step` prints through ``emit`` on the
-    same console -- so one buffer holds both a verb's report lines and the
-    ``  · name`` sub-steps hung off its phase.
-    """
-
-    def __init__(self, console: Console) -> None:
-        super().__init__(color=False)
-        self._console = console
-
-    def out(self) -> Console:
-        return self._console
-
-
 class Printed:
     """What the operator saw, plus the phase machinery to hang steps off."""
 
-    def __init__(self, reporter: _CaptureReporter, buffer: StringIO) -> None:
+    def __init__(self, reporter: ConsoleReporter, buffer: StringIO) -> None:
         self.reporter = reporter
         self._buffer = buffer
 
@@ -166,12 +117,9 @@ def printed() -> Iterator[Printed]:
         legacy_windows=False,
         theme=osprey_theme,
     )
-    reporter = _CaptureReporter(console)
-    previous = install_reporter(reporter)
-    try:
+    reporter = ConsoleReporter(console)
+    with installed(reporter):
         yield Printed(reporter, buffer)
-    finally:
-        install_reporter(previous)
 
 
 @pytest.fixture
@@ -370,13 +318,20 @@ class TestDegradationsAreReported:
         assert "ghcr.io/example/worker:1" in printed.flowed
         assert "Skipping the demo:local build." in printed.flowed
 
-    def test_an_empty_service_roster_says_nothing_was_started(
-        self, default_altitude, printed, tmp_path
+    def test_an_empty_service_roster_still_starts_the_agent_record(
+        self, printed, tmp_path, monkeypatch
     ):
-        container_lifecycle._start_stack({}, [], tmp_path)
+        """There is no empty stack: agent-record runs in every deployment, so
+        an empty roster goes on to the start instead of reporting a skip.
+        Under --dev, so the start reaches the build without asking this
+        checkout's version for a release pin."""
+        _stub_start_stack_preflights(monkeypatch)
 
-        assert_promoted(default_altitude, printed, "No services are configured for this project")
-        assert "Skipping osprey up." in printed.flowed
+        with pytest.raises(_StopBeforeTheBuild):
+            container_lifecycle._start_stack({}, [], tmp_path, dev_mode=True)
+
+        assert "No services are configured for this project" not in printed.flowed
+        assert "Skipping osprey up." not in printed.flowed
 
 
 class TestAutonomousHostChangesAreReported:
@@ -675,7 +630,8 @@ def _stub_start_stack_preflights(monkeypatch: pytest.MonkeyPatch) -> None:
 
     Every preflight between the roster check and the ``DEV_MODE`` line asks the
     host a question this test has no answer for; each is covered by its own
-    module's tests.
+    module's tests. The host is answered on both questions a start asks it: the
+    runtime is up, and it is the one the deployment record names.
     """
     for name in (
         "_check_shared_disk_preflight",
@@ -690,8 +646,11 @@ def _stub_start_stack_preflights(monkeypatch: pytest.MonkeyPatch) -> None:
     ):
         monkeypatch.setattr(container_lifecycle, name, lambda *a, **k: None)
     monkeypatch.setattr(container_lifecycle, "verify_runtime_is_running", lambda config: (True, ""))
+    monkeypatch.setattr(
+        container_lifecycle, "get_runtime_command", lambda config=None: ["docker", "compose"]
+    )
     monkeypatch.setattr(container_lifecycle, "_ensure_service_tokens", lambda *a, **k: set())
-    monkeypatch.setattr(container_lifecycle, "_compose_provider", lambda config: None)
+    monkeypatch.setattr(container_lifecycle, "_compose_provider", lambda config=None, **_: None)
 
     def _stop(*args, **kwargs):
         raise _StopBeforeTheBuild
@@ -754,7 +713,9 @@ def archiver_stubs(monkeypatch: pytest.MonkeyPatch) -> dict:
     monkeypatch.setattr(
         container_lifecycle,
         "_archiver_seed_inputs",
-        lambda config, project_dir: SimpleNamespace(addresses=["SR:BPM1:X", "SR:BPM2:X"]),
+        lambda config, project_dir: nullcontext(
+            SimpleNamespace(addresses=["SR:BPM1:X", "SR:BPM2:X"])
+        ),
     )
     monkeypatch.setattr(container_lifecycle, "_wait_for_archiver_store", lambda *a, **k: None)
     monkeypatch.setattr(container_lifecycle, "_reapply_active_scenarios", lambda *a, **k: None)
@@ -865,7 +826,7 @@ def _stub_legacy_down(
         container_lifecycle, "prepare_compose_files", lambda *a, **k: ({}, ["rendered.yml"])
     )
     monkeypatch.setattr(container_lifecycle, "resolve_repo_root", lambda *a, **k: Path("."))
-    monkeypatch.setattr(container_lifecycle, "_compose_provider", lambda config: None)
+    monkeypatch.setattr(container_lifecycle, "_compose_provider", lambda config=None, **_: None)
     monkeypatch.setattr(container_lifecycle, "compose_base_cmd", lambda *a, **k: ["docker"])
     monkeypatch.setattr(container_lifecycle, "_env_file_args", lambda *a, **k: [])
     monkeypatch.setattr(container_lifecycle, "runtime_env", lambda config, env: dict(env))
@@ -1248,14 +1209,10 @@ def built_exemplar(tmp_path_factory: pytest.TempPathFactory) -> _BuildRun:
     previous_level = root.level
     root.addHandler(sink)
     root.setLevel(logging.DEBUG)
-    previous_cwd = Path.cwd()
-    os.chdir(repo)
-    previous_reporter = install_reporter(_CaptureReporter(console))
     try:
-        result = CliRunner().invoke(build_cmd.build, ["--skip-deps", "--skip-lifecycle"])
+        with installed(ConsoleReporter(console)):
+            result = invoke_build_in(repo)
     finally:
-        install_reporter(previous_reporter)
-        os.chdir(previous_cwd)
         root.removeHandler(sink)
         root.setLevel(previous_level)
 
@@ -1301,10 +1258,12 @@ def _offer_the_env_seed(monkeypatch: pytest.MonkeyPatch, *, answer: bool) -> Non
 def _stub_a_successful_wheel_build(monkeypatch: pytest.MonkeyPatch) -> None:
     """Make ``python -m build`` produce a wheel without running a build.
 
-    The memo is reset on the way in: it is process-wide, so a stubbed wheel
-    left in it would be handed to whatever asks next.
+    The memo is process-wide, so the test gets its own, and monkeypatch puts
+    the process's back afterwards: the empty stub wheel left in a shared memo
+    would be handed to the next real ``--dev`` build on this worker.
     """
-    wheel_build._reset_wheel_build_cache()
+    monkeypatch.setattr(wheel_build, "_wheel_build_cache", {})
+    monkeypatch.setattr(wheel_build, "_wheel_cache_dir", None)
 
     def _fake_build(argv, **kwargs):
         outdir = Path(argv[argv.index("--outdir") + 1])
@@ -1319,7 +1278,7 @@ def _rendered_project(tmp_path: Path, name: str) -> Path:
     """A project tree the convention application can be run against."""
     from osprey.cli.templates.manager import TemplateManager
 
-    return _create_project(
+    return create_project_as_built(
         TemplateManager(),
         project_name=name,
         output_dir=tmp_path,
@@ -1338,7 +1297,7 @@ def _stub_the_legacy_clean(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> N
     # deferred import resolves the attribute off `container_lifecycle` at call
     # time, which is what makes patching them there take effect. Left unpatched,
     # `_compose_provider` probes for a real runtime and raises.
-    monkeypatch.setattr(container_lifecycle, "_compose_provider", lambda config: None)
+    monkeypatch.setattr(container_lifecycle, "_compose_provider", lambda config=None, **_: None)
     monkeypatch.setattr(container_lifecycle, "_env_file_args", lambda *a, **k: [])
 
 
@@ -1619,23 +1578,25 @@ class TestWebTerminalSubStepRows:
 
         assert_sub_step(printed, "web endpoint reachable")
 
-    def test_the_seed_loop_reports_its_counts(self, printed, monkeypatch, tmp_path):
+    @pytest.mark.parametrize(
+        ("outcomes", "expected"),
+        [
+            ({"alice": True, "bob": True}, "seeded 2/2 user contexts"),
+            # Row 16's whole reason for being a count: ``<n>`` seeded of ``<total>``.
+            ({"alice": True, "bob": None}, "seeded 1/2 user contexts"),
+        ],
+        ids=["all-seeded", "short-seed-legible-on-the-count-line"],
+    )
+    def test_the_seed_loop_reports_its_counts(
+        self, printed, monkeypatch, tmp_path, outcomes, expected
+    ):
         """Row 16: counts, not an announcement, now that the loop is quiet."""
-        _stub_the_seed_loop(monkeypatch, tmp_path, outcomes={"alice": True, "bob": True})
+        _stub_the_seed_loop(monkeypatch, tmp_path, outcomes=outcomes)
         printed.open_phase()
 
         seeding.seed_user_containers(_seed_config(["alice", "bob"]))
 
-        assert_sub_step(printed, "seeded 2/2 user contexts")
-
-    def test_a_short_seed_is_legible_on_the_count_line_alone(self, printed, monkeypatch, tmp_path):
-        """Row 16's whole reason for being a count: ``<n>`` seeded of ``<total>``."""
-        _stub_the_seed_loop(monkeypatch, tmp_path, outcomes={"alice": True, "bob": None})
-        printed.open_phase()
-
-        seeding.seed_user_containers(_seed_config(["alice", "bob"]))
-
-        assert_sub_step(printed, "seeded 1/2 user contexts")
+        assert_sub_step(printed, expected)
 
     def test_a_container_that_was_not_ready_names_the_user_it_cost(
         self, printed, monkeypatch, tmp_path, caplog
@@ -2067,7 +2028,7 @@ def printed_err(monkeypatch: pytest.MonkeyPatch) -> Iterator[Printed]:
         theme=osprey_theme,
     )
     monkeypatch.setattr(styles, "err_console", console)
-    yield Printed(_CaptureReporter(console), buffer)
+    yield Printed(ConsoleReporter(console), buffer)
 
 
 def _stub_one_port_conflict(monkeypatch: pytest.MonkeyPatch, *, host_network: bool = False) -> None:

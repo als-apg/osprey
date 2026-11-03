@@ -12,15 +12,16 @@ from fastapi import APIRouter
 from osprey.interfaces.web_terminal.routes.agent_activity import router as agent_activity_router
 from osprey.interfaces.web_terminal.routes.agent_turn import router as agent_turn_router
 from osprey.interfaces.web_terminal.routes.audit import router as audit_router
-from osprey.interfaces.web_terminal.routes.bar_items import router as bar_items_router
 from osprey.interfaces.web_terminal.routes.chat import router as chat_router
 from osprey.interfaces.web_terminal.routes.chat_attachments import (
     router as chat_attachments_router,
 )
+from osprey.interfaces.web_terminal.routes.code_review import router as code_review_router
 from osprey.interfaces.web_terminal.routes.config import router as config_router
 from osprey.interfaces.web_terminal.routes.feedback import router as feedback_router
 from osprey.interfaces.web_terminal.routes.files import router as files_router
 from osprey.interfaces.web_terminal.routes.memory import router as memory_router
+from osprey.interfaces.web_terminal.routes.panel_ops import router as panel_ops_router
 from osprey.interfaces.web_terminal.routes.panels import router as panels_router
 from osprey.interfaces.web_terminal.routes.proxy import router as proxy_router
 from osprey.interfaces.web_terminal.routes.scaffold import router as scaffold_router
@@ -32,13 +33,14 @@ from osprey.interfaces.web_terminal.routes.websocket import router as websocket_
 
 router = APIRouter()
 router.include_router(panels_router)
+router.include_router(panel_ops_router)
 router.include_router(agent_activity_router)
 router.include_router(agent_turn_router)
 router.include_router(audit_router)
-router.include_router(bar_items_router)
 router.include_router(session_router)
 router.include_router(session_handoff_router)
 router.include_router(config_router)
+router.include_router(code_review_router)
 router.include_router(files_router)
 router.include_router(feedback_router)
 router.include_router(memory_router)

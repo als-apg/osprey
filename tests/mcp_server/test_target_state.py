@@ -20,10 +20,17 @@ import os
 import pytest
 
 from osprey.mcp_server.control_system import server, server_context, target_state
-from osprey_connectors import control_context
+from osprey_connectors import control_context, posture_store
 from osprey_connectors.identity import acting_identity
 from osprey_connectors_tests._harness import state_dir_under
 from tests.mcp_server._report_root import state_root as state_root
+
+
+@pytest.fixture(autouse=True)
+def empty_proc(tmp_path_factory, monkeypatch):
+    """An empty ``/proc``, so a PID faked through ``os.kill`` never meets a real thread."""
+    monkeypatch.setattr(control_context, "_PROC_ROOT", str(tmp_path_factory.mktemp("proc")))
+
 
 TARGETS_META = {
     "live": {
@@ -229,6 +236,46 @@ class TestProbeChannel:
 
 
 # ---------------------------------------------------------------------------
+# machine_kind round-tripping (C-KIND)
+# ---------------------------------------------------------------------------
+
+
+class TestMachineKindRoundTrip:
+    @pytest.fixture(autouse=True)
+    def _root(self, state_root):
+        pass
+
+    def test_each_published_kind_is_kept_exactly(self):
+        meta = {
+            name: {**TARGETS_META[name], "machine_kind": kind}
+            for name, kind in (("live", "real"), ("va", "simulator"), ("standin", "rehearsal"))
+        }
+        target_state.write_server_record(meta, server_pid=1234)
+
+        assert target_state.read(1234)["targets"] == meta
+
+    def test_an_absent_kind_is_not_invented(self):
+        """No key means "not stated", which every reader takes as the real machine."""
+        target_state.write_server_record(TARGETS_META, server_pid=1234)
+
+        assert target_state.read(1234)["targets"] == TARGETS_META
+
+    @pytest.mark.parametrize("bogus", ["", None, "Rehearsal", "stand-in", True, ["rehearsal"]])
+    def test_an_unknown_kind_is_dropped_never_stringified(self, bogus):
+        meta = {"standin": {**TARGETS_META["standin"], "machine_kind": bogus}}
+        target_state.write_server_record(meta, server_pid=1234)
+
+        assert "machine_kind" not in target_state.read(1234)["targets"]["standin"]
+
+    def test_the_kind_survives_a_switch(self):
+        meta = {"standin": {**TARGETS_META["standin"], "machine_kind": "rehearsal"}}
+        target_state.write_server_record(meta, server_pid=1234)
+        target_state.publish_switch("standin", 1, server_pid=1234)
+
+        assert target_state.read(1234)["targets"]["standin"]["machine_kind"] == "rehearsal"
+
+
+# ---------------------------------------------------------------------------
 # selected_role round-tripping
 # ---------------------------------------------------------------------------
 
@@ -388,15 +435,16 @@ class TestRead:
     def test_absent_file_reads_as_none(self):
         assert target_state.read(1234) is None
 
-    def test_corrupt_json_reads_as_none(self, state_root):
+    @pytest.mark.parametrize(
+        "text",
+        [
+            pytest.param("{not json", id="corrupt-json"),
+            pytest.param("[1, 2, 3]", id="non-object-json"),
+        ],
+    )
+    def test_unusable_json_reads_as_none(self, state_root, text):
         path = _write_foreign(state_root, 1234)
-        path.write_text("{not json", encoding="utf-8")
-
-        assert target_state.read(1234) is None
-
-    def test_non_object_json_reads_as_none(self, state_root):
-        path = _write_foreign(state_root, 1234)
-        path.write_text("[1, 2, 3]", encoding="utf-8")
+        path.write_text(text, encoding="utf-8")
 
         assert target_state.read(1234) is None
 
@@ -550,6 +598,91 @@ class TestShutdown:
         assert target_state.read(1234) is None
 
 
+class TestDisplayOnlyReport:
+    """DATA's report sits beside the fleet's and is never counted in it."""
+
+    @pytest.fixture(autouse=True)
+    def _one_root_for_every_reader(self, state_root, monkeypatch):
+        """Stamp the scratch root too, so the connector-side readers resolve it."""
+        monkeypatch.setenv(posture_store.AGENT_DATA_ROOT_ENV_VAR, str(state_root))
+        control_context.invalidate_cache()
+        yield
+        control_context.invalidate_cache()
+
+    @staticmethod
+    def _write_display_only(state_root, pid, *, updated_at):
+        directory = state_dir_under(state_root)
+        directory.mkdir(parents=True, exist_ok=True)
+        path = (
+            directory / f"{target_state.REPORT_FILE_PREFIX}{pid}{target_state.REPORT_FILE_SUFFIX}"
+        )
+        path.write_text(
+            json.dumps(
+                {
+                    "server_pid": pid,
+                    "session": None,
+                    "applied_target": "va",
+                    "applied_generation": 3,
+                    "children": [],
+                    "reachability": {},
+                    "last_switch": None,
+                    "last_posture_realign": None,
+                    "targets": {},
+                    "updated_at": updated_at,
+                    "statement": {
+                        "reachable": {"state": "yes", "since": None, "reason": None},
+                        "writes": {
+                            "allowed": True,
+                            "position": "allowed",
+                            "reason": None,
+                            "kind": "simulator",
+                        },
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+        control_context.invalidate_cache()
+        return path
+
+    def test_a_controls_server_never_writes_a_statement(self):
+        target_state.write_server_record(TARGETS_META, server_pid=1234)
+
+        record = json.loads(target_state.report_file_path(1234).read_text(encoding="utf-8"))
+        assert "statement" not in record
+        assert control_context.parse_report(record).display_only is False
+
+    def test_the_shape_doc_names_the_eleventh_field(self):
+        doc = target_state.__doc__
+        assert '"statement"' in doc
+        assert "display-only" in doc
+
+    def test_a_newer_display_only_report_leaves_the_published_labels_unchanged(self, state_root):
+        from osprey.interfaces.web_terminal.routes import websocket
+
+        target_state.write_server_record(TARGETS_META, server_pid=os.getpid())
+        self._write_display_only(state_root, os.getppid(), updated_at="2999-01-01T00:00:00+00:00")
+
+        reports = websocket._live_reports()
+        assert [r.server_pid for r in reports] == [os.getpid()]
+        assert websocket._published_targets(reports) == TARGETS_META
+        statements = control_context.live_statement_reports(is_alive=target_state.is_process_alive)
+        assert [r.server_pid for r in statements] == [os.getppid()]
+        # Even handed the DATA report directly, its empty targets name nothing.
+        assert websocket._published_targets([*reports, *statements]) == TARGETS_META
+
+    def test_the_landing_wait_passes_over_a_display_only_row(self, state_root):
+        from osprey.interfaces.web_terminal.routes import websocket
+
+        self._write_display_only(state_root, os.getppid(), updated_at="2999-01-01T00:00:00+00:00")
+
+        assert websocket._live_reports() == ()
+        statements = control_context.live_statement_reports(is_alive=target_state.is_process_alive)
+        rows = websocket._server_rows(statements)
+        assert [row["children"] for row in rows] == [[]]
+        assert rows[0]["last_switch"] is None
+
+
 class TestAtomicWrite:
     def test_successful_write_leaves_only_the_state_file(self, state_root):
         target_state.write_server_record(TARGETS_META, server_pid=1234)
@@ -625,6 +758,12 @@ class _FakeManager:
     def active_proxy(self):
         return self.proxy
 
+    async def serving_proxy(self):
+        return self.proxy
+
+    def active_binding(self):
+        return ("live", 0)
+
     def active_target(self):
         return "live"
 
@@ -661,21 +800,23 @@ class TestServerStartClaimsTheRecord:
         assert claimed.owner.pid == os.getpid()
         assert claimed.owner.port is None
 
-    def test_server_start_claim_keeps_the_posture_it_found(
+    def test_server_start_claim_keeps_the_switch_it_found(
         self, control_context_root, write_control_context
     ):
+        """The claim keeps the person's switch; ``posture`` is only its mirror."""
         write_control_context(
             control_context_root,
             target="va",
             generation=7,
-            posture={"va": "sandbox"},
+            switch={"va": "asked"},
             owned_by=None,
         )
 
         claimed = server_context.claim_control_context(baseline="live")
 
         assert claimed is not None
-        assert claimed.posture == {"va": "sandbox"}
+        assert claimed.switch == {"va": "asked"}
+        assert claimed.posture == control_context.posture_mirror({"va": "asked"})
 
     def test_claim_moves_generation_zero_live_record_to_va(
         self, control_context_root, write_control_context
@@ -728,7 +869,7 @@ class TestServerStartClaimsTheRecord:
         from osprey_connectors_tests._harness import write_payload
 
         write_payload(
-            control_context.record_path_under(control_context_root),
+            control_context._record_path_under(control_context_root),
             {
                 "schema": 1,
                 "owner": "whoever",
@@ -783,17 +924,19 @@ class TestServerStartClaimsTheRecord:
         claimed = server_context.claim_control_context(baseline="live")
 
         assert claimed is not None
-        assert (claimed.target, claimed.generation, claimed.posture) == ("live", 0, {})
+        assert (claimed.target, claimed.generation, claimed.switch) == ("live", 0, {})
+        # No switch turned on: the mirror refuses every machine.
+        assert claimed.posture == control_context.posture_mirror({})
         assert claimed.owner is not None
         assert claimed.owner.kind == control_context.OWNER_CONTROLS_SERVER
-        assert control_context.record_path_under(control_context_root).exists()
+        assert control_context._record_path_under(control_context_root).exists()
 
     def test_server_start_writes_a_baseline_record_over_an_unreadable_one(
         self, control_context_root
     ):
         from osprey_connectors_tests._harness import write_payload
 
-        write_payload(control_context.record_path_under(control_context_root), ["not", "a record"])
+        write_payload(control_context._record_path_under(control_context_root), ["not", "a record"])
 
         claimed = server_context.claim_control_context(baseline="live")
 
@@ -852,7 +995,7 @@ class TestServerStartLaunchTarget:
         from osprey_connectors_tests._harness import write_payload
 
         write_payload(
-            control_context.record_path_under(control_context_root),
+            control_context._record_path_under(control_context_root),
             {"schema": 1, "target": "", "generation": 7},
         )
 

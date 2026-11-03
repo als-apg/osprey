@@ -2,11 +2,10 @@
 
 import json
 from datetime import datetime
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock
 
-from osprey.mcp_server.ariel.server_context import initialize_ariel_context
 from osprey.services.ariel_search.models import ARIELStatusResult, EmbeddingTableInfo
-from tests.mcp_server.ariel.conftest import get_tool_fn
+from tests.mcp_server.ariel.conftest import get_tool_fn, patch_ariel_service
 from tests.mcp_server.conftest import assert_raises_error
 
 
@@ -16,17 +15,9 @@ def _get_status():
     return get_tool_fn(status)
 
 
-def _setup_registry(tmp_path, monkeypatch):
-    monkeypatch.chdir(tmp_path)
-    (tmp_path / "config.yml").write_text(
-        '{"ariel": {"database": {"uri": "postgresql://localhost/test"}}}'
-    )
-    initialize_ariel_context()
-
-
-async def test_status_healthy(tmp_path, monkeypatch):
+async def test_status_healthy(ariel_registry):
     """Status returns health information when DB is connected."""
-    _setup_registry(tmp_path, monkeypatch)
+    ariel_registry()
 
     status_result = ARIELStatusResult(
         healthy=True,
@@ -51,10 +42,7 @@ async def test_status_healthy(tmp_path, monkeypatch):
     mock_service = AsyncMock()
     mock_service.get_status.return_value = status_result
 
-    with patch(
-        "osprey.mcp_server.ariel.server_context.ARIELContext.service",
-        new=AsyncMock(return_value=mock_service),
-    ):
+    with patch_ariel_service(mock_service):
         fn = _get_status()
         result = await fn()
 
@@ -68,9 +56,9 @@ async def test_status_healthy(tmp_path, monkeypatch):
     assert "keyword" in data["enabled_search_modules"]
 
 
-async def test_status_db_error(tmp_path, monkeypatch):
+async def test_status_db_error(ariel_registry):
     """Status handles DB errors gracefully."""
-    _setup_registry(tmp_path, monkeypatch)
+    ariel_registry()
 
     status_result = ARIELStatusResult(
         healthy=False,
@@ -88,10 +76,7 @@ async def test_status_db_error(tmp_path, monkeypatch):
     mock_service = AsyncMock()
     mock_service.get_status.return_value = status_result
 
-    with patch(
-        "osprey.mcp_server.ariel.server_context.ARIELContext.service",
-        new=AsyncMock(return_value=mock_service),
-    ):
+    with patch_ariel_service(mock_service):
         fn = _get_status()
         result = await fn()
 
@@ -101,17 +86,14 @@ async def test_status_db_error(tmp_path, monkeypatch):
     assert len(data["errors"]) > 0
 
 
-async def test_status_service_exception(tmp_path, monkeypatch):
+async def test_status_service_exception(ariel_registry):
     """Service exception returns standard error format."""
-    _setup_registry(tmp_path, monkeypatch)
+    ariel_registry()
 
     mock_service = AsyncMock()
     mock_service.get_status.side_effect = RuntimeError("Service crashed")
 
-    with patch(
-        "osprey.mcp_server.ariel.server_context.ARIELContext.service",
-        new=AsyncMock(return_value=mock_service),
-    ):
+    with patch_ariel_service(mock_service):
         fn = _get_status()
         with assert_raises_error(error_type="internal_error") as _exc_ctx:
             await fn()

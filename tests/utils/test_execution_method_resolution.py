@@ -10,16 +10,16 @@ import logging
 
 import pytest
 
-from osprey_connectors import config as config_module
-from osprey_connectors.config import EXECUTION_METHOD_SUBPROCESS, resolve_execution_method
+from osprey.utils import execution_method as execution_method_module
+from osprey.utils.execution_method import EXECUTION_METHOD_SUBPROCESS, resolve_execution_method
 
 
 @pytest.fixture(autouse=True)
 def _reset_container_warning():
     """Clear the module-level warn-once latch around every test."""
-    config_module._container_method_warned = False
+    execution_method_module._container_method_warned = False
     yield
-    config_module._container_method_warned = False
+    execution_method_module._container_method_warned = False
 
 
 def _config(method):
@@ -30,14 +30,19 @@ def _config(method):
 class TestAcceptedValues:
     """Every accepted input resolves to the one backend that actually runs."""
 
-    def test_subprocess_resolves_to_subprocess(self):
-        assert resolve_execution_method(_config("subprocess")) == "subprocess"
-
-    def test_local_resolves_to_subprocess(self):
-        assert resolve_execution_method(_config("local")) == "subprocess"
-
-    def test_container_resolves_to_subprocess(self):
-        assert resolve_execution_method(_config("container")) == "subprocess"
+    @pytest.mark.parametrize(
+        "method",
+        [
+            pytest.param("subprocess", id="subprocess"),
+            pytest.param("local", id="local"),
+            pytest.param("container", id="container"),
+            # ``execution_method:`` with no value parses to None in YAML.
+            pytest.param(None, id="null"),
+            pytest.param("   ", id="blank"),
+        ],
+    )
+    def test_an_accepted_execution_method_resolves_to_subprocess(self, method):
+        assert resolve_execution_method(_config(method)) == "subprocess"
 
     def test_missing_execution_section_resolves_to_subprocess(self):
         assert resolve_execution_method({}) == "subprocess"
@@ -47,13 +52,6 @@ class TestAcceptedValues:
 
     def test_none_config_resolves_to_subprocess(self):
         assert resolve_execution_method(None) == "subprocess"
-
-    def test_null_execution_method_resolves_to_subprocess(self):
-        # ``execution_method:`` with no value parses to None in YAML.
-        assert resolve_execution_method(_config(None)) == "subprocess"
-
-    def test_blank_execution_method_resolves_to_subprocess(self):
-        assert resolve_execution_method(_config("   ")) == "subprocess"
 
     def test_values_are_case_and_whitespace_insensitive(self):
         assert resolve_execution_method(_config("  Local ")) == "subprocess"
@@ -266,3 +264,16 @@ class TestExecutionDefaults:
         resolved = resolve_execution_method({"execution": builder._get_execution_config()})
 
         assert resolved == "subprocess"
+
+
+def test_the_config_defaults_are_the_executor_vocabulary():
+    """``ConfigBuilder`` fills the same defaults the executor reads by name.
+
+    The connector package spells them privately for the config it builds; the
+    framework's names are the public ones. Two spellings drift silently.
+    """
+    from osprey.utils.execution_method import DEFAULT_EXECUTION_TIMEOUT_SECONDS
+    from osprey_connectors import config as connector_config
+
+    assert connector_config._EXECUTION_METHOD_SUBPROCESS == EXECUTION_METHOD_SUBPROCESS
+    assert connector_config._DEFAULT_EXECUTION_TIMEOUT_SECONDS == DEFAULT_EXECUTION_TIMEOUT_SECONDS

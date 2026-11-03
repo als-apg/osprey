@@ -2,15 +2,14 @@
 
 The build writes the Bluesky devices view from the facility file and stages it
 unchanged, so neither a profile key nor a rendered config key can point the
-worker at a second device file. The resurrection guard lists the retired
-config key and proves no shipped surface spells it again.
+worker at a second device file. The manifest lists the retired config key as
+deleted, and ``tests/scripts/test_config_key_guard.py`` proves no shipped surface
+spells it again.
 """
 
 from __future__ import annotations
 
 import re
-import subprocess
-import sys
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -58,19 +57,6 @@ def test_no_shipped_source_spells_the_retired_key() -> None:
     assert offenders == []
 
 
-def test_the_resurrection_guard_is_green() -> None:
-    """No preset, template, reader or reference page spells a retired key."""
-    result = subprocess.run(
-        [sys.executable, str(REPO_ROOT / "scripts" / "check_config_keys.py")],
-        cwd=REPO_ROOT,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-
-    assert result.returncode == 0, result.stdout + result.stderr
-
-
 def test_a_profile_naming_the_devices_file_is_refused() -> None:
     """The device file is the build's view; a profile cannot name another."""
     with pytest.raises(BuildProfileError, match="'devices_file'"):
@@ -85,8 +71,7 @@ def test_the_bluesky_block_has_no_devices_file_field() -> None:
 @pytest.mark.slow
 def test_the_demo_render_names_no_devices_file(built_control_assistant: BuiltProject) -> None:
     """No service block of the demo's rendered config.yml names a device file."""
-    with open(built_control_assistant.build_dir / "config.yml") as fh:
-        services = YAML().load(fh)["services"]
+    services = YAML().load(built_control_assistant.build_dir / "config.yml")["services"]
 
     assert "bluesky" in services
     for name, block in services.items():

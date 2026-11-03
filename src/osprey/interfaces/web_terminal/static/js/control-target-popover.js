@@ -1,48 +1,76 @@
 // @ts-check
 /* OSPREY Web Terminal — Control-Target Popover
  *
- * The panel behind the header chip, answering the three questions an operator
- * opens it with: which machine is the agent on and does writing there move
- * anything real; are writes on, off (their own doing, one click undoes it) or
- * locked (the deployment's, no click here moves it); and where else can the
- * session go. The chip (control-target-chip.js) owns the read, the poll and
- * the state; this module owns the card, the rows and the actions, and never
- * fetches the roster itself — it subscribes to the chip and re-renders from
- * `getState()`, so the popover and the chip can never disagree about the same
- * machine.
+ * The panel behind the control-target chip, answering the three questions an
+ * operator opens it with: which machine is the agent on and does writing
+ * there move anything real; are writes on, off (their own doing, one click
+ * undoes it) or locked (the deployment's, no click here moves it); and where
+ * else can the session go. The chip (control-target-chip.js) owns the read,
+ * the poll and the state; this module owns the panel, the gestures and the
+ * confirms, and control-target-rows.js builds the card, the rows and the foot
+ * it shows. It never fetches the roster itself — it subscribes to the chip and
+ * re-renders from `getState()`, so the popover and the chip can never disagree
+ * about the same machine.
+ *
+ * **A design-system popover.** The panel is a body-level `.osprey-popover`
+ * (`#control-target-popover`, `role=dialog`) that the design system's
+ * popover.js places and dismisses like every other popover in the shell:
+ * beside the sidebar, 8 px right of its edge and level with the chip; under a
+ * chip on a page bar (the JupyterLab bar), right-aligned below it. A press
+ * outside, Escape, a window resize or blur close it, and so does a change of
+ * the sidebar's width, which moves the edge it was placed against. Its title,
+ * row and separator lines and its switches are the design system's
+ * primitives; `.ctc-popover` scopes this panel's own rules in terminal.css.
  *
  * **Two shapes, not one list.** The machine the agent stands on is a card —
- * name, ⓘ, and its writes switch. Every other machine is a row: name, ⓘ,
- * its writes switch, and Switch to. Where a control cannot act it stays
+ * name, ⓘ, and its writes control. Every other machine is a row: name, ⓘ,
+ * its writes control, and Switch to. Where a control cannot act it stays
  * visible and says why on hover; what a machine is and what writing there
  * does — the consequence line, the server's own label, the endpoint — live
  * behind the name's ⓘ tooltip, never at rest.
  *
- * **One switch per machine.** The write state is a switch: position and
- * control are the same widget, so nothing says "writes on" twice. The old
- * verbs' asymmetry survives in behaviour — turning off applies on click, it
- * only ever removes reach; turning on parks the knob mid-track and confirms
- * first, because it is the gesture after which a write can land somewhere
- * new. Locked, the switch stays on screen, disabled, with the reason on
- * hover.
+ * **One control per machine.** The write state is this login's switch for
+ * that machine, one of three positions (`off` / `asked` / `allowed`), and the
+ * control is a `radiogroup` whose `aria-checked` is always the STORED position
+ * — never the focus and never a dialog's question. Arrows and Home/End move
+ * focus only (roving tabindex, skipping disabled options); Space, Enter or a
+ * click commit. A narrowing applies at once: it only ever takes reach away,
+ * and no lock holds `off`. Every widening
+ * confirms first, and the option it asked for reads `data-pending` while the
+ * dialog is up. `off` is never disabled; an armed position a lock holds stays
+ * on screen, disabled, with the reason on hover. So a stored `allowed` the
+ * login's tier caps reads `asked` beside a checked, disabled `allowed`.
  *
- * **No process claims.** Nothing rendered here says whether a write will ask
- * for approval or what limits apply — that is deployment configuration this
- * module cannot see. Confirms state scope, endpoint and consequence only.
+ * **Focus survives a rebuild.** Every poll and push repaints the whole
+ * subtree, so {@link render} re-focuses the option that had focus, and a
+ * dismissed confirm hands focus back to the option that raised it.
  *
- * **A confirm can be waived, mostly.** Both confirms carry a "don't ask
- * again" checkbox — per gesture, per machine, per render (scopedStorageKey),
- * remembered only when the operator confirms. The one exception is turning
- * writes ON for a live machine, which keeps asking always: it is the gesture
- * after which hardware can move. A waived dialog is re-shown by holding Shift
- * on the gesture, which is also where the waiver is undone.
+ * **The epoch the chip read.** Every switch gesture carries the
+ * `switch_epoch` of the payload the operator was shown, as the decimal string
+ * it was read as — never a number, which would round it. A stop that landed
+ * since refuses a widening (409 `stopped_since`): the popover re-reads and the
+ * operator clicks again — a widening never silently re-arms after a stop. The
+ * one exception is a 409 that says it just STAMPED the record's first epoch,
+ * which is retried once with that epoch.
+ *
+ * **No process claims.** Beyond the confirm's own sentence about the position
+ * being chosen, nothing rendered here says what limits apply — that is
+ * deployment configuration this module cannot see. Confirms state scope,
+ * endpoint and consequence only.
+ *
+ * **A confirm can be waived.** Every widening carries one "don't ask again"
+ * checkbox covering every move to `asked` or `allowed` on every machine, and
+ * every target switch carries another; both are per render (scopedStorageKey)
+ * and remembered only when the operator confirms. A waived dialog is re-shown
+ * by holding Shift on the gesture; "Ask again" under the foot clears both.
  *
  * **The popover stays open beneath a confirm.** Both confirms raise a
- * `.posture-modal-overlay` at `--z-modal`, a full layer above the popover's
- * `--z-sticky`. The outside-click handler ignores clicks inside that overlay,
- * Escape dismisses an open confirm before it closes the popover, and a
- * confirmed change re-renders in place. An operator changing several rows
- * never has to reopen it.
+ * `.posture-modal-overlay` at `--z-modal`, a layer above the popover. The
+ * popover is opened with popover.js's `ignore` set to that overlay, so a press
+ * inside the confirm is not a press outside the popover; Escape dismisses an
+ * open confirm before it closes the popover; and a confirmed change
+ * re-renders in place. An operator changing several rows never has to reopen
+ * it.
  *
  * Every request goes through the chip's `targetRequest`, which unwraps this
  * route family's dict-detail refusals and runs through api.js's `withPrefix`
@@ -51,104 +79,119 @@
  */
 
 import {
-  SWITCH_APPLIED,
+  POSITIONS,
   bannerNote,
-  confirmSkipKeyBase,
-  confirmSkippable,
-  contextRefusalCode,
-  contextRefusalPhrase,
-  contextWritable,
-  descriptor,
-  descriptorTone,
+  SKIP_KEY_MOVE,
+  SKIP_KEY_SWITCH,
+  SWITCH_APPLIED,
   displayName,
-  identTitle,
-  lockReason,
-  reachException,
   reasonPhrase,
-  statePhrase,
   switchConfirm,
+  TURN_ON_SENTENCE,
   turnOnConfirm,
 } from './control-target-facts.js';
-import { confirmSkipped } from './confirm-skip.js';
+import { confirmSkipped, rememberConfirmSkip } from './confirm-skip.js';
+import { el, focusOption, focusedOption } from './control-target-popover-switch.js';
 import { dismissConfirm, isConfirmUp, showConfirm } from './posture-confirm.js';
+import { showToast } from './toast.js';
+import {
+  closePopover as closeShellPopover,
+  openPopover as openShellPopover,
+} from '/design-system/js/popover.js';
 
 import {
   CHIP_TOGGLE_EVENT,
-  getAnchorElement,
   getChipElement,
   getState,
   isPending,
   kindAttr,
   markPending,
+  postSwitch,
   refetch,
-  setExpanded,
   stateWord,
   subscribe,
+  switchRefusal,
   targetRequest,
 } from './control-target-chip.js';
+import { renderCard, renderFoot, renderRow } from './control-target-rows.js';
 
 /**
- * The `target` value that narrows every configured target at once. Mirrors
- * `ALL_TARGETS` in routes/websocket.py; there is deliberately no matching
- * "turn everything on", because each target's ceiling is its own.
+ * The `target` value that turns every machine in this login's record off at
+ * once. Mirrors `ALL_TARGETS` in routes/websocket.py; there is deliberately no
+ * matching "turn everything on" — the route refuses it.
  */
 export const ALL_TARGETS = 'all';
 
 /**
- * How recent a `last_switch` has to be to still be shown on its row.
- *
- * The route publishes the outcome and its age and leaves the call to the
- * renderer, because it is a question about what the operator is looking at
- * rather than about what happened: an outcome is news for about as long as
- * someone is still watching for it, and history afterwards. Past this the row
- * simply stops carrying it, so a popover opened an hour later describes the
- * machine rather than re-announcing a switch nobody is waiting on.
+ * The overlay posture-confirm.js raises. A press inside it answers the
+ * question the popover asked; it never closes the popover.
  */
-export const OUTCOME_MAX_AGE_S = 60;
+const CONFIRM_OVERLAY = '.posture-modal-overlay';
 
 /** @type {HTMLElement|null} */
 let popover = null;
 /** @type {(() => void)|null} */
 let unsubscribe = null;
-/** Whether the popover is showing. Mirrored onto the chip's `aria-expanded`. */
-let open = false;
+/** The chip the toggle listener is on, so a re-mounted chip is re-wired. */
+/** @type {HTMLElement|null} */
+let wiredChip = null;
+/** Watches the popover's `hidden`, the one signal every close path shares. */
+/** @type {MutationObserver|null} */
+let closeWatch = null;
 
 /**
  * The target this browser's outstanding switch request named.
  *
- * The chip owns whether a request is outstanding ({@link isPending}); which
+ * The chip owns whether a request is outstanding (`isPending`); which
  * ROW it was for is a question only the client that minted it can answer, and
  * it is what decides which row reads `switching…`.
  * @type {string|null}
  */
 let pendingTarget = null;
+/** The request id that switch was accepted under; its terminus settles it. */
+/** @type {string|null} */
+let pendingRequestId = null;
 
 /**
  * What the last gesture on a row did, when the ROUTE cannot say.
  *
- * Two things live here and nothing else: a refusal the POST came back with
- * (the operator clicked something and is owed the server's own sentence), and
- * a target `Turn all writes off` reported in `skipped`. Both are facts about a
- * click, not about the session, so they are cleared by the next gesture rather
+ * One thing lives here: a refusal the POST came back with — the operator
+ * clicked something and is owed the server's own sentence. It is a fact about
+ * a click, not about the session, so it is cleared by the next gesture rather
  * than by the next read — a re-render from the 5 s poll must not silently
  * swallow the reason a click did nothing.
  * @type {Map<string, string>}
  */
 const gestureNotes = new Map();
 
-/** Whether a POST from this popover is in flight (one gesture at a time). */
-let posting = false;
-
 /**
- * The target whose turn-on confirm is on screen, if any.
- *
- * The switch that raised it parks its knob mid-track (`data-pending="on"`)
- * until the dialog is answered: a switch implies "now", and the knob must not
- * sit in `on` while nothing has been applied. Cleared on every dismissal
- * path — {@link dismissConfirm} is the one chokepoint.
+ * The popover's status line: the widening sentence, after a move whose
+ * confirm was waived lands — the one place it can be read when no dialog said
+ * it. Shown until the next gesture or the popover closes; never beside the
+ * off control.
  * @type {string|null}
  */
-let confirmingTarget = null;
+let statusNote = null;
+
+/** Whether a POST from this popover is in flight (one gesture at a time). */
+let posting = false;
+/** A stop pressed while another POST was out, run when that one settles. */
+/** @type {(() => Promise<void>)|null} */
+let queuedStop = null;
+const GESTURE_DEADLINE_MS = 15000;
+const BUSY_SENTENCE = 'Another change is still being sent. Try again in a moment.';
+const DEADLINE_SENTENCE = 'No answer from the server. The re-read shows what the record holds.';
+
+/**
+ * The widening whose confirm is on screen, if any.
+ *
+ * The option it asked for reads `data-pending` until the dialog is answered;
+ * `aria-checked` stays on the stored position, because nothing has been
+ * applied. Cleared on every dismissal path — {@link dismissConfirm} is the one
+ * chokepoint.
+ * @type {{target: string, position: 'asked'|'allowed'}|null}
+ */
+let confirmingMove = null;
 
 /**
  * The handles a confirm hands to the gesture it raised — see
@@ -159,34 +202,53 @@ let confirmingTarget = null;
 /* ---- mount ---- */
 
 /**
- * Mount the popover under the header chip and keep it current.
+ * Mount the popover and keep it current.
  *
- * Idempotent, and a no-op on a page with no chip: the chip mounts into its
- * bar-item shell, `.header-actions`, or a host its caller passes, so on a page
- * with none of those there is nothing to hang under.
+ * Idempotent, and a no-op on a page with no chip: the chip mounts into the
+ * host its caller passes (the sidebar's control-system block, the JupyterLab
+ * bar), and on a page that mounted none there is nothing to open it from.
  *
  * @returns {{open: () => void, close: () => void, isOpen: () => boolean}|null}
  */
 export function initControlTargetPopover() {
   const chip = getChipElement();
-  const anchor = getAnchorElement();
-  if (!chip || !anchor) return null;
+  if (!chip) return null;
 
-  if (!popover || !anchor.contains(popover)) {
+  if (!popover || !popover.isConnected) {
     popover = document.createElement('div');
-    popover.className = 'ctc-popover';
+    popover.className = 'osprey-popover ctc-popover';
     popover.id = 'control-target-popover';
+    popover.setAttribute('role', 'dialog');
     popover.setAttribute('aria-label', 'Control target');
-    anchor.appendChild(popover);
-    chip.setAttribute('aria-controls', popover.id);
+    // Focus can rest on the panel itself when a re-render removes the control
+    // that held it, rather than falling out to <body>.
+    popover.tabIndex = -1;
+    popover.hidden = true;
+    document.body.append(popover);
+    // popover.js closes the panel for reasons this module never sees (a press
+    // outside, Escape, a resize, another popover opening). Every one of them
+    // sets `hidden`, so watching it is how a close always takes its confirm
+    // and its status line with it.
+    closeWatch = new MutationObserver(() => {
+      if (popover?.hidden) onClosed();
+    });
+    closeWatch.observe(popover, { attributes: true, attributeFilter: ['hidden'] });
+    document.addEventListener('keydown', onEscapeConfirmFirst, true);
+    document.addEventListener('osprey-collapsible-change', closePopover);
+  }
+
+  if (wiredChip !== chip) {
     // The chip flips its own `aria-expanded` and announces the click; it never
     // decides what the popover does with it.
+    wiredChip?.removeEventListener(CHIP_TOGGLE_EVENT, onChipToggle);
     chip.addEventListener(CHIP_TOGGLE_EVENT, onChipToggle);
+    chip.setAttribute('aria-controls', popover.id);
+    wiredChip = chip;
   }
 
   if (!unsubscribe) unsubscribe = subscribe(() => render());
   render();
-  return { open: openPopover, close: closePopover, isOpen: () => open };
+  return { open: openPopover, close: closePopover, isOpen };
 }
 
 /**
@@ -195,16 +257,22 @@ export function initControlTargetPopover() {
  */
 export function teardownControlTargetPopover() {
   dismissConfirm();
-  detachDocumentListeners();
+  closeWatch?.disconnect();
+  closeWatch = null;
+  document.removeEventListener('keydown', onEscapeConfirmFirst, true);
+  document.removeEventListener('osprey-collapsible-change', closePopover);
   unsubscribe?.();
   unsubscribe = null;
-  getChipElement()?.removeEventListener(CHIP_TOGGLE_EVENT, onChipToggle);
+  wiredChip?.removeEventListener(CHIP_TOGGLE_EVENT, onChipToggle);
+  wiredChip = null;
   popover?.remove();
   popover = null;
-  open = false;
   posting = false;
+  queuedStop = null;
   pendingTarget = null;
-  confirmingTarget = null;
+  pendingRequestId = null;
+  confirmingMove = null;
+  statusNote = null;
   gestureNotes.clear();
 }
 
@@ -217,130 +285,114 @@ function onChipToggle(event) {
 
 /* ---- open / close ---- */
 
-/**
- * A click anywhere that is not the chip, the popover, or a confirm raised by
- * it. Capture phase, so it dismisses before the click does anything else.
- * @param {MouseEvent} event
- */
-function onDocumentClick(event) {
-  const target = /** @type {Node|null} */ (event.target);
-  if (!target) return;
-  const anchor = getAnchorElement();
-  if (anchor?.contains(target)) return;
-  // The confirm mounts on `document.body`, outside the anchor, and is a full
-  // layer ABOVE the popover: clicking inside it is the operator answering the
-  // question the popover asked, not leaving the popover.
-  if (target instanceof Element && target.closest('.posture-modal-overlay')) return;
-  closePopover();
+/** @returns {boolean} whether the popover is showing */
+function isOpen() {
+  return Boolean(popover && !popover.hidden);
 }
 
 /**
- * Escape, in the order the things on screen were opened: a confirm first, the
- * popover only when none is up. Cancelling a confirm and losing the rows it
- * was about in the same keystroke would undo the whole point of leaving the
- * popover open beneath it.
+ * Show the popover, rendered from the chip's current answer, and put focus on
+ * its first control: the panel sits at <body> level, so Tab from the chip
+ * would never reach it.
+ */
+function openPopover() {
+  const chip = getChipElement();
+  if (!popover || !chip || isOpen()) return;
+  statusNote = null;
+  render();
+  const sidebar = chip.closest('#sidebar');
+  openShellPopover(
+    popover,
+    chip,
+    sidebar
+      ? { place: 'beside-right', edge: sidebar, ignore: CONFIRM_OVERLAY }
+      : { place: 'below-end', ignore: CONFIRM_OVERLAY }
+  );
+  firstControl()?.focus({ preventScroll: true });
+}
+
+/** Hide the popover; {@link onClosed} takes any confirm it raised with it. */
+function closePopover() {
+  if (popover && isOpen()) closeShellPopover(popover);
+}
+
+/** What every close leaves behind: no confirm, no status line. */
+function onClosed() {
+  statusNote = null;
+  dismissConfirm();
+}
+
+/**
+ * Escape, in the order the things on screen were opened: a confirm the open
+ * popover raised first, the popover only when none is up. Capture phase, so it
+ * runs before popover.js's own Escape, which would close the popover and its
+ * rows in the same keystroke as the confirm about them.
  * @param {KeyboardEvent} event
  */
-function onDocumentKeydown(event) {
-  if (event.key !== 'Escape') return;
-  if (isConfirmUp()) {
-    event.stopPropagation();
-    dismissConfirm();
-    return;
-  }
-  closePopover();
-  getChipElement()?.focus();
-}
-
-function attachDocumentListeners() {
-  document.addEventListener('click', onDocumentClick, true);
-  document.addEventListener('keydown', onDocumentKeydown, true);
-}
-
-function detachDocumentListeners() {
-  document.removeEventListener('click', onDocumentClick, true);
-  document.removeEventListener('keydown', onDocumentKeydown, true);
-}
-
-/** Show the popover, rendered from the chip's current answer. */
-function openPopover() {
-  if (!popover || open) return;
-  open = true;
-  render();
-  popover.classList.add('open');
-  setExpanded(true);
-  attachDocumentListeners();
-}
-
-/** Hide the popover, and any confirm it raised. */
-function closePopover() {
-  if (!open) return;
-  open = false;
+function onEscapeConfirmFirst(event) {
+  if (event.key !== 'Escape' || !isOpen() || !isConfirmUp()) return;
+  event.stopImmediatePropagation();
   dismissConfirm();
-  popover?.classList.remove('open');
-  setExpanded(false);
-  detachDocumentListeners();
 }
-
-/* ---- derived facts (the pure ones live in control-target-facts.js) ---- */
 
 /**
- * What the last switch did to THIS row, when it is still news.
- *
- * Matched on the target the outcome names, never on "the session moved": the
- * chip matches the request by `request_id` and hands the outcome on, and a
- * row that did not take part in it has nothing to report.
- * @param {any} row
- * @param {any} state
- * @returns {{status: string, text: string, title?: string}|null}
+ * The control focus starts on: the first writes control's tab stop (its stored
+ * position, or the nearest one below it no lock holds), else the first enabled
+ * button (an ⓘ before it would open its tip on arrival).
+ * @returns {HTMLElement|null}
  */
-function switchOutcome(row, state) {
-  if (isPending() && pendingTarget === row.target) {
-    return { status: 'pending', text: 'switching…' };
-  }
-  const last = state.last_switch;
-  if (!last || last.target !== row.target) return null;
-  if (typeof last.age_s === 'number' && last.age_s > OUTCOME_MAX_AGE_S) return null;
-  // No age in the copy: `age_s` decides WHETHER the line renders (the
-  // freshness window above), never what it says. A ticking counter would
-  // restate the mechanism, and every re-render — the 5 s poll, every
-  // gesture's re-read — would bump it in front of the operator.
-  // The RECORD's word for an accepted switch is `applied` — never `success`,
-  // which nothing on this path has ever published. The returned `status` is a
-  // different vocabulary: it is the `data-status` value terminal.css keys the
-  // outcome line on, the same split kindAttr makes between the route's words
-  // and the stylesheet's.
-  if (last.status === SWITCH_APPLIED) return { status: 'success', text: '✓ switched' };
-  // refused / failed / expired render the operator phrase for the word the
-  // gate (or the client's own deadline, for a request nothing ever answered)
-  // put on them, with the gate's own sentence on the title where it sent one.
+function firstControl() {
+  const found =
+    popover?.querySelector('.ctc-position[tabindex="0"]:not(:disabled)') ??
+    popover?.querySelector('button:not(:disabled)');
+  return found instanceof HTMLElement ? found : null;
+}
+
+/**
+ * What the card and rows need from this module for one render: the facts about
+ * the last gestures, and the gestures their controls run (control-target-rows.js).
+ * @returns {import('./control-target-rows.js').RowContext}
+ */
+function rowContext() {
   return {
-    status: last.status === 'expired' ? 'expired' : 'refused',
-    text: `✗ ${reasonPhrase(last.reason || last.status)}`,
-    title: typeof last.detail === 'string' && last.detail ? last.detail : undefined,
+    pendingTarget,
+    confirmingMove,
+    gestureNotes,
+    onMove: (row, to, state, reshow) => moveSwitch(row, to, state, reshow),
+    onSwitchTo: (row, state, reshow) => confirmSwitchTo(row, state, reshow),
+    onAllOff: (state) => void setSwitch(ALL_TARGETS, 'off', state),
   };
 }
 
 /* ---- render ---- */
 
-/** @param {string} tag @param {string} [cls] @param {string} [text] */
-function el(tag, cls, text) {
-  const node = document.createElement(tag);
-  if (cls) node.className = cls;
-  if (text != null) node.textContent = text;
-  return node;
-}
-
 /**
- * A button, typed and with its `type` set. Every button here lives inside no
- * form, but an unset `type` is `submit` and a stray form anywhere above would
- * make each of these navigate.
- * @param {string} cls @param {string} text @returns {HTMLButtonElement}
+ * The moment the switch this popover asked for stops being outstanding.
+ *
+ * The chip owns the wait (`isPending`: the record's terminus AND every live
+ * controls server at the new generation); once it is over, the record's
+ * `last_switch` names the request's terminus. A switch that LANDED
+ * (`applied` for the request this browser sent) is said once, under the chip:
+ * "Switched to <machine>" — the popover stays, re-rendered with the machine
+ * on its card. A refusal, a failure or an expiry leaves the outcome on the
+ * row (control-target-rows.js); either way the row stops reading
+ * `switching…`.
+ * @param {any} state
  */
-function button(cls, text) {
-  const node = /** @type {HTMLButtonElement} */ (el('button', cls, text));
-  node.type = 'button';
-  return node;
+function settleSwitch(state) {
+  const target = pendingTarget;
+  const last = state?.last_switch;
+  if (target === null || isPending() || !last || !pendingRequestId) return;
+  if (last.request_id !== pendingRequestId) return;
+  pendingTarget = null;
+  pendingRequestId = null;
+  if (last.status !== SWITCH_APPLIED) return;
+  const rows = Array.isArray(state.targets) ? state.targets : [];
+  const row = rows.find((/** @type {any} */ r) => r.target === target) ?? null;
+  const host = getChipElement()?.closest('.ctc-anchor');
+  if (host instanceof HTMLElement) {
+    showToast(host, `Switched to ${row ? displayName(row, kindAttr(row)) : target}`);
+  }
 }
 
 /**
@@ -349,14 +401,22 @@ function button(cls, text) {
  * Whole-subtree, on every render: the card and rows are a projection of one
  * payload and nothing in them is worth diffing, and rebuilding is what lets a
  * confirmed change land in place without the popover closing. Rendering while
- * closed is cheap and keeps the first frame after an open correct.
+ * closed is cheap and keeps the first frame after an open correct. The control
+ * that held focus is found again in the new subtree (the 5 s poll re-renders
+ * under a keyboard user): a writes option by its machine and position, any
+ * other control by its machine and class, and the panel itself takes focus
+ * when that control is gone.
  */
 function render() {
   if (!popover) return;
+  const option = focusedOption(popover);
+  const focused = option ? null : focusKey();
   const state = getState();
+  settleSwitch(state);
   popover.replaceChildren();
   if (!state) return;
   const rows = Array.isArray(state.targets) ? state.targets : [];
+  const ctx = rowContext();
 
   const banner = bannerNote(state);
   if (banner) {
@@ -366,13 +426,17 @@ function render() {
   }
 
   const active = rows.find((row) => row.active) || null;
-  if (active) popover.append(renderCard(active, state));
+  if (active) {
+    popover.append(el('div', 'osprey-popover-title', 'The agent is on'));
+    popover.append(renderCard(active, state, ctx));
+  }
 
   const others = rows.filter((row) => row !== active);
   if (others.length > 0) {
-    popover.append(el('div', 'ctc-list-title', active ? 'Other machines' : 'Machines'));
+    if (active) popover.append(separator());
+    popover.append(el('div', 'osprey-popover-title', active ? 'Other machines' : 'Machines'));
     const list = el('div', 'ctc-rows');
-    for (const row of others) list.append(renderRow(row, state));
+    for (const row of others) list.append(renderRow(row, state, ctx));
     popover.append(list);
   }
 
@@ -384,267 +448,72 @@ function render() {
     popover.append(outcome);
   }
 
-  popover.append(renderFoot(state, rows));
+  if (statusNote) {
+    const status = el('div', 'ctc-outcome ctc-status', statusNote);
+    status.dataset.status = 'notice';
+    popover.append(status);
+  }
+
+  popover.append(separator());
+  popover.append(renderFoot(state, ctx));
+  if (confirmSkipped(SKIP_KEY_MOVE) || confirmSkipped(SKIP_KEY_SWITCH)) {
+    popover.append(renderAskAgain());
+  }
+  if (option) focusOption(popover, option.target, option.position);
+  else restoreFocus(focused);
 }
 
 /**
- * The card: the machine the agent stands on. Name, consequence line, and the
- * writes switch that both states and changes the write state.
- * @param {any} row
- * @param {any} state
- */
-function renderCard(row, state) {
-  const kind = kindAttr(row);
-  const word = stateWord(row);
-  const lock = lockReason(row, state);
-  const card = el('div', 'ctc-card');
-  card.dataset.target = row.target;
-  card.dataset.targetKind = kind;
-  card.dataset.state = word;
-  card.dataset.real = String(Boolean(row.real_machine));
-
-  card.append(el('div', 'ctc-card-eyebrow', 'The agent is on'));
-
-  const title = el('div', 'ctc-card-title');
-  title.dataset.targetKind = kind;
-  title.dataset.state = word;
-  title.append(el('span', 'ctc-dot'));
-  title.append(el('span', 'ctc-name', displayName(row, kind)));
-  const info = infoAffordance(row, kind);
-  if (info) title.append(info);
-  card.append(title);
-
-  card.append(renderSwitch(row, state, word, lock));
-
-  // The reach exception sits on the title line: the switch carries the write
-  // state, so the card has no separate state line to put it on.
-  const reach = reachException(row.reachability);
-  if (reach) {
-    const bad = el('span', 'ctc-reach-word', reach.text);
-    bad.dataset.state = reach.state;
-    bad.title = reach.title;
-    title.append(bad);
-  }
-
-  for (const line of outcomeLines(row, state)) card.append(line);
-  // Turning writes off on the machine the agent is ON only reaches it once
-  // the connector is rebuilt, and that waits for the run in flight. Said out
-  // loud, rather than leaving a button that appears to have done nothing.
-  if (state.last_posture_realign?.state === 'pending') {
-    const line = el('div', 'ctc-outcome', 'takes effect when the running execution finishes');
-    line.dataset.status = 'realign';
-    card.append(line);
-  }
-  return card;
-}
-
-/**
- * One other machine's row: who it is and what writing there means, its
- * writes switch, and Switch to.
- * @param {any} row
- * @param {any} state
- */
-function renderRow(row, state) {
-  const kind = kindAttr(row);
-  const word = stateWord(row);
-  const lock = lockReason(row, state);
-  const node = el('div', 'ctc-row');
-  node.dataset.target = row.target;
-  node.dataset.targetKind = kind;
-  node.dataset.state = word;
-  node.dataset.real = String(Boolean(row.real_machine));
-
-  const ident = el('div', 'ctc-ident');
-  const name = el('div', 'ctc-name-line');
-  name.append(el('span', 'ctc-name', displayName(row, kind)));
-  const info = infoAffordance(row, kind);
-  if (info) name.append(info);
-  const reach = reachException(row.reachability);
-  if (reach) {
-    const bad = el('span', 'ctc-reach-word', reach.text);
-    bad.dataset.state = reach.state;
-    bad.title = reach.title;
-    name.append(bad);
-  }
-  ident.append(name);
-  for (const line of outcomeLines(row, state)) ident.append(line);
-  node.append(ident);
-
-  node.append(renderSwitch(row, state, word, lock));
-  node.append(renderAction(row, state));
-  return node;
-}
-
-/**
- * The ⓘ beside a name, and the tooltip behind it.
- *
- * Two facts in one place: what writing to this machine does (the consequence
- * line — the one that names hardware moving keeps its error tone), then the
- * machine vocabulary the name's `title` used to carry (the server's own
- * label, the endpoint, the measured reachability). A real element shown on
- * hover and keyboard focus rather than the browser's `title` bubble, which
- * is delayed, unstyled and mouse-only — the design system's shared info tip
- * (`.osprey-info` / `.osprey-tip`), with this popover's own classes kept for
- * the two line tones. Returns `null` for a row with nothing to say.
- * @param {any} row
- * @param {string} kind
- * @returns {HTMLElement|null}
- */
-function infoAffordance(row, kind) {
-  const what = descriptor(row, kind);
-  const ident = identTitle(row);
-  if (!what && !ident) return null;
-  const info = button('osprey-info ctc-info', 'i');
-  info.setAttribute('aria-label', `About ${displayName(row, kind)}`);
-  const tip = el('span', 'osprey-tip ctc-tip');
-  tip.setAttribute('role', 'tooltip');
-  if (what) {
-    const line = el('span', 'ctc-tip-what', what);
-    const tone = descriptorTone(row, kind);
-    if (tone) line.dataset.tone = tone;
-    tip.append(line);
-  }
-  if (ident) tip.append(el('span', 'ctc-tip-ident', ident));
-  info.append(tip);
-  return info;
-}
-
-/**
- * The feedback lines a row or the card carries: the last switch's outcome
- * while it is news, and the reason the last click did nothing.
- * @param {any} row
- * @param {any} state
- * @returns {HTMLElement[]}
- */
-function outcomeLines(row, state) {
-  const lines = [];
-  const outcome = switchOutcome(row, state);
-  if (outcome) {
-    const line = el('div', 'ctc-outcome', outcome.text);
-    line.dataset.status = outcome.status;
-    if (outcome.title) line.title = outcome.title;
-    lines.push(line);
-  }
-  const gestureNote = gestureNotes.get(row.target);
-  if (gestureNote) {
-    const line = el('div', 'ctc-outcome', `✗ ${reasonPhrase(gestureNote)}`);
-    line.dataset.status = 'refused';
-    lines.push(line);
-  }
-  return lines;
-}
-
-/**
- * The switch that both states and changes a machine's writes.
- *
- * One widget instead of pill + verb: the position is the state, the word
- * beside it (`on` / `off` / `locked`) is the glance-and-screen-reader copy,
- * and the click is the gesture. The old verbs' asymmetry survives in
- * behaviour — off applies on click, on confirms first — said on the hover
- * title, and while that confirm is up the knob parks mid-track
- * (`data-pending`) rather than claiming a state nothing has applied. Locked
- * it stays on screen, disabled, with the reason on hover — the gap where the
- * control would be is explained rather than merely empty.
- * @param {any} row
- * @param {any} state
- * @param {string} word
- * @param {string|null} lock
+ * The one way back from "don't ask again" that needs no Shift: says the dialogs
+ * are waived and clears both slots.
  * @returns {HTMLElement}
  */
-function renderSwitch(row, state, word, lock) {
-  const name = displayName(row, kindAttr(row));
-  const on = word === 'writes';
-  const wrap = el('span', 'ctc-switchwrap');
-  wrap.dataset.state = word;
-  wrap.dataset.real = String(Boolean(row.real_machine));
-  wrap.append(el('span', 'ctc-switch-word', 'Writes'));
-  const toggle = button('ctc-toggle', '');
-  toggle.setAttribute('role', 'switch');
-  toggle.setAttribute('aria-checked', String(on));
-  toggle.setAttribute('aria-label', `${statePhrase(word)} for ${name}`);
-  toggle.dataset.real = String(Boolean(row.real_machine));
-  if (confirmingTarget === row.target) toggle.dataset.pending = 'on';
-  if (lock) {
-    toggle.disabled = true;
-    toggle.title = lock;
-  } else {
-    toggle.title = on
-      ? `Turn writes off for ${name} — applies now`
-      : `Turn writes on for ${name} — asks first`;
-    toggle.addEventListener('click', (event) => {
-      event.stopPropagation();
-      if (on) void setPosture(row.target, 'sandbox', state);
-      else confirmTurnOn(row, state, event.shiftKey);
-    });
-  }
-  wrap.append(toggle);
-  const stateWordEl = el('span', 'ctc-switch-state', on ? 'on' : word === 'sandbox' ? 'off' : 'locked');
-  if (lock) stateWordEl.title = lock;
-  wrap.append(stateWordEl);
-  return wrap;
-}
-
-/**
- * The Switch slot: the button, or the phrase for why there is no button.
- *
- * The refusal is keyed on the switch tool's own machine code, published by the
- * route — so the popover and the agent agree about the same refusal — and
- * rendered as {@link REASON_PHRASES}' operator phrase, with the route's
- * `reason_detail` sentence (falling back to the code) on the `title`.
- * @param {any} row
- * @param {any} state
- */
-function renderAction(row, state) {
-  const action = el('div', 'ctc-action');
-  // One request is outstanding at a time, so while it is out no row offers a
-  // second.
-  if (isPending()) return action;
-  if (row.available_now && contextWritable(state)) {
-    const swap = button('ctc-switch', 'Switch to');
-    swap.title = `Move all control reads and writes to ${displayName(row, kindAttr(row))}`;
-    swap.addEventListener('click', (event) => {
-      event.stopPropagation();
-      confirmSwitchTo(row, state, event.shiftKey);
-    });
-    action.append(swap);
-    return action;
-  }
-  // The row's own reason wins; the context supplies the fallback, and names
-  // its holder itself — a two-word chip reading "another terminal" over an
-  // agent's controls server would send the operator to a page that does not
-  // exist.
-  const code = row.reason || contextRefusalCode(state);
-  const phrase = row.reason ? reasonPhrase(code) : contextRefusalPhrase(state);
-  const reason = el('span', 'ctc-reason', phrase);
-  const detail = typeof row.reason_detail === 'string' && row.reason_detail ? row.reason_detail : '';
-  if (detail || code) reason.title = detail || String(code);
-  action.append(reason);
-  return action;
-}
-
-/**
- * The foot: the one-gesture narrowing, and the popover's scope said once.
- * `Turn all writes off` only ever removes reach, so it applies on click; it is
- * disabled when there is nothing left to turn off.
- *
- * The note beside it is the popover's scope, said once at rest: one control
- * context per deployment, so a narrowing recorded here reaches every session,
- * notebook kernel and hook, not just the page it was made on.
- * @param {any} state
- * @param {any[]} rows
- */
-function renderFoot(state, rows) {
-  const foot = el('div', 'ctc-foot');
-  const all = button('ctc-all-off', 'Turn all writes off');
-  const liftable = rows.some((row) => !lockReason(row, state) && stateWord(row) === 'writes');
-  all.disabled = !liftable;
-  all.addEventListener('click', (event) => {
-    event.stopPropagation();
-    void setPosture(ALL_TARGETS, 'sandbox', state);
+function renderAskAgain() {
+  const line = el('div', 'ctc-ask-again', 'Not asking first on any machine.');
+  const link = /** @type {HTMLButtonElement} */ (el('button', 'ctc-ask-again-link', 'Ask again'));
+  link.type = 'button';
+  link.addEventListener('click', () => {
+    rememberConfirmSkip(SKIP_KEY_MOVE, false);
+    rememberConfirmSkip(SKIP_KEY_SWITCH, false);
+    render();
   });
-  foot.append(all);
-  foot.append(el('span', 'ctc-foot-note', 'Applies to every session of this login'));
-  return foot;
+  line.append(' ', link);
+  return line;
+}
+
+/** @returns {HTMLElement} the design system's separator line */
+function separator() {
+  const sep = el('div', 'osprey-popover-sep');
+  sep.setAttribute('role', 'separator');
+  return sep;
+}
+
+/**
+ * Where focus is inside the popover, as something a rebuilt subtree can match:
+ * the machine its card or row is about, and the control's own class.
+ * @returns {{target: string|null, cls: string}|null}
+ */
+function focusKey() {
+  const focused = document.activeElement;
+  if (!popover || !(focused instanceof HTMLElement) || focused === popover) return null;
+  if (!popover.contains(focused) || !focused.classList.length) return null;
+  const owner = /** @type {HTMLElement|null} */ (focused.closest('[data-target]'));
+  return { target: owner?.dataset.target ?? null, cls: focused.classList[0] };
+}
+
+/**
+ * Put focus back on the control {@link focusKey} described, or on the panel.
+ * @param {{target: string|null, cls: string}|null} key
+ */
+function restoreFocus(key) {
+  if (!key || !popover) return;
+  const scope =
+    key.target === null
+      ? popover
+      : popover.querySelector(`[data-target="${CSS.escape(key.target)}"]`);
+  const again = scope?.querySelector(`.${CSS.escape(key.cls)}`);
+  const usable = again instanceof HTMLElement && !again.matches(':disabled');
+  (usable ? again : popover).focus({ preventScroll: true });
 }
 
 /* ---- gestures ---- */
@@ -659,67 +528,127 @@ function renderFoot(state, rows) {
  * (nothing was applied, and dismissing it to put the reason on a row behind
  * would hide the answer to the question they had just been asked), otherwise
  * on `noteKey`'s row — the server's own sentence is more specific than
- * anything this module could invent.
- * @param {string} path
- * @param {object} json
+ * anything this module could invent. The one refusal that closes the confirm
+ * is one that says the question it asked no longer holds (`close`).
+ * @param {() => Promise<any>} send  the request
  * @param {string} noteKey  the row a dialog-less refusal lands on
  * @param {ConfirmUi|undefined} ui  the confirm this gesture came from, if any
  * @param {(body: any) => void} onAccepted  what this gesture means, applied
  *   before the confirm is dismissed and the state re-read
+ * @param {(err: unknown) => {message: string, close: boolean}} [refusal]
  * @returns {Promise<void>}
  */
-async function postGesture(path, json, noteKey, ui, onAccepted) {
-  if (posting) return;
+async function postGesture(send, noteKey, ui, onAccepted, refusal = plainRefusal, stop = false) {
+  if (posting) {
+    // A stop is never dropped: it runs the moment the outstanding POST
+    // settles. Anything else waits for a fresh click, and a confirm says why.
+    if (stop) queuedStop = () => postGesture(send, noteKey, ui, onAccepted, refusal, true);
+    else if (ui) {
+      ui.error.textContent = BUSY_SENTENCE;
+      ui.error.hidden = false;
+    }
+    return;
+  }
   posting = true;
   gestureNotes.clear();
+  statusNote = null;
   if (ui) {
     ui.confirm.disabled = true;
     ui.cancel.disabled = true;
   }
   try {
-    onAccepted(await targetRequest(path, { method: 'POST', json }));
+    onAccepted(await withDeadline(send()));
+    ui?.done();
   } catch (err) {
-    posting = false;
-    const message = err instanceof Error ? err.message : String(err);
-    if (ui) {
+    const { message, close } = refusal(err);
+    if (ui && !close) {
       ui.error.textContent = message;
       ui.error.hidden = false;
       ui.confirm.disabled = false;
       ui.cancel.disabled = false;
     } else {
+      ui?.done();
       gestureNotes.set(noteKey, message);
     }
-    // The refusal may itself be news about the render, so re-read rather than
-    // keeping whatever the rows showed.
-    await refetch();
-    render();
-    return;
   }
   posting = false;
-  ui?.done();
+  const next = queuedStop;
+  queuedStop = null;
+  // The queued stop re-reads and renders on its own way out.
+  if (next) return next();
+  // A refusal may itself be news about the render, so every outcome re-reads.
   await refetch();
   render();
 }
 
 /**
- * Turn one target's writes off or on (or every target's off).
+ * Settle a gesture's request within {@link GESTURE_DEADLINE_MS}, so one hung
+ * POST cannot hold the in-flight guard — and every later stop — forever. The
+ * request itself may still land; the re-read shows what the record holds.
+ * @template T
+ * @param {Promise<T>} request
+ * @returns {Promise<T>}
+ */
+function withDeadline(request) {
+  /** @type {ReturnType<typeof setTimeout>|undefined} */
+  let timer;
+  const deadline = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error(DEADLINE_SENTENCE)), GESTURE_DEADLINE_MS);
+  });
+  return Promise.race([request, deadline]).finally(() => clearTimeout(timer));
+}
+
+/** @param {unknown} err @returns {{message: string, close: boolean}} */
+function plainRefusal(err) {
+  return { message: err instanceof Error ? err.message : String(err), close: false };
+}
+
+/**
+ * POST one machine's position for this login, or every machine's off
+ * (C-POST), carrying the `switch_epoch` of the payload the operator was shown
+ * — {@link postSwitch} owns the one stamped retry. A stop that overtook a
+ * widening closes its confirm and wants a new click on what the re-read shows;
+ * a stop that was not taken says so, and the re-read keeps showing the machine
+ * armed — nothing here paints a position the record does not hold.
+ * {@link moveSwitch} decides whether a move gets here directly or by a confirm.
  * @param {string} target  a configured target name, or {@link ALL_TARGETS}
- * @param {'sandbox'|'writes'} posture
+ * @param {'off'|'asked'|'allowed'} to
  * @param {any} state  the payload the operator was shown
  * @param {ConfirmUi} [ui]  the confirm this gesture was raised from, if any
+ * @param {boolean} [waived]  a widening whose confirm was skipped: the route
+ *   checks the claim, and its sentence goes to the status line once it lands
  * @returns {Promise<void>}
  */
-function setPosture(target, posture, state, ui) {
-  const json = { session_id: state.session_id, target, posture };
-  return postGesture('/api/terminal/posture', json, target, ui, (body) => {
-    // `all` narrows what it can and reports the rest rather than dropping it:
-    // a target whose writes stayed on is exactly what an operator who just
-    // clicked "Turn all writes off" must not be left believing otherwise
-    // about.
-    for (const skip of Array.isArray(body?.skipped) ? body.skipped : []) {
-      if (skip?.target) gestureNotes.set(String(skip.target), String(skip.reason || 'skipped'));
-    }
-  });
+function setSwitch(target, to, state, ui, waived = false) {
+  const epoch = typeof state.switch_epoch === 'string' ? state.switch_epoch : null;
+  return postGesture(
+    () => postSwitch(state.session_id ?? null, target, to, epoch, waived),
+    target,
+    ui,
+    () => {
+      if (waived) statusNote = TURN_ON_SENTENCE;
+    },
+    (err) => switchRefusal(err, to),
+    to === 'off'
+  );
+}
+
+/**
+ * Route one committed option: the stored position is a no-op, a widening goes
+ * through its confirm, and anything else POSTs at once. `off` is always a
+ * narrowing, including from a record nobody can read.
+ * @param {any} row
+ * @param {'off'|'asked'|'allowed'} to
+ * @param {any} state  the payload the operator was shown
+ * @param {boolean} [reshow]  Shift was held: show the dialog even when waived
+ */
+function moveSwitch(row, to, state, reshow = false) {
+  if (to === row.switch) return;
+  if (to === 'off' || POSITIONS.indexOf(to) < POSITIONS.indexOf(row.switch)) {
+    void setSwitch(row.target, to, state);
+  } else {
+    confirmWiden(row, to, state, reshow);
+  }
 }
 
 /**
@@ -744,14 +673,17 @@ function setPosture(target, posture, state, ui) {
  */
 function requestSwitch(row, state, ui) {
   const json = { session_id: state.session_id, target: row.target };
-  return postGesture('/api/terminal/target', json, row.target, ui, (body) => {
+  const send = () => targetRequest('/api/terminal/target', { method: 'POST', json });
+  return postGesture(send, row.target, ui, (body) => {
     const generation = typeof body?.generation === 'number' ? body.generation : null;
     const held = row.target === state.control_target;
     if (held && generation !== null && generation === state.generation) {
       pendingTarget = null;
+      pendingRequestId = null;
       return;
     }
     pendingTarget = row.target;
+    pendingRequestId = String(body?.request_id || '') || null;
     markPending(String(body?.request_id || ''), row.target, generation);
   });
 }
@@ -759,47 +691,45 @@ function requestSwitch(row, state, ui) {
 /* ---- confirms (the dialog itself lives in posture-confirm.js) ---- */
 
 /**
- * Release the parked switch on every dismissal path: cancel, Escape, a
+ * Release the parked option on every dismissal path: cancel, Escape, a
  * confirmed gesture's done(), the popover closing over it. Registered as the
- * turn-on confirm's `onDismiss`, which posture-confirm.js runs exactly once
- * per dialog.
+ * widening confirm's `onDismiss`, which posture-confirm.js runs exactly once
+ * per dialog. Focus returns to the option that raised the dialog, unless the
+ * popover closed with it.
  */
 function releaseParkedSwitch() {
-  if (confirmingTarget) {
-    confirmingTarget = null;
-    render();
-  }
+  const move = confirmingMove;
+  if (!move) return;
+  confirmingMove = null;
+  render();
+  if (isOpen()) focusOption(popover, move.target, move.position);
 }
 
 /**
- * The confirm for turning one machine's writes on — or, when its waiver is
- * recorded and Shift is not held, the gesture applied directly. A live
- * machine never takes the waiver ({@link confirmSkippable}): its dialog is
- * the one gate that must not be muted.
+ * The confirm for one widening — or, when the waiver is recorded and Shift is
+ * not held, the move applied directly.
  * Wording lives in control-target-facts.js ({@link turnOnConfirm}); this
  * only wires the gesture.
  * @param {any} row
+ * @param {'asked'|'allowed'} to
  * @param {any} state
  * @param {boolean} [reshow]  Shift was held: show the dialog even when waived
  */
-function confirmTurnOn(row, state, reshow = false) {
-  const kind = kindAttr(row);
-  const skippable = confirmSkippable('writes-on', kind);
-  const keyBase = confirmSkipKeyBase('writes-on', row);
-  if (skippable && !reshow && confirmSkipped(keyBase)) {
-    void setPosture(row.target, 'writes', state);
+function confirmWiden(row, to, state, reshow = false) {
+  if (!reshow && confirmSkipped(SKIP_KEY_MOVE)) {
+    void setSwitch(row.target, to, state, undefined, true);
     return;
   }
   showConfirm({
-    ...turnOnConfirm(row, kind),
-    skipKeyBase: skippable ? keyBase : null,
-    onConfirm: (ui) => void setPosture(row.target, 'writes', state, ui),
+    ...turnOnConfirm(row, kindAttr(row), to),
+    skipKeyBase: SKIP_KEY_MOVE,
+    onConfirm: (ui) => void setSwitch(row.target, to, state, ui),
     onDismiss: releaseParkedSwitch,
   });
   // After showConfirm: its stale-dialog sweep dismisses (and releases) any
-  // previous confirm first. The render is what parks the switch beneath the
+  // previous confirm first. The render is what marks the option beneath the
   // dialog.
-  confirmingTarget = row.target;
+  confirmingMove = { target: row.target, position: to };
   render();
 }
 
@@ -813,14 +743,13 @@ function confirmTurnOn(row, state, reshow = false) {
  * @param {boolean} [reshow]  Shift was held: show the dialog even when waived
  */
 function confirmSwitchTo(row, state, reshow = false) {
-  const keyBase = confirmSkipKeyBase('switch', row);
-  if (!reshow && confirmSkipped(keyBase)) {
+  if (!reshow && confirmSkipped(SKIP_KEY_SWITCH)) {
     void requestSwitch(row, state);
     return;
   }
   showConfirm({
     ...switchConfirm(row, kindAttr(row), stateWord(row)),
-    skipKeyBase: keyBase,
+    skipKeyBase: SKIP_KEY_SWITCH,
     onConfirm: (ui) => void requestSwitch(row, state, ui),
   });
 }

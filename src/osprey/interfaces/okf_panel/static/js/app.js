@@ -28,30 +28,34 @@
  * index.html is rewritten as part of the HTML response.
  */
 
-import { initTheme } from "/design-system/js/theme-manager.js";
-import { applyEmbedded, isEmbedded, onModeChange } from "/design-system/js/frame-params.js";
-import { debounce } from "/design-system/js/dom.js";
-import {
-  contributeHeader,
-  onHeaderAction,
-  isSimpleMode,
-} from "/design-system/js/header-contrib.js";
-import "/design-system/js/components/osprey-display-menu.js";
+import { initTheme } from '/design-system/js/theme-manager.js';
+import { applyEmbedded, isEmbedded } from '/design-system/js/frame-params.js';
+import { debounce } from '/design-system/js/dom.js';
+import { contributeHeader, onHeaderAction } from '/design-system/js/header-contrib.js';
+import '/design-system/js/components/osprey-display-menu.js';
 import {
   el,
+  FACILITY_SCHEME,
+  facilityLinkView,
   hashChangeTarget,
   isFallback,
   readPanelParams,
   STRUCTURE_MARKER,
-} from "./helpers.js";
-import { initTree, renderTree, highlightActive, highlightStructure, selectConcept } from "./tree.js";
+} from './helpers.js';
+import {
+  initTree,
+  renderTree,
+  highlightActive,
+  highlightStructure,
+  selectConcept,
+} from './tree.js';
 import {
   initSearchResults,
   clearSearchResults,
   renderSearchMessage,
   renderSearchResults,
-} from "./search.js";
-import { initSidebarResize } from "./resize.js";
+} from './search.js';
+import { initSidebarResize } from './resize.js';
 
 // Standalone, this page owns its own theme chrome (the header
 // <osprey-display-menu>), so it runs theme-manager.js in the hub role:
@@ -60,43 +64,55 @@ import { initSidebarResize } from "./resize.js";
 // Web Terminal hub it is a follower instead: theme-boot.js already applied
 // data-theme pre-paint, and this attaches the postMessage listener for the
 // hub's live broadcasts.
-initTheme({ role: isEmbedded() ? "follower" : "hub" });
+initTheme({ role: isEmbedded() ? 'follower' : 'hub' });
 
 /**
- * Publish this panel's tile-bar contribution. Embedded in Expert, the sidebar's
- * search box lives in the hub's tile bar instead (style.css hides the in-body
- * one), rendered as the hub's own magnifier pill.
+ * What the reading pane shows: `'browse'` is the structure overview (the list
+ * of every page), `'page'` a single concept.
+ * @type {'browse' | 'page'}
+ */
+let readerView = 'browse';
+
+/**
+ * Publish this panel's tile-bar contribution. Embedded, the tile bar is the
+ * panel's one header, with two items:
  *
- * Simple contributes nothing: the hub collapses a service tile's bar to zero
- * height there, so a contributed box would be invisible — and this panel's
- * Simple layout is a reading view that drops the whole sidebar anyway.
+ * - the sidebar's search box, rendered as the hub's magnifier pill (style.css
+ *   hides the in-body one);
+ * - a `view` nav whose Browse entry opens the structure overview. It is active
+ *   while the overview is showing.
  *
+ * The nav goes last, against the close button: it is the control aimed at
+ * repeatedly, and it outranks the search when a narrow tile has to fold one.
  * Sent WHOLE (the hub replaces, never diffs) and a no-op standalone.
  */
 function publishHeaderContribution() {
-  contributeHeader(
-    isSimpleMode()
-      ? []
-      : [
-          // Placeholder matches the in-body input in index.html.
-          { kind: "search", id: "search", placeholder: "Search concepts…" },
-        ]
-  );
+  contributeHeader([
+    // Placeholder matches the in-body input in index.html.
+    { kind: 'search', id: 'search', placeholder: 'Search concepts…' },
+    {
+      kind: 'nav',
+      id: 'view',
+      priority: 1,
+      items: [{ id: 'browse', label: 'Browse', active: readerView === 'browse' }],
+    },
+  ]);
 }
 
-// Live Expert<->Simple switch broadcast by the hub (same-origin postMessage),
-// the mode-axis sibling of the osprey-theme-change follower wired by initTheme
-// above. mode-boot.js already stamped the initial data-ui-mode pre-paint; this
-// is the runtime flip. frame-params.js's shared receive side stamps <html> and
-// calls back only on an actual change. The Simple layout is pure CSS gated on
-// the attribute (see style.css), so the stamp covers the body; the tile-bar
-// contribution is mode-dependent, so re-publish it too — that is what moves the
-// search box between the bar and the body on a live flip.
-onModeChange(() => publishHeaderContribution());
+/**
+ * Record what the reading pane is about to show and re-publish the tile bar
+ * when that changes the Browse entry's active state.
+ * @param {'browse' | 'page'} view
+ */
+function setReaderView(view) {
+  if (view === readerView) return;
+  readerView = view;
+  publishHeaderContribution();
+}
 
 applyEmbedded();
 
-// Draggable sidebar/reader splitter (expert layout; hidden in simple mode).
+// Draggable sidebar/reader splitter.
 initSidebarResize();
 
 /**
@@ -114,7 +130,55 @@ initSidebarResize();
  * @property {string} [id]
  * @property {ConceptFrontmatter} [frontmatter]
  * @property {string} [body]
+ * @property {import("./helpers.js").FacilityReferenceView[]} [facility_references]
+ *   each facility link of the body with the records it names
  */
+
+/**
+ * The DOMPurify instance this page sanitises markdown HTML with, or `null`.
+ *
+ * `index.html` loads DOMPurify as a page global (CDN, or the copy vendored
+ * into this panel's `static/vendor/` when offline); `null` when it did not
+ * load.
+ *
+ * @param {Window} [win]
+ * @returns {{ sanitize: (html: string) => string } | null}
+ */
+export function resolveSanitizer(win = window) {
+  const own = /** @type {any} */ (win).DOMPurify;
+  return own && typeof own.sanitize === 'function' ? own : null;
+}
+
+/**
+ * The panel's one markdown-to-HTML sink: both the concept body and the
+ * structure overview render through it.
+ *
+ * HTML is written only when BOTH the vendored `marked` and a DOMPurify
+ * ({@link resolveSanitizer}) are available, and only DOMPurify's output ever
+ * reaches `innerHTML` — bundle markdown is files on disk an agent can write,
+ * so raw `marked` output is untrusted HTML (`<img onerror>`, `<script>`,
+ * `javascript:` links). Missing either library, or either step throwing,
+ * writes the source as inert `textContent` instead (the chat-render.js
+ * precedent).
+ *
+ * @param {HTMLElement} target - its contents are replaced
+ * @param {unknown} markdown - raw markdown; `null`/`undefined` render empty
+ * @returns {void}
+ */
+export function renderMarkdownInto(target, markdown) {
+  const text = markdown != null ? String(markdown) : '';
+  const parser = /** @type {any} */ (globalThis).marked;
+  const purify = resolveSanitizer();
+  if (purify && parser && typeof parser.parse === 'function') {
+    try {
+      target.innerHTML = purify.sanitize(String(parser.parse(text)));
+      return;
+    } catch {
+      // Fall through to inert text.
+    }
+  }
+  target.textContent = text;
+}
 
 /**
  * @param {string} id
@@ -122,20 +186,22 @@ initSidebarResize();
  */
 function requireEl(id) {
   const node = document.getElementById(id);
-  if (!node) throw new Error("okf_panel: missing required element #" + id);
+  if (!node) throw new Error('okf_panel: missing required element #' + id);
   return node;
 }
 
 (function () {
   // -- DOM handles -----------------------------------------------------------
-  const treeEl = requireEl("tree");
-  const readerEl = requireEl("reader-content");
-  const searchForm = requireEl("search-form");
-  const searchInput = /** @type {HTMLInputElement} */ (requireEl("search-input"));
-  const searchResultsEl = requireEl("search-results");
-  const structureLink = document.getElementById("structure-link");
+  const treeEl = requireEl('tree');
+  const readerEl = requireEl('reader-content');
+  const searchForm = requireEl('search-form');
+  const searchInput = /** @type {HTMLInputElement} */ (requireEl('search-input'));
+  const searchResultsEl = requireEl('search-results');
+  const structureLink = document.getElementById('structure-link');
   /** @type {Set<string> | null} */
   let knownConceptIds = null;
+  /** @type {ConceptDoc["facility_references"] | null} */
+  let currentFacilityReferences = null;
 
   initTree({ treeEl, structureLink, onSelect: loadConcept });
   initSearchResults({ containerEl: searchResultsEl, onSelect: selectConcept });
@@ -153,10 +219,11 @@ function requireEl(id) {
    */
   function afterRender(container) {
     // Task 3.2: wire cross-link navigation for every anchor in the freshly
-    // rendered container. Three classes of href:
+    // rendered container. Four classes of href:
     //   1. in-bundle cross-links  (/^\/.+\.md$/) → intercept, loadConcept + pushState
     //   2. external links         (http:// or https://) → target=_blank rel=noopener
-    //   3. everything else        (#anchors, /dir/ directory links) → untouched
+    //   3. facility links         (facility:) → the linked record on hover, no navigation
+    //   4. everything else        (#anchors, /dir/ directory links) → untouched
     //
     // loadConcept re-renders, which re-invokes afterRender, so links inside the
     // newly-rendered concept get wired recursively on each navigation.
@@ -166,27 +233,33 @@ function requireEl(id) {
     // data-okf-wired and skip already-marked ones, so this stays correct even if
     // afterRender is ever called twice on the same container.
     if (!container) return;
-    const anchors = /** @type {NodeListOf<HTMLElement>} */ (
-      container.querySelectorAll("a[href]")
-    );
+    const anchors = /** @type {NodeListOf<HTMLElement>} */ (container.querySelectorAll('a[href]'));
     anchors.forEach(function (a) {
-      if (a.dataset.okfWired === "1") return;
-      const href = a.getAttribute("href") || "";
+      if (a.dataset.okfWired === '1') return;
+      const href = a.getAttribute('href') || '';
 
       if (/^\/.+\.md$/.test(href)) {
         // In-bundle cross-link.
-        a.dataset.okfWired = "1";
-        a.addEventListener("click", function (ev) {
+        a.dataset.okfWired = '1';
+        a.addEventListener('click', function (ev) {
           ev.preventDefault();
-          const id = href.replace(/^\//, "").replace(/\.md$/, "");
+          const id = href.replace(/^\//, '').replace(/\.md$/, '');
           loadConcept(id);
-          history.pushState({ id: id }, "", "#" + id);
+          history.pushState({ id: id }, '', '#' + id);
         });
       } else if (/^https?:\/\//.test(href)) {
         // External link — open in a new tab, no opener leakage. No preventDefault.
-        a.dataset.okfWired = "1";
-        a.setAttribute("target", "_blank");
-        a.setAttribute("rel", "noopener");
+        a.dataset.okfWired = '1';
+        a.setAttribute('target', '_blank');
+        a.setAttribute('rel', 'noopener');
+      } else if (href.startsWith(FACILITY_SCHEME)) {
+        const view = facilityLinkView(href, currentFacilityReferences);
+        a.dataset.okfWired = '1';
+        a.classList.add(view.dangling ? 'okf-facility-link--dangling' : 'okf-facility-link');
+        a.setAttribute('title', view.title);
+        a.addEventListener('click', function (ev) {
+          ev.preventDefault();
+        });
       }
       // else: in-page #anchors or /dir/ directory links — leave default behavior.
     });
@@ -194,7 +267,7 @@ function requireEl(id) {
 
   // Back/forward navigation between cross-linked concepts. Guard the initial
   // (null) state so popping to the entry point doesn't throw or re-load.
-  window.addEventListener("popstate", function (ev) {
+  window.addEventListener('popstate', function (ev) {
     if (ev.state && ev.state.id === STRUCTURE_MARKER) {
       // Pop back to the structure overview WITHOUT pushing a new entry.
       loadStructure({ push: false });
@@ -207,10 +280,10 @@ function requireEl(id) {
 
   // The hub opens this panel on a concept by changing its fragment; an
   // in-page anchor changes it too, and names no concept.
-  window.addEventListener("hashchange", function () {
+  window.addEventListener('hashchange', function () {
     const target = hashChangeTarget(readPanelParams(), history.state, knownConceptIds);
     if (target === null) return;
-    history.replaceState({ id: target }, "");
+    history.replaceState({ id: target }, '');
     if (target === STRUCTURE_MARKER) loadStructure({ push: false });
     else loadConcept(target);
   });
@@ -220,14 +293,12 @@ function requireEl(id) {
   async function loadTree() {
     let data;
     try {
-      const resp = await fetch("/api/concepts");
-      if (!resp.ok) throw new Error("HTTP " + resp.status);
+      const resp = await fetch('/api/concepts');
+      if (!resp.ok) throw new Error('HTTP ' + resp.status);
       data = await resp.json();
     } catch {
-      treeEl.innerHTML = "";
-      treeEl.appendChild(
-        el("p", { class: "muted", text: "Failed to load concepts." })
-      );
+      treeEl.innerHTML = '';
+      treeEl.appendChild(el('p', { class: 'muted', text: 'Failed to load concepts.' }));
       return;
     }
     /** @type {{concepts?: {id: string}[]}[]} */
@@ -248,12 +319,13 @@ function requireEl(id) {
    * @param {string} id
    */
   async function loadConcept(id) {
-    renderMessage("Loading…");
+    setReaderView('page');
+    renderMessage('Loading…');
     let resp;
     try {
-      resp = await fetch("/api/concept?id=" + encodeURIComponent(id));
+      resp = await fetch('/api/concept?id=' + encodeURIComponent(id));
     } catch {
-      renderMessage("Failed to load concept.");
+      renderMessage('Failed to load concept.');
       return;
     }
 
@@ -262,7 +334,7 @@ function requireEl(id) {
       return;
     }
     if (!resp.ok) {
-      renderMessage("Failed to load concept (HTTP " + resp.status + ").");
+      renderMessage('Failed to load concept (HTTP ' + resp.status + ').');
       return;
     }
 
@@ -270,7 +342,7 @@ function requireEl(id) {
     try {
       doc = await resp.json();
     } catch {
-      renderMessage("Failed to parse concept.");
+      renderMessage('Failed to parse concept.');
       return;
     }
     renderConcept(doc);
@@ -283,9 +355,9 @@ function requireEl(id) {
    */
   function renderConcept(doc) {
     const fm = doc.frontmatter || {};
-    const id = doc.id || "";
-    const title = fm.title != null ? String(fm.title) : "";
-    const description = fm.description != null ? String(fm.description) : "";
+    const id = doc.id || '';
+    const title = fm.title != null ? String(fm.title) : '';
+    const description = fm.description != null ? String(fm.description) : '';
     const fallback = isFallback(id, title);
 
     // Keep the sidebar selection in sync with the page actually being shown,
@@ -293,47 +365,36 @@ function requireEl(id) {
     // structure-overview link, or back/forward). Single authoritative point.
     highlightActive(id);
 
-    readerEl.innerHTML = "";
+    readerEl.innerHTML = '';
 
     // Heading: for fallback entries, show the full concept id instead of the
     // bare last-segment title.
     const heading = fallback ? id : title || id;
-    readerEl.appendChild(el("h1", { class: "concept-title", text: heading }));
+    readerEl.appendChild(el('h1', { class: 'concept-title', text: heading }));
 
     // Description line — omitted for fallback entries (and when empty).
     if (!fallback && description) {
-      readerEl.appendChild(
-        el("p", { class: "concept-description", text: description })
-      );
+      readerEl.appendChild(el('p', { class: 'concept-description', text: description }));
     }
 
     // Tags, if present in frontmatter.
     const tags = fm.tags;
     if (Array.isArray(tags) && tags.length > 0) {
-      const tagWrap = el("div", { class: "concept-tags" });
+      const tagWrap = el('div', { class: 'concept-tags' });
       for (const tag of tags) {
-        tagWrap.appendChild(el("span", { class: "tag", text: String(tag) }));
+        tagWrap.appendChild(el('span', { class: 'tag', text: String(tag) }));
       }
       readerEl.appendChild(tagWrap);
     }
 
-    // Markdown body, rendered via the vendored marked. The container MUST be
-    // exactly class="osprey-md-rendered" so the gallery markdown CSS applies.
-    //
-    // TRUST MODEL: marked.parse output is assigned to innerHTML unsanitized.
-    // This is safe under OKF's authoring model — bundles are admin-authored,
-    // read-only facility knowledge served locally, the same trust assumption as
-    // the artifact gallery / channel-finder markdown. If bundles ever accepted
-    // untrusted authorship this would need a sanitizer (e.g. DOMPurify).
-    const body = doc.body != null ? String(doc.body) : "";
-    const bodyEl = el("div", { class: "osprey-md-rendered" });
-    try {
-      bodyEl.innerHTML = marked.parse(body);
-    } catch {
-      bodyEl.textContent = body;
-    }
+    // Markdown body. The container MUST be exactly class="osprey-md-rendered"
+    // so the gallery markdown CSS applies. Rendered through the one sanitising
+    // sink (renderMarkdownInto): a bundle is files on disk an agent can write.
+    const bodyEl = el('div', { class: 'osprey-md-rendered' });
+    renderMarkdownInto(bodyEl, doc.body);
     readerEl.appendChild(bodyEl);
 
+    currentFacilityReferences = doc.facility_references || null;
     afterRender(readerEl);
   }
 
@@ -341,8 +402,8 @@ function requireEl(id) {
    * @param {string} msg
    */
   function renderMessage(msg) {
-    readerEl.innerHTML = "";
-    readerEl.appendChild(el("p", { class: "muted", text: msg }));
+    readerEl.innerHTML = '';
+    readerEl.appendChild(el('p', { class: 'muted', text: msg }));
     afterRender(readerEl);
   }
 
@@ -356,32 +417,28 @@ function requireEl(id) {
    */
   async function loadStructure(opts) {
     const push = !opts || opts.push !== false;
+    setReaderView('browse');
     highlightStructure();
-    renderMessage("Loading…");
+    renderMessage('Loading…');
 
     let data;
     try {
-      const resp = await fetch("/api/structure");
-      if (!resp.ok) throw new Error("HTTP " + resp.status);
+      const resp = await fetch('/api/structure');
+      if (!resp.ok) throw new Error('HTTP ' + resp.status);
       data = await resp.json();
     } catch {
-      renderMessage("Failed to load knowledge base overview.");
+      renderMessage('Failed to load knowledge base overview.');
       return;
     }
 
-    readerEl.innerHTML = "";
-    const container = el("div", { class: "osprey-md-rendered" });
-    const md = data.markdown != null ? String(data.markdown) : "";
-    try {
-      container.innerHTML = marked.parse(md);
-    } catch {
-      container.textContent = md;
-    }
+    readerEl.innerHTML = '';
+    const container = el('div', { class: 'osprey-md-rendered' });
+    renderMarkdownInto(container, data.markdown);
     readerEl.appendChild(container);
     afterRender(container);
 
     if (push) {
-      history.pushState({ id: STRUCTURE_MARKER }, "", "#" + STRUCTURE_MARKER);
+      history.pushState({ id: STRUCTURE_MARKER }, '', '#' + STRUCTURE_MARKER);
     }
   }
 
@@ -394,7 +451,7 @@ function requireEl(id) {
    * @param {string} query
    */
   async function runSearch(query) {
-    const q = (query || "").trim();
+    const q = (query || '').trim();
     if (!q) {
       clearSearchResults();
       return;
@@ -402,11 +459,11 @@ function requireEl(id) {
 
     let data;
     try {
-      const resp = await fetch("/api/search?q=" + encodeURIComponent(q));
-      if (!resp.ok) throw new Error("HTTP " + resp.status);
+      const resp = await fetch('/api/search?q=' + encodeURIComponent(q));
+      if (!resp.ok) throw new Error('HTTP ' + resp.status);
       data = await resp.json();
     } catch {
-      renderSearchMessage("Search failed.");
+      renderSearchMessage('Search failed.');
       return;
     }
     renderSearchResults(data.results || []);
@@ -418,32 +475,24 @@ function requireEl(id) {
     runSearch(searchInput.value);
   }, 200);
 
-  searchInput.addEventListener("input", debouncedSearch);
-  searchForm.addEventListener("submit", function (ev) {
+  searchInput.addEventListener('input', debouncedSearch);
+  searchForm.addEventListener('submit', function (ev) {
     ev.preventDefault();
     runSearch(searchInput.value);
   });
 
   // Embedded: the same box lives in the hub's tile bar and posts its text back
   // here. The hub already debounces before reporting, so this runs the search
-  // directly rather than through debouncedSearch.
+  // directly rather than through debouncedSearch. The bar's Browse entry opens
+  // the structure overview, like the sidebar's "Knowledge Base" link.
   onHeaderAction(function (id, value) {
-    if (id === "search") runSearch(value || "");
+    if (id === 'search') runSearch(value || '');
+    else if (id === 'view' && value === 'browse') loadStructure();
   });
 
   if (structureLink) {
-    structureLink.addEventListener("click", function (ev) {
+    structureLink.addEventListener('click', function (ev) {
       ev.preventDefault();
-      loadStructure();
-    });
-  }
-
-  // Simple-mode "Browse all pages" affordance — with the expert sidebar tree
-  // hidden, this is the reading-focused mode's route back to the structure
-  // overview (the plain doc list). Harmless in Expert (the button is hidden).
-  const browseAllBtn = document.getElementById("browse-all");
-  if (browseAllBtn) {
-    browseAllBtn.addEventListener("click", function () {
       loadStructure();
     });
   }
@@ -454,13 +503,13 @@ function requireEl(id) {
   // frontmatter issues) as a small sidebar status line. Guarded/unconfigured
   // panels (503) simply hide the line.
   async function loadBundleHealth() {
-    const footer = document.getElementById("bundle-health");
+    const footer = document.getElementById('bundle-health');
     if (!footer) return;
 
     let data;
     try {
-      const resp = await fetch("/api/bundle_health");
-      if (!resp.ok) throw new Error("HTTP " + resp.status);
+      const resp = await fetch('/api/bundle_health');
+      if (!resp.ok) throw new Error('HTTP ' + resp.status);
       data = await resp.json();
     } catch {
       footer.hidden = true;
@@ -468,25 +517,25 @@ function requireEl(id) {
     }
 
     footer.hidden = false;
-    footer.innerHTML = "";
+    footer.innerHTML = '';
     if (data.ok) {
-      footer.classList.remove("has-warnings");
-      footer.appendChild(el("span", { class: "health-dot ok" }));
-      footer.appendChild(el("span", { class: "health-text", text: "Bundle healthy" }));
+      footer.classList.remove('has-warnings');
+      footer.appendChild(el('span', { class: 'health-dot ok' }));
+      footer.appendChild(el('span', { class: 'health-text', text: 'Bundle healthy' }));
     } else {
-      footer.classList.add("has-warnings");
+      footer.classList.add('has-warnings');
       const counts = data.counts || {};
       const parts = Object.keys(counts)
         .sort()
         .map(function (k) {
-          return k + "=" + counts[k];
+          return k + '=' + counts[k];
         });
       const total = data.total || 0;
-      footer.appendChild(el("span", { class: "health-dot warn" }));
+      footer.appendChild(el('span', { class: 'health-dot warn' }));
       footer.appendChild(
-        el("span", {
-          class: "health-text",
-          text: total + " issue" + (total === 1 ? "" : "s") + ": " + parts.join(", "),
+        el('span', {
+          class: 'health-text',
+          text: total + ' issue' + (total === 1 ? '' : 's') + ': ' + parts.join(', '),
         })
       );
     }
@@ -502,7 +551,7 @@ function requireEl(id) {
     if (params.concept) {
       // Seed a history entry with the target id so browser back/forward returns
       // to the deep-linked concept (popstate reads ev.state.id).
-      history.replaceState({ id: params.concept }, "", "#" + params.concept);
+      history.replaceState({ id: params.concept }, '', '#' + params.concept);
       loadConcept(params.concept);
     } else {
       loadStructure({ push: false });
@@ -512,6 +561,6 @@ function requireEl(id) {
   loadTree();
   loadBundleHealth();
   bootFromParams();
-  // Embedded: hand the search box to the host tile bar (Expert only).
+  // Embedded: hand the search box and the Browse view to the host tile bar.
   publishHeaderContribution();
 })();

@@ -11,8 +11,10 @@ its own answer:
 * the **operator secret**, which authorises everything an operator can do;
 * the **panel token**, a deliberately weaker credential for the narrow set of
   panel-arrangement calls in-process companions legitimately make, and for the
-  one entry in that tier which is not arrangement at all — the terminal proxy's
-  hop to the event dispatcher's MCP transport (:data:`PANEL_TIER_ROUTES`);
+  entries in that tier which are not arrangement at all — the terminal proxy's
+  hop to the event dispatcher's MCP transport (:data:`PANEL_TIER_ROUTES`) and
+  its hop to the MCP transport of each sidecar panel that opts in
+  (:func:`panel_tier_routes`);
 * a **browser-session map**, ``{digest of a session id: expiry}``, holding the
   sessions handed out when a browser exchanges a one-time URL token for a
   cookie — served from memory, and kept across a restart by
@@ -92,6 +94,9 @@ from enum import Enum
 from pathlib import Path
 from typing import Any
 
+# The leaf, not ``osprey.profiles.web_panels``: that module imports the shared
+# middleware, which imports this one.
+from osprey.profiles.sidecar_panels import SIDECAR_PANELS
 from osprey.utils.sensitive_env import guard_process_memory
 from osprey_connectors.identity import TERMINAL_USER_ENV, acting_identity, usable_identity
 from osprey_connectors.safety_file import atomic_replace
@@ -122,6 +127,7 @@ __all__ = [
     "get_web_credentials",
     "mint_and_announce",
     "mint_secret",
+    "panel_tier_routes",
     "peek_supplied_panel_token",
     "peek_web_credentials",
     "reset_web_credentials",
@@ -130,7 +136,7 @@ __all__ = [
 #: The operator secret's environment carrier. In the container shape the deploy
 #: ``.env`` supplies it per user and nginx forwards the same value as a header;
 #: in the single-user shape nothing sets it and this module mints one.
-OPERATOR_SECRET_ENV = "OSPREY_TERMINAL_SECRET"
+OPERATOR_SECRET_ENV = "OSPREY_TERMINAL_SECRET"  # noqa: S105 -- names an environment variable, holds no secret
 
 #: Prefix of the per-user operator secrets a multi-user deployment mints
 #: (``OSPREY_TERMINAL_SECRET_<USER>``). Each per-user container receives its
@@ -177,7 +183,7 @@ _ACCOUNT_SEPARATORS: tuple[str, ...] = ("/", "\\", " ")
 _RESERVED_ACCOUNTS: tuple[str, ...] = (".", "..")
 
 #: The panel token's environment carrier.
-PANEL_TOKEN_ENV = "OSPREY_PANEL_TOKEN"
+PANEL_TOKEN_ENV = "OSPREY_PANEL_TOKEN"  # noqa: S105 -- names an environment variable, holds no secret
 
 #: The multi-user shape's tell, read (never popped — ``osprey web`` reads it
 #: too) exactly as :func:`osprey.cli.web_cmd.resolve_bind_host` reads it: any
@@ -187,12 +193,12 @@ BIND_HOST_ENV = "OSPREY_TERMINAL_BIND_HOST"
 #: The event dispatcher's bearer. A deployment hands it to the terminal's
 #: container so the proxy can inject it on the EVENTS panel hop; it is held
 #: here, not read from the environment, for the reason the operator secret is.
-DISPATCHER_TOKEN_ENV = "EVENT_DISPATCHER_TOKEN"
+DISPATCHER_TOKEN_ENV = "EVENT_DISPATCHER_TOKEN"  # noqa: S105 -- names an environment variable, holds no secret
 
 #: The dispatcher-to-worker bearer. The web server has no use for it and holds
 #: nothing; the carrier is closed wherever the others are, so no agent this
 #: process spawns inherits it.
-WORKER_TOKEN_ENV = "DISPATCH_WORKER_TOKEN"
+WORKER_TOKEN_ENV = "DISPATCH_WORKER_TOKEN"  # noqa: S105 -- names an environment variable, holds no secret
 
 #: How long a browser session stays valid when nothing configures it — the
 #: default behind ``modules.web_terminals.auth.session_lifetime``, which is
@@ -654,11 +660,14 @@ class WebCredentials:
         the route table decides which tier a request needs and this method never
         widens it.
 
-        That tier is panel arrangement with one exception:
-        ``GET|POST|DELETE /panel/events/mcp``, the proxy hop to the event
-        dispatcher's MCP transport, so that the agent in a session can fire a
-        dispatch job under that session's own chip. Holding this token is
-        therefore enough to fire a job — but not enough to decide what the job
+        That tier is panel arrangement with two exceptions. Each sidecar panel
+        that opts in adds the hop to its own MCP transport
+        (``/panel/<id><mcp_path>``, see :func:`panel_tier_routes`), so that the
+        agent in a session reaches that terminal's own sidecar and nothing
+        shared. The other is ``GET|POST|DELETE /panel/events/mcp``, the proxy
+        hop to the event dispatcher's MCP transport, so that the agent in a
+        session can fire a dispatch job under that session's own chip. Holding
+        this token is therefore enough to fire a job — but not enough to decide what the job
         does or whose authority it runs under. The dispatcher's own bearer
         never leaves the proxy; attribution rests on the owner header minted on
         that hop — the terminal proxy's ``/panel/events/mcp`` handler — rather
@@ -1427,7 +1436,8 @@ class Tier(Enum):
     #: The narrow, low-privilege tier: panel arrangement and activity
     #: reporting, plus the terminal proxy's hop to the event dispatcher's MCP
     #: transport — the one member of :data:`PANEL_TIER_ROUTES` that fires work
-    #: rather than moving a panel.
+    #: rather than moving a panel — and the hop to each opted-in sidecar's MCP
+    #: transport (:func:`panel_tier_routes`).
     #: Reachable with the panel token *or* with any operator credential.
     PANEL = "panel"
 
@@ -1450,9 +1460,11 @@ class Tier(Enum):
 #: panel-tier everywhere — on an app that has no such route the request clears
 #: the gate and is then answered with a 404 by routing, which grants nothing.
 #:
-#: ``/panel/events/mcp`` is the one entry that is not panel arrangement, and the
-#: one place this tier grants something an operator would recognise as an
-#: action: it is the terminal proxy's hop to the event dispatcher's MCP
+#: ``/panel/events/mcp`` is the one static entry here that is not panel
+#: arrangement, and the one place this table grants something an operator would
+#: recognise as an action. (Each sidecar panel that opts in adds its own MCP hop
+#: at call time, see :func:`panel_tier_routes`; that hop reaches only the
+#: terminal's own sidecar.) It is the terminal proxy's hop to the event dispatcher's MCP
 #: transport, panel-tier so that the agent in a session can fire a dispatch job
 #: under that session's own chip. The grant is narrow in every other direction.
 #: The dispatcher's own bearer is stripped from every agent child environment,
@@ -1470,6 +1482,12 @@ class Tier(Enum):
 #: carries a call, ``GET`` opens the event stream, ``DELETE`` ends the session.
 #: Anything else on that path, a websocket included, is not that client.
 #:
+#: ``POST /api/watchdog/prompt`` is the trigger hook's door: the hook runs in the
+#: agent's sandbox and holds nothing stronger. It can only ask for a prompt to be
+#: judged, which can add a hold and never remove one. Reading a session's flags
+#: and answering them are operator acts, absent here, so an agent cannot release
+#: its own hold.
+#:
 #: What is deliberately *absent* matters as much as what is present:
 #: ``GET /api/panel-focus`` (a real route) and ``POST /api/panel-layout`` (which
 #: writes the persisted layout) are operator-only, as is every config, scaffold,
@@ -1480,12 +1498,16 @@ class Tier(Enum):
 PANEL_TIER_ROUTES: frozenset[tuple[str, str]] = frozenset(
     {
         ("GET", "/api/panels"),
-        ("POST", "/api/panel-focus"),
         ("POST", "/api/panel-visibility"),
-        ("POST", "/api/panel-close"),
-        ("POST", "/api/panel-arrange"),
+        ("POST", "/api/panel-op/drop"),
+        ("POST", "/api/panel-op/close-tab"),
+        ("POST", "/api/panel-op/close-tile"),
+        ("POST", "/api/panel-op/open"),
+        ("POST", "/api/panel-op/open-set"),
+        ("POST", "/api/panel-op/open-arrangement"),
         ("POST", "/api/agent-activity"),
         ("POST", "/api/agent-turn"),
+        ("POST", "/api/watchdog/prompt"),
         ("POST", "/api/focus"),
         ("GET", "/panel/events/mcp"),
         ("POST", "/panel/events/mcp"),
@@ -1499,6 +1521,46 @@ PANEL_TIER_ROUTES: frozenset[tuple[str, str]] = frozenset(
 #: operator traffic, which is an operator act; registering without one cannot
 #: repoint anything.
 PANEL_REGISTER_ROUTE: tuple[str, str] = ("POST", "/api/panels/register")
+
+#: The verbs of one streamable-HTTP conversation: ``POST`` carries a call,
+#: ``GET`` opens the event stream, ``DELETE`` ends the session.
+_MCP_HOP_METHODS: tuple[str, ...] = ("GET", "POST", "DELETE")
+
+
+def panel_tier_routes() -> frozenset[tuple[str, str]]:
+    """Every ``(method, path)`` pair the panel token may drive, as of this call.
+
+    The static :data:`PANEL_TIER_ROUTES`, plus one hop per sidecar panel that
+    opts in. A sidecar may serve an MCP transport beside its pages
+    (``SidecarPanel.mcp_path``); declaring that path alone opens nothing, and
+    the terminal proxy refuses it for every caller. A sidecar that also sets
+    ``agent_hop`` adds exactly ``GET|POST|DELETE /panel/<id><mcp_path>`` — the
+    three verbs of a streamable-HTTP conversation on the one path its transport
+    answers at — so the agent in a session reaches that transport with the
+    credential it already holds.
+
+    Exact pairs, like the static table and for the same reason (see
+    :func:`classify`): nothing else below ``/panel/<id>/`` is opened, in any
+    spelling. Admitting the route here is half of the grant. The proxy serving
+    it forwards the request only when the gate admitted it on the panel token,
+    and refuses an operator credential there.
+
+    Read from the registry on every call rather than frozen at import, so the
+    answer follows the registry the proxy itself consults for the same request.
+
+    A declared path that does not start with ``/`` adds nothing: spliced onto
+    the panel id it would name a route below some *other* panel id.
+
+    Returns:
+        A new frozenset; :data:`PANEL_TIER_ROUTES` itself is never widened.
+    """
+    hops = {
+        (method, f"/panel/{panel_id}{panel.mcp_path}")
+        for panel_id, panel in SIDECAR_PANELS.items()
+        if panel.agent_hop and panel.mcp_path and panel.mcp_path.startswith("/")
+        for method in _MCP_HOP_METHODS
+    }
+    return PANEL_TIER_ROUTES | hops
 
 
 def classify(method: str | None, path: str | None, body_has_url: bool) -> Tier:
@@ -1527,8 +1589,9 @@ def classify(method: str | None, path: str | None, body_has_url: bool) -> Tier:
             way to hold it.
 
     Returns:
-        :data:`Tier.PANEL` for the handful of routes in
-        :data:`PANEL_TIER_ROUTES`, and for a ``url``-free panel registration.
+        :data:`Tier.PANEL` for the handful of routes
+        :func:`panel_tier_routes` returns, and for a ``url``-free panel
+        registration.
         :data:`Tier.OPERATOR` for everything else.
 
     The match is **exact** on both fields, and that is the security property
@@ -1545,7 +1608,7 @@ def classify(method: str | None, path: str | None, body_has_url: bool) -> Tier:
         return Tier.OPERATOR
 
     route = (method.upper(), path)
-    if route in PANEL_TIER_ROUTES:
+    if route in panel_tier_routes():
         return Tier.PANEL
     if route == PANEL_REGISTER_ROUTE and not body_has_url:
         return Tier.PANEL

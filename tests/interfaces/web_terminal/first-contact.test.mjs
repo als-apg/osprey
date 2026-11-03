@@ -36,10 +36,10 @@ vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/terminal.js', () 
   onSessionChange: (fn) => term.listeners.push(fn),
   pasteToTerminal: term.paste,
   focusTerminal: term.focus,
-  // The Simple console tells the panels which session they are on when it
-  // binds in simple mode. Stubbed rather than omitted: a missing export on a
+  // The console tells the panels which session they are on when it binds.
+  // Stubbed rather than omitted: a missing export on a
   // mock throws at the point of use, so leaving it out would make the first
-  // test that mounts the console under data-ui-mode="simple" fail on the mock
+  // test that mounts the console in chat fail on the mock
   // rather than on what it is asserting.
   notifySessionChange: vi.fn(),
 }));
@@ -66,7 +66,7 @@ const transport = vi.hoisted(() => ({
   sendPrompt: vi.fn(() => ({ abort: vi.fn() })),
   interrupt: vi.fn(),
   // The console replays the session pointer's transcript when it binds and
-  // negotiates the hand-off when it is entered from the Expert view. Neither
+  // negotiates the hand-off when it is entered from the terminal. Neither
   // is reached by the mounts below, but both are named imports: see the note
   // on notifySessionChange above.
   fetchHistory: vi.fn(() => Promise.resolve([])),
@@ -91,13 +91,13 @@ beforeEach(async () => {
   term.listeners = [];
   chip.kind = null;
   chip.listeners = [];
-  document.documentElement.removeAttribute('data-ui-mode');
+  document.documentElement.removeAttribute('data-agent-surface');
   document.body.innerHTML = '';
   fc = await import(MODULE);
 });
 
-/** The Simple view's input, in the shape insertPrompt looks for. */
-function mountSimpleInput({ disabled = false } = {}) {
+/** The chat's input, in the shape insertPrompt looks for. */
+function mountChatInput({ disabled = false } = {}) {
   document.body.innerHTML =
     '<div id="operator-container"><div class="op-input-area"><textarea></textarea></div></div>';
   const input = /** @type {HTMLTextAreaElement} */ (
@@ -110,19 +110,21 @@ function mountSimpleInput({ disabled = false } = {}) {
 describe('capabilitySentence', () => {
   test('names where the values come from, per machine kind', () => {
     const facts = factsOf([], false);
-    expect(fc.capabilitySentence('live', facts)).toBe('Here the agent can read live machine values.');
-    expect(fc.capabilitySentence('standin', facts)).toBe(
+    expect(fc.capabilitySentence('real', facts)).toBe(
+      'Here the agent can read values from the live machine.'
+    );
+    expect(fc.capabilitySentence('rehearsal', facts)).toBe(
       'Here the agent can read values from the rehearsal copy.'
     );
-    expect(fc.capabilitySentence('va', facts)).toBe(
+    expect(fc.capabilitySentence('simulator', facts)).toBe(
       'Here the agent can read values from the simulator.'
     );
   });
 
   test('the read phrase leads, then the server capabilities', () => {
     const facts = factsOf(['run analysis scripts', 'plot archived data'], false);
-    expect(fc.capabilitySentence('live', facts)).toBe(
-      'Here the agent can read live machine values, run analysis scripts, and plot archived data.'
+    expect(fc.capabilitySentence('real', facts)).toBe(
+      'Here the agent can read values from the live machine, run analysis scripts, and plot archived data.'
     );
   });
 
@@ -140,14 +142,14 @@ describe('capabilitySentence', () => {
     // Prepending the read phrase into the caller's array would make every
     // later sentence repeat it.
     const facts = factsOf(['run analysis scripts'], false);
-    fc.capabilitySentence('live', facts);
+    fc.capabilitySentence('real', facts);
     expect(facts.capabilities).toEqual(['run analysis scripts']);
   });
 });
 
 describe('starterPrompts', () => {
   test('offers the read prompt for every known machine kind', () => {
-    for (const kind of ['live', 'standin', 'va']) {
+    for (const kind of ['real', 'rehearsal', 'simulator']) {
       expect(fc.starterPrompts(kind, factsOf([], false))).toEqual([
         'What can you read right now?',
         'What are you allowed to do in this session?',
@@ -162,12 +164,12 @@ describe('starterPrompts', () => {
   });
 
   test('offers the logbook prompt last, and only where there is a logbook', () => {
-    expect(fc.starterPrompts('live', factsOf([], true))).toEqual([
+    expect(fc.starterPrompts('real', factsOf([], true))).toEqual([
       'What can you read right now?',
       'What are you allowed to do in this session?',
       'What happened in the logbook today?',
     ]);
-    expect(fc.starterPrompts('live', factsOf([], false))).not.toContain(
+    expect(fc.starterPrompts('real', factsOf([], false))).not.toContain(
       'What happened in the logbook today?'
     );
   });
@@ -175,8 +177,8 @@ describe('starterPrompts', () => {
 
 describe('setFacts', () => {
   test('the defaults read module state at call time, not at import time', () => {
-    chip.kind = 'live';
-    expect(fc.capabilitySentence()).toBe('Here the agent can read live machine values.');
+    chip.kind = 'real';
+    expect(fc.capabilitySentence()).toBe('Here the agent can read values from the live machine.');
     expect(fc.starterPrompts()).toEqual([
       'What can you read right now?',
       'What are you allowed to do in this session?',
@@ -184,7 +186,7 @@ describe('setFacts', () => {
 
     fc.setFacts({ capabilities: ['plot archived data'], logbook: true });
     expect(fc.capabilitySentence()).toBe(
-      'Here the agent can read live machine values and plot archived data.'
+      'Here the agent can read values from the live machine and plot archived data.'
     );
     expect(fc.starterPrompts()).toEqual([
       'What can you read right now?',
@@ -211,8 +213,8 @@ describe('setFacts', () => {
 });
 
 describe('insertPrompt', () => {
-  test('expert pastes into the terminal, then focuses it', () => {
-    document.documentElement.setAttribute('data-ui-mode', 'expert');
+  test('the terminal surface pastes into the terminal, then focuses it', () => {
+    document.documentElement.setAttribute('data-agent-surface', 'terminal');
     fc.insertPrompt('What can you read right now?');
     expect(term.paste).toHaveBeenCalledWith('What can you read right now?');
     expect(term.focus).toHaveBeenCalledTimes(1);
@@ -221,17 +223,9 @@ describe('insertPrompt', () => {
     );
   });
 
-  test('an unrendered or unknown mode takes the terminal branch', () => {
-    fc.insertPrompt('no mode attribute');
-    document.documentElement.setAttribute('data-ui-mode', 'something-new');
-    fc.insertPrompt('unknown mode');
-    expect(term.paste).toHaveBeenCalledTimes(2);
-    expect(term.focus).toHaveBeenCalledTimes(2);
-  });
-
-  test('simple fills the chat input, raises input, and focuses it', () => {
-    document.documentElement.setAttribute('data-ui-mode', 'simple');
-    const input = mountSimpleInput();
+  test('the chat fills its input, raises input, and focuses it', () => {
+    document.documentElement.removeAttribute('data-agent-surface');
+    const input = mountChatInput();
     let seen = 0;
     input.addEventListener('input', () => {
       seen += 1;
@@ -245,9 +239,9 @@ describe('insertPrompt', () => {
     expect(term.paste).not.toHaveBeenCalled();
   });
 
-  test('simple does nothing while the input is disabled', () => {
-    document.documentElement.setAttribute('data-ui-mode', 'simple');
-    const input = mountSimpleInput({ disabled: true });
+  test('the chat does nothing while the input is disabled', () => {
+    document.documentElement.removeAttribute('data-agent-surface');
+    const input = mountChatInput({ disabled: true });
     let seen = 0;
     input.addEventListener('input', () => {
       seen += 1;
@@ -261,8 +255,8 @@ describe('insertPrompt', () => {
     expect(term.paste).not.toHaveBeenCalled();
   });
 
-  test('simple with no input on the page does not throw', () => {
-    document.documentElement.setAttribute('data-ui-mode', 'simple');
+  test('the chat with no input on the page does not throw', () => {
+    document.documentElement.removeAttribute('data-agent-surface');
     expect(() => fc.insertPrompt('nowhere to go')).not.toThrow();
     expect(term.paste).not.toHaveBeenCalled();
   });
@@ -270,8 +264,8 @@ describe('insertPrompt', () => {
 
 describe('insertPrompt({ append: true })', () => {
   test('appends below what the operator already typed, on its own line', () => {
-    document.documentElement.setAttribute('data-ui-mode', 'simple');
-    const input = mountSimpleInput();
+    document.documentElement.removeAttribute('data-agent-surface');
+    const input = mountChatInput();
     input.value = 'set these to nominal:';
     let seen = 0;
     input.addEventListener('input', () => {
@@ -287,8 +281,8 @@ describe('insertPrompt({ append: true })', () => {
   });
 
   test('does not stack blank lines on trailing whitespace', () => {
-    document.documentElement.setAttribute('data-ui-mode', 'simple');
-    const input = mountSimpleInput();
+    document.documentElement.removeAttribute('data-agent-surface');
+    const input = mountChatInput();
     input.value = 'first line\n\n  ';
 
     fc.insertPrompt('SR:BPM1:X', { append: true });
@@ -297,8 +291,8 @@ describe('insertPrompt({ append: true })', () => {
   });
 
   test('replaces an empty input rather than opening with a newline', () => {
-    document.documentElement.setAttribute('data-ui-mode', 'simple');
-    const input = mountSimpleInput();
+    document.documentElement.removeAttribute('data-agent-surface');
+    const input = mountChatInput();
 
     fc.insertPrompt('SR:BPM1:X', { append: true });
 
@@ -306,8 +300,8 @@ describe('insertPrompt({ append: true })', () => {
   });
 
   test('an input holding only whitespace is replaced, not appended to', () => {
-    document.documentElement.setAttribute('data-ui-mode', 'simple');
-    const input = mountSimpleInput();
+    document.documentElement.removeAttribute('data-agent-surface');
+    const input = mountChatInput();
     input.value = '   \n ';
 
     fc.insertPrompt('SR:BPM1:X', { append: true });
@@ -315,16 +309,16 @@ describe('insertPrompt({ append: true })', () => {
     expect(input.value).toBe('SR:BPM1:X');
   });
 
-  test('expert ignores append and pastes the text as-is', () => {
-    document.documentElement.setAttribute('data-ui-mode', 'expert');
+  test('the terminal surface ignores append and pastes the text as-is', () => {
+    document.documentElement.setAttribute('data-agent-surface', 'terminal');
     fc.insertPrompt('SR:BPM1:X SR:BPM2:X', { append: true });
     expect(term.paste).toHaveBeenCalledWith('SR:BPM1:X SR:BPM2:X');
     expect(term.focus).toHaveBeenCalledTimes(1);
   });
 
   test('the default is still replace, for the prompt chips', () => {
-    document.documentElement.setAttribute('data-ui-mode', 'simple');
-    const input = mountSimpleInput();
+    document.documentElement.removeAttribute('data-agent-surface');
+    const input = mountChatInput();
     input.value = 'half a question';
 
     fc.insertPrompt('What can you read right now?');
@@ -423,7 +417,7 @@ describe('onKindChange', () => {
   test('the idle poll repainting the same state fires nothing', () => {
     const changed = vi.fn();
     fc.onKindChange(changed);
-    settleOn('live');
+    settleOn('real');
 
     renderChip();
     renderChip();
@@ -433,12 +427,12 @@ describe('onKindChange', () => {
   test('a switch fires once, with the new kind', () => {
     const changed = vi.fn();
     fc.onKindChange(changed);
-    settleOn('live');
+    settleOn('real');
 
-    chip.kind = 'standin';
+    chip.kind = 'rehearsal';
     renderChip();
     expect(changed).toHaveBeenCalledTimes(1);
-    expect(changed).toHaveBeenCalledWith('standin');
+    expect(changed).toHaveBeenCalledWith('rehearsal');
 
     renderChip();
     expect(changed).toHaveBeenCalledTimes(1);
@@ -447,12 +441,12 @@ describe('onKindChange', () => {
   test('does not fire at the settled moment itself', () => {
     const changed = vi.fn();
     fc.onKindChange(changed);
-    settleOn('va');
+    settleOn('simulator');
     expect(changed).not.toHaveBeenCalled();
   });
 });
 
-/* ---- the Simple view's empty state -------------------------------------- */
+/* ---- the chat's empty state -------------------------------------- */
 
 const CHAT_MODULE = '../../../src/osprey/interfaces/web_terminal/static/js/chat.js';
 
@@ -462,23 +456,23 @@ const chipTexts = (/** @type {Element} */ block) =>
 
 describe('buildEmptyState', () => {
   test('the intro emphasises each phrase and reads as the sentence', () => {
-    chip.kind = 'live';
+    chip.kind = 'real';
     fc.setFacts({ capabilities: ['run analysis scripts'], logbook: false });
     const block = fc.buildEmptyState();
 
     const intro = /** @type {HTMLElement} */ (block.querySelector('p.op-empty-intro'));
     expect([...intro.querySelectorAll('strong')].map((s) => s.textContent)).toEqual([
-      'read live machine values',
+      'read values from the live machine',
       'run analysis scripts',
     ]);
     expect(intro.textContent).toBe(fc.capabilitySentence());
     expect(intro.textContent).toBe(
-      'Here the agent can read live machine values and run analysis scripts.'
+      'Here the agent can read values from the live machine and run analysis scripts.'
     );
   });
 
   test('one phrase needs no connective, three read as a list', () => {
-    chip.kind = 'va';
+    chip.kind = 'simulator';
     fc.setFacts(null);
     expect(fc.buildEmptyState().querySelector('.op-empty-intro')?.textContent).toBe(
       'Here the agent can read values from the simulator.'
@@ -499,7 +493,7 @@ describe('buildEmptyState', () => {
   });
 
   test('offers the tour chips, in the tour classes', () => {
-    chip.kind = 'live';
+    chip.kind = 'real';
     fc.setFacts({ capabilities: [], logbook: true });
     const block = fc.buildEmptyState();
 
@@ -518,8 +512,8 @@ describe('buildEmptyState', () => {
   });
 
   test('clicking a chip inserts that chip text', () => {
-    document.documentElement.setAttribute('data-ui-mode', 'expert');
-    chip.kind = 'live';
+    document.documentElement.setAttribute('data-agent-surface', 'terminal');
+    chip.kind = 'real';
     fc.setFacts(null);
     const block = fc.buildEmptyState();
 
@@ -531,21 +525,21 @@ describe('buildEmptyState', () => {
 
 describe('renderEmptyStateContent', () => {
   test('rebuilds the same element for a different machine', () => {
-    chip.kind = 'live';
+    chip.kind = 'real';
     fc.setFacts(null);
     const block = fc.buildEmptyState();
-    expect(block.textContent).toContain('read live machine values');
+    expect(block.textContent).toContain('read values from the live machine');
 
-    chip.kind = 'va';
+    chip.kind = 'simulator';
     expect(fc.renderEmptyStateContent(block)).toBe(block);
     expect(block.textContent).toContain('read values from the simulator');
-    expect(block.textContent).not.toContain('live machine');
+    expect(block.textContent).not.toContain('real machine');
     expect(block.querySelectorAll('.op-empty-intro').length).toBe(1);
     expect(block.querySelectorAll('.tour-chips').length).toBe(1);
   });
 });
 
-describe('the Simple console', () => {
+describe('the console', () => {
   /** Mount the operator console and hand back its message list. */
   async function mountChat() {
     document.body.innerHTML = '<div id="operator-container"></div>';
@@ -575,11 +569,11 @@ describe('the Simple console', () => {
     const messages = await mountChat();
     expect(messages.querySelector('.op-empty')).toBeNull();
 
-    settleOn('live');
+    settleOn('real');
     const block = messages.querySelector('.op-empty');
     expect(block).not.toBeNull();
     expect(messages.firstChild).toBe(block);
-    expect(block?.textContent).toContain('read live machine values');
+    expect(block?.textContent).toContain('read values from the live machine');
   });
 
   test('does not show it over a log that already has messages in it', async () => {
@@ -587,13 +581,13 @@ describe('the Simple console', () => {
     sendMessage('already talking');
     expect(messages.querySelector('.op-empty')).toBeNull();
 
-    settleOn('live');
+    settleOn('real');
     expect(messages.querySelector('.op-empty')).toBeNull();
   });
 
   test('removes it as soon as the invitation is taken', async () => {
     const messages = await mountChat();
-    settleOn('live');
+    settleOn('real');
     expect(messages.querySelector('.op-empty')).not.toBeNull();
 
     sendMessage('what can you read right now?');
@@ -602,23 +596,23 @@ describe('the Simple console', () => {
 
   test('rebuilds it in place when the machine changes', async () => {
     const messages = await mountChat();
-    settleOn('live');
+    settleOn('real');
 
-    chip.kind = 'va';
+    chip.kind = 'simulator';
     chip.listeners.forEach((fn) => fn({}));
 
     const block = messages.querySelector('.op-empty');
     expect(messages.querySelectorAll('.op-empty').length).toBe(1);
     expect(block?.textContent).toContain('read values from the simulator');
-    expect(block?.textContent).not.toContain('live machine');
+    expect(block?.textContent).not.toContain('real machine');
   });
 
   test('does not resurrect it after the first message', async () => {
     const messages = await mountChat();
-    settleOn('live');
+    settleOn('real');
     sendMessage('first message');
 
-    chip.kind = 'va';
+    chip.kind = 'simulator';
     chip.listeners.forEach((fn) => fn({}));
     expect(messages.querySelector('.op-empty')).toBeNull();
   });

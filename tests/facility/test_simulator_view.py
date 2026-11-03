@@ -25,10 +25,10 @@ import yaml
 from click.testing import CliRunner
 
 from osprey.facility import TEXTURE
-from osprey.facility.errors import FacilityBuildError
 from osprey.facility.render import FACILITY_FILE, render_facility_outputs
+from osprey.utils.workspace import TIERS_DIRNAME
 from osprey_connectors.simulation.view import SCENARIOS_SCHEMA, SEEDS_SCHEMA
-from osprey_connectors.workspace import BUILD_DIR_NAME, TIERS_DIRNAME
+from osprey_connectors.workspace import BUILD_DIR_NAME
 
 if TYPE_CHECKING:
     from tests.facility.conftest import BuiltProject
@@ -386,55 +386,9 @@ def test_every_wiring_entry_carries_the_engines_description(
         roles.add(entry["role"])
     assert roles == {"setpoint", "readback", "monitor", "output"}
     facility_sr = next(m for m in built_control_assistant.facility["models"] if m["name"] == "SR")
-    assert not set(DESCRIPTION_KEYS) & set(facility_sr["wiring"][0])
-
-
-def _render_stop(tmp_path: Path, built: BuiltProject) -> FacilityBuildError:
-    with pytest.raises(FacilityBuildError) as stop:
-        _render(tmp_path, built, {})
-    return stop.value
-
-
-def test_a_description_contradicting_the_facility_stops_the_build(
-    tmp_path: Path, built_control_assistant: BuiltProject, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    from osprey.simulation.engines import pyat
-
-    describe = pyat.describe
-
-    def write_as_readback(record: Any) -> Any:
-        found = dict(describe(record))
-        if record.get("direction") == "write":
-            found["role"] = "readback"
-        return found
-
-    monkeypatch.setattr(pyat, "describe", write_as_readback)
-
-    stop = _render_stop(tmp_path, built_control_assistant)
-
-    assert (stop.kind, stop.record_id, stop.record_kind) == ("engine-invalid", "BTS", "model")
-    first_write = next(
-        record["address"]
-        for model in built_control_assistant.facility["models"]
-        if model["name"] == "BTS"
-        for record in model["wiring"]
-        if record["direction"] == "write"
-    )
-    assert first_write in stop.detail
-    assert "setpoint" in stop.detail
-
-
-def test_an_engine_without_describe_stops_the_build(
-    tmp_path: Path, built_control_assistant: BuiltProject, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    from osprey.simulation.engines import pyat
-
-    monkeypatch.delattr(pyat, "describe")
-
-    stop = _render_stop(tmp_path, built_control_assistant)
-
-    assert (stop.kind, stop.record_id, stop.record_kind) == ("engine-invalid", "BTS", "model")
-    assert stop.remedy == "add describe() to the engine plug-in"
+    assert {k: facility_sr["wiring"][0][k] for k in DESCRIPTION_KEYS} == {
+        k: sr["wiring"][0][k] for k in DESCRIPTION_KEYS
+    }
 
 
 def test_a_model_without_wiring_records_has_empty_wiring(
@@ -656,23 +610,33 @@ def test_each_attached_file_is_a_byte_copy_beside_the_scenarios(
         )
 
 
-def test_a_rebuild_drops_the_copy_of_a_file_no_entry_attaches_any_more(tmp_path: Path) -> None:
-    from tests._builds import init_project, run_build
+def test_a_render_leaves_out_the_copy_of_a_file_no_entry_attaches_any_more(
+    tmp_path: Path, built_control_assistant: BuiltProject
+) -> None:
+    """Once nominal's entries attach nothing, its copy is not written; the others still are.
 
-    repo = init_project(tmp_path, "control-assistant", "demo")
-    copy_of = repo / BUILD_DIR_NAME / "data/simulator/scenarios/nominal/plots/orbit_rms.json"
-    assert run_build(repo).exit_code == 0
-    assert copy_of.is_file()
-    nominal = repo / "data" / "facility" / "scenarios" / "nominal.yaml"
-    authored = yaml.safe_load(nominal.read_text(encoding="utf-8"))
-    for entry in authored["logbook"]:
+    A rebuild replaces ``build/`` wholesale (``tests/cli/test_build_swap.py``,
+    ``test_the_second_build_replaces_the_first_wholesale``), so the render decides.
+    """
+    facility = copy.deepcopy(built_control_assistant.facility)
+    (nominal,) = [s for s in facility["scenarios"] if s["name"] == "nominal"]
+    assert any(entry.get("attachments") for entry in nominal["logbook"])
+    for entry in nominal["logbook"]:
         entry.pop("attachments", None)
-    nominal.write_text(yaml.safe_dump(authored, sort_keys=False), encoding="utf-8")
+    render_dir = tmp_path / "render"
+    render_dir.mkdir()
 
-    result = run_build(repo)
+    written = render_facility_outputs(
+        render_dir, facility, {}, built_control_assistant.facility_dir
+    )
 
-    assert result.exit_code == 0, result.output
-    assert not copy_of.exists()
+    copies = [
+        path.relative_to(render_dir).as_posix()
+        for path in written
+        if path.relative_to(render_dir).as_posix().startswith("data/simulator/scenarios/")
+    ]
+    assert copies == [relative for relative in SCENARIO_FILES if "/nominal/" not in relative]
+    assert not (render_dir / "data/simulator/scenarios/nominal").exists()
 
 
 def test_a_file_two_entries_attach_is_copied_and_listed_once(

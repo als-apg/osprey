@@ -29,10 +29,7 @@ try:
         PermissionUpdate,
     )
     from claude_agent_sdk.types import CanUseTool, SystemPromptPreset
-
-    CLAUDE_SDK_AVAILABLE = True
 except ImportError:
-    CLAUDE_SDK_AVAILABLE = False
     PermissionResultAllow = object  # type: ignore[assignment,misc]
     PermissionResultDeny = object  # type: ignore[assignment,misc]
     PermissionUpdate = None  # type: ignore[assignment,misc]

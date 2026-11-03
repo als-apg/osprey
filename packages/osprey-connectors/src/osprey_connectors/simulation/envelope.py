@@ -12,13 +12,17 @@ A served value is therefore the held value plus at most its envelope::
 
     |drift.amplitude|
       + sum |gain| x (1 + |gain_wander.amplitude|) x |drive.amplitude|
-      + MOTION_SIGMAS x noise sigma
+      + _MOTION_SIGMAS x noise sigma
+      + tooth depth
 
-where a relative noise sigma is taken at the seed's own ``nominal``. A
+where a relative noise sigma is taken at the seed's own ``nominal``, or at
+the level a ``topoff`` seed holds, and the tooth depth is how far a
+``topoff`` seed's sawtooth carries the reading from that level. A
 channel that declares no motion, or that an active scenario stills, has an
 envelope of 0.0.
 
-The module imports only the standard library, so the build, the simulator
+The module imports only the standard library and the standard-library-only
+:mod:`~osprey_connectors.simulation.topoff`, so the build, the simulator
 view's reader and the texture model share one rule.
 """
 
@@ -27,17 +31,17 @@ from __future__ import annotations
 from collections.abc import Iterable, Mapping, Sequence
 from typing import Any
 
+from osprey_connectors.simulation import topoff
+
 __all__ = [
-    "MOTION_SIGMAS",
     "STILL_ALL",
     "active_envelopes",
     "declares_motion",
     "motion_envelope",
-    "noise_sigma",
 ]
 
 #: Gaussian headroom on a noise sigma: a per-draw miss rate near 1e-9.
-MOTION_SIGMAS = 6.0
+_MOTION_SIGMAS = 6.0
 
 _ABSOLUTE = "absolute"
 _RELATIVE = "relative"
@@ -53,7 +57,7 @@ def _number(value: Any) -> float | None:
     return float(value)
 
 
-def noise_sigma(noise: Mapping[str, Any] | None, nominal: Any = None) -> float:
+def _noise_sigma(noise: Mapping[str, Any] | None, nominal: Any = None) -> float:
     """The sigma a noise record draws with, in the channel's unit.
 
     Args:
@@ -88,10 +92,12 @@ def _term(noise: Mapping[str, Any] | None) -> float:
 
 
 def declares_motion(seed: Mapping[str, Any] | None) -> bool:
-    """Whether a seed states motion: a non-zero noise term, or ``drift``."""
+    """Whether a seed states motion: a non-zero noise term, ``drift``, or ``topoff``."""
     if not seed:
         return False
-    return bool(_term(seed.get("noise")) or seed.get("drift"))
+    return bool(
+        _term(seed.get("noise")) or seed.get("drift") or topoff.topoff_record(seed) is not None
+    )
 
 
 def motion_envelope(
@@ -114,8 +120,8 @@ def motion_envelope(
 
     Returns:
         ``|drift.amplitude| + sum |gain| x (1 + |gain_wander.amplitude|) x
-        |drive.amplitude| + MOTION_SIGMAS x noise sigma``; 0.0 for an absent
-        seed with no couplings, and for a stilled channel.
+        |drive.amplitude| + _MOTION_SIGMAS x noise sigma + tooth depth``;
+        0.0 for an absent seed with no couplings, and for a stilled channel.
     """
     if still:
         return 0.0
@@ -130,8 +136,13 @@ def motion_envelope(
             * (1.0 + abs(float(wander.get("amplitude") or 0.0)))
             * abs(float(drive.get("amplitude") or 0.0))
         )
+    shape = topoff.topoff_record(seed)
+    if shape is not None:
+        envelope += topoff.tooth_depth(shape)
+    held = topoff.held_value(seed)
     record = noise if noise is not None else seed.get("noise")
-    return envelope + MOTION_SIGMAS * noise_sigma(record, seed.get("nominal"))
+    nominal = held if held is not None else seed.get("nominal")
+    return envelope + _MOTION_SIGMAS * _noise_sigma(record, nominal)
 
 
 def active_envelopes(

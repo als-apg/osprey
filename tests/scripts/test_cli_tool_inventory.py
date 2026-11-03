@@ -7,19 +7,17 @@ from, or points the probe at a stand-in script.
 
 from __future__ import annotations
 
-import importlib.util
 import json
 from pathlib import Path
 
 import pytest
 
+from tests._by_path import load_module
+
 # scripts/ is not a package, so the recorder is loaded by path and not registered
 # in sys.modules.
 _MODULE_PATH = Path(__file__).resolve().parents[2] / "scripts" / "cli_tool_inventory.py"
-_spec = importlib.util.spec_from_file_location("cli_tool_inventory", _MODULE_PATH)
-assert _spec and _spec.loader
-inventory = importlib.util.module_from_spec(_spec)
-_spec.loader.exec_module(inventory)
+inventory = load_module("cli_tool_inventory", _MODULE_PATH)
 
 
 def _init(tools: list[str]) -> str:

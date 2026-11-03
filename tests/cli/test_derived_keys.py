@@ -19,16 +19,7 @@ from osprey.cli.build_profile import BuildProfile
 from osprey.cli.derived_keys import DERIVED_KEYS, derived_key_errors, is_derived_key
 from osprey_connectors.errors import BuildProfileError
 
-
-@pytest.fixture(autouse=True)
-def _facility_data_tree(tmp_path: Path) -> None:
-    """The tree every profile's ``data:`` key names, beside the profile.
-
-    ``data:`` is required of a repo profile and must resolve to a real
-    directory, so without this each profile below would report one extra
-    failure about a key none of these tests is about.
-    """
-    (tmp_path / "data").mkdir(exist_ok=True)
+pytestmark = pytest.mark.usefixtures("facility_data_tree")
 
 
 def _nested(dotted_key: str, value: object) -> dict:
@@ -72,7 +63,7 @@ def test_the_message_names_the_field_that_supplies_the_key() -> None:
     """The refusal is actionable: it says what to set instead."""
     provider = derived_key_errors({"claude_code.provider": "anthropic"})[0]
     mode = derived_key_errors({"channel_finder.pipeline_mode": "in_context"})[0]
-    presets = derived_key_errors({"web.presets": {"ops": ["chat"]}})[0]
+    presets = derived_key_errors({"web.presets": {"ops": {"tabs": ["chat"]}}})[0]
 
     assert "`provider:`" in provider
     assert "`channel_finder_mode:`" in mode

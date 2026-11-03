@@ -40,15 +40,6 @@ from osprey.services.bluesky_bridge.plan_fields import resolve_regressor_column 
 from .bluesky_plan_drive import run_plan  # noqa: E402
 
 
-@pytest.fixture(autouse=True)
-def _isolated_state():
-    live_rows._clear()
-    plan_loader.reset_facility_plans()
-    yield
-    live_rows._clear()
-    plan_loader.reset_facility_plans()
-
-
 @pytest.fixture
 def orm_devices() -> dict:
     """Two mock correctors + three mock BPMs, fresh per test.

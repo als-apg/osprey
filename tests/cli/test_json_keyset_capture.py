@@ -150,17 +150,6 @@ def _assert_matches_golden(payload: dict[str, Any], verb: str) -> None:
 
 
 # --------------------------------------------------------------------------- #
-# Shared fixtures
-# --------------------------------------------------------------------------- #
-
-
-@pytest.fixture
-def runner() -> CliRunner:
-    """A Click runner that captures stdout and stderr separately."""
-    return CliRunner()
-
-
-# --------------------------------------------------------------------------- #
 # osprey audit --json
 # --------------------------------------------------------------------------- #
 
@@ -391,6 +380,9 @@ class _StubService:
     async def health_check(self) -> tuple[bool, str]:
         return True, "OK"
 
+    async def verify_search_model_table(self) -> None:
+        return None
+
     async def search(self, **kwargs: Any) -> Any:
         return self._search_result
 
@@ -449,7 +441,7 @@ def build_ariel_status_repository(stats: dict[str, Any]) -> MagicMock:
 
 def patch_render_probe_ok() -> Any:
     """Return a patch context answering the render probe ``ok`` without a worker."""
-    return patch("osprey.imaging.render.probe_render_worker", new=AsyncMock(return_value=True))
+    return patch("osprey.imaging.render.probe_render_worker", new=AsyncMock(return_value=None))
 
 
 @pytest.fixture

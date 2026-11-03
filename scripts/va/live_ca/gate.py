@@ -24,20 +24,18 @@ Three conditions, all required, applied to every module and to the total:
 * something passed -- an empty or fully deselected run is not a green run.
 
 **Each module runs in a process of its own.** This is the one thing about the
-gate's shape that is not obvious, so: the live modules each pick a Channel
-Access port at import time with
-``os.environ.setdefault("EPICS_CA_SERVER_PORT", _free_port())``. ``setdefault``
-means the FIRST module imported in a process wins, and every later one inherits
-its port -- so in a single combined pytest run, the second module stands a
-second ``pcaspy.SimpleServer`` up on a port the process-wide libca client has
-already latched onto the first server. The observed symptom was every test in
+gate's shape that is not obvious, so: the live modules each hold a Channel
+Access port for the process from import time (``hold_ports``), and libca
+latches the first CA settings a process uses -- so in a single combined pytest
+run, the second module stands a second ``pcaspy.SimpleServer`` up on a port the
+process-wide libca client has already latched onto the first server. The observed symptom was every test in
 the second module erroring at fixture setup with "the Channel Access server
 never became reachable", intermittently: twice in roughly twenty-seven combined
 runs, while the same module alone in a fresh process went twenty for twenty.
 
-Running one module per process is what makes that ``setdefault`` do what it
-looks like it does -- each module gets its own free port, its own server and
-its own libca -- and it is also the shape this repo's Channel Access notes
+Running one module per process is what makes each module's port the one its
+client uses -- each module gets its own held port, its own server and its own
+libca -- and it is also the shape this repo's Channel Access notes
 already point at (one server per process, unique PV names, no ``clear_cache``).
 
 Counts still come from pytest's own terminal reporter rather than its printed
@@ -47,9 +45,11 @@ sentinel line; the parent sums those. A child that prints no sentinel is
 treated as a failure, so a hard crash cannot be mistaken for a zero-count pass.
 
 **Each module runs under a wall-clock limit**, in a session of its own. When
-the limit expires the whole session is killed -- the module and every process
-it started -- and the module counts as one error, so a hang is a red result
-with a name on it rather than a run that never ends. ``--module-timeout=SECONDS``
+the limit expires the whole session is stopped -- the module and every process
+it started get SIGTERM, then SIGKILL -- and the module counts as one error, so
+a hang is a red result with a name on it rather than a run that never ends;
+the timed-out line carries the stop's own account when the session was not
+proven gone. ``--module-timeout=SECONDS``
 or ``OSPREY_LIVE_CA_MODULE_TIMEOUT`` changes the limit.
 
 Run it directly (``scripts/va/live_ca/run_live_ca.sh``) rather than invoking
@@ -60,17 +60,21 @@ instead: the skip there is expected and this gate would (correctly) reject it.
 
 from __future__ import annotations
 
-import contextlib
 import importlib
 import json
 import math
 import os
-import signal
 import subprocess
 import sys
 import tempfile
 
 import pytest
+
+from osprey.deployment.subprocess_capture import StopOutcome, stop_child
+
+#: How long a timed-out module's session gets to exit on SIGTERM before it is
+#: killed: long enough for its servers to close their ports.
+_STOP_GRACE_S = 2.0
 
 #: The suites whose assertions are only observable over a real CA wire.
 LIVE_SUITES = ("tests/va/test_apply_fault.py",)
@@ -160,18 +164,15 @@ def _run_one(target: str) -> int:
     return status
 
 
-def _kill_session(proc: subprocess.Popen[bytes]) -> None:
-    """Kill every process in the session ``proc`` leads, then reap ``proc``."""
-    with contextlib.suppress(ProcessLookupError):
-        os.killpg(proc.pid, signal.SIGKILL)
-    proc.wait()
-
-
-def _run_child(cmd: list[str], limit_s: float) -> tuple[str, str, int, bool]:
+def _run_child(
+    cmd: list[str], limit_s: float
+) -> tuple[str, str, int, bool, StopOutcome[int] | None]:
     """Run ``cmd`` for at most ``limit_s`` seconds.
 
-    Returns ``(stdout, stderr, returncode, timed_out)``. The output written so
-    far is returned on every path, including the timed-out one.
+    Returns ``(stdout, stderr, returncode, timed_out, outcome)``, where
+    ``outcome`` is the stop's outcome when the child timed out and ``None``
+    when nothing was stopped. The output written so far is returned on every
+    path, including the timed-out one.
 
     Output goes to files, not pipes. A reader on a pipe waits until every
     process holding the write end has closed it, and a server the module
@@ -182,11 +183,12 @@ def _run_child(cmd: list[str], limit_s: float) -> tuple[str, str, int, bool]:
 
     The child leads a session of its own, which makes it a process group
     leader too. The processes a module starts stay in that group unless they
-    deliberately leave it, so killing the group on expiry takes the module's
+    deliberately leave it, so stopping the group on expiry takes the module's
     servers down with it instead of leaving them holding ports for the
     modules that follow.
     """
     timed_out = False
+    outcome: StopOutcome[int] | None = None
     with (
         tempfile.TemporaryFile(mode="w+", errors="replace") as out,
         tempfile.TemporaryFile(mode="w+", errors="replace") as err,
@@ -196,15 +198,17 @@ def _run_child(cmd: list[str], limit_s: float) -> tuple[str, str, int, bool]:
             proc.wait(timeout=limit_s)
         except subprocess.TimeoutExpired:
             timed_out = True
-            _kill_session(proc)
+            outcome = stop_child(proc, grace=_STOP_GRACE_S)
         except BaseException:
             # The child is outside this process's group, so an interrupt at the
-            # terminal reaches the gate but not the child: end it here.
-            _kill_session(proc)
+            # terminal reaches the gate but not the child: end it here. The
+            # interrupted wait may have reaped a child that exited meanwhile.
+            if proc.returncode is None:
+                stop_child(proc, grace=_STOP_GRACE_S)
             raise
         out.seek(0)
         err.seek(0)
-        return (out.read(), err.read(), proc.returncode, timed_out)
+        return (out.read(), err.read(), proc.returncode, timed_out, outcome)
 
 
 def _run_module(target: str, limit_s: float) -> tuple[dict[str, int], int]:
@@ -216,12 +220,12 @@ def _run_module(target: str, limit_s: float) -> tuple[dict[str, int], int]:
     went wrong" to the caller summing them.
 
     A child still running after ``limit_s`` seconds -- a test deadlocked in
-    libca, a server process that never came up -- is killed with everything it
+    libca, a server process that never came up -- is stopped with everything it
     started and reported as one error too, whatever counts it had already
     printed: a module that finished its tests and then hung on the way out did
     not finish.
     """
-    stdout, stderr, returncode, timed_out = _run_child(
+    stdout, stderr, returncode, timed_out, outcome = _run_child(
         [sys.executable, "-u", __file__, RUN_ONE_FLAG, target], limit_s
     )
     counts: dict[str, int] | None = None
@@ -243,9 +247,10 @@ def _run_module(target: str, limit_s: float) -> tuple[dict[str, int], int]:
         print(stderr, end="" if stderr.endswith("\n") else "\n")
 
     if timed_out:
+        still = f", {outcome.describe()}" if outcome is not None and not outcome.gone else ""
         print(
-            f"  !! {target} timed out after {limit_s:g} s -- its process group was killed; "
-            "output so far is above."
+            f"  !! {target} timed out after {limit_s:g} s -- its process group was stopped"
+            f"{still}; output so far is above."
         )
         return ({"passed": 0, "skipped": 0, "failed": 0, "error": 1}, 1)
     if counts is None:

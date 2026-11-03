@@ -15,6 +15,12 @@ nothing is missed.
 - **Multi-step work** (investigate + plot, find channels + read + analyze):
   create a numbered task list first, then work through it.
 
+Keep the task list current as you work, because the operator watches it:
+
+- Mark a task in progress when you start it, before its first tool call.
+- Mark it completed as soon as it is done, before you start the next one.
+- Do not leave the updates for the end of the turn.
+
 ## Delegate to Specialized Agents
 
 When a task falls within a specialized agent's scope, always delegate to that

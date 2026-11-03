@@ -2,13 +2,14 @@
 /* OSPREY Web Terminal — Command Palette Overlay
  *
  * The Cmd/Ctrl+K modal: a body-appended scrim + dialog that fuzzy-searches the
- * grouped registry (Settings / Panels / Layouts / Actions) and runs the picked
- * item. UI-only — the non-config app dependencies (panel/preset getters, action
- * closures, navigation callbacks) are injected via `openPalette(deps)`; this
- * module supplies just the /api/config fetch (its ONLY network call). The
- * config load runs concurrently with the open: the palette renders
- * immediately with a "Loading settings…" decoration, then rebuilds against the
- * CURRENT query once the fetch settles.
+ * grouped registry (Settings files / Settings / Panels / Layouts / Actions) and
+ * runs the picked item. UI-only — the non-config app dependencies (panel/preset
+ * getters, action closures, navigation callbacks, the Settings drawer's file
+ * lister) are injected via `openPalette(deps)`; this module supplies just the
+ * /api/config fetch (its ONLY network call of its own). Both loads run
+ * concurrently with the open: the palette renders immediately with a
+ * "Loading…" decoration per group, then rebuilds against the CURRENT query as
+ * each one settles.
  *
  * Highlight-vs-rank split: items are RANKED by fuzzyMatch(query, searchText)
  * (panels carry extra tokens like the panel id in searchText), but the visible
@@ -30,6 +31,14 @@
  * active-row restore across the mid-open config-fetch re-render can never snap
  * from the home-group row to its Recent twin; recording always stores the
  * plain underlying key, from whichever copy was executed.
+ *
+ * The CANOPY group is the one group the registry does not build: its rows come
+ * from `deps.searchCanopy(q)` (canopy-provider.js), already ranked and capped,
+ * so the palette renders them in the returned order and applies neither
+ * fuzzyMatch nor its highlight to them. The group is absent on an empty query,
+ * shows a "Loading…" row while the provider's read is in flight (`null`), and
+ * its rows stay out of Recent — they are re-read from CANOPY on every open, so
+ * a stored key could not be resolved against the registry anyway.
  */
 
 import { buildRegistry } from './palette-registry.js';
@@ -44,7 +53,7 @@ import { scopedStorageKey } from '/design-system/js/storage-scope.js';
  * A navigable registry item (the non-status variant), duplicated locally so the
  * render path can be strongly typed after the status rows are filtered out.
  * @typedef {{
- *   group: 'Settings' | 'Panels' | 'Layouts' | 'Actions',
+ *   group: 'Settings files' | 'Settings' | 'Panels' | 'Layouts' | 'Actions' | 'CANOPY',
  *   label: string,
  *   detail?: string,
  *   searchText: string,
@@ -67,14 +76,30 @@ import { scopedStorageKey } from '/design-system/js/storage-scope.js';
  *   applyPreset?: (name: string) => void,
  *   resetLayout?: () => void,
  *   revealSetting?: (dotKey: string) => void,
+ *   revealArtifact?: (name: string, tabId: string) => void,
+ *   loadArtifacts?: () => Promise<Array<import('./palette-registry.js').SettingsFile>>,
  *   actions?: Array<{ label: string, detail?: string, run: () => void }>,
+ *   searchCanopy?: (q: string) => Array<{ label: string, detail?: string, run: () => void }> | null,
+ *   startCanopy?: (onChange: () => void) => void,
  * }} OpenDeps
  */
 
 /** @typedef {{ state: 'loading' } | { state: 'ok', sections: Record<string, unknown> } | { state: 'error' }} ConfigState */
+/** @typedef {{ state: 'loading' } | { state: 'ok', entries: Array<import('./palette-registry.js').SettingsFile> } | { state: 'error' }} ArtifactsState */
 
-/** Fixed outer group order — matches the registry and the stylesheet. */
-const GROUP_ORDER = /** @type {const} */ (['Settings', 'Panels', 'Layouts', 'Actions']);
+/** Fixed outer group order — the registry's groups, then CANOPY (rows from
+ *  `deps.searchCanopy`, not the registry). */
+const GROUP_ORDER = /** @type {const} */ ([
+  'Settings files',
+  'Settings',
+  'Panels',
+  'Layouts',
+  'Actions',
+  'CANOPY',
+]);
+
+/** The group whose rows come from `deps.searchCanopy`. */
+const CANOPY_GROUP = 'CANOPY';
 
 /** localStorage key base + cap for the most-recently-executed item keys. The
  *  list is per render: localStorage is origin-scoped, so on a multi-user mount
@@ -85,7 +110,6 @@ const RECENT_LIMIT = 5;
 
 /** Namespace prefix keeping a Recent row's nav key distinct from its original. */
 const RECENT_KEY_PREFIX = 'recent\x1f';
-
 
 /** @type {HTMLElement | null} */
 let overlayEl = null;
@@ -101,6 +125,8 @@ let previousFocus = null;
 let currentDeps = {};
 /** @type {ConfigState} */
 let configState = { state: 'loading' };
+/** @type {ArtifactsState} */
+let artifactsState = { state: 'loading' };
 /** @type {Item[]} */
 let registryItems = [];
 /** @type {Array<{ key: string, run: () => void, el: HTMLElement }>} */
@@ -110,7 +136,9 @@ let activeIndex = -1;
 let activeKey = null;
 let currentQuery = '';
 let fetchSeq = 0;
+let artifactsSeq = 0;
 let closeSeq = 0;
+let openSeq = 0;
 
 /**
  * Stable identity for an item across registry rebuilds (group + label). The
@@ -155,7 +183,9 @@ function recordRecent(key) {
   const next = [key, ...readRecent().filter((k) => k !== key)].slice(0, RECENT_LIMIT);
   try {
     localStorage.setItem(scopedStorageKey(RECENT_STORAGE_KEY_BASE), JSON.stringify(next));
-  } catch { /* storage blocked — Recent stays empty, execution is unaffected */ }
+  } catch {
+    /* storage blocked — Recent stays empty, execution is unaffected */
+  }
 }
 
 /**
@@ -223,6 +253,7 @@ function buildDialog() {
 function rebuildRegistry() {
   registryItems = buildRegistry({
     config: configState,
+    artifacts: artifactsState,
     getHiddenPanels: currentDeps.getHiddenPanels,
     getVisiblePanels: currentDeps.getVisiblePanels,
     getPopoutPanels: currentDeps.getPopoutPanels,
@@ -234,6 +265,7 @@ function rebuildRegistry() {
     applyPreset: currentDeps.applyPreset,
     resetLayout: currentDeps.resetLayout,
     revealSetting: currentDeps.revealSetting,
+    revealArtifact: artifactsReachable() ? currentDeps.revealArtifact : undefined,
     actions: currentDeps.actions,
   });
 }
@@ -337,9 +369,9 @@ function renderRecentSection(nextId) {
 /**
  * Recompute the filtered/sorted results for the current query and repaint the
  * list. With an empty query the Recent section renders first; group order
- * (Settings → Panels → Layouts → Actions) is the outer ordering after it, and
+ * (Settings files → Settings → Panels → Layouts → Actions) is the outer ordering after it, and
  * within each group navigable items sort by descending score. Status
- * decorations always render under Settings but are excluded from navigation.
+ * decorations render under their group but are excluded from navigation.
  */
 function render() {
   if (!listEl) return;
@@ -354,7 +386,8 @@ function render() {
 
   for (const group of GROUP_ORDER) {
     /** @type {Array<{ node: HTMLElement, nav?: { key: string, run: () => void } }>} */
-    const rows = [];
+    const rows = group === CANOPY_GROUP ? canopyRows(q, nextId) : [];
+    if (rows.some((r) => !r.nav)) renderedStatus = true;
     /** @type {Array<{ item: NavItem, score: number }>} */
     const matches = [];
 
@@ -396,6 +429,45 @@ function render() {
   let idx = activeKey ? navItems.findIndex((n) => n.key === activeKey) : -1;
   if (idx === -1) idx = navItems.length ? 0 : -1;
   setActive(idx);
+}
+
+/**
+ * The CANOPY group's rows for `q`: none on an empty query or without a
+ * provider; one "Loading…" status row while the provider answers null; else
+ * the provider's rows in its order, capped, with no matcher and no highlight
+ * applied here.
+ * @param {string} q
+ * @param {() => string} nextId
+ * @returns {Array<{ node: HTMLElement, nav?: { key: string, run: () => void } }>}
+ */
+function canopyRows(q, nextId) {
+  if (!q || typeof currentDeps.searchCanopy !== 'function') return [];
+  let found;
+  try {
+    found = currentDeps.searchCanopy(q);
+  } catch {
+    return [];
+  }
+  if (found === null) {
+    const status = el('div', 'command-palette-status');
+    status.textContent = 'Loading…';
+    return [{ node: status }];
+  }
+  if (!Array.isArray(found)) return [];
+  return found.map((hit) => {
+    /** @type {NavItem} */
+    const item = {
+      group: CANOPY_GROUP,
+      label: hit.label,
+      searchText: '',
+      run: hit.run,
+    };
+    if (hit.detail) item.detail = hit.detail;
+    const run = () => hit.run();
+    const node = buildItemRow(item, nextId(), '', run);
+    node.classList.add('command-palette-item--canopy');
+    return { node, nav: { key: `${itemKey(item)}\x1f${hit.detail ?? ''}`, run } };
+  });
 }
 
 /**
@@ -498,7 +570,8 @@ function startConfigFetch() {
     .then(() => fetchJSON('/api/config'))
     .then((payload) => {
       if (token !== fetchSeq || !opened) return;
-      const sections = payload && typeof payload === 'object' && payload.sections ? payload.sections : {};
+      const sections =
+        payload && typeof payload === 'object' && payload.sections ? payload.sections : {};
       configState = { state: 'ok', sections };
       rebuildRegistry();
       render();
@@ -506,6 +579,43 @@ function startConfigFetch() {
     .catch(() => {
       if (token !== fetchSeq || !opened) return;
       configState = { state: 'error' };
+      rebuildRegistry();
+      render();
+    });
+}
+
+/**
+ * Whether this open can reach the Settings drawer's files: both the lister and
+ * the reveal must be injected, and the caller withholds them where the drawer
+ * carries no galleries.
+ * @returns {boolean}
+ */
+function artifactsReachable() {
+  return (
+    typeof currentDeps.revealArtifact === 'function' &&
+    typeof currentDeps.loadArtifacts === 'function'
+  );
+}
+
+/**
+ * Kick off the Settings-files list concurrently with the open, under the same
+ * newest-and-still-open guard as the config fetch.
+ */
+function startArtifactsFetch() {
+  if (!artifactsReachable()) return;
+  const load = /** @type {NonNullable<OpenDeps['loadArtifacts']>} */ (currentDeps.loadArtifacts);
+  const token = ++artifactsSeq;
+  Promise.resolve()
+    .then(() => load())
+    .then((entries) => {
+      if (token !== artifactsSeq || !opened) return;
+      artifactsState = { state: 'ok', entries: Array.isArray(entries) ? entries : [] };
+      rebuildRegistry();
+      render();
+    })
+    .catch(() => {
+      if (token !== artifactsSeq || !opened) return;
+      artifactsState = { state: 'error' };
       rebuildRegistry();
       render();
     });
@@ -532,6 +642,7 @@ export function openPalette(deps) {
   // has nowhere to land (no `revealSetting` — see startConfigFetch) no read
   // fires, so seeding 'loading' would paint a spinner row nothing ever clears.
   configState = settingsReachable() ? { state: 'loading' } : { state: 'ok', sections: {} };
+  artifactsState = { state: 'loading' };
   currentQuery = '';
   activeKey = null;
   opened = true;
@@ -552,6 +663,26 @@ export function openPalette(deps) {
   rebuildRegistry();
   render();
   startConfigFetch();
+  startArtifactsFetch();
+  startCanopyFetch();
+}
+
+/**
+ * Start the CANOPY provider's read for this open. Its settle repaints against
+ * the CURRENT query, but only while this same open is still showing — a read
+ * from an earlier open that settles late is dropped.
+ */
+function startCanopyFetch() {
+  if (typeof currentDeps.startCanopy !== 'function') return;
+  const token = ++openSeq;
+  try {
+    currentDeps.startCanopy(() => {
+      if (token !== openSeq || !opened) return;
+      render();
+    });
+  } catch {
+    /* a provider that cannot start contributes no rows */
+  }
 }
 
 /** Close the palette and restore focus to the previously-focused element. */

@@ -34,11 +34,13 @@ import subprocess
 from pathlib import Path
 
 import pytest
+import yaml
 from click.testing import CliRunner
 
 from osprey.cli.deploy_cmd import down_verb, restart_verb
 from osprey.deployment import container_lifecycle
-from osprey.deployment.compose_generator import REPO_ID_LABEL, repo_identity
+from osprey.deployment.compose_generator import REPO_ID_LABEL, repo_identity, resolve_project_name
+from osprey.deployment.deployment_record import DeploymentRecord, write_deployment_record
 from tests.deployment.test_up_as_built import _RENDERED_CONFIG, render_build
 from tests.fixtures.lifecycle_repo import EXEMPLAR_DIRNAME, build_exemplar_repo
 
@@ -49,8 +51,15 @@ _WEB_CONFIG = _RENDERED_CONFIG + "modules:\n  web_terminals:\n    enabled: true\
 
 @pytest.fixture
 def lifecycle_repo(tmp_path: Path) -> Path:
-    """The gold-standard three-zone deployment repo, with no ``.env`` in it."""
-    return build_exemplar_repo(tmp_path / EXEMPLAR_DIRNAME)
+    """The gold-standard three-zone deployment repo, with no ``.env`` in it.
+
+    It holds the record an earlier ``osprey up`` of the rendered config wrote,
+    which is what ``down`` acts on.
+    """
+    repo = build_exemplar_repo(tmp_path / EXEMPLAR_DIRNAME)
+    project = resolve_project_name(yaml.safe_load(_RENDERED_CONFIG))
+    write_deployment_record(repo, DeploymentRecord("docker", project))
+    return repo
 
 
 @pytest.fixture
@@ -66,7 +75,9 @@ def runtime(monkeypatch):
     """
     record: dict = {"cmds": [], "ps_stdout": "", "fail": {}}
 
-    monkeypatch.setattr(container_lifecycle, "verify_runtime_is_running", lambda config: (True, ""))
+    monkeypatch.setattr(
+        container_lifecycle, "verify_runtime_is_running", lambda config, **_: (True, "")
+    )
     monkeypatch.setattr(
         container_lifecycle, "get_runtime_command", lambda config: ["docker", "compose"]
     )

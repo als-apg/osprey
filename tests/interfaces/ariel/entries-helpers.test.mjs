@@ -37,7 +37,10 @@ test('parseEntryText splits the first line as subject and the rest as details', 
 });
 
 test('parseEntryText falls back to the full text as details when there is no remainder', () => {
-  expect(parseEntryText('Just one line')).toEqual({ subject: 'Just one line', details: 'Just one line' });
+  expect(parseEntryText('Just one line')).toEqual({
+    subject: 'Just one line',
+    details: 'Just one line',
+  });
 });
 
 test('parseEntryText handles empty/malformed input', () => {

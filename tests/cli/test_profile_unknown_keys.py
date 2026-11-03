@@ -31,15 +31,6 @@ def _write_yaml(path: Path, body: dict[str, Any]) -> Path:
     return path
 
 
-@pytest.fixture
-def fake_presets(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    """A preset directory the test owns, replacing the bundled one."""
-    presets = tmp_path / "presets"
-    presets.mkdir()
-    monkeypatch.setattr(build_profile_presets, "_presets_dir", lambda: presets)
-    return presets
-
-
 # ---------------------------------------------------------------------------
 # Unknown keys are rejected
 # ---------------------------------------------------------------------------
@@ -108,12 +99,23 @@ def test_unknown_key_in_an_extends_parent_is_rejected(fake_presets: Path, tmp_pa
         resolve_build_profile(child, None)
 
 
-def test_unknown_key_from_a_set_pair_is_rejected(fake_presets: Path) -> None:
-    """``--set`` cannot inject a key the schema does not define either."""
+@pytest.mark.parametrize(
+    ("set_pair", "match"),
+    [
+        # ``--set`` cannot inject a key the schema does not define either.
+        ("nonsense=1", "'nonsense'"),
+        # `--set app_template=...` is refused like any other retired spelling.
+        ("app_template=hello_world", "no longer a profile key"),
+    ],
+    ids=["unknown-key", "retired-app-template"],
+)
+def test_a_set_pair_cannot_inject_a_key_the_schema_does_not_define(
+    fake_presets: Path, set_pair: str, match: str
+) -> None:
     _write_yaml(fake_presets / "base.yml", {"name": "base"})
 
-    with pytest.raises(BuildProfileError, match="'nonsense'"):
-        resolve_build_profile(None, "base", set_pairs=("nonsense=1",))
+    with pytest.raises(BuildProfileError, match=match):
+        resolve_build_profile(None, "base", set_pairs=(set_pair,))
 
 
 def test_extends_and_exclude_are_not_unknown(fake_presets: Path, tmp_path: Path) -> None:
@@ -191,14 +193,6 @@ def test_app_template_is_refused_through_extends_too(tmp_path: Path) -> None:
 
     with pytest.raises(BuildProfileError, match="no longer a profile key"):
         resolve_build_profile(child, None)
-
-
-def test_a_set_pair_cannot_reintroduce_app_template(fake_presets: Path) -> None:
-    """`--set app_template=...` is refused like any other retired spelling."""
-    _write_yaml(fake_presets / "base.yml", {"name": "base"})
-
-    with pytest.raises(BuildProfileError, match="no longer a profile key"):
-        resolve_build_profile(None, "base", set_pairs=("app_template=hello_world",))
 
 
 def test_the_retired_key_is_not_in_the_schema() -> None:

@@ -2,10 +2,11 @@
 /* OSPREY Web Terminal — Command Palette Registry Builder
  *
  * Pure, dependency-injected builder that turns live app data into a flat,
- * grouped list of command-palette items (Settings / Panels / Layouts /
- * Actions, in that order). Everything it needs — the /api/config snapshot,
- * panel/preset getters, action closures, and the navigation callbacks
- * (revealSetting / showPanel / focusPanel / applyPreset) — is passed in via
+ * grouped list of command-palette items (Settings files / Settings / Panels /
+ * Layouts / Actions, in that order). Everything it needs — the /api/config
+ * snapshot, the Settings drawer's file list, panel/preset getters, action
+ * closures, and the navigation callbacks (revealArtifact / revealSetting /
+ * showPanel / focusPanel / applyPreset) — is passed in via
  * `deps`, so this module imports nothing, touches no DOM, and is unit-testable
  * in isolation. The caller (palette.js) rebuilds the registry each time the
  * palette opens, then fuzzy-filters the returned items by their `searchText`.
@@ -20,7 +21,7 @@
  *
  * @typedef {(
  *   {
- *     group: 'Settings' | 'Panels' | 'Layouts' | 'Actions',
+ *     group: 'Settings files' | 'Settings' | 'Panels' | 'Layouts' | 'Actions',
  *     label: string,
  *     detail?: string,
  *     searchText: string,
@@ -28,7 +29,7 @@
  *   }
  *   |
  *   {
- *     group: 'Settings',
+ *     group: 'Settings files' | 'Settings',
  *     status: 'loading' | 'error',
  *     label: string,
  *   }
@@ -46,6 +47,11 @@
  *     | { state: 'loading' }
  *     | { state: 'error' }
  *   ),
+ *   artifacts?: (
+ *     { state: 'ok', entries: Array<SettingsFile> }
+ *     | { state: 'loading' }
+ *     | { state: 'error' }
+ *   ),
  *   getHiddenPanels?: () => Array<{ id: string, label: string }>,
  *   getVisiblePanels?: () => Array<{ id: string, label: string }>,
  *   getPopoutPanels?: () => Array<{ id: string, label: string }>,
@@ -58,7 +64,21 @@
  *   applyPreset?: (name: string) => void,
  *   resetLayout?: () => void,
  *   revealSetting?: (dotKey: string) => void,
+ *   revealArtifact?: (name: string, tabId: string) => void,
+ *   loadArtifacts?: () => Promise<Array<SettingsFile>>,
  * }} PaletteDeps
+ */
+
+/**
+ * One file the Settings drawer's galleries show, as the gallery labels it.
+ * @typedef {{
+ *   name: string,
+ *   label: string,
+ *   category: string,
+ *   tabId: string,
+ *   tabLabel: string,
+ *   description: string,
+ * }} SettingsFile
  */
 
 /**
@@ -76,10 +96,11 @@ const PANEL_SYNONYMS = {
   lattice: 'optics',
   okf: 'knowledge docs',
   'system-health': 'status monitoring',
+  canopy: 'screens gui operator',
 };
 
-/** Verb vocabulary for "Open … in a new window" rows. */
-const POPOUT_ALIASES = 'window popout standalone tab';
+/** Verb vocabulary for "Pop out …" rows. */
+const POPOUT_ALIASES = 'window popout standalone';
 
 /** Verb vocabulary for "Open … in a new tile" rows. */
 const BESIDE_ALIASES = 'tile beside split';
@@ -136,11 +157,7 @@ function flattenSections(sections) {
    * @param {unknown} value
    */
   const walk = (prefix, value) => {
-    if (
-      value !== null &&
-      typeof value === 'object' &&
-      !Array.isArray(value)
-    ) {
+    if (value !== null && typeof value === 'object' && !Array.isArray(value)) {
       for (const [k, v] of Object.entries(value)) {
         walk(prefix ? `${prefix}.${k}` : k, v);
       }
@@ -188,17 +205,53 @@ function buildSettings(deps) {
 }
 
 /**
+ * Build the Settings files group: one row per file the drawer's galleries
+ * show, labelled as its card is, whose `run` opens it through the injected
+ * `revealArtifact`. Absent `revealArtifact` (no galleries to land in) there is
+ * no group at all; loading/error emit a single decoration like Settings.
+ *
+ * searchText leads with the canonical name: the matcher's word boundaries are
+ * `.`, `_` and `-`, so `code-review/rules` first is what ranks the rules row
+ * top for "code review".
+ *
+ * @param {PaletteDeps} deps
+ * @returns {Item[]}
+ */
+function buildSettingsFiles(deps) {
+  const revealArtifact = deps.revealArtifact;
+  if (typeof revealArtifact !== 'function') return [];
+  const artifacts = deps.artifacts;
+  if (!artifacts || artifacts.state === 'loading') {
+    return [{ group: 'Settings files', status: 'loading', label: 'Loading settings files…' }];
+  }
+  if (artifacts.state === 'error') {
+    return [{ group: 'Settings files', status: 'error', label: 'Settings files unavailable' }];
+  }
+  const entries = Array.isArray(artifacts.entries) ? artifacts.entries : [];
+  return entries.map((entry) => ({
+    group: /** @type {const} */ ('Settings files'),
+    label: entry.label,
+    detail: [entry.tabLabel, entry.category].filter(Boolean).join(' · '),
+    searchText: [entry.name, entry.label, entry.category, entry.tabLabel, entry.description]
+      .filter(Boolean)
+      .join(' '),
+    run: () => revealArtifact(entry.name, entry.tabId),
+  }));
+}
+
+/**
  * Build the Panels group: a "Show <label>" item per hidden panel, a
- * "Focus <label>" item per visible (non-active) panel, an "Open <label> in a
- * new window" item per pop-out-able panel, and an "Open <label> in a new tile"
- * item per visible (non-active) panel.
+ * "Focus <label>" item per visible (non-active) panel, a "Pop out <label>"
+ * item per pop-out-able panel, and an "Open <label> in a new tile" item per
+ * visible (non-active) panel.
  *
- * The two "Open" verbs draw on DIFFERENT sources on purpose, and the
- * difference is the whole point of FR8:
+ * The pop-out and new-tile verbs draw on DIFFERENT sources on purpose, and
+ * the difference is the whole point of FR8:
  *
- *   - new window ← `getPopoutPanels`, which INCLUDES the active panel (popping
+ *   - pop out ← `getPopoutPanels`, which INCLUDES the active panel (popping
  *     out the panel you are looking at is the verb's commonest use) and is
- *     already filtered to members whose standalone URL has resolved.
+ *     already filtered to members that can pop out: a standalone URL has
+ *     resolved and no window is open for them yet.
  *   - new tile ← `getVisiblePanels`, which EXCLUDES the active panel (opening
  *     it beside itself is a guaranteed no-op), and carries no URL gate — the
  *     rail corner this verb replaces never had one.
@@ -250,8 +303,8 @@ function buildPanels(deps) {
     const id = panel.id;
     items.push({
       group: 'Panels',
-      label: `Open ${panel.label} in a new window`,
-      searchText: panelSearchText('open', panel, POPOUT_ALIASES),
+      label: `Pop out ${panel.label}`,
+      searchText: panelSearchText('pop out', panel, POPOUT_ALIASES),
       run: () => {
         if (typeof popoutPanel === 'function') {
           popoutPanel(id);
@@ -339,9 +392,10 @@ function buildActions(deps) {
 
 /**
  * Build the full command-palette registry from injected app data. Returns a
- * flat array grouped Settings → Panels → Layouts → Actions; within each group,
- * source order is preserved. Deterministic for a given input, and never throws
- * on absent optional deps (missing getters default to empty).
+ * flat array grouped Settings files → Settings → Panels → Layouts → Actions;
+ * within each group, source order is preserved. Deterministic for a given
+ * input, and never throws on absent optional deps (missing getters default to
+ * empty).
  *
  * @param {PaletteDeps} deps
  * @returns {Item[]}
@@ -349,6 +403,7 @@ function buildActions(deps) {
 export function buildRegistry(deps) {
   const d = deps || {};
   return [
+    ...buildSettingsFiles(d),
     ...buildSettings(d),
     ...buildPanels(d),
     ...buildLayouts(d),

@@ -54,7 +54,7 @@ independently guards. A test that would break under behavior-preserving
 refactoring is asserting implementation, not behavior; rewrite it at the
 owning boundary before landing it. Also pass every item of the tests/README.md
 §7 checklist ("Adding a batch of new tests"), including: unique basename;
-reuse the shared helpers (`free_port()` in tests/fixtures/bench_ioc.py,
+reuse the shared helpers (the `reserve_port` fixture in tests/conftest.py,
 `patch_subprocess()` in tests/cli/_scoped_subprocess.py, `isolated_home` in
 tests/cli/conftest.py, the named reset seams); new global state gets a public reset seam plus an autouse
 fixture; no import-time side effects; no new `xdist_group`; almost no flaky
@@ -252,9 +252,11 @@ in the checkout. Run gates in the foreground. Run e2e only by path
 
 1. Run the smallest owner and sibling tests twice, serially then parallel:
    `uv run pytest tests/<area>/test_x.py`, then, for a unit area,
-   `uv run pytest tests/<area> -m "not pty and not wallclock" -n 4 --dist loadgroup`
-   with the unit lane's `--ignore` list from ci.yml (the files CI runs in their
-   own jobs, such as tests/va/test_apply_fault.py; run those by path). Run
+   `uv run pytest tests/<area> -m "not pty and not wallclock and not canopy" -n 4 --dist loadgroup`
+   with the `pytest` check's `--ignore` list from `scripts/repo_checks.py`
+   (`uv run python scripts/check.py list --json` prints it; those files run
+   in their own CI jobs, such as tests/va/test_apply_fault.py — run them by
+   path). Run
    `tests/pty -m pty` and `tests/integration -m wallclock` serially. For e2e,
    run one file by path, serially or with `-n 4 --dist loadfile`. Neither run
    is evidence for the other. For vitest files, run
@@ -263,15 +265,18 @@ in the checkout. Run gates in the foreground. Run e2e only by path
 2. For removed source greps or plan assertions, run the command that owns the
    real contract (the CLI verb, the render, the MCP tool call, or the owning
    `scripts/` check).
-3. Run `uv run ruff format <paths>` and `uv run ruff check <paths> --fix`,
-   then `git diff --check`.
-4. Run the gates the diff demands: `uv run pytest tests/deployment/test_ci_workflow_wiring.py`
+3. Run `uv run ruff format .` and `uv run ruff check . --fix`, then
+   `git diff --check`.
+4. Run the gates the diff demands:
+   `uv run python scripts/check.py quick --changed origin/main --worktree`.
+   It runs the checks the diff touches (mypy, the changelog gate, the tests
+   the changed paths map to) and names the CI lanes to run. Beside it, run
+   what is not a check: `uv run pytest tests/deployment/test_ci_workflow_wiring.py`
    and tests/infrastructure/test_import_time_audit.py for routing or file
-   moves; `uv run python scripts/benchmark/check_e2e_coverage.py --check-lanes`
-   for e2e changes; `uv run python scripts/mypy_gate.py`; for src/ or
-   packages/ changes a NEW `changelog.d/<ref>.internal.md` and
-   `uv run python scripts/changelog_fragments.py check --base origin/main`;
-   then `./scripts/premerge_check.sh main --worktree`.
+   moves, and `uv run python scripts/benchmark/check_e2e_coverage.py --check-lanes`
+   for e2e changes. A change the changelog gate covers needs a NEW
+   `changelog.d/<ref>.internal.md` (the quick tier above runs that gate).
+
 5. Inspect `git diff --numstat`; report src/, packages/, scripts/ and .github/
    separately from tests/ and `tests/_*.py` support.
 6. After final audit edits, have the diff reviewed, with a code-review skill

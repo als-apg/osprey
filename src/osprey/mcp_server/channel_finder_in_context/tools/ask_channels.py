@@ -4,6 +4,9 @@ from __future__ import annotations
 
 import logging
 
+import osprey._litellm_env  # noqa: F401 -- sets LiteLLM's import-time environment
+
+# isort: split
 import litellm
 from typing_extensions import TypedDict
 

@@ -378,53 +378,50 @@ def test_e2e_force_inert_when_unset(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 # ---------------------------------------------------------------------------
-# The gateway login an agent spawn needs
+# The record login an agent spawn exports under
 # ---------------------------------------------------------------------------
 
 
-def _gateway_config(project_dir: Path) -> None:
-    """Write a config whose telemetry block sends to the deployment's gateway."""
+def _anthropic_config(project_dir: Path) -> None:
+    """Write a config whose Claude Code block uses the anthropic provider."""
     (project_dir / "config.yml").write_text(
-        "claude_code:\n"
-        "  provider: anthropic\n"
-        "  telemetry:\n"
-        "    enabled: true\n"
-        "    backend: gateway\n",
+        "claude_code:\n  provider: anthropic\n",
         encoding="utf-8",
     )
 
 
-class TestTelemetryLoginAtSpawn:
-    """An agent spawned without its gateway login is refused, never degraded.
+class TestRecordLoginAtSpawn:
+    """An agent spawn exports to the agent record under its login, or not at all.
 
-    The gateway refuses an unauthenticated sender, so a run started without the
-    login would drop every record behind a healthy-looking session.
+    A spawn without a record login is never refused: it runs and exports
+    nothing.
     """
 
     @pytest.fixture(autouse=True)
     def _host_launch(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.delenv("OSPREY_TELEMETRY_LOGIN", raising=False)
-        monkeypatch.delenv("OSPREY_OTEL_GATEWAY_HOST", raising=False)
+        monkeypatch.delenv("OSPREY_AGENT_RECORD_LOGIN", raising=False)
+        monkeypatch.delenv("OSPREY_AGENT_RECORD_OFF", raising=False)
+        monkeypatch.setenv("OSPREY_AGENT_RECORD_URL", "http://127.0.0.1:10061")
 
-    def test_a_missing_login_raises(self, tmp_path: Path) -> None:
-        from osprey.build.claude_code_telemetry import ObservabilityCredentialError
+    def test_a_missing_login_exports_nothing(self, tmp_path: Path) -> None:
+        _anthropic_config(tmp_path)
 
-        _gateway_config(tmp_path)
+        env = provider_env_for_project(tmp_path)
 
-        with pytest.raises(ObservabilityCredentialError) as caught:
-            provider_env_for_project(tmp_path)
+        assert env["CLAUDE_CODE_ENABLE_TELEMETRY"] == "0"
+        assert env["OTEL_LOGS_EXPORTER"] == "none"
+        assert "OTEL_EXPORTER_OTLP_HEADERS" not in env
 
-        assert caught.value.unresolved_vars == ("OSPREY_TELEMETRY_LOGIN",)
-
-    def test_a_login_keeps_telemetry_on(
+    def test_a_login_exports_to_the_record(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        _gateway_config(tmp_path)
-        monkeypatch.setenv("OSPREY_TELEMETRY_LOGIN", "operator:s3cret")
+        _anthropic_config(tmp_path)
+        monkeypatch.setenv("OSPREY_AGENT_RECORD_LOGIN", "operator:s3cret")
 
         env = provider_env_for_project(tmp_path)
 
         assert env["CLAUDE_CODE_ENABLE_TELEMETRY"] == "1"
+        assert env["OTEL_EXPORTER_OTLP_LOGS_ENDPOINT"] == "http://127.0.0.1:10061/v1/logs"
         assert "Authorization=Basic " in env["OTEL_EXPORTER_OTLP_HEADERS"]
 
 
@@ -496,10 +493,18 @@ class TestTheReadinessBarrierStopsOnEveryTerminalMcpStatus:
     was never going to register.
     """
 
-    async def test_a_needs_auth_snapshot_returns_before_the_deadline(self) -> None:
-        """``needs-auth`` is the SDK's own literal for a server that answered but
-        would not admit us; no amount of waiting supplies the credential."""
-        client = _ScriptedMcpStatusClient([_server("event_dispatcher", "needs-auth")])
+    @pytest.mark.parametrize(
+        "status",
+        [
+            # ``needs-auth`` is the SDK's own literal for a server that answered but
+            # would not admit us; no amount of waiting supplies the credential.
+            pytest.param("needs-auth", id="needs-auth"),
+            # The other terminal status, pinned beside it so the pair cannot drift.
+            pytest.param("failed", id="failed"),
+        ],
+    )
+    async def test_a_terminal_snapshot_returns_before_the_deadline(self, status: str) -> None:
+        client = _ScriptedMcpStatusClient([_server("event_dispatcher", status)])
 
         started = time.monotonic()
         servers = await primitives.await_mcp_ready(
@@ -508,20 +513,7 @@ class TestTheReadinessBarrierStopsOnEveryTerminalMcpStatus:
 
         assert time.monotonic() - started < 1.0
         assert client.calls == 1
-        assert [s["status"] for s in servers] == ["needs-auth"]
-
-    async def test_a_failed_snapshot_returns_before_the_deadline(self) -> None:
-        """The other terminal status, pinned beside it so the pair cannot drift."""
-        client = _ScriptedMcpStatusClient([_server("event_dispatcher", "failed")])
-
-        started = time.monotonic()
-        servers = await primitives.await_mcp_ready(
-            client, {"event_dispatcher"}, timeout_s=5.0, poll_s=0.01
-        )
-
-        assert time.monotonic() - started < 1.0
-        assert client.calls == 1
-        assert [s["status"] for s in servers] == ["failed"]
+        assert [s["status"] for s in servers] == [status]
 
     async def test_a_pending_snapshot_still_waits(self) -> None:
         """``pending`` is a server still starting: the barrier exists for it, so
@@ -610,6 +602,7 @@ class TestBuildAgentOptions:
             mcp_servers=str(tmp_path / ".mcp.json"),
             strict_mcp_config=True,
             cli_path=STUB_AGENT_CLI,
+            extra_args={"thinking-display": "summarized"},
         )
 
     @pytest.mark.parametrize("config", [None, "claude_code: {}\n"], ids=["no-config", "unpinned"])
@@ -761,6 +754,7 @@ class TestBuildAgentOptions:
             ({"max_turns": None}, "max_turns", None),
             ({"max_budget_usd": None}, "max_budget_usd", None),
             ({"permission_mode": None}, "permission_mode", None),
+            ({}, "extra_args", {"thinking-display": "summarized"}),
         ],
         ids=[
             "allowed_tools",
@@ -774,6 +768,7 @@ class TestBuildAgentOptions:
             "max_turns-omitted",
             "max_budget_usd-omitted",
             "permission_mode-omitted",
+            "thinking-display",
         ],
     )
     @pytest.mark.usefixtures("routing")
@@ -787,6 +782,39 @@ class TestBuildAgentOptions:
         options = primitives.build_agent_options(tmp_path, disallowed_tools=[], **kwargs)
 
         assert getattr(options, field_name) == expected
+
+    @pytest.mark.parametrize(
+        ("display", "expected"),
+        [
+            (("omitted", True), {"thinking-display": "omitted"}),
+            (("summarized", False), {}),
+            (("omitted", False), {}),
+        ],
+        ids=["omitted", "withheld-summarized", "withheld-omitted"],
+    )
+    @pytest.mark.usefixtures("routing")
+    def test_the_thinking_display_flag_is_passed_only_when_the_cli_accepts_it(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        display: tuple[str, bool],
+        expected: dict[str, str],
+    ) -> None:
+        """A Claude Code too old for the flag gets no flag rather than a refused launch."""
+        from osprey.agent_runner import launcher
+
+        seen: list[Path] = []
+
+        def _display(project_dir: Path) -> launcher.ThinkingDisplay:
+            seen.append(project_dir)
+            return launcher.ThinkingDisplay(*display)
+
+        monkeypatch.setattr(launcher, "project_thinking_display", _display)
+
+        options = primitives.build_agent_options(tmp_path, disallowed_tools=[])
+
+        assert options.extra_args == expected
+        assert seen == [tmp_path]
 
     @pytest.mark.usefixtures("routing")
     def test_a_preset_system_prompt_reaches_the_agent_options(self, tmp_path: Path) -> None:

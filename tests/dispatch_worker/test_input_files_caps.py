@@ -174,7 +174,6 @@ def client(monkeypatch):
         }
 
     monkeypatch.setattr(dispatch_api.sdk_runner, "run_dispatch", _fake_run_dispatch)
-    monkeypatch.setattr(dispatch_api, "_persist_run", lambda run_id, run: None)
     with TestClient(dispatch_api.app) as c:
         yield c
 

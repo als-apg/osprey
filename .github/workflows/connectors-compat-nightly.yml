@@ -1,0 +1,249 @@
+name: Connectors compatibility (nightly)
+
+# The nightly side of the connectors compatibility lanes (the per-PR ones are
+# `connectors-compat` and `framework-at-connectors-floor` in ci.yml). For each
+# supported framework release it runs two cells, both with that release from
+# PyPI and the connectors built at HEAD:
+#
+# * `connectors-compat`, Lane A's checks exactly as ci.yml runs them (both
+#   call scripts/ci/connectors_compat_lane.py). Per PR they catch a connectors
+#   change; here they also catch what changes with no PR at all, a dependency
+#   the release resolves anew from PyPI.
+# * `release-tests`, the release's OWN connector-facing tests, checked out
+#   from its tag. A release's tests state what it expected of the connectors
+#   when it shipped, which no check written later can restate.
+#
+# Nightly rather than per PR: one cell is a release's whole connector suite,
+# and what it catches is drift that accumulates across merges, not the shape
+# of one diff. A red scheduled run opens an issue per failed job (or comments
+# on the open one), because a scheduled run's red otherwise reaches nobody.
+#
+# Dispatched, it runs both cells against one named release, listed or not,
+# with the connectors built at HEAD or a connectors release from PyPI: a dry
+# run of the armed lanes before any release is listed (e.g. framework
+# 2026.9.0b3 with connectors 2026.9.0b3). A dispatched run files no issue.
+#
+# The supported releases are [tool.osprey-connectors.compat] frameworks in
+# packages/osprey-connectors/pyproject.toml, read by
+# scripts/ci/connectors_compat_matrix.py. While that list is empty (until the
+# cut-over release; see ci.yml) a scheduled run's one cell says so and
+# succeeds.
+
+on:
+  schedule:
+    - cron: '17 6 * * *'
+  workflow_dispatch:
+    inputs:
+      framework:
+        description: 'Framework release from PyPI to run instead of the listed ones (empty: the listed ones)'
+        required: false
+        default: ''
+        type: string
+      connectors:
+        description: 'Connectors under test: head (built at the dispatched ref) or a release from PyPI'
+        required: false
+        default: 'head'
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: connectors-compat-nightly
+  cancel-in-progress: false
+
+env:
+  # `inputs` is empty on a scheduled run.
+  CONNECTORS: ${{ inputs.connectors || 'head' }}
+
+jobs:
+  plan:
+    name: Plan the connectors compatibility run
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v7
+      # Full history + tags: the plan reads every tag reachable from HEAD.
+      with:
+        fetch-depth: 0
+        persist-credentials: false
+
+    - name: Read the supported releases
+      id: plan
+      env:
+        DISPATCHED: ${{ inputs.framework }}
+      run: python3 scripts/ci/connectors_compat_matrix.py github-output --framework "$DISPATCHED"
+
+  connectors-compat:
+    name: Connectors ${{ inputs.connectors || 'head' }} under framework ${{ matrix.framework || '(none listed)' }}
+    needs: plan
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    env:
+      FRAMEWORK: ${{ matrix.framework }}
+      # Outside the checkout, so nothing of this tree is importable from it.
+      COMPAT_VENV: /tmp/connectors-compat
+    steps:
+    - name: Stand down while no framework release is listed
+      if: matrix.framework == ''
+      env:
+        REASON: ${{ matrix.reason }}
+      run: echo "$REASON"
+
+    - name: Checkout repository
+      if: matrix.framework != ''
+      uses: actions/checkout@v7
+      # Full history + tags: the wheel's version is derived from the git tag.
+      with:
+        fetch-depth: 0
+        persist-credentials: false
+
+    - name: Install uv
+      if: matrix.framework != ''
+      uses: astral-sh/setup-uv@v7
+      with:
+        enable-cache: true
+
+    - name: Set up Python
+      if: matrix.framework != ''
+      run: uv python install 3.11
+
+    - name: Build the connectors wheel at HEAD
+      if: matrix.framework != ''
+      run: uv build --package osprey-connectors --wheel --out-dir dist/
+
+    - name: Install the framework release from PyPI with the connectors under test
+      if: matrix.framework != ''
+      run: >-
+        python3 scripts/ci/connectors_compat_lane.py install
+        --venv "$COMPAT_VENV" --framework "$FRAMEWORK" --connectors "$CONNECTORS"
+
+    - name: Check the release against the connectors
+      if: matrix.framework != ''
+      run: >-
+        python3 scripts/ci/connectors_compat_lane.py check
+        --venv "$COMPAT_VENV" --workdir "$RUNNER_TEMP/contracts"
+
+  release-tests:
+    name: Framework ${{ matrix.framework || '(none listed)' }} tests against connectors ${{ inputs.connectors || 'head' }}
+    needs: plan
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    env:
+      FRAMEWORK: ${{ matrix.framework }}
+      # The release's checkout, beside HEAD's rather than inside it.
+      RELEASE_DIR: release
+    steps:
+    - name: Stand down while no framework release is listed
+      if: matrix.framework == ''
+      env:
+        REASON: ${{ matrix.reason }}
+      run: echo "$REASON"
+
+    - name: Checkout repository
+      if: matrix.framework != ''
+      uses: actions/checkout@v7
+      # Full history + tags: the wheel's version is derived from the git tag.
+      with:
+        fetch-depth: 0
+        persist-credentials: false
+
+    - name: Checkout the release's tag
+      if: matrix.framework != ''
+      uses: actions/checkout@v7
+      with:
+        ref: v${{ matrix.framework }}
+        path: release
+        persist-credentials: false
+
+    - name: Install uv
+      if: matrix.framework != ''
+      uses: astral-sh/setup-uv@v7
+      with:
+        enable-cache: true
+
+    - name: Set up Python
+      if: matrix.framework != ''
+      run: uv python install 3.11
+
+    - name: Build the connectors wheel at HEAD
+      if: matrix.framework != ''
+      run: uv build --package osprey-connectors --wheel --out-dir dist/
+
+    - name: Install the release from PyPI with the connectors under test
+      if: matrix.framework != ''
+      # The release's `dev` extra carries its test dependencies.
+      run: >-
+        python3 scripts/ci/connectors_compat_lane.py install
+        --venv "$RELEASE_DIR/.venv" --framework "$FRAMEWORK" --connectors "$CONNECTORS"
+        --extra dev
+
+    - name: Point the release's connectors tree at the connectors under test
+      if: matrix.framework != ''
+      # The release's sources stay: its tests read them, and its framework
+      # tree is the release itself. Its connectors tree is not the connectors
+      # under test, so it is replaced by the installed copy, and a child
+      # process whose PYTHONPATH the release's tests build from it imports
+      # the connectors under test.
+      run: >-
+        python3 scripts/ci/connectors_compat_lane.py replace-connectors-tree
+        --venv "$RELEASE_DIR/.venv" --release-dir "$RELEASE_DIR"
+
+    - name: Run the release's connector-facing suites
+      if: matrix.framework != ''
+      # The guard holds both packages to the venv's site-packages in every
+      # worker, so no pythonpath entry of the release's config can put its
+      # source trees in their place; the source-text tests are deselected.
+      run: >-
+        python3 scripts/ci/connectors_compat_lane.py pytest
+        --python "$RELEASE_DIR/.venv/bin/python" --cwd "$RELEASE_DIR"
+        --installed osprey --installed osprey_connectors --
+        tests/connectors tests/registry
+        -m "not pty and not wallclock" -n 4 --dist loadgroup
+        --timeout=600 --timeout-method=signal
+
+  report-failure:
+    name: Open or update an issue for each failed compatibility job
+    needs: [plan, connectors-compat, release-tests]
+    # A scheduled run only: a dispatched dry run reports to whoever ran it.
+    if: failure() && github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      actions: read
+      issues: write
+    steps:
+    - name: Open or update the issue for each failed job
+      # One open issue per job: a red night comments on it rather than opening
+      # another. The title is the key, matched exactly; a job's name carries
+      # its release, and the plan's names the plan.
+      env:
+        GH_TOKEN: ${{ github.token }}
+        RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+      run: |
+        failed=$(gh api --paginate \
+          "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/attempts/$GITHUB_RUN_ATTEMPT/jobs" \
+          --jq '.jobs[] | select(.conclusion == "failure" or .conclusion == "timed_out") | .name')
+        if [[ -z "$failed" ]]; then
+          failed="The run"
+        fi
+        while IFS= read -r job; do
+          title="Nightly connectors compatibility: $job failed"
+          body="$job failed in the nightly connectors compatibility run at ${GITHUB_SHA}: $RUN_URL"
+          number=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --search "\"$title\" in:title" \
+            --json number,title --jq "map(select(.title == \"$title\")) | first | .number // empty")
+          if [[ -n "$number" ]]; then
+            gh issue comment "$number" --repo "$GITHUB_REPOSITORY" --body "$body"
+          else
+            gh issue create --repo "$GITHUB_REPOSITORY" --title "$title" --body "$body"
+          fi
+        done <<< "$failed"

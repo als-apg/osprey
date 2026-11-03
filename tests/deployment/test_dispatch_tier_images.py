@@ -294,11 +294,12 @@ def test_worker_pinned_image_contradicting_the_tier_is_refused() -> None:
         container_lifecycle._worker_image_target(config, {})
 
 
-def test_tiered_worker_needs_no_project_image() -> None:
-    """The project image is built only for a service that runs it."""
-    assert container_lifecycle._project_image_build_target(_config(), {}) is None
+def test_tiered_worker_adds_no_project_image_build_of_its_own() -> None:
+    """The project image is built for the services that run it: a tiered worker
+    is not one, and agent-record, which every deployment runs, is."""
+    tiered = container_lifecycle._project_image_build_target(_config(), {})
     untiered = container_lifecycle._project_image_build_target(_config(tier=None), {})
-    assert untiered is not None
+    assert tiered == untiered == "demo:local"
 
 
 # ── the compose render ───────────────────────────────────────────────────────

@@ -41,22 +41,24 @@ export function hideApplyConfirm(panel) {
  */
 export function initApplyConfirmGate(panel, onApply) {
   const applyBtn = panel.querySelector('.settings-apply-btn');
-  if (applyBtn) applyBtn.addEventListener('click', (event) => {
-    if (!(/** @type {MouseEvent} */ (event).shiftKey) && confirmSkipped(SKIP_KEY_BASE)) {
-      onApply();
-      return;
-    }
-    // The checkbox mirrors the recorded waiver every time the dialog opens.
-    const box = skipBox(panel);
-    if (box) box.checked = confirmSkipped(SKIP_KEY_BASE);
-    overlay(panel)?.classList.add('visible');
-  });
+  if (applyBtn)
+    applyBtn.addEventListener('click', (event) => {
+      if (!(/** @type {MouseEvent} */ (event).shiftKey) && confirmSkipped(SKIP_KEY_BASE)) {
+        onApply();
+        return;
+      }
+      // The checkbox mirrors the recorded waiver every time the dialog opens.
+      const box = skipBox(panel);
+      if (box) box.checked = confirmSkipped(SKIP_KEY_BASE);
+      overlay(panel)?.classList.add('visible');
+    });
 
   const confirmBtn = panel.querySelector('.settings-confirm-btn');
-  if (confirmBtn) confirmBtn.addEventListener('click', () => {
-    rememberConfirmSkip(SKIP_KEY_BASE, skipBox(panel)?.checked ?? false);
-    onApply();
-  });
+  if (confirmBtn)
+    confirmBtn.addEventListener('click', () => {
+      rememberConfirmSkip(SKIP_KEY_BASE, skipBox(panel)?.checked ?? false);
+      onApply();
+    });
 
   const cancelBtn = panel.querySelector('.settings-cancel-btn');
   if (cancelBtn) cancelBtn.addEventListener('click', () => hideApplyConfirm(panel));

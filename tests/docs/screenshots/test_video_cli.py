@@ -21,8 +21,12 @@ from docs.screenshots import __main__ as cli
 from docs.screenshots import video_take
 from docs.screenshots.__main__ import main
 from docs.screenshots.video_timeline import Step, Timeline
+from docs.screenshots.videos import video_named
 
 import osprey
+from tests.docs.screenshots.video_fixture import SECOND
+
+LANDING = video_named("landing")
 
 REPO_ROOT = Path(cli.__file__).resolve().parents[2]
 VENV_BIN = Path(sys.executable).parent
@@ -79,7 +83,7 @@ def test_video_cli_skip_raised_while_building_stack_is_one_line(monkeypatch, cap
     monkeypatch.setattr(cli, "OUTPUT_DIR", tmp_path / "demo-video")
 
     @contextmanager
-    def no_browser(_work_dir):
+    def no_browser(_work_dir, _video):
         raise capture.ScreenshotSkip("playwright is not installed")
         yield  # pragma: no cover
 
@@ -156,13 +160,20 @@ class _FakeTake:
 @pytest.fixture
 def stubbed_video(monkeypatch, tmp_path):
     """Stub the preflight, the stack, the recorder and the encoder; return the call log."""
-    calls: dict[str, list] = {"record": [], "encode": [], "stack": [], "order": []}
+    calls: dict[str, list] = {
+        "record": [],
+        "encode": [],
+        "stack": [],
+        "stack_video": [],
+        "storyboard": [],
+        "order": [],
+    }
     out_dir = tmp_path / "demo-video"
     monkeypatch.setattr(cli, "OUTPUT_DIR", out_dir)
     monkeypatch.setattr(cli, "_preflight", lambda: None)
 
     @contextmanager
-    def fake_stack(work_dir):
+    def fake_stack(work_dir, video):
         stack = video_take.VideoStack(
             project_dir=tmp_path / "project",
             artifact_port=1,
@@ -171,10 +182,12 @@ def stubbed_video(monkeypatch, tmp_path):
             work_dir=work_dir,
         )
         calls["stack"].append(stack)
+        calls["stack_video"].append(video.name)
         yield stack
 
-    def fake_record(stack, theme, **_kwargs):
+    def fake_record(stack, theme, storyboard, **_kwargs):
         calls["record"].append(theme)
+        calls["storyboard"].append(storyboard)
         calls["order"].append(f"record {theme}")
         take = _FakeTake(theme)
         stack.current = take
@@ -182,13 +195,13 @@ def stubbed_video(monkeypatch, tmp_path):
 
     durations = {"dark": 57.0, "light": 57.0}
 
-    def fake_encode(theme, _take, _timeline, out):
+    def fake_encode(video, theme, _take, _timeline, out):
         calls["encode"].append(theme)
         calls["order"].append(f"encode {theme}")
         return {
-            "mp4": out / f"osprey-demo-{theme}.mp4",
-            "poster": out / f"osprey-demo-{theme}-poster.jpg",
-            "timeline": Timeline.path_for(out, theme),
+            "mp4": out / f"{video.stem}-{theme}.mp4",
+            "poster": out / f"{video.stem}-{theme}-poster.jpg",
+            "timeline": Timeline.path_for(out / video.name, theme),
             "size": 3_500_000,
             "duration": durations[theme],
         }
@@ -202,11 +215,13 @@ def stubbed_video(monkeypatch, tmp_path):
 
 
 def test_video_cli_theme_dark_records_only_dark(stubbed_video, capsys):
-    rc = main(["video", "--theme", "dark"])
+    rc = main(["video", "--video", "landing", "--theme", "dark"])
 
     out, _ = capsys.readouterr()
     assert rc == 0
     assert stubbed_video["record"] == ["dark"]
+    assert stubbed_video["stack_video"] == ["landing"]
+    assert stubbed_video["storyboard"] == [LANDING.storyboard]
     assert stubbed_video["encode"] == ["dark"]
     assert "osprey-demo-dark.mp4" in out
     assert "osprey-demo-light.mp4" not in out
@@ -215,7 +230,7 @@ def test_video_cli_theme_dark_records_only_dark(stubbed_video, capsys):
 def test_video_cli_default_records_each_theme_on_a_fresh_stack(stubbed_video, capsys):
     # A second take on the same stack finds the first take's cards in the
     # gallery and reuses them instead of doing the work on camera.
-    rc = main(["video"])
+    rc = main(["video", "--video", "landing"])
 
     out, _ = capsys.readouterr()
     assert rc == 0
@@ -233,14 +248,14 @@ def test_video_cli_a_retried_take_gets_a_fresh_stack(stubbed_video, monkeypatch,
     real = video_take.record_theme
     seen: list[str] = []
 
-    def dark_fails_once(stack, theme, **kwargs):
+    def dark_fails_once(stack, theme, storyboard, **kwargs):
         seen.append(theme)
         if theme == "dark" and len(seen) == 1:
             raise video_take.ProbeFailed("correlate", "no plot")
-        return real(stack, theme, **kwargs)
+        return real(stack, theme, storyboard, **kwargs)
 
     monkeypatch.setattr(video_take, "record_theme", dark_fails_once)
-    rc = main(["video", "--theme", "dark"])
+    rc = main(["video", "--video", "landing", "--theme", "dark"])
 
     out = capsys.readouterr().out
     assert rc == 0
@@ -248,29 +263,29 @@ def test_video_cli_a_retried_take_gets_a_fresh_stack(stubbed_video, monkeypatch,
     assert len(stubbed_video["stack"]) == 2
     # One line per failed attempt.
     assert [line for line in out.splitlines() if line.startswith("WARNING")] == [
-        "WARNING: dark take 1/3 failed at correlate: no plot"
+        "WARNING: landing dark take 1/3 failed at correlate: no plot"
     ]
 
 
 def test_video_cli_a_theme_that_fails_every_take_names_it(stubbed_video, monkeypatch, capsys):
-    def always(_stack, _theme, **_kwargs):
+    def always(_stack, _theme, _storyboard, **_kwargs):
         raise video_take.ProbeFailed("post", "no approval")
 
     monkeypatch.setattr(video_take, "record_theme", always)
-    rc = main(["video", "--theme", "dark"])
+    rc = main(["video", "--video", "landing", "--theme", "dark"])
 
     out, err = capsys.readouterr()
     assert rc != 0
     assert len(stubbed_video["stack"]) == cli.TAKES_PER_THEME
-    assert out.count("WARNING: dark take") == cli.TAKES_PER_THEME
-    assert "theme dark" in err and "post" in err
+    assert out.count("WARNING: landing dark take") == cli.TAKES_PER_THEME
+    assert "landing" in err and "theme dark" in err and "post" in err
 
 
 def test_video_cli_a_take_outside_the_window_is_kept_with_a_warning(stubbed_video, capsys):
     # The length follows the agent's pace, which can change with OSPREY or the
     # models; an out-of-window take is handed back, never retaken.
     stubbed_video["durations"]["light"] = 85.2
-    rc = main(["video", "--theme", "light"])
+    rc = main(["video", "--video", "landing", "--theme", "light"])
     out = capsys.readouterr().out
     assert rc == 0
     assert stubbed_video["record"] == ["light"]
@@ -281,20 +296,20 @@ def test_video_cli_a_take_outside_the_window_is_kept_with_a_warning(stubbed_vide
 
 
 def test_video_cli_each_theme_is_encoded_before_the_next_is_recorded(stubbed_video):
-    main(["video"])
+    main(["video", "--video", "landing"])
     assert stubbed_video["order"] == ["record dark", "encode dark", "record light", "encode light"]
 
 
 def test_video_cli_a_failed_later_theme_keeps_the_earlier_video(stubbed_video, monkeypatch, capsys):
     real = video_take.record_theme
 
-    def light_fails(stack, theme, **kwargs):
+    def light_fails(stack, theme, storyboard, **kwargs):
         if theme == "light":
             raise video_take.ProbeFailed("plot", "no plot")
-        return real(stack, theme, **kwargs)
+        return real(stack, theme, storyboard, **kwargs)
 
     monkeypatch.setattr(video_take, "record_theme", light_fails)
-    rc = main(["video"])
+    rc = main(["video", "--video", "landing"])
 
     out, err = capsys.readouterr()
     assert rc != 0
@@ -309,10 +324,13 @@ def test_video_cli_stack_is_built_once_and_closes_the_open_take(monkeypatch, tmp
     from docs.screenshots import capture
 
     events: list[str] = []
+    stack_args: list[tuple] = []
 
     def cm(name, value):
         @contextmanager
         def manager(*args, **kwargs):
+            if name == "tutorial":
+                stack_args.append(args)
             events.append(f"enter {name}")
             yield value
             events.append(f"exit {name}")
@@ -330,7 +348,7 @@ def test_video_cli_stack_is_built_once_and_closes_the_open_take(monkeypatch, tmp
     monkeypatch.setattr(capture, "web_terminal", cm("terminal", web))
 
     take = _FakeTake("dark")
-    with cli._video_stack(tmp_path) as stack:
+    with cli._video_stack(tmp_path, SECOND) as stack:
         assert stack.browser == "BROWSER"
         assert stack.artifact_port == 4321
         assert stack.base_url == "http://127.0.0.1:9"
@@ -342,6 +360,8 @@ def test_video_cli_stack_is_built_once_and_closes_the_open_take(monkeypatch, tmp
 
     assert take.closed
     assert stack.current is None
+    # The tutorial stack is built with the video's own deployment settings.
+    assert stack_args == [(SECOND.init_sets,)]
     assert events == [
         "enter browser",
         "enter tutorial",
@@ -355,12 +375,12 @@ def test_video_cli_stack_is_built_once_and_closes_the_open_take(monkeypatch, tmp
 
 @pytest.mark.usefixtures("stubbed_video")
 def test_video_cli_prints_paths_sizes_and_durations(capsys):
-    main(["video", "--theme", "light"])
+    main(["video", "--video", "landing", "--theme", "light"])
 
     out = capsys.readouterr().out
     assert "osprey-demo-light.mp4" in out
     assert "osprey-demo-light-poster.jpg" in out
-    assert "timeline-light.json" in out
+    assert str(Path("landing") / "timeline-light.json") in out
     assert "57.0 s" in out
     assert "3.5 MB" in out
 
@@ -368,20 +388,25 @@ def test_video_cli_prints_paths_sizes_and_durations(capsys):
 @pytest.mark.parametrize("duration", [64.96, 75.4])
 def test_video_cli_length_inside_the_window_does_not_warn(stubbed_video, capsys, duration):
     stubbed_video["durations"]["light"] = duration
-    rc = main(["video", "--theme", "light"])
+    rc = main(["video", "--video", "landing", "--theme", "light"])
     assert rc == 0
     assert "WARNING" not in capsys.readouterr().out
 
 
-def test_video_cli_length_window_is_fifty_to_eighty_seconds():
-    assert (cli.VIDEO_MIN_S, cli.VIDEO_MAX_S) == (50.0, 80.0)
+def test_video_cli_landing_length_window_is_fifty_to_eighty_seconds():
+    assert LANDING.window_s == (50.0, 80.0)
+
+
+def test_video_cli_the_window_is_the_video_s_own():
+    assert cli._window_warning("x.mp4", 30.0, LANDING) is not None
+    assert cli._window_warning("x.mp4", 30.0, SECOND) is None
 
 
 @pytest.mark.parametrize("duration", [45.9, 49.0, 80.5])
 def test_video_cli_length_outside_window_warns(stubbed_video, capsys, duration):
     stubbed_video["durations"]["dark"] = duration
 
-    rc = main(["video", "--theme", "dark"])
+    rc = main(["video", "--video", "landing", "--theme", "dark"])
 
     out = capsys.readouterr().out
     assert rc == 0
@@ -392,12 +417,12 @@ def test_video_cli_length_outside_window_warns(stubbed_video, capsys, duration):
 
 @pytest.mark.usefixtures("stubbed_video")
 def test_video_cli_theme_failure_exits_non_zero_naming_theme_and_step(monkeypatch, capsys):
-    def failing(_stack, _theme, **_kwargs):
+    def failing(_stack, _theme, _storyboard, **_kwargs):
         raise video_take.ProbeFailed("approve", "no approval card")
 
     monkeypatch.setattr(video_take, "record_theme", failing)
 
-    rc = main(["video", "--theme", "dark"])
+    rc = main(["video", "--video", "landing", "--theme", "dark"])
 
     out, err = capsys.readouterr()
     assert rc != 0
@@ -418,6 +443,12 @@ def test_video_cli_rejects_unknown_theme():
     assert exc.value.code == 2
 
 
+def test_video_cli_rejects_unknown_video():
+    with pytest.raises(SystemExit) as exc:
+        main(["video", "--video", "nope"])
+    assert exc.value.code == 2
+
+
 # ---------------------------------------------------------------------------
 # upload-check
 # ---------------------------------------------------------------------------
@@ -425,7 +456,7 @@ def test_video_cli_rejects_unknown_theme():
 
 @pytest.fixture
 def published(monkeypatch, tmp_path):
-    """Both themes' takes: videos in OUTPUT_DIR, posters + manifest in the docs tree."""
+    """The landing video's takes: videos in OUTPUT_DIR, posters + manifest in the docs tree."""
     from docs.screenshots import video_manifest
 
     out, static = tmp_path / "out", tmp_path / "static"
@@ -441,6 +472,7 @@ def published(monkeypatch, tmp_path):
         poster.write_bytes(b"poster-" + theme.encode())
         video_manifest.put_theme(
             static / "manifest.json",
+            "landing",
             theme,
             video_manifest.entry(
                 osprey_version=version,
@@ -460,11 +492,11 @@ def test_video_cli_upload_check_passes_when_files_match_the_manifest(published, 
     published.take("dark")
     published.take("light")
 
-    rc = main(["upload-check"])
+    rc = main(["upload-check", "--video", "landing"])
 
     out = capsys.readouterr().out
     assert rc == 0
-    assert "dark" in out and "light" in out and "2026.9.0" in out
+    assert "landing dark" in out and "landing light" in out and "2026.9.0" in out
     assert "2026-09-21" in out  # recorded_at of 1_790_000_000 in UTC
     assert "307" in out and "16" in out
     assert "not uploaded" in out
@@ -476,11 +508,48 @@ def test_video_cli_upload_check_names_the_release_once_uploaded(published, capsy
 
     published.take("dark")
     published.take("light")
-    video_manifest.set_release(published.manifest, "docs-media-v2026.9.0")
+    video_manifest.set_release(published.manifest, "landing", "docs-media-v2026.9.0")
 
-    assert main(["upload-check"]) == 0
+    assert main(["upload-check", "--video", "landing"]) == 0
     out = capsys.readouterr().out
     assert "docs-media-v2026.9.0" in out and "not uploaded" not in out
+
+
+def test_video_cli_upload_check_an_uploaded_video_needs_no_local_mp4(published, capsys):
+    from docs.screenshots import video_manifest
+
+    published.take("dark")
+    published.take("light")
+    video_manifest.set_release(published.manifest, "landing", "docs-media-v2026.9.0")
+    for theme in ("dark", "light"):
+        (published.out / f"osprey-demo-{theme}.mp4").unlink()
+
+    assert main(["upload-check", "--video", "landing"]) == 0
+    assert "docs-media-v2026.9.0" in capsys.readouterr().out
+
+
+def test_video_cli_upload_check_an_uploaded_video_still_needs_its_poster(published, capsys):
+    from docs.screenshots import video_manifest
+
+    published.take("dark")
+    published.take("light")
+    video_manifest.set_release(published.manifest, "landing", "docs-media-v2026.9.0")
+    (published.static / "osprey-demo-dark-poster.jpg").unlink()
+
+    assert main(["upload-check", "--video", "landing"]) != 0
+    assert "osprey-demo-dark-poster.jpg" in capsys.readouterr().err
+
+
+@pytest.mark.usefixtures("second_registered")
+def test_video_cli_upload_check_checks_every_registered_video_by_default(published, capsys):
+    published.take("dark")
+    published.take("light")
+
+    assert main(["upload-check"]) != 0
+    err = capsys.readouterr().err
+    assert "second dark: no take in the manifest" in err
+    assert "--video second" in err
+    assert "landing" not in err
 
 
 @pytest.mark.parametrize("which", ["mp4", "poster"])
@@ -494,7 +563,7 @@ def test_video_cli_upload_check_fails_when_a_file_does_not_match(published, caps
     )
     target.write_bytes(b"re-encoded since")
 
-    rc = main(["upload-check"])
+    rc = main(["upload-check", "--video", "landing"])
 
     _, err = capsys.readouterr()
     assert rc != 0
@@ -506,7 +575,7 @@ def test_video_cli_upload_check_fails_when_a_file_is_missing(published, capsys):
     published.take("light")
     (published.out / "osprey-demo-light.mp4").unlink()
 
-    assert main(["upload-check"]) != 0
+    assert main(["upload-check", "--video", "landing"]) != 0
     assert "osprey-demo-light.mp4" in capsys.readouterr().err
 
 
@@ -517,10 +586,10 @@ def test_video_cli_upload_check_fails_on_a_missing_manifest_field(published, cap
     published.take("dark")
     published.take("light")
     data = json.loads(published.manifest.read_text())
-    del data["themes"]["dark"][field]
+    del data["videos"]["landing"]["themes"]["dark"][field]
     published.manifest.write_text(json.dumps(data))
 
-    rc = main(["upload-check"])
+    rc = main(["upload-check", "--video", "landing"])
 
     out, err = capsys.readouterr()
     assert rc != 0
@@ -531,8 +600,8 @@ def test_video_cli_upload_check_fails_on_a_missing_manifest_field(published, cap
 def test_video_cli_upload_check_fails_without_a_theme(published, capsys):
     published.take("dark")
 
-    assert main(["upload-check"]) != 0
-    assert "light" in capsys.readouterr().err
+    assert main(["upload-check", "--video", "landing"]) != 0
+    assert "landing light" in capsys.readouterr().err
 
 
 def test_video_cli_upload_check_warns_on_version_window_and_size(published, capsys):
@@ -541,7 +610,7 @@ def test_video_cli_upload_check_warns_on_version_window_and_size(published, caps
     published.take("dark", version="2026.9.0", duration=85.0)
     published.take("light", version="2026.9.1", size=video_encode.SIZE_BUDGET_BYTES)
 
-    rc = main(["upload-check"])
+    rc = main(["upload-check", "--video", "landing"])
 
     out = capsys.readouterr().out
     assert rc == 0
@@ -562,12 +631,17 @@ def test_video_cli_list_still_works(capsys):
     assert capsys.readouterr().out
 
 
-def test_video_cli_list_shows_the_demo_video(capsys):
+@pytest.mark.usefixtures("second_registered")
+def test_video_cli_list_shows_every_docs_video(capsys):
     assert main(["list"]) == 0
     out = capsys.readouterr().out
-    video = [line for line in out.splitlines() if line.startswith("video")]
-    assert video and "dark,light" in video[0]
-    assert "osprey-demo-<theme>.mp4" in out and "manifest.json" in out
+    videos = [line for line in out.splitlines() if line.startswith("video")]
+    assert videos == [
+        "video  landing  themes=dark,light  pages=index.rst",
+        "video  second  themes=dark,light  pages=how-to/second.rst",
+    ]
+    assert "osprey-demo-<theme>.mp4" in out and "osprey-second-<theme>.mp4" in out
+    assert "manifest.json" in out
 
 
 @pytest.mark.parametrize(
@@ -592,24 +666,30 @@ def test_video_cli_rejects_flags_that_do_not_belong_to_the_command(argv, capsys)
     assert "error:" in capsys.readouterr().err
 
 
-def test_video_cli_upload_checks_first_then_publishes(monkeypatch):
+@pytest.mark.parametrize(("extra", "names"), [([], None), (["--video", "landing"], ["landing"])])
+def test_video_cli_upload_checks_first_then_publishes(monkeypatch, extra, names):
     from docs.screenshots import video_publish
 
     calls: list = []
-    monkeypatch.setattr(cli, "_upload_check", lambda out_dir: calls.append("check") or 0)
+    monkeypatch.setattr(
+        cli, "_upload_check", lambda out_dir, names: calls.append(("check", names)) or 0
+    )
     monkeypatch.setattr(
         video_publish,
         "upload",
-        lambda version, out, static: calls.append((version, out, static)) or 0,
+        lambda version, out, static, names: calls.append((version, out, static, names)) or 0,
     )
-    assert main(["upload", "--version", "2026.9.0"]) == 0
-    assert calls == ["check", ("2026.9.0", cli.OUTPUT_DIR, cli.STATIC_DEMO_DIR)]
+    assert main(["upload", "--version", "2026.9.0", *extra]) == 0
+    assert calls == [
+        ("check", names),
+        ("2026.9.0", cli.OUTPUT_DIR, cli.STATIC_DEMO_DIR, names),
+    ]
 
 
 def test_video_cli_upload_stops_when_the_check_fails(monkeypatch):
     from docs.screenshots import video_publish
 
-    monkeypatch.setattr(cli, "_upload_check", lambda out_dir: 1)
+    monkeypatch.setattr(cli, "_upload_check", lambda out_dir, names: 1)
     monkeypatch.setattr(video_publish, "upload", lambda *a: pytest.fail("uploaded"))
     assert main(["upload", "--version", "2026.9.0"]) == 1
 
@@ -665,7 +745,12 @@ def test_video_cli_the_encoded_frames_carry_the_real_time_clock(monkeypatch, tmp
 
     monkeypatch.setattr(video_encode, "encode_to_budget", encode)
     monkeypatch.setattr(cli, "_publish_take", lambda *a, **k: {})
-    cli._encode_theme("dark", take, timeline, tmp_path / "out")
+    result = cli._encode_theme(LANDING, "dark", take, timeline, tmp_path / "out")
+
+    # Each video's timelines go in a folder of its own.
+    assert result["timeline"] == tmp_path / "out" / "landing" / "timeline-dark.json"
+    assert result["timeline"].is_file()
+    assert result["mp4"] == tmp_path / "out" / "osprey-demo-dark.mp4"
 
     (text,) = concat_lists
     burned = [line[5:].strip("'") for line in text.splitlines() if line.startswith("file ")]
@@ -711,16 +796,19 @@ def test_video_cli_publishing_a_take_writes_poster_manifest_and_a_local_copy(mon
     monkeypatch.setattr(video_encode, "_binary", lambda name: name)
     monkeypatch.setattr(video_encode, "probe", lambda _p: {"size": 5, "duration": 58.24})
 
-    result = cli._publish_take("dark", mp4, timeline)
+    result = cli._publish_take(LANDING, "dark", mp4, timeline)
 
     (cmd,) = commands
-    assert f"select=eq(n\\,{video_encode.poster_frame(timeline)})" in cmd
+    frame = video_encode.poster_frame(timeline, LANDING.poster_step)
+    assert frame is not None
+    assert f"select=eq(n\\,{frame})" in cmd
     poster = static / "osprey-demo-dark-poster.jpg"
     assert result["poster"] == poster and poster.read_bytes() == b"poster"
     assert (static / "osprey-demo-dark.mp4").read_bytes() == b"video"
     manifest = video_manifest.load(static / "manifest.json")
-    assert manifest["release"] is None
-    entry = manifest["themes"]["dark"]
+    assert set(manifest["videos"]) == {"landing"}
+    assert manifest["videos"]["landing"]["release"] is None
+    entry = manifest["videos"]["landing"]["themes"]["dark"]
     assert entry["mp4"] == {"name": mp4.name, "sha256": video_manifest.sha256(mp4)}
     assert entry["poster"]["sha256"] == video_manifest.sha256(poster)
     assert entry["duration_s"] == 58.24

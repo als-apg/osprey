@@ -331,29 +331,31 @@ def wait_returns(reason: str, *, before=None):
 # ---------------------------------------------------------------------------
 
 
+#: How long :func:`until` sleeps between looks at its predicate.
+UNTIL_POLL_S = 0.001
+
+
 async def until(predicate, *, timeout: float = 5.0) -> None:
-    """Spin the loop (real time) until *predicate* holds."""
+    """Spin the loop (real time) until *predicate* holds.
+
+    Gives up once *timeout* seconds have passed **and** the loop has turned as
+    often as it would in that time. A pause of the whole process (a long
+    garbage collection on a loaded runner) moves the clock without giving the
+    code under test a turn, so it is not charged against that code.
+    """
+    turns_left = round(timeout / UNTIL_POLL_S)
     deadline = time.monotonic() + timeout
     while not predicate():
-        if time.monotonic() >= deadline:
-            raise AssertionError("condition not reached in time")
-        await asyncio.sleep(0.001)
+        if turns_left <= 0 and time.monotonic() >= deadline:
+            raise AssertionError(f"condition not reached within {timeout:g} s")
+        turns_left -= 1
+        await asyncio.sleep(UNTIL_POLL_S)
 
 
 async def ticks(app: SimpleNamespace, n: int) -> None:
     """Let the wait take *n* more looks (each look ends in one fake sleep)."""
     target = len(app.clock.sleeps) + n
     await until(lambda: len(app.clock.sleeps) >= target)
-
-
-def assert_registered(app: SimpleNamespace, plan: AcquirePlan, channel: object) -> None:
-    """The pending slot and the reservation an accepted plan leaves behind."""
-    pending = get_state(app).pending[plan.key]
-    assert pending.channel is channel
-    assert pending.surface == plan.surface
-    assert pending.task is not None
-    assert registry(app).is_reserved(plan.key)
-    assert plan.channel is channel
 
 
 def assert_released(app: SimpleNamespace) -> None:

@@ -1,9 +1,9 @@
 // @ts-check
 /**
- * Unit tests for the control-target header chip (control-target-chip.js):
+ * Unit tests for the control-target chip (control-target-chip.js):
  *   npx vitest run tests/interfaces/web_terminal/control-target-chip.test.mjs
  *
- * The chip is the header's one-line answer to "if the agent writes now, where
+ * The chip is the sidebar's one-line answer to "if the agent writes now, where
  * does it land, and will it be refused?". It reads ONE truth —
  * `GET /api/terminal/posture` — and derives nothing from what this page last
  * did, so a posture narrowed in another tab and a target the agent switched
@@ -11,14 +11,14 @@
  *
  * What these tests pin down, in the order a reviewer would ask about it:
  *
- * - the chip mounts once, into the `control-target` `.bar-item` shell the
- *   layout placed in the header host — never against a neighbour, because the
- *   palette trigger it used to sit in front of is now inside a shell of its own
- *   and is no longer a child of the host. A second init re-renders rather than
- *   mounting a second chip, and re-homes the same node if the shell shows up
- *   after a fallback mount;
+ * - the chip mounts once, into the host its caller hands it (the hub hands it
+ *   the sidebar's control-system block, `#sidebar-target`) and nowhere else:
+ *   with no host it does nothing at all. A second init re-renders rather than
+ *   mounting a second chip, and re-homes the same node into a new host;
  * - a caller may hand it a `host` of its own, which is what lets the
  *   JupyterLab bar mount it (that suite pins the import closure);
+ * - `targetReading()` gives the chip's own words (name, write state, kind,
+ *   state word) to the surfaces that repeat them;
  * - the roster is a fact about the DEPLOYMENT: the read carries no session id,
  *   and nothing here waits for a session to be settled;
  * - the pushed `{type: 'control_context'}` frame is what makes the chip
@@ -26,11 +26,12 @@
  * - a switch is done when every live controls server reports the generation
  *   the POST answered with — not when the record's terminus turns up;
  * - the full state matrix reaches the DOM as data attributes and words: three
- *   kinds (live / stand-in / virtual accelerator) × three states
- *   (writes / sandbox / read-only). Not one colour is decided here — the
- *   stylesheet owns the map, so the attributes ARE the contract;
- * - `sandbox` and `read-only` stay separate words: one is the operator's own
- *   narrowing and one click undoes it, the other is the deployment's ceiling;
+ *   kinds (real / rehearsal / simulator, GET's `machine_kind`) × three states
+ *   (on / off / locked, derived from `switch` and `write_allowed`). Not one
+ *   colour is decided here — the stylesheet owns the map, so the attributes
+ *   ARE the contract;
+ * - `off` and `locked` stay separate words: one click undoes off, while a
+ *   locked switch is on and still refused (or cannot be read);
  * - an `agent_activity` frame naming `control_target_set` triggers a REFETCH
  *   and nothing else — the frame's prose is the agent's narration of a switch
  *   that may belong to any client on the stream, and the chip never reads it;
@@ -53,6 +54,8 @@
 
 import { test, expect, describe, beforeEach, afterEach, vi } from 'vitest';
 
+import { FakeEventSource, stubEventSource } from '../_support/event-source.mjs';
+
 const MODULE = '../../../src/osprey/interfaces/web_terminal/static/js/control-target-chip.js';
 
 /** @type {typeof import('../../../src/osprey/interfaces/web_terminal/static/js/control-target-chip.js')} */
@@ -61,57 +64,90 @@ let chipModule;
 /* ---- roster fixtures ---------------------------------------------------- */
 
 /**
- * The three machine kinds, in the shape the route publishes them. `kind` is the
- * PLAIN-LANGUAGE word the route mints from `real_machine` and the label's
- * shape; the chip maps it onto the CSS value, which is what these tests read.
+ * The three machine kinds, in the shape the route publishes them. `machine_kind`
+ * is the write verdict's kind (C-KIND), which is also the CSS value these
+ * tests read.
  */
 const KINDS = {
   live: {
     target: 'live',
-    label: 'LIVE MACHINE',
+    label: 'Live — writes move hardware',
     short_label: 'LIVE',
-    kind: 'live machine',
+    machine_kind: 'real',
     endpoint: 'gw.example.org:5064',
     real_machine: true,
   },
   standin: {
     target: 'standin',
-    label: 'LIVE MACHINE (stand-in)',
+    label: 'Rehearsal — nothing moves',
     short_label: 'STAND-IN',
-    kind: 'stand-in',
+    machine_kind: 'rehearsal',
     endpoint: '127.0.0.1:10090',
     real_machine: true,
   },
   va: {
     target: 'va',
-    label: 'virtual accelerator (simulation)',
+    label: 'Simulator — nothing moves',
     short_label: 'VIRTUAL',
-    kind: 'virtual accelerator',
+    machine_kind: 'simulator',
     endpoint: '127.0.0.1:10064',
     real_machine: false,
   },
 };
 
 /**
- * The three effective states as the route's three columns express them.
- * `read-only` and `sandbox` differ only in `posture`: the effective answer is
- * the same "no", and which "no" it is decides whether a toggle can undo it.
+ * The four states as C-GET's columns express them. `off` and `locked` are
+ * both "no", and which "no" it is decides whether a toggle can undo it.
+ * Each carries a legacy `posture` that DISAGREES with it, so a derivation
+ * that still read `posture` would fail here.
  */
 const STATES = {
-  writes: { effective: true, posture: 'writes' },
-  sandbox: { effective: false, posture: 'sandbox' },
-  'read-only': { effective: false, posture: 'writes' },
+  asked: {
+    switch: 'asked',
+    prompt: true,
+    write_allowed: true,
+    write_reason: null,
+    write_phrase: null,
+    posture: 'sandbox',
+  },
+  allowed: {
+    switch: 'allowed',
+    prompt: false,
+    write_allowed: true,
+    write_reason: null,
+    write_phrase: null,
+    posture: 'sandbox',
+  },
+  off: {
+    switch: 'off',
+    prompt: true,
+    write_allowed: false,
+    write_reason: 'switch_off',
+    write_phrase: 'Writes are off; turn it on from the chip in the web terminal.',
+    posture: 'writes',
+    effective: true,
+  },
+  locked: {
+    switch: 'asked',
+    prompt: true,
+    write_allowed: false,
+    write_reason: 'readonly_run',
+    write_phrase:
+      'Writes are refused because the deployment is running read-only; the chip cannot lift this — ask the deployment admin.',
+    posture: 'writes',
+    effective: true,
+  },
 };
 
 /** @param {object} [o] */
 const rowOf = (o = {}) => ({
   ...KINDS.standin,
-  ...STATES.writes,
+  ...STATES.asked,
   active: false,
   is_baseline: false,
   available_now: true,
   reason: null,
-  ceiling_writes: true,
+  reason_detail: null,
   reachability: {
     state: 'reached',
     role: 'write_access',
@@ -150,6 +186,9 @@ const viewOf = (o = {}) => ({
   servers: [serverOf()],
   store_available: true,
   readonly_run: false,
+  switch_epoch: '1',
+  any_armed: true,
+  locks: { readonly_run: false, tier: 'allowed' },
   execution_in_flight: [],
   last_switch: null,
   last_posture_realign: null,
@@ -199,70 +238,25 @@ function stubFetch() {
 }
 
 /**
- * The global header the chip mounts into, in index.html's shape: a bar-item
- * HOST (`.header-actions[data-bar-host="header"]`) whose direct children are
- * all `.bar-item` shells, one per item in the effective layout.
- *
- * The shape matters to this suite and is not decoration. The palette trigger
- * is no longer a child of the host — it sits inside its own `search` shell —
- * so a mount that positioned itself against `actions.querySelector('#command
- * -palette-btn')` would find the button (a descendant query) and then throw on
- * `insertBefore`, taking every later line of app.js's DOMContentLoaded with it.
- * A fixture that kept the button as a direct child would have gone on passing
- * through exactly that breakage.
- *
- * `control-target` is a JS-built item, so its shell is emitted EMPTY and the
- * chip is what fills it.
+ * The sidebar the chip mounts into, in index.html's shape: the control-system
+ * block `#sidebar-target` between the sidebar head and the palette trigger.
+ * The block ships EMPTY; the chip is what fills it, and its neighbours are
+ * never touched.
  */
 function mountFixture() {
   document.body.innerHTML = `
-    <header class="header">
-      <div class="header-actions" data-bar-host="header">
-        <div class="bar-item" data-bar-item="logo"><span class="header-logo">OSPREY</span></div>
-        <div class="bar-item" data-bar-item="space"></div>
-        <div class="bar-item" data-bar-item="control-target"></div>
-        <div class="bar-item" data-bar-item="search">
-          <button id="command-palette-btn" class="command-palette-trigger" type="button"></button>
-        </div>
-        <div class="bar-item" data-bar-item="display">
-          <osprey-display-menu id="display-menu"></osprey-display-menu>
-        </div>
+    <nav class="sidebar" id="sidebar" aria-label="Panels">
+      <div class="sidebar-head">
+        <a class="sidebar-brand" href="/" aria-label="OSPREY"></a>
+        <button class="osprey-icon-btn" id="sidebar-toggle" type="button"></button>
       </div>
-    </header>`;
+      <div class="sidebar-target" id="sidebar-target"></div>
+      <button class="osprey-search" id="command-palette-btn" type="button"></button>
+    </nav>`;
 }
 
-/**
- * The same header with the `control-target` item absent from the layout — the
- * fallback path, and also the shape of any host rendered before the shells
- * existed.
- */
-function mountFixtureWithoutShell() {
-  mountFixture();
-  document.querySelector('[data-bar-item="control-target"]')?.remove();
-}
-
-/**
- * happy-dom ships no EventSource. A class stub keeps api.js's shared-stream
- * path real: frames are delivered as the browser would, as `onmessage` with a
- * string payload api.js parses, and the socket closes when the last
- * subscriber stops.
- */
-class FakeEventSource {
-  /** @type {FakeEventSource[]} */
-  static opened = [];
-  /** @param {string} url */
-  constructor(url) {
-    this.url = url;
-    this.readyState = 1;
-    this.closed = false;
-    /** @type {((e: {data: string}) => void)|null} */
-    this.onmessage = null;
-    FakeEventSource.opened.push(this);
-  }
-  close() {
-    this.closed = true;
-  }
-}
+/** The sidebar's control-system block, the host app.js hands the chip. */
+const targetHost = () => /** @type {HTMLElement} */ (document.getElementById('sidebar-target'));
 
 /** Drain the microtask/timer queue the async handlers chain through. */
 async function flush() {
@@ -270,13 +264,14 @@ async function flush() {
 }
 
 /**
- * Boot the chip against a given roster.
+ * Boot the chip against a given roster, into `opts.host` when the key is
+ * given (null included) and into the sidebar's block otherwise.
  * @param {any} [payload]
  * @param {{host?: HTMLElement|null}} [opts]
  */
 async function boot(payload, opts = {}) {
   served = payload ?? viewOf();
-  chipModule.initControlTargetChip({ host: opts.host });
+  chipModule.initControlTargetChip({ host: 'host' in opts ? opts.host : targetHost() });
   await flush();
 }
 
@@ -293,13 +288,12 @@ function pushFrame(/** @type {any} */ frame) {
 }
 
 beforeEach(async () => {
-  FakeEventSource.opened = [];
-  vi.stubGlobal('EventSource', FakeEventSource);
+  stubEventSource({ open: true });
   vi.resetModules();
   served = viewOf();
   stubFetch();
   mountFixture();
-  delete (/** @type {any} */ (window)).__OSPREY_PREFIX__;
+  Reflect.deleteProperty(window, '__OSPREY_PREFIX__');
   chipModule = await import(MODULE);
 });
 
@@ -313,65 +307,38 @@ afterEach(() => {
 /* ---- mount -------------------------------------------------------------- */
 
 describe('mount', () => {
-  test('takes its position from the layout, never from the palette trigger', async () => {
+  test('mounts into the host it is handed, leaving its neighbours alone', async () => {
     await boot();
-    const actions = /** @type {HTMLElement} */ (document.querySelector('.header-actions'));
-    const palette = /** @type {HTMLElement} */ (document.querySelector('#command-palette-btn'));
-    // The regression this pins: the palette button is a DESCENDANT of the host
-    // but not a child of it, so any `actions.insertBefore(anchor, palette)`
-    // throws NotFoundError — and this init runs inside app.js's
-    // DOMContentLoaded body, where a throw takes every later boot step with it.
-    expect(actions.contains(palette)).toBe(true);
-    expect(palette.parentElement).not.toBe(actions);
-    // The chip sits where the layout put its shell — third of five — and the
-    // shells around it are untouched.
-    const order = [...actions.children].map((el) => el.getAttribute('data-bar-item'));
-    expect(order).toEqual(['logo', 'space', 'control-target', 'search', 'display']);
-    const shell = /** @type {HTMLElement} */ (
-      document.querySelector('[data-bar-item="control-target"]')
-    );
-    expect(shell.children).toHaveLength(1);
-    expect(shell.firstElementChild).toBe(anchorEl());
-    // The chip lives inside its own positioning context (the popover is
-    // absolute under it), and that context is what fills the item's shell.
+    const sidebar = /** @type {HTMLElement} */ (document.getElementById('sidebar'));
+    const host = targetHost();
+    // The block's neighbours keep their places: the chip only ever appends
+    // into its host and never positions itself against the palette trigger.
+    const order = [...sidebar.children].map((el) => el.id || el.className);
+    expect(order).toEqual(['sidebar-head', 'sidebar-target', 'command-palette-btn']);
+    expect(host.children).toHaveLength(1);
+    expect(host.firstElementChild).toBe(anchorEl());
+    // The chip lives inside its own wrapper, and that wrapper is what fills
+    // the block.
     expect(chipEl()?.parentElement).toBe(anchorEl());
-    expect(chipModule.getAnchorElement()).toBe(anchorEl());
-    expect(shell.parentElement).toBe(actions);
-  });
-
-  test('falls back to the host itself when the layout places no shell', async () => {
-    mountFixtureWithoutShell();
-    await boot();
-    const actions = /** @type {HTMLElement} */ (document.querySelector('.header-actions'));
-    const anchor = /** @type {HTMLElement} */ (anchorEl());
-    expect(chipEl()).not.toBeNull();
-    expect(anchor.parentElement).toBe(actions);
-    // Degrading to "somewhere in the action run" beats not mounting the chip
-    // at all: the answer to "where would a write land" is worth more than its
-    // position in the bar.
-    expect(anchor.hidden).toBe(false);
+    expect(anchorEl()?.hidden).toBe(false);
   });
 
   test('is idempotent — a second init re-renders rather than mounting twice', async () => {
     await boot();
-    chipModule.initControlTargetChip();
+    chipModule.initControlTargetChip({ host: targetHost() });
     await flush();
     expect(document.querySelectorAll('.control-target-chip')).toHaveLength(1);
     expect(document.querySelectorAll('.ctc-anchor')).toHaveLength(1);
   });
 
-  test('re-homes the SAME chip into a shell that arrives after a fallback mount', async () => {
-    mountFixtureWithoutShell();
+  test('re-homes the SAME chip into a different host', async () => {
     await boot();
     const first = chipEl();
     const anchor = anchorEl();
-    const actions = /** @type {HTMLElement} */ (document.querySelector('.header-actions'));
 
-    const shell = document.createElement('div');
-    shell.className = 'bar-item';
-    shell.dataset.barItem = 'control-target';
-    actions.prepend(shell);
-    chipModule.initControlTargetChip();
+    const other = document.createElement('div');
+    document.body.appendChild(other);
+    chipModule.initControlTargetChip({ host: other });
     await flush();
 
     // Moved, not rebuilt: the popover hangs its listeners on this exact node
@@ -379,20 +346,28 @@ describe('mount', () => {
     expect(document.querySelectorAll('.control-target-chip')).toHaveLength(1);
     expect(chipEl()).toBe(first);
     expect(anchorEl()).toBe(anchor);
-    expect(anchor?.parentElement).toBe(shell);
+    expect(anchor?.parentElement).toBe(other);
+    expect(targetHost().children).toHaveLength(0);
   });
 
   test('carries the popover trigger ARIA and the four spans the stylesheet keys on', async () => {
     await boot();
     const chip = /** @type {HTMLButtonElement} */ (chipEl());
     expect(chip.type).toBe('button');
-    expect(chip.getAttribute('aria-haspopup')).toBe('true');
+    expect(chip.getAttribute('aria-haspopup')).toBe('dialog');
     expect(chip.getAttribute('aria-expanded')).toBe('false');
     for (const cls of ['.ctc-dot', '.ctc-short', '.ctc-sep', '.ctc-state', '.ctc-caret']) {
       expect(chip.querySelector(cls)).not.toBeNull();
     }
     expect(chip.querySelector('.ctc-sep')?.textContent).toBe('·');
     expect(chip.querySelector('.ctc-caret')?.textContent).toBe('▾');
+  });
+
+  test("wraps the state phrase's lead word, so its text stays whole and the block can hide it", async () => {
+    await boot();
+    const state = /** @type {HTMLElement} */ (chipEl()?.querySelector('.ctc-state'));
+    expect(state.querySelector('.ctc-state-lead')?.textContent).toBe('writes ');
+    expect(state.textContent).toMatch(/^writes \w+$/);
   });
 
   test('reads and paints without waiting for any session to be settled', async () => {
@@ -405,31 +380,89 @@ describe('mount', () => {
     expect(chipEl()?.hidden).toBe(false);
   });
 
-  test('does nothing at all on a page with no header and no host', async () => {
-    document.body.innerHTML = '<div id="elsewhere"></div>';
+  test('does nothing at all without a host, even beside an empty block', async () => {
+    // No discovery: `#sidebar-target` is on the page, but the chip mounts only
+    // where its caller puts it (app.js skips the call when the picker is off).
     chipModule.initControlTargetChip();
+    chipModule.initControlTargetChip({ host: null });
     await flush();
     expect(chipEl()).toBeNull();
     expect(anchorEl()).toBeNull();
+    expect(targetHost().children).toHaveLength(0);
     expect(getCount()).toBe(0);
+    expect(FakeEventSource.opened).toHaveLength(0);
   });
 
-  test('mounts into a host the caller hands it, header or no header', async () => {
-    // The JupyterLab page has neither the `control-target` shell nor
-    // `.header-actions`; the bar module that owns its own element passes it.
+  test('mounts into a host the caller hands it, sidebar or no sidebar', async () => {
+    // The JupyterLab page has no sidebar; the bar module that owns its own
+    // element passes it.
     document.body.innerHTML = '<div id="lab-bar"></div>';
     const host = /** @type {HTMLElement} */ (document.querySelector('#lab-bar'));
     await boot(viewOf(), { host });
     expect(anchorEl()?.parentElement).toBe(host);
     expect(chipEl()?.hidden).toBe(false);
   });
+});
 
-  test('a host beats the header the discovery would have found', async () => {
-    const host = document.createElement('div');
-    document.body.appendChild(host);
-    await boot(viewOf(), { host });
-    expect(anchorEl()?.parentElement).toBe(host);
-    expect(document.querySelector('[data-bar-item="control-target"]')?.children).toHaveLength(0);
+/* ---- targetReading ------------------------------------------------------ */
+
+describe('targetReading', () => {
+  test('is null while nothing has been read', () => {
+    expect(chipModule.targetReading()).toBeNull();
+  });
+
+  test('answers in the chip’s own words for every kind and state', async () => {
+    /** @type {Record<string, [string, string]>} */
+    const NAMED = {
+      live: ['Live', 'real'],
+      standin: ['Rehearsal', 'rehearsal'],
+      va: ['Simulator', 'simulator'],
+    };
+    for (const [kindName, kind] of Object.entries(KINDS)) {
+      for (const [stateName, state] of Object.entries(STATES)) {
+        served = viewOf({
+          control_target: kind.target,
+          targets: [rowOf({ ...kind, ...state, active: true })],
+        });
+        if (chipModule.getState()) await chipModule.refetch();
+        else await boot(served);
+        const [name, kindAttr] = NAMED[kindName];
+        expect(chipModule.targetReading()).toEqual({
+          name,
+          state: `writes ${stateName}`,
+          kind: kindAttr,
+          word: stateName,
+        });
+        // The one derivation the chip paints from.
+        expect(shortText()).toBe(name);
+        expect(stateText()).toBe(`writes ${stateName}`);
+      }
+    }
+  });
+
+  test("names the deployment's configured display_name", async () => {
+    await boot(
+      viewOf({
+        targets: [rowOf({ ...KINDS.live, display_name: 'Example storage ring', active: true })],
+      })
+    );
+    expect(chipModule.targetReading()?.name).toBe('Example storage ring');
+    expect(chipModule.targetReading()?.kind).toBe('real');
+  });
+
+  test('says switching… while a request this browser wrote is outstanding', async () => {
+    await boot();
+    chipModule.markPending('req-1', 'va', 4);
+    const reading = chipModule.targetReading();
+    expect(reading?.state).toBe('switching…');
+    // The row it speaks for has not changed yet.
+    expect(reading?.word).toBe('asked');
+    expect(stateText()).toBe('switching…');
+  });
+
+  test('is null for an empty roster, where the chip hides', async () => {
+    await boot(viewOf({ targets: [] }));
+    expect(chipModule.targetReading()).toBeNull();
   });
 });
 
@@ -437,12 +470,17 @@ describe('mount', () => {
 
 describe('state matrix', () => {
   /** @type {Record<string, string>} */
-  const KIND_ATTR = { live: 'live', standin: 'standin', va: 'va' };
+  const KIND_ATTR = { live: 'real', standin: 'rehearsal', va: 'simulator' };
   /** The consequence word each kind renders when no display_name is configured. */
   /** @type {Record<string, string>} */
-  const WORDS = { live: 'Real machine', standin: 'Rehearsal', va: 'Simulator' };
+  const WORDS = { live: 'Live', standin: 'Rehearsal', va: 'Simulator' };
   /** @type {Record<string, string>} */
-  const PHRASES = { writes: 'writes on', sandbox: 'writes off', 'read-only': 'writes locked' };
+  const PHRASES = {
+    asked: 'writes asked',
+    allowed: 'writes allowed',
+    off: 'writes off',
+    locked: 'writes locked',
+  };
 
   for (const [kindName, kind] of Object.entries(KINDS)) {
     for (const [stateName, state] of Object.entries(STATES)) {
@@ -465,68 +503,114 @@ describe('state matrix', () => {
     }
   }
 
-  test('kind falls back to real_machine + the label shape when the route sends none', async () => {
+  test('a stored allowed capped at asked reads writes asked', async () => {
+    // The route answers `prompt: true` from the effective position: the word
+    // says what the next write meets, and the stored position stays `allowed`.
     await boot(
       viewOf({
-        targets: [
-          rowOf({
-            ...KINDS.standin,
-            kind: undefined,
-            active: true,
-          }),
-        ],
+        locks: { readonly_run: false, tier: 'asked' },
+        targets: [rowOf({ ...STATES.allowed, prompt: true, active: true })],
       })
     );
-    expect(chipEl()?.dataset.targetKind).toBe('standin');
+    expect(chipEl()?.dataset.state).toBe('asked');
+    expect(stateText()).toBe('writes asked');
   });
 
-  test('an unrecognised real machine falls back to the loud answer', async () => {
+  test('a standin GET calls the real machine reads as the real machine', async () => {
+    // C-KIND: a stand-in no live server vouched for is `real`. Neither the
+    // target name nor the "(stand-in)" label may turn it back into the
+    // rehearsal.
     await boot(
       viewOf({
-        targets: [
-          rowOf({
-            target: 'other',
-            label: 'some machine nobody named',
-            short_label: 'LIVE',
-            kind: undefined,
-            real_machine: true,
-            active: true,
-          }),
-        ],
+        targets: [rowOf({ ...KINDS.standin, machine_kind: 'real', active: true })],
       })
     );
-    expect(chipEl()?.dataset.targetKind).toBe('live');
+    expect(chipEl()?.dataset.targetKind).toBe('real');
+    expect(shortText()).toBe('Live');
   });
 
-  test('a machine that is not real is the simulator whatever its label', async () => {
+  test('a row with no machine_kind falls back to the loud answer, whatever its label', async () => {
+    for (const shape of [
+      { ...KINDS.standin, machine_kind: undefined },
+      { ...KINDS.va, machine_kind: undefined },
+      { ...KINDS.live, machine_kind: 'live' },
+    ]) {
+      served = viewOf({ targets: [rowOf({ ...shape, active: true })] });
+      if (chipModule.getState()) await chipModule.refetch();
+      else await boot(served);
+      expect(chipEl()?.dataset.targetKind).toBe('real');
+      expect(shortText()).toBe('Live');
+    }
+  });
+
+  test('the state reads switch and write_allowed, never posture or effective', async () => {
     await boot(
       viewOf({
         targets: [
           rowOf({
-            target: 'other',
-            label: 'some machine nobody named',
-            short_label: 'VIRTUAL',
-            kind: undefined,
-            real_machine: false,
+            switch: 'allowed',
+            prompt: false,
+            write_allowed: false,
+            posture: 'writes',
+            effective: true,
             active: true,
           }),
         ],
       })
     );
-    expect(chipEl()?.dataset.targetKind).toBe('va');
-    expect(shortText()).toBe('Simulator');
+    expect(chipEl()?.dataset.state).toBe('locked');
+    // An unreadable switch is locked, never off.
+    served = viewOf({
+      targets: [
+        rowOf({
+          switch: null,
+          write_allowed: false,
+          write_reason: 'record_unavailable',
+          active: true,
+        }),
+      ],
+    });
+    await chipModule.refetch();
+    expect(chipEl()?.dataset.state).toBe('locked');
+    expect(stateText()).toBe('writes locked');
+  });
+
+  test('stateWord answers off | asked | allowed | locked and never "sandbox"', () => {
+    /** @param {object} o */
+    const wordOf = (o) => chipModule.stateWord(/** @type {any} */ (rowOf(o)));
+    expect(wordOf(STATES.asked)).toBe('asked');
+    expect(wordOf(STATES.allowed)).toBe('allowed');
+    expect(wordOf(STATES.off)).toBe('off');
+    expect(wordOf(STATES.locked)).toBe('locked');
+    expect(wordOf({ switch: null, write_allowed: false })).toBe('locked');
+    // The capped row: stored allowed, effective asked.
+    expect(wordOf({ ...STATES.allowed, prompt: true })).toBe('asked');
+    // An armed switch the verdict refuses is locked at either position.
+    expect(wordOf({ ...STATES.allowed, write_allowed: false })).toBe('locked');
+    // A switch word this module does not know, the retired `on` included, is
+    // an unreadable switch, even with a verdict that would pass.
+    expect(wordOf({ ...STATES.asked, switch: 'on' })).toBe('locked');
+    expect(wordOf({ ...STATES.asked, switch: undefined })).toBe('locked');
+    // A row that does not publish `prompt` reads the louder word.
+    expect(wordOf({ ...STATES.asked, prompt: undefined })).toBe('allowed');
+    // Not even a row whose legacy mirror still says sandbox.
+    for (const o of [
+      { posture: 'sandbox', effective: false },
+      { switch: 'off', posture: 'sandbox' },
+      { switch: undefined, posture: 'sandbox' },
+    ]) {
+      expect(wordOf(o)).not.toBe('sandbox');
+    }
   });
 
   test("the deployment's configured display_name wins over the kind default", async () => {
     await boot(
       viewOf({
-        targets: [
-          rowOf({ ...KINDS.live, display_name: 'Example storage ring', active: true }),
-        ],
+        targets: [rowOf({ ...KINDS.live, display_name: 'Example storage ring', active: true })],
       })
     );
     expect(shortText()).toBe('Example storage ring');
-    expect(chipEl()?.dataset.targetKind).toBe('live');
+    expect(chipEl()?.dataset.targetKind).toBe('real');
   });
 
   test('data-enforceable answers whether a change here would be written', async () => {
@@ -567,7 +651,7 @@ describe('active row', () => {
       })
     );
     expect(shortText()).toBe('Simulator');
-    expect(chipEl()?.dataset.targetKind).toBe('va');
+    expect(chipEl()?.dataset.targetKind).toBe('simulator');
   });
 
   test('falls back to the baseline row when no row is marked active', async () => {
@@ -593,10 +677,11 @@ describe('refetch hints', () => {
   test('subscribes to the shared panel event stream, once', async () => {
     await boot();
     expect(FakeEventSource.opened).toHaveLength(1);
-    expect(FakeEventSource.opened[0].url).toBe('/api/files/events');
+    // The page's one events URL, tagged with its client id (api.js pageEventsUrl).
+    expect(FakeEventSource.opened[0].url).toMatch(/^\/api\/files\/events\?client_id=[^&]+$/);
     // A second init must not subscribe again: api.js would share the socket,
     // so what a second subscription costs is a second read per frame.
-    chipModule.initControlTargetChip();
+    chipModule.initControlTargetChip({ host: targetHost() });
     await flush();
     expect(FakeEventSource.opened).toHaveLength(1);
     const before = getCount();
@@ -619,7 +704,7 @@ describe('refetch hints', () => {
     await flush();
     // Repainted without a single tick of the 5 s fallback having passed.
     expect(getCount()).toBe(before + 1);
-    expect(shortText()).toBe('Real machine');
+    expect(shortText()).toBe('Live');
   });
 
   test('a control_target_set frame triggers a re-read', async () => {
@@ -631,9 +716,7 @@ describe('refetch hints', () => {
   });
 
   test('renders the ROUTE, never the frame text', async () => {
-    await boot(
-      viewOf({ targets: [rowOf({ ...KINDS.standin, active: true, is_baseline: true })] })
-    );
+    await boot(viewOf({ targets: [rowOf({ ...KINDS.standin, active: true, is_baseline: true })] }));
     expect(shortText()).toBe('Rehearsal');
     // The frame narrates a switch to the facility's own machine, and the route
     // — the only truth — still says stand-in. A chip that read the prose would
@@ -646,7 +729,7 @@ describe('refetch hints', () => {
     });
     await flush();
     expect(shortText()).toBe('Rehearsal');
-    expect(chipEl()?.dataset.targetKind).toBe('standin');
+    expect(chipEl()?.dataset.targetKind).toBe('rehearsal');
   });
 
   test('ignores other tools, other frame types and unparsed frames', async () => {
@@ -683,7 +766,7 @@ describe('polling', () => {
     expect(stateText()).toBe('switching…');
     // `data-state` still describes the machine the deployment is ON — the switch
     // has not landed, and the dot must not go quiet before it does.
-    expect(chipEl()?.dataset.state).toBe('writes');
+    expect(chipEl()?.dataset.state).toBe('asked');
 
     const before = getCount();
     vi.advanceTimersByTime(chipModule.FAST_POLL_MS * 3);
@@ -704,8 +787,8 @@ describe('polling', () => {
 
     expect(chipModule.isPending()).toBe(false);
     expect(chipEl()?.dataset.pending).toBeUndefined();
-    expect(stateText()).toBe('writes on');
-    expect(shortText()).toBe('Real machine');
+    expect(stateText()).toBe('writes asked');
+    expect(shortText()).toBe('Live');
 
     const settled = getCount();
     vi.advanceTimersByTime(chipModule.FAST_POLL_MS * 4);
@@ -796,8 +879,8 @@ describe('polling', () => {
     vi.advanceTimersByTime(chipModule.FAST_POLL_MS);
     await flush();
     expect(chipModule.isPending()).toBe(false);
-    expect(stateText()).toBe('writes on');
-    expect(shortText()).toBe('Real machine');
+    expect(stateText()).toBe('writes asked');
+    expect(shortText()).toBe('Live');
   });
 
   test('a server that fails the switch ends the wait and is named', async () => {
@@ -977,14 +1060,14 @@ describe('read ordering', () => {
       targets: [rowOf({ ...KINDS.live, active: true })],
     });
     await chipModule.refetch();
-    expect(shortText()).toBe('Real machine');
+    expect(shortText()).toBe('Live');
 
     // The parked read finally resolves, carrying history.
     heldGets.shift()?.();
     await slow;
     await flush();
-    expect(shortText()).toBe('Real machine');
-    expect(chipEl()?.dataset.targetKind).toBe('live');
+    expect(shortText()).toBe('Live');
+    expect(chipEl()?.dataset.targetKind).toBe('real');
   });
 
   test('a failed read says nothing rather than naming a machine nobody confirmed', async () => {
@@ -1010,7 +1093,7 @@ describe('read ordering', () => {
 
 describe('withPrefix', () => {
   test('every read goes through the per-user mount', async () => {
-    (/** @type {any} */ (window)).__OSPREY_PREFIX__ = '/u/alice';
+    Object.assign(window, { __OSPREY_PREFIX__: '/u/alice' });
     await boot();
     const gets = fetchCalls.filter((c) => c.method === 'GET');
     expect(gets.length).toBeGreaterThan(0);
@@ -1040,7 +1123,9 @@ describe('popover API', () => {
     await boot();
     const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
     const seen = /** @type {any[]} */ ([]);
-    chipModule.subscribe(() => { throw new Error('boom'); });
+    chipModule.subscribe(() => {
+      throw new Error('boom');
+    });
     chipModule.subscribe((s) => seen.push(s));
     await chipModule.refetch();
     expect(seen).toHaveLength(1);
@@ -1070,7 +1155,10 @@ describe('popover API', () => {
   test('a refused request carries the sentence from all three refusal body shapes', async () => {
     /** @param {number} status @param {() => Promise<any>} json */
     const refuse = (status, json) =>
-      vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, status, json })));
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async () => ({ ok: false, status, json }))
+      );
 
     refuse(409, async () => ({ detail: { error: 'x', message: 'dict detail' } }));
     await expect(chipModule.targetRequest('/api/terminal/posture')).rejects.toThrow('dict detail');
@@ -1089,6 +1177,172 @@ describe('popover API', () => {
       'Could not read the control target (HTTP 503).'
     );
   });
+
+  test('a posture refusal carries its phrase, status and detail (C-POST)', async () => {
+    const detail = { reason: 'not_taken', taken: false, phrase: 'The stop did not take effect.' };
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ({ ok: false, status: 503, json: async () => ({ detail }) }))
+    );
+    const err = await chipModule
+      .targetRequest('/api/terminal/posture', { method: 'POST', json: {} })
+      .catch((e) => e);
+    expect(err).toBeInstanceOf(chipModule.TargetRequestError);
+    expect(err).toBeInstanceOf(Error);
+    expect(err.message).toBe('The stop did not take effect.');
+    expect(err.status).toBe(503);
+    expect(err.detail).toEqual(detail);
+  });
+
+  test('a stamped 409 keeps the epoch it returned', async () => {
+    const detail = { reason: 'stopped_since', epoch: '12', stamped: true };
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ({ ok: false, status: 409, json: async () => ({ detail }) }))
+    );
+    const err = await chipModule.targetRequest('/api/terminal/posture').catch((e) => e);
+    expect(err.status).toBe(409);
+    expect(err.detail).toEqual(detail);
+    // No phrase and no message: the status is all the sentence can say.
+    expect(err.message).toBe('Could not read the control target (HTTP 409).');
+  });
+
+  test('a validation failure’s list detail reads as the generic failure', async () => {
+    const detail = [{ loc: ['body', 'state'], msg: 'bad', type: 'literal_error' }];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ({ ok: false, status: 422, json: async () => ({ detail }) }))
+    );
+    const err = await chipModule.targetRequest('/api/terminal/posture').catch((e) => e);
+    expect(err.message).toBe('Could not read the control target (HTTP 422).');
+    expect(err.detail).toEqual(detail);
+  });
+
+  test('a switch refusal says what the operator must not miss', () => {
+    const { TargetRequestError, switchRefusal, STOPPED_SINCE_SENTENCE } = chipModule;
+    /** @param {number} status @param {any} detail */
+    const refused = (status, detail) => new TargetRequestError('x', status, detail);
+    // The route's phrase wins, and leaves the confirm up.
+    expect(switchRefusal(refused(403, { reason: 'tier_never', phrase: 'P.' }), 'asked')).toEqual({
+      message: 'P.',
+      close: false,
+    });
+    // A stop that overtook the gesture closes the dialog it asked from.
+    expect(switchRefusal(refused(409, { reason: 'stopped_since', epoch: '3' }), 'asked')).toEqual({
+      message: STOPPED_SINCE_SENTENCE,
+      close: true,
+    });
+    // A stop that was not taken is the stop sentence even with no phrase.
+    expect(switchRefusal(refused(503, null), 'off').message).toMatch(/writes are still on/);
+    // A bare code reads as its phrase; anything else as the message.
+    expect(switchRefusal(refused(400, { reason: 'bulk_on_refused' }), 'asked').message).toBe(
+      'bulk_on_refused'
+    );
+    // The refusal the route sends no phrase with reads as the table's.
+    expect(
+      switchRefusal(refused(403, { reason: 'tier_caps', ceiling: 'asked' }), 'allowed').message
+    ).toBe('your tier caps writes at asked');
+    expect(switchRefusal(new Error('network down'), 'off').message).toBe('network down');
+  });
+
+  test('a body with no detail carries a null one', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ({
+        ok: false,
+        status: 500,
+        json: async () => {
+          throw new SyntaxError('x');
+        },
+      }))
+    );
+    const err = await chipModule.targetRequest('/api/terminal/posture').catch((e) => e);
+    expect(err.status).toBe(500);
+    expect(err.detail).toBeNull();
+  });
+});
+
+/* ---- the switch epoch on the wire ------------------------------------- */
+
+describe('postSwitch', () => {
+  /**
+   * A nanosecond epoch with non-zero low digits: above 2**53, so as a JSON
+   * number it would come back rounded (…148000 or …148128), and the route
+   * would answer every turn-on 409 `stopped_since`.
+   */
+  const NS_EPOCH = '1793181592449148123';
+  const STAMPED_EPOCH = '1793181592449148987';
+
+  /** Answer each POST with the next `[status, bodyText]`, recording the raw request bodies. */
+  function stubPosts(/** @type {[number, string][]} */ answers) {
+    const sent = /** @type {string[]} */ ([]);
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (/** @type {string} */ _url, /** @type {RequestInit} */ init) => {
+        sent.push(String(init.body));
+        const [status, text] = /** @type {[number, string]} */ (answers.shift());
+        return { ok: status < 400, status, json: async () => JSON.parse(text) };
+      })
+    );
+    return sent;
+  }
+
+  test('posts back the exact string it read', async () => {
+    const sent = stubPosts([
+      [200, `{"target":"live","state":"asked","switch_epoch":"${NS_EPOCH}"}`],
+    ]);
+    const answer = await chipModule.postSwitch(null, 'live', 'asked', NS_EPOCH);
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toContain(`"epoch":"${NS_EPOCH}"`);
+    expect(answer.switch_epoch).toBe(NS_EPOCH);
+  });
+
+  test('a stamped 409 is retried with the exact string it carried', async () => {
+    const sent = stubPosts([
+      [409, `{"detail":{"reason":"stopped_since","epoch":"${STAMPED_EPOCH}","stamped":true}}`],
+      [200, `{"target":"live","state":"allowed","switch_epoch":"${STAMPED_EPOCH}"}`],
+    ]);
+    await chipModule.postSwitch(null, 'live', 'allowed', null);
+    expect(sent).toHaveLength(2);
+    expect(JSON.parse(sent[0]).epoch).toBeNull();
+    expect(sent[1]).toContain(`"epoch":"${STAMPED_EPOCH}"`);
+  });
+
+  test('sends the position and the waiver the route reads', async () => {
+    const sent = stubPosts([
+      [200, '{}'],
+      [200, '{}'],
+    ]);
+    await chipModule.postSwitch('s-1', 'standin', 'asked', '7', true);
+    expect(JSON.parse(sent[0])).toEqual({
+      session_id: 's-1',
+      target: 'standin',
+      state: 'asked',
+      epoch: '7',
+      waived: true,
+    });
+    // No waiver named is `false`: the route's field is a strict boolean.
+    await chipModule.postSwitch('s-1', 'standin', 'allowed', '7');
+    expect(JSON.parse(sent[1]).state).toBe('allowed');
+    expect(JSON.parse(sent[1]).waived).toBe(false);
+  });
+
+  test('the stamped retry keeps the waiver', async () => {
+    const sent = stubPosts([
+      [409, `{"detail":{"reason":"stopped_since","epoch":"${STAMPED_EPOCH}","stamped":true}}`],
+      [200, '{}'],
+    ]);
+    await chipModule.postSwitch(null, 'standin', 'asked', null, true);
+    expect(sent.map((body) => JSON.parse(body).waived)).toEqual([true, true]);
+    expect(JSON.parse(sent[1]).state).toBe('asked');
+  });
+
+  test('a 409 that stamped nothing is thrown, never retried', async () => {
+    const sent = stubPosts([[409, '{"detail":{"reason":"stopped_since","epoch":"3"}}']]);
+    const err = await chipModule.postSwitch(null, 'live', 'asked', '1').catch((e) => e);
+    expect(err.status).toBe(409);
+    expect(sent).toHaveLength(1);
+  });
 });
 
 /* ---- the active kind ---------------------------------------------------- */
@@ -1096,7 +1350,7 @@ describe('popover API', () => {
 describe('activeKind', () => {
   /** The CSS values the chip keys on, one per machine kind. */
   /** @type {Record<string, string>} */
-  const ATTR = { live: 'live', standin: 'standin', va: 'va' };
+  const ATTR = { live: 'real', standin: 'rehearsal', va: 'simulator' };
 
   test('answers null before anything has been read', () => {
     expect(chipModule.activeKind()).toBeNull();
@@ -1124,7 +1378,7 @@ describe('activeKind', () => {
 
   test('subscribers see the new kind once a switch has landed', async () => {
     await boot(viewOf({ targets: [rowOf({ ...KINDS.standin, active: true })] }));
-    expect(chipModule.activeKind()).toBe('standin');
+    expect(chipModule.activeKind()).toBe('rehearsal');
 
     const seen = /** @type {(string|null)[]} */ ([]);
     const off = chipModule.subscribe(() => seen.push(chipModule.activeKind()));
@@ -1133,8 +1387,8 @@ describe('activeKind', () => {
       targets: [rowOf({ ...KINDS.live, active: true })],
     });
     await chipModule.refetch();
-    expect(seen).toEqual(['live']);
-    expect(chipModule.activeKind()).toBe('live');
+    expect(seen).toEqual(['real']);
+    expect(chipModule.activeKind()).toBe('real');
     off();
   });
 });

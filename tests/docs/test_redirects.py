@@ -23,17 +23,14 @@ from __future__ import annotations
 
 import os
 import re
-import runpy
-import sys
 from pathlib import Path
 from typing import Any
 
 import pytest
 
-import osprey.version
+from tests.docs._conf import run_conf
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
-_CONF_PY = _REPO_ROOT / "docs" / "source" / "conf.py"
 _DOCS_SOURCE = _REPO_ROOT / "docs" / "source"
 
 #: ``scheme:`` prefix per RFC 3986. A redirect target that names a scheme (or
@@ -42,23 +39,10 @@ _DOCS_SOURCE = _REPO_ROOT / "docs" / "source"
 _URL_SCHEME = re.compile(r"^[a-zA-Z][a-zA-Z0-9+.\-]*:")
 
 
-def _run_conf(monkeypatch) -> dict[str, Any]:
-    """Execute ``conf.py`` with a pinned version source and return its namespace."""
-    monkeypatch.setattr(osprey.version, "is_release", lambda: True)
-    monkeypatch.setattr(osprey.version, "get_running_version", lambda: "9.9.9")
-    monkeypatch.chdir(_CONF_PY.parent)
-
-    saved_path = list(sys.path)
-    try:
-        return runpy.run_path(str(_CONF_PY))
-    finally:
-        sys.path[:] = saved_path
-
-
 @pytest.fixture
 def redirects(monkeypatch) -> dict[str, str]:
     """The live ``redirects`` map as ``conf.py`` defines it."""
-    ns = _run_conf(monkeypatch)
+    ns = run_conf(monkeypatch)
     value = ns["redirects"]
     assert isinstance(value, dict), "conf.py must define `redirects` as a dict of docname -> target"
     return value
@@ -198,7 +182,7 @@ def _write_stubs(outdir: Path, keys: list[str]) -> None:
 
 
 def test_the_build_connects_the_stub_check_to_build_finished(monkeypatch, tmp_path: Path) -> None:
-    ns = _run_conf(monkeypatch)
+    ns = run_conf(monkeypatch)
     app = _FakeApp("html", tmp_path, {})
     ns["setup"](app)
     assert app.connected == [("build-finished", ns["_check_redirect_stubs"])]
@@ -207,7 +191,7 @@ def test_the_build_connects_the_stub_check_to_build_finished(monkeypatch, tmp_pa
 def test_the_stub_check_names_each_missing_stub(
     monkeypatch, tmp_path: Path, redirects: dict[str, str]
 ) -> None:
-    ns = _run_conf(monkeypatch)
+    ns = run_conf(monkeypatch)
     keys = sorted(redirects)
     assert keys, "conf.py defines no redirects; this check is vacuous"
     _write_stubs(tmp_path, keys)
@@ -219,7 +203,7 @@ def test_the_stub_check_names_each_missing_stub(
 def test_the_stub_check_passes_a_complete_html_build(
     monkeypatch, tmp_path: Path, redirects: dict[str, str]
 ) -> None:
-    ns = _run_conf(monkeypatch)
+    ns = run_conf(monkeypatch)
     _write_stubs(tmp_path, sorted(redirects))
     assert ns["_check_redirect_stubs"](_FakeApp("html", tmp_path, redirects), None) is None
 
@@ -228,13 +212,13 @@ def test_the_stub_check_passes_a_complete_html_build(
 def test_the_stub_check_ignores_builders_that_write_no_stubs(
     monkeypatch, tmp_path: Path, redirects: dict[str, str], builder: str
 ) -> None:
-    ns = _run_conf(monkeypatch)
+    ns = run_conf(monkeypatch)
     assert ns["_check_redirect_stubs"](_FakeApp(builder, tmp_path, redirects), None) is None
 
 
 def test_the_stub_check_leaves_a_failed_build_its_own_error(
     monkeypatch, tmp_path: Path, redirects: dict[str, str]
 ) -> None:
-    ns = _run_conf(monkeypatch)
+    ns = run_conf(monkeypatch)
     app = _FakeApp("html", tmp_path, redirects)
     assert ns["_check_redirect_stubs"](app, RuntimeError("the build broke")) is None

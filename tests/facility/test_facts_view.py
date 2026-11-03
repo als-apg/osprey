@@ -429,6 +429,11 @@ def test_a_schema_1_file_is_read_as_zero_sources(tmp_path: Path) -> None:
 
 
 def test_an_unbuilt_project_context_carries_the_zero_source_facts(tmp_path: Path) -> None:
+    # A framework-default render pins writes `never` with python's read/write
+    # tools on, which the write-gate lint refuses unless writes-check is selected.
+    (tmp_path / ".osprey-manifest.json").write_text(
+        json.dumps({"artifacts": {"hooks": ["writes-check"]}}), encoding="utf-8"
+    )
     ctx = _context(tmp_path, {"project_name": "lab", "facility": {"name": "Configured"}})
 
     assert ctx["facility_facts"] == zero_source_facts(

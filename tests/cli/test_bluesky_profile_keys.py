@@ -32,6 +32,7 @@ from osprey.cli.build_profile_schema import BlueskyConfig
 from osprey.cli.profile_cmd import validate as profile_validate
 from osprey.port_layout import default_port
 from osprey_connectors.errors import BuildProfileError
+from tests._text import flat
 
 #: A port an author pinned by hand, one block above the layout's own. What these
 #: tests pin is that an AUTHORED number survives parsing and merging, so the
@@ -42,34 +43,12 @@ AUTHORED_PORT = default_port("bluesky") + 1000
 AUTHORED_TILED_PORT = AUTHORED_PORT + 1
 
 
-@pytest.fixture(autouse=True)
-def _facility_data_tree(tmp_path: Path) -> None:
-    """The tree every profile's ``data:`` key names, beside the profile.
-
-    ``data:`` is required of a repo profile and must resolve to a real
-    directory, so without this each profile below would report one extra
-    failure about a key none of these tests is about.
-    """
-    (tmp_path / "data").mkdir(exist_ok=True)
-
-
-def _flat(text: str) -> str:
-    """Collapse whitespace so assertions survive terminal line wrapping."""
-    return " ".join(text.split())
+pytestmark = pytest.mark.usefixtures("facility_data_tree")
 
 
 def _write_yaml(path: Path, body: dict[str, Any]) -> Path:
     path.write_text(yaml.safe_dump(body, sort_keys=False), encoding="utf-8")
     return path
-
-
-@pytest.fixture
-def fake_presets(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    """A preset directory the test owns, replacing the bundled one."""
-    presets = tmp_path / "presets"
-    presets.mkdir()
-    monkeypatch.setattr(build_profile_presets, "_presets_dir", lambda: presets)
-    return presets
 
 
 # ── the known set is derived, not hand-maintained ────────────────────────────
@@ -130,19 +109,35 @@ def test_empty_block_still_takes_the_defaults() -> None:
 # ── values are validated, not just key names ─────────────────────────────────
 
 
-@pytest.mark.parametrize("value", [0, -5, True, "abc"])
-def test_device_page_size_rejects_a_value_that_is_not_a_positive_int(value: Any) -> None:
-    """The key is auto-accepted (it is a dataclass field), so the VALUE check is
-    the only thing standing between a nonsense page size and a shipped build.
-
-    ``True`` is in the set on purpose: it is an ``int`` to ``isinstance``, and a
-    boolean page size is an authoring mistake, not a size of one.
-    """
+@pytest.mark.parametrize(
+    ("key", "value"),
+    [
+        # The key is auto-accepted (it is a dataclass field), so the VALUE check is
+        # the only thing standing between a nonsense page size and a shipped build.
+        #
+        # ``True`` is in the set on purpose: it is an ``int`` to ``isinstance``, and a
+        # boolean page size is an authoring mistake, not a size of one.
+        pytest.param("device_page_size", 0, id="device-page-size-zero"),
+        pytest.param("device_page_size", -5, id="device-page-size-negative"),
+        pytest.param("device_page_size", True, id="device-page-size-bool"),
+        pytest.param("device_page_size", "abc", id="device-page-size-string"),
+        # A zero or negative budget would abort every move that needs one poll.
+        pytest.param("settle_timeout_s", 0, id="settle-timeout-zero"),
+        pytest.param("settle_timeout_s", -1.0, id="settle-timeout-negative"),
+        pytest.param("settle_timeout_s", True, id="settle-timeout-bool"),
+        pytest.param("settle_timeout_s", "abc", id="settle-timeout-string"),
+        # A negative tolerance can never be met, so it turns every move into a timeout.
+        pytest.param("settle_tolerance", -1e-9, id="settle-tolerance-negative"),
+        pytest.param("settle_tolerance", True, id="settle-tolerance-bool"),
+        pytest.param("settle_tolerance", "abc", id="settle-tolerance-string"),
+    ],
+)
+def test_a_numeric_bluesky_key_rejects_a_value_of_the_wrong_kind(key: str, value: Any) -> None:
     with pytest.raises(BuildProfileError) as excinfo:
-        _parse_profile({"name": "x", "data": "data", "bluesky": {"device_page_size": value}})
+        _parse_profile({"name": "x", "data": "data", "bluesky": {key: value}})
 
     message = str(excinfo.value)
-    assert "bluesky.device_page_size" in message
+    assert f"bluesky.{key}" in message
     assert repr(value) in message
 
 
@@ -161,28 +156,6 @@ def test_settle_keys_default_when_unstated() -> None:
     assert profile.bluesky is not None
     assert profile.bluesky.settle_timeout_s == BlueskyConfig.settle_timeout_s
     assert profile.bluesky.settle_tolerance == BlueskyConfig.settle_tolerance
-
-
-@pytest.mark.parametrize("value", [0, -1.0, True, "abc"])
-def test_settle_timeout_rejects_a_value_that_is_not_a_positive_number(value: Any) -> None:
-    """A zero or negative budget would abort every move that needs one poll."""
-    with pytest.raises(BuildProfileError) as excinfo:
-        _parse_profile({"name": "x", "data": "data", "bluesky": {"settle_timeout_s": value}})
-
-    message = str(excinfo.value)
-    assert "bluesky.settle_timeout_s" in message
-    assert repr(value) in message
-
-
-@pytest.mark.parametrize("value", [-1e-9, True, "abc"])
-def test_settle_tolerance_rejects_a_value_that_is_not_a_non_negative_number(value: Any) -> None:
-    """A negative tolerance can never be met, so it turns every move into a timeout."""
-    with pytest.raises(BuildProfileError) as excinfo:
-        _parse_profile({"name": "x", "data": "data", "bluesky": {"settle_tolerance": value}})
-
-    message = str(excinfo.value)
-    assert "bluesky.settle_tolerance" in message
-    assert repr(value) in message
 
 
 @pytest.mark.parametrize("key", ["live_max_runs", "live_max_rows_per_run"])
@@ -323,7 +296,7 @@ def test_profile_validate_exits_non_zero(tmp_path: Path) -> None:
     result = CliRunner().invoke(profile_validate, [str(profile)])
 
     assert result.exit_code != 0
-    assert "'demo_runner'" in _flat(result.output)
+    assert "'demo_runner'" in flat(result.output)
 
 
 # ── inheritance sees the merged block ────────────────────────────────────────

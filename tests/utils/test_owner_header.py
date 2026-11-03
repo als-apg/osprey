@@ -8,6 +8,7 @@ about the value it refused while still saying *why* it refused.
 """
 
 import logging
+from pathlib import Path
 
 import pytest
 
@@ -106,7 +107,6 @@ class TestModuleContract:
 
         source = module.__file__
         assert source is not None
-        with open(source, encoding="utf-8") as handle:
-            text = handle.read()
+        text = Path(source).read_text(encoding="utf-8")
         assert "import osprey" not in text
         assert "from osprey" not in text

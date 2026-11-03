@@ -19,6 +19,7 @@ from osprey_connectors.control_system._base import (
     ChannelWriteResult,
     WriteOutcome,
 )
+from osprey_connectors.errors import RefusalReason
 
 
 class TestChannelWriteResultShape:
@@ -59,7 +60,7 @@ class TestChannelWriteResultShape:
         hints = get_type_hints(ChannelWriteResult)
 
         assert hints["outcome"] == WriteOutcome
-        assert hints["refusal_reason"] == (str | None)
+        assert hints["refusal_reason"] == (RefusalReason | None)
         assert hints["error_message"] == (str | None)
         assert hints["alarm_status"] == (str | None)
         assert hints["alarm_severity"] == (int | None)

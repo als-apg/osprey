@@ -42,19 +42,34 @@ def test_an_entry_records_the_take_and_both_files_by_name_and_hash(tmp_path) -> 
 
 def test_a_new_take_is_not_uploaded_until_the_release_is_named(tmp_path) -> None:
     path = tmp_path / "manifest.json"
-    vm.set_release(path, "docs-media-v2026.9.0")
-    vm.put_theme(path, "dark", _entry(tmp_path))
+    vm.put_theme(path, "landing", "dark", _entry(tmp_path))
+    vm.set_release(path, "landing", "docs-media-v2026.9.0")
+    vm.put_theme(path, "landing", "dark", _entry(tmp_path))
     data = json.loads(path.read_text())
-    assert data["release"] is None
-    assert set(data["themes"]) == {"dark"}
-    vm.set_release(path, "docs-media-v2026.9.0")
-    vm.put_theme(path, "light", _entry(tmp_path, "light"))
-    assert vm.load(path)["release"] is None
-    assert set(vm.load(path)["themes"]) == {"dark", "light"}
+    assert data["videos"]["landing"]["release"] is None
+    assert set(data["videos"]["landing"]["themes"]) == {"dark"}
+    vm.set_release(path, "landing", "docs-media-v2026.9.0")
+    vm.put_theme(path, "landing", "light", _entry(tmp_path, "light"))
+    assert vm.video(vm.load(path), "landing")["release"] is None
+    assert set(vm.video(vm.load(path), "landing")["themes"]) == {"dark", "light"}
 
 
-def test_a_missing_manifest_reads_as_empty(tmp_path) -> None:
-    assert vm.load(tmp_path / "none.json") == {"release": None, "themes": {}}
+def test_a_new_take_clears_only_its_own_video_s_release(tmp_path) -> None:
+    path = tmp_path / "manifest.json"
+    for name in ("landing", "second"):
+        vm.put_theme(path, name, "dark", _entry(tmp_path))
+        vm.set_release(path, name, "docs-media-v2026.9.0")
+    vm.put_theme(path, "second", "light", _entry(tmp_path, "light"))
+    manifest = vm.load(path)
+    assert vm.video(manifest, "landing")["release"] == "docs-media-v2026.9.0"
+    assert vm.video(manifest, "second")["release"] is None
+    assert set(vm.video(manifest, "landing")["themes"]) == {"dark"}
+
+
+def test_a_missing_manifest_reads_as_no_videos(tmp_path) -> None:
+    manifest = vm.load(tmp_path / "none.json")
+    assert manifest == {"videos": {}}
+    assert vm.video(manifest, "landing") == {"release": None, "themes": {}}
 
 
 @pytest.mark.parametrize("field", vm.ENTRY_FIELDS)

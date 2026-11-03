@@ -145,7 +145,7 @@ CARRIED_FIELDS: tuple[str, ...] = ("EApertures", "RApertures", "T1", "T2", "R1",
 HARMONIC_KEY = "HarmonicNumber"
 
 #: The pass method every served cavity runs on.
-CAVITY_PASS = "RFCavityPass"
+CAVITY_PASS = "RFCavityPass"  # noqa: S105 -- names a tracking pass method, holds no secret
 
 #: Where the layer's decks live, relative to ``data/facility/``.
 DECKS_DIR = f"{LAYER_DIR}/decks"

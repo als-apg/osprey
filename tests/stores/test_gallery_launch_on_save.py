@@ -9,7 +9,6 @@ process, serves nobody, and its teardown races the interpreter's exit.
 from __future__ import annotations
 
 import os
-import socket
 from unittest.mock import patch
 
 import pytest
@@ -20,20 +19,6 @@ PNG_BYTES = b"\x89PNG\r\n\x1a\n-rendered-frame"
 NPY_BYTES = b"\x93NUMPY-raw-payload"
 
 LAUNCHER = "osprey.infrastructure.server_launcher.ensure_web_server"
-
-
-@pytest.fixture
-def agent_data_root(tmp_path, monkeypatch):
-    """A workspace root under a real repo root, so ``data_file`` anchors resolve."""
-    repo_root = tmp_path / "repo"
-    (repo_root / "build").mkdir(parents=True)
-    config_path = repo_root / "build" / "config.yml"
-    config_path.write_text(
-        f"project_root: {repo_root}\nagent_data:\n  base_dir: state/agent\n",
-    )
-    monkeypatch.setenv("OSPREY_CONFIG", str(config_path))
-    monkeypatch.chdir(repo_root)
-    return repo_root / "state" / "agent"
 
 
 def _save_file(store: ArtifactStore):
@@ -92,7 +77,9 @@ def test_a_store_built_without_auto_launch_saves_without_starting_the_gallery(
 
 
 @pytest.mark.real_server_launch
-def test_a_save_behind_the_proxy_does_not_consume_the_panel_token(agent_data_root, monkeypatch):
+def test_a_save_behind_the_proxy_does_not_consume_the_panel_token(
+    agent_data_root, monkeypatch, reserve_port
+):
     """An agent-side save in the multi-user shape keeps the process's panel token.
 
     The process holds no operator secret, so the gallery app it would build
@@ -109,9 +96,7 @@ def test_a_save_behind_the_proxy_does_not_consume_the_panel_token(agent_data_roo
     )
     from osprey.registry.web import FRAMEWORK_WEB_SERVERS
 
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-        sock.bind(("127.0.0.1", 0))
-        port = sock.getsockname()[1]
+    port = reserve_port()
     defn = FRAMEWORK_WEB_SERVERS["artifact"]
     fresh = server_launcher.ServerLauncher(
         name=defn.name,

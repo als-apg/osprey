@@ -9,7 +9,6 @@ build key beside the vector. Flipping ``expand_entries`` off then makes
 from __future__ import annotations
 
 import copy
-from collections.abc import AsyncIterator
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -24,8 +23,8 @@ from osprey.services.ariel_search.database.migrations import model_to_table_name
 from osprey.services.ariel_search.database.repository import ARIELRepository
 from osprey.services.ariel_search.enhancement.factory import create_enhancers_from_config
 from osprey.services.ariel_search.enhancement.text_embedding.embedder import running_input_key
-from osprey.services.ariel_search.ingestion.base import FacilityAdapter
 from osprey.services.ariel_search.ingestion.ingest import ingest_one
+from tests.services.ariel_search.fake_adapters import StubAdapter
 from tests.services.ariel_search.fake_providers import make_fake_embedding_provider
 
 # xdist_group("docker"): every container-starting test file shares one worker, so a
@@ -37,18 +36,6 @@ DIMENSION = 4
 ENTRY_ID = "entry-expansion-bpm"
 RAW_TEXT = "BPM readings drifted after the ramp and were rezeroed."
 EXPANDED = "BPM beam position monitor readings drifted"
-
-
-class _StubAdapter(FacilityAdapter):
-    """A source whose single entry the test hands to ``ingest_one`` directly."""
-
-    @property
-    def source_system_name(self) -> str:
-        return "Stub"
-
-    async def fetch_entries(self, *_args, **_kwargs) -> AsyncIterator:  # type: ignore[override]
-        for entry in ():  # never yields
-            yield entry
 
 
 def _config_dict(database_uri: str, vocabulary_path: Path, *, expand: bool) -> dict[str, Any]:
@@ -95,13 +82,10 @@ def provider_cls(monkeypatch):
 
 
 async def _has_pgvector(config: ARIELConfig) -> bool:
-    pool = await create_connection_pool(config.database)
-    try:
+    async with await create_connection_pool(config.database) as pool:
         async with pool.connection() as conn:
             result = await conn.execute("SELECT 1 FROM pg_extension WHERE extname = 'vector'")
             return await result.fetchone() is not None
-    finally:
-        await pool.close()
 
 
 async def test_expanded_entry_is_embedded_keyed_and_reported_stale_when_expansion_turns_off(
@@ -118,18 +102,15 @@ async def test_expanded_entry_is_embedded_keyed_and_reported_stale_when_expansio
     assert expander is not None
     table = model_to_table_name(MODEL)
 
-    pool = await create_connection_pool(config.database)
-    try:
+    async with await create_connection_pool(config.database) as pool:
         repository = ARIELRepository(pool, config)
         enhancers = create_enhancers_from_config(config)
         assert [e.name for e in enhancers] == ["text_embedding"]
-        await ingest_one(_entry(), _StubAdapter(config), repository, enhancers, config, None)
+        await ingest_one(_entry(), StubAdapter(config), repository, enhancers, config, None)
 
         async with pool.connection() as conn:
             result = await conn.execute(f"SELECT entry_id, input_key FROM {table}")
             rows = await result.fetchall()
-    finally:
-        await pool.close()
 
     embed_calls = [call for call in provider_cls.calls if "texts" in call]
     assert embed_calls, "the embedder never reached the provider"

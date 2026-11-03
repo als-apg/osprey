@@ -45,6 +45,7 @@ if TYPE_CHECKING:
     from osprey.models.providers.base import BaseProvider
     from osprey.services.ariel_search.config import ARIELConfig
     from osprey.services.ariel_search.database.repository import ARIELRepository
+    from osprey.services.ariel_search.search._offload import SearchCallPool
 
 logger = logging.getLogger(__name__)
 
@@ -906,6 +907,21 @@ def seed_entry_factory():
 
 
 @pytest.fixture
+def search_calls() -> Iterator[SearchCallPool]:
+    """A search-call pool of the service's type, for tests that call a search module directly.
+
+    Closed at teardown, so no queued call outlives the test.
+    """
+    from osprey.services.ariel_search.search._offload import SearchCallPool
+
+    pool = SearchCallPool()
+    try:
+        yield pool
+    finally:
+        pool.close()
+
+
+@pytest.fixture
 def litellm_callback_pool() -> Iterator[ThreadPoolExecutor]:
     """Run litellm's success handlers on a pool this test owns, shut down after it.
 
@@ -1054,3 +1070,30 @@ def unit_vocabulary_file(tmp_path):
     path = tmp_path / "vocabulary.yml"
     path.write_text(UNIT_VOCABULARY, encoding="utf-8")
     return path
+
+
+class SpyExpander:
+    """Wraps an expander and records the ``limit`` of every ``expand`` call."""
+
+    def __init__(self, inner):
+        self.inner = inner
+        self.limits = []
+
+    def expand(self, text, *, limit=None, tokens=None):
+        self.limits.append(limit)
+        return self.inner.expand(text, limit=limit, tokens=tokens)
+
+
+@pytest.fixture
+def expander(unit_vocabulary_file):
+    """The unit vocabulary's entry expander, wrapped in a scan-counting spy."""
+    from osprey.services.ariel_search.vocabulary import EntryExpander
+    from osprey.services.ariel_search.vocabulary.loader import load_vocabulary
+
+    loaded, errors, _warnings = load_vocabulary(
+        unit_vocabulary_file, canonical_to_acronym=True, canonical_to_shorthand=False
+    )
+    assert errors == []
+    return SpyExpander(
+        EntryExpander(loaded, canonical_to_acronym=True, canonical_to_shorthand=False)
+    )

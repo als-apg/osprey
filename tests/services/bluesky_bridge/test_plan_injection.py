@@ -11,6 +11,7 @@ works in a bluesky-less bridge process.
 
 from __future__ import annotations
 
+import hashlib
 import sys
 from pathlib import Path
 
@@ -53,18 +54,15 @@ def get_devices():
 '''
 
 
-@pytest.fixture(autouse=True)
-def _isolated_facility_plans(monkeypatch: pytest.MonkeyPatch):
-    """Every test gets a clean plan_loader cache and no leftover env var."""
-    monkeypatch.delenv(_ENV_VAR, raising=False)
-    plan_loader.reset_facility_plans()
-    yield
-    plan_loader.reset_facility_plans()
-
-
 @pytest.fixture
 def client() -> TestClient:
     return TestClient(app)
+
+
+def _legacy_module_name(path: Path) -> str:
+    """The synthetic `sys.modules` name of a legacy facility module at *path*."""
+    digest = hashlib.sha1(str(path.resolve()).encode(), usedforsecurity=False).hexdigest()[:16]
+    return f"_bluesky_bridge_facility_plans_{digest}"
 
 
 def _write_facility_module(tmp_path: Path) -> Path:
@@ -107,19 +105,20 @@ def test_load_facility_plans_raises_on_missing_module_file(tmp_path: Path) -> No
         plan_loader.load_facility_plans(str(tmp_path / "does_not_exist.py"))
 
 
-def test_load_facility_plans_raises_when_plans_attribute_missing(tmp_path: Path) -> None:
-    module_path = tmp_path / "no_plans.py"
-    module_path.write_text("def get_devices():\n    return {}\n")
+@pytest.mark.parametrize(
+    ("filename", "source", "missing"),
+    [
+        pytest.param("no_plans.py", "def get_devices():\n    return {}\n", "PLANS", id="plans"),
+        pytest.param("no_get_devices.py", "PLANS = {}\n", "get_devices", id="get-devices"),
+    ],
+)
+def test_load_facility_plans_raises_when_a_required_attribute_is_missing(
+    tmp_path: Path, filename: str, source: str, missing: str
+) -> None:
+    module_path = tmp_path / filename
+    module_path.write_text(source)
 
-    with pytest.raises(AttributeError, match="PLANS"):
-        plan_loader.load_facility_plans(str(module_path))
-
-
-def test_load_facility_plans_raises_when_get_devices_missing(tmp_path: Path) -> None:
-    module_path = tmp_path / "no_get_devices.py"
-    module_path.write_text("PLANS = {}\n")
-
-    with pytest.raises(AttributeError, match="get_devices"):
+    with pytest.raises(AttributeError, match=missing):
         plan_loader.load_facility_plans(str(module_path))
 
 
@@ -141,8 +140,8 @@ def test_load_facility_plans_registers_module_in_sys_modules(tmp_path: Path) -> 
     synthetic name, so intra-module self-references (dataclasses, pickling)
     resolve during import."""
     module_path = _write_facility_module(tmp_path)
-    synthetic_name = f"_bluesky_bridge_facility_plans_{module_path.stem}"
-    sys.modules.pop(synthetic_name, None)  # clean precondition (other tests share the stem)
+    synthetic_name = _legacy_module_name(module_path)
+    sys.modules.pop(synthetic_name, None)  # clean precondition
 
     plan_loader.load_facility_plans(str(module_path))
 
@@ -157,7 +156,7 @@ def test_load_facility_plans_does_not_leave_module_in_sys_modules_on_exec_failur
     entry behind in `sys.modules` to shadow a later, fixed load."""
     module_path = tmp_path / "explodes_on_import.py"
     module_path.write_text("raise RuntimeError('boom at import time')\n")
-    synthetic_name = f"_bluesky_bridge_facility_plans_{module_path.stem}"
+    synthetic_name = _legacy_module_name(module_path)
 
     with pytest.raises(RuntimeError, match="boom at import time"):
         plan_loader.load_facility_plans(str(module_path))

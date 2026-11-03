@@ -160,7 +160,7 @@ async def _worker(request: dict) -> dict:
     raise ValueError(f"unknown worker op {op!r}")
 
 
-if __name__ == "__main__" and len(sys.argv) > 2 and sys.argv[1] == "--worker":
+if __name__ == "__main__" and len(sys.argv) > 1 and sys.argv[1] == "--worker":
     # Leave through ``os._exit`` whichever way the operation ends. A normal
     # exit runs aioca's teardown hook, whose ``ca_context_destroy`` blocks for
     # as long as a name-server circuit is still retrying a port nothing serves
@@ -170,7 +170,9 @@ if __name__ == "__main__" and len(sys.argv) > 2 and sys.argv[1] == "--worker":
     # path: a read of an address not served yet has used Channel Access just
     # the same.
     try:
-        print(json.dumps(asyncio.run(_worker(json.loads(sys.argv[2]))), default=str), flush=True)
+        print(
+            json.dumps(asyncio.run(_worker(json.loads(sys.stdin.read()))), default=str), flush=True
+        )
     except BaseException:
         import traceback
 
@@ -181,7 +183,6 @@ if __name__ == "__main__" and len(sys.argv) > 2 and sys.argv[1] == "--worker":
     os._exit(0)
 
 import math  # noqa: E402
-import socket  # noqa: E402
 import subprocess  # noqa: E402
 from collections.abc import Iterator, Mapping  # noqa: E402
 from dataclasses import dataclass  # noqa: E402
@@ -193,8 +194,8 @@ import pytest  # noqa: E402
 import yaml  # noqa: E402
 
 from osprey_connectors.control_system._va_in_process_connector import UDF_SEVERITY  # noqa: E402
-from osprey_connectors.simulation import decode_char_waveform, pulse  # noqa: E402
-from osprey_connectors.simulation.envelope import declares_motion, noise_sigma  # noqa: E402
+from osprey_connectors.simulation import decode_char_waveform, pulse, topoff  # noqa: E402
+from osprey_connectors.simulation.envelope import _noise_sigma, declares_motion  # noqa: E402
 from osprey_connectors.simulation.values import is_waveform  # noqa: E402
 from osprey_connectors.simulation.view import (  # noqa: E402
     TEXTURE,
@@ -202,6 +203,9 @@ from osprey_connectors.simulation.view import (  # noqa: E402
     Channel,
     SimulatorView,
 )
+from osprey_connectors_tests._harness._ports import reserved_port  # noqa: E402
+from tests.e2e._facility_select import monitor_addresses  # noqa: E402
+from tests.va._collection import assert_module_collected  # noqa: E402
 from tests.va.e2e import conftest as e2e_conftest  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -224,15 +228,10 @@ EXACT_TOL = 1e-9
 #: platform and this process's agree on it to this, relative (a few parts in a
 #: million apart on the demo), and on every other channel to :data:`EXACT_TOL`.
 CHROMATICITY_TOL = 1e-5
-CHROMATICITY = frozenset({"SR:DIAG:CHROM:X", "SR:DIAG:CHROM:Y"})
+CHROMATICITY = e2e_conftest.CHROMATICITY
 
-#: The noisy served channels of the demo: every served address whose seed
-#: declares noise or drift. The transfer line adds none: it carries no seeds.
-EXPECTED_NOISY_CHANNELS = 751
 #: The example facility's seeds, keyed by address.
 DEMO_SEEDS = REPO_ROOT / "src" / "osprey" / "templates" / "facilities" / "example" / "seeds.yaml"
-#: The address prefix of the demo's transfer line, the physics model solved single-pass.
-LINE_PREFIX = "LINE:"
 #: Reads per substrate per noisy channel.
 SAMPLES = 200
 #: The family-wise false-alarm rate the noise bounds are set for.
@@ -251,22 +250,20 @@ SWITCH_BOUND_S = 30.0
 #: active: far above its seed noise, far below the override.
 BURST_THRESHOLD = 1e-6
 
-#: The operating point the held comparison is taken at: a horizontal and a
-#: vertical corrector the other suites in this directory never write, so the
-#: closed orbit is nonzero at every monitor, and a texture setpoint whose
-#: write echoes into its readback.
-OPERATING_POINT: dict[str, float] = {
-    "SR:MAG:HCM:11:CURRENT:SP": 1.5,
-    "SR:MAG:VCM:11:CURRENT:SP": -0.75,
-    "SR:RF:CAVITY:01:VOLTAGE:SP": 2.6,
-}
+#: The operating point the held comparison is taken at (the scenario world's,
+#: see the directory conftest).
+OPERATING_POINT = e2e_conftest.OPERATING_POINT
 
 #: The served address the capture leaves out besides the waveforms: the suite's
 #: synthetic string channel, which the demo does not carry.
 SUITE_ADDITIONS = frozenset({e2e_conftest.STRING_CHANNEL})
-#: The physics model's status channel: ``ok`` while it solves, its error text
+#: The storage ring's operation mode and the label it serves at nominal.
+OPERATION_MODE = "SR:OPS:MODE:RB"
+OPERATION_MODE_LABEL = "Machine studies"
+
+#: The lane model's status channel: ``ok`` while it solves, its error text
 #: once it fails.
-SR_STATUS = "ca:SIM:SR:STATUS"
+LANE_STATUS = e2e_conftest.LANE.status_address
 
 #: Container-name prefix of the noise container; the pid follows, as for the
 #: session container (see the directory conftest for why).
@@ -317,11 +314,19 @@ class View:
         return declares_motion(self.seed(address))
 
     def motion_band(self, address: str, z: float) -> float:
-        """How far a served read may sit from the held value: z noise sigmas plus the drift."""
+        """How far a served read may sit from the held value.
+
+        z noise sigmas, taken against the held level, plus the drift and, for a
+        top-off seed, the tooth depth: the terms of ``motion_envelope`` with z
+        in place of its fixed sigma count.
+        """
         seed = self.seed(address)
         drift = seed.get("drift") or {}
-        sigma = noise_sigma(seed.get("noise"), seed.get("nominal"))
-        return z * sigma + abs(float(drift.get("amplitude") or 0.0))
+        shape = topoff.topoff_record(seed)
+        tooth = topoff.tooth_depth(shape) if shape is not None else 0.0
+        held = topoff.held_value(seed)
+        sigma = _noise_sigma(seed.get("noise"), held if held is not None else seed.get("nominal"))
+        return z * sigma + abs(float(drift.get("amplitude") or 0.0)) + tooth
 
     def labels(self, address: str) -> list[str]:
         return list(self.channel(address).options or ("FALSE", "TRUE"))
@@ -330,6 +335,14 @@ class View:
         if address in self.status:
             return "string"
         return str(self.channel(address).value_type or "float")
+
+
+def _facility_noisy_count() -> int:
+    """How many channels of the preset's view carry a seed that declares noise or drift."""
+    view = e2e_conftest.PRESET_VIEW
+    count = sum(declares_motion(view.seed(address)) for address in view.channels())
+    assert count > 0, "no seed of the preset's view declares noise or drift"
+    return count
 
 
 def _composite(view: View, state_dir: Path | None) -> Any:
@@ -360,9 +373,14 @@ def _is_trace(value: Any) -> bool:
 
 
 #: How far the peaks of two captures of one pulse may differ, as a fraction of the
-#: peak: the amplitude drift spans twice its bound, and the sample noise on the
-#: flat top adds a few of its standard deviations.
-TRACE_PEAK_TOL = 2 * pulse.AMPLITUDE_DRIFT_FRACTION + 6 * pulse.NOISE_FRACTION
+#: peak: the amplitude drift spans twice its bound, the per-shot flat-top ringing
+#: adds at most its bound, and the sample noise on the flat top adds a few of its
+#: standard deviations.
+TRACE_PEAK_TOL = (
+    2 * pulse.AMPLITUDE_DRIFT_FRACTION
+    + pulse.RINGING_COMPONENTS * pulse.RINGING_AMPLITUDE_FRACTION
+    + 6 * pulse.NOISE_FRACTION
+)
 
 
 def _same(address: str, expected: Any, served: Any, band: float = 0.0) -> bool:
@@ -402,15 +420,12 @@ def _family_z(count: int) -> float:
 
 def _ca_call(port: int, request: dict, *, timeout: float = 600.0) -> dict:
     """Run one worker operation against the container published on ``port``."""
-    environment = {
-        **os.environ,
-        "EPICS_CA_NAME_SERVERS": f"localhost:{port}",
-        "EPICS_CA_AUTO_ADDR_LIST": "NO",
-    }
-    for stale in ("EPICS_CA_ADDR_LIST", "EPICS_CA_SERVER_PORT", "EPICS_CAS_SERVER_PORT"):
-        environment.pop(stale, None)
+    environment = e2e_conftest.ca_client_environment(port)
     result = subprocess.run(
-        [sys.executable, __file__, "--worker", json.dumps(request)],
+        # The request goes on stdin: a read of every served address is one JSON
+        # document longer than the kernel allows a single argument to be.
+        [sys.executable, __file__, "--worker"],
+        input=json.dumps(request),
         capture_output=True,
         text=True,
         timeout=timeout,
@@ -512,11 +527,7 @@ def test_every_channel_without_motion_agrees_at_the_operating_point(
         )
     }
 
-    line_monitors = [
-        address
-        for address in session_view.served
-        if address.startswith(f"{LINE_PREFIX}DIAG:BPM:") and ":POSITION:" in address
-    ]
+    line_monitors = monitor_addresses(session_view.reader, model=e2e_conftest.SECOND_MODEL)
 
     assert len(still) > len(session_view.addresses) // 2
     assert line_monitors
@@ -548,11 +559,7 @@ def test_the_operating_point_moves_the_orbit_at_every_monitor(
     """Anti-vacuous guard: at rest the closed orbit is zero at every monitor,
     and the agreement above would be a comparison of zeros."""
     wire, _mock, _held = operating_point
-    monitors = [
-        address
-        for address in session_view.served
-        if address.startswith("SR:DIAG:BPM:") and ":POSITION:" in address
-    ]
+    monitors = sorted(monitor_addresses(session_view.reader, model=e2e_conftest.LANE_MODEL))
 
     assert monitors
     assert [address for address in monitors if wire[address]["value"] == 0.0] == []
@@ -582,6 +589,15 @@ def test_the_served_nominals_are_the_captured_golden(
     assert set(golden) - set(session_view.addresses) == set()
     assert set(session_view.addresses) - set(golden) == added
     assert differing == {}
+
+
+def test_the_operation_mode_serves_its_label(
+    session_view: View, nominal_reads: dict[str, Any]
+) -> None:
+    raw = nominal_reads[OPERATION_MODE]["value"]
+
+    assert session_view.value_type(OPERATION_MODE) == "enum"
+    assert _wire_value(session_view, OPERATION_MODE, raw) == OPERATION_MODE_LABEL
 
 
 def test_a_scenario_switch_returns_every_paired_texture_setpoint_to_its_seed(
@@ -652,8 +668,8 @@ def test_every_string_channel_decodes_to_the_text_the_composite_holds(
     assert decoded[e2e_conftest.STRING_CHANNEL] == e2e_conftest.STRING_NOMINAL
 
 
-def _sr_status() -> str:
-    return decode_char_waveform(_read(e2e_conftest.CA_PORT, [SR_STATUS])[SR_STATUS]["value"])
+def _lane_status() -> str:
+    return decode_char_waveform(_read(e2e_conftest.CA_PORT, [LANE_STATUS])[LANE_STATUS]["value"])
 
 
 def test_a_failed_scenario_reads_with_the_composites_severity(
@@ -666,13 +682,13 @@ def test_a_failed_scenario_reads_with_the_composites_severity(
     assert applied.returncode == 0, applied.stdout + applied.stderr
     try:
         deadline = time.monotonic() + SWITCH_BOUND_S
-        while _sr_status() == "ok":
+        while _lane_status() == "ok":
             assert time.monotonic() < deadline, "the container never failed the physics model"
             time.sleep(0.2)
         wire = _read(e2e_conftest.CA_PORT, session_view.addresses)
         mock = _composite(session_view, va_container.state_dir)
         failed = mock.output_severity(session_view.addresses)
-        mock_status = mock.status("SR")
+        mock_status = mock.status(e2e_conftest.LANE_MODEL)
     finally:
         _to_nominal(va_container)
 
@@ -692,44 +708,6 @@ def test_a_failed_scenario_reads_with_the_composites_severity(
 # ---------------------------------------------------------------------------
 # The noise container
 # ---------------------------------------------------------------------------
-
-
-def _docker(*args: str, timeout: float = 60.0) -> subprocess.CompletedProcess:
-    return subprocess.run(["docker", *args], capture_output=True, text=True, timeout=timeout)
-
-
-def _served(port: int) -> bool:
-    """Whether the container published on ``port`` serves the readiness channel.
-
-    Asked out of process, leaving through ``os._exit`` for the reason the
-    directory conftest's probe gives.
-    """
-    code = (
-        "import asyncio, os, sys, aioca\n"
-        f"v = asyncio.run(aioca.caget({e2e_conftest.READINESS_ADDRESS!r}, timeout=2.0, "
-        "throw=False))\n"
-        "sys.stdout.write('SERVED' if v.ok else 'NONE')\n"
-        "sys.stdout.flush()\n"
-        "os._exit(0)\n"
-    )
-    environment = {
-        **os.environ,
-        "EPICS_CA_NAME_SERVERS": f"localhost:{port}",
-        "EPICS_CA_AUTO_ADDR_LIST": "NO",
-    }
-    for stale in ("EPICS_CA_ADDR_LIST", "EPICS_CA_SERVER_PORT"):
-        environment.pop(stale, None)
-    try:
-        probe = subprocess.run(
-            [sys.executable, "-c", code],
-            capture_output=True,
-            text=True,
-            timeout=10,
-            env=environment,
-        )
-    except subprocess.TimeoutExpired:
-        return False
-    return probe.stdout.strip() == "SERVED"
 
 
 @dataclass(frozen=True)
@@ -768,9 +746,9 @@ def noisy_va() -> Iterator[NoisyVa]:
     port, _ = e2e_conftest.run_on_free_port(container)
     try:
         deadline = time.monotonic() + e2e_conftest.CONTAINER_BOOT_TIMEOUT_S
-        while not _served(port):
+        while not e2e_conftest.ca_served(port, timeout=10):
             if time.monotonic() > deadline:
-                logs = _docker("logs", "--tail", "40", NOISE_CONTAINER)
+                logs = e2e_conftest.docker("logs", "--tail", "40", NOISE_CONTAINER, timeout=60)
                 raise RuntimeError(
                     f"{NOISE_CONTAINER} never served {e2e_conftest.READINESS_ADDRESS} within "
                     f"{e2e_conftest.CONTAINER_BOOT_TIMEOUT_S}s.\n"
@@ -780,7 +758,7 @@ def noisy_va() -> Iterator[NoisyVa]:
             time.sleep(0.5)
         yield NoisyVa(port=port, view=View.read(root / VIEW_RELPATH.name))
     finally:
-        _docker("rm", "-f", NOISE_CONTAINER)
+        e2e_conftest.docker("rm", "-f", NOISE_CONTAINER, timeout=60)
 
 
 def test_the_container_without_the_suite_scenario_serves_the_demos_noisy_channels(
@@ -788,15 +766,20 @@ def test_the_container_without_the_suite_scenario_serves_the_demos_noisy_channel
 ) -> None:
     noisy = [address for address in noisy_va.view.served if noisy_va.view.moving(address)]
 
-    assert len(noisy) == EXPECTED_NOISY_CHANNELS
+    assert len(noisy) == _facility_noisy_count()
 
 
 def test_the_transfer_line_carries_no_seeds() -> None:
     """The noisy count holds with the transfer line served: no seed names it."""
     seeds = yaml.safe_load(DEMO_SEEDS.read_text(encoding="utf-8"))
+    wired = {
+        binding.address
+        for binding in e2e_conftest.PRESET_VIEW.bindings(model=e2e_conftest.SECOND_MODEL)
+    }
 
     assert seeds
-    assert sorted(address for address in seeds if address.startswith(LINE_PREFIX)) == []
+    assert wired
+    assert sorted(wired & set(seeds)) == []
 
 
 @pytest.fixture(scope="module")
@@ -867,7 +850,7 @@ def test_the_noisy_channels_agree_in_mean_and_spread(
         elif spread_gap > spread_bound:
             failures[address] = f"|ln(σ ratio)| {spread_gap}, bound {spread_bound}"
 
-    assert count == EXPECTED_NOISY_CHANNELS
+    assert count == _facility_noisy_count()
     assert failures == {}
 
 
@@ -882,38 +865,31 @@ def test_a_worker_that_fails_leaves_as_promptly_as_one_that_answers() -> None:
 
     No container: the name server is a port nothing listens on.
     """
-    with socket.socket() as unused:
-        unused.bind(("127.0.0.1", 0))
-        port = unused.getsockname()[1]
-    environment = {
-        **os.environ,
-        "EPICS_CA_NAME_SERVERS": f"localhost:{port}",
-        "EPICS_CA_AUTO_ADDR_LIST": "NO",
-    }
-    request = {"op": "read", "addresses": ["PARITY:NOT:SERVED"], "timeout": 1.0}
+    with reserved_port() as port:
+        environment = {
+            **os.environ,
+            "EPICS_CA_NAME_SERVERS": f"localhost:{port}",
+            "EPICS_CA_AUTO_ADDR_LIST": "NO",
+        }
+        request = {"op": "read", "addresses": ["PARITY:NOT:SERVED"], "timeout": 1.0}
 
-    started = time.monotonic()
-    result = subprocess.run(
-        [sys.executable, __file__, "--worker", json.dumps(request)],
-        capture_output=True,
-        text=True,
-        timeout=120.0,
-        env=environment,
-    )
-    elapsed = time.monotonic() - started
+        started = time.monotonic()
+        result = subprocess.run(
+            [sys.executable, __file__, "--worker"],
+            input=json.dumps(request),
+            capture_output=True,
+            text=True,
+            timeout=120.0,
+            env=environment,
+        )
+        elapsed = time.monotonic() - started
 
-    assert result.returncode != 0
-    assert "never connected to ['PARITY:NOT:SERVED']" in result.stderr
-    # The connect timeout is 1 s; libca's teardown alone is tens of seconds.
-    assert elapsed < 15.0, f"the failed worker took {elapsed:.1f}s to leave"
+        assert result.returncode != 0
+        assert "never connected to ['PARITY:NOT:SERVED']" in result.stderr
+        # The connect timeout is 1 s; libca's teardown alone is tens of seconds.
+        assert elapsed < 15.0, f"the failed worker took {elapsed:.1f}s to leave"
 
 
 def test_this_module_collects_its_whole_suite(request: pytest.FixtureRequest) -> None:
     """Vacuous-green guard: an empty or half-collected module fails here."""
-    collected = [
-        item
-        for item in request.session.items
-        if item.nodeid.split("::")[0].endswith("test_substrate_parity.py")
-    ]
-
-    assert len(collected) >= MIN_COLLECTED_TESTS
+    assert_module_collected(request, __file__, MIN_COLLECTED_TESTS)

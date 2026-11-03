@@ -17,56 +17,9 @@ Both are checked on a fresh interpreter, not on the already-populated
 ``sys.modules`` of the test session.
 """
 
-import json
-import os
-import subprocess
-import sys
-from pathlib import Path
-
 from osprey.cli.build_profile_schema import DispatchConfig
 from osprey.dispatch_pool_defaults import DEFAULT_MAX_CONCURRENT_RUNS, DEFAULT_MAX_QUEUE_DEPTH
-
-_SRC = str(Path(__file__).resolve().parents[1] / "src")
-
-
-def _fresh_import_modules(
-    module: str, allowed: set[str], *, already_imported: tuple[str, ...] = ()
-) -> list[str]:
-    """Return the non-stdlib ``osprey`` modules a fresh import of ``module`` adds.
-
-    Args:
-        module: Dotted name to import in a child interpreter.
-        allowed: Module names the import may add without being reported.
-        already_imported: Modules the child imports before it takes the baseline,
-            so their own import graph is not counted against ``module``.
-
-    Returns:
-        The offending module names, sorted — empty when the import stays
-        inside ``allowed``.
-
-    Raises:
-        AssertionError: If the child interpreter fails to import the module.
-    """
-    preload = "".join(f"import {name};" for name in already_imported)
-    code = (
-        "import json, sys;"
-        f"{preload}"
-        "before = set(sys.modules);"
-        f"import {module};"
-        f"allowed = {sorted(allowed)!r};"
-        "delta = set(sys.modules) - before - set(allowed);"
-        "print(json.dumps(sorted("
-        "m for m in delta if m.split('.')[0] not in sys.stdlib_module_names)))"
-    )
-    result = subprocess.run(
-        [sys.executable, "-c", code],
-        capture_output=True,
-        text=True,
-        env=dict(os.environ, PYTHONPATH=_SRC),
-        check=False,
-    )
-    assert result.returncode == 0, f"fresh import of {module} failed:\n{result.stderr}"
-    return json.loads(result.stdout)
+from tests._fresh_import import non_stdlib_added_by_import
 
 
 def test_defaults_are_the_documented_pair():
@@ -81,10 +34,8 @@ def test_the_leaf_imports_nothing_from_osprey():
     imports is the package's own cost. The child imports ``osprey`` before the
     baseline, so the module itself is the only name the import may add.
     """
-    offenders = _fresh_import_modules(
-        "osprey.dispatch_pool_defaults",
-        {"osprey.dispatch_pool_defaults"},
-        already_imported=("osprey",),
+    offenders = non_stdlib_added_by_import(
+        "osprey.dispatch_pool_defaults", {"osprey.dispatch_pool_defaults"}, preload=("osprey",)
     )
     assert offenders == []
 
@@ -99,7 +50,7 @@ def test_the_profile_schema_keeps_the_dispatch_package_out_of_its_import_graph()
     lazy exports, which say only that importing the package is cheap, and it
     must not be relaxed into it.
     """
-    fresh = _fresh_import_modules("osprey.cli.build_profile_schema", set())
+    fresh = non_stdlib_added_by_import("osprey.cli.build_profile_schema")
     assert not [name for name in fresh if name.split(".")[:2] == ["osprey", "dispatch"]]
 
 

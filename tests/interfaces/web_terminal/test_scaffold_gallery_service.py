@@ -7,16 +7,12 @@ import logging
 import os
 import re
 import shutil
-from collections.abc import Callable
 from pathlib import Path
 
 import pytest
 import yaml
-from click.testing import CliRunner
 
 from osprey.agent_runner.build_artifacts.catalog import BuildArtifactCatalog
-from osprey.cli.build_cmd import build
-from osprey.cli.init_cmd import init
 from osprey.cli.profile_conventions import NOT_PROJECT_RELATIVE_CHANNEL
 from osprey.interfaces.web_terminal import ownership as ownership_module
 from osprey.interfaces.web_terminal.ownership import (
@@ -30,7 +26,8 @@ from osprey.interfaces.web_terminal.scaffold_gallery_service import (
     ScaffoldGalleryService,
     restore_scaffold_bodies,
 )
-from osprey_connectors.workspace import APPS_DIRNAME, TIERS_DIRNAME
+from osprey.utils.workspace import APPS_DIRNAME, TIERS_DIRNAME
+from tests._builds import copy_build
 
 from .conftest import bare_route_app
 
@@ -51,92 +48,50 @@ WRITABLE_ARTIFACT = "agents/channel-finder"
 
 
 @pytest.fixture(scope="session")
-def _baked_repo(tmp_path_factory) -> Path:
-    """A real render of the control-assistant preset, through the real verbs.
+def _baked_repo(built_control_assistant) -> Path:
+    """The run's shared build of the control-assistant preset (``tests/_builds.py``).
 
-    ``osprey init`` materializes the deployment repo, ``osprey build`` renders
-    its build zone, and that RENDER is what the gallery service reads — it is
-    the directory holding config.yml, the manifest and the ``.claude/`` tree.
-
-    The control-assistant preset specifically: the gallery tests assert the
-    channel-finder and data-visualizer agents and the diagnose skill, none of
-    which ship with hello-world.
-
-    Session-scoped: a render is expensive, and under coverage measurement it is
-    expensive enough that one render per test blows the CI job budget. Tests
-    get an isolated copy via ``project_dir``, never this tree itself.
+    Its build zone is the RENDER the gallery service reads: config.yml, the
+    manifest and the ``.claude/`` tree. The control-assistant preset because
+    the tests assert the channel-finder and data-visualizer agents and the
+    diagnose skill, none of which ship with hello-world. Tests get an isolated
+    copy via ``project_dir``, never this tree itself.
     """
-    runner = CliRunner()
-    repo = tmp_path_factory.mktemp("gallery-bake") / "gallery-test"
-
-    created = runner.invoke(init, [str(repo), "--preset", "control-assistant", "--no-git"])
-    assert created.exit_code == 0, created.output
-
-    result = runner.invoke(build, ["--repo", str(repo), "--skip-deps", "--skip-lifecycle"])
-    assert result.exit_code == 0, result.output
-    return repo
+    return built_control_assistant.repo
 
 
-def _outside_the_gallery(build_zone: Path, names: list[str]) -> set[str]:
-    """Build-zone entries no gallery path reads: the image context and the role renders.
+def _role_renders(build_zone: Path, names: list[str]) -> set[str]:
+    """The build zone's sibling renders, which no gallery path reads.
 
     The gallery reads one render, ``build/`` itself -- its config.yml, manifest,
-    ``.claude/`` and service templates. ``build/.image/`` is the container build
-    context and every ``build/<name>/`` holding its own manifest is a sibling
-    render for another role; together they are most of the bake's bytes and
-    none of what a gallery test reads or writes.
+    ``.claude/`` and service templates. Every ``build/<name>/`` holding its own
+    manifest is a sibling render for another role, which no gallery test reads
+    or writes; :func:`copy_build` already leaves out the image context.
     """
-    return {
-        name
-        for name in names
-        if name == ".image" or (build_zone / name / ".osprey-manifest.json").is_file()
-    }
+    return {name for name in names if (build_zone / name / ".osprey-manifest.json").is_file()}
 
 
-@pytest.fixture(scope="session")
-def _baked_copy_plan(_baked_repo) -> tuple[Callable[[str, list[str]], set[str]], tuple[Path, ...]]:
-    """What ``project_dir`` skips and which files it re-anchors, read once off the bake.
+@pytest.fixture()
+def project_dir(_baked_repo, tmp_path):
+    """A private copy of the baked render, free for the test to mutate.
 
-    The bake never changes after the session fixture returns, so which files
-    carry its absolute path is a property of the bake, not of each copy.
+    Re-anchored by :func:`copy_build`: a render records absolute paths —
+    ``project_root`` in config.yml, ``build_args.profile_path_abs`` in the
+    manifest — and a copy that kept them would resolve every path back to the
+    shared bake and mutate it.
+
+    The render's ``data/`` (channel databases, graph, simulator; about half of
+    what would be copied) is left out as well: no gallery path reads it, and
+    copying it was most of each test's setup.
     """
     build_zone = _baked_repo / "build"
 
     def ignore(src: str, names: list[str]) -> set[str]:
-        return _outside_the_gallery(build_zone, names) if Path(src) == build_zone else set()
+        if Path(src) != build_zone:
+            return set()
+        return _role_renders(build_zone, names) | ({"data"} & set(names))
 
-    old = str(_baked_repo).encode()
-    skipped = {build_zone / name for name in ignore(str(build_zone), os.listdir(build_zone))}
-    carriers = tuple(
-        path.relative_to(_baked_repo)
-        for path in _baked_repo.rglob("*")
-        if not path.is_symlink()
-        and path.is_file()
-        and not any(path.is_relative_to(s) for s in skipped)
-        and old in path.read_bytes()
-    )
-    return ignore, carriers
-
-
-@pytest.fixture()
-def project_dir(_baked_repo, _baked_copy_plan, tmp_path):
-    """A private copy of the baked render, free for the test to mutate.
-
-    A render records absolute paths — ``project_root`` in config.yml,
-    ``build_args.profile_path_abs`` in the manifest — and the baked tree still
-    exists while tests run, so a copy that kept those bytes would resolve
-    every path back to the shared bake and mutate it. Re-anchoring them to the
-    copy is what makes each test's repo genuinely its own.
-    """
-    ignore, carriers = _baked_copy_plan
-    repo = tmp_path / "gallery-test"
-    shutil.copytree(_baked_repo, repo, symlinks=True, ignore=ignore)
-
-    old, new = str(_baked_repo).encode(), str(repo).encode()
-    for rel in carriers:
-        path = repo / rel
-        path.write_bytes(path.read_bytes().replace(old, new))
-    return repo / "build"
+    return copy_build(_baked_repo, tmp_path, ignore=ignore) / "build"
 
 
 @pytest.fixture()
@@ -201,21 +156,6 @@ def degraded_project_dir(project_dir, monkeypatch):
     """A project naming a profile that cannot be reached, with no volume."""
     monkeypatch.delenv("CLAUDE_CONFIG_DIR", raising=False)
     return _unreachable_profile(project_dir)
-
-
-@pytest.fixture()
-def audit_zone(tmp_path, monkeypatch):
-    """Redirect the durable audit zone, so refusal records land in the test's tree.
-
-    ``writer.audit_dir`` is the one seam every ledger derives from, so patching
-    it catches the gallery's and the restore's records alike without standing up
-    a project root.
-    """
-    from osprey.audit import writer
-
-    zone = tmp_path / "audit"
-    monkeypatch.setattr(writer, "audit_dir", lambda: zone)
-    return zone
 
 
 @pytest.fixture()
@@ -285,28 +225,20 @@ def _recreate_container(project_dir: Path, destination: Path) -> Path:
     return destination
 
 
-def _protected_records(audit_zone: Path) -> list[dict]:
-    """Every protected-write record this identity filed, grouped by surface.
+def _protected_records(recorded_entries) -> list[dict]:
+    """Every protected-write audit body the test recorded, grouped by surface.
 
-    The gallery and the container-start restore file into ledgers of their own
-    (``scaffold_gallery.jsonl`` / ``scaffold_restore.jsonl``), so both are read
-    here -- the counts in this suite are about how many refusals happened, not
-    about which file they happened to land in.
+    The gallery and the container-start restore record under surfaces of their
+    own (``scaffold_gallery`` / ``scaffold_restore``), so both are read here --
+    the counts in this suite are about how many refusals happened, not about
+    which surface they happened to be filed under.
     """
     from osprey.audit.protected import SURFACE_SCAFFOLD_GALLERY, SURFACE_SCAFFOLD_RESTORE
-    from osprey_connectors.identity import acting_identity
 
-    records: list[dict] = []
-    for surface in (SURFACE_SCAFFOLD_GALLERY, SURFACE_SCAFFOLD_RESTORE):
-        log = audit_zone / acting_identity() / f"{surface}.jsonl"
-        if not log.exists():
-            continue
-        records += [
-            json.loads(line)
-            for line in log.read_text(encoding="utf-8").splitlines()
-            if line.strip()
-        ]
-    return records
+    surfaces = (SURFACE_SCAFFOLD_GALLERY, SURFACE_SCAFFOLD_RESTORE)
+    entries = sorted(recorded_entries("audit"), key=lambda entry: entry.ts)
+    bodies = [dict(e.body) for e in entries if e.body["surface"] in surfaces]
+    return sorted(bodies, key=lambda body: surfaces.index(body["surface"]))
 
 
 def _profile_root(project_dir: Path) -> Path:
@@ -390,7 +322,6 @@ class TestListArtifacts:
         by_name = {a["name"]: a for a in result}
         assert by_name[WRITABLE_ARTIFACT]["status"] == "user-owned"
 
-    @pytest.mark.usefixtures("audit_zone")
     def test_list_artifacts_marks_a_reserved_artifact_read_only(self, service):
         """The badge has to mean what the gate does, so both are asserted here.
 
@@ -546,7 +477,7 @@ class TestComputeDiff:
 
 
 # ===========================================================================
-# Scaffold (Claim)
+# Tests of scaffolding a claim
 # ===========================================================================
 
 
@@ -629,7 +560,7 @@ class TestSaveOverrideProtectedSet:
     # ── The profile branch ───────────────────────────────────────────
 
     def test_save_override_refuses_a_reserved_rule_the_profile_supplies(
-        self, project_dir, audit_zone
+        self, project_dir, recorded_entries
     ):
         """A rule is instruction text; the profile's copy is not the way in."""
         planted = self._plant_in_profile(project_dir, "rules/planted.md", "# Planted\n")
@@ -650,7 +581,7 @@ class TestSaveOverrideProtectedSet:
         assert "NOTHING WAS WRITTEN" in message
         assert planted.read_text(encoding="utf-8") == "# Planted\n"
 
-        records = _protected_records(audit_zone)
+        records = _protected_records(recorded_entries)
         assert len(records) == 1
         assert records[0]["surface"] == "scaffold_gallery"
         assert records[0]["subject"] == ".claude/rules/planted.md"
@@ -667,7 +598,7 @@ class TestSaveOverrideProtectedSet:
     # ── The project-tree branch ──────────────────────────────────────
 
     def test_save_override_refuses_a_reserved_rule_in_the_project_tree(
-        self, detached_project_dir, detached_service, audit_zone
+        self, detached_project_dir, detached_service, recorded_entries
     ):
         """No profile to hold it, so the write would have landed in the tree."""
         on_disk = detached_project_dir / ".claude" / "rules" / "facility.md"
@@ -685,7 +616,7 @@ class TestSaveOverrideProtectedSet:
         assert "NOTHING WAS WRITTEN" in message
         assert on_disk.read_text(encoding="utf-8") == before, "the tree copy must be untouched"
 
-        records = _protected_records(audit_zone)
+        records = _protected_records(recorded_entries)
         assert len(records) == 1
         assert "target=.claude/rules/facility.md" in records[0]["detail"]
         assert records[0]["reason"] == "reserved path"
@@ -705,7 +636,7 @@ class TestSaveOverrideProtectedSet:
         assert orphan.read_text(encoding="utf-8") == edited
 
     def test_save_override_refuses_before_the_volume_copy_is_written(
-        self, container_project, volume_dir, audit_zone
+        self, container_project, volume_dir, recorded_entries
     ):
         """The container's second surface must not be written either.
 
@@ -721,7 +652,7 @@ class TestSaveOverrideProtectedSet:
 
         assert _store_index(volume_dir) == {}
         assert not (volume_dir / "osprey" / "scaffold" / "files").exists()
-        assert len(_protected_records(audit_zone)) == 1
+        assert len(_protected_records(recorded_entries)) == 1
 
     # ── The route ────────────────────────────────────────────────────
 
@@ -920,7 +851,9 @@ class TestRegisterUntracked:
         with pytest.raises(FileExistsError, match="already registered"):
             svc.register_untracked("agents/dupe")
 
-    def test_register_untracked_refuses_a_climbing_name(self, service, project_dir, audit_zone):
+    def test_register_untracked_refuses_a_climbing_name(
+        self, service, project_dir, recorded_entries
+    ):
         """A name is not a menu choice — the listing filters, the API does not.
 
         ``scan_untracked`` never offers a name like this, but the route reads
@@ -938,9 +871,11 @@ class TestRegisterUntracked:
         assert "NOTHING WAS REGISTERED" in str(exc.value)
         assert outside.read_text(encoding="utf-8") == "# Outside the render\n"
         assert ScaffoldGalleryService(project_dir)._user_owned == service._user_owned
-        assert len(_protected_records(audit_zone)) == 1
+        assert len(_protected_records(recorded_entries)) == 1
 
-    def test_register_untracked_refuses_a_reserved_name(self, service, project_dir, audit_zone):
+    def test_register_untracked_refuses_a_reserved_name(
+        self, service, project_dir, recorded_entries
+    ):
         """Registering a rule would claim a file the profile's channel writes."""
         target = project_dir / ".claude" / "rules" / "hand-written.md"
         target.parent.mkdir(parents=True, exist_ok=True)
@@ -954,7 +889,7 @@ class TestRegisterUntracked:
         assert "NOTHING WAS REGISTERED" in message
         assert "rules/hand-written" not in _get_user_owned(project_dir)
 
-        records = _protected_records(audit_zone)
+        records = _protected_records(recorded_entries)
         assert len(records) == 1
         assert records[0]["surface"] == "scaffold_gallery"
         assert records[0]["subject"] == ".claude/rules/hand-written.md"
@@ -1065,7 +1000,7 @@ class TestDeleteUntrackedRefusesAnOwnedArtifact:
 class TestDeleteUntrackedProtectedSet:
     """The delete path consults the protected set before it unlinks anything."""
 
-    def test_delete_untracked_refuses_a_climbing_path(self, service, project_dir, audit_zone):
+    def test_delete_untracked_refuses_a_climbing_path(self, service, project_dir, recorded_entries):
         """A name that climbs out of the project is refused, not resolved and deleted."""
         outside = project_dir.parent / "outside.md"
         outside.write_text("# Outside the render\n", encoding="utf-8")
@@ -1076,9 +1011,9 @@ class TestDeleteUntrackedProtectedSet:
         assert "not project-relative" in str(exc.value)
         assert "NOTHING WAS DELETED" in str(exc.value)
         assert outside.exists()
-        assert len(_protected_records(audit_zone)) == 1
+        assert len(_protected_records(recorded_entries)) == 1
 
-    def test_delete_untracked_refuses_an_absolute_path(self, service, tmp_path, audit_zone):
+    def test_delete_untracked_refuses_an_absolute_path(self, service, tmp_path, recorded_entries):
         """An absolute name is refused rather than joined onto the project dir."""
         victim = tmp_path / "victim.md"
         victim.write_text("# Victim\n", encoding="utf-8")
@@ -1089,9 +1024,9 @@ class TestDeleteUntrackedProtectedSet:
         assert "not project-relative" in str(exc.value)
         assert "NOTHING WAS DELETED" in str(exc.value)
         assert victim.exists()
-        assert len(_protected_records(audit_zone)) == 1
+        assert len(_protected_records(recorded_entries)) == 1
 
-    def test_delete_untracked_refuses_a_reserved_rule(self, service, project_dir, audit_zone):
+    def test_delete_untracked_refuses_a_reserved_rule(self, service, project_dir, recorded_entries):
         """A rule is instruction text the agent may not delete out from under itself."""
         target = project_dir / ".claude" / "rules" / "hand-written.md"
         target.parent.mkdir(parents=True, exist_ok=True)
@@ -1105,13 +1040,15 @@ class TestDeleteUntrackedProtectedSet:
         assert "NOTHING WAS DELETED" in message
         assert target.exists()
 
-        records = _protected_records(audit_zone)
+        records = _protected_records(recorded_entries)
         assert len(records) == 1
         assert records[0]["surface"] == "scaffold_gallery"
         assert records[0]["subject"] == ".claude/rules/hand-written.md"
         assert "`rules/` convention directory" in records[0]["detail"]
 
-    def test_delete_untracked_refuses_a_reserved_skill(self, service, project_dir, audit_zone):
+    def test_delete_untracked_refuses_a_reserved_skill(
+        self, service, project_dir, recorded_entries
+    ):
         """A seeded skill body is reserved too, nested path and all."""
         target = project_dir / ".claude" / "skills" / "seeded-skill" / "SKILL.md"
         target.parent.mkdir(parents=True, exist_ok=True)
@@ -1123,7 +1060,7 @@ class TestDeleteUntrackedProtectedSet:
         assert "`skills/` convention directory" in str(exc.value)
         assert "NOTHING WAS DELETED" in str(exc.value)
         assert target.exists()
-        assert len(_protected_records(audit_zone)) == 1
+        assert len(_protected_records(recorded_entries)) == 1
 
 
 class TestCustomArtifacts:
@@ -1434,13 +1371,13 @@ class TestProfileMode:
         manifest = json.loads((project_dir / ".osprey-manifest.json").read_text(encoding="utf-8"))
         return Path(manifest["build_args"]["profile_path_abs"]).parent
 
-    def test_claim_moves_artifact_into_the_profile(self, service, project_dir, audit_zone):
+    def test_claim_moves_artifact_into_the_profile(self, service, project_dir, recorded_entries):
         """The artifact lands in the profile, and leaves the project tree."""
         result = service.scaffold_override(WRITABLE_ARTIFACT)
 
         assert result["status"] == "claimed"
         assert result["moved_to_profile"] is True
-        assert _protected_records(audit_zone) == [], "an allowed claim records nothing"
+        assert _protected_records(recorded_entries) == [], "an allowed claim records nothing"
         profile_copy = self._profile_root(project_dir) / "agents" / "channel-finder.md"
         assert profile_copy.is_file()
         assert not (project_dir / result["output_path"]).exists()
@@ -1930,7 +1867,6 @@ class TestGeneratedPathsAreNeverOwnable:
             detached_service.scaffold_override(name)
         assert _get_user_owned(detached_service.project_dir) == before
 
-    @pytest.mark.usefixtures("audit_zone")
     def test_the_other_spelling_is_refused_too(self, container_project, volume_dir):
         """Ownership follows the path, so naming it by filename changes nothing.
 
@@ -2401,7 +2337,7 @@ class TestCreateClaimUnoverrideProtectedSet:
     # ── create ───────────────────────────────────────────────────────
 
     def test_create_artifact_refuses_a_rule_and_names_the_channel(
-        self, service, project_dir, audit_zone
+        self, service, project_dir, recorded_entries
     ):
         """A rule is instruction text — creating one is authoring it."""
         category, name = self.NEW_RULE
@@ -2415,14 +2351,14 @@ class TestCreateClaimUnoverrideProtectedSet:
         assert not (project_dir / ".claude" / "rules" / f"{name}.md").exists()
         assert not (_profile_root(project_dir) / "rules" / f"{name}.md").exists()
 
-        records = _protected_records(audit_zone)
+        records = _protected_records(recorded_entries)
         assert len(records) == 1
         assert records[0]["surface"] == "scaffold_gallery"
         assert records[0]["subject"] == f".claude/rules/{name}.md"
         assert records[0]["reason"] == "reserved path"
 
     def test_create_artifact_refuses_a_skill_before_the_directory_is_made(
-        self, service, project_dir, audit_zone
+        self, service, project_dir, recorded_entries
     ):
         """The directory-shaped category, refused on its resolved entry file.
 
@@ -2442,12 +2378,12 @@ class TestCreateClaimUnoverrideProtectedSet:
         assert not slot.with_suffix(".md").exists()
         assert not (project_dir / ".claude" / "skills" / "orbit-check").exists()
 
-        records = _protected_records(audit_zone)
+        records = _protected_records(recorded_entries)
         assert len(records) == 1
         assert records[0]["subject"] == ".claude/skills/orbit-check/SKILL.md"
 
     def test_create_artifact_refuses_an_osprey_hook_but_not_its_neighbours(
-        self, service, project_dir, audit_zone
+        self, service, project_dir, recorded_entries
     ):
         """The guard reads the resolved path, not the category.
 
@@ -2466,13 +2402,15 @@ class TestCreateClaimUnoverrideProtectedSet:
         assert "write-safety layer" in str(exc.value)
         assert "NOTHING WAS CREATED" in str(exc.value)
         assert not (_profile_root(project_dir) / "hooks" / "osprey_shift_check.py").exists()
-        assert len(_protected_records(audit_zone)) == 1
+        assert len(_protected_records(recorded_entries)) == 1
 
         ScaffoldGalleryService(project_dir).create_artifact("hooks", "shift-check")
         assert (_profile_root(project_dir) / "hooks" / "shift-check.py").is_file()
-        assert len(_protected_records(audit_zone)) == 1, "an allowed create records nothing"
+        assert len(_protected_records(recorded_entries)) == 1, "an allowed create records nothing"
 
-    def test_create_artifact_of_an_agent_still_goes_through(self, service, project_dir, audit_zone):
+    def test_create_artifact_of_an_agent_still_goes_through(
+        self, service, project_dir, recorded_entries
+    ):
         """The ordinary case, unchanged: an agent is the operator's to author."""
         result = service.create_artifact("agents", "shift-handover", "# Shift handover\n")
 
@@ -2483,10 +2421,10 @@ class TestCreateClaimUnoverrideProtectedSet:
         assert not (project_dir / ".claude" / "agents" / "shift-handover.md").exists(), (
             "the project copy is the build's to make, from the profile"
         )
-        assert _protected_records(audit_zone) == []
+        assert _protected_records(recorded_entries) == []
 
     def test_create_artifact_refuses_before_the_volume_is_written(
-        self, container_project, volume_dir, audit_zone
+        self, container_project, volume_dir, recorded_entries
     ):
         """The container's durable surface must not take the create either.
 
@@ -2503,12 +2441,12 @@ class TestCreateClaimUnoverrideProtectedSet:
 
         assert _store_index(volume_dir) == {}
         assert not (container_project / ".claude" / "rules" / f"{name}.md").exists()
-        assert len(_protected_records(audit_zone)) == 1
+        assert len(_protected_records(recorded_entries)) == 1
 
     # ── claim ────────────────────────────────────────────────────────
 
     def test_claim_of_a_reserved_rule_is_refused_in_profile_mode(
-        self, service, project_dir, audit_zone
+        self, service, project_dir, recorded_entries
     ):
         """A claim moves the artifact into the profile — that is a write."""
         on_disk = project_dir / ".claude" / "rules" / "safety.md"
@@ -2524,11 +2462,13 @@ class TestCreateClaimUnoverrideProtectedSet:
         assert not (_profile_root(project_dir) / "rules" / "safety.md").exists()
         assert SAFE_ARTIFACT not in ScaffoldGalleryService(project_dir)._user_owned
 
-        records = _protected_records(audit_zone)
+        records = _protected_records(recorded_entries)
         assert len(records) == 1
         assert "target=.claude/rules/safety.md" in records[0]["detail"]
 
-    def test_claim_of_a_pattern_reserved_skill_is_refused(self, service, project_dir, audit_zone):
+    def test_claim_of_a_pattern_reserved_skill_is_refused(
+        self, service, project_dir, recorded_entries
+    ):
         """The subtree the exact table never covered, and the review finding.
 
         ``.claude/skills/**`` is reserved by shape, and the CLI refusal the
@@ -2541,10 +2481,10 @@ class TestCreateClaimUnoverrideProtectedSet:
         assert "`skills/` convention directory" in str(exc.value)
         assert "NOTHING WAS CLAIMED" in str(exc.value)
         assert not (_profile_root(project_dir) / "skills" / "diagnose").exists()
-        assert len(_protected_records(audit_zone)) == 1
+        assert len(_protected_records(recorded_entries)) == 1
 
     def test_claim_of_a_reserved_rule_is_refused_on_the_volume(
-        self, container_project, volume_dir, audit_zone
+        self, container_project, volume_dir, recorded_entries
     ):
         """The mode that records ownership itself, where no CLI is in the way."""
         svc = ScaffoldGalleryService(container_project)
@@ -2554,10 +2494,10 @@ class TestCreateClaimUnoverrideProtectedSet:
 
         assert _store_index(volume_dir) == {}
         assert not (volume_dir / "osprey" / "scaffold" / "files").exists()
-        assert len(_protected_records(audit_zone)) == 1
+        assert len(_protected_records(recorded_entries)) == 1
 
     def test_claim_of_a_generated_path_keeps_the_refusal_it_already_had(
-        self, container_project, audit_zone
+        self, container_project, recorded_entries
     ):
         """One path, one answer — and for these paths it is the older one.
 
@@ -2573,7 +2513,7 @@ class TestCreateClaimUnoverrideProtectedSet:
         with pytest.raises(ScaffoldClaimError, match="generated, not authored"):
             svc.scaffold_override("hooks/hook-config")
 
-        assert _protected_records(audit_zone) == [], "the older refusal audits nothing"
+        assert _protected_records(recorded_entries) == [], "the older refusal audits nothing"
 
     # ── unclaim with delete ──────────────────────────────────────────
 
@@ -2593,7 +2533,7 @@ class TestCreateClaimUnoverrideProtectedSet:
         return planted
 
     def test_unoverride_with_delete_refuses_a_reserved_artifact(
-        self, detached_project_dir, audit_zone
+        self, detached_project_dir, recorded_entries
     ):
         """``delete_file=true`` is a delete, and this one is not the gallery's."""
         planted = self._owned_reserved_file(detached_project_dir)
@@ -2610,12 +2550,12 @@ class TestCreateClaimUnoverrideProtectedSet:
             "the release must not have happened either — the refusal says nothing did"
         )
 
-        records = _protected_records(audit_zone)
+        records = _protected_records(recorded_entries)
         assert len(records) == 1
         assert "target=.claude/rules/planted.md" in records[0]["detail"]
 
     def test_unoverride_without_delete_still_releases_a_reserved_artifact(
-        self, detached_project_dir, audit_zone
+        self, detached_project_dir, recorded_entries
     ):
         """Giving up ownership touches no file, so it stays open.
 
@@ -2633,10 +2573,10 @@ class TestCreateClaimUnoverrideProtectedSet:
         assert outcome["deleted_file"] is False
         assert planted.exists()
         assert "rules/planted" not in _get_user_owned(detached_project_dir)
-        assert _protected_records(audit_zone) == []
+        assert _protected_records(recorded_entries) == []
 
     def test_unoverride_with_delete_still_removes_an_ordinary_artifact(
-        self, detached_project_dir, detached_service, audit_zone
+        self, detached_project_dir, detached_service, recorded_entries
     ):
         """The ordinary case, unchanged."""
         orphan = detached_project_dir / ".claude" / "agents" / "removable.md"
@@ -2651,7 +2591,7 @@ class TestCreateClaimUnoverrideProtectedSet:
         assert outcome["deleted_file"] is True
         assert not orphan.exists()
         assert "agents/removable" not in _get_user_owned(detached_project_dir)
-        assert _protected_records(audit_zone) == []
+        assert _protected_records(recorded_entries) == []
 
 
 class TestUnclaimDeletesTheStoredPath:
@@ -2688,7 +2628,7 @@ class TestUnclaimDeletesTheStoredPath:
         assert derived.read_text(encoding="utf-8") == "# Somebody else's file\n"
 
     def test_a_stored_path_in_the_protected_set_is_refused(
-        self, container_project, volume_dir, audit_zone
+        self, container_project, volume_dir, recorded_entries
     ):
         stored = self._owned_at(
             container_project, volume_dir, "agents/sneaky", ".claude/rules/sneaky.md"
@@ -2699,7 +2639,7 @@ class TestUnclaimDeletesTheStoredPath:
 
         assert stored.exists()
         assert "agents/sneaky" in ScaffoldGalleryService(container_project)._user_owned
-        assert len(_protected_records(audit_zone)) == 1
+        assert len(_protected_records(recorded_entries)) == 1
 
 
 class TestLinkedWritesAreJudgedOnTheResolvedFile:
@@ -2730,7 +2670,7 @@ class TestLinkedWritesAreJudgedOnTheResolvedFile:
         return link
 
     def test_create_artifact_refuses_a_link_that_lands_on_a_reserved_file(
-        self, service, project_dir, audit_zone
+        self, service, project_dir, recorded_entries
     ):
         """Creating "an agent" that is really the safety rule is still a rule."""
         reserved = project_dir / self.RESERVED_TARGET
@@ -2747,7 +2687,7 @@ class TestLinkedWritesAreJudgedOnTheResolvedFile:
         assert "NOTHING WAS CREATED" in message
         assert reserved.read_text(encoding="utf-8") == before
 
-        records = _protected_records(audit_zone)
+        records = _protected_records(recorded_entries)
         assert len(records) == 1
         assert records[0]["subject"] == ".claude/agents/linked.md", (
             "the audit records the path the caller named — that is the one an "
@@ -2755,7 +2695,7 @@ class TestLinkedWritesAreJudgedOnTheResolvedFile:
         )
 
     def test_save_override_refuses_a_link_that_lands_on_a_reserved_file(
-        self, detached_project_dir, audit_zone
+        self, detached_project_dir, recorded_entries
     ):
         """The write path opens the target, so the target is what is judged."""
         reserved = detached_project_dir / self.RESERVED_TARGET
@@ -2769,10 +2709,10 @@ class TestLinkedWritesAreJudgedOnTheResolvedFile:
         assert "`rules/` convention directory" in str(exc.value)
         assert "NOTHING WAS WRITTEN" in str(exc.value)
         assert reserved.read_text(encoding="utf-8") == before
-        assert len(_protected_records(audit_zone)) == 1
+        assert len(_protected_records(recorded_entries)) == 1
 
     def test_save_override_still_writes_through_a_link_to_an_ordinary_file(
-        self, detached_project_dir, audit_zone
+        self, detached_project_dir, recorded_entries
     ):
         """A link is not itself suspicious — only where it lands.
 
@@ -2789,10 +2729,10 @@ class TestLinkedWritesAreJudgedOnTheResolvedFile:
         assert svc.save_override("agents/linked-ok", "# Edited\n")["status"] == "saved"
 
         assert ordinary.read_text(encoding="utf-8") == "# Edited\n"
-        assert _protected_records(audit_zone) == []
+        assert _protected_records(recorded_entries) == []
 
     def test_unoverride_with_delete_refuses_a_link_onto_a_reserved_file(
-        self, detached_project_dir, audit_zone
+        self, detached_project_dir, recorded_entries
     ):
         """``unlink`` on a link removes the link — but the rule is the target.
 
@@ -2813,7 +2753,7 @@ class TestLinkedWritesAreJudgedOnTheResolvedFile:
         assert link.is_symlink()
         assert reserved.is_file()
         assert "agents/linked-del" in _get_user_owned(detached_project_dir)
-        assert len(_protected_records(audit_zone)) == 1
+        assert len(_protected_records(recorded_entries)) == 1
 
     def test_a_link_onto_a_reserved_file_is_shown_read_only(self, detached_project_dir):
         """The badge inherits the same answer, because it asks the same method.
@@ -2875,7 +2815,7 @@ class TestWritesThatLeaveTheProjectAreRefused:
         return link
 
     def test_save_override_refuses_a_link_that_lands_outside_the_project(
-        self, detached_project_dir, tmp_path, audit_zone
+        self, detached_project_dir, tmp_path, recorded_entries
     ):
         """The save opens the target, and the target is not ours to open."""
         outside = self._outside(tmp_path)
@@ -2890,13 +2830,13 @@ class TestWritesThatLeaveTheProjectAreRefused:
         assert "NOTHING WAS WRITTEN" in str(exc.value)
         assert outside.read_bytes() == before, "the write would have gone through the link"
 
-        records = _protected_records(audit_zone)
+        records = _protected_records(recorded_entries)
         assert len(records) == 1
         assert records[0]["subject"] == ".claude/agents/escaping-save.md"
         assert NOT_PROJECT_RELATIVE_CHANNEL in records[0]["detail"]
 
     def test_unoverride_with_delete_refuses_a_link_that_lands_outside_the_project(
-        self, detached_project_dir, tmp_path, audit_zone
+        self, detached_project_dir, tmp_path, recorded_entries
     ):
         """``unlink`` through a link removes the file at the far end of it."""
         outside = self._outside(tmp_path)
@@ -2914,12 +2854,12 @@ class TestWritesThatLeaveTheProjectAreRefused:
             "the refusal is raised before the release, so ownership is untouched"
         )
 
-        records = _protected_records(audit_zone)
+        records = _protected_records(recorded_entries)
         assert len(records) == 1
         assert NOT_PROJECT_RELATIVE_CHANNEL in records[0]["detail"]
 
     def test_delete_untracked_refuses_a_link_that_lands_outside_the_project(
-        self, detached_project_dir, tmp_path, audit_zone
+        self, detached_project_dir, tmp_path, recorded_entries
     ):
         """The orphan sweep's delete reaches disk through the same one question."""
         outside = self._outside(tmp_path)
@@ -2934,7 +2874,7 @@ class TestWritesThatLeaveTheProjectAreRefused:
         assert exc.value.channel == NOT_PROJECT_RELATIVE_CHANNEL
         assert outside.exists()
         assert link.is_symlink()
-        assert len(_protected_records(audit_zone)) == 1
+        assert len(_protected_records(recorded_entries)) == 1
 
     def test_a_link_out_of_the_project_is_shown_read_only(self, detached_project_dir, tmp_path):
         """The badge inherits the refusal, so the card cannot offer a dead edit."""
@@ -2962,7 +2902,7 @@ class TestWritesThatLeaveTheProjectAreRefused:
         assert channel == NOT_PROJECT_RELATIVE_CHANNEL
 
     def test_save_override_refuses_a_path_it_cannot_resolve(
-        self, detached_project_dir, monkeypatch, audit_zone
+        self, detached_project_dir, monkeypatch, recorded_entries
     ):
         """And the caller that would have written the bytes gets that refusal."""
         target = detached_project_dir / ".claude" / "agents" / "unresolvable.md"
@@ -2980,7 +2920,7 @@ class TestWritesThatLeaveTheProjectAreRefused:
         assert "NOTHING WAS WRITTEN" in str(exc.value)
         assert target.read_text(encoding="utf-8") == "# Framework's own\n"
 
-        records = _protected_records(audit_zone)
+        records = _protected_records(recorded_entries)
         assert len(records) == 1
         assert NOT_PROJECT_RELATIVE_CHANNEL in records[0]["detail"]
 
@@ -3007,7 +2947,7 @@ class TestRestoreRefusesReservedRecords:
     It SKIPS rather than raises. One poisoned record must not cost the operator
     every other body they claimed, and a container that refuses to start is a
     worse outcome than one that starts with a single file as the image shipped
-    it — the refusal is durable on the ``scaffold_restore`` ledger either way.
+    it — the refusal is durable as a ``scaffold_restore`` audit entry either way.
     """
 
     EVIL = ("rules/evil", ".claude/rules/evil.md")
@@ -3015,7 +2955,7 @@ class TestRestoreRefusesReservedRecords:
     _plant_record = staticmethod(_plant_store_record)
 
     def test_restore_reserved_record_is_not_installed(
-        self, container_project, volume_dir, audit_zone
+        self, container_project, volume_dir, recorded_entries
     ):
         """The bare case: a rule on the volume stays on the volume."""
         name, output_path = self.EVIL
@@ -3024,7 +2964,7 @@ class TestRestoreRefusesReservedRecords:
         assert restore_scaffold_bodies(container_project) == []
         assert not (container_project / output_path).exists()
 
-        records = _protected_records(audit_zone)
+        records = _protected_records(recorded_entries)
         assert len(records) == 1
         assert records[0]["surface"] == "scaffold_restore"
         assert f"target={output_path}" in records[0]["detail"]
@@ -3032,7 +2972,7 @@ class TestRestoreRefusesReservedRecords:
         assert "`rules/` convention directory" in records[0]["detail"]
 
     def test_restore_reserved_skips_only_the_poisoned_record(
-        self, container_project, volume_dir, audit_zone, tmp_path
+        self, container_project, volume_dir, recorded_entries, tmp_path
     ):
         """A mixed store: the operator's own work still comes back.
 
@@ -3056,10 +2996,10 @@ class TestRestoreRefusesReservedRecords:
         good = pristine / ".claude" / "agents" / "channel-finder.md"
         assert good.read_text(encoding="utf-8") == edited
         assert not (pristine / output_path).exists()
-        assert len(_protected_records(audit_zone)) == 1
+        assert len(_protected_records(recorded_entries)) == 1
 
     def test_restore_reserved_skips_a_record_resolving_onto_a_reserved_file(
-        self, container_project, volume_dir, audit_zone
+        self, container_project, volume_dir, recorded_entries
     ):
         """A link in the tree makes an innocent record name a reserved file.
 
@@ -3088,7 +3028,7 @@ class TestRestoreRefusesReservedRecords:
         assert not reserved.exists(), "the write would have created the rule through the link"
         assert link.is_symlink(), "the link itself is the operator's business, not ours to remove"
 
-        records = _protected_records(audit_zone)
+        records = _protected_records(recorded_entries)
         assert len(records) == 1
         assert "target=.claude/agents/linked.md" in records[0]["detail"]
         assert "`rules/` convention directory" in records[0]["detail"]
@@ -3349,7 +3289,7 @@ class TestContainerRenderIgnoresTheBakedProfile:
         assert restored.read_text(encoding="utf-8") == edited
 
     def test_the_root_restore_still_refuses_a_reserved_record(
-        self, container_render, volume_dir, audit_zone
+        self, container_render, volume_dir, recorded_entries
     ):
         """The gate 4.5 built for the root path finally runs on the root path.
 
@@ -3364,7 +3304,7 @@ class TestContainerRenderIgnoresTheBakedProfile:
         assert restore_scaffold_bodies(container_render) == []
         assert not (container_render / output_path).exists()
 
-        records = _protected_records(audit_zone)
+        records = _protected_records(recorded_entries)
         assert len(records) == 1
         assert records[0]["surface"] == "scaffold_restore"
         assert f"target={output_path}" in records[0]["detail"]
@@ -3405,7 +3345,9 @@ class TestRestoreRefusesBodiesThatEscapeTheStore:
             encoding="utf-8",
         )
 
-    def test_a_symlinked_body_is_not_restored(self, container_project, volume_dir, audit_zone):
+    def test_a_symlinked_body_is_not_restored(
+        self, container_project, volume_dir, recorded_entries
+    ):
         """The final component is the link: the classic shape."""
         secret = volume_dir.parent / "root-only.txt"
         secret.write_text("SUPER-SECRET-ROOT-BYTES\n", encoding="utf-8")
@@ -3420,13 +3362,13 @@ class TestRestoreRefusesBodiesThatEscapeTheStore:
         assert not installed.exists(), (
             "root read a file outside the store and wrote it into the render"
         )
-        records = _protected_records(audit_zone)
+        records = _protected_records(recorded_entries)
         assert [r["surface"] for r in records] == ["scaffold_restore"]
         assert records[0]["subject"] == ".claude/agents/pwn.md"
         assert records[0]["reason"] == "ownership store body escapes the store"
 
     def test_a_body_reached_through_a_symlinked_directory_is_not_restored(
-        self, container_project, volume_dir, audit_zone
+        self, container_project, volume_dir, recorded_entries
     ):
         """The variant ``O_NOFOLLOW`` alone would miss.
 
@@ -3445,10 +3387,10 @@ class TestRestoreRefusesBodiesThatEscapeTheStore:
 
         assert restore_scaffold_bodies(container_project) == []
         assert not (container_project / ".claude" / "agents" / "pwn.md").exists()
-        assert len(_protected_records(audit_zone)) == 1
+        assert len(_protected_records(recorded_entries)) == 1
 
     def test_a_fifo_body_is_refused_under_its_own_reason(
-        self, container_project, volume_dir, audit_zone
+        self, container_project, volume_dir, recorded_entries
     ):
         """Inside the store, so not an escape — and a stall, not a leak.
 
@@ -3467,11 +3409,11 @@ class TestRestoreRefusesBodiesThatEscapeTheStore:
         assert restore_scaffold_bodies(container_project) == []
         assert not (container_project / ".claude" / "agents" / "pwn.md").exists()
 
-        records = _protected_records(audit_zone)
+        records = _protected_records(recorded_entries)
         assert [r["reason"] for r in records] == ["ownership store body is not a regular file"]
 
     def test_a_directory_body_is_refused_under_the_same_reason(
-        self, container_project, volume_dir, audit_zone
+        self, container_project, volume_dir, recorded_entries
     ):
         """The other non-regular shape, and the one a naive ``is_file()``
         already declined — pinned so the reason stays attached to it."""
@@ -3480,10 +3422,10 @@ class TestRestoreRefusesBodiesThatEscapeTheStore:
         self._index(volume_dir, "agents/pwn", ".claude/agents/pwn.md")
 
         assert restore_scaffold_bodies(container_project) == []
-        records = _protected_records(audit_zone)
+        records = _protected_records(recorded_entries)
         assert [r["reason"] for r in records] == ["ownership store body is not a regular file"]
 
-    def test_a_hard_linked_body_is_refused(self, container_project, volume_dir, audit_zone):
+    def test_a_hard_linked_body_is_refused(self, container_project, volume_dir, recorded_entries):
         """The escape again, with the symlink removed.
 
         Inside the store, a regular file, and still not one the store wrote:
@@ -3505,11 +3447,11 @@ class TestRestoreRefusesBodiesThatEscapeTheStore:
         assert restore_scaffold_bodies(container_project) == []
         assert not (container_project / ".claude" / "agents" / "pwn.md").exists()
 
-        records = _protected_records(audit_zone)
+        records = _protected_records(recorded_entries)
         assert [r["reason"] for r in records] == ["ownership store body is a hard link"]
 
     def test_a_missing_body_is_not_audited_as_an_escape(
-        self, container_project, volume_dir, audit_zone
+        self, container_project, volume_dir, recorded_entries
     ):
         """A record with no body kept is ordinary, not an attack.
 
@@ -3519,7 +3461,7 @@ class TestRestoreRefusesBodiesThatEscapeTheStore:
         self._index(volume_dir, "agents/absent", ".claude/agents/absent.md")
 
         assert restore_scaffold_bodies(container_project) == []
-        assert _protected_records(audit_zone) == []
+        assert _protected_records(recorded_entries) == []
 
 
 class TestNoDurableStoreIsSaidOutLoud:

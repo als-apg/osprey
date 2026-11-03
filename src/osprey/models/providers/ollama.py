@@ -6,6 +6,10 @@ while preserving Ollama-specific fallback URL logic for development workflows.
 
 from typing import Any
 
+import osprey._litellm_env  # noqa: F401 -- sets LiteLLM's import-time environment
+
+# isort: split
+
 from osprey_connectors.logger import get_logger
 
 from . import _local_server
@@ -197,8 +201,7 @@ class OllamaProviderAdapter(BaseProvider):
         try:
             if self._test_connection(probe_url):
                 return True, f"Accessible at {probe_url}"
-            else:
-                return False, f"Not accessible at {probe_url}"
+            return False, f"Not accessible at {probe_url}"
         except Exception as e:
             return False, f"Connection test failed: {str(e)[:50]}"
 

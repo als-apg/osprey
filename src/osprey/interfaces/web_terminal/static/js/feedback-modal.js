@@ -33,7 +33,11 @@
  */
 
 import { el } from '/design-system/js/dom.js';
-import { focusableElements, installFocusTrap, removeFocusTrap } from '/design-system/js/focus-trap.js';
+import {
+  focusableElements,
+  installFocusTrap,
+  removeFocusTrap,
+} from '/design-system/js/focus-trap.js';
 
 import { isOpen as isPaletteOpen } from './palette.js';
 
@@ -104,8 +108,7 @@ export const FEEDBACK_DISCLOSURE_PARAGRAPHS = Object.freeze([
   'The artifact inventory lists titles and ids only — artifacts tagged to ' +
     `this session, ${ARTIFACT_WINDOW_DISCLOSURE}.`,
   'Nothing leaves this page until you click an action button.',
-  'Whichever channel you choose, every submission is also recorded on this ' +
-    'deployment.',
+  'Whichever channel you choose, every submission is also recorded on this ' + 'deployment.',
 ]);
 
 /** Per-channel-kind caveat shown under the channel picker. */
@@ -286,7 +289,11 @@ export class FeedbackModal {
    */
   setTrackers(trackers) {
     this._trackers = trackers.map((tracker) => ({ ...tracker }));
-    if (this._selectedTracker() === null && this._selection !== LOCAL && this._selection !== EMAIL) {
+    if (
+      this._selectedTracker() === null &&
+      this._selection !== LOCAL &&
+      this._selection !== EMAIL
+    ) {
       this._selection = LOCAL;
     }
     if (this._channelGroupEl) {
@@ -729,7 +736,9 @@ export class FeedbackModal {
 
     if (channel === 'local') {
       row.appendChild(
-        this._actionButton('feedback-send primary', 'Send', () => this._emit(this._options.onSubmit))
+        this._actionButton('feedback-send primary', 'Send', () =>
+          this._emit(this._options.onSubmit)
+        )
       );
       return;
     }

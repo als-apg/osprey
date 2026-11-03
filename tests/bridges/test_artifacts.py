@@ -282,23 +282,19 @@ class TestExtForMime:
 
 
 class TestSafeLabel:
-    def test_plain_name_passes_through(self):
-        assert safe_label("plot.png", "fallback") == "plot.png"
-
-    def test_embedded_crlf_is_stripped(self):
-        assert safe_label("plot\r\n.png", "fallback") == "plot.png"
-
-    def test_surrounding_whitespace_is_trimmed(self):
-        assert safe_label("  plot.png  ", "fallback") == "plot.png"
-
-    def test_empty_name_falls_back(self):
-        assert safe_label("", "fallback") == "fallback"
-
-    def test_whitespace_only_name_falls_back(self):
-        assert safe_label("   ", "fallback") == "fallback"
-
-    def test_none_name_falls_back(self):
-        assert safe_label(None, "fallback") == "fallback"
+    @pytest.mark.parametrize(
+        ("name", "expected"),
+        [
+            pytest.param("plot.png", "plot.png", id="plain-name-passes-through"),
+            pytest.param("plot\r\n.png", "plot.png", id="embedded-crlf-is-stripped"),
+            pytest.param("  plot.png  ", "plot.png", id="surrounding-whitespace-is-trimmed"),
+            pytest.param("", "fallback", id="empty-name-falls-back"),
+            pytest.param("   ", "fallback", id="whitespace-only-name-falls-back"),
+            pytest.param(None, "fallback", id="none-name-falls-back"),
+        ],
+    )
+    def test_a_name_is_cleaned_or_falls_back(self, name, expected):
+        assert safe_label(name, "fallback") == expected
 
     def test_long_name_is_bounded_to_200_chars(self):
         long_name = "a" * 300

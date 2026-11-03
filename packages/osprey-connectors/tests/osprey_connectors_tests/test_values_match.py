@@ -25,7 +25,7 @@ class _Unmentionable:
     __hash__ = None
 
 
-# (id, sent, observed, enum_label, expected)
+# (id, sent, observed, enum_label, expected)  # noqa: ERA001 -- a tuple shape
 MATRIX = [
     # --- plain scalars -----------------------------------------------------
     ("zero_equals_zero", 0.0, 0.0, None, True),

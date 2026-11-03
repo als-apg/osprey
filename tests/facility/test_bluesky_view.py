@@ -255,7 +255,7 @@ def test_a_render_running_a_bluesky_lane_carries_the_view(lane: str) -> None:
     assert bluesky_configured(_inputs([], {lane: {"path": "./services/bluesky"}})) is True
 
 
-@pytest.mark.parametrize("services", [{}, {"telemetry_store": {"path": "x"}}, {"bluesky": None}])
+@pytest.mark.parametrize("services", [{}, {"postgresql": {"path": "x"}}, {"bluesky": None}])
 def test_a_render_without_a_bluesky_lane_does_not(services: dict[str, Any]) -> None:
     assert bluesky_configured(_inputs([], services)) is False
 
@@ -294,6 +294,25 @@ def test_a_build_names_the_omitted_view_once_over_all_its_renders(
     assert err.count("view bluesky not written: services.bluesky") == 1
 
 
+@pytest.mark.slow
+def test_the_shared_build_names_the_omitted_view_once_over_its_renders(
+    built_control_assistant: BuiltProject,
+) -> None:
+    """A real build hands every render one ``omitted_reported`` set.
+
+    Most of the shared build's renders run no Bluesky lane, so each of them
+    omits the view, and the build names it once.
+    """
+    without = [
+        render
+        for render in built_control_assistant.outputs
+        if f"data/{BLUESKY_DEVICES_FILE}" not in render.files
+    ]
+
+    assert len(without) > 1
+    assert built_control_assistant.output.count("view bluesky not written: services.bluesky") == 1
+
+
 # --- the demo ----------------------------------------------------------------------
 
 
@@ -304,7 +323,7 @@ def test_the_demo_view_holds_every_setpoint_and_readback(
     rows = fingerprint_rows() + load_golden("demo_fingerprint_additions.json")["rows"]
     setpoints = sorted(row["address"] for row in rows if row["role"] == "setpoint")
     readbacks = sorted(row["address"] for row in rows if row["role"] == "readback")
-    assert len(setpoints) == 522
+    assert len(setpoints) == 674
     assert sum(address.startswith("LINE:") for address in setpoints) == 16
 
     settables, readables = specs_from_file(

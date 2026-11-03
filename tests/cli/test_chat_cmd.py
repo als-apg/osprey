@@ -23,32 +23,11 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from click.testing import CliRunner
 
+from osprey.agent_runner.clean_env import SHELL_ENV_FILE
 from osprey.cli.chat_cmd import _launch_companion_servers, chat
 from tests.cli._lifecycle_build import stub_build
 from tests.cli._scoped_subprocess import patch_subprocess
-
-
-@pytest.fixture
-def runner() -> CliRunner:
-    return CliRunner()
-
-
-@pytest.fixture(autouse=True)
-def _restore_process_state():
-    """Undo the process-global state a launch mutates.
-
-    ``chat`` chdirs into ``build/`` and overlays env; ``_launch_companion_servers``
-    and ``mint_and_announce`` publish credential vars into ``os.environ``. All are
-    process-global and would otherwise reach every later test in the worker.
-    """
-    cwd = Path.cwd()
-    environ = dict(os.environ)
-    yield
-    os.chdir(cwd)
-    os.environ.clear()
-    os.environ.update(environ)
 
 
 @pytest.fixture(autouse=True)
@@ -227,6 +206,7 @@ class TestAgentChildEnvironment:
         assert result.exit_code == 0
         env = captured["env"]
         assert env.get("OSPREY_PANEL_TOKEN") == "holder-panel-token"
+        assert env.get("CLAUDE_ENV_FILE") == str(SHELL_ENV_FILE)
         assert "OSPREY_TERMINAL_SECRET" not in env
 
     def test_no_companion_means_no_panel_token_for_the_child(

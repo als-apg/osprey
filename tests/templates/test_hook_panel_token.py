@@ -43,22 +43,21 @@ delta = import_hook("osprey_workspace_delta")
 TOKEN_ENV = "OSPREY_PANEL_TOKEN"
 
 
-def _import_approval():
-    """Import the approval hook in-process, undoing its ``sys.path`` shim.
+@pytest.fixture
+def approval(monkeypatch):
+    """The approval hook, imported in-process with its ``sys.path`` shim undone.
 
     ``osprey_approval.py`` prepends its own directory to ``sys.path`` at import
     so it can pick up its ``osprey_hook_log`` sibling. Left in place, that entry
     would let any later ``import osprey_hook_log`` anywhere in the worker
-    resolve to the template copy, so the pre-import path is put back on the way
-    out. The import happens here rather than at module scope both for that
-    reason and because ``tests/infrastructure/test_import_time_audit.py``
-    forbids import-time mutation from a test module.
+    resolve to the template copy, so the import mutates a copy of the path that
+    ``monkeypatch`` drops at teardown. The import happens here rather than at
+    module scope both for that reason and because
+    ``tests/infrastructure/test_import_time_audit.py`` forbids import-time
+    mutation from a test module.
     """
-    before = list(sys.path)
-    try:
-        return importlib.import_module("osprey.templates.claude_code.claude.hooks.osprey_approval")
-    finally:
-        sys.path[:] = before
+    monkeypatch.setattr(sys, "path", list(sys.path))
+    return importlib.import_module("osprey.templates.claude_code.claude.hooks.osprey_approval")
 
 
 class _FakeResponse:
@@ -266,9 +265,8 @@ def test_workspace_delta_fails_open_on_401(monkeypatch, tmp_path, capsys):
 # ---------------------------------------------------------------------------
 
 
-def test_focus_artifact_sends_bearer_when_token_set(monkeypatch):
+def test_focus_artifact_sends_bearer_when_token_set(approval, monkeypatch):
     """The focus POST carries the bearer alongside its JSON content type."""
-    approval = _import_approval()
     monkeypatch.setenv(TOKEN_ENV, "s3cret-panel-token")
     seen = _record_urlopen(monkeypatch, urllib.request)
 
@@ -279,12 +277,11 @@ def test_focus_artifact_sends_bearer_when_token_set(monkeypatch):
     assert _authorization_of(request) == "Bearer s3cret-panel-token"
     assert request.get_header("Content-type") == "application/json"
     assert request.get_method() == "POST"
-    assert json.loads(request.data) == {"artifact_id": "artifact-7"}
+    assert json.loads(request.data) == {"artifact_id": "artifact-7", "automatic": True}
 
 
-def test_focus_artifact_sends_no_header_when_token_unset(monkeypatch):
+def test_focus_artifact_sends_no_header_when_token_unset(approval, monkeypatch):
     """No token -> no ``Authorization``; the content type is untouched."""
-    approval = _import_approval()
     seen = _record_urlopen(monkeypatch, urllib.request)
 
     approval._focus_artifact("http://127.0.0.1:10200", "artifact-7")
@@ -294,9 +291,8 @@ def test_focus_artifact_sends_no_header_when_token_unset(monkeypatch):
 
 
 @pytest.mark.parametrize("value", BLANK_TOKENS)
-def test_focus_artifact_sends_no_header_for_blank_token(monkeypatch, value):
+def test_focus_artifact_sends_no_header_for_blank_token(approval, monkeypatch, value):
     """A blank token is not a credential: the header stays off."""
-    approval = _import_approval()
     monkeypatch.setenv(TOKEN_ENV, value)
     seen = _record_urlopen(monkeypatch, urllib.request)
 
@@ -305,9 +301,8 @@ def test_focus_artifact_sends_no_header_for_blank_token(monkeypatch, value):
     assert _authorization_of(seen[0]) is None
 
 
-def test_focus_artifact_strips_a_padded_token(monkeypatch):
+def test_focus_artifact_strips_a_padded_token(approval, monkeypatch):
     """Surrounding whitespace is trimmed, not sent."""
-    approval = _import_approval()
     monkeypatch.setenv(TOKEN_ENV, "\t s3cret-panel-token ")
     seen = _record_urlopen(monkeypatch, urllib.request)
 
@@ -316,9 +311,8 @@ def test_focus_artifact_strips_a_padded_token(monkeypatch):
     assert _authorization_of(seen[0]) == "Bearer s3cret-panel-token"
 
 
-def test_focus_artifact_swallows_401(monkeypatch):
+def test_focus_artifact_swallows_401(approval, monkeypatch):
     """A gallery that refuses the focus call never breaks the approval prompt."""
-    approval = _import_approval()
     monkeypatch.setenv(TOKEN_ENV, "wrong-token")
     _record_urlopen(monkeypatch, urllib.request, raises=_unauthorized())
 

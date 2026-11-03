@@ -62,9 +62,11 @@ describe('_renderHookEvents', () => {
 
   test('matcher label falls back to `*`; script name is the de-quoted basename without .py', () => {
     const container = renderHooks({
-      PreToolUse: [{
-        hooks: [{ command: 'uv run "/opt/osprey/.claude/hooks/write_guard.py"' }],
-      }],
+      PreToolUse: [
+        {
+          hooks: [{ command: 'uv run "/opt/osprey/.claude/hooks/write_guard.py"' }],
+        },
+      ],
     });
 
     expect(qs(container, '.config-hook-matcher-label').textContent).toBe('*');

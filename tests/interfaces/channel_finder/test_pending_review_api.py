@@ -3,6 +3,8 @@
 import json
 from pathlib import Path
 
+import pytest
+
 # ------------------------------------------------------------------
 # 1. Status endpoint
 # ------------------------------------------------------------------
@@ -477,6 +479,77 @@ def test_artifact_resolves_and_serves_from_the_store_root(
     assert served.status_code == 200
     assert "Channel Finder Result" in served.text
     assert "retired zone" not in served.text
+
+
+def _stage_artifact(monkeypatch, tmp_path, client, filename, body):
+    """Write *body* as *filename* into the store's artifacts dir."""
+    client.app.state.project_cwd = str(tmp_path / "proj")
+    (_artifact_store_dir(monkeypatch, tmp_path) / filename).write_text(body)
+
+
+def test_serve_html_artifact_is_opaque(pending_review_client, tmp_path, monkeypatch):
+    """An agent-written HTML artifact is served under the opaque-origin sandbox.
+
+    It is reached through ``/panel/channel-finder`` on the console origin, so
+    without the sandbox its script would run same-origin and could arm writes.
+    """
+    from osprey.interfaces.opaque_origin import OPAQUE_CSP
+
+    _stage_artifact(
+        monkeypatch,
+        tmp_path,
+        pending_review_client,
+        "report.html",
+        "<html><script>fetch('/api/x',{method:'POST'})</script></html>",
+    )
+
+    resp = pending_review_client.get("/api/artifacts/report.html")
+    assert resp.status_code == 200
+    assert "text/html" in resp.headers["content-type"]
+    assert resp.headers["content-security-policy"] == OPAQUE_CSP
+    assert "allow-same-origin" not in resp.headers["content-security-policy"]
+    assert resp.headers["x-content-type-options"] == "nosniff"
+
+
+@pytest.mark.parametrize("filename", ["notes.md", "blob.bin", "image.svg"])
+def test_serve_non_inert_artifact_is_opaque(pending_review_client, tmp_path, monkeypatch, filename):
+    """Every type off the closed inert list -- markdown, unknown, guessed -- is opaque."""
+    from osprey.interfaces.opaque_origin import OPAQUE_CSP
+
+    _stage_artifact(monkeypatch, tmp_path, pending_review_client, filename, "x")
+
+    resp = pending_review_client.get(f"/api/artifacts/{filename}")
+    assert resp.status_code == 200
+    assert resp.headers["content-security-policy"] == OPAQUE_CSP
+
+
+@pytest.mark.parametrize(
+    ("filename", "body", "mime"),
+    [
+        ("data.json", '{"a": 1}', "application/json"),
+        ("table.csv", "a,b\n1,2\n", "text/csv"),
+        ("log.txt", "hello", "text/plain"),
+    ],
+)
+def test_serve_inert_artifact_has_no_sandbox(
+    pending_review_client, tmp_path, monkeypatch, filename, body, mime
+):
+    """Inert types keep their headers: no sandbox CSP, but nosniff."""
+    _stage_artifact(monkeypatch, tmp_path, pending_review_client, filename, body)
+
+    resp = pending_review_client.get(f"/api/artifacts/{filename}")
+    assert resp.status_code == 200
+    assert mime in resp.headers["content-type"]
+    assert "content-security-policy" not in resp.headers
+    assert resp.headers["x-content-type-options"] == "nosniff"
+    assert resp.text == body
+
+
+def test_first_party_json_api_has_no_sandbox(pending_review_client):
+    """The companion's own JSON routes are untouched by the artifact sandbox."""
+    resp = pending_review_client.get("/api/pending-reviews")
+    assert resp.status_code == 200
+    assert "content-security-policy" not in resp.headers
 
 
 def test_serve_artifact_path_traversal(pending_review_client):

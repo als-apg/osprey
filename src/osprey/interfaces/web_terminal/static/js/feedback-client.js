@@ -106,8 +106,7 @@ export const NOTICE_PASTE_ISSUE =
   'your full report is on your clipboard — paste it into the issue body';
 
 /** Email variant of {@link NOTICE_PASTE_ISSUE}. */
-export const NOTICE_PASTE_EMAIL =
-  'your full report is on your clipboard — paste it into the draft';
+export const NOTICE_PASTE_EMAIL = 'your full report is on your clipboard — paste it into the draft';
 
 /**
  * Prefilled issue title / mail subject. Deliberately generic: the report text

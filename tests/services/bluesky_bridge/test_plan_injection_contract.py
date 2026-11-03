@@ -68,20 +68,6 @@ def _write_config(tmp_path: Path, config_dict: dict) -> Path:
     return config_file
 
 
-@pytest.fixture(autouse=True)
-def _isolated_facility_plans():
-    """Clean plan_loader cache before and after every test in this module.
-
-    `OSPREY_CONFIG`/config caching is already reset by the repo-wide
-    `reset_state_between_tests` autouse fixture (tests/conftest.py); this
-    fixture only owns the `plan_loader` singleton, which that one doesn't
-    know about.
-    """
-    plan_loader.reset_facility_plans()
-    yield
-    plan_loader.reset_facility_plans()
-
-
 @pytest.fixture
 def client() -> TestClient:
     return TestClient(app)

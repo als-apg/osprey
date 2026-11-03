@@ -6,7 +6,7 @@ import re
 import shutil
 import sys
 import warnings
-from collections.abc import Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from fnmatch import fnmatchcase
 from functools import lru_cache
 from pathlib import Path, PurePosixPath
@@ -19,15 +19,19 @@ from osprey.agent_runner.build_artifacts.catalog import (
     BuildArtifactCatalog,
 )
 from osprey.agent_runner.build_artifacts.ownership import framework_template_hash
-from osprey.agent_runner.tool_names import DENY_DEFAULTS, WRITE_CAPABLE_BUILTINS
+from osprey.agent_runner.launcher import resolve_thinking_display
+from osprey.agent_runner.tool_names import DENY_DEFAULTS, SHELL_TOOLS, WRITE_CAPABLE_BUILTINS
 from osprey.ariel_attachment_view import attachment_view_enabled
 from osprey.bluesky_tool_names import QUEUE_CONTROL_TOOLS
 from osprey.build.modes import VALID_CHANNEL_FINDER_MODES
+from osprey.cli.build_profile_watchdogs import enabled_watchdogs
 from osprey.cli.profile_conventions import SETUP_PATCH_TOOL, ownership_name
 from osprey.cli.styles import console
 from osprey.cli.templates import manifest as manifest_mod
 from osprey.cli.templates._rendering import render_template
 from osprey.phoebus_agent_access import agent_access as phoebus_agent_access
+from osprey.services.watchdog.config import WATCHDOGS_BLOCK
+from osprey.utils.workspace import session_hold_dir
 from osprey_connectors import yaml_loader
 from osprey_connectors.config import resolve_env_vars
 from osprey_connectors.errors import BuildProfileError
@@ -67,7 +71,7 @@ def apply_agent_data_root(ctx: dict, project_dir: Path) -> None:
 
 
 def chat_uploads_dir(config: dict, project_dir: Path) -> str:
-    """The directory the Simple view stores attachments in, as an absolute path.
+    """The directory the operator chat stores attachments in, as an absolute path.
 
     The web terminal stores a file the operator attaches under
     ``<agent-data root>/uploads`` and hands the agent its absolute path, with the
@@ -82,8 +86,20 @@ def chat_uploads_dir(config: dict, project_dir: Path) -> str:
     root anchors on the repo this render sits in. Resolved as the server resolves
     it, so a symlinked repo path reads the same on both sides.
     """
+    from osprey.utils.workspace import CHAT_UPLOADS_SUBDIR
+
+    return _spellable(str(_resolved_agent_data_root(config, project_dir) / CHAT_UPLOADS_SUBDIR))
+
+
+def _resolved_agent_data_root(config: dict, project_dir: Path) -> Path:
+    """The render's agent-data root as an absolute path, as the runtime resolves it.
+
+    Anchored on the repo root the config's ``project_root`` names: a container
+    render names the root the container will run at, which exists only there. A
+    config naming no root anchors on the repo this render sits in, so a render in
+    ``build/`` still names the root beside it.
+    """
     from osprey_connectors.workspace import (
-        CHAT_UPLOADS_SUBDIR,
         agent_data_base_dir,
         anchored_path,
         dotted_config_str,
@@ -96,17 +112,77 @@ def chat_uploads_dir(config: dict, project_dir: Path) -> str:
         if configured
         else repo_root_for_config(project_dir.absolute() / "config.yml")
     )
-    root = anchored_path(agent_data_base_dir(config), anchor).resolve()
-    uploads = str(root / CHAT_UPLOADS_SUBDIR)
-    # The path is interpolated into a JSON string and read as a glob: a quote would
-    # cut the string, and a wildcard would widen the rule past the one directory.
-    unspellable = set(uploads) & set('"*?[\\')
+    return anchored_path(agent_data_base_dir(config), anchor).resolve()
+
+
+def _spellable(path: str) -> str:
+    """*path*, refused when a permission rule cannot spell it.
+
+    The path is interpolated into a JSON string and read as a glob: a quote would
+    cut the string, and a wildcard would widen the rule past the one directory.
+    """
+    unspellable = set(path) & set('"*?[\\')
     if unspellable:
         raise ValueError(
-            f"The agent-data root {uploads!r} contains {sorted(unspellable)}, which a "
-            "permission rule cannot spell; move the deployment or its agent_data.base_dir."
+            f"The path {path!r} contains {sorted(unspellable)}, which a permission rule "
+            "cannot spell; move the deployment or its agent_data.base_dir."
         )
-    return uploads
+    return path
+
+
+def store_deny(config: dict, project_dir: Path) -> list[str]:
+    """The file-tool denies on the control-context store, ``<agent-data root>/control_target``.
+
+    The store holds each identity's control-context record and the writes switch;
+    an agent that could edit it could arm its own writes. Claude Code checks every
+    file-writing tool (Edit, Write, NotebookEdit) against ``Edit(path)`` rules, so
+    two ``Edit`` rules cover them all: the absolute ``//`` form from the root the
+    runtime resolves (the in-container root for a terminal render), which holds
+    whatever the agent's working directory, and the relative form spelled like
+    the render's other agent-data rules.
+
+    Rendered through its own context key, after ``killswitch_deny`` and never
+    filtered, so no profile ``remove_deny`` can lift it.
+    """
+    from osprey_connectors.posture_store import STATE_DIR_NAME
+    from osprey_connectors.workspace import agent_data_base_dir
+
+    absolute = _spellable(str(_resolved_agent_data_root(config, project_dir) / STATE_DIR_NAME))
+    relative = f"{agent_data_base_dir(config)}/{STATE_DIR_NAME}"
+    return [f"Edit(/{absolute}/**)", f"Edit({relative}/**)"]
+
+
+def watchdogs_enabled(config: Mapping[str, Any]) -> bool:
+    """Whether the rendered ``config.yml`` carries an enabled watchdog."""
+    return bool(enabled_watchdogs(config.get(WATCHDOGS_BLOCK)))
+
+
+def watchdog_deny(config: dict, project_dir: Path) -> list[str]:
+    """The file-tool denies on what a watched agent must not rewrite; none with no watchdog.
+
+    A watched agent that could edit its watchdog's files could blind it, and one
+    that could edit the session holds could release itself. The render's own
+    ``watchdogs/`` is spelled project-relative (``/``) and working-directory
+    relative, neither of which moves when a staged render is swapped into place.
+    The hold store is outside the render, so it takes the absolute ``//`` form,
+    from the repo root the runtime resolves.
+
+    Claude Code holds every file-writing tool to ``Edit(path)`` rules, as
+    :func:`store_deny` says; these render with its entries, under the same
+    never-filtered key.
+    """
+    if not watchdogs_enabled(config):
+        return []
+    from osprey_connectors.workspace import dotted_config_str, repo_root_for_config
+
+    configured = dotted_config_str(config, "project_root")
+    repo_root = (
+        Path(configured).expanduser()
+        if configured
+        else repo_root_for_config(project_dir.absolute() / "config.yml")
+    )
+    holds = _spellable(str(session_hold_dir(repo_root).resolve()))
+    return ["Edit(/watchdogs/**)", "Edit(watchdogs/**)", f"Edit(/{holds}/**)"]
 
 
 def resolve_hierarchy_context(channel_finder: dict, project_dir: Path) -> dict[str, object] | None:
@@ -265,6 +341,32 @@ def _graphdb_configured(config: dict) -> bool:
         return False
 
 
+def panel_declared_context(declares_panel: Callable[[str], bool]) -> dict[str, bool]:
+    """The ctx keys the panel-derived MCP servers are conditioned on.
+
+    One key per server the registry derived from a sidecar panel, true when
+    *declares_panel* says the panel is there. The question is put by the
+    caller because its two askers hold different things: the render holds a
+    ``config.yml`` and asks whether it declares ``web.panels.<id>``, and the
+    profile card holds a build profile and asks whether the panel is among its
+    resolved ``web_panels``.
+
+    Args:
+        declares_panel: Panel id to whether that panel is served.
+
+    Returns:
+        ``{"panel_declared:<id>": bool}`` for every panel-derived server, to
+        be merged into the context before ``resolve_servers`` runs.
+    """
+    from osprey.registry.mcp import FRAMEWORK_SERVERS
+
+    return {
+        sdef.condition: bool(declares_panel(sdef.panel_id))
+        for sdef in FRAMEWORK_SERVERS.values()
+        if sdef.panel_id is not None and sdef.condition
+    }
+
+
 def config_derived_context(config: dict, project_dir: Path) -> dict[str, Any]:
     """The template-context keys read out of a project's ``config.yml`` and facts file.
 
@@ -284,7 +386,10 @@ def config_derived_context(config: dict, project_dir: Path) -> dict[str, Any]:
             resolved against the files it ships, and the facts are read from
             its ``data/facility_facts.json``.
     """
-    from osprey.deployment.web_terminals.roster import config_needs_dispatcher_token
+    from osprey.deployment.web_terminals.roster import (
+        config_declares_panel,
+        config_needs_dispatcher_token,
+    )
     from osprey.facility.views.facts import hook_measurement, read_facts
     from osprey.mcp_server.http import phoebus_bridge_default
     from osprey_connectors.types import connector_transport
@@ -316,7 +421,7 @@ def config_derived_context(config: dict, project_dir: Path) -> dict[str, Any]:
         # the directory the moment a project relocated `agent_data.base_dir` —
         # and the agent would be refused the files it had just written.
         "agent_data_root": agent_data_base_dir(config),
-        # Where the Simple view stores the files operators attach, as the absolute
+        # Where the operator chat stores the files operators attach, as the absolute
         # path the agent reads them by; settings.json allows exactly that
         # directory (see chat_uploads_dir).
         "chat_uploads_dir": chat_uploads_dir(config, project_dir),
@@ -353,6 +458,10 @@ def config_derived_context(config: dict, project_dir: Path) -> dict[str, Any]:
         # it, or the credential with no entry to spend it on. The panel
         # declaration IS that entitlement; there is no separate key.
         "event_dispatcher_wired": config_needs_dispatcher_token(config),
+        # Gates for the MCP servers derived from sidecar panels, one key per
+        # server, read the way the two above are. The predicate is the same
+        # "this project shows that panel" the dispatcher key rests on.
+        **panel_declared_context(lambda panel_id: config_declares_panel(config, panel_id)),
         # Render-time fallback for the phoebus server's PHOEBUS_BRIDGE_URL env
         # entry, derived from the same phoebus.host/phoebus.port the backend is
         # deployed on. One spelling with the runtime resolution (the shared
@@ -396,6 +505,13 @@ def config_derived_context(config: dict, project_dir: Path) -> dict[str, Any]:
         # create_project path never runs that block, so the empty default is
         # what it renders (and must render: writes state is not settled there).
         "killswitch_deny": [],
+        # The file-tool denies on the control-context store (see store_deny).
+        # Its own key for the same reason as `killswitch_deny`: settings.json.j2
+        # appends it after that list and never filters it, so no `remove_deny`
+        # reaches it. Config-derived, so both render paths carry it.
+        "store_deny": store_deny(config, project_dir) + watchdog_deny(config, project_dir),
+        # hook_config.json carries the key only when this is true.
+        "watchdogs_enabled": watchdogs_enabled(config),
         # The render's read/write-MIXED tools, fully qualified — the writes
         # kill switch's documented exception (mcp__python__execute and any
         # extends clone of it), which a readonly posture keeps reachable
@@ -406,13 +522,55 @@ def config_derived_context(config: dict, project_dir: Path) -> dict[str, Any]:
         # absent key renders as nothing at all — the same way hook_config.json
         # once shipped with an empty write-tool list and no error to say so.
         "mixed_read_write_tools": [],
+        # The render's facility (custom-server) write set, fully qualified: one
+        # exact name per tool a declaring server gates, the whole-server
+        # matcher for a server with no list. Like mixed_read_write_tools it
+        # needs resolved servers, so build_claude_code_context writes the real
+        # list; this default only keeps the key from ever being absent.
+        "facility_write_tools": [],
+        # The set the write switch's position decides for, fully qualified. Same
+        # shape and same reason as the two above: the real list needs resolved
+        # servers, this default only keeps the key from ever being absent.
+        "governed_tools": [],
         # The terminal theme `web.theme` pins, if any — settings.json.j2
         # renders it so one config key governs the look of both surfaces.
         "terminal_theme": _terminal_theme(config),
-        # How long Claude Code keeps session transcripts — settings.json.j2
-        # renders it as `cleanupPeriodDays`, absent when the deployment is silent.
-        "transcripts_retention_days": _transcripts_retention_days(config),
+        # How long Claude Code keeps session transcripts on the volumes OSPREY
+        # owns — settings.json.j2 renders it as `cleanupPeriodDays`.
+        "cleanup_period_days": _cleanup_period_days(config),
+        # Whether Claude Code shows its thinking summaries — settings.json.j2
+        # renders it as `showThinkingSummaries`, true unless the deployment
+        # sets `claude_code.thinking.display: omitted`.
+        "show_thinking_summaries": _thinking_display(config) == "summarized",
+        # The code-review hook's deadline — _build_framework_hook_rules renders it
+        # as both the rule's timeout and the command's --deadline.
+        "code_review_deadline_s": _code_review_deadline_s(config),
     }
+
+
+def _code_review_deadline_s(config: dict) -> int:
+    """The deadline of the ``code-review`` hook rule this config asks for.
+
+    A malformed ``code_review`` section renders the default deadline: refusing it is
+    the build's check, and the render path that has no such check must still complete.
+
+    Args:
+        config: Parsed ``config.yml`` mapping.
+
+    Returns:
+        Seconds, a whole number.
+    """
+    from osprey.services.code_review.settings import (
+        ReviewConfigError,
+        ReviewSettings,
+        hook_deadline_s,
+        load_review_settings,
+    )
+
+    try:
+        return hook_deadline_s(load_review_settings(config))
+    except ReviewConfigError:
+        return hook_deadline_s(ReviewSettings())
 
 
 def _read_facility(project_dir: Path) -> dict[str, Any]:
@@ -426,10 +584,11 @@ def _read_facility(project_dir: Path) -> dict[str, Any]:
         be read as a JSON object.
     """
     from osprey.facility import FACILITY_FILE
+    from osprey.facility.views.facts import parsed_facility
 
     path = project_dir / FACILITY_FILE
     try:
-        document = json.loads(path.read_text(encoding="utf-8"))
+        document = parsed_facility(path.read_bytes())
     except FileNotFoundError:
         return {}
     except (OSError, ValueError):
@@ -564,36 +723,50 @@ def _ariel_read_tools(view_enabled: bool) -> list[str]:
     return [t for t in FRAMEWORK_SERVERS["ariel"].permissions_allow if t not in excluded]
 
 
-def _transcripts_retention_days(config: dict) -> int | None:
-    """The days ``claude_code.transcripts.retention_days`` keeps a session transcript.
+_CLAUDE_CODE_MIN_CLEANUP_DAYS = 30
+"""Claude Code's own transcript-deletion default, which the record never undercuts."""
 
-    Rendered as Claude Code's ``cleanupPeriodDays``: at startup Claude Code
-    deletes every transcript older than that, 30 days when nothing sets it. The
-    key reaches the web terminals and the dispatch worker alike, because both
-    load project settings only (the terminals launch with
-    ``--setting-sources project``; the worker's SDK options pass
-    ``setting_sources=["project"]``).
 
-    Returns ``None`` when the key is absent, so the line is not rendered and
-    Claude Code's own default applies.
+def _cleanup_period_days(config: dict) -> int:
+    """The ``cleanupPeriodDays`` OSPREY-owned Claude Code volumes render.
+
+    ``max(agent_record.retention_days, 30)``: Claude Code deletes a transcript
+    at startup once it is older than this, so a record that keeps entries for
+    ``retention_days`` is never outlived by a shorter deletion, and a short
+    record retention never tightens Claude Code below its own 30-day default.
+    The terminals and the dispatch worker load project settings only, so the
+    rendered ``.claude/settings.json`` is where this reaches them; host
+    settings are never written.
+
+    The record's own value is refused by ``agent_record_errors`` when it is not
+    a whole number of days; a value that cannot be one reads as the record's
+    default here.
+    """
+    from osprey.agent_record.config import DEFAULT_RETENTION_DAYS
+
+    block = config.get("agent_record")
+    value = block.get("retention_days") if isinstance(block, Mapping) else None
+    if value is None:
+        value = config.get("agent_record.retention_days")
+    if not isinstance(value, int) or isinstance(value, bool) or value < 1:
+        value = DEFAULT_RETENTION_DAYS
+    return max(value, _CLAUDE_CODE_MIN_CLEANUP_DAYS)
+
+
+def _thinking_display(config: dict) -> str:
+    """The ``claude_code.thinking.display`` value: ``"summarized"`` (default) or ``"omitted"``.
+
+    The key path is walked by :func:`~osprey.agent_runner.launcher.resolve_thinking_display`
+    alone, so the build reads the key exactly as every launch does.
 
     Raises:
-        BuildProfileError: If the value is not a whole number of days of at
-            least 1. Unlike the theme helper this refuses rather than degrades:
-            a value silently dropped here leaves the 30-day deletion in force,
-            which is the loss the key exists to prevent.
+        BuildProfileError: If the value is neither ``summarized`` nor
+            ``omitted``, or the ``thinking`` block is not a mapping.
     """
-    transcripts = (config.get("claude_code") or {}).get("transcripts") or {}
-    value = transcripts.get("retention_days")
-    if value is None:
-        return None
-    if isinstance(value, int) and not isinstance(value, bool) and value >= 1:
-        return value
-    raise BuildProfileError(
-        f"claude_code.transcripts.retention_days must be a whole number of days, "
-        f"1 or more (got {value!r}). Claude Code refuses 0, and deletes transcripts "
-        f"older than this at startup."
-    )
+    try:
+        return resolve_thinking_display(config.get("claude_code") or {}, None).value
+    except ValueError as exc:
+        raise BuildProfileError(str(exc)) from exc
 
 
 def _terminal_theme(config: dict) -> str | None:
@@ -750,7 +923,7 @@ def build_claude_code_context(
             artifacts = tmpl_manifest.get("artifacts", {})
 
     # Derive feature flags from artifact selections
-    selected_hooks = artifacts.get("hooks", [])
+    selected_hooks = watchdog_hook_selection(artifacts.get("hooks", []), watchdogs_enabled(config))
 
     # Everything the templates read straight out of config.yml and the build's
     # facts file, read once per render (see config_derived_context).
@@ -846,7 +1019,13 @@ def build_claude_code_context(
     claude_code_config = config.get("claude_code", {})
     ctx["facility_permissions"] = claude_code_config.get("permissions", {})
 
-    from osprey.registry.mcp import mixed_read_write_tools, resolve_agents, resolve_servers
+    from osprey.registry.mcp import (
+        facility_write_tools,
+        governed_write_tools,
+        mixed_read_write_tools,
+        resolve_agents,
+        resolve_servers,
+    )
 
     ctx["servers"] = resolve_servers(claude_code_config, ctx)
     ctx["agents"] = resolve_agents(claude_code_config, ctx, project_dir, ctx["servers"])
@@ -864,6 +1043,13 @@ def build_claude_code_context(
     # classification is a property of the tool, not of the current posture,
     # and its consumers are read at run time under either one.
     ctx["mixed_read_write_tools"] = mixed_read_write_tools(ctx["servers"])
+    # The facility write set, from its one producer, unconditionally for the
+    # same reason: hook_config.json renders it verbatim, and both write-target
+    # twins send exactly those tools to `live` under either posture.
+    ctx["facility_write_tools"] = facility_write_tools(ctx["servers"])
+    # The governed set, from its one producer, unconditionally: the hooks read
+    # it under every posture, and it is a property of the tool, not of the tier.
+    ctx["governed_tools"] = governed_write_tools(ctx["servers"])
 
     # Build-time index of the Bluesky plan catalog, for the bundled plans skill.
     #
@@ -873,6 +1059,11 @@ def build_claude_code_context(
     # empty in the shipped artifact. Both paths come through this function, so
     # both carry the index.
     ctx["bluesky_plan_index"] = _build_bluesky_plan_index(config, project_dir, ctx)
+    # Build-time guide to the CANOPY screen library, for the bundled screens
+    # skill; here for the same reason as the plan index above.
+    from osprey.integrations.canopy.screen_guide import screen_guide_context
+
+    ctx["canopy_screen_guide"] = screen_guide_context(config, project_dir)
 
     # Approval-overlap guard: a facility permissions.remove_ask or
     # permissions.allow entry naming an approval-gated (ask) tool of an enabled
@@ -903,153 +1094,120 @@ def build_claude_code_context(
 
     # Model provider resolution for Claude Code
     from osprey.agent_runner.provider_env import ClaudeCodeModelResolver
-    from osprey.build.claude_code_telemetry import build_gateway_url
 
     api_providers = config.get("api", {}).get("providers", {})
     try:
-        # Build time: telemetry credentials may legitimately be the
-        # deployment's to supply (the runtime re-resolves them at agent-spawn),
-        # so an unresolved ${VAR} omits the auth header instead of aborting.
-        # The gateway's address is the one this config publishes — never the
-        # builder's environment, which a rendered artifact must not bake in.
-        model_spec = ClaudeCodeModelResolver.resolve(
-            claude_code_config,
-            api_providers,
-            defer_unresolved_telemetry_creds=True,
-            gateway_url=build_gateway_url(config),
-        )
+        # Build time: no environment is handed in, so nothing the builder
+        # exports reaches the rendered artifact.
+        model_spec = ClaudeCodeModelResolver.resolve(claude_code_config, api_providers)
     except ValueError as exc:
         warnings.warn(str(exc), stacklevel=2)
         model_spec = None
     ctx["claude_code_model_spec"] = model_spec
 
-    # Kill-switch hard-block: when control-system writes are disabled, render
-    # pure-write tools into permissions.deny. That takes the tool out of the agent's
-    # view, and the permission layer refuses any call to it, so it is never asked
-    # about. The osprey_writes_check PreToolUse hook is also a gate on its own: on
-    # the pinned Claude Code its deny wins even when a static ask names the tool, so
-    # no approval card is raised for the call (scenario b of
-    # tests/e2e/claude_code/test_chat_approval_gates_scripted.py).
-    # mcp__python__execute cannot be denied wholesale (it has a legitimate readonly
-    # path), so instead it is pulled OUT of permissions.ask: the writes_check deny on
-    # a readwrite execute then stands alone, with no prompt raised for it.
+    # The writes kill switch, keyed on the tier (`control_system.writes`) alone.
     #
-    # Generalized over FRAMEWORK_SERVERS rather than hardcoded per server name:
-    # any hooks_pre rule gated by _WRITES_CHECK is a hardware/state write and
-    # defaults to a hard deny (covers controls' channel_write and the bluesky
-    # queue's arming tools automatically, plus any future write server with no code
-    # change here). python's execute is the one documented exception — it
-    # accepts both read_only and write_access kernels, so it is pulled into
-    # remove_ask instead (see docstring above); every other writes-check-gated
-    # tool is presumed pure-write and denied outright. WHICH tools are
-    # read/write-mixed is the registry's call (is_mixed_matcher), not
-    # this renderer's: the rendered hook config and the MCP audit middleware
-    # classify off that same entry, and a second spelling here is how the
-    # three would drift.
+    # * `never` — no write succeeds on any machine a session here reaches, so
+    #   the write-only tools are denied statically, in settings.json: the
+    #   writes-check-gated framework matchers, every facility write tool
+    #   `facility_write_tools` produces (exact names; a list-less writes_check
+    #   server whole, as `mcp__<srv>`, since a `mcp__<srv>__.*` regex is not
+    #   permission syntax). The deny takes the tool out of the agent's view and
+    #   no profile `remove_deny` can lift it (see `killswitch_deny` below).
+    #   Read/write-mixed tools (python's execute, execute_file) and
+    #   `control_system.write_tools` entries keep their reads: they stay out of
+    #   the deny, are pulled from `ask`, and the writes-check hook refuses their
+    #   writes per call. A `write_tools` entry leaves `ask` only when a wired
+    #   writes-check rule actually matches it — writes-check is server-attached,
+    #   so an entry no enabled server's rule covers keeps its static `ask`
+    #   rather than run ungated. WHICH tools are mixed is the registry's call
+    #   (`is_mixed_matcher`), the same entry hook_config.json and the audit
+    #   middleware classify off.
+    # * `asked`, `allowed` — one render, the difference between them is the
+    #   ceiling the switch reads at run time, never a settings.json line. Nothing
+    #   is denied: the runtime switch decides each call.
+    #   Every write tool stays behind `ask` unless its own rule carries BOTH the
+    #   writes-check hook and an approval hook (`rule_carries_both_write_hooks`,
+    #   the test `governed_write_tools` is built on, so `phoebus_drive` leaves
+    #   `ask` here while keeping its policy). Such a tool is pulled from `ask`:
+    #   its approval hook decides the prompt from the switch's position, and with
+    #   the switch off writes-check refuses it before any operator is offered an
+    #   approval for a write the switch forbids. A tool missing either hook keeps
+    #   its static `ask`.
     #
-    # Write posture is per target, so the render is three-way rather than two:
-    #
-    # * NO target may write — the kill switch above, unchanged. One static deny
-    #   is correct because the tool is illegal wherever the session points.
-    # * EVERY target may write — nothing rendered, unchanged.
-    # * The targets DISAGREE — the deny cannot be static, because the same tool
-    #   is legal on one target and refused on the other and settings.json is
-    #   rendered once, before any session picks a target. So the render steps
-    #   aside: every writes-check-gated matcher is pulled from `ask` and none is
-    #   denied, and the runtime carries it per call in three places —
-    #   osprey_writes_check (stage 1 the session posture, stage 2 the active
-    #   target's posture), the approval hook's defer, and, for the lane-addressed
-    #   `queue_*` tools that stage 2 deliberately skips, the lane-bound posture
-    #   re-read inside the bluesky queue tools themselves. Dropping the `ask` keeps the
-    #   operator from being offered an approval for a write the target's posture forbids.
-    #   On the pinned Claude Code that is defense in depth, not the only gate: the
-    #   writes_check deny wins even over a static ask (scenario b of
-    #   tests/e2e/claude_code/test_chat_approval_gates_scripted.py).
-    #
-    # The postures come from `session_posture`, which yields both targets only
-    # on a deployment that renders the switch and otherwise yields the built
-    # connector's own posture alone. Looping CONTROL_TARGETS here instead would
-    # call a deployment mixed on the strength of a target no session can select
-    # — a mock deployment carrying an armed epics block would lose its hard deny
-    # over a machine it never reaches.
-    from osprey_connectors.types import session_posture
+    # Either way an approval-gated tool an enabled agent hard-requires and that
+    # was just pulled from `ask` is re-granted via `allow` — mixed tools only,
+    # a whole policy unit at a time (`_policy_unit_of`) — so the agent keeps its
+    # read-only compute and no pure-write tool ever reaches `allow`.
+    from osprey.registry.mcp import (
+        _WRITES_CHECK,
+        FRAMEWORK_SERVERS,
+        _hook_rule_to_dict,
+        is_mixed_matcher,
+        rule_carries_both_write_hooks,
+        rule_carries_writes_check,
+    )
+    from osprey_connectors.types import tier_writes
 
     control_system = config.get("control_system", {}) or {}
 
-    # The floor under the postures below: a deployment that arms writes must
-    # have installed the hooks that gate them. Checked here rather than on the
-    # create_project path for the same reason the kill switch is — writes state
-    # is not settled there — and before anything posture-dependent is rendered.
+    # The floor under the render below: the hooks that gate a write must be
+    # installed. Checked here rather than on the create_project path for the
+    # same reason the kill switch is — the tier is not settled there.
     _lint_write_gates_are_selected(ctx, control_system)
 
-    writes_by_target = session_posture(control_system)
-    if not all(writes_by_target.values()):
-        from osprey.registry.mcp import (
-            _WRITES_CHECK,
-            FRAMEWORK_SERVERS,
-            is_mixed_matcher,
-        )
+    writes_tier = tier_writes(control_system)
+    never = writes_tier == "never"
+    # Read by `_lint_write_tools_are_gated`: on an arming render a lifted shell
+    # is refused, not warned about (PR-12).
+    ctx["writes_tier"] = writes_tier
+    facility_perms = dict(ctx["facility_permissions"] or {})
+    # Kill-switch denies land in their OWN context key, never in
+    # facility_permissions['deny']: `remove_deny` is profile-authored and
+    # subtracts from profile-authored deny sources only, so a matcher there
+    # could be lifted. settings.json.j2 appends killswitch_deny last, unfiltered.
+    killswitch_deny = list(ctx.get("killswitch_deny") or [])
+    remove_ask = list(facility_perms.get("remove_ask", []) or [])
+    allow = list(facility_perms.get("allow", []) or [])
+    # Matchers the earlier (filtered) deny parts already render, skipped to
+    # keep the array duplicate-free. A matcher the profile denies AND removes
+    # is not in this set, so the kill switch re-adds it.
+    _remove_deny = list(facility_perms.get("remove_deny", []) or [])
+    already_denied = {
+        d
+        for d in list(ctx.get("deny_defaults") or []) + list(facility_perms.get("deny", []) or [])
+        if d not in _remove_deny
+    }
 
-        mixed = any(writes_by_target.values())
-        facility_perms = dict(ctx["facility_permissions"])
-        # Kill-switch denies land in their OWN context key, never in
-        # facility_permissions['deny']. `remove_deny` is profile-authored and
-        # subtracts from profile-authored deny sources only; if these matchers
-        # sat in the facility list, a profile could name one under remove_deny
-        # and lift a writes-off deny. settings.json.j2 appends killswitch_deny
-        # last and never filters it.
-        killswitch_deny = list(ctx.get("killswitch_deny") or [])
-        remove_ask = list(facility_perms.get("remove_ask", []))
-        allow = list(facility_perms.get("allow", []))
-        # Matchers the earlier (filtered) deny parts already render. Skipping
-        # them keeps the rendered array duplicate-free and byte-identical to the
-        # pre-split render for every profile that does not both deny and
-        # remove_deny the same entry. A matcher the profile denies AND removes
-        # is filtered out up there, so it is NOT in this set and the kill switch
-        # re-adds it below — which is the whole point of the split.
-        _remove_deny = list(facility_perms.get("remove_deny", []))
-        already_denied = {
-            d
-            for d in list(ctx.get("deny_defaults") or []) + list(facility_perms.get("deny", []))
-            if d not in _remove_deny
-        }
-        # Approval-gated tools an enabled agent hard-requires (e.g. the
-        # pyat-specialist's only compute path, mcp__python__execute) must stay
-        # reachable even with writes off, or the agent declares a tool absent
-        # from permissions and build validation fails. They are still pulled
-        # from `ask` below -- a static ask entry drives even a read-write
-        # execute to the SDK's can_use_tool prompt, bypassing the kill switch
-        # (see tests/cli/test_claude_regen.py::...covers_python_execute) -- and
-        # re-granted via `allow` instead: no approval-prompt path to bypass,
-        # while the PreToolUse writes-check hook still hard-denies write-access
-        # kernels and permits only read-only ones. Net: read-only compute works,
-        # control-system writes stay blocked.
-        required_ask = {
-            tool for a in ctx["agents"] if a["enabled"] for tool in a.get("requires_ask_tools", [])
-        }
-        # The matchers pulled from `ask` because the registry documents them
-        # read/write-mixed — the only ones the rescue below may promote to
-        # `allow`. Tracked separately from `remove_ask`, which on a mixed render
-        # also holds the pure-write matchers (and which a profile can seed with
-        # anything at all): a pure-write tool in `allow` is an unguarded write,
-        # so the rescue must never be able to reach one.
-        #
-        # Keyed matcher -> (server-instance prefix, hook-command set) rather
-        # than a bare set, because the rescue promotes whole policy units and
-        # needs both halves of that identity — see `_policy_unit_of`.
-        mixed_policy_units: dict[str, tuple[str, frozenset[str]]] = {}
-        # Cover extends clones too, not just the literal template names: the
-        # runtime hook templates (osprey_writes_check.py, osprey_approval.py)
-        # exact-match template tool names and are clone-unaware — they are the
-        # belt layer only; this settings.json deny/remove_ask rendering is the
-        # enforced layer for clones.
-        for srv in ctx["servers"]:
-            if not srv["enabled"]:
-                continue
-            template = srv.get("extends_of") or srv["name"]
-            template_def = FRAMEWORK_SERVERS.get(template)
-            if template_def is None:
-                continue  # custom (non-framework) server — out of scope here
+    def _deny(matcher: str) -> None:
+        if matcher not in killswitch_deny and matcher not in already_denied:
+            killswitch_deny.append(matcher)
+
+    def _unask(matcher: str) -> None:
+        if matcher not in remove_ask:
+            remove_ask.append(matcher)
+
+    required_ask = {
+        tool for a in ctx["agents"] if a["enabled"] for tool in a.get("requires_ask_tools", [])
+    }
+    # Mixed matchers pulled from `ask`, keyed matcher -> (server-instance
+    # prefix, hook-command set): the only tools the re-grant may promote.
+    mixed_policy_units: dict[str, tuple[str, frozenset[str]]] = {}
+    # Every PreToolUse matcher this render wires writes-check onto: the only
+    # tools a `control_system.write_tools` entry may rely on for its per-call
+    # refusal once it leaves `ask`.
+    writes_check_matchers: list[str] = []
+
+    for srv in ctx["servers"]:
+        if not srv["enabled"]:
+            continue
+        template = srv.get("extends_of") or srv["name"]
+        template_def = FRAMEWORK_SERVERS.get(template)
+        if template_def is not None and not srv.get("is_custom"):
+            # Framework server or an `extends` clone of one: the write set is
+            # the template's writes-check rules, re-anchored to the clone. The
+            # runtime hooks exact-match template names, so this render is the
+            # enforced layer for clones.
             old_prefix, new_prefix = f"mcp__{template}__", f"mcp__{srv['name']}__"
             for rule in template_def.hooks_pre:
                 if _WRITES_CHECK not in rule.hooks:
@@ -1057,40 +1215,106 @@ def build_claude_code_context(
                 matcher = rule.matcher
                 if matcher.startswith(old_prefix):
                     matcher = new_prefix + matcher[len(old_prefix) :]
+                writes_check_matchers.append(matcher)
+                both_hooks = rule_carries_both_write_hooks(_hook_rule_to_dict(rule)["hooks"])
                 if is_mixed_matcher(template, matcher):
-                    mixed_policy_units[matcher] = (
-                        new_prefix,
-                        frozenset(h.command for h in rule.hooks),
-                    )
-                    if matcher not in remove_ask:
-                        remove_ask.append(matcher)
-                elif mixed:
-                    if matcher not in remove_ask:
-                        remove_ask.append(matcher)
-                elif matcher not in killswitch_deny and matcher not in already_denied:
-                    killswitch_deny.append(matcher)
-        # Re-grant, via `allow`, any mixed read/write tool an enabled agent
-        # hard-requires that the kill-switch just pulled from `ask`. `allow`
-        # (not `ask`) keeps it off the approval-prompt path the writes-check
-        # kill switch guards, so the read-only agent keeps its compute without
-        # reopening a write-access bypass. Drawn from `mixed_policy_units` and
-        # not from `remove_ask`: a pure-write tool is denied on an all-off render
-        # and hook-gated on a mixed one, and must reach `allow` from neither.
-        #
-        # Promoted a whole policy unit at a time — `_policy_unit_of` says why a
-        # tool the agent never names still has to travel with the one it does.
-        for tool in sorted(required_ask):
-            if tool not in mixed_policy_units:
+                    if never or both_hooks:
+                        mixed_policy_units[matcher] = (
+                            new_prefix,
+                            frozenset(h.command for h in rule.hooks),
+                        )
+                        _unask(matcher)
+                elif never:
+                    _deny(matcher)
+                elif both_hooks:
+                    _unask(matcher)
+            continue
+        if not srv.get("is_custom"):
+            continue
+        # A facility server. On an arming render its writes-check rules that
+        # also carry approval leave `ask`; a whole-server regex rule covers
+        # every ask entry of the server it matches.
+        asked = [f"mcp__{srv['name']}__{t}" for t in srv.get("permissions_ask") or []] + list(
+            srv.get("fixed_ask") or []
+        )
+        for rule in srv.get("hooks_pre") or []:
+            if not rule_carries_writes_check(rule["hooks"]):
                 continue
-            for matcher in _policy_unit_of(tool, mixed_policy_units):
-                if matcher not in allow:
-                    allow.append(matcher)
-        facility_perms["remove_ask"] = remove_ask
-        facility_perms["allow"] = allow
-        ctx["facility_permissions"] = facility_perms
-        ctx["killswitch_deny"] = killswitch_deny
+            writes_check_matchers.append(rule["matcher"])
+            if never:
+                continue
+            if not rule_carries_both_write_hooks(rule["hooks"]):
+                continue
+            for tool in asked:
+                if _hook_matcher_covers(rule["matcher"], tool):
+                    _unask(tool)
+
+    if never:
+        # The facility set from its one producer (C-FW), never inferred here.
+        for matcher in ctx["facility_write_tools"]:
+            _deny(_permission_matcher(matcher))
+        # `control_system.write_tools` entries keep their reads and are never
+        # denied. One leaves `ask` only when a wired writes-check rule matches
+        # it — that hook is then what refuses its writes per call. An entry no
+        # rule covers keeps its static `ask`: pulling it would leave the tool
+        # with no gate at all on the tier that promises no writes.
+        for tool in control_system.get("write_tools") or []:
+            if not isinstance(tool, str) or not tool:
+                continue
+            if any(_hook_matcher_covers(m, tool) for m in writes_check_matchers):
+                _unask(tool)
+
+    for tool in sorted(required_ask):
+        if tool not in mixed_policy_units:
+            continue
+        for matcher in _policy_unit_of(tool, mixed_policy_units):
+            if matcher not in allow:
+                allow.append(matcher)
+    facility_perms["remove_ask"] = remove_ask
+    facility_perms["allow"] = allow
+    ctx["facility_permissions"] = facility_perms
+    ctx["killswitch_deny"] = killswitch_deny
 
     return ctx
+
+
+#: A list-less facility server's whole-server hook matcher, ``mcp__<srv>__.*``.
+_WHOLE_SERVER_MATCHER = re.compile(r"^(?P<server>mcp__[A-Za-z0-9_-]+?)__\.\*$")
+
+
+def _permission_matcher(matcher: str) -> str:
+    """A facility write matcher spelled as Claude Code permission syntax.
+
+    ``facility_write_tools`` yields hook matchers, where a list-less server's
+    rule is the regex ``mcp__<srv>__.*``. A permission rule is an exact tool name
+    or a whole server, never a regex, so that one becomes ``mcp__<srv>``; an
+    exact ``mcp__<srv>__<tool>`` is returned unchanged.
+    """
+    match = _WHOLE_SERVER_MATCHER.match(matcher)
+    return match.group("server") if match else matcher
+
+
+def _whole_server_covers(matcher: str, tool: str) -> bool:
+    """Whether a whole-server hook matcher ``mcp__<srv>__.*`` covers ``tool``."""
+    match = _WHOLE_SERVER_MATCHER.match(matcher)
+    return match is not None and tool.startswith(match.group("server") + "__")
+
+
+def _hook_matcher_covers(matcher: str, tool: str) -> bool:
+    """Whether a PreToolUse hook ``matcher`` fires on ``tool``.
+
+    Claude Code reads a hook matcher as a regex over the whole tool name; an
+    exact name and the whole-server ``mcp__<srv>__.*`` are the common cases.
+    ``tool`` may itself be a whole-server ``mcp__<srv>__.*`` entry, which only
+    the identical matcher covers. A matcher that is not a valid regex covers
+    only the identical name.
+    """
+    if matcher == tool or _whole_server_covers(matcher, tool):
+        return True
+    try:
+        return re.fullmatch(matcher, tool) is not None
+    except re.error:
+        return False
 
 
 def _build_bluesky_plan_index(config: dict, project_dir: Path, ctx: dict) -> dict | None:
@@ -1240,11 +1464,18 @@ def auto_register_user_owned(project_dir: Path, canonical_name: str):
 
 def _build_framework_hook_rules(
     selected_hooks: list[str],
+    code_review_deadline_s: int | None = None,
 ) -> tuple[list[dict], list[dict]]:
     """Build HookRule dicts for standalone framework hooks.
 
     Resolves each selected hook name to its file path, parses frontmatter,
     and builds wiring entries for hooks that declare ``wiring: standalone``.
+
+    Args:
+        selected_hooks: The profile's selected hook names.
+        code_review_deadline_s: The ``code-review`` rule's deadline, rendered as its
+            timeout and its ``--deadline`` argument. ``None`` takes the default from
+            the hook's frontmatter.
 
     Returns:
         ``(pre_rules, post_rules)`` — same dict shape as server hook rules.
@@ -1264,6 +1495,12 @@ def _build_framework_hook_rules(
         if meta is None:
             continue
 
+        command = f'python3 "$CLAUDE_PROJECT_DIR/.claude/hooks/{hook_path.name}"'
+        timeout = meta["timeout"]
+        if hook_name == _CODE_REVIEW_HOOK:
+            timeout = timeout if code_review_deadline_s is None else code_review_deadline_s
+            command = f"{command} --deadline {timeout}"
+
         rule = {
             "matcher": meta["tools"],
             "hooks": [
@@ -1276,8 +1513,8 @@ def _build_framework_hook_rules(
                     # (approval, writes kill-switch, feedback capture) goes dark.
                     # settings.json.j2 rewrites this ``python3`` token to the
                     # project's resolved venv interpreter (``current_python_env``).
-                    "command": f'python3 "$CLAUDE_PROJECT_DIR/.claude/hooks/{hook_path.name}"',
-                    "timeout": meta["timeout"],
+                    "command": command,
+                    "timeout": timeout,
                 }
             ],
         }
@@ -1326,6 +1563,7 @@ _FRAMEWORK_EVENT_HOOKS: tuple[tuple[str, str | None, tuple[tuple[str, int], ...]
             ("workspace-delta", 3),
             ("control-context", 3),
             ("turn-state", 3),
+            ("watchdog-trigger", 2),
         ),
     ),
     # The closing edge of a turn, reported by the same hook that reports the
@@ -1338,6 +1576,12 @@ _FRAMEWORK_EVENT_HOOKS: tuple[tuple[str, str | None, tuple[tuple[str, int], ...]
     ("StopFailure", None, (("turn-state", 3), ("approval", 5))),
 )
 
+#: The hook that hands each prompt to the deployment's watchdogs. It follows the
+#: ``watchdogs:`` block, not the profile's ``hooks:`` list (see
+#: :func:`watchdog_hook_selection`).
+WATCHDOG_TRIGGER_HOOK = "watchdog-trigger"
+_WATCHDOG_TRIGGER_OUTPUT = ".claude/hooks/osprey_watchdog_trigger.py"
+
 #: The hooks that stand between the agent and a control-system write: the kill
 #: switch, the human gate and the per-channel limits. A deployment that arms
 #: writes on an enabled server carrying one of these must select it — see
@@ -1346,6 +1590,9 @@ WRITE_GATE_HOOKS: frozenset[str] = frozenset({"approval", "writes-check", "limit
 
 #: The hook script inside a wired command, however the command is spelled.
 _HOOK_COMMAND_SCRIPT = re.compile(r"/\.claude/hooks/(?P<stem>[A-Za-z0-9_.-]+)\.py")
+
+#: The short name of the hook that reviews a notebook's code before an edit lands.
+_CODE_REVIEW_HOOK = "code-review"
 
 
 def _hook_name_of_command(command: str) -> str | None:
@@ -1363,6 +1610,24 @@ def _hook_name_of_command(command: str) -> str | None:
 
     match = _HOOK_COMMAND_SCRIPT.search(command)
     return _hook_short_name(match.group("stem")) if match else None
+
+
+def watchdog_hook_selection(hooks: Iterable[str], watching: bool) -> list[str]:
+    """A hook selection with the watchdog trigger in it exactly when a watchdog is enabled.
+
+    The block decides, never the profile's ``hooks:`` list: a deployment that
+    enabled a watchdog cannot leave its sessions unwatched by omitting the
+    trigger, and one that enabled none renders no trigger by naming it.
+
+    Args:
+        hooks: The selection, in short-name form.
+        watching: Whether the build has an enabled watchdog.
+
+    Returns:
+        The selection in its order, the trigger last when watching.
+    """
+    selection = [name for name in hooks if name != WATCHDOG_TRIGGER_HOOK]
+    return [*selection, WATCHDOG_TRIGGER_HOOK] if watching else selection
 
 
 def _build_framework_event_rules(selected_hooks: Iterable[str]) -> dict[str, list[dict]]:
@@ -1438,19 +1703,17 @@ def _approval_outcome_rules(wired_servers: Iterable[dict]) -> list[dict]:
     for server in wired_servers:
         if not server.get("enabled"):
             continue
-        for rule in server.get("hooks_pre") or []:
+        rules.extend(
+            {
+                "matcher": rule["matcher"],
+                "hooks": [{"type": "command", "command": _APPROVAL_OUTCOME_COMMAND, "timeout": 5}],
+            }
+            for rule in server.get("hooks_pre") or []
             if any(
                 _hook_name_of_command(hook.get("command", "")) == "approval"
                 for hook in rule.get("hooks") or []
-            ):
-                rules.append(
-                    {
-                        "matcher": rule["matcher"],
-                        "hooks": [
-                            {"type": "command", "command": _APPROVAL_OUTCOME_COMMAND, "timeout": 5}
-                        ],
-                    }
-                )
+            )
+        )
     return rules
 
 
@@ -1511,33 +1774,110 @@ def _servers_with_selected_hooks(ctx: dict) -> list[dict]:
     return wired
 
 
-def _lint_write_gates_are_selected(ctx: dict, control_system: dict) -> None:
-    """Refuse a write-armed deployment whose write gates are not installed.
+#: The executor tools whose approval prompt reviews the code ahead of the ask.
+_REVIEWED_EXECUTE_TOOLS: tuple[str, ...] = ("execute", "execute_file")
 
-    Every hook in :data:`WRITE_GATE_HOOKS` that an enabled server attaches to
-    its write tools must be in the profile's selection. Unselected, the script
-    is not installed and the entry that names it decides nothing — so the render
-    would promise a gate the deployment does not have.
+#: The template the executor server and its ``extends`` clones come from.
+_EXECUTOR_TEMPLATE = "python"
 
-    Silent when no target arms writes: a read-only deployment has no write to
-    gate, and its own posture is enforced by the kill switch's deny floor rather
-    than by these hooks.
+#: The approval hook's ``--budget N`` argument, as the registry spells it.
+_BUDGET_FLAG = re.compile(r"--budget (\d+)")
+
+
+def _with_review_budget(hook: dict, deadline_s: int) -> dict:
+    """*hook* given *deadline_s* more seconds, in its ``timeout`` and its ``--budget`` alike."""
+    timeout = int(hook.get("timeout") or 0) + deadline_s
+    command = str(hook.get("command") or "")
+    if _BUDGET_FLAG.search(command):
+        command = _BUDGET_FLAG.sub(f"--budget {timeout}", command, count=1)
+    else:
+        command = f"{command} --budget {timeout}"
+    return {**hook, "command": command, "timeout": timeout}
+
+
+def _extend_execute_approval_budget(wired_servers: list[dict], deadline_s: int | None) -> None:
+    """Give the approval entry on the reviewed executor tools the review's deadline too.
+
+    The approval hook reviews the code of an ``execute`` or ``execute_file`` ask before it
+    puts the call to the operator, in the time its ``--budget`` leaves after the prompt's own
+    needs. So on those two rules the entry's budget and timeout grow by the deadline the
+    ``code-review`` rule renders, whether or not the review is on, for the reason that rule
+    renders its deadline regardless: a deployment that turns the review on in ``config.yml``
+    reaches its next call with the time it needs, and a hook with the review off spends none
+    of it. ``None`` leaves every rule as the registry wrote it.
+
+    Edits the rule dicts in place: they are the copies :func:`_servers_with_selected_hooks`
+    made, never the resolved servers.
 
     Args:
-        ctx: The render context, read for ``servers`` and ``selected_hooks``.
-        control_system: The rendered ``control_system:`` section, whose per-target
-            posture decides whether any write is armed at all.
+        wired_servers: The servers as :func:`_servers_with_selected_hooks` returns them.
+        deadline_s: The ``code_review_deadline_s`` of the render context.
+    """
+    if deadline_s is None:
+        return
+    for server in wired_servers:
+        if (server.get("extends_of") or server.get("name")) != _EXECUTOR_TEMPLATE:
+            continue
+        reviewed = {f"mcp__{server['name']}__{tool}" for tool in _REVIEWED_EXECUTE_TOOLS}
+        for rule in server.get("hooks_pre") or []:
+            if rule.get("matcher") not in reviewed:
+                continue
+            rule["hooks"] = [
+                _with_review_budget(hook, deadline_s)
+                if _hook_name_of_command(hook.get("command", "")) == "approval"
+                else hook
+                for hook in rule["hooks"]
+            ]
+
+
+def _lint_write_gates_are_selected(ctx: dict, control_system: dict) -> None:
+    """Refuse a render whose write gates are not installed.
+
+    On an arming tier (``asked`` or ``allowed``), every hook in
+    :data:`WRITE_GATE_HOOKS` that an enabled server attaches to its write tools must be in the profile's
+    selection. Unselected, the script is not installed and the entry that names
+    it decides nothing — so the render would promise a gate the deployment does
+    not have.
+
+    On a ``never`` tier the static deny covers the write-only tools — the
+    framework write matchers and every facility write tool — but not the ones
+    refused per call: read/write-mixed tools and ``control_system.write_tools``
+    entries. Those are refused only by the writes-check hook, so a ``never``
+    render that has any of them must select it, or its writes would run
+    ungated.
+
+    Args:
+        ctx: The render context, read for ``servers``, ``selected_hooks``,
+            and ``mixed_read_write_tools``.
+        control_system: The rendered ``control_system:`` section, whose tier
+            (``control_system.writes``) decides which gates are required.
 
     Raises:
-        BuildProfileError: Naming each unselected gate and the server whose
-            tools it was meant to guard.
+        BuildProfileError: Naming each unselected gate and what it was meant
+            to guard.
     """
-    from osprey_connectors.types import any_target_writes_enabled
-
-    if not any_target_writes_enabled(control_system):
-        return
+    from osprey_connectors.types import tier_allows, tier_writes
 
     selection = set(ctx.get("selected_hooks") or [])
+
+    if not tier_allows(control_system):
+        if "writes-check" in selection:
+            return
+        guarded: list[str] = []
+        if control_system.get("write_tools"):
+            guarded.append("the `control_system.write_tools` entries")
+        if ctx.get("mixed_read_write_tools"):
+            guarded.append("the read/write tools " + ", ".join(ctx["mixed_read_write_tools"]))
+        if not guarded:
+            return
+        raise BuildProfileError(
+            "This deployment pins writes off (`control_system.writes: never`), and the "
+            "'writes-check' hook that refuses these tools' writes per call is not in the "
+            "profile's `hooks:` list:\n  "
+            + "\n  ".join(guarded)
+            + "\nAdd `writes-check` to `hooks:`."
+        )
+
     missing: list[tuple[str, str]] = []
     for server in ctx.get("servers") or []:
         if not server.get("enabled"):
@@ -1552,14 +1892,14 @@ def _lint_write_gates_are_selected(ctx: dict, control_system: dict) -> None:
     if not missing:
         return
     raise BuildProfileError(
-        "This deployment arms writes, and these write gates are not installed:\n  "
+        f"This deployment allows writes (`control_system.writes: "
+        f"{tier_writes(control_system)}`), and these write gates are not installed:\n  "
         + "\n  ".join(
             f"the {name!r} hook guards the {server!r} server's write tools but is not in "
             f"the profile's `hooks:` list"
             for name, server in sorted(missing)
         )
-        + "\nAdd them to `hooks:`, or disarm writes (`control_system.writes_enabled: false`, "
-        "and any per-connector-type key that overrides it)."
+        + "\nAdd them to `hooks:`, or pin writes off (`control_system.writes: never`)."
     )
 
 
@@ -1895,9 +2235,11 @@ def _rendered_deny_list(ctx: dict) -> list[str]:
        anything a facility lists under ``permissions.remove_deny``;
     2. the profile-authored ``permissions.deny`` entries, minus ``remove_deny``
        as well — a profile may subtract what a profile added;
-    3. the ``killswitch_deny`` entries, appended last and NEVER filtered.
+    3. the ``killswitch_deny`` entries, appended and NEVER filtered;
+    4. the ``store_deny`` entries, appended last and NEVER filtered (an entry an
+       earlier part already renders is not rendered twice).
 
-    Part 3 is why the split exists: the writes-off kill switch writes its
+    Parts 3 and 4 are why the split exists: the ``never``-tier kill switch writes its
     matchers into their own context key, so no ``remove_deny`` a profile authors
     can lift a deny the kill switch imposed.
 
@@ -1911,7 +2253,7 @@ def _rendered_deny_list(ctx: dict) -> list[str]:
 
     Args:
         ctx: The render context, read for ``deny_defaults``,
-            ``facility_permissions`` and ``killswitch_deny``.
+            ``facility_permissions``, ``killswitch_deny`` and ``store_deny``.
 
     Returns:
         The deny entries, in render order.
@@ -1921,6 +2263,9 @@ def _rendered_deny_list(ctx: dict) -> list[str]:
     deny = [d for d in (ctx.get("deny_defaults") or []) if d not in remove_deny]
     deny.extend(d for d in (facility.get("deny", []) or []) if d not in remove_deny)
     deny.extend(ctx.get("killswitch_deny") or [])
+    for d in ctx.get("store_deny") or []:
+        if d not in deny:
+            deny.append(d)
     return deny
 
 
@@ -1945,6 +2290,10 @@ def _pretooluse_matchers(ctx: dict, fw_pre_rules: list[dict]) -> list[tuple[str,
     ``PreToolUse`` wiring. Every rule is a plain dict carrying a ``"matcher"``
     key, so access is uniform.
 
+    A rule that runs nothing but the ``code-review`` hook is left out, whatever its
+    source: that hook allows the edit whenever review is off, so its ``NotebookEdit``
+    matcher is not a gate.
+
     Each matcher is paired with where it came from — :data:`_MATCHER_FRAMEWORK`
     for the first two sources, :data:`_MATCHER_PROFILE` for the third — because
     the lint treats the two differently: see
@@ -1958,23 +2307,33 @@ def _pretooluse_matchers(ctx: dict, fw_pre_rules: list[dict]) -> list[tuple[str,
     Returns:
         ``(matcher, provenance)`` pairs, in render order.
     """
-    matchers: list[tuple[str, str]] = [
-        (rule.get("matcher", ""), _MATCHER_FRAMEWORK) for rule in (fw_pre_rules or [])
-    ]
+    matchers = _gating_matchers(fw_pre_rules, _MATCHER_FRAMEWORK)
     # The narrowed list, when the render has one: what settings.json wires is
     # what gates a tool, and a rule whose hook the profile leaves out is not a
     # gate. Falls back to the unnarrowed servers for a caller that has none.
     for srv in ctx.get("wired_servers") or ctx.get("servers", []) or []:
         if srv.get("enabled"):
-            matchers.extend(
-                (rule.get("matcher", ""), _MATCHER_FRAMEWORK)
-                for rule in (srv.get("hooks_pre") or [])
-            )
+            matchers.extend(_gating_matchers(srv.get("hooks_pre"), _MATCHER_FRAMEWORK))
     declared = ctx.get("declared_hooks") or {}
-    matchers.extend(
-        (rule.get("matcher", ""), _MATCHER_PROFILE) for rule in (declared.get("PreToolUse") or [])
-    )
+    matchers.extend(_gating_matchers(declared.get("PreToolUse"), _MATCHER_PROFILE))
     return matchers
+
+
+def _gating_matchers(rules: list[dict] | None, provenance: str) -> list[tuple[str, str]]:
+    """Pair each rule's matcher with *provenance*, leaving out a ``code-review``-only rule."""
+    return [
+        (rule.get("matcher", ""), provenance)
+        for rule in (rules or [])
+        if not _runs_only_code_review(rule)
+    ]
+
+
+def _runs_only_code_review(rule: dict) -> bool:
+    """Whether every hook a ``PreToolUse`` rule runs is the ``code-review`` hook."""
+    hooks = rule.get("hooks") or []
+    return bool(hooks) and all(
+        _hook_name_of_command(hook.get("command", "")) == _CODE_REVIEW_HOOK for hook in hooks
+    )
 
 
 #: Characters whose presence makes Claude Code read a hook matcher as a regular
@@ -2052,7 +2411,9 @@ def _lint_write_tools_are_gated(ctx: dict, fw_pre_rules: list[dict]) -> None:
     :data:`~osprey.agent_runner.tool_names.DENY_DEFAULTS`; the lint is what
     makes removing them from that floor via
     ``claude_code.permissions.remove_deny`` a build failure rather than a silent
-    widening.
+    widening. The ``code-review`` rule matches ``NotebookEdit`` and does not count:
+    with review off its hook allows every edit, and :func:`_pretooluse_matchers`
+    leaves it out.
 
     An empty rendered deny floor is itself the hazard this guards against: a
     context missing ``deny_defaults`` renders an EMPTY ``permissions.deny`` array
@@ -2082,6 +2443,17 @@ def _lint_write_tools_are_gated(ctx: dict, fw_pre_rules: list[dict]) -> None:
             sources (``servers``, ``declared_hooks``).
         fw_pre_rules: The framework PreToolUse rules just computed for this
             render, before they are written into ``ctx``.
+
+    **A lifted shell on an arming tier is refused outright (PR-12).**
+    When ``ctx["writes_tier"]`` is ``asked`` or ``allowed`` and ``remove_deny``
+    lifts a tool in :data:`~osprey.agent_runner.tool_names.SHELL_TOOLS`, the
+    build fails whatever hook the profile declares, naming the word: on those
+    tiers a shell is an arming path —
+    it can flip the write switch, call a connector or fire a dispatcher job
+    without passing any write gate. On a ``never`` render (or
+    a create-path context that carries no tier yet — the build re-renders
+    through :func:`build_claude_code_context`, which settles it) the lift keeps
+    the declared-gate warning above.
 
     It also carries one guard that is not about the built-ins at all: the
     container's setup-capability check reads the profile's deny and not this
@@ -2114,38 +2486,38 @@ def _lint_write_tools_are_gated(ctx: dict, fw_pre_rules: list[dict]) -> None:
             "build_cmd._profile_setup_patch_capable about the floor."
         )
 
+    from osprey_connectors.types import tier_allows
+
     deny = _rendered_deny_list(ctx)
     matchers = _pretooluse_matchers(ctx, fw_pre_rules)
+    remove_deny = (ctx.get("facility_permissions") or {}).get("remove_deny", []) or []
+    tier = ctx.get("writes_tier")
     for tool in WRITE_CAPABLE_BUILTINS:
         if tool in deny:
             continue
+        if tool in SHELL_TOOLS and tool in remove_deny and tier_allows({"writes": tier}):
+            render = ctx.get("project_name") or "this render"
+            raise BuildProfileError(
+                f"Render {render!r} has tier control_system.writes: {tier} and its "
+                f"claude_code.permissions.remove_deny lifts {tool!r}. On an "
+                f"{tier!r} tier a shell is an arming path: it reaches the write "
+                "switch, the connectors and the dispatcher wire around every "
+                "write gate, and no PreToolUse hook the build can vouch for "
+                f"gates it. Drop {tool!r} from remove_deny, or lift it only on a "
+                "tier whose control_system.writes is 'never'."
+            )
         covering = [(m, src) for m, src in matchers if _matcher_covers(m, tool)]
         if covering:
             if all(src == _MATCHER_PROFILE for _, src in covering):
-                # The shell's reach is wider than the filesystem, so a facility
-                # weighing its own Bash or Monitor gate has to weigh the
-                # dispatcher wire too: OSPREY_PANEL_TOKEN is in the agent's
-                # process env, which is all it takes to fire a job from a shell
-                # command, in the foreground or the background.
-                shell_note = (
-                    " The shell also reaches the dispatcher wire: the panel "
-                    "token sits in the agent's process env, so a shell command "
-                    "can POST to /panel/events/mcp and fire a job without the "
-                    "approval prompt — the job still runs as the real user "
-                    "under their chip."
-                    if tool in ("Bash", "Monitor")
-                    else ""
-                )
                 logger.warning(
                     "%s is not in permissions.deny and is gated only by a "
                     "PreToolUse matcher this profile declares itself (%s). The "
                     "build checks that the rule exists, not that the hook "
                     "refuses anything — a hook that exits without a "
                     "permissionDecision allows the call. Verify that hook denies "
-                    "what it is there to deny.%s",
+                    "what it is there to deny.",
                     tool,
                     ", ".join(repr(m) for m, _ in covering),
-                    shell_note,
                 )
             continue
         floor_note = (
@@ -2213,7 +2585,9 @@ def create_claude_code_integration(
     apply_agent_data_root(ctx, project_dir)
 
     # Build framework hook rules from selected hooks' frontmatter
-    fw_pre, fw_post = _build_framework_hook_rules(ctx.get("selected_hooks", []))
+    fw_pre, fw_post = _build_framework_hook_rules(
+        ctx.get("selected_hooks", []), ctx.get("code_review_deadline_s")
+    )
     ctx["framework_pre_hooks"] = fw_pre
     ctx["framework_post_hooks"] = fw_post
 
@@ -2222,6 +2596,7 @@ def create_claude_code_integration(
     # hook sources: a hook this deployment does not install is wired to nothing.
     ctx["framework_event_hooks"] = _build_framework_event_rules(ctx.get("selected_hooks", []))
     ctx["wired_servers"] = _servers_with_selected_hooks(ctx)
+    _extend_execute_approval_budget(ctx["wired_servers"], ctx.get("code_review_deadline_s"))
     ctx["approval_outcome_hooks"] = _approval_outcome_rules(ctx["wired_servers"])
 
     # Build-time safety lint: refuse to render a profile in which any
@@ -2338,8 +2713,13 @@ def create_claude_code_integration(
                 dst_file = project_dir / ".claude" / rel_path
 
                 # Not in manifest: remove any stale file from an earlier,
-                # wider render pass instead of orphaning it on disk.
-                if allowed_outputs is not None and dst_rel not in allowed_outputs:
+                # wider render pass instead of orphaning it on disk. The trigger
+                # also leaves a render with no manifest filter, which would
+                # otherwise copy it with no watchdog to serve.
+                if (allowed_outputs is not None and dst_rel not in allowed_outputs) or (
+                    dst_rel == _WATCHDOG_TRIGGER_OUTPUT
+                    and WATCHDOG_TRIGGER_HOOK not in (ctx.get("selected_hooks") or [])
+                ):
                     if dst_file.exists():
                         dst_file.unlink()
                     continue
@@ -2497,6 +2877,20 @@ def regenerate_claude_code(
             pass
     if regen_manifest is None:
         regen_manifest = manifest_mod.load_template_manifest(preset)
+
+    # The selection the manifest recorded, with the trigger following config.yml as
+    # the rendered rows do, so a regenerated row never points at a file not shipped.
+    if regen_manifest:
+        recorded = regen_manifest.get("artifacts") or {}
+        regen_manifest = {
+            **regen_manifest,
+            "artifacts": {
+                **recorded,
+                "hooks": watchdog_hook_selection(
+                    recorded.get("hooks") or [], watchdogs_enabled(config)
+                ),
+            },
+        }
 
     allowed_outputs = (
         manifest_mod.resolve_manifest_outputs(regen_manifest) if regen_manifest else None

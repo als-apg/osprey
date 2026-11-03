@@ -30,12 +30,15 @@ import numpy as np  # noqa: E402
 from fastmcp.exceptions import ToolError  # noqa: E402
 
 from osprey.facility.views.simulator import simulator_wiring  # noqa: E402
+from osprey.mcp_server.errors import MISSING_KEY  # noqa: E402
 from osprey.mcp_server.python_executor import executor  # noqa: E402
 from osprey.mcp_server.python_executor.tools import (  # noqa: E402
     model_response_matrix as tool,
 )
 from osprey.simulation.engines import pyat as engine  # noqa: E402
 from osprey.simulation.response import RESULT_TAG, solve_and_print  # noqa: E402
+from tests._simulator_view import view_channel  # noqa: E402
+from tests.mcp_server.conftest import assert_raises_error  # noqa: E402
 
 CORRECTOR_X = "SR:MAG:HCM:01:CURRENT:SP"
 CORRECTOR_Y = "SR:MAG:VCM:01:CURRENT:SP"
@@ -51,13 +54,10 @@ LINE_TWISS = {
 #: Wide enough for a cold child to import pyAT and solve two SR columns.
 TIMEOUT_S = 120
 
-#: The executor timeout the spinning plug-in is stopped at.
-SPIN_TIMEOUT_S = 15
-
-
-def _envelope(raised: pytest.ExceptionInfo[ToolError]) -> dict[str, Any]:
-    envelope: dict[str, Any] = json.loads(str(raised.value))
-    return envelope
+#: The executor timeout the spinning plug-in is stopped at: wide enough for a
+#: cold child on the slowest runner to load the view and enter the plug-in,
+#: which then never returns, so the stop always lands on a spinning solve.
+SPIN_TIMEOUT_S = 60
 
 
 # ---------------------------------------------------------------------------
@@ -138,18 +138,13 @@ def _line_render(root: Path, corrector_delta: float | None) -> Path:
         }
     )
     channels = [
-        {
-            "address": record["address"],
-            "role": "setpoint" if record["direction"] == "write" else "readback",
-            "pair": record["address"] if record["direction"] == "write" else None,
-            "value_type": "float",
-            "unit": None,
-            "description": None,
-            "writable": record["direction"] == "write",
-            "value_range": None,
-            "owner": LINE,
-            "on": {"device": f"{LINE}/{record['element']}"},
-        }
+        view_channel(
+            record["address"],
+            LINE,
+            role="setpoint" if record["direction"] == "write" else "readback",
+            writable=record["direction"] == "write",
+            on={"device": f"{LINE}/{record['element']}"},
+        )
         for record in wiring
     ]
     files = {
@@ -273,7 +268,7 @@ class TestSolve:
         np.testing.assert_allclose(
             np.asarray(result["matrix"]), expected.matrix, rtol=1e-12, atol=0
         )
-        assert result["unsolved"] == {}
+        assert result["missing"] == {}
 
     def test_rows_and_columns_name_their_address_and_device(self, sandbox, sr_render):
         sandbox["render"] = sr_render
@@ -313,8 +308,23 @@ class TestSolve:
         assert len(request.correctors) == 144
 
 
-#: A plug-in whose solve raises an exception it declares as meaning "no solve".
+#: A plug-in whose solve raises an exception it declares as a request refusal.
 REFUSING_ENGINE = textwrap.dedent(
+    """
+    class NoOptics(Exception):
+        pass
+
+
+    REFUSAL_ERRORS = (NoOptics,)
+
+
+    def response_matrix(deck, wiring, settings, correctors, step):
+        raise NoOptics("no optics for this deck")
+    """
+)
+
+#: A plug-in whose solve raises an exception it declares as meaning "no solve".
+NO_SOLVE_ENGINE = textwrap.dedent(
     """
     class NoOptics(Exception):
         pass
@@ -325,6 +335,32 @@ REFUSING_ENGINE = textwrap.dedent(
 
     def response_matrix(deck, wiring, settings, correctors, step):
         raise NoOptics("no optics for this deck")
+    """
+)
+
+#: A plug-in whose solve fails inside itself with a builtin ``ValueError``.
+INTERNAL_ENGINE = textwrap.dedent(
+    """
+    def response_matrix(deck, wiring, settings, correctors, step):
+        raise ValueError("operands could not be broadcast")
+    """
+)
+
+#: A plug-in whose solve stops on a defect of the facility file.
+BROKEN_FACILITY_ENGINE = textwrap.dedent(
+    """
+    from osprey.facility.errors import FacilityBuildError
+
+
+    def response_matrix(deck, wiring, settings, correctors, step):
+        raise FacilityBuildError(
+            "engine-invalid",
+            "SR:BPM:01",
+            ["facility.yaml"],
+            "wire the monitor to one element",
+            record_kind="channel",
+            detail="the monitor names no element",
+        )
     """
 )
 
@@ -385,24 +421,28 @@ def _child_line(request: Any) -> dict[str, Any]:
 
 
 class TestSolveErrors:
-    def test_an_oversized_step_on_a_line_names_the_corrector(self, sandbox, tmp_path):
+    def test_an_oversized_step_on_a_line_answers_nothing_naming_the_corrector(
+        self, sandbox, tmp_path
+    ):
         sandbox["render"] = _line_render(tmp_path / "line", corrector_delta=1.0)
 
-        with pytest.raises(ToolError) as raised:
+        with assert_raises_error() as raised:
             _call(model=LINE)
 
-        envelope = _envelope(raised)
-        assert envelope["error_type"] == "execution_error"
-        assert envelope["error_message"].startswith(f"the response of {LINE} has no solve: lost")
-        assert envelope["error_message"].endswith(f"(while stepping {LINE_KICK})")
-        assert envelope["details"].keys() == {"model", "unsolved"}
+        envelope = raised["envelope"]
+        assert envelope["error_type"] == "nothing_answered"
+        assert (
+            envelope["error_message"]
+            == f"{tool.TOOL_NAME}: none of the 1 requested correctors answered"
+        )
+        assert envelope["details"].keys() == {"model", "missing"}
         assert envelope["details"]["model"] == LINE
-        assert list(envelope["details"]["unsolved"]) == [LINE_KICK]
-        text = envelope["details"]["unsolved"][LINE_KICK]
+        assert list(envelope["details"]["missing"]) == [LINE_KICK]
+        text = envelope["details"]["missing"][LINE_KICK]
         assert text.startswith("lost")
         assert text.endswith(f"(while stepping {LINE_KICK})")
         assert envelope["suggestions"] == [
-            f"Name other correctors, or check corrector_delta in measurement/{LINE}.yaml."
+            "Name each entry of details.missing and its text to the operator."
         ]
 
     def test_a_destabilising_step_on_sr_names_the_corrector(self, sandbox, sr_render, tmp_path):
@@ -410,12 +450,15 @@ class TestSolveErrors:
         _set_step(render, "SR", 0.5)
         sandbox["render"] = render
 
-        with pytest.raises(ToolError) as raised:
+        with assert_raises_error() as raised:
             _call(model="SR", correctors=[CORRECTOR_X])
 
-        message = _envelope(raised)["error_message"]
-        assert message.startswith("the response of SR has no solve:")
-        assert message.endswith(f"(while stepping {CORRECTOR_X})")
+        envelope = raised["envelope"]
+        assert envelope["error_type"] == "nothing_answered"
+        assert list(envelope["details"]["missing"]) == [CORRECTOR_X]
+        assert envelope["details"]["missing"][CORRECTOR_X].endswith(
+            f"(while stepping {CORRECTOR_X})"
+        )
 
     def test_an_engine_refusing_the_request_is_refused_with_its_text(
         self, sandbox, tmp_path, monkeypatch
@@ -424,15 +467,66 @@ class TestSolveErrors:
         sandbox["seed"] = {"refusing_engine.py": REFUSING_ENGINE}
         monkeypatch.setattr(tool, "_engine_module", lambda engine_name: "refusing_engine")
 
-        with pytest.raises(ToolError) as raised:
+        with assert_raises_error() as raised:
             _call(model=LINE)
 
-        envelope = _envelope(raised)
+        envelope = raised["envelope"]
         assert envelope["error_type"] == "validation_error"
         assert envelope["error_message"] == (
             f"the response of {LINE} was refused: no optics for this deck"
         )
         assert envelope["suggestions"] == []
+        assert envelope["details"] == {"model": LINE}
+
+    def test_a_declared_solve_error_out_of_the_request_has_no_solve_with_its_text(
+        self, sandbox, tmp_path, monkeypatch
+    ):
+        sandbox["render"] = _line_render(tmp_path / "line", corrector_delta=1.0e-5)
+        sandbox["seed"] = {"no_solve_engine.py": NO_SOLVE_ENGINE}
+        monkeypatch.setattr(tool, "_engine_module", lambda engine_name: "no_solve_engine")
+
+        with assert_raises_error() as raised:
+            _call(model=LINE)
+
+        envelope = raised["envelope"]
+        assert envelope["error_type"] == "execution_error"
+        assert envelope["error_message"] == (
+            f"the response of {LINE} has no solve: no optics for this deck"
+        )
+        assert envelope["suggestions"] == []
+        assert envelope["details"] == {"model": LINE}
+
+    def test_an_internal_value_error_is_a_failure_with_its_stderr(
+        self, sandbox, tmp_path, monkeypatch
+    ):
+        sandbox["render"] = _line_render(tmp_path / "line", corrector_delta=1.0e-5)
+        sandbox["seed"] = {"internal_engine.py": INTERNAL_ENGINE}
+        monkeypatch.setattr(tool, "_engine_module", lambda engine_name: "internal_engine")
+
+        with assert_raises_error() as raised:
+            _call(model=LINE)
+
+        envelope = raised["envelope"]
+        assert envelope["error_type"] == "execution_error"
+        assert envelope["error_message"] == f"the solve of {LINE} ended without a result"
+        assert "operands could not be broadcast" in envelope["details"]["stderr"]
+        assert "refused" not in envelope["error_message"]
+
+    def test_a_facility_build_error_is_refused_with_the_rebuild_remedy(
+        self, sandbox, tmp_path, monkeypatch
+    ):
+        sandbox["render"] = _line_render(tmp_path / "line", corrector_delta=1.0e-5)
+        sandbox["seed"] = {"broken_facility_engine.py": BROKEN_FACILITY_ENGINE}
+        monkeypatch.setattr(tool, "_engine_module", lambda engine_name: "broken_facility_engine")
+
+        with assert_raises_error() as raised:
+            _call(model=LINE)
+
+        envelope = raised["envelope"]
+        assert envelope["error_type"] == "validation_error"
+        assert envelope["error_message"].startswith(f"the response of {LINE} was refused: ")
+        assert "the monitor names no element" in envelope["error_message"]
+        assert envelope["suggestions"] == ["Fix the facility file and run `osprey build`."]
         assert envelope["details"] == {"model": LINE}
 
     def test_a_solve_error_the_plug_in_does_not_declare_ends_without_a_result(
@@ -442,15 +536,27 @@ class TestSolveErrors:
         sandbox["seed"] = {"refusing_engine.py": UNDECLARED_ENGINE}
         monkeypatch.setattr(tool, "_engine_module", lambda engine_name: "refusing_engine")
 
-        with pytest.raises(ToolError) as raised:
+        with assert_raises_error() as raised:
             _call(model=LINE)
 
-        assert _envelope(raised)["error_message"] == (f"the solve of {LINE} ended without a result")
+        assert raised["envelope"]["error_message"] == (
+            f"the solve of {LINE} ended without a result"
+        )
 
     @pytest.mark.parametrize(
         "printed",
-        [{"rows": ["SR:BPM:01:X:RB"]}, {"error": "x"}],
-        ids=["without-a-matrix", "retired-error-key"],
+        [
+            {"rows": ["SR:BPM:01:X:RB"]},
+            {"error": "x"},
+            {"refused": "x", "cause": "other"},
+            {"refused": "x"},
+        ],
+        ids=[
+            "without-a-matrix",
+            "retired-error-key",
+            "refused-with-an-unknown-cause",
+            "refused-with-no-cause",
+        ],
     )
     def test_a_result_line_without_a_matrix_ends_without_a_result(
         self, sr_render, monkeypatch, printed
@@ -464,10 +570,10 @@ class TestSolveErrors:
         monkeypatch.setattr("osprey.utils.config_paths.resolve_config_dir", lambda: sr_render)
         monkeypatch.setattr(executor, "execute_code", solved)
 
-        with pytest.raises(ToolError) as raised:
+        with assert_raises_error() as raised:
             _call(model="SR", correctors=[CORRECTOR_X])
 
-        envelope = _envelope(raised)
+        envelope = raised["envelope"]
         assert envelope["error_type"] == "execution_error"
         assert envelope["error_message"] == "the solve of SR ended without a result"
 
@@ -482,7 +588,7 @@ class TestSolveErrors:
 
         assert [column["address"] for column in result["columns"]] == [CORRECTOR_X]
         assert result["matrix"] == [[2.5]]
-        assert result["unsolved"] == {CORRECTOR_Y: f"lost (while stepping {CORRECTOR_Y})"}
+        assert result["missing"] == {CORRECTOR_Y: f"lost (while stepping {CORRECTOR_Y})"}
 
     def test_an_orbit_solver_that_raises_names_the_corrector(self, sr_render, monkeypatch):
         _refuse_solves(monkeypatch, {3})
@@ -494,9 +600,17 @@ class TestSolveErrors:
 
         assert line["columns"] == [CORRECTOR_X]
         assert len(line["matrix"][0]) == 1
-        assert list(line["unsolved"]) == [CORRECTOR_Y]
-        assert line["unsolved"][CORRECTOR_Y].startswith("closed orbit solve raised AtError:")
-        assert line["unsolved"][CORRECTOR_Y].endswith(f"(while stepping {CORRECTOR_Y})")
+        assert list(line["missing"]) == [CORRECTOR_Y]
+        assert line["missing"][CORRECTOR_Y].startswith("closed orbit solve raised AtError:")
+        assert line["missing"][CORRECTOR_Y].endswith(f"(while stepping {CORRECTOR_Y})")
+
+    def test_the_childs_map_is_under_the_contract_key(self, sr_render, monkeypatch):
+        _refuse_solves(monkeypatch, {3})
+        request = tool.resolve_model_request(
+            "SR", [CORRECTOR_X, CORRECTOR_Y], render_root=sr_render
+        )
+
+        assert set(_child_line(request)) == {"rows", "columns", "matrix", MISSING_KEY}
 
     def test_no_solved_column_is_a_refusal_naming_every_corrector(self, sr_render, monkeypatch):
         _refuse_solves(monkeypatch, {1, 3})
@@ -507,8 +621,8 @@ class TestSolveErrors:
         line = _child_line(request)
 
         assert line["columns"] == []
-        assert list(line["unsolved"]) == [CORRECTOR_X, CORRECTOR_Y]
-        for address, text in line["unsolved"].items():
+        assert list(line["missing"]) == [CORRECTOR_X, CORRECTOR_Y]
+        for address, text in line["missing"].items():
             assert text.startswith("closed orbit solve raised AtError:")
             assert text.endswith(f"(while stepping {address})")
 
@@ -517,17 +631,17 @@ class TestRefusals:
     def test_a_model_without_a_corrector_delta_is_refused_naming_its_file(self, tmp_path):
         render = _line_render(tmp_path / "line", corrector_delta=None)
 
-        with pytest.raises(ToolError) as raised:
+        with assert_raises_error() as raised:
             tool.resolve_model_request(LINE, None, render_root=render)
 
-        message = _envelope(raised)["error_message"]
+        message = raised["envelope"]["error_message"]
         assert message.startswith(f"measurement/{LINE}.yaml states no corrector_delta")
 
     def test_an_unserved_or_unknown_model_is_refused_listing_the_served(self, sr_render):
-        with pytest.raises(ToolError) as raised:
+        with assert_raises_error() as raised:
             tool.resolve_model_request("ELSEWHERE", None, render_root=sr_render)
 
-        assert _envelope(raised)["error_message"] == (
+        assert raised["envelope"]["error_message"] == (
             "model 'ELSEWHERE' is not a served deck model of this render; the served ones: BTS, LINE, LTB, SR"
         )
 
@@ -543,10 +657,10 @@ class TestRefusals:
     def test_a_corrector_list_the_model_cannot_step_is_refused(
         self, sr_render, correctors, fragment
     ):
-        with pytest.raises(ToolError) as raised:
+        with assert_raises_error() as raised:
             tool.resolve_model_request("SR", correctors, render_root=sr_render)
 
-        assert fragment in _envelope(raised)["error_message"]
+        assert fragment in raised["envelope"]["error_message"]
 
 
 # ---------------------------------------------------------------------------

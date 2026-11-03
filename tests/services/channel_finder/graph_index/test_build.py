@@ -18,10 +18,9 @@ import hashlib
 import logging
 from pathlib import Path
 
-import duckdb
 import pytest
-from tests._builds import BuiltProject
 from tests.services.channel_finder.graph_index import corpora
+from tests.services.channel_finder.graph_index._index import read_rows
 
 from osprey.services.channel_finder.core.exceptions import GraphIndexBuildError
 from osprey.services.channel_finder.graph_index.builder import (
@@ -36,14 +35,14 @@ from osprey.services.facility_knowledge.seeder.graph_seeder import ttl_sha256
 #: The control-assistant build's graph view, as the store counts its
 #: populations. ``bindings``, ``devices`` and ``classes`` are the numbers
 #: ``test_parse_corpus.py`` pins against the parity lane; ``devices`` counts
-#: every binding owner, so the top place ``SR``, which carries the tune and
-#: chromaticity channels itself, is one of the 645; ``signals`` is what
+#: every binding owner, so the top place ``SR``, which carries the tune,
+#: chromaticity, user beam mode and operation-mode channels itself, is one of the 1017; ``signals`` is what
 #: ``GRAPH_SIGNAL_COUNT_CYPHER`` counts, and ``sections`` what
 #: ``GRAPH_SECTION_COUNT_CYPHER`` does.
-DEMO_BINDINGS = 3338
-DEMO_DEVICES = 645
-DEMO_CLASSES = 30
-DEMO_SIGNALS = 46
+DEMO_BINDINGS = 4731
+DEMO_DEVICES = 1017
+DEMO_CLASSES = 36
+DEMO_SIGNALS = 62
 
 #: Derived from the view (nineteen distinct ``narad_p:sectionCode`` literals:
 #: ``SECT1`` to ``SECT12`` and the top-place codes ``SR``, ``BR``, ``BTS``,
@@ -53,24 +52,9 @@ DEMO_SIGNALS = 46
 DEMO_SECTIONS = 19
 
 
-@pytest.fixture(scope="module")
-def demo_path(built_control_assistant: BuiltProject) -> Path:
-    """The graph view the control-assistant build writes."""
-    return built_control_assistant.build_dir / "data" / "graph" / "facility.ttl"
-
-
-def _read(index_path: Path, sql: str) -> list[tuple]:
-    """Run ``sql`` against a fresh read-only connection, as the reader will."""
-    con = duckdb.connect(str(index_path), read_only=True)
-    try:
-        return con.execute(sql).fetchall()
-    finally:
-        con.close()
-
-
 def _meta_row(index_path: Path) -> dict:
     """The written ``meta`` row, keyed by column name."""
-    row = _read(index_path, f"SELECT {', '.join(META_KEYS)} FROM meta")
+    row = read_rows(index_path, f"SELECT {', '.join(META_KEYS)} FROM meta")
     assert len(row) == 1, row
     return dict(zip(META_KEYS, row[0], strict=True))
 
@@ -118,9 +102,9 @@ class TestDemoCorpus:
     def test_the_tables_hold_the_rows_the_report_counted(self, built):
         _, index_path = built
 
-        assert _read(index_path, "SELECT count(*) FROM bindings") == [(DEMO_BINDINGS,)]
-        assert _read(index_path, "SELECT count(*) FROM classes") == [(DEMO_CLASSES,)]
-        assert _read(index_path, "SELECT count(DISTINCT device_uri) FROM bindings") == [
+        assert read_rows(index_path, "SELECT count(*) FROM bindings") == [(DEMO_BINDINGS,)]
+        assert read_rows(index_path, "SELECT count(*) FROM classes") == [(DEMO_CLASSES,)]
+        assert read_rows(index_path, "SELECT count(DISTINCT device_uri) FROM bindings") == [
             (DEMO_DEVICES,)
         ]
 
@@ -165,8 +149,8 @@ class TestDemoCorpus:
         records = [record for record in caplog.records if record.name == builder_logger]
         assert [record.levelno for record in records] == [logging.DEBUG], records
         line = records[0].getMessage()
-        assert "3338 bindings" in line
-        assert "645 devices" in line
+        assert "4731 bindings" in line
+        assert "1017 devices" in line
         assert " s: " in line, line
 
     def test_the_package_exports_the_entry_point_lazily(self):
@@ -253,7 +237,7 @@ class TestCorpusWithoutBindings:
         assert index_path.exists()
         assert report.binding_count == 0
         assert report.device_count == 0
-        assert _read(index_path, "SELECT count(*) FROM bindings") == [(0,)]
+        assert read_rows(index_path, "SELECT count(*) FROM bindings") == [(0,)]
         assert any("bound no channels" in record.getMessage() for record in caplog.records)
 
     def test_the_meta_row_is_still_written(self, tmp_path: Path):

@@ -13,13 +13,16 @@ import { esc, messageOf } from './utils.js';
 import { facilityZoneLabel, viewerSharesFacilityClock } from '/design-system/js/facility-time.js';
 import { formModal, confirmModal } from './modal.js';
 import { showToast } from './app.js';
-import { getContainer, setContainer, getCurrentKey, setCurrentKey, setRerender, setRenderList } from './feedback-state.js';
-import { _renderDetail } from './feedback-detail.js';
 import {
-  _parseSelections,
-  _formatTime,
-  _renderPendingSection,
-} from './feedback-render.js';
+  getContainer,
+  setContainer,
+  getCurrentKey,
+  setCurrentKey,
+  setRerender,
+  setRenderList,
+} from './feedback-state.js';
+import { _renderDetail } from './feedback-detail.js';
+import { _parseSelections, _formatTime, _renderPendingSection } from './feedback-render.js';
 
 // ---- Public API ----
 
@@ -42,7 +45,8 @@ export function unmountFeedback() {
 async function _render() {
   const container = getContainer();
   if (!container) return;
-  container.innerHTML = '<div class="loading-center"><div class="loading-spinner"></div> Loading feedback...</div>';
+  container.innerHTML =
+    '<div class="loading-center"><div class="loading-spinner"></div> Loading feedback...</div>';
 
   try {
     const status = await fetchJSON('/api/feedback/status');
@@ -105,7 +109,9 @@ async function _renderGraphReviews() {
   if (!container) return;
 
   const pendingData = await fetchJSON('/api/pending-reviews/status')
-    .then((/** @type {any} */ s) => s.available ? fetchJSON('/api/pending-reviews') : { items: [] })
+    .then((/** @type {any} */ s) =>
+      s.available ? fetchJSON('/api/pending-reviews') : { items: [] }
+    )
     .catch(() => ({ items: [] }));
 
   container.innerHTML = `
@@ -132,16 +138,26 @@ async function _renderList() {
   const [data, pendingData] = await Promise.all([
     fetchJSON('/api/feedback'),
     fetchJSON('/api/pending-reviews/status')
-      .then((/** @type {any} */ s) => s.available ? fetchJSON('/api/pending-reviews') : { items: [] })
+      .then((/** @type {any} */ s) =>
+        s.available ? fetchJSON('/api/pending-reviews') : { items: [] }
+      )
       .catch(() => ({ items: [] })),
   ]);
   const entries = data.entries || [];
   const pendingItems = pendingData.items || [];
 
-  const totalSuccesses = entries.reduce((/** @type {number} */ s, /** @type {any} */ e) => s + e.success_count, 0);
-  const totalFailures = entries.reduce((/** @type {number} */ s, /** @type {any} */ e) => s + e.failure_count, 0);
+  const totalSuccesses = entries.reduce(
+    (/** @type {number} */ s, /** @type {any} */ e) => s + e.success_count,
+    0
+  );
+  const totalFailures = entries.reduce(
+    (/** @type {number} */ s, /** @type {any} */ e) => s + e.failure_count,
+    0
+  );
 
-  const activityHeader = viewerSharesFacilityClock() ? 'Last Activity' : `Last Activity (${facilityZoneLabel()})`;
+  const activityHeader = viewerSharesFacilityClock()
+    ? 'Last Activity'
+    : `Last Activity (${facilityZoneLabel()})`;
 
   let html = `
     <div class="fb-toolbar">
@@ -171,7 +187,8 @@ async function _renderList() {
   `;
 
   if (entries.length === 0) {
-    html += '<div class="empty-state"><div class="empty-state-icon">&#128203;</div>No feedback entries yet.<br>Use the Search tab to record feedback, or review agent-captured searches below.</div>';
+    html +=
+      '<div class="empty-state"><div class="empty-state-icon">&#128203;</div>No feedback entries yet.<br>Use the Search tab to record feedback, or review agent-captured searches below.</div>';
   } else {
     html += `
       <div class="table-wrapper">
@@ -187,7 +204,9 @@ async function _renderList() {
             </tr>
           </thead>
           <tbody>
-            ${entries.map((/** @type {any} */ e) => `
+            ${entries
+              .map(
+                (/** @type {any} */ e) => `
               <tr class="fb-table-row" data-key="${esc(e.key)}">
                 <td>${esc(e.query)}</td>
                 <td><span class="font-mono" style="font-size: var(--text-sm);">${esc(e.facility)}</span></td>
@@ -198,7 +217,9 @@ async function _renderList() {
                   <button class="item-action-btn action-delete fb-row-delete" data-key="${esc(e.key)}" title="Delete entry">&times;</button>
                 </td>
               </tr>
-            `).join('')}
+            `
+              )
+              .join('')}
           </tbody>
         </table>
       </div>
@@ -220,7 +241,7 @@ function _bindListEvents() {
   if (!container) return;
 
   // Row click → detail view
-  container.querySelectorAll('.fb-table-row').forEach(row => {
+  container.querySelectorAll('.fb-table-row').forEach((row) => {
     row.addEventListener('click', (e) => {
       if (/** @type {HTMLElement} */ (e.target).closest('.fb-row-delete')) return;
       setCurrentKey(/** @type {HTMLElement} */ (row).dataset.key ?? null);
@@ -229,7 +250,7 @@ function _bindListEvents() {
   });
 
   // Delete entry buttons
-  container.querySelectorAll('.fb-row-delete').forEach(btn => {
+  container.querySelectorAll('.fb-row-delete').forEach((btn) => {
     btn.addEventListener('click', async (e) => {
       e.stopPropagation();
       const key = /** @type {HTMLElement} */ (btn).dataset.key;
@@ -269,7 +290,7 @@ function _bindPendingEvents() {
   if (!container) return;
 
   // Approve buttons — directly promote to feedback store (no modal)
-  container.querySelectorAll('.fb-pending-approve').forEach(btn => {
+  container.querySelectorAll('.fb-pending-approve').forEach((btn) => {
     btn.addEventListener('click', async () => {
       const id = /** @type {HTMLElement} */ (btn).dataset.id;
       try {
@@ -283,7 +304,7 @@ function _bindPendingEvents() {
   });
 
   // Dismiss buttons
-  container.querySelectorAll('.fb-pending-dismiss').forEach(btn => {
+  container.querySelectorAll('.fb-pending-dismiss').forEach((btn) => {
     btn.addEventListener('click', async () => {
       const id = /** @type {HTMLElement} */ (btn).dataset.id;
       const ok = await confirmModal({
@@ -305,7 +326,7 @@ function _bindPendingEvents() {
   });
 
   // Expand/collapse channel list toggles
-  container.querySelectorAll('.fb-pending-channels-toggle').forEach(btn => {
+  container.querySelectorAll('.fb-pending-channels-toggle').forEach((btn) => {
     btn.addEventListener('click', () => {
       const overflow = /** @type {HTMLElement|null} */ (btn.previousElementSibling);
       if (!overflow) return;
@@ -323,12 +344,29 @@ async function _handleAddEntry() {
   const result = await formModal({
     title: 'Add Feedback Entry',
     fields: [
-      { name: 'query', label: 'Query', type: 'text', required: true, placeholder: 'e.g. show me magnets' },
-      { name: 'entry_type', label: 'Type', type: 'select', options: [
-        { value: 'success', label: 'Success' },
-        { value: 'failure', label: 'Failure' },
-      ], value: 'success' },
-      { name: 'selections', label: 'Selections (key: value, one per line)', type: 'textarea', placeholder: 'system: MAG\ndevice: QF1' },
+      {
+        name: 'query',
+        label: 'Query',
+        type: 'text',
+        required: true,
+        placeholder: 'e.g. show me magnets',
+      },
+      {
+        name: 'entry_type',
+        label: 'Type',
+        type: 'select',
+        options: [
+          { value: 'success', label: 'Success' },
+          { value: 'failure', label: 'Failure' },
+        ],
+        value: 'success',
+      },
+      {
+        name: 'selections',
+        label: 'Selections (key: value, one per line)',
+        type: 'textarea',
+        placeholder: 'system: MAG\ndevice: QF1',
+      },
     ],
     submitLabel: 'Add Entry',
   });

@@ -1,0 +1,41 @@
+{#- Rendered into build/services/agent_record/osprey.xml with
+    `agent_record.backend: clickhouse` and mounted into the record store as
+    /etc/clickhouse-server/config.d/osprey.xml. -#}
+{%- set store = osprey_agent_record.clickhouse -%}
+<clickhouse>
+    <logger>
+        <level>warning</level>
+    </logger>
+    <mark_cache_size>536870912</mark_cache_size>
+    <!-- The server's own memory cap, a share of the container's limit. -->
+    <max_server_memory_usage_to_ram_ratio>{{ store.memory_ratio }}</max_server_memory_usage_to_ram_ratio>
+    <!-- The hard ceiling: agent-record is the store's one client, and its read
+         API, its ingest and its retention share these slots. -->
+    <max_concurrent_select_queries>{{ store.max_concurrent_select_queries }}</max_concurrent_select_queries>
+    <query_cache>
+        <max_size_in_bytes>0</max_size_in_bytes>
+    </query_cache>
+    <query_metric_log remove="1"/>
+    <processors_profile_log remove="1"/>
+    <metric_log remove="1"/>
+    <trace_log remove="1"/>
+    <text_log remove="1"/>
+    <asynchronous_metric_log remove="1"/>
+    <query_log>
+        <ttl>event_date + INTERVAL {{ store.system_log_ttl_days }} DAY DELETE</ttl>
+    </query_log>
+    <part_log>
+        <ttl>event_date + INTERVAL {{ store.system_log_ttl_days }} DAY DELETE</ttl>
+    </part_log>
+    <asynchronous_insert_log>
+        <ttl>event_date + INTERVAL {{ store.system_log_ttl_days }} DAY DELETE</ttl>
+    </asynchronous_insert_log>
+    <access_control_improvements>
+        <!-- Pinned, not inherited: the store defines no row policy, so
+             agent-record's account reads rows because of it. -->
+        <users_without_row_policies_can_read_rows>true</users_without_row_policies_can_read_rows>
+        <select_from_system_db_requires_grant>true</select_from_system_db_requires_grant>
+    </access_control_improvements>
+    <!-- A user created without IDENTIFIED can never exist. -->
+    <allow_implicit_no_password>0</allow_implicit_no_password>
+</clickhouse>

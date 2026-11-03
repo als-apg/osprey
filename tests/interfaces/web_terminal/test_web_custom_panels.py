@@ -7,7 +7,7 @@ import ipaddress
 import json
 import threading
 import time
-from contextlib import nullcontext, suppress
+from contextlib import ExitStack, contextmanager, nullcontext, suppress
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from types import SimpleNamespace
@@ -26,7 +26,9 @@ from osprey.interfaces.web_terminal.app import (
 )
 from osprey.interfaces.web_terminal.operator_session import resolve_agent_data_root
 from osprey.interfaces.web_terminal.routes import panels as panels_module
-from osprey.profiles.web_panels import BUILTIN_PANEL_LABELS, SIDECAR_PANELS
+from osprey.profiles.web_panels import BUILTIN_PANEL_LABELS, JUPYTER_PANEL_ID, SIDECAR_PANELS
+from tests._live import wait_until
+from tests.interfaces.web_terminal._started_app import terminal_client
 
 from .conftest import HOST_ADDRS_TARGET, StubWorkspaceWatcher
 
@@ -36,18 +38,30 @@ from .conftest import HOST_ADDRS_TARGET, StubWorkspaceWatcher
 _real_host_interface_addresses = panels_module._host_interface_addresses
 
 
-@pytest.fixture
-def workspace_dir(tmp_path):
-    ws = tmp_path / "_agent_data"
-    ws.mkdir()
-    return ws
-
-
-#: The panel id of the sidecar under test, and the dotted path of the class the
-#: lifespan imports for it. Both read off the registry so this module pins the
-#: launch path rather than a spelling.
-SIDECAR_ID = next(iter(sorted(SIDECAR_PANELS)))
+#: The panel id of the sidecar under test — the notebooks panel, the one that
+#: also answers on the older ``/api/<id>-server`` route these tests read — and
+#: the dotted path of the class the lifespan imports for it, read off the
+#: registry so this module pins the launch path rather than a spelling.
+SIDECAR_ID = JUPYTER_PANEL_ID
 _SIDECAR_FACTORY_TARGET = SIDECAR_PANELS[SIDECAR_ID].factory_path.replace(":", ".")
+
+#: Every other registered sidecar's class. A fixture that enables all builtin
+#: panels launches each of them, and none may start a real process here, so
+#: these are stubbed to fail preflight wherever the sidecar under test is.
+_OTHER_SIDECAR_FACTORY_TARGETS = sorted(
+    panel.factory_path.replace(":", ".")
+    for panel_id, panel in SIDECAR_PANELS.items()
+    if panel_id != SIDECAR_ID
+)
+
+
+@contextmanager
+def _other_sidecars_stubbed():
+    """Replace every other sidecar class with a stub that never launches."""
+    with ExitStack() as stack:
+        for target in _OTHER_SIDECAR_FACTORY_TARGETS:
+            stack.enter_context(patch(target, _stub_sidecar_class(SidecarScript())))
+        yield
 
 
 class SidecarScript:
@@ -171,6 +185,7 @@ def _make_client(
     )
     with (
         config_patch,
+        _other_sidecars_stubbed(),
         patch(_SIDECAR_FACTORY_TARGET, _stub_sidecar_class(sidecar_script or SidecarScript())),
         patch(
             "osprey.interfaces.web_terminal.app._load_web_config",
@@ -533,40 +548,80 @@ class TestLoadPanelPresets:
             assert _load_panel_presets({"artifacts"}, []) == []
 
     def test_drops_unknown_members_keeps_known(self):
-        """Unknown member ids are dropped; the known members are kept in order."""
-        cfg = {"web": {"presets": {"Setup": ["artifacts", "ghost", "ariel"]}}}
+        """Unknown tabs are pruned; the known tabs keep their tiles, normalised."""
+        cfg = {
+            "web": {
+                "presets": {
+                    "Setup": {
+                        "split": "row",
+                        "items": [
+                            {"tabs": ["artifacts", "ghost"], "showing": "ghost", "size": 3},
+                            {"tabs": ["ariel"]},
+                        ],
+                    }
+                }
+            }
+        }
         with patch("osprey_connectors.workspace.load_osprey_config", return_value=cfg):
             presets = _load_panel_presets({"artifacts", "ariel"}, [])
-        assert presets == [{"name": "Setup", "panels": ["artifacts", "ariel"]}]
+        assert presets == [
+            {
+                "name": "Setup",
+                "panels": ["artifacts", "ariel"],
+                "layout": {
+                    "split": "row",
+                    "items": [
+                        {"tabs": ["artifacts"], "showing": "artifacts", "size": 0.75},
+                        {"tabs": ["ariel"], "showing": "ariel", "size": 0.25},
+                    ],
+                },
+            }
+        ]
 
     def test_drops_preset_that_resolves_empty(self):
-        """A preset whose members are all unknown is dropped entirely."""
-        cfg = {"web": {"presets": {"Empty": ["ghost"], "Good": ["artifacts"]}}}
+        """A preset whose tabs are all unknown is dropped entirely."""
+        cfg = {"web": {"presets": {"Empty": {"tabs": ["ghost"]}, "Good": {"tabs": ["artifacts"]}}}}
         with patch("osprey_connectors.workspace.load_osprey_config", return_value=cfg):
             presets = _load_panel_presets({"artifacts"}, [])
-        assert presets == [{"name": "Good", "panels": ["artifacts"]}]
+        assert presets == [
+            {
+                "name": "Good",
+                "panels": ["artifacts"],
+                "layout": {"tabs": ["artifacts"], "showing": "artifacts"},
+            }
+        ]
 
     def test_preserves_config_order(self):
         """Preset order follows config insertion order (pyyaml preserves it)."""
-        cfg = {"web": {"presets": {"B": ["artifacts"], "A": ["ariel"]}}}
+        cfg = {"web": {"presets": {"B": {"tabs": ["artifacts"]}, "A": {"tabs": ["ariel"]}}}}
         with patch("osprey_connectors.workspace.load_osprey_config", return_value=cfg):
             presets = _load_panel_presets({"artifacts", "ariel"}, [])
         assert [p["name"] for p in presets] == ["B", "A"]
 
     def test_custom_panel_ids_are_known_members(self):
-        """Custom panel ids (not just built-ins) count as known preset members."""
-        cfg = {"web": {"presets": {"Dash": ["my-dash", "artifacts"]}}}
+        """Custom panel ids (not just built-ins) count as known preset tabs."""
+        cfg = {"web": {"presets": {"Dash": {"tabs": ["my-dash", "artifacts"]}}}}
         custom = [{"id": "my-dash", "label": "DASH", "url": "http://x:9000"}]
         with patch("osprey_connectors.workspace.load_osprey_config", return_value=cfg):
             presets = _load_panel_presets({"artifacts"}, custom)
-        assert presets == [{"name": "Dash", "panels": ["my-dash", "artifacts"]}]
+        assert [p["panels"] for p in presets] == [["my-dash", "artifacts"]]
 
-    def test_non_list_preset_value_skipped(self):
-        """A preset whose value is not a list is skipped, not crashed on."""
-        cfg = {"web": {"presets": {"Bad": "artifacts", "Good": ["artifacts"]}}}
+    @pytest.mark.parametrize(
+        "bad",
+        [
+            pytest.param("artifacts", id="string"),
+            pytest.param(["artifacts"], id="retired-list-form"),
+            pytest.param({"tabs": ["terminal", "artifacts"]}, id="names-the-terminal"),
+            pytest.param({"tabs": [0]}, id="member-index"),
+            pytest.param({"slot": 0}, id="not-a-layout"),
+        ],
+    )
+    def test_a_value_that_is_not_a_preset_is_skipped(self, bad):
+        """A value that is not a dock layout over panel ids is skipped, never crashed on."""
+        cfg = {"web": {"presets": {"Bad": bad, "Good": {"tabs": ["artifacts"]}}}}
         with patch("osprey_connectors.workspace.load_osprey_config", return_value=cfg):
             presets = _load_panel_presets({"artifacts"}, [])
-        assert presets == [{"name": "Good", "panels": ["artifacts"]}]
+        assert [p["name"] for p in presets] == ["Good"]
 
 
 # ---- API endpoint tests ----
@@ -671,11 +726,8 @@ def _make_client_with_runtime_panels(workspace_dir, allowlist=None):
     web_cfg: dict = {"allow_runtime_panels": True}
     if allowlist is not None:
         web_cfg["runtime_panel_allowlist"] = allowlist
-    with (
-        patch(
-            "osprey.interfaces.web_terminal.app._load_web_config",
-            return_value={"watch_dir": str(workspace_dir)},
-        ),
+    with terminal_client(
+        workspace_dir,
         patch(
             "osprey.interfaces.web_terminal.app._load_panel_config",
             return_value=(set(UNIVERSAL_PANELS), [], None),
@@ -684,19 +736,14 @@ def _make_client_with_runtime_panels(workspace_dir, allowlist=None):
             "osprey_connectors.workspace.load_osprey_config",
             return_value={"web": web_cfg},
         ),
-    ):
-        app = create_app(shell_command="echo")
-        with TestClient(app) as c:
-            yield c
+    ) as c:
+        yield c
 
 
 def _make_client_with_hidden_panel(workspace_dir, hidden_panel_id, enabled_panels):
     """Yield a TestClient where *hidden_panel_id* is enabled but hidden:true."""
-    with (
-        patch(
-            "osprey.interfaces.web_terminal.app._load_web_config",
-            return_value={"watch_dir": str(workspace_dir)},
-        ),
+    with terminal_client(
+        workspace_dir,
         patch(
             "osprey.interfaces.web_terminal.app._load_panel_config",
             return_value=(set(enabled_panels), [], None),
@@ -705,10 +752,8 @@ def _make_client_with_hidden_panel(workspace_dir, hidden_panel_id, enabled_panel
             "osprey_connectors.workspace.load_osprey_config",
             return_value={"web": {"panels": {hidden_panel_id: {"enabled": True, "hidden": True}}}},
         ),
-    ):
-        app = create_app(shell_command="echo")
-        with TestClient(app) as c:
-            yield c
+    ) as c:
+        yield c
 
 
 def _make_client_runtime_with_config_events(workspace_dir):
@@ -719,11 +764,8 @@ def _make_client_runtime_with_config_events(workspace_dir):
     stamped with the production ``configDefined`` marker the reservation check
     relies on.
     """
-    with (
-        patch(
-            "osprey.interfaces.web_terminal.app._load_web_config",
-            return_value={"watch_dir": str(workspace_dir)},
-        ),
+    with terminal_client(
+        workspace_dir,
         patch(
             "osprey_connectors.workspace.load_osprey_config",
             return_value={
@@ -739,10 +781,8 @@ def _make_client_runtime_with_config_events(workspace_dir):
                 }
             },
         ),
-    ):
-        app = create_app(shell_command="echo")
-        with TestClient(app) as c:
-            yield app, c
+    ) as c:
+        yield c.app, c
 
 
 @pytest.fixture
@@ -989,31 +1029,30 @@ class TestPanelRegisterAPI:
         # Assert
         assert resp.status_code == 422
 
-    def test_register_non_http_scheme_returns_422(self, client_runtime_panels):
-        """A URL with a non-http/https scheme is rejected with 422 without a DNS lookup."""
-        # Arrange — ftp:// is not a valid panel URL scheme
-
+    @pytest.mark.parametrize(
+        "panel",
+        [
+            # ftp:// is not a valid panel URL scheme.
+            pytest.param(
+                {"id": "ftp-panel", "label": "FTP", "url": "ftp://files.example.com/"},
+                id="non_http_scheme",
+            ),
+            # "ariel" is in BUILTIN_PANELS.
+            pytest.param(
+                {"id": "ariel", "label": "ARIEL", "url": "http://grafana.lan:3000"},
+                id="builtin_id",
+            ),
+        ],
+    )
+    def test_register_refused_without_a_dns_lookup_returns_422(self, client_runtime_panels, panel):
+        """A non-http(s) URL or a built-in panel id is rejected with 422 before any lookup."""
         # Act
-        resp = client_runtime_panels.post(
-            "/api/panels/register",
-            json={"id": "ftp-panel", "label": "FTP", "url": "ftp://files.example.com/"},
-        )
+        with patch(_GETADDRINFO_TARGET) as resolve:
+            resp = client_runtime_panels.post("/api/panels/register", json=panel)
 
         # Assert
         assert resp.status_code == 422
-
-    def test_register_builtin_id_returns_422(self, client_runtime_panels):
-        """Using a built-in panel id (e.g. 'ariel') for registration is rejected with 422."""
-        # Arrange — "ariel" is in BUILTIN_PANELS
-
-        # Act
-        resp = client_runtime_panels.post(
-            "/api/panels/register",
-            json={"id": "ariel", "label": "ARIEL", "url": "http://grafana.lan:3000"},
-        )
-
-        # Assert
-        assert resp.status_code == 422
+        resolve.assert_not_called()
 
     @pytest.mark.parametrize("panel_id", ["überblick", "..", "beam/viewer"])
     def test_register_id_the_panel_could_not_be_reached_by_returns_422(
@@ -1054,41 +1093,33 @@ class TestPanelRegisterAPI:
             "beam_viewer.2"
         ]
 
-    def test_register_host_not_in_allowlist_returns_422(self, client_runtime_panels_allowlist):
-        """A host not in runtime_panel_allowlist is rejected with 422 even with a LAN address."""
-        # Arrange — allowlist contains only "grafana.lan"; "other-host.lan" is not listed
-
+    @pytest.mark.parametrize(
+        ("panel", "status"),
+        [
+            # "other-host.lan" is not listed: refused even with a LAN address.
+            pytest.param(
+                {"id": "other", "label": "OTHER", "url": "http://other-host.lan:3000"},
+                422,
+                id="host_not_listed",
+            ),
+            # "grafana.lan" is listed and its address is not blocked.
+            pytest.param(
+                {"id": "grafana", "label": "GRAFANA", "url": "http://grafana.lan:3000"},
+                200,
+                id="host_listed",
+            ),
+        ],
+    )
+    def test_register_host_is_judged_against_the_allowlist(
+        self, client_runtime_panels_allowlist, panel, status
+    ):
+        """Only a host in runtime_panel_allowlist (here just "grafana.lan") registers."""
         # Act
         with patch(_GETADDRINFO_TARGET, return_value=_LAN_ADDR):
-            resp = client_runtime_panels_allowlist.post(
-                "/api/panels/register",
-                json={
-                    "id": "other",
-                    "label": "OTHER",
-                    "url": "http://other-host.lan:3000",
-                },
-            )
+            resp = client_runtime_panels_allowlist.post("/api/panels/register", json=panel)
 
         # Assert
-        assert resp.status_code == 422
-
-    def test_register_host_in_allowlist_succeeds(self, client_runtime_panels_allowlist):
-        """A host present in runtime_panel_allowlist is accepted when the address is not blocked."""
-        # Arrange — allowlist contains "grafana.lan"; URL host matches
-
-        # Act
-        with patch(_GETADDRINFO_TARGET, return_value=_LAN_ADDR):
-            resp = client_runtime_panels_allowlist.post(
-                "/api/panels/register",
-                json={
-                    "id": "grafana",
-                    "label": "GRAFANA",
-                    "url": "http://grafana.lan:3000",
-                },
-            )
-
-        # Assert
-        assert resp.status_code == 200
+        assert resp.status_code == status
 
     def test_register_deploy_host_own_address_returns_422(self, client_runtime_panels):
         """A host resolving to one of THIS host's interface addresses is rejected.
@@ -1259,10 +1290,19 @@ class TestSidecarReadyTimeout:
         assert ready_sidecar.waited == [240.0]
         assert url == ready_sidecar.url
 
-    def test_a_numeric_string_is_read_as_seconds(self, workspace_dir, ready_sidecar, caplog):
-        self._launch(workspace_dir, "90", ready_sidecar)
+    @pytest.mark.parametrize(
+        ("value", "waited"),
+        [
+            pytest.param("90", [90.0], id="numeric-string-is-read-as-seconds"),
+            pytest.param(None, [60.0], id="null-waits-the-default"),
+        ],
+    )
+    def test_a_quiet_value_sets_the_wait_without_a_warning(
+        self, workspace_dir, ready_sidecar, caplog, value, waited
+    ):
+        self._launch(workspace_dir, value, ready_sidecar)
 
-        assert ready_sidecar.waited == [90.0]
+        assert ready_sidecar.waited == waited
         assert self._warnings_naming_the_key(caplog) == []
 
     @pytest.mark.parametrize(
@@ -1289,12 +1329,6 @@ class TestSidecarReadyTimeout:
         warnings = self._warnings_naming_the_key(caplog)
         assert len(warnings) == 1
         assert repr(value) in warnings[0].getMessage()
-
-    def test_a_null_value_waits_the_default_quietly(self, workspace_dir, ready_sidecar, caplog):
-        self._launch(workspace_dir, None, ready_sidecar)
-
-        assert ready_sidecar.waited == [60.0]
-        assert self._warnings_naming_the_key(caplog) == []
 
     def test_a_config_read_that_raises_waits_the_default(
         self, workspace_dir, ready_sidecar, caplog
@@ -1575,14 +1609,9 @@ class TestSidecarExitsLater:
         # the loop the retraction, so the route may need one more turn.
         threading.Thread(target=state.sidecars[SIDECAR_ID].on_exit).start()
 
-        deadline = time.monotonic() + 5.0
-        while time.monotonic() < deadline:
-            resp = client_with_sidecar.get(f"/api/{SIDECAR_ID}-server")
-            if resp.json()["available"] is False:
-                break
-            time.sleep(0.05)
+        body = _settle(client_with_sidecar, lambda b: b["available"] is False)
 
-        assert resp.json() == {
+        assert body == {
             "url": None,
             "available": False,
             "state": "failed",
@@ -1617,13 +1646,13 @@ def _start(client, panel_id=SIDECAR_ID):
 
 
 def _settle(client, predicate, timeout=5.0):
-    """Poll the sidecar's config route until *predicate* holds; return the last body."""
-    deadline = time.monotonic() + timeout
-    while True:
+    """Poll the sidecar's config route until *predicate* holds; return that body."""
+
+    def settled():
         body = client.get(f"/api/{SIDECAR_ID}-server").json()
-        if predicate(body) or time.monotonic() >= deadline:
-            return body
-        time.sleep(0.02)
+        return body if predicate(body) else None
+
+    return wait_until(settled, timeout=timeout, interval=0.02, what="the sidecar's config route")
 
 
 @pytest.fixture
@@ -1750,10 +1779,7 @@ class TestSidecarStartsAgain:
         failed_sidecar.preflight_error = None
         failed_sidecar.hold = threading.Event()
         assert _start(client).status_code == 202
-        deadline = time.monotonic() + 5.0
-        while not failed_sidecar.waited and time.monotonic() < deadline:
-            time.sleep(0.02)
-        assert failed_sidecar.waited, "the retry never reached wait_ready"
+        wait_until(lambda: failed_sidecar.waited, timeout=5.0, what="the retry to reach wait_ready")
 
         with pytest.raises(StopIteration):
             next(client_gen)

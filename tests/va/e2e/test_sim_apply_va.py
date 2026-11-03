@@ -26,6 +26,8 @@ from typing import Any
 import pytest
 
 from osprey_connectors.simulation import DEFAULT_TICK_S
+from tests._live import wait_until
+from tests.va._collection import assert_module_collected
 from tests.va.e2e import conftest as e2e_conftest
 
 #: The session container is booted without ``VA_POLL_INTERVAL_S``, so its
@@ -69,12 +71,12 @@ def _apply(project: e2e_conftest.VaProject, *scenarios: str) -> None:
     applied = project.sim_apply(*scenarios)
     assert applied.returncode == 0, applied.stdout + applied.stderr
     written = (project.state_dir / "active_scenarios").read_text(encoding="utf-8")
-    deadline = time.monotonic() + VISIBLE_BOUND_S
-    while _active_inside_container() != written:
-        assert time.monotonic() < deadline, (
-            f"the container never saw the active_scenarios file the host wrote ({written!r})"
-        )
-        time.sleep(POLL_S)
+    wait_until(
+        lambda: _active_inside_container() == written,
+        timeout=VISIBLE_BOUND_S,
+        interval=POLL_S,
+        what=f"the container seeing the active_scenarios file the host wrote ({written!r})",
+    )
 
 
 async def _read(connector: Any) -> float:
@@ -99,7 +101,7 @@ async def test_sim_apply_flips_the_monitor_sign_within_two_ticks(
     va_container: e2e_conftest.VaProject,
 ) -> None:
     project = va_container
-    with e2e_conftest.patched_config(**{"control_system.writes_enabled": True}):
+    with e2e_conftest.patched_config(**{"control_system.writes": "allowed"}):
         connector = await e2e_conftest.connect_va()
         try:
             _apply(project, e2e_conftest.KICK_SCENARIO_NAME)
@@ -133,10 +135,4 @@ async def test_sim_apply_flips_the_monitor_sign_within_two_ticks(
 
 def test_this_module_collects_its_whole_suite(request: pytest.FixtureRequest) -> None:
     """Vacuous-green guard: an empty or half-collected module fails here."""
-    collected = [
-        item
-        for item in request.session.items
-        if item.nodeid.split("::")[0].endswith("test_sim_apply_va.py")
-    ]
-
-    assert len(collected) >= MIN_COLLECTED_TESTS
+    assert_module_collected(request, __file__, MIN_COLLECTED_TESTS)

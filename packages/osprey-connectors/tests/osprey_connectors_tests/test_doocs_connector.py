@@ -20,7 +20,11 @@ from osprey_connectors.control_system._base import (
     ChannelWriteResult,
     WriteOutcome,
 )
+from osprey_connectors.errors import ChannelUnreachableError, ConnectorUnavailableError
 from osprey_connectors.ipc import _frames as frames
+from osprey_connectors.refusals import refusal_phrase
+from osprey_connectors_tests._write_fakes import arm_switch
+from osprey_connectors_tests._write_fakes import writes_enabled_config as _writes_enabled
 
 # --------------------------------------------------------------------------------------
 # Helpers to build mock doocs4py objects
@@ -36,6 +40,17 @@ _TZ_PATCH = "osprey_connectors.control_system._doocs_connector.get_facility_time
 # How long an offload test waits on a threading.Event before giving up. It only
 # elapses when the code under test is broken; a passing run never waits on it.
 _OFFLOAD_CEILING_S = 5.0
+
+
+@pytest.fixture(autouse=True)
+def _switch_on(monkeypatch, tmp_path):
+    """The login's switch on for the simulator target, connectors stamped with it.
+
+    With :func:`writes_enabled_config` serving a write tier that allows, that is
+    everything the reference monitor's verdict asks before a write reaches the
+    transport; a test that disarms serves a tier that does not.
+    """
+    return arm_switch(monkeypatch, tmp_path / "armed-data")
 
 
 def _make_eq_data(value=42.0, macropulse=12345):
@@ -89,12 +104,6 @@ def _make_limits_validator(confirm=True):
     validator.validate.return_value = None
     validator.resolve_confirm.return_value = confirm
     return validator
-
-
-def _writes_enabled(key, default=None):
-    if key == "control_system.writes_enabled":
-        return True
-    return default
 
 
 @pytest.fixture
@@ -157,7 +166,7 @@ class TestConnect:
             from osprey_connectors.control_system._doocs_connector import DOOCSConnector
 
             conn = DOOCSConnector()
-            with pytest.raises(ConnectionError, match="ENS") as raised:
+            with pytest.raises(ConnectorUnavailableError, match="ENS") as raised:
                 await conn.connect({})
 
         assert isinstance(raised.value.__cause__, RuntimeError)
@@ -176,7 +185,7 @@ class TestConnect:
 
                 conn = DOOCSConnector()
                 start = time.monotonic()
-                with pytest.raises(ConnectionError, match=r"0\.2") as raised:
+                with pytest.raises(ConnectorUnavailableError, match=r"0\.2") as raised:
                     await conn.connect({"timeout_s": 0.2})
                 elapsed = time.monotonic() - start
         finally:
@@ -287,13 +296,14 @@ class TestReadChannel:
 
         mock_d4py.get.assert_called_once_with("FAC/DEV/LOC/PROP")
 
-    async def test_a_transport_failure_on_read_is_a_connection_error(self, connector):
+    async def test_a_failed_get_is_an_unreachable_channel(self, connector):
         conn, mock_d4py = connector
         mock_d4py.get.side_effect = RuntimeError("channel not found")
 
-        with pytest.raises(ConnectionError, match="channel not found") as raised:
+        with pytest.raises(ChannelUnreachableError, match="channel not found") as raised:
             await conn.read_channel("INVALID/ADDR")
 
+        assert raised.value.channel_address == "INVALID/ADDR"
         assert "INVALID/ADDR" in str(raised.value)
         assert isinstance(raised.value.__cause__, RuntimeError)
 
@@ -437,7 +447,7 @@ class TestWriteChannel:
 
         assert result.outcome is WriteOutcome.REFUSED
         assert result.refusal_reason == "WRITES_DISABLED"
-        assert "disabled" in result.error_message.lower()
+        assert refusal_phrase("tier_never") in result.error_message
         mock_d4py.set.assert_not_called()
 
 

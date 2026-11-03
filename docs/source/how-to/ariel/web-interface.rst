@@ -24,7 +24,7 @@ The interface has four views, accessible via the navigation bar. All views are r
          :align: center
          :width: 90%
 
-         Search view with Keyword mode selected.
+         Search view with Hybrid mode selected.
 
    .. tab-item:: Browse
 
@@ -97,10 +97,8 @@ Reranking costs seconds, and the interface does not ask you to spend them
 looking at a spinner. A search that will be reranked runs in two phases: the
 fast ranking is fetched and drawn first, then the reranked ranking replaces it
 when it arrives. A status line above the results says which of the two you are
-looking at. Expert view names the mechanism --- *Search complete --- reranking
-with LLM…*, then *Results updated after reranking*. Simple view says the same
-thing in one plain line --- *Showing quick results --- improving the order
-now…*, then *Order improved --- best matches first*.
+looking at --- *Search complete --- reranking with LLM…*, then *Results updated
+after reranking*.
 
 The second response is drawn from a larger candidate pool, so entries can appear
 or drop out between the phases: the list is redrawn, not merely reordered.
@@ -121,12 +119,6 @@ the way in to its settings:
 **Appearance**
    Light or Dark. It flips the shade without changing which theme you are in.
 
-**View**
-   Expert or Simple. Expert is the full interface. Simple clears away the
-   extras --- the four-tab strip becomes a single "Browse all entries" link,
-   the search mode tabs and advanced options disappear, and results lose their
-   relevance scores --- leaving a search box and a list of entries.
-
 **Theme**
    One button per theme family: Main, DESY, High Contrast, and Retro. Picking
    a family keeps whichever appearance you are already in, so a switch from
@@ -136,19 +128,19 @@ the way in to its settings:
    Opens the settings drawer, where you can read and edit ARIEL's
    configuration block.
 
-Appearance, View, and Theme take effect straight away and leave the card open,
+Appearance and Theme take effect straight away and leave the card open,
 so you can compare two looks without re-opening the menu. Settings closes it,
 because it takes you to a different surface. Click anywhere outside the card,
 or press ``Escape``, to dismiss it.
 
-**Your picks follow you.** The theme and view you choose here are remembered by
+**Your picks follow you.** The theme you choose here is remembered by
 your browser and shared with every OSPREY interface served from the same
 address --- pick a dark High Contrast look in ARIEL and the OSPREY web terminal
 comes up that way the next time you load it, and the other way round too. There
 is no separate preference to keep in step.
 
 ARIEL running *inside* the web terminal, as a panel, behaves differently on
-purpose. The terminal passes its own theme and view to the panel in the page
+purpose. The terminal passes its own theme to the panel in the page
 address, and an address always outranks the remembered preference, so an
 embedded panel matches the terminal it sits in no matter what was set
 elsewhere. The embedded panel has no header of its own either --- the

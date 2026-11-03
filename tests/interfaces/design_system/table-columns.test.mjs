@@ -43,8 +43,23 @@ describe('layout model', () => {
   test('the default layout keeps pins at their edges and hides what the specs hide', () => {
     const layout = defaultLayout(SPECS);
     expect(layout.order).toEqual(['device', 'section', 'address', 'system', 'description']);
-    expect(keys(orderedColumns(SPECS, layout))).toEqual(['chk', 'device', 'section', 'address', 'system', 'description', 'act']);
-    expect(keys(visibleColumns(SPECS, layout))).toEqual(['chk', 'device', 'section', 'address', 'description', 'act']);
+    expect(keys(orderedColumns(SPECS, layout))).toEqual([
+      'chk',
+      'device',
+      'section',
+      'address',
+      'system',
+      'description',
+      'act',
+    ]);
+    expect(keys(visibleColumns(SPECS, layout))).toEqual([
+      'chk',
+      'device',
+      'section',
+      'address',
+      'description',
+      'act',
+    ]);
   });
 
   test('a move lands before or after its target and reports whether it changed anything', () => {
@@ -67,7 +82,14 @@ describe('layout model', () => {
     const layout = defaultLayout(SPECS);
     expect(nudgeColumn(layout, 'address', 1)).toBe(true);
     // system is hidden, so address lands after description, not after system
-    expect(keys(visibleColumns(SPECS, layout))).toEqual(['chk', 'device', 'section', 'description', 'address', 'act']);
+    expect(keys(visibleColumns(SPECS, layout))).toEqual([
+      'chk',
+      'device',
+      'section',
+      'description',
+      'address',
+      'act',
+    ]);
     expect(nudgeColumn(layout, 'address', 1)).toBe(false);
     expect(nudgeColumn(layout, 'device', -1)).toBe(false);
   });
@@ -84,7 +106,8 @@ describe('layout model', () => {
   test('hiding refuses pins and the last visible movable column', () => {
     const layout = defaultLayout(SPECS);
     expect(setColumnHidden(SPECS, layout, 'chk', true)).toBe(false);
-    for (const k of ['device', 'section', 'address']) expect(setColumnHidden(SPECS, layout, k, true)).toBe(true);
+    for (const k of ['device', 'section', 'address'])
+      expect(setColumnHidden(SPECS, layout, k, true)).toBe(true);
     expect(setColumnHidden(SPECS, layout, 'description', true)).toBe(false);
     expect(setColumnHidden(SPECS, layout, 'system', false)).toBe(true);
     expect(setColumnHidden(SPECS, layout, 'system', false)).toBe(false);
@@ -136,7 +159,11 @@ describe('storage round-trip', () => {
   });
 
   test('stored widths are clamped like a live resize', () => {
-    const restored = restoreLayout(SPECS, { order: [], widths: { section: 1, device: 9999, address: 'wide' }, hidden: [] });
+    const restored = restoreLayout(SPECS, {
+      order: [],
+      widths: { section: 1, device: 9999, address: 'wide' },
+      hidden: [],
+    });
     expect(restored.widths.section).toBe(48);
     expect(restored.widths.device).toBe(MAX_WIDTH);
     expect(restored.widths.address).toBe(190);
@@ -157,14 +184,33 @@ describe('gestures', () => {
     for (const [key, left] of Object.entries(xs)) {
       const th = /** @type {HTMLElement} */ (region.querySelector(`th[data-col="${key}"]`));
       vi.spyOn(th, 'getBoundingClientRect').mockReturnValue(
-        /** @type {DOMRect} */ ({ left, right: left + 100, width: 100, top: 0, bottom: 20, height: 20, x: left, y: 0 }),
+        /** @type {DOMRect} */ ({
+          left,
+          right: left + 100,
+          width: 100,
+          top: 0,
+          bottom: 20,
+          height: 20,
+          x: left,
+          y: 0,
+        })
       );
     }
   }
 
   /** @param {string} type @param {Element} target @param {number} x @param {object} [extra] */
   function fire(type, target, x, extra = {}) {
-    target.dispatchEvent(new PointerEvent(type, { bubbles: true, cancelable: true, clientX: x, clientY: 5, button: 0, pointerId: 1, ...extra }));
+    target.dispatchEvent(
+      new PointerEvent(type, {
+        bubbles: true,
+        cancelable: true,
+        clientX: x,
+        clientY: 5,
+        button: 0,
+        pointerId: 1,
+        ...extra,
+      })
+    );
   }
 
   beforeEach(() => {
@@ -183,7 +229,9 @@ describe('gestures', () => {
       onMove: (k, t, b) => calls.move.push([k, t, b]),
       onAutosize: (k) => calls.autosize.push(k),
     });
-    region.addEventListener('click', (e) => calls.click.push(/** @type {Element} */ (e.target).closest('th')?.getAttribute('data-col')));
+    region.addEventListener('click', (e) =>
+      calls.click.push(/** @type {Element} */ (e.target).closest('th')?.getAttribute('data-col'))
+    );
     layoutHeads();
   });
 
@@ -195,7 +243,10 @@ describe('gestures', () => {
     fire('pointermove', grip, 230);
     fire('pointermove', grip, 260);
     fire('pointerup', grip, 260);
-    expect(calls.resizing).toEqual([['section', 130], ['section', 160]]);
+    expect(calls.resizing).toEqual([
+      ['section', 130],
+      ['section', 160],
+    ]);
     expect(calls.resize).toEqual([['section', 160]]);
     expect(calls.move).toEqual([]);
     expect(document.body.classList.contains('col-resizing')).toBe(false);
@@ -267,9 +318,17 @@ describe('measureColumn', () => {
       <thead><tr><th data-col="a">A</th><th data-col="b">B</th></tr></thead>
       <tbody><tr><td>x</td><td>wide</td></tr><tr><td colspan="2">No channels match.</td></tr></tbody></table>`;
     const table = /** @type {HTMLTableElement} */ (document.querySelector('table'));
-    const widths = new Map([['A', 30], ['B', 20], ['x', 10], ['wide', 120], ['No channels match.', 900]]);
+    const widths = new Map([
+      ['A', 30],
+      ['B', 20],
+      ['x', 10],
+      ['wide', 120],
+      ['No channels match.', 900],
+    ]);
     for (const cell of table.querySelectorAll('th, td')) {
-      Object.defineProperty(cell, 'scrollWidth', { value: widths.get(cell.textContent ?? '') ?? 0 });
+      Object.defineProperty(cell, 'scrollWidth', {
+        value: widths.get(cell.textContent ?? '') ?? 0,
+      });
     }
     expect(measureColumn(table, 'a')).toBe(32);
     expect(measureColumn(table, 'b')).toBe(122);

@@ -69,7 +69,6 @@ export function renderMcpJson(jsonString) {
   return container;
 }
 
-
 /**
  * Build a single MCP server card with header, module path, and env vars.
  * Returns the card element. The tools area is a placeholder for enrichment.
@@ -84,8 +83,10 @@ function _mcpCard(name, spec) {
   const header = _el('div', 'config-mcp-card-header');
 
   const categoryDot = _el('span', 'config-mcp-category-dot');
-  const isOsprey = (spec.args || []).some(a => typeof a === 'string' && a.startsWith('osprey.'));
-  categoryDot.classList.add(isOsprey ? 'config-mcp-category-osprey' : 'config-mcp-category-external');
+  const isOsprey = (spec.args || []).some((a) => typeof a === 'string' && a.startsWith('osprey.'));
+  categoryDot.classList.add(
+    isOsprey ? 'config-mcp-category-osprey' : 'config-mcp-category-external'
+  );
   categoryDot.title = isOsprey ? 'OSPREY server' : 'External server';
   header.appendChild(categoryDot);
 
@@ -129,7 +130,7 @@ function _mcpCard(name, spec) {
 
   // Module path
   if (spec.args && spec.args.length > 0) {
-    const moduleArg = spec.args.find(a => typeof a === 'string' && a !== '-m');
+    const moduleArg = spec.args.find((a) => typeof a === 'string' && a !== '-m');
     if (moduleArg) {
       const moduleEl = _el('div', 'config-mcp-module');
       moduleEl.textContent = moduleArg;
@@ -172,7 +173,6 @@ function _mcpCard(name, spec) {
   return card;
 }
 
-
 /**
  * Remove all children from an element (safe alternative to innerHTML = '').
  * @param {Element} el
@@ -183,14 +183,13 @@ function _clearChildren(el) {
   }
 }
 
-
 /**
  * Fetch /api/mcp-servers and update cards with tool lists and descriptions.
  * @param {Record<string, HTMLElement>} cardMap
  */
 function _fetchAndEnrichCards(cardMap) {
   fetchJSON('/api/mcp-servers') // prefix-aware
-    .then(servers => {
+    .then((servers) => {
       for (const server of servers) {
         const card = cardMap[server.name];
         if (!card) continue;
@@ -202,7 +201,9 @@ function _fetchAndEnrichCards(cardMap) {
         }
 
         // Update tool count badge
-        const badge = /** @type {HTMLElement|null} */ (card.querySelector('.config-mcp-tool-count'));
+        const badge = /** @type {HTMLElement|null} */ (
+          card.querySelector('.config-mcp-tool-count')
+        );
         if (badge && server.tool_count != null) {
           badge.textContent = server.tool_count;
           badge.title = `${server.tool_count} tool${server.tool_count !== 1 ? 's' : ''}`;
@@ -314,7 +315,6 @@ function _fetchAndEnrichCards(cardMap) {
     });
 }
 
-
 /**
  * @typedef {Object} ParsedToolArg
  * @property {string} name
@@ -382,7 +382,6 @@ function _parseToolDescription(desc) {
 
   return result;
 }
-
 
 /** @param {string} str @param {number} maxLen */
 function _truncate(str, maxLen) {

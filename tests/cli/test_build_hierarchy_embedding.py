@@ -19,25 +19,14 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 from pathlib import Path
 
 import pytest
-from click.testing import CliRunner
 
-from osprey.cli.build_cmd import build
 from osprey.cli.templates.claude_code import resolve_hierarchy_context
-
-#: This module renders without a venv and without lifecycle hooks; neither has
-#: any bearing on what the render embeds. Same flags as the other build suites.
-CI_FLAGS = ["--skip-deps", "--skip-lifecycle"]
+from tests.cli._lifecycle_build import invoke_build_in
 
 RESOLVER_LOGGER = "osprey.cli.templates.claude_code"
-
-
-@pytest.fixture
-def runner() -> CliRunner:
-    return CliRunner()
 
 
 def _pin_hierarchical(repo: Path) -> None:
@@ -53,16 +42,6 @@ def _pin_hierarchical(repo: Path) -> None:
         ),
         encoding="utf-8",
     )
-
-
-def _build(runner: CliRunner, repo: Path):
-    """Run ``osprey build`` from *repo*, as an operator standing there would."""
-    previous = Path.cwd()
-    os.chdir(repo)
-    try:
-        return runner.invoke(build, CI_FLAGS)
-    finally:
-        os.chdir(previous)
 
 
 def _channel_finder_config(db_path: str) -> dict:
@@ -118,16 +97,14 @@ class TestUnreadableDatabaseIsReportedNotDumped:
 class TestTheReferenceDeploymentEmbedsItsHierarchy:
     """The positive property, against a real build of the exemplar repo."""
 
-    def test_the_rendered_agent_carries_the_hierarchy_levels(
-        self, runner: CliRunner, lifecycle_repo: Path
-    ) -> None:
+    def test_the_rendered_agent_carries_the_hierarchy_levels(self, lifecycle_repo: Path) -> None:
         """The index the build writes has to load, or the prompt is poorer.
 
         This fails the moment the build writes an index the loader rejects,
         which is the failure the build itself only ever warned about.
         """
         _pin_hierarchical(lifecycle_repo)
-        assert _build(runner, lifecycle_repo).exit_code == 0
+        assert invoke_build_in(lifecycle_repo).exit_code == 0
 
         build_dir = lifecycle_repo / "build"
         index = json.loads(
@@ -142,7 +119,7 @@ class TestTheReferenceDeploymentEmbedsItsHierarchy:
         assert f"- **hierarchy_levels**: {levels}" in prompt
 
     def test_the_build_log_holds_no_traceback(
-        self, runner: CliRunner, lifecycle_repo: Path, caplog: pytest.LogCaptureFixture
+        self, lifecycle_repo: Path, caplog: pytest.LogCaptureFixture
     ) -> None:
         """A build that exits 0 must not print a stack trace on the way there.
 
@@ -159,7 +136,7 @@ class TestTheReferenceDeploymentEmbedsItsHierarchy:
         """
         _pin_hierarchical(lifecycle_repo)
         with caplog.at_level(logging.WARNING):
-            result = _build(runner, lifecycle_repo)
+            result = invoke_build_in(lifecycle_repo)
 
         assert result.exit_code == 0, result.output
         dumped = [

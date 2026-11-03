@@ -105,7 +105,7 @@ The Control Assistant stack ships pointed at the Virtual Accelerator and
 **already deploys** it: the preset's ``virtual_accelerator:`` block renders a
 compose service, so ``osprey up`` brings the Virtual Accelerator up alongside the
 rest of the stack and the connector is already talking to it. There is nothing
-to switch on.
+to enable.
 
 .. code-block:: bash
 
@@ -188,8 +188,8 @@ stand-in carries no errors of its own: it exists to rehearse the live safety
 posture, not different physics. The two machines are told apart by a write to
 the sandbox not showing on the stand-in and by the model RPC status naming its
 instance (``virtual_accelerator`` or ``live_standin``). The label stays honest:
-the banner reads ``LIVE MACHINE (stand-in)`` and the Web Terminal's header chip
-reads ``STAND-IN``.
+the banner reads ``Rehearsal — nothing moves`` and the Web Terminal's header
+chip reads *Rehearsal*.
 :doc:`switch-control-target` has the ritual itself.
 
 **Scenarios reach both machines.** ``osprey sim apply`` writes one scenario file
@@ -197,12 +197,14 @@ and both containers poll it, so a scenario changes the world rather than one
 lane. There is no scenario that applies to the simulator but not to the stand-in,
 and switching targets does not undo one.
 
-**The archive belongs to the machine.** The recorder records the stand-in when
-one is deployed, so the store's past and the stand-in's present describe one
-machine, the way a real machine's do. While that store is being
-recorded, the ``live`` target is refused — a real machine's readings must not
-land in a stand-in's archive. :doc:`switch-control-target` says how to clear
-that.
+**The archive belongs to the machine.** The store this deployment seeds and
+records is the simulator's, with or without a stand-in: the recorder samples
+the virtual accelerator, and the seeded past is the simulator's own history.
+The stand-in rehearses the facility's real machine and is shown that machine's
+past instead --- the ``epics_archiver`` appliance when the deployment names one,
+and no archive otherwise. Nothing the stand-in reads is ever written into the
+simulator's store, so no target is gated on the archive.
+:doc:`switch-control-target` has the whole picture.
 
 .. _va-two-venues:
 
@@ -254,21 +256,23 @@ Everything that is not a plan --- channel reads and writes, the archiver, the
 Channel Finder --- works as before. The ``epics`` block keeps its production
 values throughout.
 
-The archive follows the flip on its own. The recorder records **only** a machine
-this deployment owns and serves over the network, so with no stand-in deployed
-it stops writing while the simulator runs in process and idles; it re-reads the
-project's ``config.yml`` every 30 seconds, so the change takes effect within one
-poll and no restart or rebuild is involved. Nothing is deleted --- the history
-already in the store stays readable, it simply stops growing, and it ages out
-under the retention window as usual. ``osprey health`` will report the archive
-as **stale** (a warning, not an error) once the newest sample is older than the
-freshness threshold, which is the honest answer to "is this archive still being
-written". Flipping back to ``served`` restarts recording within a poll too.
+The archive follows the flip on its own. The store is the simulator's, and the
+recorder samples it only while the ``va`` target lands on this deployment's own
+served simulator: loopback, on the port ``services.virtual_accelerator.port``
+publishes. The simulator in process serves nothing on the network to sample, so
+the recorder stops writing and idles; pointing the ``va`` block's gateways at
+another host, or taking the simulator out of the deployment, idles it the same
+way. It re-reads the project's ``config.yml`` every 30 seconds, so a change
+takes effect within one poll and no restart or rebuild is involved. Nothing is
+deleted --- the history already in the store stays readable, it simply stops
+growing, and it ages out under the retention window as usual. ``osprey health``
+will report the archive as **stale** (a warning, not an error) once the newest
+sample is older than the freshness threshold, which is the honest answer to "is
+this archive still being written". Flipping back to ``served`` restarts
+recording within a poll too.
 
-A stand-in changes that answer, because the recorder follows the machine rather
-than the ``control_system`` section: the stand-in keeps running and is still
-the machine this deployment records, so it keeps being recorded while the
-simulator runs in process as well.
+A stand-in beside the simulator changes none of this: it is never what the
+recorder samples.
 
 ``mock`` is no longer a control-system type. A config or profile that states it
 is refused, and the refusal names the new spelling:
@@ -399,51 +403,28 @@ Write limits
 
 Channels with a record in ``data/facility/limits.yaml`` carry a min/max range,
 and a write outside that range is rejected before it reaches the IOC; an
-in-range write goes through. The mandatory write-approval flow applies
+in-range write goes through. The write switch's positions apply
 unchanged — the Virtual Accelerator connector inherits the same write-safety
 wiring as the EPICS connector.
 
-Arm writes here without arming the machine
-------------------------------------------
+Write to the simulator without arming the machine
+-------------------------------------------------
 
-Write posture is per control target, and this is the page where that matters
-most: the Virtual Accelerator can be write-armed while the live machine the
-same deployment knows about stays read-only.
-``control_system.writes_enabled`` is the posture a connector type inherits when
-it says nothing about itself; a block under ``connector:`` answers for that type
-instead.
+Writes are decided per login and per machine, and this is the page where that
+matters most. The tier key says how far a login may write:
 
 .. code-block:: yaml
 
    control_system:
-     writes_enabled: false          # what every type inherits
-     connector:
-       epics:
-         writes_enabled: false      # the live machine, pinned by name
-       virtual_accelerator:
-         writes_enabled: true       # ... and the simulator alone is armed
+     writes: asked         # never | asked | allowed; silence is never
 
-Only a literal ``true`` arms a target. The quoted string ``'true'`` and the
-number ``1`` do not, at either level, and a config that uses one of them will
-find its writes refused. A type that states its own posture never falls back to
-the inherited key, so the ``false`` above holds for the live machine even if a
-profile turns the deployment-wide key on.
-
-Switching to the live target (see
-:doc:`switch-control-target`) therefore takes its writes away, with no config
-edit and no rebuild — the same write tool that moves the simulator is refused
-on the machine. The bundled ``readwrite`` and
-``admin`` tiers ship exactly those three keys: they pin
-the live block by name, so no later per-type ``true`` can lift it.
-
-.. note::
-
-   On a deployment whose targets disagree like this, ``settings.json`` denies
-   nothing up front — it is rendered once, before any target has been picked
-   — so every refusal arrives per call instead, from the safety hook and
-   the connector, naming the target that refused it. Tools you list under
-   ``control_system.write_tools`` are refused by that same hook, which is how
-   they are gated in every deployment.
+The tier is target-blind. Which machine a write reaches is the person's own
+switch, set per machine from the
+:ref:`control-target chip <web-terminal-session-posture>`, and every machine
+starts off. Arm the simulator and leave the real machine off, and the same
+write tool that moves the simulator is refused on the machine after a switch
+(:doc:`switch-control-target`), with no config edit and no rebuild. The rule is
+on :ref:`write-safety-config`.
 
 .. note::
 
@@ -535,11 +516,10 @@ samples land on the same timestamps and around the same baselines, so where the
 seed ends and recording begins there is noise, not a step an operator would
 rightly chase.
 
-**With a stand-in deployed, this is the stand-in's archive.** The seeded past is
-the composite's history over the shared active set, the same samples whichever
-machine the archive belongs to, and the recorder then samples the stand-in, so
-the history read out of the store — including from the simulator target — is
-the stand-in's. See `Rehearsing against a live target`_.
+**With a stand-in deployed, this is still the simulator's archive.** The seeded
+past is the composite's history over the shared active set and the recorder
+samples the virtual accelerator; the stand-in is shown the facility's own
+archive instead, and never this store. See `Rehearsing against a live target`_.
 
 Retention is enforced by the store itself: dense samples expire after the hot
 span, the coarse ones after the retention window, so a long-running deployment

@@ -95,7 +95,7 @@ def get_framework_standard_patterns() -> dict[str, list[str]]:
             # ============================================================
             # The generic r"\.put\s*\(" above catches a plain Channel.put()
             # only; pvaPy also spells one typed setter per scalar kind
-            # (putDouble, putScalarArray, ...), putGet, asyncPut,
+            # (putDouble, putScalarArray, ...), putGet, asyncPut,  # noqa: ERA001 -- a list of method names
             # parsePut/parsePutGet and MultiChannel.putAsDoubleArray. These are
             # NOT anchored to pvaccess, as RpcClient below is not: an import
             # built at runtime - importlib.import_module("pva" + "ccess") -

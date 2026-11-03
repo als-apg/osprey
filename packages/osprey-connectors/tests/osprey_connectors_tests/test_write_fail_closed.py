@@ -4,7 +4,7 @@ Task 1.3: a validation error other than a limits violation must REFUSE the
 write (outcome=WriteOutcome.REFUSED, refusal_reason="VALIDATION_ERROR") and
 never issue a caput. A ChannelLimitsViolationError still propagates unchanged,
 and a put that fails for any other reason (a lost circuit) propagates as a
-ConnectionError — it is a genuine failure, not a refusal. The one caput error that
+ChannelUnreachableError — it is a genuine failure, not a refusal. The one caput error that
 IS a refusal is the control system's own denial; see
 test_control_system_refused.py.
 """
@@ -15,10 +15,69 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from osprey_connectors.control_system._base import ChannelWriteResult, WriteOutcome
-from osprey_connectors.errors import ChannelLimitsViolationError
+from osprey_connectors.errors import ChannelLimitsViolationError, ChannelUnreachableError
 from osprey_connectors_tests._epics_fakes import ECA_DISCONN
+from osprey_connectors_tests._write_fakes import arm_switch
 from osprey_connectors_tests._write_fakes import make_mock_epics_connector as _make_connector
 from osprey_connectors_tests._write_fakes import writes_enabled_config as _writes_enabled_config
+
+
+@pytest.fixture(autouse=True)
+def _switch_on(monkeypatch, tmp_path):
+    """The login's switch on for the simulator target, connectors stamped with it.
+
+    With :func:`writes_enabled_config` serving a write tier that allows, that is
+    everything the reference monitor's verdict asks before a write reaches the
+    transport; a test that disarms serves a tier that does not.
+    """
+    return arm_switch(monkeypatch, tmp_path / "armed-data")
+
+
+class TestOneNamePerWrite:
+    """``X``, ``ca://X`` and a padded spelling are one record, judged and written as one."""
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("spelling", ["ca://TEST:PV", "  TEST:PV ", " ca://TEST:PV\t"])
+    async def test_limits_are_looked_up_under_the_canonical_name(self, spelling):
+        """Every spelling validates against the limits entry of ``TEST:PV`` and is
+        refused by that entry's limit; the raw spelling never reaches the validator."""
+        violation = ChannelLimitsViolationError(
+            channel_address="TEST:PV",
+            value=999.0,
+            violation_type="max_value",
+            violation_reason="above max",
+        )
+        connector = _make_connector(validate_side_effect=violation)
+
+        with patch(
+            "osprey_connectors.config.get_config_value",
+            side_effect=_writes_enabled_config,
+        ):
+            with pytest.raises(ChannelLimitsViolationError) as raised:
+                await connector.write_channel(spelling, 999.0, confirm=False)
+
+        assert raised.value is violation
+        connector._limits_validator.validate.assert_called_once()
+        (name, value), _kwargs = connector._limits_validator.validate.call_args
+        assert (name, value) == ("TEST:PV", 999.0)
+        assert connector._aioca.puts == []
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("spelling", ["ca://TEST:PV", "  TEST:PV "])
+    async def test_the_put_and_the_result_name_the_canonical_record(self, spelling):
+        """A write that passes validation puts to ``TEST:PV`` and reports that name."""
+        connector = _make_connector()
+
+        with patch(
+            "osprey_connectors.config.get_config_value",
+            side_effect=_writes_enabled_config,
+        ):
+            result = await connector.write_channel(spelling, 1.0, confirm=False)
+
+        (name, _value), _kwargs = connector._limits_validator.validate.call_args
+        assert name == "TEST:PV"
+        assert [(n, v) for n, v, _wait in connector._aioca.puts] == [("TEST:PV", 1.0)]
+        assert result.channel_address == "TEST:PV"
 
 
 class TestFailClosedValidation:
@@ -76,8 +135,8 @@ class TestFailClosedValidation:
         assert connector._aioca.puts == []
 
     @pytest.mark.asyncio
-    async def test_caput_connection_error_propagates_not_refused(self):
-        """validate passes but the put loses its circuit → ConnectionError propagates.
+    async def test_caput_connection_failure_propagates_not_refused(self):
+        """validate passes but the put loses its circuit → ChannelUnreachableError propagates.
 
         Regression guard: a put failure must NOT be swallowed into a refusal
         ChannelWriteResult. It is a genuine write failure and must surface as
@@ -89,7 +148,7 @@ class TestFailClosedValidation:
             "osprey_connectors.config.get_config_value",
             side_effect=_writes_enabled_config,
         ):
-            with pytest.raises(ConnectionError):
+            with pytest.raises(ChannelUnreachableError):
                 await connector.write_channel("TEST:PV", 42.0, confirm=False)
 
         # validate passed and the caput was actually attempted.

@@ -24,6 +24,7 @@ from osprey.dispatch.sources import epics_ca
 from osprey.dispatch.sources.epics_ca import EpicsCaSource, _PvWatcher
 from osprey.dispatch.trigger_config import TriggerConfig
 from osprey_connectors.control_system._base import ChannelValue
+from tests import _live
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -126,35 +127,39 @@ class TestPvWatcherEdgeDetection:
             loop=loop,
         )
 
-    def test_rising_edge_detected(self) -> None:
-        w = self._make_watcher("rising", threshold=1.0)
-        assert w._detect_edge(0.5, 1.0) is True  # exactly at threshold
-        assert w._detect_edge(0.0, 2.0) is True  # crosses above
-
-    def test_rising_edge_not_detected_when_falling(self) -> None:
-        w = self._make_watcher("rising", threshold=1.0)
-        assert w._detect_edge(1.5, 0.5) is False  # falling through threshold
-        assert w._detect_edge(0.5, 0.8) is False  # below threshold both sides
-
-    def test_falling_edge_detected(self) -> None:
-        w = self._make_watcher("falling", threshold=1.0)
-        assert w._detect_edge(1.5, 0.5) is True  # crosses below
-        assert w._detect_edge(2.0, 1.0) is True  # exactly at threshold
-
-    def test_falling_edge_not_detected_when_rising(self) -> None:
-        w = self._make_watcher("falling", threshold=1.0)
-        assert w._detect_edge(0.5, 1.5) is False
-        assert w._detect_edge(1.5, 2.0) is False  # above threshold both sides
-
-    def test_both_edge_detects_rising_and_falling(self) -> None:
-        w = self._make_watcher("both", threshold=1.0)
-        assert w._detect_edge(0.5, 1.0) is True  # rising
-        assert w._detect_edge(1.5, 0.5) is True  # falling
-
-    def test_both_edge_no_fire_when_same_side(self) -> None:
-        w = self._make_watcher("both", threshold=1.0)
-        assert w._detect_edge(0.5, 0.8) is False
-        assert w._detect_edge(1.5, 2.0) is False
+    @pytest.mark.parametrize(
+        ("edge", "transitions", "expected"),
+        [
+            # Exactly at the threshold, then crossing above.
+            pytest.param("rising", [(0.5, 1.0), (0.0, 2.0)], True, id="rising_edge_detected"),
+            # Falling through the threshold, then below it on both sides.
+            pytest.param(
+                "rising",
+                [(1.5, 0.5), (0.5, 0.8)],
+                False,
+                id="rising_edge_not_detected_when_falling",
+            ),
+            # Crossing below, then exactly at the threshold.
+            pytest.param("falling", [(1.5, 0.5), (2.0, 1.0)], True, id="falling_edge_detected"),
+            # Rising through it, then above it on both sides.
+            pytest.param(
+                "falling",
+                [(0.5, 1.5), (1.5, 2.0)],
+                False,
+                id="falling_edge_not_detected_when_rising",
+            ),
+            pytest.param(
+                "both", [(0.5, 1.0), (1.5, 0.5)], True, id="both_edge_detects_rising_and_falling"
+            ),
+            pytest.param(
+                "both", [(0.5, 0.8), (1.5, 2.0)], False, id="both_edge_no_fire_when_same_side"
+            ),
+        ],
+    )
+    def test_edge_detection(self, edge, transitions, expected) -> None:
+        w = self._make_watcher(edge, threshold=1.0)
+        for previous, current in transitions:
+            assert w._detect_edge(previous, current) is expected
 
 
 # ---------------------------------------------------------------------------
@@ -222,11 +227,14 @@ class _FireRecorder:
             return [payload for _, payload in self._calls]
 
     def wait_until(self, count: int, timeout: float = 2.0) -> bool:
-        """Block until at least ``count`` dispatches have run (or timeout)."""
-        deadline = time.monotonic() + timeout
-        while self.call_count < count and time.monotonic() < deadline:
-            time.sleep(0.005)
-        return self.call_count >= count
+        """Block until at least ``count`` dispatches have run; fail the test on timeout."""
+        _live.wait_until(
+            lambda: self.call_count >= count,
+            timeout=timeout,
+            interval=0.005,
+            what=f"{count} dispatch(es)",
+        )
+        return True
 
     @staticmethod
     def settle(grace: float = 0.15) -> None:
@@ -747,10 +755,15 @@ class TestThroughTheEpicsConnector:
         with _connecting(connector):
             await source.start([_trigger(pv="SIM:PV", threshold=1.0)], fire)
 
-        fake.monitors[-1].callback(ca_reading(0.0))  # first read, suppressed
+        # Each address is one CTRL + TIME monitor pair; a connection's values
+        # flow once its CTRL event has arrived.
+        ctrl, values = fake.monitors_of("SIM:PV")
+        ctrl.callback(ca_reading(0.0))
+        values.callback(ca_reading(0.0))  # first read, suppressed
         connector._ca.repoint()  # aioca closes every monitor; the connector re-opens
-        reopened = fake.monitors[-1]
-        assert reopened is not fake.monitors[0]
+        reopened_ctrl, reopened = fake.monitors_of("SIM:PV")
+        assert reopened is not values and reopened_ctrl is not ctrl
+        reopened_ctrl.callback(ca_reading(0.0))
         reopened.callback(ca_reading(2.0))
         for _ in range(10):
             await asyncio.sleep(0)
@@ -758,3 +771,4 @@ class TestThroughTheEpicsConnector:
         assert fired == [(0.0, 2.0)]
         await source.stop()
         assert reopened.closed is True
+        assert reopened_ctrl.closed is True

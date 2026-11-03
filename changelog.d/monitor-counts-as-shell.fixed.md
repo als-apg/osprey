@@ -1,0 +1,1 @@
+The deploy guard on Bluesky launch tokens counts a render's shell as closed only when its settings deny both `Bash` and `Monitor`. `Monitor` runs shell commands too, so a render that lifted only the `Monitor` deny could read the token and arm a queue with no approval.

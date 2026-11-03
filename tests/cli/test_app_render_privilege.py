@@ -35,12 +35,13 @@ _PANEL = "web.config_panel.enabled"
 _GALLERY = "web.scaffold_gallery.write_enabled"
 _DENY = "claude_code.permissions.deny"
 _SHIPPED_APPS = ("logbook", "knowledge", "channel-finder")
+_WRITES = "control_system.writes"
 
 
 def _pinned_render(**config: Any) -> dict[str, Any]:
     """A composed-looking app render: every write switch and door closed."""
     base: dict[str, Any] = {
-        "control_system.writes_enabled": False,
+        _WRITES: "never",
         _DENY: [_SETUP_PATCH],
         _PANEL: False,
         _GALLERY: False,
@@ -127,6 +128,84 @@ def test_an_app_that_lifts_the_setup_deny_is_refused_with_the_new_code_message()
 
     with pytest.raises(BuildProfileError, match="must not be able to write or edit the deployment"):
         compose_app_render({"config": {}}, app, "apps/logbook.yml")
+
+
+# ── the write posture an app render holds ───────────────────────────────────
+
+
+@pytest.mark.parametrize(
+    "host_config",
+    [
+        {},
+        {_WRITES: "allowed"},
+        {"control_system": {"writes": "allowed"}},
+        {"control_system.writes_enabled": True},
+        {"control_system.connector": {"epics": {"timeout_s": 5.0, "writes_enabled": True}}},
+    ],
+    ids=["silent", "tier-dotted", "tier-nested", "retired-flat", "retired-per-type"],
+)
+def test_every_app_render_pins_never_and_no_retired_leaf(host_config: dict) -> None:
+    render = compose_app_render({"config": host_config}, {"name": "Logbook"}, "apps/logbook.yml")
+
+    config = render["config"]
+    assert config[_WRITES] == "never"
+    assert "control_system" not in config
+    assert not [k for k in config if k.endswith("writes_enabled")]
+    connector = config.get("control_system.connector")
+    if connector is not None:
+        assert connector == {"epics": {"timeout_s": 5.0}}
+    assert lint_app_render(render) == []
+
+
+def test_an_old_key_app_that_arms_renders_never_with_a_warning(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    app = {
+        "name": "Logbook",
+        "config": {"control_system.connector": {"epics": {"writes_enabled": True}}},
+    }
+
+    with caplog.at_level("WARNING"):
+        render = compose_app_render({"config": {}}, app, "apps/arming-logbook.yml")
+
+    assert render["config"][_WRITES] == "never"
+    assert not [k for k in render["config"] if k.endswith("writes_enabled")]
+    warned = [r.getMessage() for r in caplog.records if "apps/arming-logbook.yml" in r.getMessage()]
+    assert len(warned) == 1, caplog.text
+    assert f"`{_WRITES}: never`" in warned[0]
+
+
+def test_an_old_key_app_that_does_not_arm_renders_never_silently(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    app = {"name": "Logbook", "config": {"control_system.writes_enabled": False}}
+
+    with caplog.at_level("WARNING"):
+        render = compose_app_render({"config": {}}, app, "apps/quiet-logbook.yml")
+
+    assert render["config"][_WRITES] == "never"
+    assert "apps/quiet-logbook.yml" not in caplog.text
+
+
+@pytest.mark.parametrize(
+    "app_config",
+    [{_WRITES: "allowed"}, {"control_system": {"writes": "allowed"}}],
+    ids=["dotted", "nested"],
+)
+def test_an_app_spelling_allowed_is_refused(app_config: dict) -> None:
+    app = {"name": "Logbook", "config": app_config}
+
+    with pytest.raises(BuildProfileError, match="an app is always `control_system.writes: never`"):
+        compose_app_render({"config": {}}, app, "apps/logbook.yml")
+
+
+def test_an_app_spelling_never_composes() -> None:
+    app = {"name": "Logbook", "config": {"control_system": {"writes": "never"}}}
+
+    render = compose_app_render({"config": {}}, app, "apps/logbook.yml")
+
+    assert render["config"][_WRITES] == "never"
+    assert "control_system" not in render["config"]
 
 
 # ── lint_app_render checks every door ───────────────────────────────────────
@@ -278,3 +357,161 @@ def test_the_shared_card_rule_names_no_app_entry_with_every_host_door_open(
     problems = real(seen["resolved"], seen["absolute"])
     for app in _SHIPPED_APPS:
         assert not any(f"user {app!r}" in problem for problem in problems)
+
+
+# ── a --set edit cannot arm an app render ───────────────────────────────────
+
+
+@pytest.mark.parametrize(
+    "pair",
+    [
+        f"config.{_WRITES}=allowed",
+        "config.control_system.writes_enabled=true",
+        "config.control_system.connector.epics.writes_enabled=true",
+        "config.control_system={writes_enabled: true}",
+        f"config.{_PANEL}=true",
+    ],
+)
+def test_a_set_edit_on_an_app_build_stays_pinned(pair: str, tmp_path: Path) -> None:
+    import yaml
+
+    from osprey.cli.build_profile_resolve import resolve_build_document
+
+    repo = tmp_path / "repo"
+    (repo / "data").mkdir(parents=True)
+    (repo / "profile.yml").write_text(
+        yaml.safe_dump({"name": "Facility", "data": "data", "config": {_WRITES: "allowed"}}),
+        encoding="utf-8",
+    )
+    app = repo / "apps" / "logbook.yml"
+    app.parent.mkdir()
+    app.write_text(
+        yaml.safe_dump(
+            {
+                "name": "Logbook",
+                "claude_md_template": "CLAUDE.logbook.md.j2",
+                "hooks": [],
+                "config": {"claude_code.servers.controls.enabled": False},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    loaded = resolve_build_document(app, None, (), (pair,))
+
+    render = {"hooks": loaded.profile.hooks, "config": loaded.profile.config}
+    assert lint_app_render(render) == []
+    assert loaded.profile.config[_WRITES] == "never"
+
+
+# ── a --set edit cannot drop a host guard from an app render ────────────────
+
+_HOUSE_GUARD = "hooks/house_guard.py"
+_GUARD_WIRING = "claude_code.hooks.PreToolUse"
+
+
+def _guarded_app_repo(tmp_path: Path) -> Path:
+    """A host that selects library guards and wires a facility guard, and an app."""
+    import yaml
+
+    repo = tmp_path / "repo"
+    (repo / "data").mkdir(parents=True)
+    (repo / "hooks").mkdir()
+    (repo / _HOUSE_GUARD).write_text("import sys\nsys.exit(0)\n", encoding="utf-8")
+    (repo / "profile.yml").write_text(
+        yaml.safe_dump(
+            {
+                "name": "Facility",
+                "data": "data",
+                "hooks": ["hook-log", "approval", "limits"],
+                "config": {_WRITES: "allowed", _GUARD_WIRING: [_HOUSE_GUARD]},
+            }
+        ),
+        encoding="utf-8",
+    )
+    app = repo / "apps" / "logbook.yml"
+    app.parent.mkdir()
+    app.write_text(
+        yaml.safe_dump(
+            {
+                "name": "Logbook",
+                "claude_md_template": "CLAUDE.logbook.md.j2",
+                "hooks": ["hook-log"],
+                "config": {"claude_code.servers.controls.enabled": False},
+            }
+        ),
+        encoding="utf-8",
+    )
+    return app
+
+
+def _guard_wiring(config: dict[str, Any]) -> list[Any]:
+    from osprey.cli.build_profile_merge import _flatten_section
+
+    return _flatten_section(config, "claude_code").get(_GUARD_WIRING, [])
+
+
+@pytest.mark.parametrize(
+    "pair",
+    [
+        "hooks=[hook-log]",
+        "hooks=[]",
+        "hooks=[hook-log, writes-check]",
+    ],
+)
+def test_a_set_hooks_edit_keeps_the_host_library_guards(pair: str, tmp_path: Path) -> None:
+    from osprey.cli.build_profile_resolve import resolve_build_document
+
+    unedited = resolve_build_document(_guarded_app_repo(tmp_path), None, (), ())
+    edited = resolve_build_document(_guarded_app_repo(tmp_path / "e"), None, (), (pair,))
+
+    for guard in ("approval", "limits", "writes-check"):
+        assert guard in unedited.profile.hooks
+        assert guard in edited.profile.hooks, (pair, edited.profile.hooks)
+
+
+@pytest.mark.parametrize(
+    "pair",
+    [
+        f"config.{_GUARD_WIRING}=[]",
+        "config.claude_code.hooks={}",
+        "config.claude_code={hooks: {PreToolUse: []}}",
+    ],
+)
+def test_a_set_config_edit_keeps_the_host_facility_guards(pair: str, tmp_path: Path) -> None:
+    from osprey.cli.build_profile_resolve import resolve_build_document
+
+    unedited = resolve_build_document(_guarded_app_repo(tmp_path), None, (), ())
+    edited = resolve_build_document(_guarded_app_repo(tmp_path / "e"), None, (), (pair,))
+
+    assert _guard_wiring(unedited.profile.config) == [_HOUSE_GUARD]
+    assert _guard_wiring(edited.profile.config) == [_HOUSE_GUARD], edited.profile.config
+
+
+def test_a_set_edit_can_still_add_a_guard_to_an_app(tmp_path: Path) -> None:
+    from osprey.cli.build_profile_resolve import resolve_build_document
+
+    edited = resolve_build_document(
+        _guarded_app_repo(tmp_path), None, (), ("hooks=[hook-log, memory-guard]",)
+    )
+
+    assert {"memory-guard", "approval", "limits", "writes-check"} <= set(edited.profile.hooks)
+
+
+@pytest.mark.parametrize(
+    "guard",
+    [_HOUSE_GUARD, {"hook": "house_guard.py", "matcher": "Bash|Edit", "timeout": 5}],
+    ids=["name", "mapping"],
+)
+def test_a_host_facility_guard_is_declared_once_in_a_composed_and_resealed_app(
+    guard: Any,
+) -> None:
+    from osprey.cli.build_profile_merge import GuardFloor, seal_app_render
+
+    host = {"config": {_WRITES: "allowed", _GUARD_WIRING: [guard]}}
+    render = compose_app_render(host, {"name": "Logbook"}, "apps/logbook.yml")
+    assert _guard_wiring(render["config"]) == [guard]
+
+    # A --set edit seals the render again: the floor is still not added twice.
+    resealed = seal_app_render(copy.deepcopy(render), "apps/logbook.yml", GuardFloor.of(host))
+    assert _guard_wiring(resealed["config"]) == [guard]

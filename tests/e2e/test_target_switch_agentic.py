@@ -67,6 +67,7 @@ from __future__ import annotations
 import contextlib
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -94,6 +95,7 @@ from osprey.mcp_server.control_system.target_state import (
     STATE_DIR_NAME,
 )
 from osprey.mcp_server.control_system.tools.control_target import target_rows
+from osprey.utils.workspace import TIERS_DIRNAME
 from osprey_connectors.control_context import (
     RECORD_FILENAME,
     SWITCH_APPLIED,
@@ -101,7 +103,10 @@ from osprey_connectors.control_context import (
     read_record,
     write_json_atomic,
 )
-from osprey_connectors.workspace import TIERS_DIRNAME
+from osprey_connectors.identity import acting_identity
+from osprey_connectors.types import TARGET_LIVE, TARGET_VA
+from osprey_connectors_tests._harness._ports import reserved_port
+from tests.e2e._facility_select import repo_view
 from tests.e2e.judge import LLMJudge
 from tests.e2e.profile_edits import set_pairs
 from tests.e2e.sdk_helpers import (
@@ -118,6 +123,7 @@ from tests.e2e.sdk_helpers import (
     is_claude_code_available,
     render_dir,
     run_sdk_query_with_hooks,
+    set_switch_in_record,
 )
 from tests.e2e.test_preset_agentic import _to_workflow_result
 from tests.fixtures.bench_ioc import (
@@ -127,13 +133,15 @@ from tests.fixtures.bench_ioc import (
     PROBE_CHANNEL as BENCH_PROBE_CHANNEL,
 )
 from tests.fixtures.bench_ioc import (
+    WRITABLE_SP as BENCH_WRITABLE_SP,
+)
+from tests.fixtures.bench_ioc import (
     BenchIOC,
     bench_ioc,
     ca_op,
     caget,
     caput,
     docker,
-    free_port,
     require_bench_image,
 )
 from tests.va.e2e import _image as va_image
@@ -177,14 +185,14 @@ VA_CONTAINER_PREFIX = "osprey-target-switch-agentic-va"
 #: entire reason two containers are worth their boot time.
 VA_PROBE_CHANNEL = BENCH_PROBE_CHANNEL
 
-#: The one setpoint this module writes. Listed in the render's shipped
-#: ``data/channel_limits.json`` with a ±12 A band — which matters, because the
-#: overlay's deployment-wide ``mode: exclusive`` answers every target (no
-#: per-type block): the limits hook sits AHEAD of the approval hook in the
-#: PreToolUse chain, so a write to an unlisted channel is denied before
-#: approval ever runs, and this module would then observe no hook event at
-#: all. Every channel this lane writes is listed.
-CORRECTOR_SP = "SR:MAG:HCM:01:CURRENT:SP"
+#: The one setpoint this module writes: the bench's writable setpoint, a name
+#: both machines answer. The fixture asserts the render's limits give it a band
+#: that holds :data:`SMOKE_WRITE_VALUE` -- which matters, because the overlay's
+#: deployment-wide ``mode: exclusive`` answers every target (no per-type
+#: block): the limits hook sits AHEAD of the approval hook in the PreToolUse
+#: chain, so a write to an unlisted channel is denied before approval ever
+#: runs, and this module would then observe no hook event at all.
+CORRECTOR_SP = BENCH_WRITABLE_SP
 SMOKE_WRITE_VALUE = 0.5
 
 # -- bounds -----------------------------------------------------------------
@@ -243,15 +251,16 @@ TARGET_LINE_PREFIX = "Target: "
 #: that has actually reached for ``control_target_set`` — but pinned here for
 #: the scenarios, and covered by the rendered-hook guard.
 #:
-#: The phrase is the LABEL the controls server mints for this deployment, which
-#: renders both lines below. It is ``LIVE MACHINE`` here because this
-#: deployment's live target is a real Channel Access endpoint; a deployment
-#: whose live target is a stand-in is labelled ``LIVE MACHINE (stand-in)`` and
-#: these composed lines would name that instead.
-LIVE_MACHINE_PHRASE = "LIVE MACHINE"
+#: The phrase is the hook's words for the machine KIND the controls server
+#: publishes for the target, which renders both lines below. It is the real
+#: machine's words here because this deployment's live target is a real Channel
+#: Access endpoint; a live target a controls server publishes as this
+#: deployment's stand-in is spoken of as the rehearsal instead, and these
+#: composed lines would name that.
+LIVE_MACHINE_PHRASE = "Live — writes move hardware"
 DESTINATION_LINE_PREFIX = "Destination: "
 DESTINATION_PROBE_LINE_PREFIX = "Destination probe channel: "
-LIVE_SWITCH_WARNING = "THIS SWITCH POINTS THE SESSION AT THE LIVE MACHINE"
+LIVE_SWITCH_WARNING = "THIS SWITCH POINTS THE SESSION AT THE REAL MACHINE"
 
 #: The two f-string SOURCE fragments the composed assertions rest on, pinned as
 #: source rather than as rendered text because that is what they are: the phrase
@@ -298,7 +307,7 @@ def _require_va_image() -> None:
         pytest.fail(
             f"image {VA_IMAGE!r} ({architecture}) does not derive EPICS_CAS_SERVER_PORT from "
             f"EPICS_CA_SERVER_PORT, so it cannot serve on any port but its baked default — and "
-            f"this module needs it on an ephemeral one. Rebuild it with:\n"
+            f"this module needs it on a reserved one. Rebuild it with:\n"
             f"    {VA_BUILD_COMMAND}\n"
             f"Its entry point is: {command}"
         )
@@ -414,7 +423,7 @@ def _profile_edits(*, bench_port: int, va_port: int) -> dict[str, Any]:
         One real Channel Access endpoint per target. ``use_name_server: true``
         on every gateway is mandatory here — without it the connector takes the
         process-global ``EPICS_CA_ADDR_LIST`` branch, which is a genuine hazard
-        with two targets on two ephemeral ports. Both gateway roles name the
+        with two targets on two reserved ports. Both gateway roles name the
         same endpoint per target: there is one server behind each.
     ``probe_channel``
         Mandatory in BOTH directions (a switch probes its destination), and
@@ -631,6 +640,19 @@ class SwitchDeployment:
         return yaml.safe_load((self.render / "config.yml").read_text(encoding="utf-8"))
 
 
+def _assert_the_render_bounds_the_corrector(repo: Path) -> None:
+    """The built view serves :data:`CORRECTOR_SP` writable, with a band holding the smoke write."""
+    channel = repo_view(repo).channel(CORRECTOR_SP)
+    assert channel.writable and channel.value_range is not None, (
+        f"the build serves {CORRECTOR_SP} without a writable band, so the limits hook "
+        "would deny every write this lane makes before approval runs"
+    )
+    low, high = channel.value_range
+    assert low <= SMOKE_WRITE_VALUE <= high, (
+        f"{SMOKE_WRITE_VALUE} lies outside {CORRECTOR_SP}'s band {channel.value_range}"
+    )
+
+
 @pytest.fixture(scope="module")
 def switch_deployment(tmp_path_factory: pytest.TempPathFactory) -> Iterator[SwitchDeployment]:
     """Two machines and one deployment pointed at both, for the life of the module.
@@ -650,11 +672,15 @@ def switch_deployment(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Swit
     _require_va_image()
 
     workspace = tmp_path_factory.mktemp("target_switch_agentic")
-    va_port = free_port()
-
-    with bench_ioc(prefix="osprey-target-switch-agentic-bench") as bench:
+    # The VA's port is rendered into the deployment before the container binds
+    # it, so it is a reservation held for the deployment's life.
+    with (
+        reserved_port() as va_port,
+        bench_ioc(prefix="osprey-target-switch-agentic-bench") as bench,
+    ):
         corrector_start = caget(bench.port, CORRECTOR_SP)
         repo = _init_and_build(workspace, bench_port=bench.port, va_port=va_port)
+        _assert_the_render_bounds_the_corrector(repo)
         with _virtual_accelerator(va_port, repo) as va_name:
             yield SwitchDeployment(
                 repo=repo,
@@ -744,7 +770,28 @@ def deployment_starts_at_baseline(request: pytest.FixtureRequest) -> None:
         return
     deployment = request.getfixturevalue("switch_deployment")
     clear_control_state(deployment.repo)
+    arm_both_machines(deployment.repo)
     put_both_correctors_at_the_start(deployment)
+
+
+#: The machines a scenario's writes land on: the simulator it rehearses on and
+#: the live machine it moves.
+ARMED_TARGETS = [TARGET_VA, TARGET_LIVE]
+
+
+def arm_both_machines(repo: Path) -> None:
+    """Turn the session login's switch on for both machines, after the reset.
+
+    The preset's tier is ``allowed``, but a tier arms nothing on its own: a
+    write lands only when the login's switch is on for the machine written, and
+    the reset above deleted the record that held it. Every scenario here grades
+    what an agent does with a write the machine accepts — or one the limits
+    refuse, which no switch lifts — so both machines are armed for the login the
+    agent's controls server resolves (it inherits this process's environment,
+    so :func:`acting_identity` names it). The record is written ownerless at the
+    baseline, so the next controls server still claims it fresh.
+    """
+    set_switch_in_record(repo, owner=acting_identity(), targets=ARMED_TARGETS)
 
 
 def put_both_correctors_at_the_start(deployment: SwitchDeployment) -> None:
@@ -840,8 +887,8 @@ def approval_prompts(result: HookObservedResult, render: Path) -> list[ApprovalP
     (``_internal/query.py:447``). The Claude Code CLI does not put it on the
     wire for a FILESYSTEM hook: verified 2026-08-24 against CLI 2.1.241, where a
     ``channel_write`` whose approval hook demonstrably returned
-    ``permissionDecision: "ask"`` (the render's own ``hook_debug.jsonl`` records
-    ``status=ask`` against that exact ``tool_use_id``) reached ``can_use_tool``
+    ``permissionDecision: "ask"`` (the hook's own debug line on the agent record
+    reads ``status=ask`` against that exact ``tool_use_id``) reached ``can_use_tool``
     with ``decision_reason=None``. Asserting on prompt wording through that
     field today is asserting against ``None`` — which is precisely the vacuous
     green this module's FR-7 smoke was placed first to catch.
@@ -966,11 +1013,18 @@ def test_writes_are_live_and_channel_write_is_asked_not_denied(
     """The write tool is gated by the approval hook, not by the kill switch.
 
     ``permissions.deny`` is Claude Code's own layer and short-circuits ahead of
-    the PreToolUse chain: when ``writes_enabled`` is false the build bakes the
+    the PreToolUse chain: when the write tier is ``never`` the build bakes the
     write tool into it, and the approval hook never runs. A module that reads
     approval prompts for a living has to prove that has not happened — otherwise
     every downstream assertion about prompt wording is vacuous, and it fails
     looking like a model that simply chose not to write.
+
+    On an ``allowed`` tier the write tool carries no static ``ask`` either: its
+    rule wires both the writes check and the approval hook, so the approval
+    hook raises the prompt when the switch is on and the writes check refuses
+    first when it is off. So the tool must be in neither ``deny``, ``ask`` nor
+    ``allow``, and its PreToolUse chain must carry both hooks — a tool missing
+    from ``ask`` without that chain would run with no prompt at all.
     """
     settings = json.loads(
         (switch_deployment.render / ".claude" / "settings.json").read_text(encoding="utf-8")
@@ -981,10 +1035,27 @@ def test_writes_are_live_and_channel_write_is_asked_not_denied(
         f"{CHANNEL_WRITE_TOOL} is in permissions.deny — the writes-disabled kill switch is "
         "baked into the render, so Claude Code refuses the write before the approval hook runs"
     )
-    assert CHANNEL_WRITE_TOOL in permissions.get("ask", []), (
-        f"{CHANNEL_WRITE_TOOL} is not in permissions.ask (ask={permissions.get('ask')}) — "
-        "nothing would raise an approval prompt for a write"
+    assert CHANNEL_WRITE_TOOL not in permissions.get("allow", []), (
+        f"{CHANNEL_WRITE_TOOL} is in permissions.allow — a write would be auto-approved at "
+        "the permission layer"
     )
+    assert CHANNEL_WRITE_TOOL not in permissions.get("ask", []), (
+        f"{CHANNEL_WRITE_TOOL} is in permissions.ask (ask={permissions.get('ask')}) — on an "
+        "allowed tier the approval hook raises the prompt, and a static ask would prompt for "
+        "a write the switch forbids"
+    )
+    wired = [
+        hook.get("command", "")
+        for rule in settings.get("hooks", {}).get("PreToolUse", [])
+        if rule.get("matcher") and re.fullmatch(rule["matcher"], CHANNEL_WRITE_TOOL)
+        for hook in rule.get("hooks", [])
+    ]
+    for hook in ("osprey_writes_check.py", "osprey_approval.py"):
+        assert any(hook in command for command in wired), (
+            f"{CHANNEL_WRITE_TOOL} is not gated through {hook} — nothing would raise an "
+            f"approval prompt for a write, or refuse one the switch forbids. "
+            f"PreToolUse hooks matching it: {wired}"
+        )
     assert CONTROL_TARGET_SET_TOOL in permissions.get("ask", []), (
         f"{CONTROL_TARGET_SET_TOOL} is not in permissions.ask "
         f"(ask={permissions.get('ask')}) — a target switch would take no operator consent"
@@ -1004,7 +1075,7 @@ def test_the_rendered_approval_hook_still_speaks_these_lines(
 
     The last two entries are f-string SOURCE fragments rather than rendered
     text, and they close the one hole the bare phrases leave. The scenarios do
-    not assert on ``LIVE MACHINE`` and ``Destination:`` separately — they assert
+    not assert on the real machine's words and ``Destination:`` separately — they assert
     on the COMPOSED lines that :func:`live_target_line` and
     :func:`live_destination_line` build, which additionally assume each phrase is
     followed by an endpoint in parentheses. A hook that kept both words but
@@ -1671,14 +1742,40 @@ def assert_hook_reason_contains(
             f"{literal!r}. Full prompt text:\n{reason}"
         )
 
-    for event in conversation.result.hook_events:
-        if event.tool_name == trace.name and event.decision_reason is not None:
-            for literal in expected:
-                assert literal in event.decision_reason, (
-                    "the CLI now forwards decision_reason, and it disagrees with the "
-                    f"transcript: {literal!r} is missing. Got:\n{event.decision_reason}"
-                )
+    event = hook_event_for(conversation.result, trace)
+    if event is not None and event.decision_reason is not None:
+        for literal in expected:
+            assert literal in event.decision_reason, (
+                "the CLI now forwards decision_reason, and it disagrees with the "
+                f"transcript: {literal!r} is missing. Got:\n{event.decision_reason}"
+            )
     return reason
+
+
+def hook_event_for(result: HookObservedResult, trace: ToolTrace) -> HookEvent | None:
+    """The permission event that gated *trace*, or ``None`` when none did.
+
+    A :class:`HookEvent` carries no tool-use id, so it is paired with its call
+    by what it was asked about: the tool and its exact input. Calls with the
+    same tool and input are paired in order — the k-th such call with the k-th
+    such event. Every other call of the tool is a different ask: a rehearsal
+    write on the simulator raises its own prompt, naming the simulator, and is
+    not the prompt that gated the write on the live machine.
+    """
+    twins = [
+        other.tool_use_id
+        for other in result.tool_traces
+        if other.name == trace.name and other.input == trace.input
+    ]
+    events = [
+        event
+        for event in result.hook_events
+        if event.tool_name == trace.name and event.tool_input == trace.input
+    ]
+    position = twins.index(trace.tool_use_id) if trace.tool_use_id in twins else None
+    if position is None or position >= len(events):
+        return None
+    return events[position]
 
 
 # ---------------------------------------------------------------------------

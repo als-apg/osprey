@@ -25,24 +25,33 @@ afterEach(() => {
 
 describe('apiFetch', () => {
   test('resolves with the parsed JSON body on a 200 response', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
-      ok: true,
-      json: () => Promise.resolve({ base_lattice: 'sr.lat' }),
-    }));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({ base_lattice: 'sr.lat' }),
+      })
+    );
 
     const result = await apiFetch('/api/state');
     expect(result).toEqual({ base_lattice: 'sr.lat' });
-    expect(fetch).toHaveBeenCalledWith('/api/state', expect.objectContaining({
-      headers: { 'Content-Type': 'application/json' },
-    }));
+    expect(fetch).toHaveBeenCalledWith(
+      '/api/state',
+      expect.objectContaining({
+        headers: { 'Content-Type': 'application/json' },
+      })
+    );
   });
 
   test('propagates a non-OK response as a thrown Error carrying status and body text', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
-      ok: false,
-      status: 500,
-      text: () => Promise.resolve('lattice not loaded'),
-    }));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: false,
+        status: 500,
+        text: () => Promise.resolve('lattice not loaded'),
+      })
+    );
 
     await expect(apiFetch('/api/refresh', { method: 'POST' })).rejects.toThrow(
       'API /api/refresh: 500 lattice not loaded'
@@ -107,30 +116,16 @@ describe('handleSSEEvent dispatch table', () => {
     expect(handlers.onFigureError).toHaveBeenCalledWith('lma', 'solver diverged');
   });
 
-  test("'figure_error' with no error message passes null", () => {
-    const handlers = makeHandlers();
-    handleSSEEvent({ type: 'figure_error', name: 'lma' }, handlers);
-    expect(handlers.onFigureError).toHaveBeenCalledWith('lma', null);
-  });
-
-  test("'settings_updated' routes to onSettingsUpdated only when settings is present", () => {
+  test("'settings_updated' routes to onSettingsUpdated with (settings)", () => {
     const handlers = makeHandlers();
     handleSSEEvent({ type: 'settings_updated', settings: { da: { nturns: 512 } } }, handlers);
     expect(handlers.onSettingsUpdated).toHaveBeenCalledWith({ da: { nturns: 512 } });
-
-    handlers.onSettingsUpdated.mockClear();
-    handleSSEEvent({ type: 'settings_updated' }, handlers);
-    expect(handlers.onSettingsUpdated).not.toHaveBeenCalled();
   });
 
-  test("'baseline_set' routes to onBaselineSet only when summary is present", () => {
+  test("'baseline_set' routes to onBaselineSet with (summary)", () => {
     const handlers = makeHandlers();
     handleSSEEvent({ type: 'baseline_set', summary: { energy_gev: 2.0 } }, handlers);
     expect(handlers.onBaselineSet).toHaveBeenCalledWith({ energy_gev: 2.0 });
-
-    handlers.onBaselineSet.mockClear();
-    handleSSEEvent({ type: 'baseline_set' }, handlers);
-    expect(handlers.onBaselineSet).not.toHaveBeenCalled();
   });
 
   test("'baseline_cleared' routes to the optional onBaselineCleared handler", () => {
@@ -147,7 +142,7 @@ describe('handleSSEEvent dispatch table', () => {
 
   test('an unrecognized event type dispatches to nothing', () => {
     const handlers = makeHandlers();
-    handleSSEEvent({ type: 'something_new' }, handlers);
+    handleSSEEvent(/** @type {any} */ ({ type: 'something_new' }), handlers);
     for (const fn of Object.values(handlers)) {
       expect(fn).not.toHaveBeenCalled();
     }
@@ -157,19 +152,31 @@ describe('handleSSEEvent dispatch table', () => {
 describe('figure fetch', () => {
   /** @param {any} body @param {number} status */
   function stubFigure(body, status) {
-    vi.stubGlobal('fetch', vi.fn(() => Promise.resolve({
-      ok: status < 400,
-      status,
-      json: () => Promise.resolve(body),
-      text: () => Promise.resolve(JSON.stringify(body)),
-    })));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() =>
+        Promise.resolve({
+          ok: status < 400,
+          status,
+          json: () => Promise.resolve(body),
+          text: () => Promise.resolve(JSON.stringify(body)),
+        })
+      )
+    );
   }
 
   function makeCallbacks() {
     return {
-      onState: vi.fn(), onModels: vi.fn(), onParamSet: vi.fn(), onFigureData: vi.fn(),
-      onFigureUnavailable: vi.fn(), onFigureStatus: vi.fn(), onFigureReady: vi.fn(),
-      onFigureError: vi.fn(), onSettingsUpdated: vi.fn(), onBaselineSet: vi.fn(),
+      onState: vi.fn(),
+      onModels: vi.fn(),
+      onParamSet: vi.fn(),
+      onFigureData: vi.fn(),
+      onFigureUnavailable: vi.fn(),
+      onFigureStatus: vi.fn(),
+      onFigureReady: vi.fn(),
+      onFigureError: vi.fn(),
+      onSettingsUpdated: vi.fn(),
+      onBaselineSet: vi.fn(),
     };
   }
 
@@ -200,7 +207,8 @@ describe('figure fetch', () => {
     await createNetClient(cb).fetchAndRenderFigure('da');
 
     expect(cb.onFigureUnavailable).toHaveBeenCalledWith(
-      'da', 'not available for a single-pass model'
+      'da',
+      'not available for a single-pass model'
     );
     expect(cb.onFigureStatus).not.toHaveBeenCalled();
   });

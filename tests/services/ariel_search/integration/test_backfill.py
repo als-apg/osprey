@@ -20,6 +20,7 @@ from click.testing import CliRunner
 
 from osprey.services.ariel_search import cli_operations as ops
 from osprey.services.ariel_search.config import ARIELConfig
+from tests.services.ariel_search.integration._support import migrate
 
 # xdist_group("docker"): every container-starting test file shares one worker, so a
 # run has a single testcontainers session and the shared database is serialized.
@@ -46,19 +47,6 @@ def _config_dict(
     }
 
 
-async def _migrate(config_dict: dict[str, Any]) -> None:
-    """Bring the scratch database to today's schema, as ``osprey ariel migrate`` does."""
-    from osprey.services.ariel_search.database.connection import create_connection_pool
-    from osprey.services.ariel_search.database.migrations import run_migrations
-
-    config = ARIELConfig.from_dict(json.loads(json.dumps(config_dict)))
-    pool = await create_connection_pool(config.database)
-    try:
-        await run_migrations(pool, config)
-    finally:
-        await pool.close()
-
-
 async def _to_b1_schema(config_dict: dict[str, Any]) -> None:
     """Roll the copy state and the entry text columns back, leaving a B1-era store."""
     from osprey.services.ariel_search.database.attachment_migration import (
@@ -70,16 +58,13 @@ async def _to_b1_schema(config_dict: dict[str, Any]) -> None:
     from osprey.services.ariel_search.database.connection import create_connection_pool
 
     config = ARIELConfig.from_dict(json.loads(json.dumps(config_dict)))
-    pool = await create_connection_pool(config.database)
-    try:
+    async with await create_connection_pool(config.database) as pool:
         for migration in (AttachmentFilesCopyStateMigration(), AttachmentTextColumnsMigration()):
             async with pool.connection() as conn, conn.transaction():
                 await migration.down(conn)
                 await conn.execute(
                     "DELETE FROM ariel_migrations WHERE name = %s", (migration.name,)
                 )
-    finally:
-        await pool.close()
 
 
 def _seed(uri: str, entry_id: str, attachments: list, *, minutes: int = 0) -> None:
@@ -155,7 +140,7 @@ class TestBackfillDryRun:
         self, scratch_database, attachment_fetch
     ):
         config_dict = _config_dict(scratch_database)
-        await _migrate(config_dict)
+        await migrate(config_dict)
         _seed_census(scratch_database)
         rows_before = _row_count(scratch_database)
 
@@ -187,7 +172,7 @@ class TestBackfillDryRun:
         self, scratch_database, attachment_fetch
     ):
         config_dict = _config_dict(scratch_database)
-        await _migrate(config_dict)
+        await migrate(config_dict)
         _seed(scratch_database, "rel-1", [{"url": "/rel/x.png"}])
 
         result = await ops.run_backfill(config_dict, dry_run=True)
@@ -201,7 +186,7 @@ class TestBackfillDryRun:
 
     async def test_backfill_dry_run_honours_limit(self, scratch_database):
         config_dict = _config_dict(scratch_database)
-        await _migrate(config_dict)
+        await migrate(config_dict)
         _seed_census(scratch_database)
 
         result = await ops.run_backfill(config_dict, dry_run=True, limit=1)
@@ -214,7 +199,7 @@ class TestBackfillDryRun:
 class TestBackfillRefusal:
     async def test_backfill_on_b1_schema_store_refuses(self, scratch_database, attachment_fetch):
         config_dict = _config_dict(scratch_database)
-        await _migrate(config_dict)
+        await migrate(config_dict)
         await _to_b1_schema(config_dict)
         _seed(scratch_database, "b1-1", [_png("a.png")])
 
@@ -227,7 +212,7 @@ class TestBackfillRefusal:
         self, scratch_database
     ):
         config_dict = _config_dict(scratch_database)
-        asyncio.run(_migrate(config_dict))
+        asyncio.run(migrate(config_dict))
         asyncio.run(_to_b1_schema(config_dict))
 
         result = _invoke_cli(config_dict, ["attachments", "backfill"])
@@ -253,7 +238,7 @@ class TestBackfillCliOutput:
         self, scratch_database, attachment_fetch
     ):
         config_dict = _config_dict(scratch_database, proxy="socks5://op:s3cret@proxy.example:1080")
-        asyncio.run(_migrate(config_dict))
+        asyncio.run(migrate(config_dict))
         _seed_census(scratch_database)
 
         with patch("shutil.which", return_value=None):
@@ -330,7 +315,7 @@ class TestBackfillProbe:
             port = site._server.sockets[0].getsockname()[1]  # type: ignore[union-attr]
             origin = f"http://127.0.0.1:{port}"
             config_dict = _config_dict(scratch_database, source=f"{origin}/logbook.json")
-            await _migrate(config_dict)
+            await migrate(config_dict)
             inside = [{"url": f"{origin}/files/{i}.png", "type": "image/png"} for i in range(6)]
             outside = [{"url": f"http://localhost:{port}/files/x.png", "type": "image/png"}]
             _seed(scratch_database, "probe-1", inside + outside)
@@ -359,7 +344,7 @@ class TestBackfillProbe:
 
         monkeypatch.setattr(copy_mod, "fetch_attachment_bytes", _head)
         config_dict = _config_dict(scratch_database)
-        asyncio.run(_migrate(config_dict))
+        asyncio.run(migrate(config_dict))
         _seed(scratch_database, "probe-cli", [_png(f"{i}.png") for i in range(4)])
 
         result = _invoke_cli(config_dict, ["attachments", "backfill", "--probe", "2"])

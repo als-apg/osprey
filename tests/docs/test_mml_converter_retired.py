@@ -24,74 +24,33 @@ from pathlib import Path
 
 import pytest
 
+from tests._text_sweep import SHIPPED_TEXT_SUFFIXES, matching_lines, text_files
+
 #: Both retired names, spelled once, as a single alternation: the module path a
 #: page told the reader to run, and the class it exported.
 RETIRED_PATTERN = re.compile(r"mml_converter|MMLConverter")
 
-#: Directory roots and file roots, mixed. ``_collect`` admits either. Only the
-#: documentation tree: the shipped package and the plugin are covered by the
-#: deletion itself, and by their own import-time test suites.
+#: Directory roots and file roots, mixed. Only the documentation tree: the
+#: shipped package and the plugin are covered by the deletion itself, and by
+#: their own import-time test suites.
 ROOTS = ("docs/source",)
 
-SCAN_SUFFIXES = (
-    ".py",
-    ".md",
-    ".rst",
-    ".txt",
-    ".j2",
-    ".yml",
-    ".yaml",
-    ".json",
-    ".toml",
-    ".sh",
-    ".html",
-)
-
-#: ``__pycache__`` is the only directory pruned by name. The Sphinx output tree
-#: is ``docs/build``, which sits outside ``docs/source``, so no build skip is
-#: needed. Binary files are excluded by the suffix allowlist, not by a name rule.
-PRUNED_DIRS = frozenset({"__pycache__"})
+#: The Sphinx output tree is ``docs/build``, which sits outside
+#: ``docs/source``, so no build skip is needed. Binary files are excluded by
+#: the suffix allowlist, not by a name rule.
+SCAN_SUFFIXES = (*SHIPPED_TEXT_SUFFIXES, ".html")
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
-def _admits(path: Path) -> bool:
-    if any(part in PRUNED_DIRS for part in path.parts):
-        return False
-    return path.suffix in SCAN_SUFFIXES
-
-
-def _collect(repo_root: Path, roots: tuple[str, ...]) -> list[Path]:
-    """Every scannable file under ``roots``, which may name files or directories."""
-    files: list[Path] = []
-    for root in roots:
-        base = repo_root / root
-        if not base.exists():
-            continue
-        if base.is_file():
-            # A file root is named explicitly, so it is admitted as named:
-            # ``rglob`` on a file yields nothing, which would silently drop it.
-            files.append(base)
-            continue
-        for path in base.rglob("*"):
-            if path.is_file() and _admits(path):
-                files.append(path)
-    return files
-
-
 def _sweep(repo_root: Path, roots: tuple[str, ...]) -> list[str]:
     """Report ``path:line:token`` for every retired name still present."""
-    offenders: list[str] = []
-    for path in _collect(repo_root, roots):
-        try:
-            content = path.read_text(encoding="utf-8", errors="ignore")
-        except OSError:
-            continue
-        rel = path.relative_to(repo_root)
-        for lineno, line in enumerate(content.splitlines(), start=1):
-            for match in RETIRED_PATTERN.finditer(line):
-                offenders.append(f"{rel}:{lineno}:{match.group(0)}")
-    return offenders
+    files = text_files(repo_root, roots, suffixes=SCAN_SUFFIXES)
+    return [
+        f"{rel}:{lineno}:{match.group(0)}"
+        for rel, lineno, line in matching_lines(repo_root, files, RETIRED_PATTERN)
+        for match in RETIRED_PATTERN.finditer(line)
+    ]
 
 
 def _assert_clean(repo_root: Path, roots: tuple[str, ...]) -> None:
@@ -113,7 +72,7 @@ def test_no_live_reference_to_the_retired_converter() -> None:
     [
         # A directory root, swept recursively.
         ("docs/source/how-to/regress.rst", "docs/source"),
-        # A file root, admitted directly by ``_collect``.
+        # A file root, admitted as named.
         ("docs/source/index.rst", "docs/source/index.rst"),
     ],
 )

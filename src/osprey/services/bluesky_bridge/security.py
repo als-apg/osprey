@@ -21,8 +21,9 @@ the thing that stops a plan from moving hardware.
 **Where the security boundary is.** The control-system connector. Every
 setpoint a running plan writes goes through
 ``connector.write_channel_checked`` (``devices/connector.py``), which
-re-reads ``control_system.writes_enabled`` and applies the configured limits
-on each individual put, raising on refusal. A caller that stole or forged
+asks the write verdict (the login's tier, the owner the plan was queued for
+and that owner's switch) and applies the configured limits on each individual
+put, raising on refusal. A caller that stole or forged
 the token therefore still cannot drive a device past what policy allows. A
 writable bridge additionally refuses to start at all when limits checking is
 enabled but its database is missing or unparseable
@@ -30,7 +31,7 @@ enabled but its database is missing or unparseable
 
 **The approval prompt is best-effort UX defense, on both write paths.** The
 human approval prompt on the queue's arming tools and their in-tool
-``writes_enabled`` re-read (``osprey/mcp_server/bluesky/tools/queue.py``)
+write-verdict check (``osprey/mcp_server/bluesky/tools/queue.py``)
 are worth having, but they are not a boundary: code the agent authors and
 runs through the python executor can POST these routes directly, or drive
 channels directly, without any prompt. Both paths converge on the connector,
@@ -46,37 +47,28 @@ containment the host does not provide. The connector is the boundary.
 
 from __future__ import annotations
 
-import os
-import secrets
+from osprey.utils import launch_token
 
-from fastapi import HTTPException
-
-_LAUNCH_TOKEN_ENV = "BLUESKY_LAUNCH_TOKEN"
+_LAUNCH_TOKEN_ENV = "BLUESKY_LAUNCH_TOKEN"  # noqa: S105 -- names an environment variable, holds no secret
 
 
 def require_armed() -> str:
-    """Return the configured launch token, or raise 503 if none is set.
+    """Return the bridge's configured launch token, or refuse 503.
 
-    Unset means the operator has not armed launch for this bridge instance
-    at all — the failure detail names the missing env var but never a token
-    value (there isn't one to leak).
+    Unset (or blank) means the operator has not armed launch for this bridge
+    instance at all: the refusal is ``launch_token_required`` and names the
+    missing env var but never a token value (there isn't one to leak). The
+    check itself is :func:`osprey.utils.launch_token.require_launch_token`.
     """
-    expected = os.environ.get(_LAUNCH_TOKEN_ENV)
-    if not expected:
-        raise HTTPException(
-            status_code=503,
-            detail=f"launch disabled: {_LAUNCH_TOKEN_ENV} is not configured",
-        )
-    return expected
+    return launch_token.require_launch_token(_LAUNCH_TOKEN_ENV)
 
 
 def verify_launch_token(header: str | None) -> None:
-    """Raise 503 (unarmed) or 403 (mismatch) unless ``header`` matches the armed token.
+    """Refuse 503 (unarmed) or 403 (missing/wrong) unless ``header`` matches.
 
-    Compares in constant time via :func:`secrets.compare_digest` so a mismatch
-    can't be distinguished by timing. The error details never echo the
-    expected or received token.
+    The shared :func:`osprey.utils.launch_token.verify_launch_token` bound to
+    ``BLUESKY_LAUNCH_TOKEN``: 503 ``launch_token_required`` when the bridge has
+    no token, 403 ``launch_token_invalid`` on a missing or mismatched header,
+    compared in constant time. The refusal never echoes either token.
     """
-    expected = require_armed()
-    if not secrets.compare_digest(header or "", expected):
-        raise HTTPException(status_code=403, detail="invalid or missing launch token")
+    launch_token.verify_launch_token(header, _LAUNCH_TOKEN_ENV)

@@ -136,7 +136,11 @@ def _report_attachments(attachments: dict | None) -> bool:
 
     output.report("")
     output.report("Attachments:")
-    output.note(f"render: {attachments.get('render')}")
+    render_reason = attachments.get("render_unavailable")
+    if render_reason:
+        output.note(f"render: unavailable: {render_reason}")
+    else:
+        output.note(f"render: {attachments.get('render')}")
     size = attachments.get("bytes")
     output.note(f"stored bytes: {size if size is not None else 'unknown'}")
     if attachments.get("pending") is None or attachments.get("skipped") is None:
@@ -579,6 +583,8 @@ def status_command(output_json: bool) -> None:
 
         output.report(f"ARIEL Status: {result['status']}")
         output.note(result["message"])
+        for error in result.get("errors") or []:
+            output.report(error)
 
         # Outside the guard below on purpose: the vocabulary is read from the
         # config file, so its line is exactly as true with the database down as
@@ -1310,10 +1316,9 @@ def purge_command(yes: bool, embeddings_only: bool) -> None:
         )
     output.warn("this deletes ARIEL data for good", detail)
 
-    if not yes:
-        if not click.confirm("\nAre you sure you want to continue?"):
-            output.report("Nothing was deleted.")
-            return
+    if not yes and not click.confirm("\nAre you sure you want to continue?"):
+        output.report("Nothing was deleted.")
+        return
 
     try:
         asyncio.run(execute_purge(config_dict, embeddings_only, progress=output.report))

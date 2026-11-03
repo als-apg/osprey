@@ -19,10 +19,7 @@ vi.mock('/design-system/js/header-contrib.js', () => ({
   onHeaderAction: vi.fn(),
 }));
 
-import {
-  contributeHeader,
-  onHeaderAction,
-} from '/design-system/js/header-contrib.js';
+import { contributeHeader, onHeaderAction } from '/design-system/js/header-contrib.js';
 import { createHeader } from '../../../src/osprey/interfaces/lattice_dashboard/static/js/header.js';
 
 /** Minimal DOM fixture matching the top bar in lattice_dashboard's index.html. */

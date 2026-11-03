@@ -33,7 +33,7 @@ from fastapi.testclient import TestClient
 
 from osprey.audit.posture import OSPREY_AGENT_DATA_ROOT
 from osprey.interfaces.common_middleware import compute_url_prefix
-from osprey.interfaces.web_terminal.app import UNIVERSAL_PANELS, create_app
+from osprey.interfaces.web_terminal.app import UNIVERSAL_PANELS
 from osprey.interfaces.web_terminal.jupyter_sidecar import (
     KERNELSPEC_NAME,
     STARTER_NOTEBOOK_NAME,
@@ -41,6 +41,7 @@ from osprey.interfaces.web_terminal.jupyter_sidecar import (
     kernel_notebook_path,
 )
 from osprey.interfaces.web_terminal.routes import proxy as proxy_module
+from tests.interfaces.web_terminal._started_app import terminal_client
 
 #: Both halves of every test here spawn a process: the sidecar, then a kernel.
 pytestmark = pytest.mark.slow
@@ -86,9 +87,9 @@ KERNEL_WS_PROTOCOL_V1 = "v1.kernel.websocket.jupyter.org"
 def notebook_env(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
     """The environment a sidecar launch reads, and a root to keep it all under.
 
-    This module's own records land in the zone ``_isolate_module_audit_zone``
-    (tests/conftest.py) holds open for the whole module. It is
-    module-scoped, so the ledger's seam is already redirected before this
+    This module's own records land in the spool root
+    ``_isolate_module_spool_zone`` (tests/conftest.py) holds open for the whole
+    module. It is module-scoped, so the record writer is already redirected before this
     fixture is built — which is the window that matters here, the one in which
     ``proxied`` enters the app's lifespan and ``started_session`` posts a
     session through it, both of them module-scoped and so both set up before
@@ -138,11 +139,8 @@ def proxied(sidecar: JupyterSidecar, notebook_env: Path) -> Iterator[TestClient]
     """
     workspace = notebook_env / "_agent_data"
     workspace.mkdir(exist_ok=True)
-    with (
-        patch(
-            "osprey.interfaces.web_terminal.app._load_web_config",
-            return_value={"watch_dir": str(workspace)},
-        ),
+    with terminal_client(
+        workspace,
         patch(
             "osprey.interfaces.web_terminal.app._load_panel_config",
             return_value=(set(UNIVERSAL_PANELS), [], None),
@@ -162,12 +160,10 @@ def proxied(sidecar: JupyterSidecar, notebook_env: Path) -> Iterator[TestClient]
             "osprey.infrastructure.server_launcher.ensure_web_server",
             lambda key: None,
         ),
-    ):
-        app = create_app(shell_command="echo")
-        with TestClient(app) as client:
-            app.state.jupyter_server_url = sidecar.url
-            app.state.panel_auth_headers = {"jupyter": dict(sidecar.auth_headers)}
-            yield client
+    ) as client:
+        client.app.state.jupyter_server_url = sidecar.url
+        client.app.state.panel_auth_headers = {"jupyter": dict(sidecar.auth_headers)}
+        yield client
 
 
 @pytest.fixture(scope="module")
@@ -585,8 +581,8 @@ def test_a_cell_sees_no_server_token_and_no_terminal_family(
     empty and the launcher pops the name outright, so a cell holds neither. The
     ``OSPREY_TERMINAL_`` family is dropped by ``scrub_sandbox_child_env``, which
     is only visible because the terminal's environment set one — all but the
-    launch's terminal session, kept by exact name so the ledger lines a cell
-    writes file under the same session as its OTLP resource.
+    launch's terminal session, kept by exact name so the audit entries a cell
+    records file under the same session as its OTLP resource.
     """
     session_id = uuid.uuid4().hex
 
@@ -665,10 +661,10 @@ STATIC_JS = Path(__file__).resolve().parents[3] / "src/osprey/interfaces/web_ter
 _IMPORT_RE = re.compile(r"\bfrom\s+'(\.[^']+)'|^\s*import\s+'(\.[^']+)'", re.MULTILINE)
 _COMMENT_RE = re.compile(r"/\*.*?\*/|(?<!:)//[^\n]*", re.DOTALL)
 
-#: ``new URL('<specifier>', import.meta.url)`` — how the bar addresses its two
-#: stylesheets. Resolved against the module's own served URL below, which is
-#: what a browser does with it.
-_ASSET_URL_RE = re.compile(r"new URL\('([^']+)',\s*import\.meta\.url\)")
+#: ``new URL('<specifier>', import.meta.url)`` — how the bar addresses its three
+#: stylesheets (a long call wraps onto several lines). Resolved against the
+#: module's own served URL below, which is what a browser does with it.
+_ASSET_URL_RE = re.compile(r"new URL\(\s*'([^']+)',\s*import\.meta\.url\s*\)")
 
 
 def _relative_imports(source: str) -> set[str]:
@@ -696,10 +692,16 @@ def _module_closure(entry: str) -> set[str]:
     return seen
 
 
-def _lab_head(proxied: TestClient) -> str:
-    """The ``<head>`` of the proxied Lab page."""
-    body = proxied.get(f"{PANEL}/lab").text
-    return body[: body.index("</head>")]
+def _lab_page(proxied: TestClient) -> tuple[str, str]:
+    """The ``<head>`` of one proxied Lab page and that response's script nonce.
+
+    The nonce is read off the response's own ``script-src`` (the proxy mints a
+    fresh one per response), so the head and the nonce always belong together.
+    """
+    resp = proxied.get(f"{PANEL}/lab")
+    match = re.search(r"'nonce-([^']+)'", resp.headers.get("content-security-policy", ""))
+    assert match is not None, resp.headers.get("content-security-policy")
+    return resp.text[: resp.text.index("</head>")], match.group(1)
 
 
 def test_the_lab_page_carries_the_control_target_bar(
@@ -712,10 +714,12 @@ def test_the_lab_page_carries_the_control_target_bar(
     route's own segment is the whole of "this resolves back onto the hub's
     files from inside the panel's namespace".
     """
-    head = _lab_head(proxied)
+    head, nonce = _lab_page(proxied)
     expected_src = f"{sidecar.base_url}terminal-static/js/{LAB_BAR_MODULE}"
 
-    assert f'<script type="module" src="{expected_src}"></script>' in head
+    # Nonced: the page runs under the proxy's script policy, which admits a
+    # parser-inserted tag only by this response's nonce.
+    assert f'<script nonce="{nonce}" type="module" src="{expected_src}"></script>' in head
     assert head.count(LAB_BAR_MODULE) == 1
 
     # The prefix global is the OUTER prefix. A prefix of ``/panel/jupyter``
@@ -727,20 +731,21 @@ def test_the_lab_page_carries_the_control_target_bar(
 def test_the_injected_import_map_is_scoped_to_the_bars_own_modules(
     proxied: TestClient, sidecar: JupyterSidecar
 ) -> None:
-    """One root-absolute specifier is retargeted, and only for the bar's files.
+    """One root-absolute prefix is retargeted, and only for the bar's files.
 
-    ``confirm-skip.js`` imports ``/design-system/js/storage-scope.js`` — the
-    ninth file the bar's graph fetches, and the only one that is not a relative
-    import. The hub's own page retargets that specifier with a document-wide
-    import map; here the mapping lives in a ``scopes`` entry keyed on the bar's
-    directory, so nothing JupyterLab itself imports can be redirected by it.
+    Two files in the bar's graph are not relative imports, both under
+    ``/design-system/js/``: ``confirm-skip.js`` imports ``storage-scope.js``,
+    and ``lab-theme-follow.js`` imports ``tokens.js``. The hub's own page
+    retargets that prefix with a document-wide import map; here the mapping
+    lives in a ``scopes`` entry keyed on the bar's directory, so nothing
+    JupyterLab itself imports can be redirected by it.
 
     The target is the HUB's own mount, byte-for-byte what the hub's index.html
-    maps the same specifier to — so the module resolves to the same file on
+    maps the same specifier to — so each module resolves to the same file on
     both surfaces, and no rewrite pass runs over its body on the way.
     """
-    head = _lab_head(proxied)
-    raw = head.split('<script type="importmap">')[1].split("</script>")[0]
+    head, nonce = _lab_page(proxied)
+    raw = head.split(f'<script nonce="{nonce}" type="importmap">')[1].split("</script>")[0]
     import_map = json.loads(raw)
 
     scope = f"{sidecar.base_url}terminal-static/js/"
@@ -750,13 +755,14 @@ def test_the_injected_import_map_is_scoped_to_the_bars_own_modules(
         "/design-system/": f"{compute_url_prefix()}/design-system/"
     }
 
-    # And the mapping resolves: the specifier confirm-skip.js writes, put
+    # And the mapping resolves: each specifier the bar's graph writes, put
     # through this map, is a module the terminal answers with.
-    mapped = import_map["scopes"][scope]["/design-system/"] + "js/storage-scope.js"
-    resolved = proxied.get(mapped)
+    for module in ("storage-scope.js", "tokens.js"):
+        mapped = import_map["scopes"][scope]["/design-system/"] + f"js/{module}"
+        resolved = proxied.get(mapped)
 
-    assert resolved.status_code == 200
-    assert resolved.headers["content-type"].startswith("text/javascript")
+        assert resolved.status_code == 200, mapped
+        assert resolved.headers["content-type"].startswith("text/javascript"), mapped
 
 
 def test_the_injection_leaves_the_pages_own_encoding_declaration_readable(
@@ -774,21 +780,52 @@ def test_the_injection_leaves_the_pages_own_encoding_declaration_readable(
     assert 0 < body.lower().index("<meta charset") < 1024
 
 
-def test_the_relayed_lab_csp_says_nothing_about_scripts(proxied: TestClient) -> None:
-    """No CSP is rewritten anywhere, because none has to be.
+def test_the_lab_page_runs_under_the_proxys_nonced_script_policy(proxied: TestClient) -> None:
+    """The Lab page's policy is the proxy's, not the one jupyter-server relayed.
 
-    jupyter-server's own policy governs framing (``frame-ancestors``) and says
-    nothing about script sources, so the injected tags run. Should a backend
-    ever grow a ``script-src`` — or a ``default-src``, which script sources
-    fall back to — the bar would silently stop loading rather than break the
-    page, and the answer would be a deliberate decision about that header. It
-    would NOT be a rewrite hidden in the proxy: relaxing a backend's own CSP on
-    its behalf is not something this proxy does.
+    Kernel output renders in this document on the console's origin, so the
+    proxy replaces the upstream policy with one whose ``script-src`` admits the
+    parser-inserted tags by a per-response nonce and Lab's static trees by
+    fully qualified path — never ``'self'``, ``'unsafe-inline'`` or
+    ``'strict-dynamic'``, any of which would let a script an agent wrote run.
+    Every ``<script>`` the page carries holds that nonce, a second response
+    mints a different one, and the page is never cached, so a 304 can never
+    hand back a stale nonce.
     """
-    csp = proxied.get(f"{PANEL}/lab").headers.get("content-security-policy", "").lower()
+    first = proxied.get(f"{PANEL}/lab")
+    csp = first.headers.get("content-security-policy", "")
+    directives = {
+        part.strip().split(" ", 1)[0]: part.strip().split(" ", 1)[1:]
+        for part in csp.split(";")
+        if part.strip()
+    }
 
-    assert "script-src" not in csp
-    assert "default-src" not in csp
+    assert set(directives) == {
+        "script-src",
+        "object-src",
+        "base-uri",
+        "frame-ancestors",
+        "form-action",
+    }, csp
+    sources = directives["script-src"][0].split()
+    nonces = [src for src in sources if src.startswith("'nonce-")]
+    assert len(nonces) == 1, csp
+    nonce = nonces[0][len("'nonce-") : -1]
+    for forbidden in ("'self'", "'unsafe-inline'", "'strict-dynamic'", "*"):
+        assert forbidden not in sources, csp
+    assert directives["object-src"] == ["'none'"]
+    assert directives["base-uri"] == ["'none'"]
+    assert directives["frame-ancestors"] == ["'self'"]
+    assert directives["form-action"] == ["'none'"]
+
+    tags = re.findall(r"<script\b[^>]*>", first.text, re.IGNORECASE)
+    assert tags, "the Lab page carries no <script> tag"
+    assert all(f'nonce="{nonce}"' in tag for tag in tags), tags
+
+    assert first.headers.get("cache-control") == "no-store"
+    assert "etag" not in first.headers
+    second = proxied.get(f"{PANEL}/lab").headers.get("content-security-policy", "")
+    assert f"'nonce-{nonce}'" not in second
 
 
 def test_a_users_own_html_file_is_served_untouched(proxied: TestClient, notebook_env: Path) -> None:
@@ -839,9 +876,9 @@ def test_every_module_the_bar_imports_is_served_through_the_proxy(
 def test_the_stylesheets_the_bar_addresses_answer_on_the_panels_paths(
     proxied: TestClient, sidecar: JupyterSidecar
 ) -> None:
-    """Both ``new URL(…, import.meta.url)`` hops land on the hub's own files.
+    """All three ``new URL(…, import.meta.url)`` hops land on the hub's own files.
 
-    The module derives its two stylesheets from its own URL rather than from an
+    The module derives its stylesheets from its own URL rather than from an
     injected literal, which is what makes the per-user mount free — and what
     makes the hops themselves unassertable anywhere but here, against the real
     served address.
@@ -849,12 +886,13 @@ def test_the_stylesheets_the_bar_addresses_answer_on_the_panels_paths(
     module_url = f"{sidecar.base_url}terminal-static/js/{LAB_BAR_MODULE}"
     specifiers = _ASSET_URL_RE.findall((STATIC_JS / LAB_BAR_MODULE).read_text(encoding="utf-8"))
 
-    assert len(specifiers) == 2
+    assert len(specifiers) == 3
 
     resolved = {urljoin(module_url, specifier) for specifier in specifiers}
     assert resolved == {
         f"{sidecar.base_url}terminal-static/css/terminal.css",
         f"{sidecar.base_url}design-system/css/tokens.css",
+        f"{sidecar.base_url}design-system/css/primitives.css",
     }
 
     for url in sorted(resolved):

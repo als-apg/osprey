@@ -19,18 +19,20 @@ import stat
 
 import pytest
 
+from osprey.deployment.dotenv import (
+    ENV_MERGED_BANNER,
+    compose_unsafe_vars_in_chain,
+    format_env_line,
+    write_env_merged,
+)
 from osprey_connectors.dotenv import (
     ENV_CHAIN_FILENAMES,
     ENV_LOCAL_FILENAME,
-    ENV_MERGED_BANNER,
     ENV_SHARED_FILENAME,
     chain_files,
-    compose_unsafe_vars_in_chain,
-    format_env_line,
     merge_chain,
     parse_dotenv_file,
     parse_dotenv_text,
-    write_env_merged,
 )
 
 
@@ -242,18 +244,20 @@ class TestWriteEnvMerged:
 class TestComposeUnsafeVarsInChain:
     """``compose_unsafe_vars_in_chain`` — the ``$``-scan over every member."""
 
-    def test_flags_a_dollar_in_the_local_file(self, tmp_path):
-        write_chain(tmp_path, shared="A=1\n", local="SECRET=pa$$word\n")
-        assert compose_unsafe_vars_in_chain(tmp_path) == ["SECRET"]
-
-    def test_flags_a_dollar_in_the_shared_file(self, tmp_path):
-        write_chain(tmp_path, shared="SHARED_VAL=a$b\n", local="A=1\n")
-        assert compose_unsafe_vars_in_chain(tmp_path) == ["SHARED_VAL"]
-
-    def test_flags_a_shared_value_even_when_the_local_file_overrides_it(self, tmp_path):
-        """Compose reads every file in the list, override or not."""
-        write_chain(tmp_path, shared="KEY=a$b\n", local="KEY=clean\n")
-        assert compose_unsafe_vars_in_chain(tmp_path) == ["KEY"]
+    @pytest.mark.parametrize(
+        ("shared", "local", "expected"),
+        [
+            pytest.param("A=1\n", "SECRET=pa$$word\n", ["SECRET"], id="local-file"),
+            pytest.param("SHARED_VAL=a$b\n", "A=1\n", ["SHARED_VAL"], id="shared-file"),
+            # Compose reads every file in the list, override or not.
+            pytest.param(
+                "KEY=a$b\n", "KEY=clean\n", ["KEY"], id="shared-value-overridden-by-local"
+            ),
+        ],
+    )
+    def test_flags_a_dollar_in_a_chain_member(self, tmp_path, shared, local, expected):
+        write_chain(tmp_path, shared=shared, local=local)
+        assert compose_unsafe_vars_in_chain(tmp_path) == expected
 
     def test_names_are_sorted_and_deduplicated_across_the_chain(self, tmp_path):
         write_chain(tmp_path, shared="B_KEY=x$y\nA_KEY=p$q\n", local="A_KEY=r$s\n")

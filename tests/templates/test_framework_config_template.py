@@ -83,7 +83,7 @@ def _fully_loaded_ctx(mode: str = "hierarchical") -> dict[str, Any]:
         "ariel_server_on": True,
         "selected_web_panels": [*_SELECTED_BUILTINS, "events"],
         "default_panel": "channel-finder",
-        "panel_presets": {"Machine setup": ["channel-finder", "artifacts"]},
+        "panel_presets": {"Machine setup": {"tabs": ["channel-finder", "artifacts"]}},
         "environment_python": "/usr/bin/python3",
         "environment_packages": ["numpy"],
         "environment_inherit_exclude": ["osprey"],
@@ -195,10 +195,7 @@ def test_project_layout_and_ports_are_derived():
     assert config["project_root"] == "/repos/demo"
     assert config["build_dir"] == "./build"
     assert config["agent_data"]["base_dir"] == "var/agent_data"
-    assert config["file_paths"] == {
-        "api_calls_dir": "api_calls",
-        "registry_exports_dir": "registry_exports",
-    }
+    assert config["file_paths"] == {"registry_exports_dir": "registry_exports"}
     assert config["artifact_server"] == {"port": layout_ports(DEFAULT_PORT_BASE)["artifact"]}
 
 
@@ -359,11 +356,19 @@ def test_default_panel_is_the_profile_field():
 
 
 def test_panel_presets_are_the_profile_field():
+    """A preset renders as the layout it is, whatever its depth."""
+    layout = {
+        "split": "row",
+        "items": [
+            {"tabs": ["ariel", "artifacts"], "showing": "artifacts", "size": 2},
+            {"tabs": ["okf"]},
+        ],
+    }
     config = _config(
-        selected_web_panels=["ariel"],
-        panel_presets={"Logbook review": ["ariel", "artifacts"]},
+        selected_web_panels=["ariel", "okf"],
+        panel_presets={"Logbook review": layout},
     )
-    assert config["web"]["presets"] == {"Logbook review": ["ariel", "artifacts"]}
+    assert config["web"]["presets"] == {"Logbook review": layout}
 
 
 def test_web_renders_an_explicit_empty_panels_map_when_a_field_opens_it():
@@ -372,34 +377,29 @@ def test_web_renders_an_explicit_empty_panels_map_when_a_field_opens_it():
     `panels: {}` is a tab strip with nothing on it; the absent header the
     minimal render produces is a config the panel loader skips entirely.
     """
-    config = _config(panel_presets={"Empty": ["artifacts"]})
+    config = _config(panel_presets={"Empty": {"tabs": ["artifacts"]}})
     assert config["web"]["panels"] == {}
 
 
-def test_a_render_without_the_panel_selection_refuses():
-    """The selection is wiring, not a profile field, so an absent one is a fault.
-
-    Defaulting it to `[]` would render `panels: {}` — a tab strip with every
-    selected tab silently missing — and nothing downstream could tell that
-    apart from a profile that selected no builtin.
-    """
-    context = {
-        key: value for key, value in MINIMAL_CONFIG_CONTEXT.items() if key != "selected_web_panels"
-    }
-    with pytest.raises(TemplateRuntimeError, match="selected_web_panels"):
-        TemplateManager().jinja_env.get_template(CONFIG_TEMPLATE).render(**context)
-
-
-def test_a_render_without_the_builtin_panel_registry_refuses():
-    """The registry the selection is filtered against is wiring too.
-
-    Without it every selected builtin filters away, so the same `panels: {}`
-    comes out — an absent registry is a wiring fault, not an empty one.
-    """
-    context = {
-        key: value for key, value in MINIMAL_CONFIG_CONTEXT.items() if key != "builtin_panels"
-    }
-    with pytest.raises(TemplateRuntimeError, match="builtin_panels"):
+@pytest.mark.parametrize(
+    "missing_key",
+    [
+        # The selection is wiring, not a profile field, so an absent one is a fault.
+        #
+        # Defaulting it to `[]` would render `panels: {}` — a tab strip with every
+        # selected tab silently missing — and nothing downstream could tell that
+        # apart from a profile that selected no builtin.
+        pytest.param("selected_web_panels", id="panel-selection"),
+        # The registry the selection is filtered against is wiring too.
+        #
+        # Without it every selected builtin filters away, so the same `panels: {}`
+        # comes out — an absent registry is a wiring fault, not an empty one.
+        pytest.param("builtin_panels", id="builtin-panel-registry"),
+    ],
+)
+def test_a_render_without_panel_wiring_refuses(missing_key):
+    context = {key: value for key, value in MINIMAL_CONFIG_CONTEXT.items() if key != missing_key}
+    with pytest.raises(TemplateRuntimeError, match=missing_key):
         TemplateManager().jinja_env.get_template(CONFIG_TEMPLATE).render(**context)
 
 
@@ -482,26 +482,23 @@ def test_two_spellings_that_disagree_are_refused():
     assert "True" in message and "False" in message
 
 
-def test_two_spellings_that_agree_are_accepted():
-    """Agreement is the same fact twice, which is untidy but not a contradiction."""
+@pytest.mark.parametrize(
+    ("dotted", "nested", "expected"),
+    [
+        # Agreement is the same fact twice, which is untidy but not a contradiction.
+        pytest.param(False, False, False, id="two-spellings-that-agree"),
+        # Only booleans are answers, so one of them cannot disagree with a string.
+        pytest.param(True, "yes", True, id="non-boolean-spelling"),
+    ],
+)
+def test_two_spellings_that_do_not_contradict_are_accepted(dotted, nested, expected):
     profile = SimpleNamespace(
         config={
-            "claude_code.servers.ariel.enabled": False,
-            "claude_code": {"servers": {"ariel": {"enabled": False}}},
+            "claude_code.servers.ariel.enabled": dotted,
+            "claude_code": {"servers": {"ariel": {"enabled": nested}}},
         }
     )
-    assert _ariel_server_enabled(profile) is False
-
-
-def test_a_non_boolean_spelling_does_not_make_a_contradiction():
-    """Only booleans are answers, so one of them cannot disagree with a string."""
-    profile = SimpleNamespace(
-        config={
-            "claude_code.servers.ariel.enabled": True,
-            "claude_code": {"servers": {"ariel": {"enabled": "yes"}}},
-        }
-    )
-    assert _ariel_server_enabled(profile) is True
+    assert _ariel_server_enabled(profile) is expected
 
 
 def test_ariel_gate_ignores_a_non_boolean_enabled():

@@ -24,19 +24,10 @@ import pytest
 
 from osprey.health.runtime import HealthRuntime
 from osprey_connectors import factory
+from tests.health._fakes import SpyConnector
 
 
-class _SpyConnector:
-    """Minimal async-``disconnect``-only stand-in for a control-system connector."""
-
-    def __init__(self) -> None:
-        self.disconnect_calls = 0
-
-    async def disconnect(self) -> None:
-        self.disconnect_calls += 1
-
-
-class _RaisingDisconnectConnector(_SpyConnector):
+class _RaisingDisconnectConnector(SpyConnector):
     """Spy whose ``disconnect`` raises, to prove teardown swallows the error."""
 
     async def disconnect(self) -> None:
@@ -77,7 +68,7 @@ async def test_get_connector_constructs_once_and_disconnects_once(
 ) -> None:
     construct_calls: list[Any] = []
     register_calls: list[bool] = []
-    spy = _SpyConnector()
+    spy = SpyConnector()
     _patch_factory(monkeypatch, spy, construct_calls, register_calls)
 
     config = {
@@ -107,7 +98,7 @@ async def test_never_constructs_connector_when_get_connector_unused(
     construct_calls: list[Any] = []
     register_calls: list[bool] = []
     # A connector that would explode if constructed — it must never be.
-    spy = _SpyConnector()
+    spy = SpyConnector()
     _patch_factory(monkeypatch, spy, construct_calls, register_calls)
 
     async with HealthRuntime(
@@ -149,7 +140,7 @@ async def test_explicit_shutdown_disconnects_once_and_is_idempotent(
 ) -> None:
     construct_calls: list[Any] = []
     register_calls: list[bool] = []
-    spy = _SpyConnector()
+    spy = SpyConnector()
     _patch_factory(monkeypatch, spy, construct_calls, register_calls)
 
     runtime = HealthRuntime(
@@ -170,7 +161,7 @@ async def test_get_connector_refuses_after_shutdown(
 ) -> None:
     construct_calls: list[Any] = []
     register_calls: list[bool] = []
-    spy = _SpyConnector()
+    spy = SpyConnector()
     _patch_factory(monkeypatch, spy, construct_calls, register_calls)
 
     runtime = HealthRuntime(
@@ -201,7 +192,7 @@ async def test_get_connector_refuses_after_shutdown_without_construction(
 ) -> None:
     construct_calls: list[Any] = []
     register_calls: list[bool] = []
-    spy = _SpyConnector()
+    spy = SpyConnector()
     _patch_factory(monkeypatch, spy, construct_calls, register_calls)
 
     # shutdown() closes the runtime even when a connector was never built.
@@ -225,7 +216,7 @@ async def test_flag_transitions_across_lifecycle(
 ) -> None:
     construct_calls: list[Any] = []
     register_calls: list[bool] = []
-    spy = _SpyConnector()
+    spy = SpyConnector()
     _patch_factory(monkeypatch, spy, construct_calls, register_calls)
 
     runtime = HealthRuntime(
@@ -254,7 +245,7 @@ async def test_ever_constructed_stays_false_when_get_connector_unused(
 ) -> None:
     construct_calls: list[Any] = []
     register_calls: list[bool] = []
-    spy = _SpyConnector()
+    spy = SpyConnector()
     _patch_factory(monkeypatch, spy, construct_calls, register_calls)
 
     async with HealthRuntime(
@@ -276,7 +267,7 @@ async def test_double_shutdown_is_safe_after_construction(
 ) -> None:
     construct_calls: list[Any] = []
     register_calls: list[bool] = []
-    spy = _SpyConnector()
+    spy = SpyConnector()
     _patch_factory(monkeypatch, spy, construct_calls, register_calls)
 
     runtime = HealthRuntime(
@@ -354,7 +345,7 @@ async def test_concurrent_get_connector_constructs_exactly_one(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     construct_calls: list[Any] = []
-    spy = _SpyConnector()
+    spy = SpyConnector()
     _patch_slow_factory(monkeypatch, spy, construct_calls)
 
     async with HealthRuntime(
@@ -387,7 +378,7 @@ async def test_many_concurrent_get_connector_calls_construct_exactly_one(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     construct_calls: list[Any] = []
-    spy = _SpyConnector()
+    spy = SpyConnector()
     _patch_slow_factory(monkeypatch, spy, construct_calls)
 
     # A realistic category fan-out: several channel_read-style probes at once.
@@ -413,7 +404,7 @@ async def test_shutdown_during_construction_does_not_orphan_the_connector(
     to prevent, reached through a different window. The construction has to
     re-check inside the lock and close what it just built."""
     construct_calls: list[Any] = []
-    spy = _SpyConnector()
+    spy = SpyConnector()
     _patch_slow_factory(monkeypatch, spy, construct_calls)
     runtime = HealthRuntime(
         {
@@ -471,7 +462,7 @@ async def test_closed_runtime_refuses_without_waiting_on_the_lock(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     construct_calls: list[Any] = []
-    spy = _SpyConnector()
+    spy = SpyConnector()
     _patch_slow_factory(monkeypatch, spy, construct_calls)
 
     runtime = HealthRuntime(

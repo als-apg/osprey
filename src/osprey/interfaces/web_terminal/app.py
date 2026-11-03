@@ -7,16 +7,17 @@ via PTY) on the left and a live workspace file viewer on the right.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import importlib
 import json
 import os
 import shlex
+import sys
 from collections import deque
-from collections.abc import Callable
 from contextlib import asynccontextmanager, suppress
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, NamedTuple
+from typing import TYPE_CHECKING, Any, NamedTuple
 
 import httpx
 import yaml
@@ -35,17 +36,10 @@ from osprey.interfaces.common_middleware import (
     resolve_storage_scope,
 )
 from osprey.interfaces.vendor import vendor_url
-from osprey.interfaces.web_terminal.bar_items_store import (
-    BarLayoutInvalid,
-    BarVocabulary,
-    layout_path,
-    load_layout,
-    validate_option,
-)
 from osprey.interfaces.web_terminal.control_context_owner import start_control_context_owner
+from osprey.interfaces.web_terminal.dock_layout import layout_keys
 from osprey.interfaces.web_terminal.feedback_destination import (
     DEFAULT_DOCS_URL,
-    DEFAULT_FEEDBACK_MAX_STORE_BYTES,
     osprey_version,
     resolve_deployment_identity,
     resolve_feedback_destination,
@@ -58,10 +52,21 @@ from osprey.interfaces.web_terminal.file_watcher import (
 )
 from osprey.interfaces.web_terminal.operator_session import OperatorRegistry
 from osprey.interfaces.web_terminal.ownership import OwnershipStoreError
+from osprey.interfaces.web_terminal.presets import preset_refusal, prune_preset_layout
 from osprey.interfaces.web_terminal.pty_manager import PtyRegistry
 from osprey.interfaces.web_terminal.routes import router
 from osprey.interfaces.web_terminal.routes.agent_activity import ACTIVITY_BUFFER_MAX
 from osprey.interfaces.web_terminal.routes.chat_attachments import sweep_uploads_at_startup
+from osprey.interfaces.web_terminal.routes.safety_switches import router as safety_switch_router
+from osprey.interfaces.web_terminal.routes.watchdog import make_notifier
+from osprey.interfaces.web_terminal.routes.watchdog import router as watchdog_router
+from osprey.interfaces.web_terminal.safety_switches import (
+    CODE_REVIEW_SWITCH,
+    WATCHDOG_SWITCH,
+    SafetySwitches,
+    feature_is_on,
+    switches_of,
+)
 from osprey.interfaces.web_terminal.sidecar_status import (
     PANEL_STATUS_DIRNAME,
     SidecarStatus,
@@ -78,17 +83,39 @@ from osprey.profiles.web_panels import (
     UNIVERSAL_PANELS,
     panel_id_refusal,
     panel_spec_enabled,
+    sidecar_panel_descriptors,
 )
 from osprey.registry.web import PANEL_ID_TO_REGISTRY_KEY, panel_url_state_attr
+from osprey.services.watchdog.definitions import load_watchdogs
 from osprey.utils.seconds import positive_seconds
+from osprey.utils.workspace import session_hold_dir
 from osprey_connectors.config import get_facility_timezone
+from osprey_connectors.session_hold import HOLD_DIR_ENV_VAR
+from osprey_connectors.workspace import repo_root_for_config
 
 if TYPE_CHECKING:
+    import socket
     from collections.abc import AsyncIterator
 
     from jinja2.runtime import Context
 
 STATIC_DIR = Path(__file__).parent / "static"
+
+#: The tab icon, in the design system's static tree.
+_FAVICON = Path(__file__).parent.parent / "design_system" / "static" / "img" / "osprey-mark.svg"
+
+
+def _favicon_url() -> str:
+    """The tab icon's root-relative URL, versioned by the icon's content.
+
+    Firefox keeps a page's tab icon in its own store, keyed by the icon's URL,
+    for days, and does not ask the server again while that entry lasts, whatever
+    the response's cache headers said. An edited mark therefore reaches a
+    browser that has seen the old one only at a new address: the hash makes
+    every edit one.
+    """
+    digest = hashlib.sha256(_FAVICON.read_bytes()).hexdigest()[:12]
+    return f"/design-system/img/{_FAVICON.name}?v={digest}"
 
 
 @pass_context
@@ -111,6 +138,7 @@ def _prefixed(ctx: Context, path: str) -> str:
 templates = Jinja2Templates(directory=str(STATIC_DIR))
 templates.env.globals["vendor_url"] = vendor_url
 templates.env.globals["prefixed"] = _prefixed
+templates.env.globals["favicon_url"] = _favicon_url()
 
 logger = __import__("logging").getLogger(__name__)
 
@@ -238,14 +266,29 @@ async def _launch_sidecar(app: FastAPI, panel_id: str) -> None:
     _record_sidecar_status(app, panel_id, SidecarStatus.starting())
     sidecar = None
     try:
-        from osprey.interfaces.web_terminal.operator_session import resolve_agent_data_root
+        from osprey.interfaces.web_terminal.operator_session import (
+            resolve_agent_data_root,
+            session_hold_root_of,
+        )
+        from osprey.interfaces.web_terminal.routes.watchdog import live_session_keys
 
-        module_path, _, attribute = SIDECAR_PANELS[panel_id].factory_path.partition(":")
+        entry = SIDECAR_PANELS[panel_id]
+        module_path, _, attribute = entry.factory_path.partition(":")
         factory = getattr(importlib.import_module(module_path), attribute)
+        # A sidecar that writes for the terminal's sessions is held with them.
+        session_context: dict[str, Any] = (
+            {
+                "hold_root": session_hold_root_of(app),
+                "live_sessions": lambda: live_session_keys(app),
+            }
+            if entry.session_writes
+            else {}
+        )
         sidecar = factory(
             Path(resolve_agent_data_root(app)),
             compute_url_prefix(),
             getattr(app.state, "web_theme_mode", None),
+            **session_context,
         )
         app.state.sidecars[panel_id] = sidecar
         await asyncio.to_thread(sidecar.preflight)
@@ -445,51 +488,6 @@ def _launch_panel_server(app: FastAPI, key: str) -> None:
         setattr(app.state, attr, None)
 
 
-#: The two supported web UI modes. ``expert`` is the full split-pane terminal
-#: workspace; ``simple`` is the pared-down operator layout. ``expert`` is the
-#: default so an absent/misconfigured ``web.ui_mode`` never strands a deployment
-#: in the reduced surface.
-UI_MODES = ("expert", "simple")
-DEFAULT_UI_MODE = "expert"
-
-
-def resolve_ui_mode(configured: str) -> str:
-    """Resolve the ``web.ui_mode`` config value into a concrete UI mode.
-
-    ``configured`` must be one of :data:`UI_MODES` (``"expert"`` or
-    ``"simple"``). Anything else — a typo, ``None``, an empty string — is
-    logged as a warning and resolved to :data:`DEFAULT_UI_MODE`.
-
-    Mirrors the warn+fallback shape of the ``web.theme`` resolver
-    (:func:`~osprey.interfaces.design_system.theme_config.resolve_theme_id`): it never
-    raises, so a bad value degrades to the safe default instead of blocking
-    server startup.
-
-    Args:
-        configured: The raw ``web.ui_mode`` config value.
-
-    Returns:
-        A concrete mode string in :data:`UI_MODES` — the value stamped onto
-        ``<html data-ui-mode>`` for the pre-paint mode-boot rung, which only
-        honors a real mode.
-    """
-    if configured in UI_MODES:
-        return configured
-
-    logger.warning(
-        "Unknown web.ui_mode %r (expected one of %s); falling back to %r.",
-        configured,
-        list(UI_MODES),
-        DEFAULT_UI_MODE,
-    )
-    return DEFAULT_UI_MODE
-
-
-#: The two supported rail positions. ``left`` is the icon-rail column;
-#: ``top`` renders the same rail as a horizontal strip under the header.
-RAIL_POSITIONS = ("left", "top")
-DEFAULT_RAIL_POSITION = "left"
-
 #: Onboarding-tour invite policy (``web.tour``, per-user override via the
 #: ``OSPREY_WEB_TOUR`` environment variable — the ``web.theme`` /
 #: ``OSPREY_WEB_THEME`` shape, so a roster can arm the invite per user).
@@ -497,7 +495,7 @@ DEFAULT_RAIL_POSITION = "left"
 #: this again", or completing the tour). ``always``: the invite shows on
 #: every load and offers no permanent dismissal — the shared read-only
 #: screen case. ``never``: no automatic invite; the tour stays reachable
-#: from the rail's More menu and the command palette.
+#: from the sidebar's More menu and the command palette.
 TOUR_POLICIES = ("once", "always", "never")
 DEFAULT_TOUR_POLICY = "once"
 
@@ -505,7 +503,7 @@ DEFAULT_TOUR_POLICY = "once"
 def resolve_tour_policy(configured: str | None) -> str:
     """Resolve ``web.tour`` / ``OSPREY_WEB_TOUR`` into a concrete policy.
 
-    Mirrors the warn+fallback shape of :func:`resolve_ui_mode`: anything
+    Mirrors the warn+fallback shape of the ``web.theme`` resolver: anything
     outside :data:`TOUR_POLICIES` — a typo, ``None``, an empty string — is
     logged as a warning and resolved to :data:`DEFAULT_TOUR_POLICY`, so a bad
     value degrades to the safe default instead of blocking server startup.
@@ -528,17 +526,6 @@ def resolve_tour_policy(configured: str | None) -> str:
     return DEFAULT_TOUR_POLICY
 
 
-#: Per-theme-family rail defaults, applied only when ``web.rail_position``
-#: is absent from config. The ``retro`` family carries a horizontal tab strip
-#: under the header as part of its look — picking Retro without also moving
-#: the rail would give its colors a layout they were never drawn for. Any
-#: family not listed here defaults to :data:`DEFAULT_RAIL_POSITION`.
-#:
-#: This map is the single source of truth for the coupling: ``GET
-#: /api/panels`` echoes it to the browser so ``rail-position.js`` can follow
-#: a live family switch without carrying its own copy.
-FAMILY_RAIL_DEFAULTS: dict[str, str] = {"retro": "top"}
-
 #: How each value of the forwarded role-source header reads in the session
 #: menu. The keys are the auth sidecar's closed vocabulary, spelled here
 #: rather than imported for the same reason the header names are — the
@@ -550,307 +537,12 @@ FAMILY_RAIL_DEFAULTS: dict[str, str] = {"retro": "top"}
 _ROLE_SOURCE_LABELS: dict[str, str] = {"roster": "roster", "claim": "ID token"}
 
 
-# ── Bar items: the server side of the two item hosts ──────────────────────
-#
-# The global header and the status bar are item HOSTS: each renders one
-# ordered run of ``.bar-item`` shells, and ``root()`` emits that run from the
-# *effective layout* so the operator's order is on the page before any module
-# script runs. Everything in this section is the SSR half of the contract the
-# browser catalog (``static/js/bar-catalog.js``) and the layout normalizer
-# (``static/js/bar-layout.js``) own on the client.
-
-#: Schema version of the layout document. Mirrors ``BAR_LAYOUT_VERSION`` in
-#: ``static/js/bar-layout.js``: the browser refuses a document whose version
-#: it cannot read, so the two constants move together or not at all.
-BAR_LAYOUT_VERSION = 1
-
-#: The two hosts, in render order. Mirrors ``BAR_HOSTS`` in ``bar-catalog.js``.
-BAR_HOSTS: tuple[str, ...] = ("header", "status")
-
-#: The deployment's default layout — the order every request renders until a
-#: saved document says otherwise.
-#:
-#: The header is the header as it stood before the bars became hosts: this
-#: build moves nothing an operator already reaches for. Its ``space`` item is
-#: what used to be the ``.header-left`` / ``.header-right`` split — spacing an
-#: operator can see and move, instead of a wrapper they cannot.
-#:
-#: The status bar ships almost empty: a space, so the rest sits at the right
-#: edge, then the system-health dot and the clock. Everything else the bar can
-#: show — the documentation link, the stopwatch — stays in the catalog and is one drag away in Customize; a screen an
-#: operator watches all day should start with what they read, not with what
-#: the terminal knows about itself. ``system-health`` renders only where this
-#: deployment enables the SYSTEM panel, and ``identity`` only where there is a
-#: user or a deployment name to show — so a deployment without that panel gets
-#: ``space · clock``. That degrade happens ONCE, at the lifespan:
-#: :func:`_load_bar_items` filters this document through
-#: :func:`renderable_bar_layout` with the same context the page stamps, so the
-#: rev-0 answer of ``GET /api/bar-items`` never names an item the deployment
-#: cannot paint. :func:`bar_render_plan` drops the same items again on paint,
-#: but only as a backstop — a served default that still carried them read, to
-#: the browser's normalizer, as content lost, and latched Customize read-only
-#: on every deployment without the SYSTEM panel (#863).
-#:
-#: ``web.bar_items`` overrides this per deployment, and the sheet's one preset,
-#: "Default", returns a user to whichever of the two applies.
-#:
-#: Every type here must exist in ``bar-catalog.js`` and declare the host it is
-#: placed in; the catalog is the authority and this list is validated against
-#: it by the client on every load, so a type removed there simply stops
-#: rendering rather than breaking the page.
-DEFAULT_BAR_LAYOUT: dict = {
-    "version": BAR_LAYOUT_VERSION,
-    "rev": 0,
-    "header": [
-        {"type": "logo"},
-        {"type": "identity"},
-        {"type": "space"},
-        {"type": "control-target"},
-        {"type": "search"},
-        {"type": "display"},
-    ],
-    "status": [
-        {"type": "space"},
-        {"type": "system-health"},
-        {"type": "clock"},
-    ],
-    "header_visible": True,
-    "status_visible": True,
-    "rail_docs_visible": True,
-    "rail_feedback_visible": True,
-}
-
-#: The ADOPTED item types: the ones whose body is a literal block in
-#: ``index.html`` rather than a JS-built one.
-#:
-#: These are the nodes other modules resolve **by id** — ``#docs-link``,
-#: ``#command-palette-btn``, ``#display-menu-settings``,
-#: ``#logout-btn``, the identity trigger and menu. They are therefore
-#: rendered on EVERY request whether or not the layout places
-#: them: into their shell when placed, into ``#bar-item-pool`` when not. A
-#: layout that drops an item must never make an id go dark — the module that
-#: looks it up has no way to know the difference between "the operator removed
-#: this item" and "this build is broken".
-ADOPTED_BAR_ITEM_TYPES: tuple[str, ...] = (
-    "logo",
-    "identity",
-    "search",
-    "display",
-    "docs",
-)
-
-#: Every item type this build renders — the Python mirror of the keys of
-#: ``BAR_CATALOG`` in ``static/js/bar-catalog.js``. Any type may sit in either
-#: bar; there is no placement axis on either side.
-#:
-#: The server needs its own copy because it renders first: a type this build
-#: does not know is dropped here exactly as the client's normalizer drops it,
-#: so the page never paints a shell the first reconcile takes away.
-#: ``tests/interfaces/web_terminal/test_bar_items_ssr.py`` pins the tuple
-#: against the JS catalog so the two cannot drift.
-BAR_ITEM_TYPES: tuple[str, ...] = (
-    "logo",
-    "identity",
-    "control-target",
-    "display",
-    "search",
-    "system-health",
-    "bluesky-queue",
-    "docs",
-    "feedback",
-    "clock",
-    "stopwatch",
-    "space",
-    "separator",
-)
-
-#: The types a layout may place more than once — the Python mirror of every
-#: entry's ``multi`` in ``static/js/bar-catalog.js``. Every other type is one
-#: server-rendered node or one id-owning dot, and a second shell for it could
-#: only ever be empty: :func:`bar_render_plan` skips the duplicate, the store
-#: refuses it, and the browser's normalizer drops it, all from this one list.
-BAR_ITEM_MULTI: frozenset[str] = frozenset({"clock", "stopwatch", "space", "separator"})
-
-#: Each item type's option specs — the Python mirror of every entry's
-#: ``options`` in ``static/js/bar-catalog.js``, in the same three shapes its
-#: ``numberSpec`` / ``booleanSpec`` / ``enumSpec`` builders produce. Only the
-#: types that declare options appear; every other entry is ``NO_OPTIONS``
-#: there and is absent here, which :func:`bar_item_vocabulary` reads as "no
-#: options".
-#:
-#: The server needs its own copy for the same reason it mirrors
-#: :data:`BAR_ITEM_TYPES`: the store validates a saved layout against these
-#: specs, and without them a bad option value would be written to disk and then
-#: refused by the browser on the next paint. ``step`` and ``unit`` are the
-#: catalog's, not the store's — the customize sheet renders them, so they are
-#: carried rather than dropped. ``values`` is a tuple because the vocabulary is
-#: frozen and shared across requests.
-BAR_ITEM_OPTIONS: dict[str, dict[str, dict]] = {
-    "clock": {
-        "zone": {
-            "kind": "enum",
-            "values": ("none", "local", "facility", "utc", "both"),
-            "default": "none",
-        },
-        "format": {"kind": "enum", "values": ("24h", "12h"), "default": "24h"},
-        "seconds": {"kind": "boolean", "default": False},
-    },
-    # Width 0 is the flexible space; anything else is a fixed width the
-    # operator dragged the space to. The ceiling is the catalog's
-    # ``SPACE_MAX_WIDTH``.
-    "space": {
-        "width": {"kind": "number", "min": 0, "max": 2000, "step": 1, "unit": "px", "default": 0},
-    },
-    "system-health": {
-        "text": {"kind": "enum", "values": ("none", "status"), "default": "none"},
-        "detail": {"kind": "enum", "values": ("categories", "checks"), "default": "categories"},
-    },
-    "bluesky-queue": {
-        "controls": {"kind": "enum", "values": ("none", "stop", "full"), "default": "none"},
-        "progress": {"kind": "boolean", "default": True},
-        "count": {"kind": "boolean", "default": True},
-    },
-}
-
-#: The built-in panel the system-health item reads through: its ``/checks``
-#: report is proxied at ``/panel/system-health/`` exactly where the panel is
-#: enabled, so the panel's presence is the one fact the item depends on.
-SYSTEM_HEALTH_PANEL_ID = "system-health"
-
-#: Which item types are gated on a deployment fact, and how — the Python
-#: mirror of every catalog entry whose ``available`` is not ``ALWAYS``.
-#:
-#: The context these read is the one :func:`bar_availability_context` builds
-#: and ``root()`` stamps on ``<html>``, in the catalog's own spelling, so the
-#: server's answer and the browser's are the same answer rather than two
-#: guesses at it. A type absent from this table is available everywhere, which
-#: is what ``ALWAYS`` means in the catalog.
-#:
-#: ``tests/interfaces/web_terminal/test_bar_items_ssr.py`` pins the key set
-#: against the catalog's declarations, so an item that grows a condition there
-#: cannot quietly stay unconditional here.
-BAR_ITEM_AVAILABILITY: dict[str, Callable[[dict], bool]] = {
-    "identity": lambda ctx: ctx.get("identityAvailable") is True,
-    "bluesky-queue": lambda ctx: ctx.get("blueskyAvailable") is True,
-    "system-health": lambda ctx: ctx.get("systemHealthAvailable") is True,
-    "control-target": lambda ctx: ctx.get("controlTargetAvailable") is True,
-}
-
-#: What each gated item needs, in the words a ``web.bar_items`` warning uses to
-#: tell an operator why the item they authored will not show. Keyed exactly as
-#: :data:`BAR_ITEM_AVAILABILITY`; ``tests/interfaces/web_terminal/
-#: test_bar_items_ssr.py`` pins the two key sets together.
-BAR_ITEM_GATES: dict[str, str] = {
-    "identity": "a terminal user or a deployment name",
-    "bluesky-queue": "the Bluesky panel",
-    "system-health": "the SYSTEM panel",
-    "control-target": "web.control_target_picker: true",
-}
-
-
-def bar_item_available(item_type: str, context: dict) -> bool:
-    """Whether this deployment can show *item_type*.
-
-    The one place :data:`BAR_ITEM_AVAILABILITY` is consulted, so the paint,
-    the lifespan's filtering of the deployment default and the config loader's
-    warnings all answer from the same predicate.
-
-    Args:
-        item_type: A type from :data:`BAR_ITEM_TYPES`.
-        context: The deployment facts from :func:`bar_availability_context`.
-
-    Returns:
-        True for a type the table does not gate, else the predicate's answer.
-    """
-    predicate = BAR_ITEM_AVAILABILITY.get(item_type)
-    return True if predicate is None else predicate(context)
-
-
-def renderable_bar_layout(layout: dict, *, context: dict) -> dict:
-    """*layout* with every item this deployment cannot show removed.
-
-    The deployment default must be renderable by construction on the deployment
-    that serves it: ``bar_render_plan`` already drops a gated item on paint,
-    but the document behind the paint — the rev-0 answer of
-    ``GET /api/bar-items``, and what a reset returns to — has to agree with it,
-    or the browser's normalizer reads the difference as lost content and
-    latches the whole layout read-only (#863). This is that agreement, applied
-    once at the lifespan where the facts are known.
-
-    Only the deployment default goes through here. An operator's stored
-    document is deliberately NOT filtered: an item they placed that this
-    deployment can no longer show is their content, and the client's latch
-    exists to keep it from being written back without them.
-
-    Args:
-        layout: A layout document — the shipped default or an authored one.
-        context: The deployment facts from :func:`bar_availability_context`.
-
-    Returns:
-        *layout* itself when it drops nothing; otherwise a new document
-        sharing every key but the filtered host lists. Never mutates *layout*.
-    """
-    filtered: dict = {}
-    for host in BAR_HOSTS:
-        items = layout.get(host) or []
-        kept = [
-            item
-            for item in items
-            if not isinstance(item, dict)
-            or bar_item_available(str(item.get("type") or ""), context)
-        ]
-        if len(kept) != len(items):
-            filtered[host] = kept
-    if not filtered:
-        return layout
-    return {**layout, **filtered}
-
-
-def bar_availability_context(
-    *,
-    identity_available: bool,
-    bluesky_available: bool,
-    system_health_available: bool,
-    control_target_available: bool,
-) -> dict:
-    """What this deployment offers, in the vocabulary the catalog asks in.
-
-    One evaluation, two readers: :func:`bar_render_plan` renders from it, and
-    ``root()`` stamps it on ``<html>`` for ``bar-sync.js`` to hand to
-    ``bar-layout.js``'s ``normalize()``. The browser used to infer these
-    facts from the page instead — identity and the plan queue from whether a
-    shell had been rendered — and an inference that goes wrong in either
-    direction costs something real: a
-    false "unavailable" drops the item and latches the whole document
-    read-only for the session, so saving dies silently, while a false
-    "available" lets the client put back an item this deployment cannot render.
-
-    Args:
-        identity_available: Whether the deployment renders an identity block.
-        bluesky_available: Whether it declares the Bluesky panel, whose proxy
-            is where the plan-queue item reads the queue.
-        system_health_available: Whether it enables the SYSTEM panel, whose
-            proxy is where the system-health item reads the report.
-        control_target_available: Whether it offers the control-target picker
-            (``web.control_target_picker``).
-
-    Returns:
-        The context, JSON-serializable exactly as stamped.
-    """
-    return {
-        "identityAvailable": bool(identity_available),
-        "blueskyAvailable": bool(bluesky_available),
-        "systemHealthAvailable": bool(system_health_available),
-        "controlTargetAvailable": bool(control_target_available),
-    }
-
-
 def control_target_picker_available(config_path: str | Path | None) -> bool:
-    """Whether this deployment's title bar offers the control-target picker.
+    """Whether this deployment's sidebar offers the control-target block.
 
     Read from ``web.control_target_picker``, default ``True``. A render whose
-    terminal reaches no machine sets it ``false``, and the chip, its popover and
-    the ``control-target`` bar item are then absent.
+    terminal reaches no machine sets it ``false``, and the chip and its popover
+    are then absent.
 
     A config that cannot be read keeps the picker. This is a display setting,
     not a privilege gate: it grants and removes no access, so the shipped
@@ -872,276 +564,6 @@ def control_target_picker_available(config_path: str | Path | None) -> bool:
         )
         return True
     return coerce_config_flag("web.control_target_picker", raw, True)
-
-
-def bluesky_panel_declared(custom_panels: list[dict] | None) -> bool:
-    """Whether this deployment declares the Bluesky panel.
-
-    The plan-queue item reads the queue through that panel's proxy
-    (``/panel/bluesky/queue`` and its event stream), so the panel's presence is
-    the one fact the item depends on: where the panel is declared the queue
-    can be reached, and where it is not there is nothing to reach. The panel
-    declaration is also the bridge entitlement itself (see
-    :data:`~osprey.deployment.web_terminals.roster.BLUESKY_PANEL_ID`), so
-    this asks no second key for the same fact.
-
-    Args:
-        custom_panels: The config-declared panels (``app.state.custom_panels``),
-            or None before the lifespan has run.
-
-    Returns:
-        True when a declared panel carries the Bluesky panel's id.
-    """
-    # Lazy, like every other reach into the deployment package from here: the
-    # terminal app must not import deployment code to boot.
-    from osprey.deployment.web_terminals.roster import BLUESKY_PANEL_ID
-
-    return any(panel.get("id") == BLUESKY_PANEL_ID for panel in custom_panels or ())
-
-
-def deployment_bar_context(app: FastAPI) -> dict:
-    """This deployment's availability facts, read off ``app.state``.
-
-    One function, two call sites, so they cannot disagree: the lifespan filters
-    the deployment default through it, and ``root()`` renders from it and
-    stamps it on ``<html>``. ``identityAvailable`` is the same condition the
-    identity block itself renders under — a user to name, or a deployment name
-    to show — stated once so the item and its body can never disagree.
-
-    Args:
-        app: The application, its lifespan far enough along to have resolved
-            the panel set, the Bluesky declaration, the terminal user and the
-            deployment name. Anything not yet on state reads as absent, except
-            the picker setting, which reads as on: on is the key's default.
-
-    Returns:
-        The context :func:`bar_availability_context` builds.
-    """
-    state = app.state
-    enabled_panels = getattr(state, "enabled_panels", None) or set()
-    return bar_availability_context(
-        identity_available=bool(
-            getattr(state, "terminal_user", "") or getattr(state, "app_name", "")
-        ),
-        bluesky_available=bool(getattr(state, "bluesky_available", False)),
-        system_health_available=SYSTEM_HEALTH_PANEL_ID in enabled_panels,
-        control_target_available=bool(getattr(state, "control_target_picker_available", True)),
-    )
-
-
-class BarRenderPlan(NamedTuple):
-    """Everything ``index.html`` needs to render both hosts and the pool.
-
-    Attributes:
-        header: Ordered header shells, each
-            ``{"type", "adopted", "follows", "options"}``.
-        status: Ordered status-bar shells, same shape.
-        pooled: Adopted types this deployment renders but this layout does not
-            place — their nodes go into ``#bar-item-pool``.
-        header_visible: False ⇒ ``<html data-header-bar="hidden">``.
-        status_visible: False ⇒ ``<html data-status-bar="hidden">``.
-        rail_docs_visible: False ⇒ ``<html data-rail-docs="hidden">``.
-        rail_feedback_visible: False ⇒ ``<html data-rail-feedback="hidden">``.
-    """
-
-    header: list[dict]
-    status: list[dict]
-    pooled: list[str]
-    header_visible: bool
-    status_visible: bool
-    rail_docs_visible: bool = True
-    rail_feedback_visible: bool = True
-
-
-def effective_bar_layout(app: FastAPI) -> dict:
-    """The layout document this request renders.
-
-    The operator's own saved arrangement (``app.state.bar_items_effective``)
-    when there is one, else the deployment default (``app.state.bar_layout``).
-    The lifespan sets both. The saved document is read once at startup and
-    refreshed by the layout routes after every accepted save, so a render
-    never touches the disk; ``None`` there is the honest reading of "this
-    operator has saved nothing" — a reset puts it back — and the deployment
-    default then renders.
-
-    Both documents are at this build's schema version by construction: the
-    store refuses any other on load and on save, and :func:`_load_bar_items`
-    writes the version itself. First paint and the browser's hydration
-    therefore always talk about the same document.
-
-    Args:
-        app: The application, its lifespan run.
-
-    Returns:
-        The shared cache itself, not a copy, so callers must treat it as
-        immutable — a route that normalized or annotated it in place would
-        corrupt every later render in the process. The writers are already
-        safe: ``save_layout`` returns its own copy.
-    """
-    saved: dict | None = app.state.bar_items_effective
-    if saved is not None:
-        return saved
-    default: dict = app.state.bar_layout
-    return default
-
-
-def _load_stored_bar_layout(
-    store_dir: Path, vocabulary: BarVocabulary, default: dict
-) -> dict | None:
-    """This operator's saved arrangement, or ``None`` when they have none.
-
-    ``None`` rather than a copy of *default*, because "nothing saved" and
-    "saved something that happens to match the deployment" are different
-    states: only the first one follows the deployment when an operator edits
-    ``web.bar_items``, and only the first one is what a reset returns to.
-    :func:`effective_bar_layout` reads it exactly that way.
-
-    The existence check is what keeps a first-ever boot from paying for a read
-    and a fallback copy. A document that exists but cannot be read — truncated,
-    not JSON, or written at a schema version this build does not know — answers
-    ``None`` too: the store hands back *default* there, and a cache holding a
-    copy of the deployment default would say "this operator saved something"
-    about a file nothing can read. Rendering the deployment's own arrangement
-    is the right outcome for a damaged file, and it is what ``None`` already
-    means. The store's revisions are what make the two cases separable: every
-    accepted save lands at 1 or above, so ``rev 0`` is precisely "nothing
-    readable was stored".
-
-    Args:
-        store_dir: The bar-items store directory, which need not exist.
-        vocabulary: The facts the stored envelope is checked against.
-        default: This deployment's configured layout, used when a document is
-            present but unreadable.
-
-    Returns:
-        The stored document, or ``None`` when nothing readable is stored.
-        ``None`` also covers a store that could not be reached at all, so it
-        does not prove the mount is writable — the routes must treat a failure
-        from ``save_layout`` as authoritative rather than inferring anything
-        from what the boot managed to read.
-    """
-    try:
-        if not layout_path(store_dir).exists():
-            return None
-    except OSError:  # pragma: no cover — an unreadable mount is not a boot failure
-        logger.warning("Could not reach the bar-items store at %s", store_dir, exc_info=True)
-        return None
-    document = load_layout(store_dir, vocabulary=vocabulary, default=default)
-    return document if document["rev"] else None
-
-
-def bar_render_plan(layout: dict, *, context: dict) -> BarRenderPlan:
-    """Turn a layout document into the two ordered runs plus the pool.
-
-    Three rules do all the work here, and each one is a refusal the client's
-    normalizer (``bar-layout.js``) already makes. The SSR is the first paint of
-    what that normalizer will produce, so anything it renders that the client
-    would drop is a rearrangement the operator watches happen.
-
-    **Adopted nodes are conserved.** Every adopted type this deployment would
-    render is emitted exactly once — in its shell if the layout places it, in
-    the pool if it does not. Never twice (a layout naming ``docs`` twice would
-    otherwise emit ``#docs-link`` twice, and ``getElementById`` would silently
-    pick one), and never zero times.
-
-    **An unavailable item is ABSENT, not empty.** An identity block needs
-    something to identify with, a plan queue needs a Bluesky bridge to have a
-    queue, and the system-health chip needs the SYSTEM panel to read from.
-    Where the fact is absent, so is the shell — not just the body, and whether
-    or not the item is one of the adopted ones. An empty shell is not free:
-    ``bars.css``'s ``[data-follows="logo"]`` rule is keyed on the SHELL, so an
-    empty identity shell paints a dangling middot after the wordmark on every
-    single-user deployment, and each empty shell costs the run another gap. An
-    adopted node is left out of the pool too, because seeding an id this
-    deployment never renders would tell every reader it exists.
-
-    Availability is asked of *context* — the deployment facts
-    :func:`bar_availability_context` evaluates once and ``root()`` stamps on
-    the page — through :data:`BAR_ITEM_AVAILABILITY`, which mirrors the
-    catalog's own ``available()`` predicates. Server and browser therefore
-    answer the question from the same facts instead of each guessing.
-
-    **A type this build does not know is skipped.** Either bar may hold any
-    known type (see :data:`BAR_ITEM_TYPES`); an unknown one is dropped exactly
-    as the client's normalizer drops it.
-
-    **A single-node type renders once.** A second entry for a type outside
-    :data:`BAR_ITEM_MULTI` is skipped — the client's normalizer drops it, and
-    a shell rendered for it would be an empty box the first reconcile takes
-    away again.
-
-    **Options are painted, not deferred.** Each shell carries the options its
-    entry was placed with, so the first reconcile renders the configured item —
-    the zone of a clock, the width of a space. Without them it would render the
-    type's defaults and correct them when the stored document arrives. An entry
-    whose ``options`` is not a mapping paints with none, which is also what the
-    client's normalizer does with it.
-
-    ``follows`` chains off the previous EMITTED item rather than the previous
-    layout entry, so a skipped item cannot leave the middot stranded on a shell
-    that is no longer next to the logo.
-
-    Args:
-        layout: The effective layout document.
-        context: The deployment context from :func:`bar_availability_context`.
-
-    Returns:
-        The render plan the template consumes.
-    """
-
-    def _is_available(item_type: str) -> bool:
-        return bar_item_available(item_type, context)
-
-    seen: set[str] = set()
-    runs: dict[str, list[dict]] = {}
-    for host in BAR_HOSTS:
-        shells: list[dict] = []
-        previous = ""
-        for raw in layout.get(host) or []:
-            if not isinstance(raw, dict):
-                continue
-            item_type = str(raw.get("type") or "")
-            if item_type not in BAR_ITEM_TYPES:
-                continue
-            adopted = item_type in ADOPTED_BAR_ITEM_TYPES
-            if not _is_available(item_type):
-                # Absent, not empty. An adopted type is marked seen as well, so
-                # the pool does not put back a node this deployment never
-                # renders; a JS-built one has no node to pool in the first
-                # place, and an empty shell would only be a box the client
-                # takes away again on the first reconcile.
-                seen.add(item_type)
-                continue
-            if item_type not in BAR_ITEM_MULTI:
-                if item_type in seen:
-                    continue
-                seen.add(item_type)
-            options = raw.get("options")
-            shells.append(
-                {
-                    "type": item_type,
-                    "adopted": adopted,
-                    "follows": previous,
-                    "options": dict(options) if isinstance(options, dict) else {},
-                }
-            )
-            previous = item_type
-        runs[host] = shells
-
-    pooled = [
-        item_type
-        for item_type in ADOPTED_BAR_ITEM_TYPES
-        if item_type not in seen and _is_available(item_type)
-    ]
-    return BarRenderPlan(
-        header=runs["header"],
-        status=runs["status"],
-        pooled=pooled,
-        header_visible=bool(layout.get("header_visible", True)),
-        status_visible=bool(layout.get("status_visible", True)),
-        rail_docs_visible=bool(layout.get("rail_docs_visible", True)),
-        rail_feedback_visible=bool(layout.get("rail_feedback_visible", True)),
-    )
 
 
 #: Words a human writes when they mean a boolean but YAML kept a string —
@@ -1213,6 +635,46 @@ def resolve_privilege_gates(config_path: str | Path | None) -> PrivilegeGates:
     )
 
 
+#: The refusal every terminal-surface route gives when ``web.terminal`` is
+#: false. One sentence, so the websocket's error frame and the log say the same.
+TERMINAL_REFUSAL = "The terminal is not offered on this deployment (web.terminal: false)."
+
+
+def resolve_terminal_offered(config_path: str | Path | None) -> bool:
+    """Whether this deployment offers the terminal on the Agent tile (``web.terminal``).
+
+    Default ``True``: a deployment that never mentions the key keeps the
+    runtime opt-in. ``false`` takes the terminal surface away — the browser
+    drops the entry to it, and ``/ws/terminal`` refuses to open a PTY session.
+
+    Read the way :func:`resolve_privilege_gates` reads its gates, because it
+    is one in kind — the server refuses a route on it, not only the page: no
+    file resolved means the default, a resolved file that cannot be read means
+    no terminal, and a value nobody can interpret takes the default through
+    :func:`coerce_config_flag`.
+
+    Args:
+        config_path: The config file this surface resolved, or ``None``.
+
+    Returns:
+        False when the config says ``false`` or cannot be read.
+    """
+    if config_path is None:
+        return True
+    from osprey_connectors.config import get_config_value
+
+    try:
+        raw = get_config_value("web.terminal", True, str(config_path))
+    except Exception:
+        logger.error(
+            "Could not read the config file %s; the terminal is closed until it reads cleanly",
+            config_path,
+            exc_info=True,
+        )
+        return False
+    return coerce_config_flag("web.terminal", raw, True)
+
+
 def unreadable_config_refusal(path: str | Path) -> str:
     """The refusal every surface gives when an existing config file could not be read.
 
@@ -1264,58 +726,6 @@ def coerce_config_flag(key: str, value: object, default: bool) -> bool:
             return False
     logger.warning("%s is %r, not a boolean; using %r instead", key, value, default)
     return default
-
-
-def family_rail_default(family: str | None) -> str:
-    """The rail position a theme family implies, absent explicit config.
-
-    Args:
-        family: A theme ``$extensions.family`` value, or ``None`` when the
-            family could not be resolved.
-
-    Returns:
-        The family's entry in :data:`FAMILY_RAIL_DEFAULTS`, else
-        :data:`DEFAULT_RAIL_POSITION`.
-    """
-    return FAMILY_RAIL_DEFAULTS.get(family or "", DEFAULT_RAIL_POSITION)
-
-
-def resolve_rail_position(configured: str | None, theme_family: str | None = None) -> str:
-    """Resolve the ``web.rail_position`` config value into a concrete position.
-
-    An explicit ``configured`` in :data:`RAIL_POSITIONS` (``"left"`` or
-    ``"top"``) always wins — a deployment that states a rail position keeps
-    it in every theme. ``None`` means the key is absent from config, in
-    which case the position comes from the active theme family via
-    :func:`family_rail_default`. Anything else — a typo, an empty string —
-    is logged as a warning and treated as absent.
-
-    Mirrors the warn+fallback shape of :func:`resolve_ui_mode`: it never
-    raises, so a bad value degrades to the safe default instead of blocking
-    server startup.
-
-    Args:
-        configured: The raw ``web.rail_position`` config value, or ``None``
-            when the key is absent.
-        theme_family: The resolved theme's ``$extensions.family``, used only
-            when ``configured`` gives no answer.
-
-    Returns:
-        A concrete position string in :data:`RAIL_POSITIONS` — the value
-        stamped onto ``<html data-rail-position>`` for the pre-paint
-        rail-boot rung, which only honors a real position.
-    """
-    if configured in RAIL_POSITIONS:
-        return configured
-
-    if configured is not None:
-        logger.warning(
-            "Unknown web.rail_position %r (expected one of %s); falling back to "
-            "the position the active theme family implies.",
-            configured,
-            list(RAIL_POSITIONS),
-        )
-    return family_rail_default(theme_family)
 
 
 #: Placeholders a config-declared panel's ``path`` may carry, resolved once per
@@ -1508,25 +918,32 @@ def _load_panel_runtime_config(
 def _load_panel_presets(enabled_panels: set[str], custom_panels: list[dict]) -> list[dict]:
     """Read ``web.presets`` and resolve each named layout against the live panel set.
 
-    A preset is a facility-curated, named list of panel ids a human applies in one
-    click (the "Layouts" section of the "+" popover). This resolves the raw config
-    into the shape the frontend consumes, mirroring how :func:`_load_panel_config`
-    turns ``web.panels`` into concrete ids.
+    A preset is a facility-curated, named arrangement a human applies in one click
+    (the "Layouts" section of the "+" popover) or the agent applies by name. Its
+    value is a dock layout in collection form with panel ids in ``tabs``
+    (:mod:`osprey.interfaces.web_terminal.presets`). This resolves the raw config
+    into the shape the frontend and the arrangement op consume, mirroring how
+    :func:`_load_panel_config` turns ``web.panels`` into concrete ids.
 
-    Each preset's members are intersected with the set of known ids (enabled
-    built-ins plus custom panel ids); unknown members are dropped with a warning
-    (a typo or a disabled panel must not strand the user), and a preset that
-    resolves to no known members is dropped entirely. Config insertion order is
-    preserved (pyyaml keeps mapping order on 3.7+), so config order == menu order.
+    A value that is not a valid preset (the retired list form included) is skipped
+    with a warning. Each preset's tabs are pruned to the known ids (enabled built-ins
+    plus custom panel ids) with a warning per dropped id (a typo or a disabled panel
+    must not strand the user), emptied tiles leave the tree, and the result is
+    normalised; a preset with no known tab left is dropped entirely. Config insertion
+    order is preserved (pyyaml keeps mapping order on 3.7+), so config order == menu
+    order.
 
     Args:
         enabled_panels: Enabled built-in panel ids (from :func:`_load_panel_config`).
         custom_panels: Custom panel dicts (from :func:`_load_panel_config`).
 
     Returns:
-        A list of ``{"name": str, "panels": [id, ...]}`` dicts in config order — a
-        list (not a dict) so JSON serialization preserves ordering in the
-        ``GET /api/panels`` payload. Fails open to ``[]`` on any config-read error.
+        A list of ``{"name": str, "panels": [id, ...], "layout": dict}`` dicts in
+        config order — a list (not a dict) so JSON serialization preserves ordering
+        in the ``GET /api/panels`` payload. ``layout`` is the pruned, normalised
+        preset (panel-id tabs, fractions, every ``showing`` filled in) and
+        ``panels`` its tabs in reading order. Fails open to ``[]`` on any
+        config-read error.
     """
     known: set[str] = set(enabled_panels) | {cp["id"] for cp in custom_panels}
     presets: list[dict] = []
@@ -1540,22 +957,21 @@ def _load_panel_presets(enabled_panels: set[str], custom_panels: list[dict]) -> 
     if not isinstance(raw_presets, dict):
         return []
 
-    for name, members in raw_presets.items():
-        if not isinstance(members, list):
-            logger.warning("web.presets[%r] is not a list of panel ids; skipping.", name)
+    for name, layout in raw_presets.items():
+        refusal = preset_refusal(layout)
+        if refusal is not None:
+            logger.warning("web.presets[%r] %s; skipping.", name, refusal)
             continue
-        resolved: list[str] = []
-        for member in members:
-            if member in known:
-                resolved.append(member)
-            else:
+        for key in layout_keys(layout):
+            if key not in known:
                 logger.warning(
-                    "web.presets[%r] references unknown panel id %r; dropping it.", name, member
+                    "web.presets[%r] references unknown panel id %r; dropping it.", name, key
                 )
-        if resolved:
-            presets.append({"name": str(name), "panels": resolved})
-        else:
+        pruned = prune_preset_layout(layout, lambda key: key in known)
+        if pruned is None:
             logger.warning("web.presets[%r] has no known panel members; dropping the preset.", name)
+            continue
+        presets.append({"name": str(name), "panels": layout_keys(pruned), "layout": pruned})
     return presets
 
 
@@ -1587,235 +1003,6 @@ def _load_web_ui_config(config_path: str | Path | None = None) -> dict:
     return _load_config_section("web", config_path)
 
 
-#: Most items one host may hold. The Python mirror of ``MAX_ITEMS_PER_HOST``
-#: in ``static/js/bar-layout.js``: the client drops everything past this
-#: number, so a deployment that configured more would paint a bar the browser
-#: immediately shortens — the first-paint flash the SSR exists to prevent. Per
-#: host, not per document, for the reason stated there: two capped lists
-#: already bound the total, and one shared cap would make a legal header edit
-#: fail because of the status bar.
-MAX_BAR_ITEMS_PER_HOST = 20
-
-
-def bar_item_vocabulary() -> BarVocabulary:
-    """The deployment facts :mod:`.bar_items_store` validates a layout against.
-
-    Assembled from the tables above rather than restated: the store takes its
-    vocabulary as a parameter precisely so it cannot become a second authority
-    on item names, the schema version or the per-host cap, and so that
-    ``tests/interfaces/web_terminal/test_bar_items_ssr.py``'s pin against
-    ``bar-catalog.js`` guards the store's answers too.
-
-    This is also where the cap's direction is settled: the store never imports
-    :data:`MAX_BAR_ITEMS_PER_HOST`, it is handed it. ``app.py`` imports the
-    store; a constant travelling the other way would close the cycle.
-
-    Returns:
-        A vocabulary describing every type this build can render.
-    """
-    return BarVocabulary(
-        items={
-            item_type: {
-                "options": BAR_ITEM_OPTIONS.get(item_type, {}),
-                "multi": item_type in BAR_ITEM_MULTI,
-            }
-            for item_type in BAR_ITEM_TYPES
-        },
-        version=BAR_LAYOUT_VERSION,
-        max_items_per_host=MAX_BAR_ITEMS_PER_HOST,
-        hosts=BAR_HOSTS,
-    )
-
-
-def _coerce_bar_item(host: str, index: int, raw: object) -> dict | None:
-    """One configured entry as a layout item, or ``None`` if it cannot be one.
-
-    Two spellings are accepted, because both read naturally in YAML: a bare
-    string (``- clock``) for an item with no options, and a mapping
-    (``- {type: clock, options: {zone: utc}}``) for one with them.
-
-    Each option is judged against :data:`BAR_ITEM_OPTIONS` by
-    :func:`~osprey.interfaces.web_terminal.bar_items_store.validate_option`,
-    the rule a save is judged by. An option the type does not take, or a value
-    outside its spec, is warned about and dropped while the item keeps its
-    other options: the browser completes a missing option from its default
-    without complaint, but reads an undeclared key or an out-of-spec value in
-    the deployment default as lost content and latches every operator's bars
-    read-only. A non-mapping ``options`` is dropped whole, since nothing
-    downstream could read it.
-
-    Args:
-        host: The bar the entry was written under, for the warning text.
-        index: The entry's position in the raw list, so a warning points at
-            the config the operator wrote rather than at the result.
-        raw: The entry, exactly as YAML produced it.
-
-    Returns:
-        A ``{"type": ...}`` item, its optional ``options`` carrying only the
-        options its type takes, at values their specs allow; ``None``
-        when the entry is malformed or names a type this build does not know.
-    """
-    where = f"web.bar_items.{host}[{index}]"
-    options: object = None
-    if isinstance(raw, str):
-        item_type = raw
-    elif isinstance(raw, dict) and isinstance(raw.get("type"), str):
-        item_type = raw["type"]
-        options = raw.get("options")
-    else:
-        logger.warning("%s is not an item type or a mapping with one; dropping it.", where)
-        return None
-
-    if item_type not in BAR_ITEM_TYPES:
-        logger.warning("%s names unknown bar item %r; dropping it.", where, item_type)
-        return None
-
-    item: dict = {"type": item_type}
-    if options is not None:
-        if isinstance(options, dict):
-            specs = BAR_ITEM_OPTIONS.get(item_type, {})
-            kept: dict = {}
-            for name, value in options.items():
-                if name not in specs:
-                    logger.warning(
-                        "%s.options.%s is not an option %r takes; dropping it.",
-                        where,
-                        name,
-                        item_type,
-                    )
-                    continue
-                try:
-                    kept[name] = validate_option(value, specs[name], f"{where}.options.{name}")
-                except BarLayoutInvalid as exc:
-                    logger.warning("%s; dropping it.", exc)
-            item["options"] = kept
-        else:
-            logger.warning("%s has non-mapping options; dropping them.", where)
-    return item
-
-
-def _load_bar_items(config_path: str | Path | None = None, *, context: dict) -> dict:
-    """Read ``web.bar_items`` into this deployment's default bar layout.
-
-    The deployment's half of the bar-items contract: an operator's saved
-    layout wins over this, and this wins over :data:`DEFAULT_BAR_LAYOUT`. It is
-    the same fail-open coercion :func:`_load_panel_presets` performs for
-    ``web.presets``, and for the same reason — there is no config schema
-    anywhere, so a typo must cost the operator one item and never the boot.
-
-    The result is also renderable by construction: an item this deployment
-    cannot show leaves the document here, so the rev-0 answer of
-    ``GET /api/bar-items`` never names one and the browser has nothing to drop.
-    An AUTHORED item that goes is warned about by position and gate, because
-    an operator wrote it and will look for it; an item the shipped order
-    supplied is dropped quietly, because nobody did.
-
-    Four keys, each degrading on its own:
-
-    * ``header`` / ``status`` — ordered lists of item types. A list that is not
-      a list falls back to the shipped order for that bar; an entry that is
-      malformed or names an unknown type is warned about and dropped while its
-      neighbours survive. An explicitly
-      empty list means an empty bar and is honoured. A bar that is not
-      configured at all keeps the shipped order, so naming one bar never
-      silently empties the other.
-    * ``header_visible`` / ``status_visible`` — hide a bar without emptying
-      it. Anything that is not a boolean falls back to visible.
-
-    Args:
-        config_path: Explicit ``config.yml`` to read; falls back to the
-            ``CONFIG_FILE`` environment variable and then ``./config.yml``.
-        context: The deployment facts from :func:`bar_availability_context`.
-
-    Returns:
-        The resolved layout document. Falls open to :data:`DEFAULT_BAR_LAYOUT`
-        on any read error or when the key is absent, filtered through
-        :func:`renderable_bar_layout` — the constant itself when nothing needs
-        to leave it.
-    """
-
-    def _default() -> dict:
-        return renderable_bar_layout(DEFAULT_BAR_LAYOUT, context=context)
-
-    def _shipped_host(host: str) -> list[dict]:
-        return list(_default()[host])
-
-    try:
-        raw = _load_web_ui_config(config_path).get("bar_items")
-    except Exception:  # an unreadable config renders the shipped bars
-        logger.warning("web.bar_items could not be read; using the default layout.")
-        return _default()
-
-    if raw is None:
-        return _default()
-    if not isinstance(raw, dict):
-        logger.warning("web.bar_items is not a mapping; using the default layout.")
-        return _default()
-
-    layout: dict = {"version": BAR_LAYOUT_VERSION, "rev": 0}
-    # Single-node types are counted across both bars, header first, exactly as
-    # the browser's normalizer counts them.
-    placed: set[str] = set()
-    for host in BAR_HOSTS:
-        configured = raw.get(host)
-        if configured is None:
-            layout[host] = _shipped_host(host)
-            placed.update(item["type"] for item in layout[host])
-            continue
-        if not isinstance(configured, list):
-            logger.warning(
-                "web.bar_items.%s is not a list of item types; using the default order.", host
-            )
-            layout[host] = _shipped_host(host)
-            placed.update(item["type"] for item in layout[host])
-            continue
-        items: list[dict] = []
-        for index, entry in enumerate(configured):
-            item = _coerce_bar_item(host, index, entry)
-            if item is None:
-                continue
-            if not bar_item_available(item["type"], context):
-                logger.warning(
-                    "web.bar_items.%s[%d] places %r, which this deployment cannot show "
-                    "(it needs %s); dropping it.",
-                    host,
-                    index,
-                    item["type"],
-                    BAR_ITEM_GATES.get(item["type"], "a deployment fact that is absent"),
-                )
-                continue
-            if item["type"] not in BAR_ITEM_MULTI:
-                if item["type"] in placed:
-                    logger.warning(
-                        "web.bar_items.%s[%d] places %r a second time; dropping it.",
-                        host,
-                        index,
-                        item["type"],
-                    )
-                    continue
-                placed.add(item["type"])
-            items.append(item)
-        if len(items) > MAX_BAR_ITEMS_PER_HOST:
-            logger.warning(
-                "web.bar_items.%s holds %d items; keeping the first %d.",
-                host,
-                len(items),
-                MAX_BAR_ITEMS_PER_HOST,
-            )
-            items = items[:MAX_BAR_ITEMS_PER_HOST]
-        layout[host] = items
-
-    for host in BAR_HOSTS:
-        flag = f"{host}_visible"
-        visible = raw.get(flag, DEFAULT_BAR_LAYOUT[flag])
-        if not isinstance(visible, bool):
-            logger.warning("web.bar_items.%s is not true or false; showing the bar.", flag)
-            visible = DEFAULT_BAR_LAYOUT[flag]
-        layout[flag] = visible
-
-    return layout
-
-
 def _load_claude_code_config(config_path: str | Path | None = None) -> dict:
     """Load claude_code config section from config.yml.
 
@@ -1828,9 +1015,9 @@ def _load_claude_code_config(config_path: str | Path | None = None) -> dict:
 
 
 def _settle_agent_cli(argv: list[str], project_cwd: str) -> None:
-    """Settle and name the Claude Code the two views run.
+    """Settle and name the Claude Code the two surfaces run.
 
-    The expert view spawns the CLI named by ``argv`` in a PTY; the simple view
+    The terminal spawns the CLI named by ``argv`` in a PTY; the chat
     goes through the Agent SDK, which OSPREY points at the installed ``claude``
     of the same version. The executable the chat's runs execute is resolved
     here, once for the life of the server, and named beside the terminal's
@@ -1974,6 +1161,99 @@ def _detect_turn_hook(app: FastAPI) -> None:
         )
 
 
+def _start_watchdogs(app: FastAPI, config_file: Path | None) -> None:
+    """Resolve, once, whether this build runs watchdogs, and where their holds live.
+
+    ``app.state.session_hold_root`` and ``app.state.watchdog_runner`` are both set
+    or both ``None``, and every in-process hold call goes through that root. A
+    value inherited in this process's environment is dropped, because a child
+    could otherwise read it and hold on a store no watchdog here ever writes.
+
+    A rendered ``watchdogs`` block that breaks a rule stops the server with
+    :class:`BuildProfileError`: serving on with the deployment's watchdogs quietly
+    off is the one failure an operator could not see.
+
+    A build that runs watchdogs registers them as one runtime safety switch; the
+    runner asks it before every hold, and the intake route before every run.
+    """
+    os.environ.pop(HOLD_DIR_ENV_VAR, None)
+    app.state.session_hold_root = None
+    app.state.watchdog_runner = None
+    if config_file is None:
+        return
+    try:
+        config = yaml.safe_load(config_file.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, yaml.YAMLError) as exc:
+        logger.warning("No watchdogs: %s is unreadable (%s)", config_file, type(exc).__name__)
+        return
+    if not isinstance(config, dict):
+        return
+    build_dir = config_file.parent
+    definitions = load_watchdogs(config, build_dir)
+    if not definitions:
+        return
+
+    from osprey.services.watchdog.runner import WatchdogRunner
+
+    root = session_hold_dir(repo_root_for_config(config_file))
+    app.state.session_hold_root = root
+    switches = switches_of(app)
+    if switches is None:
+        switches = app.state.safety_switches = SafetySwitches()
+    switches.register(WATCHDOG_SWITCH, "Safety watchdog", "Open holds stay open.")
+    app.state.watchdog_runner = WatchdogRunner(
+        definitions,
+        hold_root=root,
+        notify=make_notifier(app),
+        config=config,
+        build_dir=build_dir,
+        may_hold=lambda: feature_is_on(app, WATCHDOG_SWITCH),
+    )
+
+
+async def _serve_code_review_switch(app: FastAPI, config_file: Path | None) -> None:
+    """Make code review switchable when the rendered config turns it on, and serve the switch.
+
+    Its consumers run in the agent's processes and read the switch from the socket this
+    terminal serves (:mod:`~osprey.interfaces.web_terminal.code_review_switch`). A section
+    that cannot be read registers nothing: every review refuses then, and there is nothing
+    to turn off. Nor does a terminal that cannot serve the socket, which would show an off
+    switch while every review still ran. A socket an outer terminal published is never
+    passed on, so a session started here asks this terminal or nobody.
+    """
+    from osprey.services.code_review.switch import SWITCH_SOCKET_ENV
+
+    os.environ.pop(SWITCH_SOCKET_ENV, None)
+    app.state.code_review_switch_listener = None
+    if config_file is None:
+        return
+    from osprey.services.code_review.settings import (
+        ReviewConfigError,
+        load_review_settings,
+        read_review_config,
+    )
+
+    try:
+        enabled = load_review_settings(read_review_config(config_file)).enabled
+    except ReviewConfigError:
+        return
+    switches = switches_of(app)
+    if not enabled or switches is None:
+        return
+    from osprey.interfaces.web_terminal.code_review_switch import serve_switch
+
+    try:
+        app.state.code_review_switch_listener = await serve_switch(app)
+    except OSError as exc:
+        logger.warning("code review cannot be switched off here: its socket failed (%s)", exc)
+        return
+    switches.register(
+        CODE_REVIEW_SWITCH,
+        "Code review",
+        "Meanwhile the agent's Python and notebook code runs unreviewed.",
+    )
+
+
 def _create_lifespan(
     config_path: str | Path | None = None,
     shell_command: list[str] | None = None,
@@ -2012,7 +1292,7 @@ def _create_lifespan(
         # rather than starting a fresh one under the same key.
         load_transcript_map(app)
 
-        # What the expert view's Claude Code process last reported it was
+        # What the terminal's Claude Code process last reported it was
         # doing, keyed by session key (routes/agent_turn.py). Empty at
         # startup: no report is not a claim of idleness, and every reader
         # treats a missing entry as "unknown" rather than "free to take over".
@@ -2023,10 +1303,10 @@ def _create_lifespan(
         # cannot arrive.
         app.state.turn_hook_present = False
 
-        # ── Simple-mode chat pool bounds ──
+        # ── Operator-chat pool bounds ──
         # Three knobs bound the operator-chat pool; each fails open to its
         # default so a missing/broken config never blocks startup. Read from
-        # the top-level `web` section (same section as web.theme/web.ui_mode).
+        # the top-level `web` section (same section as web.theme).
         # The route handlers re-read the two timeouts off app.state via getattr
         # with these same defaults, so the attribute names are load-bearing.
         try:
@@ -2149,6 +1429,10 @@ def _create_lifespan(
                 resolved_config_path = config_candidate.resolve()
                 break
         app.state.config_path = resolved_config_path
+        # Built before any feature registers into it; a restart starts it empty.
+        app.state.safety_switches = SafetySwitches()
+        _start_watchdogs(app, resolved_config_path)
+        await _serve_code_review_switch(app, resolved_config_path)
 
         # ── Web theme (SSR no-FOUC attribute) ──
         # Resolved once at startup and server-rendered onto <html data-theme>
@@ -2171,9 +1455,6 @@ def _create_lifespan(
             # and re-resolves the mode from the OS one frame after paint,
             # silently discarding the pin.
             app.state.web_theme_mode = web_theme.pinned_mode
-            # Kept for the rail-position block below (an unconfigured rail
-            # follows the family — see FAMILY_RAIL_DEFAULTS).
-            app.state.web_theme_family = web_theme.family
         except Exception:  # never let config/theme-registry load block startup
             logger.warning(
                 "Could not resolve web.theme (config or theme-registry load failed); "
@@ -2182,29 +1463,13 @@ def _create_lifespan(
             )
             app.state.web_theme_id = "dark"
             app.state.web_theme_mode = None
-            app.state.web_theme_family = None
 
-        # ── Web UI mode (SSR no-flash attribute) ──
-        # Resolved once at startup and server-rendered onto <html data-ui-mode>
-        # so the pre-paint mode-boot script first-paints in the right
-        # mode. GET /api/panels also carries ui_mode, but first paint must never
-        # depend on that API field — this server-rendered attribute is the
-        # authoritative first-paint rung. Read via load_osprey_config (the same
-        # top-level `web` section the panel loaders in this file use). Fails open
-        # to the default mode on any config-read error.
-        try:
-            from osprey_connectors.workspace import load_osprey_config
-
-            configured_ui_mode = load_osprey_config().get("web", {}).get("ui_mode", DEFAULT_UI_MODE)
-            app.state.web_ui_mode = resolve_ui_mode(configured_ui_mode)
-        except Exception:  # never let config load block startup
-            logger.warning(
-                "Could not resolve web.ui_mode (config load failed); "
-                "server-rendering fallback mode %r",
-                DEFAULT_UI_MODE,
-                exc_info=True,
-            )
-            app.state.web_ui_mode = DEFAULT_UI_MODE
+        # ── The terminal gate (web.terminal) ──
+        # Server-rendered onto <html data-terminal="off"> when false, and
+        # /ws/terminal refuses to open a PTY session (routes/websocket.py). Read
+        # like the privilege gates below — the server refuses a route on it —
+        # so an unreadable config closes it.
+        app.state.web_terminal_offered = resolve_terminal_offered(resolved_config_path)
 
         # ── Onboarding-tour invite policy ──
         # OSPREY_WEB_TOUR (the per-user roster path) outranks web.tour, the
@@ -2225,34 +1490,6 @@ def _create_lifespan(
                 exc_info=True,
             )
             app.state.web_tour_policy = DEFAULT_TOUR_POLICY
-
-        # ── Rail position (SSR no-flash attribute) ──
-        # Same shape as web.ui_mode above: resolved once at startup and
-        # server-rendered onto <html data-rail-position> so the pre-paint
-        # rail-boot script first-paints the right rail orientation. GET
-        # /api/panels also carries rail_position, but first paint must never
-        # depend on that API field — this attribute is the authoritative rung.
-        # Fails open to the default position on any config-read error.
-        try:
-            from osprey_connectors.workspace import load_osprey_config
-
-            configured_rail = load_osprey_config().get("web", {}).get("rail_position")
-            app.state.web_rail_position = resolve_rail_position(
-                configured_rail, getattr(app.state, "web_theme_family", None)
-            )
-            # Whether the deployment stated a position of its own. The browser
-            # needs this to know if a live theme-family switch may move the
-            # rail: an explicit config value outranks the family default.
-            app.state.web_rail_position_configured = configured_rail in RAIL_POSITIONS
-        except Exception:  # never let config load block startup
-            logger.warning(
-                "Could not resolve web.rail_position (config load failed); "
-                "server-rendering fallback position %r",
-                DEFAULT_RAIL_POSITION,
-                exc_info=True,
-            )
-            app.state.web_rail_position = DEFAULT_RAIL_POSITION
-            app.state.web_rail_position_configured = False
 
         # ── Config panel (server-side tier gate) ──
         # `web.config_panel.enabled: false` takes the Config panel's whole
@@ -2278,7 +1515,7 @@ def _create_lifespan(
         # content, which the agent loads at PROJECT scope — instruction it
         # obeys, not decoration — so "may this tier author it" is a privilege
         # boundary. Hiding the buttons alone would be the same cosmetic gate
-        # `ui_mode: simple` was: a client-only guard is undone by curl.
+        # a client-only guard would be: it is undone by curl.
         #
         # Resolved once here and read back as
         # ``getattr(app.state, "scaffold_write_enabled", False)``: an app that
@@ -2340,9 +1577,20 @@ def _create_lifespan(
             format_managed_policy_conflicts,
             inject_provider_env,
             load_provider_spec,
+            personal_login_allowed,
+            personal_login_present,
+            withhold_provider_env,
         )
 
         _spec = None
+        # Whether this terminal's user may, and does, run on a personal
+        # Claude login (claude_code.allow_personal_login + a completed
+        # /login in this container's CLAUDE_CONFIG_DIR). Published for the
+        # browser's nudge; decided once, here, where the environment the
+        # agent launches with is settled.
+        app.state.personal_login_allowed = False
+        app.state.personal_login_present = False
+        app.state.personal_login = False
         if app.state.config_path:
             from osprey_connectors.workspace import repo_root_for_config
 
@@ -2359,7 +1607,28 @@ def _create_lifespan(
             # answers with the same call.
             _env_dir = repo_root_for_config(app.state.config_path)
             _spec = load_provider_spec(_project_dir, env_dir=_env_dir)
-            if _spec:
+            from osprey_connectors.workspace import load_osprey_config as _load_config
+
+            app.state.personal_login_allowed = personal_login_allowed(_load_config() or {})
+            app.state.personal_login_present = personal_login_present(os.environ)
+            if _spec and app.state.personal_login_allowed and app.state.personal_login_present:
+                # The deployment lets its users bring their own subscription,
+                # and this one has: the provider env is withheld rather than
+                # injected -- Claude Code's credential precedence puts a
+                # subscription login last, so the only way to reach it is for
+                # every provider variable to be absent -- and no translation
+                # proxy is started. The deployment never holds the credential:
+                # it stays in the user's own config volume, unread.
+                withheld = withhold_provider_env(os.environ, _env_dir)
+                app.state.personal_login = True
+                logger.info(
+                    "Terminal for %s runs on a personal Claude login: the deployment "
+                    "provider %s is withheld from this session (%s)",
+                    app.state.terminal_user or "the operator",
+                    _spec.provider,
+                    ", ".join(withheld) if withheld else "nothing to scrub",
+                )
+            elif _spec:
                 # The SPEC is read from the render; the ENV is read from the
                 # repo. inject_provider_env's bulk `.env` passthrough is given
                 # the repo root for the same reason load_provider_spec is given
@@ -2426,7 +1695,7 @@ def _create_lifespan(
         app.state.workspace_base = workspace_dir  # alias for clarity
 
         # ── Documentation + feedback controls ──
-        # Read once here (the web.ui_mode / web.rail_position pattern) and
+        # Read once here and
         # echoed to the browser by GET /api/panels. Every read fails open: a
         # facility with no config.yml still gets working Documentation and
         # Feedback controls pointed at the project defaults.
@@ -2452,16 +1721,13 @@ def _create_lifespan(
             raw_email = get_config_value("web.feedback.email", None)
             raw_trackers = get_config_value("web.feedback.trackers", None)
             raw_owner = get_config_value("web.feedback.owner", None)
-            raw_max_store_bytes = get_config_value(
-                "web.feedback.max_store_bytes", DEFAULT_FEEDBACK_MAX_STORE_BYTES
-            )
         except Exception:  # never let config load block startup
             logger.warning(
                 "Could not read web.docs_url / web.feedback.* config keys; using defaults",
                 exc_info=True,
             )
             raw_docs_url = raw_github_repo = raw_email = raw_trackers = None
-            raw_owner = raw_max_store_bytes = None
+            raw_owner = None
         # One resolver, so this block and the `GET /api/panels` fallback cannot
         # disagree: `trackers` is derived from `github_repo` and the owner
         # block, and two copies of that derivation are two chances to drift.
@@ -2470,7 +1736,6 @@ def _create_lifespan(
             email=raw_email,
             github_repo=raw_github_repo,
             trackers=raw_trackers,
-            max_store_bytes=raw_max_store_bytes,
             owner=raw_owner,
         )
         app.state.docs_url = destination.docs_url
@@ -2478,7 +1743,6 @@ def _create_lifespan(
         app.state.feedback_trackers = destination.trackers
         app.state.feedback_email = destination.email
         app.state.feedback_owner_name = destination.owner_name
-        app.state.feedback_max_store_bytes = destination.max_store_bytes
 
         # ── Deployment identity + the escalation link ──
         # A user files to whoever owns this deployment, because a user cannot
@@ -2515,10 +1779,10 @@ def _create_lifespan(
         # and deliberately NOT on workspace_dir: with web_terminal.watch_dir
         # set, the watched tree is somewhere else entirely and anything written
         # there would land outside the {user}-agent-data volume, where
-        # `osprey feedback` on the host cannot reach it. Never
-        # resolve_agent_data_root() either — that appends sessions/<id>, and
-        # every store spans sessions. They are siblings under one root: feedback
-        # records, the per-user bar arrangement, and the sidecars' start records.
+        # the host cannot reach it. Never resolve_agent_data_root() either — that
+        # appends sessions/<id>, and the store spans sessions: the sidecars'
+        # start records. Feedback is not a store here: a submission is an entry
+        # in the agent record.
         try:
             from osprey_connectors.workspace import resolve_shared_data_root
 
@@ -2530,21 +1794,17 @@ def _create_lifespan(
                 shared_data_root,
                 exc_info=True,
             )
-        feedback_dir = shared_data_root / "feedback"
-        bar_items_dir = shared_data_root / "bar_items"
-        app.state.feedback_dir = feedback_dir
-        app.state.bar_items_dir = bar_items_dir
         # What the terminal recorded about each sidecar's start, read back by
         # `osprey health` from this same root.
         app.state.panel_status_root = shared_data_root
         app.state.panel_status_dir = shared_data_root / PANEL_STATUS_DIRNAME
-        # Workspace-relative form of each store: the *file watcher's* form,
-        # used below to drop change events for writes into them. The file
+        # Workspace-relative form of the store: the *file watcher's* form,
+        # used below to drop change events for writes into it. The file
         # browser is not a consumer — routes/files.py derives its own predicate
-        # from the store directories themselves, because it must also
+        # from the store directory itself, because it must also
         # handle symlink aliases and session-scoped roots that a single relative
         # path cannot express.
-        # ``None`` when a store lies outside the watched tree (the watch_dir
+        # ``None`` when the store lies outside the watched tree (the watch_dir
         # case above) — nothing to conceal there, and a bare relative_to()
         # would raise and abort startup. The derivation is case-folded on a
         # case-insensitive filesystem, where the store root and watch_dir can
@@ -2558,25 +1818,14 @@ def _create_lifespan(
         # the authority on a genuine failure here.
         with suppress(OSError):
             workspace_dir.mkdir(parents=True, exist_ok=True)
-        app.state.feedback_rel = resolve_store_rel(feedback_dir, workspace_dir)
-        app.state.bar_items_rel = resolve_store_rel(bar_items_dir, workspace_dir)
         app.state.panel_status_rel = resolve_store_rel(app.state.panel_status_dir, workspace_dir)
-        # One collection of the three stores, in the order they are resolved
-        # above. Saving a bar arrangement or recording a sidecar's start must be
-        # as silent as filing feedback: each writes one file, and an unconcealed
-        # store would push an SSE change frame to every connected browser the
-        # moment anyone rearranged a bar or a sidecar changed state. This seam
-        # silences the watcher and only that; the file panel's listing and
-        # content reads hide all three stores through routes/files.py's own
-        # predicate.
+        # Recording a sidecar's start must be silent: it writes one file, and an
+        # unconcealed store would push an SSE change frame to every connected
+        # browser the moment a sidecar changed state. This seam silences the
+        # watcher and only that; the file panel's listing and content reads
+        # hide the store through routes/files.py's own predicate.
         app.state.concealed_store_rels = tuple(
-            rel
-            for rel in (
-                app.state.feedback_rel,
-                app.state.bar_items_rel,
-                app.state.panel_status_rel,
-            )
-            if rel is not None
+            rel for rel in (app.state.panel_status_rel,) if rel is not None
         )
 
         app.state.watcher = WorkspaceWatcher(
@@ -2602,48 +1851,10 @@ def _create_lifespan(
         # (the default) → the "+" menu renders no presets section.
         app.state.panel_presets = _load_panel_presets(enabled_panels, custom_panels)
 
-        # Whether this deployment declares the Bluesky panel: the plan-queue
-        # item reads the queue through that panel's proxy, so the panel's
-        # presence is what makes the item offerable. It says nothing about
-        # whether the sidecar is answering; the item says that itself. Resolved
-        # before the bar layout because the layout is filtered by it.
-        app.state.bluesky_available = bluesky_panel_declared(custom_panels)
-
-        # The deployment's default bar arrangement (web.bar_items), resolved
-        # once at boot and filtered to what THIS deployment can show — the same
-        # facts root() stamps on the page, evaluated here first. This is the
-        # document effective_bar_layout() renders until a user's saved layout
-        # is loaded ahead of it, and the rev-0 answer of GET /api/bar-items.
-        # Whether the title bar offers the control-target picker
-        # (web.control_target_picker). Resolved before the bar layout because
-        # the layout is filtered by it.
+        # Whether the sidebar offers the control-target block
+        # (web.control_target_picker). root() stamps it on the page.
         app.state.control_target_picker_available = control_target_picker_available(
             resolved_config_path
-        )
-
-        app.state.bar_layout = _load_bar_items(
-            resolved_config_path, context=deployment_bar_context(app)
-        )
-
-        # The per-user layer on top of that default, read from the store beside
-        # the feedback records. Three pieces of state, and the layout routes
-        # need all three:
-        #
-        # * ``bar_items_vocabulary`` — the deployment facts a saved document is
-        #   validated against, built once here so every request validates
-        #   against the same tables the SSR renders from.
-        # * ``bar_items_effective`` — the cache ``effective_bar_layout()``
-        #   reads. The store is touched once, at boot; a render never goes to
-        #   disk. ``None`` means this operator has saved nothing, so the
-        #   deployment default renders — which is also what a reset restores.
-        # * ``bar_items_lock`` — taken by the routes around load-validate-save,
-        #   so two tabs saving at once serialize rather than interleaving a
-        #   read with the other's write. It guards the cache as well as the
-        #   file, so the two cannot disagree about what is stored.
-        app.state.bar_items_vocabulary = bar_item_vocabulary()
-        app.state.bar_items_lock = asyncio.Lock()
-        app.state.bar_items_effective = _load_stored_bar_layout(
-            bar_items_dir, app.state.bar_items_vocabulary, app.state.bar_layout
         )
 
         # ── Tour capabilities ──
@@ -2732,7 +1943,7 @@ def _create_lifespan(
         # ── Idle chat-session reaper ──
         # Periodically evicts idle chat sessions (per the registry's idle
         # predicate, which also collects zombie-busy sessions) so an abandoned
-        # Simple-mode tab does not pin a pool slot indefinitely. Fail-open at
+        # chat tab does not pin a pool slot indefinitely. Fail-open at
         # every level: a per-cycle exception is swallowed+logged, and the whole
         # task is wrapped so a reaper crash can never take the app down. Interval
         # is idle_timeout/4, clamped to [30s, 300s].
@@ -2765,7 +1976,14 @@ def _create_lifespan(
 
         yield
 
+        # First, so the runs it ends can still reach the sessions that are live.
+        if app.state.watchdog_runner is not None:
+            await app.state.watchdog_runner.shutdown()
+
         await app.state.control_context_task.stop()
+
+        if app.state.code_review_switch_listener is not None:
+            await app.state.code_review_switch_listener.close()
 
         reaper_task.cancel()
         with suppress(asyncio.CancelledError):
@@ -2893,6 +2111,8 @@ def create_app(
     app.state.url_prefix = url_prefix
 
     app.include_router(router)
+    app.include_router(watchdog_router)
+    app.include_router(safety_switch_router)
     register_scaffold_conflict_handlers(app)
 
     @app.get("/")
@@ -2900,8 +2120,7 @@ def create_app(
         app_name = getattr(request.app.state, "app_name", "")
         web_theme_id = getattr(request.app.state, "web_theme_id", "dark")
         web_theme_mode = getattr(request.app.state, "web_theme_mode", None)
-        web_ui_mode = getattr(request.app.state, "web_ui_mode", DEFAULT_UI_MODE)
-        web_rail_position = getattr(request.app.state, "web_rail_position", DEFAULT_RAIL_POSITION)
+        web_terminal_offered = bool(getattr(request.app.state, "web_terminal_offered", True))
         terminal_user = getattr(request.app.state, "terminal_user", "")
         landing_url = getattr(request.app.state, "landing_url", "")
         # The role nginx forwarded on THIS request, and where that role came
@@ -2919,19 +2138,6 @@ def create_app(
         if auth_role_source == UNSAFE_FORWARDED_VALUE:
             auth_role_source = None
         auth_role_source_label = _ROLE_SOURCE_LABELS.get(auth_role_source or "", "")
-        # The two bars, rendered from the effective layout. Server-rendered
-        # rather than fetched: the order is chrome, and chrome that arrives a
-        # frame late is chrome the operator watches rearrange itself on every
-        # load.
-        #
-        # The context is the lifespan's own — the facts the deployment default
-        # was filtered by — read again off app.state and used twice: this
-        # render drops what the deployment cannot show, and the template stamps
-        # the same facts on <html> so bar-sync.js hands the browser's
-        # normalizer the server's answer instead of inferring one from the page
-        # it just received.
-        bar_context = deployment_bar_context(request.app)
-        plan = bar_render_plan(effective_bar_layout(request.app), context=bar_context)
         return templates.TemplateResponse(
             request,
             "index.html",
@@ -2939,8 +2145,10 @@ def create_app(
                 "app_name": app_name,
                 "web_theme_id": web_theme_id,
                 "web_theme_mode": web_theme_mode or "",
-                "web_ui_mode": web_ui_mode,
-                "web_rail_position": web_rail_position,
+                # Stamped as data-terminal="off" only when false: the pre-paint
+                # boot script and frame-params.js read it to keep the page out
+                # of the terminal, whatever the tab's storage says.
+                "web_terminal_offered": web_terminal_offered,
                 "terminal_user": terminal_user,
                 # Namespace for everything this page keeps in localStorage.
                 # Empty on a single-user deployment, and the template omits
@@ -2954,19 +2162,20 @@ def create_app(
                 "auth_role": auth_role or "",
                 "auth_role_source_label": auth_role_source_label,
                 "url_prefix": url_prefix,
-                "bar_header": plan.header,
-                "bar_status": plan.status,
-                "bar_pooled": plan.pooled,
-                "bar_header_visible": plan.header_visible,
-                "bar_status_visible": plan.status_visible,
-                "rail_docs_visible": plan.rail_docs_visible,
-                "rail_feedback_visible": plan.rail_feedback_visible,
-                "bar_context": bar_context,
+                # Whether the sidebar offers the control-target block
+                # (web.control_target_picker); the template stamps the off
+                # state on <html> so app.js skips the chip and its popover.
+                "control_target_available": bool(
+                    getattr(request.app.state, "control_target_picker_available", True)
+                ),
                 # The registry's own labels for the built-in panels, stamped so
                 # panel-catalog.js can read them at module load. /api/panels
                 # answers for the ENABLED panels only and resolves after that
                 # module's array is built, so it cannot seed the roster.
                 "builtin_panel_labels": BUILTIN_PANEL_LABELS,
+                # The sidecar panels' descriptors, from the same registry: the
+                # catalog builds one row and tab per entry, so it lists none itself.
+                "sidecar_panels": sidecar_panel_descriptors(),
             },
         )
 
@@ -2984,7 +2193,7 @@ def create_app(
     async def session_page(request: Request):
         # The storage scope travels with this page too, not just the index:
         # session.js's import closure reaches the modules that own the PTY
-        # session id, the dock layout and the rail position, so an unstamped
+        # session id and the dock layout, so an unstamped
         # session page would write those keys unscoped and collide with the
         # neighbouring user's on the shared origin.
         return templates.TemplateResponse(
@@ -3002,10 +2211,13 @@ def create_app(
                 # words panel actions with, so the pop-out page carries the
                 # same roster stamp the index does.
                 "builtin_panel_labels": BUILTIN_PANEL_LABELS,
+                "sidecar_panels": sidecar_panel_descriptors(),
             },
         )
 
-    configure_interface_app(app, static_dir=STATIC_DIR)
+    # frame_ancestors: console-origin HTML, proxied panel pages included, may
+    # only be framed by the console itself (Q1-C6).
+    configure_interface_app(app, static_dir=STATIC_DIR, frame_ancestors=True)
 
     return app
 
@@ -3054,6 +2266,7 @@ def run_web(
     project_dir: str | None = None,
     *,
     browser_url: str | None = None,
+    sock: socket.socket | None = None,
 ) -> None:
     """Run the web terminal server.
 
@@ -3074,10 +2287,34 @@ def run_web(
             login-required page, whereas the token URL exchanges for a cookie and
             redirects to the clean URL. Keyword-only and defaulted so every other
             caller keeps the bare-URL behavior unchanged.
+        sock: The listening socket to serve on, already bound to *host* and
+            *port*; the caller that passes one owns its close. Omitted, the
+            server binds *host*:*port* itself.
     """
     import uvicorn
+    from uvicorn.main import STARTUP_FAILURE
 
-    _open_browser_when_ready(browser_url or f"http://{host}:{port}")
+    from osprey.interfaces._serving import listening_socket
 
-    app = create_app(config_path=config_path, shell_command=shell_command, project_dir=project_dir)
-    uvicorn.run(app, host=host, port=port, log_level="info")
+    owned = sock is None
+    if sock is None:
+        sock = listening_socket(host, port)
+    try:
+        _open_browser_when_ready(browser_url or f"http://{host}:{port}")
+
+        app = create_app(
+            config_path=config_path, shell_command=shell_command, project_dir=project_dir
+        )
+        # No permessage-deflate on the browser leg: the panel relay forwards frames
+        # it would otherwise inflate and re-deflate, on the operator's own host.
+        server = uvicorn.Server(
+            uvicorn.Config(
+                app, host=host, port=port, log_level="info", ws_per_message_deflate=False
+            )
+        )
+        server.run(sockets=[sock])
+    finally:
+        if owned:
+            sock.close()
+    if not server.started:
+        sys.exit(STARTUP_FAILURE)

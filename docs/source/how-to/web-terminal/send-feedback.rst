@@ -5,9 +5,9 @@ Send and Retrieve Feedback
 
 Anyone using the Web Terminal can report a problem, or ask for something, from
 the terminal itself — no bug tracker account, no separate form. The **Feedback**
-control sits at the far end of the panel rail, next to the **Docs** link, and
+control sits in the footer of the sidebar, next to the **Docs** link, and
 opens a dialog with a text box, a channel picker, and two attachment
-checkboxes. If it has been hidden, **⋯ More** brings it back.
+checkboxes.
 
 Every submission is recorded on the deployment it was sent from, whichever
 channel the sender picks. Facility staff read those records back with
@@ -201,17 +201,6 @@ collected no feedback — and non-zero when the repository has no build, when
 every workspace failed to read, and when an export stopped part-way. A part-way
 export still parses: it holds what was read, and the summary says how much that
 was.
-
-Keeping the store bounded
-~~~~~~~~~~~~~~~~~~~~~~~~~
-
-Session contexts are much larger than the reports they belong to, so the store
-has a ceiling (``web.feedback.max_store_bytes``, 256 MB by default). When it is
-exceeded, the oldest saved **contexts** are dropped; their submissions are
-never dropped. An export marks a submission whose context was dropped this way
-with ``context_pruned``, and one missing its context for any other reason with
-``context_missing`` — the submission itself is exported either way, so the
-history of what people reported stays complete.
 
 Point the channels at your facility
 -----------------------------------

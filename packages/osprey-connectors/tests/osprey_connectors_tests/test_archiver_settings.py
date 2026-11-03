@@ -2,12 +2,13 @@
 
 import pytest
 
-from osprey_connectors.factory import ConnectorFactory, isolated_connector_registries
+from osprey_connectors.factory import ConnectorFactory
 from osprey_connectors.types import (
     archiver_settings_errors,
     archiver_settings_key,
     resolve_archiver_settings,
 )
+from osprey_connectors_tests._harness import isolated_connector_registries
 from osprey_connectors_tests._mock_dynamic_connector import RecordingArchiver
 
 RECORDING = "osprey_connectors_tests._mock_dynamic_connector.RecordingArchiver"

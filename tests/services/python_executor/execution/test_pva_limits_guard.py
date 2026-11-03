@@ -31,33 +31,11 @@ from osprey_connectors.control_system._limits_validator import (
     LimitsValidator,
 )
 from osprey_connectors.errors import ChannelLimitsViolationError
+from tests.services.python_executor.execution._write_targets import resolve_target
 
 # ---------------------------------------------------------------------------
 # Restoration
 # ---------------------------------------------------------------------------
-
-
-def _resolve_target(dotted):
-    """Resolve a write-surface row to the object that carries its attributes.
-
-    A copy of the resolver the emitted guard uses, kept for the same reason
-    ``test_readonly_guard.py`` keeps one: the guard has to be self-contained —
-    it runs before user code in a subprocess that may not be able to import
-    OSPREY at all — so there is no function to share.
-    """
-    parts = dotted.split(".")
-    for cut in range(len(parts), 0, -1):
-        try:
-            obj = importlib.import_module(".".join(parts[:cut]))
-        except ImportError:
-            continue
-        for attr in parts[cut:]:
-            try:
-                obj = getattr(obj, attr)
-            except AttributeError:
-                return None
-        return obj
-    return None
 
 
 @pytest.fixture(autouse=True)
@@ -77,7 +55,7 @@ def _restore_patched_targets():
     """
     saved = []
     for dotted, attrs in _CLIENT_WRITE_TARGETS:
-        target = _resolve_target(dotted)
+        target = resolve_target(dotted)
         if target is None:
             continue
         for attr in attrs:
@@ -464,33 +442,28 @@ def test_scalar_put_within_limits_reaches_the_client(monkeypatch):
     assert ctxt.puts == [("TEST:MAG:SP", 5.0)]
 
 
-def test_scalar_put_out_of_bounds_raises_before_any_network_call(monkeypatch):
+@pytest.mark.parametrize(
+    ("channel", "value"),
+    [
+        pytest.param("TEST:MAG:SP", 99.0, id="out-of-bounds"),
+        pytest.param("TEST:NOT:IN:DB", 1.0, id="unlisted-channel"),
+        pytest.param("TEST:RO", 1.0, id="read-only-channel"),
+        # Decoded one spelling stricter than p4p, which errs closed.
+        #
+        # p4p's own test is ``value[:1] == '{'``, which a bytes payload never
+        # matches, so p4p forwards it undecoded. Refusing an out-of-range one here
+        # costs a string write that begins with a brace and buys immunity to a p4p
+        # that later decodes bytes too.
+        pytest.param("TEST:MAG:SP", b'{"value": 999.0}', id="json-bytes-payload-out-of-range"),
+    ],
+)
+def test_a_refused_scalar_put_raises_before_any_network_call(monkeypatch, channel, value):
     classes = _install_fake_p4p(monkeypatch)
     _run_monkeypatch(monkeypatch)
 
     ctxt = classes["thread"]()
     with pytest.raises(ChannelLimitsViolationError):
-        ctxt.put("TEST:MAG:SP", 99.0)
-    assert ctxt.puts == []
-
-
-def test_scalar_put_to_unlisted_channel_is_blocked(monkeypatch):
-    classes = _install_fake_p4p(monkeypatch)
-    _run_monkeypatch(monkeypatch)
-
-    ctxt = classes["thread"]()
-    with pytest.raises(ChannelLimitsViolationError):
-        ctxt.put("TEST:NOT:IN:DB", 1.0)
-    assert ctxt.puts == []
-
-
-def test_scalar_put_to_read_only_channel_is_blocked(monkeypatch):
-    classes = _install_fake_p4p(monkeypatch)
-    _run_monkeypatch(monkeypatch)
-
-    ctxt = classes["thread"]()
-    with pytest.raises(ChannelLimitsViolationError):
-        ctxt.put("TEST:RO", 1.0)
+        ctxt.put(channel, value)
     assert ctxt.puts == []
 
 
@@ -519,24 +492,21 @@ def test_batch_put_validates_every_pair(monkeypatch):
     assert ctxt.puts == [(names, values)]
 
 
-def test_batch_put_rejects_the_batch_when_one_pair_is_invalid(monkeypatch):
+@pytest.mark.parametrize(
+    ("names", "values"),
+    [
+        pytest.param(["TEST:MAG:SP", "TEST:OTHER:SP"], [1.0, 999.0], id="one-value-out-of-bounds"),
+        # A value legal for one channel must not launder a write to another.
+        pytest.param(["TEST:MAG:SP", "TEST:RO"], [1.0, 2.0], id="names-paired-positionally"),
+    ],
+)
+def test_batch_put_rejects_the_batch_when_one_pair_is_invalid(monkeypatch, names, values):
     classes = _install_fake_p4p(monkeypatch)
     _run_monkeypatch(monkeypatch)
 
     ctxt = classes["thread"]()
     with pytest.raises(ChannelLimitsViolationError):
-        ctxt.put(["TEST:MAG:SP", "TEST:OTHER:SP"], [1.0, 999.0])
-    assert ctxt.puts == []
-
-
-def test_batch_put_pairs_names_with_values_positionally(monkeypatch):
-    """A value legal for one channel must not launder a write to another."""
-    classes = _install_fake_p4p(monkeypatch)
-    _run_monkeypatch(monkeypatch)
-
-    ctxt = classes["thread"]()
-    with pytest.raises(ChannelLimitsViolationError):
-        ctxt.put(["TEST:MAG:SP", "TEST:RO"], [1.0, 2.0])
+        ctxt.put(names, values)
     assert ctxt.puts == []
 
 
@@ -856,41 +826,21 @@ def test_json_string_payload_within_limits_forwards_exactly_once(monkeypatch):
     assert ctxt.raw_puts == [("TEST:MAG:SP", '{"value": 5.0}')]
 
 
-def test_json_string_payload_without_a_value_field_fails_closed(monkeypatch):
+@pytest.mark.parametrize(
+    ("payload", "match"),
+    [
+        pytest.param('{"severity": 0}', "no 'value' field", id="no-value-field"),
+        # p4p refuses this payload too — the guard must not wave it through.
+        pytest.param("{value: 999.0", "does not decode", id="undecodable"),
+    ],
+)
+def test_json_string_payload_without_a_usable_value_fails_closed(monkeypatch, payload, match):
     classes = _install_fake_p4p(monkeypatch)
     _run_monkeypatch(monkeypatch)
 
     ctxt = classes["thread"]()
-    with pytest.raises(ValueError, match="no 'value' field"):
-        ctxt.put("TEST:MAG:SP", '{"severity": 0}')
-    assert ctxt.puts == []
-
-
-def test_undecodable_json_string_payload_fails_closed(monkeypatch):
-    """p4p refuses this payload too — the guard must not wave it through."""
-    classes = _install_fake_p4p(monkeypatch)
-    _run_monkeypatch(monkeypatch)
-
-    ctxt = classes["thread"]()
-    with pytest.raises(ValueError, match="does not decode"):
-        ctxt.put("TEST:MAG:SP", "{value: 999.0")
-    assert ctxt.puts == []
-
-
-def test_json_bytes_payload_out_of_range_raises(monkeypatch):
-    """Decoded one spelling stricter than p4p, which errs closed.
-
-    p4p's own test is ``value[:1] == '{'``, which a bytes payload never
-    matches, so p4p forwards it undecoded. Refusing an out-of-range one here
-    costs a string write that begins with a brace and buys immunity to a p4p
-    that later decodes bytes too.
-    """
-    classes = _install_fake_p4p(monkeypatch)
-    _run_monkeypatch(monkeypatch)
-
-    ctxt = classes["thread"]()
-    with pytest.raises(ChannelLimitsViolationError):
-        ctxt.put("TEST:MAG:SP", b'{"value": 999.0}')
+    with pytest.raises(ValueError, match=match):
+        ctxt.put("TEST:MAG:SP", payload)
     assert ctxt.puts == []
 
 
@@ -974,14 +924,21 @@ def test_batch_put_reduces_every_pair(monkeypatch):
 # ---------------------------------------------------------------------------
 
 
-def test_direct_raw_put_out_of_bounds_raises(monkeypatch):
-    """A script driving raw.Context itself is checked like any other client."""
+@pytest.mark.parametrize(
+    ("channel", "builder"),
+    [
+        # A script driving raw.Context itself is checked like any other client.
+        pytest.param("TEST:MAG:SP", 99.0, id="out-of-bounds"),
+        pytest.param("TEST:NOT:IN:DB", 1.0, id="unlisted-channel"),
+    ],
+)
+def test_direct_raw_put_the_limits_refuse_is_blocked(monkeypatch, channel, builder):
     classes = _install_fake_p4p(monkeypatch)
     _run_monkeypatch(monkeypatch)
 
     ctxt = classes["raw"]()
     with pytest.raises(ChannelLimitsViolationError):
-        ctxt.put("TEST:MAG:SP", None, builder=99.0)
+        ctxt.put(channel, None, builder=builder)
     assert ctxt.raw_puts == []
 
 
@@ -1001,16 +958,6 @@ def test_direct_raw_put_with_a_builder_callable_raises(monkeypatch):
     ctxt = classes["raw"]()
     with pytest.raises(ValueError, match="builder callable"):
         ctxt.put("TEST:MAG:SP", None, builder=lambda value: value)
-    assert ctxt.raw_puts == []
-
-
-def test_direct_raw_put_to_an_unlisted_channel_is_blocked(monkeypatch):
-    classes = _install_fake_p4p(monkeypatch)
-    _run_monkeypatch(monkeypatch)
-
-    ctxt = classes["raw"]()
-    with pytest.raises(ChannelLimitsViolationError):
-        ctxt.put("TEST:NOT:IN:DB", None, builder=1.0)
     assert ctxt.raw_puts == []
 
 
@@ -1183,7 +1130,7 @@ def _make_pva_validator():
 
 
 # ---------------------------------------------------------------------------
-# pvaPy (pvaccess)
+# Tests of pvaPy, the pvaccess module
 # ---------------------------------------------------------------------------
 
 

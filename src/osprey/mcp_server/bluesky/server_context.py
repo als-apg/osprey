@@ -383,9 +383,9 @@ def _with_owner(headers: dict[str, str] | None) -> dict[str, str] | None:
     outlives the session that queued it: the plan runs later, in a queueserver
     worker whose own account names nobody, so the person it belongs to has to
     travel with the request. The bridge puts what arrives here onto the item,
-    the worker binds it around the plan's body, and the write monitor reads that
-    owner's narrowing. Without the stamp the plan would run at the deployment
-    ceiling however its owner had narrowed their own writes.
+    the worker binds it around the plan's body, and the write monitor asks the
+    write verdict for that owner. Without the stamp the plan names nobody, and
+    an owner-less write is refused at the write.
 
     Every write this server sends the bridge carries it — the add, the start,
     the halt, the abort, the removal, the draft edit and the draft discard —
@@ -401,8 +401,11 @@ def _with_owner(headers: dict[str, str] | None) -> dict[str, str] | None:
     stamp in a dispatch job. :data:`~osprey_connectors.posture_store.NO_OWNER` is
     the one answer never sent, compared by identity because that is the only
     comparison the sentinel supports: a header spelling the sentinel's text would
-    be a name the reader refuses, and an owner-less request is legitimate — cron
-    fires jobs that way — so it travels with no owner header at all.
+    be a name the reader refuses. An owner-less request — a cron or triggered
+    dispatch job, a bound tree with no owner stamped — travels with no owner
+    header at all, and the plan's writes are then refused by the write verdict
+    (``owner_unscheduled`` on a dispatch run, ``owner_unknown`` otherwise).
+    Requests that move nothing, such as a plain halt, are unaffected.
 
     Owner-less and header-less stays ``None`` rather than becoming an empty
     mapping, so a request that carries nothing is indistinguishable from the one

@@ -17,7 +17,7 @@ no sidecar runs at all.
 
 from __future__ import annotations
 
-METHOD_PASSWORD = "password"
+METHOD_PASSWORD = "password"  # noqa: S105 -- names a login method, holds no secret
 """The roster-credential posture: this service verifies the proof itself."""
 
 METHOD_OIDC = "oidc"

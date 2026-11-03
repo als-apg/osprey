@@ -46,22 +46,19 @@ from osprey_connectors.errors import RegistryError
 
 
 @pytest.fixture
-def restore_sys_state():
+def restore_sys_state(monkeypatch):
     """Snapshot/restore ``sys.path`` and the ``_dynamic_registry`` module slot.
 
     ``load_registry_from_path`` mutates both as a side effect; without this a
     leaked ``sys.path`` entry or module object could bleed into sibling tests.
     """
-    saved_path = list(sys.path)
+    monkeypatch.setattr(sys, "path", list(sys.path))
     saved_mod = sys.modules.get("_dynamic_registry")
-    try:
-        yield
-    finally:
-        sys.path[:] = saved_path
-        if saved_mod is None:
-            sys.modules.pop("_dynamic_registry", None)
-        else:
-            sys.modules["_dynamic_registry"] = saved_mod
+    yield
+    if saved_mod is None:
+        sys.modules.pop("_dynamic_registry", None)
+    else:
+        sys.modules["_dynamic_registry"] = saved_mod
 
 
 def _write_registry(tmp_path, body: str, *, app_name: str = "myapp"):
@@ -293,16 +290,12 @@ class P(RegistryConfigProvider):
         assert isinstance(config, ExtendedRegistryConfig)
 
     @pytest.mark.usefixtures("restore_sys_state")
-    def test_no_provider_raises(self, tmp_path):
-        registry_file = _write_registry(tmp_path, "x = 1\n")
-        with pytest.raises(RegistryError, match="No RegistryConfigProvider"):
-            load_registry_from_path(str(registry_file))
-
-    @pytest.mark.usefixtures("restore_sys_state")
-    def test_multiple_providers_raises(self, tmp_path):
-        registry_file = _write_registry(
-            tmp_path,
-            """
+    @pytest.mark.parametrize(
+        ("source", "match"),
+        [
+            pytest.param("x = 1\n", "No RegistryConfigProvider", id="no-provider"),
+            pytest.param(
+                """
 from osprey.registry import RegistryConfigProvider, RegistryConfig
 
 class P1(RegistryConfigProvider):
@@ -313,29 +306,28 @@ class P2(RegistryConfigProvider):
     def get_registry_config(self):
         return RegistryConfig()
 """,
-        )
-        with pytest.raises(RegistryError, match="Multiple RegistryConfigProvider"):
-            load_registry_from_path(str(registry_file))
-
-    @pytest.mark.usefixtures("restore_sys_state")
-    def test_syntax_error_wrapped(self, tmp_path):
-        registry_file = _write_registry(tmp_path, "def broken(:\n")
-        with pytest.raises(RegistryError, match="Failed to load Python module"):
-            load_registry_from_path(str(registry_file))
-
-    @pytest.mark.usefixtures("restore_sys_state")
-    def test_provider_get_config_error_wrapped(self, tmp_path):
-        registry_file = _write_registry(
-            tmp_path,
-            """
+                "Multiple RegistryConfigProvider",
+                id="multiple-providers",
+            ),
+            pytest.param("def broken(:\n", "Failed to load Python module", id="syntax-error"),
+            pytest.param(
+                """
 from osprey.registry import RegistryConfigProvider
 
 class P(RegistryConfigProvider):
     def get_registry_config(self):
         raise RuntimeError("bad config")
 """,
-        )
-        with pytest.raises(RegistryError, match="Failed to instantiate or get config"):
+                "Failed to instantiate or get config",
+                id="provider-get-config-error",
+            ),
+        ],
+    )
+    def test_a_registry_file_that_cannot_yield_one_config_raises_registry_error(
+        self, tmp_path, source, match
+    ):
+        registry_file = _write_registry(tmp_path, source)
+        with pytest.raises(RegistryError, match=match):
             load_registry_from_path(str(registry_file))
 
     @pytest.mark.usefixtures("restore_sys_state")

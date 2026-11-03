@@ -39,8 +39,8 @@ from starlette.responses import FileResponse
 
 import osprey.interfaces.design_system.panels as _panels_pkg
 from osprey.interfaces._app_setup import configure_interface_app
+from osprey.interfaces._serving import run_app_server
 from tests.interfaces._browser import assert_page_loads_clean
-from tests.interfaces.conftest import _run_app_server
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -83,7 +83,7 @@ def _launch_reference_panel() -> Iterator[str]:
 
     configure_interface_app(app, static_dir=_REFERENCE_DIR)
 
-    with _run_app_server(app) as base_url:
+    with run_app_server(app) as base_url:
         yield base_url
 
 
@@ -104,7 +104,7 @@ def test_reference_panel_applies_requested_theme(chromium_browser, theme_id: str
         page = chromium_browser.new_page()
         try:
             # A clean load also proves the panel's /design-system head assets
-            # (theme-boot.js, tokens.css, theme-manager.js, frame-params.js)
+            # theme-boot.js, tokens.css, theme-manager.js and frame-params.js
             # resolved — if any 404'd, boot would not run and theming would
             # silently no-op rather than fail visibly.
             assert_page_loads_clean(page, f"{base_url}/panel?theme={theme_id}")

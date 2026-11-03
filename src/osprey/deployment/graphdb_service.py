@@ -185,7 +185,7 @@ DEFAULT_DATABASE = "neo4j"
 #: Environment variable both ends of the credential read: the compose service
 #: interpolates it into ``NEO4J_AUTH``, and this module reads it back to dial the
 #: store. Spelled once so the mint, the template and the resolver cannot drift.
-GRAPHDB_PASSWORD_ENV = "GRAPHDB_PASSWORD"
+GRAPHDB_PASSWORD_ENV = "GRAPHDB_PASSWORD"  # noqa: S105 -- names an environment variable, holds no secret
 
 #: Password used when ``GRAPHDB_PASSWORD`` is unset, matching the
 #: ``${GRAPHDB_PASSWORD:-ospreygraph}`` fallback the compose service carries — so
@@ -193,7 +193,7 @@ GRAPHDB_PASSWORD_ENV = "GRAPHDB_PASSWORD"
 #: so both ends agree on what "unset" means. Deliberately weak and deliberately
 #: registered in the forbidden-values table: it is a placeholder, and a
 #: deployment still running on it should be caught saying so.
-DEFAULT_PASSWORD = "ospreygraph"
+DEFAULT_PASSWORD = "ospreygraph"  # noqa: S105 -- local development default; a deployment sets GRAPHDB_PASSWORD
 
 #: Search index the explorer and the agent's keyword tool read, derived from
 #: the corpus at ``ttl_path`` by ``osprey build``. A fixed path relative to the

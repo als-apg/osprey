@@ -17,7 +17,7 @@
  * @returns {Array<{id: string, label: string}>}
  */
 export function hiddenPanels(panels, visible) {
-  return panels.filter(p => !visible.has(p.id)).map(p => ({ id: p.id, label: p.label }));
+  return panels.filter((p) => !visible.has(p.id)).map((p) => ({ id: p.id, label: p.label }));
 }
 
 /**
@@ -30,8 +30,8 @@ export function hiddenPanels(panels, visible) {
  */
 export function visiblePanelsExcept(panels, visible, activeId) {
   return panels
-    .filter(p => visible.has(p.id) && p.id !== activeId)
-    .map(p => ({ id: p.id, label: p.label }));
+    .filter((p) => visible.has(p.id) && p.id !== activeId)
+    .map((p) => ({ id: p.id, label: p.label }));
 }
 
 /**
@@ -45,7 +45,7 @@ export function visiblePanelsExcept(panels, visible, activeId) {
  */
 export function standaloneUrl(panels, state, panelId) {
   if (!state?.url) return null;
-  const panel = panels.find(p => p.id === panelId);
+  const panel = panels.find((p) => p.id === panelId);
   const path = panel?.path && panel.path !== '/' ? panel.path : '';
   return state.url + path;
 }

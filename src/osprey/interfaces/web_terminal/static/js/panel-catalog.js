@@ -1,19 +1,27 @@
 // @ts-check
 /* OSPREY Web Terminal — Shipped Service Panel Catalog
  *
- * The static registry of built-in service panels plus the terminal rail
+ * The static registry of built-in service panels plus the terminal row
  * constants, extracted from panel-manager.js to keep that module under the
  * max-lines cap. panel-manager.js filters the array in place against
  * /api/panels at init; panel-lifecycle.js appends runtime-registered panels;
  * panel-sse.js reads it for the close fallback.
  *
- * The ids, endpoints and health posture below are the browser's own — they are
- * what it builds proxy paths and polls from. The DISPLAY LABELS are not: the
- * backend registry owns them, and the page carries them here as a stamp on
- * <html>. /api/panels cannot seed them, for two reasons: PANELS is module
- * state read before that request resolves, and the route answers for the
- * ENABLED panels only, so it could never name the full roster the rail's
- * catalog list needs.
+ * For the companion panels, the ids, endpoints and health posture below are
+ * the browser's own — they are what it builds proxy paths and polls from. The
+ * DISPLAY LABELS are not: the backend registry owns them, and the page carries
+ * them here as a stamp on <html>. /api/panels cannot seed them, for two
+ * reasons: PANELS is module state read before that request resolves, and the
+ * route answers for the ENABLED panels only, so it could never name the full
+ * roster the "+" menu's catalog list needs.
+ *
+ * The SIDECAR panels — the ones the terminal starts itself — are not listed
+ * here at all. The backend registry describes each one whole (id, label,
+ * icon, description, endpoints), the page stamps those descriptors on <html>,
+ * and this module builds one descriptor per entry.
+ *
+ * The sidebar shows each label in title case ({@link titleCase}) and each
+ * panel with an icons.js glyph ({@link panelIconName}).
  */
 
 /**
@@ -24,15 +32,156 @@
  * @property {string | null} [healthEndpoint] - null/undefined means skip health polling
  * @property {string} [path] - iframe subpath for custom panels (e.g. "/panel/")
  * @property {string} [startEndpoint] - POST target that starts a failed sidecar again
+ * @property {string} [icon] - icons.js glyph the registry names for a sidecar panel
+ * @property {string} [description] - tooltip sentence the registry gives a sidecar panel
  */
 
-/** Rail id of the terminal/chat tile. NOT a service panel: it has no iframe,
- *  no health poll, and no membership — its open/closed state is dock-layout
- *  state (dock-workspace.js owns the tile; panel-manager only renders its rail
- *  entry and routes activate/close to the dock). Kept out of PANELS so every
- *  service-panel iteration stays terminal-free. */
+/** Sidebar id of the Agent pane (the terminal/chat tile). NOT a service panel:
+ *  it has no iframe, no health poll, and no membership — its open/closed state
+ *  is dock-layout state (dock-workspace.js owns the tile; panel-manager only
+ *  renders its sidebar row and routes activate/close to the dock). Kept out of
+ *  PANELS so every service-panel iteration stays terminal-free. */
 export const TERMINAL_RAIL_ID = 'terminal';
-export const TERMINAL_RAIL_LABEL = 'SESSION';
+export const TERMINAL_RAIL_LABEL = 'Agent';
+
+/** Attribute carrying the registry's sidecar panel descriptors, a JSON array. */
+const SIDECAR_PANELS_ATTR = 'data-sidecar-panels';
+
+/**
+ * A string field of a stamped descriptor, or `fallback` when it is absent or
+ * not a non-empty string.
+ * @template T
+ * @param {unknown} value
+ * @param {T} fallback
+ * @returns {string | T}
+ */
+function stringOr(value, fallback) {
+  return typeof value === 'string' && value ? value : fallback;
+}
+
+/**
+ * The sidecar panels this page was served with, one descriptor each. An
+ * absent or unreadable stamp answers with none — the sidecar panels are then
+ * missing, and the console says so once. An entry without an id is skipped.
+ *
+ * `healthEndpoint` is carried as the registry states it: a path means poll it,
+ * null means the panel is not polled.
+ * @returns {Panel[]}
+ */
+function sidecarPanels() {
+  const raw =
+    typeof document === 'undefined'
+      ? null
+      : document.documentElement?.getAttribute(SIDECAR_PANELS_ATTR);
+  if (raw) {
+    try {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) {
+        return parsed
+          .filter((entry) => entry && typeof entry.id === 'string' && entry.id)
+          .map((entry) => {
+            /** @type {Panel} */
+            const panel = {
+              id: entry.id,
+              label: titleCase(stringOr(entry.label, entry.id.toUpperCase())),
+              configEndpoint: stringOr(entry.configEndpoint, `/api/panels/${entry.id}/server`),
+              healthEndpoint: stringOr(entry.healthEndpoint, null),
+              // Data strings; apiRequest prefixes the start one in retryPanelStart().
+              startEndpoint: stringOr(entry.startEndpoint, `/api/panels/${entry.id}/start`),
+            };
+            const icon = stringOr(entry.icon, null);
+            if (icon) panel.icon = icon;
+            const description = stringOr(entry.description, null);
+            if (description) panel.description = description;
+            return panel;
+          });
+      }
+    } catch {
+      // Falls through to the warning below.
+    }
+  }
+  console.warn(
+    `[panel-catalog] no readable ${SIDECAR_PANELS_ATTR} on this page; ` +
+      'sidecar panels are missing'
+  );
+  return [];
+}
+
+/**
+ * The icons.js glyph of each known companion panel's sidebar row. A sidecar
+ * panel's glyph is its registry entry's; a panel named in neither place (a
+ * custom or runtime-registered one) wears {@link FALLBACK_PANEL_ICON}.
+ * @type {Readonly<Record<string, string>>}
+ */
+export const PANEL_ICONS = Object.freeze({
+  terminal: 'agent',
+  artifacts: 'layers',
+  events: 'activity',
+  ariel: 'book-open',
+  lattice: 'hexagon',
+  okf: 'library',
+  'channel-finder': 'radio',
+  bluesky: 'flask',
+  'system-health': 'activity',
+});
+
+/** The glyph of a panel {@link PANEL_ICONS} does not name. */
+export const FALLBACK_PANEL_ICON = 'workspace';
+
+/**
+ * The icons.js name for a panel's sidebar row.
+ * @param {string} id
+ * @returns {string}
+ */
+export function panelIconName(id) {
+  const sidecar = SIDECAR_PANELS.find((p) => p.id === id);
+  if (sidecar) return sidecar.icon ?? FALLBACK_PANEL_ICON;
+  return Object.hasOwn(PANEL_ICONS, id) ? PANEL_ICONS[id] : FALLBACK_PANEL_ICON;
+}
+
+/**
+ * One plain sentence per known companion panel, shown as the explanatory line
+ * of its sidebar tooltip. A sidecar panel's sentence is its registry entry's;
+ * a panel named in neither place (a custom or runtime-registered one) has no
+ * description, and its tooltip stays a bare label.
+ * @type {Readonly<Record<string, string>>}
+ */
+export const PANEL_DESCRIPTIONS = Object.freeze({
+  terminal: 'Chat with the agent, approve its actions and run commands',
+  artifacts: 'Files, plots and notebooks the agent produced',
+  events: 'Event dispatcher dashboard',
+  ariel: 'Search the electronic logbook',
+  'channel-finder': 'Find control-system channels by name or property',
+  lattice: 'Optics of the lattice models the simulator serves',
+  okf: 'Browse the facility knowledge bundle',
+  'system-health': 'Health checks for the framework and its services',
+  bluesky: 'Write plans, run the queue and watch live results',
+});
+
+/**
+ * The tooltip sentence for a panel's sidebar row.
+ * @param {string} id
+ * @returns {string | null} `null` when the panel has no description
+ */
+export function describePanel(id) {
+  const sidecar = SIDECAR_PANELS.find((p) => p.id === id);
+  if (sidecar) return sidecar.description ?? null;
+  return Object.hasOwn(PANEL_DESCRIPTIONS, id) ? PANEL_DESCRIPTIONS[id] : null;
+}
+
+/**
+ * A panel label as the sidebar shows it. An all-capitals label (`ARIEL`,
+ * `CHANNELS`, a custom panel named after its id) reads in title case:
+ * every word, split at spaces and hyphens, keeps only its first letter
+ * capital. A label with any lower-case letter is the deployment's own spelling
+ * (`EPICS Archiver`, `pyAT`) and is left as it is.
+ * @param {string} label
+ * @returns {string}
+ */
+export function titleCase(label) {
+  if (label !== label.toUpperCase()) return label;
+  return label.toLowerCase().replace(/(^|[\s-])(\p{L})/gu, (_, sep, ch) => sep + ch.toUpperCase());
+}
 
 /** Fallback default panel when /api/panels doesn't pin one (kept in sync with
  *  osprey.profiles.web_panels.DEFAULT_PANEL_FALLBACK on the backend). */
@@ -44,8 +193,7 @@ const PANEL_LABELS_ATTR = 'data-panel-labels';
 /**
  * The built-in panel labels this page was served with. An absent or unreadable
  * stamp answers with an empty roster — every panel then wears its own id,
- * which is wrong but readable, and says so once in the console. This is the
- * posture bar-sync.js takes for `data-bar-context`.
+ * which is wrong but readable, and says so once in the console.
  * @returns {Record<string, string>}
  */
 function panelLabels() {
@@ -62,8 +210,7 @@ function panelLabels() {
     }
   }
   console.warn(
-    `[panel-catalog] no readable ${PANEL_LABELS_ATTR} on this page; ` +
-      'panels are labelled by id'
+    `[panel-catalog] no readable ${PANEL_LABELS_ATTR} on this page; ` + 'panels are labelled by id'
   );
   return {};
 }
@@ -78,8 +225,11 @@ const PANEL_LABELS = panelLabels();
  */
 function labelOf(id) {
   const label = PANEL_LABELS[id];
-  return typeof label === 'string' && label ? label : id.toUpperCase();
+  return titleCase(typeof label === 'string' && label ? label : id.toUpperCase());
 }
+
+/** The sidecar panels of this page, built once from the stamp. */
+const SIDECAR_PANELS = sidecarPanels();
 
 /** @type {Panel[]} */
 export const PANELS = [
@@ -87,7 +237,7 @@ export const PANELS = [
     id: 'artifacts',
     label: labelOf('artifacts'),
     configEndpoint: '/api/artifact-server',
-    healthEndpoint: null,    // embedded same-origin — skip health polling
+    healthEndpoint: null, // embedded same-origin — skip health polling
   },
   {
     id: 'ariel',
@@ -104,13 +254,9 @@ export const PANELS = [
     label: labelOf('lattice'),
     configEndpoint: '/api/lattice-server',
   },
-  {
-    id: 'jupyter',
-    label: labelOf('jupyter'),
-    configEndpoint: '/api/jupyter-server',
-    healthEndpoint: '/api/status', // the sidecar's own status route, reached through the panel proxy
-    startEndpoint: '/api/panels/jupyter/start', // data string; apiRequest prefixes it in retryPanelStart()
-  },
+  // The sidecar panels, from the page's stamp, where the notebook panel has
+  // always sat in the roster.
+  ...SIDECAR_PANELS,
   {
     id: 'okf',
     label: labelOf('okf'),

@@ -45,6 +45,6 @@ export function flashElement(el) {
       if (name && name !== FLASH_ANIMATION) return;
       el.classList.remove(FLASH_CLASS);
     },
-    { once: true },
+    { once: true }
   );
 }

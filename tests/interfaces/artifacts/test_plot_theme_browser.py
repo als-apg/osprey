@@ -17,6 +17,13 @@ force, for a figure whose author baked a dark palette into the layout (the
 shape of the reported artifact: a 3D scatter with dark ``paper_bgcolor``,
 ``scene.bgcolor`` and white text).
 
+Every page here is opened through the web-terminal hub's panel proxy
+(``/panel/artifacts/…``) with the hub's auth gate on, the way a deployment's
+browser reaches it. The artifact pages are served opaque (sandboxed, origin
+``"null"``), so the design-system modules and the Plotly bundle they import
+must come through the C-ASSETS routes without a cookie; a path that list leaves
+out leaves the plot unthemed here.
+
 Run:
     .venv/bin/pytest tests/interfaces/artifacts/test_plot_theme_browser.py -v
 
@@ -30,12 +37,19 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from tests.interfaces.conftest import _run_app_server
+from tests.interfaces.artifacts.test_opaque_origin_browser import (
+    GALLERY,
+    artifact_frame,
+    hub_with_gallery,
+    open_gallery,
+    select_artifact,
+    set_gallery_theme,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
-    from playwright.sync_api import Page
+    from playwright.sync_api import Frame, Page
 
 pytestmark = [pytest.mark.browser, pytest.mark.slow]
 
@@ -94,45 +108,48 @@ _PROBE = """() => {
 }"""
 
 
-@contextmanager
-def _launch(tmp_path, monkeypatch, *, web_theme: str | None = None) -> Iterator[tuple[str, str]]:
-    """Serve the gallery with one dark-baked ``plot_html`` artifact seeded.
-
-    Yields ``(base_url, file_path)`` where ``file_path`` is the artifact's
-    ``/files/...`` route. ``OSPREY_OFFLINE=0`` serves the injected Plotly
-    bundle from the CDN, the product default. The vendor directories hold only
-    what ``osprey vendor fetch`` writes, so offline mode would point the page at
-    a bundle that a checkout does not carry. The offline injection path is
-    pinned in ``test_app_endpoints.py``.
-    """
-    monkeypatch.chdir(tmp_path)
-    monkeypatch.setenv("OSPREY_OFFLINE", "0")
-    if web_theme is None:
-        monkeypatch.delenv("OSPREY_WEB_THEME", raising=False)
-    else:
-        monkeypatch.setenv("OSPREY_WEB_THEME", web_theme)
-
+def _save(workspace, content: bytes, filename: str, artifact_type: str, title: str):
     from osprey.stores.artifact_store import ArtifactStore
 
-    entry = ArtifactStore(workspace_root=tmp_path).save_file(
-        file_content=_DARK_BAKED_PLOT.encode(),
-        filename="dark-baked.html",
-        artifact_type="plot_html",
-        title="Dark-baked 3D correlation",
+    return ArtifactStore(workspace_root=workspace).save_file(
+        file_content=content,
+        filename=filename,
+        artifact_type=artifact_type,
+        title=title,
         description="fixture",
         mime_type="text/html",
         tool_source="test_fixture",
         category="visualization",
     )
 
-    from osprey.interfaces.artifacts.app import create_app
 
-    app = create_app(workspace_root=tmp_path)
-    with _run_app_server(app) as base_url:
-        yield base_url, f"/files/{entry.id}/{entry.filename}"
+PLOT_TITLE = "Dark-baked 3D correlation"
 
 
-def _probe(page: Page) -> dict:
+@contextmanager
+def _launch(tmp_path, monkeypatch, *, web_theme: str | None = None) -> Iterator[tuple[str, str]]:
+    """Serve the gallery behind the hub with one dark-baked ``plot_html`` seeded.
+
+    Yields ``(base_url, file_path)``: the hub's address and the artifact's
+    proxied ``/panel/artifacts/files/...`` route. The hub serves the Plotly
+    bundle offline, from the artifacts app's vendor tree through the proxy
+    (``osprey vendor fetch`` has run on the gate host).
+    """
+
+    def seed(workspace):
+        entry = _save(
+            workspace, _DARK_BAKED_PLOT.encode(), "dark-baked.html", "plot_html", PLOT_TITLE
+        )
+        return entry.id, f"{GALLERY}files/{entry.id}/{entry.filename}"
+
+    with hub_with_gallery(tmp_path, monkeypatch, seed=seed, web_theme=web_theme) as (
+        base_url,
+        (_artifact_id, path),
+    ):
+        yield base_url, path
+
+
+def _probe(page: Page | Frame) -> dict:
     # The bridge reveals a chart only after its relayout resolved; wait for
     # that rather than for a fixed delay.
     page.wait_for_function(
@@ -193,31 +210,27 @@ def test_unstyled_html_artifact_gets_themed_defaults(tmp_path, monkeypatch, chro
     """A served table/html artifact with no styling of its own paints the
     theme's background and text color (zero-specificity defaults), instead of
     browser-default black-on-white."""
-    monkeypatch.chdir(tmp_path)
-    monkeypatch.setenv("OSPREY_OFFLINE", "1")
-    monkeypatch.delenv("OSPREY_WEB_THEME", raising=False)
 
-    from osprey.stores.artifact_store import ArtifactStore
+    def seed(workspace):
+        from osprey.stores.artifact_store import ArtifactStore
 
-    entry = ArtifactStore(workspace_root=tmp_path).save_file(
-        file_content=(
-            b'<html><head></head><body><table class="artifact-table">'
-            b"<tr><th>ch</th></tr><tr><td>SR01C:HCM1</td></tr></table></body></html>"
-        ),
-        filename="readings.html",
-        artifact_type="table_html",
-        title="Readings",
-        description="fixture",
-        mime_type="text/html",
-        tool_source="test_fixture",
-    )
+        entry = ArtifactStore(workspace_root=workspace).save_file(
+            file_content=(
+                b'<html><head></head><body><table class="artifact-table">'
+                b"<tr><th>ch</th></tr><tr><td>SR01C:HCM1</td></tr></table></body></html>"
+            ),
+            filename="readings.html",
+            artifact_type="table_html",
+            title="Readings",
+            description="fixture",
+            mime_type="text/html",
+            tool_source="test_fixture",
+        )
+        return f"{GALLERY}files/{entry.id}/{entry.filename}"
 
-    from osprey.interfaces.artifacts.app import create_app
-
-    app = create_app(workspace_root=tmp_path)
-    with _run_app_server(app) as base_url:
+    with hub_with_gallery(tmp_path, monkeypatch, seed=seed) as (base_url, path):
         page = chromium_browser.new_page()
-        page.goto(f"{base_url}/files/{entry.id}/{entry.filename}?theme=dark")
+        page.goto(f"{base_url}{path}?theme=dark")
         page.wait_for_function(
             "() => document.documentElement.getAttribute('data-theme') === 'dark'"
         )
@@ -244,22 +257,25 @@ def test_unstyled_html_artifact_gets_themed_defaults(tmp_path, monkeypatch, chro
 
 
 def test_embedded_page_retheme_on_hub_broadcast(tmp_path, monkeypatch, chromium_browser):
-    """Inside the gallery the hub broadcasts ``osprey-theme-change``; the
-    bridge must re-theme live to whatever id arrives -- including one outside
-    the main family -- through the same token path."""
+    """Inside the gallery the plot is an opaque frame. A theme change in the
+    gallery is relayed to it (target ``"*"``: an opaque frame cannot be named),
+    and the bridge must re-theme live to whatever id arrives -- including one
+    outside the main family -- through the same token path. The frame takes the
+    message by its source (its parent), since its own origin proves nothing."""
     with _launch(tmp_path, monkeypatch) as (base_url, path):
         page = chromium_browser.new_page()
-        page.goto(f"{base_url}{path}?theme=dark")
-        _assert_follows_tokens(_probe(page), "dark")
-        page.evaluate(
-            "() => window.postMessage({type: 'osprey-theme-change', theme: 'retro-light'},"
-            " window.location.origin)"
-        )
-        page.wait_for_function(
+        open_gallery(page, base_url, theme="dark")
+        select_artifact(page, PLOT_TITLE)
+        frame = artifact_frame(page, path.split("/")[-2])
+        assert frame.evaluate("() => String(self.origin)") == "null"
+        _assert_follows_tokens(_probe(frame), "dark")
+
+        set_gallery_theme(page, "retro-light")
+        frame.wait_for_function(
             "() => document.documentElement.getAttribute('data-theme') === 'retro-light'"
             " && document.getElementById('plot-a')._fullLayout.paper_bgcolor"
             "    === getComputedStyle(document.documentElement)"
             "         .getPropertyValue('--chart-paper-bg').trim()",
             timeout=15_000,
         )
-        _assert_follows_tokens(page.evaluate(_PROBE), "retro-light")
+        _assert_follows_tokens(frame.evaluate(_PROBE), "retro-light")

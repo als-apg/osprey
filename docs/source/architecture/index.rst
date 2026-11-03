@@ -24,9 +24,9 @@ every service, and the subsystems with architecture of their own:
       :link-type: doc
       :shadow: md
 
-      Five ways to write to a machine through the connector — a channel
+      Six ways to write to a machine through the connector — a channel
       write, agent-written Python, a pyAML tool, a Bluesky plan, a notebook
-      cell — the
+      cell, a panel write — the
       Phoebus drive that does not reach it, and what stands in the way of
       each: the PreToolUse hooks, the gates below them, the connector, and
       the audit trail. A single write step by step, and the guarded run

@@ -1,31 +1,56 @@
-"""Tests for the wall-clock bound the local gate scripts put on each pytest run.
+"""Tests for the wall-clock bound the check command puts on each pytest run.
 
 The wrapper's ``main`` is only ever run as a subprocess, never called here: it
 installs signal handlers and exits the process, neither of which belongs in the
-test process. Its ``stop_group`` is importable by path, since loading the
-module installs no handler.
+test process. The group stop it calls, ``stop_child``, lives in the product's
+``osprey.deployment.subprocess_capture``; the stopped groups here are probed
+with that module's ``group_is_gone``.
 """
 
 from __future__ import annotations
 
-import contextlib
-import os
-import re
+import dataclasses
+import importlib.util
 import shlex
 import signal
 import subprocess
 import sys
 import textwrap
 import time
+from collections.abc import Iterator
 from pathlib import Path
+from types import ModuleType
+from typing import Any
 
 import pytest
 
+from osprey.deployment.subprocess_capture import group_is_gone
+from tests._processes import kill_group
+
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = _REPO_ROOT / "scripts" / "run_bounded.py"
-GATE_SCRIPTS = ("quick_check.sh", "premerge_check.sh", "ci_check.sh", "gate.sh")
+CHECK_SCRIPT = _REPO_ROOT / "scripts" / "check.py"
+#: The wrapper after ``uv run --frozen``, the prefix every bounded command carries.
+WRAPPER = ["python", "scripts/run_bounded.py"]
 
-_WRAPPER_PREFIX = re.compile(r"uv run python scripts/run_bounded\.py [0-9.]+ -- ")
+
+@pytest.fixture(scope="module")
+def check() -> Iterator[ModuleType]:
+    """``scripts/check.py`` loaded by path, since scripts/ is not a package.
+
+    The module is registered in sys.modules before exec so @dataclass can
+    resolve annotations through cls.__module__, under a name no import uses.
+    """
+    name = "_check_by_path_for_bounds"
+    spec = importlib.util.spec_from_file_location(name, CHECK_SCRIPT)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[name] = module
+    try:
+        spec.loader.exec_module(module)
+        yield module
+    finally:
+        sys.modules.pop(name, None)
 
 
 def _run(*args: str) -> subprocess.CompletedProcess[str]:
@@ -37,15 +62,9 @@ def _run(*args: str) -> subprocess.CompletedProcess[str]:
     )
 
 
-def _pid_is_gone(pid: int, within: float) -> bool:
-    deadline = time.monotonic() + within
-    while time.monotonic() < deadline:
-        try:
-            os.kill(pid, 0)
-        except ProcessLookupError:
-            return True
-        time.sleep(0.05)
-    return False
+def _kill_recorded_group(pgid_file: Path) -> None:
+    if pgid_file.exists() and pgid_file.read_text().strip():
+        kill_group(int(pgid_file.read_text()))
 
 
 def test_the_command_exit_code_passes_through():
@@ -54,44 +73,48 @@ def test_the_command_exit_code_passes_through():
 
 
 def test_a_command_past_its_bound_is_stopped_with_its_process_group(tmp_path):
-    pid_file = tmp_path / "grandchild.pid"
+    group_file = tmp_path / "group.pid"
     # The bound is the child's readiness window as well as the stop stimulus:
     # a shell is ready in milliseconds on an idle host and within a few seconds
     # on a loaded one, so three seconds is the window every bounded test here
-    # gives its child.
-    command = ["sh", "-c", f"sleep 60 & echo $! > {shlex.quote(str(pid_file))}; wait"]
-    result = _run("3", "--", *command)
-    assert result.returncode == 124
-    assert "still running after 3 s" in result.stderr
-    assert pid_file.exists(), "the child was not ready inside the 3 s bound: no grandchild pid file"
-    pid = int(pid_file.read_text())
+    # gives its child. The shell leads the group, so its own pid names it.
+    command = ["sh", "-c", f"echo $$ > {shlex.quote(str(group_file))}; sleep 60 & wait"]
     try:
-        assert _pid_is_gone(pid, within=5.0)
+        result = _run("3", "--", *command)
+        assert result.returncode == 124
+        assert "still running after 3 s" in result.stderr
+        assert group_file.exists(), "the child was not ready inside the 3 s bound: no group file"
+        assert group_is_gone(int(group_file.read_text()))
     finally:
-        with contextlib.suppress(ProcessLookupError):
-            os.kill(pid, signal.SIGKILL)
+        _kill_recorded_group(group_file)
 
 
 def test_a_command_that_ignores_sigterm_is_killed_after_the_grace(tmp_path):
     marker = tmp_path / "sigterm-ignored"
     # An ignored signal stays ignored across exec, so the marker proves the
     # sleep that receives SIGABRT and SIGTERM is the one that ignores them.
+    # exec keeps the shell's pid, and the child leads its own group, so the
+    # recorded pid names the group the sleep runs in.
     command = [
         "sh",
         "-c",
-        f"trap '' TERM ABRT; : > {shlex.quote(str(marker))}; exec sleep 60",
+        f"trap '' TERM ABRT; echo $$ > {shlex.quote(str(marker))}; exec sleep 60",
     ]
-    started = time.monotonic()
-    result = _run("--dump", "1", "--grace", "1", "3", "--", *command)
-    elapsed = time.monotonic() - started
-    assert result.returncode == 124
-    assert marker.exists(), (
-        "the child was not ready inside the 3 s bound: SIGTERM was never ignored"
-    )
-    # Bound plus dump wait plus grace: anything shorter means the command died
-    # of SIGABRT or SIGTERM and the SIGKILL path never ran.
-    assert elapsed >= 5.0
-    assert elapsed < 12
+    try:
+        started = time.monotonic()
+        result = _run("--dump", "1", "--grace", "1", "3", "--", *command)
+        elapsed = time.monotonic() - started
+        assert result.returncode == 124
+        assert marker.exists(), (
+            "the child was not ready inside the 3 s bound: SIGTERM was never ignored"
+        )
+        # A run as long as bound plus dump wait plus grace rules out a death by
+        # SIGABRT or SIGTERM; a process that ignored both and is gone was ended
+        # by the SIGKILL.
+        assert elapsed >= 5.0
+        assert group_is_gone(int(marker.read_text()))
+    finally:
+        _kill_recorded_group(marker)
 
 
 def test_a_command_past_its_bound_prints_its_python_stacks_before_it_is_stopped(tmp_path):
@@ -115,16 +138,14 @@ def test_a_stop_waits_for_the_whole_group_when_its_leader_dies_first(tmp_path):
     """
     ready = tmp_path / "ready"
     dumped = tmp_path / "dumped"
-    pid_file = tmp_path / "child.pid"
     child = textwrap.dedent(
         f"""
-        import os, pathlib, signal, time
+        import pathlib, signal, time
         def on_abort(*_):
             time.sleep(1.0)
             pathlib.Path({str(dumped)!r}).touch()
         signal.signal(signal.SIGABRT, on_abort)
         signal.signal(signal.SIGTERM, signal.SIG_IGN)
-        pathlib.Path({str(pid_file)!r}).write_text(str(os.getpid()))
         pathlib.Path({str(ready)!r}).touch()
         while True:
             time.sleep(60)
@@ -132,21 +153,78 @@ def test_a_stop_waits_for_the_whole_group_when_its_leader_dies_first(tmp_path):
     )
     script = tmp_path / "child.py"
     script.write_text(child)
+    group_file = tmp_path / "group.pid"
     # The child's streams are not the wrapper's pipes, so a child that
     # outlives the stop fails the assertions below instead of holding the
-    # pipes open.
-    leader = f"{shlex.quote(sys.executable)} {shlex.quote(str(script))} >/dev/null 2>&1; :"
-    result = _run("--dump", "5", "--grace", "1", "3", "--", "sh", "-c", leader)
+    # pipes open. The leader records its own pid, the group's id, first.
+    leader = (
+        f"echo $$ > {shlex.quote(str(group_file))}; "
+        f"{shlex.quote(sys.executable)} {shlex.quote(str(script))} >/dev/null 2>&1; :"
+    )
     try:
+        result = _run("--dump", "5", "--grace", "1", "3", "--", "sh", "-c", leader)
         assert result.returncode == 124
         assert ready.exists(), "the child was not ready inside the 3 s bound"
         assert dumped.exists(), "SIGTERM was sent before the group's stacks were written"
-        pid = int(pid_file.read_text())
-        assert _pid_is_gone(pid, within=1.0), "a process that survived SIGTERM was never killed"
+        assert group_is_gone(int(group_file.read_text())), (
+            "a process that survived SIGTERM was never killed"
+        )
+        assert "still running after SIGKILL" not in result.stderr
     finally:
-        if pid_file.exists():
-            with contextlib.suppress(ProcessLookupError):
-                os.kill(int(pid_file.read_text()), signal.SIGKILL)
+        _kill_recorded_group(group_file)
+
+
+def test_a_survivor_of_the_stop_is_named_and_the_run_still_exits_124(tmp_path):
+    marker = tmp_path / "ready"
+    child = f"import pathlib, time; pathlib.Path({str(marker)!r}).touch(); time.sleep(60)"
+    # The real stop runs, then reports a process it could not end.
+    wrapper = textwrap.dedent(
+        f"""
+        import runpy, sys
+        from osprey.deployment import subprocess_capture
+        real = subprocess_capture.stop_child
+        def stop_child(process, **kwargs):
+            real(process, **kwargs)
+            return subprocess_capture.StopOutcome(ended=(process.pid,), survivors=(999999,))
+        subprocess_capture.stop_child = stop_child
+        sys.argv = [{str(SCRIPT)!r}, "--dump", "1", "--grace", "1", "3", "--",
+                    {sys.executable!r}, "-c", {child!r}]
+        runpy.run_path({str(SCRIPT)!r}, run_name="__main__")
+        """
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", wrapper], capture_output=True, text=True, timeout=60
+    )
+    assert result.returncode == 124
+    assert marker.exists(), "the child was not ready inside the 3 s bound"
+    assert "run_bounded: still running after SIGKILL: pid 999999" in result.stderr
+
+
+def test_a_stop_that_could_not_read_the_table_says_so_and_the_run_still_exits_124(tmp_path):
+    marker = tmp_path / "ready"
+    child = f"import pathlib, time; pathlib.Path({str(marker)!r}).touch(); time.sleep(60)"
+    # The real stop runs, then reports that it could not read the process table.
+    wrapper = textwrap.dedent(
+        f"""
+        import runpy, sys
+        from osprey.deployment import subprocess_capture
+        real = subprocess_capture.stop_child
+        def stop_child(process, **kwargs):
+            real(process, **kwargs)
+            return subprocess_capture.StopOutcome(ended=(process.pid,), unknown=(process.pid,))
+        subprocess_capture.stop_child = stop_child
+        sys.argv = [{str(SCRIPT)!r}, "--dump", "1", "--grace", "1", "3", "--",
+                    {sys.executable!r}, "-c", {child!r}]
+        runpy.run_path({str(SCRIPT)!r}, run_name="__main__")
+        """
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", wrapper], capture_output=True, text=True, timeout=60
+    )
+    assert result.returncode == 124
+    assert marker.exists(), "the child was not ready inside the 3 s bound"
+    assert "run_bounded: process table unreadable: group" in result.stderr
+    assert "still running after SIGKILL" not in result.stderr
 
 
 def test_sigint_reaches_the_command_and_the_wrapper_dies_of_it():
@@ -180,28 +258,61 @@ def test_sigint_reaches_the_command_and_the_wrapper_dies_of_it():
             wrapper.wait(10)
 
 
-def _unbounded_pytest_lines(source: str) -> tuple[int, list[str]]:
-    """Count the pytest invocations in *source* and return the ones with no bound."""
-    invocations = [
-        line
-        for line in source.splitlines()
-        if "uv run pytest " in line and not line.strip().startswith(("#", "echo"))
+def _pytest_checks(checks: tuple[Any, ...]) -> list[Any]:
+    """The ``tests`` checks of *checks* whose command is a pytest run."""
+    return [c for c in checks if c.kind == "tests" and "pytest" in c.argv]
+
+
+def _unbounded_pytest_checks(check: ModuleType, checks: tuple[Any, ...]) -> list[str]:
+    """What leaves a pytest check of *checks* unbounded, one line per defect.
+
+    A check is bounded when it declares a bound and every tier that runs it
+    resolves its command through ``scripts/run_bounded.py`` with a bound. The
+    wrapper runs through ``uv run``, or ``uv run --no-sync`` for a check whose
+    environment a sync would move.
+    """
+    problems = []
+    for declared in _pytest_checks(checks):
+        if declared.bound_s <= 0:
+            problems.append(f"{declared.id}: declares no bound")
+        for tier in sorted(declared.tiers):
+            context = check.Context(tier=tier)
+            for argv in check.commands(declared, check.Selection(check.WHOLE), context):
+                prefix = [*check.kit.UV_RUN, *WRAPPER]
+                # A check that keeps an installed environment as it is (the
+                # CANOPY contract) adds ``--no-sync`` after the kit's ``uv run``.
+                frozen = len(check.kit.UV_RUN)
+                head = (
+                    argv[:frozen] + argv[frozen + 1 :]
+                    if argv[frozen : frozen + 1] == ["--no-sync"]
+                    else argv
+                )
+                bounded = (
+                    head[: len(prefix)] == prefix and "--" in head and float(head[len(prefix)]) > 0
+                )
+                if not bounded:
+                    problems.append(f"{declared.id}: {tier} runs it without {WRAPPER[-1]}")
+    return problems
+
+
+def test_every_pytest_check_resolves_through_the_bound(check):
+    assert [c.id for c in _pytest_checks(check.CHECKS)] == [
+        "pytest",
+        "pytest-pty",
+        "pytest-wallclock",
+        "readonly-warmups-py314",
+        "canopy-contract",
     ]
-    return len(invocations), [line for line in invocations if "scripts/run_bounded.py" not in line]
+    assert _unbounded_pytest_checks(check, check.CHECKS) == []
 
 
-@pytest.mark.parametrize("script", GATE_SCRIPTS)
-def test_every_gate_script_bounds_its_pytest_runs(script):
-    count, unbounded = _unbounded_pytest_lines((_REPO_ROOT / "scripts" / script).read_text())
-    assert count >= 1, f"{script} has no pytest invocation"
-    assert unbounded == [], f"{script} runs pytest without scripts/run_bounded.py"
-
-
-@pytest.mark.parametrize("script", GATE_SCRIPTS)
-def test_every_gate_script_bounds_its_pytest_runs__mutation_drops_the_wrapper(script):
-    source = (_REPO_ROOT / "scripts" / script).read_text()
-    mutated = _WRAPPER_PREFIX.sub("", source)
-    assert mutated != source, f"{script} carries no wrapper prefix to drop"
-    count, unbounded = _unbounded_pytest_lines(mutated)
-    assert count >= 1
-    assert unbounded, f"the check missed {script} with its wrapper removed"
+def test_every_pytest_check_resolves_through_the_bound__mutation_a_bound_of_zero_is_reported(
+    check,
+):
+    mutated = tuple(
+        dataclasses.replace(c, bound_s=0) if c.id == "pytest-pty" else c for c in check.CHECKS
+    )
+    assert _unbounded_pytest_checks(check, mutated) == [
+        "pytest-pty: declares no bound",
+        "pytest-pty: full runs it without scripts/run_bounded.py",
+    ]

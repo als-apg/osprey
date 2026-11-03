@@ -198,7 +198,7 @@ class MemoryGallery {
   renderSummary() {
     if (!this.summaryEl) return;
     const total = this.files.length;
-    const primary = this.files.find(f => f.is_primary);
+    const primary = this.files.find((f) => f.is_primary);
     const topicCount = total - (primary ? 1 : 0);
     this.summaryEl.textContent =
       `${total} file${total !== 1 ? 's' : ''} \u00B7 ` +
@@ -214,9 +214,10 @@ class MemoryGallery {
 
     if (filtered.length === 0) {
       const empty = _el('div', 'memory-empty');
-      empty.textContent = this.files.length === 0
-        ? 'No memory files yet. Click "+ New" to create one.'
-        : 'No matching files.';
+      empty.textContent =
+        this.files.length === 0
+          ? 'No memory files yet. Click "+ New" to create one.'
+          : 'No matching files.';
       this.fileListEl.appendChild(empty);
       return;
     }
@@ -303,7 +304,7 @@ class MemoryGallery {
   getFilteredFiles() {
     if (!this.searchQuery) return this.files;
     const q = this.searchQuery.toLowerCase();
-    return this.files.filter(f => f.filename.toLowerCase().includes(q));
+    return this.files.filter((f) => f.filename.toLowerCase().includes(q));
   }
 
   // ---- Detail View ---- //
@@ -393,7 +394,9 @@ class MemoryGallery {
     this.detailContentEl.innerHTML = '<div class="memory-loading-inline">Loading...</div>';
 
     try {
-      const data = await fetchJSON(`/api/claude-memory/${encodeURIComponent(this.selectedFile.filename)}`); // fetchJSON prefixes internally
+      const data = await fetchJSON(
+        `/api/claude-memory/${encodeURIComponent(this.selectedFile.filename)}`
+      ); // fetchJSON prefixes internally
       this.detailContentEl.innerHTML = '';
 
       const textarea = document.createElement('textarea');
@@ -413,8 +416,7 @@ class MemoryGallery {
 
       this.detailContentEl.appendChild(textarea);
     } catch (e) {
-      this.detailContentEl.innerHTML =
-        `<div class="memory-content-error">Error: ${escapeHtml(/** @type {Error} */ (e).message)}</div>`;
+      this.detailContentEl.innerHTML = `<div class="memory-content-error">Error: ${escapeHtml(/** @type {Error} */ (e).message)}</div>`;
     }
   }
 
@@ -429,7 +431,9 @@ class MemoryGallery {
     const el = /** @type {HTMLElement} */ (this.errorEl);
     el.style.display = 'flex';
     el.textContent = message;
-    setTimeout(() => { el.style.display = 'none'; }, 4000);
+    setTimeout(() => {
+      el.style.display = 'none';
+    }, 4000);
   }
 
   async saveFile() {
@@ -440,16 +444,19 @@ class MemoryGallery {
     if (!textarea) return;
 
     try {
-      const updated = await apiRequest(`/api/claude-memory/${encodeURIComponent(this.selectedFile.filename)}`, {
-        method: 'PUT',
-        json: { content: textarea.value },
-        errorPrefix: 'Save failed',
-      });
+      const updated = await apiRequest(
+        `/api/claude-memory/${encodeURIComponent(this.selectedFile.filename)}`,
+        {
+          method: 'PUT',
+          json: { content: textarea.value },
+          errorPrefix: 'Save failed',
+        }
+      );
       this.editDirty = false;
 
       // Update the file in the list
       this.selectedFile = { ...this.selectedFile, ...updated };
-      const idx = this.files.findIndex(f => f.filename === this.selectedFile.filename);
+      const idx = this.files.findIndex((f) => f.filename === this.selectedFile.filename);
       if (idx >= 0) this.files[idx] = this.selectedFile;
 
       this.renderDetailActions();
@@ -475,7 +482,7 @@ class MemoryGallery {
         errorPrefix: 'Delete failed',
       });
 
-      this.files = this.files.filter(f => f.filename !== this.selectedFile.filename);
+      this.files = this.files.filter((f) => f.filename !== this.selectedFile.filename);
       this.selectedFile = null;
       this.editDirty = false;
       this.renderGallery();

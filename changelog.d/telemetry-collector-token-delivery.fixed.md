@@ -1,1 +1,0 @@
-Web terminals whose tier or app exports telemetry to a collector receive, from the deployment's `.env`, the variable `claude_code.telemetry.auth.token_env` names and every other variable the telemetry block references, so their agents authenticate to it.

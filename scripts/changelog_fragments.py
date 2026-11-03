@@ -7,7 +7,7 @@ So no pull request writes that section any more. Each writes one small file
 under ``changelog.d/`` instead, and the release fold collects them.
 
 This module is both halves of that arrangement: ``check`` is the gate CI and
-``premerge_check.sh`` run, ``apply`` is the fold the release skill runs. It
+``scripts/check.py`` run, ``apply`` is the fold the release skill runs. It
 imports nothing outside the standard library and shells out to git only from
 ``main``, through an injectable runner.
 
@@ -84,10 +84,33 @@ change removes — may also go, when a commit message in the range names it in a
 ``Retires-fragment: <file name>`` trailer, one trailer per fragment.
 ``gate_failures`` states all three rules in full.
 
+Trees
+-----
+The repository keeps two changelogs, because it releases on two tag streams.
+The framework's is ``CHANGELOG.md`` with ``changelog.d/`` at the root, released
+on ``v*`` tags. ``osprey-connectors`` keeps its own beside its code,
+``packages/osprey-connectors/CHANGELOG.md`` with
+``packages/osprey-connectors/changelog.d/``, released on its own
+``osprey-connectors-v*`` tags. Each pair is a *tree* (``TREES``), and every rule
+above holds per tree, over the paths inside it:
+
+* a change to the connectors package's ``src/``, ``pyproject.toml`` or
+  ``README.md`` (what ships in its wheel and on its PyPI page) needs a fragment
+  in **its** ``changelog.d/``; a root fragment does not count for it, nor does
+  one of its fragments count for a framework change. A pull request touching
+  both brings one of each;
+* the connectors tree is carved out of the framework's: the root gate's
+  ``packages/`` prefix no longer reaches ``packages/osprey-connectors/``;
+* the pre-tag top-up asks the remote for the tree's own tag
+  (``osprey-connectors-v<version>``).
+
+``check`` runs every tree; a tree the diff does not touch is only validated.
+``apply`` folds one tree, the framework's unless ``--root`` names another.
+
 Usage
 -----
-    python scripts/changelog_fragments.py check [--base origin/main]
-    python scripts/changelog_fragments.py apply
+    python scripts/changelog_fragments.py check [--base origin/main] [--root <tree>] [--worktree]
+    python scripts/changelog_fragments.py apply [--root packages/osprey-connectors]
 
 Exit codes
 ----------
@@ -121,6 +144,56 @@ GATED_PREFIXES = ("src/", "packages/", "plugins/")
 FRAGMENT_DIR = "changelog.d"
 KEEP = "README.md"
 REPO_ROOT = Path(__file__).resolve().parents[1]
+
+
+@dataclass(frozen=True)
+class Tree:
+    """One changelog and its fragment directory, released on one tag stream.
+
+    *root* is the tree's repository-relative directory, ``""`` for the
+    repository itself. *gated* and every path the gate reads for the tree are
+    relative to it, so the rules apply unchanged inside a package directory.
+    *tag_prefix* spells the tree's release tag as ``<tag_prefix><version>``.
+    """
+
+    root: str
+    gated: tuple[str, ...]
+    tag_prefix: str
+
+    @property
+    def prefix(self) -> str:
+        """*root* as a path prefix: ``""`` or ``"<root>/"``."""
+        return f"{self.root}/" if self.root else ""
+
+
+FRAMEWORK_TREE = Tree(root="", gated=GATED_PREFIXES, tag_prefix="v")
+#: What ships in the connectors wheel and on its PyPI page. Its tests are not
+#: gated, as the framework's tests/ is not.
+CONNECTORS_TREE = Tree(
+    root="packages/osprey-connectors",
+    gated=("src/", "pyproject.toml", "README.md"),
+    tag_prefix="osprey-connectors-v",
+)
+TREES = (FRAMEWORK_TREE, CONNECTORS_TREE)
+
+
+def tree_paths(tree: Tree, paths: Iterable[str], trees: Sequence[Tree] = TREES) -> list[str]:
+    """The *paths* inside *tree*, relative to its root.
+
+    A path under a tree nested inside *tree* belongs to that tree alone, so the
+    repository's tree sees nothing of ``packages/osprey-connectors/``.
+    """
+    nested = [
+        other.prefix
+        for other in trees
+        if other.prefix != tree.prefix and other.prefix.startswith(tree.prefix)
+    ]
+    return [
+        path[len(tree.prefix) :]
+        for path in paths
+        if path.startswith(tree.prefix) and not path.startswith(tuple(nested))
+    ]
+
 
 NAME_RE = re.compile(r"^(?P<name>[A-Za-z0-9][A-Za-z0-9_-]*)\.(?P<type>[a-z]+)\.md$")
 REF_RE = re.compile(r"^(\d+)(?:-|$)")
@@ -527,14 +600,14 @@ def apply_fragments(text: str, fragments: Sequence[Fragment]) -> tuple[str, list
     return "\n".join(lines) + "\n", report
 
 
-def needs_fragment(changed: Iterable[str]) -> bool:
+def needs_fragment(changed: Iterable[str], gated: Sequence[str] = GATED_PREFIXES) -> bool:
     """True when any changed path lives under a gated directory.
 
     The prefixes carry their trailing slash, so the test is directory-scoped:
     ``src/osprey/cli.py`` is gated, ``srcs/x.py`` and ``docs/source/x.rst`` are
     not, and neither is a ``src/`` nested somewhere below the repo root.
     """
-    return any(path.startswith(GATED_PREFIXES) for path in changed)
+    return any(path.startswith(tuple(gated)) for path in changed)
 
 
 def _fragment_dir_paths(paths: Iterable[str]) -> list[str]:
@@ -739,6 +812,8 @@ def gate_failures(
     base_text: str,
     tagged: TagProbe | None = None,
     retired: Collection[str] = (),
+    gated: Sequence[str] = GATED_PREFIXES,
+    fragment_dir: str = FRAGMENT_DIR,
 ) -> tuple[list[str], list[str]]:
     """Apply the three pull-request rules to one diff.
 
@@ -747,14 +822,19 @@ def gate_failures(
     *base_text* are the two versions of ``CHANGELOG.md``. *tagged* answers the
     one question rule 3's top-up shape asks outside the diff; without it that
     shape is never recognized. *retired* holds the fragment file names the
-    range's commit messages retire (``retired_fragments``). Nothing here touches the filesystem or git, so
-    the caller decides where the diff came from.
+    range's commit messages retire (``retired_fragments``). *gated* is the
+    tree's gated prefixes; every path is relative to the tree's root, and
+    *fragment_dir* is the tree's fragment directory as the remedies name it
+    (``packages/osprey-connectors/changelog.d``). Nothing
+    here touches the filesystem or git, so the caller decides where the diff
+    came from.
 
     The rules:
 
-    1. A change under ``src/`` or ``packages/`` needs a fragment *added* by
-       this pull request. One already in the tree does not count — the gate
-       reads committed history, so neither does one that is merely written.
+    1. A change under a ``GATED_PREFIXES`` directory needs a fragment *added* by
+       this pull request. One already in the tree does not count. Under
+       ``--worktree`` a staged, unstaged or untracked fragment is added;
+       otherwise only a committed one is.
     2. ``## [Unreleased]`` must come out of the merge base unchanged. Three
        shapes are allowed through: the release rotation, which empties it; a
        pull request that changes ``CHANGELOG.md`` and nothing else without
@@ -790,13 +870,14 @@ def gate_failures(
     """
     failures: list[str] = []
     ok_lines: list[str] = []
-    prefixes = ", ".join(GATED_PREFIXES)
+    prefixes = ", ".join(gated)
+    gated_prefixes = gated
 
     retyped = _retyped_fragments(added, deleted)
-    gated = [path for path in changed if needs_fragment((path,))]
+    gated = [path for path in changed if needs_fragment((path,), gated_prefixes)]
     if not gated:
         ok_lines.append(
-            f"✓ changelog gate: no {' or '.join(GATED_PREFIXES)} changes — no fragment required"
+            f"✓ changelog gate: no {' or '.join(gated_prefixes)} changes — no fragment required"
         )
     else:
         new_names = set(retyped.values())
@@ -812,9 +893,9 @@ def gate_failures(
                     [
                         f"no changelog fragment for {len(gated)} changed file(s) under {prefixes}",
                         *_listed(gated),
-                        f"add {FRAGMENT_DIR}/<name>.<type>.md — <name> is the issue number when "
+                        f"add {fragment_dir}/<name>.<type>.md — <name> is the issue number when "
                         f"there is one, a short slug otherwise; for <type>, {_VOCABULARY}",
-                        "the gate reads committed history — an unstaged fragment does not count",
+                        "the gate reads committed history unless run with --worktree",
                     ]
                 )
             )
@@ -830,13 +911,21 @@ def gate_failures(
             "because apply folds the fragments into it"
         )
     else:
-        rotation = is_empty_block(head_block) and _release_count(head_lines) > _release_count(
-            base_lines
+        # A base with no [Unreleased] heading has no changelog to rotate: the
+        # pull request that creates one is not a release, so it is never read
+        # as a rotation and its deleted fragments are still checked.
+        base_has_heading = unreleased_span(base_lines) is not None
+        rotation = (
+            base_has_heading
+            and is_empty_block(head_block)
+            and _release_count(head_lines) > _release_count(base_lines)
         )
         if head_block == base_block:
             ok_lines.append("✓ [Unreleased]: untouched")
         elif rotation:
             ok_lines.append("✓ [Unreleased]: empty (rotation)")
+        elif not base_has_heading and is_empty_block(head_block):
+            ok_lines.append("✓ [Unreleased]: empty (new changelog)")
         elif set(changed) == {"CHANGELOG.md"} and _bullet_count(head_block) <= _bullet_count(
             base_block
         ):
@@ -848,7 +937,7 @@ def gate_failures(
         else:
             failures.append(
                 "this PR adds to ## [Unreleased] by hand — move the entry into "
-                f"{FRAGMENT_DIR}/<name>.<type>.md; corrections to existing bullets go in a "
+                f"{fragment_dir}/<name>.<type>.md; corrections to existing bullets go in a "
                 "CHANGELOG-only PR"
             )
 
@@ -908,18 +997,19 @@ def _flattened(text: str) -> str:
     return " ".join(text.split())
 
 
-def tag_probe(run: Runner) -> TagProbe:
+def tag_probe(run: Runner, tag_prefix: str = "v") -> TagProbe:
     """Bind the pre-tag top-up's tag question to git.
 
     The tag is asked of the remote rather than of the local refs: a CI checkout
     fetches no tags by default, so a local answer would say "untagged" about
     every release ever cut. A call that fails raises ``ProbeError`` instead of
     reporting "no tag", which is the difference between a shape that was
-    confirmed and one that merely could not be refuted.
+    confirmed and one that merely could not be refuted. *tag_prefix* is the
+    tree's, so the connectors changelog asks for ``osprey-connectors-v<version>``.
     """
 
     def tagged(version: str) -> bool:
-        argv = ["git", "ls-remote", "--tags", "origin", f"refs/tags/v{version}"]
+        argv = ["git", "ls-remote", "--tags", "origin", f"refs/tags/{tag_prefix}{version}"]
         result = run(argv)
         if result.returncode != 0:
             raise ProbeError(f"{' '.join(argv)} failed — {_flattened(result.stderr)}")
@@ -986,19 +1076,39 @@ def parse_name_status(stdout: str) -> list[tuple[str, str]]:
     return [(fields[index], fields[index + 1]) for index in range(0, len(fields) - 1, 2)]
 
 
-def _check(directory: Path, changelog: Path, base: str, run: Runner) -> int:
+#: One tree as ``check`` and ``apply`` see it: the tree, its fragment
+#: directory and its changelog on disk.
+Target = tuple[Tree, Path, Path]
+
+
+def _fragment_label(tree: Tree) -> str:
+    """The tree's fragment directory as a contributor would type it."""
+    return f"{tree.prefix}{FRAGMENT_DIR}"
+
+
+def _check(targets: Sequence[Target], base: str, run: Runner, worktree: bool = False) -> int:
     """Run the gate against the diff between *base*'s merge base and HEAD.
 
+    With *worktree* the diff runs to the working tree instead, and untracked
+    files count as added, so staged, unstaged and untracked changes are judged.
+
     Git answers the diff, the range's commit messages (for the
-    ``Retires-fragment`` trailers), the base changelog, and — through ``tag_probe`` —
-    whether the newest release section already carries a tag, which is what the
-    pre-tag top-up shape turns on.
+    ``Retires-fragment`` trailers), each tree's base changelog, and — through
+    ``tag_probe`` — whether a tree's newest release section already carries its
+    tag, which is what the pre-tag top-up shape turns on.
+
+    The first target is gated whatever the diff holds; each one after it only
+    when the diff reaches into it, under a heading naming it, since its report
+    lines are relative to its own root.
     """
-    fragments, errors = validate_dir(directory)
-    for error in errors:
-        _emit(error)
-    if not errors:
-        print(f"✓ {FRAGMENT_DIR}: {len(fragments)} fragment(s) valid")
+    errors: list[str] = []
+    for tree, directory, _ in targets:
+        fragments, tree_errors = validate_dir(directory)
+        for error in tree_errors:
+            _emit(error)
+        if not tree_errors:
+            print(f"✓ {_fragment_label(tree)}: {len(fragments)} fragment(s) valid")
+        errors += tree_errors
 
     def environment_error(message: str) -> int:
         """Exit 2, saying so without hiding the fragment errors already printed.
@@ -1029,49 +1139,76 @@ def _check(directory: Path, changelog: Path, base: str, run: Runner) -> int:
         )
     point = merge_base.stdout.strip()
 
-    diff_argv = ["git", "diff", "--name-status", "-z", "--no-renames", point, "HEAD"]
+    diff_argv = ["git", "diff", "--name-status", "-z", "--no-renames", point]
+    if not worktree:
+        diff_argv.append("HEAD")
     diff = run(diff_argv)
     if diff.returncode != 0:
         return environment_error(f"{' '.join(diff_argv)} failed\n{diff.stderr.strip()}")
     pairs = parse_name_status(diff.stdout)
-    # "changed" is every path the pull request touched, whatever git did to it:
-    # deleting a module is as much a user-visible change as editing one.
-    changed = [path for _, path in pairs]
-    added = [path for status, path in pairs if status.startswith("A")]
-    deleted = [path for status, path in pairs if status.startswith("D")]
+    if worktree:
+        # Untracked files join the diff as added, so every tree's path filter
+        # below reads them exactly as it reads a committed addition.
+        others_argv = ["git", "ls-files", "-z", "--others", "--exclude-standard"]
+        others = run(others_argv)
+        if others.returncode != 0:
+            return environment_error(f"{' '.join(others_argv)} failed\n{others.stderr.strip()}")
+        pairs += [("A", path) for path in others.stdout.split("\0") if path]
 
     log_argv = ["git", "log", "--format=%B", f"{point}..HEAD"]
     log = run(log_argv)
     if log.returncode != 0:
         return environment_error(f"{' '.join(log_argv)} failed\n{log.stderr.strip()}")
+    retired = retired_fragments(log.stdout)
 
-    show_argv = ["git", "show", f"{point}:CHANGELOG.md"]
-    show = run(show_argv)
-    if show.returncode != 0:
-        return environment_error(f"{' '.join(show_argv)} failed\n{show.stderr.strip()}")
+    failed = False
+    for index, (tree, _, changelog) in enumerate(targets):
+        # "changed" is every path the pull request touched, whatever git did to
+        # it: deleting a module is as much a user-visible change as editing one.
+        changed = tree_paths(tree, (path for _, path in pairs))
+        if index and not changed:
+            continue
+        added = tree_paths(tree, (path for status, path in pairs if status.startswith("A")))
+        deleted = tree_paths(tree, (path for status, path in pairs if status.startswith("D")))
+        if index:
+            print(f"{tree.root}/ (its own CHANGELOG.md, {tree.tag_prefix}* tags):")
 
-    try:
-        head_text = changelog.read_text(encoding="utf-8")
-    except (OSError, UnicodeDecodeError) as exc:
-        return environment_error(f"cannot read {changelog}\n{exc}")
+        if "CHANGELOG.md" in added:
+            # The pull request that creates the tree's changelog: the base has
+            # none, which is the empty base gate_failures already reads.
+            base_text = ""
+        else:
+            show_argv = ["git", "show", f"{point}:{tree.prefix}CHANGELOG.md"]
+            show = run(show_argv)
+            if show.returncode != 0:
+                return environment_error(f"{' '.join(show_argv)} failed\n{show.stderr.strip()}")
+            base_text = show.stdout
 
-    failures, ok_lines = gate_failures(
-        changed,
-        added,
-        deleted,
-        head_text,
-        show.stdout,
-        tag_probe(run),
-        retired_fragments(log.stdout),
-    )
-    for line in ok_lines:
-        print(line)
-    for failure in failures:
-        _emit(failure)
-    return 1 if errors or failures else 0
+        try:
+            head_text = changelog.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError) as exc:
+            return environment_error(f"cannot read {changelog}\n{exc}")
+
+        failures, ok_lines = gate_failures(
+            changed,
+            added,
+            deleted,
+            head_text,
+            base_text,
+            tag_probe(run, tree.tag_prefix),
+            retired,
+            tree.gated,
+            _fragment_label(tree),
+        )
+        for line in ok_lines:
+            print(line)
+        for failure in failures:
+            _emit(failure)
+        failed = failed or bool(failures)
+    return 1 if errors or failed else 0
 
 
-def _apply(directory: Path, changelog: Path) -> int:
+def _apply(directory: Path, changelog: Path, tree: Tree = FRAMEWORK_TREE) -> int:
     """Fold every fragment in *directory* into *changelog* and delete them."""
     fragments, errors = validate_dir(directory)
     if errors:
@@ -1124,7 +1261,7 @@ def _apply(directory: Path, changelog: Path) -> int:
 
     for line in report:
         print(line)
-    print(f"stage with: git add -A {FRAGMENT_DIR}/ CHANGELOG.md")
+    print(f"stage with: git add -A {_fragment_label(tree)}/ {tree.prefix}CHANGELOG.md")
     return 0
 
 
@@ -1149,17 +1286,41 @@ def main(argv: list[str] | None = None, run: Runner | None = None) -> int:
     )
     check_parser.add_argument("--dir", help=f"fragment directory (default: {FRAGMENT_DIR}/)")
     check_parser.add_argument("--changelog", help="changelog to read (default: CHANGELOG.md)")
+    check_parser.add_argument(
+        "--worktree", action="store_true", help="judge the working tree, not HEAD"
+    )
 
     apply_parser = subcommands.add_parser("apply", help="fold the fragments in (release)")
     apply_parser.add_argument("--changelog", help="changelog to write (default: CHANGELOG.md)")
     apply_parser.add_argument("--dir", help=f"fragment directory (default: {FRAGMENT_DIR}/)")
+    roots = ", ".join(repr(tree.root) for tree in TREES[1:])
+    for sub in (check_parser, apply_parser):
+        sub.add_argument(
+            "--root",
+            choices=[tree.root for tree in TREES],
+            help=f"the tree whose changelog to use, relative to the repository ({roots}); "
+            f"--dir and --changelog then default inside it",
+        )
 
     args = parser.parse_args(argv)
-    directory = Path(args.dir) if args.dir else REPO_ROOT / FRAGMENT_DIR
-    changelog = Path(args.changelog) if args.changelog else REPO_ROOT / "CHANGELOG.md"
+    if args.root is not None:
+        tree = next(tree for tree in TREES if tree.root == args.root)
+    else:
+        tree = FRAMEWORK_TREE
+    base_dir = REPO_ROOT / tree.root
+    directory = Path(args.dir) if args.dir else base_dir / FRAGMENT_DIR
+    changelog = Path(args.changelog) if args.changelog else base_dir / "CHANGELOG.md"
     if args.command == "apply":
-        return _apply(directory, changelog)
-    return _check(directory, changelog, args.base, run or _run)
+        return _apply(directory, changelog, tree)
+    if args.root is None and not (args.dir or args.changelog):
+        # The pull-request gate: every tree, each at its default location.
+        targets = [
+            (each, REPO_ROOT / each.root / FRAGMENT_DIR, REPO_ROOT / each.root / "CHANGELOG.md")
+            for each in TREES
+        ]
+    else:
+        targets = [(tree, directory, changelog)]
+    return _check(targets, args.base, run or _run, args.worktree)
 
 
 if __name__ == "__main__":

@@ -9,7 +9,6 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from osprey.mcp_server.ariel.server_context import initialize_ariel_context
 from osprey.services.ariel_search.attachments import attachment_id_for
 from tests.mcp_server.ariel.conftest import (
     KEYSET_ENTRY_ID,
@@ -18,6 +17,7 @@ from tests.mcp_server.ariel.conftest import (
     get_tool_fn,
     keyset_attachment_rows,
     make_mock_entry,
+    patch_ariel_service,
 )
 from tests.mcp_server.conftest import assert_raises_error
 
@@ -39,13 +39,6 @@ def _entry_get():
     from osprey.mcp_server.ariel.tools.entry import entry_get
 
     return get_tool_fn(entry_get)
-
-
-def _setup_registry(tmp_path, monkeypatch):
-    monkeypatch.chdir(tmp_path)
-    ariel: dict = {"database": {"uri": "postgresql://localhost/test"}}
-    (tmp_path / "config.yml").write_text(json.dumps({"ariel": ariel}))
-    initialize_ariel_context()
 
 
 def _item(caption: str | None = LONG_CAPTION, filename: str = "beam-profile.png") -> dict:
@@ -102,10 +95,7 @@ def _service(
 
 async def _call(service, attachment_id: str):
     with (
-        patch(
-            "osprey.mcp_server.ariel.server_context.ARIELContext.service",
-            new=AsyncMock(return_value=service),
-        ),
+        patch_ariel_service(service),
         patch(
             "osprey.mcp_server.ariel.tools.attachment._read_stored_row",
             new=service.stored_row,
@@ -133,8 +123,8 @@ def _blocks(result) -> tuple[dict, Any]:
 # ---------------------------------------------------------------------------
 
 
-async def test_view_returns_json_and_image_block(tmp_path, monkeypatch):
-    _setup_registry(tmp_path, monkeypatch)
+async def test_view_returns_json_and_image_block(ariel_registry):
+    ariel_registry()
     service = _service(_row(), _entry())
 
     payload, image = _blocks(await _call(service, ATT_ID))
@@ -156,15 +146,15 @@ async def test_view_returns_json_and_image_block(tmp_path, monkeypatch):
     service.repository.get_entry.assert_awaited_once_with(ENTRY_ID)
 
 
-async def test_view_size_bytes_null_when_original_not_stored(tmp_path, monkeypatch):
-    _setup_registry(tmp_path, monkeypatch)
+async def test_view_size_bytes_null_when_original_not_stored(ariel_registry):
+    ariel_registry()
     payload, _ = _blocks(await _call(_service(_row(size_bytes=None), _entry()), ATT_ID))
     assert payload["size_bytes"] is None
     assert payload["rendition_size"] == len(RENDITION)
 
 
-async def test_view_upstream_caption_only(tmp_path, monkeypatch):
-    _setup_registry(tmp_path, monkeypatch)
+async def test_view_upstream_caption_only(ariel_registry):
+    ariel_registry()
     payload, _ = _blocks(
         await _call(_service(_row(), _entry(caption="Screen shot of the profile")), ATT_ID)
     )
@@ -172,19 +162,16 @@ async def test_view_upstream_caption_only(tmp_path, monkeypatch):
     assert payload["caption_source"] == "upstream"
 
 
-async def test_view_through_fastmcp_client_carries_image_block(tmp_path, monkeypatch):
+async def test_view_through_fastmcp_client_carries_image_block(ariel_registry):
     """On the wire the tool answers with a text block and an image block."""
     from fastmcp import Client
 
     from osprey.mcp_server.ariel.server import mcp
 
-    _setup_registry(tmp_path, monkeypatch)
+    ariel_registry()
     _attachment_view()  # registers the tool
     service = _service(_row(), _entry())
-    with patch(
-        "osprey.mcp_server.ariel.server_context.ARIELContext.service",
-        new=AsyncMock(return_value=service),
-    ):
+    with patch_ariel_service(service):
         async with Client(mcp) as client:
             result = await client.call_tool("attachment_view", {"attachment_id": ATT_ID})
 
@@ -230,8 +217,8 @@ async def test_view_summary_equals_entry_get_item():
         ATT_ID.upper(),
     ],
 )
-async def test_invalid_id_is_validation_error_without_echo(tmp_path, monkeypatch, bad_id):
-    _setup_registry(tmp_path, monkeypatch)
+async def test_invalid_id_is_validation_error_without_echo(bad_id, ariel_registry):
+    ariel_registry()
     service = _service(_row(), _entry())
     with assert_raises_error(error_type="validation_error") as ctx:
         await _call(service, bad_id)
@@ -260,31 +247,31 @@ def _string_fields(value: Any) -> list[str]:
 # ---------------------------------------------------------------------------
 
 
-async def test_unknown_id_is_not_found(tmp_path, monkeypatch):
-    _setup_registry(tmp_path, monkeypatch)
+async def test_unknown_id_is_not_found(ariel_registry):
+    ariel_registry()
     with assert_raises_error(error_type="not_found") as ctx:
         await _call(_service(None, _entry()), ATT_ID)
     assert ATT_ID not in ctx["envelope"]["error_message"]
 
 
-async def test_reader_failure_is_not_found(tmp_path, monkeypatch):
+async def test_reader_failure_is_not_found(ariel_registry):
     from osprey.services.ariel_search.exceptions import DatabaseQueryError
 
-    _setup_registry(tmp_path, monkeypatch)
+    ariel_registry()
     service = _service(None, _entry())
     service.repository.get_rendition = AsyncMock(side_effect=DatabaseQueryError("no table"))
     with assert_raises_error(error_type="not_found"):
         await _call(service, ATT_ID)
 
 
-async def test_missing_entry_is_not_found(tmp_path, monkeypatch):
-    _setup_registry(tmp_path, monkeypatch)
+async def test_missing_entry_is_not_found(ariel_registry):
+    ariel_registry()
     with assert_raises_error(error_type="not_found"):
         await _call(_service(_row(), None), ATT_ID)
 
 
-async def test_entry_without_the_item_is_not_found(tmp_path, monkeypatch):
-    _setup_registry(tmp_path, monkeypatch)
+async def test_entry_without_the_item_is_not_found(ariel_registry):
+    ariel_registry()
     entry = make_mock_entry(
         entry_id=ENTRY_ID,
         attachments=[{"url": "https://elog.example/files/other.png", "type": "image/png"}],
@@ -323,15 +310,15 @@ async def test_entry_without_the_item_is_not_found(tmp_path, monkeypatch):
         ),
     ],
 )
-async def test_non_viewable_is_no_results(tmp_path, monkeypatch, overrides, message):
-    _setup_registry(tmp_path, monkeypatch)
+async def test_non_viewable_is_no_results(overrides, message, ariel_registry):
+    ariel_registry()
     with assert_raises_error(error_type="no_results") as ctx:
         await _call(_service(_row(**overrides), _entry()), ATT_ID)
     assert ctx["envelope"]["error_message"] == message
 
 
-async def test_no_results_keeps_filename_out_of_the_message(tmp_path, monkeypatch):
-    _setup_registry(tmp_path, monkeypatch)
+async def test_no_results_keeps_filename_out_of_the_message(ariel_registry):
+    ariel_registry()
     row = _row(
         copy_status="skipped",
         skip_reason="copy_on_ingest_mode",
@@ -365,9 +352,9 @@ async def test_no_results_keeps_filename_out_of_the_message(tmp_path, monkeypatc
         ),
     ],
 )
-async def test_row_without_rendition_is_no_results(tmp_path, monkeypatch, overrides, message):
+async def test_row_without_rendition_is_no_results(overrides, message, ariel_registry):
     """get_rendition finds no rendition; the by-id row says why, never not_found."""
-    _setup_registry(tmp_path, monkeypatch)
+    ariel_registry()
     service = _service(None, _entry(), stored=_stored(**overrides))
     with assert_raises_error(error_type="no_results") as ctx:
         await _call(service, ATT_ID)
@@ -376,8 +363,8 @@ async def test_row_without_rendition_is_no_results(tmp_path, monkeypatch, overri
     assert ATT_ID not in ctx["envelope"]["error_message"]
 
 
-async def test_row_read_failure_is_not_found(tmp_path, monkeypatch):
-    _setup_registry(tmp_path, monkeypatch)
+async def test_row_read_failure_is_not_found(ariel_registry):
+    ariel_registry()
     service = _service(None, _entry())
     service.stored_row = AsyncMock(side_effect=RuntimeError("connection reset"))
     with assert_raises_error(error_type="not_found"):
@@ -462,7 +449,7 @@ async def test_read_stored_row_none_without_copy_state_or_row():
 # ---------------------------------------------------------------------------
 
 
-async def test_serving_spawns_no_child_process(tmp_path, monkeypatch):
+async def test_serving_spawns_no_child_process(monkeypatch, ariel_registry):
     """The tool serves stored bytes only: no render worker, no picture preparation."""
     from osprey.imaging import render as render_module
     from osprey.services.ariel_search.attachments import prepare as prepare_module
@@ -473,7 +460,7 @@ async def test_serving_spawns_no_child_process(tmp_path, monkeypatch):
     async def forbidden_async(*_args, **_kwargs):
         raise AssertionError("attachment_view must never start a child process")
 
-    _setup_registry(tmp_path, monkeypatch)
+    ariel_registry()
     monkeypatch.setattr(asyncio, "create_subprocess_exec", forbidden_async)
     monkeypatch.setattr(asyncio, "create_subprocess_shell", forbidden_async)
     monkeypatch.setattr(render_module, "_spawn", forbidden_async)

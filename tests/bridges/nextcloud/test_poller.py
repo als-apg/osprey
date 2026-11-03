@@ -33,9 +33,9 @@ from osprey.bridges.nextcloud_talk import (
     RoomTypeUnresolved,
     TalkClient,
 )
-from osprey.bridges.nextcloud_talk.client import LAST_GIVEN_HEADER
 from osprey.bridges.nextcloud_talk.poller import RoomPoller
 from osprey.bridges.nextcloud_talk.rooms import BACKOFF_CAP
+from tests.bridges.nextcloud.conftest import ocs
 
 ROOM = "roomA"
 
@@ -55,15 +55,6 @@ hanging the suite."""
 def _message(message_id, text="hi"):
     """A minimal Talk chat message. The poller passes these through untouched."""
     return {"id": message_id, "token": ROOM, "actorId": "alice", "message": text}
-
-
-def _ocs(data, *, last_given=None):
-    headers = {} if last_given is None else {LAST_GIVEN_HEADER: str(last_given)}
-    return httpx.Response(
-        200,
-        json={"ocs": {"meta": {"status": "ok", "statuscode": 200}, "data": data}},
-        headers=headers,
-    )
 
 
 class FakeTalk:
@@ -100,7 +91,7 @@ class FakeTalk:
             payload = {"type": self.room_type, "displayName": "Ops"}
             if self.last_message_id is not None:
                 payload["lastMessage"] = {"id": self.last_message_id}
-            return _ocs(payload)
+            return ocs(payload)
 
         self.requested.append(int(request.url.params["lastKnownMessageId"]))
         if self.stop_after is not None and len(self.requested) >= self.stop_after:
@@ -112,8 +103,8 @@ class FakeTalk:
             return httpx.Response(httpx.codes.NOT_MODIFIED)
         if isinstance(answer, tuple):
             messages, last_given = answer
-            return _ocs(messages, last_given=last_given)
-        return _ocs(answer)
+            return ocs(messages, last_given=last_given)
+        return ocs(answer)
 
 
 class FakeRuntime:
@@ -348,17 +339,28 @@ def test_an_idle_poll_advances_nothing(tmp_path):
 # ==========================================================================
 
 
-def test_talks_own_cursor_hint_is_preferred(tmp_path):
-    """``X-Chat-Last-Given`` accounts for messages Talk considered but did not
-    return, so it may legitimately run ahead of the batch's highest id."""
-    talk = FakeTalk(chat=[([_message(11)], 20), None])
+@pytest.mark.parametrize(
+    ("hint", "offset", "requested"),
+    [
+        # ``X-Chat-Last-Given`` accounts for messages Talk considered but did not
+        # return, so it may legitimately run ahead of the batch's highest id.
+        pytest.param(20, 20, [10, 20], id="talks-own-hint-is-preferred"),
+        # A server answering with a cursor behind the one asked for would otherwise
+        # make the same batch arrive on every poll.
+        pytest.param(5, 10, [10, 10], id="hint-behind-the-request-cannot-loop-forever"),
+    ],
+)
+def test_talks_cursor_hint_is_followed_only_when_it_is_ahead_of_the_request(
+    tmp_path, hint, offset, requested
+):
+    talk = FakeTalk(chat=[([_message(11)], hint), None])
     poller, _, offsets = _harness(tmp_path, talk, seed=10)
 
     poller.poll_once()
     poller.poll_once()
 
-    assert offsets.get(ROOM) == 20
-    assert talk.requested == [10, 20]
+    assert offsets.get(ROOM) == offset
+    assert talk.requested == requested
 
 
 def test_the_highest_id_is_the_fallback_when_talk_sends_no_cursor(tmp_path):
@@ -368,19 +370,6 @@ def test_the_highest_id_is_the_fallback_when_talk_sends_no_cursor(tmp_path):
     poller.poll_once()
 
     assert offsets.get(ROOM) == 13
-
-
-def test_a_cursor_hint_behind_the_request_cannot_loop_forever(tmp_path):
-    """A server answering with a cursor behind the one asked for would otherwise
-    make the same batch arrive on every poll."""
-    talk = FakeTalk(chat=[([_message(11)], 5), None])
-    poller, _, offsets = _harness(tmp_path, talk, seed=10)
-
-    poller.poll_once()
-    poller.poll_once()
-
-    assert offsets.get(ROOM) == 10
-    assert talk.requested == [10, 10]
 
 
 def test_a_message_without_a_usable_id_is_still_dispatched(tmp_path):

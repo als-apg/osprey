@@ -364,21 +364,26 @@ def _validate_section(
         if not isinstance(entry, dict):
             problems.append(f"{where}: entry must be a mapping, got {type(entry).__name__}")
             continue
-        for field in required:
-            if _clean(entry.get(field)) is None:
-                problems.append(f"{where}: {field!r} must be a non-empty string")
-        for field in optional:
-            if entry.get(field) is not None and _clean(entry[field]) is None:
-                problems.append(f"{where}: {field!r} must be a non-empty string when present")
-        for field in numeric:
-            if entry.get(field) is not None and _tolerance(entry[field]) is None:
-                problems.append(f"{where}: {field!r} must be a number >= 0 when present")
-        for field in tolerances:
-            if entry.get(field) is not None and _settle(entry[field]) is None:
-                problems.append(
-                    f"{where}: {field!r} must be a number >= 0 or {{relative: <number >= 0>}} "
-                    "when present"
-                )
+        problems.extend(
+            f"{where}: {field!r} must be a non-empty string"
+            for field in required
+            if _clean(entry.get(field)) is None
+        )
+        problems.extend(
+            f"{where}: {field!r} must be a non-empty string when present"
+            for field in optional
+            if entry.get(field) is not None and _clean(entry[field]) is None
+        )
+        problems.extend(
+            f"{where}: {field!r} must be a number >= 0 when present"
+            for field in numeric
+            if entry.get(field) is not None and _tolerance(entry[field]) is None
+        )
+        problems.extend(
+            f"{where}: {field!r} must be a number >= 0 or {{relative: <number >= 0>}} when present"
+            for field in tolerances
+            if entry.get(field) is not None and _settle(entry[field]) is None
+        )
         unknown = [name for name in entry if name not in known]
         if unknown:
             problems.append(f"{where}: unknown key(s) {unknown!r}; expected only {sorted(known)!r}")

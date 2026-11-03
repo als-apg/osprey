@@ -10,11 +10,13 @@ remember them.
 
 from __future__ import annotations
 
+import warnings
+
 import pytest
 
 from osprey.models.provider_registry import get_provider_registry
 from osprey.models.providers.asksage import AskSageProviderAdapter
-from osprey.models.providers.base import KEYLESS_API_KEY_PLACEHOLDER, BaseProvider
+from osprey.models.providers.base import KEYLESS_API_KEY_PLACEHOLDER, BaseProvider, declares
 from osprey.models.providers.health import HealthResult, failure_reason
 from osprey.models.providers.litellm_delegating import LiteLLMDelegatingProvider
 
@@ -349,3 +351,77 @@ class TestRequiredFlagsAreDeclared:
         for name, provider_class in _registered_providers():
             for flag in BaseProvider._REQUIRED_FLAGS:
                 assert isinstance(getattr(provider_class, flag), bool), (name, flag)
+
+
+class _UndeclaredFlags(BaseProvider):
+    """A shared base that sets one capability flag of each value and leaves the rest.
+
+    It names no provider, so the required-flag check at class definition leaves
+    it alone and the two remaining flags stay ``NotImplemented``.
+    """
+
+    requires_api_key = True
+    supports_proxy = False
+
+
+class TestDeclares:
+    """A capability flag reads as declared only when the class sets it to True."""
+
+    def test_a_flag_set_true_is_declared(self):
+        assert _UndeclaredFlags.declares("requires_api_key") is True
+
+    def test_a_flag_set_false_is_not_declared(self):
+        assert _UndeclaredFlags.declares("supports_proxy") is False
+
+    def test_an_undeclared_flag_is_not_declared_and_never_converts_the_sentinel(self):
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            assert _UndeclaredFlags.declares("requires_base_url") is False
+            assert _UndeclaredFlags.declares("requires_model_id") is False
+        assert _UndeclaredFlags.requires_base_url is NotImplemented
+
+    def test_an_instance_reads_the_same_way(self):
+        assert _UndeclaredFlags().declares("requires_api_key") is True
+        assert _UndeclaredFlags().declares("requires_base_url") is False
+
+
+class _Plain:
+    """A registered class that does not subclass BaseProvider."""
+
+    name = "plain"
+
+
+class TestDeclaresOnAClassThatIsNotABaseProvider:
+    """A class the registry accepts without BaseProvider declares no flag."""
+
+    def test_a_missing_flag_is_not_declared(self):
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            assert declares(_Plain, "requires_api_key") is False
+            assert declares(_Plain, "requires_base_url") is False
+
+    def test_a_base_provider_subclass_reads_the_same_as_its_classmethod(self):
+        assert declares(_UndeclaredFlags, "requires_api_key") is True
+        assert declares(_UndeclaredFlags, "supports_proxy") is False
+        assert declares(_UndeclaredFlags, "requires_base_url") is False
+
+
+class TestUndeclaredFlagsInTheResolvers:
+    """The resolvers read an undeclared flag as not required, without converting it."""
+
+    def test_an_undeclared_endpoint_flag_resolves_to_the_callers_value(self):
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            assert _UndeclaredFlags.effective_base_url(None) is None
+            assert _UndeclaredFlags.resolve_base_url(None) is None
+            assert _UndeclaredFlags.resolve_base_url("https://site.example") == (
+                "https://site.example"
+            )
+
+    def test_an_undeclared_key_flag_substitutes_the_placeholder(self):
+        class _NoKeyFlag(BaseProvider):
+            description = "Leaves requires_api_key undeclared"
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            assert _NoKeyFlag.effective_api_key(None) == KEYLESS_API_KEY_PLACEHOLDER

@@ -1,5 +1,5 @@
 // @ts-check
-/* OSPREY Web Terminal — Simple-mode chat: copy a reply, export the conversation.
+/* OSPREY Web Terminal — operator chat: copy a reply, export the conversation.
  *
  * Two things an operator takes out of the chat, both as Markdown.
  *
@@ -9,7 +9,7 @@
  * rebuilds it from the lifecycle bus (chat-events.js) as the frames arrive. The
  * rendered text is the fallback when no source was captured.
  *
- * The conversation. The export button in the session bar downloads the whole
+ * The conversation. The Export button in the Agent bar downloads the whole
  * transcript. It is read from the server with fetchHistory, not taken from the
  * log, so it is complete even when the page joined the conversation part-way.
  * Each tool call is one line with its decision and outcome, and no payloads.
@@ -22,11 +22,13 @@
 import { facilityDayKey } from '/design-system/js/facility-time.js';
 
 import { fetchHistory } from './chat-client.js';
+import { barButton } from './chat-console.js';
+import { endsTurn } from './chat-frames.js';
 import { emitChat, onChat } from './chat-events.js';
 import { button, elem } from './chat-dom.js';
 import { chatIcon } from './chat-icons.js';
 import { systemFrame } from './chat-system.js';
-import { HIDDEN_TOOL_KEYS, PLAN_TOOL_KEY, QUESTION_TOOL_KEY, toolKey } from './chat-tool-vocab.js';
+import { HIDDEN_TOOL_KEYS, QUESTION_TOOL_KEY, toolKey } from './chat-tool-vocab.js';
 
 /** @typedef {import('./chat-client.js').ChatTurn} ChatTurn */
 /** @typedef {import('./chat-features.js').ChatFeatureContext} ChatFeatureContext */
@@ -46,26 +48,26 @@ const REVOKE_MS = 1000;
 
 /**
  * Whether a main-agent `tool_use` ends the reply's open text block. Mirrors the
- * renderer: the plan card ends it, a hidden or question tool does not, and
- * every other tool does.
+ * renderer: a hidden or question tool does not, and every other tool does.
  * @param {Record<string, any>} event
  * @returns {boolean}
  */
 function toolEndsText(event) {
   const key = toolKey(event.tool_name_raw ?? event.tool_name);
-  if (key === PLAN_TOOL_KEY) return true;
   return key !== QUESTION_TOOL_KEY && !HIDDEN_TOOL_KEYS.has(key);
 }
 
 /**
- * Whether a frame ends a reply: its result, a session reset that drops the
- * turn, or an error that ends the turn.
- * @param {Record<string, any>} event
+ * Whether a frame ends a reply: one that ends the turn, or a session reset
+ * that drops it.
+ * @param {Record<string, any>} event  a history record, shaped as a ChatEvent
  * @returns {boolean}
  */
 function endsReply(event) {
-  if (event.type === 'result' || event.type === 'session_reset') return true;
-  return event.type === 'error' && event.error_type !== 'AssistantMessageError';
+  return (
+    event.type === 'session_reset' ||
+    endsTurn(/** @type {import('./chat-client.js').ChatEvent} */ (event))
+  );
 }
 
 /**
@@ -105,7 +107,11 @@ export function initChatExport(ctx) {
    */
   function lastAgentEntry() {
     for (let node = ctx.messages.lastElementChild; node; node = node.previousElementSibling) {
-      if (node instanceof HTMLElement && node.classList.contains('op-entry') && node.classList.contains('assistant')) {
+      if (
+        node instanceof HTMLElement &&
+        node.classList.contains('op-entry') &&
+        node.classList.contains('assistant')
+      ) {
         return node;
       }
     }
@@ -263,8 +269,8 @@ export function initChatExport(ctx) {
 
   // ---- The conversation, as a file ---- //
 
-  const exportButton = button('op-export', 'Export');
-  exportButton.title = 'Download the conversation as Markdown';
+  const exportButton = barButton('op-export', 'share', 'Export');
+  exportButton.title = 'Export: download the conversation as Markdown';
   exportButton.addEventListener('click', () => void exportConversation());
   ctx.bar.append(exportButton);
 

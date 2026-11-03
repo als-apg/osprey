@@ -28,6 +28,41 @@ export const AGENT_ACTIVITY_FRAME = 'agent_activity';
 export const ARRANGE_TOOL = 'arrange_workspace';
 
 /**
+ * The CANOPY tool the panel proxy mirrors as one history row per call (see
+ * routes/workspace_activity.py). Its frame names the batch the agent sent and
+ * the status the tool returned, under `target.workspace`.
+ */
+export const WORKSPACE_TOOL = 'set_workspace';
+
+/**
+ * @typedef {object} WorkspaceBatchRow
+ * @property {{ cmd: string, key?: string }[]} [commands] the commands as sent,
+ *   each verb with the key, ref, tool or group id it names
+ * @property {number} [more] how many commands past the listed ones
+ * @property {string} [status] done | pending | refused as returned, or the
+ *   proxy's own error | unanswered
+ * @property {string} [reason] why a batch was refused
+ */
+
+/**
+ * Subject of a set_workspace row: the commands, then the returned status.
+ * `close_others` reads "close others"; a refused batch names its reason.
+ * @param {WorkspaceBatchRow | undefined} batch
+ * @returns {string}
+ */
+function formatWorkspaceBatch(batch) {
+  const commands = (batch?.commands ?? []).map((c) => {
+    const verb = String(c.cmd).replaceAll('_', ' ');
+    return c.key ? `${verb} ${c.key}` : verb;
+  });
+  if (batch?.more) commands.push(`+${batch.more} more`);
+  const listed = commands.length ? commands.join(', ') : 'a batch';
+  const status = batch?.status || 'unanswered';
+  const outcome = batch?.reason ? `${status}: ${batch.reason}` : status;
+  return `${listed} (${outcome})`;
+}
+
+/**
  * Verb per panel action, keyed on the synthetic tool names the panel routes
  * record for agent-origin gestures (see routes/panels.py).
  * @type {Record<string, string>}
@@ -36,7 +71,10 @@ const PANEL_VERBS = {
   remove_panel_from_rail: 'agent removed',
   add_panel_to_rail: 'agent made available',
   open_panel: 'agent opened',
-  close_panel: 'agent closed',
+  open_panel_set: 'agent opened',
+  drop_panel: 'agent moved',
+  close_panel_tab: 'agent closed',
+  close_panel_tile: 'agent closed tile',
   register_panel: 'agent added',
 };
 
@@ -70,12 +108,23 @@ export function formatActivity(frame, opts = {}) {
       return { verb: 'agent changed config', subject: t.detail || frame.tool };
     case 'ui':
       return { verb: 'agent moved window', subject: t.detail || frame.tool };
+    case 'review':
+      return { verb: 'code review', subject: t.detail || frame.tool };
     case 'panel': {
       if (frame.tool === ARRANGE_TOOL) {
         // A lone arrange row (in history, or the first frame of a burst) has
         // no count to report; only a coalesced run names how many tiles moved.
         const n = opts.count ?? 1;
         return { verb: 'agent arranged', subject: n > 1 ? `workspace (${n} tiles)` : 'workspace' };
+      }
+      if (frame.tool === WORKSPACE_TOOL) {
+        // The batch rides beside the shared target fields, so it is read
+        // through a widened view rather than the broadcast typedef.
+        const view = /** @type {{ workspace?: WorkspaceBatchRow }} */ (/** @type {unknown} */ (t));
+        return {
+          verb: `agent sent ${label(t.panel || 'canopy')}`,
+          subject: formatWorkspaceBatch(view.workspace),
+        };
       }
       const verb = PANEL_VERBS[frame.tool];
       if (verb) return { verb, subject: label(t.panel) };

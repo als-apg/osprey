@@ -358,7 +358,10 @@ function parseScalar(raw, type) {
  * @returns {unknown[]|null}
  */
 function parseValueList(raw, itemType) {
-  const parts = raw.trim().split(/[\s,]+/).filter(Boolean);
+  const parts = raw
+    .trim()
+    .split(/[\s,]+/)
+    .filter(Boolean);
   /** @type {unknown[]} */
   const accepted = [];
   for (const part of parts) {
@@ -801,7 +804,8 @@ function buildSegmented(node, seed) {
   // The option actually active at construction time (the seed's matching
   // option, else the first) — the "constructor-seed state" setValue falls
   // back to below, both for an absent value and a non-matching one.
-  const initialSelected = seed !== undefined && options.includes(String(seed)) ? String(seed) : options[0];
+  const initialSelected =
+    seed !== undefined && options.includes(String(seed)) ? String(seed) : options[0];
   let selected = initialSelected;
 
   const el = h('div', {
@@ -1253,7 +1257,13 @@ export function renderSchemaForm(formEl, schema, opts) {
     const rowEl = h('div', { class: 'form-row' });
     rowEl.style.setProperty('--cols', String(rowNames.length));
     for (const name of rowNames) {
-      const labeled = buildLabeledField(root, name, properties[name], required.has(name), undefined);
+      const labeled = buildLabeledField(
+        root,
+        name,
+        properties[name],
+        required.has(name),
+        undefined
+      );
       fields.push({ name, collect: labeled.collect });
       fieldRegistry[name] = { el: labeled.el, setValue: labeled.setValue };
       rowEl.appendChild(labeled.el);

@@ -60,7 +60,6 @@ from fastmcp.server.middleware.middleware import Middleware
 from mcp.types import CallToolRequestParams
 
 import osprey
-from osprey.audit import writer
 from osprey.build.modes import VALID_CHANNEL_FINDER_MODES
 from osprey.cli.templates.manager import TemplateManager
 from osprey.mcp_server import audit_middleware as am
@@ -204,8 +203,8 @@ def cloned_render(tmp_path_factory) -> dict:
 
 
 @pytest.fixture
-def audited(cloned_render, tmp_path, monkeypatch):
-    """Point the audit middleware at the rendered project, writing to *tmp_path*.
+def audited(cloned_render, recorded_entries, monkeypatch):
+    """Point the audit middleware at the rendered project; yields ``recorded_entries``.
 
     Clears every marker the middleware and the identity ladder read, so a test
     that does not set one is really exercising the absent case rather than
@@ -214,7 +213,6 @@ def audited(cloned_render, tmp_path, monkeypatch):
     for marker in (
         TERMINAL_USER_ENV,
         AUDIT_IDENTITY_ENV,
-        writer.AUDIT_WRITER_ENV,
         am.POSTURE_ENV,
         am.POSTURE_SOURCE_ENV,
         am.POSTURE_SESSION_ENV,
@@ -223,10 +221,8 @@ def audited(cloned_render, tmp_path, monkeypatch):
         monkeypatch.delenv(marker, raising=False)
     monkeypatch.setenv(am.CONFIG_ENV, str(cloned_render["config"]))
 
-    audit_root = tmp_path / "var" / "audit"
-    monkeypatch.setattr(writer, "audit_dir", lambda: audit_root)
     am.reset_audit_state()
-    yield audit_root
+    yield recorded_entries
     am.reset_audit_state()
 
 
@@ -274,13 +270,10 @@ async def _refused(tool: str) -> ToolError:
     return excinfo.value
 
 
-def _records(audit_root: Path, surface: str) -> list[dict]:
-    from osprey_connectors.identity import acting_identity
-
-    path = audit_root / acting_identity() / f"{surface}.jsonl"
-    if not path.exists():
-        return []
-    return [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
+def _records(recorded_entries, surface: str) -> list[dict]:
+    """Every audit entry the record holds for *surface*, oldest first."""
+    entries = sorted(recorded_entries("audit"), key=lambda e: e.ts)
+    return [dict(e.body) for e in entries if e.body["surface"] == surface]
 
 
 def _base_ctx() -> dict:
@@ -333,7 +326,7 @@ class TestFastmcpFloorDependency:
 
         A rename on fastmcp's side turns ``AuditMiddleware.on_call_tool`` into a
         method nothing ever calls: the class still installs, every call is still
-        served, and neither the ledger nor the clamp does anything at all.
+        served, and neither the audit record nor the clamp does anything at all.
         """
         assert issubclass(am.AuditMiddleware, Middleware)
         assert hasattr(Middleware, "on_call_tool")
@@ -515,7 +508,10 @@ class TestExtendsCloneClamps:
 
         await _refused("channel_write")
 
-        assert _records(audited, clone)[0]["detail"] == am.CLAMP_SOURCE_LOADED
+        # The backstop detail is ``clamp=<source> reason=<r>[ target=<t>]``.
+        detail = _records(audited, clone)[0]["detail"].split()
+        assert detail[0] == am.CLAMP_SOURCE_LOADED
+        assert detail[1] == "reason=readonly_run"
 
     async def test_a_clone_read_tool_still_runs_under_the_sandbox_posture(
         self, audited, monkeypatch
@@ -588,7 +584,9 @@ class TestMissingHookConfigFloor:
 
         await _refused("channel_write")
 
-        assert _records(no_hook_config, CLONE)[0]["detail"] == am.CLAMP_SOURCE_FLOOR
+        detail = _records(no_hook_config, CLONE)[0]["detail"].split()
+        assert detail[0] == am.CLAMP_SOURCE_FLOOR
+        assert detail[1] == "reason=readonly_run"
 
     @pytest.mark.usefixtures("no_hook_config")
     async def test_the_mixed_tool_survives_the_floor(self, monkeypatch):
@@ -815,34 +813,31 @@ class TestProjectEnvTransportIsHonored:
         assert stdio["env_transport_before_dotenv"] is None
         assert stdio["env_transport_after_dotenv"] is None
 
-    def test_the_predicate_reports_the_transport_the_project_env_asked_for(self, transport_probes):
-        assert transport_probes["http"]["predicate"] == "http"
-        assert transport_probes["stdio"]["predicate"] == startup.STDIO_TRANSPORT
-
-    def test_the_settings_snapshot_taken_at_server_import_already_has_it(self, transport_probes):
-        """Not a duplicate of the predicate: this is the value fastmcp froze.
-
-        ``fastmcp.settings.transport`` read inside the server module's own body
-        is the earliest moment the snapshot exists. Asserting it here pins that
-        the ``.env`` was loaded before that import, not merely before the
-        predicate call at the install site.
-        """
-        assert transport_probes["http"]["transport_at_server_module_import"] == "http"
-        assert (
-            transport_probes["stdio"]["transport_at_server_module_import"]
-            == startup.STDIO_TRANSPORT
-        )
-
-    def test_the_transport_server_run_actually_selects_is_the_same_value(self, transport_probes):
-        """``server.run()`` with no argument resolves the same settings object.
-
-        This is what makes the skip honest: a deployment whose env skips the
-        audit middleware is visibly not speaking stdio. If fastmcp ever stopped
-        defaulting ``run()``'s transport from ``settings``, the predicate and the
-        served transport would part company here and nowhere else.
-        """
-        assert transport_probes["http"]["served_transport"] == "http"
-        assert transport_probes["stdio"]["served_transport"] == startup.STDIO_TRANSPORT
+    @pytest.mark.parametrize(
+        "probe_key",
+        [
+            pytest.param("predicate", id="the-predicate"),
+            # Not a duplicate of the predicate: this is the value fastmcp froze.
+            # ``fastmcp.settings.transport`` read inside the server module's own body
+            # is the earliest moment the snapshot exists. Asserting it here pins that
+            # the ``.env`` was loaded before that import, not merely before the
+            # predicate call at the install site.
+            pytest.param(
+                "transport_at_server_module_import", id="the-settings-snapshot-at-server-import"
+            ),
+            # ``server.run()`` with no argument resolves the same settings object.
+            # This is what makes the skip honest: a deployment whose env skips the
+            # audit middleware is visibly not speaking stdio. If fastmcp ever stopped
+            # defaulting ``run()``'s transport from ``settings``, the predicate and the
+            # served transport would part company here and nowhere else.
+            pytest.param("served_transport", id="the-transport-server-run-selects"),
+        ],
+    )
+    def test_the_project_env_transport_is_reported_by_every_reading(
+        self, transport_probes, probe_key
+    ):
+        assert transport_probes["http"][probe_key] == "http"
+        assert transport_probes["stdio"][probe_key] == startup.STDIO_TRANSPORT
 
     def test_the_middleware_is_installed_for_stdio_and_skipped_for_http(self, transport_probes):
         assert "AuditMiddleware" in transport_probes["stdio"]["middleware"]

@@ -177,6 +177,7 @@ def _ruff_banned_api_lines(filename: str) -> list[int]:
         input=_PLANTED,
         capture_output=True,
         text=True,
+        timeout=120,
     )
     assert result.returncode in (0, 1), result.stderr
     return sorted(d["location"]["row"] for d in json.loads(result.stdout) if d["code"] == "TID251")

@@ -60,9 +60,18 @@ class TestBuildClaudeLaunchArgv:
             "--mcp-config=.mcp.json",
         ]
 
-    def test_a_pin_with_surrounding_whitespace_is_refused_not_trimmed(self):
+    @pytest.mark.parametrize(
+        "pin",
+        [
+            pytest.param("  2.1.146  ", id="surrounding-whitespace-not-trimmed"),
+            pytest.param("", id="empty-string"),
+            pytest.param("   ", id="whitespace-only"),
+            pytest.param(2.1, id="non-string"),
+        ],
+    )
+    def test_a_pin_that_is_not_an_exact_version_is_refused(self, pin):
         with pytest.raises(ValueError, match="exact version"):
-            build_claude_launch_argv({"cli_version": "  2.1.146  "})
+            build_claude_launch_argv({"cli_version": pin})
 
     def test_setting_sources_always_emitted(self):
         """Both the pinned and unpinned prefixes end with the isolation flag."""
@@ -75,18 +84,6 @@ class TestBuildClaudeLaunchArgv:
         chat --no-pin``) yet still restricts setting sources to project scope."""
         argv = build_claude_launch_argv({"cli_version": "2.1.146"}, no_pin=True)
         assert argv == ["claude", "--setting-sources", "project", *_MCP]
-
-    def test_empty_string_pin_raises(self):
-        with pytest.raises(ValueError, match="exact version"):
-            build_claude_launch_argv({"cli_version": ""})
-
-    def test_whitespace_only_pin_raises(self):
-        with pytest.raises(ValueError, match="exact version"):
-            build_claude_launch_argv({"cli_version": "   "})
-
-    def test_non_string_pin_raises(self):
-        with pytest.raises(ValueError, match="exact version"):
-            build_claude_launch_argv({"cli_version": 2.1})
 
     def test_no_pin_flag_skips_pin_validation(self):
         """With ``no_pin=True`` an invalid pin is irrelevant — it is never read."""
@@ -235,8 +232,45 @@ class TestBuildSessionArgv:
                 {"resume_id": "r"},
                 ["/abs/claude", "--setting-sources", "project", *_MCP, "--resume", "r"],
             ),
+            (
+                build_claude_launch_argv({}),
+                {
+                    "print_mode": True,
+                    "effort": "high",
+                    "thinking_display": "summarized",
+                    "prompt": "hi",
+                },
+                [
+                    *_PREFIX,
+                    "--print",
+                    "--effort",
+                    "high",
+                    "--thinking-display",
+                    "summarized",
+                    "hi",
+                ],
+            ),
+            (
+                build_claude_launch_argv({}),
+                {"effort": "high", "thinking_display": "summarized", "prompt": "hi"},
+                [*_PREFIX, "--effort", "high", "hi"],
+            ),
+            (
+                build_claude_launch_argv({}),
+                {"print_mode": True, "thinking_display": "", "prompt": "hi"},
+                [*_PREFIX, "--print", "hi"],
+            ),
         ],
-        ids=["new-session-effort", "pinned-resume", "chat", "no-pin-print", "resolved-pty"],
+        ids=[
+            "new-session-effort",
+            "pinned-resume",
+            "chat",
+            "no-pin-print",
+            "resolved-pty",
+            "print-thinking",
+            "interactive-thinking-ignored",
+            "empty-thinking-omitted",
+        ],
     )
     def test_parity_table(self, base, kwargs, expected):
         assert build_session_argv(base, **kwargs) == expected
@@ -251,6 +285,12 @@ class TestBuildSessionArgv:
     def test_resume_and_session_id_together_are_refused(self):
         with pytest.raises(ValueError):
             build_session_argv(_PREFIX, resume_id="r", session_id="k")
+
+    def test_thinking_display_leaves_the_prompt_last(self):
+        argv = build_session_argv(
+            _PREFIX, print_mode=True, thinking_display="omitted", prompt="what now"
+        )
+        assert argv[-3:] == ["--thinking-display", "omitted", "what now"]
 
     def test_empty_resume_and_effort_are_omitted(self):
         assert build_session_argv(_PREFIX, resume_id="", effort="") == _PREFIX

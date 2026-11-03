@@ -1,6 +1,6 @@
 // @ts-check
 /**
- * Unit tests for the Simple view's slash-command suggestions (slash-complete.js):
+ * Unit tests for the chat's slash-command suggestions (slash-complete.js):
  *   ./node_modules/.bin/vitest run tests/interfaces/web_terminal/slash-complete.test.mjs
  *
  * The keyboard contract is what is pinned: the list opens only on a single
@@ -11,12 +11,33 @@
 
 import { test, expect, describe, beforeEach, vi } from 'vitest';
 
-import { attachSlashComplete } from '../../../src/osprey/interfaces/web_terminal/static/js/slash-complete.js';
+import {
+  attachSlashComplete,
+  kindTag,
+} from '../../../src/osprey/interfaces/web_terminal/static/js/slash-complete.js';
 
 const COMMANDS = [
-  { name: 'diagnose', description: 'Investigate failures', argument_hint: '', kind: 'skill' },
-  { name: 'session-report', description: 'Write a report', argument_hint: '', kind: 'skill' },
-  { name: 'setup-mode', description: 'Inspect configuration', argument_hint: '', kind: 'skill' },
+  {
+    name: 'diagnose',
+    description: 'Investigate failures',
+    argument_hint: '',
+    kind: 'skill',
+    agent_invocable: true,
+  },
+  {
+    name: 'session-report',
+    description: 'Write a report',
+    argument_hint: '',
+    kind: 'skill',
+    agent_invocable: false,
+  },
+  {
+    name: 'setup-mode',
+    description: 'Inspect configuration',
+    argument_hint: '',
+    kind: 'skill',
+    agent_invocable: true,
+  },
   { name: 'ops:nested', description: 'Nested command', argument_hint: '<pv>', kind: 'command' },
 ];
 
@@ -79,6 +100,23 @@ describe('attachSlashComplete', () => {
     expect(rows()[0].getAttribute('aria-selected')).toBe('true');
     expect(rows()[1].querySelector('.op-slash-hint')?.textContent).toBe('<pv>');
     expect(rows()[0].querySelector('.op-slash-hint')).toBeNull();
+  });
+
+  test('each suggestion says its kind, and a skill whether the agent may use it too', async () => {
+    type('/');
+    await flush();
+    const tags = rows().map((r) => {
+      const tag = /** @type {HTMLElement} */ (r.querySelector('.op-slash-kind'));
+      return [tag.textContent, tag.dataset.kind, Boolean(tag.querySelector('.op-icon'))];
+    });
+    expect(tags).toEqual([
+      ['skill', 'skill', true],
+      ['command', 'command', false],
+      ['skill · manual', 'skill', true],
+      ['skill', 'skill', true],
+    ]);
+    const builtin = kindTag({ name: 'clear', description: '', argument_hint: '', kind: 'builtin' });
+    expect(builtin.textContent).toBe('built-in');
   });
 
   test('typing narrows by fuzzy match', async () => {
@@ -196,7 +234,11 @@ describe('attachSlashComplete', () => {
     type('');
     /** @type {(v: any) => void} */
     let settle = () => {};
-    load.mockReturnValueOnce(new Promise((resolve) => { settle = resolve; }));
+    load.mockReturnValueOnce(
+      new Promise((resolve) => {
+        settle = resolve;
+      })
+    );
     type('/');
     expect(load).toHaveBeenCalledTimes(2);
     // The previous list is shown while the new one is on its way.

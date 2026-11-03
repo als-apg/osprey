@@ -2,22 +2,15 @@
 
 from unittest.mock import MagicMock, PropertyMock, patch
 
-from osprey.mcp_server.channel_finder_middle_layer.server_context import (
-    initialize_cf_ml_context,
-)
-from tests.mcp_server.channel_finder_middle_layer.conftest import get_tool_fn
-from tests.mcp_server.conftest import assert_raises_error, extract_response_dict
+import pytest
+
+from tests.mcp_server.conftest import assert_raises_error, extract_response_dict, get_tool_fn
+
+pytestmark = pytest.mark.usefixtures("cf_ml_context")
 
 
-def _setup(tmp_path, monkeypatch):
-    monkeypatch.chdir(tmp_path)
-    (tmp_path / "config.yml").write_text("{}")
-    initialize_cf_ml_context()
-
-
-def test_inspect_fields_returns_fields(tmp_path, monkeypatch):
+def test_inspect_fields_returns_fields():
     """Happy path: returns field structure for a system/family."""
-    _setup(tmp_path, monkeypatch)
     mock_db = MagicMock()
     mock_db.inspect_fields.return_value = {
         "Monitor": {"type": "leaf", "description": "Read-only values"},
@@ -41,9 +34,8 @@ def test_inspect_fields_returns_fields(tmp_path, monkeypatch):
     mock_db.inspect_fields.assert_called_once_with("SR", "BPM", None)
 
 
-def test_inspect_fields_with_field_drilldown(tmp_path, monkeypatch):
+def test_inspect_fields_with_field_drilldown():
     """Passing a specific field drills down into subfields."""
-    _setup(tmp_path, monkeypatch)
     mock_db = MagicMock()
     mock_db.inspect_fields.return_value = {
         "X": {"type": "leaf", "description": "Horizontal position"},
@@ -67,9 +59,8 @@ def test_inspect_fields_with_field_drilldown(tmp_path, monkeypatch):
     mock_db.inspect_fields.assert_called_once_with("SR", "BPM", "Monitor")
 
 
-def test_inspect_fields_validation_error(tmp_path, monkeypatch):
+def test_inspect_fields_validation_error():
     """ValueError from database returns validation_error envelope."""
-    _setup(tmp_path, monkeypatch)
     mock_db = MagicMock()
     mock_db.inspect_fields.side_effect = ValueError("Unknown family 'XYZ' in system 'SR'")
     with patch(
@@ -89,9 +80,8 @@ def test_inspect_fields_validation_error(tmp_path, monkeypatch):
     assert "Unknown family" in data["error_message"]
 
 
-def test_inspect_fields_internal_error(tmp_path, monkeypatch):
+def test_inspect_fields_internal_error():
     """Internal error returns standard error envelope."""
-    _setup(tmp_path, monkeypatch)
     mock_db = MagicMock()
     mock_db.inspect_fields.side_effect = Exception("Unexpected failure")
     with patch(

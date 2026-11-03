@@ -78,12 +78,12 @@ _DUMP_KWARGS = [
 
 @pytest.mark.skipif(not yaml.__with_libyaml__, reason="libyaml bindings not installed")
 def test_picks_the_c_dumper_when_libyaml_is_present() -> None:
-    assert yaml_loader.safe_dumper() is yaml.CSafeDumper
+    assert yaml_loader._safe_dumper() is yaml.CSafeDumper
 
 
 def test_dumper_falls_back_to_the_pure_python_dumper(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delattr(yaml, "CSafeDumper", raising=False)
-    assert yaml_loader.safe_dumper() is yaml.SafeDumper
+    assert yaml_loader._safe_dumper() is yaml.SafeDumper
     assert yaml_loader.safe_dump(_EMITTED) == yaml.safe_dump(_EMITTED)
 
 

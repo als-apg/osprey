@@ -11,6 +11,7 @@ import pytest
 from osprey.health import offload
 from osprey.services.ariel_search.enhancement import _offload
 from osprey.services.ariel_search.enhancement._offload import offload_busy, run_blocking
+from tests._live import async_wait_until
 
 pytestmark = pytest.mark.asyncio
 
@@ -66,10 +67,7 @@ async def test_cancelled_await_returns_at_once_and_marks_the_key_busy() -> None:
     finally:
         release.set()
 
-    deadline = time.monotonic() + 5
-    while offload_busy("image_caption") and time.monotonic() < deadline:
-        await asyncio.sleep(0.01)
-    assert offload_busy("image_caption") is False
+    await async_wait_until(lambda: not offload_busy("image_caption"), timeout=5, interval=0.01)
 
 
 async def test_a_completed_call_never_marks_its_key_busy() -> None:

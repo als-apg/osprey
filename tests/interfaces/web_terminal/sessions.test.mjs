@@ -155,10 +155,16 @@ describe('dropdown portal: escaping the dockview tab strip', () => {
   });
 
   test.each([
-    ['Escape', () => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))],
+    [
+      'Escape',
+      () => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })),
+    ],
     // The anchor lives in a scrollable tab strip, so a scroll would strand it.
     ['a scroll', () => window.dispatchEvent(new Event('scroll'))],
-    ['a pointerdown outside the picker', () => document.body.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true }))],
+    [
+      'a pointerdown outside the picker',
+      () => document.body.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true })),
+    ],
   ])('%s closes the dropdown', async (_trigger, dismiss) => {
     stubSessions(RECORDS);
     sessions.initSessionSelector('session-selector');
@@ -239,7 +245,7 @@ describe('renderSessionList: one item per record', () => {
   });
 });
 
-describe('renderSessionList: an old session\'s date', () => {
+describe("renderSessionList: an old session's date", () => {
   afterEach(() => stampFacilityZone(null));
 
   test('a session older than a week shows its date on the facility calendar', async () => {
@@ -283,7 +289,9 @@ describe('renderSessionList: preview escaping', () => {
     sessions.initSessionSelector('session-selector');
     await openPicker();
 
-    const item = /** @type {HTMLElement} */ (document.querySelector('.session-item[data-session-id]'));
+    const item = /** @type {HTMLElement} */ (
+      document.querySelector('.session-item[data-session-id]')
+    );
     const preview = /** @type {HTMLElement} */ (item.querySelector('.session-item-preview'));
 
     // No live <img> was parsed out of the injected markup.
@@ -326,7 +334,9 @@ describe('session selection', () => {
 
     expect(document.getElementById('session-dropdown')).not.toBeNull();
 
-    const item = /** @type {HTMLElement} */ (document.querySelector('.session-item[data-session-id]'));
+    const item = /** @type {HTMLElement} */ (
+      document.querySelector('.session-item[data-session-id]')
+    );
     item.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
 
     expect(document.getElementById('session-dropdown')).toBeNull();

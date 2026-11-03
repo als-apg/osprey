@@ -32,7 +32,8 @@ optional fourth, `render` — see *The plan's own view* below):
    - `description` (str) — human-readable summary.
    - `writes` (bool) — whether the plan moves a channel (vs. read-only).
      Authoring metadata only; it has no effect on whether writes actually
-     happen — that is governed entirely by `control_system.writes_enabled`.
+     happen — that is governed entirely by the `control_system.writes` tier
+     and the owner's switch for the machine.
 
    **Three keys is the whole dict.** Unknown keys are refused, not ignored: the
    loader parses this block with extra keys forbidden, so a stray key rejects
@@ -98,7 +99,7 @@ is the orbit gone.
 The idiom, per device (`orm`'s `build_plan` is the worked version):
 
 ```python
-working_point = float((yield from bps.locate(device))["setpoint"])   # before the try
+working_point = float((yield from bps.loc(device))["setpoint"])   # before the try
 try:
     for step in steps:                               # steps are OFFSETS
         yield from bps.mv(device, working_point + step)
@@ -107,9 +108,11 @@ finally:
     yield from bps.mv(device, working_point)         # never a literal
 ```
 
-`bps.locate` answers `{setpoint, readback}`: where the device was told to go
-and where it is. The working point is the setpoint, because the restore is a
-setpoint write: it restores what was demanded, not a noisy sample.
+`bps.loc` answers `{setpoint, readback}`: where the device was told to go
+and where it is. (`bps.locate` answers the same for several devices at once,
+keyed by device name, so indexing its answer with `"setpoint"` fails.) The
+working point is the setpoint, because the restore is a setpoint write: it
+restores what was demanded, not a noisy sample.
 
 The read bundle holds the moved device **and** the channels it reads. A
 reading only means something next to the setting it was taken at, so a run
@@ -563,8 +566,8 @@ failure downgrades the figure instead of losing it.
    `queue_add(draft_revision)` puts that pinned draft in the queue and
    `queue_start()` begins draining it. Both consult the validation record:
    the plan's content hash is re-checked at enqueue **and** again at queue
-   start, `queue_start` requires `control_system.writes_enabled` plus the
-   launch token, and a human sees an approval prompt. A refusal whose
+   start, `queue_start` requires `control_system.writes: allowed`, the
+   owner's switch and the launch token, and a human sees an approval prompt. A refusal whose
    `detail.code` starts with `session_plan_` (`session_plan_unvalidated`,
    `session_plan_not_in_namespace`) means exactly one thing: re-validate the
    plan and try again. Use `get_run(run_id)` / `get_run_data(run_id, ...)` to

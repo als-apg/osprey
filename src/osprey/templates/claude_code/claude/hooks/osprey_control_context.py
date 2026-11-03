@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# ruff: noqa: T201 -- stdout is this hook's reply to Claude Code
 """
 ---
 name: Control Context
@@ -42,39 +43,68 @@ something the agent's own context does not already hold:
 ```
 --- osprey control-context ---
 target: va  gen: 2
-writes: live=sandbox va=armed
+writes: live=off va=asked
+positions: off="the next write is refused until the chip moves the switch" asked="a person approves the next write" allowed="the login's switch position approves the next write; limits still apply"
+machines: live="Live — writes move hardware" va="Simulator — nothing moves"
 ```
 
 At a session start (``startup``, ``resume``, ``clear`` and ``compact`` alike:
 a rebuilt context is a context that may have lost it) the block describes the
-current state. On a prompt it is emitted only if the target or a write state
-moved since the last emission for this session, marked ``(changed)`` and
-carrying the previous value beside each key that moved:
+current state. On a prompt it is emitted only if the target, a write state or
+a machine's words moved since the last emission for this session, marked
+``(changed)`` and carrying the previous value beside each key that moved:
 
 ```
 --- osprey control-context (changed) ---
 target: live  gen: 3  (was va)
-writes: live=armed (was sandbox) va=armed
+writes: live=allowed (was off) va=asked
+positions: off="the next write is refused until the chip moves the switch" asked="a person approves the next write" allowed="the login's switch position approves the next write; limits still apply"
+machines: live="Live — writes move hardware" va="Simulator — nothing moves"
 ```
 
 An unchanged prompt injects nothing. Nothing in the block asks the agent to do
 anything: the point is that a switch made from the terminal's chip, or a
-narrowing made in the header, reaches the agent as a fact before its next turn,
-so what it holds about the machine is never stale — and so it has no reason to
-re-derive from the record what the harness already told it.
+position moved there, reaches the agent as a fact before its next
+turn, so what it holds about the machine is never stale — and so it has no
+reason to re-derive from the record what the harness already told it.
 
-## The three write states
+## The write states
 
 ``writes`` names every target a session here can reach
-(``osprey_target_state.session_types``), each with one of:
+(``osprey_target_state.session_types``) by its raw key, each with the twin's
+write verdict for this login (``osprey_target_state.write_verdict``):
 
-* ``armed`` — a write proceeds: the deployment arms the target, the process is
-  not a read-only run, and the operator has not narrowed it
-  (``effective_writes_for``).
-* ``sandbox`` — the operator narrowed this target on the chip, or the process
-  is a read-only run. The deployment would arm it; the operator said not now.
-* ``off`` — the deployment's own posture does not arm it (``writes_enabled``
-  false or unstated for its connector type). No operator action lifts it.
+* ``off`` — this login's switch for the machine is off (``switch_off``); the
+  next write is refused until the chip moves the switch.
+* ``asked`` — the verdict allows the write at this position: a person approves
+  the next write.
+* ``allowed`` — the verdict allows the write at this position: the login's
+  switch position approves the next write, and limits still apply.
+* ``refused:<reason>`` — any other refusal, named by its verdict reason
+  (``tier_never``, ``readonly_run``, ``launch_pinned``, ...). In particular
+  ``refused:record_unavailable`` when the switch record cannot be read: the
+  block then says writes are refused, never that a machine is off, because an
+  unreadable switch is not a switch someone turned off.
+
+``asked`` and ``allowed`` are the verdict's own position, so a stored ``allowed``
+under a tier capped at ``asked`` reads ``asked``, and a stored legacy ``on`` reads
+``asked``. The ``positions`` line defines the three position words every time the
+block is emitted, so the block says what its words mean on its own; it is fixed
+text, not part of the remembered state, and never marks a change.
+
+A record file that exists but cannot be read at all still emits — with
+``target: unknown  gen: unknown`` and every machine ``refused:record_unavailable``
+— because that is exactly the state the agent must not assume away. No record
+file at all stays silent: there is nothing to describe.
+
+## The machine words
+
+``machines`` names each target by the words the operator sees for it, keyed by
+the same raw key: ``"Live — writes move hardware"``, ``"Rehearsal —
+nothing moves"`` or ``"Simulator — nothing moves"``. The kind comes from the
+controls server's published report (``osprey_target_state.published_machine_kind``), so the
+stand-in reads ``Rehearsal — nothing moves`` only while this deployment has it
+stood up; a ``standin`` that is not reads as the real machine.
 
 ## Remembering what was emitted
 
@@ -90,8 +120,10 @@ block on every prompt is the cost this hook exists to avoid.
 
 ## Fail-open
 
-Every failure — an unreadable record, an unwritable temp directory, a payload
-that is not JSON — exits 0 with no output. This hook only describes; a turn
+Every failure of the hook itself — an unwritable temp directory, a payload
+that is not JSON, an exception anywhere — exits 0 with no output. (An
+unreadable switch record is not a hook failure: the verdict answers it, and
+the block says so.) This hook only describes; a turn
 must never be held up by its absence.
 
 ## Saying which of those happened
@@ -132,10 +164,38 @@ _SESSION_START = "SessionStart"
 #: The event that emits on change only.
 _USER_PROMPT = "UserPromptSubmit"
 
-#: What ``writes`` says about one target.
-WRITES_ARMED = "armed"
-WRITES_SANDBOX = "sandbox"
+#: What ``writes`` says about one target: the switch is off, the verdict allows
+#: at its position (``asked`` or ``allowed``), or another verdict reason refuses
+#: (``refused:<reason>``).
 WRITES_OFF = "off"
+WRITES_ASKED = "asked"
+WRITES_ALLOWED = "allowed"
+WRITES_REFUSED = "refused"
+
+#: What each position means for the next write, as the ``positions`` line says it.
+POSITION_MEANINGS = {
+    WRITES_OFF: "the next write is refused until the chip moves the switch",
+    WRITES_ASKED: "a person approves the next write",
+    WRITES_ALLOWED: "the login's switch position approves the next write; limits still apply",
+}
+
+#: The verdict reason that reads as ``off`` rather than as a refusal.
+_SWITCH_OFF_REASON = "switch_off"
+
+#: The reason an unreadable record file refuses with.
+_RECORD_UNAVAILABLE = "record_unavailable"
+
+#: The owner-facing words for each machine kind (C-WORDS, D4). The stdlib copy
+#: of ``osprey_connectors.write_target.KIND_BANNERS``: hooks import nothing from
+#: the package, so a test pins the two.
+MACHINE_WORDS = {
+    "real": "Live — writes move hardware",
+    "rehearsal": "Rehearsal — nothing moves",
+    "simulator": "Simulator — nothing moves",
+}
+
+#: What the target line says when the record exists but cannot be read.
+UNKNOWN = "unknown"
 
 #: Session ids are Claude Code's own; only this alphabet reaches a filename.
 _SESSION_ID_CHARS = frozenset("0123456789abcdefABCDEF-_")
@@ -170,31 +230,62 @@ def memo_path(session_id):
     return os.path.join(tempfile.gettempdir(), f"osprey-control-context-{session_id}.json")
 
 
-def _writes_state(hook_input, section, target):
-    """One of the three ``writes`` words for *target*."""
-    if _target_state.effective_writes_for(hook_input, section, target):
-        return WRITES_ARMED
-    if _target_state.writes_posture(section, target) is True:
-        return WRITES_SANDBOX
-    return WRITES_OFF
+def _writes_word(verdict):
+    """The ``writes`` word for one twin verdict: its position when it allows."""
+    if verdict.allowed:
+        return verdict.position
+    if verdict.reason == _SWITCH_OFF_REASON:
+        return WRITES_OFF
+    return f"{WRITES_REFUSED}:{verdict.reason}"
+
+
+def _machine_words(hook_input, target, kind):
+    """The owner-facing words for *target*, from its published kind."""
+    if kind not in MACHINE_WORDS:
+        kind = _target_state.published_machine_kind(target, hook_input=hook_input)
+    return MACHINE_WORDS.get(kind, MACHINE_WORDS["real"])
+
+
+def _record_unreadable(hook_input):
+    """Whether a record file exists here but cannot be read."""
+    path = _target_state.record_path(hook_input)
+    if not path or not os.path.exists(path):
+        return False
+    _record, status = _target_state.read_record_status(hook_input)
+    return status == "unreadable"
 
 
 def current_state(hook_input):
-    """``{target, generation, writes: {target: word}}``, or ``None`` with no record."""
+    """``{target, generation, writes, machines}``, or ``None`` with no record.
+
+    ``writes`` and ``machines`` are keyed by the raw target key. Each write
+    word is the twin's verdict for this login; a record file that exists but
+    cannot be read gives ``unknown`` identity fields and the verdict's
+    ``record_unavailable`` — never ``off``.
+    """
     if _target_state is None:
         return None
     record = _target_state.read_record(hook_input)
-    if record is None:
+    if record is None and not _record_unreadable(hook_input):
         return None
     config = load_osprey_config(hook_input)
     section = config.get("control_system") if isinstance(config, dict) else None
+    login = _target_state.acting_identity()
     writes = {}
+    machines = {}
     for target in sorted(_target_state.session_types(section)):
-        writes[target] = _writes_state(hook_input, section, target)
+        verdict = _target_state.write_verdict(section, target, owner=login, hook_input=hook_input)
+        if record is None and verdict.reason == _SWITCH_OFF_REASON:
+            # A record the reader rejected is not a record with the switch off.
+            writes[target] = f"{WRITES_REFUSED}:{_RECORD_UNAVAILABLE}"
+        else:
+            writes[target] = _writes_word(verdict)
+        machines[target] = _machine_words(hook_input, target, verdict.kind)
     return {
-        "target": record.get("target"),
-        "generation": record.get("generation"),
+        "target": UNKNOWN if record is None else record.get("target"),
+        "generation": UNKNOWN if record is None else record.get("generation"),
         "writes": writes,
+        "machines": machines,
     }
 
 
@@ -239,6 +330,16 @@ def render_block(state, previous=None):
             entry += f" (was {old_writes[target]})"
         words.append(entry)
     lines.append("writes: " + " ".join(words))
+    meanings = " ".join(f'{word}="{meaning}"' for word, meaning in POSITION_MEANINGS.items())
+    lines.append(f"positions: {meanings}")
+    names = []
+    old_machines = previous.get("machines", {}) if changed else {}
+    for target, label in state["machines"].items():
+        entry = f'{target}="{label}"'
+        if changed and target in old_machines and old_machines[target] != label:
+            entry += f' (was "{old_machines[target]}")'
+        names.append(entry)
+    lines.append("machines: " + " ".join(names))
     return "\n".join(lines)
 
 
@@ -272,9 +373,9 @@ def _log(payload, status, detail=""):
     writes its memo into ``TMPDIR``, and a silent exit is its normal outcome for
     four different reasons — so "the agent got no block" and "the hook never ran"
     look identical from outside. :func:`osprey_hook_log.log_hook` is the channel
-    that separates them: off by default, and when on it appends one record per
-    run to ``<project>/.claude/hooks/hook_debug.jsonl``, which is also what the
-    web terminal's hook-activity feed reads.
+    that separates them: off by default, and when on it records one hook
+    ``debug`` entry per run on the agent record, which is also what the web
+    terminal's hook-activity feed reads.
 
     Wrapped the way every other hook wraps it (``osprey_writes_check``'s deny
     path is the precedent): a diagnostic may never cost the block it describes.

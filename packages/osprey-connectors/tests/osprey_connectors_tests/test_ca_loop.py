@@ -6,13 +6,16 @@ Access or touches the shared loop.
 """
 
 import asyncio
+import logging
 import os
 import sys
+import threading
 import types
 
 import pytest
 
 from osprey_connectors.control_system._ca_loop import CA_ENV_KEYS, CaLoop
+from osprey_connectors.control_system._ca_loop import logger as ca_loop_logger
 
 GATEWAY_A = {
     "EPICS_CA_ADDR_LIST": "gw-a",
@@ -241,3 +244,37 @@ def test_a_forked_child_is_refused_rather_than_left_to_hang(ca_loop):
     os.waitpid(pid, 0)
     with os.fdopen(read, "rb") as child:
         assert child.read() == b"refused"
+
+
+def test_stop_closes_the_loop_once_its_thread_has_ended(ca_loop):
+    ca_loop.run_sync(_nothing(), timeout=5)
+
+    ca_loop.stop()
+
+    assert ca_loop.loop.is_closed()
+    assert not ca_loop._thread.is_alive()
+
+
+def test_stop_twice_is_a_no_op(ca_loop):
+    ca_loop.stop()
+    ca_loop.stop()
+
+    assert ca_loop.loop.is_closed()
+
+
+def test_a_thread_that_does_not_stop_leaves_the_loop_open(ca_loop, caplog):
+    release = threading.Event()
+    ca_loop.call_soon(release.wait)
+
+    with caplog.at_level(logging.WARNING, logger=ca_loop_logger.name):
+        ca_loop.stop()
+
+    try:
+        assert not ca_loop.loop.is_closed()
+        assert [record.getMessage() for record in caplog.records] == [
+            "the Channel Access loop thread did not stop within 2 s; its loop is left open"
+        ]
+    finally:
+        release.set()
+    ca_loop.stop()
+    assert ca_loop.loop.is_closed()

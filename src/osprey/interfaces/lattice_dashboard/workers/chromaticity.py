@@ -53,7 +53,7 @@ def build_figure(
 
     dp_pct = dp * 100  # Convert to percent
 
-    # Baseline (dashed)
+    # The baseline, dashed
     if baseline is not None:
         bdp, bnux, bnuy = baseline
         bdp_pct = bdp * 100
@@ -76,7 +76,7 @@ def build_figure(
             ),
         )
 
-    # Current (solid)
+    # The current lattice, solid
     fig.add_trace(
         go.Scatter(
             x=dp_pct,

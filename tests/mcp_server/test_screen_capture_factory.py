@@ -79,8 +79,12 @@ def test_linux_no_display():
             get_backend()
 
 
-def test_linux_missing_mss():
-    """Linux with DISPLAY but missing mss raises BackendUnavailableError."""
+@pytest.mark.parametrize(
+    ("module", "named"),
+    [pytest.param("mss", "mss", id="mss"), pytest.param("Xlib", "python-xlib", id="xlib")],
+)
+def test_linux_missing_dependency(module, named):
+    """Linux with DISPLAY but a missing capture library raises BackendUnavailableError naming it."""
     reset_backend()
 
     import builtins
@@ -88,8 +92,8 @@ def test_linux_missing_mss():
     real_import = builtins.__import__
 
     def mock_import(name, *args, **kwargs):
-        if name == "mss":
-            raise ImportError("No module named 'mss'")
+        if name == module:
+            raise ImportError(f"No module named '{module}'")
         return real_import(name, *args, **kwargs)
 
     with (
@@ -100,32 +104,7 @@ def test_linux_missing_mss():
         mock_sys.platform = "linux"
         from osprey.mcp_server.workspace.tools.screen_capture_backends import get_backend
 
-        with pytest.raises(BackendUnavailableError, match="mss"):
-            get_backend()
-
-
-def test_linux_missing_xlib():
-    """Linux with DISPLAY but missing python-xlib raises BackendUnavailableError."""
-    reset_backend()
-
-    import builtins
-
-    real_import = builtins.__import__
-
-    def mock_import(name, *args, **kwargs):
-        if name == "Xlib":
-            raise ImportError("No module named 'Xlib'")
-        return real_import(name, *args, **kwargs)
-
-    with (
-        patch("osprey.mcp_server.workspace.tools.screen_capture_backends.sys") as mock_sys,
-        patch.dict("os.environ", {"DISPLAY": ":0"}),
-        patch("builtins.__import__", side_effect=mock_import),
-    ):
-        mock_sys.platform = "linux"
-        from osprey.mcp_server.workspace.tools.screen_capture_backends import get_backend
-
-        with pytest.raises(BackendUnavailableError, match="python-xlib"):
+        with pytest.raises(BackendUnavailableError, match=named):
             get_backend()
 
 

@@ -64,7 +64,10 @@ const NO_PLACE = '-';
  * @returns {(string|number)[]}
  */
 function naturalParts(text) {
-  return text.split(/(\d+)/).filter(part => part !== '').map(part => (/^\d+$/.test(part) ? Number(part) : part));
+  return text
+    .split(/(\d+)/)
+    .filter((part) => part !== '')
+    .map((part) => (/^\d+$/.test(part) ? Number(part) : part));
 }
 
 /**
@@ -118,7 +121,8 @@ function rowGroup(i, deviceList, placeList) {
  * @returns {number}
  */
 function compareGroups(a, b) {
-  if (a.key === UNKNOWN || b.key === UNKNOWN) return (a.key === UNKNOWN ? 1 : 0) - (b.key === UNKNOWN ? 1 : 0);
+  if (a.key === UNKNOWN || b.key === UNKNOWN)
+    return (a.key === UNKNOWN ? 1 : 0) - (b.key === UNKNOWN ? 1 : 0);
   if (a.index !== b.index) return a.index < b.index ? -1 : 1;
   return compareNatural(a.label, b.label) || compareNatural(a.key, b.key);
 }
@@ -155,13 +159,21 @@ export function placeChips(deviceList, placeList) {
  * @param {number} [cap] - Per-group display cap.
  * @returns {GroupedField}
  */
-export function groupFieldChannels(channels, deviceList, placeList, commonNames, activePlaces, activeDevices, cap = GROUP_DISPLAY_CAP) {
+export function groupFieldChannels(
+  channels,
+  deviceList,
+  placeList,
+  commonNames,
+  activePlaces,
+  activeDevices,
+  cap = GROUP_DISPLAY_CAP
+) {
   /** @type {Map<string, {group: RowGroup, items: GroupedChannel[]}>} */
   const grouped = new Map();
   let visibleCount = 0;
 
   channels.forEach((ch, i) => {
-    const name = typeof ch === 'string' ? ch : (ch.name || ch.channel || '');
+    const name = typeof ch === 'string' ? ch : ch.name || ch.channel || '';
     const entry = i < deviceList.length ? deviceList[i] : null;
     const device = entry && entry.length >= 2 ? String(entry[1]) : null;
     const commonName = commonNames && i < commonNames.length ? commonNames[i] : null;

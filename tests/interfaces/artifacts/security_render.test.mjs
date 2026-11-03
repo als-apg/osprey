@@ -28,22 +28,11 @@
  * render pipeline in this same file, which would be impossible if the
  * module were mocked here.
  *
- * The MARKDOWN path (Task 6.3) drives the gallery's markdown preview
- * (md-render.js via preview-content.js) with the vendored marked and
- * DOMPurify builds — byte-checked against vendor_manifest.json — so
- * script-bearing agent markdown is proven inert with the real sanitizer.
- * DOMPurify does not sanitise under happy-dom, so it is instantiated on a
- * jsdom window; its output string then lands in this file's happy-dom DOM
- * exactly as the page's innerHTML sink receives it.
+ * The MARKDOWN path lives in security_render_markdown.test.mjs: it needs a
+ * jsdom environment for the real sanitizer.
  */
 
-import { createHash } from 'node:crypto';
-import { readFileSync } from 'node:fs';
-import { createRequire } from 'node:module';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
-
-import { test, expect, describe, beforeAll, beforeEach, afterEach, vi } from 'vitest';
+import { test, expect, describe, beforeEach, afterEach, vi } from 'vitest';
 
 import { qs, byId } from '../_support/dom.mjs';
 
@@ -52,9 +41,7 @@ import {
   setSelectedArtifact,
   setFocusedArtifact,
 } from '../../../src/osprey/interfaces/artifacts/static/js/state.js';
-import {
-  createSidebarRenderer,
-} from '../../../src/osprey/interfaces/artifacts/static/js/render.js';
+import { createSidebarRenderer } from '../../../src/osprey/interfaces/artifacts/static/js/render.js';
 import {
   initTypeRegistry,
   typeBadge,
@@ -67,10 +54,6 @@ import {
   renderTimeseriesView,
 } from '../../../src/osprey/interfaces/artifacts/static/js/timeseries.js';
 import '../../../src/osprey/interfaces/artifacts/static/js/logbook.js';
-import {
-  renderMathInMarkdown,
-  renderMarkdownView,
-} from '../../../src/osprey/interfaces/artifacts/static/js/preview-content.js';
 
 // ---- Shared hostile payload set ---- //
 
@@ -166,16 +149,18 @@ describe('RENDER path (render.js) — hostile metadata in sidebar renders', () =
 
   /** @param {string} payload */
   function makeHostileArtifact(payload) {
-    return [{
-      id: 'r1',
-      title: payload,
-      filename: 'x.png',
-      artifact_type: payload,
-      category: payload,
-      pinned: false,
-      timestamp: '2026-07-04T10:00:00Z',
-      size_bytes: 10,
-    }];
+    return [
+      {
+        id: 'r1',
+        title: payload,
+        filename: 'x.png',
+        artifact_type: payload,
+        category: payload,
+        pinned: false,
+        timestamp: '2026-07-04T10:00:00Z',
+        size_bytes: 10,
+      },
+    ];
   }
 
   beforeEach(() => {
@@ -255,13 +240,25 @@ describe('RENDER path (render.js) — hostile metadata in sidebar renders', () =
   );
 
   test('a hostile registry label is escaped as text in the tree-section header innerHTML sink, typeIcon SVG survives', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
-      json: () => Promise.resolve({ categories: { evilcat: { label: HOSTILE.DQ_ATTR } } }),
-    }));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        json: () => Promise.resolve({ categories: { evilcat: { label: HOSTILE.DQ_ATTR } } }),
+      })
+    );
     await initTypeRegistry();
 
     setArtifacts([
-      { id: 'c1', title: 'Section Test', filename: 'c.png', artifact_type: 'evilcat', category: 'evilcat', pinned: false, timestamp: '2026-07-04T10:00:00Z', size_bytes: 10 },
+      {
+        id: 'c1',
+        title: 'Section Test',
+        filename: 'c.png',
+        artifact_type: 'evilcat',
+        category: 'evilcat',
+        pinned: false,
+        timestamp: '2026-07-04T10:00:00Z',
+        size_bytes: 10,
+      },
     ]);
     const renderer = createSidebarRenderer(makeSidebarCallbacks());
     renderer.renderSidebar();
@@ -310,7 +307,9 @@ describe('PREVIEW path (preview.js) — hostile metadata in the preview pane', (
   test.each(Object.entries(HOSTILE))(
     'a hostile %s payload in title/category/artifact_type is inert in the header badge + title',
     (_name, payload) => {
-      setSelectedArtifact(makeArtifact({ title: payload, category: payload, artifact_type: payload }));
+      setSelectedArtifact(
+        makeArtifact({ title: payload, category: payload, artifact_type: payload })
+      );
       createPreviewRenderer(makePreviewCallbacks()).renderPreview();
 
       const previewContent = byId('preview-content');
@@ -329,7 +328,13 @@ describe('PREVIEW path (preview.js) — hostile metadata in the preview pane', (
     // artifact_type falls through to the plain download-link branch (no
     // mime_type, no recognized type) so renderPreview never fires a real
     // network fetch (unlike "json"/"markdown", which load their own content).
-    setSelectedArtifact(makeArtifact({ artifact_type: 'totally_unrecognized_type', category: 'json', description: HOSTILE.DQ_IMG }));
+    setSelectedArtifact(
+      makeArtifact({
+        artifact_type: 'totally_unrecognized_type',
+        category: 'json',
+        description: HOSTILE.DQ_IMG,
+      })
+    );
     createPreviewRenderer(makePreviewCallbacks()).renderPreview();
 
     const previewContent = byId('preview-content');
@@ -343,19 +348,33 @@ describe('PREVIEW path (preview.js) — hostile metadata in the preview pane', (
   });
 
   test('tool_source (currently-escaped field) renders as inert text — regression pin against future unescaping', () => {
-    setSelectedArtifact(makeArtifact({ artifact_type: 'totally_unrecognized_type', category: 'json', tool_source: HOSTILE.DQ_IMG }));
+    setSelectedArtifact(
+      makeArtifact({
+        artifact_type: 'totally_unrecognized_type',
+        category: 'json',
+        tool_source: HOSTILE.DQ_IMG,
+      })
+    );
     createPreviewRenderer(makePreviewCallbacks()).renderPreview();
 
     const previewContent = byId('preview-content');
     expectNoLiveInjection(previewContent);
     expect(previewContent.innerHTML).not.toContain(HOSTILE.DQ_IMG);
 
-    const metaValues = Array.from(previewContent.querySelectorAll('.preview-meta-value')).map((el) => el.textContent);
+    const metaValues = Array.from(previewContent.querySelectorAll('.preview-meta-value')).map(
+      (el) => el.textContent
+    );
     expect(metaValues).toContain(HOSTILE.DQ_IMG);
   });
 
   test('filename (currently-escaped field) renders as inert text at both the download link and copy-path sinks — regression pin', () => {
-    setSelectedArtifact(makeArtifact({ artifact_type: 'totally_unrecognized_type', category: 'json', filename: HOSTILE.DQ_IMG }));
+    setSelectedArtifact(
+      makeArtifact({
+        artifact_type: 'totally_unrecognized_type',
+        category: 'json',
+        filename: HOSTILE.DQ_IMG,
+      })
+    );
     createPreviewRenderer(makePreviewCallbacks()).renderPreview();
 
     const previewContent = byId('preview-content');
@@ -372,7 +391,14 @@ describe('PREVIEW path (preview.js) — hostile metadata in the preview pane', (
   });
 
   test('a hostile id is percent-encoded at both the "open in new tab" href and the download-link href', () => {
-    setSelectedArtifact(makeArtifact({ id: HOSTILE_ID, artifact_type: 'totally_unrecognized_type', category: 'json', filename: 'x.bin' }));
+    setSelectedArtifact(
+      makeArtifact({
+        id: HOSTILE_ID,
+        artifact_type: 'totally_unrecognized_type',
+        category: 'json',
+        filename: 'x.bin',
+      })
+    );
     createPreviewRenderer(makePreviewCallbacks()).renderPreview();
 
     const previewContent = byId('preview-content');
@@ -406,9 +432,12 @@ describe('TYPES path (types.js) — typeBadge / thumbnailHtml / id-encoding', ()
   afterEach(resetTypeRegistry);
 
   test('typeBadge escapes a hostile registry label to entity-safe text', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
-      json: () => Promise.resolve({ categories: { evil: { label: HOSTILE.DQ_IMG } } }),
-    }));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        json: () => Promise.resolve({ categories: { evil: { label: HOSTILE.DQ_IMG } } }),
+      })
+    );
     await initTypeRegistry();
 
     const result = typeBadge('evil');
@@ -514,7 +543,9 @@ describe('TIMESERIES paths (timeseries.js) — hostile column name', () => {
 
   beforeEach(() => {
     vi.stubGlobal('Plotly', {
-      newPlot: vi.fn((el) => { el.data = []; }),
+      newPlot: vi.fn((el) => {
+        el.data = [];
+      }),
       restyle: vi.fn(),
       relayout: vi.fn(),
       update: vi.fn(),
@@ -529,7 +560,10 @@ describe('TIMESERIES paths (timeseries.js) — hostile column name', () => {
 
   describe('renderTimeseriesTable', () => {
     test('a hostile column name renders as inert text in the <th> header cell', async () => {
-      vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve(makeTableData()) }));
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve(makeTableData()) })
+      );
       const el = document.createElement('div');
 
       await renderTimeseriesTable(el, 'ts1', 0);
@@ -543,10 +577,14 @@ describe('TIMESERIES paths (timeseries.js) — hostile column name', () => {
 
   describe('renderTimeseriesView', () => {
     test('a hostile column name round-trips through the data-ch-name/title/aria-label attribute sinks with no breakout', async () => {
-      vi.stubGlobal('fetch', vi.fn((url) => {
-        if (url.includes('format=chart')) return Promise.resolve({ ok: true, json: () => Promise.resolve(makeChartData()) });
-        return Promise.resolve({ ok: true, json: () => Promise.resolve(makeTableData()) });
-      }));
+      vi.stubGlobal(
+        'fetch',
+        vi.fn((url) => {
+          if (url.includes('format=chart'))
+            return Promise.resolve({ ok: true, json: () => Promise.resolve(makeChartData()) });
+          return Promise.resolve({ ok: true, json: () => Promise.resolve(makeTableData()) });
+        })
+      );
       const container = document.createElement('div');
       document.body.appendChild(container);
 
@@ -569,10 +607,20 @@ describe('TIMESERIES paths (timeseries.js) — hostile column name', () => {
     });
 
     test('the info-bar channel badge escapes a hostile column name, no live element', async () => {
-      vi.stubGlobal('fetch', vi.fn((url) => {
-        if (url.includes('format=chart')) return Promise.resolve({ ok: true, json: () => Promise.resolve(makeChartData({ columns: [HOSTILE.SQ_IMG] })) });
-        return Promise.resolve({ ok: true, json: () => Promise.resolve(makeTableData({ columns: [HOSTILE.SQ_IMG] })) });
-      }));
+      vi.stubGlobal(
+        'fetch',
+        vi.fn((url) => {
+          if (url.includes('format=chart'))
+            return Promise.resolve({
+              ok: true,
+              json: () => Promise.resolve(makeChartData({ columns: [HOSTILE.SQ_IMG] })),
+            });
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve(makeTableData({ columns: [HOSTILE.SQ_IMG] })),
+          });
+        })
+      );
       const container = document.createElement('div');
       document.body.appendChild(container);
 
@@ -613,7 +661,9 @@ describe('LOGBOOK picker path (logbook.js) — hostile artifact id at the checkb
   afterEach(() => {
     // Close the modal (if the test opened one) so logbook.js's module-level
     // `modal` singleton state doesn't leak into a later test.
-    const closeBtn = /** @type {HTMLElement | null} */ (document.querySelector('.logbook-modal-close'));
+    const closeBtn = /** @type {HTMLElement | null} */ (
+      document.querySelector('.logbook-modal-close')
+    );
     if (closeBtn) closeBtn.click();
     setArtifacts([]);
     vi.unstubAllGlobals();
@@ -635,17 +685,24 @@ describe('LOGBOOK picker path (logbook.js) — hostile artifact id at the checkb
 
     // renderPreview() calls the real injectLogbookButtons() internally,
     // which appends the compose-modal trigger to the preview header.
-    const logbookBtn = /** @type {HTMLElement | null} */ (document.querySelector('.logbook-action-btn'));
+    const logbookBtn = /** @type {HTMLElement | null} */ (
+      document.querySelector('.logbook-action-btn')
+    );
     expect(logbookBtn).not.toBeNull();
     if (logbookBtn === null) throw new Error('unreachable: logbookBtn asserted non-null above');
     // Opening the modal fills its model selector from /api/logbook/models.
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
-      ok: true,
-      json: () => Promise.resolve({ provider: 'anthropic', default: '', models: [] }),
-    }));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({ provider: 'anthropic', default: '', models: [] }),
+      })
+    );
     logbookBtn.click(); // opens the compose modal, phase = steering
 
-    const chooseRadio = /** @type {HTMLInputElement | null} */ (document.querySelector('input[name="logbook-artifact-scope"][value="choose"]'));
+    const chooseRadio = /** @type {HTMLInputElement | null} */ (
+      document.querySelector('input[name="logbook-artifact-scope"][value="choose"]')
+    );
     expect(chooseRadio).not.toBeNull();
     if (chooseRadio === null) throw new Error('unreachable: chooseRadio asserted non-null above');
 
@@ -658,7 +715,9 @@ describe('LOGBOOK picker path (logbook.js) — hostile artifact id at the checkb
     expect(list).not.toBeNull();
     if (list === null) throw new Error('unreachable: list asserted non-null above');
 
-    const checkboxes = /** @type {NodeListOf<HTMLInputElement>} */ (list.querySelectorAll('input[type=checkbox]'));
+    const checkboxes = /** @type {NodeListOf<HTMLInputElement>} */ (
+      list.querySelectorAll('input[type=checkbox]')
+    );
     expect(checkboxes.length).toBe(1); // no extra <input> injected by the hostile id
     expect(checkboxes[0].value).toBe(HOSTILE_PICKER_ID); // raw round-trip via the .value property
 
@@ -666,190 +725,5 @@ describe('LOGBOOK picker path (logbook.js) — hostile artifact id at the checkb
     // innerHTML string, so it can never appear as a serialized attribute
     // breakout in the picker's markup.
     expect(list.innerHTML).not.toContain(HOSTILE_PICKER_ID);
-  });
-});
-
-// =========================================================================
-// MARKDOWN path (md-render.js via preview-content.js) — agent-written
-// markdown carrying script, rendered with the vendored marked + DOMPurify.
-// =========================================================================
-
-describe('MARKDOWN path (md-render.js / preview-content.js) — script-bearing markdown', () => {
-  const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
-  const MANIFEST = path.join(REPO_ROOT, 'src/osprey/interfaces/vendor_manifest.json');
-  /** @type {Readonly<Record<string, string>>} */
-  const BUILDS = Object.freeze({
-    marked: 'node_modules/marked/marked.min.js',
-    DOMPurify: 'node_modules/dompurify/dist/purify.min.js',
-  });
-
-  /** @param {string} name */
-  function pinned(name) {
-    const manifest = JSON.parse(readFileSync(MANIFEST, 'utf8'));
-    const asset = manifest.assets.find((/** @type {{ name: string }} */ a) => a.name === name);
-    if (!asset) throw new Error(`vendor_manifest.json names no asset ${name}`);
-    return asset;
-  }
-
-  /** @param {string} name */
-  function buildBytes(name) {
-    return readFileSync(path.join(REPO_ROOT, BUILDS[name]));
-  }
-
-  /**
-   * Evaluate a UMD build as a classic <script> would, then take its global back.
-   * @param {string} name
-   * @returns {any}
-   */
-  function loadClassicScript(name) {
-    new Function('exports', 'module', 'define', 'require', buildBytes(name).toString('utf8'))();
-    const g = /** @type {any} */ (globalThis);
-    const lib = g[name];
-    delete g[name];
-    return lib;
-  }
-
-  /**
-   * A KaTeX stand-in shaped like KaTeX's real output (quoted class/style
-   * attributes, escaped source), so the test sees the markup the swap splices in.
-   */
-  const fakeKatex = {
-    renderToString: (/** @type {string} */ expr, /** @type {{displayMode: boolean}} */ opts) =>
-      `<span class="katex${opts.displayMode ? ' katex-display' : ''}">` +
-      `<span class="katex-html" aria-hidden="true" style="height:0.8em">` +
-      `<span class="mord mathnormal">${escapeForFake(expr)}</span></span></span>`,
-  };
-
-  /** @param {string} s */
-  function escapeForFake(s) {
-    return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-  }
-
-  /** Hostile markdown bodies an agent could write into a .md artifact. */
-  const HOSTILE_MD = {
-    SCRIPT: '# Report\n\n<script>window.__pwned = 1</script>\n\nbody',
-    IMG_ONERROR: 'see <img src=x onerror="window.__pwned=1"> here',
-    JS_LINK: '[click me](javascript:window.__pwned=1)',
-    RAW_JS_ANCHOR: '<a href="javascript:window.__pwned=1">x</a>',
-    IFRAME: '<iframe srcdoc="<script>parent.__pwned=1</script>"></iframe>',
-    SVG_ONLOAD: '<svg onload="window.__pwned=1"><circle r="4"/></svg>',
-    // A math placeholder inside a link target: splicing KaTeX's quoted markup
-    // into the href after sanitizing would break out of the attribute.
-    MATH_IN_HREF: '[x](http://example.com/$a" onmouseover="window.__pwned=1$)',
-  };
-
-  /**
-   * Nothing executable anywhere under `root`.
-   * @param {ParentNode} root
-   */
-  function expectInert(root) {
-    expect(root.querySelector('script')).toBeNull();
-    expect(root.querySelector('iframe')).toBeNull();
-    for (const el of root.querySelectorAll('*')) {
-      for (const attr of Array.from(el.attributes)) {
-        expect(attr.name.startsWith('on'), `${el.tagName} carries ${attr.name}`).toBe(false);
-        if (attr.name === 'href' || attr.name === 'src' || attr.name === 'xlink:href') {
-          expect(attr.value.trim().toLowerCase().startsWith('javascript:')).toBe(false);
-        }
-      }
-    }
-  }
-
-  /** @type {{ marked: any, DOMPurify: any }} */
-  let real;
-
-  beforeAll(() => {
-    // jsdom ships no type declarations; it is loaded untyped on purpose.
-    const { JSDOM } = createRequire(import.meta.url)('jsdom');
-    const window = new JSDOM('').window;
-    real = {
-      marked: loadClassicScript('marked'),
-      DOMPurify: loadClassicScript('DOMPurify')(window),
-    };
-  });
-
-  beforeEach(() => {
-    vi.stubGlobal('marked', real.marked);
-    vi.stubGlobal('DOMPurify', real.DOMPurify);
-    vi.stubGlobal('katex', fakeKatex);
-    delete (/** @type {any} */ (globalThis)).__pwned;
-  });
-
-  afterEach(() => {
-    vi.unstubAllGlobals();
-    document.body.innerHTML = '';
-  });
-
-  for (const name of Object.keys(BUILDS)) {
-    test(`${name} in node_modules is the build the vendor manifest pins`, () => {
-      const digest = createHash('sha256').update(buildBytes(name)).digest('hex');
-      expect(digest).toBe(pinned(name).sha256);
-    });
-  }
-
-  test('the vendor manifest delivers DOMPurify to the artifacts app', () => {
-    expect(pinned('DOMPurify').targets).toContain('artifacts/static/js/vendor/');
-  });
-
-  test('the gallery page loads DOMPurify before its modules', () => {
-    const page = readFileSync(
-      path.join(REPO_ROOT, 'src/osprey/interfaces/artifacts/static/index.html'), 'utf8');
-    const tag = page.indexOf("vendor_url('DOMPurify', '/static/js/vendor/purify.min.js')");
-    expect(tag).toBeGreaterThan(-1);
-    expect(tag).toBeLessThan(page.indexOf('type="module"'));
-  });
-
-  for (const [label, md] of Object.entries(HOSTILE_MD)) {
-    test(`renderMathInMarkdown leaves ${label} inert`, () => {
-      const root = document.createElement('div');
-      root.innerHTML = renderMathInMarkdown(md);
-      expectInert(root);
-    });
-
-    test(`the preview pane renders ${label} with nothing executable`, async () => {
-      vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, text: () => Promise.resolve(md) }));
-      const container = document.createElement('div');
-      document.body.appendChild(container);
-
-      await renderMarkdownView(container, { id: 'm1', filename: 'r.md', artifact_type: 'markdown' });
-
-      const rendered = container.querySelector('.osprey-md-rendered');
-      expect(rendered).not.toBeNull();
-      expectInert(container);
-      expect(/** @type {any} */ (globalThis).__pwned).toBeUndefined();
-    });
-  }
-
-  test('ordinary markdown still renders as markup', () => {
-    const root = document.createElement('div');
-    root.innerHTML = renderMathInMarkdown('# Title\n\n**bold** and [link](https://example.com)\n\n```py\nx = 1\n```');
-    expect(root.querySelector('h1')?.textContent).toBe('Title');
-    expect(root.querySelector('strong')?.textContent).toBe('bold');
-    expect(root.querySelector('a')?.getAttribute('href')).toBe('https://example.com');
-    expect(root.querySelector('pre code')).not.toBeNull();
-  });
-
-  test('math still renders through the sanitizer', () => {
-    const root = document.createElement('div');
-    root.innerHTML = renderMathInMarkdown('Inline $x^2$ and display $$E = mc^2$$ done.');
-    const math = root.querySelectorAll('.katex');
-    expect(math.length).toBe(2);
-    expect(root.querySelector('.katex-display .katex-html')?.getAttribute('style')).toBe('height:0.8em');
-    expect(root.textContent).toContain('x^2');
-    expect(root.textContent).toContain('E = mc^2');
-    expect(root.innerHTML).not.toContain('\x00MATH');
-  });
-
-  test('without DOMPurify the preview shows the markdown as plain text', async () => {
-    vi.stubGlobal('DOMPurify', undefined);
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
-      ok: true, text: () => Promise.resolve(HOSTILE_MD.IMG_ONERROR),
-    }));
-    const container = document.createElement('div');
-
-    await renderMarkdownView(container, { id: 'm1', filename: 'r.md', artifact_type: 'markdown' });
-
-    expect(container.querySelector('img')).toBeNull();
-    expect(container.textContent).toContain('onerror');
   });
 });

@@ -290,7 +290,7 @@ class ExtendedRegistryConfig(RegistryConfig):
        :class:`RegistryConfig` : Base configuration class
     """
 
-    pass  # Marker class - inherits all fields and behavior from RegistryConfig
+    # Marker class - inherits all fields and behavior from RegistryConfig
 
 
 class RegistryConfigProvider(ABC):

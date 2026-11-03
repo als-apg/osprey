@@ -51,7 +51,8 @@ export function isConfirmUp() {
  * Build and show one confirm. The caller's popover stays open beneath it.
  *
  * A spec with a `skipKeyBase` renders the "don't ask again" checkbox above
- * the actions, pre-ticked when the waiver is already recorded (the Shift
+ * the actions (a dialog with none offers no way to mute it), pre-ticked when
+ * the waiver is already recorded (the Shift
  * re-show is where it can be unticked), and the waiver is written the moment
  * the operator confirms — before the POST, because the checkbox answers "ask
  * me next time?", not "did this request succeed?".
@@ -59,12 +60,18 @@ export function isConfirmUp() {
  *          body: (import('./control-target-facts.js').ConfirmRun)[][],
  *          live: string|null, confirmLabel: string,
  *          skipKeyBase?: string|null,
+ *          targetKind?: string|null,
+ *          to?: string|null,
  *          focus?: 'confirm'|'cancel',
  *          onConfirm: (ui: ConfirmUi) => void,
  *          onDismiss?: () => void}} spec
  *   `focus` names the button that has focus when the dialog opens:
  *   `'confirm'` (the default) or `'cancel'`, for a question whose safe answer
- *   is the one a stray Enter should give.
+ *   is the one a stray Enter should give. `targetKind` is the machine kind
+ *   the dialog is about (`real` | `rehearsal` | `simulator`), set on the
+ *   dialog as `data-target-kind`; `to` is the position the move lands on
+ *   (`off` | `asked` | `allowed`), set as `data-to`. The stylesheet tones the
+ *   banner and the confirm button from them. A dialog about no machine has neither.
  */
 export function showConfirm(spec) {
   dismissConfirm();
@@ -79,6 +86,8 @@ export function showConfirm(spec) {
   dialog.setAttribute('role', 'dialog');
   dialog.setAttribute('aria-modal', 'true');
   dialog.setAttribute('aria-labelledby', 'posture-modal-title');
+  if (spec.targetKind) dialog.dataset.targetKind = spec.targetKind;
+  if (spec.to) dialog.dataset.to = spec.to;
 
   const heading = el('div', 'posture-modal-title', spec.title);
   heading.id = 'posture-modal-title';
@@ -109,7 +118,7 @@ export function showConfirm(spec) {
     skipBox = /** @type {HTMLInputElement} */ (document.createElement('input'));
     skipBox.type = 'checkbox';
     skipBox.checked = confirmSkipped(spec.skipKeyBase);
-    skipRow.append(skipBox, el('span', undefined, "Don't ask again for this machine"));
+    skipRow.append(skipBox, el('span', undefined, "Don't ask again on any machine"));
   }
 
   const actions = el('div', 'posture-modal-actions');
@@ -129,6 +138,17 @@ export function showConfirm(spec) {
   active = { overlay, onDismiss: spec.onDismiss };
   mountOverlay(overlay);
 
+  // A key held on the control that raised this dialog keeps auto-repeating
+  // after focus lands here, and a native button turns a repeated Enter into a
+  // click. Only a fresh press may answer the dialog, so a held key can never
+  // arm the machine it was asked about.
+  dialog.addEventListener(
+    'keydown',
+    (event) => {
+      if (event.repeat && (event.key === 'Enter' || event.key === ' ')) event.preventDefault();
+    },
+    true
+  );
   cancel.addEventListener('click', () => dismissConfirm());
   confirm.addEventListener('click', () => {
     if (spec.skipKeyBase && skipBox) rememberConfirmSkip(spec.skipKeyBase, skipBox.checked);
@@ -141,7 +161,7 @@ export function showConfirm(spec) {
  * Take the confirm off the screen, if one is up. Idempotent, and the ONE
  * chokepoint: cancel, Escape, a confirmed gesture's done(), the popover
  * closing over it — every path lands here, so the raiser's `onDismiss` (the
- * popover un-parking a switch knob) runs exactly once per dialog.
+ * popover releasing a parked option) runs exactly once per dialog.
  */
 export function dismissConfirm() {
   const current = active;

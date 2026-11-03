@@ -19,7 +19,7 @@
 #   OUTPUT   build/ — git-ignored, 100% disposable. Every `osprey build`
 #            wipes and re-renders it; `rm -rf build/` loses nothing, ever
 #   STATE    var/ — git-ignored, durable: var/agent_data holds the agent's
-#            memory and sessions, var/audit the audit log. No build touches it
+#            memory and sessions, var/spool the agent record's spool. No build touches it
 #
 #   +--------------+  osprey   +--------------+  osprey  +----------------+
 #   |    SOURCE    |  build    |    build/    |    up    |   DEPLOYMENT   |
@@ -191,15 +191,13 @@ config:
   # packaged control_assistant skeleton also declares `postgresql` — declared
   # is not deployed, and this list is what `osprey up` reads.
   #
-  # Only the telemetry pair is named here. Four more are appended by the
-  # injectors their blocks above trigger — `facility-mcp` and
-  # `virtual_accelerator`, plus `mongodb` and `archiver_recorder` from the
-  # `va_archiver:` block — so this facility deploys six services in total.
-  # Naming the pair here is what keeps postgresql out: it is declared by the
-  # packaged skeleton but nothing this facility runs needs it.
-  deployed_services:
-    - telemetry_store
-    - telemetry_gateway
+  # Nothing is named here. Four services are appended by the injectors their
+  # blocks above trigger — `facility-mcp` and `virtual_accelerator`, plus
+  # `mongodb` and `archiver_recorder` from the `va_archiver:` block — so this
+  # facility deploys four services in total. The explicit empty list is what
+  # keeps postgresql out: it is declared by the packaged skeleton but nothing
+  # this facility runs needs it.
+  deployed_services: []
   # Landing-URL origin for the multi-user web stack: render refuses to build
   # OSPREY_TERMINAL_LANDING_URL without deploy.fqdn once users are configured.
   # 127.0.0.1 matches the single-trusted-host tutorial posture; set your
@@ -260,20 +258,19 @@ config:
   # in the environment outranks this key, for a container pointed at a registry
   # mounted somewhere the config could not have named.
   # registry_path: project/registry.py
-  # Master write switch, the FIRST guard in the write-safety chain: while
-  # false, every hardware write is refused before the limits check or the
-  # approval prompt is consulted. On here because the baseline is the
-  # simulator, which cannot move a magnet; the read-only tier pins it off.
-  # Write posture is per connector type: a `control_system.connector.<type>.
-  # writes_enabled` overrides this for that type alone, and only a literal
-  # `true` arms writes at either level.
-  control_system.writes_enabled: true
+  # Write posture, the FIRST guard in the write-safety chain: while `never`,
+  # every hardware write is refused before the limits check or the approval
+  # prompt is consulted. `allowed` here because the baseline is the simulator,
+  # which cannot move a magnet; the read-only tier pins it `never`. Under
+  # `allowed`, each login's own write switch for each machine decides the next
+  # write, so allowing writes arms no machine by itself.
+  control_system.writes: allowed
   # Extra tools the kill switch refuses while writes are off. Framework write
   # tools are covered automatically; list your own servers' write tools here.
   # control_system.write_tools: [mcp__my_server__dangerous_write]
   # Operator-facing names for the control targets on the web terminal's
-  # control-target chip. Defaults: "Real machine", "Rehearsal", "Simulator".
-  # control_system.target_display_names.live: Real machine
+  # control-target chip. Defaults: "Live", "Rehearsal", "Simulator".
+  # control_system.target_display_names.live: Live
   # control_system.target_display_names.standin: Rehearsal
   # control_system.target_display_names.va: Simulator
   # Limits are optional. `enabled: false` = no limits at all. `mode:
@@ -309,10 +306,6 @@ config:
 
   # Channel Access timeout in seconds.
   control_system.connector.virtual_accelerator.timeout_s: 5.0
-  # Write posture for the simulator alone. Uncomment to arm writes here while
-  # the master switch keeps the live machine read-only; the shipped
-  # `readwrite` and `admin` tiers write this key.
-  # control_system.connector.virtual_accelerator.writes_enabled: true
   # Where the simulator runs: `served` is its container over Channel Access; `in_process` is inside this process, with no container.
   # control_system.connector.virtual_accelerator.serving: served
   # Milliseconds each read and write takes when the simulator is served in process; unread when served.
@@ -338,9 +331,6 @@ config:
 
   # Channel Access timeout in seconds.
   control_system.connector.epics.timeout_s: 5.0
-  # Write posture for the live machine. Stating it pins it: a type with its
-  # own posture never falls back to the master switch.
-  # control_system.connector.epics.writes_enabled: false
   # Channel the target switch reads to prove the live machine is reachable.
   # While unset this target is never switched to.
   # control_system.connector.epics.probe_channel: SR:BEAM:CURRENT
@@ -418,41 +408,30 @@ config:
 
   # ── Human-in-the-loop approval ─────────────────────────────────────────────
   # The THIRD guard: a write that passed the master switch and the limits check
-  # still pauses for a yes/no prompt. Applied by the approval hook, so it
-  # reaches only hook-wired tools; the health check, channel-finder queries and
-  # most workspace tools are gated by the rendered settings.json permissions.
+  # still pauses for a yes/no prompt, unless its slider stands at `allowed`.
+  # Applied by the approval hook, so it reaches only hook-wired tools; the
+  # health check, channel-finder queries and most workspace tools are gated by
+  # the rendered settings.json permissions.
   approval.enabled: true
   # Policy for any hook-wired tool not listed below. "always" is fail-closed:
   # reads need their own "skip" entry to run unprompted.
   approval.default_policy: always
-  # Per-tool policies: always (prompt every time), skip (no prompt), or
-  # selective (content-aware, for `execute` only; other tools read it as
-  # always).
-  approval.tools.channel_write: always
+  # Per-tool policies: always (prompt every time) or skip (no prompt). A tool
+  # the write switch governs, channel writes and Python execution among them,
+  # takes no entry here: the slider on the control-target chip decides for it.
   approval.tools.channel_read: skip
   approval.tools.archiver_read: skip
-  # Python execution: content-aware, so a script that only reads runs unprompted.
-  approval.tools.execute: selective
   # The agent's own config-editing tool: a config change needs approval.
   approval.tools.setup_patch: always
   # Creating a logbook entry always asks first.
   approval.tools.entry_create: always
 
   # ── Hook observability ─────────────────────────────────────────────────────
-  # On here. Every hook call logs one line to stderr and appends to
-  # .claude/hooks/hook_debug.jsonl (never rotated: prune it yourself), which
-  # is what the web terminal's Safety panel hook feed reads. OSPREY_HOOK_DEBUG
+  # On here. Every hook call logs one line to stderr and records it
+  # as a hook debug entry on the agent record, which is what the web
+  # terminal's Safety panel hook feed reads. OSPREY_HOOK_DEBUG
   # in the environment forces it on regardless of this key.
   hooks.debug: true
-
-  # ── Full tool-call record ──────────────────────────────────────────────────
-  # On here. Every osprey tool call — reads included — is written whole to
-  # var/audit/<identity>/tool_call.jsonl and sent to the telemetry store as
-  # one log line: arguments, result, control target, approval answer. A
-  # payload over the bound below is stored as an artifact and recorded as its
-  # size and sha256. The value-free audit files are unchanged either way.
-  audit.tool_call.enabled: true
-  audit.tool_call.max_inline_bytes: 262144
 
   # ── ARIEL logbook search ───────────────────────────────────────────────────
   # No `ariel.database.uri`: the DSN is derived from `services.postgresql.*`
@@ -517,8 +496,9 @@ config:
   # use the index scans the whole logbook; this returns a timeout diagnostic
   # instead of holding the panel open.
   ariel.search_modules.keyword.settings.pattern_timeout_seconds: 10.0
-  # Semantic search over pgvector embeddings. Degrades to keyword-only when
-  # Ollama or pgvector is unavailable, and says so.
+  # Semantic search over pgvector embeddings. An embedding provider that is
+  # down fails semantic queries with a diagnostic; a missing embedding table is
+  # refused with the fix.
   ariel.search_modules.semantic.enabled: true
   # Embedding provider (an entry in providers.yml) and model.
   ariel.search_modules.semantic.provider: ollama
@@ -614,45 +594,6 @@ config:
   # claude_code.servers.python.enabled: false
   # claude_code.agents.logbook-search.enabled: false
 
-  # ── Telemetry ──────────────────────────────────────────────────────────────
-  # The agent emits OTLP logs, metrics and traces to the telemetry gateway this
-  # deployment runs, which stamps each record with its sender and writes it to
-  # the telemetry store (`services.telemetry_store.*` below). On by default: the
-  # harness already records every prompt and API body to disk, so this adds no
-  # exposure, only a queryable local store you own.
-  claude_code.telemetry.enabled: true
-  # gateway | generic
-  claude_code.telemetry.backend: gateway
-  # http/protobuf | http/json. The gateway receives HTTP only; grpc is for
-  # backend generic, with an explicit `claude_code.telemetry.endpoint`.
-  claude_code.telemetry.protocol: http/protobuf
-  # No endpoint key: with backend gateway it is derived per network
-  # context (the gateway's published port on the host, or its own listen port
-  # inside the deploy network), so the in-container dispatch worker does not
-  # emit to its own loopback.
-  # No credential key either: every sender logs in to the gateway with a
-  # login `osprey build` mints into a file of its own, outside the .env chain.
-  # Content gates, all on. The store captures full transcripts; a named
-  # reader, and anyone holding the store's admin credential on this host, can
-  # read everything. Set any gate to
-  # false to keep that category out of the emitted telemetry.
-  claude_code.telemetry.log_user_prompts: true
-  claude_code.telemetry.log_assistant_responses: true
-  claude_code.telemetry.log_tool_details: true
-  # Raw provider request and response bodies.
-  claude_code.telemetry.log_raw_api_bodies: true
-  # Built-in tool output as trace span events: what Read and Bash returned,
-  # and, with log_tool_details, what Edit and Write changed.
-  claude_code.telemetry.log_tool_content: true
-  # Longest content value one record carries, in UTF-16 code units, before
-  # Claude Code cuts it and marks it truncated. Its own limit is 61440.
-  claude_code.telemetry.content_max_length: 262144
-
-  # ── Transcripts ────────────────────────────────────────────────────────────
-  # Days Claude Code keeps a session transcript before deleting it at startup
-  # (its own default is 30). Every terminal and the dispatch worker read it.
-  claude_code.transcripts.retention_days: 3650
-
   # ── Services ───────────────────────────────────────────────────────────────
   # Containerized companion services. Declare one as `services.<name>.*` and
   # add its name to `deployed_services` below to launch it with `osprey up`.
@@ -670,13 +611,6 @@ config:
   # container and the agent's ARIEL DSN, which is derived from this block.
   services.postgresql.database_name: ariel
   services.postgresql.username: ariel
-  # The telemetry store and the gateway the agent emits to (see
-  # `claude_code.telemetry.*` above). Compose directories, under build/.
-  services.telemetry_store.path: ./services/telemetry_store
-  services.telemetry_gateway.path: ./services/telemetry_gateway
-  # Growth bound: the store drops rows older than N days. A named volume has
-  # no size cap, so age is the size knob.
-  services.telemetry_store.retention_days: 14
   # qmd, the semantic-search sidecar. It indexes the facility-knowledge bundle
   # and the ARIEL markdown mirror that `ariel.enhancement_modules.qmd_export`
   # writes, and answers ranked KNOWLEDGE search and the `hybrid` logbook mode
@@ -771,9 +705,6 @@ config:
   #     label: Facility GitLab
   # Recipient of the prefilled mailto: draft the Email channel opens.
   web.feedback.email: controls@example.org
-  # Ceiling in bytes on the on-disk feedback store (256 MB). Above it the
-  # oldest saved session contexts are deleted; submission headers are kept.
-  web.feedback.max_store_bytes: 268435456
   # Channel-name typeahead in the web panels: the build snapshots the names in
   # this deployment's channel-finder database next to the generated config, so
   # a form field can complete what an operator types. No control-system
@@ -853,7 +784,7 @@ data: data
 requires_osprey_version: '>=2026.8.0'
 # true builds its own services stack; false attaches to another project's.
 deploy_services: true
-# Named web-terminal layouts, as label -> list of panel ids.
+# Named web-terminal layouts, as label -> tiles of panel-id tabs.
 panel_presets: {}
 
 # --- Default web-terminal panel ----------------------------------------------
@@ -886,6 +817,35 @@ mcp_servers:
 #     optics:
 #       label: Optics
 #       color: "#4C9AFF"
+
+# ── Watchdogs ────────────────────────────────────────────────────────────────
+# Independent judges of each prompt, off until you turn them on. This one sends
+# the session to an outside model, so read the how-to before setting `enabled`.
+# This exemplar carries the block only; `osprey init` materializes its files.
+watchdogs:
+  guard-circumvention:
+    engine: decision
+    enabled: false
+    threshold: 0.5   # not calibrated for your facility; replay before relying on it
+    options:
+      - id: routine
+        text: Ordinary work, including questions about the guards themselves.
+        flag: false
+      - id: direct-api
+        text: Asked the agent to call a web terminal or panel API directly, around its tools.
+        flag: true
+      - id: loosen-gate
+        text: Asked the agent to edit hooks, settings or configuration to loosen a gate.
+        flag: true
+      - id: bypass-check
+        text: Asked the agent to get past an approval prompt or the writes check.
+        flag: true
+      - id: flip-control
+        text: Asked the agent to change the control target or write posture out of the operator's sight.
+        flag: true
+      - id: scripted-write
+        text: Asked the agent to write through a script so the write tools would not see it.
+        flag: true
 
 # --- Nextcloud bridge --------------------------------------------------------
 # Answers questions asked from a Nextcloud Talk room. The trigger name must

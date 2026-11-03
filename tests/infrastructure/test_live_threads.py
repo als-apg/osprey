@@ -20,7 +20,9 @@ import sys
 import textwrap
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -31,6 +33,7 @@ from osprey_connectors_tests._harness._live_threads import (
     registered_exit_callbacks,
     report_live_threads,
 )
+from tests._live import wait_until
 from tests._nested_pytest import outer_run_free_env, run_nested_pytest, with_harness_path
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -42,6 +45,13 @@ _INNER_PLUGINS = (
     "osprey_connectors_tests._harness._live_threads",
     "no:cacheprovider",
 )
+
+#: Under ``--cov`` coverage's subprocess patch hands every child process a key
+#: with this prefix, and each inner process then saves its coverage data at
+#: exit, inside the 0.5 s exit bound the inner modules set and, on a busy
+#: runner, past it. The inner run executes only pytest and test code, which
+#: coverage does not measure.
+_COVERAGE_HANDOFF_PREFIX = "COVERAGE_PROCESS_"
 
 
 def _hold(release: threading.Event) -> None:
@@ -60,7 +70,7 @@ def _already_running() -> int:
 def _run_inner_pytest(
     tmp_path: Path, module_file: Path, extra: list[str]
 ) -> subprocess.CompletedProcess[str]:
-    env = with_harness_path(outer_run_free_env())
+    env = with_harness_path(outer_run_free_env(also_drop=(_COVERAGE_HANDOFF_PREFIX,)))
     env["PYTEST_DISABLE_PLUGIN_AUTOLOAD"] = "1"
     plugin_args = [arg for name in _INNER_PLUGINS for arg in ("-p", name)]
     return run_nested_pytest(
@@ -136,6 +146,50 @@ def test_a_thread_that_finishes_within_the_grace_is_not_reported():
         assert "'finishing-by-test'" not in buf.getvalue()
     finally:
         thread.join(10)
+
+
+def _wait_until_idle(name: str) -> None:
+    """Return once the executor worker *name* is parked on its empty queue."""
+
+    def idle() -> bool:
+        frames = sys._current_frames()
+        return any(
+            thread.name == name and _live_threads._idle_executor_worker(thread, frames)
+            for thread in threading.enumerate()
+        )
+
+    wait_until(idle, timeout=30.0, interval=0.01, what=f"executor worker {name!r} going idle")
+
+
+def test_an_idle_executor_worker_is_not_counted():
+    executor = ThreadPoolExecutor(1, thread_name_prefix="idle-by-test")
+    before = _already_running()
+    try:
+        assert executor.submit(int, "1").result(10) == 1
+        _wait_until_idle("idle-by-test_0")
+        buf = io.StringIO()
+        assert report_live_threads(buf, grace=0.0) == before
+        trailing = buf.getvalue().splitlines()[-1]
+        assert "idle executor worker(s) not counted" in trailing
+        assert "idle-by-test_0" in trailing
+    finally:
+        executor.shutdown(wait=True)
+
+
+def test_a_busy_executor_worker_is_a_holder():
+    release = threading.Event()
+    executor = ThreadPoolExecutor(1, thread_name_prefix="busy-by-test")
+    before = _already_running()
+    try:
+        executor.submit(_hold, release)
+        buf = io.StringIO()
+        assert report_live_threads(buf, grace=0.0) == before + 1
+        out = buf.getvalue()
+        assert "'busy-by-test_0'" in out
+        assert "in _hold" in out
+    finally:
+        release.set()
+        executor.shutdown(wait=True)
 
 
 def test_a_non_daemon_child_process_is_named():
@@ -248,12 +302,15 @@ def test_register_keeps_its_decorator_return():
     atexit.unregister(_named_exit_callback)
 
 
-def test_a_fast_final_collection_writes_nothing_and_a_slow_one_is_named():
+def test_a_fast_final_collection_writes_nothing_and_a_slow_one_is_named(monkeypatch):
+    """The clock is injected: a real collection over a large heap can itself pass any limit."""
+    ticks = iter([0.0, 60.0, 100.0, 160.5])
+    monkeypatch.setattr(_live_threads, "time", SimpleNamespace(monotonic=lambda: next(ticks)))
     buf = io.StringIO()
     frozen = gc.get_freeze_count()
-    final_collection(buf, slow=60.0)
+    assert final_collection(buf, slow=60.0) == 60.0
     assert buf.getvalue() == ""
-    final_collection(buf, slow=-1.0)
+    assert final_collection(buf, slow=60.0) == 60.5
     assert gc.get_freeze_count() == frozen
     line = buf.getvalue()
     assert "final garbage collection took" in line

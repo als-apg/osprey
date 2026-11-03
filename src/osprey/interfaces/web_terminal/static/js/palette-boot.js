@@ -8,19 +8,13 @@
  * thin init dispatcher and the palette's app-facing wiring lives beside the
  * palette itself.
  *
- * The palette runs in BOTH ui modes — the header trigger is not mode-gated, so
- * the action cluster never shifts under an operator on an Expert/Simple flip.
- * What changes is the REGISTRY, not the entry points: simple mode hides the
- * terminal (the operator console takes its place), so `buildPaletteDeps` drops
- * the terminal/session actions there rather than offering picks that would act
- * on a surface the operator cannot see. Everything else — settings search, the
- * panel verbs including "Open … in a new tile", the Layouts group, popping a
- * panel out to its own browser tab, Customize bars, rail placement, the drawer
- * tabs, the safety reference, opening the activity log in a new tab — is the
- * same in both views.
+ * The palette offers settings search, the Settings drawer's files, the panel verbs including "Open … in a
+ * new tile", the Layouts group, popping a panel out to its own window, the
+ * drawer tabs, the safety reference and opening the activity log in a new tab.
+ * It has no terminal entries: the terminal is reached from the Agent tile alone.
  */
 
-import { getCurrentSessionId, restartTerminal, startTerminal } from './terminal.js';
+import { getCurrentSessionId } from './terminal.js';
 import { openActivityLog } from './activity-log-link.js';
 import {
   getHiddenPanels,
@@ -30,25 +24,40 @@ import {
   showPanel,
   activateTab,
   applyMenuPreset,
-  popoutPanel,
+  navigateAndActivatePanel,
 } from './panel-manager.js';
+import { popOutPanel } from './popout.js';
+import { CANOPY_PANEL_ID, createCanopyProvider } from './canopy-provider.js';
 import { openPanelBeside } from './panel-placement.js';
 import { resetDockLayout } from './dock-workspace.js';
 import { openDrawerTab, revealSetting } from './settings.js';
 import { CONFIG_TAB_ID } from './config-tab.js';
-import { startNewSession } from './sessions.js';
-import { setRailPosition } from './rail-position.js';
+import { scaffoldGalleryMounted, listGalleryEntries, revealArtifact } from './scaffold-gallery.js';
+import { REVIEW_TAB_ID, reviewPaletteEntries } from './code-review-tab.js';
 import { startTour } from './tour.js';
 import { openPalette, closePalette, isOpen } from './palette.js';
-import { enterEditMode } from './bar-customize.js';
-import { logout } from './logout.js';
-import { pickUiMode } from '/design-system/js/frame-params.js';
+import { confirmSignOut } from './sign-out.js';
 import { isMacPlatform } from '/design-system/js/platform.js';
 import { isFeedbackModalOpen } from './feedback-modal.js';
 
-/** @returns {'expert'|'simple'} the resolved ui mode from the authoritative <html> attribute. */
-function currentUiMode() {
-  return document.documentElement.dataset.uiMode === 'simple' ? 'simple' : 'expert';
+/**
+ * The one CANOPY provider, shared across opens so its newest-read-wins
+ * sequence spans them. Created on first use.
+ * @type {ReturnType<typeof createCanopyProvider> | null}
+ */
+let canopyProvider = null;
+
+/**
+ * Whether this deployment carries the CANOPY panel. Without it there is nothing
+ * to search and nowhere to open a row. Hidden and visible panels exclude the
+ * active one; the pop-out list includes it once its URL has resolved, which is
+ * also the earliest the panel could show a row's target.
+ * @returns {boolean}
+ */
+function canopyPanelPresent() {
+  return [...getHiddenPanels(), ...getVisiblePanels(), ...getPopoutPanels()].some(
+    (p) => p.id === CANOPY_PANEL_ID
+  );
 }
 
 /**
@@ -67,53 +76,21 @@ function configTabPresent() {
 
 /**
  * Assemble the live dependency bundle `openPalette` needs. Built fresh on each
- * open because panel visibility, presets, the config snapshot AND the ui mode
- * all drift over a session — the palette must reflect the CURRENT state, not
- * boot state. The action closures are the vetted mechanisms (paired restart,
- * gated drawer tabs, new-tab safety nav) — do not collapse or reorder them
+ * open because panel visibility, presets and the config snapshot all drift over a session — the palette must reflect the CURRENT state, not
+ * boot state. The action closures are the vetted mechanisms (gated drawer tabs, new-tab safety nav) — do not collapse or reorder them
  * casually.
  *
  * Typed against the REGISTRY's dep bundle rather than palette.js's OpenDeps:
  * everything assembled here exists to reach `buildRegistry`, and PaletteDeps is
  * the declaration site for the panel-verb deps. openPalette accepts it as-is.
- * @returns {import('./palette-registry.js').PaletteDeps}
+ * The CANOPY search seam (`searchCanopy` / `startCanopy`) is palette.js's own,
+ * not the registry's, so it is typed from OpenDeps.
+ * @returns {import('./palette-registry.js').PaletteDeps & Pick<import('./palette.js').OpenDeps, 'searchCanopy' | 'startCanopy'>}
  */
 function buildPaletteDeps() {
-  const simple = currentUiMode() === 'simple';
-
   /** @type {Array<{ label: string, detail?: string, run: () => void }>} */
   const actions = [];
 
-  // Terminal + session verbs address the xterm card, which simple mode replaces
-  // with the operator console — offering them there would act on a surface the
-  // operator cannot see.
-  if (!simple) {
-    // restartTerminal tears down the PTY but does NOT reconnect — pair with
-    // startTerminal or the terminal is left stranded.
-    actions.push({ label: 'Restart terminal', run: async () => { await restartTerminal(); startTerminal(); } });
-    actions.push({ label: 'New session', run: () => { startNewSession(); } });
-  }
-
-  // Always offer the mode the operator is NOT in. The pick is frame-params'
-  // own, the same call the header <osprey-display-menu>'s View row makes, not
-  // a click on that row: the display menu is a bar item the operator may have
-  // removed, and the palette must not depend on any bar item being present.
-  const otherMode = simple ? 'expert' : 'simple';
-  actions.push({
-    label: `Switch to ${simple ? 'Expert' : 'Simple'} mode`,
-    run: () => pickUiMode(otherMode),
-  });
-
-  // Rearranging the bars is offered in both modes, like the other two ways in
-  // (a right-click on either bar and the display menu's projected row): the
-  // bars are the operator's chrome, not the mode's, and Simple simplifies the
-  // workspace around them, not the operator's hand on them.
-  actions.push({ label: 'Customize bars', run: () => enterEditMode() });
-
-  // Both rail directions are always offered (the palette is searched, not
-  // browsed) — flipping to the current position is a harmless no-op.
-  actions.push({ label: 'Move panel rail to top', run: () => setRailPosition('top') });
-  actions.push({ label: 'Move panel rail to left', run: () => setRailPosition('left') });
   // Drawer tabs always go THROUGH openDrawerTab's warning gate.
   // The Config tab is server-gated (web.config_panel.enabled): config-tab.js
   // removes the tab at boot where the deployment withdrew it, and the routes
@@ -122,14 +99,28 @@ function buildPaletteDeps() {
   // dead, and misleading about what this deployment permits. Read live, per
   // open, the same way the logout row below reads its server-gated button.
   if (configTabPresent()) {
-    actions.push({ label: 'Open Settings', run: () => { openDrawerTab('tab-config'); } });
+    actions.push({
+      label: 'Open Settings',
+      run: () => {
+        openDrawerTab('tab-config');
+      },
+    });
   }
-  actions.push({ label: 'Open Memory gallery', run: () => { openDrawerTab('tab-memory'); } });
-  actions.push({ label: 'Open Prompt gallery', run: () => { openDrawerTab('tab-behavior'); } });
+  actions.push({
+    label: 'Open Memory gallery',
+    run: () => {
+      openDrawerTab('tab-memory');
+    },
+  });
+  actions.push({
+    label: 'Open Prompt gallery',
+    run: () => {
+      openDrawerTab('tab-behavior');
+    },
+  });
   // On-demand tour entry — works regardless of the web.tour invite policy.
   actions.push({ label: 'Take the tour', run: () => startTour() });
-  // The activity shown is the agent's, not the terminal's, so the row stays in
-  // Simple. It opens on the session the card is on when picked.
+  // It opens on the session the card is on when picked.
   actions.push({
     label: 'Open activity log',
     detail: 'new tab',
@@ -137,14 +128,17 @@ function buildPaletteDeps() {
   });
   // Logout only exists in multi-user deployments: the server stamps the
   // landing URL on <html> when it renders a logout at all. Read from there,
-  // not from either logout button — both are bar items the operator may have
-  // removed, and this row is the way out that survives that.
+  // not from a logout button, so this row does not depend on any chrome. It
+  // asks first, like every other way to sign out.
   const landingUrl = document.documentElement.dataset.landingUrl;
   if (landingUrl) {
-    actions.push({ label: 'Log out', run: () => { void logout(landingUrl); } });
+    actions.push({
+      label: 'Log out',
+      run: () => confirmSignOut({ landingUrl }),
+    });
   }
 
-  /** @type {import('./palette-registry.js').PaletteDeps} */
+  /** @type {import('./palette-registry.js').PaletteDeps & Pick<import('./palette.js').OpenDeps, 'searchCanopy' | 'startCanopy'>} */
   const deps = {
     // Panel show/focus is exactly what a rail click does, and the rail is
     // present in both modes.
@@ -154,10 +148,10 @@ function buildPaletteDeps() {
     // "Focus" reports as a user-initiated activation so the server sees it.
     focusPanel: (id) => activateTab(id, { userInitiated: true }),
     // getPopoutPanels is already narrowed to rail members whose standalone URL
-    // resolved, and INCLUDES the active panel — the context menu's "Open in a
-    // new window" reads the same way.
+    // resolved and whose window is not already open — the context menu's
+    // "Pop out" row reads the same way.
     getPopoutPanels,
-    popoutPanel,
+    popoutPanel: popOutPanel,
     actions,
   };
 
@@ -168,6 +162,24 @@ function buildPaletteDeps() {
   // Omitting the dep is what drops the rows.
   if (configTabPresent()) deps.revealSetting = revealSetting;
 
+  // The Settings files group holds a row per gallery card, which reaches the
+  // drawer's galleries, and the Review tab's rules row, which opens that tab.
+  // The gallery rows and their /api/scaffold read come only where a gallery
+  // mounted, the rules row only while the Review tab is in the drawer; with
+  // neither, both deps are withheld and the group goes with them.
+  const galleries = scaffoldGalleryMounted();
+  const reviewRows = reviewPaletteEntries();
+  if (galleries || reviewRows.length) {
+    deps.loadArtifacts = async () => [
+      ...(galleries ? await listGalleryEntries() : []),
+      ...reviewRows,
+    ];
+    deps.revealArtifact = (name, tabId) => {
+      if (tabId === REVIEW_TAB_ID) void openDrawerTab(tabId);
+      else void revealArtifact(name, tabId);
+    };
+  }
+
   // "Open … in a new tile" and the Layouts group place tiles; both views hold
   // as many tiles as the operator wants, so both are offered in both.
   deps.openPanelBeside = openPanelBeside;
@@ -175,13 +187,25 @@ function buildPaletteDeps() {
   deps.applyPreset = applyMenuPreset;
   deps.resetLayout = resetDockLayout;
 
+  // The CANOPY group: screens and collections, opened in place in the CANOPY
+  // panel through the same navigate-and-activate path the agent's panel_focus
+  // uses. Offered only where the deployment has that panel.
+  if (canopyPanelPresent()) {
+    if (!canopyProvider) {
+      canopyProvider = createCanopyProvider({
+        navigate: (panelId, url) => navigateAndActivatePanel(panelId, url),
+      });
+    }
+    deps.searchCanopy = canopyProvider.search;
+    deps.startCanopy = canopyProvider.start;
+  }
+
   return deps;
 }
 
 /**
- * Wire the header trigger + Cmd/Ctrl+K hotkey for the command palette. Both
- * entry points are live in both ui modes; `buildPaletteDeps` is what narrows
- * the registry in simple. Degrades gracefully if the button is absent.
+ * Wire the header trigger + Cmd/Ctrl+K hotkey for the command palette. Degrades
+ * gracefully if the button is absent.
  */
 export function initCommandPalette() {
   const btn = document.getElementById('command-palette-btn');
@@ -194,29 +218,37 @@ export function initCommandPalette() {
 
   // Capture phase: xterm swallows bubbled keydowns, so the hotkey must be read
   // before the event reaches the terminal.
-  document.addEventListener('keydown', (e) => {
-    if (e.key !== 'k' && e.key !== 'K') return;
-    // Keyboard arbitration with the feedback modal: while it is open, Cmd/Ctrl+K
-    // is its territory (e.g. a text field inside it), not the palette's. Bail
-    // without preventDefault/stopPropagation so nothing here is consumed.
-    if (isFeedbackModalOpen()) return;
+  document.addEventListener(
+    'keydown',
+    (e) => {
+      if (e.key !== 'k' && e.key !== 'K') return;
+      // Keyboard arbitration with the feedback modal: while it is open, Cmd/Ctrl+K
+      // is its territory (e.g. a text field inside it), not the palette's. Bail
+      // without preventDefault/stopPropagation so nothing here is consumed.
+      if (isFeedbackModalOpen()) return;
 
-    let match;
-    if (isMac) {
-      // macOS: Cmd+K from anywhere in the top document.
-      match = e.metaKey;
-    } else {
-      // Non-macOS: Ctrl+K, but only OUTSIDE the terminal — inside, Ctrl+K stays
-      // readline kill-line. The header button is the in-terminal fallback.
-      const active = document.activeElement;
-      const inTerminal = !!(termContainer && active instanceof Node && termContainer.contains(active));
-      match = e.ctrlKey && !inTerminal;
-    }
-    if (!match) return;
+      let match;
+      if (isMac) {
+        // macOS: Cmd+K from anywhere in the top document.
+        match = e.metaKey;
+      } else {
+        // Non-macOS: Ctrl+K, but only OUTSIDE the terminal — inside, Ctrl+K stays
+        // readline kill-line. The header button is the in-terminal fallback.
+        const active = document.activeElement;
+        const inTerminal = !!(
+          termContainer &&
+          active instanceof Node &&
+          termContainer.contains(active)
+        );
+        match = e.ctrlKey && !inTerminal;
+      }
+      if (!match) return;
 
-    e.preventDefault();
-    e.stopPropagation();
-    if (isOpen()) closePalette();
-    else openPalette(buildPaletteDeps());
-  }, true);
+      e.preventDefault();
+      e.stopPropagation();
+      if (isOpen()) closePalette();
+      else openPalette(buildPaletteDeps());
+    },
+    true
+  );
 }

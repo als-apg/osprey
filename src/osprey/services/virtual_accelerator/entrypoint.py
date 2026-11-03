@@ -1,3 +1,4 @@
+# ruff: noqa: T201 -- the virtual accelerator entrypoint logs its progress on stdout
 """Virtual accelerator entrypoint.
 
 Serves the simulator view a build writes under ``<data root>/simulator/``,

@@ -259,6 +259,7 @@ def check_regen_permitted() -> None:
         capture_output=True,
         text=True,
         check=True,
+        timeout=60,
     ).stdout.strip()
     if head != expected:
         raise RegenRefused(f"HEAD {head} is not the B1 commit {expected}; goldens stay B1's")
@@ -336,7 +337,7 @@ async def run_tool(tool: str, harness: Any) -> str:
     if tool == "entry_open":
         from osprey.mcp_server.ariel.tools.entry import entry_open
 
-        with patch("osprey.mcp_server.http.notify_panel_focus"):
+        with patch("osprey.mcp_server.http.panel_op"):
             return await get_tool_fn(entry_open)(
                 entry_id=KEYSET_ENTRY_ID, attachment_id=_keyset_picture_id()
             )

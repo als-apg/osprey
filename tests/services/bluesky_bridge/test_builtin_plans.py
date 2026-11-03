@@ -76,7 +76,7 @@ from osprey.services.bluesky_bridge.plans_core.orm import PARAMS as ORMParams
 from osprey.services.bluesky_bridge.plans_core.orm import build_plan as orm_plan
 
 # =========================================================================
-# GridScanParams (plans_core/grid_scan.py)
+# Tests of GridScanParams in plans_core/grid_scan.py
 # =========================================================================
 
 
@@ -207,23 +207,22 @@ def test_orm_params_accepts_a_span_larger_than_any_one_facilitys_band() -> None:
     assert params.span_a == 120.0
 
 
-@pytest.mark.parametrize("value", [float("inf"), float("-inf"), float("nan")])
-def test_orm_params_rejects_a_non_finite_span(value: float) -> None:
-    """With the upper bound gone, `gt=0` is the only magnitude constraint —
-    and `inf > 0` is true, so infinity would sail through and generate a
-    sweep of non-finite setpoints. Non-finite spans are rejected outright."""
+@pytest.mark.parametrize(
+    ("span_a", "num"),
+    [
+        # With the upper bound gone, `gt=0` is the only magnitude constraint —
+        # and `inf > 0` is true, so infinity would sail through and generate a
+        # sweep of non-finite setpoints. Non-finite spans are rejected outright.
+        pytest.param(float("inf"), 5, id="infinite-span"),
+        pytest.param(float("-inf"), 5, id="negative-infinite-span"),
+        pytest.param(float("nan"), 5, id="nan-span"),
+        pytest.param(0.0, 5, id="non-positive-span"),
+        pytest.param(2.0, 2, id="too-few-points"),
+    ],
+)
+def test_orm_params_rejects_an_unusable_span_or_point_count(span_a: float, num: int) -> None:
     with pytest.raises(ValidationError):
-        ORMParams(correctors=["hcm1"], readbacks=["bpm1"], span_a=value, num=5)
-
-
-def test_orm_params_rejects_a_non_positive_span() -> None:
-    with pytest.raises(ValidationError):
-        ORMParams(correctors=["hcm1"], readbacks=["bpm1"], span_a=0.0, num=5)
-
-
-def test_orm_params_rejects_too_few_points() -> None:
-    with pytest.raises(ValidationError):
-        ORMParams(correctors=["hcm1"], readbacks=["bpm1"], span_a=2.0, num=2)
+        ORMParams(correctors=["hcm1"], readbacks=["bpm1"], span_a=span_a, num=num)
 
 
 def test_orm_params_rejects_overlapping_correctors_and_bpms() -> None:
@@ -340,7 +339,7 @@ def test_orm_declares_no_dimensionality_hint() -> None:
 
 def test_mock_settable_locates_its_demand_and_its_readback() -> None:
     """The dry run and the plan tests drive plans on `MockSettable`, so it
-    answers `bps.locate` the way a connector-mediated device does."""
+    answers `bps.loc` the way a connector-mediated device does."""
     from bluesky.protocols import Locatable
 
     device = asyncio.run(connect_all({"hcm1": MockSettable("hcm1", initial_value=2.5)}))["hcm1"]
@@ -357,7 +356,7 @@ def _corrector_sweep_setpoints(params: ORMParams, working_point: float = 0.0) ->
 
     Driven by a real `RunEngine` with a `msg_hook`, NOT by iterating the
     generator by hand. Walked by hand, nothing answers the plan's
-    working-point read: a hand-walked `bps.locate` answers `None`, so the
+    working-point read: a hand-walked `bps.loc` answers `None`, so the
     plan cannot even index a working point, let alone sweep about the
     device's real one. The `msg_hook` gets the identical `Msg` stream with a
     live device on the other end of it.
@@ -1124,7 +1123,7 @@ def _record_writes(commands: list[tuple[str, float]]) -> Callable[[Any], None]:
     """A `msg_hook` collecting every `(device, value)` the plan commands.
 
     A `msg_hook` on a live `RunEngine`, not a hand-walked generator: a
-    hand-walked `bps.locate` answers `None`, so the plan cannot even index a
+    hand-walked `bps.loc` answers `None`, so the plan cannot even index a
     working point — see `_corrector_sweep_setpoints` above.
     """
 

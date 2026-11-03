@@ -1,15 +1,19 @@
 """Tests for LiteLLM adapter module."""
 
+import warnings
 from unittest.mock import MagicMock, patch
 
 import pytest
 from pydantic import BaseModel, ValidationError
 
+from osprey.models.providers.base import BaseProvider
 from osprey.models.providers.litellm_adapter import (
+    StructuredReplySchemaEchoError,
     _clean_json_response,
     _execute_ollama_structured_output,
     _handle_structured_output,
     _parse_structured_reply,
+    _requires_api_key,
     _supports_native_structured_output,
     check_litellm_health,
     execute_litellm_completion,
@@ -20,60 +24,33 @@ from osprey.models.providers.litellm_adapter import (
 class TestGetLiteLLMModelName:
     """Tests for model name mapping."""
 
-    def test_anthropic_model(self):
-        """Anthropic models get anthropic/ prefix."""
-        result = get_litellm_model_name("anthropic", "claude-sonnet-4")
-        assert result == "anthropic/claude-sonnet-4"
-
-    def test_google_model(self):
-        """Google models get gemini/ prefix."""
-        result = get_litellm_model_name("google", "gemini-2.5-flash")
-        assert result == "gemini/gemini-2.5-flash"
-
-    def test_openai_model(self):
-        """OpenAI models don't need prefix."""
-        result = get_litellm_model_name("openai", "gpt-4o")
-        assert result == "gpt-4o"
-
-    def test_ollama_model(self):
-        """Ollama models get ollama/ prefix."""
-        result = get_litellm_model_name("ollama", "llama3.1:8b")
-        assert result == "ollama/llama3.1:8b"
-
-    def test_cborg_model(self):
-        """CBORG uses openai/ prefix (OpenAI-compatible)."""
-        result = get_litellm_model_name("cborg", "anthropic/claude-haiku")
-        assert result == "openai/anthropic/claude-haiku"
-
-    def test_stanford_model(self):
-        """Stanford uses openai/ prefix (OpenAI-compatible)."""
-        result = get_litellm_model_name("stanford", "gpt-4o")
-        assert result == "openai/gpt-4o"
-
-    def test_argo_model(self):
-        """ARGO uses openai/ prefix (OpenAI-compatible)."""
-        result = get_litellm_model_name("argo", "claudesonnet45")
-        assert result == "openai/claudesonnet45"
-
-    def test_amsc_i2_model(self):
-        """AMSC i2 uses openai/ prefix (OpenAI-compatible)."""
-        result = get_litellm_model_name("amsc-i2", "anthropic/claude-haiku")
-        assert result == "openai/anthropic/claude-haiku"
-
-    def test_vllm_model(self):
-        """vLLM uses openai/ prefix (OpenAI-compatible)."""
-        result = get_litellm_model_name("vllm", "some-model")
-        assert result == "openai/some-model"
-
-    def test_als_apg_model(self):
-        """als-apg uses openai/ prefix (OpenAI-compatible)."""
-        result = get_litellm_model_name("als-apg", "some-model")
-        assert result == "openai/some-model"
-
-    def test_ds4_model(self):
-        """ds4 uses openai/ prefix (OpenAI-compatible)."""
-        result = get_litellm_model_name("ds4", "some-model")
-        assert result == "openai/some-model"
+    @pytest.mark.parametrize(
+        ("provider", "model", "expected"),
+        [
+            pytest.param(
+                "anthropic", "claude-sonnet-4", "anthropic/claude-sonnet-4", id="anthropic"
+            ),
+            pytest.param("google", "gemini-2.5-flash", "gemini/gemini-2.5-flash", id="google"),
+            # Routed explicitly, not by LiteLLM's model map.
+            pytest.param("openai", "gpt-4o", "openai/gpt-4o", id="openai"),
+            pytest.param("ollama", "llama3.1:8b", "ollama/llama3.1:8b", id="ollama"),
+            # The OpenAI-compatible providers all take the openai/ prefix.
+            pytest.param(
+                "cborg", "anthropic/claude-haiku", "openai/anthropic/claude-haiku", id="cborg"
+            ),
+            pytest.param("stanford", "gpt-4o", "openai/gpt-4o", id="stanford"),
+            pytest.param("argo", "claudesonnet45", "openai/claudesonnet45", id="argo"),
+            pytest.param(
+                "amsc-i2", "anthropic/claude-haiku", "openai/anthropic/claude-haiku", id="amsc_i2"
+            ),
+            pytest.param("vllm", "some-model", "openai/some-model", id="vllm"),
+            pytest.param("als-apg", "some-model", "openai/some-model", id="als_apg"),
+            pytest.param("ds4", "some-model", "openai/some-model", id="ds4"),
+        ],
+    )
+    def test_provider_prefix(self, provider, model, expected):
+        """Each built-in provider routes its model under its LiteLLM prefix."""
+        assert get_litellm_model_name(provider, model) == expected
 
     def test_registry_class_attributes_drive_routing(self, monkeypatch):
         """A registry-resolved provider class drives routing even when the
@@ -164,7 +141,7 @@ class TestGetLiteLLMModelName:
 
         monkeypatch.setattr(registry_module, "get_provider_registry", lambda: _EmptyRegistry())
         assert get_litellm_model_name("anthropic", "claude-x") == "anthropic/claude-x"
-        assert get_litellm_model_name("openai", "gpt-4o") == "gpt-4o"  # empty prefix
+        assert get_litellm_model_name("openai", "gpt-4o") == "openai/gpt-4o"
 
 
 class TestSupportsNativeStructuredOutput:
@@ -174,21 +151,25 @@ class TestSupportsNativeStructuredOutput:
     supports_response_schema() function, with fallback for OpenAI-compatible providers.
     """
 
-    def test_takes_litellm_model_string(self):
-        """anthropic declares the flag as None, so the decision defers to litellm.
-
-        litellm does not recognize the bare "claude-sonnet-4" model string, so
-        ``supports_response_schema`` reports False — i.e. OSPREY uses its
-        prompt-based fallback. Asserting the concrete decision (not just that a
-        bool came back) catches an inverted or short-circuited routing bug.
-        """
-        result = _supports_native_structured_output("anthropic/claude-sonnet-4", "anthropic")
-        assert result is False
-
-    def test_handles_unknown_model_gracefully(self):
-        """Returns False for unknown models instead of raising."""
-        # Unknown models should return False (use prompt-based fallback)
-        result = _supports_native_structured_output("unknown/nonexistent-model-xyz", "unknown")
+    @pytest.mark.parametrize(
+        ("model", "provider"),
+        [
+            # anthropic declares the flag as None, so the decision defers to litellm.
+            #
+            # litellm does not recognize the bare "claude-sonnet-4" model string, so
+            # ``supports_response_schema`` reports False — i.e. OSPREY uses its
+            # prompt-based fallback. Asserting the concrete decision (not just that a
+            # bool came back) catches an inverted or short-circuited routing bug.
+            pytest.param("anthropic/claude-sonnet-4", "anthropic", id="litellm-string"),
+            # Unknown models should return False (use prompt-based fallback)
+            # instead of raising.
+            pytest.param("unknown/nonexistent-model-xyz", "unknown", id="unknown-model"),
+        ],
+    )
+    def test_a_model_litellm_does_not_recognize_has_no_native_structured_output(
+        self, model, provider
+    ):
+        result = _supports_native_structured_output(model, provider)
         assert result is False
 
     @patch("osprey.models.providers.litellm_adapter.litellm")
@@ -228,30 +209,19 @@ class TestSupportsNativeStructuredOutput:
 class TestCleanJsonResponse:
     """Tests for JSON response cleaning."""
 
-    def test_clean_json_no_markdown(self):
-        """Clean JSON without markdown passes through."""
-        result = _clean_json_response('{"key": "value"}')
-        assert result == '{"key": "value"}'
-
-    def test_clean_json_with_json_block(self):
-        """Removes ```json markdown blocks."""
-        result = _clean_json_response('```json\n{"key": "value"}\n```')
-        assert result == '{"key": "value"}'
-
-    def test_clean_json_with_generic_block(self):
-        """Removes generic ``` markdown blocks."""
-        result = _clean_json_response('```\n{"key": "value"}\n```')
-        assert result == '{"key": "value"}'
-
-    def test_clean_json_with_whitespace(self):
-        """Handles whitespace around JSON."""
-        result = _clean_json_response('  {"key": "value"}  ')
-        assert result == '{"key": "value"}'
-
-    def test_clean_json_only_trailing_block(self):
-        """Handles only trailing markdown."""
-        result = _clean_json_response('{"key": "value"}```')
-        assert result == '{"key": "value"}'
+    @pytest.mark.parametrize(
+        "raw",
+        [
+            pytest.param('{"key": "value"}', id="no_markdown"),
+            pytest.param('```json\n{"key": "value"}\n```', id="json_block"),
+            pytest.param('```\n{"key": "value"}\n```', id="generic_block"),
+            pytest.param('  {"key": "value"}  ', id="whitespace"),
+            pytest.param('{"key": "value"}```', id="only_trailing_block"),
+        ],
+    )
+    def test_clean_json(self, raw):
+        """Markdown fences and surrounding whitespace are removed; bare JSON passes through."""
+        assert _clean_json_response(raw) == '{"key": "value"}'
 
     def test_fixes_python_style_booleans(self):
         """Python-style True/False values are rewritten to JSON true/false.
@@ -553,6 +523,79 @@ class TestStructuredReplyIsAskedForOnceMore:
         records = [r for r in caplog.records if "asking once more" in r.getMessage()]
         assert len(records) == 1
         assert "ds4" in records[0].getMessage()
+
+
+class _AllOptional(BaseModel):
+    tune: float | None = None
+    circumference: float | None = None
+
+
+class _HasPropertiesField(BaseModel):
+    properties: dict[str, int]
+    title: str | None = None
+
+
+#: An all-optional model's schema, answered by a model that copied its shape:
+#: the values sit under ``properties`` and nothing is at the top level.
+_MIRRORED = (
+    '{"properties": {"tune": 0.22, "circumference": 182.1}, '
+    '"title": "_AllOptional", "type": "object"}'
+)
+
+
+class TestASchemaEchoIsNeverAnEmptyInstance:
+    """A reply shaped like the schema is refused, not validated to all unset."""
+
+    def _call(self, mock_litellm, replies, output_format=_AllOptional):
+        mock_litellm.completion.side_effect = replies
+        return _handle_structured_output(
+            provider="ds4",
+            model_id="deepseek-v4-flash",
+            litellm_model="openai/deepseek-v4-flash",
+            message="extract info",
+            completion_kwargs={"model": "openai/deepseek-v4-flash"},
+            output_format=output_format,
+            is_typed_dict_output=False,
+        )
+
+    @patch("osprey.models.providers.litellm_adapter.litellm")
+    def test_a_mirrored_reply_is_refused_and_asked_again(self, mock_litellm):
+        result = self._call(
+            mock_litellm, [_reply(_MIRRORED), _reply('{"tune": 0.22, "circumference": 182.1}')]
+        )
+        assert result == _AllOptional(tune=0.22, circumference=182.1)
+        assert mock_litellm.completion.call_count == 2
+        first, second = mock_litellm.completion.call_args_list
+        assert first.kwargs == second.kwargs
+
+    @patch("osprey.models.providers.litellm_adapter.litellm")
+    def test_a_repeated_mirror_raises_the_named_error(self, mock_litellm):
+        with pytest.raises(
+            StructuredReplySchemaEchoError, match="^Failed to parse structured output from ds4: "
+        ) as raised:
+            self._call(mock_litellm, [_reply(_MIRRORED), _reply(_MIRRORED)])
+        assert "'properties'" in str(raised.value)
+        assert mock_litellm.completion.call_count == 2
+
+    @patch("osprey.models.providers.litellm_adapter.litellm")
+    def test_a_type_and_title_pair_is_an_echo_too(self, mock_litellm):
+        echo = '{"title": "_AllOptional", "type": "object", "tune": 0.22}'
+        with pytest.raises(StructuredReplySchemaEchoError, match="'title/type'"):
+            self._call(mock_litellm, [_reply(echo), _reply(echo)])
+
+    @patch("osprey.models.providers.litellm_adapter.litellm")
+    def test_a_model_with_a_properties_field_still_validates(self, mock_litellm):
+        reply = '{"properties": {"a": 1}, "title": "x"}'
+        result = self._call(mock_litellm, [_reply(reply)], output_format=_HasPropertiesField)
+        assert result == _HasPropertiesField(properties={"a": 1}, title="x")
+        assert mock_litellm.completion.call_count == 1
+
+    @patch("osprey.models.providers.litellm_adapter.litellm")
+    def test_the_instruction_asks_for_an_instance_naming_the_fields(self, mock_litellm):
+        self._call(mock_litellm, [_reply('{"tune": 0.22}')])
+        sent = mock_litellm.completion.call_args.kwargs["messages"][0]["content"]
+        assert "INSTANCE of the schema below, not the schema itself" in sent
+        assert "(tune, circumference)" in sent
 
 
 class TestExecuteOllamaStructuredOutput:
@@ -932,6 +975,36 @@ class TestExecuteLitellmCompletionThinking:
         assert result == ""
 
 
+class _Plain:
+    """A registered class that does not subclass BaseProvider."""
+
+    name = "plain"
+
+
+class TestAClassThatIsNotABaseProviderInTheHealthCheck:
+    """A plain registered class is keyless and needs no endpoint."""
+
+    @pytest.fixture(autouse=True)
+    def _a_registered_plain_class(self, monkeypatch):
+        from osprey.models.provider_registry import _ProviderEntry, get_provider_registry
+
+        registry = get_provider_registry()
+        monkeypatch.setitem(registry._entries, "plain", _ProviderEntry(__name__, "_Plain"))
+        monkeypatch.setitem(registry._providers, "plain", _Plain)
+
+    def test_it_needs_no_api_key(self):
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            assert _requires_api_key("plain") is False
+
+    def test_no_key_and_no_base_url_reach_the_model_check(self):
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            assert check_litellm_health(
+                provider="plain", api_key=None, base_url=None, model_id=None
+            ) == (False, "Model ID required for health check")
+
+
 class TestCheckLitellmHealth:
     """Guard rails and litellm-exception mapping in check_litellm_health."""
 
@@ -1003,7 +1076,7 @@ class TestCheckLitellmHealth:
         gets the exemption, including a facility's own."""
         from osprey.models.providers.litellm_adapter import _requires_api_key
 
-        class _Keyless:
+        class _Keyless(BaseProvider):
             requires_api_key = False
 
         class _Registry:
@@ -1016,6 +1089,63 @@ class TestCheckLitellmHealth:
             assert _requires_api_key("house-llm") is False
             # An unknown name keeps the old assumption: it needs a key.
             assert _requires_api_key("who-knows") is True
+
+    @patch("litellm.completion")
+    def test_a_registered_adapter_that_leaves_its_key_flag_undeclared_is_not_refused(
+        self, mock_completion
+    ):
+        """An undeclared requires_api_key reads as not required, without converting it."""
+
+        class _NoKeyFlag(BaseProvider):
+            description = "Leaves requires_api_key undeclared"
+            requires_base_url = False
+
+        class _Registry:
+            def get_provider(self, name):
+                return _NoKeyFlag if name == "house-llm" else None
+
+        mock_completion.return_value = MagicMock()
+        with (
+            patch(
+                "osprey.models.provider_registry.get_provider_registry",
+                return_value=_Registry(),
+            ),
+            warnings.catch_warnings(),
+        ):
+            warnings.simplefilter("error")
+            ok, msg = check_litellm_health(
+                provider="house-llm", api_key=None, base_url=None, model_id="m"
+            )
+        assert (ok, msg) == (True, "API accessible and authenticated")
+        assert mock_completion.call_args.kwargs["api_key"] == "EMPTY"
+
+    @patch("litellm.completion")
+    def test_a_registered_adapter_that_leaves_its_endpoint_flag_undeclared_is_not_refused(
+        self, mock_completion
+    ):
+        """An undeclared requires_base_url reads as not required, without converting it."""
+
+        class _NoEndpointFlag(BaseProvider):
+            description = "Leaves requires_base_url undeclared"
+            requires_api_key = True
+
+        class _Registry:
+            def get_provider(self, name):
+                return _NoEndpointFlag if name == "house-gateway" else None
+
+        mock_completion.return_value = MagicMock()
+        with (
+            patch(
+                "osprey.models.provider_registry.get_provider_registry",
+                return_value=_Registry(),
+            ),
+            warnings.catch_warnings(),
+        ):
+            warnings.simplefilter("error")
+            ok, msg = check_litellm_health(
+                provider="house-gateway", api_key="sk-real", base_url=None, model_id="m"
+            )
+        assert (ok, msg) == (True, "API accessible and authenticated")
 
     def test_a_key_requiring_adapter_still_fails_without_one(self):
         assert check_litellm_health(

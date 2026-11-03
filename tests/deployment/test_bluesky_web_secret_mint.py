@@ -19,7 +19,6 @@ together.
 
 from __future__ import annotations
 
-import subprocess
 from pathlib import Path
 
 import pytest
@@ -30,30 +29,13 @@ from osprey.deployment import container_lifecycle
 from osprey.deployment.compose_generator import prepare_compose_files
 from osprey.interfaces.web_auth import ROSTER_SECRET_ENV_PREFIX
 from tests._renders import tier_render
+from tests.deployment._dotenv import project_env
 
 
 @pytest.fixture
-def captured_argv(monkeypatch, tmp_path):
+def captured_argv(stub_deploy_up):
     """Patch deploy_up's collaborators for a project with only 'bluesky_web' deployed."""
-    captured: dict = {}
-
-    monkeypatch.chdir(tmp_path)
-    monkeypatch.setattr(
-        container_lifecycle,
-        "prepare_compose_files",
-        lambda *a, **k: ({"deployed_services": ["bluesky_web"]}, ["docker-compose.yml"]),
-    )
-    monkeypatch.setattr(container_lifecycle, "verify_runtime_is_running", lambda config: (True, ""))
-    monkeypatch.setattr(
-        container_lifecycle, "get_runtime_command", lambda config: ["docker", "compose"]
-    )
-
-    def _fake_run(cmd, **kwargs):
-        captured["cmd"] = cmd
-        return subprocess.CompletedProcess(list(cmd), 0)
-
-    monkeypatch.setattr(container_lifecycle, "run_captured", _fake_run)
-    return captured
+    return stub_deploy_up({"deployed_services": ["bluesky_web"]})
 
 
 @pytest.fixture
@@ -62,18 +44,11 @@ def _clean_secret_env(monkeypatch):
     monkeypatch.delenv("ARIEL_DSN", raising=False)
 
 
-def _parse_env(tmp_path):
-    from osprey_connectors.dotenv import parse_dotenv_file
-
-    path = tmp_path / ".env"
-    return parse_dotenv_file(path) if path.is_file() else {}
-
-
 @pytest.mark.usefixtures("captured_argv")
 def test_bluesky_web_deploy_mints_the_operator_secret(_clean_secret_env, tmp_path):
     container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True, dev_mode=False)
 
-    env = _parse_env(tmp_path)
+    env = project_env(tmp_path)
     secret = env.get("OSPREY_TERMINAL_SECRET")
     assert secret, "deploy_up did not mint OSPREY_TERMINAL_SECRET for a bluesky_web deploy"
     assert len(secret) >= 32, f"minted secret is implausibly short: {len(secret)} chars"
@@ -85,7 +60,7 @@ def test_bluesky_web_existing_secret_is_preserved(_clean_secret_env, tmp_path):
 
     container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True, dev_mode=False)
 
-    env = _parse_env(tmp_path)
+    env = project_env(tmp_path)
     assert env.get("OSPREY_TERMINAL_SECRET") == "operator-chose-this", (
         "an operator-supplied secret must never be overwritten by the mint"
     )

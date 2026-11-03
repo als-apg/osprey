@@ -22,6 +22,11 @@ What is written, relative to ``data/facility/``:
   ``CommonNames`` slot, its ``s`` the export's ``Position`` slot with its
   ``model``, where the family states a finite one per device, and it carries
   no ``attributes``.
+* ``imported/mml/places.yaml``: for each model whose mapping answers
+  ``places``, the model and each sector its ``sectors`` lists, and on each
+  of the model's devices the ``place`` its ``DeviceList`` rows give
+  (:mod:`~osprey.facility.layers.mml.places`); a placement the mapping does
+  not settle stops the import. No model answering ``places``, no file.
 * ``imported/mml/channels.yaml``: one channel per address, ``on`` the one
   device that binds it, or, bound by several, naming each in ``endpoint_of``
   and ``on`` none; its ``role`` follows the field's direction
@@ -110,6 +115,7 @@ from osprey.facility.layers.mml.mapping import (
     field_roles,
     load_or_draft,
 )
+from osprey.facility.layers.mml.places import Placed, Slot, place_devices
 from osprey.facility.layers.mml.response_check import RESPONSE_SUFFIX
 from osprey.facility.layers.mml.rows import write_rows
 
@@ -529,6 +535,10 @@ def _write_records(
     for system in exports.systems:
         _tune_channels(mapping.models[system].tune, channels)
 
+    places = _place(exports, mapping, views, ids, channels, devices)
+    if places.problems:
+        raise MappingProblems(facility_dir / MAPPING_FILE, places.problems)
+
     family_ids: dict[str, dict[str, list[str]]] = {system: {} for system in exports.systems}
     for view, slots in zip(views, ids, strict=True):
         family_ids[view.system][view.raw_name] = slots
@@ -539,7 +549,12 @@ def _write_records(
 
     layer = facility_dir / LAYER_DIR
     layer.mkdir(parents=True, exist_ok=True)
-    written = [
+    written = []
+    if places.places:
+        written.append(_dump(layer / "places.yaml", places.places))
+    else:
+        (layer / "places.yaml").unlink(missing_ok=True)
+    written += [
         _dump(layer / "devices.yaml", _sorted(devices.values(), "id")),
         _dump(layer / "channels.yaml", _sorted(channels.values(), "id")),
         _dump(layer / "groups.yaml", _sorted(groups.values(), "id")),
@@ -556,6 +571,36 @@ def _write_records(
         click.echo(line)
     untoleranced -= {address for address, channel in channels.items() if "tolerance" in channel}
     return written, len(untoleranced)
+
+
+def _place(
+    exports: Exports,
+    mapping: Mapping,
+    views: list[FamilyView],
+    ids: list[list[str]],
+    channels: dict[str, dict[str, Any]],
+    devices: dict[str, dict[str, Any]],
+) -> Placed:
+    """Place each device of a model that answers ``places``, recording it on the device.
+
+    Returns:
+        What :func:`~osprey.facility.layers.mml.places.place_devices` placed.
+    """
+    slots = [
+        Slot(view.system, view.raw_name, device_id, None if row is None else tuple(row))
+        for view, slot_ids in zip(views, ids, strict=True)
+        for device_id, row in zip(slot_ids, _export_rows(view), strict=True)
+    ]
+    bound: dict[str, list[str]] = {}
+    for address, channel in channels.items():
+        owner = (channel.get("on") or {}).get("device")
+        if owner is not None:
+            bound.setdefault(owner, []).append(address)
+    models = {system: mapping.models[system] for system in exports.systems}
+    placed = place_devices(models, slots, bound)
+    for device_id, place in placed.devices.items():
+        devices[device_id]["place"] = place
+    return placed
 
 
 def _carried(

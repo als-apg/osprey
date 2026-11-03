@@ -37,7 +37,11 @@ from osprey.services.ariel_search.enhancement.provider_resolver import (
     resolve_reachable_base_url,
 )
 from osprey.services.ariel_search.exceptions import ModuleConfigError, ModuleUnavailable
-from osprey.services.ariel_search.search._offload import run_search_call
+from osprey.services.ariel_search.search._offload import (
+    QUERY_EMBEDDING_TIMEOUT_S,
+    SearchCallPool,
+    run_search_call,
+)
 from osprey.services.ariel_search.search.fusion import ImageHit
 
 if TYPE_CHECKING:
@@ -47,7 +51,6 @@ if TYPE_CHECKING:
 __all__ = [
     "IMAGE_LANE_COOLDOWN_S",
     "IMAGE_LANE_SQL_TIMEOUT_S",
-    "IMAGE_QUERY_TIMEOUT_S",
     "PICTURE_FACTOR",
     "STATEMENT_TIMEOUT_MS",
     "TRACKER_KEY",
@@ -62,9 +65,6 @@ TRACKER_KEY = "image_lane"
 
 #: The configuration block the lane reads.
 IMAGE_EMBEDDING_KEY = "ariel.enhancement_modules.image_embedding"
-
-#: Seconds the embedding call may take; the provider step as a whole gets one more.
-IMAGE_QUERY_TIMEOUT_S = 5.0
 
 #: Seconds a lane failure keeps the lane skipped.
 IMAGE_LANE_COOLDOWN_S = 30.0
@@ -214,13 +214,13 @@ def _embed_query(settings: ImageLaneSettings, query: str, generation: int) -> li
             url = resolve_reachable_base_url(
                 type(settings.provider),
                 url,
-                deadline_s=IMAGE_QUERY_TIMEOUT_S / 2,
+                deadline_s=QUERY_EMBEDDING_TIMEOUT_S / 2,
                 refresh=verdict is not None or stale,
             )
         with _lock:
             _last_url = url
         health = settings.provider.check_embedding_health(
-            settings.api_key, url, model_id=settings.model_id, timeout=IMAGE_QUERY_TIMEOUT_S / 2
+            settings.api_key, url, model_id=settings.model_id, timeout=QUERY_EMBEDDING_TIMEOUT_S / 2
         )
         if health.reachable is False:
             raise ModuleUnavailable(health.reason or "unreachable", health.message)
@@ -236,7 +236,7 @@ def _embed_query(settings: ImageLaneSettings, query: str, generation: int) -> li
         api_key=settings.api_key,
         base_url=url,
         dimensions=settings.dims,
-        timeout=IMAGE_QUERY_TIMEOUT_S,
+        timeout=QUERY_EMBEDDING_TIMEOUT_S,
     )
     return vector
 
@@ -268,15 +268,14 @@ async def _nearest_pictures(
 ) -> dict[str, ImageHit]:
     """Each entry's nearest picture among the ``k`` pictures nearest ``vector``."""
     params = {"q": vector_literal(vector), "k": k}
-    async with pool.connection(timeout=IMAGE_LANE_SQL_TIMEOUT_S) as conn:
-        async with conn.transaction():
-            await conn.execute(
-                "SELECT set_config('hnsw.ef_search', %(ef)s, true), "
-                "set_config('statement_timeout', %(st)s, true)",
-                {"ef": _ef_search(k), "st": str(STATEMENT_TIMEOUT_MS)},
-            )
-            cursor = await conn.execute(_NEAREST_SQL.format(table=settings.table), params)
-            rows = await cursor.fetchall()
+    async with pool.connection(timeout=IMAGE_LANE_SQL_TIMEOUT_S) as conn, conn.transaction():
+        await conn.execute(
+            "SELECT set_config('hnsw.ef_search', %(ef)s, true), "
+            "set_config('statement_timeout', %(st)s, true)",
+            {"ef": _ef_search(k), "st": str(STATEMENT_TIMEOUT_MS)},
+        )
+        cursor = await conn.execute(_NEAREST_SQL.format(table=settings.table), params)
+        rows = await cursor.fetchall()
     hits: dict[str, ImageHit] = {}
     for row in rows:
         entry_id, attachment_id, similarity = _row_values(row)
@@ -285,7 +284,12 @@ async def _nearest_pictures(
 
 
 async def search_images(
-    query: str, repository: Any, config: ARIELConfig, *, fetch_limit: int
+    query: str,
+    repository: Any,
+    config: ARIELConfig,
+    *,
+    fetch_limit: int,
+    search_calls: SearchCallPool,
 ) -> dict[str, ImageHit] | None:
     """The entries whose pictures lie nearest ``query``, or None on a lane failure.
 
@@ -299,6 +303,8 @@ async def search_images(
         fetch_limit: Text candidates the caller fetches; the lane fetches
             :data:`PICTURE_FACTOR` times as many pictures, at most
             :data:`MAX_PICTURES`.
+        search_calls: The search service's pool for search-time provider
+            calls; the query is embedded on it.
 
     Returns:
         ``{entry_id: ImageHit}`` (possibly empty) on success; None when the
@@ -307,13 +313,18 @@ async def search_images(
     if _breaker_until is not None and _now() < _breaker_until:
         return None
     loop = asyncio.get_running_loop()
-    deadline = loop.time() + IMAGE_QUERY_TIMEOUT_S + 1
+    deadline = loop.time() + QUERY_EMBEDDING_TIMEOUT_S + 1
     settings: ImageLaneSettings | None = None
     generation = _generation
     try:
         settings = _settings_for(config)
         vector = await run_search_call(
-            _embed_query, settings, query, generation, timeout_s=IMAGE_QUERY_TIMEOUT_S + 1
+            search_calls,
+            _embed_query,
+            settings,
+            query,
+            generation,
+            timeout_s=QUERY_EMBEDDING_TIMEOUT_S + 1,
         )
         sql_budget = min(
             deadline - loop.time(), IMAGE_LANE_SQL_TIMEOUT_S + STATEMENT_TIMEOUT_MS / 1000

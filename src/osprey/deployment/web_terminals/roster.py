@@ -39,28 +39,26 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from osprey.agent_runner.tool_names import BASH_DENY_ENTRY
+from osprey.agent_runner.tool_names import SHELL_TOOLS
 from osprey.bluesky_bridge_connection import (
     LANE_KEYS,
     LANE_ONE,
-    SECOND_LANE_KEYS,
-    lane_declared_target,
 )
 from osprey.cli.profile_conventions import SETUP_PATCH_TOOL
 from osprey.deployment.control_identity import validate_identity
 from osprey.deployment.graphdb_service import resolve_graphdb_service_config
 from osprey.deployment.web_terminals.render_naming import RENDER_KIND_APP, RENDER_KIND_TIER
+from osprey.profiles.sidecar_panels import SIDECAR_PANELS
 from osprey.profiles.web_panels import panel_spec_enabled
 from osprey.registry.mcp import FRAMEWORK_SERVERS
 from osprey.services.auth_sidecar.identity_headers import CASE_INSENSITIVE_CLAIMS
 from osprey_connectors import yaml_loader
 from osprey_connectors.connection import ENV_NAME_RE, read_ca_bundle, read_credential_env_names
 from osprey_connectors.types import (
+    WRITES_KEY,
     archiver_settings_key,
-    baseline_target,
     resolve_archiver_settings,
-    target_writes_enabled,
-    target_writes_enabled_key,
+    tier_allows,
 )
 from osprey_connectors.workspace import BUILD_DIR_NAME
 
@@ -255,6 +253,44 @@ def effective_tier(
     return fallback
 
 
+def sign_in_decides_tier(entry: Any, web_terminals: Any) -> bool:
+    """Whether single sign-on, not a file on this host, decides *entry*'s tier.
+
+    True for a card naming no ``role:`` in a deployment whose ``auth.method``
+    is ``oidc`` with an ``authorization`` claim: that person is granted the role
+    the group claim maps to when they sign in, so no build can say which render
+    they will run — whatever ``tier:`` pin or ``default_tier`` the roster
+    carries. A card with an explicit role is bound statically and answers
+    False, as does every card of a deployment without that sign-in.
+
+    The one statement of the predicate: the login→tier map, status's tier
+    column and every other reader call it rather than restate it.
+
+    Args:
+        entry: One RAW roster entry (``modules.web_terminals.users[i]``); a bare
+            string entry carries no role.
+        web_terminals: The ``modules.web_terminals`` subtree.
+
+    Returns:
+        Whether the card's tier is decided at sign-in. Never raises: an
+        ``authorization`` stanza that does not parse names no claim.
+    """
+    from osprey.deployment.web_terminals.render import _authorization_context
+
+    subtree = as_dict(web_terminals)
+    auth = subtree.get("auth")
+    if not (isinstance(auth, Mapping) and auth.get("method") == "oidc"):
+        return False
+    try:
+        claim = _authorization_context(subtree)["authorization_claim"]
+    except ValueError:
+        return False
+    if not claim:
+        return False
+    raw = entry if isinstance(entry, Mapping) else {}
+    return not raw.get("role")
+
+
 #: The in-terminal event-dispatcher dashboard's panel id. A render that declares
 #: this panel is the one thing that entitles its containers to
 #: ``EVENT_DISPATCHER_TOKEN`` — the panel declaration IS the intent, so there is
@@ -428,36 +464,6 @@ def config_needs_phoebus_handles(config: Any) -> bool:
     )
 
 
-#: Each second lane's control target, inverted from the keys that name them. A
-#: lane is named for the target it serves, never for its index, so the key
-#: itself answers what a block that never wrote ``target:`` leaves open.
-_SECOND_LANE_TARGETS = {key: target for target, key in SECOND_LANE_KEYS.items()}
-
-
-def lane_control_target(config: Any, lane: str) -> str:
-    """The control target ``lane`` drives in this project's rendered config.
-
-    ``services.<lane>.target`` where the render wrote one, read through
-    :func:`~osprey.bluesky_bridge_connection.lane_declared_target` so the build
-    side and the bridge side answer from one place. Two fallbacks, for the two
-    ways a block can carry no target:
-
-    * **Lane 1 on a single-lane deployment** has never carried the key — it
-      serves the only target the deployment has — so it takes the deployment
-      baseline (:func:`~osprey_connectors.types.baseline_target`), which is the
-      same fallback ``queue_backend.resolve_lane_identity`` applies bridge-side.
-    * **A second lane** takes the target its own key names. That name IS its
-      target, fixed at render time, so deriving it from the key is a reading of
-      the lane's identity rather than a guess about it.
-    """
-    declared = lane_declared_target(lane, as_dict(config))
-    if declared:
-        return declared
-    if lane in _SECOND_LANE_TARGETS:
-        return _SECOND_LANE_TARGETS[lane]
-    return baseline_target(as_dict(config).get("control_system"))
-
-
 def _config_renders_lane(config: Any, lane: str) -> bool:
     """Whether this project's rendered config carries ``lane`` at all.
 
@@ -476,26 +482,28 @@ def config_needs_launch_token_for(config: Any, lane: str) -> bool:
     """True if ``config`` may arm a queue start on ``lane`` specifically.
 
     The per-lane form of :func:`config_needs_launch_token`, and the one every
-    lane's own token is granted on. A lane is bound at render time to one
-    control target, so the posture that decides whether its token may be issued
-    is that TARGET's — a deployment whose baseline is a live machine can arm
-    writes on its virtual-accelerator lane alone, and the live lane must stay
-    disarmed while it does.
+    lane's own token is granted on. The lane matters only for whether this
+    render carries it: whether writes may happen at all is the render's login
+    tier, which is target-blind — a tier that allows writes allows them for
+    every machine, and the person's switch picks which one at the moment of
+    each write.
 
     Three conditions, each reading absence as "not granted":
 
     * **This render carries the lane** (:func:`_config_renders_lane`). An
       undeclared second lane has no bridge to arm, so it entitles nothing.
-    * **Writes are armed for the lane's target**
-      (:func:`~osprey_connectors.types.target_writes_enabled` of
-      :func:`lane_control_target`) — the tri-state per-connector posture, which
-      falls back to ``control_system.writes_enabled`` for a target whose
-      connector type this deployment never named. Anything short of a literal
-      ``true`` at whichever level answers arms nothing, which is the read-only
-      tier's whole boundary.
+    * **The render's tier allows writes**
+      (:func:`~osprey_connectors.types.tier_allows` of its ``control_system``
+      section) — ``control_system.writes`` is ``asked`` or ``allowed``, the
+      literal strings and nothing else. ``never``, silence and every other value
+      arm nothing, which is the read-only tier's whole boundary.
     * **The bluesky server is left running** (:func:`bluesky_server_enabled`).
       A token for a server that never starts arms nothing while still handing
       the agent a live credential.
+
+    Holding the token is not a write: each write a queued plan makes is still
+    decided by the connector's verdict for the owner the plan names, with that
+    owner's switch read at the moment of the write.
 
     :param config: One project's rendered config document.
     :param lane: A lane's ``services.<lane>`` key — see
@@ -506,27 +514,19 @@ def config_needs_launch_token_for(config: Any, lane: str) -> bool:
         return False
     if not _config_renders_lane(root, lane):
         return False
-    return target_writes_enabled(root.get("control_system"), lane_control_target(root, lane))
+    return tier_allows(root.get("control_system"))
 
 
 def launch_token_writes_key(config: Any, lane: str) -> str:
-    """The config key an operator sets to change ``lane``'s write posture.
+    """The config key an operator sets to change ``lane``'s token entitlement.
 
-    The build-side twin of the MCP server's own refusal wording
-    (``mcp_server.bluesky.tools.queue``): a refusal names the key that decides
-    the posture for the target THIS lane drives, never the deployment-wide one,
-    because sending an operator to ``control_system.writes_enabled`` would have
-    them arm — or disarm — every target at once, the machine they deliberately
-    left alone included. Writing the block key answers whatever the global key
-    says, since the per-connector leaf is read as a tri-state.
-
-    :data:`~osprey_connectors.types.WRITES_ENABLED_KEY` is named only where the
-    lane's target resolves to no connector type at all — ``live`` on a
-    deployment that never described its real machine — because there the
-    deployment-wide key IS the whole posture that config has.
+    :data:`~osprey_connectors.types.WRITES_KEY` for every lane: the login tier
+    is the one posture a render has, and it does not vary by the machine a lane
+    drives. Kept per lane so a refusal can still say which lane's token it is
+    about; ``config`` and ``lane`` do not change the answer.
     """
-    section = as_dict(config).get("control_system")
-    return target_writes_enabled_key(section, lane_control_target(config, lane))
+    del config, lane
+    return WRITES_KEY
 
 
 def config_needs_launch_token(config: Any) -> bool:
@@ -545,10 +545,9 @@ def config_needs_launch_token(config: Any) -> bool:
     This is :func:`config_needs_launch_token_for` on
     :data:`~osprey.bluesky_bridge_connection.LANE_ONE` — the lane every
     deployment has — so the rule lives in one place and a caller that knows
-    nothing about lanes still asks about the lane it has always meant. Which
-    write posture answers for lane 1 is that function's to decide: the lane's
-    declared target, else the deployment baseline, resolved through the
-    per-connector tri-state.
+    nothing about lanes still asks about the lane it has always meant: lane 1 is
+    carried by every render, so the answer is the render's tier and its bluesky
+    server.
     """
     return config_needs_launch_token_for(config, LANE_ONE)
 
@@ -571,7 +570,7 @@ def config_needs_graphdb_password(config: Any) -> bool:
     password shared by every ARIEL consumer, with the read-only guarantee living
     in what the consumer does rather than in which password it holds. The
     contrast is :func:`config_needs_launch_token`, which *is* gated on write
-    posture — per lane, on the target that lane drives — because there the
+    posture — on the render's login tier — because there the
     credential itself is the capability: nothing downstream of holding it stops
     a queue start.
 
@@ -1184,6 +1183,79 @@ def renders_needing_phoebus_handles(config: Any, project_root: Any) -> set[str]:
     return _renders_whose_config(config, project_root, config_needs_phoebus_handles)
 
 
+#: Seconds compose waits between stopping a service and killing it when the
+#: service says nothing: Docker's own default ``stop_grace_period``.
+COMPOSE_DEFAULT_STOP_GRACE_S = 10
+
+#: Seconds the web terminal's own shutdown needs once its sidecars are stopped:
+#: the PTY pool's 3 s SIGTERM grace and the SIGKILL wait for the child
+#: (:meth:`~osprey.interfaces.web_terminal.pty_manager.PtySession.stop`).
+WEB_TERMINAL_STOP_S = 5
+
+
+def config_stop_grace(config: Any) -> int:
+    """Seconds the slowest sidecar ``config``'s terminal shows needs to stop.
+
+    The largest :attr:`~osprey.profiles.sidecar_panels.SidecarPanel.stop_grace_s`
+    among the sidecar panels ``config`` declares. A sidecar's stop hands that
+    number to the process stop as its grace, so it is how long the terminal's
+    shutdown may spend on the sidecar before killing it. A panel switched off
+    counts for nothing (:func:`config_declares_panel`).
+
+    :param config: A parsed project config.
+    :return: The grace in seconds; ``0`` when no declared panel waits for
+        anything.
+    """
+    return max(
+        (
+            panel.stop_grace_s
+            for panel_id, panel in SIDECAR_PANELS.items()
+            if config_declares_panel(config, panel_id)
+        ),
+        default=0,
+    )
+
+
+def config_stop_period(config: Any) -> int:
+    """Seconds compose must give ``config``'s terminal to stop, or ``0`` for its default.
+
+    One number for the whole service: the slowest shown sidecar's grace
+    (:func:`config_stop_grace`), then the terminal's own stop on top of it
+    (:data:`WEB_TERMINAL_STOP_S`), because the terminal stops its sidecars
+    before it stops itself. A sum within compose's own default
+    (:data:`COMPOSE_DEFAULT_STOP_GRACE_S`) is ``0``: the service then renders
+    no ``stop_grace_period`` line, and compose's default stands.
+    """
+    grace = config_stop_grace(config)
+    if grace <= 0:
+        return 0
+    period = grace + WEB_TERMINAL_STOP_S
+    return period if period > COMPOSE_DEFAULT_STOP_GRACE_S else 0
+
+
+def render_stop_grace(config: Any, project_root: Any) -> dict[str, int]:
+    """Map each render whose terminal needs more than compose's default stop to its period.
+
+    A map rather than a set because the period is a number: two renders
+    showing different panels get different periods. Walks the same
+    per-render ``config.yml`` files the other grants walk, tiers and apps
+    alike, so an unrendered or unreadable render contributes nothing rather
+    than a guess.
+
+    :param config: The parsed deploy config.
+    :param project_root: Deploy project root; relative ``project_path`` values
+        resolve against it.
+    :return: ``{render_name: seconds}`` for the referenced renders whose
+        period is positive (see :func:`config_stop_period`).
+    """
+    periods: dict[str, int] = {}
+    for render_name, render_config in _render_configs(config, project_root):
+        period = config_stop_period(render_config)
+        if period > 0:
+            periods[render_name] = period
+    return periods
+
+
 def renders_needing_launch_token_by_lane(config: Any, project_root: Any) -> dict[str, set[str]]:
     """Which renders may arm a queue start, per plan lane.
 
@@ -1502,7 +1574,10 @@ _ACCESS_ASCII_LOWER = str.maketrans("ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklm
 
 # Quoted in every refusal below, so an operator who trips one learns the whole
 # vocabulary rather than only which member was wrong.
-_ACCESS_MEMBERS = "'self', 'roster', 'user:<id>' or 'domain:<domain>'"
+_ACCESS_MEMBERS = "'self', 'roster', 'user:<id>', 'domain:<domain>' or 'tier:<tier>'"
+
+#: The prefix of a principal naming every roster login of one tier.
+TIER_PRINCIPAL_PREFIX = "tier:"
 
 #: The resolved set every owner-only spelling comes to — `access: own`, an
 #: unwritten key, an `access:` with nothing after it, and the explicit
@@ -1538,6 +1613,8 @@ def _access_entry_label(entry: Mapping[str, Any]) -> str:
         way so the message stands on its own.
     """
     name = entry.get("name")
+    if isinstance(name, str) and name and entry.get("kind") == APP_ENTRY_KIND:
+        return f"modules.web_terminals.shared app {name!r}"
     if isinstance(name, str) and name:
         return f"modules.web_terminals.users entry {name!r}"
     index = entry.get("index")
@@ -1587,7 +1664,7 @@ def _access_principal(member: Any, entry_label: str) -> str:
             "people individually with 'user:<id>', or admit their whole domain with "
             "'domain:<domain>'"
         )
-    if prefix in ("user", "domain") and "$" in member:
+    if prefix in ("user", "domain", "tier") and "$" in member:
         # Both prefixes at once, because the reason is the transport and not
         # the kind: the resolved member is written into the deployment's
         # compose file, and compose interpolates `$NAME`/`${NAME}` in a value
@@ -1637,6 +1714,14 @@ def _access_principal(member: Any, entry_label: str) -> str:
                 "would match nobody. Write the punycode spelling of the domain"
             )
         return f"domain:{value.translate(_ACCESS_ASCII_LOWER)}"
+    if prefix == "tier":
+        if not value or any(character.isspace() or character == ":" for character in value):
+            raise ValueError(
+                f"{entry_label} has an access member "
+                f"{member!r} naming no tier. Write the name of a tier the roster uses, "
+                "e.g. 'tier:admin'"
+            )
+        return member
     unknown = f"{prefix}:"
     raise ValueError(
         f"{entry_label} has an access member {member!r} "
@@ -1811,7 +1896,13 @@ def entry_is_shared(entry: dict[str, Any]) -> bool:
             The predicate refuses rather than answering: a value no consumer
             understands must not be read as an owner-only card here while
             another surface reads it as admitting somebody.
+
+    A shared app card is shared whatever its ``access`` says: it belongs to no
+    user of its own, so answering it never needs to parse the value, and a
+    malformed one is lint's to report rather than every reader's to raise on.
     """
+    if is_app_entry(entry):
+        return True
     return resolve_access_principals(entry) != _OWNER_ONLY
 
 
@@ -1984,17 +2075,22 @@ def roster_entries(
     """Every card a ``modules.web_terminals`` subtree runs: people, then apps.
 
     The people are :func:`roster_people`, byte for byte. After them comes one
-    derived entry per name in ``shared:``::
+    derived entry per item in ``shared:``::
 
         {"kind": "app", "name": <app>, "app": <app>,
          "index": INDEX_MAX - <position in shared>,
-         "display_name": <the app's title>, "access": "any"}
+         "display_name": <the app's title>, "access": <the item's access>}
+
+    An item is an app name, which opens the card to the whole roster
+    (``access: any``), or a mapping ``{name: <app>, access: <principals>}``
+    whose ``access`` is authored exactly as a person's is (see
+    :func:`resolve_access_principals`) and carried through verbatim.
 
     The derived slots count down from the top of the family band, so adding
     people never moves an app and adding an app never moves a person.
     Reordering or removing an app may move the later apps' slots; nothing on a
     card is keyed by its port. A ``shared:`` item that is not a non-empty
-    string derives nothing but keeps its position, so the apps after it keep
+    string or such a mapping derives nothing but keeps its position, so the apps after it keep
     their slots; lint reports the item. Duplicates and names that collide with
     a person are derived as written and are lint's to report, not this
     reader's to hide.
@@ -2020,8 +2116,9 @@ def roster_entries(
     entries = roster_people(subtree, strict=strict)
     shared = subtree.get("shared")
     titles = app_titles or {}
-    for position, name in enumerate(shared if isinstance(shared, list) else []):
-        if not isinstance(name, str) or not name:
+    for position, item in enumerate(shared if isinstance(shared, list) else []):
+        name = shared_app_name(item)
+        if name is None:
             continue
         title = titles.get(name)
         entries.append(
@@ -2031,10 +2128,59 @@ def roster_entries(
                 "app": name,
                 "index": INDEX_MAX - position,
                 "display_name": title if isinstance(title, str) and title else name,
-                "access": "any",
+                "access": item.get("access", "any") if isinstance(item, Mapping) else "any",
             }
         )
     return entries
+
+
+def shared_app_name(item: Any) -> str | None:
+    """The app a ``shared:`` item names, or ``None`` when it names none.
+
+    An item is either the app's name or a mapping carrying it under ``name``;
+    anything else derives no card, and lint reports it.
+    """
+    if isinstance(item, Mapping):
+        item = item.get("name")
+    return item if isinstance(item, str) and item else None
+
+
+def expand_tier_principals(
+    principals: frozenset[str], cards: Iterable[Mapping[str, Any]]
+) -> frozenset[str]:
+    """Replace each ``tier:<name>`` principal with that tier's people.
+
+    The login service compares identities and knows no tiers, so a ``tier:``
+    member is spelled out at render as one ``user:<oidc_subject>`` per roster
+    person whose resolved render is that tier. A person with no ``oidc_subject``
+    has no identity to admit and contributes nothing; lint reports a tier that
+    contributes nobody at all. Every other principal passes through.
+
+    Args:
+        principals: A resolved principal set.
+        cards: :func:`resolve_cards`' output (``name``, ``render``,
+            ``oidc_subject``, ``kind``).
+
+    Returns:
+        The set with every ``tier:`` member replaced.
+    """
+    tiers = {
+        member[len(TIER_PRINCIPAL_PREFIX) :]
+        for member in principals
+        if member.startswith(TIER_PRINCIPAL_PREFIX)
+    }
+    if not tiers:
+        return principals
+    members = {
+        f"user:{card['oidc_subject']}"
+        for card in cards
+        if not is_app_entry(card)
+        and card.get("render") in tiers
+        and isinstance(card.get("oidc_subject"), str)
+        and card["oidc_subject"]
+    }
+    kept = {member for member in principals if not member.startswith(TIER_PRINCIPAL_PREFIX)}
+    return frozenset(kept | members)
 
 
 def app_card_refusal(name: str) -> str:
@@ -3418,20 +3564,20 @@ def resolve_cards(
         )
         resolved.append(entry_resolved)
 
-    for app_entry in apps:
-        resolved.append(
-            _resolve_app_card(
-                app_entry,
-                project_name=project_name,
-                catalog_entry=_app_catalog_entry(app_entry["name"], renders_catalog),
-                tier_names=frozenset(tier_names),
-                app_names=app_names,
-                image_source=image_source,
-                registry_url=registry_url,
-                image_tag=image_tag,
-                strict=strict,
-            )
+    resolved.extend(
+        _resolve_app_card(
+            app_entry,
+            project_name=project_name,
+            catalog_entry=_app_catalog_entry(app_entry["name"], renders_catalog),
+            tier_names=frozenset(tier_names),
+            app_names=app_names,
+            image_source=image_source,
+            registry_url=registry_url,
+            image_tag=image_tag,
+            strict=strict,
         )
+        for app_entry in apps
+    )
 
     return resolved
 
@@ -3715,22 +3861,25 @@ def referenced_render_project_dirs(config: Any, project_root: Any) -> dict[str, 
     return dirs
 
 
-def renders_not_denying_bash(config: Any, project_root: Any) -> set[str]:
-    """Names of referenced renders whose shipped settings do **not** deny ``Bash``.
+def renders_with_open_shell(config: Any, project_root: Any) -> set[str]:
+    """Names of referenced renders whose shipped settings leave a shell open.
 
-    The roster-shaped form of :func:`settings_json_denies` for ``Bash``, phrased as the
-    *unsafe* set so its caller can name every offending render in one error
-    rather than re-deriving them. A render granted ``BLUESKY_LAUNCH_TOKEN``
-    while its agent may also run a shell can read that token out of its own
-    environment and arm a queue with a plain HTTP call, bypassing the chat
-    approval entirely — the approval gates the ``queue_start`` tool, not a
-    shell. Intersecting this set with the union of
-    :func:`renders_needing_launch_token_by_lane`
-    therefore names exactly the renders a deploy must refuse.
+    A shell is open unless the render's ``.claude/settings.json`` denies
+    every tool in :data:`~osprey.agent_runner.tool_names.SHELL_TOOLS`:
+    ``Monitor`` runs shell commands in the background, so a render denying
+    ``Bash`` alone still has one. Phrased as
+    the *unsafe* set so its caller can name every offending render in one
+    error rather than re-deriving them. A render granted
+    ``BLUESKY_LAUNCH_TOKEN`` while its agent may also run a shell can read that
+    token out of its own environment and arm a queue with a plain HTTP call,
+    bypassing the chat approval entirely — the approval gates the
+    ``queue_start`` tool, not a shell. Intersecting this set with the union of
+    :func:`renders_needing_launch_token_by_lane` therefore names exactly the
+    renders a deploy must refuse.
 
-    The one-tool case of :func:`renders_not_denying`, which describes the walk
-    and the fail-closed membership rule. Being inclusive never over-blocks a
-    deploy here, since a render whose project is missing cannot satisfy
+    The shell-tools case of :func:`renders_not_denying`, which describes the
+    walk and the fail-closed membership rule. Being inclusive never over-blocks
+    a deploy here, since a render whose project is missing cannot satisfy
     :func:`config_needs_launch_token` either and so drops out of the
     intersection anyway.
 
@@ -3741,6 +3890,6 @@ def renders_not_denying_bash(config: Any, project_root: Any) -> set[str]:
 
     Returns:
         The subset of referenced render names whose rendered
-        ``.claude/settings.json`` does not deny the shell.
+        ``.claude/settings.json`` does not deny every shell tool.
     """
-    return renders_not_denying(config, project_root, (BASH_DENY_ENTRY,))
+    return renders_not_denying(config, project_root, SHELL_TOOLS)

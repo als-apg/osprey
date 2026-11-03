@@ -11,13 +11,17 @@ from __future__ import annotations
 import contextlib
 import os
 import warnings
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 import yaml
 
+from osprey.agent_record.config import (
+    AgentRecordConfig,
+    agent_record_errors,
+)
 from osprey.build.modes import VALID_CHANNEL_FINDER_MODES
 from osprey.deployment.graphdb_service import (
     GRAPHDB_SERVICE_NAME,
@@ -28,9 +32,12 @@ from osprey.deployment.qmd_service import (
     QMD_SERVICE_NAME,
     resolve_qmd_service_config,
 )
+from osprey.interfaces.web_terminal.dock_layout import layout_keys
+from osprey.interfaces.web_terminal.presets import preset_refusal
 from osprey.port_layout import LAYOUT, WORKER_MAX, PortSlot, default_port, resolve_port_base
 from osprey.profiles.providers import PROVIDERS_FILENAME
 from osprey.profiles.web_panels import BUILTIN_PANELS, UNIVERSAL_PANELS
+from osprey.services.watchdog.config import watchdog_errors
 from osprey_connectors.connection import ENV_NAME_RE
 from osprey_connectors.errors import BuildProfileError
 
@@ -58,6 +65,7 @@ from .build_profile_schema import (
     ServiceDef,
     TeamsBridgeProfileConfig,
     VAConfig,
+    WatchdogsBlock,
     bind_env_errors,
     env_names_errors,
     http_errors,
@@ -68,11 +76,10 @@ from .build_profile_schema import (
 from .build_profile_va_faults import (
     live_standin_errors,
     pva_port_errors,
-    standin_archive_errors,
     standin_baseline_errors,
 )
 from .derived_keys import derived_key_errors
-from .profile_conventions import validate_convention_sources
+from .profile_conventions import library_selection, validate_convention_sources
 
 DISPATCH_PAIR_SERVICES = ("event_dispatcher", "dispatch_worker")
 """The two services the ``dispatch:`` block deploys as one unit. They share a
@@ -197,7 +204,7 @@ def _config_service_block(config: Any, service: str) -> Any:
     Args:
         config: A profile's ``config:`` block, whatever shape it parsed as.
         service: The service's key in the rendered ``services:`` section
-            (``telemetry_store``, ``graphdb``, …), not its compose name.
+            (``graphdb``, ``postgresql``, …), not its compose name.
 
     Returns:
         :data:`_MISSING` when no spelling addresses that service; ``None`` when
@@ -315,9 +322,57 @@ def render_key_errors(config: Any) -> list[str]:
     ]
 
 
+def _preset_rewrite(name: str, members: list[Any]) -> str:
+    """How to write a ``label: [ids]`` preset as a dock layout."""
+    ids = [str(member) for member in members] or ["<panel id>"]
+    if len(ids) == 1:
+        return f"rewrite it as a layout, e.g. {name!r}: {{tabs: [{ids[0]}]}}"
+    tiles = ", ".join(f"{{tabs: [{pid}]}}" for pid in ids)
+    return (
+        f"rewrite it as a layout, e.g. {name!r}: {{split: row, items: [{tiles}]}} "
+        f"(side by side), or {name!r}: {{tabs: [{', '.join(ids)}]}} (tabs of one tile)"
+    )
+
+
+def panel_preset_errors(name: str, layout: Any, is_known: Callable[[str], bool]) -> list[str]:
+    """Refuse a ``panel_presets`` entry that is not a dock layout over shown panels.
+
+    The layout rules are :func:`osprey.interfaces.web_terminal.presets.preset_refusal`,
+    the ones the terminal applies to ``web.presets`` at startup; the build adds
+    that every tab must be a panel this render shows (``is_known``). The retired
+    ``label: [ids]`` list form is refused with the layout to write instead.
+
+    Returns:
+        One error per problem with the entry; empty when it is a valid preset.
+    """
+    where = f"panel_presets[{name!r}]"
+    refusal = preset_refusal(layout)
+    if refusal is not None:
+        if isinstance(layout, list):
+            refusal = f"is the retired list-of-panel-ids form; {_preset_rewrite(name, layout)}"
+        return [f"{where} {refusal}"]
+    return [
+        f"Unknown {where} member {key!r}: not in web_panels (the selection is what "
+        f"shows a tab) and not universal ({sorted(UNIVERSAL_PANELS)})"
+        for key in layout_keys(layout)
+        if not is_known(key)
+    ]
+
+
 # VALID_CHANNEL_FINDER_MODES is imported from the build-time kernel
 # (osprey.build.modes) so the validators below can use it while the definition
 # lives below the cli layer.
+
+
+def _classifiable_server_spec(spec: dict[str, Any]) -> dict[str, Any]:
+    """A server spec with its null keys gone, which read the same as absent ones."""
+    clean = {key: value for key, value in spec.items() if value is not None}
+    permissions = clean.get("permissions")
+    if isinstance(permissions, dict):
+        clean["permissions"] = {
+            key: value for key, value in permissions.items() if value is not None
+        }
+    return clean
 
 
 @dataclass
@@ -401,13 +456,16 @@ class BuildProfile:
     output_styles: list[str] = field(default_factory=list)
     web_panels: list[str] = field(default_factory=list)
     default_panel: str | None = None
-    panel_presets: dict[str, list[str]] = field(default_factory=dict)
+    panel_presets: dict[str, dict[str, Any]] = field(default_factory=dict)
     """Named panel layouts ("presets") rendered into ``web.presets``. Each key is
-    the display label, each value a list of member panel ids (built-ins or
-    custom ``web.panels.<id>.url``-backed ids). A human applies one from the
-    Web Terminal "+" popover's "Layouts" section. Empty (the default) renders no
-    ``web.presets`` block. Members are typo-validated at build time, mirroring
-    :attr:`default_panel`.
+    the display label, each value a dock layout in collection form: a tile
+    ``{tabs: [<panel id>, ...], showing?, size?}`` or a split ``{split: row|column,
+    items: [...], size?}`` whose tabs are panel ids (built-ins or custom
+    ``web.panels.<id>.url``-backed ids, never the terminal). A human applies one
+    from the Web Terminal "+" popover's "Layouts" section; the agent applies one
+    by name. Empty (the default) renders no ``web.presets`` block. Validated at
+    build time by :func:`panel_preset_errors`; the retired list-of-ids form is
+    refused with the layout to write instead.
     """
     claude_md_template: str | None = None
     """Bundled `templates/claude_code/<filename>` to render as CLAUDE.md
@@ -439,6 +497,21 @@ class BuildProfile:
     present, the block carries every knob the store's shape depends on and the
     build derives the connector's connection keys from it (see
     :mod:`osprey.cli.build_profile_archiver`).
+    """
+    agent_record: AgentRecordConfig = field(default_factory=AgentRecordConfig)
+    """Where the deployment's one agent record lives (``agent_record:``).
+
+    Never ``None``: every deployment keeps a record, and a profile that spells
+    no block gets the defaults — the embedded backend, with no store container.
+    The resolved block is written into the rendered ``config.yml`` under the
+    top-level key ``agent_record`` (see :mod:`osprey.agent_record.config`).
+    """
+    watchdogs: WatchdogsBlock = field(default_factory=dict)
+    """The deployment's watchdogs (``watchdogs:``), as the author spelled them.
+
+    A name-keyed map, empty for a profile that declares none. Each watchdog's
+    files live in ``watchdogs/<name>/`` beside the profile; the block's rules are
+    :func:`~osprey.services.watchdog.config.watchdog_errors`'.
     """
     provenance: ProfileProvenance | None = None
     """What ``osprey init`` materialized this profile from (``provenance:``).
@@ -551,11 +624,11 @@ class BuildProfile:
                     f"environment.{label} must be a list of strings (got {type(entries).__name__})"
                 )
                 continue
-            for entry in entries:
-                if not isinstance(entry, str) or not entry.strip():
-                    errors.append(
-                        f"environment.{label} entries must be non-empty strings (got {entry!r})"
-                    )
+            errors.extend(
+                f"environment.{label} entries must be non-empty strings (got {entry!r})"
+                for entry in entries
+                if not isinstance(entry, str) or not entry.strip()
+            )
 
         # inherit_exclude only means something when there is a venv base to
         # exclude distributions *from*. A bare interpreter carries no installed
@@ -662,20 +735,19 @@ class BuildProfile:
         Returns:
             Human-readable error messages; empty when every key is a string.
         """
-        errors: list[str] = []
-        for name in self.services:
-            if not isinstance(name, str):
-                errors.append(
-                    f"services keys must be strings (got {name!r}); a bare "
-                    "yes/no/on/off in YAML parses as a boolean — quote the service name"
-                )
+        errors: list[str] = [
+            f"services keys must be strings (got {name!r}); a bare "
+            "yes/no/on/off in YAML parses as a boolean — quote the service name"
+            for name in self.services
+            if not isinstance(name, str)
+        ]
         if isinstance(self.config, dict):
-            for key in self.config:
-                if not isinstance(key, str):
-                    errors.append(
-                        f"config keys must be strings (got {key!r}); a bare "
-                        "yes/no/on/off in YAML parses as a boolean — quote the key"
-                    )
+            errors.extend(
+                f"config keys must be strings (got {key!r}); a bare "
+                "yes/no/on/off in YAML parses as a boolean — quote the key"
+                for key in self.config
+                if not isinstance(key, str)
+            )
         return errors
 
     def _service_axis_declarations(self, axis: str) -> Iterator[tuple[str, Any, str]]:
@@ -803,11 +875,11 @@ class BuildProfile:
         for name, value, key in self._service_axis_declarations("bind_env"):
             errors.extend(bind_env_errors(value, key))
             bound.add(name)
-        for name in sorted(silent & bound):
-            errors.append(
-                f"services.{name} declares both `listens: false` and `bind_env:`; a "
-                "service that opens no socket has no bind address. Remove one."
-            )
+        errors.extend(
+            f"services.{name} declares both `listens: false` and `bind_env:`; a "
+            "service that opens no socket has no bind address. Remove one."
+            for name in sorted(silent & bound)
+        )
         return errors
 
     def _validate_env_axis(self) -> list[str]:
@@ -1049,6 +1121,11 @@ class BuildProfile:
         if self.va_archiver is not None:
             claimed["va_archiver.port_host"] = self.va_archiver.port_host
 
+        # The record service is always deployed by a deploying profile, and
+        # publishes its port on loopback.
+        if self.deploy_services:
+            claimed["agent_record.port"] = self.agent_record.port
+
         if isinstance(self.artifact_server, dict):
             port = self.artifact_server.get("port")
             if isinstance(port, int) and not isinstance(port, bool):
@@ -1126,7 +1203,7 @@ class BuildProfile:
 
         Args:
             service: The service's key in the rendered ``services:`` section
-                (``telemetry_store``, ``postgresql``, …), not its compose name.
+                (``graphdb``, ``postgresql``, …), not its compose name.
 
         Returns:
             Whether the rendered ``config.yml`` will carry that block.
@@ -1345,6 +1422,99 @@ class BuildProfile:
             f"workers off the layout."
         ]
 
+    def _rendered_write_tools(self) -> list[str]:
+        """The tools a render of this profile classifies as acting on the machine.
+
+        Resolved through the registry, so a server counts here exactly as it counts
+        in a render, whichever key spelled it. Gathers the framework's write-gated
+        tools, each ``extends`` clone's, the facility write set, every custom
+        server's ``permissions.ask`` tools, the built-ins a read-only run denies,
+        and the ``control_system.write_tools`` extras. A declared server the
+        registry would not render is taken whole, as the read-only run's floor
+        takes it, because a stale ``.mcp.json`` can still launch it.
+
+        Raises:
+            ValueError, TypeError, AttributeError: A server spec no render could
+                resolve either.
+        """
+        from osprey.agent_runner.tool_names import READ_ONLY_DENIED_BUILTINS
+        from osprey.registry.mcp import (
+            facility_write_tools,
+            framework_write_tools,
+            resolve_servers,
+            writes_check_matchers,
+        )
+
+        config = _expand_dotted(self.config)
+        claude_code = config.get("claude_code")
+        spelled = claude_code.get("servers") if isinstance(claude_code, dict) else None
+        specs = {
+            name: _classifiable_server_spec(spec)
+            for name, spec in (spelled if isinstance(spelled, dict) else {}).items()
+            if isinstance(spec, dict)
+        }
+        for name, server in self.mcp_servers.items():
+            # The launch command plays no part in the classification; stating one
+            # keeps the registry from skipping a server that spells only a url.
+            specs[name] = _classifiable_server_spec(
+                {
+                    "command": name,
+                    "permissions": server.permissions,
+                    "hooks": server.hooks,
+                    "writes": None if server.writes is None else list(server.writes),
+                }
+            )
+
+        servers = resolve_servers({"servers": specs}, {})
+        rendered = {server["name"] for server in servers if server["enabled"]}
+        tools = [*READ_ONLY_DENIED_BUILTINS, *framework_write_tools()]
+        tools.extend(facility_write_tools(servers))
+        for resolved in servers:
+            if not resolved["enabled"]:
+                continue
+            name = resolved["name"]
+            if resolved["extends_of"]:
+                tools.extend(writes_check_matchers(resolved["extends_of"], name))
+            if resolved["is_custom"]:
+                prefix = f"mcp__{name}__"
+                tools.extend(
+                    prefix + str(t).removeprefix(prefix) for t in resolved["permissions_ask"]
+                )
+        tools.extend(
+            f"mcp__{name}"
+            for name, spec in specs.items()
+            if spec.get("enabled") is not False and name not in rendered
+        )
+        control_system = config.get("control_system")
+        extras = control_system.get("write_tools") if isinstance(control_system, dict) else None
+        if isinstance(extras, list):
+            tools.extend(tool for tool in extras if isinstance(tool, str))
+        return tools
+
+    def _watchdog_errors(self, profile_dir: Path) -> list[str]:
+        """Every problem in the ``watchdogs:`` block, against this profile's own parts."""
+        write_tools: list[str] = []
+        errors: list[str] = []
+        if self.watchdogs:
+            try:
+                write_tools = self._rendered_write_tools()
+            except (ValueError, TypeError, AttributeError) as exc:
+                errors.append(
+                    "watchdogs cannot be checked against the write tools, because a server "
+                    f"under `mcp_servers` or `claude_code.servers` does not resolve: {exc}"
+                )
+        errors.extend(
+            watchdog_errors(
+                self.watchdogs,
+                base_dir=profile_dir,
+                write_tools=write_tools,
+                hook_selection=library_selection(
+                    "hooks", self.hooks if isinstance(self.hooks, list) else []
+                ),
+            )
+        )
+        return errors
+
     def validate(self, profile_dir: Path) -> None:
         """Validate profile consistency. Raises BuildProfileError with all issues."""
         errors: list[str] = []
@@ -1353,6 +1523,12 @@ class BuildProfile:
             errors.append("Profile 'name' is required")
 
         errors.extend(project_name_errors(self.project_name))
+
+        # A `skills/<name>`-style entry selects the profile's own artifact, so
+        # it has to name one that is there.
+        from .profile_conventions import convention_selection_errors, profile_artifact_lists
+
+        errors.extend(convention_selection_errors(profile_dir, profile_artifact_lists(self)))
 
         if not isinstance(self.deploy_services, bool):
             errors.append(
@@ -1565,9 +1741,11 @@ class BuildProfile:
                     )
 
         # Validate env var names
-        for var in self.env.required:
-            if not ENV_NAME_RE.match(var):
-                errors.append(f"Invalid env var name: {var}")
+        errors.extend(
+            f"Invalid env var name: {var}"
+            for var in self.env.required
+            if not ENV_NAME_RE.match(var)
+        )
 
         # `pinned` names the same kind of thing as `required` and is held to the
         # same pattern. It is checked harder on shape because a deploy-side probe
@@ -1578,9 +1756,11 @@ class BuildProfile:
             spelled = type(self.env.pinned).__name__
             errors.append(f"env.pinned must be a list of env var names (got {spelled})")
         else:
-            for var in self.env.pinned:
-                if not isinstance(var, str) or not ENV_NAME_RE.match(var):
-                    errors.append(f"Invalid env.pinned var name: {var!r}")
+            errors.extend(
+                f"Invalid env.pinned var name: {var!r}"
+                for var in self.env.pinned
+                if not isinstance(var, str) or not ENV_NAME_RE.match(var)
+            )
 
         # Validate env file path
         if self.env.file:
@@ -1592,9 +1772,11 @@ class BuildProfile:
         errors.extend(self._validate_environment())
 
         # Validate dependencies
-        for dep in self.dependencies:
-            if not isinstance(dep, str) or not dep.strip():
-                errors.append(f"Dependency must be a non-empty string: {dep!r}")
+        errors.extend(
+            f"Dependency must be a non-empty string: {dep!r}"
+            for dep in self.dependencies
+            if not isinstance(dep, str) or not dep.strip()
+        )
 
         # Validate requires_osprey_version specifier
         if self.requires_osprey_version:
@@ -1676,24 +1858,11 @@ class BuildProfile:
                 f"({sorted(UNIVERSAL_PANELS)})"
             )
 
-        # Validate panel_presets: each member id must resolve the same way a
-        # default_panel does (selected, or universal). Catches typos in a
-        # preset's member list at build time so a facility author gets the same
-        # fail-fast feedback as default_panel.
-        for preset_name, members in self.panel_presets.items():
-            if not isinstance(members, list):
-                errors.append(
-                    f"panel_presets[{preset_name!r}] must be a list of panel ids "
-                    f"(got {type(members).__name__})"
-                )
-                continue
-            for member in members:
-                if not self._is_known_panel_id(member):
-                    errors.append(
-                        f"Unknown panel_presets[{preset_name!r}] member {member!r}: not in "
-                        f"web_panels (the selection is what shows a tab) and not universal "
-                        f"({sorted(UNIVERSAL_PANELS)})"
-                    )
+        # Validate panel_presets: each is a dock layout whose tabs resolve the
+        # same way a default_panel does (selected, or universal). Catches typos
+        # and the retired list form at build time, with the layout to write.
+        for preset_name, layout in self.panel_presets.items():
+            errors.extend(panel_preset_errors(preset_name, layout, self._is_known_panel_id))
 
         # Validate the artifact_server override block (gallery server settings
         # + custom category definitions)
@@ -1706,11 +1875,11 @@ class BuildProfile:
             )
         else:
             _allowed = {"host", "port", "auto_launch", "categories"}
-            for unknown in sorted(set(self.artifact_server) - _allowed):
-                errors.append(
-                    f"artifact_server.{unknown} is not a supported key "
-                    f"(must be one of {sorted(_allowed)})"
-                )
+            errors.extend(
+                f"artifact_server.{unknown} is not a supported key "
+                f"(must be one of {sorted(_allowed)})"
+                for unknown in sorted(set(self.artifact_server) - _allowed)
+            )
             raw_categories = self.artifact_server.get("categories", {})
             if not isinstance(raw_categories, dict):
                 errors.append("artifact_server.categories must be a mapping of category ids")
@@ -1907,14 +2076,10 @@ class BuildProfile:
                     )
                 )
 
-        # The stand-in as a TARGET rather than as a port, so both are asked
-        # whatever the `virtual_accelerator:` block says — a baseline naming
-        # the stand-in is a fault precisely when the block is absent, and the
-        # archive rule is about which machine's past this deployment records.
+        # The stand-in as a TARGET rather than as a port, asked whatever the
+        # `virtual_accelerator:` block says — a baseline naming the stand-in is
+        # a fault precisely when the block is absent.
         errors.extend(standin_baseline_errors(self.config, self.virtual_accelerator))
-        errors.extend(
-            standin_archive_errors(self.config, self.virtual_accelerator, self.va_archiver)
-        )
 
         # Validate bluesky_web configuration
         if self.bluesky_web is not None:
@@ -1926,6 +2091,13 @@ class BuildProfile:
         # of the profile — see va_archiver_errors for why the rules live beside
         # the block but are reported from here.
         errors.extend(va_archiver_errors(self.va_archiver, self.config, bool(self.deploy_services)))
+
+        # The record's backend, retention, port and memory. The named readers
+        # are judged against the roster by the command surfaces' merged-config
+        # check, which holds the merged view the roster lives in.
+        errors.extend(agent_record_errors(self.agent_record, self.config))
+
+        errors.extend(self._watchdog_errors(profile_dir))
 
         # The honesty rule's build-time site: a simulated machine may not be
         # paired with an archiver that invents its history. Checked against the

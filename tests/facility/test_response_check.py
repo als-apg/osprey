@@ -134,6 +134,13 @@ def synthetic(tmp_path_factory: pytest.TempPathFactory) -> Path:
 
 
 @pytest.fixture(scope="module")
+def nsls2_checks(nsls2: Path) -> list[ModelCheck]:
+    """The nsls2 tree's checks, run once: the storage ring sweeps 360 correctors."""
+    facility = _facility(nsls2)
+    return check_responses(facility, build_facility(facility, project_name="scratch"))
+
+
+@pytest.fixture(scope="module")
 def spear3_blocks(spear3: Path) -> tuple[Block, ...]:
     facility = _facility(spear3)
     document = build_facility(facility, project_name="scratch")
@@ -172,23 +179,18 @@ def test_a_model_derived_export_prints_one_line_and_exits_0(
     assert _snapshot(synthetic) == before
 
 
-def test_a_model_derived_export_passes_block_by_block(nsls2: Path) -> None:
-    facility = _facility(nsls2)
-    document = build_facility(facility, project_name="scratch")
-
-    checks = check_responses(facility, document)
-
-    assert [check.line for check in checks] == NSLS2_LINES
-    assert all(check.passed for check in checks)
+def test_a_model_derived_export_passes_block_by_block(nsls2_checks: list[ModelCheck]) -> None:
+    assert [check.line for check in nsls2_checks] == NSLS2_LINES
+    assert all(check.passed for check in nsls2_checks)
 
 
-def test_every_nsls2_monitor_row_is_wired_so_each_model_prints_one_line(nsls2: Path) -> None:
+def test_every_nsls2_monitor_row_is_wired_so_each_model_prints_one_line(
+    nsls2_checks: list[ModelCheck],
+) -> None:
     """Every monitor family of both nsls2 exports is wired, so no row is left out."""
-    facility = _facility(nsls2)
-    document = build_facility(facility, project_name="scratch")
     stream = io.StringIO()
 
-    passed = report(check_responses(facility, document), stream)
+    passed = report(nsls2_checks, stream)
 
     assert passed
     assert stream.getvalue().splitlines() == NSLS2_LINES
@@ -197,9 +199,15 @@ def test_every_nsls2_monitor_row_is_wired_so_each_model_prints_one_line(nsls2: P
 def test_one_judged_block_scaled_by_a_tenth_exits_1(
     nsls2: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """The LTB's block, scaled.
+
+    The storage ring's export is dropped, so its 360-corrector sweep is not run:
+    a model without a kept export is not checked.
+    """
     repo = tmp_path / "nsls2"
     shutil.copytree(nsls2, repo)
-    path = _facility(repo) / LAYER_DIR / "StorageRing.response.json"
+    (_facility(repo) / LAYER_DIR / "StorageRing.response.json").unlink()
+    path = _facility(repo) / LAYER_DIR / "LTB.response.json"
     response = json.loads(path.read_text(encoding="utf-8"))
     block = response["blocks"][0]
     assert (block["monitor"]["family"], block["actuator"]["family"]) == ("BPMx", "HCM")
@@ -213,9 +221,7 @@ def test_one_judged_block_scaled_by_a_tenth_exits_1(
     assert result.exit_code == 1, result.output
     assert (result.stdout, result.stderr) == (
         "",
-        NSLS2_LINES[0]
-        + "\n"
-        + "response check StorageRing: model BPMx/HCM inside band 0.022 (fail at 0.99)\n",
+        "response check LTB: model BPMx/HCM inside band 0.458 (fail at 0.99)\n",
     )
     assert _snapshot(repo) == before
 
@@ -359,6 +365,21 @@ def test_the_left_out_line_counts_each_reason() -> None:
         "response check SR: model BPMx/HCM inside band 1.000 (pass at 0.99)",
         "response check SR: left out 5 rows "
         "(3 unwired, 1 no width, 1 unsolved, 0 table calibration)",
+    ]
+
+
+def test_a_failing_model_after_a_passing_one_prints_both_lines_and_fails() -> None:
+    """Every model's lines are printed, in order; one failing model fails the report."""
+    passing = ModelCheck("LTB", judge([_block("model", [(1.0, 1.0)] * 10)]))
+    failing = ModelCheck("SR", judge([_block("model", [(1.0, 2.0)] * 10)]))
+    stream = io.StringIO()
+
+    passed = report([passing, failing], stream)
+
+    assert not passed
+    assert stream.getvalue().splitlines() == [
+        "response check LTB: model BPMx/HCM inside band 1.000 (pass at 0.99)",
+        "response check SR: model BPMx/HCM inside band 0.000 (fail at 0.99)",
     ]
 
 

@@ -1,7 +1,16 @@
 """MCP tool: channel_write — write values to control-system channels.
 
-Safety: PreToolUse hooks enforce human approval before this tool runs.
-The tool docstring is the static prompt the agent sees.
+Safety: PreToolUse hooks put the write to an approver before this tool runs,
+and the tool checks two things itself, first and in this order: the write
+verdict for the session's control target
+(:func:`~osprey_connectors.posture_store.execution_verdict`, the write verdict
+and the session's hold), then the record the
+approval prompt left for this call
+(:func:`~osprey.mcp_server.approval_record.require_approval_record`).
+``channel_write`` is a governed tool, so no approval policy exempts it: at
+``asked`` the hook files a ``human`` stamp, at ``allowed`` a ``write_switch``
+stamp, and either is the record this tool runs on. The tool docstring is the
+static prompt the agent sees.
 
 Binding a write to the target it was approved on
 ------------------------------------------------
@@ -22,9 +31,11 @@ The window is closed with three observations of one quantity,
   rendered into a stamp file beside the target state, keyed by the write payload
   itself (see :func:`_approval_stamp_key`), and this module reads it back. That
   is the only way the render-to-click window — where the human is thinking and a
-  switch can land — is visible here at all. A call with no stamp is not
-  compared: an older render, a deployment without the hook, and a write the
-  policy allowed without asking must all keep working.
+  switch can land — is visible here at all. Where approval applies, a call
+  with no stamp of its own is refused ``approval_missing``: without it the
+  window cannot be checked, and a switch landing in it would go unseen. The
+  hook files this stamp in both switch positions, so a write at ``allowed``
+  is compared exactly like one an operator approved.
 * **at entry** — the first statement of the tool, before anything it does can
   yield. This is the first instant the server itself exists in, and it closes
   the click-to-execution window.
@@ -47,10 +58,12 @@ terminal at lifespan, or a controls server claiming at
 :func:`~osprey.mcp_server.control_system.server._start_from_record`, which
 adopts whatever the deployment is already pointed at and starts one at the
 baseline only where none is readable. A deployment that never switched
-therefore reads a stable ``(baseline, 0)``, and refuses nothing. ``None`` — an
-unwritable data root, a state directory that cannot be resolved, a corrupt
-file, a claim that never landed — is just as stable, so that deployment also
-proceeds, paying one cheap read.
+therefore reads a stable ``(baseline, 0)``, and the binding refuses nothing.
+``None`` — an unwritable data root, a state directory that cannot be resolved,
+a corrupt file, a claim that never landed — is just as stable for the binding;
+the write verdict asked at entry refuses such a call anyway, because a record
+that is absent is every switch off and one that cannot be read is
+``record_unavailable``.
 
 Where the deployment is, and where this server got to
 -----------------------------------------------------
@@ -116,11 +129,13 @@ from typing import Any
 
 from osprey.audit.call import note, write_stamps
 from osprey.audit.posture import posture_session
+from osprey.mcp_server.approval_record import APPROVAL_MISSING, require_approval_record
 from osprey.mcp_server.control_system import target_state
 from osprey.mcp_server.control_system.error_handling import connector_error_handler
 from osprey.mcp_server.control_system.server import mcp
-from osprey.mcp_server.errors import make_error
+from osprey.mcp_server.errors import NothingAnsweredError, make_error
 from osprey.mcp_server.http import notify_agent_activity_async
+from osprey.utils.session_hold_api import execution_verdict, refusal_detail
 from osprey_connectors import control_context
 from osprey_connectors.errors import (
     NOT_A_CHANNEL,
@@ -128,7 +143,10 @@ from osprey_connectors.errors import (
     ChannelNotFoundError,
     ChannelWriteBlockedError,
 )
-from osprey_connectors.posture_store import CONTROL_OWNER_ENV_VAR
+from osprey_connectors.posture_store import CONTROL_OWNER_ENV_VAR, WriteVerdict
+from osprey_connectors.refusals import refusal_text
+from osprey_connectors.types import baseline_target
+from osprey_connectors.workspace import load_osprey_config
 
 logger = logging.getLogger("osprey.mcp_server.tools.channel_write")
 
@@ -147,6 +165,11 @@ TARGET_CHANGED_ERROR = "target_changed"
 #: tool's 409 and the notebook kernel's refusal marker all carry the same word,
 #: so one token identifies it wherever an operator meets it.
 SWITCH_IN_PROGRESS_ERROR = "switch_in_progress"
+
+#: Error type of a write the write verdict refused at entry: the session's
+#: target is one this login may not write to right now. The word the Bluesky
+#: queue tools and ``phoebus_drive`` use for the same refusal.
+WRITES_DISABLED_ERROR = "writes_disabled"
 
 #: Which of the three comparisons refused a call, reported in ``details.window``
 #: so an operator (and a test) can tell "the session moved while I was deciding"
@@ -262,18 +285,8 @@ def _binding_from_record(record: object) -> tuple[str, int] | None:
         return None
 
 
-#: How long the old-value read for the full tool-call record may take, seconds.
+#: How long the old-value read for the ``tool_call`` record may take, seconds.
 OLD_VALUE_READ_TIMEOUT_S = 2.0
-
-
-def _full_record_enabled() -> bool:
-    """Whether the opt-in full ``tool_call`` record is on for this server."""
-    try:
-        from osprey.audit import tool_call
-
-        return tool_call.settings()[0]
-    except Exception:  # pragma: no cover - defensive: settings never raises
-        return False
 
 
 def _note_attribution() -> None:
@@ -294,7 +307,7 @@ def _note_attribution() -> None:
 
 
 async def _note_old_values(connector: Any, channels: list[str]) -> None:
-    """Note each channel's value before the write, for the full record. Never raises.
+    """Note each channel's value before the write, for the ``tool_call`` record. Never raises.
 
     Bounded by :data:`OLD_VALUE_READ_TIMEOUT_S`; a channel that could not be
     read is noted with the error type, and nothing here blocks the write.
@@ -400,9 +413,9 @@ def _warn_if_this_server_has_other_stamps() -> None:
 
     Both sides of the key derivation have to spell the payload the same way, and
     a project rendered before the hashed arguments last changed files its stamps
-    under the old spelling. Every lookup then misses, and the approval-window
-    check goes quiet without a single failure — the one failure mode of a
-    two-party hash that nothing else would surface.
+    under the old spelling. Every lookup then misses, and every write that needs
+    a record is refused ``approval_missing`` with nothing naming the cause —
+    the one failure mode of a two-party hash that nothing else would explain.
 
     Stamps left by *this session's* prompts are the evidence that separates the
     two explanations of a miss: if the hook is stamping for this session and
@@ -441,7 +454,7 @@ def _warn_if_this_server_has_other_stamps() -> None:
         "No approval stamp matches this write, but this server has %d other stamp(s) (%s). "
         "The approval hook and this server are deriving different keys — most likely the "
         "project was rendered before the stamp key changed. Re-run 'osprey build' in the "
-        "project, or the target-binding check on the approval window is skipped.",
+        "project; until then every write that needs an approval record is refused.",
         len(ours),
         ", ".join(sorted(ours)[:3]),
     )
@@ -605,12 +618,126 @@ def _check_convergence(record: control_context.ControlContext | None) -> None:
     )
 
 
+def _write_target(record: control_context.ControlContext | None, section: Any) -> str | None:
+    """The control target this call writes to: the record's, else the baseline.
+
+    ``None`` when not even the baseline can be named, which the verdict refuses
+    as ``target_unknown``.
+    """
+    if record is not None:
+        return record.target
+    try:
+        return baseline_target(section)
+    except Exception:  # an unnameable target is refused by the verdict, never granted
+        logger.warning("Could not name the write's control target", exc_info=True)
+        return None
+
+
+def _check_write_verdict(record: control_context.ControlContext | None, config: Any) -> None:
+    """Refuse a write the write verdict refuses for the session's target.
+
+    Asked at entry for the target *record* names (the baseline without one,
+    where every switch is off), over the deployment's ``control_system``
+    section, with the owner left to the verdict's ladder. A verdict that cannot
+    be reached refuses as ``record_unavailable``. The message is the verdict's
+    phrase, which says who can lift the refusal and names no config key.
+
+    Raises:
+        fastmcp.ToolError: Carrying the standard envelope. Nothing has been
+            sent to the control system at this point.
+    """
+    section = config.get("control_system") if isinstance(config, dict) else None
+    target = _write_target(record, section)
+    try:
+        verdict = execution_verdict(section or {}, target)
+    except Exception:  # unknown posture must not write
+        logger.warning("Write verdict for channel_write could not be reached", exc_info=True)
+        verdict = WriteVerdict(allowed=False, reason="record_unavailable", target=target, kind=None)
+    if verdict.allowed:
+        return
+    reason = verdict.reason or "record_unavailable"
+    make_error(
+        WRITES_DISABLED_ERROR,
+        refusal_text(
+            reason,
+            verdict.kind,
+            detail=refusal_detail(
+                "channel_write was refused before reaching the control system.", verdict
+            ),
+        ),
+        [
+            "Nothing was written: the refusal happened before the control system was touched.",
+            "Report the refusal to the operator; do not retry until they say writes are on.",
+        ],
+        details={"reason": reason, "target": verdict.target},
+    )
+
+
+def _check_approval_record(config: Any) -> bool:
+    """Refuse a write whose approval hook left no record of the call.
+
+    :func:`~osprey.mcp_server.approval_record.require_approval_record` decides,
+    through :func:`~osprey.cli.build_posture_check.ask_capable`: a governed
+    ``channel_write`` needs a record whatever ``approval.*`` says, whichever
+    approver filed it (``human`` at ``asked``, ``write_switch`` at
+    ``allowed``), and an approval switch that is not a bool refuses every write.
+
+    Returns:
+        ``True`` when this write needs a record and it was found, so the
+        approval window must be checked against a stamp; ``False`` only when
+        ``channel_write`` is not ask-capable in this deployment.
+
+    Raises:
+        fastmcp.ToolError: Carrying the standard envelope, with the refusal's
+            ``approval_missing`` or ``approval_config_invalid`` error type.
+    """
+    refusal = require_approval_record("channel_write", config if isinstance(config, dict) else {})
+    if refusal is not None:
+        make_error(
+            refusal.error_type,
+            refusal.message,
+            ["Call channel_write again so the approval prompt can ask."],
+        )
+    from osprey.cli.build_posture_check import ask_capable
+
+    return ask_capable(config if isinstance(config, dict) else {}, "channel_write")
+
+
 def _check_approval_window(
-    operations: list[dict], confirm: bool | None, entry: tuple[str, int] | None
+    operations: list[dict],
+    confirm: bool | None,
+    entry: tuple[str, int] | None,
+    *,
+    required: bool,
 ) -> None:
-    """Compare what the approval prompt showed against what the tool entered on."""
+    """Compare what the approval prompt showed against what the tool entered on.
+
+    *required* is whether approval applies to this write. Where it does, a
+    write with no stamp of its own (none filed, unreadable, keyed for another
+    payload or filed by another session) is refused ``approval_missing``: the
+    target the operator was shown cannot be compared, so a switch between the
+    prompt and entry would go unseen. Where it does not, a missing stamp passes.
+
+    Raises:
+        fastmcp.ToolError: ``approval_missing`` for a required stamp that is
+            missing, ``target_changed`` for a stamp that names another binding.
+    """
     found, approved = _read_approval_stamp(operations, confirm)
-    if not found or approved == entry:
+    if not found:
+        if required:
+            make_error(
+                APPROVAL_MISSING,
+                "not run: this write's approval prompt left no record of the control target "
+                "it showed (approval_missing). Call channel_write again so the approval "
+                "prompt can ask.",
+                [
+                    "Nothing was written: the refusal happened before the control system was "
+                    "touched.",
+                    "Call channel_write again so the approval prompt can ask.",
+                ],
+            )
+        return
+    if approved == entry:
         return
     _refuse_target_changed(
         approved,
@@ -719,14 +846,22 @@ async def channel_write(
 
     `summary.outcomes` counts the words this call produced.
 
+    Before any of that, the call may be refused outright, and nothing is
+    written: `writes_disabled` when writes to the session's control target are
+    off (the message says who can turn them on), `approval_missing` when the
+    approval prompt left no record of this call or of the target it showed, and `approval_config_invalid`
+    when the deployment's approval switch is malformed.
+
     Leave `confirm` unset unless the operator asks for it: the deployment
     resolves it per channel from the limits database, which confirms by default.
     This tool does not raise on a write that was not confirmed — it reports the
-    word. (`osprey.runtime.write_channel`, on the Python path, raises.) It
-    raises only when every write in the call came back `refused` or `failed`,
-    which is the one case where no value reached any channel at all. A call
-    mixing those with any other word returns normally, and the per-channel
-    `outcome` is where you read what happened to each one.
+    word. (`osprey.runtime.write_channel`, on the Python path, raises.) A
+    call where no value reached any channel raises, carrying the same rows
+    under `details.results`: `write_refused` when every write was refused,
+    `nothing_answered` when any was sent and not taken. A call mixing those
+    words with any other returns normally, and the per-channel `outcome` is
+    where you read what happened to each one. The shape is the partial-answer
+    contract (docs: Reference → Contracts → Partial Answers).
 
     Args:
         operations: List of write operations, each with "channel", "value", and optional "notes".
@@ -751,6 +886,13 @@ async def channel_write(
     entry_record = _read_record()
     entry_binding = _binding_of(entry_record)
 
+    # Stage 1, before any other work: the write verdict for the target this
+    # call entered on, then the record the approval prompt left for it. A
+    # verdict that refuses is the answer even where the prompt left no record.
+    config = load_osprey_config()
+    _check_write_verdict(entry_record, config)
+    approval_applies = _check_approval_record(config)
+
     if not operations:
         return make_error(
             "validation_error",
@@ -765,7 +907,7 @@ async def channel_write(
     # the hook reads it out of the same `tool_input` the operator was shown, so
     # both sides hash the same two arguments and a write approved with one
     # confirmation setting cannot be vouched for by a prompt that showed another.
-    _check_approval_window(operations, confirm, entry_binding)
+    _check_approval_window(operations, confirm, entry_binding, required=approval_applies)
 
     # Where the deployment is against where this server got to. Second, because
     # a stamp that disagrees with entry is the more specific account of the same
@@ -777,10 +919,6 @@ async def channel_write(
     # both record surfaces: the stamps are identifiers, so the default record
     # carries them too.
     _note_attribution()
-
-    # The full tool-call record wants the limits verdict and the old values;
-    # nothing extra is done for them when that record is off.
-    full_record = _full_record_enabled()
 
     # Limits validation (additional safety layer inside the tool)
     try:
@@ -839,13 +977,13 @@ async def channel_write(
                         violation["current_value"] = exc.current_value
                 violations.append(violation)
 
-    if full_record:
-        if validator is None:
-            note(limits={"verdict": "not_checked"})
-        elif violations:
-            note(limits={"verdict": "violated", "violations": violations})
-        else:
-            note(limits={"verdict": "passed"})
+    # The limits verdict, for the ``tool_call`` record.
+    if validator is None:
+        note(limits={"verdict": "not_checked"})
+    elif violations:
+        note(limits={"verdict": "violated", "violations": violations})
+    else:
+        note(limits={"verdict": "passed"})
 
     if violations:
         # Build a clear message with limits info for each violation
@@ -876,11 +1014,10 @@ async def channel_write(
         registry = get_server_context()
         connector = await registry.control_system()
 
-        # The old values, for the full tool-call record only. When on, this
-        # read is the final await, so the execution-window check below still
-        # follows the last await before the write.
-        if full_record:
-            await _note_old_values(connector, [op["channel"] for op in operations])
+        # The old values, for the ``tool_call`` record. This read is the final
+        # await, so the execution-window check below still follows the last
+        # await before the write.
+        await _note_old_values(connector, [op["channel"] for op in operations])
 
         # The last thing before a value goes out: this read is as close to the
         # write as the server can get. A switch completing after it is refused
@@ -912,7 +1049,8 @@ async def channel_write(
         # connector, instead of shipping a plausible envelope.
         if len(connector_results) != len(operations):
             raise RuntimeError(
-                f"{type(connector).__name__} returned {len(connector_results)} write result(s) "
+                f"{type(connector.connector).__name__} returned {len(connector_results)} "
+                "write result(s) "
                 f"for {len(operations)} operation(s): the fate of at least one write is "
                 f"unreported, so no outcome from this call can be trusted."
             )
@@ -954,11 +1092,15 @@ async def channel_write(
             # without being confirmed, or one that came back different — is
             # reported rather than raised: the agent needs it to tell the
             # operator what the machine now holds.
+            # Either way the raised envelope carries the rows under
+            # details.results: it replaces the result the agent would have
+            # read, and the rows are the only place each write's own fate and
+            # text are stated.
             failed = [entry for entry in results if entry[OUTCOME_KEY] == "failed"]
             if not failed:
-                # Every op was a refusal that put no value on a channel: surface
-                # a typed write-refusal envelope, not internal_error. Each row is
-                # attributed to the refuser its own reason names, so a mixed
+                # Every op was a refusal that put no value on a channel: the
+                # cause is a typed write refusal, not internal_error. Each row
+                # is attributed to the refuser its own reason names, so a mixed
                 # batch never lets one row's refuser speak for another's.
                 headline = _all_refused_headline(results)
                 # The envelope's reason and channel come from the first row
@@ -975,20 +1117,21 @@ async def channel_write(
                 # The per-result `error` is the only place the refusal says
                 # WHICH posture refused and where to lift it — the session's
                 # read-only setting for this control target and the header chip
-                # that set it, or the config key for a deployment refusal. A
-                # raised envelope replaces the results the agent would have
-                # read, so the headline alone would drop that sentence on the
-                # floor for exactly the common case: one channel, one refusal.
+                # that set it, or the config key for a deployment refusal. The
+                # headline carries it so the message alone names the remedy in
+                # the common case: one channel, one refusal.
                 detail = first["error"]
-                raise ChannelWriteBlockedError(
-                    first["channel"],
-                    first["refusal_reason"],
-                    message=f"{headline} — {detail}" if detail else headline,
+                raise NothingAnsweredError(
+                    ChannelWriteBlockedError(
+                        first["channel"],
+                        first["refusal_reason"],
+                        message=f"{headline} — {detail}" if detail else headline,
+                    ),
+                    results=results,
                 )
-            # At least one write was attempted and failed (an I/O failure, not a
-            # policy refusal): preserve the internal_error classification.
-            errors = sorted({entry["error"] for entry in results if entry["error"]})
-            raise RuntimeError(f"All {len(results)} write(s) rejected: {'; '.join(errors)}")
+            # At least one write was sent and not taken (an I/O failure, not a
+            # policy refusal): no one cause speaks for every row.
+            raise NothingAnsweredError(None, results=results)
 
         # Agent-activity highlight (purely additive, after the fact): name only
         # the channels a value actually reached. Every refusal path — limits

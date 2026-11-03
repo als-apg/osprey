@@ -151,11 +151,13 @@ describe('orientation toggle', () => {
 
   test('a label-less toggle host (plain icon button) still syncs without throwing', () => {
     document.body.innerHTML += '<button id="bare-toggle"></button>';
-    expect(() => initBrowseLayout({
-      handle: null,
-      sidebar: byId('browse-sidebar'),
-      toggle: byId('bare-toggle'),
-    })).not.toThrow();
+    expect(() =>
+      initBrowseLayout({
+        handle: null,
+        sidebar: byId('browse-sidebar'),
+        toggle: byId('bare-toggle'),
+      })
+    ).not.toThrow();
     expect(byId('bare-toggle').title).toBe('Switch to stacked layout');
   });
 });

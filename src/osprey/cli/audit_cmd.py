@@ -3,21 +3,35 @@
 Spawns a Claude agent run through the shared agent runner
 (``osprey.agent_runner``) to deeply analyze an OSPREY build profile or built
 project directory, producing a structured safety report.
+
+The audit's agent run, and the channel-finder benchmark's, are held in
+:func:`unrecorded_run` so that tooling never reaches the agent record.
 """
 
 from __future__ import annotations
 
 import asyncio
+import contextlib
+import os
 import re
+import shutil
 import tempfile
 import uuid
+from collections.abc import Iterator, Mapping, MutableMapping
 from contextlib import nullcontext
 from pathlib import Path
 
 import click
 from rich.text import Text
 
-from osprey.agent_runner import HAS_SDK, ResultEvent, TextEvent, sdk_env, stream_query
+from osprey.agent_runner import (
+    HAS_SDK,
+    ResultEvent,
+    TextEvent,
+    build_agent_options,
+    sdk_env,
+    stream_query,
+)
 
 from . import output
 from .altitude import lift_gate
@@ -88,6 +102,74 @@ def _check_reviewer_provider(project_dir: Path) -> None:
     sdk_env(project_dir)
 
 
+def unrecorded_env(env: Mapping[str, str], config_dir: Path) -> dict[str, str]:
+    """*env* as the child of an unrecorded run receives it.
+
+    The SDK overlays a launch's own ``env`` on the parent's, and the runner
+    builds that ``env`` from the project's config — telemetry block included —
+    so scrubbing the parent alone leaves the child exporting. This is
+    :func:`~osprey.agent_record.contract.unrecorded_env` of the launch env with
+    ``CLAUDE_CONFIG_DIR`` pointed at *config_dir*.
+
+    Args:
+        env: The routed launch env.
+        config_dir: The run's temporary Claude Code config directory.
+
+    Returns:
+        A new dict; *env* is not changed.
+    """
+    from osprey.agent_record import contract
+    from osprey.agent_runner.project_paths import CLAUDE_CONFIG_DIR_ENV
+
+    return contract.unrecorded_env(env) | {CLAUDE_CONFIG_DIR_ENV: str(config_dir)}
+
+
+@contextlib.contextmanager
+def unrecorded_run(environ: MutableMapping[str, str] | None = None) -> Iterator[Path]:
+    """Hold a run that leaves nothing in the agent record.
+
+    For the reviewer and the channel-finder benchmark, whose runs are tooling
+    and not the agent's work. For the block's duration *environ*
+    (``os.environ`` by default, which every child inherits) carries the record
+    off switch, carries no ``OSPREY_SPOOL_DIR`` and no ``OTEL_*`` or
+    ``CLAUDE_CODE_ENABLE_TELEMETRY``, and points ``CLAUDE_CONFIG_DIR`` at a
+    fresh temporary directory. The previous values are put back, and the
+    directory removed, when the block ends.
+
+    A launch that hands the SDK its own ``env`` must also pass it through
+    :func:`unrecorded_env` with the yielded directory: the SDK overlays that
+    ``env`` on this one, so whatever it carries reaches the child regardless.
+
+    With the default *environ* the block changes the process's environment, so
+    it holds one run per process — a CLI command — and nothing else in the
+    process may launch a recorded run while it is open.
+
+    Yields:
+        The run's temporary Claude Code config directory.
+    """
+    from osprey.agent_record.contract import RECORD_OFF_ENV, RECORD_OFF_VALUE, reaches_a_record
+    from osprey.agent_runner.project_paths import CLAUDE_CONFIG_DIR_ENV
+
+    env = os.environ if environ is None else environ
+    removed = [key for key in env if reaches_a_record(key)]
+    replaced = (RECORD_OFF_ENV, CLAUDE_CONFIG_DIR_ENV)
+    previous = {key: env.get(key) for key in (*removed, *replaced)}
+    config_dir = Path(tempfile.mkdtemp(prefix="osprey-unrecorded-claude-"))
+    for key in removed:
+        env.pop(key, None)
+    env[RECORD_OFF_ENV] = RECORD_OFF_VALUE
+    env[CLAUDE_CONFIG_DIR_ENV] = str(config_dir)
+    try:
+        yield config_dir
+    finally:
+        for key, value in previous.items():
+            if value is None:
+                env.pop(key, None)
+            else:
+                env[key] = value
+        shutil.rmtree(config_dir, ignore_errors=True)
+
+
 async def _run_audit(
     project_dir: Path,
     prompt: str,
@@ -106,6 +188,11 @@ async def _run_audit(
     MCP servers, so there is no readiness to wait for, and the audited
     project's declared set would never connect.
 
+    The run is held in :func:`unrecorded_run`: a review is tooling, so none of
+    it reaches the agent record. The launch env is the one the runner routes
+    the project's provider with, passed through :func:`unrecorded_env`, so the
+    project's telemetry block does not ride the SDK overlay into the child.
+
     Args:
         project_dir: The project the reviewer runs in and routes on.
         prompt: The reviewer's prompt.
@@ -120,24 +207,29 @@ async def _run_audit(
     total_cost: float | None = None
     num_turns: int | None = None
 
-    async for event in stream_query(
-        project_dir,
-        prompt,
-        disallowed_tools=[],
-        model=model,
-        permission_mode="bypassPermissions",
-        max_turns=30,
-        max_budget_usd=budget,
-        setting_sources=[],
-        await_mcp_servers=(),
-    ):
-        if isinstance(event, TextEvent):
-            collected_text.append(event.text)
-            if verbose:
-                output.note(f"{event.text[:200]}...")
-        elif isinstance(event, ResultEvent):
-            total_cost = event.total_cost_usd
-            num_turns = event.num_turns
+    with unrecorded_run() as config_dir:
+        routed = build_agent_options(
+            project_dir, disallowed_tools=[], model=model, setting_sources=[]
+        )
+        async for event in stream_query(
+            project_dir,
+            prompt,
+            disallowed_tools=[],
+            env=unrecorded_env(routed.env, config_dir),
+            model=model,
+            permission_mode="bypassPermissions",
+            max_turns=30,
+            max_budget_usd=budget,
+            setting_sources=[],
+            await_mcp_servers=(),
+        ):
+            if isinstance(event, TextEvent):
+                collected_text.append(event.text)
+                if verbose:
+                    output.note(f"{event.text[:200]}...")
+            elif isinstance(event, ResultEvent):
+                total_cost = event.total_cost_usd
+                num_turns = event.num_turns
 
     return "".join(collected_text), total_cost, num_turns
 

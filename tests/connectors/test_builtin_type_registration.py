@@ -21,9 +21,9 @@ from click.testing import CliRunner
 from osprey_connectors import types
 from osprey_connectors.factory import (
     ConnectorFactory,
-    isolated_connector_registries,
     register_builtin_connectors,
 )
+from osprey_connectors_tests._harness import isolated_connector_registries
 
 
 @dataclass(frozen=True)

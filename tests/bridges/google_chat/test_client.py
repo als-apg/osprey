@@ -13,7 +13,8 @@ bridge in a way a mock will not otherwise notice:
 
 * a create **must not retry or swallow** — the engine's redelivery is built on
   ``post_answer`` raising, so a failure here makes exactly one call and
-  propagates;
+  propagates — except a ``429``, which is waited out (and creates are spaced) so a
+  multi-chunk answer is not re-posted from its first chunk;
 * ``messageReplyOption`` must be on every create, or an answer whose thread has
   since gone is an error rather than a new thread;
 * the chunker's ceiling must stay Chat's — the splitting itself is shared and is
@@ -182,7 +183,7 @@ def test_create_maps_a_permanent_refusal_of_the_destination_to_undeliverable(err
     "error",
     [
         _FakeHttpError(403, "The caller does not have permission"),
-        _FakeHttpError(429, "Quota exceeded"),
+        _FakeHttpError(429, "Quota exceeded"),  # once every retry is spent
         _FakeHttpError(500, "Internal error"),
         RuntimeError("connection reset"),
     ],
@@ -384,6 +385,53 @@ def test_only_the_default_factory_needs_the_google_libraries():
 
 
 # --- thread safety ---------------------------------------------------------
+
+
+def test_a_rate_limited_create_is_waited_out_and_retried(chat_sleeps):
+    service = make_service()
+    execute = messages_of(service).create.return_value.execute
+    execute.side_effect = [_FakeHttpError(429, "Quota limit exceeded."), CREATED]
+
+    assert ChatClient(CFG, service).create_message(SPACE, THREAD, "hello") == CREATED
+
+    assert execute.call_count == 2
+    assert chat_sleeps == [client_module.RATE_LIMIT_BACKOFF]
+
+
+def test_a_create_that_stays_rate_limited_raises_after_the_last_retry(chat_sleeps):
+    service = make_service()
+    execute = messages_of(service).create.return_value.execute
+    execute.side_effect = _FakeHttpError(429, "Quota limit exceeded.")
+
+    with pytest.raises(_FakeHttpError):
+        ChatClient(CFG, service).create_message(SPACE, THREAD, "hello")
+
+    retries = client_module.RATE_LIMIT_RETRIES
+    assert execute.call_count == retries + 1
+    assert chat_sleeps == [client_module.RATE_LIMIT_BACKOFF * 2**i for i in range(retries)]
+
+
+def test_consecutive_creates_are_spaced_by_the_write_interval(monkeypatch, chat_sleeps):
+    now = [100.0]
+    monkeypatch.setattr(client_module, "_clock", lambda: now[0])
+    client = ChatClient(CFG, make_service())
+
+    client.create_message(SPACE, THREAD, "one")
+    now[0] += 0.25
+    client.create_message(SPACE, THREAD, "two")
+
+    # The first create waits for nothing; the second for the rest of the interval.
+    assert chat_sleeps == [pytest.approx(client_module.WRITE_INTERVAL - 0.25)]
+
+
+def test_a_read_is_not_spaced_behind_a_create(monkeypatch, chat_sleeps):
+    monkeypatch.setattr(client_module, "_clock", lambda: 100.0)
+    client = ChatClient(CFG, make_service())
+
+    client.create_message(SPACE, THREAD, "one")
+    client.get_message(MESSAGE)
+
+    assert chat_sleeps == []
 
 
 def test_calls_do_not_interleave_across_threads():

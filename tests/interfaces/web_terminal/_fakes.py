@@ -43,6 +43,8 @@ from claude_agent_sdk import (
 )
 
 from osprey.interfaces.web_terminal.operator_session import OperatorSession
+from osprey.interfaces.web_terminal.process_tree import ProcessTableUnreadable
+from tests._live import async_wait_until
 
 
 class FakePtySession:
@@ -60,7 +62,7 @@ class FakePtySession:
         self._last_rows = 24
         self._last_cols = 80
         self._command_list = ["fake"]
-        # What ``started_commands`` answers; ``None`` is a table that could not be read.
+        # What ``started_commands`` answers; ``None`` raises as a table that could not be read.
         self.started: list | None = []
 
     @property
@@ -88,8 +90,10 @@ class FakePtySession:
     def terminate(self):
         self._alive = False
 
-    def started_commands(self) -> list | None:
-        return None if self.started is None else list(self.started)
+    def started_commands(self) -> list:
+        if self.started is None:
+            raise ProcessTableUnreadable(OSError("process table"))
+        return list(self.started)
 
     def emit(self, data: bytes) -> None:
         self._chunks.append(data)
@@ -137,8 +141,8 @@ class FakeChatSession:
         self.is_busy = busy
         self.process_exited: bool | None = None
         self.teardowns = 0
-        # What ``started_commands`` answers (``None`` is a table that could not be
-        # read), and how often it was asked.
+        # What ``started_commands`` answers (``None`` raises as a table that could
+        # not be read), and how often it was asked.
         self.running_commands: list | None = []
         self.started_calls = 0
 
@@ -146,9 +150,11 @@ class FakeChatSession:
     def is_active(self) -> bool:
         return self._active
 
-    def started_commands(self) -> list | None:
+    def started_commands(self) -> list:
         self.started_calls += 1
-        return None if self.running_commands is None else list(self.running_commands)
+        if self.running_commands is None:
+            raise ProcessTableUnreadable(OSError("process table"))
+        return list(self.running_commands)
 
     async def teardown(self) -> None:
         self.teardowns += 1
@@ -209,8 +215,8 @@ class PoolChatSession:
         self.turns = 0
         self.start_delay = 0.0
         self.started = asyncio.Event()
-        # What ``started_commands`` answers (``None`` is a table that could not be
-        # read), and how often it was asked.
+        # What ``started_commands`` answers (``None`` raises as a table that could
+        # not be read), and how often it was asked.
         self.running_commands: list | None = []
         self.started_calls = 0
 
@@ -218,9 +224,11 @@ class PoolChatSession:
     def is_busy(self) -> bool:
         return self.in_flight
 
-    def started_commands(self) -> list | None:
+    def started_commands(self) -> list:
         self.started_calls += 1
-        return None if self.running_commands is None else list(self.running_commands)
+        if self.running_commands is None:
+            raise ProcessTableUnreadable(OSError("process table"))
+        return list(self.running_commands)
 
     async def start(self, *, resume_id: str | None = None) -> None:
         self.resume_id = resume_id
@@ -245,11 +253,7 @@ async def created_first(created: list, timeout: float = 1.0) -> None:
     Waiting on the session's own ``started`` event rather than a sleep keeps a
     race against a creation in flight deterministic.
     """
-    deadline = time.monotonic() + timeout
-    while not created:
-        if time.monotonic() > deadline:  # pragma: no cover - guards a hang
-            raise AssertionError("factory never ran")
-        await asyncio.sleep(0)
+    await async_wait_until(lambda: created, timeout=timeout, interval=0, what="the factory to run")
     await asyncio.wait_for(created[0].started.wait(), timeout=timeout)
 
 
@@ -430,9 +434,7 @@ async def armed_chat(project: Path) -> AsyncIterator[ArmedChat]:
     as an approval card instead of a refusal. The session is stopped when the
     block ends, which declines whatever is still waiting.
     """
-    (project / "config.yml").write_text(
-        "control_system:\n  writes_enabled: true\n", encoding="utf-8"
-    )
+    (project / "config.yml").write_text("control_system:\n  writes: allowed\n", encoding="utf-8")
     session = OperatorSession(cwd=str(project))
     with sdk_seam() as captured:
         await session.start()

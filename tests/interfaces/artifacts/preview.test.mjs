@@ -1,7 +1,9 @@
 /**
  * Unit tests for the Artifact Gallery preview pane shell (preview.js, task
  * 5.4 extraction: renderPreview's per-type viewport dispatch, pin toggling,
- * fullscreen enter/exit + its "N new" badge, and agent focus).
+ * fullscreen enter/exit + its "N new" badge, and agent focus), plus the
+ * header-less render the embedded viewer asks for and the `setPinned` /
+ * `deleteArtifact` actions the viewer runs in place of the header's buttons.
  *
  * The markdown+KaTeX render pipeline and the JSON viewer moved to the
  * sibling preview-content.js module (split purely to stay under the
@@ -90,7 +92,10 @@ beforeEach(() => {
   setArtifacts([]);
   setSelectedArtifact(null);
   setFocusedArtifact(null);
-  vi.stubGlobal('confirm', vi.fn(() => true));
+  vi.stubGlobal(
+    'confirm',
+    vi.fn(() => true)
+  );
   Object.defineProperty(window.navigator, 'clipboard', {
     value: { writeText: vi.fn(() => Promise.resolve()) },
     configurable: true,
@@ -121,10 +126,13 @@ describe('renderPreview: per-type viewport dispatch', () => {
   // what lands inside it. Any other URL is a dependency these cases have not
   // declared, and fails loudly.
   beforeEach(() => {
-    vi.stubGlobal('fetch', vi.fn(async (/** @type {string} */ url) => {
-      if (url !== '/files/a1/beam_profile.png') throw new Error(`unstubbed fetch: ${url}`);
-      return { ok: true, status: 200, text: async () => '', json: async () => ({}) };
-    }));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (/** @type {string} */ url) => {
+        if (url !== '/files/a1/beam_profile.png') throw new Error(`unstubbed fetch: ${url}`);
+        return { ok: true, status: 200, text: async () => '', json: async () => ({}) };
+      })
+    );
   });
 
   test.each([
@@ -170,11 +178,37 @@ describe('renderPreview: per-type viewport dispatch', () => {
   });
 
   test('an unrecognized type with mime_type application/pdf renders a light iframe of the file', () => {
-    setSelectedArtifact(makeArtifact({ artifact_type: 'weird_type', mime_type: 'application/pdf' }));
+    setSelectedArtifact(
+      makeArtifact({ artifact_type: 'weird_type', mime_type: 'application/pdf' })
+    );
     const renderer = createPreviewRenderer(makeCallbacks());
     renderer.renderPreview();
 
     expect(document.querySelector('.preview-viewport iframe.preview-iframe-light')).not.toBeNull();
+  });
+
+  test('an opaque artifact previews in a frame without allow-same-origin', () => {
+    setSelectedArtifact(makeArtifact({ artifact_type: 'html', mime_type: 'text/html' }));
+    const renderer = createPreviewRenderer(makeCallbacks());
+    renderer.renderPreview();
+
+    const sandbox = qs(document, '.preview-viewport iframe').getAttribute('sandbox') ?? '';
+    expect(sandbox.split(/\s+/).sort()).toEqual([
+      'allow-downloads',
+      'allow-modals',
+      'allow-popups',
+      'allow-scripts',
+    ]);
+  });
+
+  test('a PDF previews in a frame with no sandbox attribute', () => {
+    setSelectedArtifact(
+      makeArtifact({ artifact_type: 'weird_type', mime_type: 'application/pdf' })
+    );
+    const renderer = createPreviewRenderer(makeCallbacks());
+    renderer.renderPreview();
+
+    expect(qs(document, '.preview-viewport iframe').hasAttribute('sandbox')).toBe(false);
   });
 
   test('a fully unrecognized type falls back to a download link', () => {
@@ -231,10 +265,12 @@ describe('renderPreview: header/meta content', () => {
     setSelectedArtifact(makeArtifact());
     createPreviewRenderer(makeCallbacks()).renderPreview();
 
-    expect(Array.from(document.querySelectorAll('.preview-meta-label')).map((el) => el.textContent)).not.toContain('Source');
+    expect(
+      Array.from(document.querySelectorAll('.preview-meta-label')).map((el) => el.textContent)
+    ).not.toContain('Source');
   });
 
-  test('pin button reflects the artifact\'s pinned state', () => {
+  test("pin button reflects the artifact's pinned state", () => {
     setSelectedArtifact(makeArtifact({ pinned: true }));
     createPreviewRenderer(makeCallbacks()).renderPreview();
 
@@ -250,6 +286,46 @@ describe('renderPreview: header/meta content', () => {
 
     expect(injectLogbookButtons).toHaveBeenCalledTimes(1);
     expect(injectPrintButton).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('renderPreview without a header (the embedded viewer)', () => {
+  test('renders the description, the meta strip and the viewport, and no header', () => {
+    setSelectedArtifact(
+      makeArtifact({ description: 'Horizontal beam size', tool_source: 'channel_finder' })
+    );
+    createPreviewRenderer(makeCallbacks(), { header: false }).renderPreview();
+
+    expect(document.querySelector('.preview-header')).toBeNull();
+    expect(qs(document, '.preview-desc').textContent).toBe('Horizontal beam size');
+    expect(qs(document, '.preview-meta-strip').textContent).toContain('channel_finder');
+    expect(document.querySelector('.preview-meta-strip .preview-path-text')).not.toBeNull();
+    expect(document.querySelector('.preview-viewport img')).not.toBeNull();
+  });
+
+  test('renders no fullscreen Back button, "N new" badge or action button, and injects none', () => {
+    setSelectedArtifact(makeArtifact());
+    createPreviewRenderer(makeCallbacks(), { header: false }).renderPreview();
+
+    expect(document.getElementById('fullscreen-back')).toBeNull();
+    expect(document.getElementById('fullscreen-new-badge')).toBeNull();
+    expect(document.getElementById('preview-toggle-pin')).toBeNull();
+    expect(document.getElementById('preview-delete')).toBeNull();
+    expect(document.querySelector('a[data-theme-link]')).toBeNull();
+    expect(injectLogbookButtons).not.toHaveBeenCalled();
+    expect(injectPrintButton).not.toHaveBeenCalled();
+  });
+
+  test('mounts a timeseries viewport through onTimeseriesNeeded, as with a header', () => {
+    const artifact = makeArtifact({ category: 'archiver_data', data_file: 'y.parquet' });
+    setSelectedArtifact(artifact);
+    const callbacks = makeCallbacks();
+    createPreviewRenderer(callbacks, { header: false }).renderPreview();
+
+    expect(callbacks.onTimeseriesNeeded).toHaveBeenCalledTimes(1);
+    expect(callbacks.onTimeseriesNeeded.mock.calls[0][0]).toBe(
+      document.querySelector('.preview-viewport .ts-viewport-container')
+    );
   });
 });
 
@@ -279,7 +355,10 @@ describe('renderPreview: delete flow', () => {
   });
 
   test('does nothing when the confirm dialog is declined', () => {
-    vi.stubGlobal('confirm', vi.fn(() => false));
+    vi.stubGlobal(
+      'confirm',
+      vi.fn(() => false)
+    );
     setArtifacts([makeArtifact()]);
     setSelectedArtifact(makeArtifact());
     const callbacks = makeCallbacks();
@@ -290,6 +369,85 @@ describe('renderPreview: delete flow', () => {
     byId('preview-delete').click();
 
     expect(fetchMock).not.toHaveBeenCalled();
+    expect(callbacks.onArtifactDeleted).not.toHaveBeenCalled();
+  });
+});
+
+describe('deleteArtifact', () => {
+  test('confirms, DELETEs, updates local state, fires onArtifactDeleted, and re-renders to empty', async () => {
+    const confirmStub = vi.fn(() => true);
+    vi.stubGlobal('confirm', confirmStub);
+    const artifact = makeArtifact();
+    setArtifacts([artifact, makeArtifact({ id: 'a2' })]);
+    setSelectedArtifact(artifact);
+    setFocusedArtifact(artifact);
+    const callbacks = makeCallbacks();
+    const renderer = createPreviewRenderer(callbacks, { header: false });
+    renderer.renderPreview();
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve({}) });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await renderer.deleteArtifact(artifact);
+
+    expect(confirmStub).toHaveBeenCalledWith('Delete "Beam Profile"? This cannot be undone.');
+    expect(fetchMock).toHaveBeenCalledWith('/api/artifacts/a1', { method: 'DELETE' });
+    expect(getArtifacts().map((a) => a.id)).toEqual(['a2']);
+    expect(getSelectedArtifact()).toBeNull();
+    expect(getFocusedArtifact()).toBeNull();
+    expect(callbacks.onArtifactDeleted).toHaveBeenCalledTimes(1);
+    expect(byId('preview-empty').classList.contains('hidden')).toBe(false);
+  });
+
+  test('deleting an artifact other than the one shown keeps the selection', async () => {
+    const doomed = makeArtifact();
+    const shown = makeArtifact({ id: 'a2', title: 'Orbit' });
+    setArtifacts([doomed, shown]);
+    setSelectedArtifact(shown);
+    const renderer = createPreviewRenderer(makeCallbacks());
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve({}) })
+    );
+
+    await renderer.deleteArtifact(doomed);
+
+    expect(getArtifacts().map((a) => a.id)).toEqual(['a2']);
+    expect(getSelectedArtifact()).toBe(shown);
+    expect(qs(document, '.preview-header-title').textContent).toBe('Orbit');
+  });
+
+  test('does nothing when the confirm dialog is declined', async () => {
+    vi.stubGlobal(
+      'confirm',
+      vi.fn(() => false)
+    );
+    const artifact = makeArtifact();
+    setArtifacts([artifact]);
+    const callbacks = makeCallbacks();
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+
+    await createPreviewRenderer(callbacks).deleteArtifact(artifact);
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(getArtifacts()).toEqual([artifact]);
+    expect(callbacks.onArtifactDeleted).not.toHaveBeenCalled();
+  });
+
+  test('a refused DELETE leaves the list, the selection and the focus as they were', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const artifact = makeArtifact();
+    setArtifacts([artifact]);
+    setSelectedArtifact(artifact);
+    setFocusedArtifact(artifact);
+    const callbacks = makeCallbacks();
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 500 }));
+
+    await createPreviewRenderer(callbacks).deleteArtifact(artifact);
+
+    expect(getArtifacts()).toEqual([artifact]);
+    expect(getSelectedArtifact()).toBe(artifact);
+    expect(getFocusedArtifact()).toBe(artifact);
     expect(callbacks.onArtifactDeleted).not.toHaveBeenCalled();
   });
 });
@@ -305,11 +463,17 @@ describe('renderPreview: copy path', () => {
       setSelectedArtifact(makeArtifact());
       createPreviewRenderer(makeCallbacks()).renderPreview();
 
-      expect(qs(document, '.preview-path-text').textContent).toBe('state/agent/artifacts/beam_profile.png');
+      expect(qs(document, '.preview-path-text').textContent).toBe(
+        'state/agent/artifacts/beam_profile.png'
+      );
 
       const btn = byId('preview-copy-path');
       btn.click();
-      await vi.waitFor(() => expect(window.navigator.clipboard.writeText).toHaveBeenCalledWith('state/agent/artifacts/beam_profile.png'));
+      await vi.waitFor(() =>
+        expect(window.navigator.clipboard.writeText).toHaveBeenCalledWith(
+          'state/agent/artifacts/beam_profile.png'
+        )
+      );
 
       expect(btn.classList.contains('copied')).toBe(true);
       vi.advanceTimersByTime(1500);
@@ -359,6 +523,53 @@ describe('pin toggling', () => {
 
     expect(() => byId('preview-toggle-pin').click()).not.toThrow();
     await new Promise((r) => setTimeout(r, 0));
+  });
+});
+
+describe('setPinned', () => {
+  test.each([true, false])(
+    'pinned=%s: POSTs that state, sets it, fires onPinToggled, and re-renders',
+    async (pinned) => {
+      const artifact = makeArtifact({ pinned: !pinned });
+      setSelectedArtifact(artifact);
+      const callbacks = makeCallbacks();
+      const renderer = createPreviewRenderer(callbacks);
+      renderer.renderPreview();
+      const fetchMock = vi.fn().mockResolvedValue({ ok: true });
+      vi.stubGlobal('fetch', fetchMock);
+
+      await renderer.setPinned(artifact, pinned);
+
+      expect(fetchMock).toHaveBeenCalledWith(
+        '/api/artifacts/a1/pin',
+        expect.objectContaining({ method: 'POST', body: JSON.stringify({ pinned }) })
+      );
+      expect(artifact.pinned).toBe(pinned);
+      expect(callbacks.onPinToggled).toHaveBeenCalledTimes(1);
+      expect(byId('preview-toggle-pin').classList.contains('btn-action-pinned')).toBe(pinned);
+    }
+  );
+
+  test('sets the state it is given rather than flipping it', async () => {
+    const artifact = makeArtifact({ pinned: true });
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await createPreviewRenderer(makeCallbacks(), { header: false }).setPinned(artifact, true);
+
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({ pinned: true });
+    expect(artifact.pinned).toBe(true);
+  });
+
+  test('on a non-OK response: leaves pinned unchanged and does not fire the callback', async () => {
+    const artifact = makeArtifact({ pinned: false });
+    const callbacks = makeCallbacks();
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false }));
+
+    await createPreviewRenderer(callbacks, { header: false }).setPinned(artifact, true);
+
+    expect(artifact.pinned).toBe(false);
+    expect(callbacks.onPinToggled).not.toHaveBeenCalled();
   });
 });
 

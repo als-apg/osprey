@@ -185,12 +185,6 @@ def _summary(**overrides: Any) -> dict[str, Any]:
 
 
 @pytest.fixture(autouse=True)
-def _isolated_state():
-    yield
-    app_module.set_queue_backend(None)
-
-
-@pytest.fixture(autouse=True)
 def _catalog(monkeypatch):
     """A registry holding one nested-schema plan, one flat, one declaring nothing."""
     plans = FacilityPlans(

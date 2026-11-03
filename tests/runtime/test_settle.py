@@ -22,13 +22,13 @@ import osprey.runtime
 from osprey.runtime import ENV_CONTROL_TARGET, ENV_CONTROL_TARGET_GENERATION
 from osprey_connectors.control_system._base import ChannelMetadata, ChannelValue
 from osprey_connectors.settle import SettleTimeoutError
-from osprey_connectors.simulation.envelope import MOTION_SIGMAS
+from osprey_connectors.simulation.envelope import _MOTION_SIGMAS
 from osprey_connectors.workspace import reset_config_cache
 
 LIVE = {"type": "epics", "connector": {"epics": {}}}
 SIMULATOR = {"type": "virtual_accelerator", "connector": {"virtual_accelerator": {}}}
 
-#: A readback seed whose motion band is ``MOTION_SIGMAS x 0.001``.
+#: A readback seed whose motion band is ``_MOTION_SIGMAS x 0.001``.
 MOVING = {"nominal": 2.0, "noise": {"absolute": 0.001}}
 
 
@@ -142,7 +142,7 @@ def test_on_the_simulator_an_untoleranced_setpoint_settles_within_its_readbacks_
         {"id": "Q1:SP", "role": "setpoint", "pair": "Q1:RB"},
         {"id": "Q1:RB", "role": "readback", "simulation": MOVING},
     )
-    band = MOTION_SIGMAS * 0.001
+    band = _MOTION_SIGMAS * 0.001
     served.values["Q1:RB"] = 2.0 + 0.9 * band
 
     osprey.runtime.settle({"Q1:SP": 2.0})

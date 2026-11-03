@@ -21,6 +21,7 @@ that drifts from the model fails here, on the deployment people run.
 
 from __future__ import annotations
 
+import contextlib
 import copy
 import os
 from collections.abc import Iterator
@@ -34,10 +35,7 @@ from click.testing import CliRunner
 from osprey.deployment.compose_generator import _dispatch_worker_corpus_mounts
 from osprey.deployment.web_terminals import env_production, render_images, roster
 from osprey.deployment.web_terminals.artifacts import resolve_render_inputs
-from osprey.deployment.web_terminals.env_production import (
-    ensure_env_production,
-    telemetry_delivered_vars,
-)
+from osprey.deployment.web_terminals.env_production import ensure_env_production
 from osprey.deployment.web_terminals.lint import lint_app_render, lint_web_terminals
 from osprey.deployment.web_terminals.roster import (
     ALL_PRIVILEGES,
@@ -50,14 +48,16 @@ from osprey.deployment.web_terminals.roster import (
     config_needs_graphdb_password,
     config_needs_launch_token_for,
     config_needs_phoebus_handles,
+    config_stop_period,
     resolve_cards,
     roster_entries,
     served_renders,
     tier_privileges,
 )
-from tests.cli.test_tier_app_presets import _build_layered_stack, _build_render_stack
+from tests._builds import copy_build
+from tests.cli.test_tier_app_presets import _build_layered_stack
 
-#: Each fixture builds the flagship preset for real — seconds, not
+#: Each fixture reads a real build of the flagship preset — seconds, not
 #: milliseconds — because the end state is a property of what a build writes.
 pytestmark = pytest.mark.slow
 
@@ -147,9 +147,9 @@ def _grants(config: dict, repo: Path) -> dict[str, Any]:
 
 
 @pytest.fixture(scope="module")
-def stack(tmp_path_factory) -> Path:
-    """The flagship preset as shipped, built once."""
-    return _build_render_stack(tmp_path_factory.mktemp("end-state") / "my-facility")
+def stack(built_control_assistant) -> Path:
+    """The flagship preset as shipped: the run's shared, read-only build (``tests/_builds.py``)."""
+    return built_control_assistant.repo
 
 
 @pytest.fixture(scope="module")
@@ -219,11 +219,14 @@ def test_served_set(config: dict, served: dict[str, roster.ServedRender]) -> Non
 
 def test_one_list(
     stack: Path,
-    config: dict,
     served: dict[str, roster.ServedRender],
     monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
 ) -> None:
     """Grants, the env write, the image build and lint each walk exactly the served set."""
+    # The env write adds files to the repo, so it runs on a copy of the shared build.
+    stack = copy_build(stack, tmp_path)
+    config = _host(stack)
     paths = {render.project_path: name for name, render in served.items()}
 
     roster_seen: list[str] = []
@@ -290,12 +293,14 @@ def test_reach(stack: Path, config: dict, served: dict[str, roster.ServedRender]
         "phoebus_handle_renders": config_needs_phoebus_handles,
         "archiver_credential_renders": lambda cfg: bool(config_archiver_credential_envs(cfg)),
         "archiver_ca_bundle_renders": lambda cfg: bool(config_archiver_ca_bundles(cfg)),
-        "telemetry_vars_renders": lambda cfg: bool(telemetry_delivered_vars(cfg)),
+        "stop_grace_renders": lambda cfg: config_stop_period(cfg) > 0,
     }
     assert set(predicates) | {"launch_token_renders"} == set(grants)
     for grant, predicate in predicates.items():
         for name, render_config in configs.items():
             assert (name in grants[grant]) == bool(predicate(render_config)), (grant, name)
+    for name, period in grants["stop_grace_renders"].items():
+        assert period == config_stop_period(configs[name]), name
     for lane in roster.LANE_KEYS:
         entitled = grants["launch_token_renders"].get(lane, set())
         for name, render_config in configs.items():
@@ -320,12 +325,8 @@ def test_reach(stack: Path, config: dict, served: dict[str, roster.ServedRender]
     # tier is granted them; the flagship's readonly worker needs both.
     worker_tier = config["services"]["dispatch_worker"]["tier"]
     assert worker_tier == "readonly"
-    previous = Path.cwd()
-    os.chdir(stack)
-    try:
+    with contextlib.chdir(stack):
         mounts = _dispatch_worker_corpus_mounts(config, "services/dispatch_worker")
-    finally:
-        os.chdir(previous)
     assert mounts is not None
     assert (mounts["bundle"] is not None) == (worker_tier in grants["facility_bundle_renders"])
     assert (mounts["mirror"] is not None) == (worker_tier in grants["ariel_mirror_renders"])

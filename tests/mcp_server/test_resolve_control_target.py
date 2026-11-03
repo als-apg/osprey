@@ -55,7 +55,7 @@ def test_a_corrupt_record_answers_the_baseline(control_context_root):
     absent one does, because a holder that raised here would fail a read tool
     for a reason that has nothing to do with the read.
     """
-    path = control_context.record_path_under(control_context_root)
+    path = control_context._record_path_under(control_context_root)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text('{"schema": 1, "target": "va"', encoding="utf-8")
     control_context.invalidate_cache()

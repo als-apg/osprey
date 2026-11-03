@@ -17,10 +17,7 @@ vi.mock('/design-system/js/header-contrib.js', () => ({
   onHeaderAction: vi.fn(),
 }));
 
-import {
-  contributeHeader,
-  onHeaderAction,
-} from '/design-system/js/header-contrib.js';
+import { contributeHeader, onHeaderAction } from '/design-system/js/header-contrib.js';
 import { createHeader } from '../../../src/osprey/interfaces/lattice_dashboard/static/js/header.js';
 import { createNetClient } from '../../../src/osprey/interfaces/lattice_dashboard/static/js/net.js';
 import {
@@ -37,7 +34,6 @@ const ALL_FIGURES = ['optics', 'resonance', 'chromaticity', 'footprint', 'da', '
 
 /** The refusal body every non-optics figure route gives a single-pass model. */
 const SINGLE_PASS_409 = { status: 'unavailable', reason: 'not available for a single-pass model' };
-
 
 /**
  * GET /api/models as the server lists it: served models first.
@@ -81,12 +77,14 @@ const SINGLE_PASS_STATE = { ...PERIODIC_STATE, selection: selection('transfer', 
 
 /** One figure cell per figure, shaped like index.html's. */
 function figureCells() {
-  return ALL_FIGURES.map((name) => `
+  return ALL_FIGURES.map(
+    (name) => `
     <div class="figure-cell" id="cell-${name}" data-figure="${name}">
       <div class="figure-plot" id="plot-${name}">
         <div class="figure-placeholder">Waiting for lattice...</div>
       </div>
-    </div>`).join('');
+    </div>`
+  ).join('');
 }
 
 /** The text a figure panel shows. @param {string} name */
@@ -288,16 +286,22 @@ describe('figures the selected model cannot draw', () => {
   test('the capabilities alone decide, whatever the model is called or served', () => {
     const state = { ...PERIODIC_STATE, selection: selection('main', ['optics', 'resonance']) };
     expect(unavailableFigures(state, ALL_FIGURES)).toEqual([
-      'chromaticity', 'footprint', 'da', 'lma',
+      'chromaticity',
+      'footprint',
+      'da',
+      'lma',
     ]);
   });
 
   test('a single-pass model hides every figure but optics, verification pair included', () => {
     expect(unavailableFigures(SINGLE_PASS_STATE, ALL_FIGURES)).toEqual([
-      'resonance', 'chromaticity', 'footprint', 'da', 'lma',
+      'resonance',
+      'chromaticity',
+      'footprint',
+      'da',
+      'lma',
     ]);
   });
-
 
   test("a figure route's 409 reaches the panel as its detail, not as a failure", async () => {
     stubFetch({ '/api/figures/resonance': response(SINGLE_PASS_409, 409) });
@@ -306,15 +310,18 @@ describe('figures the selected model cannot draw', () => {
     await createNetClient(cb).fetchAndRenderFigure('resonance');
 
     expect(cb.onFigureUnavailable).toHaveBeenCalledWith(
-      'resonance', 'not available for a single-pass model'
+      'resonance',
+      'not available for a single-pass model'
     );
     expect(cb.onFigureData).not.toHaveBeenCalled();
   });
 
   test('a single-pass model shows the 409 body in each hidden panel and leaves optics', async () => {
     const routes = Object.fromEntries(
-      ALL_FIGURES.filter((n) => n !== 'optics')
-        .map((n) => [`/api/figures/${n}`, response(SINGLE_PASS_409, 409)])
+      ALL_FIGURES.filter((n) => n !== 'optics').map((n) => [
+        `/api/figures/${n}`,
+        response(SINGLE_PASS_409, 409),
+      ])
     );
     stubFetch(routes);
     const net = createNetClient({
@@ -348,7 +355,8 @@ describe('figures the selected model cannot draw', () => {
 
   test('switching back to a periodic model restores the hidden panels', () => {
     syncAvailability(SINGLE_PASS_STATE, ALL_FIGURES, (name) =>
-      showFigureUnavailable(name, 'not available for a single-pass model'));
+      showFigureUnavailable(name, 'not available for a single-pass model')
+    );
 
     syncAvailability(PERIODIC_STATE, ALL_FIGURES, vi.fn());
 
@@ -360,16 +368,16 @@ describe('figures the selected model cannot draw', () => {
 });
 
 describe('notice banner', () => {
-  test.each([
-    ['no lattice model is served'],
-    ['no simulator view in this build'],
-  ])('shows the state notice %j verbatim', (notice) => {
-    renderNotice(notice);
+  test.each([['no lattice model is served'], ['no simulator view in this build']])(
+    'shows the state notice %j verbatim',
+    (notice) => {
+      renderNotice(notice);
 
-    const banner = byId('model-notice');
-    expect(banner.textContent).toBe(notice);
-    expect(banner.style.display).toBe('');
-  });
+      const banner = byId('model-notice');
+      expect(banner.textContent).toBe(notice);
+      expect(banner.style.display).toBe('');
+    }
+  );
 
   test('a null notice empties and hides the banner', () => {
     renderNotice('no lattice model is served');

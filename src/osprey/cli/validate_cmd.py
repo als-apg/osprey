@@ -104,6 +104,7 @@ def check_profile_file(profile_file: Path, *, drift: str = "error") -> None:
         click.UsageError: With every accumulated problem, so the caller exits 2.
     """
     from .build_profile import resolve_build_profile
+    from .build_profile_canopy import profile_home_screen_errors, repo_home_screen_errors
     from .build_profile_deploy import (
         deploy_aware_config_errors,
         deploy_aware_config_warnings,
@@ -111,10 +112,10 @@ def check_profile_file(profile_file: Path, *, drift: str = "error") -> None:
         profile_dispatch_tier,
     )
     from .build_profile_drift import MARKER_REACH, preset_drift_report
-    from .build_profile_panels import bar_items_selection_warnings
     from .build_profile_presets import bundled_layer_file_refusal
     from .build_profile_schema import DEFAULT_DEVIATION_MARKER
     from .build_profile_timezone import system_timezone_errors, system_timezone_reminders
+    from .profile_root import resolve_profile_root
     from .variant_selection import VARIANT_DIRNAME, VariantSelection, resolve_variant_selection
 
     layer_refusal = bundled_layer_file_refusal(profile_file)
@@ -123,11 +124,13 @@ def check_profile_file(profile_file: Path, *, drift: str = "error") -> None:
 
     variant = VariantSelection(name=None, path=None)
     try:
-        # Only a repo root has a host variant. A tier or app named directly is
-        # a file among its siblings, not a deployment, and the directory holding
-        # it carries no setting to read.
-        if profile_file.name == PROFILE_FILENAME:
-            variant = resolve_variant_selection(profile_file.parent)
+        # Only a deployment has a host variant, and it overlays the deployment's
+        # profile.yml: a tier or app named directly is judged over the root its
+        # render merges over, so the setting is read off that root, never off
+        # the `tiers/` or `apps/` directory.
+        root_dir, kind = resolve_profile_root(profile_file)
+        if kind.is_layer or profile_file.name == PROFILE_FILENAME:
+            variant = resolve_variant_selection(root_dir)
         _reject_unknown_layer_keys(profile_file)
         overlays = (variant.path,) if variant.path is not None else ()
         build_profile, profile_dir = resolve_build_profile(profile_file, None, overlays)
@@ -157,6 +160,7 @@ def check_profile_file(profile_file: Path, *, drift: str = "error") -> None:
         profile_root=profile_root,
         project_name=build_profile.project_name,
         dispatch_tier=dispatch_tier,
+        agent_record=build_profile.agent_record,
     )
     # A sibling call, not a line inside `deploy_aware_config_errors`: that
     # function judges the multi-user web stack against the deploy block, and
@@ -170,6 +174,16 @@ def check_profile_file(profile_file: Path, *, drift: str = "error") -> None:
         *limits_block_errors(build_profile.config),
         *system_timezone_errors(build_profile.config),
     ]
+    # The CANOPY home screen, as `osprey build` judges it: a repo's profile
+    # together with every tier and app file the build renders, a file named
+    # directly on its own, against the library under the profile's data root.
+    try:
+        if profile_file.name == PROFILE_FILENAME:
+            web_errors.extend(repo_home_screen_errors(build_profile, profile_root, overlays))
+        else:
+            web_errors.extend(profile_home_screen_errors(build_profile, profile_dir))
+    except BuildProfileError as e:
+        raise click.UsageError(str(e)) from e
     if web_errors:
         # "Profile validation failed", not "Build profile ...": the success line
         # below says "Profile is valid", and `BuildProfile.validate` already owns
@@ -187,10 +201,8 @@ def check_profile_file(profile_file: Path, *, drift: str = "error") -> None:
             profile_root=profile_root,
             project_name=build_profile.project_name,
             dispatch_tier=dispatch_tier,
+            agent_record=build_profile.agent_record,
         ),
-        # The same line `osprey build` prints for a `web.bar_items` entry the
-        # served default drops because its panel is not selected.
-        *bar_items_selection_warnings(build_profile.config, build_profile.web_panels),
         # The same UTC reminder `osprey build` prints.
         *system_timezone_reminders(build_profile.config),
     ):
@@ -307,7 +319,7 @@ def validate(target: Path | None, drift: str, repo: Path | None) -> None:
     \b
       $ osprey validate
       $ osprey validate apps/logbook.yml
-      $ osprey validate --repo ~/als-assistant
+      $ osprey validate --repo ~/my-assistant
     """
     if target is not None and repo is not None:
         raise click.UsageError(

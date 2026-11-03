@@ -3,10 +3,11 @@
 The tier-2 benchmark in ``tests/e2e/tier2/test_chart_value_reading.py`` grades an
 agent's reading of a plot against ``DIP_DEPTH_MA``. These tests pin the
 picture to that constant without a deploy: the spec parses, the drop at the
-loss instant is the constant, the dip ends on a refill so the sawtooth never
-jumps inside it, nothing on the picture or in the entry texts states a
-magnitude, and the two facility scenario files build with the preset's facility
-and read back as the archive steps and the attached plot.
+loss instant is the constant, the recent loss is one bounded step below the
+DCCT's held level, back on the baseline, the dip ends on a refill so the
+sawtooth never jumps inside it, nothing on the picture or in the entry texts
+states a magnitude, and the two facility scenario files build with the preset's
+facility and read back as the archive step and the attached plot.
 """
 
 from __future__ import annotations
@@ -19,6 +20,7 @@ import pytest
 import yaml
 
 from osprey.facility.scenarios import scenario_logbook
+from osprey_connectors.simulation import topoff
 from osprey_connectors.simulation.logbook import PlotSpec, parse_plot_spec
 from tests._preset_data import packaged_facility_dir
 from tests.e2e.fixtures.chart_value_reading import plot_spec as fixture
@@ -121,14 +123,22 @@ def test_entry_texts_state_no_current_in_milliamps() -> None:
         assert not re.search(r"\d+(\.\d+)?\s?mA", text), entry["entry_id"]
 
 
-def test_recent_scenario_steps_match_the_constant() -> None:
+def test_recent_scenario_is_one_bounded_step_back_on_the_baseline() -> None:
+    """The recent loss is one bounded step below the DCCT's held level; when it
+    ends the current is back on the baseline, so the planted drop is exactly
+    the constant and no second event names a recovery value."""
     (channel,) = _scenario(fixture.RECENT_SCENARIO)["archiver"]
     assert channel["channel"] == fixture.DCCT_CHANNEL
-    down, up = channel["events"]
-    assert down["shape"] == up["shape"] == "step"
-    assert down["at_offset"] < up["at_offset"] < 0
-    assert fixture.BASELINE_MA - down["to"] == pytest.approx(fixture.RECENT_DIP_MA)
-    assert up["to"] == pytest.approx(fixture.BASELINE_MA)
+    (step,) = channel["events"]
+    assert step["shape"] == "step"
+    assert step["at_offset"] < step["until_offset"] < 0
+    assert step["to"] == pytest.approx(fixture.BASELINE_MA - fixture.RECENT_DIP_MA, abs=1e-9)
+    assert fixture.BASELINE_MA - step["to"] == pytest.approx(fixture.RECENT_DIP_MA, abs=1e-9)
+
+
+def test_the_baseline_is_the_dcct_held_level() -> None:
+    seeds = yaml.safe_load(fixture.EXAMPLE_SEEDS.read_text("utf-8"))
+    assert fixture.BASELINE_MA == topoff.held_value(seeds[fixture.DCCT_CHANNEL])
 
 
 def test_installed_scenarios_build_with_the_preset_facility(tmp_path: Path) -> None:
@@ -166,3 +176,24 @@ def test_spec_renders_to_a_png(tmp_path: Path) -> None:
     png = render_plot_spec(spec, datetime(2025, 10, 3, 2, 40, tzinfo=UTC))
     assert png.startswith(PNG_SIGNATURE)
     (tmp_path / "dcct_decay_run.png").write_bytes(png)
+
+
+def _named_channels(node: object) -> set[str]:
+    """Every value a scenario document gives under a ``channel`` key, at any depth."""
+    if isinstance(node, dict):
+        found = {str(node["channel"])} if "channel" in node else set()
+        return found.union(*(_named_channels(value) for value in node.values()))
+    if isinstance(node, list):
+        return set().union(*(_named_channels(item) for item in node))
+    return set()
+
+
+def test_every_address_the_scenarios_name_is_an_example_channel() -> None:
+    records = packaged_facility_dir("control_assistant") / "records" / "channels.yaml"
+    channel_ids = {record["id"] for record in yaml.safe_load(records.read_text("utf-8"))}
+    in_scenarios: set[str] = set()
+    for path in sorted(fixture.SCENARIOS_DIR.glob("*.yaml")):
+        in_scenarios |= _named_channels(yaml.safe_load(path.read_text("utf-8")))
+    assert in_scenarios, f"no scenario under {fixture.SCENARIOS_DIR} names a channel"
+    named = in_scenarios | {fixture.DCCT_CHANNEL}
+    assert named <= channel_ids, sorted(named - channel_ids)

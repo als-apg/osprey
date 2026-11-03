@@ -36,6 +36,7 @@ from osprey.cli.web_cmd import (
     resolve_session_lifetime,
     web,
 )
+from tests._text import flat
 from tests.cli._lifecycle_build import stub_build
 
 TWELVE_HOURS = 12 * 60 * 60
@@ -187,36 +188,12 @@ def test_declared_env_constant_equals_the_web_auth_spelling():
 # ---------------------------------------------------------------------------
 
 
-@pytest.fixture
-def runner() -> CliRunner:
-    return CliRunner()
-
-
-@pytest.fixture(autouse=True)
-def _restore_process_state():
-    """Undo what an in-process launch does to the interpreter's globals.
-
-    ``web()`` chdirs into the render and writes ``os.environ`` directly (the
-    port publication, the operator secret, and now the session lifetime). All
-    three outlive a ``CliRunner`` invocation and would otherwise reach every
-    test that runs after this one in the same worker.
-    """
-    cwd = Path.cwd()
-    environ = dict(os.environ)
-    yield
-    os.chdir(cwd)
-    os.environ.clear()
-    os.environ.update(environ)
-
-
 @pytest.fixture(autouse=True)
 def _isolate_web_env(monkeypatch):
     """Start each launch test from an environment that declares nothing.
 
-    ``monkeypatch.delenv`` on a key that is already absent records NO undo, so
-    a later direct ``os.environ[...] = ...`` from inside ``web()`` would never
-    be rolled back. Forcing a ``setenv`` first makes monkeypatch track the key
-    and restore its true pre-test state either way.
+    A direct ``os.environ[...] = ...`` from inside ``web()`` is rolled back by
+    the root ``restore_environ`` guard.
     """
     from osprey.interfaces.web_auth import OPERATOR_SECRET_ENV, reset_web_credentials
 
@@ -228,8 +205,7 @@ def _isolate_web_env(monkeypatch):
         DECLARED_SESSION_STORE_DIR_ENV,
         OPERATOR_SECRET_ENV,
     ):
-        monkeypatch.setenv(key, "__unset_by_test_fixture__")
-        monkeypatch.delenv(key)
+        monkeypatch.delenv(key, raising=False)
     reset_web_credentials()
     yield
     reset_web_credentials()
@@ -251,7 +227,7 @@ def _no_host_dependencies(monkeypatch):
     monkeypatch.setattr(
         "osprey.utils.shell_resolver.resolve_shell_command", lambda command: f"/abs/{command}"
     )
-    monkeypatch.setattr("osprey.mcp_env.load_dotenv_from_project", lambda: None)
+    monkeypatch.setattr("osprey.mcp_env.load_dotenv_from_project", lambda **_: None)
 
 
 def _render(repo: Path, session_lifetime: str | None) -> None:
@@ -493,13 +469,6 @@ def test_declared_store_dir_constant_equals_the_web_auth_spelling():
 # ---------------------------------------------------------------------------
 
 
-def _free_port() -> int:
-    """A port nothing is listening on right now."""
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
-        probe.bind(("127.0.0.1", 0))
-        return int(probe.getsockname()[1])
-
-
 def _render_on_port(repo: Path, port: int) -> None:
     """Stub a build whose config.yml pins the terminal to *port* on loopback."""
     stub_build(
@@ -550,24 +519,14 @@ def _clear(runner: CliRunner, repo: Path, args: list[str] | None = None):
     return runner.invoke(web, ["sessions", "clear", *(args or [])], catch_exceptions=False)
 
 
-def _flat(text: str) -> str:
-    """Collapse the renderer's wrapping so an assertion reads the sentence.
-
-    ``output.fail``/``output.warn`` wrap to the console width, which is not the
-    same everywhere the suite runs; a phrase split across two lines is still
-    the phrase the operator reads.
-    """
-    return " ".join(text.split())
-
-
 class TestSessionsClearRefusesALiveServer:
     """A running server would undo the delete, so the verb declines to pretend."""
 
     def test_a_listener_on_the_resolved_port_refuses_and_names_the_stop_verb(
-        self, runner, lifecycle_repo
+        self, reserve_port, runner, lifecycle_repo
     ):
         """A FOREGROUND server writes no PID file, so the socket is the probe."""
-        port = _free_port()
+        port = reserve_port()
         _render_on_port(lifecycle_repo, port)
         store = _write_store(lifecycle_repo, f"sessions-{port}.json", 2)
 
@@ -579,11 +538,13 @@ class TestSessionsClearRefusesALiveServer:
             result = _clear(runner, lifecycle_repo)
 
         assert result.exit_code != 0
-        assert "osprey web stop" in _flat(result.output)
+        assert "osprey web stop" in flat(result.output)
         assert store.is_file(), "a refused clear must leave the store untouched"
 
-    def test_force_clears_anyway_and_says_what_force_does_not_do(self, runner, lifecycle_repo):
-        port = _free_port()
+    def test_force_clears_anyway_and_says_what_force_does_not_do(
+        self, reserve_port, runner, lifecycle_repo
+    ):
+        port = reserve_port()
         _render_on_port(lifecycle_repo, port)
         store = _write_store(lifecycle_repo, f"sessions-{port}.json", 2)
 
@@ -596,15 +557,15 @@ class TestSessionsClearRefusesALiveServer:
 
         assert result.exit_code == 0, result.output
         assert not store.exists()
-        assert "Dropped 2 persisted session(s)." in _flat(result.output)
+        assert "Dropped 2 persisted session(s)." in flat(result.output)
         # The caveat is the whole point of allowing --force at all: the running
         # server keeps serving the sessions it already holds.
-        caveat = _flat(result.output)
+        caveat = flat(result.output)
         assert "keeps its live sessions and warm terminals in memory" in caveat
         assert "only stops them surviving the NEXT restart" in caveat
 
     def test_a_detached_servers_pid_file_refuses_with_nothing_listening(
-        self, runner, lifecycle_repo
+        self, reserve_port, runner, lifecycle_repo
     ):
         """The other half of the liveness read, on its own.
 
@@ -612,7 +573,7 @@ class TestSessionsClearRefusesALiveServer:
         yet still owns its sessions -- the PID file is the handle on it, and it
         has to refuse without any help from the socket probe.
         """
-        port = _free_port()
+        port = reserve_port()
         _render_on_port(lifecycle_repo, port)
         store = _write_store(lifecycle_repo, f"sessions-{port}.json", 2)
         _write_pid_file(lifecycle_repo)
@@ -620,11 +581,13 @@ class TestSessionsClearRefusesALiveServer:
         result = _clear(runner, lifecycle_repo)
 
         assert result.exit_code != 0
-        assert "osprey web stop" in _flat(result.output)
+        assert "osprey web stop" in flat(result.output)
         assert store.is_file(), "a refused clear must leave the store untouched"
 
-    def test_force_clears_past_a_pid_file_with_the_same_caveat(self, runner, lifecycle_repo):
-        port = _free_port()
+    def test_force_clears_past_a_pid_file_with_the_same_caveat(
+        self, reserve_port, runner, lifecycle_repo
+    ):
+        port = reserve_port()
         _render_on_port(lifecycle_repo, port)
         store = _write_store(lifecycle_repo, f"sessions-{port}.json", 2)
         _write_pid_file(lifecycle_repo)
@@ -633,8 +596,8 @@ class TestSessionsClearRefusesALiveServer:
 
         assert result.exit_code == 0, result.output
         assert not store.exists()
-        assert "Dropped 2 persisted session(s)." in _flat(result.output)
-        caveat = _flat(result.output)
+        assert "Dropped 2 persisted session(s)." in flat(result.output)
+        caveat = flat(result.output)
         assert "keeps its live sessions and warm terminals in memory" in caveat
         assert "only stops them surviving the NEXT restart" in caveat
 
@@ -642,20 +605,24 @@ class TestSessionsClearRefusesALiveServer:
 class TestSessionsClearWithNoServer:
     """With nothing serving, the delete means what it says."""
 
-    def test_it_reports_the_digests_it_dropped_and_removes_the_file(self, runner, lifecycle_repo):
-        port = _free_port()
+    def test_it_reports_the_digests_it_dropped_and_removes_the_file(
+        self, reserve_port, runner, lifecycle_repo
+    ):
+        port = reserve_port()
         _render_on_port(lifecycle_repo, port)
         store = _write_store(lifecycle_repo, f"sessions-{port}.json", 2)
 
         result = _clear(runner, lifecycle_repo)
 
         assert result.exit_code == 0, result.output
-        assert "Dropped 2 persisted session(s)." in _flat(result.output)
+        assert "Dropped 2 persisted session(s)." in flat(result.output)
         assert not store.exists()
 
-    def test_every_port_keyed_store_goes_not_only_this_one(self, runner, lifecycle_repo):
+    def test_every_port_keyed_store_goes_not_only_this_one(
+        self, reserve_port, runner, lifecycle_repo
+    ):
         """One deployment can have served on several ports; all of them clear."""
-        port = _free_port()
+        port = reserve_port()
         _render_on_port(lifecycle_repo, port)
         mine = _write_store(lifecycle_repo, f"sessions-{port}.json", 2)
         other = _write_store(lifecycle_repo, "sessions-9999.json", 1)
@@ -664,11 +631,13 @@ class TestSessionsClearWithNoServer:
         result = _clear(runner, lifecycle_repo)
 
         assert result.exit_code == 0, result.output
-        assert "Dropped 6 persisted session(s)." in _flat(result.output)
+        assert "Dropped 6 persisted session(s)." in flat(result.output)
         assert not mine.exists() and not other.exists() and not bare.exists()
 
-    def test_an_unreadable_store_counts_nothing_but_is_still_deleted(self, runner, lifecycle_repo):
-        port = _free_port()
+    def test_an_unreadable_store_counts_nothing_but_is_still_deleted(
+        self, reserve_port, runner, lifecycle_repo
+    ):
+        port = reserve_port()
         _render_on_port(lifecycle_repo, port)
         store = _store_dir(lifecycle_repo) / f"sessions-{port}.json"
         store.parent.mkdir(parents=True, exist_ok=True)
@@ -677,26 +646,26 @@ class TestSessionsClearWithNoServer:
         result = _clear(runner, lifecycle_repo)
 
         assert result.exit_code == 0, result.output
-        assert "Dropped 0 persisted session(s)." in _flat(result.output)
+        assert "Dropped 0 persisted session(s)." in flat(result.output)
         assert not store.exists()
 
     def test_a_deployment_that_never_persisted_anything_is_not_an_error(
-        self, runner, lifecycle_repo
+        self, reserve_port, runner, lifecycle_repo
     ):
-        port = _free_port()
+        port = reserve_port()
         _render_on_port(lifecycle_repo, port)
         assert not _store_dir(lifecycle_repo).exists()
 
         result = _clear(runner, lifecycle_repo)
 
         assert result.exit_code == 0, result.output
-        assert "Dropped 0 persisted session(s)." in _flat(result.output)
+        assert "Dropped 0 persisted session(s)." in flat(result.output)
 
     def test_the_group_position_of_repo_reaches_the_subcommand(
-        self, runner, lifecycle_repo, tmp_path
+        self, reserve_port, runner, lifecycle_repo, tmp_path
     ):
         """``osprey web --repo X sessions clear`` is the same request as the tail form."""
-        port = _free_port()
+        port = reserve_port()
         _render_on_port(lifecycle_repo, port)
         store = _write_store(lifecycle_repo, f"sessions-{port}.json", 2)
 
@@ -710,5 +679,5 @@ class TestSessionsClearWithNoServer:
         )
 
         assert result.exit_code == 0, result.output
-        assert "Dropped 2 persisted session(s)." in _flat(result.output)
+        assert "Dropped 2 persisted session(s)." in flat(result.output)
         assert not store.exists()

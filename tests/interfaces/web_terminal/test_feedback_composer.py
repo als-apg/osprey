@@ -25,11 +25,14 @@ from unittest.mock import Mock, call
 
 import pytest
 
+from osprey.agent_record.client import ClientAnswer
+from osprey.agent_record.contract import Drain
 from osprey.interfaces.web_terminal.feedback_composer import (
     BUNDLE_TRIM_MARKER,
     CONTEXT_FLOOR_BYTES,
     CONTEXT_NO_SESSION,
     CONTEXT_OK,
+    CONTEXT_RECORD_UNAVAILABLE,
     CONTEXT_TRANSCRIPT_NOT_FOUND,
     NO_WINDOW_ARTIFACTS_HEADER,
     PAYLOAD_CAP_BYTES,
@@ -47,10 +50,12 @@ from osprey.interfaces.web_terminal.feedback_composer import (
     payload_bundle_budget,
     render_bundle,
     select_artifacts,
+    timeline_material,
     validate_session_id,
 )
-from osprey.mcp_server.workspace.transcript_reader import TranscriptReader
+from osprey.mcp_server.session import MAX_TIMELINE_PAGES
 from osprey.stores.artifact_store import ArtifactEntry, ArtifactStore
+from tests.agent_record.fakes import FakeRecordClient
 
 SESSION_ID = "8f14e45f-ceea-4d0a-b6f0-1c2d3e4f5a6b"
 OTHER_SESSION_ID = "1b9d6bcd-bbfd-4b2d-9b5d-ab8dfbbd4bed"
@@ -72,17 +77,48 @@ def _entry(artifact_id: str, timestamp: str, session_id: str = "") -> ArtifactEn
     )
 
 
-def _reader(*, transcript_found: bool = True) -> Mock:
-    """A ``TranscriptReader`` double with the three read methods stubbed."""
-    reader = Mock(spec=TranscriptReader)
-    reader.find_transcript_by_id.return_value = (
-        Mock(name="transcript_path") if transcript_found else None
-    )
-    reader.read_session_by_id.return_value = [{"type": "tool_call", "timestamp": "t"}]
-    reader.read_chat_history_by_id.return_value = [
-        {"role": "user", "content": "hi", "timestamp": "t"}
+def _call_node(key: str, name: str, *, error: bool = False, content=None) -> dict:
+    return {
+        "key": key,
+        "kind": "tool_call",
+        "ts": "2026-08-20T10:00:01+00:00",
+        "body": {"id": "toolu_1", "name": name, "input": {"secret": "x"}},
+        "decision": {"key": f"{key}-decision", "kind": "decision", "body": {}},
+        "result": {
+            "key": f"{key}-result",
+            "kind": "tool_result",
+            "body": {"content": content if content is not None else "ok", "is_error": error},
+        },
+        "subagent": None,
+    }
+
+
+def _text_node(key: str, kind: str, text: str) -> dict:
+    return {
+        "key": key,
+        "kind": kind,
+        "ts": "2026-08-20T10:00:00+00:00",
+        "body": {"text": text},
+        "decision": None,
+        "result": None,
+        "subagent": None,
+    }
+
+
+def _client(*pages: list[dict], unavailable: str | None = None) -> FakeRecordClient:
+    """A record client whose ``timeline`` answers *pages* in turn, each naming the next."""
+    answers = [
+        ClientAnswer(data=page, complete=True, next=f"c{index}" if index < len(pages) - 1 else None)
+        for index, page in enumerate(pages or ([],))
     ]
-    return reader
+    return FakeRecordClient({"timeline": answers}, unavailable=unavailable)
+
+
+def _reader(*, transcript_found: bool = True) -> FakeRecordClient:
+    """A record client with one prompt and one tool call, or nothing at all."""
+    if not transcript_found:
+        return _client([])
+    return _client([_text_node("k-prompt", "prompt", "hi"), _call_node("k-call", "Read")])
 
 
 def _store(entries: list[ArtifactEntry] | None = None) -> Mock:
@@ -134,9 +170,10 @@ def test_collect_material_reads_each_source_exactly_once():
         reader, store, SESSION_ID, scrollback="tail", metadata={"app_name": "OSPREY"}
     )
 
-    assert reader.find_transcript_by_id.call_count == 1
-    assert reader.read_session_by_id.call_count == 1
-    assert reader.read_chat_history_by_id.call_count == 1
+    (timeline,) = reader.calls_to("timeline")
+    assert timeline["session_id"] == SESSION_ID
+    # The read waits until the session's latest step is in the record.
+    assert timeline["wait"] == Drain(session_id=SESSION_ID)
     assert store.list_entries.call_count == 1
     # Filtering is the composer's job: the store's session filter matches "this
     # session or untagged" and so ignores the window. Only the shipped example
@@ -144,11 +181,55 @@ def test_collect_material_reads_each_source_exactly_once():
     assert store.list_entries.call_args == call(exclude_examples=True)
     assert material.context_status == CONTEXT_OK
     assert material.session_id == SESSION_ID
-    assert material.events == reader.read_session_by_id.return_value
-    assert material.chat == reader.read_chat_history_by_id.return_value
+    assert [e["tool"] for e in material.events] == ["Read"]
+    assert material.chat == [
+        {"role": "user", "timestamp": "2026-08-20T10:00:00+00:00", "content": "hi"}
+    ]
+    assert material.refs == ["k-prompt", "k-call", "k-call-result"]
     assert material.artifact_entries == store.list_entries.return_value
     assert material.scrollback == "tail"
     assert material.metadata == {"app_name": "OSPREY"}
+
+
+def test_collect_material_reads_the_session_a_cleared_key_moved_to():
+    reader = _reader()
+
+    material = collect_material(
+        reader, _store(), SESSION_ID, "", {}, transcript_id=OTHER_SESSION_ID
+    )
+
+    (timeline,) = reader.calls_to("timeline")
+    assert timeline["session_id"] == OTHER_SESSION_ID
+    assert timeline["wait"] == Drain(session_id=OTHER_SESSION_ID)
+    assert material.session_id == SESSION_ID
+
+
+def test_collect_material_follows_every_page_of_the_timeline():
+    reader = _client(
+        [_text_node("k1", "prompt", "first")],
+        [_text_node("k2", "answer", "second")],
+        [_call_node("k3", "Bash")],
+    )
+
+    material = collect_material(reader, _store(), SESSION_ID, "", {})
+
+    calls = reader.calls_to("timeline")
+    assert [c.get("after") for c in calls] == [None, "c0", "c1"]
+    # Only the first page waits; the rest read the snapshot it drained to.
+    assert calls[0]["wait"] == Drain(session_id=SESSION_ID)
+    assert all(c.get("wait") is None for c in calls[1:])
+    assert [t["content"] for t in material.chat] == ["first", "second"]
+    assert material.refs == ["k1", "k2", "k3", "k3-result"]
+
+
+def test_collect_material_stops_paging_at_the_page_bound():
+    endless = FakeRecordClient(
+        {"timeline": lambda **kw: ClientAnswer(data=[], complete=True, next="again")}
+    )
+
+    collect_material(endless, _store(), SESSION_ID, "", {})
+
+    assert len(endless.calls_to("timeline")) == MAX_TIMELINE_PAGES
 
 
 def test_collect_material_dead_session_marks_status_and_stops_reading():
@@ -160,17 +241,30 @@ def test_collect_material_dead_session_marks_status_and_stops_reading():
     )
 
     assert material.context_status == CONTEXT_TRANSCRIPT_NOT_FOUND
-    assert reader.find_transcript_by_id.call_count == 1
-    reader.read_session_by_id.assert_not_called()
-    reader.read_chat_history_by_id.assert_not_called()
+    assert len(reader.calls_to("timeline")) == 1
     store.list_entries.assert_not_called()
     assert material.events == []
     assert material.chat == []
+    assert material.refs == []
     assert material.artifact_entries == []
     # The text and metadata the operator typed still survive.
     assert material.scrollback == "tail"
     assert material.metadata == {"app_name": "OSPREY"}
     assert material.session_id == SESSION_ID
+
+
+def test_collect_material_says_so_when_the_record_does_not_answer():
+    reader = _client(unavailable="connection refused")
+    store = _store()
+
+    material = collect_material(reader, store, SESSION_ID, "tail", {"v": "1"})
+
+    assert material.context_status == CONTEXT_RECORD_UNAVAILABLE
+    store.list_entries.assert_not_called()
+    assert material.events == material.chat == material.refs == []
+    text, _ = render_bundle(material, 10_000)
+    assert "the agent record did not answer" in text
+    assert "## deployment" in text
 
 
 def test_collect_material_without_session_is_metadata_only():
@@ -181,15 +275,66 @@ def test_collect_material_without_session_is_metadata_only():
 
     assert material.context_status == CONTEXT_NO_SESSION
     assert material.session_id is None
-    reader.find_transcript_by_id.assert_not_called()
-    reader.read_session_by_id.assert_not_called()
-    reader.read_chat_history_by_id.assert_not_called()
+    assert reader.calls_to("timeline") == []
     store.list_entries.assert_not_called()
     assert material.events == []
     assert material.chat == []
     assert material.artifact_entries == []
     assert material.metadata == {"v": "1"}
     assert material.scrollback == "tail"
+
+
+# --------------------------------------------------------------------------
+# timeline_material
+# --------------------------------------------------------------------------
+
+
+def test_timeline_material_keeps_a_failed_calls_error_and_never_its_arguments():
+    events, _chat, _refs = timeline_material(
+        [_call_node("k", "write_channel", error=True, content=[{"type": "text", "text": "denied"}])]
+    )
+
+    (event,) = events
+    assert event["tool"] == "write_channel"
+    assert event["is_error"] is True
+    assert event["result_summary"] == "denied"
+    assert "secret" not in str(event)
+
+
+def test_timeline_material_nests_a_subagents_steps_after_it():
+    call = _call_node("k-agent", "Agent")
+    call["subagent"] = {
+        "agent_id": "a1",
+        "timeline": [_call_node("k-child", "read_channel")],
+    }
+    orphan = {
+        "kind": "subagent",
+        "agent_id": "a2",
+        "orphan": True,
+        "decision": None,
+        "result": None,
+        "subagent": {"agent_id": "a2", "timeline": [_text_node("k-o", "answer", "done")]},
+    }
+
+    events, chat, refs = timeline_material([call, orphan])
+
+    assert [e.get("tool") or e.get("agent_id") for e in events] == ["Agent", "read_channel", "a2"]
+    assert [t["content"] for t in chat] == ["done"]
+    assert refs == ["k-agent", "k-agent-result", "k-child", "k-child-result", "k-o"]
+
+
+def test_timeline_material_skips_what_a_report_does_not_carry():
+    nodes = [
+        _text_node("k-think", "thinking", "secret reasoning"),
+        {"key": "k-usage", "kind": "usage", "body": {"input_tokens": 3}},
+        _text_node("k-blank", "prompt", "   "),
+        {"key": "k-image", "kind": "prompt", "body": {"image": {"source": "..."}}},
+        "not a node",
+    ]
+
+    events, chat, refs = timeline_material(nodes)
+
+    assert events == chat == refs == []
 
 
 # --------------------------------------------------------------------------

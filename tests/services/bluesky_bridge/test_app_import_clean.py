@@ -41,7 +41,9 @@ def leaked() -> set[str]:
         "import osprey.services.bluesky_bridge.app\n"
         f"print(json.dumps([m for m in {_GUARDED!r} if m in sys.modules]))\n"
     )
-    result = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)
+    result = subprocess.run(
+        [sys.executable, "-c", code], capture_output=True, text=True, timeout=120
+    )
     assert result.returncode == 0, (
         f"importing osprey.services.bluesky_bridge.app failed "
         f"(child exit {result.returncode}):\n{result.stderr}"

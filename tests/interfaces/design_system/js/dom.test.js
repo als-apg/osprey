@@ -23,37 +23,35 @@ import {
 
 describe('escapeHtml', () => {
   test('undefined yields the empty string (SC4)', () => {
-    expect(escapeHtml(undefined)).toBe("");
+    expect(escapeHtml(undefined)).toBe('');
   });
 
   test('escapes angle brackets and ampersands (SC4)', () => {
-    expect(escapeHtml("<b>&")).toBe("&lt;b&gt;&amp;");
+    expect(escapeHtml('<b>&')).toBe('&lt;b&gt;&amp;');
   });
 
   test('escapes a <script> tag', () => {
-    expect(escapeHtml("<script>alert(1)</script>")).toBe(
-      "&lt;script&gt;alert(1)&lt;/script&gt;"
-    );
+    expect(escapeHtml('<script>alert(1)</script>')).toBe('&lt;script&gt;alert(1)&lt;/script&gt;');
   });
 
   test('escapes a bare ampersand', () => {
-    expect(escapeHtml("&")).toBe("&amp;");
+    expect(escapeHtml('&')).toBe('&amp;');
   });
 
   test('null yields the empty string', () => {
-    expect(escapeHtml(null)).toBe("");
+    expect(escapeHtml(null)).toBe('');
   });
 
   test('coerces a number to its string form', () => {
-    expect(escapeHtml(42)).toBe("42");
+    expect(escapeHtml(42)).toBe('42');
   });
 
   test('coerces 0 to "0" (not the empty string)', () => {
-    expect(escapeHtml(0)).toBe("0");
+    expect(escapeHtml(0)).toBe('0');
   });
 
   test('coerces false to "false"', () => {
-    expect(escapeHtml(false)).toBe("false");
+    expect(escapeHtml(false)).toBe('false');
   });
 
   test('escapes a double-quote to &quot;', () => {

@@ -35,7 +35,7 @@ _APP_JS = _STATIC / "js" / "app.js"
 _INDEX_HTML = _STATIC / "index.html"
 
 _FIELD_RE = re.compile(
-    r"\{\s*key:\s*'(?P<key>\w+)'.*?min:\s*(?P<min>-?[\d.]+),\s*max:\s*(?P<max>-?[\d.]+)"
+    r"\{\s*key:\s*'(?P<key>\w+)'[^{}]*?min:\s*(?P<min>-?[\d.]+),\s*max:\s*(?P<max>-?[\d.]+)"
 )
 
 
@@ -45,21 +45,14 @@ def _js_settings_fields() -> dict[str, dict[str, tuple[float, float]]]:
     body = re.search(r"export const SETTINGS_FIELDS = \{(.*?)\n\};", source, re.DOTALL)
     assert body, f"SETTINGS_FIELDS object literal not found in {_SETTINGS_JS}"
 
-    groups: dict[str, dict[str, tuple[float, float]]] = {}
-    current: str | None = None
-    for line in body.group(1).splitlines():
-        group_start = re.match(r"\s{2}(\w+): \{", line)
-        if group_start:
-            current = group_start.group(1)
-            groups[current] = {}
-            continue
-        field = _FIELD_RE.search(line)
-        if field and current is not None:
-            groups[current][field.group("key")] = (
-                float(field.group("min")),
-                float(field.group("max")),
-            )
-    return groups
+    parts = re.split(r"^ {2}(\w+): \{", body.group(1), flags=re.MULTILINE)
+    return {
+        group: {
+            field.group("key"): (float(field.group("min")), float(field.group("max")))
+            for field in _FIELD_RE.finditer(text)
+        }
+        for group, text in zip(parts[1::2], parts[2::2], strict=True)
+    }
 
 
 def _js_all_figures() -> list[str]:

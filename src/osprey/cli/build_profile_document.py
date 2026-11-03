@@ -16,6 +16,8 @@ on the parser.
 
 from __future__ import annotations
 
+import copy
+import functools
 import logging
 from collections.abc import Iterator
 from dataclasses import dataclass, field
@@ -24,8 +26,17 @@ from typing import Any
 
 import yaml
 
+from osprey.utils.workspace import LAYER_DIR_KINDS, RETIRED_LAYER_DIRS
 from osprey_connectors import yaml_loader
 from osprey_connectors.errors import BuildProfileError
+from osprey_connectors.types import (
+    TIER_WORDS,
+    baseline_target,
+    configured_targets,
+    resolve_control_system_type,
+    resolve_target,
+    switch_capable,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -85,7 +96,7 @@ def _normalize_empty_collections(raw: dict[str, Any]) -> dict[str, Any]:
 # The roster's access level is a *tier*: ``users[].tier``, ``default_tier`` and
 # ``authorization.roles.<r>.tier`` name a file in ``tiers/``, and the build
 # derives every render from the files themselves. The ``persona`` spellings and
-# the ``personas:`` catalog that preceded them are read for one release window
+# the ``personas:`` catalog that preceded them are read until ``RETIRED_ROSTER_KEYS_REFUSED_FROM``
 # by rewriting them here, at the single parse point, so nothing downstream ever
 # sees them: the merge, the hash and the render all read the new spelling.
 
@@ -95,7 +106,7 @@ _WT_LABEL = ".".join(_WEB_TERMINALS)
 
 #: The retired tier pin: ``users[].<key>`` and ``authorization.roles.<r>.<key>``.
 #: It is also the fold label of a file in a retired layer directory
-#: (``osprey_connectors.workspace.RETIRED_LAYER_DIRS``), kept so such a repo
+#: (``osprey.utils.workspace.RETIRED_LAYER_DIRS``), kept so such a repo
 #: hashes as it always did.
 RETIRED_TIER_KEY = "persona"
 
@@ -108,8 +119,14 @@ RETIRED_CATALOG_KEY = "personas"
 #: Catalog fields the build derives from the tier or app file's location.
 _DERIVED_CATALOG_KNOBS = frozenset({"build_profile", "project", "project_path"})
 
-#: Catalog fields that are top-level keys of the tier or app file instead.
-_LAYER_FILE_KNOBS = ("extra_mounts", "seed_base", "image")
+#: Per-render keys a tier or app file may spell and a root profile never does:
+#: what the card running that render mounts, seeds from, and runs as. They are
+#: also the retired catalog's fields that moved to the top of those files. Read
+#: from the file by the render projection
+#: (:func:`~osprey.deployment.web_terminals.render_naming.render_projection`);
+#: no profile field holds them, so a resolved render document does not carry
+#: them either.
+RENDER_KEYS = frozenset({"extra_mounts", "seed_base", "image"})
 
 #: ``(source, key)`` pairs already warned about. A document is parsed several
 #: times per command (load, hash, lint), and one line per key is the contract.
@@ -304,13 +321,832 @@ def _normalize_retired_roster_keys(raw: dict[str, Any], source: str) -> dict[str
             if knob in _DERIVED_CATALOG_KNOBS:
                 continue
             spelled = f"{catalog_old}.{name}.{knob}"
-            if knob in _LAYER_FILE_KNOBS:
+            if knob in RENDER_KEYS:
                 remedy = f"set `{knob}` at the top of tiers/{name}.yml (or apps/{name}.yml)"
             elif knob == "landing_group":
                 remedy = f"group landing cards with `{_WT_LABEL}.landing.groups`"
             else:
                 remedy = "it has no successor"
             _warn_retired(source, spelled, f"`{spelled}` is dropped; {remedy}")
+    return raw
+
+
+# ── Retired write-posture spellings ──────────────────────────────────────────
+#
+# A login tier's write ceiling is one key, ``control_system.writes: never |
+# asked | allowed``. The posture it replaces — the flat ``control_system.writes_enabled``
+# and every ``control_system.connector.<type>.writes_enabled`` — is read for one
+# release window by rewriting it here, at the single parse point, so the merge,
+# the hash and the render all read the new key. The window closes at
+# ``build_profile_load.RETIRED_WRITE_KEYS_REFUSED_FROM``: a test tripwire, not
+# a version compare here, so this module keeps importing nothing from the
+# profile pipeline.
+
+#: The control-system section under ``config:``.
+_CONTROL_SYSTEM = "control_system"
+
+#: The connector table inside it, as path segments from ``config``. Each direct
+#: child of this mapping is ONE connector type, dots and all
+#: (``mypkg.Mod``), exactly as :func:`_retired_type_armed` looks it up.
+_CONNECTOR_PATH = (_CONTROL_SYSTEM, "connector")
+
+#: The tier key and the retired posture leaf it replaces.
+WRITES_KEY_LEAF = "writes"
+RETIRED_WRITES_LEAF = "writes_enabled"
+
+_WRITES_LABEL = f"{_CONTROL_SYSTEM}.{WRITES_KEY_LEAF}"
+_FLAT_RETIRED_LABEL = f"{_CONTROL_SYSTEM}.{RETIRED_WRITES_LEAF}"
+
+_NEVER, _ASKED, _ALLOWED = TIER_WORDS
+
+#: The tier key's words that arm anything; an app may spell neither.
+_ARMING_WORDS = (_ASKED, _ALLOWED)
+
+#: The document kind an app file is read as (``LAYER_DIR_KINDS``' word).
+_APP_KIND = "app"
+
+#: Resolved path -> the retired posture leaves the normalizer removed from the
+#: document there (C-ORIGIN). Set or deleted on every parse of a path.
+_RETIRED_WRITE_ORIGINS: dict[Path, dict[str, Any]] = {}
+
+
+@dataclass
+class _WriteSpellings:
+    """Every place one ``config:`` mapping spells a write-posture key.
+
+    ``flat`` and ``per_type`` entries are ``(container, key, top)``: the
+    mapping holding the leaf, the key exactly as written there (possibly
+    dotted) and the ``config:`` key the leaf was reached through. ``per_type``
+    entries also carry the connector type.
+    """
+
+    flat: list[tuple[dict, str, str]] = field(default_factory=list)
+    per_type: list[tuple[dict, str, str, str]] = field(default_factory=list)
+    new: bool = False
+    #: ``config["control_system"]`` when the document spells it nested.
+    block: dict | None = None
+
+
+def _scan_writes(
+    mapping: dict, prefix: tuple[str, ...], top: str | None, found: _WriteSpellings
+) -> None:
+    """Record every write-posture key under *mapping*, whose path from ``config`` is *prefix*.
+
+    Every spelling a config block accepts is matched by splitting keys on dots,
+    except a direct child of the connector table, which is one connector type
+    whole. A dotted key that runs through the connector table is split all the
+    way, as the render splits it, so ``control_system.connector.a.b.writes_enabled``
+    is no type's leaf.
+    """
+    for key, value in mapping.items():
+        if not isinstance(key, str):
+            continue
+        parts = (key,) if prefix == _CONNECTOR_PATH else tuple(key.split("."))
+        path = prefix + parts
+        entry = key if top is None else top
+        if path[0] != _CONTROL_SYSTEM:
+            continue
+        if path == (_CONTROL_SYSTEM,):
+            if isinstance(value, dict):
+                if top is None and found.block is None:
+                    found.block = value
+                _scan_writes(value, path, entry, found)
+        elif path == (_CONTROL_SYSTEM, RETIRED_WRITES_LEAF):
+            found.flat.append((mapping, key, entry))
+        elif path == (_CONTROL_SYSTEM, WRITES_KEY_LEAF):
+            found.new = True
+        elif path[:2] == _CONNECTOR_PATH and len(path) == 4 and path[3] == RETIRED_WRITES_LEAF:
+            found.per_type.append((mapping, key, entry, path[2]))
+        elif path[:2] == _CONNECTOR_PATH and len(path) < 4 and isinstance(value, dict):
+            _scan_writes(value, path, entry, found)
+
+
+def _expand_config(mapping: dict, prefix: tuple[str, ...] = ()) -> dict[str, Any]:
+    """The nested tree a ``config:`` mapping addresses, dotted keys folded in.
+
+    A leaf spelled more than once holds the value written last in key order,
+    and a mapping merges into what earlier keys addressed. A direct child of the
+    connector table stays one key (a dotted connector type is one block).
+    """
+    tree: dict[str, Any] = {}
+    for key, value in mapping.items():
+        if not isinstance(key, str):
+            continue
+        parts = (key,) if prefix == _CONNECTOR_PATH else tuple(key.split("."))
+        node = tree
+        for part in parts[:-1]:
+            child = node.get(part)
+            if not isinstance(child, dict):
+                child = {}
+                node[part] = child
+            node = child
+        leaf = parts[-1]
+        if isinstance(value, dict):
+            existing = node.get(leaf)
+            expanded = _expand_config(value, prefix + parts)
+            node[leaf] = {**existing, **expanded} if isinstance(existing, dict) else expanded
+        else:
+            node[leaf] = value
+    return tree
+
+
+def _retired_leaves(config: dict) -> dict[str, Any]:
+    """The retired posture leaves *config* addresses, as a ``control_system`` fragment.
+
+    ``{"writes_enabled": v, "connector": {<type>: {"writes_enabled": v}}}``,
+    holding only the leaves present, each with the value the render would
+    read. Empty when the document spells none.
+    """
+    section = _expand_config(config).get(_CONTROL_SYSTEM)
+    if not isinstance(section, dict):
+        return {}
+    leaves: dict[str, Any] = {}
+    if RETIRED_WRITES_LEAF in section:
+        leaves[RETIRED_WRITES_LEAF] = section[RETIRED_WRITES_LEAF]
+    connector = section.get("connector")
+    if isinstance(connector, dict):
+        per_type = {
+            name: {RETIRED_WRITES_LEAF: block[RETIRED_WRITES_LEAF]}
+            for name, block in connector.items()
+            if isinstance(block, dict) and RETIRED_WRITES_LEAF in block
+        }
+        if per_type:
+            leaves["connector"] = per_type
+    return leaves
+
+
+# ---------------------------------------------------------------------------
+# Readers of the retired spellings
+#
+# The runtime reads only ``control_system.writes``. For the release window the
+# build still has to say what a document's retired ``writes_enabled`` leaves
+# meant, so the one reading of them lives here, private to the migration code:
+# the normalizer's rewrite and the PR-3 posture warnings. They read exactly as
+# the runtime read those leaves before the tier key replaced them.
+# ---------------------------------------------------------------------------
+
+
+def _retired_flat_armed(section: Any) -> bool:
+    """Whether the flat ``control_system.writes_enabled`` is a literal ``True``."""
+    return isinstance(section, dict) and section.get(RETIRED_WRITES_LEAF) is True
+
+
+def _retired_type_armed(section: Any, connector_type: str | None) -> bool:
+    """Whether the retired leaves armed one connector *type*.
+
+    The type's own ``writes_enabled`` leaf answers when its block carries one,
+    and only a literal ``True`` arms. A type whose block says nothing (no
+    table, no block, a block that is not a mapping, no leaf) inherits the flat
+    leaf. The type is one key, never split on its dots.
+    """
+    connector = section.get("connector") if isinstance(section, dict) else None
+    block = (
+        connector.get(connector_type) if connector_type and isinstance(connector, dict) else None
+    )
+    if not isinstance(block, dict) or RETIRED_WRITES_LEAF not in block:
+        return _retired_flat_armed(section)
+    return block[RETIRED_WRITES_LEAF] is True
+
+
+def _retired_target_armed(section: Any, target: Any) -> bool:
+    """Whether the retired leaves armed one session *target*.
+
+    :func:`_retired_type_armed` for the type *target* resolves to; a target
+    that does not resolve has no type, and answers the flat leaf.
+    """
+    try:
+        connector_type = resolve_target(section, target)
+    except ValueError:
+        return _retired_flat_armed(section)
+    return _retired_type_armed(section, connector_type)
+
+
+def _retired_session_posture(section: Any) -> dict[str, bool]:
+    """What the retired leaves armed, per target a session here can select.
+
+    Every configured target when the deployment renders the switch, else the
+    one built connector type under its baseline target.
+    """
+    if switch_capable(section):
+        return {
+            target: _retired_target_armed(section, target) for target in configured_targets(section)
+        }
+    built = resolve_control_system_type(section)
+    return {baseline_target(section): _retired_type_armed(section, built)}
+
+
+def _retired_tier(section: Any) -> str:
+    """The tier the retired leaves amount to: ``allowed`` or ``never``.
+
+    ``allowed`` when the flat leaf or any connector block's leaf is a literal
+    ``True``. Target-blind, as the tier is: one armed machine allows writes for
+    every machine. The tier key itself is not consulted.
+    """
+    if _retired_flat_armed(section):
+        return _ALLOWED
+    connector = section.get("connector") if isinstance(section, dict) else None
+    if isinstance(connector, dict) and any(
+        isinstance(block, dict) and block.get(RETIRED_WRITES_LEAF) is True
+        for block in connector.values()
+    ):
+        return _ALLOWED
+    return _NEVER
+
+
+def retired_write_answer(config_mapping: Any) -> str | None:
+    """The tier a document's retired write-posture leaves amount to.
+
+    ``"allowed"`` when any retired leaf — the flat
+    ``control_system.writes_enabled`` or any connector type's
+    ``writes_enabled`` — is a literal ``True``, else ``"never"``
+    (:func:`_retired_tier`). ``None`` when the mapping spells no
+    retired leaf. Every spelling is read (dotted, nested, mixed); a connector
+    type is one key, never split on its dots. Pure: *config_mapping* is not
+    changed, and the tier key itself is not consulted.
+
+    Args:
+        config_mapping: A document's ``config:`` mapping.
+
+    Returns:
+        ``"allowed"``, ``"never"`` or ``None``.
+    """
+    if not isinstance(config_mapping, dict):
+        return None
+    leaves = _retired_leaves(config_mapping)
+    if not leaves:
+        return None
+    return _retired_tier(leaves)
+
+
+def retired_write_origin(path: Path) -> dict[str, Any] | None:
+    """The retired posture leaves the normalizer removed from the document at *path*.
+
+    A ``control_system`` fragment (see :func:`_retired_leaves`) keyed by the
+    resolved path, or ``None`` when the last parse of that path found none.
+    Recorded only for documents read from a file. Read-only: callers get a copy.
+    """
+    origin = _RETIRED_WRITE_ORIGINS.get(Path(path).resolve())
+    return None if origin is None else copy.deepcopy(origin)
+
+
+def _document_kind(path: Path | None) -> str:
+    """``app``, ``tier``, ``layer`` or ``root``, from where the document lives.
+
+    Only the directory holding the file counts, so a root profile in a repo
+    that happens to sit under an ``apps/`` directory is still a root. A
+    document with no file is a root.
+    """
+    if path is None:
+        return "root"
+    parent = path.parent.name
+    if parent in LAYER_DIR_KINDS:
+        return LAYER_DIR_KINDS[parent]
+    if parent in RETIRED_LAYER_DIRS:
+        return "layer"
+    return "root"
+
+
+def _kept_flat_leaf(found: _WriteSpellings) -> tuple[dict, str] | None:
+    """The retired flat leaf the tier key takes the place of, as ``(container, key)``.
+
+    With a nested ``control_system:`` block, the last flat leaf written inside
+    it; else the last dotted flat leaf (the one the render reads); ``None``
+    when neither exists. Shared by the parse-point rewrite
+    (:func:`_place_tier_key`) and ``osprey init --revalidate``, so both put the
+    tier key in the same place.
+    """
+    if found.block is not None:
+        inside = [(c, k) for c, k, top in found.flat if top == _CONTROL_SYSTEM]
+        return inside[-1] if inside else None
+    if found.flat:
+        container, key, _top = found.flat[-1]
+        return (container, key)
+    return None
+
+
+def _mixed_writes_error(found: _WriteSpellings, source: str) -> BuildProfileError:
+    """The refusal of a document spelling a retired write leaf beside ``control_system.writes``."""
+    old = (
+        _FLAT_RETIRED_LABEL
+        if found.flat
+        else f"{_CONTROL_SYSTEM}.connector.<type>.{RETIRED_WRITES_LEAF}"
+    )
+    return _refuse_mixed(source, old, _WRITES_LABEL)
+
+
+def _place_tier_key(config: dict, found: _WriteSpellings, answer: str) -> None:
+    """Write ``control_system.writes`` where the retired posture stood, and drop the retired leaves.
+
+    The new leaf takes the place of a retired flat leaf, in its spelling, so
+    the rewrite is the document a new-style author would have written:
+
+    - When the document spells a nested ``control_system:`` block, the leaf
+      goes inside it — in place of the last flat leaf written there, else at
+      the block's end. A dotted ``control_system.writes`` beside a nested
+      block would sit apart from it in every merge, and whichever came later
+      in key order would decide the render.
+    - Otherwise, in place of the last dotted flat leaf (the one the render
+      reads), else as a dotted key at the position of the first per-type
+      leaf's ``config:`` key — never appended at the end, where it would
+      outrank a later layer's key by order alone.
+    """
+    kept = _kept_flat_leaf(found)
+    if kept is not None:
+        container, key = kept
+        _rename_last_segment(container, key, WRITES_KEY_LEAF)
+        renamed = key.rsplit(".", 1)[0] + "." + WRITES_KEY_LEAF if "." in key else WRITES_KEY_LEAF
+        container[renamed] = answer
+    elif found.block is not None:
+        found.block[WRITES_KEY_LEAF] = answer
+    else:
+        top = found.per_type[0][2]
+        items: list[tuple[Any, Any]] = []
+        for key, value in config.items():
+            if key == top:
+                items.append((_WRITES_LABEL, answer))
+            items.append((key, value))
+        config.clear()
+        config.update(items)
+
+    for container, key, _top in found.flat:
+        if kept is None or container is not kept[0] or key != kept[1]:
+            del container[key]
+    for container, key, _top, _name in found.per_type:
+        del container[key]
+
+
+def _warn_retired_writes(found: _WriteSpellings, source: str, kind: str, answer: str) -> None:
+    labels: list[tuple[str, bool]] = []
+    for container, key, _top in found.flat:
+        labels.append((_FLAT_RETIRED_LABEL, container.get(key) is True))
+    for container, key, _top, name in found.per_type:
+        labels.append(
+            (
+                f"{_CONTROL_SYSTEM}.connector.{name}.{RETIRED_WRITES_LEAF}",
+                container.get(key) is True,
+            )
+        )
+    for label, arms in labels:
+        if kind == _APP_KIND:
+            reading = (
+                f"it arms nothing: an app is always `{_WRITES_LABEL}: {_NEVER}`"
+                if arms
+                else f"an app is always `{_WRITES_LABEL}: {_NEVER}`"
+            )
+        else:
+            reading = f"this document reads as `{_WRITES_LABEL}: {answer}`"
+        _warn_retired(source, label, f"`{label}` is retired; {reading}")
+
+
+def _tier_key_values(mapping: dict, prefix: tuple[str, ...] = ()) -> Iterator[Any]:
+    """Every value *mapping* (a ``config:`` block, path *prefix*) gives ``control_system.writes``.
+
+    Every spelling — dotted, nested, mixed — is visited, not only the one the
+    render would keep, so a value a later key shadows is still checked.
+    """
+    for key, value in mapping.items():
+        if not isinstance(key, str):
+            continue
+        path = prefix + tuple(key.split("."))
+        if path[0] != _CONTROL_SYSTEM:
+            continue
+        if path == (_CONTROL_SYSTEM, WRITES_KEY_LEAF):
+            yield value
+        elif path == (_CONTROL_SYSTEM,) and isinstance(value, dict):
+            yield from _tier_key_values(value, path)
+
+
+def validate_tier_key_value(raw: dict[str, Any], source: str, *, path: Path | None = None) -> None:
+    """Refuse a ``control_system.writes`` that is not ``never``, ``asked`` or ``allowed``.
+
+    Runs after :func:`normalize_retired_write_keys` on every document it
+    sees — files, text and the ``--set`` layer — so a value it wrote is
+    checked too. Only the exact lowercase strings pass: a boolean, ``null``,
+    ``"Allowed"`` or ``"yes"`` is refused rather than read as a tier. An app
+    (kind from *path*, as for the normalizer) may only spell ``never``.
+
+    Args:
+        raw: One raw profile mapping; not changed.
+        source: How to name the document in the error.
+        path: The file the document was read from, when there is one.
+
+    Raises:
+        BuildProfileError: On any other value, or an arming word in an app.
+    """
+    config = raw.get("config")
+    if not isinstance(config, dict):
+        return
+    values = list(_tier_key_values(config))
+    if not values:
+        return
+    for value in values:
+        if not (isinstance(value, str) and value in TIER_WORDS):
+            raise BuildProfileError(
+                f"{source}: `{_WRITES_LABEL}` must be `{_NEVER}`, `{_ASKED}` or `{_ALLOWED}`, "
+                f"got {value!r}"
+            )
+    arming = next((value for value in values if value != _NEVER), None)
+    if arming is not None and _document_kind(path) == _APP_KIND:
+        raise BuildProfileError(
+            f"{source}: an app cannot spell `{_WRITES_LABEL}: {arming}` — "
+            f"an app is always `{_WRITES_LABEL}: {_NEVER}`; set the tier key in "
+            "the profile or a tier instead"
+        )
+
+
+def normalize_retired_write_keys(
+    raw: dict[str, Any], source: str, *, path: Path | None = None
+) -> dict[str, Any]:
+    """Rewrite the retired write-posture leaves under ``config:`` to the tier key, in place.
+
+    Acts only on a document that spells at least one retired leaf — the flat
+    ``control_system.writes_enabled`` or a ``control_system.connector.<type>.
+    writes_enabled`` — in any spelling; a silent document is returned untouched,
+    so a silent tier, overlay or ``extends`` child inherits its host's tier.
+    The retired leaves are removed (a connector block they empty is left for
+    the render's checks) and ``control_system.writes`` is written where they
+    stood (:func:`_place_tier_key`): :func:`retired_write_answer` for a root,
+    tier or retired-layer document, ``never`` for an app.
+
+    The document's kind is read from *path* — never from *source*, which is a
+    display label. With a path, the removed leaves are recorded for
+    :func:`retired_write_origin`, and a parse that finds none deletes the
+    record, so a file rewritten in the same process leaves nothing stale.
+
+    Each retired key logs one deprecation line per source. A document spelling
+    a retired leaf beside ``control_system.writes`` is refused before anything
+    is rewritten. Every document, silent or rewritten, then goes through
+    :func:`validate_tier_key_value`, so each caller of this function — the
+    parse point and the ``--set`` layer — checks the tier key's value too.
+
+    Args:
+        raw: One raw profile mapping, mutated in place.
+        source: How to name the document in warnings and errors.
+        path: The file the document was read from, when there is one.
+
+    Returns:
+        ``raw``.
+
+    Raises:
+        BuildProfileError: When the document spells both the retired keys and
+            ``control_system.writes``, or the tier key has a value
+            :func:`validate_tier_key_value` refuses.
+    """
+    key = None if path is None else Path(path).resolve()
+    config = raw.get("config")
+    found = _WriteSpellings()
+    if isinstance(config, dict):
+        _scan_writes(config, (), None, found)
+    if not (found.flat or found.per_type):
+        if key is not None:
+            _RETIRED_WRITE_ORIGINS.pop(key, None)
+        validate_tier_key_value(raw, source, path=path)
+        return raw
+    assert isinstance(config, dict)
+    if found.new:
+        if key is not None:
+            _RETIRED_WRITE_ORIGINS.pop(key, None)
+        raise _mixed_writes_error(found, source)
+
+    leaves = _retired_leaves(config)
+    kind = _document_kind(path)
+    answer = _NEVER if kind == _APP_KIND else _retired_tier(leaves)
+    _warn_retired_writes(found, source, kind, answer)
+
+    _place_tier_key(config, found, answer)
+
+    if key is not None:
+        _RETIRED_WRITE_ORIGINS[key] = leaves
+    validate_tier_key_value(raw, source, path=path)
+    return raw
+
+
+# ── Retired per-tool policies for the governed tools ────────────────────────
+#
+# The write switch's slider (off / asked / allowed) decides whether a governed
+# write asks a person first, so ``approval.tools.<tool>`` for one of those tools
+# states a second answer nothing reads. It is dropped here, at the single parse
+# point, with one warning per document, until
+# ``build_profile_load.RETIRED_APPROVAL_POLICY_REFUSED_FROM`` (a test tripwire,
+# as for the write keys). Every other tool keeps its policy.
+
+#: Where the per-tool policies live under ``config:``, as path segments.
+APPROVAL_TOOLS_PATH = ("approval", "tools")
+
+#: The warning's dedupe key: one line per document, however many tools it names.
+_APPROVAL_POLICY_LABEL = ".".join(APPROVAL_TOOLS_PATH)
+
+#: The hook presets a facility server attaches to every tool that together make
+#: its writes the switch's to decide (the registry's ``rule_carries_both_write_hooks``).
+_BOTH_WRITE_PRESETS = frozenset({"writes_check", "approval"})
+
+
+@functools.cache
+def _framework_governed_tools() -> frozenset[str]:
+    """Bare names of every framework tool the switch decides for, enabled by default or not.
+
+    Read from the registry's one producer (``governed_write_tools``) over every
+    framework server's own hook rules, so a tool that joins or leaves the
+    governed set there joins or leaves it here. Imported lazily: the registry
+    is a heavier module than this parse point otherwise needs.
+    """
+    from osprey.registry.mcp import FRAMEWORK_SERVERS, _hook_rule_to_dict, governed_write_tools
+
+    servers = [
+        {"enabled": True, "hooks_pre": [_hook_rule_to_dict(rule) for rule in sdef.hooks_pre]}
+        for sdef in FRAMEWORK_SERVERS.values()
+    ]
+    return frozenset(tool.rsplit("__", 1)[-1] for tool in governed_write_tools(servers))
+
+
+def _declared_governed_tools(raw: dict[str, Any]) -> set[str]:
+    """Bare names of the tools *raw*'s own ``mcp_servers`` hand to the switch.
+
+    A server's ``writes:`` tools (and the warning-window tools gated beside
+    them) carry both write hooks; a server whose ``hooks.pre_tool_use`` names
+    both ``writes_check`` and ``approval`` carries them on every tool, so each
+    tool its ``permissions`` name is governed. Malformed entries are skipped:
+    the loader refuses them with its own message.
+    """
+    servers = raw.get("mcp_servers")
+    if not isinstance(servers, dict):
+        return set()
+    from osprey.registry.mcp import _declared_write_rule_tools
+
+    tools: set[str] = set()
+    for name, spec in servers.items():
+        if not isinstance(name, str) or not isinstance(spec, dict):
+            continue
+        perms = spec.get("permissions")
+        perms = perms if isinstance(perms, dict) else {}
+        perms = {
+            k: [e for e in v if isinstance(e, str)] if isinstance(v, list) else []
+            for k, v in perms.items()
+            if k in ("allow", "ask")
+        }
+        writes = spec.get("writes")
+        if isinstance(writes, list):
+            declared = tuple(str(tool) for tool in writes if isinstance(tool, str))
+            tools.update(_declared_write_rule_tools(name, declared, perms))
+        hooks = spec.get("hooks")
+        presets = hooks.get("pre_tool_use") if isinstance(hooks, dict) else None
+        if isinstance(presets, list) and set(presets) >= _BOTH_WRITE_PRESETS:
+            prefix = f"mcp__{name}__"
+            for entry in (*perms.get("allow", []), *perms.get("ask", [])):
+                tool = entry.removeprefix(prefix)
+                if tool and not set("*.|()[]") & set(tool):
+                    tools.add(tool)
+    return tools
+
+
+def governed_policy_tools(raw: dict[str, Any]) -> frozenset[str]:
+    """The bare tool names whose ``approval.tools`` policy *raw* may no longer state.
+
+    The framework's governed tools plus the ones this same document's servers
+    declare (:func:`_declared_governed_tools`). A tier or app declares no
+    servers, so the framework set is what applies there.
+    """
+    return _framework_governed_tools() | _declared_governed_tools(raw)
+
+
+def governed_policy_spellings(
+    config: dict, governed: frozenset[str], prefix: tuple[str, ...] = ()
+) -> list[tuple[dict, str, str, tuple[tuple[dict, str], ...]]]:
+    """Every ``approval.tools.<tool>`` under *config* for a tool in *governed*.
+
+    Each hit is ``(container, key, tool, parents)``: the mapping holding the
+    key, the key as spelled there (dotted, nested or mixed), the bare tool, and
+    the ``(mapping, key)`` chain from *config* down to the container, so a
+    caller can prune what the removal empties.
+    """
+    hits: list[tuple[dict, str, str, tuple[tuple[dict, str], ...]]] = []
+    depth = len(APPROVAL_TOOLS_PATH)
+    for key, value in list(config.items()):
+        if not isinstance(key, str):
+            continue
+        path = prefix + tuple(key.split("."))
+        if len(path) == depth + 1 and path[:depth] == APPROVAL_TOOLS_PATH:
+            if path[depth] in governed:
+                hits.append((config, key, path[depth], ()))
+        elif (
+            len(path) <= depth
+            and path == APPROVAL_TOOLS_PATH[: len(path)]
+            and isinstance(value, dict)
+        ):
+            for container, inner, tool, parents in governed_policy_spellings(value, governed, path):
+                hits.append((container, inner, tool, ((config, key), *parents)))
+    return hits
+
+
+def normalize_retired_approval_policies(raw: dict[str, Any], source: str) -> dict[str, Any]:
+    """Drop ``approval.tools.<tool>`` for every governed tool under ``config:``, in place.
+
+    The governed set is :func:`governed_policy_tools` of *raw*. A silent
+    document is untouched and quiet; one that spells any such policy loses
+    those keys (and any ``approval.tools`` / ``approval`` mapping the removal
+    empties) and logs one warning per *source* naming the slider and the three
+    consequences. Every other tool's policy, and every other ``approval.*``
+    key, survives.
+
+    Args:
+        raw: One raw profile mapping, mutated in place.
+        source: How to name the document in the warning.
+
+    Returns:
+        ``raw``.
+    """
+    config = raw.get("config")
+    if not isinstance(config, dict):
+        return raw
+    hits = governed_policy_spellings(config, governed_policy_tools(raw))
+    if not hits:
+        return raw
+    for container, key, _tool, parents in hits:
+        container.pop(key, None)
+        node: dict = container
+        for parent, parent_key in reversed(parents):
+            if node or parent.get(parent_key) is not node:
+                break
+            del parent[parent_key]
+            node = parent
+    tools = sorted({tool for _c, _k, tool, _p in hits})
+    _warn_retired(source, _APPROVAL_POLICY_LABEL, retired_approval_policy_message(tools))
+    return raw
+
+
+#: The retired bar arrangement: ``web.bar_items`` and its four sub-keys, which
+#: arranged the header and the status bar the sidebar shell replaced.
+RETIRED_BAR_ITEMS_PATH: tuple[str, ...] = ("web", "bar_items")
+_BAR_ITEMS_LABEL = ".".join(RETIRED_BAR_ITEMS_PATH)
+
+
+def retired_bar_items_spellings(
+    config: dict, prefix: tuple[str, ...] = ()
+) -> list[tuple[dict, str, tuple[tuple[dict, str], ...]]]:
+    """Every ``web.bar_items`` (or a key beneath it) under *config*, however spelled.
+
+    Each hit is ``(container, key, parents)``: the mapping holding the key, the
+    key as spelled there (dotted, nested or mixed), and the ``(mapping, key)``
+    chain from *config* down to the container, so a caller can prune what the
+    removal empties.
+    """
+    hits: list[tuple[dict, str, tuple[tuple[dict, str], ...]]] = []
+    depth = len(RETIRED_BAR_ITEMS_PATH)
+    for key, value in list(config.items()):
+        if not isinstance(key, str):
+            continue
+        path = prefix + tuple(key.split("."))
+        if len(path) >= depth and path[:depth] == RETIRED_BAR_ITEMS_PATH:
+            hits.append((config, key, ()))
+        elif (
+            len(path) < depth
+            and path == RETIRED_BAR_ITEMS_PATH[: len(path)]
+            and isinstance(value, dict)
+        ):
+            for container, inner, parents in retired_bar_items_spellings(value, path):
+                hits.append((container, inner, ((config, key), *parents)))
+    return hits
+
+
+def normalize_retired_bar_items(raw: dict[str, Any], source: str) -> dict[str, Any]:
+    """Drop ``web.bar_items`` under ``config:``, in place, with one warning.
+
+    The key arranged the header and the status bar, and the sidebar shell
+    replaced both: nothing reads it, so a profile that still spells it (or any
+    key beneath it) loses the key -- and any ``web`` mapping the removal
+    empties -- and is told so once per build. The build goes on; the key is
+    ignored, not refused, because a profile emitted before the sidebar is
+    otherwise sound. Every other ``web.*`` key survives.
+
+    Args:
+        raw: One raw profile mapping, mutated in place.
+        source: How to name the document in the warning.
+
+    Returns:
+        ``raw``.
+    """
+    config = raw.get("config")
+    if not isinstance(config, dict):
+        return raw
+    hits = retired_bar_items_spellings(config)
+    if not hits:
+        return raw
+    for container, key, parents in hits:
+        container.pop(key, None)
+        node: dict = container
+        for parent, parent_key in reversed(parents):
+            if node or parent.get(parent_key) is not node:
+                break
+            del parent[parent_key]
+            node = parent
+    # One warning per build, not per document: a build parses the same profile
+    # again for its image staging copy, and a second block for the same key
+    # would read as two problems. The first source is the one named.
+    if ("*", _BAR_ITEMS_LABEL) not in _WARNED_RETIRED_KEYS:
+        _WARNED_RETIRED_KEYS.add(("*", _BAR_ITEMS_LABEL))
+        # Promoted rather than logged bare: the altitude gate keeps a raw
+        # WARNING off the terminal while a lifecycle verb draws its phases, and
+        # this one is the operator's only notice that a key they set does
+        # nothing. ``warn_fact`` prints the block in the run's own column and
+        # still emits the record, marked printed, for the sinks and ``-v``.
+        from osprey.cli import output
+
+        output.warn_fact(
+            _LOGGER,  # type: ignore[arg-type]  # a plain logger emits the same record
+            f"{source}: `{_BAR_ITEMS_LABEL}` ignored",
+            retired_bar_items_message(),
+            "drop the key from the profile, or run `osprey init --revalidate`",
+        )
+    return raw
+
+
+def retired_bar_items_message() -> str:
+    """What the dropped ``web.bar_items`` is told: where the bars went."""
+    return (
+        "The web terminal's sidebar replaced the header and the status bar that "
+        "key arranged: Workspace (Agent, Artifacts, Script runs, Events), Tools "
+        "(one row per panel) and ☰ More. Its groups are arranged in the browser, "
+        "per user, so nothing reads the key."
+    )
+
+
+def retired_approval_policy_message(tools: list[str]) -> str:
+    """The warning (and revalidate report) for the dropped policies of *tools*."""
+    spelled = ", ".join(f"`{_APPROVAL_POLICY_LABEL}.{tool}`" for tool in tools)
+    return (
+        f"{spelled} dropped: the write switch's slider on the control-target chip "
+        "(off / asked / allowed) decides whether a governed write asks, so a "
+        "per-tool policy for it is no longer read. Three consequences: a `skip` "
+        "policy no longer runs it unprompted (it prompts at asked; pick allowed on "
+        "an allowed tier for that); an `always` policy no longer prompts at "
+        "allowed (an `execute: always` loses its prompt on read-only code); and "
+        "`approval.enabled: false` no longer silences governed tools (it still "
+        "silences every other tool)"
+    )
+
+
+#: The ``web:`` keys the web terminal no longer reads. The first is refused rather
+#: than ignored: ignoring ``web.expert_view: false`` would offer a terminal the
+#: deployment ruled out.
+RETIRED_TERMINAL_KEY = "web.expert_view"
+TERMINAL_KEY = "web.terminal"
+RETIRED_LAYOUT_KEY = "web.ui_mode"
+
+
+def _leaf_spellings(
+    node: Any, segments: list[str], parents: tuple[tuple[dict, str], ...] = ()
+) -> list[tuple[tuple[dict, str], ...]]:
+    """Every way mapping *node* writes the leaf *segments*, as a (mapping, key) chain."""
+    if not isinstance(node, dict):
+        return []
+    found: list[tuple[tuple[dict, str], ...]] = []
+    for cut in range(1, len(segments) + 1):
+        head = ".".join(segments[:cut])
+        if head not in node:
+            continue
+        chain = (*parents, (node, head))
+        rest = segments[cut:]
+        found.extend([chain] if not rest else _leaf_spellings(node[head], rest, chain))
+    return found
+
+
+def normalize_retired_web_keys(raw: dict[str, Any], source: str) -> dict[str, Any]:
+    """Refuse ``web.expert_view`` and drop ``web.ui_mode`` under ``config:``, in place.
+
+    ``web.expert_view`` says whether the deployment offers a terminal, so the
+    document is refused rather than read as saying nothing. ``web.ui_mode``
+    chose a layout that no longer exists, so it loses every spelling (and any
+    mapping that empties) with one warning per *source* and spelling.
+
+    Args:
+        raw: One raw profile mapping, mutated in place.
+        source: How to name the document in the error and the warning.
+
+    Returns:
+        ``raw``.
+
+    Raises:
+        BuildProfileError: If the document states ``web.expert_view``.
+    """
+    config = raw.get("config")
+    for chain in _leaf_spellings(config, RETIRED_TERMINAL_KEY.split(".")):
+        spelled = ": ".join(key for _mapping, key in chain)
+        value = chain[-1][0][chain[-1][1]]
+        value = str(value).lower() if isinstance(value, bool) else value
+        raise BuildProfileError(
+            f"{source} states `{spelled}: {value}`, which is no longer read. Write "
+            f"`{TERMINAL_KEY}: {value}` in its place: it says whether this deployment "
+            "offers the terminal."
+        )
+    for chain in _leaf_spellings(config, RETIRED_LAYOUT_KEY.split(".")):
+        spelled = ": ".join(key for _mapping, key in chain)
+        for mapping, key in reversed(chain):
+            del mapping[key]
+            if mapping:
+                break
+        if (source, spelled) not in _WARNED_RETIRED_KEYS:
+            _WARNED_RETIRED_KEYS.add((source, spelled))
+            _LOGGER.warning("%s: `%s` is no longer read; delete it", source, spelled)
     return raw
 
 
@@ -328,11 +1164,11 @@ def _read_profile_document(path: Path, source: str | None = None) -> Any:
         BuildProfileError: On invalid YAML.
     """
     return _parse_profile_document(
-        path.read_text(encoding="utf-8"), str(path) if source is None else source
+        path.read_text(encoding="utf-8"), str(path) if source is None else source, path=path
     )
 
 
-def _parse_profile_document(text: str, source: str) -> Any:
+def _parse_profile_document(text: str, source: str, *, path: Path | None = None) -> Any:
     """Parse one raw profile-YAML document.
 
     The only YAML parse of a profile document in the pipeline (pinned
@@ -345,6 +1181,9 @@ def _parse_profile_document(text: str, source: str) -> Any:
     Args:
         text: The document.
         source: How to name it in error messages.
+        path: Private: the file the text was read from, passed by
+            :func:`_read_profile_document`. The retired write keys read the
+            document's kind from it and record their origin under it.
 
     Returns:
         The parsed document — normalized in place when it is a mapping.
@@ -359,4 +1198,10 @@ def _parse_profile_document(text: str, source: str) -> Any:
     if isinstance(raw, dict):
         _normalize_empty_collections(raw)
         _normalize_retired_roster_keys(raw, source)
+        normalize_retired_write_keys(raw, source, path=path)
+        normalize_retired_approval_policies(raw, source)
+        normalize_retired_web_keys(raw, source)
+        normalize_retired_bar_items(raw, source)
+    elif path is not None:
+        _RETIRED_WRITE_ORIGINS.pop(Path(path).resolve(), None)
     return raw

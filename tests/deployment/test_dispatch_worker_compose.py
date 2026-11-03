@@ -5,8 +5,12 @@ A worker at a tier runs the tier image, whose project is baked at
 therefore points ``CONFIG_FILE`` at that baked config, and derives every other
 in-container path the worker writes or reads — ``OSPREY_PROJECT_DIR``, the
 agent-data volume target, the audit root, the simulator-log and guarded-run
-mount targets — from that one project directory. Nothing overlays the baked
-config, so the build stages no worker ``config.yml`` for a tiered worker.
+mount targets — from that one project directory. The one thing mounted over
+the baked config is the worker's own staged copy of it,
+``build/services/dispatch_worker/config.yml``: the container-rooted tier render
+plus the ``control_system.login_tiers`` map, which ``osprey build`` writes after
+the tier projects are rendered. The terminals on that tier keep the map-free
+baked render; the worker keeps its tier's posture and gains the map.
 
 With ``dispatch.tier`` unset the worker compose is byte-for-byte what it was
 before the tier existed: every untiered shape the committed goldens pin
@@ -108,10 +112,10 @@ def test_tiered_worker_paths_share_the_tier_project_dir(mode: str) -> None:
         assert service["image"].endswith("demo-readonly:local}")
         assert env["OSPREY_PROJECT_DIR"] == _TIER_ROOT
         assert env["CONFIG_FILE"] == f"{_TIER_ROOT}/build/config.yml"
-        assert env["OSPREY_AUDIT_DIR"] == f"{_TIER_ROOT}/var/audit/{key}"
+        assert env["OSPREY_SPOOL_DIR"] == f"{_TIER_ROOT}/var/spool/{key}"
         assert env["OSPREY_GUARDED_RUN_DIR"].startswith(f"{_TIER_ROOT}/")
         assert f"{volume}:{agent_data}" in service["volumes"]
-        assert f"{_TIER_ROOT}/var/audit/{key}" in _mount_targets(service)
+        assert f"{_TIER_ROOT}/var/spool/{key}" in _mount_targets(service)
 
 
 def test_tiered_worker_agent_data_volume_lands_under_the_tier_project() -> None:
@@ -123,12 +127,23 @@ def test_tiered_worker_agent_data_volume_lands_under_the_tier_project() -> None:
     assert f"dispatch_workspace_1:{agent_data}" in service["volumes"]
 
 
-def test_tiered_worker_mounts_no_staged_config_and_names_no_own_project_path() -> None:
+def test_tiered_worker_mounts_its_staged_copy_over_the_tier_config_and_names_no_own_project_path() -> (
+    None
+):
+    """The staged tier copy is the one config mount, read-only, at the tier's
+    own ``CONFIG_FILE`` — never at the deployment's own project path."""
     rendered = _render(_config())
-    assert "build/services/dispatch_worker/config.yml" not in rendered
     assert f"{_OWN_ROOT}/" not in rendered
     (service,) = _worker_services(rendered).values()
-    assert not any(target.endswith("/build/config.yml") for target in _mount_targets(service))
+    config_mounts = [
+        str(volume)
+        for volume in service.get("volumes", [])
+        if str(volume).split(":")[1].endswith("/build/config.yml")
+    ]
+    assert config_mounts == [
+        f"./build/services/dispatch_worker/config.yml:{_TIER_ROOT}/build/config.yml:ro"
+    ]
+    assert service["environment"]["CONFIG_FILE"] == f"{_TIER_ROOT}/build/config.yml"
 
 
 def test_tiered_worker_simulator_log_target_follows_the_tier_project() -> None:
@@ -139,11 +154,12 @@ def test_tiered_worker_simulator_log_target_follows_the_tier_project() -> None:
     assert context["osprey_guarded_run_mount"]["target"].startswith(f"{_TIER_ROOT}/")
 
 
-def test_tier_moves_only_the_worker_audit_root() -> None:
-    """Other services (history) keep the deployment's own audit root."""
+def test_tier_moves_only_the_worker_zone_roots() -> None:
+    """Other services (history) keep the deployment's own spool and state roots."""
     context = _inject_project_metadata(_config())
-    assert context["osprey_container_audit_dir"] == f"{_OWN_ROOT}/var/audit"
-    assert context["osprey_worker_audit_dir"] == f"{_TIER_ROOT}/var/audit"
+    for zone in ("spool", "state"):
+        assert context[f"osprey_container_{zone}_dir"] == f"{_OWN_ROOT}/var/{zone}"
+        assert context[f"osprey_worker_{zone}_dir"] == f"{_TIER_ROOT}/var/{zone}"
 
 
 def test_tier_render_does_not_mutate_the_input_config() -> None:
@@ -164,7 +180,8 @@ def test_tier_without_a_render_is_refused() -> None:
 def test_untiered_worker_keeps_the_deployment_project_dir() -> None:
     context = _inject_project_metadata(_config(tier=None))
     assert context["osprey_worker_project_dir"] == _OWN_ROOT
-    assert context["osprey_worker_audit_dir"] == context["osprey_container_audit_dir"]
+    assert context["osprey_worker_spool_dir"] == context["osprey_container_spool_dir"]
+    assert context["osprey_worker_state_dir"] == context["osprey_container_state_dir"]
     assert context["osprey_worker_stages_config"] is True
     rendered = _render(_config(tier=None))
     (service,) = _worker_services(rendered).values()

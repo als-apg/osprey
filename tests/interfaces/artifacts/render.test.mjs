@@ -36,6 +36,7 @@ import {
   createSidebarRenderer,
   isNearListEnd,
   pickRange,
+  revealDelayMs,
 } from '../../../src/osprey/interfaces/artifacts/static/js/render.js';
 import { initTypeRegistry } from '../../../src/osprey/interfaces/artifacts/static/js/types.js';
 import { qs, byId } from '../_support/dom.mjs';
@@ -54,10 +55,46 @@ function mountFixture() {
 
 function makeFixtureArtifacts() {
   return [
-    { id: '1', title: 'Beam Profile', filename: 'beam_profile.png', artifact_type: 'plot_png', category: 'visualization', pinned: false, timestamp: '2026-07-01T10:00:00Z', size_bytes: 2048 },
-    { id: '2', title: 'Channel Values', filename: 'channels.json', artifact_type: 'json', category: 'channel_values', pinned: true, timestamp: '2026-07-03T10:00:00Z', size_bytes: 512 },
-    { id: '3', title: 'Lattice Table', filename: 'lattice.html', artifact_type: 'table_html', category: 'visualization', pinned: false, timestamp: '2026-07-02T10:00:00Z', size_bytes: 4096 },
-    { id: '4', title: 'Old Report', filename: 'report.md', artifact_type: 'markdown', category: 'document', pinned: true, timestamp: '2026-06-30T10:00:00Z', size_bytes: 1024 },
+    {
+      id: '1',
+      title: 'Beam Profile',
+      filename: 'beam_profile.png',
+      artifact_type: 'plot_png',
+      category: 'visualization',
+      pinned: false,
+      timestamp: '2026-07-01T10:00:00Z',
+      size_bytes: 2048,
+    },
+    {
+      id: '2',
+      title: 'Channel Values',
+      filename: 'channels.json',
+      artifact_type: 'json',
+      category: 'channel_values',
+      pinned: true,
+      timestamp: '2026-07-03T10:00:00Z',
+      size_bytes: 512,
+    },
+    {
+      id: '3',
+      title: 'Lattice Table',
+      filename: 'lattice.html',
+      artifact_type: 'table_html',
+      category: 'visualization',
+      pinned: false,
+      timestamp: '2026-07-02T10:00:00Z',
+      size_bytes: 4096,
+    },
+    {
+      id: '4',
+      title: 'Old Report',
+      filename: 'report.md',
+      artifact_type: 'markdown',
+      category: 'document',
+      pinned: true,
+      timestamp: '2026-06-30T10:00:00Z',
+      size_bytes: 1024,
+    },
   ];
 }
 
@@ -88,13 +125,16 @@ describe('tree-mode grouping by type (pinned promoted)', () => {
     // 'channel_values' and 'document' empty — those groups vanish), so
     // 'visualization' (Beam Profile, Lattice Table) is the only type group.
     expect(Array.from(sections).map((s) => /** @type {HTMLElement} */ (s).dataset.type)).toEqual([
-      'pinned', 'visualization',
+      'pinned',
+      'visualization',
     ]);
 
     const pinnedSection = qs(document, '.tree-section[data-type="pinned"]');
     // getFilteredArtifacts orders pinned-first/newest-first: 2 (Jul 3), 4 (Jun 30).
     expect(
-      Array.from(pinnedSection.querySelectorAll('.tree-item')).map((el) => /** @type {HTMLElement} */ (el).dataset.id)
+      Array.from(pinnedSection.querySelectorAll('.tree-item')).map(
+        (el) => /** @type {HTMLElement} */ (el).dataset.id
+      )
     ).toEqual(['2', '4']);
     expect(qs(pinnedSection, '.tree-section-count').textContent).toBe('2');
 
@@ -111,7 +151,9 @@ describe('tree-mode grouping by type (pinned promoted)', () => {
     expect(document.querySelector('.tree-section[data-type="pinned"]')).toBeNull();
     const sections = document.querySelectorAll('#sidebar-body .tree-section');
     expect(Array.from(sections).map((s) => /** @type {HTMLElement} */ (s).dataset.type)).toEqual([
-      'visualization', 'channel_values', 'document',
+      'visualization',
+      'channel_values',
+      'document',
     ]);
   });
 
@@ -161,13 +203,36 @@ describe('activity-mode chronological ordering', () => {
     // Jul 3) and '4' (pinned, Jun 30) before '3' (Jul 2) and '1' (Jul 1) —
     // pinned-first takes priority over date recency, matching state.js's
     // contract (already pinned to the identical order in state.test.mjs).
-    expect(Array.from(items).map((el) => /** @type {HTMLElement} */ (el).dataset.id)).toEqual(['2', '4', '3', '1']);
+    expect(Array.from(items).map((el) => /** @type {HTMLElement} */ (el).dataset.id)).toEqual([
+      '2',
+      '4',
+      '3',
+      '1',
+    ]);
   });
 
   test('within a shared date group, items keep the incoming (pinned-first/newest-first) order', () => {
     const sameDay = [
-      { id: 'a', title: 'Morning', filename: 'a.png', artifact_type: 'image', category: 'screenshot', pinned: false, timestamp: '2026-07-01T08:00:00Z', size_bytes: 100 },
-      { id: 'b', title: 'Evening', filename: 'b.png', artifact_type: 'image', category: 'screenshot', pinned: false, timestamp: '2026-07-01T20:00:00Z', size_bytes: 100 },
+      {
+        id: 'a',
+        title: 'Morning',
+        filename: 'a.png',
+        artifact_type: 'image',
+        category: 'screenshot',
+        pinned: false,
+        timestamp: '2026-07-01T08:00:00Z',
+        size_bytes: 100,
+      },
+      {
+        id: 'b',
+        title: 'Evening',
+        filename: 'b.png',
+        artifact_type: 'image',
+        category: 'screenshot',
+        pinned: false,
+        timestamp: '2026-07-01T20:00:00Z',
+        size_bytes: 100,
+      },
     ];
     setArtifacts(sameDay);
     const sidebarRenderer = createSidebarRenderer(makeCallbacks());
@@ -177,16 +242,25 @@ describe('activity-mode chronological ordering', () => {
     const groups = document.querySelectorAll('.timeline-group');
     expect(groups.length).toBe(1); // same calendar day -> one date group
     const items = groups[0].querySelectorAll('.timeline-item');
-    expect(Array.from(items).map((el) => /** @type {HTMLElement} */ (el).dataset.id)).toEqual(['b', 'a']); // newest-first
+    expect(Array.from(items).map((el) => /** @type {HTMLElement} */ (el).dataset.id)).toEqual([
+      'b',
+      'a',
+    ]); // newest-first
   });
 });
 
 describe('shipped example (origin "demo")', () => {
   const example = {
-    id: 'ex', title: 'Example: an interactive plot', filename: 'example.html',
-    artifact_type: 'plot_html', category: '', pinned: false, origin: 'demo',
+    id: 'ex',
+    title: 'Example: an interactive plot',
+    filename: 'example.html',
+    artifact_type: 'plot_html',
+    category: '',
+    pinned: false,
+    origin: 'demo',
     // Newer than everything else: seeded at gallery start. Must still sort last.
-    timestamp: '2026-07-09T10:00:00Z', size_bytes: 50000,
+    timestamp: '2026-07-09T10:00:00Z',
+    size_bytes: 50000,
   };
 
   test('tree mode lists it in a trailing "Examples" section, outside pinning and the type groups, with an "example" badge and no "new" badge', () => {
@@ -196,7 +270,9 @@ describe('shipped example (origin "demo")', () => {
 
     const sections = document.querySelectorAll('#sidebar-body .tree-section');
     expect(Array.from(sections).map((s) => /** @type {HTMLElement} */ (s).dataset.type)).toEqual([
-      'pinned', 'visualization', 'examples',
+      'pinned',
+      'visualization',
+      'examples',
     ]);
     const pinned = qs(document, '.tree-section[data-type="pinned"]');
     expect(pinned.querySelector('.tree-item[data-id="ex"]')).toBeNull();
@@ -218,7 +294,9 @@ describe('shipped example (origin "demo")', () => {
     setArtifacts([example]);
     createSidebarRenderer(makeCallbacks()).renderSidebar();
     expect(document.querySelector('.sidebar-empty')).toBeNull();
-    expect(document.querySelectorAll('.tree-section[data-type="examples"] .tree-item').length).toBe(1);
+    expect(document.querySelectorAll('.tree-section[data-type="examples"] .tree-item').length).toBe(
+      1
+    );
   });
 
   test('activity mode puts it in a trailing "Examples" group instead of the day it was seeded', () => {
@@ -227,11 +305,19 @@ describe('shipped example (origin "demo")', () => {
     sidebarRenderer.setBrowseMode('activity');
     sidebarRenderer.renderSidebar();
 
-    const labels = Array.from(document.querySelectorAll('.timeline-group-label')).map((el) => el.textContent);
+    const labels = Array.from(document.querySelectorAll('.timeline-group-label')).map(
+      (el) => el.textContent
+    );
     expect(labels.at(-1)).toBe('Examples');
     expect(labels.filter((l) => l === 'Examples').length).toBe(1);
-    const last = /** @type {HTMLElement} */ (document.querySelectorAll('.timeline-group')[labels.length - 1]);
-    expect(Array.from(last.querySelectorAll('.timeline-item')).map((el) => /** @type {HTMLElement} */ (el).dataset.id)).toEqual(['ex']);
+    const last = /** @type {HTMLElement} */ (
+      document.querySelectorAll('.timeline-group')[labels.length - 1]
+    );
+    expect(
+      Array.from(last.querySelectorAll('.timeline-item')).map(
+        (el) => /** @type {HTMLElement} */ (el).dataset.id
+      )
+    ).toEqual(['ex']);
     expect(qs(last, '.tree-item-badge.demo').textContent).toBe('example');
   });
 });
@@ -264,7 +350,9 @@ describe('shared item handlers (click/dblclick/drag-to-terminal)', () => {
     const sidebarRenderer = createSidebarRenderer(callbacks);
     sidebarRenderer.renderSidebar();
 
-    qs(document, '.tree-item[data-id="3"]').dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
+    qs(document, '.tree-item[data-id="3"]').dispatchEvent(
+      new MouseEvent('dblclick', { bubbles: true })
+    );
 
     expect(callbacks.onEnterFullscreen).toHaveBeenCalledTimes(1);
     expect(callbacks.onEnterFullscreen.mock.calls[0][0].id).toBe('3');
@@ -276,7 +364,8 @@ describe('shared item handlers (click/dblclick/drag-to-terminal)', () => {
     sidebarRenderer.renderSidebar();
 
     const item = qs(document, '.tree-item[data-id="1"]');
-    expect(item.draggable).toBe(true);
+    // Carried in the markup, so a rebuilt row is draggable without a per-row property set.
+    expect(item.getAttribute('draggable')).toBe('true');
 
     const meta = document.createElement('meta');
     meta.setAttribute('name', 'osprey-artifact-dir');
@@ -284,7 +373,9 @@ describe('shared item handlers (click/dblclick/drag-to-terminal)', () => {
     document.head.appendChild(meta);
     try {
       const dataTransfer = { setData: vi.fn(), effectAllowed: '' };
-      const dragEvent = /** @type {Event & { dataTransfer: typeof dataTransfer }} */ (new Event('dragstart', { bubbles: true }));
+      const dragEvent = /** @type {Event & { dataTransfer: typeof dataTransfer }} */ (
+        new Event('dragstart', { bubbles: true })
+      );
       dragEvent.dataTransfer = dataTransfer;
       item.dispatchEvent(dragEvent);
 
@@ -322,12 +413,25 @@ describe('shared item handlers (click/dblclick/drag-to-terminal)', () => {
 
     setArtifacts([
       ...makeFixtureArtifacts(),
-      { id: '5', title: 'New Plot', filename: 'new.png', artifact_type: 'plot_png', category: 'visualization', pinned: false, timestamp: '2026-07-04T10:00:00Z', size_bytes: 100 },
+      {
+        id: '5',
+        title: 'New Plot',
+        filename: 'new.png',
+        artifact_type: 'plot_png',
+        category: 'visualization',
+        pinned: false,
+        timestamp: '2026-07-04T10:00:00Z',
+        size_bytes: 100,
+      },
     ]);
     sidebarRenderer.renderSidebar();
 
-    expect(qs(document, '.tree-section[data-type="visualization"]').classList.contains('collapsed')).toBe(true);
-    expect(qs(document, '.tree-section[data-type="pinned"]').classList.contains('collapsed')).toBe(false);
+    expect(
+      qs(document, '.tree-section[data-type="visualization"]').classList.contains('collapsed')
+    ).toBe(true);
+    expect(qs(document, '.tree-section[data-type="pinned"]').classList.contains('collapsed')).toBe(
+      false
+    );
   });
 });
 
@@ -341,7 +445,16 @@ describe('XSS hardening (Task 1.3 — escape-metadata-sinks)', () => {
    */
   function setHostileArtifact(id) {
     setArtifacts([
-      { id, title: `Hostile ${id}`, filename: `${id}.png`, artifact_type: HOSTILE, category: HOSTILE, pinned: false, timestamp: '2026-07-04T10:00:00Z', size_bytes: 10 },
+      {
+        id,
+        title: `Hostile ${id}`,
+        filename: `${id}.png`,
+        artifact_type: HOSTILE,
+        category: HOSTILE,
+        pinned: false,
+        timestamp: '2026-07-04T10:00:00Z',
+        size_bytes: 10,
+      },
     ]);
   }
 
@@ -403,13 +516,26 @@ describe('XSS hardening (Task 1.3 — escape-metadata-sinks)', () => {
   });
 
   test('a hostile registry label reaches the tree-section header only as escaped text', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
-      json: () => Promise.resolve({ categories: { evilcat: { label: '<img src=x onerror=alert(1)>' } } }),
-    }));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        json: () =>
+          Promise.resolve({ categories: { evilcat: { label: '<img src=x onerror=alert(1)>' } } }),
+      })
+    );
     await initTypeRegistry();
 
     setArtifacts([
-      { id: 'c1', title: 'Section Test', filename: 'c.png', artifact_type: 'evilcat', category: 'evilcat', pinned: false, timestamp: '2026-07-04T10:00:00Z', size_bytes: 10 },
+      {
+        id: 'c1',
+        title: 'Section Test',
+        filename: 'c.png',
+        artifact_type: 'evilcat',
+        category: 'evilcat',
+        pinned: false,
+        timestamp: '2026-07-04T10:00:00Z',
+        size_bytes: 10,
+      },
     ]);
     const sidebarRenderer = createSidebarRenderer(makeCallbacks());
     sidebarRenderer.renderSidebar();
@@ -432,7 +558,8 @@ describe('XSS hardening (Task 1.3 — escape-metadata-sinks)', () => {
 
     const visSection = document.querySelector('.tree-section[data-type="visualization"]');
     expect(visSection).not.toBeNull();
-    if (!(visSection instanceof HTMLElement)) throw new Error('unreachable: asserted non-null above');
+    if (!(visSection instanceof HTMLElement))
+      throw new Error('unreachable: asserted non-null above');
     expect(visSection.dataset.type).toBe('visualization');
     expect(qs(visSection, '.tree-section-header').dataset.type).toBe('visualization');
     // The serialized markup is also byte-identical for benign values —
@@ -467,7 +594,9 @@ describe('picking several rows', () => {
    * @param {MouseEventInit} [init]
    */
   function clickRow(id, init = {}) {
-    qs(document, `[data-id="${id}"]`).dispatchEvent(new MouseEvent('click', { bubbles: true, ...init }));
+    qs(document, `[data-id="${id}"]`).dispatchEvent(
+      new MouseEvent('click', { bubbles: true, ...init })
+    );
   }
 
   /** @returns {string[]} ids of the rows carrying the `picked` class, in DOM order */
@@ -549,23 +678,26 @@ describe('picking several rows', () => {
     expect(getPickAnchor()).toBe('4');
   });
 
-  test.each([['metaKey'], ['ctrlKey']])('a %s-click toggles one row and moves the anchor', (key) => {
-    setArtifacts(makeFixtureArtifacts());
-    renderer(makeCallbacks());
+  test.each([['metaKey'], ['ctrlKey']])(
+    'a %s-click toggles one row and moves the anchor',
+    (key) => {
+      setArtifacts(makeFixtureArtifacts());
+      renderer(makeCallbacks());
 
-    clickRow('2');
-    clickRow('3', { [key]: true });
-    expect([...getPickedIds()].sort()).toEqual(['2', '3']);
-    expect(getPickAnchor()).toBe('3');
+      clickRow('2');
+      clickRow('3', { [key]: true });
+      expect([...getPickedIds()].sort()).toEqual(['2', '3']);
+      expect(getPickAnchor()).toBe('3');
 
-    clickRow('1', { [key]: true });
-    expect([...getPickedIds()].sort()).toEqual(['1', '2', '3']);
+      clickRow('1', { [key]: true });
+      expect([...getPickedIds()].sort()).toEqual(['1', '2', '3']);
 
-    clickRow('3', { [key]: true });
-    expect([...getPickedIds()].sort()).toEqual(['1', '2']);
-    expect(getPickAnchor()).toBe('3');
-    expect(pickedRows().sort()).toEqual(['1', '2']);
-  });
+      clickRow('3', { [key]: true });
+      expect([...getPickedIds()].sort()).toEqual(['1', '2']);
+      expect(getPickAnchor()).toBe('3');
+      expect(pickedRows().sort()).toEqual(['1', '2']);
+    }
+  );
 
   test('a plain click clears the picks and sets the anchor', () => {
     setArtifacts(makeFixtureArtifacts());
@@ -683,5 +815,58 @@ describe('picking several rows', () => {
     setPicked(['1', '3']);
     renderer(makeCallbacks());
     expect(pickedRows()).toEqual(['3', '1']);
+  });
+});
+
+describe('reveal stagger with many rows (#924)', () => {
+  /** @param {number} n */
+  function manyArtifacts(n) {
+    return Array.from({ length: n }, (_, i) => ({
+      id: String(i + 1),
+      title: `Paged Artifact ${String(i).padStart(4, '0')}`,
+      filename: `paged-${i}.md`,
+      artifact_type: 'markdown',
+      category: i % 3 ? 'document' : 'visualization',
+      pinned: false,
+      timestamp: `2026-07-01T10:${String(i % 60).padStart(2, '0')}:00Z`,
+      size_bytes: 10,
+    }));
+  }
+
+  test('the per-row delay is staggered over the first rows only, then flat', () => {
+    expect(revealDelayMs(0)).toBe(0);
+    expect(revealDelayMs(1)).toBe(30);
+    expect(revealDelayMs(12)).toBe(360);
+    expect(revealDelayMs(13)).toBe(360);
+    expect(revealDelayMs(4000)).toBe(360);
+    expect(revealDelayMs(4000, 25)).toBe(300);
+  });
+
+  test('the deepest row of a large render is not held invisible for the length of the list', () => {
+    mountFixture();
+    setArtifacts(manyArtifacts(500));
+    const renderer = createSidebarRenderer(makeCallbacks());
+    renderer.renderSidebar();
+    const rows = document.querySelectorAll('.tree-item');
+    expect(rows.length).toBe(500);
+    const delays = [...rows].map((row) =>
+      parseInt((row.getAttribute('style') ?? '').match(/animation-delay: (\d+)ms/)?.[1] ?? '-1', 10)
+    );
+    expect(delays[0]).toBe(0);
+    expect(Math.max(...delays)).toBe(revealDelayMs(499));
+    expect(Math.max(...delays)).toBeLessThanOrEqual(360);
+  });
+
+  test('row handlers are installed once on the container, so a rebuilt row selects once', () => {
+    mountFixture();
+    setArtifacts(manyArtifacts(30));
+    const onSelect = vi.fn();
+    const renderer = createSidebarRenderer({ ...makeCallbacks(), onSelect });
+    renderer.renderSidebar();
+    renderer.renderSidebar();
+    renderer.renderSidebar();
+    qs(document, '.tree-item[data-id="7"]').click();
+    expect(onSelect).toHaveBeenCalledTimes(1);
+    expect(onSelect.mock.calls[0][0].id).toBe('7');
   });
 });

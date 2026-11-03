@@ -19,7 +19,7 @@
  * alias-smoke.test.mjs's use of the absolute runtime specifier.
  */
 
-import { test, expect, describe, beforeEach, vi } from 'vitest';
+import { test, expect, describe, beforeEach, afterEach, vi } from 'vitest';
 
 describe('setTheme()', () => {
   /** @type {typeof import('/design-system/js/theme-manager.js')} */
@@ -109,9 +109,12 @@ describe('setTheme()', () => {
       ThemeManager.initTheme({ role: 'hub' });
       ThemeManager.setTheme('light');
 
+      // '*' is the one sanctioned wildcard target: an opaque artifact frame
+      // or panel has origin "null", which no named targetOrigin reaches, and
+      // the message carries only a public theme id.
       expect(postMessage).toHaveBeenCalledWith(
         { type: 'osprey-theme-change', theme: 'light' },
-        window.location.origin
+        '*'
       );
     });
 
@@ -122,6 +125,28 @@ describe('setTheme()', () => {
       ThemeManager.setTheme('light');
 
       expect(window.location.search).not.toContain('theme');
+    });
+
+    test('modePreference() reads auto until a concrete pick pins the mode', () => {
+      ThemeManager.initTheme({ role: 'hub' });
+      expect(ThemeManager.modePreference()).toBe('auto');
+
+      ThemeManager.setTheme('light');
+      expect(ThemeManager.modePreference()).toBe('light');
+
+      ThemeManager.setTheme('auto');
+      expect(ThemeManager.modePreference()).toBe('auto');
+    });
+  });
+
+  describe('modePreference() in the follower role', () => {
+    test('is always auto: a follower has no preference of its own', () => {
+      window.history.replaceState({}, '', '/panel?theme=dark');
+      ThemeManager.initTheme({ role: 'follower' });
+
+      ThemeManager.setTheme('light');
+
+      expect(ThemeManager.modePreference()).toBe('auto');
     });
   });
 
@@ -140,6 +165,69 @@ describe('setTheme()', () => {
 
       expect(ThemeManager.getTheme()).toBe('light');
       expect(window.location.search).toContain('theme=dark');
+    });
+  });
+
+  // An opaque page (sandboxed: `self.origin === 'null'`, whatever its URL says)
+  // takes the broadcast from its embedding frame only, matched by identity.
+  describe('broadcast on an opaque page (follower role)', () => {
+    /** @type {object} */
+    let embedder;
+
+    beforeEach(() => {
+      embedder = {};
+      vi.stubGlobal('origin', 'null');
+      vi.stubGlobal('parent', embedder);
+    });
+
+    afterEach(() => {
+      vi.unstubAllGlobals();
+    });
+
+    /** @param {unknown} data @param {unknown} source */
+    function deliver(data, source) {
+      window.dispatchEvent(
+        new MessageEvent('message', { data, source: /** @type {any} */ (source) })
+      );
+    }
+
+    test('applies the embedding frame theme although the URL origin is the server', () => {
+      ThemeManager.initTheme({ role: 'follower' });
+      ThemeManager.setTheme('dark');
+
+      deliver({ type: 'osprey-theme-change', theme: 'light' }, embedder);
+
+      expect(ThemeManager.getTheme()).toBe('light');
+      expect(document.documentElement.getAttribute('data-theme')).toBe('light');
+    });
+
+    test('an unknown theme id falls back to auto, never the raw string', () => {
+      ThemeManager.initTheme({ role: 'follower' });
+
+      deliver({ type: 'osprey-theme-change', theme: 'not-a-theme' }, embedder);
+
+      expect(document.documentElement.getAttribute('data-theme')).not.toBe('not-a-theme');
+    });
+
+    test('ignores another sender and other message shapes', () => {
+      ThemeManager.initTheme({ role: 'follower' });
+      ThemeManager.setTheme('dark');
+
+      deliver({ type: 'osprey-theme-change', theme: 'light' }, {});
+      deliver({ type: 'osprey-artifact-print', theme: 'light' }, embedder);
+      deliver(null, embedder);
+
+      expect(ThemeManager.getTheme()).toBe('dark');
+    });
+
+    test('a top-level opaque page takes no message', () => {
+      vi.stubGlobal('parent', window);
+      ThemeManager.initTheme({ role: 'follower' });
+      ThemeManager.setTheme('dark');
+
+      deliver({ type: 'osprey-theme-change', theme: 'light' }, window);
+
+      expect(ThemeManager.getTheme()).toBe('dark');
     });
   });
 });

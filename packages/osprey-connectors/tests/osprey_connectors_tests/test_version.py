@@ -1,20 +1,23 @@
 """The package versions from its own ``osprey-connectors-v*`` calendar tags.
 
 ``[tool.hatch.version].raw-options`` in this package's ``pyproject.toml`` hands
-the build backend a describe glob and a tag regex. The glob decides which tags
-the version can come from: only this package's calendar tags, never the
-framework's ``v*`` tags (a second stream would rebase onto the framework's
-numbers) and never the retired ``osprey-connectors-v0.1.0`` (every dev build
-would become ``0.1.0.postN``, which sorts below the framework's floor). The
-regex strips the prefix so the backend can parse what the glob found. The
+the build backend a describe command, in the ``scm.git`` table setuptools-scm 10
+reads it from. Its glob decides which tags the version can come from: only this
+package's calendar tags, never the framework's ``v*`` tags (a second stream
+would rebase onto the framework's numbers) and never the retired
+``osprey-connectors-v0.1.0`` (every dev build would become ``0.1.0.postN``,
+which sorts below the framework's floor). No tag regex is configured: the
+backend's default one strips the ``osprey-connectors-`` prefix and the ``v``
+itself, and the flat ``tag_regex`` key that would override it is deprecated. The
 framework's own glob, read from the root ``pyproject.toml``, must in turn never
 reach a connectors tag.
 
-The checks on the glob and the regex are pure string checks. The ones that
-read the repository skip outside this monorepo's checkout (an unpacked sdist)
-and in a shallow clone, whose history may not reach a tag; a full checkout
-that still describes no connectors calendar tag fails, because that is the
-checkout that builds the package as ``0.0.postN+g…``.
+The checks on the glob are pure string checks; the ones that need the backend
+skip where setuptools-scm is not installed (the framework-free lane). The ones
+that read the repository skip outside this monorepo's checkout (an unpacked
+sdist) and in a shallow clone, whose history may not reach a tag; a full
+checkout that still describes no connectors calendar tag fails, because that is
+the checkout that builds the package as ``0.0.postN+g…``.
 """
 
 from __future__ import annotations
@@ -37,9 +40,13 @@ from osprey_connectors_tests._paths import PACKAGE_ROOT, REPO_ROOT
 CALENDAR_FLOOR = Version("2026")
 
 
+def _pyproject(path) -> dict:
+    with path.open("rb") as handle:
+        return tomllib.load(handle)
+
+
 def _raw_options(pyproject) -> dict:
-    with pyproject.open("rb") as handle:
-        return tomllib.load(handle)["tool"]["hatch"]["version"]["raw-options"]
+    return _pyproject(pyproject)["tool"]["hatch"]["version"]["raw-options"]
 
 
 def _match_glob(describe_command: str) -> str:
@@ -60,13 +67,20 @@ def raw_options() -> dict:
 
 
 @pytest.fixture(scope="module")
-def connectors_glob(raw_options) -> str:
-    return _match_glob(raw_options["git_describe_command"])
+def describe_command(raw_options) -> str:
+    return raw_options["scm"]["git"]["describe_command"]
 
 
 @pytest.fixture(scope="module")
-def tag_regex(raw_options) -> re.Pattern[str]:
-    return re.compile(raw_options["tag_regex"])
+def connectors_glob(describe_command) -> str:
+    return _match_glob(describe_command)
+
+
+@pytest.fixture(scope="module")
+def tag_regex() -> re.Pattern[str]:
+    """The backend's default tag regex, which is the one the build applies."""
+    config = pytest.importorskip("vcs_versioning._config")
+    return config.DEFAULT_TAG_REGEX
 
 
 def _in_the_monorepo() -> bool:
@@ -116,8 +130,8 @@ def _described_tag(glob: str) -> str:
 
 
 class TestTheDescribeGlob:
-    def test_the_describe_command_is_the_pinned_one(self, raw_options):
-        assert raw_options["git_describe_command"] == (
+    def test_the_describe_command_is_the_pinned_one(self, describe_command):
+        assert describe_command == (
             "git describe --dirty --tags --long --abbrev=40 "
             "--match osprey-connectors-v2[0-9][0-9][0-9].*"
         )
@@ -155,10 +169,21 @@ class TestTheDescribeGlob:
         assert not _glob_matches(connectors_glob, tag)
 
 
-class TestTheTagRegex:
-    def test_the_tag_regex_is_the_pinned_one(self, raw_options):
-        assert raw_options["tag_regex"] == r"^osprey-connectors-v(?P<version>2[0-9]{3}\..+)$"
+class TestTheBackendConfiguration:
+    """Nothing the build reads is a key setuptools-scm 10 deprecates."""
 
+    def test_no_deprecated_flat_key_is_configured(self, raw_options):
+        # Both are deprecated in vcs-versioning 2 and warn on every build; the
+        # describe command lives in scm.git, and the default regex needs no help.
+        assert "tag_regex" not in raw_options
+        assert "git_describe_command" not in raw_options
+
+    def test_the_build_requires_a_backend_that_reads_the_scm_table(self):
+        requires = _pyproject(PACKAGE_ROOT / "pyproject.toml")["build-system"]["requires"]
+        assert "setuptools-scm>=9.2" in requires
+
+
+class TestTheTagRegex:
     @pytest.mark.parametrize(
         ("tag", "version"),
         [
@@ -170,22 +195,25 @@ class TestTheTagRegex:
     def test_extracts_the_calendar_version(self, tag_regex, tag, version):
         found = tag_regex.match(tag)
         assert found is not None
-        assert found.group("version") == version
+        # The regex keeps the `v`; the version parser drops it.
+        assert Version(found.group("version")) == Version(version)
         assert Version(found.group("version")) >= CALENDAR_FLOOR
 
-    @pytest.mark.parametrize(
-        "tag", ["osprey-connectors-v0.1.0", "v2026.10.0", "osprey-connectors-v2026"]
-    )
-    def test_refuses_what_the_glob_skips(self, tag_regex, tag):
-        assert tag_regex.match(tag) is None
+    def test_the_framework_tag_would_parse_too_so_the_glob_is_the_gate(self, tag_regex):
+        # The default regex reads any dashed prefix, which is why the describe
+        # glob, not the regex, keeps the framework's tags out of this stream.
+        found = tag_regex.match("v2026.10.0")
+        assert found is not None and found.group("version") == "v2026.10.0"
 
 
 class TestTheFrameworkStream:
     def test_the_framework_glob_never_reads_a_connectors_tag(self):
         if not _in_the_monorepo():
             pytest.skip(f"{PACKAGE_ROOT} does not sit in the monorepo checkout")
+        root_options = _raw_options(REPO_ROOT / "pyproject.toml")
         framework_glob = _match_glob(
-            _raw_options(REPO_ROOT / "pyproject.toml")["git_describe_command"]
+            root_options.get("git_describe_command")
+            or root_options["scm"]["git"]["describe_command"]
         )
 
         assert framework_glob == "v[0-9]*"
@@ -197,7 +225,7 @@ class TestTheFrameworkStream:
 class TestLiveCheckout:
     """What this checkout's own tags make of the package."""
 
-    def test_the_installed_version_is_on_the_calendar(self, connectors_glob, tag_regex):
+    def test_the_installed_version_is_on_the_calendar(self, connectors_glob):
         """The installed version descends from the tag this checkout describes.
 
         Only the release segment and the pre-release are compared, never the
@@ -212,9 +240,9 @@ class TestLiveCheckout:
             installed = Version(dist_version("osprey-connectors"))
         except PackageNotFoundError:
             pytest.skip("osprey-connectors is not installed, only importable from source")
-        found = tag_regex.match(tag)
-        assert found is not None, tag
-        base = Version(found.group("version"))
+        # The glob admitted only osprey-connectors-v<calendar>; the version parser
+        # drops the `v`, so this needs no backend (the framework-free lane has none).
+        base = Version(tag.removeprefix("osprey-connectors-"))
 
         # 0.0.postN (no calendar tag reachable at build time) or 0.1.0.postN
         # (the retired tag read) both differ from the described tag.
@@ -234,11 +262,10 @@ class TestLiveCheckout:
 
         options = dict(raw_options)
         root = PACKAGE_ROOT / options.pop("root")
-        # setuptools-scm 10 deprecates the tag_regex keyword in favour of its own
-        # configuration table; hatch-vcs passes it the same way, so this call is
-        # the build's own.
+        # hatch-vcs hands raw-options to get_version() as keywords, so this call
+        # is the build's own — and it must not warn: a deprecated key would.
         with warnings.catch_warnings():
-            warnings.simplefilter("ignore", DeprecationWarning)
+            warnings.simplefilter("error", DeprecationWarning)
             stamped = Version(setuptools_scm.get_version(root=str(root), **options))
 
         base = Version(found.group("version"))

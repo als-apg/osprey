@@ -362,12 +362,30 @@ export function describeQueueStatus(status) {
   }
   switch (raw) {
     case 'starting_queue':
-      return { label: 'starting', tone: 'info', note: null, raw, hint: hint('A plan is about to run.') };
+      return {
+        label: 'starting',
+        tone: 'info',
+        note: null,
+        raw,
+        hint: hint('A plan is about to run.'),
+      };
     case 'executing_queue':
     case 'executing_task':
-      return { label: 'running', tone: 'info', note: null, raw, hint: hint('A plan is running now.') };
+      return {
+        label: 'running',
+        tone: 'info',
+        note: null,
+        raw,
+        hint: hint('A plan is running now.'),
+      };
     case 'paused':
-      return { label: 'paused', tone: 'warn', note: null, raw, hint: hint('The running plan is paused.') };
+      return {
+        label: 'paused',
+        tone: 'warn',
+        note: null,
+        raw,
+        hint: hint('The running plan is paused.'),
+      };
     case 'idle':
       if (!queueArmed(status)) {
         return {
@@ -666,7 +684,10 @@ export function enqueuePresentation(status) {
   const active = managerState !== null && QUEUE_ACTIVE_MANAGER_STATES.includes(managerState);
   if (active) return { label: 'Add to queue', note: 'Runs after the current plan.' };
   if (!managerStateKnown(status))
-    return { label: 'Add to queue', note: 'The queue state is unfamiliar; the item waits its turn.' };
+    return {
+      label: 'Add to queue',
+      note: 'The queue state is unfamiliar; the item waits its turn.',
+    };
   if (queueArmed(status)) return { label: 'Run', note: 'Runs now.' };
   return { label: 'Add to queue', note: 'The queue is stopped. Start it from the Queue tab.' };
 }
@@ -1030,7 +1051,7 @@ export function describeProgress(progress) {
  * the remedy (the
  * `osprey set config.control_system.connector.virtual_accelerator.serving=served`
  * flip command for a deployment serving the simulator in process, which
- * arming header is missing on `launch_token_required`). Rewording it here
+ * arming header is missing on `launch_token_invalid`). Rewording it here
  * would put a second, drifting copy of the bridge's policy in the panel.
  *
  * Nothing reads a top-level `code`: the queue relay hands the bridge's

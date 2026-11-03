@@ -1,15 +1,15 @@
 """The words the vocabulary guards hold, in one place.
 
-``RATCHET_WORD`` is the word no shipped file or agent-facing text carries; the file
-scan in :mod:`tests.facility.test_word_ratchet` and the agent-facing guard in
-:mod:`tests.mcp_server.test_channel_finder_tool_vocabulary` both match it.
 ``PROTOCOL_WORDS`` are the words the text an agent reads never names.
 ``ENGINE_WORDS`` are the simulation engine's own words, which only the engine
-plug-ins, the importers and the facility definitions speak; the second scan in
+plug-ins, the importers and the facility definitions speak; the first scan in
 :mod:`tests.facility.test_word_ratchet` matches them.
 ``RETIRED_ROSTER_WORD`` is the roster's retired word, which no tracked file
 names, by content or by path, outside the code that reads the old spelling;
-the third scan in :mod:`tests.facility.test_word_ratchet` matches it.
+the second scan in :mod:`tests.facility.test_word_ratchet` matches it.
+``SITE_EXAMPLE_WORD`` is the example deployment name that named a site, which no
+core text carries; the third scan in :mod:`tests.facility.test_word_ratchet`
+matches it.
 
 ``HARDCODED_VOCABULARY_TOKENS`` hold the facility-vocabulary rule: facility
 terminology has exactly one source of truth. For the graph paradigm that source
@@ -28,9 +28,7 @@ definition are masked by origin: ``FACILITY_CONTEXT_KEYS`` name the render
 context the build fills from the facility, and every string leaf and key under
 them is replaced by ``FACILITY_MASK`` before the words are matched. Masks match
 whole words. Every facility-sourced string is masked whatever it is, a bare
-guarded word included, because OSPREY's own wording is guarded at source — the
-templates and ``src/`` are scanned by :mod:`tests.facility.test_word_ratchet` —
-so a guarded word that survives masking is OSPREY's. OSPREY's vocabulary table
+guarded word included, so a guarded word that survives masking is OSPREY's. OSPREY's vocabulary table
 (:func:`osprey.facility.validate.vocabulary`) is never masked and stays judged.
 
 Lives in a ``_``-prefixed module rather than ``conftest.py`` because it holds
@@ -47,20 +45,19 @@ from typing import Any
 
 import yaml
 
+# Framework-free, so it lives in the connectors suite's harness; re-exported here.
+from osprey_connectors_tests._harness._vocabulary import REFUSAL_BAN_LIST  # noqa: F401
+
 #: One agent-facing text: ``(source, name, field)``. The source is an MCP
 #: server, ``ariel_search`` for the ARIEL search descriptors, or ``rendered``
 #: for a file a build renders for the agent, named by its path under the
 #: render root.
 TextKey = tuple[str, str, str]
 
-#: The word, case-insensitive on its own and as a snake_case part; the
-#: capitalised camelCase part (``PyATRingModel``) is matched case-sensitively.
-#: A string, not a compiled pattern: ``git grep -P`` takes it as written.
-RATCHET_WORD = r"(?i:\bring\b|_ring\b|\bring_)|Ring(?=[A-Z_])"
-
 #: The pyAT attributes a corrector or a strength writes and the ``axis`` key a
 #: monitor reads. Code outside the engine's zones reads a binding's ``role``
-#: and ``plane`` instead. A string for ``git grep -P``, as ``RATCHET_WORD``.
+#: and ``plane`` instead. A string, not a compiled pattern: ``git grep -P``
+#: takes it as written.
 ENGINE_WORDS = r"\bKickAngle\b|\bPolynom[AB]\b|[\"']axis[\"']"
 
 #: The roster's retired word, singular or plural: on its own, as a snake_case
@@ -69,8 +66,11 @@ ENGINE_WORDS = r"\bKickAngle\b|\bPolynom[AB]\b|[\"']axis[\"']"
 #: character and ``\b`` would miss the word in the middle of a snake_case name.
 #: Other words that merely contain it (the adjective for one's own, an
 #: impersonation) are not matches. A string for ``git grep -P``, as
-#: ``RATCHET_WORD``; its own source line carries the scan's line marker.
+#: ``ENGINE_WORDS``; its own source line carries the scan's line marker.
 RETIRED_ROSTER_WORD = r"(?<![A-Za-z])[Pp]ersonas?(?![a-z])|(?<=[a-z0-9])Personas?(?![a-z])|(?<![A-Za-z])PERSONAS?(?![A-Za-z])"  # retired-spelling
+
+#: The example deployment name that named a site; examples use ``my-assistant``.
+SITE_EXAMPLE_WORD = r"\bals-assistant\b"
 
 # Case-sensitive on purpose: lowercase ``epics`` names a connector type in config
 # text, and the bare demo prefix ``SR`` without a colon is not a match.
@@ -99,6 +99,14 @@ PENDING_REWORDING: frozenset[TextKey] = frozenset(
         ("rendered", ".claude/agents/data-visualizer.md", "text"),
         ("rendered", ".claude/agents/facility-knowledge-graph.md", "text"),
         ("rendered", ".claude/agents/pyat-specialist.md", "text"),
+        # Byte copies of CANOPY's own skills (tests/integrations/canopy/fixtures/
+        # canopy-copies.json): their wording changes in CANOPY, not here.
+        ("rendered", ".claude/skills/canopy-panel-builder/SKILL.md", "text"),
+        ("rendered", ".claude/skills/canopy-operator/SKILL.md", "text"),
+        # Lists each screen's devices under the facility's own system prefix,
+        # which the example facility spells ``SR``, so its device lines read
+        # ``SR: <labels>``.
+        ("rendered", ".claude/skills/canopy-screens/SKILL.md", "text"),
         ("rendered", ".claude/output-styles/control-operator.md", "text"),
         ("rendered", ".claude/rules/control-system-safety.md", "text"),
         ("rendered", ".claude/rules/safety.md", "text"),
@@ -117,8 +125,8 @@ FACILITY_CONTEXT_KEYS: tuple[str, ...] = (
     "measurement",
 )
 
-#: What a facility-sourced string reads as once masked; it matches neither
-#: ``RATCHET_WORD`` nor ``PROTOCOL_WORDS``, so a failing guard stays readable.
+#: What a facility-sourced string reads as once masked; it does not match
+#: ``PROTOCOL_WORDS``, so a failing guard stays readable.
 FACILITY_MASK = "[facility]"
 
 
@@ -144,8 +152,15 @@ def facility_strings(*values: Any) -> frozenset[str]:
 
 
 def render_root_facility_strings(root: Path) -> frozenset[str]:
-    """The facility-sourced strings the build handed the templates of one render root."""
+    """The facility-sourced strings the build handed the templates of one render root.
+
+    Besides the :data:`FACILITY_CONTEXT_KEYS`, the CANOPY screens guide: its
+    titles, summaries, device labels and collections are read out of the
+    deployment's screen library and facility file, by the same producer the
+    build calls. The skill's own frame stays unmasked.
+    """
     from osprey.cli.templates.claude_code import config_derived_context
+    from osprey.integrations.canopy.screen_guide import screen_guide_context
 
     config_file = root / "config.yml"
     config = (
@@ -154,18 +169,21 @@ def render_root_facility_strings(root: Path) -> frozenset[str]:
         else {}
     )
     context = config_derived_context(config, root)
-    return facility_strings(*(context[key] for key in FACILITY_CONTEXT_KEYS))
+    return facility_strings(
+        *(context[key] for key in FACILITY_CONTEXT_KEYS),
+        screen_guide_context(config, root),
+    )
 
 
 def mask_facility_text(text: str, strings: Iterable[str]) -> str:
     """*text* with every whole-word occurrence of a guarded facility string masked.
 
-    Only the strings that carry a ``RATCHET_WORD`` or ``PROTOCOL_WORDS`` match
-    are candidates, a string that is nothing but a guarded word included; the
-    longest is tried first so a short string never splits a longer one.
+    Only the strings that carry a ``PROTOCOL_WORDS`` match are candidates, a
+    string that is nothing but a guarded word included; the longest is tried
+    first so a short string never splits a longer one.
     """
     candidates = sorted(
-        {s for s in strings if re.search(RATCHET_WORD, s) or PROTOCOL_WORDS.search(s)},
+        {s for s in strings if PROTOCOL_WORDS.search(s)},
         key=lambda s: (-len(s), s),
     )
     if not candidates:

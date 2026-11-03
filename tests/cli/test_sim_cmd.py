@@ -158,21 +158,22 @@ class TestPerStoreOptOuts:
         assert apply_mock.call_args.kwargs["seed_logbook"] is True
         assert apply_mock.call_args.kwargs["seed_archive"] is True
 
-    def test_no_seed_logbook_leaves_the_archive_alone_too(self, deployment):
-        _, apply_mock = _invoke(deployment, ["apply", "nominal", "--yes", "--no-seed-logbook"])
-        assert apply_mock.call_args.kwargs["seed_logbook"] is False
-        assert apply_mock.call_args.kwargs["seed_archive"] is True
-
-    def test_no_seed_archiver_leaves_the_logbook_alone(self, deployment):
-        _, apply_mock = _invoke(deployment, ["apply", "nominal", "--yes", "--no-seed-archiver"])
-        assert apply_mock.call_args.kwargs["seed_logbook"] is True
-        assert apply_mock.call_args.kwargs["seed_archive"] is False
-
-    def test_no_seed_still_means_neither(self, deployment):
-        """The pre-existing flag kept its meaning: telemetry only."""
-        _, apply_mock = _invoke(deployment, ["apply", "nominal", "--yes", "--no-seed"])
-        assert apply_mock.call_args.kwargs["seed_logbook"] is False
-        assert apply_mock.call_args.kwargs["seed_archive"] is False
+    @pytest.mark.parametrize(
+        ("flag", "seed_logbook", "seed_archive"),
+        [
+            ("--no-seed-logbook", False, True),
+            ("--no-seed-archiver", True, False),
+            # The pre-existing flag kept its meaning: telemetry only.
+            ("--no-seed", False, False),
+        ],
+        ids=["no-seed-logbook", "no-seed-archiver", "no-seed"],
+    )
+    def test_a_no_seed_flag_reaches_apply_scenarios(
+        self, deployment, flag, seed_logbook, seed_archive
+    ):
+        _, apply_mock = _invoke(deployment, ["apply", "nominal", "--yes", flag])
+        assert apply_mock.call_args.kwargs["seed_logbook"] is seed_logbook
+        assert apply_mock.call_args.kwargs["seed_archive"] is seed_archive
 
     def test_the_flags_are_documented(self):
         result = CliRunner().invoke(sim_group, ["apply", "--help"])

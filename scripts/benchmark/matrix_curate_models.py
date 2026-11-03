@@ -122,7 +122,7 @@ def main() -> int:
     for key, members in sorted(groups.items()):
         cid = canonical_id(members)
         self_hosted = is_self_hosted(members)
-        protocol = "anthropic" if key.startswith("claude-") or key in ("claude",) else "openai"
+        protocol = "anthropic" if key.startswith("claude-") or key == "claude" else "openai"
         models.append(
             {
                 "api_id": cid,

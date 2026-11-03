@@ -19,52 +19,23 @@
 
 import { test, expect, describe, beforeEach, afterEach, vi } from 'vitest';
 
+import { stubEventSource } from '../_support/event-source.mjs';
+
 const ENTRY_PATH = '../../../src/osprey/interfaces/web_terminal/static/js/session.js';
 const STRIP_PATH = '../../../src/osprey/interfaces/web_terminal/static/js/activity-strip.js';
 
 /** @typedef {import('../../../src/osprey/interfaces/web_terminal/static/js/panel-manager.js').AgentActivityEvent} AgentActivityFrame */
 
-/**
- * A stubbed global EventSource: records every source api.js opens, and exposes
- * `emit` to deliver a server frame through the source's own onmessage — JSON
- * text, as the wire carries it, so api.js's parse (and its raw-string fallback
- * for text that is not JSON) runs for real.
- */
-function stubEventSource() {
-  /** @type {{url: string, closed: boolean, onmessage: ((e: {data: string}) => void) | null}[]} */
-  const sources = [];
-  class FakeEventSource {
-    /** @param {string} url */
-    constructor(url) {
-      this.url = url;
-      this.closed = false;
-      /** @type {((e: {data: string}) => void) | null} */
-      this.onmessage = null;
-      /** @type {(() => void) | null} */
-      this.onopen = null;
-      /** @type {(() => void) | null} */
-      this.onerror = null;
-      this.readyState = 0;
-      sources.push(this);
-    }
-    close() {
-      this.closed = true;
-    }
-  }
-  vi.stubGlobal('EventSource', FakeEventSource);
-  /** @param {unknown} payload - a frame, or raw text sent as-is */
-  const emit = (payload) => {
-    const data = typeof payload === 'string' ? payload : JSON.stringify(payload);
-    for (const src of sources) src.onmessage?.({ data });
-  };
-  return { sources, emit };
-}
-
 /** A strip that only records the frames handed to it. */
 function fakeStrip() {
   /** @type {AgentActivityFrame[]} */
   const seen = [];
-  return { seen, handleActivity: (/** @type {AgentActivityFrame} */ f) => { seen.push(f); } };
+  return {
+    seen,
+    handleActivity: (/** @type {AgentActivityFrame} */ f) => {
+      seen.push(f);
+    },
+  };
 }
 
 /**
@@ -89,11 +60,16 @@ beforeEach(async () => {
     <section class="view active" id="view-agents"></section>
     <div class="toast" id="toast"></div>
   `;
-  vi.stubGlobal('fetch', vi.fn(() => Promise.resolve({
-    status: 200,
-    ok: true,
-    json: () => Promise.resolve({ total_events: 0, agents: [], tool_calls_by_agent: {} }),
-  })));
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(() =>
+      Promise.resolve({
+        status: 200,
+        ok: true,
+        json: () => Promise.resolve({ total_events: 0, agents: [], tool_calls_by_agent: {} }),
+      })
+    )
+  );
   vi.resetModules();
   Session = await import(ENTRY_PATH);
 });
@@ -110,9 +86,11 @@ describe('wireActivityStrip: subscription', () => {
 
     const handle = Session.wireActivityStrip(strip);
 
-    expect(es.sources.map((src) => src.url)).toEqual(['/api/files/events']);
+    // The page's one events URL, tagged with its client id (api.js pageEventsUrl).
+    expect(es.opened).toHaveLength(1);
+    expect(es.opened[0].url).toMatch(/^\/api\/files\/events\?client_id=[^&]+$/);
     handle.stop();
-    expect(es.sources[0].closed).toBe(true);
+    expect(es.opened[0].closed).toBe(true);
   });
 });
 
@@ -133,7 +111,7 @@ describe('wireActivityStrip: frame routing', () => {
     expect(strip.seen).toEqual([f]);
   });
 
-  test('the shared stream\'s other frame types are ignored', () => {
+  test("the shared stream's other frame types are ignored", () => {
     const es = stubEventSource();
     const strip = fakeStrip();
     Session.wireActivityStrip(strip);
@@ -147,7 +125,7 @@ describe('wireActivityStrip: frame routing', () => {
 });
 
 describe('page boot: one strip on the shared mount', () => {
-  test('bootActivityStrip is idempotent, so the session page reuses the module\'s own instance', async () => {
+  test("bootActivityStrip is idempotent, so the session page reuses the module's own instance", async () => {
     // The mount exists before the import, so the module's self-boot claims it;
     // session.js then asks for the same instance instead of binding a second
     // strip to it (two strips would mean two history popovers per click).

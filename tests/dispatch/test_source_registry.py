@@ -12,17 +12,7 @@ from osprey.dispatch.source_registry import SourceRegistry
 from osprey.dispatch.sources.cron import CronSource
 from osprey.dispatch.sources.webhook import WebhookSource
 from osprey.dispatch.trigger_config import TriggerConfig
-
-
-class _FakeEntryPoint:
-    """Minimal EntryPoint stand-in exposing .name and .load()."""
-
-    def __init__(self, name: str, cls: type) -> None:
-        self.name = name
-        self._cls = cls
-
-    def load(self) -> type:
-        return self._cls
+from tests.dispatch._fakes import FakeEntryPoint
 
 
 def _patch_entry_points(monkeypatch, eps):
@@ -43,8 +33,8 @@ def _make_trigger(name: str, source: str) -> TriggerConfig:
 
 def test_discover_populates_both_sources(monkeypatch):
     eps = [
-        _FakeEntryPoint("webhook", WebhookSource),
-        _FakeEntryPoint("cron", CronSource),
+        FakeEntryPoint("webhook", WebhookSource),
+        FakeEntryPoint("cron", CronSource),
     ]
     _patch_entry_points(monkeypatch, eps)
 
@@ -65,11 +55,11 @@ def test_discover_conflicting_class_raises(monkeypatch):
         async def stop(self) -> None: ...
 
     reg = SourceRegistry()
-    _patch_entry_points(monkeypatch, [_FakeEntryPoint("webhook", WebhookSource)])
+    _patch_entry_points(monkeypatch, [FakeEntryPoint("webhook", WebhookSource)])
     reg.discover()
 
     # Second discovery maps the same name to a different class -> ValueError.
-    _patch_entry_points(monkeypatch, [_FakeEntryPoint("webhook", OtherWebhook)])
+    _patch_entry_points(monkeypatch, [FakeEntryPoint("webhook", OtherWebhook)])
     with pytest.raises(ValueError, match="Conflicting trigger source for 'webhook'"):
         reg.discover()
 
@@ -81,13 +71,13 @@ def test_discover_rejects_non_source_class(monkeypatch):
         source_type = "bogus"  # has the attr but no lifecycle methods
 
     reg = SourceRegistry()
-    _patch_entry_points(monkeypatch, [_FakeEntryPoint("bogus", NotASource)])
+    _patch_entry_points(monkeypatch, [FakeEntryPoint("bogus", NotASource)])
     with pytest.raises(TypeError, match="not a TriggerSource"):
         reg.discover()
 
 
 def test_discover_idempotent(monkeypatch):
-    eps = [_FakeEntryPoint("webhook", WebhookSource)]
+    eps = [FakeEntryPoint("webhook", WebhookSource)]
     _patch_entry_points(monkeypatch, eps)
 
     reg = SourceRegistry()

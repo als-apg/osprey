@@ -105,7 +105,7 @@ carries and what makes the boundary hold.
 
 **An app is a second agent on the same services.** Each file in ``apps/`` is a
 complete agent definition, opened from a shared card by everyone on the roster
-and read-only on the machine. The preset lists three under ``shared:``:
+(or by the principals its ``shared:`` entry names) and read-only on the machine. The preset lists three under ``shared:``:
 ``logbook`` searches and synthesises the logbook from the same PostgreSQL the
 operators write to; ``knowledge`` answers how the machine is built from the
 facility knowledge graph, the channel finder and the knowledge bundle;
@@ -265,7 +265,9 @@ The config block
                 allocated ports and a seeded workspace; existing users are
                 untouched.
             * - **Rename or drop a user**
-              - Edit the roster entry, then ``osprey up``. A container whose
+              - Edit the roster entry, and the user's entry in
+                ``agent_record.readers`` if it has one, then
+                ``osprey up``. A container whose
                 user is no longer on the roster is stopped and removed, so it
                 cannot keep serving that index's ports; its volumes are
                 retained until ``osprey users prune``.
@@ -306,13 +308,23 @@ then build and bring the stack up from inside it:
    osprey build
    osprey up
 
-That is the entire setup: the preset ships the ``modules.web_terminals`` block
-above, so no extra flags or configuration are needed. Alongside the web tier,
+That is the entire setup for the preset's roster: the preset ships the
+``modules.web_terminals`` block above, so no extra flags or configuration are
+needed. Alongside the web tier,
 ``osprey up`` brings up everything else the control-assistant tutorial deploys
 — the virtual accelerator, the bluesky services, and the supporting
-PostgreSQL and telemetry containers — so the control-room terminals open onto a
+PostgreSQL and agent-record containers — so the control-room terminals open onto a
 working machine, the logbook app onto a live logbook and the knowledge
 app onto a seeded facility graph, not an empty shell.
+
+**Trim the roster** to the users you want, in ``profile.yml`` before
+``osprey build``:
+
+- Delete the ``users`` entries you do not want.
+- Delete ``tiers/<name>.yml`` for every tier nobody uses.
+- If ``readonly`` is gone, point ``default_tier`` at a tier that is left.
+- Drop removed users from ``agent_record.readers``, or
+  ``osprey up`` still mints a reader key for them.
 
 .. note::
 
@@ -368,11 +380,12 @@ What ``osprey build`` and ``osprey up`` do for the web tier
    .. note:: Upgrading a multi-user deployment
 
       Before this naming, the web containers and the auth image took their
-      prefix from ``facility.prefix`` (``ca-nginx``, ``ca-web-alice``,
-      ``ca-assistant-auth:local``). The first ``osprey up`` after upgrading
-      replaces them with the ``<project_name>-…`` containers and builds the auth
-      image under its new tag; no old-named container is left running. The
-      volumes keep their names, so every user's workspace carries over.
+      prefix from the since-removed ``facility.prefix`` key (``ca-nginx``,
+      ``ca-web-alice``, ``ca-assistant-auth:local``). The first ``osprey up``
+      after upgrading replaces them with the ``<project_name>-…`` containers and
+      builds the auth image under its new tag; no old-named container is left
+      running. The volumes keep their names, so every user's workspace carries
+      over.
 
 Stop the stack again with ``osprey down``; check on it with
 ``osprey status``.
@@ -382,9 +395,9 @@ Stop the stack again with ``osprey down``; check on it with
    The web stack runs with host networking. On Linux,
    ``http://127.0.0.1:10000`` is reachable as-is. That address is the
    preset's ``deploy.fqdn``, and ``http://localhost:10000`` redirects to it.
-   On **macOS**, a container's "host" is Docker Desktop's Linux VM — enable
-   *host networking* in Docker Desktop (Settings → Resources → Network) so the
-   stack's ports reach your browser. Host networking is one of the limits
+   On **macOS**, a container's "host" is the Linux VM. With Docker Desktop,
+   enable *host networking* (Settings → Resources → Network) so the stack's
+   ports reach your browser; Colima needs no setting. Host networking is one of the limits
    listed in :ref:`perimeter-limits`.
 
    If another OSPREY deployment already occupies these ports on this host, give
@@ -582,9 +595,9 @@ showing a gap.
 Logging out and switching users
 -------------------------------
 
-Every session's header carries a chip in the top-left naming the terminal — the
-display name where the roster sets one, the username otherwise. Clicking it
-opens a small menu naming the signed-in user, with **Log out**. That POSTs to the terminal's logout
+The **☰ More** menu at the bottom of the sidebar names the signed-in user —
+the display name where the roster sets one, the username otherwise — and
+their role, and has **Sign out**. That POSTs to the terminal's logout
 route, clears the local session pointer, and returns you to the landing page.
 From there, pick another card to open a different user. Logging out ends the
 session for real — the terminal drops its running processes, so the next login
@@ -596,15 +609,17 @@ What the stack records
 ----------------------
 
 Each terminal writes its own audit trail — refused writes, tool calls, hook
-decisions, config edits — into ``var/audit/<user>/`` in the project on the
-deploy host. A container is handed that one directory and nothing else under
-``var/audit/``, so no user's terminal can read or rewrite another's. The
-authentication service writes logins into ``var/audit/sidecar/``, which it owns
-as root and no terminal mounts at all.
+decisions, config edits — as entries in the agent record, through a spool
+directory of its own under ``var/spool/<user>/`` in the project on the deploy
+host. A container is handed that one directory and nothing else under
+``var/spool/``, and the record files every entry under the identity of the
+directory it came from, so no user's terminal can rewrite another's trail or
+write in another's name. The authentication service records logins through its
+own ``sidecar`` spool directory, which no terminal mounts at all.
 
-That makes the deploy host the place a question spanning several people is
-answered: ``grep -r alice var/audit/`` there sees every subdirectory, while the
-admin login inside a container sees only its own. :ref:`The audit trail
+That makes the agent record the place a question spanning several people is
+answered, by a reader whose record login covers those identities
+(:doc:`/how-to/health-and-monitoring/read-the-record`). :ref:`The audit trail
 <audit-trail-record>` has the record shape, and what append-only does and does
 not buy you.
 
@@ -614,12 +629,12 @@ The history page
 ================
 
 Where the web terminals sign people on (``auth.method`` of ``password`` or
-``oidc``) and the deployment runs the telemetry store, ``osprey up`` also runs
-a history page: every session the store holds, each with its conversation,
-tool calls, approvals and preflight checks, read in a browser. It is served at
-``/history/`` on the **readers' origin**, the web tier's second server on its
-own port (``modules.web_terminals.reader_port``, or
-``modules.web_terminals.reader_origin`` behind a load balancer), so a page an
+``oidc``), ``osprey up`` also runs a history page: every session the agent
+record holds, each with its conversation, tool calls, approvals and preflight
+checks, read in a browser. It is served at ``/history/`` on the **history
+page's origin**, the web tier's second server on its own port
+(``modules.web_terminals.history_port``, or
+``modules.web_terminals.history_origin`` behind a load balancer), so a page an
 agent wrote on the terminals' origin cannot read it. A visit without a valid
 sign-in goes to the terminals' sign-in and comes back. Without sign-on there is
 no history page; each terminal still shows its own past sessions.
@@ -642,19 +657,17 @@ Who sees what is decided per person, from the roster, every time a page loads:
            tier: admin
            history: all
 
-   services:
-     telemetry_store:
-       readers:
-         - name: carol                 # a reader is a reader everywhere
+   agent_record:
+     readers:
+       - name: carol                   # a reader is a reader everywhere
 
 - **Own** (the default): the sessions recorded under the person's own roster
   name.
 - **All**: ``history: all`` on the person's roster entry, or on a role in
   ``authorization.roles`` the person holds, shows every user's sessions.
-- **A reader** — a roster user named under
-  ``services.telemetry_store.readers``, or a reader recognised by its
-  ``oidc_subject`` — sees every user's sessions, bounded by that reader's
-  ``tables`` and ``days_back`` (:doc:`/how-to/health-and-monitoring/read-the-record`).
+- **A reader** — a roster user named under ``agent_record.readers``, or a
+  reader recognised by its ``oidc_subject`` — sees every user's sessions,
+  bounded by that reader's ``kinds`` and ``days_back`` (:doc:`/how-to/health-and-monitoring/read-the-record`).
   The reader entry takes precedence over ``history:``.
 
 The rules at the edges:
@@ -680,9 +693,9 @@ The rules at the edges:
   load after ``osprey up``; a person taken out of ``readers`` is back in their
   own scope then, even with the page still open.
 
-Every page query runs in the store as a view account for that one person, so
-the scope above is a permission of the database, not a filter of the page. The
-store's ``query_log`` names both the view account and the person.
+The page names the viewer to the agent record, and the record applies the
+scope above itself, from this deployment's config, so the scope is a
+permission of the record, not a filter of the page.
 
 Related pages
 =============

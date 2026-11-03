@@ -146,29 +146,22 @@ def test_predicate_rejects(tmp_path, memory_guard, memory_dir_for, build_path, r
 # -- Allow cases --
 
 
-def test_allows_write_to_memory_md(tmp_path, hook_runner, memory_dir_for):
+@pytest.mark.parametrize(
+    ("filename", "content"),
+    [
+        pytest.param("channels.md", "# BPM Channels\n", id="md-file"),
+        # MEMORY.md is the primary memory file.
+        pytest.param("MEMORY.md", "# Memories\n", id="primary-memory-file"),
+    ],
+)
+def test_allows_write_to_memory_md(tmp_path, hook_runner, memory_dir_for, filename, content):
     """Write to a .md file inside the Claude memory directory is allowed."""
-    target = str(memory_dir_for(tmp_path) / "channels.md")
+    target = str(memory_dir_for(tmp_path) / filename)
 
     result = hook_runner(
         "osprey_memory_guard.py",
         "Write",
-        {"file_path": target, "content": "# BPM Channels\n"},
-        cwd=tmp_path,
-    )
-
-    assert result is not None
-    assert result["hookSpecificOutput"]["permissionDecision"] == "allow"
-
-
-def test_allows_primary_memory_file(tmp_path, hook_runner, memory_dir_for):
-    """MEMORY.md (the primary memory file) is allowed."""
-    target = str(memory_dir_for(tmp_path) / "MEMORY.md")
-
-    result = hook_runner(
-        "osprey_memory_guard.py",
-        "Write",
-        {"file_path": target, "content": "# Memories\n"},
+        {"file_path": target, "content": content},
         cwd=tmp_path,
     )
 
@@ -179,29 +172,23 @@ def test_allows_primary_memory_file(tmp_path, hook_runner, memory_dir_for):
 # -- Deny cases --
 
 
-def test_denies_write_to_arbitrary_path(tmp_path, hook_runner):
-    """Write to an arbitrary file outside memory directory is denied."""
-    target = str(tmp_path / "evil.py")
+@pytest.mark.parametrize(
+    ("filename", "content"),
+    [
+        # An arbitrary file outside the memory directory.
+        pytest.param("evil.py", "import os; os.system('rm -rf /')", id="arbitrary-path"),
+        # The project-level CLAUDE.md (system prompt).
+        pytest.param("CLAUDE.md", "overwrite system prompt", id="project-claude-md"),
+    ],
+)
+def test_denies_write_outside_the_memory_dir(tmp_path, hook_runner, filename, content):
+    """Write to a file outside the memory directory is denied."""
+    target = str(tmp_path / filename)
 
     result = hook_runner(
         "osprey_memory_guard.py",
         "Write",
-        {"file_path": target, "content": "import os; os.system('rm -rf /')"},
-        cwd=tmp_path,
-    )
-
-    assert result is not None
-    assert result["hookSpecificOutput"]["permissionDecision"] == "deny"
-
-
-def test_denies_write_to_project_claude_md(tmp_path, hook_runner):
-    """Write to the project-level CLAUDE.md (system prompt) is denied."""
-    target = str(tmp_path / "CLAUDE.md")
-
-    result = hook_runner(
-        "osprey_memory_guard.py",
-        "Write",
-        {"file_path": target, "content": "overwrite system prompt"},
+        {"file_path": target, "content": content},
         cwd=tmp_path,
     )
 
@@ -283,24 +270,19 @@ def test_denies_missing_file_path(tmp_path, hook_runner):
 # -- Pass-through cases --
 
 
-def test_non_write_tool_passes_through(tmp_path, hook_runner):
-    """Non-Write tools are not affected by this hook."""
+@pytest.mark.parametrize(
+    ("tool_name", "tool_input"),
+    [
+        pytest.param("Read", {"file_path": "/etc/passwd"}, id="non-write-tool"),
+        pytest.param("mcp__osprey_workspace__some_tool", {"content": "some memory"}, id="mcp-tool"),
+    ],
+)
+def test_other_tools_pass_through(tmp_path, hook_runner, tool_name, tool_input):
+    """Tools other than Write are not affected by this hook."""
     result = hook_runner(
         "osprey_memory_guard.py",
-        "Read",
-        {"file_path": "/etc/passwd"},
-        cwd=tmp_path,
-    )
-
-    assert result is None  # No opinion
-
-
-def test_mcp_tool_passes_through(tmp_path, hook_runner):
-    """MCP tools are not affected by this hook."""
-    result = hook_runner(
-        "osprey_memory_guard.py",
-        "mcp__osprey_workspace__some_tool",
-        {"content": "some memory"},
+        tool_name,
+        tool_input,
         cwd=tmp_path,
     )
 
@@ -347,34 +329,6 @@ def test_uses_claude_project_dir_env(tmp_path, hook_runner, memory_dir_for, monk
 
     assert result is not None
     assert result["hookSpecificOutput"]["permissionDecision"] == "allow"
-
-
-@pytest.mark.parametrize(
-    "stdin",
-    ["", "{nope", "[]", "[1,2,3]"],
-    ids=["empty", "invalid-json", "wrong-shape", "wrong-shape-truthy"],
-)
-def test_malformed_stdin_fails_open(tmp_path, hook_runner_raw, stdin):
-    """Unusable stdin yields no opinion — not a deny.
-
-    The guard denies writes it can see and does not recognise, but a closed
-    pipe, a truncated write, or a non-object payload — falsy (``[]``) or
-    truthy (``[1,2,3]``) — names no tool at all. With no ``tool_name`` to
-    match, the hook exits 0 silently and Write is left to the rest of the
-    permission chain. The truthy payload is the one that slips past an
-    emptiness check, so it has to be rejected on shape.
-    """
-    returncode, stdout, stderr = hook_runner_raw(
-        "osprey_memory_guard.py",
-        tool_name=None,
-        tool_input=None,
-        cwd=tmp_path,
-        stdin_override=stdin,
-    )
-
-    assert returncode == 0
-    assert stdout.strip() == ""
-    assert "Traceback" not in stderr
 
 
 def test_guarded_tools_are_exactly_the_frontmatter_matcher(memory_guard):

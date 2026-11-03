@@ -24,7 +24,6 @@ from __future__ import annotations
 
 import asyncio
 import copy
-import socket
 from datetime import UTC, datetime
 from typing import Any
 
@@ -42,6 +41,7 @@ from osprey.mcp_server.control_system.endpoint_prober import (
     STATUS_UNREACHABLE,
     EndpointProber,
 )
+from tests._live import async_wait_until
 
 LIVE = "live"
 VA = "va"
@@ -116,16 +116,6 @@ def _both_targets_config(va_port: Any, live_port: Any) -> dict[str, Any]:
     }
 
 
-def _closed_port() -> int:
-    """A port that was bound long enough to be sure nothing else has it, then freed."""
-    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    try:
-        sock.bind(("127.0.0.1", 0))
-        return int(sock.getsockname()[1])
-    finally:
-        sock.close()
-
-
 @pytest.fixture
 async def listener():
     """A real TCP listener on an ephemeral port; yields its port."""
@@ -173,8 +163,8 @@ async def test_listening_name_server_reports_ok(listener):
     assert row["probed_at"]
 
 
-async def test_closed_port_reports_unreachable_with_detail():
-    port = _closed_port()
+async def test_closed_port_reports_unreachable_with_detail(reserve_port):
+    port = reserve_port()
     prober = _prober(_va_config(port), targets=(VA,))
 
     await prober.sweep_once()
@@ -350,11 +340,12 @@ async def test_loop_keeps_sweeping_after_the_first(listener):
         first = prober.snapshot()[VA]["read_only"]["probed_at"]
         clock.advance(1.0)
 
-        async def _refreshed() -> None:
-            while prober.snapshot()[VA]["read_only"]["probed_at"] == first:
-                await asyncio.sleep(0.01)
-
-        await asyncio.wait_for(_refreshed(), timeout=5.0)
+        await async_wait_until(
+            lambda: prober.snapshot()[VA]["read_only"]["probed_at"] != first,
+            timeout=5.0,
+            interval=0.01,
+            what="a refreshed probe",
+        )
     finally:
         await prober.stop()
 
@@ -399,8 +390,8 @@ async def test_a_target_that_becomes_derivable_fills_in_on_a_later_sweep(listene
     assert prober.snapshot()[LIVE]["read_only"]["endpoint_tcp"] == STATUS_OK
 
 
-async def test_both_targets_are_probed_in_one_sweep(listener):
-    closed = _closed_port()
+async def test_both_targets_are_probed_in_one_sweep(reserve_port, listener):
+    closed = reserve_port()
     prober = _prober(_both_targets_config(listener, closed), targets=(LIVE, VA))
 
     await prober.sweep_once()
@@ -464,12 +455,9 @@ async def test_every_sweep_of_the_loop_publishes(listener, monkeypatch):
     prober = _prober(_va_config(listener), targets=(VA,), interval_s=0.01)
     await prober.start()
     try:
-
-        async def _three() -> None:
-            while len(published) < 3:
-                await asyncio.sleep(0.01)
-
-        await asyncio.wait_for(_three(), timeout=5.0)
+        await async_wait_until(
+            lambda: len(published) >= 3, timeout=5.0, interval=0.01, what="three sweeps"
+        )
     finally:
         await prober.stop()
 
@@ -479,9 +467,9 @@ async def test_every_sweep_of_the_loop_publishes(listener, monkeypatch):
     assert stamps[0] < stamps[1] < stamps[2]
 
 
-async def test_published_rows_speak_the_readers_vocabulary(listener):
+async def test_published_rows_speak_the_readers_vocabulary(reserve_port, listener):
     """``ok``/``unreachable`` are the prober's words; the file carries FR-5's."""
-    closed = _closed_port()
+    closed = reserve_port()
     prober = _prober(_both_targets_config(listener, closed), targets=(LIVE, VA))
 
     await prober.sweep_once()
@@ -561,12 +549,9 @@ async def test_a_failed_publish_does_not_stop_the_loop(listener, monkeypatch, ca
     with caplog.at_level("WARNING", logger=ep.logger.name):
         await prober.start()
         try:
-
-            async def _twice() -> None:
-                while len(calls) < 2:
-                    await asyncio.sleep(0.01)
-
-            await asyncio.wait_for(_twice(), timeout=5.0)
+            await async_wait_until(
+                lambda: len(calls) >= 2, timeout=5.0, interval=0.01, what="two probe calls"
+            )
             assert prober.running is True
             assert prober.snapshot()[VA]["read_only"]["endpoint_tcp"] == STATUS_OK
         finally:
@@ -595,3 +580,115 @@ async def test_reachability_rows_are_isolated_from_the_cache(listener):
     rows[VA]["read_only"]["state"] = "tampered"
 
     assert prober.reachability_rows()[VA]["read_only"]["state"] == STATE_REACHED
+
+
+# ---------------------------------------------------------------------------
+# down_since: when the current run of down sweeps began
+#
+# Stamped once on the wall clock at the first down sweep, carried across every
+# later down sweep, cleared the moment the gateway answers. A reader in another
+# process turns it into "down for N s"; restamping it every sweep would make
+# that age the probe interval forever.
+
+
+class WallClock:
+    """An epoch clock a test advances by hand."""
+
+    def __init__(self, now: float = 1_760_700_000.0) -> None:
+        self.now = now
+
+    def __call__(self) -> float:
+        return self.now
+
+
+async def test_down_since_is_stamped_at_the_first_down_sweep_and_kept(reserve_port):
+    wall = WallClock()
+    prober = _prober(_va_config(reserve_port()), targets=(VA,), wall_clock=wall)
+
+    await prober.sweep_once()
+    first = prober.reachability_rows()[VA]["read_only"]
+    assert first["state"] == STATE_DOWN
+    assert first["down_since"] == wall.now
+
+    stamped = wall.now
+    wall.now += 90.0
+    await prober.sweep_once()
+    second = prober.reachability_rows()[VA]["read_only"]
+    assert second["state"] == STATE_DOWN
+    assert second["down_since"] == stamped
+
+
+async def test_down_since_is_none_while_the_gateway_answers(listener):
+    prober = _prober(_va_config(listener), targets=(VA,), wall_clock=WallClock())
+
+    await prober.sweep_once()
+    row = prober.reachability_rows()[VA]["read_only"]
+
+    assert row["state"] == STATE_REACHED
+    assert row["down_since"] is None
+
+
+async def test_not_applicable_carries_no_down_since(listener):
+    prober = _prober(
+        _va_config(listener, use_name_server=False), targets=(VA,), wall_clock=WallClock()
+    )
+
+    await prober.sweep_once()
+
+    assert prober.reachability_rows()[VA]["read_only"]["down_since"] is None
+
+
+async def test_recovery_clears_down_since_and_a_new_outage_restamps(reserve_port):
+    """down → reached → down: the second outage is dated by its own first sweep."""
+    wall = WallClock()
+    closed = reserve_port()
+    prober = _prober(_va_config(closed), targets=(VA,), wall_clock=wall)
+
+    await prober.sweep_once()
+    assert prober.reachability_rows()[VA]["read_only"]["down_since"] == wall.now
+
+    server = await asyncio.start_server(lambda _r, w: w.close(), "127.0.0.1", closed)
+    try:
+        wall.now += 30.0
+        await prober.sweep_once()
+        recovered = prober.reachability_rows()[VA]["read_only"]
+        assert recovered["state"] == STATE_REACHED
+        assert recovered["down_since"] is None
+    finally:
+        server.close()
+        await server.wait_closed()
+
+    wall.now += 30.0
+    await prober.sweep_once()
+    again = prober.reachability_rows()[VA]["read_only"]
+    assert again["state"] == STATE_DOWN
+    assert again["down_since"] == wall.now
+
+
+async def test_down_since_reaches_the_published_report(monkeypatch, reserve_port):
+    """The state file carries the key, so a reader in another process can age it."""
+    published: list[dict[str, Any]] = []
+    monkeypatch.setattr(
+        ep.target_state,
+        "publish_reachability",
+        lambda rows, **_kw: published.append(copy.deepcopy(rows)) or True,
+    )
+    wall = WallClock()
+    prober = _prober(_va_config(reserve_port()), targets=(VA,), wall_clock=wall)
+
+    await prober.sweep_once()
+    prober._publish()
+
+    assert published[-1][VA]["read_only"]["down_since"] == wall.now
+
+
+def test_the_roster_snapshot_is_unchanged_by_down_since():
+    """``down_since`` is a published field; the roster's per-role table keeps its keys."""
+    row = ep.EndpointRow(
+        endpoint_tcp=STATUS_UNREACHABLE,
+        gateway="127.0.0.1:1",
+        probed_at="2026-10-18T00:00:00+00:00",
+        probed_monotonic=0.0,
+        down_since=1.0,
+    )
+    assert set(row.as_dict()) == {"endpoint_tcp", "last_status", "gateway", "probed_at", "detail"}

@@ -1,6 +1,7 @@
 /* OSPREY Web Terminal — Hook Debug Toggle & Log Viewer */
 
 import { fetchJSON, apiRequest } from './api.js';
+import { showToast } from './toast.js';
 import {
   facilityZoneLabel,
   formatFacilityTime,
@@ -35,9 +36,7 @@ export function initHookDebug() {
   bar.className = 'hook-debug-bar';
   _buildToggleBar(bar);
 
-  const toggle = /** @type {HTMLInputElement} */ (
-    document.getElementById('hook-debug-toggle')
-  );
+  const toggle = /** @type {HTMLInputElement} */ (document.getElementById('hook-debug-toggle'));
 
   toggle.addEventListener('change', async () => {
     const enabled = toggle.checked;
@@ -46,12 +45,12 @@ export function initHookDebug() {
         method: 'PATCH',
         json: { updates: { 'hooks.debug': enabled } },
       });
-      _showToast(bar, enabled ? 'Debug logging enabled' : 'Debug logging disabled');
+      showToast(bar, enabled ? 'Debug logging enabled' : 'Debug logging disabled');
     } catch (err) {
       console.error('Failed to toggle hook debug:', err);
       // Revert toggle on failure
       toggle.checked = !enabled;
-      _showToast(bar, 'Failed to update setting', true);
+      showToast(bar, 'Failed to update setting', { error: true });
     }
   });
 
@@ -62,9 +61,7 @@ export function initHookDebug() {
   const logToggleHeader = /** @type {HTMLElement} */ (
     document.getElementById('hook-debug-log-toggle')
   );
-  const logBody = /** @type {HTMLElement} */ (
-    document.getElementById('hook-debug-log-body')
-  );
+  const logBody = /** @type {HTMLElement} */ (document.getElementById('hook-debug-log-body'));
   const refreshBtn = /** @type {HTMLButtonElement} */ (
     document.getElementById('hook-debug-refresh')
   );
@@ -164,6 +161,14 @@ async function _loadLogEntries(logBody) {
 
   try {
     const data = await fetchJSON('/api/hooks/debug-log?limit=50'); // fetchJSON prefixes this internally
+    if (data.record === 'unavailable') {
+      // The record did not answer: say so, never show an empty feed as "No entries".
+      const unavailable = document.createElement('div');
+      unavailable.className = 'hook-debug-log-empty';
+      unavailable.textContent = 'record unavailable';
+      logBody.appendChild(unavailable);
+      return;
+    }
     if (!data.entries || data.entries.length === 0) {
       const empty = document.createElement('div');
       empty.className = 'hook-debug-log-empty';
@@ -197,7 +202,8 @@ async function _loadLogEntries(logBody) {
       _appendCell(tr, entry.tool || '-');
 
       const status = entry.status || '-';
-      const statusClass = status === 'allowed' ? 'status-ok' : status === 'blocked' ? 'status-blocked' : '';
+      const statusClass =
+        status === 'allowed' ? 'status-ok' : status === 'blocked' ? 'status-blocked' : '';
       _appendCell(tr, status, statusClass);
 
       _appendCell(tr, entry.detail || entry.message || '', 'log-detail');
@@ -236,28 +242,13 @@ function _appendCell(tr, text, className) {
  */
 function _formatTimestamp(ts) {
   if (!ts) return '-';
-  return formatFacilityTime(ts, {
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-    fractionalSecondDigits: 3,
-    hourCycle: 'h23',
-  }) || ts;
-}
-
-/**
- * @param {HTMLElement} container
- * @param {string} message
- * @param {boolean} [isError]
- */
-function _showToast(container, message, isError = false) {
-  // Remove any existing toast
-  const existing = container.querySelector('.hook-debug-toast');
-  if (existing) existing.remove();
-
-  const toast = document.createElement('span');
-  toast.className = 'hook-debug-toast' + (isError ? ' error' : '');
-  toast.textContent = message;
-  container.appendChild(toast);
-  setTimeout(() => toast.remove(), 2500);
+  return (
+    formatFacilityTime(ts, {
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      fractionalSecondDigits: 3,
+      hourCycle: 'h23',
+    }) || ts
+  );
 }

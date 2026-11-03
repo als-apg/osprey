@@ -23,17 +23,18 @@ import time
 
 import pytest
 
+from tests.va._collection import assert_module_collected
 from tests.va.e2e import conftest as e2e_conftest
 
 #: A writable texture setpoint and the readback its writes echo into. Its seed
 #: is :data:`VAC_SEED_V`; the readback carries the seed's noise.
-VAC_WRITABLE_SP = "SR:VAC:ION-PUMP:02:VOLTAGE:SP"
-VAC_WRITABLE_RB = "SR:VAC:ION-PUMP:02:VOLTAGE:RB"
-VAC_SEED_V = 5000.0
+VAC_WRITABLE_SP = e2e_conftest.TEXTURE_ECHO_SETPOINT
+VAC_WRITABLE_RB = e2e_conftest.TEXTURE_ECHO_READBACK
+VAC_SEED_V = float(e2e_conftest.PRESET_VIEW.seed(VAC_WRITABLE_SP)["nominal"])
 #: The readback's seed noise, one standard deviation.
-VAC_RB_NOISE_V = 50.0
-#: Forty standard deviations of readback noise below the seed, so a readback
-#: that kept the session write cannot pass for one back at its seed.
+VAC_RB_NOISE_V = float(e2e_conftest.PRESET_VIEW.seed(VAC_WRITABLE_RB)["noise"]["absolute"])
+#: Far below the seed, outside any readback noise bound, so a readback that
+#: kept the session write cannot pass for one back at its seed.
 SESSION_WRITE_VALUE = 3000.0
 #: A readback within this many standard deviations of the seed is at its seed.
 NOISE_BOUND_SIGMA = 6.0
@@ -45,7 +46,7 @@ NOISE_BOUND_SIGMA = 6.0
 RELOAD_WAIT_BOUND_S = 10.0
 #: The burst gauge's seed and a threshold far above its seed noise and far
 #: below the burst override.
-BASELINE_PRESSURE = 5e-8
+BASELINE_PRESSURE = float(e2e_conftest.PRESET_VIEW.seed(e2e_conftest.BURST_CHANNEL)["nominal"])
 BURST_THRESHOLD = 1e-6
 
 #: Floor for this module's own test count -- a guard against a refactor that
@@ -101,10 +102,11 @@ async def _assert_session_write_dropped(connector, switch: str) -> None:
 
 class TestScenarioReload:
     @pytest.mark.asyncio
+    @pytest.mark.usefixtures("va_switch_on")
     async def test_scenario_switch_reloads_overrides_and_drops_session_writes(self, va_container):
         project = va_container
 
-        with e2e_conftest.patched_config(**{"control_system.writes_enabled": True}):
+        with e2e_conftest.patched_config(**{"control_system.writes": "allowed"}):
             connector = await e2e_conftest.connect_va()
 
             # Baseline: the session starts in nominal plus the suite scenario, and
@@ -165,10 +167,4 @@ class TestScenarioReload:
 
 def test_this_module_collects_its_whole_suite(request: pytest.FixtureRequest) -> None:
     """Vacuous-green guard: an empty or half-collected module fails here."""
-    collected = [
-        item
-        for item in request.session.items
-        if item.nodeid.split("::")[0].endswith("test_scenario_reload.py")
-    ]
-
-    assert len(collected) >= MIN_COLLECTED_TESTS
+    assert_module_collected(request, __file__, MIN_COLLECTED_TESTS)

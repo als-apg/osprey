@@ -29,9 +29,10 @@ from docs.screenshots.video_timeline import Step, Timeline
 
 
 def test_the_target_length_lies_inside_the_review_window() -> None:
-    from docs.screenshots import __main__ as cli
+    from docs.screenshots.videos import video_named
 
-    assert cli.VIDEO_MIN_S < TARGET_S < cli.VIDEO_MAX_S
+    low, high = video_named("landing").window_s
+    assert low < TARGET_S < high
 
 
 def test_speed_factor_clamps_below_one_to_one() -> None:
@@ -600,7 +601,7 @@ def test_every_output_frame_shows_the_real_time_of_that_frame(tmp_path: Path, pr
         ["ffmpeg", "-loglevel", "error", "-f", "concat", "-safe", "0", "-i", str(concat),
          "-t", f"{total:.3f}", "-vf", f"{fps_filter},format=gray",
          "-f", "rawvideo", "-pix_fmt", "gray", "-"],
-        capture_output=True, check=True,
+        capture_output=True, check=True, timeout=120,
     ).stdout  # fmt: skip
     size = 64 * 36
     speed = speed_factor(timeline.ff_total, timeline.realtime_total)

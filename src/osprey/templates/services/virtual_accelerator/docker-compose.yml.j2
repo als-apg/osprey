@@ -53,26 +53,12 @@
 # Use `osprey build --dev` to bake in your local osprey checkout (incl.
 # unreleased code) via a wheel; otherwise the image installs osprey from PyPI.
 #
-# ARCHITECTURE: linux/amd64, and on Apple Silicon that means emulation.
-#
-# The image is amd64-only by construction — Dockerfile pins
-# `FROM --platform=linux/amd64` and hard-fails any other build arch, because
-# pcaspy (the Channel Access server behind the serving stack) publishes no
-# linux/aarch64 wheel at any interpreter. An arm64 image would build cleanly
-# and then have no CA server at all, so the pin is a correctness guard, not a
-# packaging shortcut. Read that Dockerfile's header before touching it.
-#
-# `platform:` below states that out loud rather than leaving it implicit. It
-# is what the build already produces; declaring it means compose stops warning
-# "the requested image's platform (linux/amd64) does not match the detected
-# host platform (linux/arm64/v8)" on every single `osprey up` from an arm64
-# machine — a warning that read as a defect when it was in fact the design.
-# The cost it names is real and unchanged: on Apple Silicon the virtual
-# accelerator runs under QEMU emulation and is correspondingly slower.
-#
-# OSPREY_VA_PLATFORM overrides it, for the one case the pin would otherwise
-# get wrong: a published multi-arch OSPREY_VA_IMAGE that does have a native
-# arm64 variant worth resolving to (`OSPREY_VA_PLATFORM=linux/arm64`).
+# ARCHITECTURE: native. The image builds for the host's own platform,
+# linux/amd64 or linux/arm64, so no `platform:` is declared and nothing runs
+# under emulation; on arm64 the Dockerfile compiles the Channel Access server
+# its serving stack needs, since PyPI publishes no wheel for it there. Read
+# that Dockerfile's header before touching it. A published OSPREY_VA_IMAGE
+# resolves to the host's platform from its manifest like any other image.
 {%- if instance_keys | length > 1 %}
 #
 # THIS DEPLOYMENT RENDERS TWO INSTANCES. `virtual-accelerator` is the machine
@@ -138,7 +124,6 @@ services:
 {% endif %}
   {{ instance }}:
     image: ${OSPREY_VA_IMAGE:-{{ svc.image | default(osprey_images.va) }}}
-    platform: ${OSPREY_VA_PLATFORM:-linux/amd64}
 {#- ONE instance owns the build, the first whose own image is the one OSPREY
     builds: two services building one tag race each other. An instance naming
     any other image carries no build, so compose pulls and runs it as named

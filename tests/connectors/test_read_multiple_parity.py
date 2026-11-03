@@ -27,7 +27,6 @@ one channel fails and the others do not.
 """
 
 import asyncio
-import sys
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -41,6 +40,7 @@ from osprey_connectors.control_system._epics_connector import EPICSConnector
 from osprey_connectors.control_system._va_in_process_connector import VAInProcessConnector
 from osprey_connectors.errors import ChannelReadFailedError
 from osprey_connectors_tests._epics_fakes import ECA_TIMEOUT, FakeChannel, ca_connector, ca_reading
+from tests.connectors._driver_fakes import device_attribute, driven_through, eq_data
 from tests.facility.served_tree import in_process_config, served_tree
 
 # The value each of the three requested channels holds; the middle one is the
@@ -145,37 +145,14 @@ async def _read_epics(scenario: ReadScenario, _monkeypatch, _tmp_path) -> tuple[
 
 DOOCS_ADDRESSES = ["FAC/DEV/LOC/A", "FAC/DEV/LOC/B", "FAC/DEV/LOC/C"]
 
-_DOOCS_LIMITS_PATCH = (
-    "osprey_connectors.control_system._doocs_connector.LimitsValidator.from_config"
-)
-_DOOCS_TZ_PATCH = "osprey_connectors.control_system._doocs_connector.get_facility_timezone"
-
-
-def _eq_data(value):
-    """A mock EqData object as returned by ``doocs4py.get()``."""
-    ts = MagicMock()
-    ts.get_seconds_and_microseconds_since_epoch.return_value = (1_700_000_000, 500_000)
-
-    eq = MagicMock()
-    eq.get_data.return_value = value
-    eq.macropulse = 12345
-    eq.timestamp = ts
-    return eq
-
 
 async def _read_doocs(scenario: ReadScenario, _monkeypatch, _tmp_path) -> tuple[list[str], dict]:
     d = MagicMock()
     d.__version__ = "2.0.0"
     d.names.return_value = [("FACILITY", "XFEL")]
-    d.get.side_effect = lambda address: _eq_data(
-        _raise_or_value(DOOCS_ADDRESSES, scenario, address)
-    )
+    d.get.side_effect = lambda address: eq_data(_raise_or_value(DOOCS_ADDRESSES, scenario, address))
 
-    with (
-        patch.dict(sys.modules, {"doocs4py": d}),
-        patch(_DOOCS_LIMITS_PATCH, return_value=None),
-        patch(_DOOCS_TZ_PATCH, return_value=UTC),
-    ):
+    with driven_through("doocs4py", d):
         from osprey_connectors.control_system._doocs_connector import DOOCSConnector
 
         conn = DOOCSConnector()
@@ -192,30 +169,11 @@ async def _read_doocs(scenario: ReadScenario, _monkeypatch, _tmp_path) -> tuple[
 
 TANGO_ADDRESSES = ["sr/ps/01/Current", "sr/ps/02/Current", "sr/ps/03/Current"]
 
-_TANGO_LIMITS_PATCH = (
-    "osprey_connectors.control_system._tango_connector.LimitsValidator.from_config"
-)
-_TANGO_TZ_PATCH = "osprey_connectors.control_system._tango_connector.get_facility_timezone"
-
-
-def _device_attribute(value):
-    """A mock DeviceAttribute as returned by ``DeviceProxy.read_attribute()``."""
-    time_val = MagicMock()
-    time_val.tv_sec = 1_700_000_000
-    time_val.tv_usec = 500_000
-
-    attr = MagicMock()
-    attr.value = value
-    attr.quality = None
-    attr.time = time_val
-    attr.type = "DevDouble"
-    return attr
-
 
 async def _read_tango(scenario: ReadScenario, _monkeypatch, _tmp_path) -> tuple[list[str], dict]:
     def proxy_for(device_name, *_args, **_kwargs):
         proxy = MagicMock()
-        proxy.read_attribute.side_effect = lambda attribute: _device_attribute(
+        proxy.read_attribute.side_effect = lambda attribute: device_attribute(
             _raise_or_value(TANGO_ADDRESSES, scenario, f"{device_name}/{attribute}")
         )
         return proxy
@@ -227,11 +185,7 @@ async def _read_tango(scenario: ReadScenario, _monkeypatch, _tmp_path) -> tuple[
     database.get_info.return_value = "TANGO Database sys/database/2"
     t.Database.return_value = database
 
-    with (
-        patch.dict(sys.modules, {"tango": t}),
-        patch(_TANGO_LIMITS_PATCH, return_value=None),
-        patch(_TANGO_TZ_PATCH, return_value=UTC),
-    ):
+    with driven_through("tango", t):
         from osprey_connectors.control_system._tango_connector import TangoConnector
 
         conn = TangoConnector()

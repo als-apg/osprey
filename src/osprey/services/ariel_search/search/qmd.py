@@ -69,7 +69,10 @@ from pydantic import BaseModel, Field
 
 from osprey.services.ariel_search.database.search_fts import MIN_TERM_COVERAGE, coverage_terms
 from osprey.services.ariel_search.enhancement.qmd_export.writer import entry_id_from_path
-from osprey.services.ariel_search.exceptions import SearchConfigurationError
+from osprey.services.ariel_search.exceptions import (
+    SearchConfigurationError,
+    SearchTimeoutError,
+)
 from osprey.services.ariel_search.models import (
     END_BOUND_DESCRIPTION,
     START_BOUND_DESCRIPTION,
@@ -92,6 +95,7 @@ if TYPE_CHECKING:
     from osprey.services.ariel_search.config import ARIELConfig
     from osprey.services.ariel_search.database.repository import ARIELRepository
     from osprey.services.ariel_search.models import EnhancedLogbookEntry
+    from osprey.services.ariel_search.search._offload import SearchCallPool
     from osprey.services.ariel_search.search.base import QueryExpansion
     from osprey.services.qmd import QMDSearchResult
 
@@ -304,6 +308,7 @@ async def hybrid_search(
     client: QMDClient | None = None,
     query_expansion: QueryExpansion | None = None,
     include_images: bool | None = None,
+    search_calls: SearchCallPool,
     **kwargs: Any,
 ) -> list[tuple[EnhancedLogbookEntry, float, list[str]]] | ModuleOutput:
     """Execute the configured qmd or RRF hybrid strategy.
@@ -354,6 +359,9 @@ async def hybrid_search(
             original `query`.
         include_images: Whether the picture lane runs. ``None`` means on
             exactly when ``image_embedding`` is enabled.
+        search_calls: The search service's search-call pool. Every provider
+            call of every lane runs on it: the picture lane embeds the query
+            there, and so does the ``rrf`` strategy's semantic lane.
 
     Returns:
         Without `query_expansion`: a list of ``(entry, score, snippets)`` tuples
@@ -421,7 +429,9 @@ async def hybrid_search(
         from osprey.services.ariel_search.search import image_lane
 
         img_task = asyncio.create_task(
-            image_lane.search_images(query, repository, config, fetch_limit=fetch_limit)
+            image_lane.search_images(
+                query, repository, config, fetch_limit=fetch_limit, search_calls=search_calls
+            )
         )
     try:
         return await _ranked_search(
@@ -439,6 +449,7 @@ async def hybrid_search(
             embedder=embedder,
             query_expansion=query_expansion,
             img_task=img_task,
+            search_calls=search_calls,
         )
     finally:
         if img_task is not None:
@@ -451,6 +462,12 @@ async def hybrid_search(
 PICTURE_UNAVAILABLE_MESSAGE = (
     "Picture search unavailable — results are matched on text only, so entries "
     "known only by their pictures are missing."
+)
+
+#: Message of the diagnostic a timed-out semantic lane adds to a hybrid answer.
+SEMANTIC_UNAVAILABLE_MESSAGE = (
+    "Semantic ranking unavailable — the query embedding timed out, so results "
+    "are ranked on keywords only."
 )
 
 #: Opening of the diagnostic an image-only answer to a sidecar outage carries;
@@ -493,6 +510,7 @@ async def _ranked_search(
     embedder: BaseProvider | None,
     query_expansion: QueryExpansion | None,
     img_task: asyncio.Task[dict[str, fusion.ImageHit] | None] | None,
+    search_calls: SearchCallPool,
 ) -> list[tuple[EnhancedLogbookEntry, float, list[str]]] | ModuleOutput:
     """Run the text lane, join the picture lane when it ran, and shape the result.
 
@@ -546,6 +564,7 @@ async def _ranked_search(
                 limit=lane_limit,
                 filters=filters,
                 query_expansion=query_expansion,
+                search_calls=search_calls,
             )
         )
     try:
@@ -594,7 +613,23 @@ async def _ranked_search(
 
     ranked = _decode_hits(hits)
     if semantic_task is not None:
-        ranked = _rrf_hits(ranked, await semantic_task)
+        try:
+            semantic = await semantic_task
+        except SearchTimeoutError as e:
+            # A hung or saturated embedding provider costs hybrid its semantic
+            # lane, never the keyword answer the sidecar already gave.
+            logger.warning(f"hybrid_search: semantic lane skipped: {e}")
+            semantic = []
+            diagnostics = (
+                *diagnostics,
+                SearchDiagnostic(
+                    level=DiagnosticLevel.WARNING,
+                    source="hybrid",
+                    message=SEMANTIC_UNAVAILABLE_MESSAGE,
+                    category="semantic_search",
+                ),
+            )
+        ranked = _rrf_hits(ranked, semantic)
 
     if image_hits is not None:
         results = await _fused_results(
@@ -863,6 +898,7 @@ async def _semantic_hits(
     limit: int,
     filters: _Filters,
     query_expansion: QueryExpansion | None,
+    search_calls: SearchCallPool,
 ) -> list[_RankedTextHit]:
     """Run the existing Nomic/pgvector search and reduce it to an RRF lane."""
     if not config.get_search_model():
@@ -888,6 +924,7 @@ async def _semantic_hits(
         author=filters.author,
         source_system=filters.source_system,
         query_expansion=query_expansion,
+        search_calls=search_calls,
     )
     rows = output.entries if isinstance(output, ModuleOutput) else output
     return [_RankedTextHit(entry_id=entry["entry_id"], score=float(score)) for entry, score in rows]
@@ -1279,8 +1316,10 @@ def get_tool_descriptor() -> SearchToolDescriptor:
         execute=hybrid_search,
         format_result=format_qmd_result,
         # Only the rrf strategy embeds, and it resolves its own provider, so the
-        # default qmd strategy depends on the sidecar alone.
+        # default qmd strategy depends on the sidecar alone; every lane's provider
+        # call runs on the pool the service hands over.
         needs_embedder=False,
+        needs_search_calls=True,
         accepts_expansion=True,
         accepts_include_images=True,
     )

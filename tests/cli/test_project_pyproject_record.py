@@ -22,7 +22,7 @@ from pathlib import Path
 import pytest
 
 from osprey.cli import build_environment
-from osprey.cli.build_environment import _create_project_venv
+from osprey.cli.build_environment import _create_project_venv, _plan_project_venv
 from osprey.cli.build_profile import BuildProfile, EnvironmentConfig
 from osprey_connectors.errors import BuildProfileError
 
@@ -98,7 +98,7 @@ def base_venv(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
 def build(project_path: Path, profile: BuildProfile) -> dict:
     """Build into *project_path* and return the emitted record, parsed."""
     project_path.mkdir(parents=True, exist_ok=True)
-    _create_project_venv(project_path, profile)
+    _create_project_venv(project_path, _plan_project_venv(profile))
     return tomllib.loads((project_path / "pyproject.toml").read_text(encoding="utf-8"))
 
 
@@ -254,19 +254,17 @@ class TestDeduplication:
         assert recorded_deps(data) == [OSPREY_SPEC, "numpy==2.2.6"]
 
     @pytest.mark.usefixtures("calls")
-    def test_pin_beats_a_bare_name_declared_earlier(self, tmp_path):
+    @pytest.mark.parametrize(
+        ("dependencies", "packages"),
+        [(["numpy"], ["numpy==2.1.0"]), (["numpy==2.1.0"], ["numpy"])],
+        ids=["bare-name-declared-earlier", "pin-declared-earlier"],
+    )
+    def test_a_pin_beats_a_bare_name_whichever_is_declared_first(
+        self, tmp_path, dependencies, packages
+    ):
         data = build(
             tmp_path / "project",
-            _profile(dependencies=["numpy"], packages=["numpy==2.1.0"]),
-        )
-
-        assert recorded_deps(data) == [OSPREY_SPEC, "numpy==2.1.0"]
-
-    @pytest.mark.usefixtures("calls")
-    def test_bare_name_never_displaces_a_pin_declared_earlier(self, tmp_path):
-        data = build(
-            tmp_path / "project",
-            _profile(dependencies=["numpy==2.1.0"], packages=["numpy"]),
+            _profile(dependencies=dependencies, packages=packages),
         )
 
         assert recorded_deps(data) == [OSPREY_SPEC, "numpy==2.1.0"]

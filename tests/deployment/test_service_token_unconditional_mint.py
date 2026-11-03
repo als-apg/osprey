@@ -29,42 +29,23 @@ from __future__ import annotations
 
 import logging
 import os
-import subprocess
 
 import pytest
 
 from osprey.deployment import container_lifecycle
+from tests.deployment._dotenv import project_env, read_dotenv
 
 # The legacy spelling ("local") and the honest one ("subprocess") name the same
-# backend (see ``osprey_connectors.config.resolve_execution_method``). "local" is the
+# backend (see ``osprey.utils.execution_method.resolve_execution_method``). "local" is the
 # value the deleted guard keyed on, so it is the one a regression would most
 # plausibly reintroduce — cover both wherever the posture is varied.
 _SUBPROCESS_METHODS = ("local", "subprocess")
 
 
 @pytest.fixture
-def captured_argv(monkeypatch, tmp_path):
-    """Patch deploy_up's collaborators for a project with only 'bluesky' deployed."""
-    captured: dict = {}
-
-    monkeypatch.chdir(tmp_path)
-    monkeypatch.setattr(container_lifecycle, "verify_runtime_is_running", lambda config: (True, ""))
-    monkeypatch.setattr(
-        container_lifecycle, "get_runtime_command", lambda config: ["docker", "compose"]
-    )
-
-    def _fake_run(cmd, **kwargs):
-        captured["cmd"] = cmd
-        # run_captured hangs its spool path off the result, so the stand-in has
-        # to be an object, and it passes redirection kwargs this ignores.
-        return subprocess.CompletedProcess(list(cmd), 0)
-
-    # Stubbed at `run_captured`, the one seam every deploy child goes through:
-    # a watched capture (the image builds pass `on_line=`) reads its child
-    # through a pipe instead of `subprocess.run`, so a `subprocess.run` stub
-    # would be walked straight past and this test would run a real build.
-    monkeypatch.setattr(container_lifecycle, "run_captured", _fake_run)
-    return captured
+def captured_argv(stub_deploy_up):
+    """Patch deploy_up's collaborators; each test answers prepare_compose_files itself."""
+    return stub_deploy_up()
 
 
 def _patch_prepare_compose_files(monkeypatch, config: dict) -> None:
@@ -84,16 +65,6 @@ def _clean_token_env(monkeypatch):
     # ARIEL_DSN is validate-only, but the process env still wins over .env in
     # that check — a stray exported value would fail these deploys.
     monkeypatch.delenv("ARIEL_DSN", raising=False)
-
-
-def _parse_dotenv(path):
-    from osprey_connectors.dotenv import parse_dotenv_file
-
-    return parse_dotenv_file(path) if path.is_file() else {}
-
-
-def _parse_env(tmp_path):
-    return _parse_dotenv(tmp_path / ".env")
 
 
 def _config(**overrides) -> dict:
@@ -129,7 +100,7 @@ def test_both_bluesky_tokens_mint_when_writes_enabled_and_subprocess_execution(
 
     container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
 
-    env = _parse_env(tmp_path)
+    env = project_env(tmp_path)
     assert env.get("BLUESKY_LAUNCH_TOKEN")
     assert len(env["BLUESKY_LAUNCH_TOKEN"]) >= 40
     assert env.get("BLUESKY_TILED_API_KEY")
@@ -152,7 +123,7 @@ def test_both_bluesky_tokens_mint_under_read_only_posture(_clean_token_env, monk
 
     container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
 
-    env = _parse_env(tmp_path)
+    env = project_env(tmp_path)
     assert env.get("BLUESKY_LAUNCH_TOKEN")
     assert env.get("BLUESKY_TILED_API_KEY")
 
@@ -174,7 +145,7 @@ def test_both_bluesky_tokens_mint_with_no_execution_or_control_system_block(
 
     container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
 
-    env = _parse_env(tmp_path)
+    env = project_env(tmp_path)
     assert env.get("BLUESKY_LAUNCH_TOKEN")
     assert env.get("BLUESKY_TILED_API_KEY")
 
@@ -205,7 +176,7 @@ def test_minted_key_set_is_identical_across_every_posture(_clean_token_env, tmp_
         container_lifecycle._ensure_service_tokens(
             _config(**posture), expose_network=False, env_path=env_path
         )
-        minted.append(tuple(sorted(_parse_dotenv(env_path))))
+        minted.append(tuple(sorted(read_dotenv(env_path))))
 
     assert set(minted) == {("BLUESKY_LAUNCH_TOKEN", "BLUESKY_TILED_API_KEY")}, (
         f"minting varies with posture: {list(zip(postures, minted, strict=True))}"
@@ -270,7 +241,7 @@ def test_dispatch_tokens_mint_alongside_bluesky_under_writes_enabled_local(
 
     container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
 
-    env = _parse_env(tmp_path)
+    env = project_env(tmp_path)
     assert env.get("BLUESKY_LAUNCH_TOKEN")
     assert env.get("BLUESKY_TILED_API_KEY")
     assert env.get("EVENT_DISPATCHER_TOKEN")
@@ -305,7 +276,7 @@ def test_a_new_services_token_mints_without_being_triaged_first(
 
     container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
 
-    env = _parse_env(tmp_path)
+    env = project_env(tmp_path)
     assert env.get("SCAN_ENGINE_ARM_TOKEN")
     assert env.get("BLUESKY_LAUNCH_TOKEN")
     assert env.get("BLUESKY_TILED_API_KEY")
@@ -326,7 +297,7 @@ def test_undeployed_service_vars_are_still_not_minted(_clean_token_env, monkeypa
 
     container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
 
-    env = _parse_env(tmp_path)
+    env = project_env(tmp_path)
     assert "EVENT_DISPATCHER_TOKEN" not in env
     assert "DISPATCH_WORKER_TOKEN" not in env
     assert "ARIEL_DB_PASSWORD" not in env
@@ -364,7 +335,7 @@ def test_existing_env_value_is_never_overwritten(_clean_token_env, monkeypatch, 
 
     container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
 
-    env = _parse_env(tmp_path)
+    env = project_env(tmp_path)
     assert env["BLUESKY_LAUNCH_TOKEN"] == "manually-set"
     # The missing var alongside it still mints — unconditional means per var.
     assert env.get("BLUESKY_TILED_API_KEY")
@@ -394,7 +365,7 @@ def test_an_explicitly_empty_dotenv_value_is_minted_over(_clean_token_env, monke
 
     container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
 
-    env = _parse_env(tmp_path)
+    env = project_env(tmp_path)
     minted = env["BLUESKY_LAUNCH_TOKEN"]
     assert minted, "an empty launch token was left empty on a loopback deploy"
     assert env.get("BLUESKY_TILED_API_KEY")
@@ -431,7 +402,7 @@ def test_an_exported_empty_value_is_left_alone_because_a_mint_cannot_reach_it(
 
     container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
 
-    env = _parse_env(tmp_path)
+    env = project_env(tmp_path)
     assert "BLUESKY_LAUNCH_TOKEN" not in env
     # The var beside it still mints — the carve-out is per var, not per deploy.
     assert env.get("BLUESKY_TILED_API_KEY")
@@ -502,12 +473,12 @@ def test_a_token_only_the_shared_half_carries_is_minted_over(_clean_token_env, t
 
     container_lifecycle._ensure_service_tokens(_config(), expose_network=False, env_path=env_path)
 
-    local = _parse_dotenv(env_path)
+    local = read_dotenv(env_path)
     assert local["BLUESKY_LAUNCH_TOKEN"], "the shared-only value did not even reach the predicate"
     assert local["BLUESKY_LAUNCH_TOKEN"] != SHARED_HALF_TOKEN
     from osprey_connectors.dotenv import ENV_SHARED_FILENAME
 
-    assert _parse_dotenv(tmp_path / ENV_SHARED_FILENAME)["BLUESKY_LAUNCH_TOKEN"] == (
+    assert read_dotenv(tmp_path / ENV_SHARED_FILENAME)["BLUESKY_LAUNCH_TOKEN"] == (
         SHARED_HALF_TOKEN
     )
 
@@ -529,7 +500,7 @@ def test_the_shared_half_is_honoured_once_the_entry_point_chain_load_has_run(
     _load_the_entry_point_chain(monkeypatch, tmp_path)
     container_lifecycle._ensure_service_tokens(_config(), expose_network=False, env_path=env_path)
 
-    local = _parse_dotenv(env_path)
+    local = read_dotenv(env_path)
     assert "BLUESKY_LAUNCH_TOKEN" not in local
     assert os.environ["BLUESKY_LAUNCH_TOKEN"] == SHARED_HALF_TOKEN
     # Per var, as everywhere else here: the one the shared half does not carry
@@ -593,7 +564,7 @@ class TestEffectiveValueWithAllThreeSourcesDisagreeing:
         monkeypatch.setenv(self.VAR, "value-from-the-shell")
 
         _load_the_entry_point_chain(monkeypatch, tmp_path)
-        on_disk = _parse_dotenv(tmp_path / ".env")
+        on_disk = read_dotenv(tmp_path / ".env")
 
         assert effective_value(self.VAR, on_disk) == "value-from-the-local-file"
 

@@ -13,10 +13,20 @@ import contextlib
 
 import pytest
 from fastapi.testclient import TestClient
-from tests.interfaces.lattice_dashboard.test_app import _write_render, settle
+from pydantic import TypeAdapter
+from tests.interfaces.lattice_dashboard._render import settle, write_render
 
+from osprey.interfaces.common_middleware import OPERATOR_SECRET_HEADER
+from osprey.interfaces.lattice_dashboard import app as app_mod
 from osprey.interfaces.lattice_dashboard.app import _SSEBroadcaster, create_app
 from osprey.interfaces.lattice_dashboard.compute import ComputeManager
+from osprey.interfaces.lattice_dashboard.schema import (
+    BaselineClearedEvent,
+    DashboardEvent,
+    FigureErrorEvent,
+    FigureReadyEvent,
+    StateUpdatedEvent,
+)
 from osprey.interfaces.lattice_dashboard.workers._base import save_data
 from osprey_connectors.process import ExitCause
 
@@ -27,7 +37,7 @@ def ws(tmp_path, monkeypatch):
     monkeypatch.setattr(ComputeManager, "refresh_fast", lambda self: ["optics"])
     monkeypatch.setattr(ComputeManager, "refresh_verification", lambda self: ["da", "lma"])
     monkeypatch.setattr(ComputeManager, "refresh_one", lambda self, name: True)
-    render = _write_render(tmp_path / "render", served=["SR"], models={"SR": {"solve": "periodic"}})
+    render = write_render(tmp_path / "render", served=["SR"], models={"SR": {"solve": "periodic"}})
     with TestClient(create_app(workspace_root=tmp_path, render_root=render)) as client:
         settle(client)
         yield tmp_path, client
@@ -70,15 +80,14 @@ class TestParam:
 
 
 class TestRefresh:
-    def test_refresh_fast(self, ws):
+    @pytest.mark.parametrize(
+        "path",
+        ["/api/refresh", "/api/refresh/optics"],
+        ids=["fast", "figure-valid"],
+    )
+    def test_refresh_launches_optics(self, ws, path):
         _, client = ws
-        r = client.post("/api/refresh")
-        assert r.status_code == 200
-        assert r.json()["launched"] == ["optics"]
-
-    def test_refresh_figure_valid(self, ws):
-        _, client = ws
-        r = client.post("/api/refresh/optics")
+        r = client.post(path)
         assert r.status_code == 200
         assert r.json()["launched"] == ["optics"]
 
@@ -253,18 +262,19 @@ class TestBaselineAndSettings:
         assert r.status_code == 200
         assert "da" in r.json()
 
-    def test_update_settings(self, ws):
+    @pytest.mark.parametrize(
+        ("requested", "stored"),
+        [
+            pytest.param(1024, 1024, id="in-range"),
+            # Clamped to the validation ceiling (8192)
+            pytest.param(999999, 8192, id="clamps-out-of-range"),
+        ],
+    )
+    def test_update_settings_stores_nturns(self, ws, requested, stored):
         _, client = ws
-        r = client.put("/api/settings", json={"settings": {"da": {"nturns": 1024}}})
+        r = client.put("/api/settings", json={"settings": {"da": {"nturns": requested}}})
         assert r.status_code == 200
-        assert r.json()["da"]["nturns"] == 1024
-
-    def test_update_settings_clamps_out_of_range(self, ws):
-        _, client = ws
-        r = client.put("/api/settings", json={"settings": {"da": {"nturns": 999999}}})
-        assert r.status_code == 200
-        # Clamped to the validation ceiling (8192)
-        assert r.json()["da"]["nturns"] == 8192
+        assert r.json()["da"]["nturns"] == stored
 
     def test_reset_settings(self, ws):
         _, client = ws
@@ -280,10 +290,11 @@ class TestSSEBroadcaster:
     def test_subscribe_broadcast_unsubscribe(self):
         b = _SSEBroadcaster()
         q = b.subscribe()
-        b.broadcast({"type": "ping"})
-        assert q.get_nowait() == {"type": "ping"}
+        event = FigureReadyEvent(type="figure_ready", name="optics")
+        b.broadcast(event)
+        assert q.get_nowait() == event
         b.unsubscribe(q)
-        b.broadcast({"type": "after"})
+        b.broadcast(StateUpdatedEvent(type="state_updated"))
         assert q.empty()
 
     def test_double_unsubscribe_is_safe(self):
@@ -298,6 +309,82 @@ class TestSSEBroadcaster:
         # Fill the queue to capacity; the extra broadcast must be dropped, not raise
         with contextlib.suppress(asyncio.QueueFull):
             while True:
-                q.put_nowait({"x": 1})
-        b.broadcast({"type": "overflow"})
+                q.put_nowait(StateUpdatedEvent(type="state_updated"))
+        b.broadcast(BaselineClearedEvent(type="baseline_cleared"))
         assert q.full()
+
+
+class TestEventStream:
+    """``/api/events`` serves each broadcast event as one ``data:`` frame."""
+
+    async def test_a_broadcast_event_arrives_as_one_frame(self, tmp_path, monkeypatch):
+        brokers: list[_SSEBroadcaster] = []
+        subscribed = asyncio.Event()
+        unsubscribed = asyncio.Event()
+
+        class Recording(_SSEBroadcaster):
+            def __init__(self) -> None:
+                super().__init__()
+                brokers.append(self)
+
+            def subscribe(self):
+                q = super().subscribe()
+                subscribed.set()
+                return q
+
+            def unsubscribe(self, q) -> None:
+                super().unsubscribe(q)
+                unsubscribed.set()
+
+        monkeypatch.setattr(app_mod, "_SSEBroadcaster", Recording)
+        app = create_app(workspace_root=tmp_path, render_root=tmp_path / "render")
+        secret = app.state.web_credentials.operator_secret
+
+        sent: list[dict] = []
+        framed = asyncio.Event()
+        gone = asyncio.Event()
+
+        async def receive() -> dict:
+            await gone.wait()
+            return {"type": "http.disconnect"}
+
+        async def send(message: dict) -> None:
+            sent.append(message)
+            if message["type"] == "http.response.body" and message.get("body"):
+                framed.set()
+
+        scope = {
+            "type": "http",
+            "asgi": {"version": "3.0", "spec_version": "2.3"},
+            "http_version": "1.1",
+            "method": "GET",
+            "scheme": "http",
+            "path": "/api/events",
+            "raw_path": b"/api/events",
+            "root_path": "",
+            "query_string": b"",
+            "headers": [
+                (b"host", b"testserver"),
+                (b"accept", b"text/event-stream"),
+                (OPERATOR_SECRET_HEADER.lower().encode(), secret.encode()),
+            ],
+            "client": ("testclient", 50000),
+            "server": ("testserver", 80),
+        }
+        served = asyncio.create_task(app(scope, receive, send))
+        await asyncio.wait_for(subscribed.wait(), 10)
+
+        event = FigureErrorEvent(type="figure_error", name="lma", error="solver diverged")
+        brokers[0].broadcast(event)
+        await asyncio.wait_for(framed.wait(), 10)
+        gone.set()
+        await asyncio.wait_for(served, 10)
+
+        headers = dict(sent[0]["headers"])
+        assert headers[b"content-type"].startswith(b"text/event-stream")
+        assert headers[b"connection"] == b"keep-alive"
+        body = b"".join(m.get("body", b"") for m in sent if m["type"] == "http.response.body")
+        assert body.startswith(b"data: ")
+        assert body.endswith(b"\n\n")
+        assert TypeAdapter(DashboardEvent).validate_json(body[len(b"data: ") : -2]) == event
+        assert unsubscribed.is_set()

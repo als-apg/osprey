@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import socket
 import threading
 from collections.abc import Iterator
 from unittest.mock import AsyncMock
@@ -20,10 +21,11 @@ from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 
 from osprey.dispatch import DISPATCHER_MCP_PATH
-from osprey.interfaces.common_middleware import WebAuthMiddleware
+from osprey.interfaces.common_middleware import OPERATOR_SECRET_HEADER, WebAuthMiddleware
 from osprey.interfaces.web_auth import (
     PANEL_TIER_ROUTES,
     WebCredentials,
+    get_web_credentials,
     reset_web_credentials,
 )
 from osprey.interfaces.web_terminal.routes import proxy
@@ -33,13 +35,6 @@ from osprey_connectors.identity import TERMINAL_USER_ENV
 from tests.conftest import dispatcher_route_registry
 
 from ._proxy_fakes import _FakeConnect, _FakeStreamResponse, _lower, _patch_connect, panel_app
-
-
-@pytest.fixture
-def workspace_dir(tmp_path):
-    ws = tmp_path / "_agent_data"
-    ws.mkdir()
-    return ws
 
 
 @pytest.fixture
@@ -363,6 +358,141 @@ class TestPanelSubprotocolNegotiation:
                         session.receive_text()
 
                 assert closed.value.code == 1000
+
+
+@contextlib.contextmanager
+def _sized_upstream() -> Iterator[int]:
+    """A real websocket upstream that answers ``"<n>"`` with one *n*-byte frame.
+
+    It accepts and sends frames of any size (``max_size=None``), so the only
+    bound a test can hit is the proxy's own.
+    """
+    ready = threading.Event()
+    state: dict[str, object] = {}
+
+    async def _serve() -> None:
+        stop = asyncio.Event()
+        state["loop"] = asyncio.get_running_loop()
+        state["stop"] = stop
+
+        async def handler(connection):
+            async for frame in connection:
+                await connection.send(b"x" * int(frame))
+
+        async with websockets.serve(handler, "127.0.0.1", 0, max_size=None) as server:
+            state["port"] = server.sockets[0].getsockname()[1]
+            ready.set()
+            await stop.wait()
+
+    thread = threading.Thread(target=lambda: asyncio.run(_serve()), daemon=True)
+    thread.start()
+    assert ready.wait(10), "the sized upstream did not start"
+    try:
+        yield int(state["port"])  # type: ignore[call-overload]
+    finally:
+        loop = state["loop"]
+        stop = state["stop"]
+        loop.call_soon_threadsafe(stop.set)  # type: ignore[attr-defined]
+        thread.join(10)
+
+
+@contextlib.contextmanager
+def _served_app(workspace_dir, custom_panels: list[dict]) -> Iterator[tuple[int, str]]:
+    """The whole web-terminal app under a real uvicorn; yields its port and operator secret.
+
+    Served the way ``run_web`` serves it (deflate off, uvicorn's default 16 MiB
+    ``ws_max_size``), so a real ``websockets`` client meets the same two legs a
+    browser does.
+    """
+    import uvicorn
+
+    for app, _client in panel_app(workspace_dir, custom_panels):
+        # The listening socket is bound here and handed to uvicorn live, so no
+        # window opens between choosing the port and serving it.
+        sock = socket.socket()
+        sock.bind(("127.0.0.1", 0))
+        sock.listen(128)
+        port = sock.getsockname()[1]
+        config = uvicorn.Config(
+            app,
+            host="127.0.0.1",
+            port=port,
+            log_level="warning",
+            lifespan="off",
+            ws_per_message_deflate=False,
+        )
+        server = uvicorn.Server(config)
+        thread = threading.Thread(target=server.run, kwargs={"sockets": [sock]}, daemon=True)
+        thread.start()
+        try:
+            for _ in range(200):
+                if server.started:
+                    break
+                threading.Event().wait(0.05)
+            assert server.started, "uvicorn did not start"
+            yield port, get_web_credentials(app).operator_secret
+        finally:
+            server.should_exit = True
+            thread.join(10)
+            sock.close()
+
+
+class TestPanelFrameSize:
+    """One panel frame may carry up to 16 MiB through the relay, and no more.
+
+    ``websockets`` caps an incoming message at 1 MiB by default, so a panel
+    whose single frame carried a plot's history or a screen document was cut
+    off with 1009 on the proxy's upstream leg. The relay now takes what the
+    browser leg takes — ``PANEL_WS_MAX_SIZE``, uvicorn's own 16 MiB — and still
+    closes past it, since the route serves every panel.
+    """
+
+    PANEL = "sized"
+
+    def _run(self, workspace_dir, size: int):
+        async def _exchange(port: int, secret: str):
+            url = f"ws://127.0.0.1:{port}/panel/{self.PANEL}/ws"
+            async with websockets.connect(
+                url,
+                additional_headers={OPERATOR_SECRET_HEADER: secret},
+                max_size=None,
+                compression=None,
+            ) as ws:
+                await ws.send(str(size))
+                return await asyncio.wait_for(ws.recv(), 30)
+
+        with _sized_upstream() as upstream_port:
+            custom = [
+                {"id": self.PANEL, "label": "SIZED", "url": f"http://127.0.0.1:{upstream_port}"}
+            ]
+            with _served_app(workspace_dir, custom) as (port, secret):
+                return asyncio.run(_exchange(port, secret))
+
+    def test_the_bound_is_sixteen_mebibytes(self):
+        assert proxy.PANEL_WS_MAX_SIZE == 16 * 1024 * 1024
+
+    def test_a_frame_over_one_mebibyte_passes(self, workspace_dir):
+        size = 2 * 1024 * 1024
+        frame = self._run(workspace_dir, size)
+        assert isinstance(frame, bytes)
+        assert len(frame) == size
+
+    def test_a_frame_over_sixteen_mebibytes_closes_the_relay(self, workspace_dir):
+        with pytest.raises(websockets.ConnectionClosed):
+            self._run(workspace_dir, proxy.PANEL_WS_MAX_SIZE + 1024)
+
+    def test_the_upstream_connect_is_bounded_and_uncompressed(self, app_and_client):
+        """The relay hands its bound to the upstream handshake, with deflate off."""
+        _app, client = app_and_client
+        fake = _FakeConnect()
+
+        with _patch_connect(fake):
+            with client.websocket_connect("/panel/my-dash/ws"):
+                pass
+
+        assert fake.kwargs["max_size"] == proxy.PANEL_WS_MAX_SIZE
+        assert "compression" in fake.kwargs
+        assert fake.kwargs["compression"] is None
 
 
 # ---------------------------------------------------------------------------

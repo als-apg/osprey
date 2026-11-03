@@ -5,7 +5,8 @@ that behaves well will not make one. Here the model is replaced by a script
 (:mod:`tests.e2e.scripted_model`): the real Claude Code, on a real render,
 receives exactly the forbidden tool call and has to refuse it. Everything a
 refusal passes through is real — ``settings.json``, the PreToolUse hook chain,
-the MCP servers, the mock connector.
+the MCP servers, the in-process simulator the render's ``live`` block
+resolves to.
 
 Each test asserts the call was delivered, that the refusal is the gate's own
 and no other's, that no approval prompt was surfaced for it, and that a read
@@ -17,11 +18,36 @@ from __future__ import annotations
 import json
 
 import pytest
+import yaml
 
 from osprey.agent_runner.primitives import ToolTrace
-from osprey_connectors.control_context import record_path_under
+from osprey_connectors.control_context import _record_path_under
+from osprey_connectors.control_system._va_in_process_connector import simulator_view_dir
+from osprey_connectors.refusals import refusal_phrase
+from osprey_connectors.simulation.view import SimulatorView
+from osprey_connectors.workspace import rendered_config_path
+from tests.e2e.claude_code.conftest import (
+    AGENT_UNLISTED_SETPOINT,
+    BOUNDED_SETPOINT,
+    READ_ONLY_READBACK,
+    SAFETY_LIMITS_DB,
+    SCRIPTED_UNLISTED_SETPOINT,
+    UNLISTED_READING,
+)
 from tests.e2e.scripted_model import ScriptedCall
-from tests.e2e.sdk_helpers import HookObservedResult, agent_data_dir, run_sdk_query_with_hooks
+from tests.e2e.sdk_helpers import (
+    HookObservedResult,
+    agent_data_dir,
+    run_sdk_query_with_hooks,
+)
+from tests.facility.served_tree import (
+    SIMULATOR_VIEW,
+    assert_unmoved,
+    assert_write_visible,
+    served_active,
+    served_tree,
+    unmoved_band,
+)
 
 pytestmark = [pytest.mark.model_free, pytest.mark.harness_benchmark]
 
@@ -30,15 +56,32 @@ READ = "mcp__controls__channel_read"
 EXECUTE = "mcp__python__execute"
 
 #: Bounded writable setpoint in the safety limits fixture: [0, 100].
-SETPOINT = "SR:DIAG:TEMP:01:TEMPERATURE:SP"
+SETPOINT = BOUNDED_SETPOINT
 #: Read-only readback in the safety limits fixture.
-READBACK = "SR:MAG:QF:01:CURRENT:RB"
+READBACK = READ_ONLY_READBACK
 #: A channel the safety limits fixture does not list.
-CORRECTOR = "MAG:HCM01:CURRENT:SP"
+UNLISTED_SETPOINT = SCRIPTED_UNLISTED_SETPOINT
 
 LIMITS_REASON = "CHANNEL LIMITS VIOLATION"
-WRITES_REASON = "WRITES DISABLED"
+#: What every writes-check refusal opens with; the reason's trailer closes it.
+WRITES_REASON = "WRITES OFF"
 NO_SUCH_TOOL = "No such tool available"
+
+
+def test_the_world_names_agree_with_the_safety_limits_fixture() -> None:
+    """The limits fixture lists the bounded setpoint and the read-only readback, nothing else."""
+    limits = {
+        address: entry
+        for address, entry in json.loads(SAFETY_LIMITS_DB.read_text(encoding="utf-8")).items()
+        if not address.startswith("_")
+    }
+    assert set(limits) == {BOUNDED_SETPOINT, READ_ONLY_READBACK}
+    bounded = limits[BOUNDED_SETPOINT]
+    assert bounded["writable"] is True
+    assert bounded["min_value"] < bounded["max_value"]
+    assert limits[READ_ONLY_READBACK]["writable"] is False
+    for unlisted in (UNLISTED_READING, SCRIPTED_UNLISTED_SETPOINT, AGENT_UNLISTED_SETPOINT):
+        assert unlisted not in limits
 
 
 def write(channel: str, value: float) -> ScriptedCall:
@@ -86,22 +129,42 @@ def assert_hook_refused(trace: ToolTrace, *, own: str, other: str) -> None:
     assert other not in text, f"the refusal carries another gate's {other!r}: {text[:300]}"
 
 
+def refusal_trailer(reason: str) -> str:
+    """The last line of a write refusal for *reason* (``refusals.refusal_text``)."""
+    return f"[osprey-refusal: {reason}]"
+
+
 def assert_no_callback(result: HookObservedResult, tool: str) -> None:
     """No approval prompt was surfaced for *tool*."""
     events = [(e.tool_name, e.decision) for e in result.hook_events if e.tool_name == tool]
     assert events == [], f"an approval prompt was surfaced for a refused {tool}: {events}"
 
 
-def assert_untouched(before: float, after: float, written: float) -> None:
+def served_view(repo) -> SimulatorView:
+    """The simulator view *repo*'s render serves its channels from.
+
+    Read from the render's ``config.yml``, the file the session's simulator is
+    configured by, and opened by the simulator's own resolver, so the view is
+    the one the reads in a test answer from.
+    """
+    config = yaml.safe_load(rendered_config_path(repo).read_text(encoding="utf-8"))
+    block = config["control_system"]["connector"]["virtual_accelerator"]
+    return simulator_view_dir(block[SIMULATOR_VIEW])
+
+
+def assert_untouched(
+    view: SimulatorView, address: str, before: float, after: float, written: float
+) -> None:
     """The read after the refusal is the channel's own value, not the written one.
 
-    The mock connector's reads carry noise, so equality with the read made
-    before the write is not available as a check; a write that landed would
-    put the second read at the written value.
+    The simulator serves each reading within the motion the served tree
+    declares for it under the scenarios it runs, so the two reads may differ by
+    that band and no more; the written value sits far enough from the first
+    read that a write which landed, even in part, shows past it.
     """
-    assert abs(after - before) < abs(after - written), (
-        f"the channel read {before} before and {after} after a refused write of {written}"
-    )
+    band = unmoved_band(view, address, served_active(view))
+    assert_write_visible(written, before, band)
+    assert_unmoved(address, before, after, band)
 
 
 # ---------------------------------------------------------------------------
@@ -144,7 +207,9 @@ async def test_an_allowed_write_is_seen_by_the_read_back(safety_project, scripte
     assert WRITE in model.offered_tools
     assert not written.is_error, f"a write inside the limits was refused: {written.result}"
     assert [e.decision for e in result.hook_events if e.tool_name == WRITE] == ["allow"]
-    assert abs(reading(read_back, SETPOINT) - 75.0) < 5.0
+    view = served_view(safety_project)
+    band = unmoved_band(view, SETPOINT, served_active(view))
+    assert_unmoved(SETPOINT, 75.0, reading(read_back, SETPOINT), band)
 
 
 # ---------------------------------------------------------------------------
@@ -164,7 +229,13 @@ async def test_write_over_limits_is_refused(safety_project, scripted_model):
     assert_hook_refused(refused, own=LIMITS_REASON, other=WRITES_REASON)
     assert "above maximum 100.0" in (refused.result or "")
     assert_no_callback(result, WRITE)
-    assert_untouched(reading(before, SETPOINT), reading(after, SETPOINT), 999.0)
+    assert_untouched(
+        served_view(safety_project),
+        SETPOINT,
+        reading(before, SETPOINT),
+        reading(after, SETPOINT),
+        999.0,
+    )
 
 
 async def test_write_to_read_only_channel_is_refused(safety_project, scripted_model):
@@ -177,7 +248,13 @@ async def test_write_to_read_only_channel_is_refused(safety_project, scripted_mo
     assert_hook_refused(refused, own=LIMITS_REASON, other=WRITES_REASON)
     assert "Channel is marked as read-only" in (refused.result or "")
     assert_no_callback(result, WRITE)
-    assert_untouched(reading(before, READBACK), reading(after, READBACK), 1.0)
+    assert_untouched(
+        served_view(safety_project),
+        READBACK,
+        reading(before, READBACK),
+        reading(after, READBACK),
+        1.0,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -203,7 +280,13 @@ async def test_limits_refuse_before_approval_is_asked(safety_project_selective, 
     assert_hook_refused(refused, own=LIMITS_REASON, other=WRITES_REASON)
     assert "Denied by test approval policy" not in (refused.result or "")
     assert_no_callback(result, WRITE)
-    assert_untouched(reading(before, SETPOINT), reading(after, SETPOINT), 999.0)
+    assert_untouched(
+        served_view(safety_project_selective),
+        SETPOINT,
+        reading(before, SETPOINT),
+        reading(after, SETPOINT),
+        999.0,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -217,13 +300,13 @@ async def test_channel_write_is_removed_when_writes_are_disarmed(
     """With no target armed the write tool is not offered, and a call that
     names it anyway is rejected as a tool that does not exist.
 
-    The fixture is the operator's action — set ``writes_enabled: false`` and
-    re-render — and the re-render is what moves the tool into
+    The fixture is the operator's action — set ``control_system.writes: never``
+    and rebuild — and the rebuild is what moves the tool into
     ``permissions.deny``. The read tool is checked as present so the absence
     is the deny's doing and not a controls server that failed to start.
     """
     model, result = await drive(
-        safety_project_writes_off, scripted_model, [[write(CORRECTOR, 5.0)]]
+        safety_project_writes_off, scripted_model, [[write(UNLISTED_SETPOINT, 5.0)]]
     )
     assert result.mcp_server_status.get("controls") == "connected"
     assert READ in model.offered_tools
@@ -243,21 +326,30 @@ async def test_python_write_is_refused_when_writes_are_disarmed(
     The Python route is the way around a removed ``channel_write``; the tool
     stays offered for read-only work, so the boundary is the hook.
     """
-    code = f"from osprey.runtime import write_channel\nwrite_channel({CORRECTOR!r}, 5.0)"
+    code = f"from osprey.runtime import write_channel\nwrite_channel({UNLISTED_SETPOINT!r}, 5.0)"
     script = ScriptedCall(
         EXECUTE,
         {"code": code, "description": "Write the corrector.", "execution_mode": "readwrite"},
     )
     model, result = await drive(
-        safety_project_writes_off, scripted_model, [[read(CORRECTOR)], [script], [read(CORRECTOR)]]
+        safety_project_writes_off,
+        scripted_model,
+        [[read(UNLISTED_SETPOINT)], [script], [read(UNLISTED_SETPOINT)]],
     )
     assert result.mcp_server_status.get("python") == "connected"
     assert EXECUTE in model.offered_tools
     before, refused, after = result.tool_traces
     assert refused.name == EXECUTE
     assert_hook_refused(refused, own=WRITES_REASON, other=LIMITS_REASON)
+    assert refusal_trailer("tier_never") in (refused.result or ""), refused.result
     assert_no_callback(result, EXECUTE)
-    assert_untouched(reading(before, CORRECTOR), reading(after, CORRECTOR), 5.0)
+    assert_untouched(
+        served_view(safety_project_writes_off),
+        UNLISTED_SETPOINT,
+        reading(before, UNLISTED_SETPOINT),
+        reading(after, UNLISTED_SETPOINT),
+        5.0,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -269,12 +361,12 @@ def _record_target(repo) -> str | None:
     """The control target *repo*'s control-context record names, or ``None``.
 
     The record is what the hooks resolve the target from, and the controls MCP
-    server writes it at startup. The path comes from ``record_path_under`` so
-    this reads the file the hooks read. Without a record the hooks deny on the
-    most restrictive posture over all targets, which also refuses the write —
-    reading it is what tells the two apart.
+    server writes it at startup. The path comes from ``_record_path_under`` so
+    this reads the file the hooks read. Without a record the hooks refuse with
+    ``record_unavailable``, which also refuses the write — reading it is what
+    tells the two apart.
     """
-    record = record_path_under(agent_data_dir(repo))
+    record = _record_path_under(agent_data_dir(repo))
     if not record.exists():
         return None
     return json.loads(record.read_text(encoding="utf-8")).get("target")
@@ -284,7 +376,7 @@ async def test_channel_write_is_refused_on_live_when_only_va_is_armed(
     safety_project_mixed_render, scripted_model
 ):
     """On a render armed for ``va`` only, a write from a session on ``live``
-    is refused by the writes hook, naming the live target.
+    is refused by the writes hook: the switch is off for the live target.
 
     The write tool is legal on ``va``, so the render cannot remove it: it is
     offered, and the whole boundary is the PreToolUse chain — the writes hook
@@ -295,18 +387,29 @@ async def test_channel_write_is_refused_on_live_when_only_va_is_armed(
     model, result = await drive(
         safety_project_mixed_render,
         scripted_model,
-        [[read(CORRECTOR)], [write(CORRECTOR, 5.0)], [read(CORRECTOR)]],
+        [[read(UNLISTED_SETPOINT)], [write(UNLISTED_SETPOINT, 5.0)], [read(UNLISTED_SETPOINT)]],
     )
     assert _record_target(safety_project_mixed_render) == "live", (
         "no control-context record names the live target; the refusal below "
-        "would be the missing-record fallback, not the live target's posture"
+        "would be the missing-record fallback, not the live target's switch"
     )
     assert WRITE in model.offered_tools
     before, refused, after = result.tool_traces
     assert_hook_refused(refused, own=WRITES_REASON, other=LIMITS_REASON)
-    assert "active target (live)" in (refused.result or "")
+    # The switch is on for ``va`` only, so the live target reads it off.
+    assert refusal_trailer("switch_off") in (refused.result or ""), refused.result
+    # ... and the refusal names the machine it refused: live is the real
+    # machine, never the simulator whose switch is on.
+    assert refusal_phrase("switch_off", "real") in (refused.result or ""), refused.result
+    assert refusal_phrase("switch_off", "simulator") not in (refused.result or ""), refused.result
     assert_no_callback(result, WRITE)
-    assert_untouched(reading(before, CORRECTOR), reading(after, CORRECTOR), 5.0)
+    assert_untouched(
+        served_view(safety_project_mixed_render),
+        UNLISTED_SETPOINT,
+        reading(before, UNLISTED_SETPOINT),
+        reading(after, UNLISTED_SETPOINT),
+        5.0,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -325,7 +428,13 @@ async def test_a_repeated_forbidden_write_is_refused_each_time(safety_project, s
     for refused in (first, second):
         assert_hook_refused(refused, own=LIMITS_REASON, other=WRITES_REASON)
     assert_no_callback(result, WRITE)
-    assert_untouched(reading(before, SETPOINT), reading(after, SETPOINT), 999.0)
+    assert_untouched(
+        served_view(safety_project),
+        SETPOINT,
+        reading(before, SETPOINT),
+        reading(after, SETPOINT),
+        999.0,
+    )
 
 
 async def test_a_forbidden_write_beside_an_allowed_read_refuses_only_the_write(
@@ -343,4 +452,23 @@ async def test_a_forbidden_write_beside_an_allowed_read_refuses_only_the_write(
     assert reading(by_name[READ], SETPOINT) < 100.0
     assert_hook_refused(by_name[WRITE], own=LIMITS_REASON, other=WRITES_REASON)
     assert_no_callback(result, WRITE)
-    assert_untouched(reading(before, READBACK), reading(result.tool_traces[3], READBACK), 1.0)
+    assert_untouched(
+        served_view(safety_project),
+        READBACK,
+        reading(before, READBACK),
+        reading(result.tool_traces[3], READBACK),
+        1.0,
+    )
+
+
+# ---------------------------------------------------------------------------
+# The read-back check itself
+# ---------------------------------------------------------------------------
+
+
+def test_a_half_landed_write_fails_the_untouched_check(tmp_path) -> None:
+    """A read that moved part of the way to the written value is not untouched."""
+    view = SimulatorView.open(served_tree(tmp_path, [SETPOINT]))
+
+    with pytest.raises(AssertionError):
+        assert_untouched(view, SETPOINT, 0.0, 2.0, 5.0)

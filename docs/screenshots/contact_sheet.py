@@ -1,6 +1,6 @@
 """Hermetic demo-workspace seeding for the web-terminal contact sheet.
 
-The contact-sheet renderer boots the *real* web terminal in every theme/mode
+The contact-sheet renderer boots the *real* web terminal in every theme/agent
 variant so the redesign can be reviewed in one artifact. To make every variant
 look like the design mockups without a live agent (no provider, no hardware, no
 network), it points the workspace panel at a pre-seeded workspace: a directory
@@ -24,17 +24,15 @@ trace and an orbit-response summary — not a generic demo.
 artifacts backend serving the seeded store, and the real web-terminal hub wired
 to it with a canned PTY (no live agent, no provider, no hardware).
 :func:`capture_contact_sheet` drives a headless browser over that stack once per
-entry in :data:`VARIANTS` (plus the :data:`EXTRA_VARIANTS` showcase cards and
-the :data:`STAGED_VARIANTS` cards, each driven into a named UI state first),
+entry in :data:`VARIANTS` (plus the :data:`EXTRA_VARIANTS` showcase cards),
 then boots every supported subpanel's real app
 (:data:`PANEL_SURFACES` — ARIEL, channels, lattice, knowledge, events, and the
-Bluesky scan panel) and captures each in the full dark/light ×
-expert/simple matrix — always through the hub's own iframe URL shape
-(``embedded=true`` + theme + mode), so each card is the panel exactly as the
+Bluesky scan panel) and captures each in dark and light — always through the
+hub's own iframe URL shape (``embedded=true`` + theme), so each card is the panel exactly as the
 terminal embeds it — writing one viewport PNG per card.
 :func:`compose_contact_sheet` folds them into a single self-contained
 ``contact-sheet.html`` — a tab strip with one tab per surface (hub first), each
-tab holding that surface's 2×2 matrix — the one-click artifact the user
+tab holding that surface's cards — the one-click artifact the user
 reviews. ``python -m docs.screenshots.contact_sheet --out DIR``
 runs it end to end and prints the sheet path; ``--accents`` additionally renders
 each hub variant under both accent candidates (blue vs teal) so the pending
@@ -73,7 +71,7 @@ if TYPE_CHECKING:
 # ---------------------------------------------------------------------------
 
 #: One session id shared by every seeded artifact. The hermetic launcher writes
-#: a fake session record with this exact UUID so the Expert session hex renders
+#: a fake session record with this exact UUID so the terminal confirms it
 #: and every session-scoped panel resolves to the same populated session.
 DEMO_SESSION_ID = "3f9a1c72-5e84-4b21-9d6a-8c0f2e1b7a44"
 
@@ -89,7 +87,7 @@ DEMO_TRANSCRIPT_PATH = Path(__file__).parent / "demo_transcript.txt"
 #: so it must not collide with any real agent/tool output.
 TRANSCRIPT_SENTINEL = "__OSPREY_SHEET_READY__"
 
-#: The fake session's one user line, which the Simple view's chat replays when
+#: The fake session's one user line, which the operator chat replays when
 #: it resumes the demo session.
 DEMO_OPENING_PROMPT = "Plot the storage ring beam current over the last hour."
 
@@ -227,7 +225,7 @@ def seed_demo_workspace(workspace_root: Path) -> list[ArtifactEntry]:
     so :class:`~osprey.stores.artifact_store.ArtifactStore` loads it through its
     tolerant loader. Four artifact types are seeded (Plotly plot, HTML table,
     markdown, JSON data); every entry carries :data:`DEMO_SESSION_ID` and its
-    ``description`` doubles as the Simple-mode caption. Returns the seeded
+    ``description`` doubles as the caption. Returns the seeded
     entries in index order.
 
     This deliberately does *not* go through :meth:`ArtifactStore.save_file`,
@@ -363,14 +361,41 @@ class HermeticHub(NamedTuple):
     backend. ``project_dir`` is the seeded, throwaway project the hub treats as
     its cwd; ``session_dir`` is where the hub's :class:`SessionDiscovery` looks
     for session transcripts (``~/.claude/projects/<encoded>/``), so the capture
-    step writes its one fake session record there to make the Expert session hex
-    render. All four are torn down when :func:`hermetic_hub` exits.
+    step writes its one fake session record there for the terminal to
+    resume and confirm. All four are torn down when :func:`hermetic_hub` exits.
     """
 
     base_url: str
     artifact_url: str
     project_dir: Path
     session_dir: Path
+
+
+class _TranscriptRecord:
+    """The hub's agent record, served from the session transcripts in one directory.
+
+    The hub reads a session's conversation from the agent record. This record
+    answers a session's timeline with what the agent record's own transcript
+    parser and timeline builder make of ``<session_dir>/<session_id>.jsonl``,
+    so the chat replays the seeded session exactly as a deployed record
+    would serve it, without a record service.
+    """
+
+    def __init__(self, session_dir: Path) -> None:
+        self._session_dir = session_dir
+
+    def timeline(self, session_id: str, **_kwargs):
+        from osprey.agent_record.client import ClientAnswer
+        from osprey.interfaces.web_terminal.routes.session import _transcript_nodes
+
+        path = self._session_dir / f"{session_id}.jsonl"
+        nodes = _transcript_nodes(path) if path.is_file() else []
+        return ClientAnswer(data=nodes, complete=True)
+
+    def agent_timeline(self, *_args, **_kwargs):
+        from osprey.agent_record.client import ClientAnswer
+
+        return ClientAnswer(data=[], complete=True)
 
 
 def _replay_shell_command(transcript_path: Path) -> list[str]:
@@ -404,10 +429,12 @@ def hermetic_hub() -> Iterator[HermeticHub]:
     the visual-regression harness uses (``_load_web_config`` → the seeded
     watch_dir, ``_load_panel_config`` → artifacts-only, ``_launch_panel_server``
     → the already-running backend URL), so no extra server is spawned and no live
-    agent is involved. On exit both servers stop and both the project directory
-    and its ``~/.claude/projects/<encoded>/`` session directory are removed.
+    agent is involved. Its session reads go to a :class:`_TranscriptRecord` over
+    the session directory, so no record service runs either. On exit both
+    servers stop and both the project directory and its
+    ``~/.claude/projects/<encoded>/`` session directory are removed.
     """
-    from osprey.cli.project_utils import encode_claude_project_path
+    from osprey.agent_runner.project_paths import encode_claude_project_path
     from osprey.interfaces._serving import run_app_server
     from osprey.registry.web import panel_url_state_attr
 
@@ -457,6 +484,13 @@ def hermetic_hub() -> Iterator[HermeticHub]:
                 )
             )
 
+            stack.enter_context(
+                mock.patch(
+                    "osprey.interfaces.web_terminal.routes.session.record_client",
+                    new=lambda record=_TranscriptRecord(session_dir): record,
+                )
+            )
+
             from osprey.interfaces.web_terminal.app import create_app as create_hub_app
 
             hub_app = create_hub_app(shell_command=shell_command, project_dir=project_dir)
@@ -477,47 +511,34 @@ def hermetic_hub() -> Iterator[HermeticHub]:
 # Per-variant capture
 # ---------------------------------------------------------------------------
 
-#: The theme/mode variants captured, in output order: the full dark/light ×
-#: expert/simple 2×2, so one sheet shows every shell the redesign ships. Each
-#: tuple's mode drives an explicit ``&mode=`` on the capture URL (see
-#: :func:`_variant_url`); the pre-paint ladder in mode-boot.js then honours it
-#: over localStorage/SSR. :data:`_FULL_MATRIX` mirrors this set as the
-#: completeness invariant the run asserts against.
-VARIANTS: list[tuple[str, str | None]] = [
-    ("dark", "expert"),
-    ("dark", "simple"),
-    ("light", "expert"),
-    ("light", "simple"),
+#: The theme/agent variants captured, in output order: dark and light crossed
+#: with the Agent tile's two surfaces, so one sheet shows every shell the hub
+#: ships. :data:`_FULL_MATRIX` mirrors this set as the completeness invariant the
+#: run asserts against.
+VARIANTS: list[tuple[str, str]] = [
+    ("dark", "chat"),
+    ("dark", "terminal"),
+    ("light", "chat"),
+    ("light", "terminal"),
 ]
 
-#: The four theme×mode cells a complete base contact sheet must contain. Kept as
+#: The four theme×agent cells a complete base contact sheet must contain. Kept as
 #: an explicit invariant (not derived from :data:`VARIANTS`) so a regression that
 #: drops a cell from ``VARIANTS`` fails the run loudly instead of shipping a
 #: silently short sheet.
-_FULL_MATRIX: frozenset[tuple[str, str | None]] = frozenset(
-    {("dark", "expert"), ("dark", "simple"), ("light", "expert"), ("light", "simple")}
+_FULL_MATRIX: frozenset[tuple[str, str]] = frozenset(
+    {("dark", "chat"), ("dark", "terminal"), ("light", "chat"), ("light", "terminal")}
 )
 
-#: The same 2×2 as an ordered list, for capture loops that want deterministic
-#: card order (dark row first, expert before simple) — used by the per-panel
-#: sections, which always capture the full matrix.
-_FULL_MATRIX_ORDERED: list[tuple[str, str]] = [
-    ("dark", "expert"),
-    ("dark", "simple"),
-    ("light", "expert"),
-    ("light", "simple"),
-]
+#: The themes every subpanel section captures, dark first.
+_PANEL_THEMES: tuple[str, ...] = ("dark", "light")
 
-#: Transition-showcase captures beyond the base matrix, as (theme, mode, rail)
-#: rows: the horizontal (pre-redesign-arrangement) rail, and the retro theme
-#: family — the flat shell wearing the old palette, and the full retro look
-#: (palette + top rail). Hub-only; the base 2×2 and the per-panel sections are
-#: untouched.
-EXTRA_VARIANTS: list[tuple[str, str | None, str | None]] = [
-    ("dark", "expert", "top"),
-    ("retro-dark", "expert", None),
-    ("retro-dark", "expert", "top"),
-    ("retro-light", "expert", None),
+#: Transition-showcase captures beyond the base matrix, as (theme, agent) rows:
+#: the retro theme family, the sidebar shell wearing the old palette. Hub-only;
+#: the base 2×2 and the per-panel sections are untouched.
+EXTRA_VARIANTS: list[tuple[str, str]] = [
+    ("retro-dark", "terminal"),
+    ("retro-light", "terminal"),
 ]
 
 
@@ -528,63 +549,32 @@ class Stage(NamedTuple):
     run: Callable[[Page], None]
 
 
-def open_customize_sheet(page: Page) -> None:
-    """Open the bars' Customize sheet the way an operator does.
-
-    Right-clicking the header bar is the entry point with no prerequisites: the
-    display-menu row needs its popover open and the palette action needs the
-    palette open. The wait is for a hydrated shell first, because the bar
-    modules arm the right-click only once they have booted.
-
-    The sheet focuses its first tile on open so a keyboard lands in it. The
-    docs show the sheet as a pointer user sees it, so the focus is dropped
-    before the shot.
-    """
-    page.wait_for_selector(
-        '[data-bar-host="header"] .bar-item[data-bar-key]', timeout=_NAV_TIMEOUT_MS
-    )
-    page.locator('[data-bar-host="header"]').click(button="right", position={"x": 4, "y": 4})
-    page.locator('.bar-context-menu [data-bar-action="customize"]').click(timeout=_NAV_TIMEOUT_MS)
-    page.locator(".bar-sheet.is-open").wait_for(state="visible", timeout=_NAV_TIMEOUT_MS)
-    page.evaluate("() => document.activeElement?.blur()")
-    page.wait_for_function(
-        "() => !document.querySelector('.bar-sheet :focus')", timeout=_NAV_TIMEOUT_MS
-    )
+def _open_more_menu(page: Page) -> None:
+    """Open the sidebar's ☰ More menu and wait for it to show."""
+    page.locator("#more-btn").click(timeout=_NAV_TIMEOUT_MS)
+    page.locator("#more-menu").wait_for(state="visible", timeout=_NAV_TIMEOUT_MS)
 
 
 #: A named UI state a capture drives the page into after boot and before the
 #: shot. The doc-screenshot registry (``docs/screenshots/recipes.py``) names
 #: these keys.
 STAGES: dict[str, Stage] = {
-    "customize_sheet": Stage("Customize bars open", open_customize_sheet),
+    "more_menu": Stage("the sidebar's More menu open", _open_more_menu),
 }
-
-#: Hub cards captured with a stage applied, as (theme, mode, stage) rows. They
-#: follow :data:`EXTRA_VARIANTS` and sit outside :data:`_FULL_MATRIX`, so the
-#: base 2×2 completeness check is untouched.
-STAGED_VARIANTS: list[tuple[str, str, str]] = [
-    ("dark", "expert", "customize_sheet"),
-    ("light", "expert", "customize_sheet"),
-]
 
 
 class CapturedVariant(NamedTuple):
     """One captured variant and the labels the contact sheet shows for it."""
 
     theme: str
-    mode: str | None
+    #: Which surface the Agent tile shows; ``None`` on a subpanel card.
+    agent: str | None
     accent: str | None
     filename: str
     #: Which surface the card belongs to: ``"hub"`` for the full web-terminal
     #: shell (the original sheet), or a :data:`PANEL_SURFACES` id for one of
-    #: the per-subpanel 2×2 sections.
+    #: the per-subpanel sections.
     surface: str = "hub"
-    #: Rail position for the :data:`EXTRA_VARIANTS` showcase cards (``"top"``),
-    #: or ``None`` for the default left rail.
-    rail: str | None = None
-    #: The :data:`STAGES` key the page was driven into before the shot, or
-    #: ``None`` for the shell as it boots.
-    stage: str | None = None
 
 
 _TERMINAL_VIEWPORT = {"width": 1280, "height": 800}
@@ -603,34 +593,19 @@ _PLOT_DRAWN_MS = 30_000  # Plotly.js draws in the preview frame; the shot requir
 _PLOT_DRAWN_SELECTOR = ".js-plotly-plot .scatterlayer .trace path.js-line"
 
 
-def _variant_filename(
-    theme: str,
-    mode: str | None,
-    accent: str | None = None,
-    rail: str | None = None,
-    stage: str | None = None,
-) -> str:
-    """Output PNG name for one variant (mode/accent/rail/stage suffixes only when set)."""
+def _variant_filename(theme: str, agent: str | None, accent: str | None = None) -> str:
+    """Output PNG name for one variant (agent/accent suffixes only when set)."""
     stem = f"web_terminal_{theme}"
-    if mode is not None:
-        stem += f"_{mode}"
+    if agent is not None:
+        stem += f"_{agent}"
     if accent is not None:
         stem += f"_{accent}"
-    if rail is not None:
-        stem += f"_rail-{rail}"
-    if stage is not None:
-        stem += f"_{stage}"
     return f"{stem}.png"
 
 
-def _variant_url(base_url: str, theme: str, mode: str | None, rail: str | None = None) -> str:
-    """Hub URL carrying ``?theme=`` and, when set, ``&mode=`` / ``&rail=``."""
-    url = f"{base_url}/?theme={theme}"
-    if mode is not None:
-        url += f"&mode={mode}"
-    if rail is not None:
-        url += f"&rail={rail}"
-    return url
+def _variant_url(base_url: str, theme: str) -> str:
+    """Hub URL carrying ``?theme=``."""
+    return f"{base_url}/?theme={theme}"
 
 
 def _fake_session_line() -> str:
@@ -668,24 +643,24 @@ def _write_fake_session(session_dir: Path) -> Path:
     return path
 
 
-def _wait_for_resumed_session(page, mode: str | None, *, variant: str) -> None:
-    """Block until the resumed demo session is shown in the view the mode renders.
+def _wait_for_resumed_session(page, agent: str, *, variant: str) -> None:
+    """Block until the resumed demo session is shown on the Agent tile's surface.
 
-    Expert (and ``None``) waits for :data:`TRANSCRIPT_SENTINEL` in
+    The terminal waits for :data:`TRANSCRIPT_SENTINEL` in
     ``.xterm-rows`` (xterm's DOM renderer keeps the text there; its appearance
-    implies the PTY spawned), then for ``DEMO_SESSION_ID[:8]`` in
-    ``#terminal-label``, the proof that the hub confirmed the id this harness
-    asked it to resume.
+    implies the PTY spawned), then for ``#terminal-label``'s
+    ``data-session-id`` to start with ``DEMO_SESSION_ID[:8]``, the proof that
+    the hub confirmed the id this harness asked it to resume (the label's text
+    is always ``Agent``; terminal.js carries the id in that attribute).
 
-    Simple waits once, for the operator chat's replay of
-    :data:`DEMO_OPENING_PROMPT`. The Simple view never connects the terminal, so
-    neither ``.xterm-rows`` nor ``#terminal-label`` moves there. The chat replays
+    The chat waits once, for its replay of :data:`DEMO_OPENING_PROMPT`. It never
+    connects the terminal, so neither ``.xterm-rows`` nor ``#terminal-label`` moves there. The chat replays
     the transcript of the key it resumed, and only ``DEMO_SESSION_ID``'s record
     carries that line, so this one wait proves both the transcript and the id.
 
     Args:
         page: The Playwright page showing the hub.
-        mode: The UI mode, which names the view that shows the session.
+        agent: The Agent tile's surface: ``"chat"`` or ``"terminal"``.
         variant: The variant being captured, named in the error.
 
     Raises:
@@ -693,12 +668,12 @@ def _wait_for_resumed_session(page, mode: str | None, *, variant: str) -> None:
     """
     from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 
-    view = "operator chat" if mode == "simple" else "terminal"
+    view = "operator chat" if agent == "chat" else "terminal"
     try:
-        if mode == "simple":
+        if agent == "chat":
             page.wait_for_function(
                 "(p) => Array.from(document.querySelectorAll("
-                "'.op-messages .op-entry.operator .op-entry-body'))"
+                "'.op-messages .op-entry.operator > .op-bubble'))"
                 ".some((b) => (b.textContent || '').trim() === p)",
                 arg=DEMO_OPENING_PROMPT,
                 timeout=_NAV_TIMEOUT_MS,
@@ -712,7 +687,7 @@ def _wait_for_resumed_session(page, mode: str | None, *, variant: str) -> None:
             )
             page.wait_for_function(
                 "(h) => { const l = document.getElementById('terminal-label');"
-                " return !!l && (l.textContent || '').includes(h); }",
+                " return !!l && (l.dataset.sessionId || '').startsWith(h); }",
                 arg=DEMO_SESSION_ID[:8],
                 timeout=_NAV_TIMEOUT_MS,
             )
@@ -723,36 +698,20 @@ def _wait_for_resumed_session(page, mode: str | None, *, variant: str) -> None:
         ) from exc
 
 
-def _plot_row_selector(mode: str | None) -> str:
-    """CSS for the demo plot's list row in the artifacts panel, scoped by mode.
+#: The demo plot's row in the hub sidebar's artifact list. The shell owns the
+#: list, and a row click shows that artifact in the artifacts
+#: tile (opening the tile when it is not on screen).
+_PLOT_ROW_SELECTOR = f'#sidebar-artifacts-list .osprey-list-row[data-id="{DEMO_PLOT_ARTIFACT_ID}"]'
 
-    Expert and Simple both render a ``[data-id]`` row for every artifact, but
-    into different (and mutually hidden) containers: Expert's ``#sidebar-body``
-    and Simple's ``#simple-list-body``. Both containers exist in the DOM in
-    either mode — only one is visible — so the selector must name the *active*
-    view's container, or the click would target a hidden row and time out.
-    """
-    container = "#simple-list-body" if mode == "simple" else "#sidebar-body"
-    return f'{container} [data-id="{DEMO_PLOT_ARTIFACT_ID}"]'
-
-
-def _plot_frame_selector(mode: str | None) -> str:
-    """CSS for the preview iframe that renders the selected plot, scoped by mode.
-
-    Each view renders the selected artifact into its own container: Expert into
-    ``#preview-content``, Simple into the latest-result card's
-    ``#simple-result-preview``. Both go through ``artifactViewportHtml``, which
-    renders a ``plot_html`` artifact as ``iframe.preview-iframe-light``. The frame
-    is therefore named by the active view's container, as the row is, so a
-    preview frame in the other view's container can never answer for it.
-    """
-    if mode == "simple":
-        return "#simple-result-preview iframe"
-    return "#preview-content iframe.preview-iframe-light"
+#: The preview iframe the embedded artifacts viewer renders the shown plot
+#: into. Embedded, the gallery is a viewer of one artifact, and
+#: ``artifactViewportHtml`` renders a ``plot_html`` artifact as
+#: ``iframe.preview-iframe-light`` inside ``#preview-content``.
+_PLOT_FRAME_SELECTOR = "#preview-content iframe.preview-iframe-light"
 
 
-def _wait_for_plot_drawn(page, mode: str | None, *, variant: str, moment: str) -> None:
-    """Block until the beam-current plot is drawn and revealed in the active preview.
+def _wait_for_plot_drawn(page, *, variant: str, moment: str) -> None:
+    """Block until the beam-current plot is drawn and revealed in the viewer.
 
     This is a precondition for the shot, not a best-effort pause. The wait is for
     the ``visible`` state because ``attached`` is already true for markup that
@@ -761,7 +720,6 @@ def _wait_for_plot_drawn(page, mode: str | None, *, variant: str, moment: str) -
 
     Args:
         page: The Playwright page showing the hub.
-        mode: The UI mode, which names the active preview frame.
         variant: The variant being captured, named in the error.
         moment: When the check runs, named in the error.
 
@@ -772,9 +730,9 @@ def _wait_for_plot_drawn(page, mode: str | None, *, variant: str, moment: str) -
 
     panel = page.frame_locator('iframe.panel-iframe[data-panel-id="artifacts"]')
     try:
-        panel.frame_locator(_plot_frame_selector(mode)).locator(
-            _PLOT_DRAWN_SELECTOR
-        ).first.wait_for(state="visible", timeout=_PLOT_DRAWN_MS)
+        panel.frame_locator(_PLOT_FRAME_SELECTOR).locator(_PLOT_DRAWN_SELECTOR).first.wait_for(
+            state="visible", timeout=_PLOT_DRAWN_MS
+        )
     except PlaywrightTimeoutError as exc:
         raise RuntimeError(
             f"hub {variant}: the beam-current plot did not draw {moment} within "
@@ -809,11 +767,11 @@ def _read_fitted_cols(page) -> int | None:
     """Read the terminal's fitted column count through the ``terminal.js`` seam.
 
     Returns the column count, or ``None`` when the terminal is not the visible
-    surface so the wrap guard is skipped. In Simple mode the terminal card hosts
+    surface so the wrap guard is skipped. On the chat surface the Agent tile hosts
     the operator CHAT (the xterm container is CSS-hidden), so ``.xterm`` measures
     zero wide and xterm reports its ``10×4`` zero-container fallback rather than a
     real fitted width — reading that as a fit would spuriously fail the guard.
-    Expert mode renders the terminal at its real (narrow) width and still enforces
+    The terminal surface renders at its real (narrow) width and still enforces
     the guard, so the transcript width stays protected where it is actually shown.
 
     ``None`` and a number are not interchangeable here and the caller acts on the
@@ -833,7 +791,7 @@ def _read_fitted_cols(page) -> int | None:
     except Exception:
         return None
     # A zero-width .xterm means the terminal isn't laid out as the visible surface
-    # (Simple mode's inactive stacked tab); its dims are xterm's fallback, not a
+    # (the chat surface's hidden terminal); its dims are xterm's fallback, not a
     # real fit — skip the guard rather than measure a collapsed card.
     term_width = page.evaluate(
         "() => { const t = document.querySelector('.xterm');"
@@ -936,12 +894,14 @@ def _accent_override_css(theme: str, accent: str) -> str:
         f"  --color-on-accent: {spec['on']};",
         f"  --border-accent: rgba({r}, {g}, {b}, {_THEME_BORDER_ALPHA[theme]});",
     ]
-    for suffix in _ACCENT_TINT_SUFFIXES:
-        lines.append(f"  --accent-tint-{suffix}: rgba({r}, {g}, {b}, {int(suffix) / 100:.2f});")
-    for suffix in _ACCENT_SYSTEM_TINT_SUFFIXES:
-        lines.append(
-            f"  --wt-accent-system-tint-{suffix}: rgba({r}, {g}, {b}, {int(suffix) / 100:.2f});"
-        )
+    lines.extend(
+        f"  --accent-tint-{suffix}: rgba({r}, {g}, {b}, {int(suffix) / 100:.2f});"
+        for suffix in _ACCENT_TINT_SUFFIXES
+    )
+    lines.extend(
+        f"  --wt-accent-system-tint-{suffix}: rgba({r}, {g}, {b}, {int(suffix) / 100:.2f});"
+        for suffix in _ACCENT_SYSTEM_TINT_SUFFIXES
+    )
     body = "\n".join(lines)
     return f':root[data-theme="{theme}"] {{\n{body}\n}}'
 
@@ -987,17 +947,17 @@ def _inject_accent(page, theme: str, accent: str) -> None:
             frame.add_style_tag(content=css)
 
 
-def _effective_variants(accents: bool) -> list[tuple[str, str | None, str | None]]:
-    """Expand :data:`VARIANTS` into (theme, mode, accent) rows.
+def _effective_variants(accents: bool) -> list[tuple[str, str, str | None]]:
+    """Expand :data:`VARIANTS` into (theme, agent, accent) rows.
 
     Without ``--accents`` each base variant is captured once (accent ``None``);
     with it, each is captured once per candidate in :data:`_ACCENT_CANDIDATES`,
     kept adjacent per base variant so the sheet reads as an A/B pair.
     """
     if not accents:
-        return [(theme, mode, None) for theme, mode in VARIANTS]
+        return [(theme, agent, None) for theme, agent in VARIANTS]
     return [
-        (theme, mode, candidate) for theme, mode in VARIANTS for candidate in _ACCENT_CANDIDATES
+        (theme, agent, candidate) for theme, agent in VARIANTS for candidate in _ACCENT_CANDIDATES
     ]
 
 
@@ -1006,29 +966,29 @@ def _assert_all_variants_captured(captured: list[CapturedVariant], accents: bool
 
     Two guards, so the sheet can never silently ship short:
 
-    * Every ``(theme, mode, accent)`` row :func:`_effective_variants` asked for
+    * Every ``(theme, agent, accent)`` row :func:`_effective_variants` asked for
       must appear in ``captured`` — catches a variant that was dropped or
       deduplicated between the capture loop and composition.
-    * The captured ``(theme, mode)`` cells must cover the full
+    * The captured ``(theme, agent)`` cells must cover the full
       :data:`_FULL_MATRIX` 2×2 — catches a ``VARIANTS`` regression that removes a
-      theme or mode cell (e.g. the Simple rows) before the loop runs. This runs
+      theme or agent cell (e.g. the chat rows) before the loop runs. This runs
       unconditionally: the cell set collapses the accent axis away, so it holds
       in ``--accents`` mode too, where the first guard alone cannot catch the
       regression (both ``expected`` and ``got`` derive from ``VARIANTS`` and
       shrink in lockstep).
     """
     expected = set(_effective_variants(accents))
-    got = {(cv.theme, cv.mode, cv.accent) for cv in captured}
+    got = {(cv.theme, cv.agent, cv.accent) for cv in captured}
     missing = expected - got
     if missing:
         raise RuntimeError(
             f"contact sheet is missing variant(s) {sorted(missing)}: captured "
             f"{len(captured)} of {len(expected)} expected."
         )
-    absent = _FULL_MATRIX - {(cv.theme, cv.mode) for cv in captured}
+    absent = _FULL_MATRIX - {(cv.theme, cv.agent) for cv in captured}
     if absent:
         raise RuntimeError(
-            "contact sheet must cover the full dark/light × expert/simple 2×2; "
+            "contact sheet must cover the full dark/light × chat/terminal 2×2; "
             f"missing cell(s) {sorted(absent)}. Restore them to VARIANTS."
         )
 
@@ -1037,46 +997,45 @@ def _capture_variant(
     browser,
     hub: HermeticHub,
     theme: str,
-    mode: str | None,
+    agent: str,
     out_dir: Path,
     accent: str | None = None,
-    rail: str | None = None,
-    stage: str | None = None,
 ) -> CapturedVariant:
-    """Drive one theme/mode variant to a viewport PNG; return its metadata."""
-    dest = out_dir / _variant_filename(theme, mode, accent, rail, stage)
-    capture_hub_view(browser, hub, theme, mode, dest, accent=accent, rail=rail, stage=stage)
-    return CapturedVariant(
-        theme=theme, mode=mode, accent=accent, filename=dest.name, rail=rail, stage=stage
-    )
+    """Drive one theme/agent variant to a viewport PNG; return its metadata."""
+    dest = out_dir / _variant_filename(theme, agent, accent)
+    capture_hub_view(browser, hub, theme, agent, dest, accent=accent)
+    return CapturedVariant(theme=theme, agent=agent, accent=accent, filename=dest.name)
 
 
 def capture_hub_view(
     browser,
     hub: HermeticHub,
     theme: str,
-    mode: str | None,
+    agent: str,
     dest: Path,
     *,
     accent: str | None = None,
-    rail: str | None = None,
     stage: str | None = None,
+    element: str | None = None,
 ) -> None:
-    """Drive the hermetic hub to one theme/mode view and write its PNG to *dest*.
+    """Drive the hermetic hub to one theme/agent view and write its PNG to *dest*.
 
     Args:
         browser: A Playwright browser.
         hub: The running :func:`hermetic_hub` stack.
         theme: The theme the page loads in.
-        mode: The UI mode, passed as ``&mode=``; ``None`` leaves it to the page.
+        agent: The Agent tile's surface: ``"chat"``, or ``"terminal"``, which is
+            seeded in sessionStorage so the page boots on it.
         dest: Where the viewport PNG is written.
         accent: An accent candidate to recolour the chrome with, or ``None``.
-        rail: A rail position (``"top"``), or ``None`` for the default rail.
         stage: A :data:`STAGES` key the page is driven into before the shot.
+        element: A selector to crop the shot to, at 2x like every element crop;
+            ``None`` shoots the viewport.
 
     The view is shot only with its plot drawn; a plot that never draws raises
     :class:`RuntimeError` instead of writing *dest*. A resumed session that never
-    appears in the active view raises :class:`RuntimeError` without writing *dest*.
+    appears in the active view raises :class:`RuntimeError` without writing *dest*,
+    and so does a plot row that is not clickable.
     """
     # Publish the fake session BEFORE the page loads. The terminal's session id
     # has to be DEMO_SESSION_ID — the seeded artifacts are tagged with it and
@@ -1090,14 +1049,14 @@ def capture_hub_view(
         f"{name}={value}"
         for name, value in (
             ("theme", theme),
-            ("mode", mode),
+            ("agent", agent),
             ("accent", accent),
-            ("rail", rail),
             ("stage", stage),
         )
         if value is not None
     )
-    page = browser.new_page(viewport=_TERMINAL_VIEWPORT)
+    scale = {"device_scale_factor": 2} if element else {}
+    page = browser.new_page(viewport=_TERMINAL_VIEWPORT, **scale)
     try:
         from osprey.interfaces._serving import authorize_browser_context
 
@@ -1106,16 +1065,21 @@ def capture_hub_view(
         # in-process (run_app_server), so the context can be authorized
         # directly with a session cookie the in-process gate accepts.
         authorize_browser_context(page.context)
-        # Two seeded localStorage keys, both about starting from a known state
+        # Seeded browser storage, all about starting from a known state
         # on the fresh profile every capture runs on:
         #   * the onboarding tour, pre-dismissed — its invite card overlays
         #     the shell, and the sheet documents the shells, not onboarding;
         #   * the PTY session id, so initTerminal() connects mode=resume on
-        #     DEMO_SESSION_ID instead of letting the hub mint a random one.
+        #     DEMO_SESSION_ID instead of letting the hub mint a random one;
+        #   * the Agent tile's surface, where the capture wants the terminal.
         page.add_init_script(
-            "try { localStorage.setItem('osprey-tour-dismissed-v1', '1');"
+            "try { localStorage.setItem('osprey-tour-dismissed-v2', '1');"
             f" localStorage.setItem('osprey-pty-session', '{DEMO_SESSION_ID}') }} catch (e) {{}}"
         )
+        if agent == "terminal":
+            page.add_init_script(
+                "try { sessionStorage.setItem('osprey-agent-surface', 'terminal') } catch (e) {}"
+            )
         # Every capture resumes the same session id, so they share one pool
         # entry, and the hub hands a warm entry to a new page without re-running
         # its command, which would leave the page waiting for a replay that
@@ -1132,12 +1096,12 @@ def capture_hub_view(
                 f"(HTTP {response.status}); no image was written."
             )
         page.goto(
-            _variant_url(hub.base_url, theme, mode, rail),
+            _variant_url(hub.base_url, theme),
             wait_until="domcontentloaded",
             timeout=_NAV_TIMEOUT_MS,
         )
-        # Wait for the resumed demo session in whichever view the mode shows.
-        _wait_for_resumed_session(page, mode, variant=variant)
+        # Wait for the resumed demo session on whichever surface is showing.
+        _wait_for_resumed_session(page, agent, variant=variant)
 
         # Guard against a transcript that wraps at the real fitted width.
         fitted_cols = _read_fitted_cols(page)
@@ -1145,14 +1109,20 @@ def capture_hub_view(
             _assert_fits_columns(fitted_cols)
 
         # Reveal the beam-current plot so every variant shows a real Plotly
-        # figure: Expert clicks it into the preview pane, Simple promotes it to
-        # the latest-result card. The workspace panel is a same-origin iframe and
-        # each row carries ``data-id``; select the plot by its stable id, scoped
-        # to the active view so a hidden twin row can't swallow the click.
-        panel = page.frame_locator('iframe.panel-iframe[data-panel-id="artifacts"]')
-        panel.locator(_plot_row_selector(mode)).first.click(timeout=_NAV_TIMEOUT_MS)
+        # figure: a click on its row in the hub sidebar's artifact list shows
+        # it in the artifacts tile, in either view. The row carries the
+        # artifact's stable ``data-id``.
+        from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 
-        _wait_for_plot_drawn(page, mode, variant=variant, moment="after its row was clicked")
+        try:
+            page.locator(_PLOT_ROW_SELECTOR).first.click(timeout=_NAV_TIMEOUT_MS)
+        except PlaywrightTimeoutError as exc:
+            raise RuntimeError(
+                f"hub {variant}: the plot row was not clickable within "
+                f"{_NAV_TIMEOUT_MS // 1000} s; no image was written."
+            ) from exc
+
+        _wait_for_plot_drawn(page, variant=variant, moment="after its row was clicked")
 
         # Recolour the chrome for this accent candidate (all frames now exist).
         if accent is not None:
@@ -1164,20 +1134,20 @@ def capture_hub_view(
         page.wait_for_timeout(_SETTLE_MS)
         # The accent, the stage and the settle may re-lay-out the page, so the
         # plot is checked again where the shot is taken.
-        _wait_for_plot_drawn(page, mode, variant=variant, moment="before the shot")
+        _wait_for_plot_drawn(page, variant=variant, moment="before the shot")
 
-        png = page.screenshot()
+        png = page.locator(element).screenshot() if element else page.screenshot()
         dest.write_bytes(png)
     finally:
         page.close()
 
 
 # ---------------------------------------------------------------------------
-# Per-subpanel 2×2 sections
+# Per-subpanel sections
 # ---------------------------------------------------------------------------
 #
-# Every supported subpanel is captured standalone in the full dark/light ×
-# expert/simple matrix, one section per panel, using the same hermetic
+# Every supported subpanel is captured standalone in dark and light, one section
+# per panel, using the same hermetic
 # app-boot approach as the visual-regression suite: each panel is a real
 # FastAPI app served by ``run_app_server``; with no live backend behind it,
 # each renders its genuine (stable) shell state. The hub section above stays
@@ -1185,7 +1155,7 @@ def capture_hub_view(
 
 
 class PanelSurface(NamedTuple):
-    """One standalone subpanel captured as its own 2×2 section."""
+    """One standalone subpanel captured as its own section."""
 
     id: str
     title: str
@@ -1289,17 +1259,16 @@ def _capture_panel_variant(
     base_url: str,
     surface: PanelSurface,
     theme: str,
-    mode: str,
     out_dir: Path,
 ) -> CapturedVariant:
-    """Capture one subpanel surface in one theme/mode cell.
+    """Capture one subpanel surface in one theme.
 
     The query string mirrors panel-manager.js's iframe URL construction
-    (``embedded=true`` + ``theme`` + ``mode``), so every card shows the panel
+    (``embedded=true`` + ``theme``), so every card shows the panel
     exactly as the hub embeds it — same app, same chrome-stripped variant.
     """
     separator = "&" if "?" in surface.path else "?"
-    url = f"{base_url}{surface.path}{separator}embedded=true&theme={theme}&mode={mode}"
+    url = f"{base_url}{surface.path}{separator}embedded=true&theme={theme}"
 
     page = browser.new_page(viewport=_TERMINAL_VIEWPORT)
     try:
@@ -1316,30 +1285,28 @@ def _capture_panel_variant(
         page.wait_for_timeout(_SETTLE_MS)
 
         applied_theme = page.evaluate("document.documentElement.getAttribute('data-theme')")
-        applied_mode = page.evaluate("document.documentElement.getAttribute('data-ui-mode')")
-        if applied_theme != theme or applied_mode != mode:
+        if applied_theme != theme:
             raise RuntimeError(
-                f"panel {surface.id}: requested {theme}/{mode} but page applied "
-                f"{applied_theme}/{applied_mode}"
+                f"panel {surface.id}: requested {theme} but page applied {applied_theme}"
             )
 
         png = page.screenshot()
-        dest = out_dir / f"panel_{surface.id}_{theme}_{mode}.png"
+        dest = out_dir / f"panel_{surface.id}_{theme}.png"
         dest.write_bytes(png)
         return CapturedVariant(
-            theme=theme, mode=mode, accent=None, filename=dest.name, surface=surface.id
+            theme=theme, agent=None, accent=None, filename=dest.name, surface=surface.id
         )
     finally:
         page.close()
 
 
 def capture_panel_sections(out_dir: Path, browser) -> list[CapturedVariant]:
-    """Capture every :data:`PANEL_SURFACES` entry in the full 2×2; return cards.
+    """Capture every :data:`PANEL_SURFACES` entry in every theme; return cards.
 
     Boots one hermetic app per surface (surfaces sharing a boot key still get
     their own short-lived server — boots are cheap and isolation keeps a
     failure local), seeds the throwaway workspace the boots need, and asserts
-    afterwards that every surface produced all four theme×mode cells.
+    afterwards that every surface produced a card per theme.
     """
     captured: list[CapturedVariant] = []
     workspace = Path(tempfile.mkdtemp(prefix="osprey-panel-sheet-")).resolve()
@@ -1347,16 +1314,16 @@ def capture_panel_sections(out_dir: Path, browser) -> list[CapturedVariant]:
         seed_demo_knowledge_bundle(workspace)
         for surface in PANEL_SURFACES:
             with _PANEL_BOOTS[surface.boot](workspace) as base_url:
-                for theme, mode in _FULL_MATRIX_ORDERED:
-                    captured.append(
-                        _capture_panel_variant(browser, base_url, surface, theme, mode, out_dir)
-                    )
+                captured.extend(
+                    _capture_panel_variant(browser, base_url, surface, theme, out_dir)
+                    for theme in _PANEL_THEMES
+                )
     finally:
         shutil.rmtree(workspace, ignore_errors=True)
 
     for surface in PANEL_SURFACES:
-        cells = {(cv.theme, cv.mode) for cv in captured if cv.surface == surface.id}
-        missing = set(_FULL_MATRIX_ORDERED) - cells
+        cells = {cv.theme for cv in captured if cv.surface == surface.id}
+        missing = set(_PANEL_THEMES) - cells
         if missing:
             raise RuntimeError(
                 f"panel section '{surface.id}' is missing cell(s) {sorted(missing)}."
@@ -1389,17 +1356,15 @@ def capture_contact_sheet(out_dir: Path, *, accents: bool = False) -> Path:
     captured: list[CapturedVariant] = []
     with chromium_context() as browser:
         with hermetic_hub() as hub:
-            for theme, mode, accent in _effective_variants(accents):
-                captured.append(_capture_variant(browser, hub, theme, mode, out_dir, accent))
-            # Transition-showcase extras (top rail, retro family) — appended
-            # after the base matrix so the completeness assertion below stays a
-            # pure statement about the required 2×2.
-            for theme, mode, rail in EXTRA_VARIANTS:
-                captured.append(_capture_variant(browser, hub, theme, mode, out_dir, rail=rail))
-            for theme, mode, stage in STAGED_VARIANTS:
-                captured.append(_capture_variant(browser, hub, theme, mode, out_dir, stage=stage))
+            for theme, agent, accent in _effective_variants(accents):
+                captured.append(_capture_variant(browser, hub, theme, agent, out_dir, accent))
+            # Transition-showcase extras (retro family) — appended after the
+            # base matrix so the completeness assertion below stays a pure
+            # statement about the required 2×2.
+            for theme, agent in EXTRA_VARIANTS:
+                captured.append(_capture_variant(browser, hub, theme, agent, out_dir))
         _assert_all_variants_captured(captured, accents)
-        # Per-subpanel 2×2 sections (accent A/B stays a hub-only concern).
+        # Per-subpanel sections (accent A/B stays a hub-only concern).
         captured.extend(capture_panel_sections(out_dir, browser))
     return compose_contact_sheet(out_dir, captured)
 
@@ -1427,14 +1392,12 @@ def _git_rev() -> str:
 
 
 def _variant_label(cv: CapturedVariant) -> str:
-    """Human variant name, e.g. ``"Dark · Simple · teal"`` (accent/mode/rail optional)."""
-    parts = [cv.theme.capitalize(), (cv.mode or "default").capitalize()]
+    """Human variant name, e.g. ``"Dark · Chat · teal"`` (agent and accent optional)."""
+    parts = [cv.theme.capitalize()]
+    if cv.agent:
+        parts.append(cv.agent.capitalize())
     if cv.accent:
         parts.append(cv.accent)
-    if cv.rail:
-        parts.append(f"rail-{cv.rail}")
-    if cv.stage:
-        parts.append(STAGES[cv.stage].label)
     return " · ".join(parts)
 
 
@@ -1449,8 +1412,7 @@ def compose_contact_sheet(out_dir: Path, captured: list[CapturedVariant]) -> Pat
     """Write a single self-contained ``contact-sheet.html``; return its path.
 
     One TAB per surface (hub first, then each subpanel in :data:`PANEL_SURFACES`
-    order), each tab holding that surface's fixed dark/light × expert/simple 2×2
-    card grid — click through the tab strip instead of scrolling a long page.
+    order), each tab holding that surface's card grid — click through the tab strip instead of scrolling a long page.
     The tabs are pure CSS (hidden radio inputs + labels), so the page stays fully
     self-contained (inline CSS, no JS, no external assets, sibling PNGs only) and
     theme-aware so it reads in light or dark. A header stamps the capture time
@@ -1600,7 +1562,7 @@ def main(argv: list[str] | None = None) -> int:
 
     parser = argparse.ArgumentParser(
         prog="python -m docs.screenshots.contact_sheet",
-        description="Capture the web-terminal redesign in every theme/mode variant.",
+        description="Capture the web-terminal redesign in every theme/agent variant.",
     )
     parser.add_argument(
         "--out",

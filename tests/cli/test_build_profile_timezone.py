@@ -8,10 +8,10 @@ from pathlib import Path
 import pytest
 from click.testing import CliRunner
 
-from osprey.cli.build_cmd import build
 from osprey.cli.build_profile_timezone import system_timezone_errors, system_timezone_reminders
 from osprey.cli.init_cmd import init
 from osprey.cli.validate_cmd import validate
+from tests.cli._lifecycle_build import invoke_build
 
 PROFILE = "profile.yml"
 UTC_LINE = "  system.timezone: UTC"
@@ -117,17 +117,13 @@ def _set_zone(repo: Path, text: str) -> None:
     profile.write_text(body.replace(UTC_LINE + "\n", f"  system.timezone: {text}\n"))
 
 
-def _build(repo: Path):
-    return CliRunner().invoke(build, ["--repo", str(repo), "--skip-deps", "--skip-lifecycle"])
-
-
 def _validate(repo: Path):
     return CliRunner().invoke(validate, ["--repo", str(repo)])
 
 
 def test_build_refuses_a_misspelt_zone(repo: Path):
     _set_zone(repo, "Amerika/Los_Angeles")
-    result = _build(repo)
+    result = invoke_build(repo)
     assert result.exit_code == 2, result.output
     assert "Profile validation failed" in result.output
     assert "system.timezone" in result.output
@@ -146,19 +142,19 @@ def test_validate_refuses_a_misspelt_zone(repo: Path):
 def test_an_unresolved_reference_builds(repo: Path, monkeypatch: pytest.MonkeyPatch):
     monkeypatch.delenv("FACILITY_TZ", raising=False)
     _set_zone(repo, "${FACILITY_TZ}")
-    result = _build(repo)
+    result = invoke_build(repo)
     assert result.exit_code == 0, result.output
 
 
 def test_build_on_utc_reminds_exactly_once(repo: Path):
-    result = _build(repo)
+    result = invoke_build(repo)
     assert result.exit_code == 0, result.output
     assert result.output.count("system.timezone is UTC") == 1
 
 
 def test_build_on_a_real_zone_does_not_remind(repo: Path):
     _set_zone(repo, "America/Los_Angeles")
-    result = _build(repo)
+    result = invoke_build(repo)
     assert result.exit_code == 0, result.output
     assert result.output.count("system.timezone is UTC") == 0
 

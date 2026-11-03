@@ -20,6 +20,7 @@ from osprey.dispatch.sources.webhook import WebhookSource
 from osprey.dispatch.trigger_config import TriggerConfig
 from osprey.dispatch.worker_client import WorkerRejectedRequestError
 from tests.conftest import dispatcher_route_registry
+from tests.dispatch._fakes import FakeEntryPoint
 
 _FILES = [
     {"filename": "plot.png", "mime": "image/png", "content_b64": "QUJD" * 100, "ingest": True},
@@ -261,15 +262,6 @@ async def test_dispatch_passthrough_retry_rethreads_input_files():
 # ---------------------------------------------------------------------------
 
 
-class _FakeEntryPoint:
-    def __init__(self, name: str, cls: type) -> None:
-        self.name = name
-        self._cls = cls
-
-    def load(self) -> type:
-        return self._cls
-
-
 @pytest.fixture(autouse=True)
 def dispatch_server_build():
     """Build dispatcher apps through the shared route registry.
@@ -303,7 +295,7 @@ def app(tmp_path, monkeypatch, dispatch_server_build):
 
     def fake_entry_points(*, group):
         assert group == "osprey.trigger_sources"
-        return [_FakeEntryPoint("webhook", WebhookSource)]
+        return [FakeEntryPoint("webhook", WebhookSource)]
 
     monkeypatch.setattr("osprey.dispatch.source_registry.entry_points", fake_entry_points)
     return dispatch_server_build().http_app()

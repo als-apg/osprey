@@ -23,18 +23,13 @@ import pytest
 import yaml
 from click.testing import CliRunner
 
-from osprey.cli.build_cmd import build
 from osprey.cli.build_profile import list_presets, resolve_build_profile
 from osprey.cli.init_cmd import init
 from osprey.cli.profile_root import ProfileKind, layer_files
 from osprey.profiles.providers import PROVIDERS_FILENAME, compute_providers_hash
+from osprey.utils.workspace import TIERS_DIRNAME
 from osprey_connectors.errors import BuildProfileError
-from osprey_connectors.workspace import TIERS_DIRNAME
-
-
-@pytest.fixture
-def runner() -> CliRunner:
-    return CliRunner()
+from tests.cli._lifecycle_build import invoke_build, rendered_config
 
 
 def _new(runner: CliRunner, target: Path, preset: str, *extra: str):
@@ -45,11 +40,6 @@ def _new(runner: CliRunner, target: Path, preset: str, *extra: str):
     tests in ``test_init_verb.py``.
     """
     return runner.invoke(init, [str(target), "--preset", preset, "--no-git", *extra])
-
-
-def _build_from(runner: CliRunner, repo: Path):
-    """Render *repo*'s build zone, the way a facility would after editing it."""
-    return runner.invoke(build, ["--repo", str(repo), "--skip-deps", "--skip-lifecycle"])
 
 
 def _zone_snapshot(repo: Path, entries: tuple[str, ...]) -> dict[str, bytes | None]:
@@ -88,16 +78,26 @@ def test_writes_expected_tree(runner: CliRunner, tmp_path: Path) -> None:
     assert (target / "data").is_dir()
 
 
-def test_no_overlays_tree_is_seeded(runner: CliRunner, tmp_path: Path) -> None:
-    """`overlay:` was removed with FR-5 — it now hard-errors at load, so a
-    seeded `overlays/` would be a directory nothing reads and the README's
-    instructions would point operators at a mechanism that no longer exists.
-    Artifacts go in convention directories at the profile root instead."""
+@pytest.mark.parametrize(
+    "dirname",
+    [
+        # `overlay:` was removed with FR-5 — it now hard-errors at load, so a
+        # seeded `overlays/` would be a directory nothing reads and the README's
+        # instructions would point operators at a mechanism that no longer exists.
+        # Artifacts go in convention directories at the profile root instead.
+        "overlays",
+        # A profile without a web terminal module seeds no context.
+        "web-terminal-context",
+    ],
+)
+def test_a_new_profile_seeds_no_directory_nothing_reads(
+    runner: CliRunner, tmp_path: Path, dirname: str
+) -> None:
     target = tmp_path / "my-facility"
 
     assert _new(runner, target, "hello-world").exit_code == 0
 
-    assert not (target / "overlays").exists()
+    assert not (target / dirname).exists()
 
 
 def test_profile_is_standalone(runner: CliRunner, tmp_path: Path) -> None:
@@ -166,7 +166,7 @@ def test_extends_chain_preset_materializes_flat(
         "# The child's own comment, carried onto its override.\n"
         "deploy_services: false\n"
         "config:\n"
-        "  control_system.writes_enabled: false\n",
+        "  control_system.writes: never\n",
         encoding="utf-8",
     )
     monkeypatch.setattr(build_profile_presets, "_presets_dir", lambda: presets)
@@ -178,7 +178,7 @@ def test_extends_chain_preset_materializes_flat(
     text = (target / "profile.yml").read_text()
     assert not any(line.startswith("extends:") for line in text.splitlines()), text
     assert "deploy_services: false" in text
-    assert "control_system.writes_enabled: false" in text
+    assert "control_system.writes: never" in text
     assert "preset: ro-child" in text
     # Base content, with the base file's comments.
     assert "Which model answers" in text
@@ -346,16 +346,6 @@ def test_context_baseline_falls_back_to_the_framework_text() -> None:
     source = _context_baseline_source(manager, "hello_world")
     assert source == (manager.template_root / "claude_code" / "web-terminal-context" / "base.md")
     assert source.is_file()
-
-
-def test_profile_without_a_web_terminal_module_seeds_no_context(
-    runner: CliRunner, tmp_path: Path
-) -> None:
-    target = tmp_path / "my-facility"
-
-    assert _new(runner, target, "hello-world").exit_code == 0
-
-    assert not (target / "web-terminal-context").exists()
 
 
 # ---------------------------------------------------------------------------
@@ -659,7 +649,7 @@ def test_summary_says_no_env_was_written_when_nothing_was_exported(
 
 
 # ---------------------------------------------------------------------------
-# Provenance (FR-6)
+# Tests of provenance, FR-6
 # ---------------------------------------------------------------------------
 
 
@@ -733,7 +723,7 @@ def test_stray_j2_in_bundle_data_is_not_rendered(
 
     fake_root = tmp_path / "templates"
     real_root = manager_mod.TemplateManager().template_root
-    shutil.copytree(real_root, fake_root)
+    shutil.copytree(real_root, fake_root, ignore=shutil.ignore_patterns("__pycache__"))
     stray = fake_root / "apps" / "hello_world" / "data" / "stray.txt.j2"
     stray.parent.mkdir(parents=True, exist_ok=True)
     stray.write_text("{{ never_rendered }}\n", encoding="utf-8")
@@ -761,7 +751,7 @@ def test_materialize_then_build_succeeds_for_every_preset(
     created = _new(runner, repo, preset)
     assert created.exit_code == 0, f"init failed for {preset!r}: {created.output}"
 
-    built = _build_from(runner, repo)
+    built = invoke_build(repo)
     assert built.exit_code == 0, f"build failed for {preset!r}: {built.output}"
     assert (repo / "build" / "config.yml").is_file()
 
@@ -775,7 +765,7 @@ def test_built_project_data_comes_from_the_profile(runner: CliRunner, tmp_path: 
     marker = repo / "data" / "facility_marker.txt"
     marker.write_text("edited by the facility\n", encoding="utf-8")
 
-    assert _build_from(runner, repo).exit_code == 0
+    assert invoke_build(repo).exit_code == 0
 
     landed = repo / "build" / "data" / "facility_marker.txt"
     assert landed.is_file()
@@ -821,9 +811,9 @@ def test_baked_override_survives_into_the_built_project(runner: CliRunner, tmp_p
     repo = tmp_path / "my-facility"
     assert _new(runner, repo, "hello-world", "--set", "model=claude-opus-5").exit_code == 0
 
-    assert _build_from(runner, repo).exit_code == 0
+    assert invoke_build(repo).exit_code == 0
 
-    config = yaml.safe_load((repo / "build" / "config.yml").read_text())
+    config = rendered_config(repo)
     assert config["claude_code"]["default_model"] == "claude-opus-5"
 
 
@@ -1166,25 +1156,25 @@ def test_force_leaves_no_holding_directory_behind(runner: CliRunner, tmp_path: P
     assert not (target / HELD_SOURCE_ZONE_DIRNAME).exists()
 
 
-def test_extends_edit_is_rejected(runner: CliRunner, tmp_path: Path) -> None:
-    """A materialized profile is standalone, so nothing may give it a parent."""
-    target = tmp_path / "p-facility"
-
-    result = _new(runner, target, "hello-world", "--set", "extends=control-assistant")
-
-    assert result.exit_code == 2
-    assert "extends" in result.output
-    assert not target.exists()
-
-
-def test_an_invalid_edit_leaves_no_partial_directory(runner: CliRunner, tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    ("edit", "named"),
+    [
+        # A materialized profile is standalone, so nothing may give it a parent.
+        ("extends=control-assistant", "extends"),
+        ("channel_finder_mode=in-context", "channel_finder_mode"),
+    ],
+    ids=["extends", "invalid-value"],
+)
+def test_an_invalid_edit_leaves_no_partial_directory(
+    runner: CliRunner, tmp_path: Path, edit: str, named: str
+) -> None:
     """The atomicity guarantee: a bad edit fails and materializes nothing."""
     target = tmp_path / "p-facility"
 
-    result = _new(runner, target, "hello-world", "--set", "channel_finder_mode=in-context")
+    result = _new(runner, target, "hello-world", "--set", edit)
 
     assert result.exit_code == 2
-    assert "channel_finder_mode" in result.output
+    assert named in result.output
     assert not target.exists()
 
 
@@ -1471,6 +1461,9 @@ def test_resolves_identical_to_the_preset(runner: CliRunner, tmp_path: Path, pre
         name: ({"build_profile": f"{TIERS_DIRNAME}/{name}.yml"} if rewrites else value)
         for name, value in preset_renders.items()
     }
+    # Init seeds the facility description into the profile and names it by its
+    # path: the profile's copy where the preset selects OSPREY's rule.
+    d_new["rules"] = ["facility" if rule == "rules/facility" else rule for rule in d_new["rules"]]
     assert d_new == d_preset
 
 
@@ -1483,6 +1476,9 @@ def test_facility_extension_guidance_is_appended(runner: CliRunner, tmp_path: Pa
     assert _new(runner, target, "control-assistant").exit_code == 0
 
     text = (target / "profile.yml").read_text()
+    # control-assistant declares no mcp_servers of its own (the CANOPY screen
+    # server is the panel's declaration, not the preset's), so it gets the
+    # facility MCP server guidance like every other preset.
     assert "# mcp_servers:" in text
     assert "#   lattice:" in text
     assert "# artifact_server:" in text

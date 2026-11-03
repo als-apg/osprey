@@ -1,302 +1,284 @@
+// @ts-check
 /**
- * Contract tests for the rail→workspace drag bridge (rail-drag.js):
+ * Contract tests for the sidebar-row drag (rail-drag.js):
  *   npx vitest run tests/interfaces/web_terminal/rail-drag.test.mjs
  *
- * rail-drag.js wires HTML5 drags that START on a rail entry into dockview's
- * external-drag hooks: onUnhandledDragOver accepts our MIME on split targets
- * only (one panel per tile — tab/header/center geometries never accept), and
- * onDidDrop resolves the payload + drop position into the caller's
- * onDropPanel(id, position). It also owns the drag-time iframe shields
- * (`.dock-dragging` on .main-container + the adapter's inline pointer shield),
- * raised in railDragStart and lowered in railDragEnd.
- *
- * dockview and the collaborators are stubbed at the module boundary, exactly
- * as in dock-sync.test.mjs.
+ * A row is one more drag source of the dock's drop bridge: at drag start it
+ * becomes the engine source the bridge reads (dock-tab.js's dockDragSource) —
+ * `{new: id}`, or `{tab: id}` when its panel already has a tab in the held
+ * layout — and stamps the rail MIME on the transfer; without a dock there is
+ * nothing to drop into and the drag is cancelled. A landed drop (the holder's
+ * layout gained the key across the document's drop) reports to the landing
+ * handler once the drag is over; every end — a drop, a cancel, a lost gesture
+ * ended by the document failsafe — clears the dock's source. Placement itself
+ * is the bridge's (dock-drop.test.mjs).
  */
 
-import { test, expect, describe, beforeEach, vi } from 'vitest';
+import { test, expect, describe, beforeEach, afterEach, vi } from 'vitest';
 
 const MOD = '../../../src/osprey/interfaces/web_terminal/static/js/rail-drag.js';
+const TAB = '../../../src/osprey/interfaces/web_terminal/static/js/dock-tab.js';
+const APPLY = '../../../src/osprey/interfaces/web_terminal/static/js/dock-apply.js';
 
-const { getDockApi, setIframePointerShield, state } = vi.hoisted(() => ({
+const { getDockApi, state } = vi.hoisted(() => ({
   state: { api: /** @type {any} */ (null) },
   getDockApi: vi.fn(() => /** @type {any} */ (null)),
-  setIframePointerShield: vi.fn(),
 }));
 getDockApi.mockImplementation(() => state.api);
 
 vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/dock-workspace.js', () => ({
   getDockApi,
-  defaultServiceWidth: () => 600,
+  closeDockPanel: vi.fn(),
+  closeTerminalPanel: vi.fn(),
+  setLayoutRestoredHook: () => {},
   setServiceRedock: () => {},
-  onDragGesture: () => [],
 }));
-vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/dock-iframe.js', () => ({
-  setIframePointerShield,
-  PLACEHOLDER_PREFIX: 'iframe:',
-  PLACEHOLDER_COMPONENT: 'dock-iframe-placeholder',
+vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/popout.js', () => ({
+  popOutPanel: vi.fn(),
+  canPopOut: () => true,
+  isPoppedOut: () => false,
+  onPopoutChange: () => {},
 }));
+vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/tile-header-contrib.js', () => ({
+  registerContribHost: () => {},
+  unregisterContribHost: () => {},
+}));
+
+const ONE = { tile: 't1', tabs: ['alpha'], showing: 'alpha' };
+const TWO = {
+  split: 'row',
+  items: [
+    { tile: 't1', tabs: ['alpha'], showing: 'alpha', size: 0.5 },
+    { tile: 't2', tabs: ['beta', 'terminal'], showing: 'beta', size: 0.5 },
+  ],
+};
+
+/** A minimal DataTransfer: jsdom has none. */
+function transfer() {
+  /** @type {Record<string, string>} */
+  const store = {};
+  return /** @type {any} */ ({
+    store,
+    setData: (/** @type {string} */ t, /** @type {string} */ v) => {
+      store[t] = v;
+    },
+    getData: (/** @type {string} */ t) => store[t] ?? '',
+    effectAllowed: 'all',
+  });
+}
+
+/** @param {string} type @param {EventTarget} [target] */
+function fire(type, target = document) {
+  target.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true }));
+}
+
+const tick = () => new Promise((r) => setTimeout(r, 0));
 
 beforeEach(() => {
   vi.resetModules();
   vi.clearAllMocks();
   getDockApi.mockImplementation(() => state.api);
-  state.api = null;
-  document.body.innerHTML = '';
-  document.documentElement.removeAttribute('data-ui-mode');
+  state.api = {};
+  document.body.replaceChildren();
 });
 
-/** Fake DockviewApi exposing only the external-dnd hooks rail-drag wires. */
-function makeApi() {
-  /** @type {any} */
-  const api = {
-    /** @type {null | ((e: any) => void)} */ _overCb: null,
-    /** @type {null | ((e: any) => void)} */ _dropCb: null,
-  };
-  api.onUnhandledDragOver = vi.fn((/** @type {any} */ cb) => {
-    api._overCb = cb;
-    return { dispose() {} };
-  });
-  api.onDidDrop = vi.fn((/** @type {any} */ cb) => {
-    api._dropCb = cb;
-    return { dispose() {} };
-  });
-  return api;
-}
-
-/** An UnhandledDragOverEvent-shaped stub carrying our MIME (or not). */
-function overEvent({ target = 'content', position = 'right', withMime = true } = {}) {
-  return {
-    nativeEvent: { dataTransfer: { types: withMime ? ['application/x-osprey-panel'] : ['text/plain'] } },
-    target,
-    position,
-    accepted: false,
-    accept() { this.accepted = true; },
-  };
-}
-
-/** A DidDrop-shaped stub whose dataTransfer serves the payload on getData.
- *  @param {{id?: string, position?: string, group?: any, withMime?: boolean}} [opts] */
-function dropEvent({ id = 'ariel', position = 'right', group = { id: 'g1' }, withMime = true } = {}) {
-  return {
-    nativeEvent: {
-      dataTransfer: {
-        getData: (/** @type {string} */ k) =>
-          withMime && k === 'application/x-osprey-panel' ? id : '',
-      },
-    },
-    position,
-    group,
-  };
-}
-
-/** @param {any} api */
-async function wire(api, onDropPanel = vi.fn()) {
-  state.api = api;
-  const container = document.createElement('div');
-  container.className = 'main-container';
-  document.body.appendChild(container);
-  const mod = await import(MOD);
-  mod.initRailDrag({ onDropPanel });
-  return { mod, container, onDropPanel };
-}
-
-describe('drag-over acceptance (paints dockview\'s drop overlay)', () => {
-  test.each([
-    ['a split geometry', 'content', 'right'],
-    ['an edge-of-grid target', 'edge', 'left'],
-  ])('accepts a rail drag on %s', async (_name, target, position) => {
-    const api = makeApi();
-    await wire(api);
-    const e = overEvent({ target, position });
-    api._overCb(e);
-    expect(e.accepted).toBe(true);
-  });
-
-  test('never accepts stacking geometries (tab, header space, center)', async () => {
-    const api = makeApi();
-    await wire(api);
-    for (const e of [
-      overEvent({ target: 'tab' }),
-      overEvent({ target: 'header_space' }),
-      overEvent({ target: 'content', position: 'center' }),
-    ]) {
-      api._overCb(e);
-      expect(e.accepted).toBe(false);
-    }
-  });
-
-  test('ignores foreign drags without the rail MIME (e.g. a file drag)', async () => {
-    const api = makeApi();
-    await wire(api);
-    const e = overEvent({ withMime: false });
-    api._overCb(e);
-    expect(e.accepted).toBe(false);
-  });
+afterEach(async () => {
+  const tab = await import(TAB);
+  tab.clearDockDrag();
 });
 
-describe('drop routing', () => {
-  test.each([
-    ['bottom', 'below'],
-    ['top', 'above'],
-  ])('resolves the payload and hands overlay "%s" to onDropPanel as direction "%s"', async (position, direction) => {
-    const api = makeApi();
-    const group = { id: 'g1' };
-    const { onDropPanel } = await wire(api);
+/** A holder over `layout`, with no dockview behind it. @param {any} layout */
+async function holderOver(layout) {
+  const { createLayoutHolder } = await import(APPLY);
+  const holder = createLayoutHolder({ dockPx: { width: 1000, height: 600 } });
+  holder.restore(layout);
+  return holder;
+}
 
-    api._dropCb(dropEvent({ id: 'okf', position, group }));
-
-    // The two vocabularies differ on the vertical axis, and addPanel throws on
-    // the untranslated value.
-    expect(onDropPanel).toHaveBeenCalledExactlyOnceWith('okf', { referenceGroup: group, direction });
+describe('the source a row becomes', () => {
+  test('{new} for a panel with no tab, {tab} for one the held layout has', async () => {
+    const { railSourceOf } = await import(MOD);
+    const holder = await holderOver(ONE);
+    expect(railSourceOf('alpha', holder)).toEqual({ tab: 'alpha' });
+    expect(railSourceOf('gamma', holder)).toEqual({ new: 'gamma' });
+    expect(railSourceOf('gamma', null)).toEqual({ new: 'gamma' });
   });
 
-  test('a groupless (grid-edge) drop passes a direction-only position', async () => {
-    const api = makeApi();
-    const { onDropPanel } = await wire(api);
+  test('railDragStart records the source for the bridge, stamps the rail MIME, and reports accepted', async () => {
+    const mod = await import(MOD);
+    const tab = await import(TAB);
+    const holder = await holderOver(TWO);
+    mod.initRailDrag({ holder: () => holder });
+    const seen = vi.fn();
+    tab.onDockDragStart(seen);
+    const dt = transfer();
 
-    api._dropCb(dropEvent({ id: 'okf', position: 'left', group: null }));
+    expect(mod.railDragStart('gamma', dt)).toBe(true);
 
-    expect(onDropPanel).toHaveBeenCalledExactlyOnceWith('okf', { direction: 'left' });
-  });
-
-  test('ignores drops without the rail MIME payload', async () => {
-    const api = makeApi();
-    const { onDropPanel } = await wire(api);
-    api._dropCb(dropEvent({ withMime: false }));
-    expect(onDropPanel).not.toHaveBeenCalled();
-  });
-
-  test('a center drop never places (stacking backstop)', async () => {
-    const api = makeApi();
-    const { onDropPanel } = await wire(api);
-    api._dropCb(dropEvent({ position: 'center' }));
-    expect(onDropPanel).not.toHaveBeenCalled();
-  });
-});
-
-describe('railDragStart / railDragEnd — payload + shields', () => {
-  /** @returns {any} minimal DataTransfer stand-in */
-  function fakeDT() {
-    return {
-      data: /** @type {Record<string, string>} */ ({}),
-      effectAllowed: '',
-      setData(/** @type {string} */ k, /** @type {string} */ v) { this.data[k] = v; },
-    };
-  }
-
-  test('stamps the MIME payload, raises both shields, and reports accepted', async () => {
-    const api = makeApi();
-    const { mod, container } = await wire(api);
-    const dt = fakeDT();
-
-    expect(mod.railDragStart('ariel', dt)).toBe(true);
-    expect(dt.data['application/x-osprey-panel']).toBe('ariel');
-    expect(dt.data['text/plain']).toBe('ariel');
-    expect(container.classList.contains('dock-dragging')).toBe(true);
-    expect(setIframePointerShield).toHaveBeenCalledExactlyOnceWith(true);
-  });
-
-  test('railDragEnd lowers both shields', async () => {
-    const api = makeApi();
-    const { mod, container } = await wire(api);
-    mod.railDragStart('ariel', fakeDT());
-
+    expect(mod.railDragSource()).toBe('gamma');
+    expect(tab.dockDragSource()).toEqual({ new: 'gamma' });
+    expect(seen).toHaveBeenCalledExactlyOnceWith({ new: 'gamma' });
+    expect(dt.store[mod.RAIL_DRAG_MIME]).toBe('gamma');
+    expect(JSON.parse(dt.store[tab.DOCK_SOURCE_MIME])).toEqual({ new: 'gamma' });
+    expect(dt.effectAllowed).toBe('move');
     mod.railDragEnd();
-
-    expect(container.classList.contains('dock-dragging')).toBe(false);
-    expect(setIframePointerShield).toHaveBeenLastCalledWith(false);
   });
 
-  test('a document-level terminator lowers the shields when the source\'s dragend is lost', async () => {
-    // HTML5 delivers dragend only to the drag's SOURCE element; a rail entry
-    // removed mid-drag (SSE remove_panel_from_rail / arrange prune) can never fire it, and
-    // during a native drag mouseup/pointerup are suppressed. Without a
-    // document-level fallback the shields stay up forever and every panel
-    // iframe is left pointer-events:none — the "frozen workspace" bug.
-    const api = makeApi();
-    const { mod, container } = await wire(api);
-    mod.railDragStart('ariel', fakeDT());
-    expect(container.classList.contains('dock-dragging')).toBe(true);
-
-    // The source button was removed; the user's next gesture reaches document.
-    document.dispatchEvent(new Event('mouseup'));
-
-    expect(container.classList.contains('dock-dragging')).toBe(false);
-    expect(setIframePointerShield).toHaveBeenLastCalledWith(false);
-  });
-
-  test('terminator listeners disarm after firing — a later gesture cannot re-lower mid-drag', async () => {
-    const api = makeApi();
-    const { mod, container } = await wire(api);
-
-    // First drag ends via the failsafe.
-    mod.railDragStart('ariel', fakeDT());
-    document.dispatchEvent(new Event('mouseup'));
-    expect(container.classList.contains('dock-dragging')).toBe(false);
-
-    // Second drag: the stale listeners must be gone, so the shield stays up
-    // until this drag's own terminator.
-    mod.railDragStart('okf', fakeDT());
-    expect(container.classList.contains('dock-dragging')).toBe(true);
-    document.dispatchEvent(new Event('dragend'));
-    expect(container.classList.contains('dock-dragging')).toBe(false);
-  });
-
-  test('railDragEnd also disarms the failsafe (normal completion path)', async () => {
-    const api = makeApi();
-    const { mod, container } = await wire(api);
-    mod.railDragStart('ariel', fakeDT());
+  test("a new tab is built with the row's name", async () => {
+    const mod = await import(MOD);
+    const holder = await holderOver(TWO);
+    mod.initRailDrag({
+      holder: () => holder,
+      labelOf: (/** @type {string} */ id) => id.toUpperCase(),
+    });
+    mod.railDragStart('gamma', transfer());
+    expect(holder.panelRecord('gamma')).toEqual({ title: 'GAMMA' });
     mod.railDragEnd();
-    expect(container.classList.contains('dock-dragging')).toBe(false);
-    setIframePointerShield.mockClear();
-
-    // No armed listener may fire later and fight a dockview-owned gesture.
-    document.dispatchEvent(new Event('mouseup'));
-    expect(setIframePointerShield).not.toHaveBeenCalled();
   });
 
-  test('proceeds in simple mode — the view is not a locked layout', async () => {
-    const api = makeApi();
-    const { mod, container } = await wire(api);
-    document.documentElement.setAttribute('data-ui-mode', 'simple');
-    try {
-      expect(mod.railDragStart('ariel', fakeDT())).toBe(true);
-      expect(container.classList.contains('dock-dragging')).toBe(true);
-      expect(setIframePointerShield).toHaveBeenCalledWith(true);
-    } finally {
-      mod.railDragEnd();
-      document.documentElement.removeAttribute('data-ui-mode');
-    }
+  test('an open panel drags as its tab, so a drop moves it rather than duplicating it', async () => {
+    const mod = await import(MOD);
+    const tab = await import(TAB);
+    const holder = await holderOver(TWO);
+    mod.initRailDrag({ holder: () => holder });
+    expect(mod.railDragStart('beta', transfer())).toBe(true);
+    expect(tab.dockDragSource()).toEqual({ tab: 'beta' });
+    mod.railDragEnd();
   });
 
   test('cancels in fallback mode (no dock to drop into)', async () => {
-    const { mod } = await wire(null);
-    expect(mod.railDragStart('ariel', fakeDT())).toBe(false);
+    state.api = null;
+    const mod = await import(MOD);
+    const tab = await import(TAB);
+    expect(mod.railDragStart('gamma', transfer())).toBe(false);
+    expect(mod.railDragSource()).toBeNull();
+    expect(tab.dockDragSource()).toBeNull();
   });
 });
 
-describe('initRailDrag — wiring, idempotency, late arrival', () => {
-  test('is idempotent — a second init does not double-wire', async () => {
-    const api = makeApi();
-    const { mod } = await wire(api);
-    mod.initRailDrag({ onDropPanel: vi.fn() });
-    expect(api.onUnhandledDragOver).toHaveBeenCalledTimes(1);
-    expect(api.onDidDrop).toHaveBeenCalledTimes(1);
+describe('ending a drag', () => {
+  test('railDragEnd forgets the drag and clears the dock source; idempotent', async () => {
+    const mod = await import(MOD);
+    const tab = await import(TAB);
+    mod.initRailDrag({ holder: () => null });
+    mod.railDragStart('gamma', transfer());
+    mod.railDragEnd();
+    mod.railDragEnd();
+    expect(mod.railDragSource()).toBeNull();
+    expect(tab.dockDragSource()).toBeNull();
   });
 
-  test('retries and wires once a late DockviewApi arrives', async () => {
-    vi.useFakeTimers();
-    try {
-      const mod = await import(MOD);
-      mod.initRailDrag({ onDropPanel: vi.fn() });
-      const api = makeApi();
-      state.api = api;
-      expect(api.onDidDrop).not.toHaveBeenCalled();
-      vi.advanceTimersByTime(150);
-      expect(api.onDidDrop).toHaveBeenCalledTimes(1);
-    } finally {
-      vi.useRealTimers();
-    }
+  test("a document-level terminator ends the drag when the row's own dragend is lost", async () => {
+    const mod = await import(MOD);
+    const tab = await import(TAB);
+    mod.railDragStart('gamma', transfer());
+    fire('pointerup');
+    expect(mod.railDragSource()).toBeNull();
+    expect(tab.dockDragSource()).toBeNull();
+  });
+
+  test('the failsafe disarms with the drag: a later pointerup leaves a newer drag of another source alone', async () => {
+    const mod = await import(MOD);
+    const tab = await import(TAB);
+    mod.railDragStart('gamma', transfer());
+    mod.railDragEnd();
+    tab.dockDragStart({ tab: 'alpha' }, null);
+    fire('pointerup');
+    expect(tab.dockDragSource()).toEqual({ tab: 'alpha' });
+  });
+
+  test('a drop ends the drag one turn later, after the bridge has read the source', async () => {
+    const mod = await import(MOD);
+    const tab = await import(TAB);
+    const holder = await holderOver(ONE);
+    mod.initRailDrag({ holder: () => holder });
+    mod.railDragStart('gamma', transfer());
+    fire('drop');
+    expect(mod.railDragSource()).toBe('gamma');
+    await tick();
+    expect(mod.railDragSource()).toBeNull();
+    expect(tab.dockDragSource()).toBeNull();
+  });
+});
+
+describe('the landing', () => {
+  test('a drop that put the panel in the held layout reports it once the drag is over', async () => {
+    const mod = await import(MOD);
+    const holder = await holderOver(ONE);
+    const onRailDrop = vi.fn();
+    mod.initRailDrag({ onRailDrop, holder: () => holder });
+    // The bridge's drop handler runs between the landing watch's capture and
+    // bubble listeners: a target inside the document that changes the layout.
+    const target = document.createElement('div');
+    document.body.appendChild(target);
+    target.addEventListener('drop', () => {
+      holder.restore({
+        split: 'row',
+        items: [
+          { tile: 't1', tabs: ['alpha'], showing: 'alpha', size: 0.5 },
+          { tile: 't2', tabs: ['gamma'], showing: 'gamma', size: 0.5 },
+        ],
+      });
+    });
+    mod.railDragStart('gamma', transfer());
+    fire('drop', target);
+    expect(onRailDrop).not.toHaveBeenCalled();
+    await tick();
+    await tick();
+    expect(onRailDrop).toHaveBeenCalledExactlyOnceWith('gamma', { wasOnScreen: false });
+  });
+
+  test('a moved tab lands as one that was on screen; a drop that changed nothing lands nowhere', async () => {
+    const mod = await import(MOD);
+    const holder = await holderOver(TWO);
+    const onRailDrop = vi.fn();
+    mod.initRailDrag({ onRailDrop, holder: () => holder });
+    const target = document.createElement('div');
+    document.body.appendChild(target);
+    let move = true;
+    target.addEventListener('drop', () => {
+      if (!move) return;
+      holder.restore({
+        split: 'row',
+        items: [
+          { tile: 't2', tabs: ['beta', 'terminal'], showing: 'beta', size: 0.5 },
+          { tile: 't1', tabs: ['alpha'], showing: 'alpha', size: 0.5 },
+        ],
+      });
+    });
+    mod.railDragStart('beta', transfer());
+    fire('drop', target);
+    await tick();
+    await tick();
+    expect(onRailDrop).toHaveBeenCalledExactlyOnceWith('beta', { wasOnScreen: true });
+
+    move = false;
+    mod.railDragStart('gamma', transfer());
+    fire('drop', target);
+    await tick();
+    await tick();
+    expect(onRailDrop).toHaveBeenCalledTimes(1);
+  });
+
+  test('the landing waits for the live drag to end, so the held apply has run', async () => {
+    const mod = await import(MOD);
+    const holder = await holderOver(ONE);
+    const onRailDrop = vi.fn();
+    mod.initRailDrag({ onRailDrop, holder: () => holder });
+    const target = document.createElement('div');
+    document.body.appendChild(target);
+    target.addEventListener('drop', () => {
+      holder.setDragLive(true);
+      holder.restore({ tile: 't1', tabs: ['alpha', 'gamma'], showing: 'gamma' });
+    });
+    mod.railDragStart('gamma', transfer());
+    fire('drop', target);
+    await tick();
+    await tick();
+    expect(onRailDrop).not.toHaveBeenCalled();
+    holder.setDragLive(false);
+    await tick();
+    await tick();
+    expect(onRailDrop).toHaveBeenCalledTimes(1);
   });
 });

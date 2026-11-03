@@ -20,8 +20,8 @@ import pytest
 
 from osprey.cli import build_profile_presets
 from osprey.cli.profile_root import ProfileKind, ProjectProfile, resolve_profile_root
+from osprey.utils.workspace import APPS_DIRNAME, TIERS_DIRNAME
 from osprey_connectors.errors import BuildProfileError
-from osprey_connectors.workspace import APPS_DIRNAME, TIERS_DIRNAME
 from tests._retired_layout import RETIRED_LAYER_DIRNAME
 
 
@@ -238,21 +238,19 @@ def test_bundled_deployment_preset_is_a_root() -> None:
 # ── Standalone roots ────────────────────────────────────────────────────────
 
 
-def test_bare_file_is_standalone(tmp_path: Path) -> None:
-    """A profile written straight into a temp dir is standalone, root = its parent."""
-    profile = tmp_path / "profile.yml"
-    profile.write_text("name: bare\n")
-
-    root_dir, kind = resolve_profile_root(profile)
-
-    assert root_dir == tmp_path.resolve()
-    assert kind is ProfileKind.ROOT
-
-
-def test_standalone_file_needs_no_sibling_profile_yml(tmp_path: Path) -> None:
-    """An arbitrarily named file with no profile.yml beside it still resolves."""
-    profile = tmp_path / "scratch-profile.yaml"
-    profile.write_text("name: scratch\n")
+@pytest.mark.parametrize(
+    ("filename", "text"),
+    [
+        # A profile written straight into a temp dir is standalone, root = its parent.
+        ("profile.yml", "name: bare\n"),
+        # An arbitrarily named file with no profile.yml beside it still resolves.
+        ("scratch-profile.yaml", "name: scratch\n"),
+    ],
+    ids=["bare-file", "no-sibling-profile-yml"],
+)
+def test_standalone_file_is_its_own_root(tmp_path: Path, filename: str, text: str) -> None:
+    profile = tmp_path / filename
+    profile.write_text(text)
 
     root_dir, kind = resolve_profile_root(profile)
 

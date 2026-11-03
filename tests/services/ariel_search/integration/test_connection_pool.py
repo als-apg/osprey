@@ -42,8 +42,9 @@ def _add_column(uri: str) -> None:
 
 
 async def test_pooled_reader_survives_add_column(entries_database: str) -> None:
-    pool = await create_connection_pool(DatabaseConfig(uri=entries_database), max_size=1)
-    try:
+    async with await create_connection_pool(
+        DatabaseConfig(uri=entries_database), max_size=1
+    ) as pool:
         async with pool.connection() as conn:
             for _ in range(WARM_RUNS):
                 await (await conn.execute(SELECT, {"id": "e1"})).fetchall()
@@ -51,8 +52,6 @@ async def test_pooled_reader_survives_add_column(entries_database: str) -> None:
             _add_column(entries_database)
 
             rows = await (await conn.execute(SELECT, {"id": "e1"})).fetchall()
-    finally:
-        await pool.close()
 
     assert rows == [("e1", "beam dump", None)]
 

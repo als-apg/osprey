@@ -3,8 +3,9 @@
 ``apply_safety`` takes a configuration shaped as ``Runner.generate_config``
 returns it and fixes the five write-path keys, each setpoint's band and each
 variable's PV mode; ``periodic_addresses`` names the channels whose binding
-refreshes ``periodic``. Both read the view through ``SimulatorView`` and are
-pure, so these run on any host.
+refreshes ``periodic``; ``setting_records`` and ``pass_readback`` name what a
+write pass of physics settings reads back. All read the view through
+``SimulatorView`` and are pure, so these run on any host.
 """
 
 from __future__ import annotations
@@ -19,8 +20,11 @@ import pytest
 
 from osprey.services.virtual_accelerator.serving import runner_config
 from osprey.services.virtual_accelerator.serving.runner_config import (
+    FLOAT_PRECISION,
     apply_safety,
+    pass_readback,
     periodic_addresses,
+    setting_records,
 )
 from osprey_connectors.simulation.view import (
     ADDRESSES_FILE,
@@ -29,25 +33,9 @@ from osprey_connectors.simulation.view import (
     SimulatorView,
 )
 from tests._builds import BuiltProject
+from tests._simulator_view import view_channel
 
 STATUS = "T:SIM:M:STATUS"
-
-
-def _channel(address: str, **fields: Any) -> dict[str, Any]:
-    role = fields.pop("role", "readback")
-    return {
-        "address": address,
-        "role": role,
-        "pair": address if role == "setpoint" else None,
-        "value_type": fields.pop("value_type", "float"),
-        "unit": None,
-        "description": None,
-        "writable": fields.pop("writable", False),
-        "value_range": fields.pop("value_range", None),
-        "owner": fields.pop("owner", "texture"),
-        "on": None,
-        **fields,
-    }
 
 
 def _binding(record: dict[str, Any], role: str, plane: str | None, refresh: str) -> dict[str, Any]:
@@ -143,11 +131,11 @@ VIEW: dict[str, Any] = {
         },
     ],
     "channels": [
-        _channel("M:BPM:X", owner="M"),
-        _channel("M:CHROM", owner="M", value_type="waveform", shape=[2]),
-        _channel("M:CHROM:X", owner="M"),
-        _channel("M:CHROM:Y", owner="M"),
-        _channel(
+        view_channel("M:BPM:X", owner="M"),
+        view_channel("M:CHROM", owner="M", value_type="waveform", shape=[2]),
+        view_channel("M:CHROM:X", owner="M"),
+        view_channel("M:CHROM:Y", owner="M"),
+        view_channel(
             "M:HCM:SP",
             owner="M",
             role="setpoint",
@@ -155,12 +143,12 @@ VIEW: dict[str, Any] = {
             value_range=[-2.0, 2.0],
             precision=4,
         ),
-        _channel("T:COUNT", value_type="int", precision=2),
-        _channel("M:SLICED", owner="M"),
-        _channel("M:TUNE:X", owner="M"),
-        _channel("T:LOCKED:SP", role="setpoint", writable=False, value_range=[0.0, 1.0]),
-        _channel("T:OPEN:SP", role="setpoint", writable=True),
-        _channel("T:RB"),
+        view_channel("T:COUNT", value_type="int", precision=2),
+        view_channel("M:SLICED", owner="M"),
+        view_channel("M:TUNE:X", owner="M"),
+        view_channel("T:LOCKED:SP", role="setpoint", writable=False, value_range=[0.0, 1.0]),
+        view_channel("T:OPEN:SP", role="setpoint", writable=True),
+        view_channel("T:RB"),
     ],
 }
 
@@ -258,8 +246,49 @@ def test_a_float_channel_stating_precision_hands_it_to_the_runner(view: Simulato
     config = apply_safety(_generated(ADDRESSES), view)
 
     assert config["variables"]["M:HCM:SP"]["precision"] == 4
-    stated = {address for address, entry in config["variables"].items() if "precision" in entry}
-    assert stated == {"M:HCM:SP"}
+
+
+def test_a_float_channel_stating_no_precision_is_served_the_default(
+    view: SimulatorView,
+) -> None:
+    config = apply_safety(_generated(ADDRESSES), view)
+
+    floats = {
+        channel["address"]
+        for channel in VIEW["channels"]
+        if channel["value_type"] == "float" and "precision" not in channel
+    }
+    assert floats
+    for address in floats:
+        assert config["variables"][address]["precision"] == FLOAT_PRECISION, address
+
+
+def test_a_stated_precision_wins_over_the_default(tmp_path: Path) -> None:
+    document = copy.deepcopy(VIEW)
+    stated = next(c for c in document["channels"] if c["address"] == "M:TUNE:X")
+    stated["precision"] = 0
+
+    config = apply_safety(
+        _generated(ADDRESSES), SimulatorView.open(_write_view(tmp_path, document))
+    )
+
+    assert config["variables"]["M:TUNE:X"]["precision"] == 0
+
+
+def test_only_float_channels_carry_a_precision(view: SimulatorView) -> None:
+    config = apply_safety(_generated(ADDRESSES), view)
+
+    floats = {c["address"] for c in VIEW["channels"] if c["value_type"] == "float"}
+    carrying = {address for address, entry in config["variables"].items() if "precision" in entry}
+    assert carrying == floats
+
+
+def test_the_default_float_precision_shows_a_tune_and_a_small_kick() -> None:
+    # A tune is read to 1e-4 and a corrector kick in mrad to a microradian;
+    # both must survive the display rather than round to 0.
+    assert f"{0.2186:.{FLOAT_PRECISION}f}" == "0.2186"
+    assert float(f"{0.05:.{FLOAT_PRECISION}f}") == 0.05
+    assert 0 <= FLOAT_PRECISION <= 17
 
 
 def test_periodic_addresses_are_the_bindings_refreshing_periodic(view: SimulatorView) -> None:
@@ -315,6 +344,46 @@ def test_periodic_addresses_equal_the_chromaticity_channels_on_the_demo(
     }
     assert chromaticity
     assert periodic_addresses(view) == chromaticity
+
+
+def test_a_setting_reads_back_itself_its_readback_and_its_models_computed_records_on_the_demo(
+    built_control_assistant: BuiltProject,
+) -> None:
+    view, variables, addresses = _demo_view(built_control_assistant)
+    hcm, vcm = "SR:MAG:HCM:01:CURRENT:SP", "SR:MAG:VCM:01:CURRENT:SP"
+    sr = [channel for channel in variables["channels"] if channel["owner"] == "SR"]
+    paired = {channel["pair"] for channel in sr if channel["role"] == "setpoint"}
+    computed = {
+        channel["address"]
+        for channel in sr
+        if channel["role"] != "setpoint" and channel["address"] not in paired
+    }
+    served = {*addresses["channels"], *addresses["status"]}
+
+    records = setting_records(view)
+    readback = pass_readback(records, [hcm])
+
+    assert {"SR:DIAG:BPM:01:POSITION:X", "SR:DIAG:TUNE:X"} <= computed
+    assert readback == {hcm, "SR:MAG:HCM:01:CURRENT:RB", *computed, view.status_addresses()["SR"]}
+    assert len(readback) * 10 < len(served)
+    assert pass_readback(records, [hcm, vcm]) == readback | {vcm, "SR:MAG:VCM:01:CURRENT:RB"}
+
+
+def test_a_pass_writing_a_texture_setting_reads_no_model_alone_on_the_demo(
+    built_control_assistant: BuiltProject,
+) -> None:
+    view, variables, _ = _demo_view(built_control_assistant)
+    texture = sorted(
+        channel["address"]
+        for channel in variables["channels"]
+        if channel["owner"] == "texture" and channel["role"] == "setpoint"
+    )
+    records = setting_records(view)
+
+    assert texture
+    assert pass_readback(records, texture[:1]) is None
+    assert pass_readback(records, [texture[0], "SR:MAG:HCM:01:CURRENT:SP"]) is None
+    assert pass_readback(records, []) is None
 
 
 def test_the_module_imports_no_server_library() -> None:

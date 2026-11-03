@@ -34,7 +34,7 @@ describe('fuzzyMatch', () => {
     const hit = fuzzyMatch('ctl lim', 'control_system.limits_checking');
     expect(hit).not.toBeNull();
     // Devil's-advocate case: the whole point is that this non-null hit exists.
-    if (hit === null) throw new Error('expected a match');  // narrows for checkJs
+    if (hit === null) throw new Error('expected a match'); // narrows for checkJs
 
     // approval.limits_checking has no "t" after its only "c", so token "ctl"
     // fails -> null. Non-null wins.

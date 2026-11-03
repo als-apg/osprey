@@ -6,7 +6,7 @@ Every record of the facility file carries::
       sources:  [{layer, file, fields}]   one per (layer, file), sorted by both
       fixes:    [{op, why}]               the fixes applied, in fixes.yaml order
       defaults: [field]                   the fields the build filled, sorted
-      place_from: span | authored | fix   a device's place, when it has one
+      place_from: span | authored | fix | imported   a device's place, when it has one
 
 Views read only this block, so every stage that adds to a record's history goes
 through the functions here.
@@ -20,7 +20,7 @@ from typing import Any
 __all__ = ["PLACE_FROM", "add_defaults", "build_provenance", "set_place_from"]
 
 #: Where a device's ``place`` may come from.
-PLACE_FROM: tuple[str, ...] = ("span", "authored", "fix")
+PLACE_FROM: tuple[str, ...] = ("span", "authored", "fix", "imported")
 
 
 def build_provenance(

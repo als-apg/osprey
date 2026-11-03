@@ -16,6 +16,7 @@ from osprey.runtime.guarded_run import OspreyWriteRefused as RuntimeOspreyWriteR
 from osprey_connectors.control_system._limits_validator import ChannelLimitsConfig
 from osprey_connectors.errors import (
     ChannelLimitsViolationError,
+    ChannelUnreachableError,
     ChannelWriteFailedError,
 )
 from pyaml_cs_osprey import _run
@@ -62,18 +63,19 @@ def test_read_write_pair_names() -> None:
     assert str(dev) == RW
 
 
-def test_bare_reference_names_its_one_address() -> None:
-    """A bare reference names its one address for both."""
-    dev = _device("TUNE:x[]")
-    assert dev.name() == "TUNE:x"
-    assert dev.measure_name() == "TUNE:x"
-
-
-def test_write_only_names_use_the_setpoint_address() -> None:
-    """A write-only reference measures on its setpoint address."""
-    dev = _device("(HCOR_001:Cm:set)[rad]")
-    assert dev.name() == "HCOR_001:Cm:set"
-    assert dev.measure_name() == "HCOR_001:Cm:set"
+@pytest.mark.parametrize(
+    ("reference", "address"),
+    [
+        # A bare reference names its one address for both.
+        pytest.param("TUNE:x[]", "TUNE:x", id="bare-reference"),
+        # A write-only reference measures on its setpoint address.
+        pytest.param("(HCOR_001:Cm:set)[rad]", "HCOR_001:Cm:set", id="write-only"),
+    ],
+)
+def test_a_reference_with_one_address_names_it_for_both(reference: str, address: str) -> None:
+    dev = _device(reference)
+    assert dev.name() == address
+    assert dev.measure_name() == address
 
 
 def test_unit_is_the_si_word_of_the_reference_suffix() -> None:
@@ -251,7 +253,7 @@ def test_a_failed_readback_read_during_the_settle_is_a_read_failure(
     plant_facility(guarded_repo, {"QF_001:Cm:set": ("QF_001:Cm:rdbk", 0.02)})
 
     def unreachable(address: str) -> None:
-        raise ConnectionError(f"{address} is unreachable")
+        raise ChannelUnreachableError(address, f"{address} is unreachable")
 
     runtime.on_poll = unreachable
 
@@ -263,10 +265,10 @@ def test_a_failed_readback_read_during_the_settle_is_a_read_failure(
     assert in_run.moved == {"QF_001:Cm:set": 1.5}
 
 
-def test_a_connector_value_error_during_the_settle_is_a_read_failure(
+def test_a_connector_value_error_during_the_settle_propagates_as_itself(
     runtime: _Runtime, guarded_repo: Path, clock: Clock, in_run: RunRecord
 ) -> None:
-    """A readback read that raises ValueError while settling is a read failure of the readback."""
+    """Only a failure about the readback is a read failure; anything else is raised as it is."""
     del clock
     plant_facility(guarded_repo, {"QF_001:Cm:set": ("QF_001:Cm:rdbk", 0.02)})
 
@@ -276,10 +278,9 @@ def test_a_connector_value_error_during_the_settle_is_a_read_failure(
 
     runtime.on_poll = bad_reply
 
-    with pytest.raises(OspreyReadFailed) as info:
+    with pytest.raises(ValueError, match="bad reply"):
         _device(RW).set_and_wait(4.0)
 
-    assert info.value.addresses == ["QF_001:Cm:rdbk"]
     assert in_run.moved == {"QF_001:Cm:set": 1.5}
 
 

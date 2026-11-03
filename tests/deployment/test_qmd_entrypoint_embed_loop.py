@@ -14,14 +14,12 @@ pending documents per call, the way a session that runs out of time does.
 
 from __future__ import annotations
 
-import os
 import shutil
-import subprocess
 from pathlib import Path
 
 import pytest
 
-ENTRYPOINT = Path(__file__).resolve().parents[2] / "src/osprey/templates/services/qmd/entrypoint.sh"
+from tests.deployment._qmd_entrypoint import run_entrypoint
 
 pytestmark = pytest.mark.skipif(shutil.which("sh") is None, reason="needs sh, as the image has")
 
@@ -54,43 +52,38 @@ exit 0
 
 
 def _run_embed_pass(tmp_path: Path, *, pending: int, per_round: int, floor: int = 0):
-    bin_dir = tmp_path / "bin"
-    bin_dir.mkdir()
-    stub = bin_dir / "qmd"
-    stub.write_text(_STUB)
-    stub.chmod(0o755)
     state = tmp_path / "pending"
     state.write_text(f"{pending}\n")
     calls = tmp_path / "calls"
     calls.write_text("")
 
-    lines = ENTRYPOINT.read_text().splitlines()
-    assert lines[-1] == 'main "$@"', "the entrypoint no longer ends with its main call"
-    library = tmp_path / "entrypoint-lib.sh"
-    library.write_text("\n".join(lines[:-1]) + "\n")
-
     env = {
-        "PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}",
-        "HOME": str(tmp_path),
-        "OSPREY_QMD_PORT": "1",
         "STUB_STATE": str(state),
         "STUB_CALLS": str(calls),
         "STUB_PER_ROUND": str(per_round),
         "STUB_FLOOR": str(floor),
     }
-    script = f'. "{library}"; embed_until_done; echo "PENDING=$EMBED_PENDING"'
-    result = subprocess.run(
-        ["sh", "-c", script], env=env, capture_output=True, text=True, timeout=60
+    result = run_entrypoint(
+        tmp_path, stub=_STUB, script='embed_until_done; echo "PENDING=$EMBED_PENDING"', env=env
     )
     return result, len(calls.read_text().split())
 
 
-def test_embedding_repeats_until_nothing_is_pending(tmp_path):
-    # 9,984 documents with ~1,258 embedded per session in the field; scaled down.
-    result, rounds = _run_embed_pass(tmp_path, pending=10, per_round=3)
+@pytest.mark.parametrize(
+    ("pending", "expected_rounds"),
+    [
+        # 9,984 documents with ~1,258 embedded per session in the field; scaled down.
+        pytest.param(10, 4, id="repeats-until-nothing-is-pending"),
+        # The status parser fails towards zero; a zero read before any embedding must
+        # not skip the embedding itself.
+        pytest.param(0, 1, id="runs-once-when-status-reports-nothing-pending"),
+    ],
+)
+def test_embedding_runs_until_nothing_is_pending(tmp_path, pending, expected_rounds):
+    result, rounds = _run_embed_pass(tmp_path, pending=pending, per_round=3)
 
     assert result.returncode == 0, result.stdout + result.stderr
-    assert rounds == 4
+    assert rounds == expected_rounds
     assert "PENDING=0" in result.stdout
 
 
@@ -102,13 +95,3 @@ def test_a_round_that_embeds_nothing_ends_the_loop_and_reports_what_is_left(tmp_
     assert rounds == 4
     assert "PENDING=2" in result.stdout
     assert "2 document(s) still have no vectors" in result.stdout
-
-
-def test_embedding_runs_once_even_when_status_reports_nothing_pending(tmp_path):
-    # The status parser fails towards zero; a zero read before any embedding must
-    # not skip the embedding itself.
-    result, rounds = _run_embed_pass(tmp_path, pending=0, per_round=3)
-
-    assert result.returncode == 0, result.stdout + result.stderr
-    assert rounds == 1
-    assert "PENDING=0" in result.stdout

@@ -76,6 +76,7 @@ from typing import Any
 
 import pytest
 
+from tests.e2e._deploy_support import format_failure
 from tests.e2e.profile_edits import set_pairs
 
 pytestmark = [
@@ -102,8 +103,9 @@ DEPLOY_UP_TIMEOUT_SEC = 2400
 
 # The measured budgets this lane owns. Both are stated against DEFAULT
 # va_archiver knobs (30-day retention, 48 h hot span) -- see the module
-# docstring for why the fast lanes cannot own them.
-SEED_BUDGET_SEC = 180.0
+# docstring for why the fast lanes cannot own them. The seed measures about 200 s
+# on a CI runner, so 300 s leaves room for a slow one without hiding a stall.
+SEED_BUDGET_SEC = 300.0
 DISK_BUDGET_BYTES = 2 * 1024**3
 
 # From a setpoint write to that value being readable out of the archive. Covers
@@ -116,13 +118,6 @@ RECORDER_POLL_SEC = 2.0
 #: and a full config load first, and this is a timeout, not a measurement.
 HEALTH_TIMEOUT_SEC = 120.0
 
-#: Canary channel the derived ``archiver_freshness`` check reads. Named here
-#: rather than picked from the deployed manifest the way the write test picks
-#: its setpoint, because it has to travel into the build's profile edits before
-#: any project exists to read a manifest from. The test asserts it really is a
-#: channel this machine model serves, so a model that drops it fails loudly
-#: instead of reporting a mystery "no samples in the window".
-FRESHNESS_CANARY = "SR:DIAG:DCCT:01:CURRENT:RB"
 
 # How far the document count may grow when an eventful scenario is applied.
 # One-sided on purpose: densification inserts a bounded number of samples inside
@@ -146,8 +141,21 @@ UNCOVERED_FRACTION = 0.05
 # pads the continuation with the log gutter's spaces -- so this line arrives
 # split across two or three physical lines with ANSI colour codes through it.
 # A line-oriented regex silently finds nothing and reads as "the seed never ran".
-_SEED_REPORT_RE = re.compile(r"seeded ([\d,]+) documents x ([\d,]+) channels .* in ([\d.]+)s")
+# Normalizing also folds the whole deploy onto one line, so the gap is non-greedy:
+# a greedy one runs on to the last ` in <N>s` of the deploy, not the seed's own.
+_SEED_REPORT_RE = re.compile(r"seeded ([\d,]+) documents x ([\d,]+) channels .*? in ([\d.]+)s")
 _SEED_PROGRESS_RE = re.compile(r"seeding archive: [\d,]+ documents written")
+
+# Every step line the seed reports, announcement to report, with the lap the phase
+# reporter stamps on the end of each: the time since the step before it. Bounded
+# on both sides because normalized output is one long line, so nothing here may
+# run on into whatever the deploy said next.
+_SEED_STEP_RE = re.compile(
+    r"(?:seeding the archive base: [\d,]+ channels over \d+ days \([^()]*\)"
+    r"|seeding archive: [\d,]+ documents written across [\d,]+ channels"
+    r"|archive base: seeded [\d,]+ documents x [\d,]+ channels \([^()]*\) in [\d.]+s)"
+    r"(?: \([^()]*\))?"
+)
 
 _ANSI_RE = re.compile(r"\x1b\[[0-9;]*[a-zA-Z]")
 
@@ -169,6 +177,11 @@ def _normalize(text: str) -> str:
     return re.sub(r"\s+", " ", _ANSI_RE.sub("", text))
 
 
+def _seed_steps(output: str) -> str:
+    """The seed's step lines out of NORMALIZED deploy output, one per line."""
+    return "\n".join(_SEED_STEP_RE.findall(output)) or "(no seed step lines)"
+
+
 def _profile_edits() -> dict[str, Any]:
     """The profile edits that opt this project into the stored archive.
 
@@ -178,9 +191,9 @@ def _profile_edits() -> dict[str, Any]:
     archiver_recorder services and renders the connector's connection keys.
     Declaring it carries NO knob overrides on purpose: this lane owns the
     measured budgets, and shrinking retention here would make them meaningless.
-    ``freshness_channel`` is not such a knob — it changes no size and no cadence,
-    it only names the canary the derived ``archiver_freshness`` health check
-    reads, and without it that check is never derived and cannot be proven here.
+    It names only ``port_host``: the preset's own ``freshness_channel`` stays in
+    force, so the derived ``archiver_freshness`` health check reads the canary a
+    deployment ships (:func:`_freshness_canary`).
 
     ``archiver.type`` must be set SEPARATELY. Declaring where an archive lives is
     not the same decision as selecting it as the deployment's archiver, so
@@ -221,9 +234,9 @@ def _profile_edits() -> dict[str, Any]:
     the bundle also ships — nothing here looks a channel up either way.
 
     That trim is not only about speed. The preset's full stack publishes
-    postgres, the telemetry store, the bluesky bridge, Tiled and the panels on fixed
-    host ports, and a developer box running any OSPREY demo stack already holds
-    them: the deploy then aborts on a port preflight that has nothing to do with
+    postgres, the bluesky bridge, Tiled and the panels on fixed host ports,
+    and a developer box running any OSPREY demo stack already holds them: the
+    deploy then aborts on a port preflight that has nothing to do with
     archiving. Deploying only what is under test makes this lane runnable
     beside a live demo, and cuts several image builds out of a 45-minute cap.
     """
@@ -234,13 +247,11 @@ def _profile_edits() -> dict[str, Any]:
             "modules.web_terminals.enabled": False,
             "deployed_services": [],
             "ariel": None,
-            "claude_code.telemetry.enabled": False,
             "claude_code.servers.bluesky.enabled": False,
         },
         "channel_finder_mode": "hierarchical",
         "va_archiver": {
             "port_host": MONGO_PORT_HOST,
-            "freshness_channel": FRESHNESS_CANARY,
         },
         "virtual_accelerator": {"live_standin": None},
         "bluesky": None,
@@ -248,6 +259,24 @@ def _profile_edits() -> dict[str, Any]:
         "dispatch": None,
         "services": {},
     }
+
+
+def _freshness_canary(repo: Path) -> str:
+    """The canary channel the derived ``archiver_freshness`` check reads.
+
+    Inherited from the preset rather than named by this lane: the profile edits
+    leave ``va_archiver.freshness_channel`` alone, so the lane proves the canary
+    a deployment actually ships.
+    """
+    import yaml
+
+    profile = yaml.safe_load((repo / "profile.yml").read_text(encoding="utf-8"))
+    canary = (profile.get("va_archiver") or {}).get("freshness_channel")
+    assert canary, (
+        f"{repo / 'profile.yml'} names no va_archiver.freshness_channel, so the build "
+        "derives no archiver_freshness check"
+    )
+    return str(canary)
 
 
 def _build_project(output_dir: Path) -> Path:
@@ -306,10 +335,7 @@ def _build_project(output_dir: Path) -> Path:
             env={**os.environ, "CLAUDECODE": ""},
         )
         if result.returncode != 0:
-            raise AssertionError(
-                f"{label} failed (rc={result.returncode}):\n"
-                f"--- stdout ---\n{result.stdout}\n--- stderr ---\n{result.stderr}"
-            )
+            raise AssertionError(format_failure(label, result))
     return repo
 
 
@@ -370,7 +396,9 @@ def archiver_world(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
         volume the fingerprint would MATCH, the seed would be skipped entirely,
         and the budget assertions would have nothing to measure.
         """
-        subprocess.run(["docker", "volume", "rm", "-f", store_volume], capture_output=True)
+        subprocess.run(
+            ["docker", "volume", "rm", "-f", store_volume], capture_output=True, timeout=60
+        )
 
     base = tmp_path_factory.mktemp("archiver_world_build")
     repo = _build_project(base)
@@ -393,14 +421,7 @@ def archiver_world(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
     osprey_bin = _orm_stack.find_osprey_console_script()
 
     # Force a fresh --dev image so the deployed recorder runs CURRENT source.
-    # Exact-named image only. E2E_REUSE_IMAGES=1 skips it for fast local
-    # iteration on the test itself; never set it in CI.
-    if not os.environ.get("E2E_REUSE_IMAGES"):
-        subprocess.run(
-            ["docker", "rmi", "-f", _orm_stack.va_image(PROJECT_NAME)],
-            capture_output=True,
-            text=True,
-        )
+    _orm_stack.force_image_rebuild(_orm_stack.va_image(PROJECT_NAME))
 
     # Before the deploy, not only after: a run that died without reaching its
     # teardown (a killed session, a crashed fixture) leaves the volume behind,
@@ -521,7 +542,9 @@ def _recorder_logs(tail: str | None = None) -> str:
     command = ["docker", "logs"]
     if tail is not None:
         command += ["--tail", tail]
-    logs = subprocess.run([*command, _recorder_container()], capture_output=True, text=True)
+    logs = subprocess.run(
+        [*command, _recorder_container()], capture_output=True, text=True, timeout=60
+    )
     return _normalize(logs.stdout + logs.stderr)
 
 
@@ -601,14 +624,19 @@ def test_base_seed_completes_within_budget_and_reports_progress(archiver_world):
     assert elapsed_s <= SEED_BUDGET_SEC, (
         f"base seed took {elapsed_s:.1f}s at default knobs, over the "
         f"{SEED_BUDGET_SEC:.0f}s budget this lane owns "
-        f"({documents:,} documents x {channels:,} channels)"
+        f"({documents:,} documents x {channels:,} channels)\n"
+        # The laps are what tell the two failures apart: one long lap is a stall
+        # and names where it sits, even laps are a seed that is simply this slow.
+        f"--- seed steps, each with the lap since the one before ---\n{_seed_steps(output)}"
     )
     assert _SEED_PROGRESS_RE.search(output), (
         "seed emitted no progress lines; a silent multi-minute step reads as a hang"
     )
+    # The steps on a green run too, so a failure has a normal run to be read against.
     print(
         f"\nMEASURED base seed: {elapsed_s:.1f}s of the {SEED_BUDGET_SEC:.0f}s budget "
-        f"({documents:,} documents x {channels:,} channels)"
+        f"({documents:,} documents x {channels:,} channels)\n"
+        f"--- seed steps, each with the lap since the one before ---\n{_seed_steps(output)}"
     )
 
 
@@ -654,7 +682,7 @@ def test_seeded_archive_fits_the_disk_budget_with_the_declared_compressor(archiv
 
 
 def test_written_setpoint_appears_in_the_archive_within_the_recorder_budget(
-    archiver_world, monkeypatch
+    archiver_world, monkeypatch, tmp_path
 ):
     """Write to the machine, then read it back out of history.
 
@@ -665,18 +693,24 @@ def test_written_setpoint_appears_in_the_archive_within_the_recorder_budget(
     """
     from osprey_connectors import config as config_module
     from osprey_connectors.factory import ConnectorFactory, register_builtin_connectors
+    from osprey_connectors.types import TARGET_VA
+    from osprey_connectors_tests._write_fakes import arm_switch
 
-    # Writes are fail-closed, and the guard does NOT consult the config handed to
-    # the connector: `_writes_enabled` re-reads `control_system.writes_enabled`
-    # from the GLOBAL config every time (see
-    # osprey_connectors.control_system._base), which resolves from CONFIG_FILE or
-    # the working directory. Pytest runs from the repo root, which has no
-    # config.yml, so without this the guard fails closed and the write is
-    # refused — and the test then blames the recorder for a value that was never
-    # written. Arming it means pointing the guard at the DEPLOYED project, whose
-    # config.yml already declares the posture; the singletons are reset so the
-    # new CONFIG_FILE is the one that gets loaded. `monkeypatch` restores all
-    # three, and the autouse fixture in conftest clears them again after.
+    # Writes are fail-closed on two halves, and the guard does NOT consult the
+    # config handed to the connector. The tier (`control_system.writes`) is
+    # re-read from the GLOBAL config on every write (see
+    # osprey_connectors.control_system._base), which resolves from CONFIG_FILE
+    # or the working directory; pytest runs from the repo root, which has no
+    # config.yml, so CONFIG_FILE points the guard at the DEPLOYED project,
+    # whose preset already allows writes. The singletons are reset so that
+    # file is the one loaded. The switch is the other half: this login's
+    # switch is turned on for the simulator in a record of this test's own
+    # (arm_switch, through the person's gesture), and the connector is stamped
+    # with the machine it writes to, as a controls server's factory call stamps
+    # it. Without either the write is refused and the test would blame the
+    # recorder for a value that was never written. `monkeypatch` restores all of
+    # it, and the autouse fixture in conftest clears the singletons again after.
+    arm_switch(monkeypatch, tmp_path / "armed-data", TARGET_VA, stamp=False)
     monkeypatch.setenv("CONFIG_FILE", str(archiver_world.repo / "build" / "config.yml"))
     monkeypatch.setattr(config_module, "_default_config", None)
     monkeypatch.setattr(config_module, "_default_configurable", None)
@@ -692,7 +726,7 @@ def test_written_setpoint_appears_in_the_archive_within_the_recorder_budget(
     async def _write_a_new_setpoint() -> tuple[float, datetime, Any]:
         register_builtin_connectors()  # idempotent; must run before create
         control_system = await ConnectorFactory.create_control_system_connector(
-            archiver_world.config["control_system"]
+            archiver_world.config["control_system"], control_target=TARGET_VA
         )
         current = await control_system.read_channel(setpoint)
         target = float(current.value) + 0.05
@@ -911,11 +945,12 @@ def test_health_reports_the_archive_fresh_while_the_recorder_writes(archiver_wor
     """
     from tests.e2e import _orm_stack
 
+    canary = _freshness_canary(archiver_world.repo)
     served = set(_served_addresses(archiver_world))
-    assert FRESHNESS_CANARY in served, (
-        f"{FRESHNESS_CANARY} is not a channel this machine model serves, so the derived "
+    assert canary in served, (
+        f"{canary} is not a channel this machine model serves, so the derived "
         f"freshness check would report 'no samples' for a reason that has nothing to do "
-        f"with the recorder. Pick a canary from the model and update FRESHNESS_CANARY."
+        f"with the recorder. The preset's va_archiver.freshness_channel names it."
     )
 
     store = archiver_world.store
@@ -957,7 +992,7 @@ def test_health_reports_the_archive_fresh_while_the_recorder_writes(archiver_wor
     (row,) = rows
     assert row.get("status") == "ok", (
         f"the archive is deployed and the recorder is running, so the newest sample for "
-        f"{FRESHNESS_CANARY} should be inside the derived threshold. Got "
+        f"{canary} should be inside the derived threshold. Got "
         f"{row.get('status')!r}: {row.get('message')!r}"
     )
 
@@ -998,11 +1033,9 @@ def test_recorder_idles_on_the_in_process_simulator_and_resumes_after_the_flip(a
     yaml.preserve_quotes = True
 
     def _set_serving(venue: str) -> None:
-        with open(config_path) as handle:
-            config = yaml.load(handle)
+        config = yaml.load(config_path)
         config["control_system"]["connector"]["virtual_accelerator"]["serving"] = venue
-        with open(config_path, "w") as handle:
-            yaml.dump(config, handle)
+        yaml.dump(config, config_path)
 
     poll_sec = int((archiver_world.config.get("va_archiver") or {}).get("recorder_poll_sec", 30))
     # The window each claim is measured over, once the recorder has SAID which

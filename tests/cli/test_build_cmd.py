@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+import sys
 import tomllib
 from pathlib import Path
 from textwrap import dedent
@@ -22,6 +23,7 @@ from osprey.cli.build_profile import (
 from osprey.cli.channel_finder_cmd import FILE_DATABASE_PARADIGMS
 from osprey_connectors.errors import BuildProfileError
 from tests._preset_data import bundle_data_root
+from tests.cli._lifecycle_build import invoke_build
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -39,6 +41,23 @@ def _create_project(manager, **kwargs) -> Path:
     kwargs.setdefault("data_bundle", "control_assistant")
     kwargs.setdefault("data_root", bundle_data_root(kwargs["data_bundle"]))
     return manager.create_project(**kwargs)
+
+
+def _stamp_bundle_selection(manager, project: Path, name: str, bundle: str) -> None:
+    """Stamp the manifest a real build writes right after the render.
+
+    The context build reads the hook selection back out of it. Unstamped, the
+    project selects no hooks, and a framework-default render (writes ``never``,
+    python's read/write-mixed exec tools on) is refused by the write-gate lint
+    for want of ``writes-check`` before the code under test is reached.
+    """
+    manager.generate_manifest(
+        project,
+        name,
+        bundle.replace("_", "-"),
+        {},
+        artifacts=manager._effective_artifacts(bundle, None),
+    )
 
 
 def materialize_data(profile_dir: Path, bundle: str = "control_assistant") -> Path:
@@ -125,17 +144,22 @@ class TestProfileLoading:
         with pytest.raises(BuildProfileError, match="Profile not found"):
             load_profile(tmp_path / "nonexistent.yml")
 
-    def test_load_profile_invalid_yaml(self, tmp_path: Path):
-        bad_yaml = tmp_path / "bad.yml"
-        bad_yaml.write_text("{{invalid yaml: [")
-        with pytest.raises(BuildProfileError, match="Invalid YAML"):
-            load_profile(bad_yaml)
-
-    def test_load_profile_not_a_mapping(self, tmp_path: Path):
-        list_yaml = tmp_path / "list.yml"
-        list_yaml.write_text("- item1\n- item2\n")
-        with pytest.raises(BuildProfileError, match="must be a YAML mapping"):
-            load_profile(list_yaml)
+    @pytest.mark.parametrize(
+        ("filename", "content", "match"),
+        [
+            pytest.param("bad.yml", "{{invalid yaml: [", "Invalid YAML", id="invalid-yaml"),
+            pytest.param(
+                "list.yml", "- item1\n- item2\n", "must be a YAML mapping", id="not-a-mapping"
+            ),
+        ],
+    )
+    def test_load_profile_rejects_content_that_is_not_a_profile(
+        self, tmp_path: Path, filename: str, content: str, match: str
+    ):
+        profile_path = tmp_path / filename
+        profile_path.write_text(content)
+        with pytest.raises(BuildProfileError, match=match):
+            load_profile(profile_path)
 
     def test_load_profile_config_parsed(self, minimal_profile_yaml: Path):
         profile = load_profile(minimal_profile_yaml)
@@ -371,21 +395,18 @@ class TestValidation:
         with pytest.raises(BuildProfileError, match="missing 'run'"):
             profile.validate(tmp_path)
 
-    def test_lifecycle_step_absolute_cwd_blocked(self, tmp_path: Path):
+    @pytest.mark.parametrize(
+        "cwd",
+        [
+            pytest.param("/tmp/evil", id="absolute"),
+            pytest.param("../escape", id="traversal"),
+        ],
+    )
+    def test_lifecycle_step_cwd_outside_the_project_is_blocked(self, tmp_path: Path, cwd: str):
         profile = BuildProfile(
             name="Test",
             lifecycle=LifecycleConfig(
-                pre_build=[LifecycleStep(name="bad", run="echo", cwd="/tmp/evil")],
-            ),
-        )
-        with pytest.raises(BuildProfileError, match="cwd must be relative without"):
-            profile.validate(tmp_path)
-
-    def test_lifecycle_step_traversal_cwd_blocked(self, tmp_path: Path):
-        profile = BuildProfile(
-            name="Test",
-            lifecycle=LifecycleConfig(
-                pre_build=[LifecycleStep(name="bad", run="echo", cwd="../escape")],
+                pre_build=[LifecycleStep(name="bad", run="echo", cwd=cwd)],
             ),
         )
         with pytest.raises(BuildProfileError, match="cwd must be relative without"):
@@ -412,14 +433,24 @@ class TestValidation:
         # Should not raise
         profile.validate(profile_dir)
 
-    def test_default_panel_typo_rejected(self, tmp_path: Path):
-        """A `default_panel` value that doesn't match any known panel is rejected.
-
-        Without this check the frontend silently falls back to the framework
-        default — a typo never surfaces. Validation catches it at build time.
-        """
-        profile = BuildProfile(name="Test", default_panel="areil")
-        with pytest.raises(BuildProfileError, match="Unknown default_panel 'areil'"):
+    @pytest.mark.parametrize(
+        ("default_panel", "match"),
+        [
+            # A `default_panel` value that doesn't match any known panel is rejected.
+            #
+            # Without this check the frontend silently falls back to the framework
+            # default — a typo never surfaces. Validation catches it at build time.
+            pytest.param("areil", "Unknown default_panel 'areil'", id="typo"),
+            # A built-in the profile never selected renders no tab, so naming it
+            # as default_panel would fall back to the workspace silently.
+            pytest.param("ariel", "Unknown default_panel 'ariel'", id="unselected-builtin"),
+        ],
+    )
+    def test_default_panel_that_shows_no_tab_is_rejected(
+        self, tmp_path: Path, default_panel: str, match: str
+    ):
+        profile = BuildProfile(name="Test", default_panel=default_panel)
+        with pytest.raises(BuildProfileError, match=match):
             profile.validate(tmp_path)
 
     def test_default_panel_selected_builtin_accepted(self, tmp_path: Path):
@@ -430,13 +461,6 @@ class TestValidation:
             name="Test", data="data", web_panels=["ariel"], default_panel="ariel"
         )
         profile.validate(tmp_path)  # must not raise
-
-    def test_default_panel_unselected_builtin_rejected(self, tmp_path: Path):
-        """A built-in the profile never selected renders no tab, so naming it
-        as default_panel would fall back to the workspace silently."""
-        profile = BuildProfile(name="Test", default_panel="ariel")
-        with pytest.raises(BuildProfileError, match="Unknown default_panel 'ariel'"):
-            profile.validate(tmp_path)
 
     def test_default_panel_custom_via_config_accepted(self, tmp_path: Path):
         """A custom panel backed by a `web.panels.<id>.url` config override
@@ -680,45 +704,34 @@ class TestBuildHelpers:
             load_profile(p)
 
     @pytest.mark.parametrize(
-        "bad_port",
-        [0, -1, 65536, 80080, 100000],
-        ids=["zero", "negative", "just-above-max", "typo-extra-digit", "way-too-big"],
+        ("name", "bad_port"),
+        [
+            # A `port:` outside 1..65535 must raise BuildProfileError at parse
+            # time, so a typo like `port: 80080` cannot silently flow into the
+            # derived url and the persisted network block.
+            pytest.param("OutOfRange", 0, id="zero"),
+            pytest.param("OutOfRange", -1, id="negative"),
+            pytest.param("OutOfRange", 65536, id="just-above-max"),
+            pytest.param("OutOfRange", 80080, id="typo-extra-digit"),
+            pytest.param("OutOfRange", 100000, id="way-too-big"),
+            # A string `port:` (YAML quoting accident) must be rejected at parse time.
+            pytest.param("Stringy", "8008", id="non-integer"),
+        ],
     )
-    def test_load_profile_mcp_server_port_out_of_range_rejected(
+    def test_load_profile_mcp_server_port_that_is_not_a_valid_port_rejected(
         self,
         tmp_path: Path,
-        bad_port: int,
+        name: str,
+        bad_port: int | str,
     ):
-        """A `port:` outside 1..65535 must raise BuildProfileError at parse
-        time, so a typo like `port: 80080` cannot silently flow into the
-        derived url and the persisted network block."""
         p = tmp_path / "profile.yml"
         p.write_text(
             yaml.dump(
                 {
-                    "name": "OutOfRange",
+                    "name": name,
                     "mcp_servers": {
                         "matlab": {
                             "port": bad_port,
-                            "permissions": {"allow": ["mml_search"]},
-                        }
-                    },
-                }
-            )
-        )
-        with pytest.raises(BuildProfileError, match="port"):
-            load_profile(p)
-
-    def test_load_profile_mcp_server_port_non_integer_rejected(self, tmp_path: Path):
-        """A string `port:` (YAML quoting accident) must be rejected at parse time."""
-        p = tmp_path / "profile.yml"
-        p.write_text(
-            yaml.dump(
-                {
-                    "name": "Stringy",
-                    "mcp_servers": {
-                        "matlab": {
-                            "port": "8008",
                             "permissions": {"allow": ["mml_search"]},
                         }
                     },
@@ -1028,7 +1041,7 @@ class TestProjectPyproject:
         tables — and makes a malformed emission a hard failure here rather than
         a mystery inside uv.
         """
-        from osprey.cli.build_cmd import _create_project_venv
+        from osprey.cli.build_cmd import _create_project_venv, _plan_project_venv
 
         def fake_run(cmd, **kwargs):
             return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="", stderr="")
@@ -1036,7 +1049,7 @@ class TestProjectPyproject:
         monkeypatch.setattr("osprey.cli.build_environment.subprocess.run", fake_run)
         monkeypatch.setenv("UV", "/usr/bin/uv")
 
-        _create_project_venv(project_path, profile)
+        _create_project_venv(project_path, _plan_project_venv(profile))
         return tomllib.loads((project_path / "pyproject.toml").read_text())
 
     def test_records_profile_deps(self, monkeypatch, tmp_path: Path):
@@ -1129,10 +1142,18 @@ class TestProjectPyproject:
 class TestLifecyclePhaseRunner:
     """Tests for _run_lifecycle_phase()."""
 
-    def test_successful_step(self, tmp_path: Path):
+    @pytest.mark.parametrize(
+        ("name", "run"),
+        [
+            pytest.param("echo test", "echo hello", id="plain-command"),
+            # shell=True for pipe
+            pytest.param("piped cmd", "echo hello | cat", id="shell-metacharacters-handled"),
+        ],
+    )
+    def test_successful_step(self, tmp_path: Path, name: str, run: str):
         from osprey.cli.build_cmd import _run_lifecycle_phase
 
-        steps = [LifecycleStep(name="echo test", run="echo hello")]
+        steps = [LifecycleStep(name=name, run=run)]
         # Should not raise
         _run_lifecycle_phase("post_build", steps, tmp_path, tmp_path)
 
@@ -1172,12 +1193,40 @@ class TestLifecyclePhaseRunner:
         _run_lifecycle_phase("post_build", steps, tmp_path, tmp_path)
         assert marker.exists()
 
-    def test_shell_metacharacters_handled(self, tmp_path: Path):
+    def test_python_placeholder_is_the_running_interpreter(self, tmp_path: Path):
+        """`{python}` runs a step under the interpreter running the build, even
+        when the project venv is first on the step's PATH."""
         from osprey.cli.build_cmd import _run_lifecycle_phase
 
-        steps = [LifecycleStep(name="piped cmd", run="echo hello | cat")]
-        # Should not raise — shell=True for pipe
-        _run_lifecycle_phase("post_build", steps, tmp_path, tmp_path)
+        venv_bin = tmp_path / ".venv" / "bin"
+        venv_bin.mkdir(parents=True)
+        decoy = venv_bin / "python"
+        decoy.write_text("#!/bin/sh\nexit 97\n")
+        decoy.chmod(0o755)
+        steps = [
+            LifecycleStep(
+                name="which python",
+                run=(
+                    '"{python}" -c "import sys, pathlib; '
+                    "pathlib.Path(r'{project_root}/python.txt').write_text(sys.executable)\""
+                ),
+            )
+        ]
+        _run_lifecycle_phase("pre_build", steps, tmp_path, tmp_path)
+        assert (tmp_path / "python.txt").read_text() == sys.executable
+
+    def test_python_placeholder_is_replaced_in_a_shell_step(self, tmp_path: Path):
+        """The replacement is plain text, so it reaches a step the shell runs."""
+        from osprey.cli.build_cmd import _run_lifecycle_phase
+
+        steps = [
+            LifecycleStep(
+                name="piped python",
+                run="echo '{python}' | cat > {project_root}/python.txt",
+            )
+        ]
+        _run_lifecycle_phase("pre_build", steps, tmp_path, tmp_path)
+        assert (tmp_path / "python.txt").read_text().strip() == sys.executable
 
 
 # ---------------------------------------------------------------------------
@@ -1197,7 +1246,7 @@ class TestCreateProjectVenv:
 
     def test_creates_venv_and_installs_with_uv(self, monkeypatch, tmp_path):
         """Should create project venv then install deps with uv."""
-        from osprey.cli.build_cmd import _create_project_venv
+        from osprey.cli.build_cmd import _create_project_venv, _plan_project_venv
 
         calls = []
 
@@ -1208,7 +1257,9 @@ class TestCreateProjectVenv:
         monkeypatch.setattr("osprey.cli.build_environment.subprocess.run", fake_run)
         monkeypatch.setenv("UV", "/home/user/.local/bin/uv")
 
-        _create_project_venv(tmp_path, self._make_profile(["numpy>=1.24", "pandas"]))
+        _create_project_venv(
+            tmp_path, _plan_project_venv(self._make_profile(["numpy>=1.24", "pandas"]))
+        )
 
         assert len(calls) == 2
         # First call: create venv
@@ -1227,7 +1278,7 @@ class TestCreateProjectVenv:
         """Should use python -m venv + pip when uv is not available."""
         import sys
 
-        from osprey.cli.build_cmd import _create_project_venv
+        from osprey.cli.build_cmd import _create_project_venv, _plan_project_venv
 
         calls = []
 
@@ -1239,7 +1290,7 @@ class TestCreateProjectVenv:
         monkeypatch.delenv("UV", raising=False)
         monkeypatch.setattr("shutil.which", lambda name: None)
 
-        _create_project_venv(tmp_path, self._make_profile(["numpy>=1.24"]))
+        _create_project_venv(tmp_path, _plan_project_venv(self._make_profile(["numpy>=1.24"])))
 
         assert len(calls) == 2
         # First call: python -m venv
@@ -1253,7 +1304,7 @@ class TestCreateProjectVenv:
 
     def test_raises_on_venv_failure(self, monkeypatch, tmp_path):
         """Should raise BuildProfileError if venv creation fails."""
-        from osprey.cli.build_cmd import _create_project_venv
+        from osprey.cli.build_cmd import _create_project_venv, _plan_project_venv
 
         def fake_run(cmd, **kwargs):
             return subprocess.CompletedProcess(
@@ -1264,11 +1315,11 @@ class TestCreateProjectVenv:
         monkeypatch.setenv("UV", "/usr/bin/uv")
 
         with pytest.raises(BuildProfileError, match="Failed to create project venv"):
-            _create_project_venv(tmp_path, self._make_profile(["pkg"]))
+            _create_project_venv(tmp_path, _plan_project_venv(self._make_profile(["pkg"])))
 
     def test_raises_on_install_failure(self, monkeypatch, tmp_path):
         """Should raise BuildProfileError when pip install fails."""
-        from osprey.cli.build_cmd import _create_project_venv
+        from osprey.cli.build_cmd import _create_project_venv, _plan_project_venv
 
         call_count = 0
 
@@ -1287,7 +1338,9 @@ class TestCreateProjectVenv:
         monkeypatch.setenv("UV", "/usr/bin/uv")
 
         with pytest.raises(BuildProfileError, match="Failed to install project dependencies"):
-            _create_project_venv(tmp_path, self._make_profile(["nonexistent-xyz"]))
+            _create_project_venv(
+                tmp_path, _plan_project_venv(self._make_profile(["nonexistent-xyz"]))
+            )
 
 
 # ---------------------------------------------------------------------------
@@ -1940,8 +1993,10 @@ POSTURE_CONFIG: dict = {
     "control_system.type": "virtual_accelerator",
     "control_system.connector.virtual_accelerator.serving": "in_process",
     "archiver.type": "mock",
+    # The bundle's own hooks, approval among them, are what a profile that
+    # names none renders with, so the approval floor is stated here.
     "approval.enabled": False,
-    "claude_code.telemetry.enabled": False,
+    "approval.default_policy": "always",
     "hooks.debug": False,
 }
 
@@ -1966,15 +2021,6 @@ def _mode_repo(tmp_path: Path, paradigm: str) -> Path:
     materialize_data(repo)
     (repo / "data" / "facility" / "knowledge").mkdir(parents=True, exist_ok=True)
     return repo
-
-
-def _render(repo: Path):
-    """Render *repo*'s build zone through the real verb."""
-    from click.testing import CliRunner
-
-    from osprey.cli.build_cmd import build
-
-    return CliRunner().invoke(build, ["--repo", str(repo), "--skip-deps", "--skip-lifecycle"])
 
 
 # Every paradigm whose store is a channel-database file, derived from the
@@ -2008,7 +2054,7 @@ def test_build_renders_each_index_as_its_view(tmp_path: Path, paradigm: str) -> 
     """
     repo = _mode_repo(tmp_path, paradigm)
 
-    result = _render(repo)
+    result = invoke_build(repo)
     assert result.exit_code == 0, (
         f"build failed (exit={result.exit_code})\n"
         f"--- output ---\n{result.output}\n"
@@ -2058,8 +2104,7 @@ class TestEventsPanelUrlDerivation:
         from ruamel.yaml import YAML
 
         yaml = YAML()
-        with open(project_path / "config.yml", "w") as fh:
-            yaml.dump({"deployed_services": [], "services": {}}, fh)
+        yaml.dump({"deployed_services": [], "services": {}}, project_path / "config.yml")
 
     def _dispatch(self, dispatcher_port: int = 8020, **overrides: object):
         from osprey.cli.build_profile import DispatchConfig
@@ -2088,7 +2133,17 @@ class TestEventsPanelUrlDerivation:
 
         return yaml.safe_load((project_path / "config.yml").read_text()) or {}
 
-    def test_events_panel_url_derived_from_dispatcher_port(self, tmp_path: Path) -> None:
+    @pytest.mark.parametrize(
+        ("port", "url"),
+        [
+            pytest.param(8888, "http://localhost:8888", id="dispatcher-port"),
+            # Different dispatcher_port values produce different derived bare-host URLs.
+            pytest.param(9999, "http://localhost:9999", id="custom-port"),
+        ],
+    )
+    def test_events_panel_url_derived_from_dispatcher_port(
+        self, tmp_path: Path, port: int, url: str
+    ) -> None:
         """events.url is a bare host and events.path carries the /dashboard route."""
         project_path = tmp_path / "project"
         project_path.mkdir()
@@ -2096,29 +2151,14 @@ class TestEventsPanelUrlDerivation:
         profile_dir.mkdir()
         self._write_minimal_config(project_path)
 
-        self._inject(self._dispatch(dispatcher_port=8888), project_path, profile_dir)
+        self._inject(self._dispatch(dispatcher_port=port), project_path, profile_dir)
 
         config = self._read_config(project_path)
         events = config["web"]["panels"]["events"]
         # Bare host in url + /dashboard in path matches the custom-panel proxy
         # convention (url.rstrip('/') + '/' + path); /dashboard must NOT be baked
         # into url or sub-routes would double-prefix.
-        assert events["url"] == "http://localhost:8888"
-        assert events["path"] == "/dashboard"
-
-    def test_events_panel_url_reflects_custom_port(self, tmp_path: Path) -> None:
-        """Different dispatcher_port values produce different derived bare-host URLs."""
-        project_path = tmp_path / "project"
-        project_path.mkdir()
-        profile_dir = tmp_path / "profile"
-        profile_dir.mkdir()
-        self._write_minimal_config(project_path)
-
-        self._inject(self._dispatch(dispatcher_port=9999), project_path, profile_dir)
-
-        config = self._read_config(project_path)
-        events = config["web"]["panels"]["events"]
-        assert events["url"] == "http://localhost:9999"
+        assert events["url"] == url
         assert events["path"] == "/dashboard"
 
     def test_events_panel_path_pinned_by_profile_preserved(self, tmp_path: Path) -> None:
@@ -2136,8 +2176,7 @@ class TestEventsPanelUrlDerivation:
             "services": {},
             "web": {"panels": {"events": {"path": "/custom-route"}}},
         }
-        with open(project_path / "config.yml", "w") as fh:
-            yaml.dump(config_pre, fh)
+        yaml.dump(config_pre, project_path / "config.yml")
 
         self._inject(self._dispatch(dispatcher_port=8020), project_path, profile_dir)
 
@@ -2165,8 +2204,7 @@ class TestEventsPanelUrlDerivation:
             "services": {},
             "web": {"panels": {"events": {"url": "http://custom-host:7777/dashboard"}}},
         }
-        with open(project_path / "config.yml", "w") as fh:
-            yaml.dump(config_pre, fh)
+        yaml.dump(config_pre, project_path / "config.yml")
 
         self._inject(self._dispatch(dispatcher_port=8020), project_path, profile_dir)
 
@@ -2239,6 +2277,7 @@ def test_build_context_warns_when_remove_ask_overrides_gated_tool(tmp_path: Path
         data_bundle="hello_world",
         data_root=bundle_data_root("hello_world"),
     )
+    _stamp_bundle_selection(manager, project, "remove-ask-warn", "hello_world")
 
     config = yaml.safe_load((project / "config.yml").read_text())
     cc = config.setdefault("claude_code", {})
@@ -2282,6 +2321,7 @@ def test_lint_rejects_ungated_write_tool_when_memory_guard_absent(tmp_path: Path
         data_bundle="hello_world",
         data_root=bundle_data_root("hello_world"),
     )
+    _stamp_bundle_selection(manager, project, "lint-no-guard", "hello_world")
 
     config = yaml.safe_load((project / "config.yml").read_text())
     ctx = claude_code.build_claude_code_context(
@@ -2512,11 +2552,8 @@ def test_lint_accepts_a_declared_matcher_but_warns_that_it_proves_nothing(
     So a tool whose only gate is a matcher the profile declared itself passes
     with a warning rather than silently.
 
-    For ``Bash`` the warning also says what the shell reaches beyond the
-    filesystem: the panel token is in the agent's process env, so a shell
-    command can fire a dispatcher job over ``/panel/events/mcp`` with no
-    approval prompt. A facility reading this warning is deciding whether its own
-    hook is enough, and that decision needs the dispatcher wire in view.
+    The warning names no panel wire: a shell command starts without the panel
+    token, so it cannot reach the dispatcher or a panel's MCP transport.
     """
     import logging
 
@@ -2538,9 +2575,7 @@ def test_lint_accepts_a_declared_matcher_but_warns_that_it_proves_nothing(
     assert gate_warnings, (
         f"expected an unverifiable-gate warning; got: {[r.message for r in caplog.records]}"
     )
-    assert any("/panel/events/mcp" in message for message in gate_warnings), (
-        f"the Bash warning must name the dispatcher wire the shell reaches: got {gate_warnings}"
-    )
+    assert not any("/panel/" in message for message in gate_warnings), gate_warnings
 
 
 @pytest.mark.parametrize("tool", ["Monitor", "EnterWorktree"])
@@ -2549,9 +2584,8 @@ def test_a_declared_gate_lifts_a_write_floor_tool(tmp_path: Path, caplog, tool: 
     lifting the deny and declaring its own PreToolUse gate, which builds with
     the unverifiable-gate warning.
 
-    Monitor runs shell commands with the agent's process env, so its warning
-    names the dispatcher wire as the Bash warning does; EnterWorktree writes to
-    disk only, so its warning does not.
+    Neither warning names a panel wire: Monitor's commands start without the
+    panel token, as Bash's do, and EnterWorktree writes to disk only.
     """
     import logging
 
@@ -2575,8 +2609,7 @@ def test_a_declared_gate_lifts_a_write_floor_tool(tmp_path: Path, caplog, tool: 
     assert gate_warnings, (
         f"expected an unverifiable-gate warning; got: {[r.message for r in caplog.records]}"
     )
-    names_the_wire = any("/panel/events/mcp" in message for message in gate_warnings)
-    assert names_the_wire is (tool == "Monitor"), gate_warnings
+    assert not any("/panel/" in message for message in gate_warnings), gate_warnings
 
 
 def test_a_framework_matcher_gates_without_the_warning(tmp_path: Path, caplog) -> None:
@@ -2670,11 +2703,10 @@ class TestCopyServiceTemplates:
         from ruamel.yaml import YAML
 
         yaml_rt = YAML()
-        with open(project_path / "config.yml", "w") as fh:
-            yaml_rt.dump(config, fh)
+        yaml_rt.dump(config, project_path / "config.yml")
 
     def test_declared_but_not_deployed_service_is_bundled(self, tmp_path: Path) -> None:
-        """telemetry_store declared under `services:` but absent from
+        """qmd declared under `services:` but absent from
         deployed_services is still copied into the project's services/ tree,
         while a deployed service (postgresql) still bundles (no regression)."""
         from osprey.cli.build_cmd import _copy_service_templates
@@ -2684,11 +2716,11 @@ class TestCopyServiceTemplates:
         self._write_config(
             project_path,
             {
-                # postgresql is deployed; telemetry_store is only declared (opt-in).
+                # postgresql is deployed; qmd is only declared (opt-in).
                 "deployed_services": ["postgresql"],
                 "services": {
                     "postgresql": {"path": "./services/postgresql"},
-                    "telemetry_store": {"path": "./services/telemetry_store"},
+                    "qmd": {"path": "./services/qmd"},
                 },
             },
         )
@@ -2698,8 +2730,10 @@ class TestCopyServiceTemplates:
         # Deployed service still bundles (regression guard).
         assert (project_path / "services" / "postgresql" / "docker-compose.yml.j2").exists()
         # Declared-but-not-deployed add-on is bundled too.
-        assert (project_path / "services" / "telemetry_store" / "docker-compose.yml.j2").exists()
-        assert count == 2
+        assert (project_path / "services" / "qmd" / "docker-compose.yml.j2").exists()
+        # The agent record is derived and always bundled.
+        assert (project_path / "services" / "agent_record" / "docker-compose.yml.j2").exists()
+        assert count == 3
 
     def test_declared_only_service_bundles_without_deployed_services(self, tmp_path: Path) -> None:
         """With an empty deployed_services, a declared service with a package
@@ -2713,14 +2747,15 @@ class TestCopyServiceTemplates:
             project_path,
             {
                 "deployed_services": [],
-                "services": {"telemetry_store": {"path": "./services/telemetry_store"}},
+                "services": {"qmd": {"path": "./services/qmd"}},
             },
         )
 
         count = _copy_service_templates(project_path)
 
-        assert (project_path / "services" / "telemetry_store" / "docker-compose.yml.j2").exists()
-        assert count == 1
+        assert (project_path / "services" / "qmd" / "docker-compose.yml.j2").exists()
+        # The agent record is derived and always bundled.
+        assert count == 2
 
     def test_declared_service_without_package_template_skipped_silently(
         self, tmp_path: Path, caplog
@@ -2744,7 +2779,8 @@ class TestCopyServiceTemplates:
         with caplog.at_level(logging.WARNING, logger="osprey.cli.build_cmd"):
             count = _copy_service_templates(project_path)
 
-        assert count == 0
+        # Only the always-bundled agent record.
+        assert count == 1
         assert not (project_path / "services" / "typesense").exists()
         assert not any("typesense" in r.getMessage() for r in caplog.records), (
             "declared-only service without a template must not warn"
@@ -2770,7 +2806,8 @@ class TestCopyServiceTemplates:
         with caplog.at_level(logging.WARNING, logger="osprey.cli.build_cmd"):
             count = _copy_service_templates(project_path)
 
-        assert count == 0
+        # Only the always-bundled agent record.
+        assert count == 1
         assert any("typesense" in r.getMessage() for r in caplog.records), (
             "a deployed service without a template must warn"
         )
@@ -2853,8 +2890,7 @@ class TestInjectVAArchiver:
         config: dict = {"deployed_services": [], "services": {}}
         config.update(overrides)
         yaml_rt = YAML()
-        with open(project_path / "config.yml", "w") as fh:
-            yaml_rt.dump(config, fh)
+        yaml_rt.dump(config, project_path / "config.yml")
 
     def _project(self, tmp_path: Path, **overrides: object) -> Path:
         project_path = tmp_path / "project"
@@ -3008,7 +3044,6 @@ class TestVAArchiverConfigDerivation:
         return the RENDER — the directory whose config.yml the deploy reads."""
         from click.testing import CliRunner
 
-        from osprey.cli.build_cmd import build
         from osprey.cli.init_cmd import init
 
         repo = tmp_path / project_name
@@ -3017,7 +3052,7 @@ class TestVAArchiverConfigDerivation:
         runner = CliRunner()
         result = runner.invoke(init, argv)
         assert result.exit_code == 0, result.output
-        result = runner.invoke(build, ["--repo", str(repo), "--skip-deps", "--skip-lifecycle"])
+        result = invoke_build(repo)
         assert result.exit_code == 0, result.output
         return repo / "build"
 
@@ -3124,7 +3159,6 @@ def test_graph_mode_renders_its_search_index_and_no_paradigm_database(tmp_path: 
     """
     from click.testing import CliRunner
 
-    from osprey.cli.build_cmd import build
     from osprey.cli.init_cmd import init
 
     repo = tmp_path / "graphed"
@@ -3140,7 +3174,7 @@ def test_graph_mode_renders_its_search_index_and_no_paradigm_database(tmp_path: 
         ],
     )
     assert created.exit_code == 0, created.output
-    rendered = runner.invoke(build, ["--repo", str(repo), "--skip-deps", "--skip-lifecycle"])
+    rendered = invoke_build(repo)
     assert rendered.exit_code == 0, rendered.output
     render = repo / "build"
 

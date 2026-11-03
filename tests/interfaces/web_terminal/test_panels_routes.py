@@ -3,10 +3,12 @@
 ``GET /api/panels`` carries the whole panel state, including a stable, opaque
 ``project_key`` — a truncated sha256 of the resolved project directory — that
 the client uses as the ``osprey-dock-layout-<project_key>`` localStorage suffix
-for per-project dock-layout persistence. The focus, visibility, close and
-register routes mutate that state and broadcast the frames every client
-applies; agent-origin requests carry ``source: "agent"`` on their frames,
-human ones carry no ``source`` key at all.
+for per-project dock-layout persistence. The visibility and register routes
+mutate that state and broadcast the frames every client applies; agent-origin
+requests carry ``source: "agent"`` on their frames, human ones carry no
+``source`` key at all. The focus route is a person's report and broadcasts
+nothing; agent dock writes are the ``/api/panel-op/*`` routes
+(``test_panel_op_route.py``).
 """
 
 from __future__ import annotations
@@ -63,8 +65,8 @@ def test_project_key_does_not_disturb_existing_fields(tmp_path):
     app.state.visible_panels = ["ariel"]
     app.state.active_panel = "ariel"
     app.state.allow_runtime_panels = True
-    app.state.panel_presets = [{"name": "L1", "panels": ["ariel"]}]
-    app.state.web_ui_mode = "simple"
+    preset = {"name": "L1", "panels": ["ariel"], "layout": {"tabs": ["ariel"], "showing": "ariel"}}
+    app.state.panel_presets = [preset]
 
     body = _panels(app)
 
@@ -74,8 +76,7 @@ def test_project_key_does_not_disturb_existing_fields(tmp_path):
     assert body["visible"] == ["ariel"]
     assert body["active"] == "ariel"
     assert body["allow_runtime_panels"] is True
-    assert body["presets"] == [{"name": "L1", "panels": ["ariel"]}]
-    assert body["ui_mode"] == "simple"
+    assert body["presets"] == [preset]
     # The additive key sits alongside the established shape.
     assert set(body) == {
         "enabled",
@@ -86,15 +87,12 @@ def test_project_key_does_not_disturb_existing_fields(tmp_path):
         "labels",
         "allow_runtime_panels",
         "presets",
-        "ui_mode",
-        "rail_position",
-        "rail_position_configured",
-        "family_rail_defaults",
         "project_key",
-        "workspace_has_artifacts",
-        "open_tiles",
-        "open_tiles_age_s",
-        "open_tiles_dock",
+        "layout",
+        "popouts",
+        "rev",
+        "layout_age_s",
+        "layout_dock",
         "docs_url",
         "feedback_trackers",
         "feedback_email",
@@ -104,7 +102,49 @@ def test_project_key_does_not_disturb_existing_fields(tmp_path):
         "scaffold_write_enabled",
         "config_unreadable_path",
         "tour",
+        "personal_login",
+        "loopback_ports",
     }
+
+
+def test_personal_login_facts_default_off_and_absent(tmp_path):
+    """A bare state publishes the defaults: not allowed, no login (#925)."""
+    assert _panels(_make_app(tmp_path))["personal_login"] == {"allowed": False, "present": False}
+
+
+def test_personal_login_facts_follow_the_startup_decision(tmp_path):
+    app = _make_app(tmp_path)
+    app.state.personal_login_allowed = True
+    app.state.personal_login_present = False
+    assert _panels(app)["personal_login"] == {"allowed": True, "present": False}
+
+
+def test_loopback_ports_names_only_root_loopback_backends(tmp_path):
+    """Each panel whose backend is a loopback literal at its root carries its port.
+
+    The agent's tools name the gallery as ``http://127.0.0.1:<port>#focus``; the
+    browser maps a link on that port to the panel. A backend on another host,
+    or one that serves under a path, is left out, and only the port leaves the
+    server.
+    """
+    from osprey.interfaces.web_terminal.routes.proxy import _PANEL_STATE_MAP
+
+    app = _make_app(tmp_path)
+    app.state.enabled_panels = {"artifacts", "jupyter", "ariel"}
+    setattr(app.state, _PANEL_STATE_MAP["artifacts"], "http://127.0.0.1:10200")
+    setattr(app.state, _PANEL_STATE_MAP["jupyter"], "http://127.0.0.1:8899/u/alice/panel/jupyter")
+    setattr(app.state, _PANEL_STATE_MAP["ariel"], "http://ariel.example:8085")
+    app.state.custom_panels = [
+        {"id": "grafana", "label": "GRAFANA", "url": "http://localhost:3000/"},
+        {"id": "ext", "label": "EXT", "url": "http://example.org:3000"},
+    ]
+
+    with TestClient(app) as client:
+        resp = client.get("/api/panels")
+
+    assert resp.json()["loopback_ports"] == {"artifacts": 10200, "grafana": 3000}
+    assert "/u/alice/panel/jupyter" not in resp.text
+    assert "ariel.example" not in resp.text
 
 
 def test_blank_utility_targets_reach_the_browser_as_blank(tmp_path):
@@ -142,56 +182,7 @@ def test_a_flagless_app_advertises_no_gated_surface(tmp_path):
     assert body["scaffold_write_enabled"] is False
 
 
-# ---- workspace_has_artifacts (simple-UX chat-only first boot) ----
-
-
-def _make_workspace_app(project_cwd, workspace_dir):
-    app = _make_app(project_cwd)
-    app.state.workspace_dir = workspace_dir
-    return app
-
-
-def test_workspace_flag_absent_state_is_false(tmp_path):
-    """No workspace_dir on app.state (bare router) → flag is False, not an error."""
-    assert _panels(_make_app(tmp_path))["workspace_has_artifacts"] is False
-
-
-@pytest.mark.parametrize(
-    ("files", "expected"),
-    [
-        pytest.param([], False, id="empty"),
-        # Housekeeping dotfiles (and files under dot-dirs) must not defeat the
-        # chat-only first boot — the workspace still reads empty.
-        pytest.param([".DS_Store", ".cache/state.json"], False, id="hidden"),
-        pytest.param(["orbit_plot.png"], True, id="toplevel"),
-        # Session subdirectories count — the watcher covers all sessions.
-        pytest.param(["session-abc/report.html"], True, id="nested"),
-        # A configured-but-not-yet-created workspace dir reads empty, no error.
-        pytest.param(None, False, id="missing-dir"),
-    ],
-)
-def test_workspace_flag(tmp_path, files, expected):
-    """Any non-hidden regular file under the workspace makes it non-empty."""
-    ws = tmp_path / "_agent_data"
-    if files is not None:
-        ws.mkdir()
-        for name in files:
-            (ws / name).parent.mkdir(parents=True, exist_ok=True)
-            (ws / name).write_text("x")
-    assert _panels(_make_workspace_app(tmp_path, ws))["workspace_has_artifacts"] is expected
-
-
-def test_workspace_flag_recomputed_per_request(tmp_path):
-    """The first artifact flips the flag on the next request (no caching)."""
-    ws = tmp_path / "_agent_data"
-    ws.mkdir()
-    app = _make_workspace_app(tmp_path, ws)
-    assert _panels(app)["workspace_has_artifacts"] is False
-    (ws / "result.csv").write_text("a,b\n")
-    assert _panels(app)["workspace_has_artifacts"] is True
-
-
-# ---- Focus adds rail membership ---- #
+# ---- Focus is a person's report ---- #
 
 
 def _make_focus_app(visible: list[str] | None = None) -> FastAPI:
@@ -215,37 +206,27 @@ def _frames(app: FastAPI) -> list[dict]:
     return [call.args[0] for call in app.state.broadcaster.broadcast.call_args_list]
 
 
-def test_focus_on_non_member_is_consistent_on_read_back():
-    """list_panels must agree with the tool's promise that the panel is visible."""
-    app = _make_focus_app(visible=["ariel"])
-    with TestClient(app) as client:
-        client.post("/api/panel-focus", json={"panel": "grafana", "source": "agent"})
-        body = client.get("/api/panels").json()
-    assert body["visible"] == ["ariel", "grafana"]
-    assert body["active"] == "grafana"
+@pytest.mark.parametrize(
+    "body",
+    [
+        {"panel": "grafana", "source": "agent"},
+        {"panel": "grafana", "url": "/x"},
+    ],
+    ids=["agent-source", "url"],
+)
+def test_the_retired_agent_focus_form_is_refused(body):
+    """An agent opens a panel through ``/api/panel-op/open``; this route is a person's report.
 
-
-def test_focus_on_non_member_broadcasts_visibility_before_focus():
-    """Ordering is load-bearing: clients add the rail entry, then focus it."""
-    app = _make_focus_app(visible=["ariel"])
-    with TestClient(app) as client:
-        client.post("/api/panel-focus", json={"panel": "grafana", "source": "agent"})
-    frames = _frames(app)
-    assert [f["type"] for f in frames] == ["panel_visibility", "panel_focus"]
-    assert frames[0] == {
-        "type": "panel_visibility",
-        "panel": "grafana",
-        "visible": True,
-        "source": "agent",
-    }
-
-
-def test_focus_on_member_emits_only_a_focus_frame():
-    """An agent switch to a member panel: focus frame only, no visibility traffic."""
+    The old ``source``/``url`` body is refused rather than read as a person's
+    switch, and changes nothing.
+    """
     app = _make_focus_app(visible=["ariel", "grafana"])
     with TestClient(app) as client:
-        client.post("/api/panel-focus", json={"panel": "grafana", "source": "agent"})
-    assert _frames(app) == [{"type": "panel_focus", "panel": "grafana", "source": "agent"}]
+        resp = client.post("/api/panel-focus", json=body)
+    assert resp.status_code == 422
+    assert getattr(app.state, "active_panel", None) is None
+    assert app.state.broadcaster.broadcast.call_count == 0
+    assert list(app.state.agent_activity_buffer) == []
 
 
 def test_focus_without_explicit_membership_treats_enabled_as_the_rail():
@@ -309,22 +290,11 @@ def test_focus_on_unknown_panel_changes_nothing():
     app.state.broadcaster.broadcast.assert_not_called()
 
 
-def test_focus_with_url_keeps_the_url_on_the_focus_frame_only():
-    """The visibility frame is membership-only; the url rides the focus frame."""
-    app = _make_focus_app(visible=["ariel"])
-    with TestClient(app) as client:
-        client.post("/api/panel-focus", json={"panel": "grafana", "url": "/x", "source": "agent"})
-    visibility, focus = _frames(app)
-    assert "url" not in visibility
-    assert focus["url"].endswith("/x")
-
-
 # ---- Human focus is a report, not a command ---- #
 #
 # panel-commands.js states the contract: a user-initiated tab switch is
 # REPORTED "so the server mirrors the active panel (and does not echo a focus
-# event back)". Only agent-attributed focus is a command that must reach every
-# client. These tests pin the split.
+# event back)". Agent opens are ``/api/panel-op/open``, never this route.
 
 
 def test_human_focus_mirrors_active_panel_without_broadcast():
@@ -340,7 +310,7 @@ def test_human_focus_mirrors_active_panel_without_broadcast():
     app.state.broadcaster.broadcast.assert_not_called()
 
 
-# ---- Visibility, close and register frames ---- #
+# ---- Visibility and register frames ---- #
 #
 # Each route stamps ``source`` onto its frame only when the request carried
 # it; a human request's frame has no ``source`` key at all (never null).
@@ -382,18 +352,6 @@ def _make_command_app() -> FastAPI:
             {"type": "panel_visibility", "panel": "ariel", "visible": True, "source": "agent"},
             id="visibility-agent",
         ),
-        pytest.param(
-            "/api/panel-close",
-            {"panel": "ariel"},
-            {"type": "panel_close", "panel": "ariel"},
-            id="close-human",
-        ),
-        pytest.param(
-            "/api/panel-close",
-            {"panel": "ariel", "source": "agent"},
-            {"type": "panel_close", "panel": "ariel", "source": "agent"},
-            id="close-agent",
-        ),
         pytest.param("/api/panels/register", _REGISTER_BODY, _REGISTER_FRAME, id="register-human"),
         pytest.param(
             "/api/panels/register",
@@ -405,20 +363,12 @@ def _make_command_app() -> FastAPI:
 )
 def test_panel_command_frames(path, body, expected_frame):
     """Exactly one frame per command, carrying the browser-facing URL and the
-    request's own attribution — closing never emits a visibility frame."""
+    request's own attribution."""
     app = _make_command_app()
     with patch(_GETADDRINFO_TARGET, return_value=_LAN_ADDR), TestClient(app) as client:
         resp = client.post(path, json=body)
     assert resp.status_code == 200
     app.state.broadcaster.broadcast.assert_called_once_with(expected_frame)
-
-
-def test_panel_close_unknown_panel_is_rejected():
-    app = _make_command_app()
-    with TestClient(app) as client:
-        resp = client.post("/api/panel-close", json={"panel": "nope", "source": "agent"})
-    assert resp.status_code == 422
-    app.state.broadcaster.broadcast.assert_not_called()
 
 
 # ---- Positioned rail additions (the Undo of a removal) ---- #

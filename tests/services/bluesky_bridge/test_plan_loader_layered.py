@@ -28,16 +28,6 @@ _PLAN_DIRS_ENV = "BLUESKY_PLAN_DIRS"
 _PLAN_MODULE_ENV = "BLUESKY_PLAN_MODULE"
 
 
-@pytest.fixture(autouse=True)
-def _isolated_plan_loader(monkeypatch: pytest.MonkeyPatch):
-    """Every test gets a clean loader cache and no leftover layer env vars."""
-    monkeypatch.delenv(_PLAN_DIRS_ENV, raising=False)
-    monkeypatch.delenv(_PLAN_MODULE_ENV, raising=False)
-    plan_loader.reset_facility_plans()
-    yield
-    plan_loader.reset_facility_plans()
-
-
 def _valid_plan_source(name: str, *, with_params: bool = False) -> str:
     """A minimal, well-formed directory-layer plan file defining ``name``.
 
@@ -96,7 +86,7 @@ def _write(directory: Path, filename: str, source: str) -> Path:
 
 
 def _synthetic_module_name(path: Path) -> str:
-    digest = hashlib.sha1(str(path.resolve()).encode()).hexdigest()[:16]
+    digest = hashlib.sha1(str(path.resolve()).encode(), usedforsecurity=False).hexdigest()[:16]
     return f"_osprey_bridge_plan_{digest}"
 
 

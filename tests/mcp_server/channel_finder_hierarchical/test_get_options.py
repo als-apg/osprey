@@ -2,22 +2,15 @@
 
 from unittest.mock import MagicMock, PropertyMock, patch
 
-from osprey.mcp_server.channel_finder_hierarchical.server_context import (
-    initialize_cf_hier_context,
-)
-from tests.mcp_server.channel_finder_hierarchical.conftest import get_tool_fn
-from tests.mcp_server.conftest import assert_raises_error, extract_response_dict
+import pytest
+
+from tests.mcp_server.conftest import assert_raises_error, extract_response_dict, get_tool_fn
+
+pytestmark = pytest.mark.usefixtures("cf_hier_context")
 
 
-def _setup(tmp_path, monkeypatch):
-    monkeypatch.chdir(tmp_path)
-    (tmp_path / "config.yml").write_text("{}")
-    initialize_cf_hier_context()
-
-
-def test_get_options_happy_path(tmp_path, monkeypatch):
+def test_get_options_happy_path():
     """Returns options list for a valid level and selections."""
-    _setup(tmp_path, monkeypatch)
     mock_db = MagicMock()
     mock_db.get_options_at_level.return_value = [
         {"name": "SR", "description": "Storage Ring"},
@@ -42,9 +35,8 @@ def test_get_options_happy_path(tmp_path, monkeypatch):
     mock_db.get_options_at_level.assert_called_once_with("system", {})
 
 
-def test_get_options_with_selections(tmp_path, monkeypatch):
+def test_get_options_with_selections():
     """Passes selections dict through to database."""
-    _setup(tmp_path, monkeypatch)
     mock_db = MagicMock()
     mock_db.get_options_at_level.return_value = [
         {"name": "BPM", "description": "Beam Position Monitor"},
@@ -66,9 +58,8 @@ def test_get_options_with_selections(tmp_path, monkeypatch):
     mock_db.get_options_at_level.assert_called_once_with("family", {"system": "SR"})
 
 
-def test_get_options_value_error(tmp_path, monkeypatch):
+def test_get_options_value_error():
     """ValueError from database returns validation_error."""
-    _setup(tmp_path, monkeypatch)
     mock_db = MagicMock()
     mock_db.get_options_at_level.side_effect = ValueError("Unknown level: 'bogus'")
     with patch(
@@ -87,9 +78,8 @@ def test_get_options_value_error(tmp_path, monkeypatch):
     assert "bogus" in data["error_message"]
 
 
-def test_get_options_internal_error(tmp_path, monkeypatch):
+def test_get_options_internal_error():
     """Unexpected exception returns internal_error."""
-    _setup(tmp_path, monkeypatch)
     with patch(
         "osprey.mcp_server.channel_finder_hierarchical.server_context.ChannelFinderHierContext.database",
         new_callable=PropertyMock,

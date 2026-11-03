@@ -133,7 +133,7 @@ export function _renderHookEvents(hooks) {
       matcherLabel.textContent = group.matcher || '*';
       matcherEl.appendChild(matcherLabel);
 
-      for (const hook of (group.hooks || [])) {
+      for (const hook of group.hooks || []) {
         const hookEl = _el('div', 'config-hook-entry');
         const cmd = hook.command || '';
         const scriptName = (cmd.split('/').pop() || '').replace(/"/g, '').replace(/\.py$/, '');

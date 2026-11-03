@@ -31,16 +31,15 @@ Skips cleanly when the chromium headless binary is not installed.
 
 from __future__ import annotations
 
-import pathlib
 from typing import TYPE_CHECKING
 
 import pytest
 from fastapi import FastAPI
 from fastapi.responses import HTMLResponse, JSONResponse
-from fastapi.staticfiles import StaticFiles
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 
-from tests.interfaces.conftest import _run_app_server
+from osprey.interfaces._serving import run_app_server
+from tests.interfaces.design_system._dispatch_dashboard import mount_design_system
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -51,22 +50,14 @@ pytestmark = [pytest.mark.browser, pytest.mark.slow]
 
 VIEWPORT = {"width": 1100, "height": 900}
 
-DESIGN_SYSTEM_STATIC_DIR = (
-    pathlib.Path(__file__).resolve().parents[3]
-    / "src"
-    / "osprey"
-    / "interfaces"
-    / "design_system"
-    / "static"
-)
 
 #: The claim under test. Present anywhere on an unauthorized page, the panel is
 #: asserting the dispatcher has no triggers while holding no evidence either way.
 FALSE_EMPTY_CLAIM = "No triggers are registered."
 
 #: The two trigger surfaces that branch on `state.triggers.length`. `#lane-list`
-#: renders on the default view; `#trigger-list` needs the Triggers screen, which
-#: is expert-only — hence the explicit mode and view in the URLs below.
+#: renders on the default view; `#trigger-list` needs the Triggers screen, hence
+#: the explicit view in the URLs below.
 LANE_LIST = "#lane-list"
 TRIGGER_LIST = "#trigger-list"
 
@@ -81,9 +72,7 @@ def _create_unauthorized_dashboard_app() -> FastAPI:
     from osprey.dispatch.dashboard import render_dashboard_html
 
     app = FastAPI()
-    app.mount(
-        "/design-system", StaticFiles(directory=DESIGN_SYSTEM_STATIC_DIR), name="design-system"
-    )
+    mount_design_system(app)
 
     def _page() -> str:
         return str(render_dashboard_html(facility_name="Test Facility", channel_strip_prefix="SR:"))
@@ -108,7 +97,7 @@ def _create_unauthorized_dashboard_app() -> FastAPI:
 
 @pytest.fixture
 def dashboard_url() -> Iterator[str]:
-    with _run_app_server(_create_unauthorized_dashboard_app()) as base_url:
+    with run_app_server(_create_unauthorized_dashboard_app()) as base_url:
         yield base_url
 
 
@@ -145,8 +134,8 @@ def _open_and_settle(page: Page, url: str, selector: str) -> str:
 @pytest.mark.parametrize(
     "path,selector",
     [
-        ("/?mode=expert", LANE_LIST),
-        ("/?mode=expert&view=triggers", TRIGGER_LIST),
+        ("/", LANE_LIST),
+        ("/?view=triggers", TRIGGER_LIST),
     ],
     ids=["timeline-lanes", "trigger-list"],
 )
@@ -173,7 +162,7 @@ def test_standalone_page_is_told_to_open_the_events_tab(
 ) -> None:
     """Opened directly, the actionable advice is to use the tab that injects a token."""
     page = chromium_browser.new_page(viewport=VIEWPORT)
-    text = _open_and_settle(page, f"{dashboard_url}/?mode=expert", LANE_LIST)
+    text = _open_and_settle(page, f"{dashboard_url}/", LANE_LIST)
     page.close()
 
     assert "EVENTS tab" in text
@@ -185,7 +174,7 @@ def test_in_terminal_page_is_not_told_to_open_the_tab_it_is_already_in(
     """Inside the EVENTS tab a 401 means the terminal holds no token, so the page
     must name that instead of repeating navigation advice already followed."""
     page = chromium_browser.new_page(viewport=VIEWPORT)
-    text = _open_and_settle(page, f"{dashboard_url}/panel/events/dashboard?mode=expert", LANE_LIST)
+    text = _open_and_settle(page, f"{dashboard_url}/panel/events/dashboard", LANE_LIST)
     page.close()
 
     assert "EVENT_DISPATCHER_TOKEN" in text

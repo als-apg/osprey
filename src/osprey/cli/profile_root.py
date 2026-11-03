@@ -24,7 +24,7 @@ profile missing everything the root was meant to supply. A stem present in both
 ``tiers/`` and ``apps/`` is refused: the name is the render's name, and one name
 cannot be both an access level of the deployment's agent and a separate app.
 
-The retired layer directory is read as ``tiers/`` for one release, with a single
+The retired layer directory is read as ``tiers/`` until the roster sunset, with a single
 warning naming the rewrite.
 """
 
@@ -35,8 +35,7 @@ from dataclasses import dataclass
 from enum import Enum, StrEnum
 from pathlib import Path
 
-from osprey_connectors.errors import BuildProfileError
-from osprey_connectors.workspace import (
+from osprey.utils.workspace import (
     APPS_DIRNAME,
     LAYER_DIR_KINDS,
     LAYER_DIRNAMES,
@@ -44,6 +43,7 @@ from osprey_connectors.workspace import (
     RETIRED_LAYER_DIRS,
     TIERS_DIRNAME,
 )
+from osprey_connectors.errors import BuildProfileError
 
 _LOGGER = logging.getLogger(__name__)
 

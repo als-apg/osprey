@@ -18,7 +18,7 @@ from pathlib import Path
 
 import pytest
 
-from osprey_connectors.config import ConfigBuilder, get_framework_service_config
+from osprey_connectors.config import ConfigBuilder
 
 EXPECTED_CONFIGURABLE_KEYS = {
     "model_configs",
@@ -108,7 +108,6 @@ def test_an_empty_section_reads_as_an_empty_mapping(tmp_path):
     configurable = ConfigBuilder(str(cfg), load_env=False).configurable
     assert configurable["model_configs"] == {}
     assert configurable["service_configs"] == {}
-    assert get_framework_service_config("x", str(cfg)) == {}
 
 
 def test_a_non_mapping_section_is_refused_by_name(tmp_path):

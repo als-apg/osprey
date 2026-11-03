@@ -31,7 +31,10 @@ test("local/no-ts-nocheck matches tsc's real @ts-nocheck grammar", () => {
       // No space after `//` — tsc still honors it.
       { code: '//@ts-nocheck\nexport const a = 1;\n', errors: [{ messageId: 'noTsNocheck' }] },
       // NOT line 1: a banner comment then the directive on line 2.
-      { code: '// banner\n// @ts-nocheck\nexport const a = 1;\n', errors: [{ messageId: 'noTsNocheck' }] },
+      {
+        code: '// banner\n// @ts-nocheck\nexport const a = 1;\n',
+        errors: [{ messageId: 'noTsNocheck' }],
+      },
     ],
   });
 });

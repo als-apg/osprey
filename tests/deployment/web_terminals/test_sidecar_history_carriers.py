@@ -24,14 +24,12 @@ def _config(**web: Any) -> dict[str, Any]:
         "system": {"timezone": "UTC"},
         "registry": {"url": "git.dls.example.org:5050/physics/dls-profiles"},
         "deploy": {"host": "dls-deploy", "fqdn": "dls-deploy.dls.example.org"},
-        "deployed_services": ["telemetry_store", "telemetry_gateway"],
-        "services": {
-            "telemetry_store": {
-                "readers": [
-                    {"name": "carol", "tables": ["audit_ledger", "otel_logs"]},
-                    {"name": "ext", "oidc_subject": " ext@partner.org "},
-                ]
-            }
+        "deployed_services": [],
+        "agent_record": {
+            "readers": [
+                {"name": "carol", "kinds": ["prompt", "answer", "prompt"]},
+                {"name": "ext", "oidc_subject": " ext@partner.org "},
+            ]
         },
         "modules": {
             "web_terminals": {
@@ -74,9 +72,10 @@ def test_the_carriers_are_rendered_into_the_sidecar() -> None:
     assert env["OSPREY_AUTH_ROSTER_HISTORY_OPS_DESK"] == "own"
     assert env["OSPREY_AUTH_ROLE_HISTORY_OPERATOR"] == "all"
     assert "OSPREY_AUTH_ROLE_HISTORY_VIEWER" not in env
+    # The agent record's readers.
     assert env["OSPREY_AUTH_READERS"] == "carol,ext"
-    assert env["OSPREY_AUTH_READER_TABLES_CAROL"] == "otel_logs,audit_ledger"
-    assert env["OSPREY_AUTH_READER_TABLES_EXT"] == "otel_logs,otel_traces,audit_ledger"
+    # The record enforces each reader's kinds itself; the sidecar carries none.
+    assert not [key for key in env if key.startswith("OSPREY_AUTH_READER_TABLES_")]
     assert env["OSPREY_AUTH_READER_SUBJECT_EXT"] == "ext@partner.org"
     assert "OSPREY_AUTH_READER_SUBJECT_CAROL" not in env
 
@@ -89,14 +88,13 @@ def test_the_sidecar_reads_back_what_the_render_wrote() -> None:
     assert settings.role_history_all("operator")
     assert not settings.role_history_all("viewer")
     assert settings.readers == ("carol", "ext")
-    assert settings.tables_for_reader("carol") == ("otel_logs", "audit_ledger")
     assert settings.reader_subject("ext") == "ext@partner.org"
 
 
-def test_a_stated_reader_origin_is_the_carried_one() -> None:
+def test_a_stated_history_origin_is_the_carried_one() -> None:
     config = _config(
         external_origin="https://terminals.dls.example.org",
-        reader_origin="https://terminals.dls.example.org:8443",
+        history_origin="https://terminals.dls.example.org:8443",
     )
     assert history_carriers(config)[0] == (
         "OSPREY_AUTH_HISTORY_ORIGIN=https://terminals.dls.example.org:8443"
@@ -104,11 +102,13 @@ def test_a_stated_reader_origin_is_the_carried_one() -> None:
 
 
 def test_nothing_is_carried_without_the_history_page() -> None:
-    no_store = copy.deepcopy(_config())
-    no_store["deployed_services"] = []
-    assert history_carriers(no_store) == []
     no_sign_on = copy.deepcopy(_config())
     no_sign_on["modules"]["web_terminals"]["auth"] = {"method": "none"}
     assert history_carriers(no_sign_on) == []
-    env = _sidecar_env(no_store)
-    assert not [name for name in env if "HISTORY" in name or "READER" in name]
+
+
+def test_a_signed_in_deployment_carries_the_page() -> None:
+    """The page reads the agent record: a signed-in deployment carries it."""
+    carried = history_carriers(_config())
+    assert carried[0].startswith("OSPREY_AUTH_HISTORY_ORIGIN=")
+    assert any(line.startswith("OSPREY_AUTH_ROSTER_HISTORY_") for line in carried)

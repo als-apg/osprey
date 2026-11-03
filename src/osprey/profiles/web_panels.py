@@ -15,53 +15,18 @@ never a local table; a sidecar panel id is in neither, so cross with ``.get``.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-
 from osprey.interfaces.common_middleware import MOUNT_SEGMENT_RE
+
+# The sidecar registry lives in a module that imports nothing, so a reader that
+# cannot afford this one's imports (the MCP server registry, the web credential
+# module) reads the same objects. Re-exported: this module stays the place
+# panel code imports panel names from.
+from osprey.profiles.sidecar_panels import JUPYTER_PANEL_ID as JUPYTER_PANEL_ID
+from osprey.profiles.sidecar_panels import SIDECAR_PANELS as SIDECAR_PANELS
+from osprey.profiles.sidecar_panels import SidecarPanel as SidecarPanel
 from osprey.registry.web import FRAMEWORK_WEB_SERVERS
 
 UNIVERSAL_PANELS: set[str] = {"artifacts"}
-
-
-@dataclass(frozen=True)
-class SidecarPanel:
-    """A built-in panel served by a process the web terminal starts itself.
-
-    The companion-server registry (``registry.web``) is scoped to servers
-    ``ServerLauncher`` runs from a config section with a host, a port and an
-    ``auto_launch`` key. A sidecar has none of those: it is started by the
-    terminal's lifespan, listens on an ephemeral loopback port, and is reached
-    only through the terminal's own panel proxy. Registering one there would
-    hand it a port band, a port env var and a health probe that mean nothing.
-
-    Attributes:
-        name: One-line description, used as the setup skill's menu entry
-            for the panel id.
-        factory_path: ``module:attribute`` of the sidecar class the terminal
-            imports to start it. A dotted path rather than the object so this
-            module stays importable without pulling the sidecar's dependencies
-            into every process that reads the panel registry.
-    """
-
-    name: str
-    factory_path: str
-
-
-#: The notebook panel's id. Named rather than spelled, because the terminal
-#: reads it on a path that has nothing to do with panels — the session binding
-#: an attach writes is only worth writing where this panel is served.
-JUPYTER_PANEL_ID = "jupyter"
-
-#: Built-in panels the web terminal serves from a sidecar process rather than a
-#: registered companion server. Keyed by panel id, exactly like the ids derived
-#: from the companion registry, so every consumer of :data:`BUILTIN_PANELS`
-#: covers them without a second lookup.
-SIDECAR_PANELS: dict[str, SidecarPanel] = {
-    JUPYTER_PANEL_ID: SidecarPanel(
-        "JupyterLab notebooks",
-        "osprey.interfaces.web_terminal.jupyter_sidecar:JupyterSidecar",
-    ),
-}
 
 #: Every panel id the framework serves itself: the companion web servers, plus
 #: the sidecars the terminal starts. Derived from both registries rather than
@@ -86,30 +51,54 @@ BUILTIN_PANELS: set[str] = {
 # truth consumed by the /api/panels endpoint and by MCP panel tools — do not
 # duplicate these strings elsewhere in the framework.  ``events`` is omitted on
 # purpose: it is a URL-backed custom panel (see above) and carries its own label.
+# A sidecar's label is its registry entry's, so the entry is the one place a
+# sidecar panel is described.
 BUILTIN_PANEL_LABELS: dict[str, str] = {
-    "artifacts": "WORKSPACE",
+    "artifacts": "Artifacts",
     "ariel": "ARIEL",
     "channel-finder": "CHANNELS",
     "lattice": "LATTICE",
-    JUPYTER_PANEL_ID: "JUPYTER",
     "okf": "KNOWLEDGE",
     "system-health": "SYSTEM",
-}
+} | {panel_id: panel.label or panel_id.upper() for panel_id, panel in SIDECAR_PANELS.items()}
 
-#: The bar items whose availability is a panel's presence, and the panel each
-#: needs. The build-time half of ``BAR_ITEM_AVAILABILITY`` in
-#: ``interfaces/web_terminal/app.py``: the server drops such an item from the
-#: default it serves when the panel is absent, and this is what lets the build
-#: say so first. ``identity`` is gated too, but on a runtime fact (a terminal
-#: user or a deployment name) a build cannot judge, so it is deliberately not
-#: here. ``control-target`` is gated by a config key the server reads
-#: (``web.control_target_picker``), not by a panel, so it is not here either;
-#: ``tests/interfaces/web_terminal/test_bar_items_ssr.py`` pins the two
-#: tables together.
-BAR_ITEM_PANEL_GATES: dict[str, str] = {
-    "bluesky-queue": "bluesky",
-    "system-health": "system-health",
-}
+#: Sidecar panels whose config route predates the generic
+#: ``/api/panels/<id>/server``. The older route still answers, and the page
+#: keeps naming it for these ids, so a browser bundle or a client that polls it
+#: reads the same body as before.
+SIDECAR_CONFIG_ENDPOINTS: dict[str, str] = {JUPYTER_PANEL_ID: "/api/jupyter-server"}
+
+
+def sidecar_panel_descriptors() -> list[dict[str, str | None]]:
+    """The browser's descriptor of every sidecar panel, in registry order.
+
+    The page stamps this list on ``<html data-sidecar-panels>`` and
+    ``panel-catalog.js`` builds one sidebar row and tab per entry from it, so a
+    sidecar added to :data:`SIDECAR_PANELS` needs no edit in the browser
+    bundle. The keys are the catalog's own field names. Read at call time, so
+    it answers for the registry as it stands.
+
+    Returns:
+        One mapping per sidecar: ``id``, ``label``, ``icon`` (``None`` for the
+        generic glyph), ``description`` (``None`` for a bare label),
+        ``configEndpoint``, ``healthEndpoint`` (``None`` for a panel that is
+        not polled) and ``startEndpoint``.
+    """
+    return [
+        {
+            "id": panel_id,
+            "label": panel.label or panel_id.upper(),
+            "icon": panel.icon or None,
+            "description": panel.description or None,
+            "configEndpoint": SIDECAR_CONFIG_ENDPOINTS.get(
+                panel_id, f"/api/panels/{panel_id}/server"
+            ),
+            "healthEndpoint": panel.health_endpoint,
+            "startEndpoint": f"/api/panels/{panel_id}/start",
+        }
+        for panel_id, panel in SIDECAR_PANELS.items()
+    ]
+
 
 # Frontend fallback when a profile/config doesn't pin a default tab.
 # The web terminal opens this tab first on cold load.

@@ -28,7 +28,15 @@ from osprey.services.ariel_search.database.migrations import (
 # database: the session ``database_url`` fixture prefers a running dev Postgres with
 # ONE shared ``ariel_test`` database over a per-worker container, so parallel workers
 # would otherwise collide on migrations/seed/truncate.
-pytestmark = [pytest.mark.asyncio, pytest.mark.xdist_group("docker"), pytest.mark.timeout(30)]
+#
+# func_only: the 30 s bounds the test body, not its setup. The first database test
+# on a worker starts the session's Postgres container inside its own setup, which
+# has taken ~30 s on a loaded runner and left a one-second test no time to run.
+pytestmark = [
+    pytest.mark.asyncio,
+    pytest.mark.xdist_group("docker"),
+    pytest.mark.timeout(30, func_only=True),
+]
 
 LOCK_SQL = "SELECT pg_advisory_lock(hashtextextended(%(key)s, 0))"
 TRY_LOCK_SQL = "SELECT pg_try_advisory_lock(hashtextextended(%(key)s, 0))"
@@ -60,11 +68,8 @@ def probe_database(scratch_database: str) -> str:
 
 @pytest.fixture
 async def probe_pool(probe_database: str):
-    pool = await create_connection_pool(DatabaseConfig(uri=probe_database))
-    try:
+    async with await create_connection_pool(DatabaseConfig(uri=probe_database)) as pool:
         yield pool
-    finally:
-        await pool.close()
 
 
 @pytest.fixture

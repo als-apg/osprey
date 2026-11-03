@@ -43,13 +43,15 @@ names another one explicitly.
    osprey facility           # Check and show the facility description under data/facility/
    osprey eject              # Copy framework components for customization
    osprey ariel              # ARIEL logbook search service
-   osprey archive            # Copy the agent record into var/archive
+   osprey archive            # Copy artifacts and plan-queue history into var/archive
    osprey history            # Serve the history page (the history service's entry)
+   osprey agent-record       # The agent record: serve it, check its health, run its export
    osprey artifacts          # Artifact gallery
    osprey web                # Launch web terminal
    osprey theme-lab          # Design and preview a theme in the browser
    osprey scaffold           # CI files, boot unit, build artifact overrides
    osprey audit              # Audit project or profile safety
+   osprey watchdog           # Try safety watchdogs on labelled prompts
    osprey vendor             # Manage locally bundled vendor assets
 
 Global Options
@@ -133,10 +135,17 @@ the ones you added are kept. Never touches ``.env``, ``.git``, ``var/``,
 ``--revalidate [--preset NAME]`` — Bring an existing deployment repository to
 this OSPREY in place: the current profile vocabulary, every config key the
 profile leaves to its preset (from ``--preset NAME``, or the preset the profile
-records), and the provider entries OSPREY ships, keeping the ones you added.
+records), the provider entries and keys OSPREY ships that ``providers.yml``
+lacks (every value already in it is kept, an edited entry OSPREY ships
+included), and the repo's own skills, agents, rules, output styles and hooks named by path in
+``profile.yml`` and each app (a bare entry the repo ships a file for becomes
+its path), so every render keeps what it carried.
 Your deployment's own selections — the roster, the shared apps, the default
 tier, role tiers, the landing groups — are left for you and named in the
-output. Prints a diff to review and commit.
+output. Retired write keys are rewritten to the tier key
+``control_system.writes`` in every layer (:ref:`write-safety-upgrade`), and
+retired per-tool policies for switch-governed tools are removed. Prints
+a diff to review and commit.
 
 The step is one-way: an older OSPREY refuses the revalidated repository. To go
 back, check out the repository as it was before the commit and install the
@@ -148,9 +157,9 @@ away, optionally in the background or in development mode.
 .. code-block:: bash
 
    osprey init --list-presets
-   osprey init als-assistant --preset control-assistant
+   osprey init my-assistant --preset control-assistant
    osprey init demo --preset control-assistant --up -d --dev
-   osprey init als-assistant --revalidate
+   osprey init my-assistant --revalidate
 
 osprey set
 ==========
@@ -197,8 +206,9 @@ facilities' gateway addresses.
    osprey set channel_finder_mode=in_context
    osprey set config.system.timezone=America/Los_Angeles
    osprey set config.control_system.connector.epics.gateways.read_only.address=gw.example.org
-   osprey set --repo ~/my-assistant config.control_system.writes_enabled=true
-   osprey set config.control_system.connector.virtual_accelerator.writes_enabled=true
+   osprey set --repo ~/my-assistant config.control_system.writes=never
+
+``osprey set`` only lowers the write ceiling; raise it in the profile or tier file.
 
 osprey validate
 ===============
@@ -247,7 +257,7 @@ is reported the same way — as a note, never a refusal.
 
    osprey validate
    osprey validate tiers/readonly.yml
-   osprey validate --repo ~/als-assistant
+   osprey validate --repo ~/my-assistant
 
 osprey config
 =============
@@ -389,7 +399,7 @@ a build whose output runs somewhere other than where it was made.
 .. code-block:: bash
 
    osprey build
-   osprey build --repo ~/deployments/als-assistant
+   osprey build --repo ~/deployments/my-assistant
    osprey build --skip-lifecycle --skip-deps          # CI: no venv, no hooks
 
 Lifecycle verbs
@@ -468,7 +478,9 @@ osprey restart
 
 Stop and start this deployment again. Takes the same options as ``up``:
 ``-d/--detached``, ``--dev``, ``--build``, ``--as-built``,
-``--keep-archiver-base``.
+``--keep-archiver-base``. The stop half acts on the runtime and compose project
+the last ``osprey up`` recorded; the start half picks the runtime the setting
+selects now.
 
 osprey status
 -------------
@@ -477,10 +489,11 @@ Show what this deployment is doing. It reads and reports — it starts nothing,
 stops nothing and renders nothing — so it is safe to run against a live stack at
 any time.
 
-Four sections. **Build** says whether ``build/`` still matches ``profile.yml``,
+Five sections. **Build** says whether ``build/`` still matches ``profile.yml``,
 the same check ``osprey up`` refuses on, and which version of osprey rendered it.
 **Containers** is what the container runtime reports, not what compose thinks
 should exist. **Endpoints** is where the services are declared to answer.
+**Writes** lists each login's tier and switch positions.
 **Agent** is the provider, whether its credential can be found, and whether the
 rendered agent files still match the config.
 
@@ -510,12 +523,24 @@ osprey reset
 Wipe this deployment back to a fresh state. It stops the stack, removes the
 containers, volumes and images of this deployment, destroys the
 agent's memory under ``var/agent_data/``, strips the tokens ``osprey up`` minted
-out of ``.env``, and deletes ``build/``.
+out of ``.env``, and deletes ``build/`` and ``var/deployment.json``.
 
-Two things survive, and the plan says so before you confirm: ``var/audit/``, the
-safety audit log, and everything in ``.env`` that a deploy did not mint — your
-provider keys. The source zone is never touched: ``profile.yml``, ``data/``,
-``tiers/``, ``apps/``, ``triggers.yml`` and ``.git`` are exactly what they were.
+What survives, the plan lists before you confirm:
+
+- ``var/audit/`` — the audit files written before the agent record;
+- ``var/agent_record/`` — the agent record, with ``var/spool/`` feeding it and,
+  on the ClickHouse backend, the record's data volume
+  (``<project>_agent_record_clickhouse_data``);
+- ``var/archive/`` — the archive: the record's daily exports, with the artifact
+  and Bluesky copies beside them;
+- ``var/state/`` — each identity's locks, leases and markers;
+- everything in ``.env`` that a deploy did not mint — your provider keys.
+
+The source zone is never touched: ``profile.yml``, ``data/``, ``tiers/``,
+``apps/``, ``triggers.yml`` and ``.git`` are exactly what they were.
+
+Reset refuses, touching nothing, while a host ``osprey web``, ``chat`` or
+``query`` is running the agent record locally, and names those sessions.
 
 What belongs to this deployment is decided two ways. A container records the
 checkout that created it in a label, and reset refuses outright — removing
@@ -523,14 +548,20 @@ nothing — when containers under this ``project_name`` were created from a
 different checkout; it names that checkout so you can reset from there. A
 container with no label at all counts as this deployment's. Volumes carry no
 such label: they belong to the project by name (``<project_name>_<volume>``),
-so once the containers check out, every volume under that name is removed.
+so once the containers check out, every volume under that name is removed,
+except the record's data volume a plain reset keeps.
 
 ``--dry-run`` — Show the removal plan and stop. Nothing is stopped, removed, or
 written.
 
 ``-y, --yes`` — Skip the typed confirmation. The plan is still printed.
 
-``--purge-audit`` — Destroy ``var/audit/`` as well. It is kept by default.
+``--purge-audit`` — Also destroy the agent record and the audit files from
+before it: ``var/audit/``, ``var/agent_record/``, ``var/spool/``, the record's
+ClickHouse volume, and the record's exports in the archive
+(``var/archive/<day>/agent_record/``), marking each purged day in its
+manifest. All are kept by default. ``var/state/`` and the rest of
+``var/archive/`` are kept either way.
 
 Exit status: ``0`` the reset did what it said (or there was nothing to do),
 ``1`` you declined or it refused, ``3`` it ran but the deployment is only partly
@@ -575,6 +606,11 @@ these verbs act on that roster, which lives in the profile. Every verb takes
      - Change one user's login password (password authentication only).
        Prompts without echoing, and ends that user's sessions.
      - —
+   * - ``list [USER]``
+     - Show every card, what it runs and who may open it, with a grid of
+       logins against shared cards. Name a login for what it may open, or a
+       card for who may open it. Reads only.
+     - ``--json``, ``--live``
    * - ``login-url USER``
      - Print the URL that opens that user's terminal under ``auth.method:
        token``. Only the URL goes to stdout, so it can be piped or copied.
@@ -593,6 +629,15 @@ these verbs act on that roster, which lives in the profile. Every verb takes
 ``-y, --yes`` -- Assume yes to confirmation prompts.
 
 ``--dry-run`` -- Show what would happen without making changes.
+
+``osprey users list`` joins the rendered roster, shared apps and each render's
+``control_system.writes`` by the rules the render and the login service apply.
+``--live`` adds container state and last sign-in from the running stack; off the
+host, or with the stack down, those read as a dash. Sign-ins come from the agent
+record, in UTC, so a dash there means the record holds none, not that the person
+never signed in. The grid appears only under
+``password`` and ``oidc``, the two methods that enforce ``access``; under
+``none`` and ``token`` the command says what opens a card instead.
 
 ``osprey users login-url`` builds the URL from that user's operator secret in
 the repository's ``.env``, which ``osprey up`` mints for every roster user in
@@ -628,6 +673,7 @@ secrets go to the job log.
 
    osprey users remove alice --archive
    osprey users prune --dry-run
+   osprey users list
    osprey users seed alice
    osprey users passwd alice
    osprey users login-url alice
@@ -680,10 +726,7 @@ A workspace that cannot be read is reported and the rest of the deployment is
 still listed or exported; the export's closing summary distinguishes a workspace
 that contributed nothing from one that was only partly readable. If nothing at
 all could be read, both verbs stop rather than reporting a deployment with no
-feedback in it. A submission whose session was dropped to keep the store inside
-``web.feedback.max_store_bytes`` carries ``context_pruned``; one missing its
-session for any other reason carries ``context_missing``. The submission is
-exported either way.
+feedback in it.
 
 Exit status: ``0`` on success, including a deployment nobody has sent feedback
 from. Non-zero when the repository has no build, when every workspace failed to
@@ -737,8 +780,9 @@ the ``health:`` config block.
 osprey archive
 ==============
 
-Copy the agent record into an append-only archive. See
-:doc:`/how-to/health-and-monitoring/agent-record`.
+Copy the artifact stores of web terminals and dispatch workers and the
+plan-queue history into an append-only archive, beside the agent record's own
+daily export. See :doc:`/how-to/health-and-monitoring/agent-record`.
 
 .. code-block:: bash
 
@@ -756,17 +800,6 @@ and then every ``--interval`` seconds.
 ``--interval SECONDS`` -- Seconds between passes under ``--watch``, at least 60
 (environment: ``OSPREY_ARCHIVE_INTERVAL_SECONDS``, default ``86400``).
 
-``--store-url URL`` -- HTTP address of the telemetry store to export completed
-days from; unset, none is exported (environment: ``OSPREY_ARCHIVE_STORE_URL``).
-Every store table is exported per arrival day and the store's query log per
-event day, each as one Parquet file under
-``<day>/telemetry/<exported-day>/<table>.parquet`` with a manifest line naming
-its table, day, row count and sha256. The store is read as the ``archive``
-account, with ``OSPREY_TELEMETRY_ARCHIVE_PASSWORD`` from the environment.
-
-``--store-backfill-days N`` -- Most completed days a pass exports
-(environment: ``OSPREY_ARCHIVE_STORE_BACKFILL_DAYS``, default ``14``).
-
 Exit codes of ``--once``: ``0`` the pass completed with no errors, ``1`` it
 completed with recorded errors, ``2`` it could not run (the destination is
 missing or unwritable). ``--watch`` exits ``2`` after five passes in a row that
@@ -776,9 +809,9 @@ osprey history
 ==============
 
 Serve the history page: the across-users view of the agent record, which the
-deployment renders as the ``history`` service when it runs the telemetry store
-and its web terminals sign people in (``auth.method`` of ``password`` or
-``oidc``). Browsers reach it under ``/history/`` on the readers' origin only;
+deployment renders as the ``history`` service when its web terminals sign
+people in (``auth.method`` of ``password`` or ``oidc``). Browsers reach it
+under ``/history/`` on the history page's origin only;
 the command is the service's entry and is not run by hand.
 
 .. code-block:: bash
@@ -790,10 +823,102 @@ listens on every interface of its container).
 
 ``--port PORT`` -- Port to serve on (default ``8000``).
 
-The page reads the store at ``OSPREY_HISTORY_STORE_URL`` as the ``history``
-account, with ``OSPREY_TELEMETRY_HISTORY_PASSWORD`` from the environment, and
-runs every query as the viewer's own store view user. It admits only requests
-that carry the gate secret nginx presents (``OSPREY_TERMINAL_SECRET_HISTORY``).
+The page reads the agent record at ``OSPREY_AGENT_RECORD_URL`` with the
+record's ``history`` login (``OSPREY_AGENT_RECORD_LOGIN``), naming the viewer
+the sign-in resolved; the record decides what that viewer sees. It admits only
+requests that carry the gate secret nginx presents
+(``OSPREY_TERMINAL_SECRET_HISTORY``).
+
+osprey watchdog
+===============
+
+Try safety watchdogs out before relying on them. :doc:`/how-to/safety-watchdogs`
+has the steps, including the format of a fixture.
+
+osprey watchdog replay
+----------------------
+
+Replay labelled prompts through watchdogs, enabled or not, and report how each
+did. Nothing is flagged, held or recorded.
+
+.. code-block:: bash
+
+   osprey watchdog replay FIXTURES_DIR [--watchdog NAME] [--profile DIR ...] [--project-dir DIR]
+
+``FIXTURES_DIR`` holds ``*.jsonl`` fixtures at any depth, and each directory is
+one set. Definitions come from each ``--profile``, by default from the project's
+profile. Agent watchdogs need a built project through ``--project-dir`` and are
+reported as not run without one. A fixture's ``machine`` values are written to
+that project's in-process simulator under its usual write checks; a fixture they
+cannot apply to is reported as not run, and no other control system is written.
+
+For each watchdog, engine and set it prints the hit rate on risky prompts, the
+false-flag rate on benign prompts, p50 and p95 latency, and cost. The exit status
+is non-zero only when an engine answered on none of its fixtures.
+
+osprey agent-record
+===================
+
+The agent record: the one store of every session fact the deployment's agents
+produce. Every deployment renders it as the ``agent-record`` service; see
+:doc:`/how-to/health-and-monitoring/agent-record` for how long it keeps an
+entry and how to check on it.
+
+osprey agent-record serve
+-------------------------
+
+Serve agent-record: it ingests the spool every source appends to and the
+Claude Code transcripts mounted into it, writes them to the configured backend
+(``agent_record.backend``), and answers reads for the credentials the
+deployment minted. The command is the service's entry and is not run by hand.
+
+.. code-block:: bash
+
+   osprey agent-record serve [--host HOST] [--port PORT] [--lease-dir DIRECTORY]
+
+``--host HOST`` -- Interface to listen on (default ``127.0.0.1``; the service
+listens on every interface of its container).
+
+``-p, --port PORT`` -- Port to serve on (default: the configured
+``agent_record.port``).
+
+``--lease-dir DIRECTORY`` -- Run as the host-local record that host commands
+start when no stack runs one: report ready only after the first full ingest
+pass, and stop once no lease in this directory names a live process.
+
+It reads the verifier and the secret set, and the spool, record and transcript
+locations, from the environment its compose service renders.
+
+osprey agent-record health
+--------------------------
+
+Show the agent record's health: every spool source and transcript root (live,
+idle or stopped, its backlog, refusals and errors), the backend, and how far
+the export to the archive is behind. It waits for the record's start-up job
+run to finish, then answers, and names each problem it finds.
+
+.. code-block:: bash
+
+   osprey agent-record health [--repo DIRECTORY]
+
+It reads the record ``OSPREY_AGENT_RECORD_URL`` names; with no stack up and no
+host session, it starts the host-local record for the call and stops it again
+afterwards. A project whose ``agent_record.backend`` is ``clickhouse`` needs
+its stack: with nothing up the command refuses and names ``osprey up``.
+
+osprey agent-record export
+--------------------------
+
+Run the catch-up export now: every closed day the archive does not hold yet is
+written to ``var/archive/<day>/agent_record/``. It waits for the record's
+start-up job run to finish, then prints the days this call exported and the
+latest exported day.
+
+.. code-block:: bash
+
+   osprey agent-record export [--repo DIRECTORY]
+
+It opens the record the same way ``osprey agent-record health`` does.
 
 osprey chat
 ===========
@@ -829,7 +954,7 @@ the build as it stands.
    osprey chat
    osprey chat --print "what is the stored beam current?"
    osprey chat --resume abc123
-   osprey chat --repo ~/als-assistant
+   osprey chat --repo ~/my-assistant
 
 osprey query
 ============
@@ -862,7 +987,7 @@ provider is not configured).
 .. code-block:: bash
 
    osprey query "What PVs are used for beam current?"
-   osprey query --repo ~/als-assistant "List vacuum sections"
+   osprey query --repo ~/my-assistant "List vacuum sections"
    osprey query --json "Summarise recent alarms"
 
 osprey eject
@@ -976,8 +1101,9 @@ an export into it. See :doc:`/how-to/import-mml-export` for the import end to en
    modulo the deck's length, and both ``osprey build`` and this command print
    one ``facility: place-wrapped: device <id> — …; fix: …`` warning per device
    on stderr; the exit code is unchanged.
-   A knowledge page under ``data/facility/knowledge`` whose ``device_id`` is no
-   device id of the facility file prints one
+   Each link of a knowledge page under ``data/facility/knowledge`` that the
+   facility file does not hold, a ``device_id`` that is no device id or a
+   ``facility:`` link in the body that names no channel or device, prints one
    ``facility: link-dangling: page <path> — …; fix: …`` warning, in
    ``osprey build`` and in this command; the exit code is unchanged.
    The check converts a monitor reading to position with one slope, taken at
@@ -1276,6 +1402,7 @@ Launch the Web Terminal interface. See :doc:`/how-to/web-terminal/operate`.
    valid for the life of the process — treat it like a password.
 
    ``-p, --port INTEGER`` — Port (default: from config, else the port layout's ``10100``).
+   0 lets the system choose; the startup line names the port; not with ``--reload``.
 
    ``--host TEXT`` — Host to bind to (default: ``127.0.0.1``).
 

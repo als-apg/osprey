@@ -638,14 +638,16 @@ class ARIELRepository:
         from psycopg.rows import dict_row
 
         try:
-            async with self.pool.connection() as conn:
-                async with conn.cursor(row_factory=dict_row) as cur:
-                    await cur.execute(
-                        "SELECT * FROM enhanced_entries WHERE entry_id = %s",
-                        [entry_id],
-                    )
-                    row = await cur.fetchone()
-                    return enhanced_entry_from_row(row) if row else None
+            async with (
+                self.pool.connection() as conn,
+                conn.cursor(row_factory=dict_row) as cur,
+            ):
+                await cur.execute(
+                    "SELECT * FROM enhanced_entries WHERE entry_id = %s",
+                    [entry_id],
+                )
+                row = await cur.fetchone()
+                return enhanced_entry_from_row(row) if row else None
         except Exception as e:
             raise DatabaseQueryError(
                 f"Failed to get entry {entry_id}: {e}",
@@ -667,14 +669,16 @@ class ARIELRepository:
             return []
 
         try:
-            async with self.pool.connection() as conn:
-                async with conn.cursor(row_factory=dict_row) as cur:
-                    await cur.execute(
-                        "SELECT * FROM enhanced_entries WHERE entry_id = ANY(%s)",
-                        [entry_ids],
-                    )
-                    rows = await cur.fetchall()
-                    return [enhanced_entry_from_row(row) for row in rows]
+            async with (
+                self.pool.connection() as conn,
+                conn.cursor(row_factory=dict_row) as cur,
+            ):
+                await cur.execute(
+                    "SELECT * FROM enhanced_entries WHERE entry_id = ANY(%s)",
+                    [entry_ids],
+                )
+                rows = await cur.fetchall()
+                return [enhanced_entry_from_row(row) for row in rows]
         except Exception as e:
             raise DatabaseQueryError(
                 f"Failed to get entries by IDs: {e}",
@@ -950,39 +954,41 @@ class ARIELRepository:
         from psycopg.rows import dict_row
 
         try:
-            async with self.pool.connection() as conn:
-                async with conn.cursor(row_factory=dict_row) as cur:
-                    conditions = []
-                    params: list[Any] = []
+            async with (
+                self.pool.connection() as conn,
+                conn.cursor(row_factory=dict_row) as cur,
+            ):
+                conditions = []
+                params: list[Any] = []
 
-                    if start is not None:
-                        conditions.append("timestamp >= %s")
-                        params.append(start)
-                    if end is not None:
-                        conditions.append("timestamp <= %s")
-                        params.append(end)
-                    if author is not None:
-                        conditions.append("author = %s")
-                        params.append(author)
-                    if source_system is not None:
-                        conditions.append("source_system = %s")
-                        params.append(source_system)
+                if start is not None:
+                    conditions.append("timestamp >= %s")
+                    params.append(start)
+                if end is not None:
+                    conditions.append("timestamp <= %s")
+                    params.append(end)
+                if author is not None:
+                    conditions.append("author = %s")
+                    params.append(author)
+                if source_system is not None:
+                    conditions.append("source_system = %s")
+                    params.append(source_system)
 
-                    where_clause = " AND ".join(conditions) if conditions else "TRUE"
-                    params.append(limit)
-                    params.append(offset)
+                where_clause = " AND ".join(conditions) if conditions else "TRUE"
+                params.append(limit)
+                params.append(offset)
 
-                    await cur.execute(
-                        f"""
-                        SELECT * FROM enhanced_entries
-                        WHERE {where_clause}
-                        ORDER BY timestamp DESC
-                        LIMIT %s OFFSET %s
-                        """,
-                        params,
-                    )
-                    rows = await cur.fetchall()
-                    return [enhanced_entry_from_row(row) for row in rows]
+                await cur.execute(
+                    f"""
+                    SELECT * FROM enhanced_entries
+                    WHERE {where_clause}
+                    ORDER BY timestamp DESC
+                    LIMIT %s OFFSET %s
+                    """,
+                    params,
+                )
+                rows = await cur.fetchall()
+                return [enhanced_entry_from_row(row) for row in rows]
         except Exception as e:
             raise DatabaseQueryError(
                 f"Failed to search by time range: {e}",
@@ -1505,20 +1511,22 @@ class ARIELRepository:
         from psycopg.rows import dict_row
 
         try:
-            async with self.pool.connection() as conn:
-                async with conn.cursor(row_factory=dict_row) as cur:
-                    await cur.execute(
-                        """
-                        SELECT attachment_id, source_url, filename, mime_type, size_bytes,
-                               copy_status, skip_reason, copy_attempts, rendition_sha256,
-                               data IS NOT NULL AS has_data, created_at
-                        FROM attachment_files
-                        WHERE entry_id = %(entry_id)s
-                        ORDER BY created_at, attachment_id
-                        """,
-                        {"entry_id": entry_id},
-                    )
-                    return [dict(row) for row in await cur.fetchall()]
+            async with (
+                self.pool.connection() as conn,
+                conn.cursor(row_factory=dict_row) as cur,
+            ):
+                await cur.execute(
+                    """
+                    SELECT attachment_id, source_url, filename, mime_type, size_bytes,
+                           copy_status, skip_reason, copy_attempts, rendition_sha256,
+                           data IS NOT NULL AS has_data, created_at
+                    FROM attachment_files
+                    WHERE entry_id = %(entry_id)s
+                    ORDER BY created_at, attachment_id
+                    """,
+                    {"entry_id": entry_id},
+                )
+                return [dict(row) for row in await cur.fetchall()]
         except Exception as e:
             raise DatabaseQueryError(
                 f"Failed to read copy rows for {entry_id}: {e}",
@@ -1547,18 +1555,20 @@ class ARIELRepository:
             return None
 
         try:
-            async with self.pool.connection() as conn:
-                async with conn.cursor(row_factory=dict_row) as cur:
-                    await cur.execute(
-                        f"""
-                        SELECT {", ".join(ATTACHMENT_ROW_COLUMNS)}
-                        FROM attachment_files
-                        WHERE entry_id = ANY(%(entry_ids)s)
-                        ORDER BY entry_id, created_at, attachment_id
-                        """,
-                        {"entry_ids": list(entry_ids)},
-                    )
-                    rows = await cur.fetchall()
+            async with (
+                self.pool.connection() as conn,
+                conn.cursor(row_factory=dict_row) as cur,
+            ):
+                await cur.execute(
+                    f"""
+                    SELECT {", ".join(ATTACHMENT_ROW_COLUMNS)}
+                    FROM attachment_files
+                    WHERE entry_id = ANY(%(entry_ids)s)
+                    ORDER BY entry_id, created_at, attachment_id
+                    """,
+                    {"entry_ids": list(entry_ids)},
+                )
+                rows = await cur.fetchall()
         except Exception as e:
             raise DatabaseQueryError(
                 f"Failed to read attachment rows: {e}",
@@ -1588,18 +1598,20 @@ class ARIELRepository:
 
         columns = (*ATTACHMENT_ROW_COLUMNS, "rendition_bytes")
         try:
-            async with self.pool.connection() as conn:
-                async with conn.cursor(row_factory=dict_row) as cur:
-                    await cur.execute(
-                        f"""
-                        SELECT {", ".join(columns)}
-                        FROM attachment_files
-                        WHERE attachment_id = %(attachment_id)s
-                        AND rendition_bytes IS NOT NULL
-                        """,
-                        {"attachment_id": attachment_id},
-                    )
-                    row = await cur.fetchone()
+            async with (
+                self.pool.connection() as conn,
+                conn.cursor(row_factory=dict_row) as cur,
+            ):
+                await cur.execute(
+                    f"""
+                    SELECT {", ".join(columns)}
+                    FROM attachment_files
+                    WHERE attachment_id = %(attachment_id)s
+                    AND rendition_bytes IS NOT NULL
+                    """,
+                    {"attachment_id": attachment_id},
+                )
+                row = await cur.fetchone()
         except Exception as e:
             raise DatabaseQueryError(
                 f"Failed to read rendition {attachment_id}: {e}",
@@ -1631,10 +1643,12 @@ class ARIELRepository:
             warn_attachment_schema_gap_once()
             sql = "SELECT filename, mime_type, data FROM attachment_files WHERE attachment_id = %(id)s"
         try:
-            async with self.pool.connection() as conn:
-                async with conn.cursor(row_factory=dict_row) as cur:
-                    await cur.execute(sql, {"id": attachment_id})
-                    row = await cur.fetchone()
+            async with (
+                self.pool.connection() as conn,
+                conn.cursor(row_factory=dict_row) as cur,
+            ):
+                await cur.execute(sql, {"id": attachment_id})
+                row = await cur.fetchone()
         except Exception as e:
             raise DatabaseQueryError(
                 f"Failed to read attachment original {attachment_id}: {e}",
@@ -1828,50 +1842,52 @@ class ARIELRepository:
             return await self._get_incomplete_entries_for_marker(module_name, marker, limit)
 
         try:
-            async with self.pool.connection() as conn:
-                async with conn.cursor(row_factory=dict_row) as cur:
-                    if module_name and status:
-                        await cur.execute(
-                            """
-                            SELECT * FROM enhanced_entries
-                            WHERE enhancement_status->%s->>'status' = %s
-                            ORDER BY created_at ASC
-                            LIMIT %s
-                            """,
-                            [module_name, status, limit],
-                        )
-                    elif module_name:
-                        await cur.execute(
-                            """
-                            SELECT * FROM enhanced_entries
-                            WHERE NOT (enhancement_status ? %s)
-                               OR enhancement_status->%s->>'status' = 'pending'
-                               OR (enhancement_status->%s->>'status' = 'failed'
-                                   AND COALESCE((enhancement_status->%s->>'attempts')::int, 0)
-                                       < %s)
-                            ORDER BY created_at ASC
-                            LIMIT %s
-                            """,
-                            [
-                                module_name,
-                                module_name,
-                                module_name,
-                                module_name,
-                                MAX_ENHANCEMENT_ATTEMPTS,
-                                limit,
-                            ],
-                        )
-                    else:
-                        await cur.execute(
-                            """
-                            SELECT * FROM enhanced_entries
-                            ORDER BY created_at ASC
-                            LIMIT %s
-                            """,
-                            [limit],
-                        )
-                    rows = await cur.fetchall()
-                    return [enhanced_entry_from_row(row) for row in rows]
+            async with (
+                self.pool.connection() as conn,
+                conn.cursor(row_factory=dict_row) as cur,
+            ):
+                if module_name and status:
+                    await cur.execute(
+                        """
+                        SELECT * FROM enhanced_entries
+                        WHERE enhancement_status->%s->>'status' = %s
+                        ORDER BY created_at ASC
+                        LIMIT %s
+                        """,
+                        [module_name, status, limit],
+                    )
+                elif module_name:
+                    await cur.execute(
+                        """
+                        SELECT * FROM enhanced_entries
+                        WHERE NOT (enhancement_status ? %s)
+                           OR enhancement_status->%s->>'status' = 'pending'
+                           OR (enhancement_status->%s->>'status' = 'failed'
+                               AND COALESCE((enhancement_status->%s->>'attempts')::int, 0)
+                                   < %s)
+                        ORDER BY created_at ASC
+                        LIMIT %s
+                        """,
+                        [
+                            module_name,
+                            module_name,
+                            module_name,
+                            module_name,
+                            MAX_ENHANCEMENT_ATTEMPTS,
+                            limit,
+                        ],
+                    )
+                else:
+                    await cur.execute(
+                        """
+                        SELECT * FROM enhanced_entries
+                        ORDER BY created_at ASC
+                        LIMIT %s
+                        """,
+                        [limit],
+                    )
+                rows = await cur.fetchall()
+                return [enhanced_entry_from_row(row) for row in rows]
         except Exception as e:
             raise DatabaseQueryError(
                 f"Failed to get incomplete entries: {e}",
@@ -1908,11 +1924,13 @@ class ARIELRepository:
         if module_name == "image_caption":
             params["model"] = marker
         try:
-            async with self.pool.connection() as conn:
-                async with conn.cursor(row_factory=dict_row) as cur:
-                    await cur.execute(sql, params)
-                    rows = await cur.fetchall()
-                    return [enhanced_entry_from_row(row) for row in rows]
+            async with (
+                self.pool.connection() as conn,
+                conn.cursor(row_factory=dict_row) as cur,
+            ):
+                await cur.execute(sql, params)
+                rows = await cur.fetchall()
+                return [enhanced_entry_from_row(row) for row in rows]
         except Exception as e:
             raise DatabaseQueryError(
                 f"Failed to get incomplete entries: {e}",
@@ -2533,30 +2551,29 @@ class ARIELRepository:
                 active_table = None
 
         try:
-            async with self.pool.connection() as conn:
-                async with conn.cursor() as cur:
-                    names = await image_embedding_table_names(cur)
-                    tables: list[EmbeddingTableInfo] = []
-                    for table_name in names:
-                        await cur.execute(f"SELECT COUNT(embedding) FROM {table_name}")
-                        count_row = await cur.fetchone()
-                        await cur.execute(
-                            """
-                            SELECT atttypmod FROM pg_attribute
-                            WHERE attrelid = %s::regclass AND attname = 'embedding'
-                            """,
-                            [table_name],
+            async with self.pool.connection() as conn, conn.cursor() as cur:
+                names = await image_embedding_table_names(cur)
+                tables: list[EmbeddingTableInfo] = []
+                for table_name in names:
+                    await cur.execute(f"SELECT COUNT(embedding) FROM {table_name}")
+                    count_row = await cur.fetchone()
+                    await cur.execute(
+                        """
+                        SELECT atttypmod FROM pg_attribute
+                        WHERE attrelid = %s::regclass AND attname = 'embedding'
+                        """,
+                        [table_name],
+                    )
+                    dim_row = await cur.fetchone()
+                    tables.append(
+                        EmbeddingTableInfo(
+                            table_name=table_name,
+                            entry_count=int(count_row[0]) if count_row else 0,
+                            dimension=(int(dim_row[0]) if dim_row and dim_row[0] > 0 else None),
+                            is_active=table_name == active_table,
                         )
-                        dim_row = await cur.fetchone()
-                        tables.append(
-                            EmbeddingTableInfo(
-                                table_name=table_name,
-                                entry_count=int(count_row[0]) if count_row else 0,
-                                dimension=(int(dim_row[0]) if dim_row and dim_row[0] > 0 else None),
-                                is_active=table_name == active_table,
-                            )
-                        )
-                    return tables
+                    )
+                return tables
         except Exception as e:
             raise DatabaseQueryError(
                 f"Failed to get image embedding tables: {e}",
@@ -2592,10 +2609,16 @@ class ARIELRepository:
                 row = await result.fetchone()
                 if not row or not row[0]:
                     raise ConfigurationError(
-                        f"Embedding table '{table_name}' does not exist. "
-                        f"The model '{model}' is configured for semantic search "
-                        "but migrations have not been run. Run 'osprey ariel migrate'.",
+                        "search_modules.semantic.model: semantic search is enabled "
+                        f"for model '{model}', but this database has no embedding "
+                        f"table for it ('{table_name}')",
                         config_key="search_modules.semantic.model",
+                        remedy=(
+                            "Run `osprey ariel quickstart` -- it creates the table, "
+                            "which needs the pgvector extension and the model listed "
+                            "under enhancement_modules.text_embedding.models -- or set "
+                            "search_modules.semantic.enabled: false"
+                        ),
                     )
         except ConfigurationError:
             raise
@@ -3149,48 +3172,50 @@ class ARIELRepository:
         from psycopg.rows import dict_row
 
         try:
-            async with self.pool.connection() as conn:
-                async with conn.cursor(row_factory=dict_row) as cur:
-                    if v2:
-                        sim_sql = (
-                            "GREATEST(similarity(raw_text, %s), "
-                            f"similarity({ATTACHMENT_TEXT_DOCUMENT}, %s))"
-                        )
-                        sim_params: list[Any] = [search_text, search_text]
-                    else:
-                        sim_sql = "similarity(raw_text, %s)"
-                        sim_params = [search_text]
-                    where_clauses = [f"{sim_sql} >= %s"]
-                    params: list[Any] = [*sim_params, threshold]
+            async with (
+                self.pool.connection() as conn,
+                conn.cursor(row_factory=dict_row) as cur,
+            ):
+                if v2:
+                    sim_sql = (
+                        "GREATEST(similarity(raw_text, %s), "
+                        f"similarity({ATTACHMENT_TEXT_DOCUMENT}, %s))"
+                    )
+                    sim_params: list[Any] = [search_text, search_text]
+                else:
+                    sim_sql = "similarity(raw_text, %s)"
+                    sim_params = [search_text]
+                where_clauses = [f"{sim_sql} >= %s"]
+                params: list[Any] = [*sim_params, threshold]
 
-                    if start_date:
-                        where_clauses.append("timestamp >= %s")
-                        params.append(start_date)
-                    if end_date:
-                        where_clauses.append("timestamp <= %s")
-                        params.append(end_date)
+                if start_date:
+                    where_clauses.append("timestamp >= %s")
+                    params.append(start_date)
+                if end_date:
+                    where_clauses.append("timestamp <= %s")
+                    params.append(end_date)
 
-                    where_sql = " AND ".join(where_clauses)
+                where_sql = " AND ".join(where_clauses)
 
-                    query = f"""
+                query = f"""
                         SELECT e.*, {sim_sql} AS sim
                         FROM enhanced_entries e
                         WHERE {where_sql}
                         ORDER BY sim DESC
                         LIMIT %s
                     """
-                    all_params = sim_params + params + [max_results]
+                all_params = sim_params + params + [max_results]
 
-                    await cur.execute(query, all_params)
-                    rows = await cur.fetchall()
+                await cur.execute(query, all_params)
+                rows = await cur.fetchall()
 
-                    results: list[tuple[EnhancedLogbookEntry, float, list[str]]] = []
-                    for row in rows:
-                        sim = float(row.pop("sim", 0.0) or 0.0)
-                        entry = enhanced_entry_from_row(row)
-                        results.append((entry, sim, []))
+                results: list[tuple[EnhancedLogbookEntry, float, list[str]]] = []
+                for row in rows:
+                    sim = float(row.pop("sim", 0.0) or 0.0)
+                    entry = enhanced_entry_from_row(row)
+                    results.append((entry, sim, []))
 
-                    return results
+                return results
 
         except Exception as e:
             raise DatabaseQueryError(
@@ -3233,27 +3258,29 @@ class ARIELRepository:
         embedding_str = "[" + ",".join(str(x) for x in query_embedding) + "]"
 
         try:
-            async with self.pool.connection() as conn:
-                async with conn.cursor(row_factory=dict_row) as cur:
-                    where_clauses = ["1 - (emb.embedding <=> %s::vector) >= %s"]
-                    params: list[Any] = [embedding_str, similarity_threshold]
+            async with (
+                self.pool.connection() as conn,
+                conn.cursor(row_factory=dict_row) as cur,
+            ):
+                where_clauses = ["1 - (emb.embedding <=> %s::vector) >= %s"]
+                params: list[Any] = [embedding_str, similarity_threshold]
 
-                    if start_date:
-                        where_clauses.append("e.timestamp >= %s")
-                        params.append(start_date)
-                    if end_date:
-                        where_clauses.append("e.timestamp <= %s")
-                        params.append(end_date)
-                    if author:
-                        where_clauses.append("e.author ILIKE %s")
-                        params.append(f"%{author}%")
-                    if source_system:
-                        where_clauses.append("e.source_system = %s")
-                        params.append(source_system)
+                if start_date:
+                    where_clauses.append("e.timestamp >= %s")
+                    params.append(start_date)
+                if end_date:
+                    where_clauses.append("e.timestamp <= %s")
+                    params.append(end_date)
+                if author:
+                    where_clauses.append("e.author ILIKE %s")
+                    params.append(f"%{author}%")
+                if source_system:
+                    where_clauses.append("e.source_system = %s")
+                    params.append(source_system)
 
-                    where_sql = " AND ".join(where_clauses)
+                where_sql = " AND ".join(where_clauses)
 
-                    query = f"""
+                query = f"""
                         SELECT e.*, 1 - (emb.embedding <=> %s::vector) AS similarity
                         FROM enhanced_entries e
                         JOIN {table_name} emb ON e.entry_id = emb.entry_id
@@ -3262,18 +3289,18 @@ class ARIELRepository:
                         LIMIT %s
                     """
 
-                    all_params = [embedding_str] + params + [max_results]
+                all_params = [embedding_str] + params + [max_results]
 
-                    await cur.execute(query, all_params)
-                    rows = await cur.fetchall()
+                await cur.execute(query, all_params)
+                rows = await cur.fetchall()
 
-                    results: list[tuple[EnhancedLogbookEntry, float]] = []
-                    for row in rows:
-                        similarity = float(row.pop("similarity", 0.0) or 0.0)
-                        entry = enhanced_entry_from_row(row)
-                        results.append((entry, similarity))
+                results: list[tuple[EnhancedLogbookEntry, float]] = []
+                for row in rows:
+                    similarity = float(row.pop("similarity", 0.0) or 0.0)
+                    entry = enhanced_entry_from_row(row)
+                    results.append((entry, similarity))
 
-                    return results
+                return results
 
         except Exception as e:
             raise DatabaseQueryError(

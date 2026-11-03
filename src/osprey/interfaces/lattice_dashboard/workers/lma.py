@@ -214,7 +214,7 @@ def build_figure(
 
     # ── LMA traces ─────────────────────────────────────────
 
-    # Baseline (dashed)
+    # The baseline, dashed
     if baseline is not None:
         bs, bdp_p, bdp_m = baseline
         fig.add_trace(

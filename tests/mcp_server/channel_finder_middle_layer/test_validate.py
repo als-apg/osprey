@@ -2,22 +2,15 @@
 
 from unittest.mock import MagicMock, PropertyMock, patch
 
-from osprey.mcp_server.channel_finder_middle_layer.server_context import (
-    initialize_cf_ml_context,
-)
-from tests.mcp_server.channel_finder_middle_layer.conftest import get_tool_fn
-from tests.mcp_server.conftest import assert_raises_error, extract_response_dict
+import pytest
+
+from tests.mcp_server.conftest import assert_raises_error, extract_response_dict, get_tool_fn
+
+pytestmark = pytest.mark.usefixtures("cf_ml_context")
 
 
-def _setup(tmp_path, monkeypatch):
-    monkeypatch.chdir(tmp_path)
-    (tmp_path / "config.yml").write_text("{}")
-    initialize_cf_ml_context()
-
-
-def test_validate_returns_results(tmp_path, monkeypatch):
+def test_validate_returns_results():
     """Happy path: validates channel names and returns results."""
-    _setup(tmp_path, monkeypatch)
     mock_db = MagicMock()
     mock_db.validate_channel.side_effect = [True, False]
     with patch(
@@ -40,9 +33,8 @@ def test_validate_returns_results(tmp_path, monkeypatch):
     assert data["results"][1]["valid"] is False
 
 
-def test_validate_empty_list(tmp_path, monkeypatch):
+def test_validate_empty_list():
     """Empty channel list returns validation_error envelope."""
-    _setup(tmp_path, monkeypatch)
     from osprey.mcp_server.channel_finder_middle_layer.tools.validate import (
         validate,
     )
@@ -55,9 +47,8 @@ def test_validate_empty_list(tmp_path, monkeypatch):
     assert "Empty channel list" in data["error_message"]
 
 
-def test_validate_internal_error(tmp_path, monkeypatch):
+def test_validate_internal_error():
     """Internal error returns standard error envelope."""
-    _setup(tmp_path, monkeypatch)
     mock_db = MagicMock()
     mock_db.validate_channel.side_effect = Exception("Corrupted index")
     with patch(

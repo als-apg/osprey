@@ -20,8 +20,7 @@ from osprey.mcp_server.bluesky.server_context import initialize_server_context, 
 from osprey.mcp_server.bluesky.tools import draft
 from osprey.registry.mcp import FRAMEWORK_SERVERS
 from osprey.utils.owner_header import OWNER_HEADER
-from osprey_connectors.identity import TERMINAL_USER_ENV
-from osprey_connectors.posture_store import CONTROL_CONTEXT_TREE_ENV_VAR, CONTROL_OWNER_ENV_VAR
+from tests.mcp_server._bluesky import as_owner_less_tree_container, as_terminal_user
 from tests.mcp_server.conftest import assert_raises_error, extract_response_dict, get_tool_fn
 
 _MOD = "osprey.mcp_server.bluesky.tools.draft"
@@ -37,19 +36,6 @@ def _set_fn():
 
 def _clear_fn():
     return get_tool_fn(draft.clear_draft)
-
-
-def _as_terminal_user(monkeypatch, user: str) -> None:
-    """Put the process in a terminal container: the roster account, no stamp over it."""
-    monkeypatch.delenv(CONTROL_OWNER_ENV_VAR, raising=False)
-    monkeypatch.delenv(CONTROL_CONTEXT_TREE_ENV_VAR, raising=False)
-    monkeypatch.setenv(TERMINAL_USER_ENV, user)
-
-
-def _as_owner_less_tree_container(monkeypatch, tmp_path) -> None:
-    """Put the process in a container holding the state tree and owning nothing."""
-    monkeypatch.delenv(CONTROL_OWNER_ENV_VAR, raising=False)
-    monkeypatch.setenv(CONTROL_CONTEXT_TREE_ENV_VAR, str(tmp_path / "control-context"))
 
 
 @pytest.fixture(autouse=True)
@@ -229,7 +215,7 @@ async def test_clear_draft_non_200_maps_to_generic_bridge_error():
 
 
 async def test_a_draft_edit_names_who_made_it(monkeypatch):
-    _as_terminal_user(monkeypatch, "rosterbob")
+    as_terminal_user(monkeypatch, "rosterbob")
     resp = {"revision": 1, "changed": ["plan_name"], "plan_name": "grid_scan"}
     with patch(f"{_MOD}._http_patch_json", return_value=(200, resp)) as m:
         await _set_fn()(plan_name="grid_scan")
@@ -240,7 +226,7 @@ async def test_a_draft_edit_names_who_made_it(monkeypatch):
 async def test_a_draft_discard_names_who_discarded_it(monkeypatch):
     """Wiping the surface the human may be filling is the destructive draft
     write, and it is the one that most needs a name on it."""
-    _as_terminal_user(monkeypatch, "rosterbob")
+    as_terminal_user(monkeypatch, "rosterbob")
     with patch(
         f"{_MOD}._http_delete_json", return_value=(200, {"revision": 5, "cleared": True})
     ) as m:
@@ -252,7 +238,7 @@ async def test_a_draft_discard_names_who_discarded_it(monkeypatch):
 async def test_an_owner_less_draft_write_sends_no_headers_at_all(tmp_path, monkeypatch):
     """Nothing to say means no header dict, not an empty one — the same
     absent-not-empty rule every other write from this server keeps."""
-    _as_owner_less_tree_container(monkeypatch, tmp_path)
+    as_owner_less_tree_container(monkeypatch, tmp_path)
     with patch(f"{_MOD}._http_delete_json", return_value=(200, {"cleared": False})) as m:
         await _clear_fn()()
 
@@ -261,7 +247,7 @@ async def test_an_owner_less_draft_write_sends_no_headers_at_all(tmp_path, monke
 
 async def test_a_draft_read_carries_no_owner(monkeypatch):
     """Reads name nobody: there is no change to attribute."""
-    _as_terminal_user(monkeypatch, "rosterbob")
+    as_terminal_user(monkeypatch, "rosterbob")
     with patch(f"{_MOD}._http_get_json", return_value=(200, {"draft": None, "revision": 1})) as m:
         await _get_fn()()
 

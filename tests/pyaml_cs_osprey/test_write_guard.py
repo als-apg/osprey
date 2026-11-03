@@ -2,9 +2,9 @@
 
 ``execute`` holds the target's run lock and nothing more, so a pyAML set inside it
 is refused before anything is read or written. The same set inside ``run_tool``
-has its prior value read, then is written, and is recorded only once the runtime
-sent or landed it. With no guarded-run directory the run stops before the tool
-is called.
+has its prior value read, then is written, and is listed unless the runtime
+showed its write never went out (no attempt, or ``refused``). With no
+guarded-run directory the run stops before the tool is called.
 """
 
 from __future__ import annotations
@@ -255,12 +255,11 @@ def serve(
 
 
 class TestMovedListsOnlyWhatMoved:
-    """``moved`` holds an address only once the runtime sent or landed its write.
+    """``moved`` lists an address unless the runtime showed its write never went out.
 
-    A refused write records nothing and its refusal propagates unchanged. A
-    write whose call raised something other than a refusal of that address,
-    after the runtime attempted it but before it reported an outcome, is
-    listed: it may have gone out.
+    A write the runtime never attempted, or reported ``refused``, is not
+    listed, and its refusal propagates unchanged. A write whose outcome is
+    unknown is listed: it may have gone out.
     """
 
     def test_a_limits_refused_set_records_nothing_and_the_refusal_propagates(
@@ -369,6 +368,77 @@ class TestMovedListsOnlyWhatMoved:
         assert info.value.channel_address == middle
         assert machine._state[BATCH[0]] == 10.0, "the first channel went out"
         assert guarded.moved == {BATCH[0]: 1.0, BATCH[2]: 3.0}
+
+    def test_a_refusal_raised_midway_through_a_batch_lists_every_channel_but_the_refused_one(
+        self, serve: Any, guarded: RunRecord
+    ) -> None:
+        middle = BATCH[1]
+
+        def answer(address: str, _value: Any) -> None:
+            if address == middle:
+                raise ChannelWriteBlockedError(
+                    address, "CONTROL_SYSTEM_REFUSED", message=f"Write to '{address}' refused"
+                )
+
+        machine = serve(_BatchConnector(answer))
+
+        with pytest.raises(OspreyWriteFailed):
+            _batch().set([10.0, 20.0, 30.0])
+
+        assert machine._state[BATCH[0]] == 10.0, "the first channel went out"
+        assert guarded.moved == {BATCH[0]: 1.0, BATCH[2]: 3.0}
+
+    def test_an_outcome_reported_under_another_address_lists_the_requested_one(
+        self, serve: Any, guarded: RunRecord
+    ) -> None:
+        class _Renaming(_BatchConnector):
+            async def write_multiple_channels(
+                self, operations: list[tuple[str, Any]], **_kwargs: Any
+            ) -> list[ChannelWriteResult]:
+                results = []
+                for address, value in operations:
+                    if address == BATCH[1]:
+                        results.append(_refused(address, value, "CONTROL_SYSTEM_REFUSED"))
+                        continue
+                    self._state[address] = value
+                    results.append(
+                        ChannelWriteResult(
+                            channel_address=address + ".VAL",
+                            value_written=value,
+                            outcome=WriteOutcome.UNREQUESTED,
+                        )
+                    )
+                return results
+
+        machine = serve(_Renaming(lambda _a, _v: None))
+
+        with pytest.raises(OspreyWriteFailed):
+            _batch().set([10.0, 20.0, 30.0])
+
+        assert machine._state[BATCH[0]] == 10.0, "the first channel went out"
+        assert guarded.moved == {BATCH[0]: 1.0, BATCH[2]: 3.0}
+
+    def test_an_interrupt_while_the_record_is_filed_leaves_every_pending_address_listed(
+        self, serve: Any, guarded: RunRecord, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        serve(_BatchConnector(lambda _a, _v: None))
+        real = _run._moved
+        calls = 0
+
+        def interrupted(*args: Any) -> bool:
+            nonlocal calls
+            calls += 1
+            if calls == 2:
+                # Stands in for a SIGINT handler raising at this bytecode.
+                raise KeyboardInterrupt
+            return real(*args)
+
+        monkeypatch.setattr(_run, "_moved", interrupted)
+
+        with pytest.raises(KeyboardInterrupt):
+            _batch().set([10.0, 20.0, 30.0])
+
+        assert guarded.moved == BATCH_HOME
 
     def test_a_single_write_lost_to_a_transport_error_is_listed(
         self, serve: Any, guarded: RunRecord

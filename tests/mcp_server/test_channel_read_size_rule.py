@@ -9,30 +9,14 @@ failed to read is reported with its error text.
 """
 
 from contextlib import nullcontext
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import numpy as np
 import pytest
 
 from osprey.mcp_server.control_system.server_context import initialize_server_context
+from tests.mcp_server._channel_read import make_channel_value
 from tests.mcp_server.conftest import extract_response_dict, get_tool_fn
-
-
-def _make_channel_value(value, timestamp="2024-01-15T10:30:00"):
-    cv = MagicMock()
-    cv.value = value
-    cv.timestamp = timestamp
-    cv.metadata = MagicMock()
-    cv.metadata.units = "counts"
-    cv.metadata.precision = 3
-    cv.metadata.alarm_status = "NO_ALARM"
-    cv.metadata.alarm_severity = 0
-    cv.metadata.description = "Test channel"
-    # Not an enum channel: a bare MagicMock attribute would be truthy, and the
-    # read tool ships the enum keys only when they are not None.
-    cv.metadata.enum_label = None
-    cv.metadata.enum_labels = None
-    return cv
 
 
 def _get_channel_read():
@@ -57,7 +41,7 @@ class _FakeConnector:
         value = self._values[address]
         if isinstance(value, Exception):
             raise value
-        return _make_channel_value(value)
+        return make_channel_value(value)
 
 
 def _threshold_patch(inline_max: int | None):

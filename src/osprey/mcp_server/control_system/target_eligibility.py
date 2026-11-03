@@ -37,18 +37,18 @@ derivation and the verification live in :mod:`osprey_connectors.ipc`,
 shared with the library's
 :class:`~osprey_connectors.ipc.ConnectorHostPool`: it restates
 ``EPICSConnector.connect()``'s gateway selection and environment derivation
-*positively* — the role it would pick given the target's own write posture and
-:func:`~osprey_connectors.control_system.is_readonly_run`, and the
+*positively* — the role it would pick given the write verdict for the target and
+:func:`~osprey_connectors.posture_env.is_readonly_run`, and the
 CA/PVA mode each gateway would produce — rather than re-deciding it, so this
 module and the process it describes cannot disagree about where a target lands,
 which port it lands on, or whether it may be written to once there.
 
-Write posture is per connector type, so the two targets of one deployment are
-not answered together: a facility whose baseline is the real machine can arm
-writes on its simulator alone, and both checks then report a ``write_access``
-gateway selected for ``va`` while ``live`` stays on ``read_only``. The
-deployment-wide key is not a second posture beside that one — it is what a
-target inherits when its own block says nothing about itself.
+Whether writes are allowed is answered per target, so the two targets of one
+deployment are not answered together: the deployment's tier is one ceiling for
+every machine, and each login's switch turns machines on one at a time. A
+session whose simulator switch is on and whose real-machine switch is off gets
+a ``write_access`` gateway selected for ``va`` while ``live`` stays on
+``read_only``.
 
 Session-relativity
 ------------------
@@ -82,30 +82,28 @@ real-hostname-shaped example value, so no string comparison against any known
 default could distinguish an operator's answer from the shipped one; testing the
 value would invent a distinction the config cannot carry.
 
-The write posture a deployment actually has
--------------------------------------------
-Config is not the last word on whether writes are armed for a target. An
-operator narrows one target from the header chip, and that narrowing lives in
-the deployment's control-context record (read through
-:mod:`osprey_connectors.posture_store`), not in ``config.yml``. The connector
-child reads it on every write and on its own gateway selection, so a parent
-that derived the *configured* posture would derive ``write_access`` for a
-target the child has just connected to on ``read_only`` — and
-:func:`~osprey_connectors.ipc.verify_child_report`, doing its
-job, would abort the switch on a
-disagreement that is nobody's misconfiguration.
+Whether a target may be written, right now
+-----------------------------------------
+Config is not the last word on whether writes are allowed for a target. The
+tier in ``config.yml`` is a ceiling; the login's switch, the run's mode and the
+owner of the session decide the rest, and all of them are combined into one
+answer by :func:`~osprey_connectors.posture_store.write_verdict`. The
+connector child takes that same verdict on every write and on its own gateway
+selection, so a parent that derived from config alone would derive
+``write_access`` for a target the child has just connected to on ``read_only``
+— and :func:`~osprey_connectors.ipc.verify_child_report`, doing its job, would
+abort the switch on a disagreement that is nobody's misconfiguration.
 
-:func:`effective_writes_for_target` is therefore what every caller in this
-stack passes as ``writes_enabled``: the deployment ceiling, this run's
-mode and the operator's narrowing, combined once by
-:func:`~osprey_connectors.posture_store.effective_writes` and never restated
-here. :func:`derive_endpoints` itself keeps its config-only default, because it
-is also asked hypothetical questions — what would this target select under
-*that* posture — and a pure derivation is what makes those answerable.
+:func:`target_write_verdict` is therefore what every caller in this stack
+asks, passing its ``allowed`` as ``writes_enabled`` — never restated here.
+:func:`derive_endpoints` itself keeps its config-only default, because it is
+also asked hypothetical questions — what would this target select with writes
+off — and a pure derivation is what makes those answerable.
 """
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -114,7 +112,6 @@ from typing import Any
 from osprey.audit.posture import posture_session
 from osprey_connectors import posture_store
 from osprey_connectors.config import unresolved_placeholders
-from osprey_connectors.control_system import is_readonly_run
 from osprey_connectors.honesty import (
     VA_MOCK_ARCHIVER_WHY,
     invents_history,
@@ -125,23 +122,21 @@ from osprey_connectors.ipc import (
     Endpoint,
     TargetDerivation,
     config_section,
-    config_writes_enabled,
     connector_block,
     derive_endpoints,
     live_collision,
     subsection,
 )
-from osprey_connectors.standin import (
-    ARCHIVER_RECORDER_SERVICE,
-    LIVE_STANDIN_PORT_KEY,
-    archive_belongs_to_standin,
-    live_standin_active,
-)
+from osprey_connectors.posture_env import is_readonly_run
+from osprey_connectors.simulator import virtual_accelerator_active
+from osprey_connectors.standin import LIVE_STANDIN_PORT_KEY, live_standin_active
 from osprey_connectors.types import (
     TARGET_LIVE,
     TARGET_STANDIN,
     speaks_channel_access,
 )
+
+logger = logging.getLogger("osprey.mcp_server.control_system.target_eligibility")
 
 # -- Config keys, spelled once ---------------------------------------------
 
@@ -150,9 +145,6 @@ from osprey_connectors.types import (
 ACK_KEY = "control_system.target_switch.live_gateway_acknowledged"
 #: The same key's leaf, derived from it so the two cannot drift apart.
 ACK_LEAF = ACK_KEY.rsplit(".", 1)[1]
-#: The build-profile key that stands the stand-in up. Named in a refusal so the
-#: operator is told the one line to delete, not merely which fact is true.
-STANDIN_PROFILE_KEY = "virtual_accelerator.live_standin"
 #: Leaf key on a connector block; the full key names the resolved type.
 PROBE_CHANNEL_KEY = "probe_channel"
 
@@ -186,7 +178,6 @@ REASON_STANDIN_NOT_DEPLOYED = "standin_not_deployed"
 REASON_REACHES_LIVE_MACHINE = "reaches_live_machine"
 REASON_INVENTED_HISTORY = "invented_history"
 REASON_OPERATOR_ACK_MISSING = "operator_ack_missing"
-REASON_ARCHIVE_BELONGS_TO_STANDIN = "archive_belongs_to_standin"
 
 #: Not an eligibility reason: a run holding the target down is a refusal the
 #: switch earns from the deployment's own traffic rather than from its config.
@@ -200,6 +191,11 @@ REASON_EXECUTION_IN_FLIGHT = "execution_in_flight"
 SURFACE_PYTHON_EXECUTOR = "python_executor"
 #: A notebook cell, between its first control-system call and the end of the cell.
 SURFACE_NOTEBOOK_KERNEL = "notebook_kernel"
+#: The in-flight marker field naming its client in words, stamped by a
+#: control-session write (:meth:`osprey.runtime.session.ControlSession.write`),
+#: which has no window or kernel an operator could find and ends on its own
+#: within the write time budget.
+MARKER_CLIENT_FIELD = "client"
 
 
 @dataclass(frozen=True)
@@ -241,49 +237,49 @@ class TargetAvailability:
 # ---------------------------------------------------------------------------
 
 
-def effective_writes_for_target(section: Any, target: str) -> bool:
-    """Whether writes are armed for *target* on this deployment, right now.
+def target_write_verdict(section: Any, target: str) -> posture_store.WriteVerdict:
+    """The write verdict for *target* on this deployment, right now.
 
-    The deployment ceiling for the target, ANDed with this run's mode and with
-    the operator's own narrowing from the header chip — the whole of rule 3 of
-    the posture contract, delegated to
-    :func:`~osprey_connectors.posture_store.effective_writes` rather than
-    restated. Asking it in one place is what stops the roster, the switch and
-    the connector child from each deciding for themselves what is armed.
+    :func:`~osprey_connectors.posture_store.write_verdict` for *target*, with
+    the launch pin honoured as the connector child honours it. It never raises;
+    a verdict that could not be reached here refuses as ``record_unavailable``
+    rather than allowing.
 
-    Every caller of :func:`derive_endpoints` in this stack passes
-    the result as ``writes_enabled``. That is not a convenience: the child
-    selects its gateway from exactly this value (through the same store), so a
-    parent deriving anything else would hand :func:`verify_child_report` a
+    Every caller of :func:`derive_endpoints` in this stack passes the
+    verdict's ``allowed`` as ``writes_enabled``. That is not a convenience:
+    the child selects its gateway from exactly this verdict, so a parent
+    deriving anything else would hand :func:`verify_child_report` a
     ``selected_role`` mismatch and abort a switch that was configured
     correctly.
 
     Args:
-        section: The ``control_system:`` config section — the same unit
-            :func:`~osprey_connectors.types.target_writes_enabled` takes, so a
-            caller that already resolved it does not re-resolve it here.
+        section: The ``control_system:`` config section.
         target: The control target the writes would land on.
 
     Returns:
-        ``True`` only when the deployment arms this target, this is not a
-        read-only run, and the operator has not narrowed the target. The
-        record can only narrow: nothing it holds widens *section*.
+        The verdict: ``allowed``, and the ``reason`` when it refuses.
     """
-    return posture_store.effective_writes(section, target)
+    try:
+        return posture_store.write_verdict(section, target)
+    except Exception:  # write_verdict never raises; a refusal is still the floor
+        logger.warning("Write verdict for %r could not be reached; refusing", target, exc_info=True)
+        return posture_store.WriteVerdict(
+            allowed=False, reason="record_unavailable", target=None, kind=None
+        )
 
 
 def _resolved_writes(config: Any, target: str, writes_enabled: bool | None) -> bool:
-    """An explicit ``writes_enabled`` override, or the deployment's real posture.
+    """An explicit ``writes_enabled`` override, or the verdict's ``allowed``.
 
     ``None`` means "the caller did not say", and for a question asked *about a
-    live session* the truthful default is the session's own effective posture,
-    not the configured one. A caller that wants the hypothetical — the roster
-    asking what a target would select if it were narrowed, a test pinning a
-    posture — says so by passing the value, and is answered verbatim.
+    live session* the truthful default is the write verdict for *target*, not
+    the configured tier. A caller that wants the hypothetical — what a target
+    would select with writes off, a test pinning the value — says so by
+    passing the value, and is answered verbatim.
     """
     if writes_enabled is not None:
         return bool(writes_enabled)
-    return effective_writes_for_target(config_section(config, "control_system"), target)
+    return target_write_verdict(config_section(config, "control_system"), target).allowed
 
 
 # ---------------------------------------------------------------------------
@@ -297,13 +293,12 @@ def endpoint_is_live_standin(config: Any, endpoint: Endpoint | None) -> bool:
     The step between :func:`derive_endpoints` — which says where a session would
     land — and :func:`~osprey_connectors.standin.live_standin_active`, which says
     whether landing there is landing on the stand-in. It lives beside the
-    derivation because both of its callers reach it from one: the roster, which
-    labels the target an operator is told they are on, and the archiver
-    recorder, which decides from the same fact whether the readings it samples
-    belong in this deployment's archive. Two copies of this step could coerce
-    the port differently and answer differently, and a recorder that believed it
-    was sampling a stand-in while an operator was being told ``LIVE MACHINE``
-    would file model readings into a real machine's archive.
+    derivation because its callers reach it from one: the roster labels the
+    target an operator is told they are on from this answer, and the switch
+    refuses a ``standin`` block repointed at hardware on it. Two copies of this
+    step could coerce the port differently and answer differently, and an
+    operator would be told ``LIVE MACHINE`` on one surface and stand-in on
+    another.
 
     Args:
         config: The full rendered config mapping.
@@ -329,6 +324,37 @@ def endpoint_is_live_standin(config: Any, endpoint: Endpoint | None) -> bool:
     return bool(live_standin_active(config, endpoint_host=str(endpoint.host), endpoint_port=port))
 
 
+def endpoint_is_virtual_accelerator(config: Any, endpoint: Endpoint | None) -> bool:
+    """Whether a derived *endpoint* is this deployment's own virtual accelerator.
+
+    The simulator's twin of :func:`endpoint_is_live_standin`: the step between
+    :func:`derive_endpoints` for the ``va`` target and
+    :func:`~osprey_connectors.simulator.virtual_accelerator_active`, which says
+    whether landing there is landing on the container this deployment built.
+    Its caller is the archiver recorder, which samples the ``va`` target into
+    the deployment's store and must not do so for an endpoint the deployment
+    cannot vouch for — a ``va`` block repointed at another host is a real
+    machine until the config proves otherwise, and a real machine's readings
+    must never land in a synthesized past.
+
+    Args:
+        config: The full rendered config mapping.
+        endpoint: The row the connector would configure, or ``None``.
+
+    Returns:
+        ``True`` only for an endpoint that is the deployment's own simulator.
+    """
+    if endpoint is None or not isinstance(config, dict):
+        return False
+    try:
+        port = int(endpoint.port)
+    except (TypeError, ValueError):
+        return False
+    return bool(
+        virtual_accelerator_active(config, endpoint_host=str(endpoint.host), endpoint_port=port)
+    )
+
+
 # ---------------------------------------------------------------------------
 # (b) ELIGIBILITY
 # ---------------------------------------------------------------------------
@@ -348,12 +374,10 @@ def _selected_role_missing(
 ) -> Eligibility | None:
     """Check 3's verdict: the role selected here has no endpoint to select.
 
-    Factored out of :func:`evaluate_eligibility` because a second caller asks
-    the same question about a posture the session does not have yet:
-    :func:`narrowing_refusal`, which is what a surface offering the narrowing
-    consults before offering it. A refusal, or ``None`` when the selected role
-    is configured — the same "a verdict is a refusal" shape the switch gate
-    uses, so no caller can mistake a pass for a check it forgot to read.
+    Factored out of :func:`evaluate_eligibility`, where it is the target-switch
+    check. A refusal, or ``None`` when the selected role is configured — the
+    same "a verdict is a refusal" shape the switch gate uses, so no caller can
+    mistake a pass for a check it forgot to read.
     """
     selected_role = derivation.selected_role
     if selected_role in derivation.endpoints:
@@ -369,45 +393,6 @@ def _selected_role_missing(
         f"{target!r}, but '{block_key}.gateways.{selected_role}' is missing or "
         f"empty. Configured roles: {sorted(gateways) or 'none'}.",
     )
-
-
-def narrowing_refusal(
-    config: Any, target: str, *, config_path: str | None = None
-) -> Eligibility | None:
-    """What narrowing *target* to read-only would cost the deployment, if anything.
-
-    A narrowing moves the selected gateway role, and a deployment whose block
-    configures ``write_access`` alone has nothing to move *to*: the session
-    would select ``read_only``, find no such gateway, and the target would stop
-    being switchable at all. That is
-    :data:`REASON_SELECTED_ROLE_MISSING` arriving as a consequence of an
-    operator action rather than of a config edit, and a surface that offers the
-    narrowing owes the operator that sentence *before* they take it.
-
-    Read-only and hypothetical: it asks what the target would derive under the
-    narrowed posture, whatever the deployment's posture actually is. It reads no
-    store and changes nothing.
-
-    Args:
-        config: The full rendered config mapping.
-        target: The target the operator is considering narrowing.
-        config_path: See :func:`derive_endpoints`.
-
-    Returns:
-        The refusal narrowing would earn, or ``None`` when the target stays
-        usable read-only — which is the ordinary case, since a deployment that
-        can be read from at all configures a ``read_only`` gateway.
-    """
-    try:
-        # ``readonly_run`` is pinned false rather than read: the question is
-        # what the *narrowing* costs, and a run that is already read-only would
-        # otherwise answer it for every target at once.
-        derivation = derive_endpoints(
-            config, target, writes_enabled=False, readonly_run=False, config_path=config_path
-        )
-    except ValueError as exc:
-        return Eligibility(False, REASON_TARGET_UNRESOLVABLE, str(exc))
-    return _selected_role_missing(config, derivation, target)
 
 
 def _acknowledged(config: Any) -> bool:
@@ -440,10 +425,11 @@ def evaluate_eligibility(
        placeholder its resolution left unsubstituted
        (:data:`REASON_TARGET_UNRESOLVABLE`);
     3. its ``gateways`` table is non-empty and carries the role this deployment
-       would select *for this target* (a target armed for writes with only a read
-       gateway selects ``read_only`` and is eligible; a target with only a write
-       gateway whose own posture leaves writes unarmed selects ``read_only`` and
-       is not). Before that table is read at all, the connector type has to be
+       would select *for this target* (a target whose writes are allowed with
+       only a read gateway selects ``read_only`` and is eligible; a target with
+       only a write gateway reads through it while writes are off, and only a
+       read-only run, which never selects ``write_access``, finds no role on
+       it). Before that table is read at all, the connector type has to be
        one the switch can dial: a type that is not reached over Channel Access
        has no gateway to point a connector host at, whatever its block says, and
        is refused as the protocol it is (:data:`REASON_CONNECTOR_NOT_SWITCHABLE`)
@@ -464,14 +450,16 @@ def evaluate_eligibility(
     7. FR-8 posture, only for a switch *toward* ``live``: the operator
        acknowledgment. The stand-in's equivalent was said at build time by
        ``virtual_accelerator.live_standin``
-       (:data:`REASON_OPERATOR_ACK_MISSING`);
-    8. for ``live`` only, and only toward it: the archive is not the stand-in's.
-       A deployment that records its own store beside a stand-in records the
-       stand-in, and a real machine's readings must not land in that store
-       (:data:`REASON_ARCHIVE_BELONGS_TO_STANDIN`).
+       (:data:`REASON_OPERATOR_ACK_MISSING`).
 
-    A **return to the deployment baseline** waives checks 3 and 4 along with 7
-    and 8. Those two are the Channel Access shape of a connector block, and a
+    The archive is not a gate on any target. The deployment's own store is the
+    virtual accelerator's — the recorder samples the simulator and nothing
+    else — and the live machine and its stand-in share the facility's
+    appliance, so no switch can put one machine's readings into another
+    machine's past.
+
+    A **return to the deployment baseline** waives checks 3 and 4 along with 7.
+    Those two are the Channel Access shape of a connector block, and a
     baseline that never filled it in — a machine reached over another protocol,
     a block half authored — would otherwise be a target a session could leave
     and never come back to. Coming home still has to pass 1, 2, 5 and 6: the
@@ -488,17 +476,16 @@ def evaluate_eligibility(
             baseline a return exempts may be any of the three targets — a
             deployment whose own ``control_system.type`` is ``live_standin``
             comes home to ``standin``.
-        writes_enabled: Whether writes are armed for *target*. Unlike
-            :func:`derive_endpoints`, whose default is config alone, this
-            defaults to :func:`effective_writes_for_target` — the posture the
-            session asking actually has, operator narrowing included. This is
-            the answer a live session gets, so it has to be the answer the
-            child will select its gateway on. Pass the value to ask about a
-            posture other than the deployment's.
+        writes_enabled: Whether writes to *target* are allowed. Unlike
+            :func:`derive_endpoints`, whose default is the configured tier,
+            this defaults to :func:`target_write_verdict`'s ``allowed`` — the
+            write verdict for the session asking. This is the answer a live session
+            gets, so it has to be the answer the child will select its gateway
+            on. Pass the value to ask about writes other than the verdict's.
         readonly_run: See :func:`derive_endpoints`. It moves the *selected role*,
             which is what check 3 is asked about; it never makes a target
-            eligible or ineligible on its own. The effective *writes_enabled*
-            above already folds it in, so overriding it alone changes nothing.
+            eligible or ineligible on its own. The verdict behind
+            *writes_enabled* above already folds it in, so overriding it alone changes nothing.
         config_path: The project config the child reads, which an unset
             virtual-accelerator gateway port is filled from; see
             :func:`derive_endpoints`. ``None`` reads ``CONFIG_FILE``, else
@@ -643,36 +630,19 @@ def evaluate_eligibility(
                 "session onto this target.",
             )
 
-    if target == TARGET_LIVE and switching_away:
-        # The acknowledgment is the live machine's alone. It is the operator
-        # saying the configured gateways really are this facility's, and the
-        # stand-in's equivalent was already said at build time by the profile
-        # line that stood it up: `virtual_accelerator.live_standin` names the
-        # port, and nothing about that endpoint is a gateway anyone could
-        # mistake for the facility's.
-        if not _acknowledged(config):
-            return Eligibility(
-                False,
-                REASON_OPERATOR_ACK_MISSING,
-                f"Switching to the live machine requires '{ACK_KEY}' to be set — the "
-                "operator confirming the configured gateways really are this "
-                "facility's. Set it to your live gateway's hostname.",
-            )
-        if archive_belongs_to_standin(config):
-            return Eligibility(
-                False,
-                REASON_ARCHIVE_BELONGS_TO_STANDIN,
-                f"Refusing target {target!r}: the deployment behind this archive "
-                f"store records it from the stand-in ('{STANDIN_PROFILE_KEY}' stood "
-                f"one up and its '{ARCHIVER_RECORDER_SERVICE}' samples it), so the "
-                "history in that store is the stand-in's. Selecting the live machine "
-                "would splice a real machine's readings onto a stand-in's past, in "
-                "one store nothing afterwards can tell apart. Switch that "
-                f"deployment's '{ARCHIVER_RECORDER_SERVICE}' service off, or drop "
-                f"'{STANDIN_PROFILE_KEY}' so it stops standing a stand-in up — in "
-                "the hosting profile, for an attached session — and rebuild before "
-                "switching a session onto the live machine.",
-            )
+    # The acknowledgment is the live machine's alone. It is the operator saying
+    # the configured gateways really are this facility's, and the stand-in's
+    # equivalent was already said at build time by the profile line that stood
+    # it up: `virtual_accelerator.live_standin` names the port, and nothing about
+    # that endpoint is a gateway anyone could mistake for the facility's.
+    if target == TARGET_LIVE and switching_away and not _acknowledged(config):
+        return Eligibility(
+            False,
+            REASON_OPERATOR_ACK_MISSING,
+            f"Switching to the live machine requires '{ACK_KEY}' to be set — the "
+            "operator confirming the configured gateways really are this "
+            "facility's. Set it to your live gateway's hostname.",
+        )
 
     return Eligibility(
         True,
@@ -726,8 +696,8 @@ def target_availability(
         baseline_target: The target the deployment's own config selects.
         writes_enabled: See :func:`evaluate_eligibility`. Resolved once here and
             handed to both verdicts below: the two differ only in direction, and
-            a posture read twice could differ between them if the operator
-            narrowed the target in between.
+            a verdict read twice could differ between them if the operator
+            flipped the target's switch in between.
         readonly_run: See :func:`derive_endpoints`.
         config_path: See :func:`evaluate_eligibility`.
     """
@@ -859,8 +829,12 @@ def _notebook_client(kernel_id: str, kernel_name: KernelNameResolver | None) -> 
 def busy_client(marker: Mapping[str, Any], *, kernel_name: KernelNameResolver | None = None) -> str:
     """How a refusal names the client whose run is holding the target down.
 
-    Four answers, and the last is the interesting one:
+    Five answers, and the last is the interesting one:
 
+    * a control-session write, named by the label its marker carries
+      (:data:`MARKER_CLIENT_FIELD`): its session key is ``<surface>:<pid>``,
+      which names a process, not a window, and the write ends on its own within
+      the write time budget;
     * a notebook kernel, named by the notebook it is running when *kernel_name*
       resolves one and by its kernel id when it does not. A kernel is named by
       its surface before its session because ``kernel:<id>`` is a session key
@@ -884,6 +858,10 @@ def busy_client(marker: Mapping[str, Any], *, kernel_name: KernelNameResolver | 
     Returns:
         A noun phrase that fits after "belongs to".
     """
+    client = marker.get(MARKER_CLIENT_FIELD)
+    if isinstance(client, str) and client:
+        return client
+
     kernel_id = _notebook_kernel_id(marker)
     if kernel_id is not None:
         return _notebook_client(kernel_id, kernel_name)
@@ -1161,7 +1139,7 @@ def evaluate_switch(
     baseline: str,
     in_flight: Sequence[Any] = (),
     reports: Sequence[Any] = (),
-    writes_enabled: bool | None = None,
+    writes_enabled: bool,
     kernel_name: KernelNameResolver | None = None,
     config_path: str | None = None,
 ) -> GateVerdict:
@@ -1207,11 +1185,10 @@ def evaluate_switch(
             not mappings are residue and are ignored.
         reports: The live controls servers' reports. Liveness is established by
             the caller; an empty sequence means no controls server is running.
-        writes_enabled: The deployment's effective write posture for *wanted*,
-            when the caller knows it. ``None`` falls back to the CONFIGURED
-            posture rather than to the store: reading the store would be a file
-            read, and this function performs none. A caller that holds the
-            session's real posture — both of today's do — passes it.
+        writes_enabled: Whether the write verdict allows writes to *wanted*
+            (:func:`target_write_verdict`'s ``allowed``). Required: taking the verdict
+            reads the record, and this function performs no file read, so the
+            caller takes it in the hop it has for blocking work.
         kernel_name: Resolves a notebook kernel's id to its notebook, for the
             busy-client refusal. The gate calls it and opens nothing itself:
             the sidecar the answer comes from is the terminal's, and the tool
@@ -1260,15 +1237,12 @@ def evaluate_switch(
     # (3) Eligibility, session-relative, in the eligibility module's own words.
     # ``readonly_run`` is pinned false rather than read again: rung 1 already
     # answered that question, and a second read could disagree with the first.
-    resolved_writes = (
-        config_writes_enabled(config, wanted) if writes_enabled is None else bool(writes_enabled)
-    )
     availability = target_availability(
         config,
         wanted,
         current_target,
         baseline,
-        writes_enabled=resolved_writes,
+        writes_enabled=bool(writes_enabled),
         readonly_run=False,
         config_path=config_path,
     )

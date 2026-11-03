@@ -345,10 +345,7 @@ def attachment_id_for(entry_id: str, item: Any) -> str | None:
 
 def _has_dot_dot_segment(path: str) -> bool:
     """Return whether any ``/`` or ``\\`` separated segment is ``..`` (percent-decoded too)."""
-    for candidate in (path, unquote(path)):
-        if ".." in re.split(r"[/\\]", candidate):
-            return True
-    return False
+    return any(".." in re.split(r"[/\\]", candidate) for candidate in (path, unquote(path)))
 
 
 def fetchable_url(url: str, *, file_source: bool) -> bool:
@@ -368,6 +365,4 @@ def fetchable_url(url: str, *, file_source: bool) -> bool:
         return parts.scheme.lower() in ("http", "https") and bool(parts.hostname)
     if not file_source:
         return False
-    if url.startswith(("/", "\\")) or ":" in url.split("/", 1)[0]:
-        return False
-    return True
+    return not (url.startswith(("/", "\\")) or ":" in url.split("/", 1)[0])

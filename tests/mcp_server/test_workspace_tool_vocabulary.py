@@ -84,7 +84,7 @@ def test_artifact_list_filters_by_category_not_a_separate_tool_family(workspace_
 #: panel unlaunchable.
 PANEL_VERBS_BY_AXIS = {
     "rail membership": ("add_panel_to_rail", "remove_panel_from_rail"),
-    "on screen": ("open_panel", "close_panel"),
+    "on screen": ("open_panel", "close_panel_tab"),
 }
 
 

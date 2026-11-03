@@ -9,86 +9,70 @@ made and no real Bluesky bridge process needs to be running.
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from functools import partial
 
 import httpx
 import pytest
-from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from osprey.interfaces.bluesky_web import read_proxy
+from tests.interfaces.bluesky_web._relay import BRIDGE_URL, build_router_app
 
-_BRIDGE_URL = "http://bridge.test"
-
-
-def _build_app(handler: Callable[[httpx.Request], httpx.Response]) -> FastAPI:
-    """Build a local FastAPI app with the read-proxy router mounted, backed
-    by a mock-transport client standing in for the real bridge.
-    """
-    app = FastAPI()
-    app.include_router(read_proxy.router)
-    app.state.bridge_url = _BRIDGE_URL
-    app.state.client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
-    return app
-
-
-def _json_response(status_code: int, body: object) -> httpx.Response:
-    return httpx.Response(status_code, json=body)
+_build_app = partial(build_router_app, read_proxy.router)
 
 
 # ---------------------------------------------------------------------------
 # Round-trip passthrough for each GET endpoint
 # ---------------------------------------------------------------------------
 
-
-def test_list_plans_round_trips_body_and_status() -> None:
-    seen: list[httpx.Request] = []
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        seen.append(request)
-        return _json_response(200, [{"name": "grid_scan", "provenance": "shipped"}])
-
-    app = _build_app(handler)
-    with TestClient(app) as client:
-        response = client.get("/plans")
-
-    assert response.status_code == 200
-    assert response.json() == [{"name": "grid_scan", "provenance": "shipped"}]
-    assert len(seen) == 1
-    assert str(seen[0].url) == f"{_BRIDGE_URL}/plans"
-
-
-def test_list_devices_round_trips_body_and_status() -> None:
-    """The operator half of device discovery: a panel reads the worker's device
-    names through the same relay the agent's tool reads them through. The
-    bridge answers a paginated envelope, and the proxy hands it back whole --
-    counts and window included, not just the page of entries."""
-    envelope = {
-        "devices": [{"name": "COR1", "is_movable": True}],
-        "total": 1,
-        "offset": 0,
-        "limit": 500,
-    }
-    seen: list[httpx.Request] = []
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        seen.append(request)
-        return _json_response(200, envelope)
-
-    app = _build_app(handler)
-    with TestClient(app) as client:
-        response = client.get("/devices")
-
-    assert response.status_code == 200
-    assert response.json() == envelope
-    assert str(seen[0].url) == f"{_BRIDGE_URL}/devices"
+_FIGURE = {
+    "panels": [
+        {
+            "title": "COR1 vs BPM1",
+            "x_label": "COR1",
+            "y_label": "BPM1",
+            "x_units": "A",
+            "y_units": "mm",
+            "annotations": ["slope = 1.2 mm/A"],
+            "mark": {
+                "kind": "lines",
+                "series": [
+                    {
+                        "label": "BPM1",
+                        "points": [[0.0, 1.0], [1.0, 2.2]],
+                        "decimated": False,
+                        "source_points": 2,
+                    }
+                ],
+            },
+        }
+    ],
+    "partial": False,
+    "source": "tiled",
+    "reason": None,
+}
 
 
-def test_get_plan_source_round_trips() -> None:
-    def handler(request: httpx.Request) -> httpx.Response:
-        assert request.url.path == "/plans/grid_scan/source"
-        return _json_response(
-            200,
+@pytest.mark.parametrize(
+    ("path", "body"),
+    [
+        pytest.param("/plans", [{"name": "grid_scan", "provenance": "shipped"}], id="plans"),
+        # The operator half of device discovery: a panel reads the worker's
+        # device names through the same relay the agent's tool reads them
+        # through. The bridge answers a paginated envelope, and the proxy hands
+        # it back whole -- counts and window included, not just the page.
+        pytest.param(
+            "/devices",
+            {
+                "devices": [{"name": "COR1", "is_movable": True}],
+                "total": 1,
+                "offset": 0,
+                "limit": 500,
+            },
+            id="devices",
+        ),
+        pytest.param(
+            "/plans/grid_scan/source",
             {
                 "name": "grid_scan",
                 "provenance": "shipped",
@@ -96,50 +80,16 @@ def test_get_plan_source_round_trips() -> None:
                 "truncated": False,
                 "source": "def grid_scan(): ...",
             },
-        )
-
-    app = _build_app(handler)
-    with TestClient(app) as client:
-        response = client.get("/plans/grid_scan/source")
-
-    assert response.status_code == 200
-    body = response.json()
-    assert body["name"] == "grid_scan"
-    assert body["source"] == "def grid_scan(): ..."
-
-
-def test_list_runs_round_trips() -> None:
-    def handler(_request: httpx.Request) -> httpx.Response:
-        return _json_response(200, [{"run_id": "abc123", "status": "completed"}])
-
-    app = _build_app(handler)
-    with TestClient(app) as client:
-        response = client.get("/runs")
-
-    assert response.status_code == 200
-    assert response.json() == [{"run_id": "abc123", "status": "completed"}]
-
-
-def test_get_run_round_trips() -> None:
-    def handler(request: httpx.Request) -> httpx.Response:
-        assert request.url.path == "/runs/abc123"
-        return _json_response(
-            200, {"run_id": "abc123", "status": "completed", "plan_name": "grid_scan"}
-        )
-
-    app = _build_app(handler)
-    with TestClient(app) as client:
-        response = client.get("/runs/abc123")
-
-    assert response.status_code == 200
-    assert response.json()["run_id"] == "abc123"
-
-
-def test_get_run_data_round_trips() -> None:
-    def handler(request: httpx.Request) -> httpx.Response:
-        assert request.url.path == "/runs/abc123/data"
-        return _json_response(
-            200,
+            id="plan-source",
+        ),
+        pytest.param("/runs", [{"run_id": "abc123", "status": "completed"}], id="runs"),
+        pytest.param(
+            "/runs/abc123",
+            {"run_id": "abc123", "status": "completed", "plan_name": "grid_scan"},
+            id="run",
+        ),
+        pytest.param(
+            "/runs/abc123/data",
             {
                 "run_uid": "uid-1",
                 "columns": ["x", "y"],
@@ -147,87 +97,37 @@ def test_get_run_data_round_trips() -> None:
                 "row_count": 1,
                 "truncated": False,
             },
-        )
-
-    app = _build_app(handler)
-    with TestClient(app) as client:
-        response = client.get("/runs/abc123/data")
-
-    assert response.status_code == 200
-    body = response.json()
-    assert body["row_count"] == 1
-    assert body["truncated"] is False
-
-
-def test_get_run_figure_round_trips() -> None:
-    """The figure body is the bridge's `Figure.model_dump()` and nothing else --
-    the proxy relays every field, panels and marks included, untouched."""
-    figure = {
-        "panels": [
-            {
-                "title": "COR1 vs BPM1",
-                "x_label": "COR1",
-                "y_label": "BPM1",
-                "x_units": "A",
-                "y_units": "mm",
-                "annotations": ["slope = 1.2 mm/A"],
-                "mark": {
-                    "kind": "lines",
-                    "series": [
-                        {
-                            "label": "BPM1",
-                            "points": [[0.0, 1.0], [1.0, 2.2]],
-                            "decimated": False,
-                            "source_points": 2,
-                        }
-                    ],
-                },
-            }
-        ],
-        "partial": False,
-        "source": "tiled",
-        "reason": None,
-    }
+            id="run-data",
+        ),
+        # The figure body is the bridge's `Figure.model_dump()` and nothing
+        # else -- the proxy relays every field, panels and marks included.
+        pytest.param("/runs/abc123/figure", _FIGURE, id="run-figure"),
+        # A figure the plan's own `render` could not draw still comes back 200
+        # with a `reason` and empty panels -- the proxy must not turn that into
+        # an error or invent panels for it.
+        pytest.param(
+            "/runs/abc123/figure",
+            {"panels": [], "partial": True, "source": "tiled", "reason": "source_unavailable"},
+            id="run-figure-with-reason",
+        ),
+    ],
+)
+def test_get_round_trips_body_and_status(path: str, body: object) -> None:
+    """Each GET reaches the same bridge path and relays its body untouched."""
+    seen: list[httpx.Request] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
-        assert request.url.path == "/runs/abc123/figure"
-        return _json_response(200, figure)
+        seen.append(request)
+        return httpx.Response(200, json=body)
 
     app = _build_app(handler)
     with TestClient(app) as client:
-        response = client.get("/runs/abc123/figure")
+        response = client.get(path)
 
     assert response.status_code == 200
-    assert response.json() == figure
-
-
-def test_get_run_figure_relays_reason_and_partial_unreshaped() -> None:
-    """A figure the plan's own `render` could not draw still comes back 200 with
-    a `reason` and empty panels -- the proxy must not turn that into an error or
-    invent panels for it."""
-
-    def handler(_request: httpx.Request) -> httpx.Response:
-        return _json_response(
-            200,
-            {
-                "panels": [],
-                "partial": True,
-                "source": "tiled",
-                "reason": "source_unavailable",
-            },
-        )
-
-    app = _build_app(handler)
-    with TestClient(app) as client:
-        response = client.get("/runs/abc123/figure")
-
-    assert response.status_code == 200
-    assert response.json() == {
-        "panels": [],
-        "partial": True,
-        "source": "tiled",
-        "reason": "source_unavailable",
-    }
+    assert response.json() == body
+    assert len(seen) == 1
+    assert str(seen[0].url) == f"{BRIDGE_URL}{path}"
 
 
 def test_get_run_figure_quotes_run_id() -> None:
@@ -238,8 +138,8 @@ def test_get_run_figure_quotes_run_id() -> None:
 
     def handler(request: httpx.Request) -> httpx.Response:
         seen.append(request)
-        return _json_response(
-            200, {"panels": [], "partial": False, "source": "live", "reason": None}
+        return httpx.Response(
+            200, json={"panels": [], "partial": False, "source": "live", "reason": None}
         )
 
     app = _build_app(handler)
@@ -255,56 +155,43 @@ def test_get_run_figure_quotes_run_id() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_unknown_run_404_passes_through_verbatim() -> None:
-    def handler(_request: httpx.Request) -> httpx.Response:
-        return _json_response(404, {"detail": "unknown run 'nope'"})
-
-    app = _build_app(handler)
-    with TestClient(app) as client:
-        response = client.get("/runs/nope")
-
-    assert response.status_code == 404
-    assert response.json() == {"detail": "unknown run 'nope'"}
-
-
-def test_run_data_409_passes_through_verbatim() -> None:
-    def handler(_request: httpx.Request) -> httpx.Response:
-        return _json_response(409, {"detail": "run 'abc123' has not started; no data yet"})
-
-    app = _build_app(handler)
-    with TestClient(app) as client:
-        response = client.get("/runs/abc123/data")
-
-    assert response.status_code == 409
-    assert response.json() == {"detail": "run 'abc123' has not started; no data yet"}
-
-
-def test_run_figure_404_passes_through_verbatim() -> None:
-    """The unknown-run 404 body must survive the relay unchanged: the MCP tool
-    maps it to `unknown_run` by the same string `/data`'s 404 carries."""
+@pytest.mark.parametrize(
+    ("path", "status", "body"),
+    [
+        pytest.param("/runs/nope", 404, {"detail": "unknown run 'nope'"}, id="unknown-run"),
+        pytest.param(
+            "/runs/abc123/data",
+            409,
+            {"detail": "run 'abc123' has not started; no data yet"},
+            id="run-data-not-started",
+        ),
+        # The MCP tool maps this to `unknown_run` by the same string `/data`'s
+        # 404 carries.
+        pytest.param(
+            "/runs/nope/figure", 404, {"detail": "unknown run 'nope'"}, id="run-figure-unknown"
+        ),
+        pytest.param(
+            "/plans/nope/source",
+            404,
+            {"detail": "no source file found for plan 'nope'"},
+            id="plan-source-unknown",
+        ),
+    ],
+)
+def test_bridge_error_passes_through_verbatim(path: str, status: int, body: object) -> None:
+    seen: list[httpx.Request] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
-        assert request.url.path == "/runs/nope/figure"
-        return _json_response(404, {"detail": "unknown run 'nope'"})
+        seen.append(request)
+        return httpx.Response(status, json=body)
 
     app = _build_app(handler)
     with TestClient(app) as client:
-        response = client.get("/runs/nope/figure")
+        response = client.get(path)
 
-    assert response.status_code == 404
-    assert response.json() == {"detail": "unknown run 'nope'"}
-
-
-def test_plan_source_404_passes_through_verbatim() -> None:
-    def handler(_request: httpx.Request) -> httpx.Response:
-        return _json_response(404, {"detail": "no source file found for plan 'nope'"})
-
-    app = _build_app(handler)
-    with TestClient(app) as client:
-        response = client.get("/plans/nope/source")
-
-    assert response.status_code == 404
-    assert response.json() == {"detail": "no source file found for plan 'nope'"}
+    assert seen[0].url.path == path
+    assert response.status_code == status
+    assert response.json() == body
 
 
 # ---------------------------------------------------------------------------
@@ -312,59 +199,40 @@ def test_plan_source_404_passes_through_verbatim() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_list_devices_forwards_prefix_limit_offset_params() -> None:
-    """All three pagination knobs reach the bridge: a panel that pages through
-    a large device list is only as good as the params the relay carries."""
+@pytest.mark.parametrize(
+    ("path", "params", "body"),
+    [
+        # All three pagination knobs reach the bridge: a panel that pages
+        # through a large device list is only as good as the params the relay
+        # carries.
+        pytest.param(
+            "/devices",
+            {"prefix": "COR", "limit": "2", "offset": "1"},
+            {"devices": [], "total": 0, "offset": 1, "limit": 2},
+            id="devices",
+        ),
+        pytest.param("/runs", {"limit": "5"}, [], id="runs"),
+        pytest.param(
+            "/runs/abc123/data",
+            {"max_rows": "50", "offset": "10", "tail": "true"},
+            {"run_uid": "uid-1", "columns": [], "rows": [], "row_count": 0, "truncated": False},
+            id="run-data",
+        ),
+    ],
+)
+def test_query_params_are_forwarded(path: str, params: dict[str, str], body: object) -> None:
     seen: list[httpx.Request] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
         seen.append(request)
-        return _json_response(200, {"devices": [], "total": 0, "offset": 1, "limit": 2})
+        return httpx.Response(200, json=body)
 
     app = _build_app(handler)
     with TestClient(app) as client:
-        response = client.get("/devices", params={"prefix": "COR", "limit": "2", "offset": "1"})
+        response = client.get(path, params=params)
 
     assert response.status_code == 200
-    assert seen[0].url.params["prefix"] == "COR"
-    assert seen[0].url.params["limit"] == "2"
-    assert seen[0].url.params["offset"] == "1"
-
-
-def test_list_runs_forwards_limit_param() -> None:
-    seen: list[httpx.Request] = []
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        seen.append(request)
-        return _json_response(200, [])
-
-    app = _build_app(handler)
-    with TestClient(app) as client:
-        response = client.get("/runs", params={"limit": "5"})
-
-    assert response.status_code == 200
-    assert seen[0].url.params["limit"] == "5"
-
-
-def test_get_run_data_forwards_max_rows_offset_tail_params() -> None:
-    seen: list[httpx.Request] = []
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        seen.append(request)
-        return _json_response(
-            200, {"run_uid": "uid-1", "columns": [], "rows": [], "row_count": 0, "truncated": False}
-        )
-
-    app = _build_app(handler)
-    with TestClient(app) as client:
-        response = client.get(
-            "/runs/abc123/data", params={"max_rows": "50", "offset": "10", "tail": "true"}
-        )
-
-    assert response.status_code == 200
-    assert seen[0].url.params["max_rows"] == "50"
-    assert seen[0].url.params["offset"] == "10"
-    assert seen[0].url.params["tail"] == "true"
+    assert {key: seen[0].url.params[key] for key in params} == params
 
 
 # ---------------------------------------------------------------------------

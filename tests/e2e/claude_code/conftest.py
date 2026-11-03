@@ -14,11 +14,15 @@ from pathlib import Path
 import pytest
 import yaml
 
+from osprey_connectors.identity import acting_identity
 from tests.e2e.sdk_helpers import (
     HAS_SDK,
+    enable_writes_in_project,
     init_project,
     is_claude_code_available,
     render_dir,
+    set_switch_in_record,
+    set_writes_tier,
 )
 from tests.facility.served_tree import in_process_config, served_tree
 
@@ -60,14 +64,23 @@ def _point_at_safety_limits_db(repo: Path) -> None:
     config_path.write_text(yaml.dump(config, default_flow_style=False))
 
 
+#: The safety world's channels, each named once by its role in it. The
+#: addresses are the world's own: the served tree holds them and
+#: :data:`SAFETY_LIMITS_DB` lists the first two, and no facility file need.
+#: The bounded writable setpoint :data:`SAFETY_LIMITS_DB` lists with a band.
+BOUNDED_SETPOINT = "SR:DIAG:TEMP:01:TEMPERATURE:SP"
+#: The readback :data:`SAFETY_LIMITS_DB` lists as read-only; served as a readback.
+READ_ONLY_READBACK = "SR:MAG:QF:01:CURRENT:RB"
+#: A reading :data:`SAFETY_LIMITS_DB` does not list.
+UNLISTED_READING = "SR:BEAM:CURRENT"
+#: A setpoint :data:`SAFETY_LIMITS_DB` does not list, written by the scripted gates.
+SCRIPTED_UNLISTED_SETPOINT = "MAG:HCM01:CURRENT:SP"
+#: A setpoint :data:`SAFETY_LIMITS_DB` does not list, written by the agent lane.
+AGENT_UNLISTED_SETPOINT = "SR:RANDOM:UNLISTED"
+
 #: The setpoints the safety scenarios write, and the channels they only read.
-#: The read-only readback in :data:`SAFETY_LIMITS_DB` is served as a readback.
-SAFETY_SETPOINTS = (
-    "MAG:HCM01:CURRENT:SP",
-    "SR:DIAG:TEMP:01:TEMPERATURE:SP",
-    "SR:RANDOM:UNLISTED",
-)
-SAFETY_READINGS = ("SR:BEAM:CURRENT", "SR:MAG:QF:01:CURRENT:RB")
+SAFETY_SETPOINTS = (SCRIPTED_UNLISTED_SETPOINT, BOUNDED_SETPOINT, AGENT_UNLISTED_SETPOINT)
+SAFETY_READINGS = (UNLISTED_READING, READ_ONLY_READBACK)
 
 
 def _serve_safety_channels(repo: Path, root: Path) -> None:
@@ -138,10 +151,52 @@ def safety_project(tmp_path_factory):
     """Module-scoped deployment repo for safety tests.
 
     Builds a control_assistant deployment once per test file and reuses it
-    across all tests in that file. Writes are enabled (default).
+    across all tests in that file. Writes are armed: the preset's tier is
+    ``allowed`` and the switch of the login this process acts as is turned on
+    for the baseline target (:func:`enable_writes_in_project`, which rebuilds —
+    so it runs before the render edits below).
     """
     tmp = tmp_path_factory.mktemp("safety")
     repo = init_project(tmp, "safety-test-project", provider="als-apg")
+    enable_writes_in_project(repo)
+    _serve_safety_channels(repo, tmp / "served")
+    _point_at_safety_limits_db(repo)
+    return repo
+
+
+@pytest.fixture(scope="module")
+def safety_project_code_review(tmp_path_factory):
+    """:func:`safety_project` with code review on at ``block``.
+
+    Turned on in the profile before the rebuild :func:`enable_writes_in_project`
+    makes, since the approval entry's timeout and ``--budget`` carry the review's
+    deadline only in a render built with review on.
+
+    The reviewer runs inside the approval hook, past the scripted fixture's reach, and
+    takes its key from the deployment's ``.env``, which ``osprey init`` seeds from the
+    shell. The key there is the scripted token, so no review presents a real one.
+    """
+    from tests.e2e.scripted_model import SCRIPTED_AUTH_TOKEN
+
+    tmp = tmp_path_factory.mktemp("safety-code-review")
+    repo = init_project(tmp, "safety-code-review", provider="als-apg")
+    env_path = repo / ".env"
+    env_path.write_text(
+        "".join(
+            f"ALS_APG_API_KEY={SCRIPTED_AUTH_TOKEN}\n"
+            if line.startswith("ALS_APG_API_KEY=")
+            else line
+            for line in env_path.read_text(encoding="utf-8").splitlines(keepends=True)
+        ),
+        encoding="utf-8",
+    )
+    profile_path = repo / "profile.yml"
+    profile = yaml.safe_load(profile_path.read_text(encoding="utf-8"))
+    profile["config"]["code_review.enabled"] = True
+    profile["config"]["code_review.level"] = "block"
+    profile["hooks"].append("code-review")
+    profile_path.write_text(yaml.safe_dump(profile, sort_keys=False), encoding="utf-8")
+    enable_writes_in_project(repo)
     _serve_safety_channels(repo, tmp / "served")
     _point_at_safety_limits_db(repo)
     return repo
@@ -149,27 +204,23 @@ def safety_project(tmp_path_factory):
 
 @pytest.fixture(scope="module")
 def safety_project_writes_off(tmp_path_factory):
-    """Module-scoped deployment with writes_enabled: false.
+    """Module-scoped deployment whose write tier is ``never``.
 
     Used by kill-switch tests to verify that the writes_check hook
-    blocks all write operations when the master kill switch is off.
+    blocks all write operations when the deployment's tier allows none.
 
-    Re-renders the Claude Code artifacts after flipping ``writes_enabled`` so the
-    rendered ``settings.json`` reflects the new flag. Without that, the renderer's
-    writes-aware permissions.deny augmentation (which removes pure-write tools from
-    the agent's view when writes are off) is bypassed, and the agent is offered
-    channel_write. The writes_check hook would still refuse the call, and no approval
-    card is raised for it (tests/e2e/claude_code/test_chat_approval_gates_scripted.py,
-    scenario b).
+    The tier is spelled ``control_system.writes: never`` in the profile and the
+    repo rebuilt (:func:`set_writes_tier`), so the rendered ``settings.json``
+    carries it: the renderer's writes-aware permissions.deny augmentation
+    removes pure-write tools from the agent's view. Without it the agent is
+    offered channel_write; the writes_check hook would still refuse the call,
+    and no approval card is raised for it
+    (tests/e2e/claude_code/test_chat_approval_gates_scripted.py, scenario b).
     """
     tmp = tmp_path_factory.mktemp("safety-writes-off")
     repo = init_project(tmp, "safety-writes-off", provider="als-apg")
+    set_writes_tier(repo, "never")
     _serve_safety_channels(repo, tmp / "served")
-    config_path = render_dir(repo) / "config.yml"
-    config = yaml.safe_load(config_path.read_text())
-    config["control_system"]["writes_enabled"] = False
-    config_path.write_text(yaml.dump(config, default_flow_style=False))
-    _rerender_claude_artifacts(repo)
     return repo
 
 
@@ -190,10 +241,9 @@ MIXED_RENDER_LIVE_TYPE = (
 def safety_project_mixed_render(tmp_path_factory):
     """Module-scoped switch-capable deployment armed on ``va`` only, session on ``live``.
 
-    ``control_system.writes_enabled: false`` keeps the live target read-only and
-    ``control_system.connector.virtual_accelerator.writes_enabled: true`` arms
-    the simulator — two of the three posture keys the shipped
-    ``readwrite`` tier spells. The render is made
+    The preset's tier is ``allowed``, and the switch of the login this process
+    acts as is turned on for ``va`` alone (the record fixture,
+    :func:`set_switch_in_record`), so the live target stays off. The render is made
     switch-capable the way the switch lifecycle tests do it:
     ``control_system.type`` is the in-process simulator by
     dotted path (so ``live`` resolves to it) with a connector block of its own,
@@ -224,7 +274,6 @@ def safety_project_mixed_render(tmp_path_factory):
     config = yaml.safe_load(config_path.read_text())
     section = config["control_system"]
     section["type"] = MIXED_RENDER_LIVE_TYPE
-    section["writes_enabled"] = False
     connector = section["connector"]
     live_block = dict(connector["virtual_accelerator"])
     # The simulator dials no gateway. A gateways table on ``live``'s block would
@@ -235,10 +284,11 @@ def safety_project_mixed_render(tmp_path_factory):
     # On a deployment whose own type is a real machine, ``va`` is the served
     # venue; the in-process venue belongs to the simulator's own deployments.
     connector["virtual_accelerator"].pop("serving", None)
-    connector["virtual_accelerator"]["writes_enabled"] = True
     config_path.write_text(yaml.dump(config, default_flow_style=False))
     _point_at_safety_limits_db(repo)
     _rerender_claude_artifacts(repo)
+    # After the edit, so the record's baseline is the ``live`` the edit made.
+    set_switch_in_record(repo, owner=acting_identity(), targets=["va"])
     return repo
 
 
@@ -253,6 +303,7 @@ def safety_project_selective(tmp_path_factory):
     """
     tmp = tmp_path_factory.mktemp("safety-selective")
     repo = init_project(tmp, "safety-selective", provider="als-apg")
+    enable_writes_in_project(repo)
     _serve_safety_channels(repo, tmp / "served")
     config_path = render_dir(repo) / "config.yml"
     config = yaml.safe_load(config_path.read_text())
@@ -267,7 +318,6 @@ def safety_project_selective(tmp_path_factory):
             "execute": "selective",
         },
     }
-    config["control_system"]["writes_enabled"] = True
     config_path.write_text(yaml.dump(config, default_flow_style=False))
     _point_at_safety_limits_db(repo)
     return repo
@@ -284,10 +334,10 @@ def safety_project_default_policy_always(tmp_path_factory):
     """
     tmp = tmp_path_factory.mktemp("safety-default-always")
     repo = init_project(tmp, "safety-default-always", provider="als-apg")
+    enable_writes_in_project(repo)
     _serve_safety_channels(repo, tmp / "served")
     config_path = render_dir(repo) / "config.yml"
     config = yaml.safe_load(config_path.read_text())
     config["approval"] = {"enabled": True, "default_policy": "always"}
-    config["control_system"]["writes_enabled"] = True
     config_path.write_text(yaml.dump(config, default_flow_style=False))
     return repo

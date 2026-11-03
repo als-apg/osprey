@@ -54,7 +54,7 @@ describe('open/close mechanics', () => {
     expect(button.getAttribute('aria-expanded')).toBe('false');
   });
 
-  test('clicking a menu item dismisses the menu (the action itself is the item wiring\'s job)', () => {
+  test("clicking a menu item dismisses the menu (the action itself is the item wiring's job)", () => {
     initAll();
     byId('sidebar-menu-btn').click();
     expect(byId('sidebar-menu').hidden).toBe(false);

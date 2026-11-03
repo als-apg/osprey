@@ -63,6 +63,10 @@ def check_lanes(root: Path, excluded: dict[str, str]) -> list[str]:
             "no:cacheprovider",
             "-o",
             "addopts=",
+            # Collection reads markers and runs no assert, so rewriting each
+            # module's asserts on import buys nothing here; on a checkout with
+            # no bytecode cache it is a quarter of the collection's time.
+            "--assert=plain",
             *[f"--ignore={p}" for p in excluded],
         ]
         env = {**os.environ, "OSPREY_E2E_LANES": str(lanes_path)}
@@ -127,12 +131,13 @@ def main() -> int:
     all_files = sorted(str(p.relative_to(root)) for p in suite_root.rglob("test_*.py"))
 
     run_files = [f for f in all_files if f not in excluded]
-    warnings: list[str] = []
 
     # Tripwire 1: stale exclusions (configured to exclude a file that's gone).
-    for path in excluded:
-        if not (root / path).exists():
-            warnings.append(f"stale exclusion in config — file does not exist: {path}")
+    warnings: list[str] = [
+        f"stale exclusion in config — file does not exist: {path}"
+        for path in excluded
+        if not (root / path).exists()
+    ]
 
     # Tripwire 2: silent coverage loss.
     if len(run_files) < baseline_min:

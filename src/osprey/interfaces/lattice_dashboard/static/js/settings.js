@@ -34,8 +34,24 @@ export const SETTINGS_FIELDS = {
     fields: [
       { key: 'nturns', label: 'Turns', unit: '', type: 'int', min: 64, max: 8192, step: 64 },
       { key: 'n_refpts', label: 'Ref pts', unit: '', type: 'int', min: 10, max: 500, step: 10 },
-      { key: 'dp_max_pct', label: 'dp max', unit: '%', type: 'float', min: 0.5, max: 20, step: 0.5 },
-      { key: 'n_sectors', label: 'Sectors', unit: '', type: 'int_or_null', min: 1, max: 100, step: 1 },
+      {
+        key: 'dp_max_pct',
+        label: 'dp max',
+        unit: '%',
+        type: 'float',
+        min: 0.5,
+        max: 20,
+        step: 0.5,
+      },
+      {
+        key: 'n_sectors',
+        label: 'Sectors',
+        unit: '',
+        type: 'int_or_null',
+        min: 1,
+        max: 100,
+        step: 1,
+      },
       { key: 'n_bisect', label: 'Bisect steps', unit: '', type: 'int', min: 5, max: 30, step: 1 },
     ],
   },
@@ -112,7 +128,9 @@ export function renderSettingsForm(settings) {
 
       const val = groupSettings[field.key];
       if (val != null) {
-        input.value = String(field.type === 'int' || field.type === 'int_or_null' ? Math.round(val) : val);
+        input.value = String(
+          field.type === 'int' || field.type === 'int_or_null' ? Math.round(val) : val
+        );
       } else if (field.type === 'int_or_null') {
         input.placeholder = 'auto';
       }

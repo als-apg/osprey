@@ -70,18 +70,19 @@ def scan(root: Path, allowed: Mapping[str, str] = ZONES) -> list[str]:
         capture_output=True,
         text=True,
         check=False,
+        timeout=60,
     )
     assert result.returncode in (0, 1), result.stderr
     return sorted(":".join(line.split(":", 2)[:2]) for line in result.stdout.splitlines() if line)
 
 
 def _planted_repo(root: Path, files: Mapping[str, str]) -> Path:
-    subprocess.run(["git", "init", "-q", str(root)], check=True)
+    subprocess.run(["git", "init", "-q", str(root)], check=True, timeout=60)
     for relative, text in files.items():
         path = root / relative
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(text, encoding="utf-8")
-    subprocess.run(["git", "add", "-A"], cwd=root, check=True)
+    subprocess.run(["git", "add", "-A"], cwd=root, check=True, timeout=60)
     return root
 
 

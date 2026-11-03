@@ -45,9 +45,8 @@ from osprey.deployment.reach import (
 from osprey.deployment.web_terminals.artifacts import resolve_render_inputs
 from osprey.deployment.web_terminals.render import render_web_terminals
 from osprey.deployment.web_terminals.roster import resolve_cards
-from osprey_connectors.standin import archive_belongs_to_standin
+from osprey.profiles.web_panels import SIDECAR_PANELS
 from tests._renders import tier_render
-from tests.cli.test_tier_app_presets import _build_render_stack
 
 pytestmark = pytest.mark.slow
 
@@ -136,6 +135,19 @@ def test_a_service_that_listens_keeps_its_hand_written_contract():
         assert REACH_CONTRACTS[name].no_client_reach is True
         entry = BUNDLED_HOST_BINDINGS.get(name)
         assert entry is None or entry.binding.listens is True
+
+
+def test_the_canopy_tab_is_served_by_each_terminals_sidecar():
+    """The CANOPY tab is a builtin each terminal serves from its own sidecar.
+
+    A render that selects the tab needs no ``web.panels.canopy.url`` and no
+    deployed service: the selected-panel rule has nothing to refuse.
+    """
+    assert "canopy" in SIDECAR_PANELS
+
+    selected = {"web": {"panels": {"canopy": {"enabled": True}}, "default_panel": "canopy"}}
+    assert reach_errors({**selected, "deployed_services": []}) == []
+    assert live_consumers(selected) == []
 
 
 def test_every_contract_names_a_deployable_service():
@@ -351,72 +363,33 @@ def test_a_config_only_render_has_the_port_and_no_consumer():
 
 
 # ---------------------------------------------------------------------------
-# The archive recorder: a fact projected for a reader, not for a client
+# The archive recorder: reached by nobody, projected to nobody
 # ---------------------------------------------------------------------------
 
 
-def _recording_standin_host(port: int = _STANDIN_PORT) -> dict:
-    """A deploying render that records its own stand-in's history."""
-    host = _standin_config(port)
-    host["services"]["archiver_recorder"] = {"path": "./services/archiver_recorder"}
-    host["deployed_services"] = ["live_standin", "archiver_recorder", "mongodb"]
-    return host
+def test_the_recorder_projects_nothing():
+    """Nothing in a render dials the recorder, and nothing about it travels.
 
-
-def test_the_recorder_projects_its_block_though_nothing_dials_it():
-    """The one contract reached by nobody that still projects a key.
-
-    ``osprey_connectors.standin.archive_belongs_to_standin`` reads whether the
-    deployment records its own store to decide whose history the archive holds
-    -- the fact the ``live`` target is refused on. The host spells it in
-    ``deployed_services``, which every attached render carries empty, so the
-    recorder's own block is projected instead, ungated like the stand-in port
-    beside it.
+    The recorder samples the virtual accelerator into the deployment's store;
+    whose history that store holds follows from the control system the render
+    already carries, so there is no recorder fact a render needs to be told.
     """
     contract = REACH_CONTRACTS["archiver_recorder"]
 
     assert contract.no_client_reach
     assert contract.consumers == ()
-    assert [key.key for key in contract.projected] == ["services.archiver_recorder.path"]
-    assert contract.projected[0].gate is None
-    assert contract.projected[0].panel is None
+    assert contract.projected == ()
 
 
-def test_a_render_of_a_recording_host_is_told_the_archive_is_the_standins():
-    """Single-user and multi-user must answer this the same way.
-
-    The render queries the host's store, so the gate on ``live`` has to hold
-    in its session too -- and it can only hold if the render carries the fact.
-    """
-    host = _recording_standin_host()
-    attached: dict = {"services": {}}
-
-    overrides = project_attached_overrides(host, attached)
-    assert overrides["services.archiver_recorder.path"] == "./services/archiver_recorder"
-    assert overrides["services.live_standin.port"] == _STANDIN_PORT
-
-    # The render those overrides make: no deployed_services, both facts, and
-    # the predicate answering exactly as it does on the host that told it.
-    tier = {
-        "services": {
-            "live_standin": {"port": _STANDIN_PORT},
-            "archiver_recorder": {"path": "./services/archiver_recorder"},
-        }
-    }
-    assert archive_belongs_to_standin(tier)
-    assert archive_belongs_to_standin(host)
-    # Told a fact, not handed a surface: the render is refused nothing for it.
-    assert reach_errors(tier) == []
-
-
-def test_a_host_that_does_not_record_projects_no_recorder():
-    """A deployment with a stand-in and no recorder tells its renders so, and
-    their ``live`` target stays open for the same reason its own does."""
+def test_a_render_of_a_recording_host_is_told_nothing_of_the_recorder():
     host = _standin_config()
+    host["services"]["archiver_recorder"] = {"path": "./services/archiver_recorder"}
+    host["deployed_services"] = ["live_standin", "archiver_recorder", "mongodb"]
+
     overrides = project_attached_overrides(host, {"services": {}})
 
     assert "services.archiver_recorder.path" not in overrides
-    assert not archive_belongs_to_standin({"services": {"live_standin": {"port": _STANDIN_PORT}}})
+    assert overrides["services.live_standin.port"] == _STANDIN_PORT
 
 
 # ---------------------------------------------------------------------------
@@ -528,8 +501,9 @@ def test_a_target_that_does_not_resolve_carries_no_consumer():
 
 
 @pytest.fixture(scope="module")
-def built_stack(tmp_path_factory) -> Path:
-    return _build_render_stack(tmp_path_factory.mktemp("reach-contract") / "my-facility")
+def built_stack(built_control_assistant) -> Path:
+    """The shipped control assistant: the run's shared, read-only build (``tests/_builds.py``)."""
+    return built_control_assistant.repo
 
 
 @pytest.fixture(scope="module")
@@ -894,9 +868,6 @@ def test_every_always_resolving_consumer_is_refused_the_same_way():
     not only the bluesky one the hole was found in."""
     cases = {
         "postgresql": {"ariel": {"search_modules": {}}},
-        "telemetry_gateway": {
-            "claude_code": {"telemetry": {"enabled": True, "backend": "gateway"}}
-        },
         # Switched on by the connector block a VA is configured from, and
         # naming no gateway address of its own — the shape that has to be
         # refused, since the fill would send the client to loopback.
@@ -974,7 +945,7 @@ def test_a_deploying_render_may_name_a_service_it_does_not_run():
         },
     ]
     for config in external:
-        assert reach_errors({**config, "deployed_services": ["telemetry_store"]}) == [], config
+        assert reach_errors({**config, "deployed_services": ["mongodb"]}) == [], config
 
 
 def test_the_deploying_rule_has_no_consumer_to_refuse_where_no_client_dials():
@@ -993,7 +964,11 @@ def test_the_deploying_rule_has_no_consumer_to_refuse_where_no_client_dials():
         for contract in REACH_CONTRACTS.values()
         if contract.derived_by or contract.no_client_reach
     ]
-    assert {c.service for c in silent} >= {"mongodb", "archiver_recorder", "dispatch_worker"}
+    assert {c.service for c in silent} >= {
+        "mongodb",
+        "archiver_recorder",
+        "dispatch_worker",
+    }
     for contract in silent:
         assert contract.consumers == (), contract.service
 
@@ -1178,39 +1153,67 @@ def test_every_lane_the_registry_knows_has_a_contract_of_its_own():
         ]
 
 
-def test_a_lanes_launch_token_follows_that_lanes_own_target():
-    """The per-target boundary, lane by lane: a deployment built for a live
-    machine, arming writes on its virtual-accelerator lane alone, hands out the
-    VA lane's token and withholds the live lane's — even though the two lanes
-    run in one container for one render."""
+@pytest.mark.parametrize(
+    ("control_system", "armed"),
+    [
+        ({"type": "epics", "writes": "allowed"}, True),
+        ({"type": "epics", "writes": "never"}, False),
+        # The retired per-type spelling in a rendered config the build did not
+        # rewrite: retired leaves are not read at run time (D2), so the tier is
+        # absent, `never`, and no lane is granted
+        # (row `tier-absent-old-armed-connector`).
+        (
+            {
+                "type": "epics",
+                "writes_enabled": False,
+                "connector": {"virtual_accelerator": {"writes_enabled": True}},
+            },
+            False,
+        ),
+        # When the tier key is present it alone decides; retired leaves are ignored.
+        (
+            {
+                "type": "epics",
+                "writes": "never",
+                "connector": {"virtual_accelerator": {"writes_enabled": True}},
+            },
+            False,
+        ),
+    ],
+)
+def test_a_lanes_launch_token_follows_the_login_tier_not_that_lanes_target(
+    control_system: dict, armed: bool
+):
+    """The tier is a ceiling, not a selection: a deployment built for a live
+    machine with a virtual-accelerator lane beside it hands out both lanes'
+    tokens when its tier allows writes and neither when it does not — the
+    lane's target never narrows the grant, because the person's switch picks
+    the machine at the moment of each write."""
     config = {
         "claude_code": {"servers": {"bluesky": {"enabled": True}}},
-        "control_system": {
-            "type": "epics",
-            "writes_enabled": False,
-            "connector": {"virtual_accelerator": {"writes_enabled": True}},
-        },
+        "control_system": control_system,
         "services": {
             "bluesky": {"port": 10080, "target": "live"},
             "bluesky_va": {"port": 10081, "target": "va"},
         },
     }
 
-    # Lane 1 serves this deployment's live target, and every lane this render
-    # does not carry — the second live lane, a stand-in lane — is withheld.
-    assert _launch_token_grants(config) == _expected_grants(bluesky_va=True)
+    # Every lane this render does not carry — the second live lane, a stand-in
+    # lane — is withheld whatever the tier says.
+    assert _launch_token_grants(config) == _expected_grants(bluesky=armed, bluesky_va=armed)
 
 
-def test_a_global_true_does_not_arm_a_lane_whose_own_block_says_false():
+def test_a_per_type_false_does_not_narrow_an_allowed_tier_on_one_lane():
     """The mirror deployment — built for the simulator, told about its real
-    machine by a connector block that disarms it. The deployment-wide key is
-    the VA lane's posture by inheritance, and says nothing about the live lane,
-    whose own block has already answered."""
+    machine by a connector block whose retired leaf says false. The tier
+    `allowed` is target-blind and a per-type leaf is never read at run time,
+    so the per-type false withholds nothing: both carried lanes are granted,
+    the rest withheld."""
     config = {
         "claude_code": {"servers": {"bluesky": {"enabled": True}}},
         "control_system": {
             "type": "virtual_accelerator",
-            "writes_enabled": True,
+            "writes": "allowed",
             "connector": {"epics": {"writes_enabled": False}},
         },
         "services": {
@@ -1219,7 +1222,7 @@ def test_a_global_true_does_not_arm_a_lane_whose_own_block_says_false():
         },
     }
 
-    assert _launch_token_grants(config) == _expected_grants(bluesky=True)
+    assert _launch_token_grants(config) == _expected_grants(bluesky=True, bluesky_live=True)
 
 
 def test_no_lane_is_armed_without_the_bluesky_server():
@@ -1227,7 +1230,7 @@ def test_no_lane_is_armed_without_the_bluesky_server():
     the agent a live credential — so the server's own switch, whose registry
     default is off, gates every lane's grant."""
     config = {
-        "control_system": {"type": "virtual_accelerator", "writes_enabled": True},
+        "control_system": {"type": "virtual_accelerator", "writes": "allowed"},
         "services": {
             "bluesky": {"port": 10080, "target": "va"},
             "bluesky_live": {"port": 10081, "target": "live"},

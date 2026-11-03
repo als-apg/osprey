@@ -43,7 +43,8 @@ from osprey.mcp_server.control_system.target_eligibility import (
     REASON_TARGET_UNRESOLVABLE,
 )
 from osprey_connectors.control_system._base import ChannelValue, WriteOutcome
-from osprey_connectors.factory import ConnectorFactory, isolated_connector_registries
+from osprey_connectors.errors import ChannelUnreachableError, ConnectorUnavailableError
+from osprey_connectors.factory import ConnectorFactory
 from osprey_connectors.ipc._launch import host_env
 from osprey_connectors.ipc._pool import DEFAULT_CALL_DEADLINE_S
 from osprey_connectors.ipc._proxy import ConnectorHostProxy
@@ -52,8 +53,10 @@ from osprey_connectors.ipc._verification import (
     TargetDerivation,
     verify_host_report,
 )
+from osprey_connectors.refusals import refusal_phrase
 from osprey_connectors.types import VIRTUAL_ACCELERATOR
-from osprey_connectors_tests._harness import state_dir_under
+from osprey_connectors_tests._harness import isolated_connector_registries, state_dir_under
+from tests._live import async_wait_until
 from tests.facility.served_tree import in_process_config
 from tests.fixtures.control_context import context_for
 from tests.mcp_server._switch_harness import (
@@ -69,6 +72,7 @@ from tests.mcp_server._switch_harness import (
     SLOW_CHANNEL,
     VA_PROBE,
     VA_WRITE_GATEWAY_PORT,
+    arm,
     gateway_config,
     narrow,
     project_config,
@@ -84,13 +88,15 @@ def _child_harness(child_environment, state_root):
 
 
 async def mixed_session(factory, va_armed_project):
-    """A started session whose 'va' block arms writes and whose 'live' does not.
+    """A started session whose switch is on for 'va' and off for 'live'.
 
-    The two targets then select different gateway roles, which is what lets a
-    case tell a per-target reading of the posture from a deployment-wide one.
+    The tier allows writes on every machine, so the two targets select
+    different gateway roles only through the per-target switch, which is what
+    lets a case tell a per-target reading of the verdict from a deployment-wide
+    one.
     """
     manager = factory(
-        raw=gateway_config(writes_enabled=False, va_writes_enabled=True, va_gateways=True),
+        raw=gateway_config(va_gateways=True),
         config_path=va_armed_project,
     )
     await manager.ensure_started()
@@ -124,13 +130,15 @@ class _FakeArchiver:
         return None
 
 
-async def wait_for(predicate, timeout=SETTLE_TIMEOUT_S):
-    """Poll *predicate* on the event loop until it holds, or fail the test."""
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        if predicate():
-            return True
-        await asyncio.sleep(0.05)
+async def wait_for(predicate):
+    """Whether *predicate* comes to hold within the settle timeout.
+
+    A bool rather than a raise, so each caller's assertion message is built
+    when it fails and can report the state it found.
+    """
+    with contextlib.suppress(AssertionError):
+        await async_wait_until(predicate, timeout=SETTLE_TIMEOUT_S)
+        return True
     return False
 
 
@@ -179,8 +187,8 @@ class TestSuccessfulSwitch:
         # surviving it, and it still describes every target. Neither connector
         # here selects a gateway, so identity is the config rendering and the
         # republication changes nothing an operator would read.
-        assert record["targets"]["va"]["label"] == "virtual accelerator (simulation)"
-        assert record["targets"]["live"]["label"] == "LIVE MACHINE"
+        assert record["targets"]["va"]["label"] == "Simulator — nothing moves"
+        assert record["targets"]["live"]["label"] == "Live — writes move hardware"
 
     async def test_the_previous_child_process_actually_exits(self, make_manager):
         manager = await started_on(make_manager, "live")
@@ -203,7 +211,7 @@ class TestSuccessfulSwitch:
         assert isinstance(value, ChannelValue)
         # The refusing channel is the fixture connector's, so this really is the
         # VA child answering and not the mock the live target left behind.
-        with pytest.raises(ConnectionError):
+        with pytest.raises(ChannelUnreachableError):
             await manager.active_proxy().read_channel(REFUSE_CHANNEL, timeout=10.0)
 
     async def test_the_result_names_the_type_and_the_probe_channel_it_proved(self, make_manager):
@@ -411,7 +419,7 @@ class TestFailedSwitchLeavesThePreviousTargetActive:
         self, make_manager, monkeypatch
     ):
         manager = await started_on(make_manager, "live")
-        real_writes = connector_host_manager.effective_writes_for_target
+        real_writes = connector_host_manager._writes_allowed
 
         def writes(section, target):
             # The parent derives 'va' armed; the child, handed no project
@@ -419,7 +427,7 @@ class TestFailedSwitchLeavesThePreviousTargetActive:
             # gateways, so only the posture check can tell the two apart.
             return True if target == "va" else real_writes(section, target)
 
-        monkeypatch.setattr(connector_host_manager, "effective_writes_for_target", writes)
+        monkeypatch.setattr(connector_host_manager, "_writes_allowed", writes)
 
         with pytest.raises(SwitchError) as raised:
             await manager.switch("va")
@@ -483,36 +491,32 @@ class TestFailedSwitchLeavesThePreviousTargetActive:
 
 
 @pytest.fixture
-def write_armed_project(tmp_path):
-    """A project config file that arms writes deployment-wide."""
-    return project_config(tmp_path, {"writes_enabled": True})
+def write_armed_project(tmp_path, state_root):
+    """A project config whose tier allows writes, with both machines switched on."""
+    arm(state_root, "live", "va")
+    return project_config(tmp_path, {"type": GATEWAY_TYPE, "writes": "allowed"})
 
 
 @pytest.fixture
-def live_armed_project(tmp_path):
-    """A project config that arms writes on the live type's block alone.
+def live_armed_project(tmp_path, state_root):
+    """A project config whose tier allows writes, with only the live machine switched on.
 
-    The deployment-wide key is false, so a child resolving posture from it
-    would stay on the read gateway — and the write role whose failure the
-    fallback answers would never be selected in the first place.
+    The tier is target-blind, so the switch being on for ``live`` alone is what
+    selects the write role whose failure the fallback answers.
     """
-    return project_config(
-        tmp_path,
-        {"writes_enabled": False, "connector": {GATEWAY_TYPE: {"writes_enabled": True}}},
-    )
+    arm(state_root, "live")
+    return project_config(tmp_path, {"type": GATEWAY_TYPE, "writes": "allowed"})
 
 
 @pytest.fixture
-def va_armed_project(tmp_path):
-    """A project config that arms the simulator and leaves the machine unarmed.
+def va_armed_project(tmp_path, state_root):
+    """A project config whose tier allows writes, with only the simulator switched on.
 
     The shape this feature exists for: a deployment whose baseline is a real
     machine, arming writes on its virtual accelerator only.
     """
-    return project_config(
-        tmp_path,
-        {"writes_enabled": False, "connector": {VIRTUAL_ACCELERATOR: {"writes_enabled": True}}},
-    )
+    arm(state_root, "va")
+    return project_config(tmp_path, {"type": GATEWAY_TYPE, "writes": "allowed"})
 
 
 class TestDeadWriteGatewayFallback:
@@ -578,23 +582,17 @@ class TestDeadWriteGatewayFallback:
         assert result.outcome is WriteOutcome.REFUSED
         assert result.refusal_reason == "CONTROL_SYSTEM_REFUSED"
 
-    async def test_a_block_that_arms_only_the_live_type_still_gets_the_fallback(
+    async def test_a_switch_on_for_live_alone_still_gets_the_fallback(
         self, make_manager, live_armed_project
     ):
-        """The fallback answers the posture that selected the dead gateway.
+        """The fallback answers the verdict that selected the dead gateway.
 
-        Nothing here says ``control_system.writes_enabled: true``: the live
-        type's own block is what arms the write role, and therefore what makes
-        the dead ``write_access`` row the one probed. A parent that read one
-        posture for the whole deployment would send this session to the read
-        gateway from the start and never reach the fallback at all.
+        The switch is on for ``live`` alone: that per-target verdict is what
+        arms the write role there, and therefore what makes the dead
+        ``write_access`` row the one probed. A parent that read one verdict for
+        the whole deployment would get it wrong for one of the two targets.
         """
-        manager = await self._stranded_session(
-            make_manager,
-            live_armed_project,
-            writes_enabled=False,
-            live_writes_enabled=True,
-        )
+        manager = await self._stranded_session(make_manager, live_armed_project)
 
         result = await manager.switch("live")
 
@@ -626,7 +624,7 @@ class TestDeadWriteGatewayFallback:
 
     async def test_a_deployment_without_write_arming_never_needs_the_fallback(self, make_manager):
         """Read-only selection is untouched: no dead gateway is ever probed."""
-        manager = make_manager(raw=gateway_config(writes_enabled=False))
+        manager = make_manager(raw=gateway_config(writes="never"))
         await manager.ensure_started()
         await manager.switch("va")
 
@@ -707,9 +705,9 @@ class TestProbeFailureNamesTheGateway:
 class TestPerTargetPosture:
     """One deployment, two postures: the simulator armed, the machine not.
 
-    ``control_system.connector.<type>.writes_enabled`` is per connector type,
-    so a facility whose baseline is a real machine can arm writes on its
-    virtual accelerator alone. Three readings of that have to agree at once —
+    The tier is target-blind and the login's switch is per target, so a
+    facility whose baseline is a real machine can arm writes on its virtual
+    accelerator alone. Three readings of that have to agree at once —
     the parent deriving where a target lands, the child selecting its gateway,
     and the reference monitor in that child deciding whether a write may be
     attempted — and they agree only because each reads the posture of the type
@@ -724,8 +722,8 @@ class TestPerTargetPosture:
         A switch that returns a result at all has passed ``verify_child_report``:
         the role and endpoint the child reported were compared against the
         parent's derivation for that target. Here the two derivations disagree —
-        'va' is armed on its own block and selects the write-capable gateway,
-        'live' inherits the deployment-wide off and stays read-only — so a
+        'va' is switched on and selects the write-capable gateway, 'live' is
+        switched off and stays read-only — so a
         posture read once for the whole deployment would fail one of them.
         """
         manager = await mixed_session(make_manager, va_armed_project)
@@ -742,12 +740,9 @@ class TestPerTargetPosture:
     async def test_the_write_gate_moves_with_the_session(self, make_manager, va_armed_project):
         """The same write, permitted on one target and refused on the other.
 
-        The refusal names the block an operator would have to edit — the live
-        type's own block rather than the deployment-wide key — because that is
-        the posture the connector serving this target actually read. This
-        fixture's type is a dotted module path, so the block is named in the
-        mapping form a build profile applies verbatim: a dotted key would be
-        split on every dot into a nest the posture lookup never reads.
+        The tier allows writes on every machine; the switch is on for ``va``
+        alone, so the write to the real machine is refused with the switch-off
+        phrase for it — the words the person acts on, never a config key.
         """
         manager = await mixed_session(make_manager, va_armed_project)
         await manager.switch("va")
@@ -759,11 +754,97 @@ class TestPerTargetPosture:
         assert armed.outcome is not WriteOutcome.REFUSED
         assert refused.outcome is WriteOutcome.REFUSED
         assert refused.refusal_reason == "WRITES_DISABLED"
-        assert (
-            f"control_system.connector.{GATEWAY_TYPE}.writes_enabled" not in refused.error_message
+        assert refusal_phrase("switch_off", "real") in refused.error_message
+        assert "writes_enabled" not in refused.error_message
+
+
+@pytest.fixture
+def tier_project(tmp_path):
+    """A project config whose tier allows writes, with no machine switched on yet."""
+    return project_config(tmp_path, {"type": GATEWAY_TYPE, "writes": "allowed"})
+
+
+class TestTheSwitchGovernsWrites:
+    """The login's switch decides the write, and never the target switch.
+
+    The tier allows writes on every machine here, so the switch for ``va`` is
+    the only thing that differs between the two cases: on, the write lands
+    through the child; off, the child's write guard refuses it with the
+    switch-off phrase. The target switch succeeds either way — on the write
+    gateway with the switch on, on the read gateway with it off.
+    """
+
+    async def _on_va(self, make_manager, tier_project):
+        manager = make_manager(
+            raw=gateway_config(va_gateways=True),
+            config_path=tier_project,
         )
-        assert "control_system.connector:" in refused.error_message
-        assert f"{GATEWAY_TYPE}:" in refused.error_message
+        await manager.ensure_started()
+        return manager, await manager.switch("va")
+
+    async def test_the_switch_on_lets_a_write_land_through_the_child(
+        self, make_manager, tier_project, state_root
+    ):
+        arm(state_root, "va")
+        manager, result = await self._on_va(make_manager, tier_project)
+
+        written = await manager.active_proxy().write_channel("VA:CORR:1:SP", 0.5, timeout=10.0)
+
+        assert result["target"] == "va"
+        assert result["selected_role"] == "write_access"
+        assert written.outcome is not WriteOutcome.REFUSED
+
+    async def test_the_switch_off_refuses_the_write_with_the_off_phrase(
+        self, make_manager, tier_project, state_root
+    ):
+        arm(state_root)
+        manager, result = await self._on_va(make_manager, tier_project)
+
+        refused = await manager.active_proxy().write_channel("VA:CORR:1:SP", 0.5, timeout=10.0)
+
+        assert result["target"] == "va"
+        assert result["selected_role"] == "read_only"
+        assert refused.outcome is WriteOutcome.REFUSED
+        assert refused.refusal_reason == "WRITES_DISABLED"
+        assert refusal_phrase("switch_off", "simulator") in refused.error_message
+
+    async def test_a_verdict_that_moves_while_the_child_connects_is_re_derived_once(
+        self, make_manager, tier_project, state_root
+    ):
+        """The parent derives 'va' armed; the switch goes off before the child connects.
+
+        The child then reports writes off, which is the verdict that moved, not
+        a disagreement: the parent takes the verdict again, finds it equal to
+        the report, discards the candidate and launches once more under the new
+        derivation instead of refusing a switch nobody got wrong.
+        """
+        arm(state_root, "va")
+        manager = make_manager(
+            raw=gateway_config(va_gateways=True),
+            config_path=tier_project,
+        )
+        await manager.ensure_started()
+        spawned_before = len(manager.spawned)
+        recording_spawn = manager._spawn
+        flipped = []
+
+        async def spawn_after_turn_off(target):
+            if not flipped:
+                flipped.append(target)
+                arm(state_root)
+            return await recording_spawn(target)
+
+        manager._spawn = spawn_after_turn_off
+
+        result = await manager.switch("va")
+
+        assert flipped == ["va"]
+        assert result["target"] == "va"
+        assert result["selected_role"] == "read_only"
+        assert manager.status()["selected_role"] == "read_only"
+        assert len(manager.spawned) == spawned_before + 2
+        discarded = manager.spawned[spawned_before]
+        assert await wait_for(lambda: discarded.returncode is not None)
 
 
 # --------------------------------------------------- republished identity
@@ -808,9 +889,8 @@ class TestRepublishedDisplayMetadata:
         has to name that gateway rather than the write-capable one the
         deployment still permits.
         """
-        manager = make_manager(
-            raw=gateway_config(writes_enabled=True), config_path=write_armed_project
-        )
+        arm(posture_root, "live")
+        manager = make_manager(raw=gateway_config(), config_path=write_armed_project)
         await manager.ensure_started()
         armed = target_state.read()["targets"]["live"]
         assert armed["selected_role"] == "write_access"
@@ -823,7 +903,7 @@ class TestRepublishedDisplayMetadata:
         assert narrowed["selected_role"] == "read_only"
         assert narrowed["endpoint"] == f"{GATEWAY_HOST}:{READ_GATEWAY_PORT}"
         # Identity did not move with the endpoint: this is the same machine.
-        assert narrowed["label"] == "LIVE MACHINE"
+        assert narrowed["label"] == "Live — writes move hardware"
 
     async def test_a_render_that_raises_leaves_the_switch_intact(self, make_manager, monkeypatch):
         """The swap has already happened, so a failed render may not undo it.
@@ -845,7 +925,7 @@ class TestRepublishedDisplayMetadata:
         assert manager.active_target() == "va"
         record = target_state.read()
         assert record["applied_target"] == "va"
-        assert record["targets"]["va"]["label"] == "virtual accelerator (simulation)"
+        assert record["targets"]["va"]["label"] == "Simulator — nothing moves"
 
     async def test_the_metadata_names_a_target_before_any_child_exists(self, make_manager):
         """The first refusal can arrive before the first child does.
@@ -854,12 +934,12 @@ class TestRepublishedDisplayMetadata:
         gets the config rendering, which is the truthful answer for a session
         that has not yet been served by anything.
         """
-        manager = make_manager(raw=gateway_config(writes_enabled=False))
+        manager = make_manager(raw=gateway_config(writes="never"))
 
         metadata = manager.display_metadata()
 
         assert manager.has_child() is False
-        assert metadata["live"]["label"] == "LIVE MACHINE"
+        assert metadata["live"]["label"] == "Live — writes move hardware"
         assert metadata["live"]["selected_role"] == "read_only"
         assert metadata["live"]["endpoint"] == f"{GATEWAY_HOST}:{READ_GATEWAY_PORT}"
 
@@ -1004,7 +1084,7 @@ class TestTheChildsConfigFile:
             path.write_text(
                 yaml.safe_dump(
                     {
-                        "control_system": {"writes_enabled": False},
+                        "control_system": {"writes": "never"},
                         "services": {"virtual_accelerator": {"port": port}},
                     }
                 ),
@@ -1796,24 +1876,25 @@ class TestConfigDerivedFacts:
 
         assert metadata["va"]["probe_channel"] == VA_PROBE
         assert metadata["va"]["real_machine"] is False
-        assert metadata["va"]["label"] == "virtual accelerator (simulation)"
+        assert metadata["va"]["label"] == "Simulator — nothing moves"
         assert metadata["live"]["probe_channel"] == LIVE_PROBE
         # A deployment whose control_system.type names a connector class is a
         # deployment that has said what its real machine is, whatever that
         # class turns out to do.
         assert metadata["live"]["real_machine"] is True
-        assert metadata["live"]["label"] == "LIVE MACHINE"
+        assert metadata["live"]["label"] == "Live — writes move hardware"
 
     def test_display_metadata_still_describes_a_target_it_cannot_derive(self):
         metadata = target_display_metadata({"control_system": {"type": "virtual_accelerator"}})
 
         assert metadata["live"] == {
-            "label": "live machine (not configured)",
-            "display_name": "Real machine",
+            "label": "Live — writes move hardware (not configured)",
+            "display_name": "Live",
             "endpoint": "",
             "selected_role": "",
             "real_machine": False,
             "probe_channel": "",
+            "machine_kind": "real",
         }
 
     async def test_the_drain_timeout_comes_from_config_and_falls_back(self, make_manager):
@@ -1959,8 +2040,8 @@ class TestServingFromTheChild:
 
         connector = await context.control_system()
 
-        assert isinstance(connector, ConnectorHostProxy)
-        assert connector is manager.active_proxy()
+        assert isinstance(connector.connector, ConnectorHostProxy)
+        assert connector.connector is manager.active_proxy()
         assert manager.is_started() is True
         assert manager.active_target() == manager.baseline == "live"
         # Bringing the first child up is not a switch: nothing moved.
@@ -1992,23 +2073,42 @@ class TestServingFromTheChild:
             ConnectorFactory.register_control_system("virtual_accelerator", _NeverBuilt)
 
             before = await context.control_system()
-            assert isinstance(before, ConnectorHostProxy)
+            served_before = before.connector
+            assert isinstance(served_before, ConnectorHostProxy)
             assert isinstance(await before.read_channel(LIVE_PROBE, timeout=10.0), ChannelValue)
 
             result = await manager.switch("va")
 
             after = await context.control_system()
-            assert after is manager.active_proxy()
-            assert after is not before
+            assert after.connector is manager.active_proxy()
+            assert after.connector is not served_before
             # The VA child is the fixture connector, which refuses this channel:
             # the read is being served by the process the switch just adopted.
-            with pytest.raises(ConnectionError):
+            with pytest.raises(ChannelUnreachableError):
                 await after.read_channel(REFUSE_CHANNEL, timeout=10.0)
             assert isinstance(await after.read_channel(VA_PROBE, timeout=10.0), ChannelValue)
             assert result["child_pid"] == manager.status()["child_pid"]
 
         # Nothing was ever cached in the in-process entry.
         assert context._connectors["control_system"].instance is None
+
+    async def test_a_handle_from_before_a_switch_sends_nothing_after_it(self, make_manager):
+        """A call bound to one target never reaches the child of another."""
+        manager = await started_on(make_manager, "live")
+        context = context_for(manager)
+        before = await context.control_system()
+
+        await manager.switch("va")
+        spawned = len(manager.spawned)
+
+        with pytest.raises(ConnectorUnavailableError, match="nothing was sent") as raised:
+            await before.write_channel("SR:CORR:1:SP", 0.5, timeout=10.0)
+
+        assert "'live'" in str(raised.value) and "'va'" in str(raised.value)
+        assert raised.value.recovery == ()
+        assert len(manager.spawned) == spawned
+        after = await context.control_system()
+        assert isinstance(await after.read_channel(VA_PROBE, timeout=10.0), ChannelValue)
 
     async def test_a_write_is_answered_by_the_child_that_serves_the_target(self, make_manager):
         """A write crosses the boundary and comes back with the child's verdict.
@@ -2037,7 +2137,7 @@ class TestServingFromTheChild:
 
             archiver = await context.archiver()
 
-            assert isinstance(archiver, _FakeArchiver)
+            assert isinstance(archiver.connector, _FakeArchiver)
             assert await context.archiver() is archiver
 
     async def test_the_baseline_starts_unprobed_and_is_returned_to_unprobed(self, make_manager):
@@ -2054,7 +2154,7 @@ class TestServingFromTheChild:
         context = context_for(manager)
 
         connector = await context.control_system()
-        assert isinstance(connector, ConnectorHostProxy)
+        assert isinstance(connector.connector, ConnectorHostProxy)
         assert manager.active_target() == "live"
 
         await manager.switch("va")
@@ -2092,50 +2192,53 @@ class TestServingFromTheChild:
 
 
 class TestNoChildRefusal:
-    async def test_the_accessor_refuses_with_the_reason_when_the_child_is_dead(self, make_manager):
+    async def test_the_call_that_finds_the_child_dead_is_refused_and_names_the_restart(
+        self, make_manager
+    ):
         manager = await started_on(make_manager, "va")
         context = context_for(manager)
-        await context.control_system()
+        connector = await context.control_system()
 
         os.kill(manager.status()["child_pid"], signal.SIGKILL)
         assert await wait_for(lambda: not manager.has_child())
 
         with pytest.raises(NoConnectorHostError) as raised:
-            await context.control_system()
+            await connector.read_channel(VA_PROBE, timeout=10.0)
 
         refusal = raised.value
-        assert isinstance(refusal, ConnectionError)  # the tools' handler knows this one
+        assert isinstance(refusal, ConnectorUnavailableError)
         assert refusal.target == "va"
         assert refusal.generation == manager.active_generation()
         assert refusal.as_dict()["reason"] == "no_connector_host"
         assert "va" in str(refusal)
-        # A dead child is never quietly restarted on the way to a read.
-        assert manager.has_child() is False
-        assert len(manager.spawned) == 1
+        # A dead child is never quietly restarted on the way to a read: the read
+        # is refused, and the restart is named in its record.
+        assert [record["action"] for record in refusal.recovery] == ["child_replaced"]
+        assert manager.has_child() is True
+        assert len(manager.spawned) == 2
 
-    async def test_invalidating_the_connector_is_what_brings_it_back(self, make_manager):
-        """The recovery route: refuse, invalidate, respawn, serve.
-
-        This is the path the tools' shared error handler already takes on a
-        ConnectionError, which is why the refusal is one.
-        """
+    async def test_the_next_call_is_served_by_the_restarted_child(self, make_manager):
+        """The recovery route: refuse the call that found it, restart once, serve the next."""
         manager = await started_on(make_manager, "va")
         context = context_for(manager)
-        await context.control_system()
+        connector = await context.control_system()
         generation = manager.active_generation()
 
         os.kill(manager.status()["child_pid"], signal.SIGKILL)
         assert await wait_for(lambda: not manager.has_child())
-        with pytest.raises(NoConnectorHostError):
-            await context.control_system()
+        refusals = await asyncio.gather(
+            *(connector.read_channel(VA_PROBE, timeout=10.0) for _ in range(3)),
+            return_exceptions=True,
+        )
 
-        await context.invalidate_connector("control_system")
-
-        assert manager.has_child() is True
+        # The calls that resolved the dead child before the restart are
+        # refused or served by the one fresh child; none starts a second.
+        assert any(isinstance(refusal, NoConnectorHostError) for refusal in refusals)
+        assert len(manager.spawned) == 2
         assert manager.active_target() == "va"
         assert manager.active_generation() == generation
-        connector = await context.control_system()
         assert isinstance(await connector.read_channel(VA_PROBE, timeout=10.0), ChannelValue)
+        assert len(manager.spawned) == 2
 
 
 class TestNonCapableDeploymentIsUntouched:
@@ -2169,21 +2272,21 @@ class TestNonCapableDeploymentIsUntouched:
 
         from osprey_connectors.control_system._va_in_process_connector import VAInProcessConnector
 
-        assert isinstance(connector, VAInProcessConnector)
+        assert isinstance(connector.connector, VAInProcessConnector)
         assert await context.control_system() is connector
-        assert context._connectors["control_system"].instance is connector
+        assert context._connectors["control_system"].instance is connector.connector
         # No supervisor is created, so nothing can spawn a child.
         assert context._connector_hosts is None
 
     async def test_invalidating_drops_the_instance_and_the_next_call_rebuilds(self):
         context = self._mock_context()
-        first = await context.control_system()
+        first = (await context.control_system()).connector
 
         await context.invalidate_connector("control_system")
 
         assert context._connectors["control_system"].instance is None
         assert context._connector_hosts is None
-        assert await context.control_system() is not first
+        assert (await context.control_system()).connector is not first
 
     async def test_an_unknown_connector_name_still_raises_value_error(self):
         context = self._mock_context()

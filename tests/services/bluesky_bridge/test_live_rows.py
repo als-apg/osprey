@@ -13,14 +13,6 @@ from osprey.services.bluesky_bridge import live_rows
 from osprey.services.bluesky_bridge.live_rows import LiveRowRecorder
 
 
-@pytest.fixture(autouse=True)
-def _isolated_buffers():
-    """Every test gets an empty module-level buffer store."""
-    live_rows._clear()
-    yield
-    live_rows._clear()
-
-
 def _start_doc(uid: str = "run-1") -> dict:
     return {"uid": uid}
 

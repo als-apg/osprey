@@ -258,9 +258,9 @@ class TestErrorWrapping:
         """A missing embedding table stays a ConfigurationError, not a query error.
 
         Deviant from the shared shape: the ``except ConfigurationError: raise``
-        arm sits ahead of the generic wrap. Without it the actionable
-        "run 'osprey ariel migrate'" message would be reboxed as a database
-        failure and read as a transient outage.
+        arm sits ahead of the generic wrap. Without it the actionable message,
+        which names the command that creates the table, would be reboxed as a
+        database failure and read as a transient outage.
         """
         repo = ARIELRepository(fake_pool_factory(results=[[(False,)]]), _make_config())
 
@@ -268,8 +268,17 @@ class TestErrorWrapping:
             await repo.validate_search_model_table("nomic-embed-text")
 
         assert exc_info.value.technical_details["config_key"] == "search_modules.semantic.model"
-        assert "text_embeddings_nomic_embed_text" in exc_info.value.message
-        assert "osprey ariel migrate" in exc_info.value.message
+        message = exc_info.value.message
+        assert message.startswith("search_modules.semantic.model:")
+        assert "text_embeddings_nomic_embed_text" in message
+        lowered = message.lower()
+        for misleading in ("relation", "does not exist", "connect"):
+            assert misleading not in lowered
+        remedy = exc_info.value.remedy
+        assert remedy is not None
+        assert "osprey ariel quickstart" in remedy
+        assert "search_modules.semantic.enabled: false" in remedy
+        assert remedy not in message
 
     async def test_validate_search_model_table_treats_missing_row_as_absent(
         self,

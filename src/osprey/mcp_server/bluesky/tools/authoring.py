@@ -5,7 +5,7 @@ NO hardware — ``write_plan`` only writes a file (never imports or
 execs it), and ``validate_plan``'s dry run drives mock devices only,
 in a subprocess with ``EPICS_CA_*`` neutralized (see
 ``osprey.services.bluesky_bridge.plan_validation``). Both therefore work
-identically whether ``control_system.writes_enabled`` is on or off, and
+identically whether writes are allowed or not, and
 neither carries the kill-switch (``_WRITES_CHECK``) hook — see the ``bluesky``
 ``ServerDefinition`` in ``registry/mcp.py``. Both are still approval-gated
 (``permissions_ask``) so a human sees every authored/validated plan body.
@@ -92,7 +92,8 @@ async def write_plan(
             true obliges the ``body`` to declare at least one movable channel
             field; the load gate quarantines a plan that declares none. It has
             no effect on whether writes actually happen; that is governed
-            entirely by ``control_system.writes_enabled``.
+            entirely by the write verdict (the ``control_system.writes`` tier
+            and the owner's switch).
         body: Your plan's own source: a `PARAMS` pydantic model (optional)
             and a `build_plan(devices, params)` callable, exactly as a
             directory-layer plan file needs — see the orm exemplar plan for
@@ -160,7 +161,7 @@ async def validate_plan(
     validated bytes are always exactly the file's bytes. The dry run drives
     in-process mock devices only, in a subprocess whose ``EPICS_CA_*``
     variables are neutralized; it never reaches a real device regardless of
-    ``control_system.writes_enabled``. A passing validation is recorded by
+    the write tier or switch. A passing validation is recorded by
     content hash so the plan becomes loadable and enqueueable;
     editing the file afterward changes its hash and drops the record, so it
     must be re-validated.

@@ -9,8 +9,8 @@ so the fixtures below build integer indices -- the shape the client library
 hands back once it has been told not to parse them.
 """
 
+import asyncio
 import sys
-import time
 import types
 from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock, patch
@@ -584,17 +584,19 @@ async def test_median_falls_back_to_client_side_binning():
 
 
 @pytest.mark.asyncio
-async def test_unknown_processing_mode_is_refused():
+@pytest.mark.parametrize(
+    ("precision_ms", "processing", "match"),
+    [
+        pytest.param(60_000, "bogus", "Unknown processing mode", id="unknown-processing-mode"),
+        pytest.param(0, "mean", "requires precision_ms > 0", id="aggregate-at-full-resolution"),
+    ],
+)
+async def test_an_unusable_processing_request_is_refused(precision_ms, processing, match):
     connector = _connected(_fake_client())
-    with pytest.raises(ValueError, match="Unknown processing mode"):
-        await connector.get_data(["TEST:PV"], _START, _END, precision_ms=60_000, processing="bogus")
-
-
-@pytest.mark.asyncio
-async def test_aggregate_at_full_resolution_is_refused():
-    connector = _connected(_fake_client())
-    with pytest.raises(ValueError, match="requires precision_ms > 0"):
-        await connector.get_data(["TEST:PV"], _START, _END, precision_ms=0, processing="mean")
+    with pytest.raises(ValueError, match=match):
+        await connector.get_data(
+            ["TEST:PV"], _START, _END, precision_ms=precision_ms, processing=processing
+        )
 
 
 @pytest.mark.asyncio
@@ -688,19 +690,28 @@ async def test_check_availability_reports_each_channel():
 async def test_check_availability_bounds_each_channel_not_the_whole_sweep():
     """A wide list must not time out as a unit and discard every answer.
 
-    Ten lookups at 50 ms each exceed the 300 ms timeout in total but sit well
-    inside it individually, so this passes only if the bound is per channel.
+    Each lookup spends 600 ms of a 1 s timeout, so any two outrun it together
+    but none does alone, and this passes only if the bound is per channel. The
+    loop's clock moves only when a lookup moves it: how long a worker thread
+    waits to be scheduled on a busy runner spends none of the budget.
     """
+    loop = asyncio.get_running_loop()
+    now = [loop.time()]
+
+    def lookup():
+        now[0] += 0.6
+
     client = _fake_client()
     client.channel.Channel.side_effect = lambda query, url=None: MagicMock(
-        matches=[{"name": query.pattern}], run=lambda: time.sleep(0.05)
+        matches=[{"name": query.pattern}], run=lookup
     )
     client.query.ChannelQuery.side_effect = lambda **kw: MagicMock(pattern=kw["pattern"])
     connector = _connected(client)
-    connector._timeout = 0.3
+    connector._timeout = 1.0
 
     channels = [f"TEST:PV{n}" for n in range(10)]
-    assert await connector.check_availability(channels) == dict.fromkeys(channels, True)
+    with patch.object(loop, "time", lambda: now[0]):
+        assert await connector.check_availability(channels) == dict.fromkeys(channels, True)
 
 
 @pytest.mark.asyncio

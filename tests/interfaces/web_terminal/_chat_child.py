@@ -1,4 +1,4 @@
-"""A stand-in for the Simple view's agent child.
+"""A stand-in for the chat's agent child.
 
 A real process the runner holds, which starts the processes the tests then
 look for: shell commands in sessions of their own, as the agent CLI runs them,
@@ -17,7 +17,7 @@ import subprocess
 import sys
 import tempfile
 import time
-from collections.abc import Callable, Sequence
+from collections.abc import AsyncIterator, Callable, Sequence
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -131,6 +131,14 @@ class ChildClient:
 
     async def interrupt(self) -> None:
         return None
+
+    async def receive_response(self) -> AsyncIterator[Any]:
+        """The SDK's stream with no prompt sent: nothing, until the reader is cancelled.
+
+        A stream that ended here would read as the child having exited.
+        """
+        await asyncio.Event().wait()
+        yield  # never reached: the ``yield`` makes this an async generator, as the SDK's is
 
 
 async def _waited(popen: subprocess.Popen[bytes], seconds: float) -> bool:

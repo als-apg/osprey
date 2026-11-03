@@ -1,4 +1,4 @@
-"""Ending the Simple view's agent, on every path that ends it, also ends what the agent started.
+"""Ending the chat's agent, on every path that ends it, also ends what the agent started.
 
 Real processes: the chat child is the ``_chat_child`` stand-in, held by a real
 ``OperatorSession`` through the agent runner, and the commands it starts are
@@ -10,7 +10,6 @@ from __future__ import annotations
 import asyncio
 import logging
 import math
-import shutil
 import signal
 import sys
 import time
@@ -18,10 +17,14 @@ from collections.abc import Callable
 
 import pytest
 
+from osprey.deployment import process_table
+from osprey.deployment.subprocess_capture import group_is_gone
 from osprey.interfaces.web_terminal import operator_session, process_tree
 from osprey.interfaces.web_terminal.chat_session_pool import ChatSessionPool
 from osprey.interfaces.web_terminal.operator_session import OperatorRegistry, OperatorSession
 from osprey.interfaces.web_terminal.session_handoff import HandoffRefused
+from tests._live import async_wait_until
+from tests._processes import kill_quietly, wait_gone
 from tests.interfaces.web_terminal._chat_child import (
     ChildClient,
     child_factory,
@@ -39,16 +42,11 @@ from tests.interfaces.web_terminal._handoff_harness import (
     pty_spawner,
     registry,
 )
-from tests.interfaces.web_terminal._pty_child import (
-    CHILD_HANG_CEILING,
-    kill_quietly,
-    pid_gone,
-    wait_gone,
-)
+from tests.interfaces.web_terminal._pty_child import CHILD_HANG_CEILING
 
 pytestmark = [
     pytest.mark.skipif(sys.platform == "win32", reason="no process groups on Windows"),
-    pytest.mark.skipif(shutil.which("ps") is None, reason="needs ps to read the process tree"),
+    pytest.mark.usefixtures("readable_process_table"),
 ]
 
 
@@ -86,17 +84,25 @@ def _pool(
     )
 
 
-async def test_stop_ends_the_processes_the_chat_agent_started(tmp_path):
+async def test_stop_ends_and_logs_the_processes_the_chat_agent_started(tmp_path, caplog):
     factory = child_factory(tmp_path, scripts=("magnet_scan.py", "orbit_poll.py"))
     session = await start_chat(factory)
     pids: list[int] = []
     try:
         pids = wait_for_chat_pids(session, factory.pid_files[0], 3)
 
-        await session.stop()
+        with caplog.at_level(logging.INFO, logger=operator_session.__name__):
+            await session.stop()
 
         assert session.process_exited is True
         await wait_gone(pids)
+        grandchild = pids[0]
+        assert [
+            record
+            for record in caplog.records
+            if "magnet_scan.py" in record.getMessage() and str(grandchild) in record.getMessage()
+        ]
+        assert session.started_commands() == []
     finally:
         await session.stop()
         kill_quietly(pids)
@@ -122,27 +128,6 @@ async def test_stop_ends_started_processes_that_ignore_sigterm(tmp_path):
         kill_quietly(pids)
 
 
-async def test_stop_logs_what_it_ended(tmp_path, caplog):
-    factory = child_factory(tmp_path, scripts=("magnet_scan.py",))
-    session = await start_chat(factory)
-    pids: list[int] = []
-    try:
-        pids = wait_for_chat_pids(session, factory.pid_files[0], 2)
-
-        with caplog.at_level(logging.INFO, logger=operator_session.__name__):
-            await session.stop()
-
-        grandchild = pids[0]
-        assert [
-            record
-            for record in caplog.records
-            if "magnet_scan.py" in record.getMessage() and str(grandchild) in record.getMessage()
-        ]
-    finally:
-        await session.stop()
-        kill_quietly(pids)
-
-
 def _ended_pids(session: OperatorSession) -> set[int]:
     """The pids in the groups *session*'s stop says it ended, given that it could look."""
     ending = session.tree_ending
@@ -154,16 +139,19 @@ def _ended_pids(session: OperatorSession) -> set[int]:
 def _fail_first_reads(monkeypatch, failures: int) -> list[bool]:
     """Make the first *failures* process-table reads fail; return the log of reads.
 
-    Each entry says whether that read reached the real ``ps``.
+    Each entry says whether that read reached the real table.
     """
-    real = process_tree.snapshot
+    real = process_table.snapshot
     reads: list[bool] = []
 
     def flaky():
         reads.append(len(reads) >= failures)
-        return real() if reads[-1] else None
+        if not reads[-1]:
+            raise process_table.ProcessTableUnreadable(OSError("process table"))
+        return real()
 
-    monkeypatch.setattr(process_tree, "snapshot", flaky)
+    monkeypatch.setattr(process_table, "snapshot", flaky)
+    monkeypatch.setattr(process_table, "_READ_RETRY_S", 0.0)
     return reads
 
 
@@ -189,7 +177,7 @@ async def test_stop_ends_what_the_agent_started_when_the_first_process_table_rea
         kill_quietly(pids)
 
 
-async def test_stop_warns_and_reports_an_unread_tree_when_the_process_table_never_reads(
+async def test_stop_warns_and_reports_an_unread_tree_when_the_table_stays_unreadable(
     tmp_path, monkeypatch, caplog
 ):
     factory = child_factory(tmp_path, scripts=("magnet_scan.py",))
@@ -202,15 +190,17 @@ async def test_stop_warns_and_reports_an_unread_tree_when_the_process_table_neve
 
         def unreadable():
             reads.append(None)
-            return None
+            raise process_table.ProcessTableUnreadable(OSError("process table"))
 
-        monkeypatch.setattr(process_tree, "snapshot", unreadable)
+        monkeypatch.setattr(process_table, "snapshot", unreadable)
+        monkeypatch.setattr(process_tree, "READ_WAIT_S", 0.3)
 
         with caplog.at_level(logging.WARNING, logger=operator_session.__name__):
             await session.stop()
 
         assert session.process_exited is True
-        assert len(reads) == process_tree.TREE_READ_ATTEMPTS
+        # Retried while the child lived, and given up on once the wait had passed.
+        assert len(reads) > 1
         warnings = [
             record.getMessage()
             for record in caplog.records
@@ -220,7 +210,51 @@ async def test_stop_warns_and_reports_an_unread_tree_when_the_process_table_neve
         assert f"chat child {child} " in warnings[0]
         assert session.tree_ending == operator_session.TreeEnding(read=False)
         # Nothing was looked for, so nothing was ended: the report does not claim otherwise.
-        assert not pid_gone(pids[0], within=0.0)
+        monkeypatch.undo()
+        assert not group_is_gone(pids[0])
+    finally:
+        monkeypatch.undo()
+        await session.stop()
+        kill_quietly(pids)
+
+
+async def test_stop_reports_started_processes_as_unknown_when_the_table_fails_after_the_first_read(
+    tmp_path, monkeypatch, caplog
+):
+    factory = child_factory(tmp_path, scripts=("magnet_scan.py",))
+    session = await start_chat(factory)
+    pids: list[int] = []
+    try:
+        pids = wait_for_chat_pids(session, factory.pid_files[0], 2)
+        grandchild = pids[0]
+        real = process_table.snapshot
+        reads: list[None] = []
+
+        def first_read_only():
+            reads.append(None)
+            if len(reads) > 1:
+                raise process_table.ProcessTableUnreadable(PermissionError("process table"))
+            return real()
+
+        monkeypatch.setattr(process_table, "snapshot", first_read_only)
+
+        with caplog.at_level(logging.WARNING, logger=operator_session.__name__):
+            await session.stop()
+
+        ending = session.tree_ending
+        assert ending is not None
+        assert ending.read is True
+        assert grandchild in {pid for group in ending.unknown_groups for pid, _ in group.members}
+        assert ending.surviving_groups == ()
+        assert ending.ended_groups == ()
+        warnings = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
+        unknown = [
+            w
+            for w in warnings
+            if "process table unreadable: started process(es) may still be running" in w
+        ]
+        assert len(unknown) == 1, warnings
+        assert not any("survived SIGKILL" in w for w in warnings), warnings
     finally:
         monkeypatch.undo()
         await session.stop()
@@ -232,17 +266,17 @@ async def test_stop_of_a_child_that_already_exited_looks_for_nothing(monkeypatch
         return ChildClient([sys.executable, "-c", "pass"])
 
     session = await start_chat(factory)
-    deadline = time.monotonic() + CHILD_HANG_CEILING
-    while not session.process_exited:
-        assert time.monotonic() < deadline
-        await asyncio.sleep(0.05)
+    await async_wait_until(
+        lambda: session.process_exited, timeout=CHILD_HANG_CEILING, what="the child to exit"
+    )
+
     looks: list[None] = []
 
     def spy():
         looks.append(None)
         return {}
 
-    monkeypatch.setattr(process_tree, "snapshot", spy)
+    monkeypatch.setattr(process_table, "snapshot", spy)
 
     await session.stop()
 
@@ -321,7 +355,7 @@ async def test_an_idle_chat_whose_agent_runs_a_started_command_is_not_reaped(tmp
 
         assert pool.get(KEY) is session
         assert session.is_active
-        assert not any(pid_gone(pid, within=0.0) for pid in pids)
+        assert not group_is_gone(pids[0])
         assert session.last_activity == clock.now
     finally:
         await pool.drain_all()
@@ -423,7 +457,7 @@ async def test_a_replaced_operator_session_ends_what_it_started(tmp_path):
 # ---------------------------------------------------------------------------
 
 
-async def test_the_expert_view_asks_before_ending_the_chats_started_processes(tmp_path):
+async def test_the_terminal_asks_before_ending_the_chats_started_processes(tmp_path):
     factory = child_factory(tmp_path, scripts=("magnet_scan.py",))
     session = await start_chat(factory, session_key=KEY)
     app = make_app()
@@ -433,12 +467,12 @@ async def test_the_expert_view_asks_before_ending_the_chats_started_processes(tm
         pids = wait_for_chat_pids(session, factory.pid_files[0], 2)
 
         with pytest.raises(HandoffRefused) as refused:
-            await acquire(app, KEY, "expert", object(), spawn=pty_spawner(app))
+            await acquire(app, KEY, "terminal", object(), spawn=pty_spawner(app))
 
         assert refused.value.error == "handoff_started_commands"
         assert chats(app).sessions[KEY] is session
         assert session.is_active
-        assert not pid_gone(pids[0], within=0.0)
+        assert not group_is_gone(pids[0])
         assert registry(app).get_session(KEY) is None
         assert_released(app)
     finally:
@@ -455,7 +489,7 @@ async def test_stop_both_ends_the_chat_and_what_it_started(tmp_path):
     try:
         pids = wait_for_chat_pids(session, factory.pid_files[0], 2)
 
-        await acquire(app, KEY, "expert", object(), spawn=pty_spawner(app), end_started=True)
+        await acquire(app, KEY, "terminal", object(), spawn=pty_spawner(app), end_started=True)
 
         assert session.process_exited is True
         await wait_gone(pids)
@@ -474,24 +508,9 @@ async def test_started_commands_lists_only_groups_of_their_own(tmp_path):
 
         commands = await asyncio.to_thread(session.started_commands)
 
-        assert commands is not None
         assert [c.label for c in commands] == ["magnet_scan.py"]
         assert commands[0].pgid == grandchild
         assert helper not in {pid for c in commands for pid, _ in c.members}
-    finally:
-        await session.stop()
-        kill_quietly(pids)
-
-
-async def test_started_commands_of_a_stopped_chat_is_empty(tmp_path):
-    factory = child_factory(tmp_path, scripts=("magnet_scan.py",))
-    session = await start_chat(factory)
-    pids: list[int] = []
-    try:
-        pids = wait_for_chat_pids(session, factory.pid_files[0], 2)
-        await session.stop()
-
-        assert session.started_commands() == []
     finally:
         await session.stop()
         kill_quietly(pids)

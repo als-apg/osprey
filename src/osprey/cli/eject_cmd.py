@@ -53,7 +53,7 @@ def _get_module_source_path(module_path: str) -> Path | None:
         spec = importlib.util.find_spec(module_path)
         if spec and spec.origin:
             return Path(spec.origin)
-        elif spec and spec.submodule_search_locations:
+        if spec and spec.submodule_search_locations:
             # Package - return directory
             locations = list(spec.submodule_search_locations)
             if locations:
@@ -76,7 +76,6 @@ def eject():
       osprey eject list                          List available components
       osprey eject service channel_finder        Copy channel finder service
     """
-    pass
 
 
 @eject.command("list")

@@ -90,21 +90,25 @@ class TestLimitsValidator:
     # Valid Write Tests
     # =========================================================================
 
-    def test_valid_write_passes(self, basic_validator):
-        """Test that valid write passes validation without exception."""
-        basic_validator.validate("TEST:PV", 50.0)  # Should not raise
-
-    def test_valid_write_at_min_boundary(self, basic_validator):
-        """Test value exactly at minimum boundary."""
-        basic_validator.validate("TEST:PV", 0.0)  # Should not raise
-
-    def test_valid_write_at_max_boundary(self, basic_validator):
-        """Test value exactly at maximum boundary."""
-        basic_validator.validate("TEST:PV", 100.0)  # Should not raise
-
-    def test_valid_write_no_limits(self, basic_validator):
-        """Test PV with no limits allows any value."""
-        basic_validator.validate("TEST:PV:NO_LIMITS", 9999.0)  # Should not raise
+    @pytest.mark.parametrize(
+        ("channel", "value"),
+        [
+            pytest.param("TEST:PV", 50.0, id="in-range"),
+            pytest.param("TEST:PV", 0.0, id="at-min-boundary"),
+            pytest.param("TEST:PV", 100.0, id="at-max-boundary"),
+            # A PV with no limits allows any value.
+            pytest.param("TEST:PV:NO_LIMITS", 9999.0, id="no-limits"),
+            # No numeric limit, nothing numeric to hold the value to.
+            pytest.param(
+                "TEST:PV:NO_LIMITS", "some_string", id="non-numeric-without-numeric-limits"
+            ),
+            # This PV has no max_step configured - so it needs no reader at all.
+            # Large change, but no max_step check.
+            pytest.param("TEST:PV", 99.0, id="no-max-step-needs-no-reader"),
+        ],
+    )
+    def test_a_write_the_limits_allow_passes_validation(self, basic_validator, channel, value):
+        basic_validator.validate(channel, value)  # Should not raise
 
     def test_non_numeric_value_is_refused_on_a_numeric_limited_channel(self, basic_validator):
         """A value min/max cannot be applied to is refused, not skipped."""
@@ -112,10 +116,6 @@ class TestLimitsValidator:
             with pytest.raises(ChannelLimitsViolationError) as exc_info:
                 basic_validator.validate("TEST:PV", value)
             assert exc_info.value.violation_type == "INVALID_NUMERIC_VALUE"
-
-    def test_non_numeric_value_passes_a_channel_without_numeric_limits(self, basic_validator):
-        """No numeric limit, nothing numeric to hold the value to."""
-        basic_validator.validate("TEST:PV:NO_LIMITS", "some_string")  # Should not raise
 
     # =========================================================================
     # Min/Max Violation Tests
@@ -157,27 +157,28 @@ class TestLimitsValidator:
     # Read-Only PV Tests
     # =========================================================================
 
-    def test_readonly_pv_blocks_write(self, basic_validator):
-        """Test that read-only PV blocks all writes."""
+    @pytest.mark.parametrize(
+        ("channel", "violation_type"),
+        [
+            # A read-only PV blocks all writes.
+            pytest.param("TEST:PV:READONLY", "READ_ONLY_CHANNEL", id="readonly-pv"),
+            # An unlisted PV fails when policy blocks them.
+            pytest.param("UNKNOWN:PV", "UNLISTED_CHANNEL", id="unlisted-pv-in-strict-mode"),
+        ],
+    )
+    def test_a_write_to_a_channel_the_policy_blocks_is_refused(
+        self, basic_validator, channel, violation_type
+    ):
         with pytest.raises(ChannelLimitsViolationError) as exc_info:
-            basic_validator.validate("TEST:PV:READONLY", 42.0)
+            basic_validator.validate(channel, 42.0)
 
         error = exc_info.value
-        assert error.violation_type == "READ_ONLY_CHANNEL"
-        assert error.channel_address == "TEST:PV:READONLY"
+        assert error.violation_type == violation_type
+        assert error.channel_address == channel
 
     # =========================================================================
     # Unlisted PV Tests
     # =========================================================================
-
-    def test_unlisted_pv_fails_in_strict_mode(self, basic_validator):
-        """Test that unlisted PV fails when policy blocks them."""
-        with pytest.raises(ChannelLimitsViolationError) as exc_info:
-            basic_validator.validate("UNKNOWN:PV", 42.0)
-
-        error = exc_info.value
-        assert error.violation_type == "UNLISTED_CHANNEL"
-        assert error.channel_address == "UNKNOWN:PV"
 
     def test_unlisted_pv_passes_in_permissive_mode(self, permissive_validator):
         """Test that unlisted PV passes when policy allows them."""
@@ -204,9 +205,17 @@ class TestLimitsValidator:
         assert error.current_value == 50.0
         assert error.max_step == 10.0
 
-    def test_max_step_read_failure_blocks_write(self, step_validator):
-        """Test that a channel read failure blocks the write (failsafe)."""
-        reader = MagicMock(return_value=None)  # read failed
+    @pytest.mark.parametrize(
+        "current_value",
+        [
+            # A channel read failure blocks the write (failsafe).
+            pytest.param(None, id="read-failure"),
+            # A non-numeric current value leaves no step to measure: fail closed.
+            pytest.param("invalid", id="non-numeric-current-value"),
+        ],
+    )
+    def test_max_step_unusable_current_value_blocks_write(self, step_validator, current_value):
+        reader = MagicMock(return_value=current_value)
 
         with pytest.raises(ChannelLimitsViolationError) as exc_info:
             step_validator.validate("TEST:PV:STEP", 55.0, read_current=reader)
@@ -218,19 +227,6 @@ class TestLimitsValidator:
         with pytest.raises(ChannelLimitsViolationError) as exc_info:
             step_validator.validate("TEST:PV:STEP", 55.0)
 
-        assert exc_info.value.violation_type == "STEP_CHECK_FAILED"
-
-    def test_max_step_no_io_without_config(self, basic_validator):
-        """Test that max_step checking is skipped if not configured (no I/O)."""
-        # This PV has no max_step configured - so it needs no reader at all.
-        basic_validator.validate("TEST:PV", 99.0)  # Large change, but no max_step check
-
-    def test_max_step_non_numeric_current_value(self, step_validator):
-        """A non-numeric current value leaves no step to measure: fail closed."""
-        reader = MagicMock(return_value="invalid")  # Non-numeric current value
-
-        with pytest.raises(ChannelLimitsViolationError) as exc_info:
-            step_validator.validate("TEST:PV:STEP", 55.0, read_current=reader)
         assert exc_info.value.violation_type == "STEP_CHECK_FAILED"
 
     # =========================================================================
@@ -346,17 +342,27 @@ class TestLimitsValidator:
 
         assert validator is None
 
+    @pytest.mark.parametrize(
+        "database_path",
+        [
+            pytest.param(None, id="no-database-path"),
+            # Same contract as the invalid-JSON case above.
+            pytest.param("/nonexistent/path/to/limits.json", id="missing-file"),
+        ],
+    )
     @patch("osprey_connectors.config.get_config_value")
-    def test_from_config_no_database_path(self, mock_get_config):
-        """Test that from_config returns empty validator when no database path."""
+    def test_from_config_without_a_usable_database_blocks_all_writes(
+        self, mock_get_config, database_path
+    ):
+        """from_config degrades to the empty block-all validator."""
 
         def config_side_effect(key, default):
             if key == "control_system":
-                return {"limits_checking": {"enabled": True, "database_path": None}}
+                return {"limits_checking": {"enabled": True, "database_path": database_path}}
             elif key == "control_system.limits_checking.enabled":
                 return True
             elif key == "control_system.limits_checking.database_path":
-                return None
+                return database_path
             elif key == "control_system.limits_checking.mode":
                 return "exclusive"
             return default
@@ -425,34 +431,6 @@ class TestLimitsValidator:
                 return True
             elif key == "control_system.limits_checking.database_path":
                 return str(db_file)
-            elif key == "control_system.limits_checking.mode":
-                return "exclusive"
-            return default
-
-        mock_get_config.side_effect = config_side_effect
-
-        validator = LimitsValidator.from_config()
-
-        assert validator is not None
-        assert validator.limits == {}  # Empty database (blocks all writes)
-
-    @patch("osprey_connectors.config.get_config_value")
-    def test_from_config_missing_file_blocks_all_writes(self, mock_get_config):
-        """A missing database file degrades to the empty block-all validator
-        (same contract as the invalid-JSON case above)."""
-
-        def config_side_effect(key, default):
-            if key == "control_system":
-                return {
-                    "limits_checking": {
-                        "enabled": True,
-                        "database_path": "/nonexistent/path/to/limits.json",
-                    }
-                }
-            elif key == "control_system.limits_checking.enabled":
-                return True
-            elif key == "control_system.limits_checking.database_path":
-                return "/nonexistent/path/to/limits.json"
             elif key == "control_system.limits_checking.mode":
                 return "exclusive"
             return default

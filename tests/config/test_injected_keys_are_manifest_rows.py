@@ -12,15 +12,14 @@ gap cannot reopen unseen.
 
 from __future__ import annotations
 
-import importlib.util
 import re
-import sys
 from collections import defaultdict
 from pathlib import Path
 
 import pytest
 
 from osprey.cli.build_profile_load import bundled_service_names, manifest_rows, service_family
+from tests._by_path import load_module
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 GUARD_PATH = REPO_ROOT / "scripts" / "check_config_keys.py"
@@ -41,12 +40,7 @@ NOT_KEYS = {
 
 
 def _load_guard():
-    spec = importlib.util.spec_from_file_location("check_config_keys", GUARD_PATH)
-    assert spec and spec.loader
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
-    return module
+    return load_module("check_config_keys", GUARD_PATH, register=True)
 
 
 @pytest.fixture(scope="module")

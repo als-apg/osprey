@@ -19,47 +19,13 @@ from tests.fixtures.ariel_entry_fields import (  # noqa: F401 - fixtures used by
     example_descriptors,
     example_entry_fields_fixture,
 )
-
-
-def _make_mock_service(adapter_supports_write: bool = True, source_system: str = "Generic JSON"):
-    """Build a mock ARIELSearchService with mocked adapter and repository."""
-    from osprey.services.ariel_search.config import ARIELConfig
-
-    config = ARIELConfig.from_dict(
-        {
-            "database": {"uri": "postgresql://test"},
-            "ingestion": {"adapter": "generic_json", "source_url": "/tmp/test.json"},
-        }
-    )
-
-    mock_pool = MagicMock()
-    mock_repository = AsyncMock()
-    mock_repository.upsert_entry = AsyncMock()
-
-    from osprey.services.ariel_search.service import ARIELSearchService
-
-    service = ARIELSearchService(config=config, pool=mock_pool, repository=mock_repository)
-
-    # Build mock adapter
-    mock_adapter = AsyncMock(spec=FacilityAdapter)
-    mock_adapter.supports_write = adapter_supports_write
-    mock_adapter.source_system_name = source_system
-    mock_adapter.create_entry = AsyncMock(return_value="test-entry-001")
-
-    # For non-local adapters, mock fetch_entries to return empty
-    async def empty_fetch(**kwargs):
-        return
-        yield  # Make it an async generator
-
-    mock_adapter.fetch_entries = empty_fetch
-
-    return service, mock_adapter, mock_repository
+from tests.services.ariel_search._service_doubles import make_mock_service
 
 
 @pytest.mark.asyncio
 async def test_create_entry_via_generic_adapter():
     """Full orchestration: adapter write + local upsert for Generic JSON."""
-    service, mock_adapter, mock_repository = _make_mock_service(
+    service, mock_adapter, mock_repository = make_mock_service(
         adapter_supports_write=True,
         source_system="Generic JSON",
     )
@@ -95,7 +61,7 @@ async def test_create_entry_via_generic_adapter():
 @pytest.mark.asyncio
 async def test_create_entry_unsupported_adapter():
     """NotImplementedError when adapter doesn't support writes."""
-    service, mock_adapter, _mock_repository = _make_mock_service(
+    service, mock_adapter, _mock_repository = make_mock_service(
         adapter_supports_write=False,
         source_system="JLab Logbook",
     )
@@ -116,7 +82,7 @@ async def test_create_entry_unsupported_adapter():
 @pytest.mark.asyncio
 async def test_create_entry_sync_status_local_only():
     """Generic JSON adapter gets LOCAL_ONLY sync status."""
-    service, mock_adapter, _mock_repository = _make_mock_service(
+    service, mock_adapter, _mock_repository = make_mock_service(
         adapter_supports_write=True,
         source_system="Generic JSON",
     )
@@ -135,7 +101,7 @@ async def test_create_entry_sync_status_local_only():
 @pytest.mark.asyncio
 async def test_create_entry_sync_status_pending():
     """A non-local adapter gets PENDING_SYNC when re-ingestion doesn't find the entry."""
-    service, mock_adapter, _mock_repository = _make_mock_service(
+    service, mock_adapter, _mock_repository = make_mock_service(
         adapter_supports_write=True,
         source_system="Example eLog",
     )
@@ -155,7 +121,7 @@ async def test_create_entry_sync_status_pending():
 @pytest.mark.asyncio
 async def test_create_entry_sync_status_synced():
     """Non-local adapter gets SYNCED when re-ingestion finds the entry."""
-    service, mock_adapter, mock_repository = _make_mock_service(
+    service, mock_adapter, mock_repository = make_mock_service(
         adapter_supports_write=True,
         source_system="Example eLog",
     )
@@ -199,7 +165,7 @@ async def test_create_entry_reingestion_failure_is_warned_not_raised(caplog):
     The facility write already succeeded at this point, so a read-back failure
     must not surface as an error -- the entry syncs on the next poll.
     """
-    service, mock_adapter, mock_repository = _make_mock_service(
+    service, mock_adapter, mock_repository = make_mock_service(
         adapter_supports_write=True,
         source_system="Example eLog",
     )
@@ -460,7 +426,7 @@ async def test_create_entry_without_local_metadata_keeps_default_copy(dict_repos
 @pytest.mark.asyncio
 async def test_create_entry_synced_copy_is_facility_record_not_merged():
     """After re-ingest finds the entry, the facility record replaces the local copy."""
-    service, mock_adapter, mock_repository = _make_mock_service(
+    service, mock_adapter, mock_repository = make_mock_service(
         adapter_supports_write=True,
         source_system="Example eLog",
     )

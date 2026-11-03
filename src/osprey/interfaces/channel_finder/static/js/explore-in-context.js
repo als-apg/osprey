@@ -18,7 +18,7 @@ import { esc, messageOf } from './utils.js';
 import { filterChannels, totalChunksFor, clampChunkIdx, pageSlice } from './chunk-filter.js';
 
 /** @type {any[]} */
-let allChannels = [];   // the ENTIRE in-context database (loaded once)
+let allChannels = []; // the ENTIRE in-context database (loaded once)
 let filterText = '';
 let chunkIdx = 0;
 const CHUNK_SIZE = 50;
@@ -27,17 +27,6 @@ const CHUNK_SIZE = 50;
 // the table page-slice and the pager can never operate on different scopes.
 function getFiltered() {
   return filterChannels(allChannels, filterText);
-}
-
-/**
- * Resolve the active UI mode from the <html> data-ui-mode attribute stamped by
- * mode-boot.js (and updated live by app.js). Anything but "simple" is Expert.
- * @returns {'expert'|'simple'}
- */
-function uiMode() {
-  return document.documentElement.getAttribute('data-ui-mode') === 'simple'
-    ? 'simple'
-    : 'expert';
 }
 
 /**
@@ -90,7 +79,8 @@ async function loadAll() {
     renderPagination();
   } catch (e) {
     const area = document.getElementById('ic-table-area');
-    if (area) area.innerHTML = `<div class="empty-state">Failed to load channels: ${esc(messageOf(e))}</div>`;
+    if (area)
+      area.innerHTML = `<div class="empty-state">Failed to load channels: ${esc(messageOf(e))}</div>`;
   }
 }
 
@@ -111,15 +101,6 @@ function renderTable() {
     countEl.textContent = `${filtered.length} of ${allChannels.length}`;
   }
 
-  // Simple mode (frame recipe): plain result cards — the channel address
-  // prominent, a plain-language description below — with the dense table and
-  // row-numbers dropped. Chrome (the filter label) is hidden by CSS; only the
-  // results markup forks here.
-  if (uiMode() === 'simple') {
-    renderSimpleCards(area, filtered, pageItems);
-    return;
-  }
-
   if (filtered.length === 0) {
     area.innerHTML = '<div class="empty-state">No channels match the filter</div>';
     return;
@@ -137,11 +118,12 @@ function renderTable() {
           </tr>
         </thead>
         <tbody>
-          ${pageItems.map((ch, i) => {
-            const name = ch.name || ch.channel_name || ch.channel || '—';
-            const addr = ch.address || ch.pv_address || '';
-            const desc = ch.description || '';
-            return `
+          ${pageItems
+            .map((ch, i) => {
+              const name = ch.name || ch.channel_name || ch.channel || '—';
+              const addr = ch.address || ch.pv_address || '';
+              const desc = ch.description || '';
+              return `
               <tr>
                 <td>${start + i + 1}</td>
                 <td class="pv-cell">${esc(name)}</td>
@@ -149,40 +131,11 @@ function renderTable() {
                 <td>${esc(desc)}</td>
               </tr>
             `;
-          }).join('')}
+            })
+            .join('')}
         </tbody>
       </table>
     </div>
-  `;
-}
-
-/**
- * Simple-mode results: a friendly count line above plain channel cards.
- * @param {HTMLElement} area
- * @param {any[]} filtered - the full filtered set (for the count)
- * @param {any[]} pageItems - the current chunk's channels (for the cards)
- */
-function renderSimpleCards(area, filtered, pageItems) {
-  if (filtered.length === 0) {
-    area.innerHTML = '<div class="empty-state">No channels match your search</div>';
-    return;
-  }
-
-  const noun = filtered.length === 1 ? 'channel' : 'channels';
-  const cards = pageItems.map((ch) => {
-    const name = ch.name || ch.channel_name || ch.channel || '—';
-    const desc = ch.description || '';
-    return `
-      <div class="cf-simple-card">
-        <div class="cf-simple-card-name">${esc(name)}</div>
-        ${desc ? `<div class="cf-simple-card-desc">${esc(desc)}</div>` : ''}
-      </div>
-    `;
-  }).join('');
-
-  area.innerHTML = `
-    <div class="cf-simple-count">${filtered.length} ${noun} found</div>
-    <div class="cf-simple-card-list">${cards}</div>
   `;
 }
 
@@ -208,9 +161,17 @@ function renderPagination() {
 
   // Page flips are pure client-side over the already-loaded set — no network.
   document.getElementById('ic-prev')?.addEventListener('click', () => {
-    if (chunkIdx > 0) { chunkIdx -= 1; renderTable(); renderPagination(); }
+    if (chunkIdx > 0) {
+      chunkIdx -= 1;
+      renderTable();
+      renderPagination();
+    }
   });
   document.getElementById('ic-next')?.addEventListener('click', () => {
-    if (chunkIdx < totalChunks - 1) { chunkIdx += 1; renderTable(); renderPagination(); }
+    if (chunkIdx < totalChunks - 1) {
+      chunkIdx += 1;
+      renderTable();
+      renderPagination();
+    }
   });
 }

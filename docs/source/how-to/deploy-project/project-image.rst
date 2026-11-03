@@ -69,22 +69,21 @@ Quickstart
 .. code-block:: bash
 
    osprey build                            # renders the container repo too
-   cd build/.image/my-project              # the context the build rendered
-   docker build -t my-project -f build/Dockerfile .
-   cd -                                    # back to the deployment repo root
+   docker build -t my-project \
+     -f build/.image/my-project/build/Dockerfile build/.image/my-project
    docker run --rm -p 10100:10100 --env-file .env \
-     --env-file .env.telemetry-sender.<host identity> my-project
+     -v "$PWD/.env.agent-record.login.$USER:/app/my-project/.env.agent-record.login.$USER:ro" \
+     -v "$PWD/.env.agent-record.service:/app/my-project/.env.agent-record.service:ro" \
+     my-project
 
-The second ``--env-file`` is the sender login gateway telemetry needs
-(``claude_code.telemetry.enabled: true`` with ``backend: gateway``).
-``osprey build`` mints ``.env.telemetry-sender.<identity>`` at the repo root,
-mode 0600, for each sender; a container run by hand is a host launch and sends
-under ``deployment.host_identity`` from ``config.yml``, so that is the
-``<host identity>`` to pass. Without it the container's ``osprey web`` refuses
-to start. With gateway telemetry off, drop that flag. Records reach the gateway
-only while the deployment's gateway runs (``osprey up``) and the container
-shares the host network: replace ``-p 10100:10100`` with ``--network host``,
-and the container sends to the gateway's loopback publish.
+Every line runs at the deployment repo root; the build names the container repo
+``osprey build`` rendered (``build/.image/<name>/``) as its context.
+
+The terminal holds the agent record; like the provider key, its login and
+service file are supplied at run time and never enter the image. The build
+writes both readable by the building account alone (``$USER`` above), so where
+that account's uid is not 1000, the image's ``osprey`` user, mount copies that
+user can read.
 
 Then open http://localhost:10100. The container's ``osprey web`` prints a login
 URL (``…/?token=…``) to its logs at startup; open that URL to set your session
@@ -94,7 +93,8 @@ sets ``OSPREY_TERMINAL_SECRET`` itself, the container uses that value and
 explains why it is printing no URL — browse to
 ``http://localhost:10100/?token=<that value>`` instead. Secrets are
 passed at runtime via ``--env-file`` — the ``.dockerignore`` guarantees
-``.env`` and every ``.env.telemetry-*`` file never enter the image.
+``.env`` and every other ``.env.*`` file but ``.env.example`` never enter the
+image.
 
 Build Arguments
 ===============
@@ -179,7 +179,8 @@ vendored assets for an air-gapped host:
    docker build -t my-project \
      --build-arg OSPREY_PIP_SPEC="git+https://git.example.gov/tools/osprey.git@main" \
      --build-arg PIP_NO_PROXY="git.example.gov" \
-     --build-arg OSPREY_OFFLINE=1 .
+     --build-arg OSPREY_OFFLINE=1 \
+     -f build/.image/my-project/build/Dockerfile build/.image/my-project
 
 .. warning::
 
@@ -251,10 +252,9 @@ Building by hand, stage the copy yourself and name it:
 
 .. code-block:: bash
 
-   cd build/.image/my-project
-   cp /etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem site-ca.pem
+   cp /etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem build/.image/my-project/site-ca.pem
    docker build -t my-project --build-arg OSPREY_SITE_CA=site-ca.pem \
-     -f build/Dockerfile .
+     -f build/.image/my-project/build/Dockerfile build/.image/my-project
 
 That first path is where a RHEL-family build host keeps its system bundle
 (individual CA files also live under ``/etc/pki/ca-trust/source/anchors/``).
@@ -397,8 +397,8 @@ a root ``CLAUDE.md`` would be loaded into every session. The rest of the
 repository's source travels, which is what lets the container's drift check
 agree with the host.
 
-That is why the by-hand build below runs from ``build/.image/<name>/`` rather
-than from the repository root. ``osprey build --runtime-root PATH`` is the same
+That is why the by-hand build uses ``build/.image/<name>/`` as its context
+rather than the repository root. ``osprey build --runtime-root PATH`` is the same
 mechanism exposed directly, for a render whose output will run somewhere other
 than where it was made.
 
@@ -432,10 +432,10 @@ Two areas of the project, two owners:
        approval prompt would outlive that
    * - The state zone — ``var/``
      - ``osprey``
-     - What the running deployment legitimately writes: agent data and
-       API-call logs (``var/agent_data/``), the config backups every config
+     - What the running deployment legitimately writes: agent data
+       (``var/agent_data/``), the config backups every config
        write takes first (``var/agent_data/config-backups/``), and the
-       protected-write audit ledger (``var/audit/``). The facility-knowledge
+       agent record's spool (``var/spool/``). The facility-knowledge
        bundle under ``build/data/`` joins them when the deployment has one,
        because the agent drafts into it
 
@@ -481,8 +481,8 @@ that ``osprey build`` renders beside ``config.yml``, and it runs as root:
    :ref:`containerize-control-identity`.
 #. **Hands the state zone back** to the ``osprey`` user — only the paths root
    actually left behind — because both earlier steps wrote into ``var/`` as
-   root, including the protected-write audit ledger the running server has to
-   keep appending to.
+   root, including the agent record's spool (``var/spool/``) the running
+   server has to keep appending to.
 #. **Drops privileges** with ``exec gosu osprey "$@"``. Because it execs the
    arguments it was handed, overriding the command on ``docker run`` still
    goes through the drop.
@@ -634,14 +634,14 @@ Two kinds of state are worth persisting across container restarts:
 .. code-block:: bash
 
    docker run --rm -p 10100:10100 --env-file .env \
-     --env-file .env.telemetry-sender.<host identity> \
+     -v "$PWD/.env.agent-record.login.$USER:/app/my-project/.env.agent-record.login.$USER:ro" \
+     -v "$PWD/.env.agent-record.service:/app/my-project/.env.agent-record.service:ro" \
      -v my-project-agent-data:/app/my-project/var/agent_data \
      -v my-project-home:/home/osprey \
      my-project
 
-- ``var/agent_data/`` — API call logs, generated data artifacts, and the
-  backup every config write takes before it writes
-  (``config-backups/<name>.bak``). The backup anchors on the project root, so
+- ``var/agent_data/`` — generated data artifacts and the backup every config
+  write takes before it writes (``config-backups/<name>.bak``). The backup anchors on the project root, so
   it lands in the same place whether the project is flat, a deployment
   repository, or this image — unless the deployment relocates
   ``agent_data.base_dir``, which moves the backups with it.
@@ -678,9 +678,12 @@ matches the usual amd64 deployment target:
 
 .. code-block:: bash
 
-   docker build --platform linux/amd64 -t my-project .
+   docker build --platform linux/amd64 -t my-project \
+     -f build/.image/my-project/build/Dockerfile build/.image/my-project
    docker run --platform linux/amd64 --rm -p 10100:10100 --env-file .env \
-     --env-file .env.telemetry-sender.<host identity> my-project
+     -v "$PWD/.env.agent-record.login.$USER:/app/my-project/.env.agent-record.login.$USER:ro" \
+     -v "$PWD/.env.agent-record.service:/app/my-project/.env.agent-record.service:ro" \
+     my-project
 
 Customizing
 ===========

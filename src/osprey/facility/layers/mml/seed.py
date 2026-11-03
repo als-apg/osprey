@@ -134,7 +134,7 @@ _OFFSET_ABS_TOL = 1.0e-12
 #: The mapping key that holds the identity block.
 _FACILITY_KEY = "facility"
 
-_SINGLE_PASS = "single_pass"
+_SINGLE_PASS = "single_pass"  # noqa: S105 -- names a lattice mode, holds no secret
 
 #: Each tuning group role and the MML tag of the families the export lists for it.
 _TAGGED_ROLES: tuple[tuple[str, str], ...] = (
@@ -253,10 +253,15 @@ def seed_once(
         seeded.lines.extend(carried_not)
 
     classes = facility_dir / CLASSES_FILE
+    rows = _class_rows(mapping)
     if not classes.exists():
-        rows = _class_rows(mapping)
         if rows:
             seeded.written.append(_write(classes, rows))
+    else:
+        held = {str(row.get("class")) for row in _load(classes) or ()}
+        missing = [row for row in rows if row["class"] not in held]
+        if missing:
+            seeded.written.append(_append(classes, missing))
 
     seeded.written.extend(_identity(mapping, facility_dir, seeded))
     return seeded
@@ -764,6 +769,20 @@ def _parse(text: str) -> Any:
     from osprey_connectors import yaml_loader
 
     return yaml_loader.safe_load(text)
+
+
+def _append(path: Path, rows: list[dict[str, str]]) -> Path:
+    """Append class rows to an existing ``classes.yaml``, leaving its rows and comments as they are."""
+    from osprey_connectors import yaml_loader
+
+    text = yaml_loader.safe_dump(
+        rows, sort_keys=False, default_flow_style=False, allow_unicode=True, width=100
+    )
+    held = path.read_text(encoding="utf-8")
+    if held and not held.endswith("\n"):
+        held += "\n"
+    path.write_text(held + text, encoding="utf-8")
+    return path
 
 
 def _write(path: Path, document: Any) -> Path:

@@ -29,33 +29,15 @@ FIXTURES_DIR = Path(__file__).parent.parent.parent / "fixtures" / "ariel"
 class TestRegisteredAdapters:
     """Tests for adapter registry discovery."""
 
-    def test_registry_has_als(self):
-        """ALS adapter is registered in the Osprey registry."""
+    @pytest.mark.parametrize(
+        "name", ["als_logbook", "jlab_logbook", "ornl_logbook", "generic_json"]
+    )
+    def test_registry_has_adapter(self, name):
+        """Each bundled adapter is registered in the Osprey registry."""
         from osprey.registry import get_registry
 
         registry = get_registry()
-        assert registry.get_ariel_ingestion_adapter("als_logbook") is not None
-
-    def test_registry_has_jlab(self):
-        """JLab adapter is registered in the Osprey registry."""
-        from osprey.registry import get_registry
-
-        registry = get_registry()
-        assert registry.get_ariel_ingestion_adapter("jlab_logbook") is not None
-
-    def test_registry_has_ornl(self):
-        """ORNL adapter is registered in the Osprey registry."""
-        from osprey.registry import get_registry
-
-        registry = get_registry()
-        assert registry.get_ariel_ingestion_adapter("ornl_logbook") is not None
-
-    def test_registry_has_generic(self):
-        """Generic adapter is registered in the Osprey registry."""
-        from osprey.registry import get_registry
-
-        registry = get_registry()
-        assert registry.get_ariel_ingestion_adapter("generic_json") is not None
+        assert registry.get_ariel_ingestion_adapter(name) is not None
 
     def test_list_adapters(self):
         """All four adapters are listed."""
@@ -123,20 +105,22 @@ class TestParseAlsCategories:
         """Single category is parsed."""
         assert parse_als_categories("Operations") == ["Operations"]
 
-    def test_multiple_categories(self):
-        """Multiple categories are parsed."""
-        result = parse_als_categories("RF Systems,Maintenance")
-        assert result == ["RF Systems", "Maintenance"]
-
-    def test_leading_trailing_commas(self):
-        """Leading/trailing commas are handled."""
-        result = parse_als_categories(",Operations,RF,")
-        assert result == ["Operations", "RF"]
-
-    def test_whitespace_stripped(self):
-        """Whitespace is stripped from categories."""
-        result = parse_als_categories("  Operations , RF Systems  ")
-        assert result == ["Operations", "RF Systems"]
+    @pytest.mark.parametrize(
+        ("raw", "expected"),
+        [
+            pytest.param("RF Systems,Maintenance", ["RF Systems", "Maintenance"], id="multiple"),
+            pytest.param(",Operations,RF,", ["Operations", "RF"], id="leading-trailing-commas"),
+            pytest.param(
+                "  Operations , RF Systems  ",
+                ["Operations", "RF Systems"],
+                id="whitespace-stripped",
+            ),
+        ],
+    )
+    def test_multiple_categories_are_split_on_commas_and_cleaned(self, raw, expected):
+        """Comma-separated categories are parsed, with stray commas and whitespace dropped."""
+        result = parse_als_categories(raw)
+        assert result == expected
 
 
 class TestTransformAlsAttachments:
@@ -155,16 +139,18 @@ class TestTransformAlsAttachments:
         assert result[0]["url"] == "https://elog.example.com/attachments/2024/01/photo.jpg"
         assert result[0]["filename"] == "photo.jpg"
 
-    def test_trailing_slash_normalized(self):
-        """Trailing slash in prefix is normalized."""
-        source = [{"url": "attachments/photo.jpg"}]
-        result = transform_als_attachments(source, "https://example.com")
-        assert result[0]["url"] == "https://example.com/attachments/photo.jpg"
-
-    def test_leading_slash_normalized(self):
-        """Leading slash in path is normalized."""
-        source = [{"url": "/attachments/photo.jpg"}]
-        result = transform_als_attachments(source, "https://example.com/")
+    @pytest.mark.parametrize(
+        ("url", "prefix"),
+        [
+            # Trailing slash in prefix is normalized.
+            pytest.param("attachments/photo.jpg", "https://example.com", id="trailing-slash"),
+            # Leading slash in path is normalized.
+            pytest.param("/attachments/photo.jpg", "https://example.com/", id="leading-slash"),
+        ],
+    )
+    def test_slash_at_the_join_of_prefix_and_path_is_normalized(self, url, prefix):
+        source = [{"url": url}]
+        result = transform_als_attachments(source, prefix)
         assert result[0]["url"] == "https://example.com/attachments/photo.jpg"
 
 
@@ -746,13 +732,22 @@ class TestALSLogbookAdapterHTTP:
         adapter = ALSLogbookAdapter(config)
         assert adapter.chunk_days == 30
 
-    def test_generate_time_windows_single(self):
-        """Single window when date range is less than chunk_days."""
-        config = self._make_config(chunk_days=365)
+    @pytest.mark.parametrize(
+        ("chunk_days", "end_month", "end_day"),
+        [
+            # Date range is less than chunk_days.
+            pytest.param(365, 6, 1, id="range-shorter-than-chunk"),
+            # Windows align correctly with exact multiples of chunk_days: 30 days.
+            pytest.param(30, 1, 31, id="exact-multiple"),
+        ],
+    )
+    def test_generate_time_windows_single(self, chunk_days, end_month, end_day):
+        """Single window when date range does not exceed chunk_days."""
+        config = self._make_config(chunk_days=chunk_days)
         adapter = ALSLogbookAdapter(config)
 
         start = datetime(2024, 1, 1, tzinfo=UTC)
-        end = datetime(2024, 6, 1, tzinfo=UTC)
+        end = datetime(2024, end_month, end_day, tzinfo=UTC)
 
         windows = adapter._generate_time_windows(start, end)
 
@@ -775,20 +770,6 @@ class TestALSLogbookAdapterHTTP:
         assert windows[0][1] == start + timedelta(days=30)
         assert windows[1][0] == start + timedelta(days=30)
         assert windows[1][1] == end
-
-    def test_generate_time_windows_exact_multiple(self):
-        """Windows align correctly with exact multiples of chunk_days."""
-        config = self._make_config(chunk_days=30)
-        adapter = ALSLogbookAdapter(config)
-
-        start = datetime(2024, 1, 1, tzinfo=UTC)
-        end = datetime(2024, 1, 31, tzinfo=UTC)  # 30 days
-
-        windows = adapter._generate_time_windows(start, end)
-
-        assert len(windows) == 1
-        assert windows[0][0] == start
-        assert windows[0][1] == end
 
     def test_generate_time_windows_empty(self):
         """Empty list when start >= end."""
@@ -816,7 +797,7 @@ class TestALSLogbookAdapterHTTPMocked:
                     "source_url": "https://logbook.example.com/olog/rpc.php",
                     "chunk_days": chunk_days,
                     "max_retries": 2,
-                    "retry_delay_seconds": 0,  # Fast retries for tests
+                    "retry_delay_seconds": 0.001,  # 0 would read as unset (5 s) in the adapter
                 },
             }
         )
@@ -1285,8 +1266,7 @@ class TestGenericJSONAdapterWrite:
         # Verify file contents
         import json
 
-        with open(json_file) as f:
-            data = json.load(f)
+        data = json.loads(json_file.read_text())
 
         assert len(data["entries"]) == 1
         assert data["entries"][0]["id"] == entry_id
@@ -1333,8 +1313,7 @@ class TestGenericJSONAdapterWrite:
 
         import json
 
-        with open(json_file) as f:
-            data = json.load(f)
+        data = json.loads(json_file.read_text())
 
         assert len(data["entries"]) == 1
         assert data["entries"][0]["id"] == entry_id
@@ -1360,8 +1339,7 @@ class TestGenericJSONAdapterWrite:
 
         import json
 
-        with open(json_file) as f:
-            data = json.load(f)
+        data = json.loads(json_file.read_text())
 
         assert data["entries"][0]["books"] == ["Operations"]
 

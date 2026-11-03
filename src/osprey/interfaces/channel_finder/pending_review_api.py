@@ -15,6 +15,8 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse, PlainTextResponse
 from pydantic import BaseModel
 
+from osprey.interfaces.opaque_origin import document_headers
+
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
@@ -352,6 +354,12 @@ async def serve_artifact(filename: str, _request: Request):
 
     Guards against path traversal by rejecting filenames containing
     ``/`` or ``..``.
+
+    The bytes are agent-written and reached through ``/panel/channel-finder``
+    on the console's origin, so every type off the closed inert list is served
+    under :func:`~osprey.interfaces.opaque_origin.opaque_headers` (an opaque
+    origin: its script cannot send a same-origin request). Inert types keep
+    their headers plus ``nosniff``.
     """
     if "/" in filename or ".." in filename:
         raise HTTPException(400, "Invalid filename")
@@ -367,8 +375,10 @@ async def serve_artifact(filename: str, _request: Request):
     suffix = artifact_path.suffix.lower()
     media_type = _MIME_MAP.get(suffix, "application/octet-stream")
 
+    headers = document_headers(media_type)
+
     if media_type.startswith("text/"):
         content = artifact_path.read_text(errors="replace")
-        return PlainTextResponse(content, media_type=media_type)
+        return PlainTextResponse(content, media_type=media_type, headers=headers)
 
-    return FileResponse(artifact_path, media_type=media_type)
+    return FileResponse(artifact_path, media_type=media_type, headers=headers)

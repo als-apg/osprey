@@ -36,7 +36,7 @@ import pytest
 import yaml
 
 from osprey.deployment.web_terminals.render import render_web_terminals
-from osprey_connectors.workspace import TIERS_DIRNAME
+from osprey.utils.workspace import TIERS_DIRNAME
 from tests._renders import tier_render
 
 from .test_golden_render import EXAMPLE_CONFIG
@@ -95,10 +95,19 @@ def _bundle_mounts(config: dict, **kwargs) -> dict[str, list[str]]:
 # ---------------------------------------------------------------------------
 
 
-def test_no_bundle_configured_mounts_nothing():
-    """A deployment that names no bundle path has no directory to hand out, and
-    must render exactly what it rendered before this feature existed."""
-    assert _bundle_mounts(_config(bundle_path=None), facility_bundle_renders=DEFAULT_ENTITLED) == {
+@pytest.mark.parametrize(
+    "bundle_path",
+    [
+        # A deployment that names no bundle path has no directory to hand out, and
+        # must render exactly what it rendered before this feature existed.
+        pytest.param(None, id="none-configured"),
+        pytest.param("   ", id="blank"),
+    ],
+)
+def test_no_bundle_path_configured_mounts_nothing(bundle_path):
+    assert _bundle_mounts(
+        _config(bundle_path=bundle_path), facility_bundle_renders=DEFAULT_ENTITLED
+    ) == {
         "web-alice": [],
         "web-bob": [],
     }
@@ -163,13 +172,6 @@ def test_absolute_bundle_path_is_not_re_anchored():
     )["web-alice"]
 
     assert "/srv/shared/knowledge:/srv/shared/knowledge" in mounts
-
-
-def test_blank_bundle_path_is_treated_as_unset():
-    assert _bundle_mounts(_config(bundle_path="   "), facility_bundle_renders=DEFAULT_ENTITLED) == {
-        "web-alice": [],
-        "web-bob": [],
-    }
 
 
 def test_overlay_still_parses_with_the_mount_present():

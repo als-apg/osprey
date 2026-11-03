@@ -52,9 +52,7 @@ vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/terminal.js', () 
   },
 }));
 
-import {
-  initSettings,
-} from '../../../src/osprey/interfaces/web_terminal/static/js/settings.js';
+import { initSettings } from '../../../src/osprey/interfaces/web_terminal/static/js/settings.js';
 
 const RESTART_DETAIL = 'derived artifacts re-render on container restart';
 const ACK_KEY = 'osprey-settings-warning-ack';
@@ -119,12 +117,19 @@ afterEach(() => {
 
 describe('applySettings: the read-only render zone notice', () => {
   test('renders the notice when a successful save carries a detail', async () => {
-    vi.stubGlobal('fetch', vi.fn(() => Promise.resolve(okResponse({
-      status: 'ok',
-      requires_restart: true,
-      regenerated: [],
-      detail: RESTART_DETAIL,
-    }))));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() =>
+        Promise.resolve(
+          okResponse({
+            status: 'ok',
+            requires_restart: true,
+            regenerated: [],
+            detail: RESTART_DETAIL,
+          })
+        )
+      )
+    );
 
     await saveRaw();
 
@@ -135,11 +140,18 @@ describe('applySettings: the read-only render zone notice', () => {
   });
 
   test('renders nothing on an ordinary successful save', async () => {
-    vi.stubGlobal('fetch', vi.fn(() => Promise.resolve(okResponse({
-      status: 'ok',
-      requires_restart: true,
-      regenerated: ['settings.json'],
-    }))));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() =>
+        Promise.resolve(
+          okResponse({
+            status: 'ok',
+            requires_restart: true,
+            regenerated: ['settings.json'],
+          })
+        )
+      )
+    );
 
     await saveRaw();
 
@@ -150,12 +162,19 @@ describe('applySettings: the read-only render zone notice', () => {
   });
 
   test('reuses the settings-warning modal surface rather than a second idiom', async () => {
-    vi.stubGlobal('fetch', vi.fn(() => Promise.resolve(okResponse({
-      status: 'ok',
-      requires_restart: true,
-      regenerated: [],
-      detail: RESTART_DETAIL,
-    }))));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() =>
+        Promise.resolve(
+          okResponse({
+            status: 'ok',
+            requires_restart: true,
+            regenerated: [],
+            detail: RESTART_DETAIL,
+          })
+        )
+      )
+    );
 
     await saveRaw();
 
@@ -168,17 +187,22 @@ describe('applySettings: the read-only render zone notice', () => {
   });
 
   test('dismissal removes it and never acknowledges the drawer warning gate', async () => {
-    vi.stubGlobal('fetch', vi.fn(() => Promise.resolve(okResponse({
-      status: 'ok',
-      requires_restart: true,
-      regenerated: [],
-      detail: RESTART_DETAIL,
-    }))));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() =>
+        Promise.resolve(
+          okResponse({
+            status: 'ok',
+            requires_restart: true,
+            regenerated: [],
+            detail: RESTART_DETAIL,
+          })
+        )
+      )
+    );
 
     await saveRaw();
-    /** @type {HTMLElement} */ (
-      document.querySelector('.settings-warning-actions button')
-    ).click();
+    /** @type {HTMLElement} */ (document.querySelector('.settings-warning-actions button')).click();
     // The overlay fades out; its fallback removal fires after the transition.
     await new Promise((resolve) => setTimeout(resolve, 350));
 

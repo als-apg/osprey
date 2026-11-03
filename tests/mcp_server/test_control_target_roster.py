@@ -26,7 +26,6 @@ from osprey.mcp_server.control_system.connector_host_manager import target_displ
 from osprey.mcp_server.control_system.target_eligibility import (
     ACK_LEAF,
     REASON_ALREADY_ACTIVE,
-    REASON_ARCHIVE_BELONGS_TO_STANDIN,
     REASON_OPERATOR_ACK_MISSING,
     REASON_PROBE_CHANNEL_MISSING,
     REASON_STANDIN_NOT_DEPLOYED,
@@ -35,16 +34,29 @@ from osprey.mcp_server.control_system.target_eligibility import (
 )
 from osprey.mcp_server.control_system.tools import control_target
 from osprey_connectors import control_context, posture_store
-from osprey_connectors.standin import ARCHIVER_RECORDER_SERVICE
 from osprey_connectors_tests._harness import owner, write_control_context
 from tests.mcp_server._switch_harness import (
     LIVE_PROBE,
     VA_PROBE,
+    arm,
     narrow,
     started_on,
 )
 from tests.mcp_server.conftest import assert_raises_error, extract_response_dict, get_tool_fn
 from tests.mcp_server.test_control_target_set import config_with_gateways, install_context
+
+#: The published label of this deployment's own stand-in (C-WORDS): the
+#: rehearsal banner, never the real machine's.
+REHEARSAL_LABEL = "Rehearsal — nothing moves"
+
+#: The published label of the real machine (C-WORDS, D4): its kind's banner.
+REAL_LABEL = "Live — writes move hardware"
+
+#: The published label of the simulator (C-WORDS, D4): its one name.
+SIM_LABEL = "Simulator — nothing moves"
+
+#: The words only a real stand-in may carry, anywhere in its label.
+NOTHING_MOVES = "nothing moves"
 
 
 @pytest.fixture(autouse=True)
@@ -52,7 +64,7 @@ def _child_harness(child_environment, state_root):
     """Every test here runs a child against a scratch state root."""
 
 
-def deployment_record(root, monkeypatch, target: str):
+def control_context_record(root, monkeypatch, target: str):
     """A control-context record this process owns, under a stamped scratch root.
 
     The roster reads no record — it reports what this server knows. The SWITCH
@@ -136,7 +148,7 @@ def standin_config(
     live_host=REAL_GATEWAY_HOST,
     live_port=TUNNELLED_PORT,
     deployed=True,
-    writes_enabled=False,
+    writes="never",
     baseline_type="virtual_accelerator",
     va_gateways=False,
     strict_limits=False,
@@ -172,10 +184,12 @@ def standin_config(
     *baseline_type* is ``control_system.type`` — ``live_standin`` for a
     deployment baselined on its own stand-in — *va_gateways* gives the simulator
     a gateway pair so it is a destination and not merely a description, and
-    *acknowledged* and *recorder* set the two FR-8 facts the live machine is
-    gated on (the operator acknowledgment, and whether an ``archiver_recorder``
-    makes the store the stand-in's); *strict_limits* sets the limits block the
-    ``limits_strict`` field reports.
+    *acknowledged* sets the one FR-8 fact the live machine is gated on (the
+    operator acknowledgment); *strict_limits* sets the limits block the
+    ``limits_strict`` field reports; and *recorder* lists an
+    ``archiver_recorder`` beside them — the store it writes is the virtual
+    accelerator's, so it gates nothing, which the roster case that sets it is
+    there to show.
     """
     gateway = {"address": gateway_host, "port": gateway_port, "use_name_server": True}
     write_gateway = dict(gateway)
@@ -191,7 +205,7 @@ def standin_config(
         }
     control_system = {
         "type": baseline_type,
-        "writes_enabled": writes_enabled,
+        "writes": writes,
         "connector": {
             "epics": {
                 "probe_channel": LIVE_PROBE,
@@ -220,7 +234,7 @@ def standin_config(
         if deployed:
             raw["deployed_services"] = ["virtual_accelerator", "live_standin"]
     if recorder:
-        raw.setdefault("deployed_services", []).append(ARCHIVER_RECORDER_SERVICE)
+        raw.setdefault("deployed_services", []).append("archiver_recorder")
     return raw
 
 
@@ -233,7 +247,7 @@ def split_gateway_config(**kwargs):
     session that has given up writes selects the read row on the other port,
     which is the only thing a posture is allowed to move.
     """
-    kwargs.setdefault("writes_enabled", True)
+    kwargs.setdefault("writes", "allowed")
     return standin_config(write_port=STANDIN_WRITE_PORT, standin_port=STANDIN_WRITE_PORT, **kwargs)
 
 
@@ -292,7 +306,7 @@ class TestCorrectBeforeAnySwitch:
         raw = config_with_gateways(va_probe=None)
         manager = make_manager(raw=raw)
         install_context(manager, monkeypatch)
-        deployment_record(state_root, monkeypatch, manager.baseline)
+        control_context_record(state_root, monkeypatch, manager.baseline)
 
         rows = extract_response_dict(await ROSTER())["access_details"]["targets"]
 
@@ -330,48 +344,59 @@ class TestCorrectBeforeAnySwitch:
         assert rows["live"]["connector_type"].endswith("VAInProcessConnector")
 
     @pytest.mark.usefixtures("no_prober")
-    async def test_writes_permitted_follows_the_deployment_posture_no_type_states(
-        self, make_manager, monkeypatch
+    async def test_writes_permitted_is_the_write_verdict_for_each_row(
+        self, make_manager, monkeypatch, state_root
     ):
-        """Neither connector block says anything, so both rows inherit the global key."""
+        """A tier that never allows writes refuses every row; allowed and on, every row writes."""
         manager = make_manager(raw=config_with_gateways())
         install_context(manager, monkeypatch)
 
         rows = extract_response_dict(await ROSTER())["access_details"]["targets"]
         assert [row["writes_permitted"] for row in rows.values()] == [False, False]
+        assert [row["writes_reason"] for row in rows.values()] == ["tier_never", "tier_never"]
 
         raw = config_with_gateways()
-        raw["control_system"]["writes_enabled"] = True
+        raw["control_system"]["writes"] = "allowed"
+        arm(state_root, "live", "va")
         writable = make_manager(raw=raw)
         install_context(writable, monkeypatch)
 
         rows = extract_response_dict(await ROSTER())["access_details"]["targets"]
         assert all(row["writes_permitted"] for row in rows.values())
+        assert all(row["writes_reason"] is None for row in rows.values())
 
     @pytest.mark.usefixtures("no_prober")
-    async def test_each_row_carries_its_own_targets_posture(self, make_manager, monkeypatch):
-        """A deployment arms its simulator alone, and the two rows say so separately.
+    async def test_each_row_carries_its_own_targets_verdict(
+        self, make_manager, monkeypatch, state_root
+    ):
+        """The simulator switched on and the real machine off are two rows, not one flag.
 
-        The write posture the roster reports is per connector type, so the row
-        for ``va`` and the row for ``live`` are two answers and not one flag
-        printed twice.
+        The switch is per target, so the row for ``va`` and the row for ``live``
+        are two answers: the simulator's write is allowed and the real
+        machine's is refused, with the verdict's reason.
         """
         raw = config_with_gateways()
-        raw["control_system"]["writes_enabled"] = False
-        raw["control_system"]["connector"]["virtual_accelerator"]["writes_enabled"] = True
+        raw["control_system"]["writes"] = "allowed"
+        arm(state_root, "va")
         manager = make_manager(raw=raw)
         install_context(manager, monkeypatch)
 
         rows = extract_response_dict(await ROSTER())["access_details"]["targets"]
 
-        assert rows["va"]["writes_permitted"] is True
-        assert rows["live"]["writes_permitted"] is False
+        assert (rows["va"]["writes_permitted"], rows["va"]["writes_reason"]) == (True, None)
+        assert (rows["live"]["writes_permitted"], rows["live"]["writes_reason"]) == (
+            False,
+            "switch_off",
+        )
 
     @pytest.mark.usefixtures("no_prober")
-    async def test_a_readonly_run_reports_writes_as_not_permitted(self, make_manager, monkeypatch):
-        """The run's own claim counts, not only the deployment's posture."""
+    async def test_a_readonly_run_reports_writes_as_not_permitted(
+        self, make_manager, monkeypatch, state_root
+    ):
+        """The run's own claim counts, ahead of the tier and the switch."""
         raw = config_with_gateways()
-        raw["control_system"]["writes_enabled"] = True
+        raw["control_system"]["writes"] = "allowed"
+        arm(state_root, "live", "va")
         manager = make_manager(raw=raw)
         install_context(manager, monkeypatch)
         monkeypatch.setenv("OSPREY_EXECUTION_MODE", "readonly")
@@ -379,21 +404,31 @@ class TestCorrectBeforeAnySwitch:
         rows = extract_response_dict(await ROSTER())["access_details"]["targets"]
 
         assert not any(row["writes_permitted"] for row in rows.values())
+        assert {row["writes_reason"] for row in rows.values()} == {"readonly_run"}
 
     @pytest.mark.usefixtures("no_prober")
-    async def test_a_readonly_run_collapses_an_armed_target_too(self, make_manager, monkeypatch):
-        """Per-target posture does not survive a read-only run — no row is armed."""
+    async def test_unknown_owner_and_unreadable_record_refuse_every_row(
+        self, make_manager, monkeypatch, state_root
+    ):
+        """An owner the login map does not name, and a record that cannot be read."""
         raw = config_with_gateways()
-        raw["control_system"]["writes_enabled"] = False
-        raw["control_system"]["connector"]["virtual_accelerator"]["writes_enabled"] = True
+        raw["control_system"]["writes"] = "allowed"
+        raw["control_system"]["login_tiers"] = {"somebody-else": "allowed"}
+        arm(state_root, "live", "va")
         manager = make_manager(raw=raw)
         install_context(manager, monkeypatch)
-        monkeypatch.setenv("OSPREY_EXECUTION_MODE", "readonly")
 
         rows = extract_response_dict(await ROSTER())["access_details"]["targets"]
+        assert {row["writes_reason"] for row in rows.values()} == {"owner_unknown"}
 
-        assert rows["va"]["writes_permitted"] is False
-        assert rows["live"]["writes_permitted"] is False
+        del raw["control_system"]["login_tiers"]
+        control_context._record_path_under(state_root).write_text("{not json", encoding="utf-8")
+        control_context.invalidate_cache()
+        install_context(make_manager(raw=raw), monkeypatch)
+
+        rows = extract_response_dict(await ROSTER())["access_details"]["targets"]
+        assert not any(row["writes_permitted"] for row in rows.values())
+        assert {row["writes_reason"] for row in rows.values()} == {"record_unavailable"}
 
 
 # ------------------------------------------------------- reachability rows
@@ -593,7 +628,7 @@ class TestDegradation:
         raw["control_system"]["connector"] = {"virtual_accelerator": va_block}
         manager = make_manager(raw=raw)
         install_context(manager, monkeypatch)
-        deployment_record(state_root, monkeypatch, manager.baseline)
+        control_context_record(state_root, monkeypatch, manager.baseline)
 
         rows = extract_response_dict(await ROSTER())["access_details"]["targets"]
 
@@ -671,14 +706,14 @@ class TestThreeTargetRoster:
         assert rows["standin"]["available_now"] is False
         assert rows["standin"]["reason"] == REASON_ALREADY_ACTIVE
         assert rows["standin"]["eligible"] is True
-        assert rows["standin"]["label"] == "LIVE MACHINE (stand-in)"
+        assert rows["standin"]["label"] == REHEARSAL_LABEL
         assert rows["standin"]["real_machine"] is True
         assert rows["standin"]["connector_type"] == "live_standin"
         assert rows["standin"]["probe_channel"] == STANDIN_PROBE
 
         # ``live`` is the facility's own machine, reached through its own block.
         assert rows["live"]["active"] is False
-        assert rows["live"]["label"] == "LIVE MACHINE"
+        assert rows["live"]["label"] == REAL_LABEL
         assert rows["live"]["real_machine"] is True
         assert rows["live"]["connector_type"] == "epics"
         assert rows["live"]["endpoints"]["read_only"]["host"] == REAL_GATEWAY_HOST
@@ -714,14 +749,14 @@ class TestThreeTargetRoster:
         assert rows["standin"]["eligible"] is True
 
     @pytest.mark.usefixtures("no_prober")
-    async def test_a_recorded_standin_store_closes_the_live_row(self, make_manager, monkeypatch):
-        """Acknowledged, strict, and still refused: the archive is the stand-in's.
+    async def test_a_recorded_store_leaves_the_live_row_open(self, make_manager, monkeypatch):
+        """Acknowledged and strict: the recorder beside the stand-in changes no row.
 
-        This is the gate the stand-in creates for ``live`` and for nothing else.
-        The deployment runs the recorder, so the store it writes holds the
-        stand-in's synthesized past; selecting the facility's real machine
-        would splice real readings onto it in one store nothing afterwards can
-        tell apart.
+        The store the recorder writes is the virtual accelerator's — it samples
+        the simulator, never the stand-in — and the live machine and its
+        stand-in share the facility's appliance. Selecting the real machine
+        puts nothing into a synthesized past, so the archive is no reason to
+        close the row.
         """
         raw = standin_config(
             baseline_type="live_standin",
@@ -730,17 +765,14 @@ class TestThreeTargetRoster:
             acknowledged=True,
             recorder=True,
         )
-        assert ARCHIVER_RECORDER_SERVICE in raw["deployed_services"]
+        assert "archiver_recorder" in raw["deployed_services"]
         manager = make_manager(raw=raw)
         install_context(manager, monkeypatch)
 
         rows = extract_response_dict(await ROSTER())["access_details"]["targets"]
 
-        assert rows["live"]["available_now"] is False
-        assert rows["live"]["reason"] == REASON_ARCHIVE_BELONGS_TO_STANDIN
-        assert ARCHIVER_RECORDER_SERVICE in rows["live"]["detail"]
-        # Nothing else moved: the recorder is a fact about the store, not about
-        # the machines beside it.
+        assert rows["live"]["available_now"] is True
+        assert rows["live"]["reason"] is None
         assert rows["standin"]["eligible"] is True
         assert rows["va"]["available_now"] is True
 
@@ -750,10 +782,8 @@ class TestThreeTargetRoster:
     ):
         """The same deployment without the recorder: all three rows are usable.
 
-        The positive case the three refusals above are only meaningful against
-        — stop recording and the facility's machine is available from a
-        stand-in baseline, which is the point of standing a stand-in up beside
-        it rather than instead of it.
+        The facility's machine is available from a stand-in baseline, which is
+        the point of standing a stand-in up beside it rather than instead of it.
         """
         raw = standin_config(
             baseline_type="live_standin",
@@ -859,7 +889,7 @@ class TestLiveStandinLabel:
     def test_a_deployed_standin_is_named_as_one(self):
         metadata = target_display_metadata(standin_config())
 
-        assert metadata["standin"]["label"] == "LIVE MACHINE (stand-in)"
+        assert metadata["standin"]["label"] == REHEARSAL_LABEL
         assert metadata["standin"]["real_machine"] is True
         assert metadata["standin"]["endpoint"] == f"localhost:{STANDIN_PORT}"
         assert metadata["standin"]["probe_channel"] == STANDIN_PROBE
@@ -868,7 +898,7 @@ class TestLiveStandinLabel:
         """``live`` is the authored ``epics`` block, and it keeps its own name."""
         metadata = target_display_metadata(standin_config())
 
-        assert metadata["live"]["label"] == "LIVE MACHINE"
+        assert metadata["live"]["label"] == REAL_LABEL
         assert metadata["live"]["real_machine"] is True
         assert metadata["live"]["endpoint"] == f"{REAL_GATEWAY_HOST}:{TUNNELLED_PORT}"
 
@@ -885,9 +915,9 @@ class TestLiveStandinLabel:
             standin_config(live_host="localhost", live_port=STANDIN_PORT)
         )
 
-        assert metadata["live"]["label"] == "LIVE MACHINE"
+        assert metadata["live"]["label"] == REAL_LABEL
         assert metadata["live"]["real_machine"] is True
-        assert metadata["standin"]["label"] == "LIVE MACHINE (stand-in)"
+        assert metadata["standin"]["label"] == REHEARSAL_LABEL
 
     def test_a_deployment_that_stood_no_standin_up_does_not_name_one(self):
         """No ``services.live_standin`` block: the first conjunct fails.
@@ -898,15 +928,15 @@ class TestLiveStandinLabel:
         """
         metadata = target_display_metadata(standin_config(standin_port=None))
 
-        assert metadata["standin"]["label"] == "LIVE MACHINE"
+        assert metadata["standin"]["label"] == REAL_LABEL
         assert metadata["standin"]["real_machine"] is True
-        assert metadata["live"]["label"] == "LIVE MACHINE"
+        assert metadata["live"]["label"] == REAL_LABEL
 
     def test_a_leftover_standin_block_does_not_rename_a_moved_endpoint(self):
         """The label follows the endpoint, never the stale ``services:`` block."""
         metadata = target_display_metadata(standin_config(gateway_port=TUNNELLED_PORT))
 
-        assert metadata["standin"]["label"] == "LIVE MACHINE"
+        assert metadata["standin"]["label"] == REAL_LABEL
         assert metadata["standin"]["real_machine"] is True
 
     def test_an_ssh_tunnel_to_loopback_is_still_the_live_machine(self):
@@ -915,14 +945,14 @@ class TestLiveStandinLabel:
             standin_config(standin_port=None, gateway_port=TUNNELLED_PORT)
         )
 
-        assert metadata["standin"]["label"] == "LIVE MACHINE"
+        assert metadata["standin"]["label"] == REAL_LABEL
         assert metadata["standin"]["endpoint"] == f"localhost:{TUNNELLED_PORT}"
 
     def test_a_standin_endpoint_off_loopback_is_not_this_hosts_container(self):
         """The port matches, the host does not: another machine on that port."""
         metadata = target_display_metadata(standin_config(gateway_host=REAL_GATEWAY_HOST))
 
-        assert metadata["standin"]["label"] == "LIVE MACHINE"
+        assert metadata["standin"]["label"] == REAL_LABEL
 
     def test_a_render_says_the_same_word_as_the_deployment(self):
         """Multi-user parity: the projected port is the whole evidence.
@@ -938,10 +968,12 @@ class TestLiveStandinLabel:
 
         metadata = target_display_metadata(raw)
 
-        assert metadata["standin"]["label"] == "LIVE MACHINE (stand-in)"
+        assert metadata["standin"]["label"] == REHEARSAL_LABEL
         assert metadata["standin"]["real_machine"] is True
 
-    def test_an_armed_deployment_names_the_standin_through_its_write_gateway(self, monkeypatch):
+    def test_an_armed_deployment_names_the_standin_through_its_write_gateway(
+        self, monkeypatch, state_root
+    ):
         """Arming writes selects the other gateway row, and the endpoint says so.
 
         The two rows are split onto different ports, so the selection is
@@ -951,13 +983,57 @@ class TestLiveStandinLabel:
         saw before postures could move an endpoint at all.
         """
         monkeypatch.delenv("OSPREY_POSTURE_SESSION", raising=False)
+        arm(state_root, "standin")
 
         metadata = target_display_metadata(split_gateway_config())
 
-        assert metadata["standin"]["label"] == "LIVE MACHINE (stand-in)"
+        assert metadata["standin"]["label"] == REHEARSAL_LABEL
         assert metadata["standin"]["real_machine"] is True
         assert metadata["standin"]["endpoint"] == f"localhost:{STANDIN_WRITE_PORT}"
         assert metadata["standin"]["selected_role"] == "write_access"
+
+    @pytest.mark.parametrize(
+        ("config_kwargs", "is_rehearsal"),
+        [
+            ({}, True),
+            ({"deployed": False}, True),
+            ({"standin_port": None}, False),
+            ({"gateway_port": TUNNELLED_PORT}, False),
+            ({"standin_port": None, "gateway_port": TUNNELLED_PORT}, False),
+            ({"gateway_host": REAL_GATEWAY_HOST}, False),
+        ],
+        ids=[
+            "deployed-standin",
+            "render-of-a-standin",
+            "no-standin-deployed",
+            "moved-endpoint",
+            "ssh-tunnel",
+            "off-loopback",
+        ],
+    )
+    def test_only_the_real_standin_says_nothing_moves(self, config_kwargs, is_rehearsal):
+        """The rehearsal words and the rehearsal kind come from one predicate.
+
+        A ``standin`` whose endpoint is not this deployment's stand-in never
+        says "nothing moves": it reads as the real machine, exactly as before
+        the rehearsal had a name. The deployment's own stand-in never carries
+        the real machine's banner.
+        """
+        metadata = target_display_metadata(standin_config(**config_kwargs))
+        label = metadata["standin"]["label"]
+
+        if is_rehearsal:
+            assert label == REHEARSAL_LABEL
+            assert REAL_LABEL not in label
+            assert metadata["standin"]["machine_kind"] == "rehearsal"
+        else:
+            assert label == REAL_LABEL
+            assert NOTHING_MOVES not in label.lower()
+            assert metadata["standin"]["machine_kind"] == "real"
+        # Neither the facility's machine nor the simulator is ever the rehearsal,
+        # and the facility's machine never says nothing moves.
+        assert NOTHING_MOVES not in metadata["live"]["label"].lower()
+        assert metadata["va"]["label"] == SIM_LABEL
 
     def test_the_simulator_is_described_by_its_own_branch(self):
         """``va`` is untouched by the stand-in, in every case above and here."""
@@ -968,7 +1044,7 @@ class TestLiveStandinLabel:
         ):
             metadata = target_display_metadata(raw)
 
-            assert metadata["va"]["label"] == "virtual accelerator (simulation)"
+            assert metadata["va"]["label"] == SIM_LABEL
             assert metadata["va"]["real_machine"] is False
             assert metadata["va"]["probe_channel"] == VA_PROBE
 
@@ -999,10 +1075,10 @@ class TestDisplayName:
     """
 
     def test_defaults_follow_the_label_branches(self):
-        """Real machine, Rehearsal, Simulator — one word per derivation."""
+        """Live, Rehearsal, Simulator — one word per derivation."""
         metadata = target_display_metadata(standin_config())
 
-        assert metadata["live"]["display_name"] == "Real machine"
+        assert metadata["live"]["display_name"] == "Live"
         assert metadata["standin"]["display_name"] == "Rehearsal"
         assert metadata["va"]["display_name"] == "Simulator"
 
@@ -1010,15 +1086,15 @@ class TestDisplayName:
         """The "not set up" nuance is the reader's to render, not the name's."""
         metadata = target_display_metadata({"control_system": {"type": "virtual_accelerator"}})
 
-        assert metadata["live"]["label"] == "live machine (not configured)"
-        assert metadata["live"]["display_name"] == "Real machine"
+        assert metadata["live"]["label"] == f"{REAL_LABEL} (not configured)"
+        assert metadata["live"]["display_name"] == "Live"
 
     def test_a_standin_that_fails_the_predicate_is_the_real_machine(self):
         """Same conjuncts as the parenthesis: no deployed stand-in, no Rehearsal."""
         metadata = target_display_metadata(standin_config(standin_port=None))
 
-        assert metadata["standin"]["label"] == "LIVE MACHINE"
-        assert metadata["standin"]["display_name"] == "Real machine"
+        assert metadata["standin"]["label"] == REAL_LABEL
+        assert metadata["standin"]["display_name"] == "Live"
 
     def test_a_configured_name_wins_verbatim_stripped(self):
         raw = standin_config()
@@ -1040,7 +1116,7 @@ class TestDisplayName:
 
         metadata = target_display_metadata(raw)
 
-        assert metadata["live"]["display_name"] == "Real machine"
+        assert metadata["live"]["display_name"] == "Live"
         assert metadata["standin"]["display_name"] == "Rehearsal"
         assert metadata["va"]["display_name"] == "Simulator"
 
@@ -1052,7 +1128,7 @@ class TestDisplayName:
         metadata = target_display_metadata(raw)
 
         assert metadata["standin"]["display_name"] == "Shadow ring"
-        assert metadata["standin"]["label"] == "LIVE MACHINE (stand-in)"
+        assert metadata["standin"]["label"] == REHEARSAL_LABEL
         assert metadata["standin"]["real_machine"] is True
 
 
@@ -1075,8 +1151,9 @@ class TestEndpointFollowsThePosture:
     where the two halves are told apart by the port in the string.
     """
 
-    def test_a_narrowed_session_is_named_through_the_read_gateway(self, posture_root):
-        narrow(posture_root, "standin")
+    def test_a_switched_off_target_is_named_through_the_read_gateway(self, posture_root):
+        """The switch is the narrowing now: off for ``standin`` is its read gateway."""
+        arm(posture_root, "live")
 
         metadata = target_display_metadata(split_gateway_config())
 
@@ -1084,37 +1161,38 @@ class TestEndpointFollowsThePosture:
         assert metadata["standin"]["selected_role"] == "read_only"
 
     def test_a_narrowing_never_renames_the_machine(self, posture_root):
-        """The parenthesis is read from the ceiling, so it cannot follow a port."""
+        """The parenthesis is read from the tier, so it cannot follow a port."""
+        arm(posture_root, "standin", "live")
         narrow(posture_root, "standin")
 
         metadata = target_display_metadata(split_gateway_config())
 
-        assert metadata["standin"]["label"] == "LIVE MACHINE (stand-in)"
+        assert metadata["standin"]["label"] == REHEARSAL_LABEL
         assert metadata["standin"]["display_name"] == "Rehearsal"
         assert metadata["standin"]["real_machine"] is True
         assert metadata["standin"]["probe_channel"] == STANDIN_PROBE
 
-    def test_a_narrowing_reaches_only_the_target_it_names(self, posture_root):
-        """Per-target, the way the store is keyed: ``live`` keeps its own answer."""
-        narrow(posture_root, "standin")
+    def test_a_switch_off_reaches_only_the_target_it_names(self, posture_root):
+        """Per target, the way the switch is keyed: ``live`` keeps its own answer."""
+        arm(posture_root, "live")
 
         metadata = target_display_metadata(split_gateway_config())
 
         assert metadata["standin"]["selected_role"] == "read_only"
         assert metadata["live"]["selected_role"] == "write_access"
 
-    @pytest.mark.usefixtures("posture_root")
-    def test_an_unnarrowed_session_still_names_the_write_gateway(self):
-        """Stamped, with nothing in the store: the ceiling answers unchanged."""
+    def test_an_unnarrowed_session_still_names_the_write_gateway(self, posture_root):
+        """Switched on and not narrowed: the write gateway, as the verdict allows."""
+        arm(posture_root, "standin")
         metadata = target_display_metadata(split_gateway_config())
 
         assert metadata["standin"]["endpoint"] == f"localhost:{STANDIN_WRITE_PORT}"
         assert metadata["standin"]["selected_role"] == "write_access"
 
-    @pytest.mark.usefixtures("posture_root")
-    def test_the_store_never_widens_a_deployment_that_arms_nothing(self):
-        """Nothing a session holds can arm a target the deployment left unarmed."""
-        metadata = target_display_metadata(split_gateway_config(writes_enabled=False))
+    def test_the_store_never_widens_a_deployment_that_arms_nothing(self, posture_root):
+        """A switch on cannot arm a target whose tier never allows writes."""
+        arm(posture_root, "standin")
+        metadata = target_display_metadata(split_gateway_config(writes="never"))
 
         assert metadata["standin"]["endpoint"] == f"localhost:{STANDIN_PORT}"
         assert metadata["standin"]["selected_role"] == "read_only"
@@ -1129,12 +1207,12 @@ class TestEndpointFollowsThePosture:
         narrow(posture_root, "standin")
         config = split_gateway_config()
 
-        widened = target_display_metadata(config, effective_writes={"standin": True})
+        widened = target_display_metadata(config, write_allowed={"standin": True})
         assert widened["standin"]["endpoint"] == f"localhost:{STANDIN_WRITE_PORT}"
         assert widened["standin"]["selected_role"] == "write_access"
 
         posture_store.invalidate_cache()
-        narrowed = target_display_metadata(config, effective_writes={"standin": False})
+        narrowed = target_display_metadata(config, write_allowed={"standin": False})
         assert narrowed["standin"]["endpoint"] == f"localhost:{STANDIN_PORT}"
         assert narrowed["standin"]["selected_role"] == "read_only"
 
@@ -1142,7 +1220,7 @@ class TestEndpointFollowsThePosture:
         """A miss is not an answer of ``False``: the store still decides."""
         narrow(posture_root, "standin")
 
-        metadata = target_display_metadata(split_gateway_config(), effective_writes={"live": True})
+        metadata = target_display_metadata(split_gateway_config(), write_allowed={"live": True})
 
         assert metadata["standin"]["selected_role"] == "read_only"
         assert metadata["live"]["selected_role"] == "write_access"
@@ -1153,10 +1231,10 @@ class TestEndpointFollowsThePosture:
         narrow(posture_root, "standin")
 
         from_store = target_display_metadata(config)
-        injected = target_display_metadata(config, effective_writes={"standin": True})
+        injected = target_display_metadata(config, write_allowed={"standin": True})
 
-        assert from_store["standin"]["label"] == "LIVE MACHINE (stand-in)"
-        assert injected["standin"]["label"] == "LIVE MACHINE (stand-in)"
+        assert from_store["standin"]["label"] == REHEARSAL_LABEL
+        assert injected["standin"]["label"] == REHEARSAL_LABEL
         assert from_store["standin"]["endpoint"] != injected["standin"]["endpoint"]
 
     @pytest.mark.usefixtures("posture_root")

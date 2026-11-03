@@ -36,9 +36,9 @@ export function el(tag, className) {
  * @returns {string}
  */
 export function escapeHtml(value) {
-  const div = document.createElement("div");
-  div.textContent = String(value ?? "");
-  return div.innerHTML.replaceAll('"', "&quot;").replaceAll("'", "&#39;");
+  const div = document.createElement('div');
+  div.textContent = String(value ?? '');
+  return div.innerHTML.replaceAll('"', '&quot;').replaceAll("'", '&#39;');
 }
 
 /**

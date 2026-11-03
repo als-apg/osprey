@@ -44,6 +44,7 @@
 
 import { test, expect, describe, beforeEach, afterEach, vi } from 'vitest';
 
+import { stubEventSource } from '../_support/event-source.mjs';
 import {
   applyConfigTabGate,
   applyConfigUnreadableNotice,
@@ -57,51 +58,36 @@ const JS = '../../../src/osprey/interfaces/web_terminal/static/js';
 const jsonOk = (body) => ({ ok: true, status: 200, statusText: 'OK', json: async () => body });
 
 /**
- * Serve the two endpoints the panel-manager import graph asks for: the panel
- * catalog this file gates on, and the bar layout bar-sync.js GETs at import.
- * Both are reached from every suite below that loads that graph, and nothing
- * else is served — an endpoint this file did not name is a missing stub, and
- * answering it with an empty body would hide that as effectively as the
- * environment's old synthetic 503 did.
+ * Serve the one endpoint the panel-manager import graph asks for: the panel
+ * catalog this file gates on. It is reached from every suite below that loads
+ * that graph, and nothing else is served — an endpoint this file did not name
+ * is a missing stub, and answering it with an empty body would hide that as
+ * effectively as the environment's old synthetic 503 did.
  * @param {boolean} configPanelEnabled
  * @param {string|null} [unreadablePath] - `config_unreadable_path` in the payload.
  */
 function stubPanelsFetch(configPanelEnabled, unreadablePath = null) {
-  vi.stubGlobal('fetch', vi.fn(async (/** @type {string} */ url) => {
-    if (url === '/api/panels') {
-      return jsonOk({
-        enabled: [],
-        custom: [],
-        default: null,
-        visible: [],
-        active: null,
-        labels: {},
-        config_panel_enabled: configPanelEnabled,
-        config_unreadable_path: unreadablePath,
-      });
-    }
-    if (url === '/api/bar-items') {
-      return jsonOk({
-        version: 1,
-        rev: 0,
-        header: [],
-        status: [],
-        header_visible: true,
-        status_visible: true,
-      });
-    }
-    // Anything else is a dependency this file never declared: fail the test
-    // that reached for it rather than answering it with a plausible shape.
-    throw new Error(`unstubbed fetch: ${url}`);
-  }));
-  class FakeEventSource {
-    constructor() {
-      /** @type {((e: {data: string}) => void)|null} */
-      this.onmessage = null;
-    }
-    close() {}
-  }
-  vi.stubGlobal('EventSource', FakeEventSource);
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (/** @type {string} */ url) => {
+      if (url === '/api/panels') {
+        return jsonOk({
+          enabled: [],
+          custom: [],
+          default: null,
+          visible: [],
+          active: null,
+          labels: {},
+          config_panel_enabled: configPanelEnabled,
+          config_unreadable_path: unreadablePath,
+        });
+      }
+      // Anything else is a dependency this file never declared: fail the test
+      // that reached for it rather than answering it with a plausible shape.
+      throw new Error(`unstubbed fetch: ${url}`);
+    })
+  );
+  stubEventSource();
 }
 
 /** The drawer markup index.html ships: four tabs, four panels, Behavior active. */
@@ -204,7 +190,6 @@ describe('applyConfigTabGate', () => {
     expect(active?.getAttribute('data-tab')).toBe('tab-behavior');
     expect(document.getElementById('tab-behavior')?.classList.contains('active')).toBe(true);
   });
-
 });
 
 describe('applyConfigUnreadableNotice', () => {
@@ -220,7 +205,7 @@ describe('applyConfigUnreadableNotice', () => {
 
     const el = notice();
     expect(el?.textContent).toBe(
-      `Config editing is off: ${PATH} could not be read. Fix the file and restart the web terminal.`,
+      `Config editing is off: ${PATH} could not be read. Fix the file and restart the web terminal.`
     );
     expect(el?.getAttribute('role')).toBe('status');
     expect(el?.previousElementSibling?.classList.contains('drawer-header')).toBe(true);
@@ -272,6 +257,9 @@ describe('boot wiring: initPanelManager applies the gate', () => {
       // to undefined and throw at call time.
       defaultServiceWidth: () => 600,
       setServiceRedock: () => {},
+      // No dock, so the boot layout is final at once.
+      bootLayoutSettled: () => true,
+      setLayoutRestoredHook: (/** @type {() => void} */ fn) => fn(),
       onDragGesture: () => [],
     }));
   }
@@ -280,7 +268,16 @@ describe('boot wiring: initPanelManager applies the gate', () => {
     renderDrawer();
     document.body.insertAdjacentHTML(
       'beforeend',
-      '<nav id="panel-rail"></nav><div id="panel-manager"><div id="panel-content"></div></div>',
+      '<nav id="panel-rail"></nav><div id="panel-manager"><div id="panel-content"></div></div>'
+    );
+    // The pop-out seam rolls call on a BroadcastChannel at boot, which the
+    // test environment does not provide.
+    vi.stubGlobal(
+      'BroadcastChannel',
+      class {
+        postMessage() {}
+        close() {}
+      }
     );
   });
 
@@ -298,9 +295,8 @@ describe('boot wiring: initPanelManager applies the gate', () => {
     stubPanelsFetch(configPanelEnabled, unreadablePath);
     vi.resetModules();
     mockDock();
-    const { initPanelManager } = await import(
-      '../../../src/osprey/interfaces/web_terminal/static/js/panel-manager.js'
-    );
+    const { initPanelManager } =
+      await import('../../../src/osprey/interfaces/web_terminal/static/js/panel-manager.js');
     await initPanelManager('panel-manager');
   }
 
@@ -320,7 +316,7 @@ describe('boot wiring: initPanelManager applies the gate', () => {
     expect(tabButtonPresent()).toBe(false);
     expect(tabPanelPresent()).toBe(false);
     expect(document.getElementById(CONFIG_UNREADABLE_NOTICE_ID)?.textContent).toContain(
-      '/app/project/config.yml',
+      '/app/project/config.yml'
     );
   });
 });
@@ -367,7 +363,6 @@ describe('command palette guards on the tab being gone', () => {
     'panel-placement.js': () => ({ openPanelBeside: () => {} }),
     'settings.js': () => ({ openDrawerTab: async () => true, revealSetting: async () => {} }),
     'sessions.js': () => ({ startNewSession: () => {} }),
-    'rail-position.js': () => ({ setRailPosition: () => {} }),
     'feedback-modal.js': () => ({ isFeedbackModalOpen: () => false }),
     'dock-workspace.js': () => ({ resetDockLayout }),
   };
@@ -378,27 +373,26 @@ describe('command palette guards on the tab being gone', () => {
     vi.resetModules();
   });
 
-  /** Open the palette through the header trigger and return the deps it built. */
+  /** Open the palette through the sidebar's Search trigger and return the deps it built. */
   async function openThroughTrigger() {
     opens.length = 0;
     vi.resetModules();
     for (const [name, factory] of Object.entries(PALETTE_BOOT_MOCKS)) {
       vi.doMock(`${JS}/${name}`, factory);
     }
-    const { initCommandPalette } = await import(
-      '../../../src/osprey/interfaces/web_terminal/static/js/palette-boot.js'
-    );
+    const { initCommandPalette } =
+      await import('../../../src/osprey/interfaces/web_terminal/static/js/palette-boot.js');
     initCommandPalette();
-    document.getElementById('command-palette-btn')?.dispatchEvent(
-      new MouseEvent('click', { bubbles: true }),
-    );
+    document
+      .getElementById('command-palette-btn')
+      ?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
     expect(opens).toHaveLength(1);
     return opens[0];
   }
 
   beforeEach(() => {
-    // palette-boot.js reaches bar-sync.js, which GETs the bar layout at import
-    // — and `openThroughTrigger` re-imports it after every resetModules().
+    // `openThroughTrigger` re-imports palette-boot.js after every
+    // resetModules(), and its graph reads the panel catalog.
     stubPanelsFetch(true);
     renderDrawer();
     document.body.insertAdjacentHTML('beforeend', '<button id="command-palette-btn"></button>');
@@ -411,7 +405,7 @@ describe('command palette guards on the tab being gone', () => {
     expect(typeof deps.revealSetting).toBe('function');
   });
 
-  test('the Reset layout row is bound to the dock\'s resetDockLayout', async () => {
+  test("the Reset layout row is bound to the dock's resetDockLayout", async () => {
     const deps = await openThroughTrigger();
 
     deps.resetLayout();
@@ -428,7 +422,7 @@ describe('command palette guards on the tab being gone', () => {
     // The tabs that were not withdrawn are untouched — the guard is specific
     // to Config, not a blanket drop of the drawer rows.
     expect(deps.actions.map((/** @type {any} */ a) => a.label)).toEqual(
-      expect.arrayContaining(['Open Memory gallery', 'Open Prompt gallery']),
+      expect.arrayContaining(['Open Memory gallery', 'Open Prompt gallery'])
     );
   });
 });
@@ -440,9 +434,7 @@ describe('palette.js skips its /api/config read without revealSetting', () => {
   beforeEach(async () => {
     document.body.innerHTML = '';
     vi.resetModules();
-    paletteMod = await import(
-      '../../../src/osprey/interfaces/web_terminal/static/js/palette.js'
-    );
+    paletteMod = await import('../../../src/osprey/interfaces/web_terminal/static/js/palette.js');
   });
 
   afterEach(() => {
@@ -451,7 +443,11 @@ describe('palette.js skips its /api/config read without revealSetting', () => {
   });
 
   test('no fetch, and no "Settings unavailable" row, when the dep is withheld', async () => {
-    const fetchMock = vi.fn(async () => ({ ok: true, status: 200, json: async () => ({ sections: {} }) }));
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({ sections: {} }),
+    }));
     vi.stubGlobal('fetch', fetchMock);
 
     paletteMod.openPalette({ getHiddenPanels: () => [], getVisiblePanels: () => [] });
@@ -477,12 +473,15 @@ describe('scaffold gallery survives the Config sections being gone', () => {
     // Activating a tab makes its gallery load from /api/scaffold. Stubbed to
     // an empty catalog so the suite stays offline — happy-dom would otherwise
     // try the real origin and log a connection refusal per test.
-    vi.stubGlobal('fetch', vi.fn(async () => ({
-      ok: true,
-      status: 200,
-      statusText: 'OK',
-      json: async () => [],
-    })));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ({
+        ok: true,
+        status: 200,
+        statusText: 'OK',
+        json: async () => [],
+      }))
+    );
   });
 
   afterEach(() => {
@@ -497,9 +496,8 @@ describe('scaffold gallery survives the Config sections being gone', () => {
     expect(Reflect.get(globalThis, 'marked')).toBeUndefined();
 
     vi.resetModules();
-    const { initScaffoldGallery } = await import(
-      '../../../src/osprey/interfaces/web_terminal/static/js/scaffold-gallery.js'
-    );
+    const { initScaffoldGallery } =
+      await import('../../../src/osprey/interfaces/web_terminal/static/js/scaffold-gallery.js');
     expect(() => initScaffoldGallery()).not.toThrow();
 
     // The registrar firing is the proof init ran to completion rather than
@@ -523,9 +521,8 @@ describe('scaffold gallery survives the Config sections being gone', () => {
     applyConfigTabGate({ config_panel_enabled: false });
 
     vi.resetModules();
-    const { initScaffoldGallery } = await import(
-      '../../../src/osprey/interfaces/web_terminal/static/js/scaffold-gallery.js'
-    );
+    const { initScaffoldGallery } =
+      await import('../../../src/osprey/interfaces/web_terminal/static/js/scaffold-gallery.js');
     initScaffoldGallery();
 
     expect(() => drawer.dispatchEvent(new Event('drawer:close'))).not.toThrow();

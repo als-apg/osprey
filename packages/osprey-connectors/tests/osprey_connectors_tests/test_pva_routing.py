@@ -24,6 +24,7 @@ import sys
 import pytest
 
 from osprey_connectors.control_system._epics_connector import EPICSConnector
+from osprey_connectors.errors import ConnectorUnavailableError
 from osprey_connectors_tests._epics_fakes import (
     EPICS_PVA_VARS,
     clean_epics_env,  # noqa: F401 - fixture, used by name
@@ -123,6 +124,23 @@ class TestConnectPvaContext:
         context_cls.assert_called_once_with("pva")
         assert connector._pva_context is context_cls.return_value
         assert connector._is_pva_channel("BL7:DET:ARRAY") is True
+
+    @pytest.mark.asyncio
+    @pytest.mark.usefixtures("clean_epics_env")
+    async def test_a_pva_context_that_cannot_be_built_makes_the_connector_unavailable(
+        self, monkeypatch
+    ):
+        """A client context p4p cannot build fails connect() once, as the connector's own loss."""
+        patch_writes_enabled(monkeypatch, False)
+        _, context_cls = install_fake_p4p(monkeypatch)
+        context_cls.side_effect = RuntimeError("no network interface")
+
+        connector = EPICSConnector()
+        with pytest.raises(ConnectorUnavailableError, match="no network interface") as raised:
+            await connector.connect({"pva_channels": ["SR:CAM*:IMAGE"]})
+
+        assert isinstance(raised.value.__cause__, RuntimeError)
+        context_cls.assert_called_once_with("pva")
 
     @pytest.mark.asyncio
     @pytest.mark.usefixtures("clean_epics_env")
@@ -276,42 +294,37 @@ class TestPvaGatewayEnv:
 
     @pytest.mark.asyncio
     @pytest.mark.usefixtures("clean_epics_env")
-    async def test_addr_list_branch_appends_no_port_unless_set(self, monkeypatch):
-        """EPICS_PVA_ADDR_LIST entries are UDP search targets (default 5076).
-
-        5075 is the PVA TCP port. Appending it here made p4p search on the
-        wrong port and every read time out, so an unset port appends nothing
-        and p4p's own default applies.
-        """
+    @pytest.mark.parametrize(
+        ("channels", "address"),
+        [
+            # EPICS_PVA_ADDR_LIST entries are UDP search targets (default 5076).
+            # 5075 is the PVA TCP port. Appending it here made p4p search on the
+            # wrong port and every read time out, so an unset port appends nothing
+            # and p4p's own default applies.
+            pytest.param(["SR:CAM1:IMAGE"], "pvagw.example.com", id="no-port-appended-unless-set"),
+            # A many-server facility lists its hosts in ``address``; passed verbatim.
+            pytest.param(
+                ["*:image"],
+                "10.0.0.1 10.0.0.2 cam3.example.com",
+                id="space-separated-host-list",
+            ),
+        ],
+    )
+    async def test_addr_list_branch_passes_the_address_through_as_given(
+        self, monkeypatch, channels, address
+    ):
         patch_writes_enabled(monkeypatch, False)
         install_fake_p4p(monkeypatch)
 
         connector = EPICSConnector()
         await connector.connect(
             {
-                "pva_channels": ["SR:CAM1:IMAGE"],
-                "pva_gateway": {"address": "pvagw.example.com"},
+                "pva_channels": channels,
+                "pva_gateway": {"address": address},
             }
         )
 
-        assert os.environ["EPICS_PVA_ADDR_LIST"] == "pvagw.example.com"
-
-    @pytest.mark.asyncio
-    @pytest.mark.usefixtures("clean_epics_env")
-    async def test_addr_list_accepts_a_space_separated_host_list(self, monkeypatch):
-        """A many-server facility lists its hosts in ``address``; passed verbatim."""
-        patch_writes_enabled(monkeypatch, False)
-        install_fake_p4p(monkeypatch)
-
-        connector = EPICSConnector()
-        await connector.connect(
-            {
-                "pva_channels": ["*:image"],
-                "pva_gateway": {"address": "10.0.0.1 10.0.0.2 cam3.example.com"},
-            }
-        )
-
-        assert os.environ["EPICS_PVA_ADDR_LIST"] == "10.0.0.1 10.0.0.2 cam3.example.com"
+        assert os.environ["EPICS_PVA_ADDR_LIST"] == address
 
     @pytest.mark.asyncio
     @pytest.mark.usefixtures("clean_epics_env")

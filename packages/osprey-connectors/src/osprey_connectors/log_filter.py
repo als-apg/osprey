@@ -1,97 +1,15 @@
-"""Log filtering utilities for selective suppression by logger name, level, or message pattern.
+"""Temporary suppression of a logger's low-level messages.
 
-Provides LoggerFilter for fine-grained suppression and context managers
-(suppress_logger_level, quiet_logger) for temporary filtering.
+:func:`quiet_logger` raises one or more loggers to WARNING for the duration of
+a ``with`` block and restores their levels afterwards.
 """
 
 import logging
-import re
 from contextlib import contextmanager
-from re import Pattern
-
-
-class LoggerFilter(logging.Filter):
-    """Selective log suppression based on logger name, level, and message patterns.
-
-    When multiple criteria are specified, they are combined with AND logic:
-    a message must match all criteria to be affected by the filter.
-    """
-
-    def __init__(
-        self,
-        logger_names: list[str] | None = None,
-        message_patterns: list[str] | None = None,
-        levels: list[int] | None = None,
-        invert: bool = False,
-        name: str = "",
-    ):
-        """Initialize the log filter with filtering criteria.
-
-        Args:
-            logger_names: Logger names to filter. None/empty applies to all loggers.
-            message_patterns: Regex patterns to match against formatted log messages.
-            levels: Log levels to filter. None/empty applies to all levels.
-            invert: If True, suppresses everything EXCEPT matches.
-            name: Optional name for the filter (passed to parent Filter class).
-        """
-        super().__init__(name=name)
-
-        self.logger_names: set[str] = set(logger_names or [])
-        self.message_patterns: list[Pattern] = [
-            re.compile(pattern) for pattern in (message_patterns or [])
-        ]
-        self.levels: set[int] = set(levels or [])
-        self.invert = invert
-
-    def filter(self, record: logging.LogRecord) -> bool:
-        """Determine whether to allow or suppress a log record.
-
-        Args:
-            record: The LogRecord to filter
-
-        Returns:
-            True to allow the record, False to suppress it
-        """
-        if self.logger_names and record.name not in self.logger_names:
-            return True
-
-        if self.levels and record.levelno not in self.levels:
-            return True
-
-        if self.message_patterns:
-            message = record.getMessage()
-            matches = any(pattern.search(message) for pattern in self.message_patterns)
-
-            if self.invert:
-                return matches
-            else:
-                return not matches
-
-        if self.invert:
-            return True
-        else:
-            return False
-
-    def __repr__(self) -> str:
-        """String representation for debugging."""
-        parts = []
-        if self.logger_names:
-            parts.append(f"loggers={list(self.logger_names)}")
-        if self.levels:
-            level_names = [logging.getLevelName(lvl) for lvl in self.levels]
-            parts.append(f"levels={level_names}")
-        if self.message_patterns:
-            patterns = [p.pattern for p in self.message_patterns]
-            parts.append(f"patterns={patterns}")
-        if self.invert:
-            parts.append("inverted=True")
-
-        criteria = ", ".join(parts) if parts else "no criteria"
-        return f"LoggerFilter({criteria})"
 
 
 @contextmanager
-def suppress_logger_level(logger_name: str | list[str], level: int):
+def _suppress_logger_level(logger_name: str | list[str], level: int):
     """Context manager to temporarily raise logger level to suppress messages.
 
     Args:
@@ -122,7 +40,7 @@ def suppress_logger_level(logger_name: str | list[str], level: int):
 def quiet_logger(logger_name: str | list[str]):
     """Context manager to temporarily suppress INFO-level messages from logger(s).
 
-    This is a convenience wrapper around suppress_logger_level() that specifically
+    This is a convenience wrapper around _suppress_logger_level() that specifically
     suppresses INFO and DEBUG messages while preserving WARNING, ERROR, and CRITICAL.
     This is the most common use case for "quiet" operations.
 
@@ -145,15 +63,12 @@ def quiet_logger(logger_name: str | list[str]):
             ...     do_something()
 
     .. note::
-       This is equivalent to suppress_logger_level(logger_name, logging.WARNING)
-       but with a more intuitive name for the common "quiet mode" use case.
+       This raises the level to ``logging.WARNING`` for the block.
     """
-    with suppress_logger_level(logger_name, logging.WARNING) as levels:
+    with _suppress_logger_level(logger_name, logging.WARNING) as levels:
         yield levels
 
 
 __all__ = [
-    "LoggerFilter",
-    "suppress_logger_level",
     "quiet_logger",
 ]

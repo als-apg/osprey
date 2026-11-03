@@ -64,31 +64,18 @@ function holdConfig() {
   return release;
 }
 
-// Two requests reach this environment: the palette's GET /api/config, and the
-// operator's bar layout, which bar-sync.js (reached through palette-boot.js's
-// import graph) GETs at import time — before the dynamic import below is
-// evaluated. Any other URL is a dependency this file has not declared, and
-// fails loudly.
-vi.stubGlobal('fetch', vi.fn(async (/** @type {string} */ url) => {
-  if (url === '/api/config') return answerConfig();
-  if (url !== '/api/bar-items') throw new Error(`unstubbed fetch: ${url}`);
-  return {
-    ok: true,
-    status: 200,
-    json: async () => ({
-      version: 1,
-      rev: 0,
-      header: [],
-      status: [],
-      header_visible: true,
-      status_visible: true,
-    }),
-  };
-}));
-
-const { initCommandPalette } = await import(
-  '../../../src/osprey/interfaces/web_terminal/static/js/palette-boot.js'
+// One request reaches this environment: the palette's GET /api/config. Any
+// other URL is a dependency this file has not declared, and fails loudly.
+vi.stubGlobal(
+  'fetch',
+  vi.fn(async (/** @type {string} */ url) => {
+    if (url === '/api/config') return answerConfig();
+    throw new Error(`unstubbed fetch: ${url}`);
+  })
 );
+
+const { initCommandPalette } =
+  await import('../../../src/osprey/interfaces/web_terminal/static/js/palette-boot.js');
 
 /** Flush the requestAnimationFrame that adds the `.visible` class. */
 function flushRaf() {
@@ -204,7 +191,7 @@ describe('filtering + highlight', () => {
     await flushMicro();
     typeQuery('control');
     const row = [...document.querySelectorAll('.command-palette-item')].find(
-      (r) => r.querySelector('.command-palette-item-label')?.textContent === 'control_system.type',
+      (r) => r.querySelector('.command-palette-item-label')?.textContent === 'control_system.type'
     );
     if (!row) throw new Error('no control_system.type row');
     const marks = [...row.querySelectorAll('.command-palette-match')];
@@ -237,7 +224,7 @@ describe('filtering + highlight', () => {
     await flushMicro();
     typeQuery('');
     const headings = [...document.querySelectorAll('.command-palette-group-heading')].map(
-      (h) => h.textContent,
+      (h) => h.textContent
     );
     expect(headings).toEqual(['Settings', 'Panels', 'Layouts', 'Actions']);
   });
@@ -258,7 +245,9 @@ describe('keyboard navigation', () => {
     expect(options().length).toBeGreaterThan(0);
 
     pressKey('ArrowDown');
-    const active1 = /** @type {HTMLElement} */ (document.querySelector('.command-palette-item--active'));
+    const active1 = /** @type {HTMLElement} */ (
+      document.querySelector('.command-palette-item--active')
+    );
     expect(active1).toBeTruthy();
     expect(active1.getAttribute('aria-selected')).toBe('true');
     // aria-activedescendant always points at a real option id (never the status row).
@@ -316,7 +305,7 @@ describe('concurrent config fetch', () => {
     // Status row gone; real settings items now match the query.
     expect(document.querySelector('.command-palette-status')).toBeNull();
     const labels = [...document.querySelectorAll('.command-palette-item-label')].map(
-      (l) => l.textContent,
+      (l) => l.textContent
     );
     expect(labels.some((t) => t.includes('control_system'))).toBe(true);
   });
@@ -369,7 +358,7 @@ describe('recent commands', () => {
    * @param {string} label */
   function clickRow(label) {
     const row = [...document.querySelectorAll('.command-palette-item')].find(
-      (r) => r.querySelector('.command-palette-item-label')?.textContent === label,
+      (r) => r.querySelector('.command-palette-item-label')?.textContent === label
     );
     if (!row) throw new Error(`no palette row labelled "${label}"`);
     /** @type {HTMLElement} */ (row).click();
@@ -461,9 +450,8 @@ describe('recent commands', () => {
     typeQuery('');
 
     const options = () => [...document.querySelectorAll('[role="option"]')];
-    const activeIdx = () => options().findIndex(
-      (o) => o.classList.contains('command-palette-item--active'),
-    );
+    const activeIdx = () =>
+      options().findIndex((o) => o.classList.contains('command-palette-item--active'));
 
     // Wrap backwards from the first row onto the LAST one — the Actions group's
     // own "Restart terminal", the twin of the Recent row at index 0.
@@ -479,7 +467,7 @@ describe('recent commands', () => {
     expect(activeIdx()).not.toBe(0);
     const active = options()[activeIdx()];
     expect(active.querySelector('.command-palette-item-label')?.textContent).toBe(
-      'Restart terminal',
+      'Restart terminal'
     );
   });
 
@@ -517,6 +505,153 @@ describe('recent commands', () => {
     } finally {
       if (real) Object.defineProperty(globalThis, 'localStorage', real);
     }
+  });
+});
+
+describe('CANOPY group', () => {
+  /**
+   * A deps bundle with a CANOPY provider stub. `rows` is what searchCanopy
+   * answers (null = still loading); `starts` collects each onChange handed to
+   * startCanopy.
+   * @param {any} rows
+   */
+  function canopyDeps(rows) {
+    /** @type {Array<() => void>} */
+    const starts = [];
+    const searchCanopy = vi.fn(() => rows);
+    const deps = makeDeps({
+      searchCanopy,
+      startCanopy: (/** @type {() => void} */ onChange) => starts.push(onChange),
+    });
+    return { deps, starts, searchCanopy };
+  }
+
+  /** @returns {string[]} the row labels under the CANOPY heading. */
+  function canopyLabels() {
+    return [...document.querySelectorAll('.command-palette-item--canopy')].map(
+      (r) => r.querySelector('.command-palette-item-label')?.textContent ?? ''
+    );
+  }
+
+  test('CANOPY renders after Actions; the four registry groups keep their order', async () => {
+    const run = vi.fn();
+    const { deps } = canopyDeps([{ label: 'Open screen Restart View', detail: 'library/rv', run }]);
+    openPalette(deps);
+    await flushMicro();
+    typeQuery('restart');
+    expect(headings()).toEqual(['Actions', 'CANOPY']);
+    typeQuery('e');
+    const order = headings();
+    expect(order[order.length - 1]).toBe('CANOPY');
+    const registry = order.filter((h) => h !== 'CANOPY');
+    const expected = ['Settings', 'Panels', 'Layouts', 'Actions'].filter((g) =>
+      registry.includes(g)
+    );
+    expect(registry).toEqual(expected);
+  });
+
+  test('rows render in returned order with no fuzzy filtering or highlight', async () => {
+    const rows = [
+      { label: 'Zzz unrelated label', detail: 'b/z', run: vi.fn() },
+      { label: 'Open screen GTLView', detail: 'library/gtl/GTLView', run: vi.fn() },
+    ];
+    const { deps, searchCanopy } = canopyDeps(rows);
+    openPalette(deps);
+    await flushMicro();
+    typeQuery('gtl');
+    expect(searchCanopy).toHaveBeenLastCalledWith('gtl');
+    // "Zzz unrelated label" does not fuzzy-match "gtl", yet it renders, first.
+    expect(canopyLabels()).toEqual(['Zzz unrelated label', 'Open screen GTLView']);
+    const marks = [
+      ...document.querySelectorAll('.command-palette-item--canopy .command-palette-match'),
+    ];
+    expect(marks).toEqual([]);
+  });
+
+  test('an empty query shows no CANOPY group and does not ask the provider', async () => {
+    const { deps, searchCanopy } = canopyDeps([{ label: 'Open screen GTLView', run: vi.fn() }]);
+    openPalette(deps);
+    await flushMicro();
+    typeQuery('');
+    expect(headings()).not.toContain('CANOPY');
+    typeQuery('   ');
+    expect(headings()).not.toContain('CANOPY');
+    expect(searchCanopy).not.toHaveBeenCalled();
+  });
+
+  test('every returned row renders: the provider owns the row cap', async () => {
+    const rows = Array.from({ length: 12 }, (_, i) => ({
+      label: `Open screen S${i}`,
+      run: vi.fn(),
+    }));
+    const { deps } = canopyDeps(rows);
+    openPalette(deps);
+    await flushMicro();
+    typeQuery('s');
+    expect(canopyLabels()).toEqual(rows.map((r) => r.label));
+  });
+
+  test('a null answer shows a non-navigable Loading… row', async () => {
+    const { deps } = canopyDeps(null);
+    openPalette(deps);
+    await flushMicro();
+    typeQuery('zzzq');
+    expect(headings()).toEqual(['CANOPY']);
+    const status = [...document.querySelectorAll('.command-palette-status')].map(
+      (s) => s.textContent
+    );
+    expect(status).toContain('Loading…');
+    expect(document.querySelector('.command-palette-empty')).toBeNull();
+  });
+
+  test('startCanopy runs on open and its settle repaints the current query', async () => {
+    /** @type {any} */
+    let rows = null;
+    const starts = /** @type {Array<() => void>} */ ([]);
+    const deps = makeDeps({
+      searchCanopy: () => rows,
+      startCanopy: (/** @type {() => void} */ onChange) => starts.push(onChange),
+    });
+    openPalette(deps);
+    await flushMicro();
+    expect(starts.length).toBe(1);
+    typeQuery('gtl');
+    expect(canopyLabels()).toEqual([]);
+    rows = [{ label: 'Open screen GTLView', run: vi.fn() }];
+    starts[0]();
+    expect(canopyLabels()).toEqual(['Open screen GTLView']);
+  });
+
+  test('a settle from an earlier open is dropped', async () => {
+    /** @type {any} */
+    let rows = null;
+    const starts = /** @type {Array<() => void>} */ ([]);
+    const deps = makeDeps({
+      searchCanopy: () => rows,
+      startCanopy: (/** @type {() => void} */ onChange) => starts.push(onChange),
+    });
+    openPalette(deps);
+    closePalette();
+    openPalette(deps);
+    await flushMicro();
+    typeQuery('gtl');
+    rows = [{ label: 'Open screen GTLView', run: vi.fn() }];
+    starts[0]();
+    expect(canopyLabels()).toEqual([]);
+    starts[1]();
+    expect(canopyLabels()).toEqual(['Open screen GTLView']);
+  });
+
+  test('Enter on a CANOPY row runs it, closes, and leaves Recent alone', async () => {
+    const run = vi.fn();
+    const { deps } = canopyDeps([{ label: 'Open screen GTLView', run }]);
+    openPalette(deps);
+    await flushMicro();
+    typeQuery('zzzq');
+    pressKey('Enter');
+    expect(run).toHaveBeenCalledTimes(1);
+    expect(isOpen()).toBe(false);
+    expect(storedRecent()).toEqual([]);
   });
 });
 

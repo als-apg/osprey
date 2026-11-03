@@ -32,21 +32,6 @@ def _get_setup_patch():
     return get_tool_fn(setup_patch)
 
 
-@pytest.fixture(autouse=True)
-def _audit_zone(tmp_path, monkeypatch):
-    """Keep this suite's refused patches out of the deployment's own ledger.
-
-    ``setup_patch`` records every protected-key refusal through
-    :mod:`osprey.audit.protected`, and ``writer.audit_dir`` resolves against
-    the real project root unless it is redirected — so a plain ``pytest`` run
-    would append refusals nobody caused to ``var/audit/<identity>/``, where an
-    operator cannot tell them from the real ones.
-    """
-    from osprey.audit import writer
-
-    monkeypatch.setattr(writer, "audit_dir", lambda: tmp_path / "audit-zone")
-
-
 @pytest.fixture
 def project_dir(tmp_path):
     """A minimal deployment repo, and the *render* the setup tools act on.
@@ -413,19 +398,18 @@ async def test_patch_rejects_traversal(project_dir):
 
 
 @pytest.mark.asyncio
-async def test_patch_rejects_absolute_path(project_dir):
-    """setup_patch rejects key_path starting with / or ~."""
+@pytest.mark.parametrize(
+    "key_path",
+    [
+        pytest.param("/etc/passwd", id="absolute-path"),
+        pytest.param("", id="empty"),
+    ],
+)
+async def test_patch_rejects_an_unusable_key_path(project_dir, key_path):
+    """setup_patch rejects a key_path that starts with / or ~, or is empty."""
     fn = _get_setup_patch()
     with _patch_config_path(project_dir), assert_raises_error(error_type="validation_error"):
-        await fn(file="config.yml", key_path="/etc/passwd", value="x")
-
-
-@pytest.mark.asyncio
-async def test_patch_rejects_empty_key_path(project_dir):
-    """setup_patch rejects empty key_path."""
-    fn = _get_setup_patch()
-    with _patch_config_path(project_dir), assert_raises_error(error_type="validation_error"):
-        await fn(file="config.yml", key_path="", value="x")
+        await fn(file="config.yml", key_path=key_path, value="x")
 
 
 @pytest.mark.asyncio

@@ -7,6 +7,12 @@ This script is the only writer of that string and the one statement of the bump 
 ``show`` prints it and refuses to guess when the two files disagree, ``bump`` advances
 ``YYYY.M.N`` in both at once, and ``check --base <ref>`` refuses a branch that changes
 the plugin tree while still carrying a version the branch it merges into already has.
+Consumers install the plugin by version, so an edit republished under the version it
+already carried never reaches anyone who installed it.
+
+The range ``check`` judges is ``BASE...HEAD``, the committed state a pull request
+carries; with ``--worktree`` it is the merge base against the working tree, so staged,
+unstaged and untracked files count.
 """
 
 from __future__ import annotations
@@ -99,8 +105,11 @@ def git_runner(root: Path) -> Runner:
     return run
 
 
-def check(root: Path, base: str, run: Runner | None = None) -> int:
+def check(root: Path, base: str, run: Runner | None = None, worktree: bool = False) -> int:
     """Refuse a changed plugin tree whose version the base tip already carries.
+
+    The tree is changed between the merge base and HEAD, or with *worktree*
+    between the merge base and the working tree, untracked files included.
 
     Exit 0 when the tree is untouched, new, or carries a version the base tip does
     not; exit 1 when the check ran and refuses; exit 2 when git could not answer
@@ -125,15 +134,25 @@ def check(root: Path, base: str, run: Runner | None = None) -> int:
             file=sys.stderr,
         )
         return 2
-    diff_argv = ["git", "diff", "--name-only", merge_base.stdout.strip(), "HEAD", "--"]
+    point = merge_base.stdout.strip()
+    diff_argv = ["git", "diff", "--name-only", point, *([] if worktree else ["HEAD"]), "--"]
     diff_argv += PLUGIN_TREE
     diff = run(diff_argv)
     if diff.returncode != 0:
         print(f"{' '.join(diff_argv)} failed\n{diff.stderr.strip()}", file=sys.stderr)
         return 2
+    changed = diff.stdout.strip()
+    if worktree:
+        others_argv = ["git", "ls-files", "-z", "--others", "--exclude-standard", "--"]
+        others_argv += PLUGIN_TREE
+        others = run(others_argv)
+        if others.returncode != 0:
+            print(f"{' '.join(others_argv)} failed\n{others.stderr.strip()}", file=sys.stderr)
+            return 2
+        changed += others.stdout.strip("\0")
     # The diff is answered before any manifest is read: an untouched tree owes nothing,
     # whatever state the working tree's manifests are in.
-    if not diff.stdout.strip():
+    if not changed:
         print(UNTOUCHED)
         return 0
 
@@ -214,6 +233,9 @@ def main(argv: list[str] | None = None) -> int:
     check_parser.add_argument(
         "--base", required=True, metavar="REF", help="the ref this branch merges into"
     )
+    check_parser.add_argument(
+        "--worktree", action="store_true", help="judge the working tree, not HEAD"
+    )
 
     args = parser.parse_args(argv)
     explicit = getattr(args, "explicit", None)
@@ -221,7 +243,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"--set {explicit}: not CalVer YYYY.M.N", file=sys.stderr)
         return 2
     if args.command == "check":
-        return check(args.root, args.base)
+        return check(args.root, args.base, worktree=args.worktree)
     try:
         versions = read_versions(args.root)
     except (OSError, KeyError, json.JSONDecodeError) as error:

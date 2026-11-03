@@ -20,6 +20,10 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+import osprey._litellm_env  # noqa: F401 -- sets LiteLLM's import-time environment
+
+# isort: split
+
 from osprey.mcp_server.channel_finder_common import (
     config_path,
     load_cf_config,
@@ -108,7 +112,7 @@ class ChannelFinderICContext:
 
         if ic_model:
             self._subagent_model_id = ic_model
-            self._subagent_provider = ic_provider if ic_provider else cc_config.get("provider", "")
+            self._subagent_provider = ic_provider or cc_config.get("provider", "")
         else:
             from osprey.agent_runner.provider_env import ClaudeCodeModelResolver
 
@@ -128,7 +132,7 @@ class ChannelFinderICContext:
                     "redeploy."
                 )
             self._subagent_model_id = spec.default_model_id
-            self._subagent_provider = ic_provider if ic_provider else spec.provider
+            self._subagent_provider = ic_provider or spec.provider
 
         # Pace the subagent to its provider's catalog cap; a provider without one is
         # not paced.

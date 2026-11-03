@@ -97,7 +97,7 @@ export function facilityZone() {
       if (!warnedIds.has(id)) {
         warnedIds.add(id);
         console.warn(
-          `Facility time zone "${id}" is unknown to this browser; times show in ${viewerZone()}.`,
+          `Facility time zone "${id}" is unknown to this browser; times show in ${viewerZone()}.`
         );
       }
     }

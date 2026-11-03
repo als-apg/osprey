@@ -123,6 +123,8 @@ temp/
 *.bmp
 *.tiff
 *.ico
+# The control-assistant template's CANOPY screens ship their images.
+!src/osprey/templates/apps/control_assistant/data/canopy/library/screens/**/images/*.jpg
 
 # Landing-page demo video: recorded takes are never committed; the docs build
 # downloads the MP4s from the release manifest.json names. The posters and
@@ -176,10 +178,15 @@ data/benchmarks/cross_paradigm/tier*/
 # Vendor assets (fetched at build time via `osprey vendor fetch`)
 src/osprey/interfaces/artifacts/static/js/vendor/
 src/osprey/interfaces/artifacts/static/css/vendor/
-src/osprey/interfaces/web_terminal/static/vendor/
+src/osprey/interfaces/web_terminal/static/vendor/*
+# The dock engine is tracked: vendored from CANOPY's screen runtime at a pinned commit.
+!src/osprey/interfaces/web_terminal/static/vendor/dock-engine.mjs
+!src/osprey/interfaces/web_terminal/static/vendor/dock-engine.d.mts
 src/osprey/interfaces/bluesky_web/panels/bluesky/vendor/
 src/osprey/interfaces/tuning/static/vendor/
 src/osprey/interfaces/lattice_dashboard/static/vendor/
+# The okf panel's own vendored marked.min.js is tracked; only DOMPurify is fetched.
+src/osprey/interfaces/okf_panel/static/vendor/purify.min.js
 tests/e2e/claude_code/benchmark_results/
 
 # Benchmark results accidentally produced inside the packaged template tree

@@ -35,7 +35,8 @@ preset admits), the keys of the frozen root render are partitioned into:
     Keys a profile SECTION other than ``config:`` stands for — the ``bluesky:``
     bridge and its panel, the ``va_archiver:`` store and recorder, the
     ``virtual_accelerator:`` soft IOC and its stand-in, the ``dispatch:``
-    services and panel, an ``mcp_servers:`` entry, the ``web_panels:``
+    services and panel, the ``agent_record:`` block every deployment renders
+    (defaulted when absent), an ``mcp_servers:`` entry, the ``web_panels:``
     selection, and the conventions the build registers as user-owned.
 
 The sets are pairwise disjoint and their union is the render. A key in
@@ -47,6 +48,9 @@ The fixtures are frozen by ``freeze.py`` from the live tree, with
 ``api.providers`` masked to a sorted name list and ``project_root`` /
 ``execution.environment`` stripped (see ``meta.json``); both masked keys are
 members of ``D``, so the partition is unaffected.
+Each frozen render is read with its declared
+:data:`~tests.cli.test_explicit_config_equivalence.CELL_DELTAS` applied, so the
+partition is checked on the render the live tree builds.
 """
 
 from __future__ import annotations
@@ -80,6 +84,11 @@ from osprey.deployment.web_terminals.render_naming import (
 )
 from osprey.port_layout import DEFAULT_PORT_BASE
 from osprey.profiles.providers import load_provider_catalog
+from tests.cli.test_explicit_config_equivalence import (
+    _CATALOG_ADDITIONS,
+    ABSENT,
+    CELL_DELTAS,
+)
 
 FIXTURE_ROOT = Path(__file__).resolve().parents[1] / "fixtures" / "explicit_config"
 
@@ -138,7 +147,27 @@ def _leaves(node: Any, prefix: tuple[str, ...] = ()) -> Iterator[tuple[str, Any]
 
 
 def _render(directory: str, document: str = "root") -> dict[str, Any]:
-    return dict(_leaves(yaml.safe_load((FIXTURE_ROOT / directory / f"{document}.yml").read_text())))
+    """The live render the frozen *document* stands for, as dotted leaves.
+
+    The fixtures stay frozen at the baseline; the leaves a change moves are
+    declared in :data:`~tests.cli.test_explicit_config_equivalence.CELL_DELTAS`,
+    which the equivalence test proves exact against a live build. Applying them
+    here partitions the render the tree now builds, not the one it used to.
+    A pending delta is a prediction, not yet the render, so it is not applied.
+    """
+    leaves = dict(
+        _leaves(yaml.safe_load((FIXTURE_ROOT / directory / f"{document}.yml").read_text()))
+    )
+    for delta in CELL_DELTAS.get(directory, ()):
+        if delta.document != document or delta.pending is not None:
+            continue
+        if delta.added is not None:
+            leaves[delta.path] = sorted([*leaves[delta.path], *delta.added])
+        elif delta.live is ABSENT:
+            leaves.pop(delta.path, None)
+        else:
+            leaves[delta.path] = delta.live
+    return leaves
 
 
 def _preset_document(preset: str) -> dict[str, Any]:
@@ -205,6 +234,9 @@ def _block_derived_prefixes(document: Mapping[str, Any]) -> dict[str, str]:
             prefixes[prefix] = "dispatch:"
     for name in document.get("mcp_servers") or {}:
         prefixes[f"claude_code.servers.{name}"] = "mcp_servers:"
+    # Every deployment renders its agent record from the `agent_record:`
+    # section, defaulted when the profile leaves it out.
+    prefixes["agent_record"] = "agent_record:"
     # The build names the limits database it writes in every render whose
     # config states a limits block.
     if any(".limits_checking." in f".{key}" for key in _config_leaves(document)):
@@ -373,9 +405,37 @@ def test_ports_are_the_layout_fill_and_nothing_else(
 def test_provider_catalog_covers_the_render(
     _preset: str, _mode: str | None, directory: str, tmp_path: Path
 ) -> None:
-    """The render lists exactly the packaged provider catalog."""
+    """The render lists the packaged catalog, short only of the declared additions."""
     rendered_names = set(_render(directory)[_PROVIDERS_KEY])
-    assert rendered_names == set(load_provider_catalog(tmp_path).entries), directory
+    catalog_names = set(load_provider_catalog(tmp_path).entries)
+    assert rendered_names | set(_CATALOG_ADDITIONS) == catalog_names, directory
+
+
+def test_catalog_additions_are_catalog_entries_no_fixture_lists(tmp_path: Path) -> None:
+    """Each declared catalog addition is packaged, and postdates every fixture.
+
+    An addition no fixture lacks would be a stale declaration; one the catalog
+    does not carry would be a typo the assertion above cannot name.
+    """
+    additions = set(_CATALOG_ADDITIONS)
+    assert additions <= set(load_provider_catalog(tmp_path).entries)
+    for _preset, _mode, directory in _cells():
+        for path in sorted((FIXTURE_ROOT / directory).glob("*.yml")):
+            # The frozen file itself: _render applies these very additions.
+            listed = set(dict(_leaves(yaml.safe_load(path.read_text())))[_PROVIDERS_KEY])
+            assert not listed & additions, f"{directory}/{path.stem}"
+
+
+def test_no_cell_declares_a_leaf_twice() -> None:
+    """No cell declares two deltas for the same ``(document, path)``.
+
+    The equivalence check indexes a cell's deltas by that key, so a second delta
+    for a leaf would silently replace the first.
+    """
+    for cell, deltas in CELL_DELTAS.items():
+        keys = [delta.key for delta in deltas]
+        duplicates = sorted({key for key in keys if keys.count(key) > 1})
+        assert not duplicates, f"{cell}: {duplicates}"
 
 
 def _render_cells() -> list[tuple[str, str, str]]:
@@ -427,8 +487,19 @@ def test_render_stays_inside_the_partition(stem: str, preset: str, directory: st
     document = _layer_document(preset, stem, kind)
     config = _config_leaves(document)
     block_prefixes = _block_derived_prefixes(document)
-    panel_switches = _panel_switches(document) | _carried_block_switches(render, config)
     root_document = _preset_document(preset)
+    # A tier that excludes a panel still inherits the root's
+    # `web.panels.<id>.*` keys (a tier cannot subtract `config:`), and the
+    # build switches that block off, so the switch is the build's.
+    panel_switches = (
+        _panel_switches(document)
+        | _carried_block_switches(render, config)
+        | {
+            f"web.panels.{key.split('.')[2]}.enabled"
+            for key in _config_leaves(root_document)
+            if key.startswith("web.panels.") and key.count(".") >= 3
+        }
+    )
     corpus = set(graphdb_corpus_fill(dict(root_document.get("config") or {})))
     unclaimed = [
         key

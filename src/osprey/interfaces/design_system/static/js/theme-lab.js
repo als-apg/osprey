@@ -70,7 +70,6 @@
  * validator can never disagree.
  */
 
-
 /** @typedef {{r: number, g: number, b: number}} Rgb */
 /** @typedef {{h: number, s: number, l: number}} Hsl  hue in degrees, s/l in percent */
 /** @typedef {'dark' | 'light'} ThemeMode */
@@ -531,8 +530,7 @@ export function evaluateGates(derived, scopeColors) {
   ];
   return GATES.map((gate, index) => {
     const [foreground, against] = pairs[index];
-    const ratio =
-      foreground === null || against === null ? 1 : contrastRatio(foreground, against);
+    const ratio = foreground === null || against === null ? 1 : contrastRatio(foreground, against);
     return { name: gate.name, ratio, threshold: gate.threshold, pass: ratio >= gate.threshold };
   });
 }
@@ -586,7 +584,10 @@ export function checkCollision(slug, manifest) {
   for (const mode of ['dark', 'light']) {
     const derivedId = `${slug}-${mode}`;
     if (manifest.ids.includes(derivedId)) {
-      return { collides: true, reason: `"${slug}" would produce the existing theme "${derivedId}"` };
+      return {
+        collides: true,
+        reason: `"${slug}" would produce the existing theme "${derivedId}"`,
+      };
     }
   }
   return { collides: false, reason: null };
@@ -807,9 +808,7 @@ export function buildExportMarkdown(input) {
   lines.push(
     `   \`$extensions\` to \`{"mode": "dark"|"light", "id": "${slug}-dark"|"${slug}-light",`
   );
-  lines.push(
-    `   "label": "${label || slug}", "family": "${slug}", "family_label": "<label>"}\``
-  );
+  lines.push(`   "label": "${label || slug}", "family": "${slug}", "family_label": "<label>"}\``);
   lines.push('   (no `"default": true` — that belongs to the shipped default theme).');
   lines.push('   `family_label` is optional: set it when the family id does not title-case');
   lines.push('   into the name the theme switcher should show, and drop it when it does.');

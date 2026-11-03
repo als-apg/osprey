@@ -27,7 +27,6 @@ from __future__ import annotations
 from contextlib import contextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING
-from unittest.mock import patch
 
 import pytest
 from fastapi import FastAPI
@@ -35,8 +34,9 @@ from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
 import osprey.interfaces.design_system as design_system_pkg
-from tests.interfaces._panel_launch import publish_artifact_url
-from tests.interfaces.conftest import _apply_all, _run_app_server
+from osprey.interfaces._serving import run_app_server
+from tests.interfaces._hub import hub_server
+from tests.interfaces.web_terminal._surface import arm_terminal_tab
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -142,32 +142,10 @@ def _hub_live_server(
     Yields:
         The hub's base URL.
     """
-    if custom_panels is None:
-        custom_panels = []
-
-    patches = [
-        patch(
-            "osprey.interfaces.web_terminal.app._load_web_config",
-            return_value={"watch_dir": str(workspace_dir)},
-        ),
-        patch(
-            "osprey.interfaces.web_terminal.app._load_panel_config",
-            return_value=(enabled_panels, custom_panels, None),
-        ),
-        patch(
-            "osprey.interfaces.web_terminal.app._launch_panel_server",
-            side_effect=publish_artifact_url(),
-        ),
-    ]
-
-    # Patches stay live across create_app() AND the server lifespan (nested
-    # _run_app_server), so the join happens while patched — see _run_app_server.
-    with _apply_all(patches):
-        from osprey.interfaces.web_terminal.app import create_app
-
-        app = create_app(shell_command=["echo", "hello"])
-        with _run_app_server(app) as base_url:
-            yield base_url
+    with hub_server(
+        workspace_dir, enabled_panels=enabled_panels, custom_panels=custom_panels or ()
+    ) as (base_url, _app):
+        yield base_url
 
 
 # ---------------------------------------------------------------------------
@@ -201,19 +179,23 @@ def _goto_with_seeded_theme(
 
 
 def _flip_hub_theme(page: Page) -> None:
-    """Flip the hub's light/dark appearance via the header display-menu popover.
+    """Flip the hub's light/dark appearance via the sidebar's ☰ More menu.
 
-    The always-visible ``osprey-theme-switcher`` was replaced on the hub by the
-    shared ``<osprey-display-menu>``: the appearance control now lives inside a
-    popover that must be opened first, and its two options are explicit
-    light/dark buttons (clicking the already-active side no-ops in the
-    component), so a flip means opening the trigger and clicking the option
-    opposite the current theme.
+    The appearance control is a group of ``menuitemradio`` rows inside the
+    More menu, which must be opened first; its options are explicit
+    light/dark/auto rows, so a flip means opening the menu and clicking the
+    row opposite the current theme. The menu is closed afterwards so the
+    caller's next click lands on the page, not on the popover.
     """
     current = page.evaluate("document.documentElement.getAttribute('data-theme')")
     target = "light" if current == "dark" else "dark"
-    page.click("#display-menu .display-menu-trigger")
-    page.click(f'#display-menu .display-menu-card .display-seg-option[data-appearance="{target}"]')
+    menu = page.locator("#more-menu")
+    page.click("#more-btn")
+    expect(menu).to_be_visible()
+    page.click(f'#more-menu [role="menuitemradio"][data-appearance="{target}"]')
+    if menu.is_visible():
+        page.keyboard.press("Escape")
+    expect(menu).to_be_hidden()
 
 
 def _collect_sentinel_errors(page: Page) -> list[str]:
@@ -377,7 +359,7 @@ def test_broadcast_reaches_embedded_iframe(tmp_path, chromium_browser):
     workspace = tmp_path / "_agent_data"
     workspace.mkdir()
 
-    with _run_app_server(_create_follower_app()) as follower_url:
+    with run_app_server(_create_follower_app()) as follower_url:
         follower_panel = {
             "id": "follower",
             "label": "FOLLOWER",
@@ -429,7 +411,7 @@ def test_hidden_iframe_activation_repair(tmp_path, chromium_browser):
     workspace = tmp_path / "_agent_data"
     workspace.mkdir()
 
-    with _run_app_server(_create_follower_app()) as follower_url:
+    with run_app_server(_create_follower_app()) as follower_url:
         follower_panel = {
             "id": "follower",
             "label": "FOLLOWER",
@@ -501,6 +483,7 @@ def test_xterm_palette_switches_on_toggle(tmp_path, chromium_browser):
     with _hub_live_server(workspace, {"artifacts"}) as base_url:
         page = chromium_browser.new_page()
         errors = _collect_sentinel_errors(page)
+        arm_terminal_tab(page)
 
         _goto_with_seeded_theme(page, base_url, "dark")
         page.wait_for_selector(".xterm-viewport", timeout=10_000)

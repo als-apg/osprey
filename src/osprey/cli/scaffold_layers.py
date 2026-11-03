@@ -21,7 +21,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
 
-from osprey_connectors.workspace import APPS_DIRNAME, TIERS_DIRNAME
+from osprey.utils.workspace import APPS_DIRNAME, TIERS_DIRNAME
 
 #: The two kinds of layer file this module writes, named by their folder.
 LayerKind = Literal["tiers", "apps"]
@@ -86,9 +86,14 @@ def plan_layer_files(
     # The repo root is where the reader stands, so headers name `tiers/<n>.yml`
     # with no directory prefix — the same text init writes into a repo root.
     all_texts = _layer_profile_texts(preset, repo_name, "")
-    texts = {
-        relative: text for relative, text in all_texts.items() if relative.startswith(f"{kind}/")
-    }
+    # A bare entry the repo ships a file for is written as that file's path,
+    # as init writes it, so a file init made reads as unchanged here.
+    from osprey.cli.init_revalidate import shipped_shadow_texts
+
+    texts = shipped_shadow_texts(
+        repo_root,
+        {r: text for r, text in all_texts.items() if r.startswith(f"{kind}/")},
+    )
     # The parse is the check that the emission left valid YAML behind; it
     # covers every file before the first write, as at init.
     _parsed_layer_deltas(texts)

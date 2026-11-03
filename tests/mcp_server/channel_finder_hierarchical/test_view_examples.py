@@ -3,17 +3,12 @@
 import json
 from unittest.mock import PropertyMock, patch
 
-from osprey.mcp_server.channel_finder_hierarchical.server_context import (
-    initialize_cf_hier_context,
-)
+import pytest
+
 from osprey.services.channel_finder.feedback.store import FeedbackStore
-from tests.mcp_server.channel_finder_hierarchical.conftest import get_tool_fn
+from tests.mcp_server.conftest import get_tool_fn
 
-
-def _setup(tmp_path, monkeypatch):
-    monkeypatch.chdir(tmp_path)
-    (tmp_path / "config.yml").write_text("{}")
-    initialize_cf_hier_context()
+pytestmark = pytest.mark.usefixtures("cf_hier_context")
 
 
 def _make_store_with_entries(tmp_path):
@@ -40,9 +35,8 @@ def _make_store_with_entries(tmp_path):
     return store
 
 
-def test_view_examples_no_store(tmp_path, monkeypatch):
+def test_view_examples_no_store():
     """Registry has no feedback_store, returns empty."""
-    _setup(tmp_path, monkeypatch)
     with patch(
         "osprey.mcp_server.channel_finder_hierarchical.server_context."
         "ChannelFinderHierContext.feedback_store",
@@ -59,9 +53,8 @@ def test_view_examples_no_store(tmp_path, monkeypatch):
     assert "No feedback data" in result["message"]
 
 
-def test_view_examples_no_keywords_lists_all(tmp_path, monkeypatch):
+def test_view_examples_no_keywords_lists_all(tmp_path):
     """Store with entries, no keywords — returns all summaries."""
-    _setup(tmp_path, monkeypatch)
     store = _make_store_with_entries(tmp_path)
 
     with patch(
@@ -85,9 +78,8 @@ def test_view_examples_no_keywords_lists_all(tmp_path, monkeypatch):
     assert "BAD" in all_text
 
 
-def test_view_examples_with_keywords_returns_matches(tmp_path, monkeypatch):
+def test_view_examples_with_keywords_returns_matches(tmp_path):
     """Keyword search surfaces relevant entries."""
-    _setup(tmp_path, monkeypatch)
     store = _make_store_with_entries(tmp_path)
 
     with patch(
@@ -111,9 +103,8 @@ def test_view_examples_with_keywords_returns_matches(tmp_path, monkeypatch):
     assert len(result["all_examples"]) == 2
 
 
-def test_view_examples_with_exact_query_returns_hints(tmp_path, monkeypatch):
+def test_view_examples_with_exact_query_returns_hints(tmp_path):
     """Exact query match returns hints in exact_match field."""
-    _setup(tmp_path, monkeypatch)
     store = _make_store_with_entries(tmp_path)
 
     with (
@@ -142,9 +133,8 @@ def test_view_examples_with_exact_query_returns_hints(tmp_path, monkeypatch):
     assert "GOOD" in result["exact_match"][0]
 
 
-def test_view_examples_with_keywords_no_match(tmp_path, monkeypatch):
+def test_view_examples_with_keywords_no_match(tmp_path):
     """Unrelated keywords return empty matches but still all summaries."""
-    _setup(tmp_path, monkeypatch)
     store = _make_store_with_entries(tmp_path)
 
     with patch(

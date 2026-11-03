@@ -288,29 +288,19 @@ def _post(
 # --- what never reaches the validator ---------------------------------------
 
 
-def test_a_request_with_no_authorization_header_is_refused_without_a_key_lookup(
-    relay: ModuleType, validator: _Validator
-) -> None:
-    response, queue = _post(relay, authorization=None)
-
-    assert response.status_code == 401
-    assert validator.calls == []
-    assert queue.values == []
-
-
-def test_a_request_authenticating_with_another_scheme_is_refused_without_a_key_lookup(
-    relay: ModuleType, validator: _Validator
-) -> None:
-    response, queue = _post(relay, authorization="Basic dXNlcjpwYXNzd29yZA==")
-
-    assert response.status_code == 401
-    assert validator.calls == []
-    assert queue.values == []
-
-
-@pytest.mark.parametrize("header", ["Bearer", "Bearer ", "Bearer    ", "Bearer \t "])
-def test_a_bearer_header_carrying_no_token_is_refused_without_a_key_lookup(
-    relay: ModuleType, validator: _Validator, header: str
+@pytest.mark.parametrize(
+    "header",
+    [
+        pytest.param(None, id="no-authorization-header"),
+        pytest.param("Basic dXNlcjpwYXNzd29yZA==", id="another-scheme"),
+        pytest.param("Bearer", id="bearer-alone"),
+        pytest.param("Bearer ", id="bearer-and-a-space"),
+        pytest.param("Bearer    ", id="bearer-and-spaces"),
+        pytest.param("Bearer \t ", id="bearer-and-whitespace"),
+    ],
+)
+def test_a_request_carrying_no_bearer_token_is_refused_without_a_key_lookup(
+    relay: ModuleType, validator: _Validator, header: str | None
 ) -> None:
     response, queue = _post(relay, authorization=header)
 

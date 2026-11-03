@@ -347,13 +347,20 @@ class TestALSFileSource:
         assert [e["entry_id"] for e in entries] == ["0", "1"]
 
     @pytest.mark.asyncio
-    async def test_invalid_json_line_is_logged_and_skipped(self, tmp_path, caplog):
-        """One corrupt line does not abort the ingest of the rest of the file."""
+    @pytest.mark.parametrize(
+        ("bad_line", "message"),
+        [
+            # One corrupt line does not abort the ingest of the rest of the file.
+            pytest.param("{not json\n", "Invalid JSON at line 1", id="invalid-json"),
+            # A syntactically valid line of the wrong shape is skipped, not fatal.
+            pytest.param("[1, 2, 3]\n", "Failed to convert entry at line 1", id="unconvertible"),
+        ],
+    )
+    async def test_unreadable_line_is_logged_and_skipped(self, tmp_path, caplog, bad_line, message):
+        """An unreadable line is logged and skipped while the rest of the file is ingested."""
         path = tmp_path / "entries.jsonl"
         path.write_text(
-            "{not json\n"
-            + json.dumps({"id": "ok", "timestamp": "1704067200", "subject": "Fine"})
-            + "\n"
+            bad_line + json.dumps({"id": "ok", "timestamp": "1704067200", "subject": "Fine"}) + "\n"
         )
         adapter = _als_adapter(str(path))
 
@@ -361,25 +368,7 @@ class TestALSFileSource:
             entries = await _collect(adapter.fetch_entries())
 
         assert [e["entry_id"] for e in entries] == ["ok"]
-        assert "Invalid JSON at line 1" in caplog.text
-        assert adapter.unreadable_entries == 1
-
-    @pytest.mark.asyncio
-    async def test_unconvertible_line_is_logged_and_skipped(self, tmp_path, caplog):
-        """A syntactically valid line of the wrong shape is skipped, not fatal."""
-        path = tmp_path / "entries.jsonl"
-        path.write_text(
-            "[1, 2, 3]\n"
-            + json.dumps({"id": "ok", "timestamp": "1704067200", "subject": "Fine"})
-            + "\n"
-        )
-        adapter = _als_adapter(str(path))
-
-        with caplog.at_level(logging.WARNING, logger="ariel"):
-            entries = await _collect(adapter.fetch_entries())
-
-        assert [e["entry_id"] for e in entries] == ["ok"]
-        assert "Failed to convert entry at line 1" in caplog.text
+        assert message in caplog.text
         assert adapter.unreadable_entries == 1
 
 
@@ -928,24 +917,21 @@ class TestALSFetchWindowResponses:
         )
 
     @pytest.mark.asyncio
-    async def test_empty_body_is_empty_window(self):
-        """An empty body means no entries in the range, not a failure."""
-        assert await self._fetch("   ") == []
-
-    @pytest.mark.asyncio
-    async def test_html_body_is_empty_window(self):
-        """The endpoint returns an HTML page for an empty date range."""
-        assert await self._fetch("<html><body>No entries</body></html>") == []
-
-    @pytest.mark.asyncio
-    async def test_doctype_body_is_empty_window(self):
-        """A leading doctype declaration is recognised as HTML too."""
-        assert await self._fetch("<!DOCTYPE html><html></html>") == []
-
-    @pytest.mark.asyncio
-    async def test_non_json_body_is_empty_window(self):
-        """A body that is neither HTML nor JSON is treated as an empty window."""
-        assert await self._fetch("retrieve: no records") == []
+    @pytest.mark.parametrize(
+        "body",
+        [
+            # An empty body means no entries in the range, not a failure.
+            pytest.param("   ", id="empty"),
+            # The endpoint returns an HTML page for an empty date range.
+            pytest.param("<html><body>No entries</body></html>", id="html"),
+            # A leading doctype declaration is recognised as HTML too.
+            pytest.param("<!DOCTYPE html><html></html>", id="doctype"),
+            # A body that is neither HTML nor JSON is treated as an empty window.
+            pytest.param("retrieve: no records", id="non_json"),
+        ],
+    )
+    async def test_body_is_empty_window(self, body):
+        assert await self._fetch(body) == []
 
     @pytest.mark.asyncio
     async def test_non_list_json_is_empty_window(self, caplog):

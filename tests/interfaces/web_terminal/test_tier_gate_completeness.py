@@ -78,8 +78,9 @@ DELIBERATELY_UNGATED: dict[tuple[str, str], str] = {
         "deployment's own diagnostics, authoring nothing and naming no path"
     ),
     ("GET", "/api/hooks/debug-log"): (
-        "serves hook_debug.jsonl entries — diagnostic output the deployment "
-        "wrote about itself; reading it changes no agent-facing instruction"
+        "serves the record's hook debug entries — diagnostic output the "
+        "deployment's hooks wrote about themselves, read under the terminal's "
+        "own login; reading it changes no agent-facing instruction"
     ),
 }
 

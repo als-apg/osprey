@@ -1,16 +1,17 @@
 """Shared execution-mode gates for the ``execute`` and ``execute_file`` tools.
 
 Both tools take an ``execution_mode`` string and guard control-system writes
-with two independent checks: a per-call readonly gate (pattern detection) and a
-deployment-level kill switch (the write posture of the control target the
-deployment is on). Each gate only recognises one canonical spelling, so any
-*other* string falls through both — not "readonly", so write patterns are not
-blocked; not "readwrite", so the kill switch never fires. Rejecting unknown
-modes here closes that hole for every caller at once, and gives the kill switch
-a single implementation instead of one copy per tool. A third gate clamps a run
-to the posture :mod:`osprey.audit.posture` answers with — the deployment's own
-read-only mode, or the operator's per-target narrowing in the control-context
-record — and so refuses in its own vocabulary.
+with two independent checks: a per-call readonly gate (pattern detection) and
+the write verdict for the control target the run will launch on
+(:func:`enforce_posture_clamp`). Each gate only recognises one canonical
+spelling, so any *other* string falls through both — not "readonly", so write
+patterns are not blocked; not "readwrite", so the verdict is never asked.
+Rejecting unknown modes here closes that hole for every caller at once. The
+verdict is :func:`osprey_connectors.posture_store.execution_verdict`, the write
+verdict the connector's reference monitor asks at the moment of every write plus
+the session's hold, and its
+refusal is spoken in that verdict's words
+(:func:`osprey_connectors.refusals.refusal_phrase`).
 
 This module also owns what happens *around* a refusal, which is three things
 the tools must not each spell for themselves: the durable audit record, the
@@ -39,16 +40,22 @@ from __future__ import annotations
 import json
 import logging
 import os
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Sequence
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, NoReturn
+from typing import TYPE_CHECKING, Any, NamedTuple, NoReturn
 
 from osprey.audit import posture
 from osprey.mcp_server.errors import make_error
 from osprey.mcp_server.http import notify_agent_activity_async
+from osprey.mcp_server.python_executor import executor
+from osprey.utils.session_hold_api import execution_verdict
+from osprey_connectors.posture_store import WriteVerdict
+from osprey_connectors.types import baseline_target
 
 if TYPE_CHECKING:
     from osprey.mcp_server.python_executor.executor import ExecutionResult
+    from osprey.services.code_review.contract import ReviewRequest, ReviewSwitchedOff
+    from osprey.services.code_review.review import ReviewOutcome
 
 logger = logging.getLogger("osprey.mcp_server.tools.execution_gates")
 
@@ -153,194 +160,52 @@ def write_activity_detail(has_writes: bool, execution_mode: str) -> str | None:
     return None
 
 
-def recorded_control_target() -> str | None:
-    """The control target this deployment is on, or ``None`` when there is none to read.
+def _launch_target(section: Any) -> str | None:
+    """The control target a run launched now would be about, or ``None``.
 
-    ``None`` is not a failure: it is the honest answer for a deployment that
-    never selected a target, and the posture lookup reads it as the deployment
-    baseline — the connector an unstamped run provably builds.
+    The deployment's control-context record names it — read through the
+    executor's own reader, so this gate and the launch's stamp
+    (:func:`~osprey.mcp_server.python_executor.executor._apply_target_stamp`)
+    cannot read two records. A stamp this process inherited is not consulted:
+    the launch drops it, so a gate that honoured it would answer for a machine
+    the run is never pointed at. With no record the run is unstamped and builds
+    the deployment's baseline connector, so the question is about
+    :func:`~osprey_connectors.types.baseline_target` — and with no record, every
+    switch is off.
 
-    Every way of not knowing lands there too, which is why the read lives here
-    and not inside :func:`enforce_deployment_writes_gate`'s import guard.
-    Failing to learn the target must *narrow* the write question to the
-    baseline; joining a guard whose failure path is ``return`` would drop the
-    write check altogether on a state directory that happened to be unreadable.
+    A record naming a target this deployment cannot build is answered for that
+    target, which the verdict refuses as ``target_unknown``: the launch would
+    pin such a run sandboxed everywhere, and the refusal says why.
+
+    ``None`` (the verdict's ``target_unknown``) when not even the baseline can
+    be named: a ``control_system`` section that names no serving the
+    deployment knows. The record's own reader never raises.
     """
+    record = executor._control_context_record()
+    if record is not None:
+        return str(record.target)
     try:
-        from osprey_connectors import control_context
-
-        record = control_context.read_record()
-    except Exception:
-        logger.warning(
-            "Session control target unavailable — the deployment writes gate "
-            "answers for the baseline target",
-            exc_info=True,
-        )
+        return baseline_target(section)
+    except ValueError:  # an unnameable target is refused by the verdict, never granted
+        logger.warning("Could not name the run's control target; refusing writes", exc_info=True)
         return None
 
-    return None if record is None else str(record.target)
 
+def _launch_verdict() -> WriteVerdict:
+    """The write verdict for the target a run launched now would write to.
 
-def enforce_deployment_writes_gate(execution_mode: str, target: str | None) -> None:
-    """Raise ``ToolError`` (safety_error) on readwrite runs the target's posture does not arm.
-
-    Fires whenever the caller asks for write mode, regardless of whether the
-    pattern detector recognises specific write syntax — the deployment-level
-    kill switch must not depend on detection accuracy.
-
-    Write posture is per control target, so the question is asked about the one
-    the deployment is on: a deployment whose baseline is a live machine can have
-    writes armed on its virtual accelerator and refused on the machine, and a
-    single deployment-wide answer would be wrong for one of them. ``None``
-    means no target was readable, which the posture lookup answers for the
-    baseline rather than by skipping.
-
-    Two postures are consulted, because they refuse for different reasons and
-    an operator reading either message must be told the right way forward: the
-    per-target entry in the control-context record
-    (:func:`_enforce_recorded_posture_term`, changed from the header chip) and the
-    deployment's own config key (changed by editing the project and
-    rebuilding). The record term goes first because the config read's
-    ``ImportError`` path returns, and an unimportable config module must not
-    take the recorded posture down with it.
-
-    Args:
-        execution_mode: The run's mode; only ``"readwrite"`` is gated here.
-        target: The active control target, from
-            :func:`recorded_control_target`, or ``None`` for the baseline.
-    """
-    if execution_mode != "readwrite":
-        return
-
-    # Ahead of the config read, whose ImportError path RETURNS: a config module
-    # that cannot be imported must not take the recorded posture down with
-    # it. The two terms are independent — one reads the project config, the
-    # other a JSON file under the agent-data root — so neither may be gated on
-    # the other's availability.
-    _enforce_recorded_posture_term(target)
-
-    try:
-        from osprey.services.python_executor.execution.control import (
-            get_execution_control_config,
-        )
-
-        exec_control_config = get_execution_control_config(target=target)
-    except ImportError:
-        logger.warning(
-            "Execution control config unavailable — skipping deployment-level writes check"
-        )
-        return
-
-    if (
-        exec_control_config is not None
-        and exec_control_config.control_system_writes_enabled is False
-    ):
-        key = exec_control_config.writes_enabled_key
-        active_target = exec_control_config.active_target
-        scope = f"control target '{active_target}'" if active_target else "this deployment"
-        make_error(
-            "safety_error",
-            f"Control-system writes are disabled for {scope} ({key}=false in project config).",
-            [
-                f"Set {key}=true in the project config to enable writes for {scope}.",
-            ],
-            details={"active_target": active_target, "writes_enabled_key": key},
-        )
-
-
-def _refuse_narrowed_posture(target: str | None, *, details: dict | None = None) -> NoReturn:
-    """Raise the refusal for a control target the operator narrowed to read-only.
-
-    One builder for the two gates that meet this narrowing —
-    :func:`_enforce_recorded_posture_term`, which reads the record directly,
-    and :func:`enforce_posture_clamp`, which meets the same narrowing one layer
-    down through :func:`osprey.audit.posture.posture`. An operator who trips
-    both in one session must not have to work out that they are the same
-    answer, so the wording lives here rather than once in each gate.
-
-    The message names the target when one is resolvable and does not when
-    *target* is ``None``: the record's rule with no resolvable target is that
-    the most restrictive entry decides, and which entry that was is not
-    something either gate can honestly report.
-
-    Args:
-        target: The narrowed control target, or ``None`` when none could be
-            resolved.
-        details: The structured block to attach, for the caller that carries
-            one. ``None`` omits it entirely, exactly as ``make_error`` does.
-    """
-    readonly_suggestion = (
-        'Re-run with execution_mode="readonly" — reads are unaffected by the posture.'
-    )
-    if target is None:
-        make_error(
-            "safety_error",
-            "Writes are off for at least one control target (the run's target "
-            "could not be identified, so the most restrictive decides) — turned "
-            "off from the control-target chip in the header.",
-            [
-                readonly_suggestion,
-                "Turn writes back on from the control-target chip in the header if "
-                "the write is intended; the deployment config is not the gate here.",
-            ],
-            details=details,
-        )
-    make_error(
-        "safety_error",
-        f"Writes are off for the '{target}' control target — turned off from the "
-        "control-target chip in the header; applies to every session of this login.",
-        [
-            readonly_suggestion,
-            f"Turn writes back on for '{target}' from the control-target chip in "
-            "the header if the write is intended; the deployment config is not "
-            "the gate here.",
-        ],
-        details=details,
-    )
-
-
-def _enforce_recorded_posture_term(target: str | None) -> None:
-    """Raise ``ToolError`` (safety_error) when the RECORD narrowed this target.
-
-    :func:`enforce_posture_clamp` above already refuses a sandboxed run, and
-    where the control target is knowable it is the gate that fires —
-    :func:`osprey.audit.posture.posture` resolves that target and reads the same
-    record. This term exists for the case it cannot cover: when nothing can say
-    which target the deployment is on (no control-context record — the MCP
-    servers are not installed), ``posture()`` degrades to the ENVIRONMENT
-    answer, which for this feature is always the writes posture because no
-    spawn site stamps a per-target narrowing into it. Without this the run
-    would be granted writes that the header chip took away.
-
-    The rule for that case is the record's own: with no resolvable target, the
-    MOST RESTRICTIVE narrowing it holds decides — which is exactly what
-    :func:`~osprey_connectors.posture_store.store_permits` does when it is
-    handed ``None``, so it is asked rather than restated here.
-
-    Degrades like the deployment check above: a record that cannot be read at
-    all is logged and skipped rather than turned into a refusal on every run.
-    The barrier this backs up is not this gate but the connector's own
-    reference monitor inside the sandbox, which asks the same question of the
-    same file at the moment of the write.
+    :func:`osprey_connectors.posture_store.execution_verdict` over the deployment's
+    ``control_system`` section (:func:`osprey.audit.posture.control_system_section`)
+    and :func:`_launch_target`, with the owner left to the verdict's own
+    ladder. Never raises: a verdict that cannot be reached refuses as
+    ``record_unavailable``.
     """
     try:
-        from osprey_connectors.posture_store import store_permits
-
-        permitted = store_permits(target)
-    except Exception:  # the store degrades; the run does not fail here
-        logger.warning(
-            "Recorded write posture unavailable — skipping the record writes check",
-            exc_info=True,
-        )
-        return
-
-    if permitted:
-        return
-
-    # One builder with the clamp one layer down: an operator who meets both
-    # gates in one session should not have to work out that they are the same
-    # answer.
-    _refuse_narrowed_posture(target, details={"active_target": target})
+        section = posture.control_system_section()
+        return execution_verdict(section, _launch_target(section))
+    except Exception:  # execution_verdict never raises by contract; refuse if it does
+        logger.warning("Write verdict could not be reached; refusing", exc_info=True)
+        return WriteVerdict(allowed=False, reason="record_unavailable", target=None, kind=None)
 
 
 def _tool_subject(tool: str) -> str:
@@ -379,8 +244,21 @@ def _refusal_detail(
     return " ".join(parts)
 
 
-def _record_posture_clamp(tool: str) -> None:
-    """File the posture refusal, and claim it for this layer.
+def _verdict_detail(verdict: WriteVerdict) -> str:
+    """``reason=<r> target=<t>`` for one verdict refusal; no ``target`` when unnamed."""
+    parts = [f"reason={verdict.reason}"]
+    if verdict.target:
+        parts.append(f"target={verdict.target}")
+    return " ".join(parts)
+
+
+def _record_posture_clamp(tool: str, verdict: WriteVerdict) -> None:
+    """File the verdict's refusal, and claim it for this layer.
+
+    Filed under :data:`REASON_POSTURE` with detail ``reason=<r> target=<t>`` —
+    the verdict's reason and the target it was asked about, the same words
+    the audit middleware's backstop files — so a ledger query for one refusal
+    reads alike at every layer. The target is left off when none was named.
 
     Goes through :func:`~osprey.audit.dedup.record_and_mark` rather than the
     writer directly: this gate runs *inside* the MCP audit middleware, which
@@ -406,56 +284,33 @@ def _record_posture_clamp(tool: str) -> None:
             posture_source=posture.posture_source(),
             session=posture.posture_session(),
             subject=_tool_subject(tool),
-            detail=f"tool={tool}",
+            detail=_verdict_detail(verdict),
         )
     except Exception:  # the audit trail degrades; the refusal does not
         logger.warning("Could not record the posture refusal", exc_info=True)
 
 
 def enforce_posture_clamp(execution_mode: str, *, tool: str) -> None:
-    """Raise ``ToolError`` (safety_error) on readwrite runs the posture refuses.
+    """Raise ``ToolError`` (safety_error) on readwrite runs the write verdict refuses.
 
-    :func:`osprey.audit.posture.posture` answers ``sandbox`` for two different
-    reasons, and the operator's next move is different for each — so the
-    refusal forks on the source:
+    The verdict is asked about the control target the run would launch on
+    (:func:`_launch_target`): the record's target, or the deployment's baseline
+    when there is no record. Its terms decide in their one order — a read-only
+    run, a tier that allows nothing, an unknown target or owner, an unreadable
+    record, a switch that is off — and the refusal is that reason's phrase
+    (:func:`osprey_connectors.refusals.refusal_phrase`), naming the machine's
+    kind. The phrase says who can lift the refusal and names no config key.
 
-    * the **deployment** is running in readonly execution mode, i.e.
-      ``OSPREY_EXECUTION_MODE`` is set to ``readonly`` on this very process.
-      ``posture()`` short-circuits to that ENVIRONMENT answer before the record
-      is ever consulted. No chip click can lift it: the run has to be started
-      without the variable, so the message must not send the operator to the
-      chip, which already reads writes.
-    * the **recorded posture for ONE control target** is read-only, resolved
-      from the control-context record. That is the operator's own narrowing,
-      made from the control-target chip in the header, and the chip is where it
-      lifts. It is per target, so the message names the target — this gate runs
-      before every readwrite tool call, and an unqualified "writes are off"
-      would read as a block on every machine while the deployment is working
-      normally on every other one. The target is resolved through
-      :func:`~osprey.audit.posture.recorded_control_target`, the same resolver
-      :func:`~osprey.audit.posture.posture` used to decide the clamp fires at
-      all, so the name in the refusal is the machine the clamp fired for.
-      Where that resolver cannot name a target the refusal says so and names no
-      machine, rather than inventing one: the store's rule with no resolvable
-      target is that the most restrictive entry decides, and which entry that
-      was is not something this gate can honestly report.
-
-    Either way this gate is what makes the executor obey the answer: without
-    it, an agent could ask for ``readwrite`` and get it, because the deployment
-    kill switch above only knows about ``writes_enabled`` and has nothing to
-    say about either of these.
-
-    The environment test is a **value** comparison, deliberately mirroring
-    ``osprey_connectors``' ``is_readonly_run``: only the exact string
-    ``"readonly"`` names a read-only run. A presence check would claim one for
-    every process whose environment carries the variable for any other reason
-    — including the executor's own per-run ``"readwrite"``.
+    This gate is admission only. The run's launch pin is the same verdict with
+    the pin ignored (:func:`~osprey.mcp_server.python_executor.executor._launch_posture`),
+    and the connector's reference monitor asks it again on every write, so a
+    switch turned off reaches a run that is already going at its next write.
 
     A refusal is recorded in the unified ledger on the ``executor`` surface and
     marked as this layer's own — see :func:`_record_posture_clamp`. Nothing is
-    recorded when the gate does not fire: a readonly run and a session that was
-    never sandboxed are both ordinary, and a ledger that logged them would bury
-    the refusals it exists for.
+    recorded when the gate does not fire: a readonly run and an allowed one are
+    both ordinary, and a ledger that logged them would bury the refusals it
+    exists for.
 
     Args:
         execution_mode: The mode this call asked for.
@@ -466,30 +321,21 @@ def enforce_posture_clamp(execution_mode: str, *, tool: str) -> None:
     """
     if execution_mode != "readwrite":
         return
-    if posture.posture() != POSTURE_SANDBOX:
+    verdict = _launch_verdict()
+    if verdict.allowed:
         return
 
-    _record_posture_clamp(tool)
+    _record_posture_clamp(tool, verdict)
 
-    # Which of the two causes, and which machine, is decided once for every
-    # surface that refuses under this posture — see
-    # :func:`~osprey.audit.posture.sandbox_cause`. Only the wording is this
-    # gate's own.
-    cause, target = posture.sandbox_cause()
-    if cause == posture.CAUSE_DEPLOYMENT_READONLY:
-        make_error(
-            "safety_error",
-            "This deployment is running in readonly execution mode, which refuses "
-            "control-system writes regardless of what the run asks for.",
-            [
-                'Re-run with execution_mode="readonly" — reads are unaffected.',
-                "Writes need the deployment started without "
-                "OSPREY_EXECUTION_MODE=readonly; the control-target chip in the "
-                "header cannot lift a deployment-wide read-only run.",
-            ],
-        )
+    from osprey_connectors.refusals import refusal_text
 
-    _refuse_narrowed_posture(target)
+    reason = verdict.reason or "record_unavailable"
+    make_error(
+        "safety_error",
+        refusal_text(reason, verdict.kind, detail=verdict.detail),
+        ['Re-run with execution_mode="readonly" — reads are unaffected.'],
+        details={"reason": reason, "target": verdict.target},
+    )
 
 
 def _record_write_refusal(
@@ -785,6 +631,265 @@ def _refusal_lines(stderr: str, marker: str) -> list[str]:
 _SAFETY_SUBJECT = {"execute_file": "File"}
 
 
+def _record_review(outcome: ReviewOutcome, request: ReviewRequest) -> None:
+    """File one review's value-free record.
+
+    A refusal goes through :func:`~osprey.audit.dedup.record_and_mark`, so the MCP audit
+    middleware defers to it. A proceed goes through the writer, and the middleware still files
+    the call. Never raises: the audit trail degrades, the outcome does not.
+    """
+    try:
+        from osprey.audit import writer
+        from osprey.audit.dedup import record_and_mark
+        from osprey.audit.envelope import SURFACE_EXECUTOR
+        from osprey.services.code_review.review import ACTION_REFUSE, audit_fields
+
+        fields = audit_fields(outcome, request)
+        file_record = record_and_mark if outcome.action == ACTION_REFUSE else writer.record
+        file_record(
+            decision=fields.decision,
+            reason=fields.reason,
+            surface=SURFACE_EXECUTOR,
+            posture=posture.posture(),
+            posture_source=posture.posture_source(),
+            session=posture.posture_session(),
+            subject=fields.subject,
+            detail=fields.detail,
+        )
+    except Exception:
+        logger.warning("Could not record the code review", exc_info=True)
+
+
+async def _send_review_notice(tool: str, outcome: ReviewOutcome, request: ReviewRequest) -> None:
+    """Tell the operator's activity feed, when the outcome has anything to tell it."""
+    from osprey.services.code_review.review import notice_text
+
+    text = notice_text(outcome, request)
+    if text is None:
+        return
+    try:
+        await notify_agent_activity_async(tool, "review", detail=text)
+    except Exception:  # a notice is best-effort and never changes the outcome
+        logger.warning("Could not send the code review notice", exc_info=True)
+
+
+async def _conclude_review(tool: str, outcome: ReviewOutcome, request: ReviewRequest) -> str | None:
+    """Record an outcome, send its notice, and refuse the run if the outcome stops it.
+
+    Returns:
+        What the review has to say to the agent about a run that proceeds, if anything.
+
+    Raises:
+        Whatever :func:`make_error` raises for ``review_blocked`` or ``review_unavailable``.
+    """
+    from osprey.services.code_review.contract import ReviewFailure, ReviewVerdict
+    from osprey.services.code_review.review import ACTION_REFUSE, agent_message
+
+    _record_review(outcome, request)
+    await _send_review_notice(tool, outcome, request)
+    message = agent_message(outcome)
+    if outcome.action != ACTION_REFUSE:
+        return message
+    result = outcome.result
+    if isinstance(result, ReviewFailure):
+        make_error("review_unavailable", str(message), details={"kind": result.kind})
+    if not isinstance(result, ReviewVerdict):  # a switched-off review never refuses
+        return message
+    return make_error(
+        "review_blocked",
+        str(message),
+        details={
+            "verdict": result.verdict,
+            "reasons": list(result.reasons),
+            "suggested_revision": result.suggested_revision,
+        },
+    )
+
+
+def _stamped_review(tool: str, gated: str) -> tuple[bool, str | None]:
+    """Whether the approval prompt reviewed *gated* for this call, and what it told the agent.
+
+    The stamp is the one :func:`~osprey.mcp_server.approval_record.require_approval_record`
+    reads, for the call in scope, and it must name *tool*. Never raises: a stamp that cannot be
+    read is no review, and the review here runs.
+    """
+    try:
+        from osprey.audit.call import current_tool_use_id
+        from osprey.mcp_server.approval_record import approval_ask_stamp
+        from osprey.services.code_review.stamp import stamped_review
+
+        stamp = approval_ask_stamp(current_tool_use_id())
+        if stamp is None or not str(stamp.get("tool") or "").endswith(tool):
+            return False, None
+        return stamped_review(stamp, gated)
+    except Exception:
+        logger.warning("Could not read the prompt's review from the ask stamp", exc_info=True)
+        return False, None
+
+
+async def _review_switched_off() -> ReviewSwitchedOff | None:
+    """Whether an admin switched code review off in this session's terminal; off a thread.
+
+    :func:`~osprey.services.code_review.switch.switched_off` fails closed, so only an
+    answer saying off skips the review.
+    """
+    import anyio
+
+    from osprey.services.code_review.switch import switched_off
+
+    return await anyio.to_thread.run_sync(switched_off)
+
+
+class _PreLaunchReview(NamedTuple):
+    """What the review before the launch came to.
+
+    Attributes:
+        message: What the review has to say to the agent about a run that proceeds, if anything.
+        spared: The request whose review was skipped because the executor was about to decline
+            the run; ``None`` when there was nothing to spare.
+        level: The level *spared* was skipped under.
+    """
+
+    message: str | None
+    spared: ReviewRequest | None = None
+    level: str | None = None
+
+
+async def _review_before_launch(
+    *,
+    tool: str,
+    code: str,
+    gated: str,
+    description: str,
+    execution_mode: str,
+    project_root: Path | None,
+    script_args: Sequence[str],
+    approved_target: str | None,
+    approved_view_sha256: str | None,
+) -> _PreLaunchReview:
+    """Review the code when this deployment asks for it, and refuse what the review stops.
+
+    Nothing is reviewed when the feature is off, when the mode is not one it reviews, or when
+    the executor would decline the run anyway: that decline stays ``execute_code``'s to produce.
+    That last skip is a prediction the launch re-decides, so it comes back as ``spared`` and the
+    launch is held to it (:func:`run_gated_execution`).
+    A section that cannot be read refuses in every mode, since the set to review is unknown.
+    A review an admin switched off in this session's terminal, asked right before it would run,
+    is recorded as skipped and the run goes ahead (:mod:`osprey.services.code_review.switch`).
+
+    A call the approval prompt already reviewed is not reviewed again: its ask stamp carries the
+    digest of the code the reviewer read and what the agent is told
+    (:mod:`osprey.services.code_review.stamp`), and a digest that is this code's answers for it.
+    That makes this gate the only review of a run no prompt saw: a governed call with the write
+    switch at ``allowed``, a read-only run, a hook that could not review.
+
+    Args:
+        tool: Tool name as the agent knows it.
+        code: The source the launch receives, which the executor's own checks read.
+        gated: The source as the operator reads it, which is what gets reviewed.
+        description: Caller's description.
+        execution_mode: ``"readonly"`` or ``"readwrite"``.
+        project_root: Project root when the caller resolved one.
+        script_args: The script's arguments, for ``execute_file``.
+        approved_target: The control target the approval hook put into the call.
+        approved_view_sha256: The view digest the approval hook put into the call.
+
+    Returns:
+        The review's message, and the request it spared when it skipped on a predicted decline.
+
+    Raises:
+        Whatever :func:`make_error` raises for ``review_blocked`` or ``review_unavailable``.
+    """
+    from osprey.services.code_review.contract import (
+        SURFACE_EXECUTE,
+        ReviewFailure,
+        ReviewRequest,
+    )
+    from osprey.services.code_review.settings import ReviewConfigError, load_review_settings
+
+    subject = _tool_subject(tool)
+    try:
+        settings = load_review_settings(None)
+    except ReviewConfigError as exc:
+        from osprey.services.code_review.review import decide
+
+        # Before any level or any question about the run: the record names neither.
+        request = ReviewRequest(
+            surface=SURFACE_EXECUTE, code=gated, subject=subject, description=description
+        )
+        return _PreLaunchReview(
+            await _conclude_review(tool, decide(ReviewFailure("config", str(exc)), None), request)
+        )
+    if not settings.enabled or execution_mode not in settings.modes:
+        return _PreLaunchReview(None)
+
+    from osprey.mcp_server.python_executor.executor import (
+        _resolve_project_root,
+        admission_refusal,
+    )
+    from osprey.services.code_review.review import review_code
+    from osprey_connectors.workspace import resolve_config_path
+
+    approved = {
+        "approved_target": approved_target,
+        "approved_view_sha256": approved_view_sha256,
+    }
+    request = ReviewRequest(
+        surface=SURFACE_EXECUTE,
+        code=gated,
+        subject=subject,
+        description=description,
+        mode=execution_mode,
+        script_args=tuple(script_args),
+    )
+    if admission_refusal(code, execution_mode, tool, approved):
+        return _PreLaunchReview(None, request, settings.level)
+
+    reviewed, stamped_message = _stamped_review(tool, gated)
+    if reviewed:
+        return _PreLaunchReview(stamped_message)
+
+    off = await _review_switched_off()
+    if off is not None:
+        from osprey.services.code_review.review import skip_switched_off
+
+        return _PreLaunchReview(
+            await _conclude_review(tool, skip_switched_off(off, settings.level), request)
+        )
+    outcome = await review_code(
+        request,
+        settings,
+        repo_root=project_root if project_root is not None else _resolve_project_root(),
+        render_dir=resolve_config_path().parent,
+    )
+    return _PreLaunchReview(await _conclude_review(tool, outcome, request))
+
+
+async def _conclude_spared_review(
+    tool: str, review: _PreLaunchReview, exec_result: ExecutionResult
+) -> str | None:
+    """Answer for a review spared on a decline the launch did not make.
+
+    Only ``flag`` answers here: under ``block`` the launch was held to the decline and refused a
+    run it admitted (:data:`~osprey.mcp_server.python_executor.executor.FAILURE_KIND_UNREVIEWED`).
+    A run that started is recorded and told as a review that did not run, which is what ``flag``
+    does with one.
+    """
+    if (
+        review.spared is None
+        or review.level != "flag"
+        or exec_result.failure_kind in executor.NOT_STARTED_FAILURE_KINDS
+    ):
+        return review.message
+    from osprey.services.code_review.contract import ReviewFailure
+    from osprey.services.code_review.review import decide
+
+    failure = ReviewFailure(
+        "skipped", "the run was about to be declined, and by the launch it no longer was"
+    )
+    return await _conclude_review(tool, decide(failure, review.level), review.spared)
+
+
 async def run_gated_execution(
     *,
     tool: str,
@@ -796,20 +901,21 @@ async def run_gated_execution(
     notify: Callable[..., Awaitable[Any]] | None = None,
     approved_target: str | None = None,
     approved_view_sha256: str | None = None,
+    code_review: bool = True,
+    script_args: Sequence[str] = (),
 ) -> tuple[ExecutionResult, dict]:
     """Run *code* through every executor gate, launch it, and report the run.
 
     The one gate sequence every executor tool runs, in this order: the posture
     clamp, ``quick_safety_check``, the path policy, the readonly import
-    denylist, pattern detection, the deployment writes gate, the readonly
-    pattern refusal, the launch, the write-activity report and the
-    runtime-refusal report. A call that trips several gates is told about the
+    denylist, pattern detection, the readonly pattern refusal, the code review, the launch, the
+    write-activity report and the runtime-refusal report. A call that trips several gates is told about the
     first one only, so the order is part of what every tool says, and keeping
     it here is what stops two tools from drifting apart on it.
 
     The posture clamp goes first on purpose. Whether this *session* may write
-    at all is not a question the deployment config, the pattern detector or the
-    path policy get a say in, and a sandboxed caller should be told that rather
+    at all is not a question the pattern detector or the path policy get a say
+    in, and a sandboxed caller should be told that rather
     than whatever a later gate happens to object to first. It is also what
     makes the executor's ``sandbox_env["OSPREY_EXECUTION_MODE"] =
     execution_mode`` overwrite safe: under the sandbox posture the only mode
@@ -846,6 +952,9 @@ async def run_gated_execution(
             call, handed to the launch.
         approved_view_sha256: The pyAML view digest the approval hook put into
             the call, handed to the launch.
+        code_review: Whether this tool's code is reviewed at all. ``False`` skips the settings
+            load too, so a malformed ``code_review`` section never refuses such a tool.
+        script_args: The script's arguments, which only the review request uses.
 
     Returns:
         ``(exec_result, patterns)`` — the backend's result and the pattern
@@ -920,10 +1029,6 @@ async def run_gated_execution(
         logger.warning("Pattern detection module unavailable — skipping write detection")
         patterns = {"has_writes": False, "has_reads": False, "detected_patterns": {}}
 
-    # The deployment kill switch, independent of pattern detection accuracy,
-    # asked about the target the sandbox will be stamped with.
-    enforce_deployment_writes_gate(execution_mode, recorded_control_target())
-
     if patterns.get("has_writes") and execution_mode == "readonly":
         await refuse_readonly_write(
             tool=tool,
@@ -941,6 +1046,20 @@ async def run_gated_execution(
             ],
         )
 
+    review = _PreLaunchReview(None)
+    if code_review:
+        review = await _review_before_launch(
+            tool=tool,
+            code=code,
+            gated=gated,
+            description=description,
+            execution_mode=execution_mode,
+            project_root=project_root,
+            script_args=script_args,
+            approved_target=approved_target,
+            approved_view_sha256=approved_view_sha256,
+        )
+
     from osprey.mcp_server.python_executor.executor import execute_code
 
     exec_result = await execute_code(
@@ -950,7 +1069,13 @@ async def run_gated_execution(
         tool=tool,
         approved_target=approved_target,
         approved_view_sha256=approved_view_sha256,
+        # A review spared on a predicted decline holds the launch to that decline, unless the
+        # deployment only flags: there an unreviewed run goes ahead and the agent is told.
+        expect_declined=review.spared is not None and review.level != "flag",
     )
+    review_message = await _conclude_spared_review(tool, review, exec_result)
+    if review_message is not None:
+        exec_result.code_review = review_message
 
     detail = write_activity_detail(bool(patterns.get("has_writes")), execution_mode)
     if detail is not None and exec_result.execution_time_seconds is not None:

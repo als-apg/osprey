@@ -5,7 +5,7 @@ catalog plan and ``session_upload.install_session_plan`` for a session one —
 build the same connector-mediated devices in the same worker process, and have
 the same things to say about a run: whether the channels it declares are alive,
 what this worker actually holds when a declared name does not resolve, and
-whose narrowing refused a write the run tried to make. One copy of each lives
+whose switch refused a write the run tried to make. One copy of each lives
 here so the two wrappers cannot answer an operator differently.
 
 The reachability half: ask the connector, before anything moves.
@@ -362,7 +362,7 @@ def _declared_addresses(declared: Mapping[str, Any]) -> list[str]:
 
 
 #: The audit surface every pre-flight verdict is filed on, under the
-#: queueserver's own identity (``var/audit/<queueserver>/preflight.jsonl``).
+#: queueserver's own identity.
 SURFACE_PREFLIGHT = "preflight"
 
 
@@ -541,7 +541,7 @@ def probe_before_motion(plan_name: str, declared: Mapping[str, Any]) -> Iterator
 
     # `RunEngine._wait_for` creates the awaitable on its own loop and returns
     # the list of finished tasks, which is what makes a non-empty answer here
-    # mean "a RunEngine ran this". Contract read from bluesky 1.15.1
+    # mean "a RunEngine ran this". Contract read from bluesky 1.16.0
     # (`run_engine.py::_wait_for`), the floor this package pins; re-verify it
     # if that floor moves. Anything else driving this generator — the read-only
     # preview walk in `qserver_startup.collect_channel_moves` is the one that
@@ -600,7 +600,7 @@ def warn_if_write_refused(
     This is the per-*refusal* seam, and both worker plan wrappers call it from
     the single handler that sees everything a run raises. A refusal mid-plan
     reaches the operator as the run record's error, which says what was refused
-    but nothing about *whose* narrowing refused it; this line is where that is
+    but nothing about *whose* write it refused; this line is where that is
     recorded. It is the whole of a wrapper's response — logging a refusal is
     not handling it, and there is no ledger entry to write, the monitor having
     already recorded its decision.
@@ -624,7 +624,7 @@ def warn_if_write_refused(
             wrappers; the text does not, deliberately, since that is the half
             they must not be able to spell differently.
         plan_name: The plan's name, as the line should name it.
-        owner: Whose narrowing the refusal was decided for, as the owner ladder
+        owner: Whose write the refusal was decided for, as the owner ladder
             answers it — not the raw bound value, so an owner-less run says
             what actually governed it.
         error: Whatever the run raised.
@@ -663,7 +663,7 @@ def _refused_write(error: BaseException) -> ChannelWriteBlockedError | None:
     because a RunEngine that reported a failed status without chaining the
     exception onto it would still be handing over the refusal.
 
-    Contract read from bluesky 1.15.1
+    Contract read from bluesky 1.16.0
     (``run_engine.py::_status_object_completed`` raises ``FailedStatus(status)
     from status.exception()``), the floor this package pins; re-verify it if
     that floor moves. Duck-typed rather than imported, so this module stays

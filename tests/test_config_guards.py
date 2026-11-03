@@ -20,22 +20,29 @@ from osprey.config_guards import (
 
 
 class TestIsPositiveInt:
-    @pytest.mark.parametrize("value", [1, 2, 8181, 65535])
-    def test_positive_integers_pass(self, value: object) -> None:
-        assert is_positive_int(value) is True
-
-    @pytest.mark.parametrize("value", [0, -1, -8181])
-    def test_zero_and_negatives_fail(self, value: object) -> None:
-        assert is_positive_int(value) is False
-
-    @pytest.mark.parametrize("value", [True, False])
-    def test_bool_is_not_an_integer_here(self, value: object) -> None:
-        """``bool`` subclasses ``int``; ``port: true`` must never read as port 1."""
-        assert is_positive_int(value) is False
-
-    @pytest.mark.parametrize("value", [None, "1", 1.0, [1], {"port": 1}, object()])
-    def test_non_integers_fail(self, value: object) -> None:
-        assert is_positive_int(value) is False
+    @pytest.mark.parametrize(
+        ("value", "expected"),
+        [
+            pytest.param(1, True, id="positive-one"),
+            pytest.param(2, True, id="positive-two"),
+            pytest.param(8181, True, id="positive-port"),
+            pytest.param(65535, True, id="positive-max-port"),
+            pytest.param(0, False, id="zero"),
+            pytest.param(-1, False, id="negative-one"),
+            pytest.param(-8181, False, id="negative-port"),
+            # ``bool`` subclasses ``int``; ``port: true`` must never read as port 1.
+            pytest.param(True, False, id="bool-true"),
+            pytest.param(False, False, id="bool-false"),
+            pytest.param(None, False, id="none"),
+            pytest.param("1", False, id="numeric-string"),
+            pytest.param(1.0, False, id="float"),
+            pytest.param([1], False, id="list"),
+            pytest.param({"port": 1}, False, id="mapping"),
+            pytest.param(object(), False, id="arbitrary-object"),
+        ],
+    )
+    def test_only_a_positive_integer_passes(self, value: object, expected: bool) -> None:
+        assert is_positive_int(value) is expected
 
 
 class TestRequirePositiveInt:

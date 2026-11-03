@@ -88,6 +88,7 @@ def _child_read_names() -> list[tuple[str, str]]:
         ("posture_store.CONTROL_CONTEXT_DIR_ENV_VAR", posture_store.CONTROL_CONTEXT_DIR_ENV_VAR),
         ("posture_store.CONTROL_CONTEXT_TREE_ENV_VAR", posture_store.CONTROL_CONTEXT_TREE_ENV_VAR),
         ("posture_store.CONTROL_OWNER_ENV_VAR", posture_store.CONTROL_OWNER_ENV_VAR),
+        ("posture_store.DISPATCH_RUN_ENV_VAR", posture_store.DISPATCH_RUN_ENV_VAR),
         ("posture_store.LAUNCH_POSTURE_ENV_VAR", posture_store.LAUNCH_POSTURE_ENV_VAR),
         ("identity.AUDIT_IDENTITY_ENV", identity.AUDIT_IDENTITY_ENV),
         ("posture.POSTURE_ENV_VAR", posture.POSTURE_ENV_VAR),
@@ -196,27 +197,6 @@ def test_passthrough_key_rejects_a_bad_entry(value):
 # --------------------------------------------------------------------------- #
 # Fixtures
 # --------------------------------------------------------------------------- #
-
-
-@pytest.fixture
-def reset_config_caches(monkeypatch):
-    """Reset every config cache around a test that writes its own ``config.yml``."""
-    from osprey_connectors.workspace import reset_config_cache
-
-    reset_config_cache()
-
-    import osprey_connectors.config as _cfg
-
-    monkeypatch.setattr(_cfg, "_default_config", None)
-    monkeypatch.setattr(_cfg, "_default_configurable", None)
-    saved_cache = _cfg._config_cache.copy()
-    _cfg._config_cache.clear()
-
-    yield
-
-    reset_config_cache()
-    _cfg._config_cache.clear()
-    _cfg._config_cache.update(saved_cache)
 
 
 def _write_mock_project(root) -> None:

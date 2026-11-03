@@ -29,6 +29,8 @@ from types import SimpleNamespace
 import pytest
 
 from osprey.agent_runner.clean_env import (
+    SHELL_ENV_FILE,
+    SHELL_ENV_FILE_VAR,
     build_base_child_env,
     build_clean_env,
     strip_claude_code_env,
@@ -59,7 +61,6 @@ def test_preserves_every_telemetry_switch():
     switches = {
         "CLAUDE_CODE_ENABLE_TELEMETRY",
         "CLAUDE_CODE_ENHANCED_TELEMETRY_BETA",
-        "CLAUDE_CODE_OTEL_CONTENT_MAX_LENGTH",
     }
     result = strip_claude_code_env(
         {**dict.fromkeys(switches, "1"), "CLAUDE_CODE_ENTRYPOINT": "cli"}
@@ -126,14 +127,12 @@ def test_build_pty_env_retains_the_tracing_switches(monkeypatch):
     """The interactive PTY path keeps the switches that turn tracing on."""
     monkeypatch.setenv("CLAUDE_CODE_ENABLE_TELEMETRY", "1")
     monkeypatch.setenv("CLAUDE_CODE_ENHANCED_TELEMETRY_BETA", "1")
-    monkeypatch.setenv("CLAUDE_CODE_OTEL_CONTENT_MAX_LENGTH", "262144")
     monkeypatch.setenv("CLAUDE_CODE_ENTRYPOINT", "cli")
 
     env = build_pty_env()
 
     assert env["CLAUDE_CODE_ENABLE_TELEMETRY"] == "1"
     assert env["CLAUDE_CODE_ENHANCED_TELEMETRY_BETA"] == "1"
-    assert env["CLAUDE_CODE_OTEL_CONTENT_MAX_LENGTH"] == "262144"
     assert "CLAUDE_CODE_ENTRYPOINT" not in env
 
 
@@ -256,6 +255,7 @@ def test_pty_child_gets_the_panel_token_and_never_the_operator_secret(announced)
     env = build_pty_env(extra_env)
 
     assert env[PANEL_TOKEN_ENV] == credentials.panel_token
+    assert env[SHELL_ENV_FILE_VAR] == str(SHELL_ENV_FILE)  # its shell commands start without it
     assert OPERATOR_SECRET_ENV not in env
     assert credentials.operator_secret not in env.values()
     # Negative control: a gutted env would satisfy every absence above.
@@ -289,6 +289,7 @@ def test_sdk_operator_child_gets_the_panel_token_and_never_the_operator_secret(t
     sdk_child_env = {**os.environ, **overlay}
 
     assert overlay[PANEL_TOKEN_ENV] == credentials.panel_token
+    assert overlay[SHELL_ENV_FILE_VAR] == str(SHELL_ENV_FILE)
     assert OPERATOR_SECRET_ENV not in sdk_child_env
     assert credentials.operator_secret not in sdk_child_env.values()
     assert "PATH" in sdk_child_env

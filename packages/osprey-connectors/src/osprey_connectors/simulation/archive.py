@@ -69,7 +69,7 @@ import numpy as np
 from osprey_connectors.archiver._field_names import field_name
 from osprey_connectors.errors import ChannelNotFoundError
 from osprey_connectors.logger import get_logger
-from osprey_connectors.simulation import pulse
+from osprey_connectors.simulation import pulse, topoff
 from osprey_connectors.simulation import values as channel_values
 from osprey_connectors.simulation.series import (
     apply_events,
@@ -93,11 +93,8 @@ logger = get_logger("archive")
 
 __all__ = [
     "DATE_FIELD",
-    "DEFAULT_CHUNK_SIZE",
-    "DEFAULT_WORKERS",
     "EXPIRE_FIELD",
     "MANIFEST_ID",
-    "SEED_SCHEMA_VERSION",
     "ArchiveComposite",
     "FingerprintComparison",
     "SeedKnobs",
@@ -106,16 +103,12 @@ __all__ = [
     "build",
     "compare_fingerprint",
     "oldest_sample",
-    "prepare_collection",
     "scenario_events",
     "seed_base",
     "seed_fingerprint",
-    "seed_grid",
-    "synthesize_documents",
     "tier_expiry",
     "waveform_collection",
     "waveform_document",
-    "write_manifest",
 ]
 
 #: ``_id`` of the seed-manifest document. A fixed id makes writing it an upsert
@@ -125,7 +118,7 @@ MANIFEST_ID = "osprey:seed_manifest"
 #: Bumped when the meaning of a stored document changes in a way that makes an
 #: existing store wrong rather than merely differently configured. It is part of
 #: the fingerprint, so a bump reseeds every deployment on upgrade.
-SEED_SCHEMA_VERSION = 2
+_SEED_SCHEMA_VERSION = 2
 
 #: Field naming the instant a document's sample was taken. The connector queries
 #: and sorts on it; the manifest document deliberately has none, which is what
@@ -139,12 +132,12 @@ EXPIRE_FIELD = "expireAt"
 #: channel set stays in the tens of megabytes: the whole point of chunking is
 #: that a month of history for three thousand channels does not fit in memory
 #: at once.
-DEFAULT_CHUNK_SIZE = 2000
+_DEFAULT_CHUNK_SIZE = 2000
 
 #: Concurrent insert workers. The synthesis runs on the calling thread and the
 #: inserts overlap it, which is the parallelism that matters here — the round
 #: trip to the store, not the arithmetic.
-DEFAULT_WORKERS = 4
+_DEFAULT_WORKERS = 4
 
 
 class SeedState(Enum):
@@ -317,8 +310,8 @@ class ArchiveComposite:
             float channel carries.
         anchor_s: The epoch seconds an ``at_offset`` event is placed from.
         tz: The zone a daily ``at_time`` event is placed in.
-        state: The directory holding ``composite``'s active set, kept as long
-            as the archive is.
+        state: The directory holding ``composite``'s active set, removed by
+            ``close``.
         pulses: Each pulsed waveform channel's ``pulse`` seed, by address: the
             ``driver`` and ``enable`` channels its trace is computed from.
 
@@ -357,6 +350,17 @@ class ArchiveComposite:
         self._state = state
         self._anchor_s = anchor_s
         self._tz = tz
+
+    def close(self) -> None:
+        """Remove the state directory, when the composite holds one; a second call does nothing."""
+        if self._state is not None:
+            self._state.cleanup()
+
+    def __enter__(self) -> ArchiveComposite:
+        return self
+
+    def __exit__(self, *exc_info: object) -> None:
+        self.close()
 
     @property
     def addresses(self) -> list[str]:
@@ -617,32 +621,33 @@ def build(
     names = resolve_active_scenarios([name for name in active_set if name in scenarios])
 
     state = tempfile.TemporaryDirectory(prefix="osprey-archive-")
-    (Path(state.name) / ACTIVE_SCENARIOS_FILENAME).write_text(
-        "".join(f"{name}\n" for name in names), encoding="utf-8"
-    )
-    composite = Composite(view, state_dir=state.name, instance=_ARCHIVE_INSTANCE, model_log=False)
-    held = composite.held(archived)
-    failed = {
-        model: status
-        for model in composite.models
-        if (status := composite.status(model)) != STATUS_OK
-    }
-    if failed:
-        state.cleanup()
-        raise RuntimeError(
-            "; ".join(f"{model}: {status}" for model, status in sorted(failed.items()))
-        )
-
-    events = scenario_events(scenarios, composite.active)
-    pulses = {
-        address: seed["pulse"]
-        for address in archived
-        if channel_values.is_waveform(records[address].get("value_type"))
-        and (seed := view.seed(address)) is not None
-        and seed.get("pulse") is not None
-    }
-
     try:
+        (Path(state.name) / ACTIVE_SCENARIOS_FILENAME).write_text(
+            "".join(f"{name}\n" for name in names), encoding="utf-8"
+        )
+        composite = Composite(
+            view, state_dir=state.name, instance=_ARCHIVE_INSTANCE, model_log=False
+        )
+        held = composite.held(archived)
+        failed = {
+            model: status
+            for model in composite.models
+            if (status := composite.status(model)) != STATUS_OK
+        }
+        if failed:
+            raise RuntimeError(
+                "; ".join(f"{model}: {status}" for model, status in sorted(failed.items()))
+            )
+
+        events = scenario_events(scenarios, composite.active)
+        pulses = {
+            address: seed["pulse"]
+            for address in archived
+            if channel_values.is_waveform(records[address].get("value_type"))
+            and (seed := view.seed(address)) is not None
+            and seed.get("pulse") is not None
+        }
+
         return ArchiveComposite(
             {address: records[address] for address in archived},
             held,
@@ -653,7 +658,7 @@ def build(
             state=state,
             pulses=pulses,
         )
-    except ValueError:
+    except BaseException:
         state.cleanup()
         raise
 
@@ -663,7 +668,7 @@ def build(
 # ---------------------------------------------------------------------------
 
 
-def seed_grid(knobs: SeedKnobs, t0: datetime) -> tuple[np.ndarray, np.ndarray]:
+def _seed_grid(knobs: SeedKnobs, t0: datetime) -> tuple[np.ndarray, np.ndarray]:
     """The timestamps to seed and the instant each one expires.
 
     The grid is epoch-aligned rather than anchored on ``t0``: both tiers land on
@@ -753,7 +758,7 @@ def _as_utc_datetimes(epoch_s: np.ndarray) -> list[datetime]:
 # ---------------------------------------------------------------------------
 
 
-def synthesize_documents(archive: ArchiveComposite, epoch_s: np.ndarray) -> list[dict[str, Any]]:
+def _synthesize_documents(archive: ArchiveComposite, epoch_s: np.ndarray) -> list[dict[str, Any]]:
     """One document per timestamp, carrying every archived scalar channel's value at it.
 
     This is the single definition of "what the archive holds at time T", and it
@@ -808,8 +813,10 @@ def seed_fingerprint(
 
     Everything here changes what the store *contains*: the window's depth and
     density, which channels are in it, how it is compressed on disk, the
-    document schema itself, and the pulse shape every stored trace is drawn
-    from (:data:`~osprey_connectors.simulation.pulse.SHAPE_VERSION`). Nothing here is an instant or a count — those move
+    document schema itself, the pulse shape every stored trace is drawn
+    from (:data:`~osprey_connectors.simulation.pulse.SHAPE_VERSION`), and the
+    top-off sawtooth every stored decaying current is drawn from
+    (:data:`~osprey_connectors.simulation.topoff.SHAPE_VERSION`). Nothing here is an instant or a count — those move
     on every deploy and would make the comparison a coin flip.
 
     Args:
@@ -824,19 +831,20 @@ def seed_fingerprint(
     names = sorted(set(channel_addresses))
     digest = hashlib.sha256("\n".join(names).encode("utf-8")).hexdigest()
     return {
-        "schema_version": SEED_SCHEMA_VERSION,
+        "schema_version": _SEED_SCHEMA_VERSION,
         "retention_days": knobs.retention_days,
         "hot_span_hours": knobs.hot_span_hours,
         "hot_cadence_sec": knobs.hot_cadence_sec,
         "tail_cadence_sec": knobs.tail_cadence_sec,
         "compression": compression,
         "shape_version": pulse.SHAPE_VERSION,
+        "topoff_shape_version": topoff.SHAPE_VERSION,
         "channel_count": len(names),
         "channel_set_sha256": digest,
     }
 
 
-def write_manifest(
+def _write_manifest(
     collection: Collection,
     fingerprint: Mapping[str, Any],
     *,
@@ -954,7 +962,7 @@ def waveform_document(
     }
 
 
-def prepare_collection(collection: Collection, *, waveforms: Collection | None = None) -> None:
+def _prepare_collection(collection: Collection, *, waveforms: Collection | None = None) -> None:
     """Create the two indexes the store cannot work without.
 
     ``{date: 1}`` is not an optimization: every archiver read sorts on ``date``,
@@ -986,8 +994,8 @@ def seed_base(
     *,
     t0: datetime,
     compression: str = "zstd",
-    workers: int = DEFAULT_WORKERS,
-    chunk_size: int = DEFAULT_CHUNK_SIZE,
+    workers: int = _DEFAULT_WORKERS,
+    chunk_size: int = _DEFAULT_CHUNK_SIZE,
     progress: Callable[[SeedReport], None] | None = None,
     waveforms: Collection | None = None,
 ) -> SeedReport:
@@ -1039,7 +1047,7 @@ def seed_base(
     if workers < 1:
         raise ValueError(f"workers must be >= 1 (got {workers})")
 
-    times, expiry = seed_grid(knobs, t0)
+    times, expiry = _seed_grid(knobs, t0)
     addresses = archive.addresses
     started = time.monotonic()
 
@@ -1051,12 +1059,12 @@ def seed_base(
     traced = archive.waveform_addresses
     if traced and waveforms is None:
         waveforms = collection.database[waveform_collection(collection.name)]
-    prepare_collection(collection, waveforms=waveforms if traced else None)
+    _prepare_collection(collection, waveforms=waveforms if traced else None)
 
     with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="archiver-seed") as pool:
         pending: set[Future[None]] = set()
         for chunk_times, chunk_expiry in _chunks(times, expiry, chunk_size):
-            documents = synthesize_documents(archive, chunk_times)
+            documents = _synthesize_documents(archive, chunk_times)
             for document, expire_at in zip(documents, _as_utc_datetimes(chunk_expiry), strict=True):
                 document[EXPIRE_FIELD] = expire_at
 
@@ -1076,7 +1084,7 @@ def seed_base(
             future.result()
 
     report.elapsed_s = time.monotonic() - started
-    write_manifest(
+    _write_manifest(
         collection,
         seed_fingerprint(knobs, addresses, compression=compression),
         seeded_at=t0,
@@ -1092,7 +1100,7 @@ def _waveform_documents(
     """The trace documents of every waveform channel at these instants.
 
     Valued at the epoch seconds a reader derives from the stored dates, as the
-    snapshot documents are (:func:`synthesize_documents`).
+    snapshot documents are (:func:`_synthesize_documents`).
     """
     stamps = _as_utc_datetimes(epoch_s)
     if not stamps:

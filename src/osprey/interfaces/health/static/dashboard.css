@@ -3,14 +3,19 @@
 
   Ported from an earlier integration-status dashboard, re-themed entirely
   through design-system tokens: every color, surface, border, glow, and
-  font resolves through a design-token custom property from tokens.css, so the
-  panel renders correctly under every family in both light and dark with no
-  raw color literals (the panel validator enforces this).
+  font resolves through a design-token custom property from tokens.css, and
+  every font size, weight, leading, radius, and transition duration reads
+  the fleet scale (--text-*, --weight-*, --leading-*, --radius-*,
+  --duration-*), so the panel renders correctly under every family in both
+  light and dark with no raw color or scale literals. The panel declares no
+  custom properties of its own.
 
-  The :root block below keeps the dashboard's short, local variable names
-  (--ok, --warn, --err, --bg-0 and friends) but binds each to a design token, so the
-  rules that follow read almost verbatim from the original while staying
-  token-only.
+  Status palette, as the rules below spell it:
+
+      ok → --color-success (glow --success-tint-40)
+      warning → --color-warning (glow --accent-secondary-tint-25)
+      error → --color-error (glow --error-tint-30)
+      skip → --text-muted        beam → --color-accent-light
 
   STATUS CLASSES (JS contract): the original dashboard set a few colors
   inline from JS (badge dots, gauge segments, the beam, the gauge score, and
@@ -24,28 +29,6 @@
   that element needs: background / stroke / fill / color / border-color).
   For the beam, s-ok resolves to the accent (beam) color.
 */
-
-:root {
-  --bg-0: var(--bg-primary);
-  --bg-1: var(--bg-panel);
-  --bg-2: var(--bg-elevated);
-  --border-0: var(--border-default);
-  --border-1: var(--neutral-tint-20);
-  --text-0: var(--text-primary);
-  --text-1: var(--text-secondary);
-  --text-2: var(--text-muted);
-  --ok: var(--color-success);
-  --ok-glow: var(--success-tint-40);
-  --warn: var(--color-warning);
-  --warn-glow: var(--accent-secondary-tint-25);
-  --err: var(--color-error);
-  --err-glow: var(--error-tint-30);
-  --skip: var(--text-muted);
-  --beam: var(--color-accent-light);
-  --beam-glow: var(--accent-tint-30);
-  --font-d: var(--font-display);
-  --font-m: var(--font-mono);
-}
 
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -62,10 +45,10 @@ html { -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; 
    declaration is load-bearing, not cosmetic. The `.sweep` and `.ftr` bars are
    position:fixed and therefore stay pinned to the frame while this scrolls. */
 body {
-  font-family: var(--font-m); font-size: 12px;
-  background: radial-gradient(ellipse at 50% 12%, var(--accent-tint-04) 0%, transparent 50%), var(--bg-0);
-  color: var(--text-0); min-height: 100vh;
-  overflow-y: auto; overflow-x: hidden; line-height: 1.6;
+  font-family: var(--font-mono); font-size: var(--text-md);
+  background: radial-gradient(ellipse at 50% 12%, var(--accent-tint-04) 0%, transparent 50%), var(--bg-primary);
+  color: var(--text-primary); min-height: 100vh;
+  overflow-y: auto; overflow-x: hidden; line-height: var(--leading-relaxed);
   display: flex; flex-direction: column;
 }
 
@@ -73,8 +56,8 @@ body {
 .sweep { position: fixed; top: 0; left: 0; right: 0; height: 2px; z-index: 100; overflow: hidden; }
 .sweep.on::after {
   content: ''; position: absolute; top: 0; left: 0; width: 40%; height: 100%;
-  background: linear-gradient(90deg, transparent, var(--beam), transparent);
-  animation: sweep 1.5s ease-in-out infinite;
+  background: linear-gradient(90deg, transparent, var(--color-accent-light), transparent);
+  animation: sweep 1.5s ease-in-out infinite; /* hygiene-allow-scale: decorative animation timing, not interaction-transition scale */
 }
 @keyframes sweep { 0% { transform: translateX(-100%); } 100% { transform: translateX(350%); } }
 
@@ -86,12 +69,12 @@ body {
 .hdr {
   position: sticky; top: 0; z-index: 50;
   display: flex; align-items: center;
-  padding: 16px 20px 10px; border-bottom: 1px solid var(--border-0);
-  background: var(--bg-0);
+  padding: 16px 20px 10px; border-bottom: 1px solid var(--border-default);
+  background: var(--bg-primary);
 }
 .hdr-t { display: flex; align-items: baseline; gap: 10px; }
-.hdr-t h1 { font-family: var(--font-d); font-size: 22px; font-weight: 800; letter-spacing: 1px; }
-.hdr-sub { font-size: 10px; letter-spacing: 3px; text-transform: uppercase; color: var(--text-2); }
+.hdr-t h1 { font-family: var(--font-display); font-size: var(--text-3xl); font-weight: var(--weight-bold); letter-spacing: 1px; }
+.hdr-sub { font-size: var(--text-sm); letter-spacing: 3px; text-transform: uppercase; color: var(--text-muted); }
 
 /* Embedded in the web-terminal hub the host tile bar is this panel's only
  * header: it names the panel (SYSTEM), and the footer already carries the
@@ -103,43 +86,49 @@ body.embedded .hdr { display: none; }
 .hero { display: flex; flex-direction: column; align-items: center; padding: 24px 16px 16px; gap: 16px; }
 .gauge-w { position: relative; width: 180px; height: 180px; }
 .gauge-svg { width: 100%; height: 100%; }
-.gauge-bg { fill: none; stroke: var(--border-0); stroke-width: 14; opacity: .3; }
-.gauge-orbit { fill: none; stroke: var(--beam); stroke-width: .5; opacity: .12; }
-.gauge-seg { fill: none; stroke-width: 14; stroke-linecap: butt; transition: stroke .6s ease, opacity .6s ease; }
-.gauge-seg.s-ok { stroke: var(--ok); }
-.gauge-seg.s-wn { stroke: var(--warn); }
-.gauge-seg.s-er { stroke: var(--err); }
-.gauge-seg.s-sk { stroke: var(--skip); }
-.beam { fill: var(--beam); transition: fill .6s ease; }
-.beam.s-ok { fill: var(--beam); }
-.beam.s-wn { fill: var(--warn); }
-.beam.s-er { fill: var(--err); }
+.gauge-bg { fill: none; stroke: var(--border-default); stroke-width: 14; opacity: .3; }
+.gauge-orbit { fill: none; stroke: var(--color-accent-light); stroke-width: .5; opacity: .12; }
+.gauge-seg {
+  fill: none; stroke-width: 14; stroke-linecap: butt;
+  transition: stroke var(--duration-slow) ease, opacity var(--duration-slow) ease;
+}
+.gauge-seg.s-ok { stroke: var(--color-success); }
+.gauge-seg.s-wn { stroke: var(--color-warning); }
+.gauge-seg.s-er { stroke: var(--color-error); }
+.gauge-seg.s-sk { stroke: var(--text-muted); }
+.beam { fill: var(--color-accent-light); transition: fill var(--duration-slow) ease; }
+.beam.s-ok { fill: var(--color-accent-light); }
+.beam.s-wn { fill: var(--color-warning); }
+.beam.s-er { fill: var(--color-error); }
 .gauge-c {
   position: absolute; inset: 0; display: flex; flex-direction: column;
   align-items: center; justify-content: center; pointer-events: none;
 }
-.gauge-sc { font-family: var(--font-d); font-weight: 700; font-size: 32px; line-height: 1; transition: color .6s ease; }
-.gauge-sc.s-ok { color: var(--ok); }
-.gauge-sc.s-wn { color: var(--warn); }
-.gauge-sc.s-er { color: var(--err); }
-.gauge-sc.s-sk { color: var(--skip); }
-.gauge-sc .tot { font-size: 18px; color: var(--text-2); font-weight: 400; }
-.gauge-lb { font-size: 9px; letter-spacing: 2.5px; color: var(--text-2); margin-top: 4px; text-transform: uppercase; }
+.gauge-sc {
+  font-family: var(--font-display); font-weight: var(--weight-bold); font-size: var(--text-4xl);
+  line-height: var(--leading-none); transition: color var(--duration-slow) ease;
+}
+.gauge-sc.s-ok { color: var(--color-success); }
+.gauge-sc.s-wn { color: var(--color-warning); }
+.gauge-sc.s-er { color: var(--color-error); }
+.gauge-sc.s-sk { color: var(--text-muted); }
+.gauge-sc .tot { font-size: var(--text-3xl); color: var(--text-muted); font-weight: var(--weight-regular); }
+.gauge-lb { font-size: var(--text-xs); letter-spacing: 2.5px; color: var(--text-muted); margin-top: 4px; text-transform: uppercase; }
 
 /* ---- Summary badges ---- */
 .summ { display: flex; gap: 6px; flex-wrap: wrap; justify-content: center; }
 .badge {
   display: inline-flex; align-items: center; gap: 5px;
-  padding: 3px 10px; border: 1px solid var(--border-0); border-radius: 5px;
-  font-size: 11px; cursor: pointer; transition: all .2s; user-select: none;
+  padding: 3px 10px; border: 1px solid var(--border-default); border-radius: var(--radius-md);
+  font-size: var(--text-base); cursor: pointer; transition: all var(--duration-base); user-select: none;
 }
-.badge:hover { border-color: var(--border-1); background: var(--bg-2); }
-.badge.on { border-color: var(--beam); background: var(--accent-tint-08); }
-.dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
-.dot.s-ok { background: var(--ok); }
-.dot.s-wn { background: var(--warn); }
-.dot.s-er { background: var(--err); }
-.dot.s-sk { background: var(--skip); }
+.badge:hover { border-color: var(--neutral-tint-20); background: var(--bg-elevated); }
+.badge.on { border-color: var(--color-accent-light); background: var(--accent-tint-08); }
+.dot { width: 6px; height: 6px; border-radius: var(--radius-full); flex-shrink: 0; }
+.dot.s-ok { background: var(--color-success); }
+.dot.s-wn { background: var(--color-warning); }
+.dot.s-er { background: var(--color-error); }
+.dot.s-sk { background: var(--text-muted); }
 
 /* ---- Grid ---- */
 .grid {
@@ -150,101 +139,125 @@ body.embedded .hdr { display: none; }
 /* ---- Loading / Error / Warming ---- */
 .ld {
   grid-column: 1 / -1; display: flex; align-items: center; justify-content: center;
-  gap: 12px; padding: 48px; color: var(--text-2);
+  gap: 12px; padding: 48px; color: var(--text-muted);
 }
 .ld-spin {
-  width: 16px; height: 16px; border: 2px solid var(--border-1);
-  border-top-color: var(--beam); border-radius: 50%; animation: spin 1s linear infinite;
+  width: 16px; height: 16px; border: 2px solid var(--neutral-tint-20);
+  border-top-color: var(--color-accent-light); border-radius: var(--radius-full);
+  animation: spin 1s linear infinite; /* hygiene-allow-scale: decorative animation timing, not interaction-transition scale */
 }
 @keyframes spin { to { transform: rotate(360deg); } }
-.err-s { grid-column: 1 / -1; text-align: center; padding: 48px 24px; color: var(--text-1); }
-.err-s .em { color: var(--err); margin-bottom: 16px; font-size: 13px; }
+.err-s { grid-column: 1 / -1; text-align: center; padding: 48px 24px; color: var(--text-secondary); }
+.err-s .em { color: var(--color-error); margin-bottom: 16px; font-size: var(--text-lg); }
 .err-s button {
-  background: var(--bg-2); border: 1px solid var(--border-1); color: var(--text-0);
-  padding: 6px 16px; border-radius: 6px; cursor: pointer; font-family: var(--font-m); font-size: 12px;
+  background: var(--bg-elevated); border: 1px solid var(--neutral-tint-20); color: var(--text-primary);
+  padding: 6px 16px; border-radius: var(--radius-lg); cursor: pointer;
+  font-family: var(--font-mono); font-size: var(--text-md);
 }
 
 /* ---- Card ---- */
 .card {
-  background: var(--bg-1); border: 1px solid var(--border-0); border-radius: 10px;
-  overflow: hidden; transition: border-color .3s, box-shadow .3s, transform .2s;
-  animation: fadeUp .4s ease both;
+  background: var(--bg-panel); border: 1px solid var(--border-default); border-radius: var(--radius-xl);
+  overflow: hidden;
+  transition: border-color var(--duration-slow), box-shadow var(--duration-slow), transform var(--duration-base);
+  animation: fadeUp var(--duration-slow) ease both;
 }
-.card:hover { border-color: var(--border-1); transform: translateY(-1px); }
+.card:hover { border-color: var(--neutral-tint-20); transform: translateY(-1px); }
 .card.c-err { border-color: var(--error-tint-25); box-shadow: 0 0 20px var(--error-tint-08); }
 .card.c-wrn { border-color: var(--accent-secondary-tint-15); }
 @keyframes fadeUp { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
 
 .c-hd {
   display: flex; align-items: center; justify-content: space-between;
-  padding: 10px 14px 8px; border-left: 3px solid var(--border-1); transition: border-color .6s;
+  padding: 10px 14px 8px; border-left: 3px solid var(--neutral-tint-20);
+  transition: border-color var(--duration-slow);
 }
-.c-hd.s-ok { border-color: var(--ok); }
-.c-hd.s-wn { border-color: var(--warn); }
-.c-hd.s-er { border-color: var(--err); }
-.c-hd.s-sk { border-color: var(--skip); }
-.c-nm { font-family: var(--font-d); font-size: 11px; font-weight: 700; letter-spacing: 1.5px; text-transform: uppercase; color: var(--text-1); }
-.c-ct { font-size: 11px; color: var(--text-2); font-variant-numeric: tabular-nums; }
-.c-bar { display: flex; height: 2px; background: var(--border-0); margin: 0 14px; }
-.c-bar > div { transition: width .6s ease; }
-.b-ok { background: var(--ok); }
-.b-wn { background: var(--warn); }
-.b-er { background: var(--err); }
-.b-sk { background: var(--skip); }
+.c-hd.s-ok { border-color: var(--color-success); }
+.c-hd.s-wn { border-color: var(--color-warning); }
+.c-hd.s-er { border-color: var(--color-error); }
+.c-hd.s-sk { border-color: var(--text-muted); }
+.c-nm {
+  font-family: var(--font-display); font-size: var(--text-base); font-weight: var(--weight-bold);
+  letter-spacing: 1.5px; text-transform: uppercase; color: var(--text-secondary);
+}
+.c-ct { font-size: var(--text-base); color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.c-bar { display: flex; height: 2px; background: var(--border-default); margin: 0 14px; }
+.c-bar > div { transition: width var(--duration-slow) ease; }
+.b-ok { background: var(--color-success); }
+.b-wn { background: var(--color-warning); }
+.b-er { background: var(--color-error); }
+.b-sk { background: var(--text-muted); }
 .c-bd { padding: 6px 0; }
 
 /* ---- Check row ---- */
-.ck { display: flex; align-items: center; gap: 8px; padding: 4px 14px; font-size: 12px; transition: background .15s; }
+.ck {
+  display: flex; align-items: center; gap: 8px; padding: 4px 14px;
+  font-size: var(--text-md); transition: background var(--duration-fast);
+}
 .ck:hover { background: var(--neutral-tint-03); }
-.led { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; transition: background .6s, box-shadow .6s; }
-.led-ok { background: var(--ok); box-shadow: 0 0 4px var(--ok-glow); }
-.led-wn { background: var(--warn); box-shadow: 0 0 4px var(--warn-glow); }
-.led-er { background: var(--err); box-shadow: 0 0 6px var(--err-glow); animation: pulse 2s ease-in-out infinite; }
-.led-sk { background: var(--skip); opacity: .5; }
+.led {
+  width: 7px; height: 7px; border-radius: var(--radius-full); flex-shrink: 0;
+  transition: background var(--duration-slow), box-shadow var(--duration-slow);
+}
+.led-ok { background: var(--color-success); box-shadow: 0 0 4px var(--success-tint-40); }
+.led-wn { background: var(--color-warning); box-shadow: 0 0 4px var(--accent-secondary-tint-25); }
+.led-er {
+  background: var(--color-error); box-shadow: 0 0 6px var(--error-tint-30);
+  animation: pulse 2s ease-in-out infinite; /* hygiene-allow-scale: decorative animation timing, not interaction-transition scale */
+}
+.led-sk { background: var(--text-muted); opacity: .5; }
 @keyframes pulse {
-  0%, 100% { opacity: 1; box-shadow: 0 0 6px var(--err-glow); }
-  50% { opacity: .5; box-shadow: 0 0 2px var(--err-glow); }
+  0%, 100% { opacity: 1; box-shadow: 0 0 6px var(--error-tint-30); }
+  50% { opacity: .5; box-shadow: 0 0 2px var(--error-tint-30); }
 }
 .ck-nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.ck-nm.sk { color: var(--text-2); }
-.ck-val { font-weight: 700; white-space: nowrap; color: var(--text-1); max-width: 120px; overflow: hidden; text-overflow: ellipsis; }
-.ck-ms { font-size: 10px; color: var(--text-2); white-space: nowrap; min-width: 40px; text-align: right; font-variant-numeric: tabular-nums; }
-.ck-ms.ms-f { color: var(--ok); }
-.ck-ms.ms-m { color: var(--warn); }
-.ck-ms.ms-s { color: var(--err); }
+.ck-nm.sk { color: var(--text-muted); }
+.ck-val {
+  font-weight: var(--weight-bold); white-space: nowrap; color: var(--text-secondary);
+  max-width: 120px; overflow: hidden; text-overflow: ellipsis;
+}
+.ck-ms {
+  font-size: var(--text-sm); color: var(--text-muted); white-space: nowrap;
+  min-width: 40px; text-align: right; font-variant-numeric: tabular-nums;
+}
+.ck-ms.ms-f { color: var(--color-success); }
+.ck-ms.ms-m { color: var(--color-warning); }
+.ck-ms.ms-s { color: var(--color-error); }
 .dt-btn {
-  background: none; border: none; color: var(--text-2); cursor: pointer;
-  font-size: 10px; padding: 0 2px; transition: transform .2s;
+  background: none; border: none; color: var(--text-muted); cursor: pointer;
+  font-size: var(--text-sm); padding: 0 2px; transition: transform var(--duration-base);
 }
 .dt-btn.open { transform: rotate(90deg); }
 .dt-box {
-  display: none; font-size: 11px; color: var(--text-2); white-space: pre-wrap; word-break: break-word;
-  background: var(--bg-0); margin: 0 14px 4px; border-radius: 4px; padding: 6px 10px; border-left: 2px solid var(--border-1);
+  display: none; font-size: var(--text-base); color: var(--text-muted); white-space: pre-wrap; word-break: break-word;
+  background: var(--bg-primary); margin: 0 14px 4px; border-radius: var(--radius-md); padding: 6px 10px;
+  border-left: 2px solid var(--neutral-tint-20);
 }
 /* Status-gated accent: the JS toggles a status class on the box (s-er/s-wn)
    so an error detail draws red and a warning notice amber, while a healthy
    ok/skip row's expandable text keeps the neutral border above. */
-.dt-box.s-wn { border-left-color: var(--warn); }
-.dt-box.s-er { border-left-color: var(--err); }
+.dt-box.s-wn { border-left-color: var(--color-warning); }
+.dt-box.s-er { border-left-color: var(--color-error); }
 .dt-box.show { display: block; }
 
 /* ---- Footer ---- */
 .ftr {
   position: fixed; bottom: 0; left: 0; right: 0;
   display: flex; align-items: center; justify-content: center; gap: 8px;
-  padding: 8px 16px; font-size: 11px; color: var(--text-2);
-  background: linear-gradient(transparent, var(--bg-0) 30%);
+  padding: 8px 16px; font-size: var(--text-base); color: var(--text-muted);
+  background: linear-gradient(transparent, var(--bg-primary) 30%);
   backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
 }
 .ftr-d { opacity: .3; }
 
-/* ---- Responsive ---- */
+/* ---- Responsive ----
+   The score keeps --text-4xl on a narrow frame: the 150px gauge still leaves
+   a ~110px hole inside the gauge, room for the score and its total. */
 @media (max-width: 640px) {
-  .hdr-t h1 { font-size: 18px; }
-  .hdr-sub { font-size: 9px; letter-spacing: 2px; }
+  .hdr-t h1 { font-size: var(--text-2xl); }
+  .hdr-sub { font-size: var(--text-xs); letter-spacing: 2px; }
   .gauge-w { width: 150px; height: 150px; }
-  .gauge-sc { font-size: 26px; }
-  .gauge-sc .tot { font-size: 15px; }
+  .gauge-sc .tot { font-size: var(--text-2xl); }
   .grid { grid-template-columns: 1fr; gap: 10px; padding: 10px 12px 80px; }
 }
 @media (max-width: 380px) {

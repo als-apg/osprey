@@ -48,26 +48,46 @@ def cache_client():
 
 
 class TestNoCacheStaticMiddleware:
-    def test_vendored_asset_is_immutable(self, cache_client):
-        resp = cache_client.get("/static/vendor/plotly-3.3.1.min.js")
-        assert resp.headers["Cache-Control"] == "public, max-age=31536000, immutable"
-
-    def test_non_vendor_static_is_uncached(self, cache_client):
-        resp = cache_client.get("/static/app.js")
-        assert resp.headers["Cache-Control"] == "no-cache, no-store, must-revalidate"
-
-    def test_api_path_is_uncached(self, cache_client):
-        resp = cache_client.get("/api/thing")
-        assert resp.headers["Cache-Control"] == "no-cache, no-store, must-revalidate"
+    @pytest.mark.parametrize(
+        ("path", "cache_control"),
+        [
+            pytest.param(
+                "/static/vendor/plotly-3.3.1.min.js",
+                "public, max-age=31536000, immutable",
+                id="vendored-asset-is-immutable",
+            ),
+            pytest.param(
+                "/static/app.js",
+                "no-cache, no-store, must-revalidate",
+                id="non-vendor-static-is-uncached",
+            ),
+            pytest.param(
+                "/api/thing",
+                "no-cache, no-store, must-revalidate",
+                id="api-path-is-uncached",
+            ),
+            # The immutable rule requires BOTH /vendor/ and a /static/ prefix; a
+            # /vendor/ path served from /api falls through to the no-cache branch.
+            pytest.param(
+                "/api/vendor/lib.js",
+                "no-cache, no-store, must-revalidate",
+                id="vendor-outside-static-is-not-immutable",
+            ),
+        ],
+    )
+    def test_cache_control_follows_the_path(self, cache_client, path, cache_control):
+        resp = cache_client.get(path)
+        assert resp.headers["Cache-Control"] == cache_control
 
     def test_unrelated_path_gets_no_cache_header(self, cache_client):
         resp = cache_client.get("/other")
         assert "Cache-Control" not in resp.headers
 
-    def test_vendor_outside_static_is_not_immutable(self, cache_client):
-        """The immutable rule requires BOTH /vendor/ and a /static/ prefix; a
-        /vendor/ path served from /api falls through to the no-cache branch."""
-        resp = cache_client.get("/api/vendor/lib.js")
+    def test_a_missing_vendor_file_is_never_cached(self, cache_client):
+        """An error on a vendor path (a missing file, a login redirect) must not
+        outlive the deploy that produced it, so only a 200 is immutable."""
+        resp = cache_client.get("/static/vendor/plotly-9.9.9.min.js")
+        assert resp.status_code == 404
         assert resp.headers["Cache-Control"] == "no-cache, no-store, must-revalidate"
 
 

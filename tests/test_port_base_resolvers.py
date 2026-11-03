@@ -52,12 +52,9 @@ PORT_BASE = 20000
 CONFIG: dict[str, Any] = {"deployment": {"port_base": PORT_BASE}}
 
 
-#: The slots the telemetry port readers resolve, in the order the case reads them.
-_TELEMETRY_SLOTS = (
-    "telemetry_store",
-    "telemetry_gateway",
-    "telemetry_metrics",
-    "reader",
+#: The slots the history port readers resolve, in the order the case reads them.
+_HISTORY_SLOTS = (
+    "history_origin",
     "history",
 )
 
@@ -320,28 +317,23 @@ def _simulation_archiver_store(tmp_path: Path, _monkeypatch: pytest.MonkeyPatch)
     return store["port"], default_port("mongo", base=PORT_BASE)
 
 
-def _telemetry_ports(_tmp_path: Path, _monkeypatch: pytest.MonkeyPatch) -> tuple[Any, Any]:
-    """Every telemetry port reader with no port key of its own set."""
-    from osprey.deployment import telemetry_config
+def _agent_record_port(_tmp_path: Path, _monkeypatch: pytest.MonkeyPatch) -> tuple[Any, Any]:
+    """``parse_agent_record_block`` with no ``agent_record.port``, at the profile's base."""
+    from osprey.agent_record.config import parse_agent_record_block
+    from osprey.cli.build_profile_load import _profile_port_base
 
-    resolved = [
-        telemetry_config.store_port(CONFIG),
-        telemetry_config.gateway_port(CONFIG),
-        telemetry_config.metrics_port(CONFIG),
-        telemetry_config.reader_port(CONFIG),
-        telemetry_config.history_port(CONFIG),
-    ]
-    return resolved, [default_port(slot, base=PORT_BASE) for slot in _TELEMETRY_SLOTS]
+    raw = {"config": dict(CONFIG), "agent_record": {"backend": "embedded"}}
+    parsed = parse_agent_record_block(raw, base=_profile_port_base(raw))
+    absent = parse_agent_record_block({"config": dict(CONFIG)}, base=_profile_port_base(raw))
+    return (parsed.port, absent.port), (default_port("agent_record", base=PORT_BASE),) * 2
 
 
-def _telemetry_gateway_dial(_tmp_path: Path, _monkeypatch: pytest.MonkeyPatch) -> tuple[Any, Any]:
-    """The address a host launch posts to carries the published gateway port."""
-    from osprey.deployment import telemetry_config
+def _history_ports(_tmp_path: Path, _monkeypatch: pytest.MonkeyPatch) -> tuple[Any, Any]:
+    """Every history port reader with no port key of its own set."""
+    from osprey.agent_record.config import history_app_port, history_origin_port
 
-    return (
-        telemetry_config.runtime_gateway_url(CONFIG, {}),
-        f"http://127.0.0.1:{default_port('telemetry_gateway', base=PORT_BASE)}",
-    )
+    resolved = [history_origin_port(CONFIG), history_app_port(CONFIG)]
+    return resolved, [default_port(slot, base=PORT_BASE) for slot in _HISTORY_SLOTS]
 
 
 def _web_server_address(key: str) -> Callable[[Path, pytest.MonkeyPatch], tuple[Any, Any]]:
@@ -391,22 +383,6 @@ def _mcp_web_terminal_url(_tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> t
 
     _pin_loaded_config(monkeypatch)
     return web_terminal_url(), f"http://127.0.0.1:{default_port('web', 0, base=PORT_BASE)}"
-
-
-def _scaffold_telemetry_store_probe(
-    _tmp_path: Path, _monkeypatch: pytest.MonkeyPatch
-) -> tuple[Any, Any]:
-    """The deploy scaffold probes the telemetry store inside the profile's block."""
-    from osprey.cli.deploy_scaffold_templates import _service_probes
-
-    profile = {
-        "config": {
-            "deployment.port_base": PORT_BASE,
-            "deployed_services": ["telemetry_store"],
-        }
-    }
-    ports = [probe.port for probe in _service_probes(profile)]
-    return ports, [default_port("telemetry_store", base=PORT_BASE)]
 
 
 def _scaffold_dispatcher_probe(
@@ -602,16 +578,16 @@ CASES: tuple[Case, ...] = (
         ("mongo",),
     ),
     Case(
-        "telemetry_config port readers",
-        "the config it is handed",
-        _telemetry_ports,
-        _TELEMETRY_SLOTS,
+        "agent_record.config.parse_agent_record_block",
+        "base= keyword, from the loader's _profile_port_base(raw)",
+        _agent_record_port,
+        ("agent_record",),
     ),
     Case(
-        "telemetry_config.runtime_gateway_url",
+        "agent_record.config history port readers",
         "the config it is handed",
-        _telemetry_gateway_dial,
-        ("telemetry_gateway",),
+        _history_ports,
+        _HISTORY_SLOTS,
     ),
     *(
         Case(
@@ -635,12 +611,6 @@ CASES: tuple[Case, ...] = (
         "the config it loads for itself",
         _mcp_web_terminal_url,
         ("web",),
-    ),
-    Case(
-        "deploy_scaffold_templates._service_probes",
-        "the profile's config: overlay, re-wrapped for resolve_port_base",
-        _scaffold_telemetry_store_probe,
-        ("telemetry_store",),
     ),
     Case(
         "deploy_scaffold_templates._dispatch_probes",

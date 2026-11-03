@@ -22,7 +22,7 @@ import copy
 import logging
 import os
 import re
-from collections.abc import Mapping
+from collections.abc import Mapping, MutableMapping, Sequence
 from contextlib import contextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, overload
@@ -48,21 +48,16 @@ if TYPE_CHECKING:
 
 __all__ = [
     "ConfigBuilder",
-    "DEFAULT_EXECUTION_TIMEOUT_SECONDS",
-    "EXECUTION_METHOD_SUBPROCESS",
-    "RUNTIME_STATE_DIR",
-    "RUNTIME_WRITE_PATH_KEYS",
+    "apply_env_chain",
     "config_anchored_at",
     "config_flag",
     "default_config_path",
     "dotenv_shell_overrides",
-    "find_runtime_write_paths_under_data",
     "get_agent_dir",
     "get_config_builder",
     "get_config_value",
     "get_configurable",
     "get_facility_timezone",
-    "get_framework_service_config",
     "get_full_configuration",
     "is_unresolved_placeholder",
     "load_config",
@@ -71,8 +66,6 @@ __all__ = [
     "localize_facility",
     "mapping_or_empty",
     "resolve_env_vars",
-    "resolve_execution_method",
-    "to_facility_iso",
     "unresolved_placeholders",
 ]
 
@@ -137,21 +130,19 @@ def resolve_env_vars(data: Any, *, environ: "Mapping[str, str] | None" = None) -
             if env_value is None or (not env_value and default_value is not None):
                 if default_value is not None:
                     return default_value
-                else:
-                    # DEBUG, not INFO: this resolver is generic over the whole
-                    # config tree and knows nothing about which of the values it
-                    # walks actually matter to the caller. Reported at INFO it
-                    # rendered every build as a wall of misses for providers the
-                    # project never uses, while saying nothing about the keys
-                    # that *did* resolve. User-facing credential reporting lives
-                    # in osprey.cli.build_environment.report_provider_credentials,
-                    # which knows the selected provider.
-                    if not os.environ.get("OSPREY_QUIET"):
-                        logger.debug(
-                            f"Environment variable '{var_name}' not found, "
-                            f"keeping placeholder verbatim"
-                        )
-                    return match.group(0)
+                # DEBUG, not INFO: this resolver is generic over the whole
+                # config tree and knows nothing about which of the values it
+                # walks actually matter to the caller. Reported at INFO it
+                # rendered every build as a wall of misses for providers the
+                # project never uses, while saying nothing about the keys
+                # that *did* resolve. User-facing credential reporting lives
+                # in osprey.cli.build_environment.report_provider_credentials,
+                # which knows the selected provider.
+                if not os.environ.get("OSPREY_QUIET"):
+                    logger.debug(
+                        f"Environment variable '{var_name}' not found, keeping placeholder verbatim"
+                    )
+                return match.group(0)
             return env_value
 
         pattern = r"\$\{([^}:]+)(?::-(.*?))?\}|\$([A-Za-z_][A-Za-z0-9_]*)"
@@ -278,20 +269,12 @@ def config_flag(value: object, *, key: str) -> bool:
     )
 
 
-# OSPREY runs agent Python code in exactly one backend: a subprocess on the host.
-# ``local`` is an accepted alias for that same backend; ``container`` names a
-# Jupyter kernel gateway OSPREY does not ship.
-EXECUTION_METHOD_SUBPROCESS = "subprocess"
-
-#: Wall-clock budget one agent Python execution gets when the deployment does not
-#: set ``python_executor.execution_timeout_seconds``. Defined once here and read
-#: by the executor so both ends of the timeout agree.
-DEFAULT_EXECUTION_TIMEOUT_SECONDS = 600
-
-# Module-level latch so the ``container`` deprecation is logged once per process
-# rather than on every config read (the executor resolves per tool call).
-# Tests reset it via ``osprey_connectors.config._container_method_warned = False``.
-_container_method_warned = False
+#: The defaults :class:`ConfigBuilder` fills in for a config with no
+#: ``execution`` or ``python_executor`` section. Private: the executor's
+#: vocabulary is the framework's (``osprey.utils.execution_method``, whose
+#: public names a test holds equal to these).
+_EXECUTION_METHOD_SUBPROCESS = "subprocess"
+_DEFAULT_EXECUTION_TIMEOUT_SECONDS = 600
 
 
 #: Directory the build owns end to end: every file under it is rendered from the
@@ -301,20 +284,19 @@ _BUILD_OWNED_DATA_DIR = "data"
 #: Directory runtime state belongs in — the durable ``var/`` zone, outside the
 #: render entirely, so it survives every rebuild of ``build/``. Named in the
 #: advisory that fires when a runtime writer is pointed at build-owned ``data/``.
-RUNTIME_STATE_DIR = DEFAULT_AGENT_DATA_BASE_DIR
+_RUNTIME_STATE_DIR = DEFAULT_AGENT_DATA_BASE_DIR
 
-#: Config keys whose value names a path something writes to *at run time*.
-#: These must stay out of ``data/``: that tree is build-owned and checksummed by
+#: Config keys this package reads whose value names a path something writes to
+#: *at run time* (the framework's own, its services' among them, are in
+#: ``osprey.utils.workspace.RUNTIME_WRITE_PATH_KEYS``). These must stay out of
+#: ``data/``: that tree is build-owned and checksummed by
 #: :func:`osprey.cli.templates.manifest.calculate_file_checksums`, so a runtime
 #: write landing there reads as project drift and is erased by the next
 #: ``osprey build``.
-RUNTIME_WRITE_PATH_KEYS = (
-    SIMULATION_STATE_DIR_CONFIG_KEY,
-    "services.channel_finder.pipelines.hierarchical.feedback.store_path",
-)
+_RUNTIME_WRITE_PATH_KEYS = (SIMULATION_STATE_DIR_CONFIG_KEY,)
 
 
-def find_runtime_write_paths_under_data(
+def _runtime_write_paths_under_data(
     config: "Mapping[str, Any]", project_root: Path
 ) -> list[tuple[str, str]]:
     """Find configured runtime-write paths that resolve inside ``<root>/data/``.
@@ -325,12 +307,12 @@ def find_runtime_write_paths_under_data(
 
     Returns:
         ``(config_key, configured_value)`` pairs for every offending key, in
-        :data:`RUNTIME_WRITE_PATH_KEYS` order. Empty when the config is clean.
+        :data:`_RUNTIME_WRITE_PATH_KEYS` order. Empty when the config is clean.
     """
     data_root = (project_root / _BUILD_OWNED_DATA_DIR).resolve()
     offenders: list[tuple[str, str]] = []
 
-    for key in RUNTIME_WRITE_PATH_KEYS:
+    for key in _RUNTIME_WRITE_PATH_KEYS:
         value = dotted_config_str(config, key)
         if value is None:
             continue
@@ -340,98 +322,6 @@ def find_runtime_write_paths_under_data(
             offenders.append((key, value))
 
     return offenders
-
-
-def _describe_config_source(source: str | None) -> str:
-    """Describe where an execution method came from, for log messages.
-
-    Args:
-        source: Caller-supplied description (usually a config file path). When
-            ``None``, the active config path is resolved on a best-effort basis.
-
-    Returns:
-        str: A human-readable config source, never empty.
-    """
-    if source:
-        return str(source)
-    try:
-        from osprey_connectors.workspace import resolve_config_path
-
-        return str(resolve_config_path())
-    except Exception:  # pragma: no cover - defensive: never fail a config read
-        return "config.yml"
-
-
-def resolve_execution_method(
-    config: "Mapping[str, Any] | None", *, source: str | None = None
-) -> str:
-    """Normalize ``execution.execution_method`` to the backend that actually runs.
-
-    This is the single choke point for the execution vocabulary. Every reader of
-    ``execution.execution_method`` goes through it so legacy configs keep loading
-    while the config file stops claiming a backend OSPREY does not ship:
-
-    - ``subprocess`` — the honest name; returned as-is.
-    - ``local`` — an alias for the same subprocess backend; mapped silently.
-    - ``container`` — names a Jupyter kernel gateway OSPREY does not ship, so it
-      fails outright at execution time. Mapped to ``subprocess`` with a one-time
-      deprecation warning, because that value's behavior genuinely changes.
-    - unset (missing, ``None``, or blank) — defaults to ``subprocess``.
-
-    Args:
-        config: Full configuration mapping (the one containing the ``execution``
-            section), or ``None``. Anything without a usable ``execution`` section
-            resolves to the default.
-        source: Optional description of where the config came from (typically the
-            config file path), used in the deprecation warning. Defaults to the
-            active config path.
-
-    Returns:
-        str: Always ``"subprocess"`` — the only execution backend OSPREY ships.
-
-    Raises:
-        ValueError: If ``execution.execution_method`` is set to any other value.
-
-    Example:
-        >>> resolve_execution_method({"execution": {"execution_method": "local"}})
-        'subprocess'
-    """
-    global _container_method_warned
-
-    execution = config.get("execution") if isinstance(config, dict) else None
-    raw = execution.get("execution_method") if isinstance(execution, dict) else None
-
-    if raw is None:
-        return EXECUTION_METHOD_SUBPROCESS
-
-    if not isinstance(raw, str):
-        raise ValueError(
-            f"Invalid execution.execution_method: {raw!r} "
-            f"(in {_describe_config_source(source)}). Expected 'subprocess'."
-        )
-
-    method = raw.strip().lower()
-
-    if method in ("", EXECUTION_METHOD_SUBPROCESS, "local"):
-        return EXECUTION_METHOD_SUBPROCESS
-
-    if method == "container":
-        if not _container_method_warned:
-            _container_method_warned = True
-            logger.warning(
-                "execution.execution_method: 'container' is deprecated (in %s). "
-                "OSPREY ships no containerized Python backend, so this value never "
-                "worked; agent Python code now runs via the subprocess backend. "
-                "Set execution.execution_method: subprocess.",
-                _describe_config_source(source),
-            )
-        return EXECUTION_METHOD_SUBPROCESS
-
-    raise ValueError(
-        f"Invalid execution.execution_method: {raw!r} "
-        f"(in {_describe_config_source(source)}). Expected 'subprocess' "
-        f"(legacy 'local' and 'container' are also accepted)."
-    )
 
 
 #: Shell values :func:`load_project_dotenv`'s ``override=True`` replaced, keyed
@@ -455,6 +345,179 @@ def dotenv_shell_overrides() -> dict[str, str]:
     return dict(_dotenv_shell_overrides)
 
 
+#: Variables the env chain never sets in a process environment. Each one is a
+#: name that chooses which program runs, what code a runtime loads at start, or
+#: what code an installer fetches, so it comes from the operator's shell, never
+#: from a repo file. Names compare case-insensitively; the entries here and in
+#: :data:`_SHELL_ONLY_ENV_PREFIXES` are upper-case.
+_SHELL_ONLY_ENV_VARS: frozenset[str] = frozenset(
+    {
+        "PATH",
+        "HOME",
+        "SHELL",
+        "ENV",
+        "BASH_ENV",
+        "ZDOTDIR",
+        "NODE_OPTIONS",
+        "NODE_PATH",
+        "PYTHONPATH",
+        "PYTHONHOME",
+        "PYTHONSTARTUP",
+        "PYTHONUSERBASE",
+        "PYTHONWARNINGS",
+        "PYTHONINSPECT",
+        "PYTHONBREAKPOINT",
+        "PYTHONEXECUTABLE",
+        "PYTHONPLATLIBDIR",
+        "PYTHONPYCACHEPREFIX",
+        "NODE_REPL_EXTERNAL_MODULE",
+        "PERL5LIB",
+        "PERLLIB",
+        "PERL5OPT",
+        "PERL5DB",
+        "RUBYOPT",
+        "RUBYLIB",
+        "JAVA_TOOL_OPTIONS",
+        "_JAVA_OPTIONS",
+        "JDK_JAVA_OPTIONS",
+        "CLASSPATH",
+        "GCONV_PATH",
+        "GLIBC_TUNABLES",
+        "LOCPATH",
+        "NLSPATH",
+        "HOSTALIASES",
+        "OPENSSL_CONF",
+        "OPENSSL_MODULES",
+        "OPENSSL_ENGINES",
+        "XDG_CONFIG_HOME",
+        "XDG_CONFIG_DIRS",
+        "XDG_CACHE_HOME",
+        "XDG_DATA_HOME",
+        "PROMPT_COMMAND",
+        "PS4",
+        "IFS",
+        "SHELLOPTS",
+        "BASHOPTS",
+        "CC",
+        "CXX",
+        "LDSHARED",
+        "CFLAGS",
+        "CPPFLAGS",
+        "CXXFLAGS",
+        "LDFLAGS",
+        "ARCHFLAGS",
+        "CPATH",
+        "C_INCLUDE_PATH",
+        "CPLUS_INCLUDE_PATH",
+        "LIBRARY_PATH",
+        "COMPILER_PATH",
+        "GCC_EXEC_PREFIX",
+        "DOCKER_HOST",
+        "DOCKER_CONFIG",
+        "DOCKER_CONTEXT",
+        "CLAUDE_CONFIG_DIR",
+        "CLAUDE_CODE_SHELL",
+        "CLAUDE_CODE_SHELL_PREFIX",
+        "CLAUDE_CODE_GIT_BASH_PATH",
+        "CLAUDE_ENV_FILE",
+        "SSH_ASKPASS",
+        "SUDO_ASKPASS",
+        "LESSOPEN",
+        "LESSCLOSE",
+        "PAGER",
+        "MANPAGER",
+        "EDITOR",
+        "VISUAL",
+        "BROWSER",
+    }
+)
+
+#: Name prefixes of the dynamic loader's variables, bash's exported functions
+#: and the variables git, npm, uv, pip and compose read, shell-only for the same reason
+#: as :data:`_SHELL_ONLY_ENV_VARS`.
+_SHELL_ONLY_ENV_PREFIXES: tuple[str, ...] = (
+    "LD_",
+    "DYLD_",
+    "BASH_FUNC_",
+    "GIT_",
+    "NPM_CONFIG_",
+    "UV_",
+    "PIP_",
+    "COMPOSE_",
+)
+
+#: ``(resolved file, name)`` pairs whose ignored shell-only name was already
+#: reported, so a chain applied many times in one process warns once.
+_shell_only_reported: set[tuple[str, str]] = set()
+
+
+def _is_shell_only_env_var(name: str) -> bool:
+    """Whether ``name`` is a launch variable the env chain never applies, in any case."""
+    upper = name.upper()
+    return upper in _SHELL_ONLY_ENV_VARS or upper.startswith(_SHELL_ONLY_ENV_PREFIXES)
+
+
+def apply_env_chain(
+    environ: MutableMapping[str, str],
+    paths: Sequence[Path],
+    *,
+    override: bool = True,
+) -> list[str]:
+    """Apply env-chain files to ``environ``, except the shell-only launch variables.
+
+    ``paths`` is in ascending precedence (``.env.shared`` before ``.env``); a
+    path that is not a file is skipped. Each file is read with python-dotenv's
+    ``dotenv_values`` and written into ``environ`` in turn, so a later file
+    wins on a key both set. Every key is applied except those
+    :func:`_is_shell_only_env_var` names: for those ``environ`` keeps exactly
+    what it held (set, or absent), and one warning per file names the ignored
+    keys — never their values.
+
+    With ``override=False`` a name ``environ`` held when the call began is
+    never written, while a later file may still replace a value this call
+    wrote, so the local file outranks the shared one and the shell outranks
+    both.
+
+    :return: The sorted names written into ``environ``.
+    """
+    from dotenv import dotenv_values
+
+    preset = set() if override else set(environ)
+    written: set[str] = set()
+    for path in paths:
+        path = Path(path)
+        if not path.is_file():
+            continue
+        ignored: list[str] = []
+        for name, value in dotenv_values(path).items():
+            if value is None:
+                continue
+            if _is_shell_only_env_var(name):
+                ignored.append(name)
+                continue
+            if name in preset:
+                continue
+            environ[name] = value
+            written.add(name)
+        _report_shell_only(path, ignored)
+    return sorted(written)
+
+
+def _report_shell_only(path: Path, names: list[str]) -> None:
+    """Warn once per process about the shell-only names ``path`` sets."""
+    resolved = str(path.resolve())
+    fresh = sorted({name for name in names if (resolved, name) not in _shell_only_reported})
+    if not fresh:
+        return
+    _shell_only_reported.update((resolved, name) for name in fresh)
+    logger.warning(
+        "Ignored %s in %s: launch variables come from the shell only. "
+        "Export them in your shell instead.",
+        ", ".join(fresh),
+        path,
+    )
+
+
 def load_project_dotenv() -> None:
     """Load the cwd's env chain into ``os.environ``, overriding existing values.
 
@@ -464,11 +527,13 @@ def load_project_dotenv() -> None:
     ``BLUESKY_*``), and it makes the chain the source of truth for API keys over
     a stale shell export. Every key in the files is passed through, not a
     declared subset — narrowing it would drop Channel Access addressing with no
-    error.
+    error. The one exception is the shell-only launch variables
+    (:func:`_is_shell_only_env_var`): :func:`apply_env_chain` leaves them as the
+    shell set them and warns.
 
     The chain is ``.env.shared`` then ``.env``
-    (:data:`osprey_connectors.dotenv.ENV_CHAIN_FILENAMES`), each loaded with
-    ``override=True``, so the host-local ``.env`` wins over the committed
+    (:data:`osprey_connectors.dotenv.ENV_CHAIN_FILENAMES`), each applied with
+    override, so the host-local ``.env`` wins over the committed
     defaults on a key both set — the same local-wins precedence every other
     delivery path applies. A project with no ``.env.shared`` behaves exactly as
     it did when ``.env`` was the whole chain.
@@ -485,8 +550,7 @@ def load_project_dotenv() -> None:
     ``override=True`` and the breadth of the copy are exactly why this must be
     called deliberately. Call it from process entry points only; never at
     import time, and never from library code that a host application merely
-    imports. Missing files, missing ``python-dotenv``, and an unreadable file
-    are all non-fatal.
+    imports. Missing files and an unreadable file are non-fatal.
 
     A process stamped with
     :data:`~osprey_connectors.dotenv.ENV_CHAIN_APPLIED_ENV` was handed its
@@ -496,12 +560,6 @@ def load_project_dotenv() -> None:
     from osprey_connectors.dotenv import ENV_CHAIN_APPLIED_ENV
 
     if os.environ.get(ENV_CHAIN_APPLIED_ENV):
-        return
-
-    try:
-        from dotenv import load_dotenv
-    except ImportError:
-        logger.warning("python-dotenv not available, skipping .env file loading")
         return
 
     repo_root = Path.cwd()
@@ -517,18 +575,19 @@ def load_project_dotenv() -> None:
         # after the first load os.environ already matches the chain — a later
         # call sees no difference and must not erase the genuine shell values
         # the first one recorded. First-seen wins; only the pre-load value is
-        # the shell's own.
+        # the shell's own. A shell-only name is never replaced, so it is never
+        # recorded.
         pinned = merge_chain(repo_root)
         for name, value in pinned.items():
             if (
-                name in os.environ
+                not _is_shell_only_env_var(name)
+                and name in os.environ
                 and os.environ[name] != value
                 and name not in _dotenv_shell_overrides
             ):
                 _dotenv_shell_overrides[name] = os.environ[name]
-        for path in paths:
-            load_dotenv(path, override=True)
-            logger.debug(f"Loaded .env file from {path}")
+        apply_env_chain(os.environ, paths)
+        logger.debug("Loaded the env chain from %s", ", ".join(str(path) for path in paths))
     except OSError as e:
         # e.g. a 0600 .env owned by another uid mounted into a non-root
         # container (dispatch worker on a uid-mismatched host). Provider
@@ -563,10 +622,9 @@ class ConfigBuilder:
                     f"projects, set it under `config:` in profile.yml and run "
                     f"`osprey build`; otherwise add it to your config file."
                 )
-            else:
-                # Default provided - use it but warn for visibility
-                logger.warning(f"Using default value for '{path}' = {default}. ")
-                return default
+            # Default provided - use it but warn for visibility
+            logger.warning(f"Using default value for '{path}' = {default}. ")
+            return default
         return value
 
     def __init__(self, config_path: str | Path | None = None, *, load_env: bool = True):
@@ -655,7 +713,7 @@ class ConfigBuilder:
             Path(configured_root) if configured_root else repo_root_for_config(self.config_path)
         ).expanduser()
 
-        for key, value in find_runtime_write_paths_under_data(self.raw_config, project_root):
+        for key, value in _runtime_write_paths_under_data(self.raw_config, project_root):
             logger.warning(
                 "Runtime-write path '%s' = %r resolves inside the build-owned "
                 "'%s/' tree (%s). That directory is re-rendered and checksummed on "
@@ -665,7 +723,7 @@ class ConfigBuilder:
                 value,
                 _BUILD_OWNED_DATA_DIR,
                 self.config_path,
-                RUNTIME_STATE_DIR,
+                _RUNTIME_STATE_DIR,
             )
 
     def _load_yaml_file(self, file_path: Path) -> dict[str, Any]:
@@ -771,7 +829,7 @@ class ConfigBuilder:
             "'execution' section missing from config.yml; defaulting to subprocess Python execution"
         )
 
-        return {"execution_method": EXECUTION_METHOD_SUBPROCESS}
+        return {"execution_method": _EXECUTION_METHOD_SUBPROCESS}
 
     def _get_python_executor_config(self) -> dict[str, Any]:
         """Get python executor configuration with sensible defaults.
@@ -791,12 +849,12 @@ class ConfigBuilder:
 
         # Otherwise, provide sensible defaults
         return {
-            "execution_timeout_seconds": DEFAULT_EXECUTION_TIMEOUT_SECONDS,
+            "execution_timeout_seconds": _DEFAULT_EXECUTION_TIMEOUT_SECONDS,
         }
 
     def _build_configurable(self) -> dict[str, Any]:
         """Build the configurable dictionary with pre-computed nested structures."""
-        configurable = {
+        return {
             "model_configs": self._build_model_configs(),
             "provider_configs": self._build_provider_configs(),
             "service_configs": self._build_service_configs(),
@@ -808,8 +866,6 @@ class ConfigBuilder:
             "registry_path": self.get("registry_path"),
             "facility_timezone": self.get("system.timezone", "UTC"),
         }
-
-        return configurable
 
     def _build_model_configs(self) -> dict[str, Any]:
         """Get model configs from flat structure."""
@@ -933,10 +989,7 @@ def _get_config(config_path: str | None = None, set_as_default: bool = False) ->
     if config_path is None:
         if _default_config is None:
             config_file = os.environ.get("CONFIG_FILE")
-            if config_file:
-                _default_config = ConfigBuilder(config_file)
-            else:
-                _default_config = ConfigBuilder()
+            _default_config = ConfigBuilder(config_file) if config_file else ConfigBuilder()
 
             _default_configurable = _default_config.configurable.copy()
 
@@ -1121,25 +1174,6 @@ def load_config(config_path: str | None = None) -> dict[str, Any]:
     return _get_config(config_path).raw_config
 
 
-def get_framework_service_config(
-    service_name: str, config_path: str | None = None
-) -> dict[str, Any]:
-    """Get framework service configuration with automatic context detection.
-
-    Args:
-        service_name: Name of the framework service
-        config_path: Optional explicit path to configuration file
-
-    Returns:
-        Dictionary with service configuration
-    """
-    configurable = get_configurable(config_path)
-    service_configs: dict[str, Any] = configurable.get("service_configs", {})
-    return mapping_or_empty(
-        service_configs.get(service_name), f"services.{service_name}", config_path
-    )
-
-
 def get_agent_dir(sub_dir: str, host_path: bool = False) -> str:
     """
     Get the target directory path within the agent data directory using absolute paths.
@@ -1149,7 +1183,7 @@ def get_agent_dir(sub_dir: str, host_path: bool = False) -> str:
     subdirectory key absent from ``file_paths`` falls back to its own name.
 
     Args:
-        sub_dir: Subdirectory name (e.g., 'api_calls_dir', 'registry_exports_dir')
+        sub_dir: Subdirectory name (e.g., 'registry_exports_dir')
         host_path: If True, force return of host filesystem path even when running in container
 
     Returns:
@@ -1343,25 +1377,6 @@ def _warn_on_tz_drift(tz_name: str) -> None:
         f"OS-level log timestamps will differ from agent-reported times. Set both to "
         f"the same zone (system.timezone is authoritative for what the agent reports)."
     )
-
-
-def to_facility_iso(value: Any) -> "str | None":
-    """Render a value as a facility-local ISO-8601 string with explicit offset.
-
-    The single shared timestamp-egress transform for agent- and operator-facing
-    output (the ARIEL MCP ``serialize_entry``/``entry_get`` and the ARIEL web
-    responses). An aware datetime is converted to the facility zone; a naive
-    datetime is treated as facility-local wall-clock via :func:`localize_facility`
-    (never the box ``$TZ``); ``None`` passes through; anything else degrades to
-    ``str(value)`` so callers never crash on an unexpected shape.
-    """
-    if value is None:
-        return None
-    if hasattr(value, "astimezone"):  # a datetime
-        # localize_facility stamps the naive case; astimezone converts aware
-        # values into the facility zone for display.
-        return str(localize_facility(value).astimezone(get_facility_timezone()).isoformat())
-    return str(value)
 
 
 def get_full_configuration(config_path: str | None = None) -> dict[str, Any]:

@@ -34,10 +34,13 @@ from osprey.services.virtual_accelerator.serving.model_rpc_handler import (
     pva_endpoint,
 )
 from osprey.services.virtual_accelerator.serving.model_surface import ModelSurface
+from osprey.services.virtual_accelerator.serving.publication import changed_outputs
 from osprey.services.virtual_accelerator.serving.runner_config import (
     HEALTH_KEYS,
     apply_safety,
+    pass_readback,
     periodic_addresses,
+    setting_records,
 )
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
@@ -53,8 +56,14 @@ class ModelRunner(Runner):
     the view's write safety applied
     (:func:`~osprey.services.virtual_accelerator.serving.runner_config.apply_safety`).
     A write pass reads back every served channel except those the view says
-    refresh ``periodic``, which the next periodic pass publishes; a pass with
-    no input values reads them all.
+    refresh ``periodic``, which the next periodic pass publishes. A write
+    pass of physics settings alone reads back only the settings, their
+    readbacks and what their models compute from their settings, the one
+    part of the composite a setting changes
+    (:func:`~osprey.services.virtual_accelerator.serving.runner_config.pass_readback`).
+    Of what it reads, a write pass publishes the written channels and those
+    whose value or undefined condition changed since they were last
+    published; a pass with no input values reads and publishes them all.
     A failed pass rolls the composite back to the state cached before it only
     when ``model.set`` had already succeeded: a refused ``set`` leaves the
     composite as it was. The model RPC's write verbs reply only after a
@@ -99,7 +108,10 @@ class ModelRunner(Runner):
         self._health_file = health_file
         self._model_write_token = model_write_token
         self._periodic = periodic_addresses(view)
+        self._setting_records = setting_records(view)
+        self._written: frozenset[str] = frozenset()
         self._write_pass = False
+        self._served: dict[str, Any] = {}
         self._set_landed = False
         self._pass_started = False
         self._passes_run = 0
@@ -128,8 +140,9 @@ class ModelRunner(Runner):
         return self._first_pass_error
 
     def _run_cycle(self, item: dict[str, Any]) -> None:
-        """Note whether this pass carries input values, then run it and record its outcome."""
-        self._write_pass = bool(item["values"])
+        """Note the input values this pass writes, then run it and record its outcome."""
+        self._written = frozenset(item["values"])
+        self._write_pass = bool(self._written)
         self._set_landed = False
         self._pass_started = False
         item["done"].append(self._record_pass)
@@ -152,12 +165,37 @@ class ModelRunner(Runner):
             write_document(self._health_file, document)
 
     def _cycle_output_names(self) -> list[str]:
-        """The roster read after ``model.set``; a write pass leaves the periodic addresses out."""
+        """The roster read after ``model.set``, narrowed for a write pass.
+
+        A write pass leaves the periodic addresses out; one of physics settings
+        alone reads only the records those settings can change.
+        """
         self._set_landed = True
         roster: list[str] = super()._cycle_output_names()
         if not self._write_pass:
             return roster
-        return [name for name in roster if name not in self._periodic]
+        changed = pass_readback(self._setting_records, self._written)
+        return [
+            name
+            for name in roster
+            if name not in self._periodic and (changed is None or name in changed)
+        ]
+
+    def _post_outputs(self, out_values: dict[str, Any], ts: float) -> None:
+        """Post a pass's values; a write pass posts only what a client does not hold yet.
+
+        A write pass posts the written channels and those whose value or
+        undefined condition changed since they were last posted; any other
+        pass posts every value. A name is recorded as posted only once the
+        base class has published the pass, so a pass that fails before it
+        publishes leaves the record as the wire is.
+        """
+        posting = out_values
+        if self._write_pass:
+            udf_now = self._evaluate_severity(list(out_values))
+            posting = changed_outputs(out_values, self._served, self._written, udf_now, self._udf)
+        super()._post_outputs(posting, ts)
+        self._served.update(posting)
 
     def _reset_to_cached_state(self) -> None:
         """Restore the cached state only when the pass failed after ``model.set`` succeeded."""

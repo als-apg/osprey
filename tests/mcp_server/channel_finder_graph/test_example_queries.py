@@ -14,7 +14,6 @@ asserted directly through the unwrapped function. Two properties carry the weigh
 
 from __future__ import annotations
 
-import asyncio
 import json
 import os
 import re
@@ -26,6 +25,7 @@ from pathlib import Path
 import pytest
 
 from osprey.mcp_server.channel_finder_graph.tools.examples_data import EXAMPLE_QUERIES
+from tests.mcp_server.conftest import registered_tool_names
 
 _SERVER_CONTEXT_MODULE = "osprey.mcp_server.graph.server_context"
 
@@ -48,16 +48,6 @@ _EXPECTED_KEYS = (
 )
 
 
-def _tool_names(mcp) -> set[str]:
-    """Tool names registered on a FastMCP server, across FastMCP versions."""
-    tools = mcp.get_tools() if hasattr(mcp, "get_tools") else mcp.list_tools()
-    if asyncio.iscoroutine(tools):
-        tools = asyncio.run(tools)
-    if isinstance(tools, dict):
-        return set(tools)
-    return {t.name for t in tools}
-
-
 def _run_probe(source: str) -> subprocess.CompletedProcess:
     """Run a probe in a fresh interpreter with this worktree's ``src`` on the path."""
     from osprey.mcp_server.channel_finder_graph import server as cf_graph_server
@@ -69,6 +59,7 @@ def _run_probe(source: str) -> subprocess.CompletedProcess:
         capture_output=True,
         text=True,
         env=env,
+        timeout=120,
     )
 
 
@@ -88,7 +79,7 @@ class TestRegistration:
         from osprey.mcp_server.channel_finder_graph import server as cf_graph_server
         from osprey.mcp_server.channel_finder_graph.tools import example_queries  # noqa: F401
 
-        assert "example_queries" in _tool_names(cf_graph_server.mcp)
+        assert "example_queries" in registered_tool_names(cf_graph_server.mcp)
 
     def test_the_tool_is_this_paradigms_own_not_the_main_agents(self):
         """A re-registration of the main-agent tool would serve the wrong catalogue."""

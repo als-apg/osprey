@@ -56,6 +56,6 @@ export function uuid4() {
     hex.slice(8, 12),
     hex.slice(12, 16),
     hex.slice(16, 20),
-    hex.slice(20)
+    hex.slice(20),
   ].join('-');
 }

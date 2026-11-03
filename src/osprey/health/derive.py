@@ -54,8 +54,7 @@ def _in_container() -> bool:
     writes ``health.auto.mcp.url_key: host_url`` into every render that serves
     web terminals (:mod:`osprey.cli.build_profile_health`), and this detection
     decides only for a render without web terminals. Topology is declared,
-    never sniffed — the same rule
-    :func:`osprey.deployment.telemetry_config.runtime_gateway_url` follows.
+    never sniffed.
     """
     return (
         os.path.exists("/.dockerenv")

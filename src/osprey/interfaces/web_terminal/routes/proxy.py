@@ -28,6 +28,14 @@ network reach cannot be steered by a backend either, and a redirect naming a
 third origin is refused outright rather than relayed
 (:func:`_rewrite_redirect_location`) so a console URL is never an open redirect.
 
+Every HTTP route here also puts what it answers into an **opaque origin**
+unless it is one of the panel's declared entry pages: :class:`_PanelSandboxRoute`
+appends the terminal's own ``Content-Security-Policy: sandbox allow-scripts
+allow-downloads`` to any document-typed response, whatever branch built it
+(:mod:`osprey.interfaces.web_terminal.panel_sandbox` holds the rules). A
+document that is not the panel's own application page may be one an agent
+wrote, and on the terminal's origin it would run with the operator's session.
+
 What the injection still buys a backend, stated plainly: the header carries the
 **full** operator secret, so a backend that earns it can turn around and act as
 the operator against the terminal's own API. That is accepted here — the
@@ -44,35 +52,119 @@ import html
 import ipaddress
 import json
 import logging
-import mimetypes
+import os
 import re
+import secrets
+from collections.abc import Collection
 from pathlib import Path
 from urllib.parse import ParseResult, urljoin, urlparse, urlunsplit
 
 import httpx
 from fastapi import APIRouter, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import Response, StreamingResponse
+from fastapi.routing import APIRoute
 from starlette.websockets import WebSocketState
 from websockets.asyncio.client import connect as _WebSocketConnect
 
 from osprey.dispatch import DISPATCHER_MCP_PATH
+from osprey.interfaces._media_types import STATIC_TEXT_TYPES as _STATIC_TEXT_TYPES
+from osprey.interfaces._media_types import asset_media_type as _asset_media_type
 from osprey.interfaces.common_middleware import (
+    ASSET_CORS_HEADERS,
+    EXTERNAL_ORIGIN_ENV,
     FACILITY_TIMEZONE_ATTRIBUTE,
+    FIRST_PARTY_PANEL_STATIC,
+    MOUNT_SEGMENT_RE,
+    PANEL_ADMISSION_STATE_KEY,
+    PANEL_ASSET_SUBPATHS,
+    PANEL_CAP_SEGMENT,
     STORAGE_SCOPE_ATTRIBUTE,
     compute_url_prefix,
     resolve_storage_scope,
 )
+from osprey.interfaces.common_middleware import (
+    _normalize_origin as _normalize_external_origin,
+)
+from osprey.interfaces.opaque_origin import document_headers
 from osprey.interfaces.web_auth import get_web_credentials
+from osprey.interfaces.web_terminal.operator_session import session_hold_root_of
+from osprey.interfaces.web_terminal.panel_cap import opaque_panel_kind, verify_request_cap
+from osprey.interfaces.web_terminal.panel_sandbox import apply_panel_sandbox, builtin_entry_pages
+from osprey.interfaces.web_terminal.routes.watchdog import session_is_live
+from osprey.interfaces.web_terminal.routes.workspace_activity import observe_set_workspace
 from osprey.profiles.web_panels import SIDECAR_PANELS
 from osprey.registry.web import FRAMEWORK_WEB_SERVERS, panel_url_state_attr
 from osprey.utils.http_proxy import HOP_BY_HOP
 from osprey.utils.owner_header import OWNER_HEADER, owner_from_header
 from osprey_connectors.config import get_facility_timezone
 from osprey_connectors.identity import acting_identity
+from osprey_connectors.refusals import refusal_text
+from osprey_connectors.session_hold import is_held, is_safe_session_key
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter()
+#: The mount every route in this module sits under; the rest of a route's
+#: template is the path *below* the panel, which is what entry pages name.
+_PANEL_MOUNT_TEMPLATE = "/panel/{panel_id}"
+
+
+def _panel_entry_pages(request: Request, panel_id: str) -> tuple[str, ...]:
+    """The entry-page templates *panel_id* declares, which alone escape the sandbox.
+
+    A built-in panel declares them in code (a sidecar's ``entry_pages``, a
+    companion server's row in ``FRAMEWORK_ENTRY_PAGES``). A config-declared
+    custom panel declares its document by its configured ``path`` (default
+    ``/``) and may list more under ``entryPages`` — both operator inputs. A
+    runtime registration declares nothing: its URL is a free string its caller
+    chose, so every document it serves is sandboxed.
+    """
+    builtin = builtin_entry_pages(panel_id)
+    if builtin or panel_id in _PANEL_STATE_MAP:
+        return builtin
+    for cp in getattr(request.app.state, "custom_panels", []):
+        if cp.get("id") != panel_id:
+            continue
+        if not cp.get("configDefined"):
+            return ()
+        declared = cp.get("entryPages") or ()
+        if isinstance(declared, str):
+            declared = (declared,)
+        path = cp.get("path") or "/"
+        component = urlparse(path).path if isinstance(path, str) else "/"
+        entry = component if component.startswith("/") else "/"
+        return tuple(dict.fromkeys((entry, *(str(p) for p in declared if p))))
+    return ()
+
+
+class _PanelSandboxRoute(APIRoute):
+    """Every HTTP route in this module, with the terminal's panel sandbox applied.
+
+    The policy is appended to the endpoint's own response, whatever its status
+    and whichever branch built it (relayed, streamed, redirected, refused), so
+    no emit site can forget it: see :mod:`osprey.interfaces.web_terminal.panel_sandbox`
+    for the rules. The path judged is the one below ``/panel/<id>``, rebuilt
+    from the route's own template, so the panel-scoped static routes are judged
+    by the same path the browser asked for.
+    """
+
+    def get_route_handler(self):  # type: ignore[override]
+        handler = super().get_route_handler()
+        below = self.path_format.removeprefix(_PANEL_MOUNT_TEMPLATE)
+
+        async def sandboxed(request: Request) -> Response:
+            response: Response = await handler(request)
+            panel_id = str(request.path_params.get("panel_id", ""))
+            try:
+                path = below.format(**request.path_params)
+            except (KeyError, IndexError, ValueError):  # pragma: no cover - template guard
+                path = ""
+            apply_panel_sandbox(response, path, _panel_entry_pages(request, panel_id))
+            return response
+
+        return sandboxed
+
+
+router = APIRouter(route_class=_PanelSandboxRoute)
 
 # Paths that companion servers commonly use as root-absolute references.
 # Only these prefixes are rewritten inside string delimiters to avoid
@@ -152,7 +244,7 @@ def _resolve_panel_url(scope: Request | WebSocket, panel_id: str) -> str | None:
     for cp in getattr(scope.app.state, "custom_panels", []):
         if cp.get("id") == panel_id:
             url = cp.get("url", "")
-            return url if url else None
+            return url or None
 
     return None
 
@@ -219,6 +311,90 @@ def _is_dispatcher_mcp_hop(panel_id: str, path: str) -> bool:
         path: The path segment below the panel id, without a leading slash.
     """
     return panel_id == _EVENTS_PANEL_ID and f"/{path}" == DISPATCHER_MCP_PATH
+
+
+#: The dispatcher tools that start a job; its other tools only read.
+_JOB_FIRING_TOOLS = frozenset({"manual_fire"})
+
+#: The header naming the calling session on an agent hop's MCP server entry
+#: (the dispatcher's, and each opted-in sidecar's). The panel token is shared,
+#: so it is honest-path: it answers which session is asking, and is no proof
+#: of it.
+_SESSION_HEADER = "x-osprey-session"
+
+#: JSON-RPC's implementation-defined server error, for a call refused before it left.
+_JSONRPC_REFUSED = -32000
+
+
+def _acting_messages(body: bytes, acting_tools: Collection[str]) -> list[dict] | None:
+    """The JSON-RPC requests of *body*, when one of them calls an acting tool; else ``None``.
+
+    A body that does not parse is the transport's to answer.
+    """
+    try:
+        payload = json.loads(body)
+    except ValueError:
+        return None
+    messages = payload if isinstance(payload, list) else [payload]
+    requests = [message for message in messages if isinstance(message, dict)]
+    for message in requests:
+        params = message.get("params")
+        if (
+            message.get("method") == "tools/call"
+            and isinstance(params, dict)
+            and params.get("name") in acting_tools
+        ):
+            return requests
+    return None
+
+
+async def _refuse_held_call(
+    request: Request, acting_tools: Collection[str], *, hop: str
+) -> Response | None:
+    """Refuse an acting call from a held session; ``None`` lets the request through.
+
+    The one hold on every agent hop. The dispatcher's acting tools fire a job
+    (:data:`_JOB_FIRING_TOOLS`); an opted-in sidecar's are the tools it asks
+    the operator about (``SidecarPanel.mcp_ask``). A watchdog hold pauses the
+    session's writes by every route the agent has, and these hops are routes
+    the agent has.
+
+    Under a hold store the session must be named and live, so a key nobody runs
+    cannot act past a hold it has no record of. With no store nothing is read.
+    A JSON-RPC error rather than an HTTP status, because the agent's client reads
+    the words of one and reports only a transport failure for the other. A batch
+    with an acting call in it is refused whole.
+
+    Args:
+        request: The proxied ``POST``.
+        acting_tools: The bare tool names on this hop that act.
+        hop: What the log names when a call is refused.
+    """
+    root = session_hold_root_of(request.app)
+    if root is None:
+        return None
+    messages = _acting_messages(await request.body(), acting_tools)
+    if messages is None:
+        return None
+    key = request.headers.get(_SESSION_HEADER, "")
+    if not is_safe_session_key(key) or not session_is_live(request.app, key):
+        text = "This call needs a live session; it names none."
+    elif await asyncio.to_thread(is_held, key, root=root):
+        text = refusal_text("session_held", detail="The call is refused while held.")
+    else:
+        return None
+    logger.warning("Refused a call on the %s while the session is held or unnamed", hop)
+    errors = [
+        {
+            "jsonrpc": "2.0",
+            "id": message.get("id"),
+            "error": {"code": _JSONRPC_REFUSED, "message": text},
+        }
+        for message in messages
+        if "id" in message
+    ]
+    answer = errors[0] if len(messages) == 1 and errors else errors
+    return Response(content=json.dumps(answer), media_type="application/json")
 
 
 #: Request headers that are never forwarded to a panel backend.
@@ -371,7 +547,7 @@ def _is_redirect(resp: httpx.Response) -> bool:
 #: backend reads one header name whether the request came through nginx or
 #: through this proxy. A test pins the two spellings together rather than this
 #: request-path module importing the deployment renderer.
-TERMINAL_SECRET_HEADER = "X-Osprey-Terminal-Secret"
+TERMINAL_SECRET_HEADER = "X-Osprey-Terminal-Secret"  # noqa: S105 -- names a header, holds no secret
 
 
 def _backend_is_loopback(backend_url: str) -> bool:
@@ -475,10 +651,12 @@ def _terminal_secret_header(
 ) -> dict[str, str]:
     """The terminal-secret header to send upstream, or ``{}`` for no injection.
 
-    When the backend does not earn it (:func:`_backend_earns_credentials`) — or
-    the process cannot produce credentials at all — nothing is injected and the
-    panel simply loads unauthenticated. That is the failure an operator can see
-    and act on; the alternative failure, a leaked secret, is silent.
+    When the backend does not earn it (:func:`_backend_earns_credentials`), when
+    it is a sidecar whose registry entry declines it
+    (``SidecarPanel.operator_secret``), or when the process cannot produce
+    credentials at all, nothing is injected and the panel simply loads
+    unauthenticated. That is the failure an operator can see and act on; the
+    alternative failure, a leaked secret, is silent.
 
     Args:
         scope: The request or websocket being proxied.
@@ -492,6 +670,12 @@ def _terminal_secret_header(
     if not _backend_earns_credentials(scope, panel_id, backend_url):
         return {}
 
+    # A sidecar that authenticates with its own launch credential alone opts
+    # out of the operator secret in its registry entry, on both legs.
+    sidecar = SIDECAR_PANELS.get(panel_id)
+    if sidecar is not None and not sidecar.operator_secret:
+        return {}
+
     try:
         credentials = get_web_credentials(getattr(scope, "app", None))
     except Exception:  # pragma: no cover - see web_auth._populate's fatal path
@@ -503,6 +687,110 @@ def _terminal_secret_header(
 
     secret = credentials.operator_secret
     return {TERMINAL_SECRET_HEADER: secret} if secret else {}
+
+
+#: A percent escape of ``.``, ``/`` or ``\\``, encoded any number of times over
+#: (``%2f``, ``%252f``, ...). In a path the server has already decoded it is
+#: the mark of a double encoding; in the raw request path it is a separator or
+#: a dot spelled so that this hop and the next can disagree about where the
+#: segments are. Matching every depth keeps the answer the same however many
+#: times the server in front of this route decoded the path.
+_PATH_ESCAPE_RE = re.compile(r"%(?:25)*(?:2e|2f|5c)", re.IGNORECASE)
+
+_REPEATED_SLASHES_RE = re.compile(r"/{2,}")
+
+
+def _is_admitted_agent_hop(scope: Request | WebSocket, panel_id: str, path: str) -> bool:
+    """Whether this request is a sidecar's declared agent hop, admitted as one.
+
+    True only when every one of these holds:
+
+    * the panel is a sidecar that declares an MCP transport
+      (``SidecarPanel.mcp_path``) **and** opts in (``SidecarPanel.agent_hop``);
+    * the path below the panel id is that transport's path, exactly;
+    * the request arrived spelled that way. The path a route is handed is
+      percent-decoded, so ``%6dcp`` reads as ``mcp`` there and at the terminal's
+      gate alike; the raw request path is the only place the two differ, and it
+      must end in the literal ``/panel/<id><mcp_path>``. A scope with no raw
+      path is not the hop;
+    * the terminal's gate admitted the request on the panel token
+      (:data:`~osprey.interfaces.common_middleware.PANEL_ADMISSION_STATE_KEY`).
+      A browser session and the operator secret never carry that mark, and
+      neither does any websocket.
+
+    Args:
+        scope: The request or websocket being proxied.
+        panel_id: The panel id from the proxied URL.
+        path: The decoded path below the panel id, without a leading slash.
+    """
+    sidecar = SIDECAR_PANELS.get(panel_id)
+    if sidecar is None or not sidecar.agent_hop or not sidecar.mcp_path:
+        return False
+    if f"/{path}" != sidecar.mcp_path:
+        return False
+    asgi_scope = scope.scope
+    state = asgi_scope.get("state") or {}
+    if state.get(PANEL_ADMISSION_STATE_KEY) is not True:
+        return False
+    raw_path = asgi_scope.get("raw_path") or b""
+    return raw_path.endswith(f"/panel/{panel_id}{sidecar.mcp_path}".encode("latin-1"))
+
+
+def _mcp_path_refusal(
+    scope: Request | WebSocket, panel_id: str, path: str, target: str
+) -> int | None:
+    """The status to refuse this request with, or ``None`` to forward it.
+
+    Applies to a sidecar that declares an MCP transport
+    (``SidecarPanel.mcp_path``) and to no other panel. That transport is not a
+    page: this hop carries it for one caller only — the agent's own client, on
+    a sidecar that opted in (:func:`_is_admitted_agent_hop`) — and nothing
+    below the panel may be spelled so that an upstream resolves it to the
+    transport after this check has passed.
+
+    Two refusals, both decided before any upstream call:
+
+    * **404** for a path below ``/panel/<id>/`` that has a ``.`` or ``..``
+      segment, or a percent escape of ``.``, ``/`` or ``\\`` at any depth of
+      encoding — either left in the decoded path (a double encoding) or
+      present in the raw request path (an encoded separator, which the decoded
+      path can no longer tell from a real one).
+    * **403** when the upstream path of the built target, with ``;params``
+      dropped from every segment and repeated slashes collapsed, is the
+      declared ``mcp_path`` or lies below it — unless the request is the
+      declared hop of a sidecar that opted in, spelled exactly, and the gate
+      admitted it on the panel token. A browser session or the operator
+      secret is refused there like any other caller, and so is every other
+      spelling the panel token arrives on.
+
+    Args:
+        scope: The request or websocket being proxied.
+        panel_id: The panel id from the proxied URL.
+        path: The decoded path below the panel id, without a leading slash.
+        target: The upstream URL this request would be forwarded to.
+    """
+    sidecar = SIDECAR_PANELS.get(panel_id)
+    if sidecar is None or not sidecar.mcp_path:
+        return None
+
+    if any(segment in (".", "..") for segment in path.split("/")):
+        return 404
+    raw_path = scope.scope.get("raw_path") or b""
+    if _PATH_ESCAPE_RE.search(path) or _PATH_ESCAPE_RE.search(raw_path.decode("latin-1")):
+        return 404
+
+    try:
+        upstream_path = httpx.URL(target).path
+    except httpx.InvalidURL:
+        return 404
+    without_params = "/".join(segment.partition(";")[0] for segment in upstream_path.split("/"))
+    normalised = _REPEATED_SLASHES_RE.sub("/", without_params)
+    mcp_path = sidecar.mcp_path
+    if normalised == mcp_path and _is_admitted_agent_hop(scope, panel_id, path):
+        return None
+    if normalised == mcp_path or normalised.startswith(f"{mcp_path}/"):
+        return 403
+    return None
 
 
 def _panel_auth_header(
@@ -633,9 +921,7 @@ def _same_origin(parsed: ParseResult, other_url: str) -> bool:
     other = urlparse(other_url)
     if parsed.netloc.lower() != other.netloc.lower():
         return False
-    if parsed.scheme and other.scheme and parsed.scheme.lower() != other.scheme.lower():
-        return False
-    return True
+    return not (parsed.scheme and other.scheme and parsed.scheme.lower() != other.scheme.lower())
 
 
 def _rewrite_redirect_location(
@@ -698,11 +984,7 @@ def _rewrite_redirect_location(
         # so the re-base is idempotent: a path already carrying the prefix is
         # relayed as it stands. Segment-boundary comparison, so a panel id
         # that is a prefix of another (``x`` vs ``x-2``) is never conflated.
-        return (
-            path == panel_prefix
-            or path.startswith(panel_prefix + "/")
-            or path.startswith(panel_prefix + "?")
-        )
+        return path == panel_prefix or path.startswith((panel_prefix + "/", panel_prefix + "?"))
 
     try:
         parsed = urlparse(location)
@@ -839,7 +1121,12 @@ def _panel_rewrite_prefixes(request: Request, panel_id: str) -> tuple[str, ...]:
 
 
 def _rewrite_content(
-    body: str, panel_id: str, outer_prefix: str, extra_prefixes: tuple[str, ...] = ()
+    body: str,
+    panel_id: str,
+    outer_prefix: str,
+    extra_prefixes: tuple[str, ...] = (),
+    *,
+    panel_base: str | None = None,
 ) -> str:
     """Rewrite root-absolute paths inside string delimiters for proxied content.
 
@@ -848,9 +1135,13 @@ def _rewrite_content(
     are unaffected because the pattern requires a delimiter immediately
     before the ``/``.
 
-    The order of ``_REWRITE_PREFIXES`` and ``extra_prefixes`` does not matter:
-    a rewritten literal no longer starts with ``/`` after its delimiter, so
-    whichever prefix matches first consumes it and no other can match it again.
+    Every literal is rebased at most once, in a single pass over the body. A
+    rebased literal still starts with ``/`` when the outer prefix is empty
+    (``/panel/<id>/...``), so a later prefix that matches the rebased text —
+    a panel whose ``path`` derives ``/panel/`` — would otherwise rebase it a
+    second time into ``/panel/<id>/panel/<id>/...``. Which of several matching
+    prefixes wins does not matter: each one is a leading slice of the literal,
+    and the rebase only puts the panel prefix in front of it.
 
     Args:
         body: The response body to rewrite.
@@ -861,26 +1152,39 @@ def _rewrite_content(
             ``/panel/<id>``. An empty prefix yields bare ``/panel/<id>/...``.
         extra_prefixes: The root-absolute prefixes this one panel adds to
             ``_REWRITE_PREFIXES``; none by default.
+        panel_base: The full browser path to rewrite into instead of
+            ``<outer_prefix>/panel/<panel_id>`` — a C-CAP path, so a capped
+            panel's own absolute paths stay under its cap. The hub's own
+            assets (:data:`PANEL_ASSET_SUBPATHS`) are the exception: they are
+            not the panel's bytes and a cap path would relay them to its
+            backend, so they keep pointing at their C-ASSETS route
+            ``<outer_prefix>/panel/<panel_id>/<sub>/`` — already exempt and
+            CORS-readable, so nothing new is exempted.
     """
-    prefix = f"{outer_prefix}/panel/{panel_id}"
+    prefix = panel_base or f"{outer_prefix}/panel/{panel_id}"
+    if panel_base:
+        # First, so the broader "/static/" prefix below cannot claim
+        # "/static/fonts/" for the cap.
+        for sub in PANEL_ASSET_SUBPATHS:
+            body = re.sub(
+                r"""(?<=["'`])""" + re.escape(f"/{sub}/"),
+                f"{outer_prefix}/panel/{panel_id}/{sub}/",
+                body,
+            )
 
-    for path in (*_REWRITE_PREFIXES, *extra_prefixes):
-        # Match path inside string delimiters: "/static/..." → "/panel/id/static/..."
-        # The lookbehind ensures we only match after a quote character.
-        body = re.sub(
-            r"""(?<=["'`])""" + re.escape(path),
-            prefix + path,
-            body,
-        )
-
-    # Rewrite bare '/api' (without trailing slash) inside delimiters.
-    body = re.sub(r"""(?<=["'`])/api(?=["'`])""", f"{prefix}/api", body)
+    # One alternation, one pass: "/static/..." → "/panel/id/static/...". The
+    # lookbehind matches only right after a quote character; bare '/api' (no
+    # trailing slash) is matched only when the delimiter closes it.
+    alternatives = [
+        re.escape(path) for path in dict.fromkeys((*_REWRITE_PREFIXES, *extra_prefixes))
+    ]
+    alternatives.append(r"""/api(?=["'`])""")
+    pattern = r"""(?<=["'`])(?:""" + "|".join(alternatives) + ")"
+    body = re.sub(pattern, lambda match: prefix + match.group(0), body)
 
     # Rewrite href="/" to href="/panel/{id}/"
     body = body.replace('href="/"', f'href="{prefix}/"')
-    body = body.replace("href='/'", f"href='{prefix}/'")
-
-    return body
+    return body.replace("href='/'", f"href='{prefix}/'")
 
 
 #: The hub's own copy of the shared design system — the same directory
@@ -911,23 +1215,6 @@ _TERMINAL_STATIC_DIR = Path(__file__).resolve().parents[1] / "static"
 #: Deliberately NOT applied to the design-system route, which serves whole
 #: pages (``theme-lab.html``) on purpose.
 _TERMINAL_STATIC_SUFFIXES = frozenset({".js", ".mjs", ".css", ".map", ".svg", ".woff2", ".png"})
-
-#: Text asset suffixes, mapped to the content type to serve them as. Shared by
-#: both panel-scoped static routes below; the design-system one additionally
-#: rewrites the bodies of the files listed here.
-_STATIC_TEXT_TYPES = {
-    ".css": "text/css",
-    ".js": "text/javascript",
-    ".mjs": "text/javascript",
-    ".html": "text/html",
-    ".json": "application/json",
-    ".map": "application/json",
-}
-
-#: Font suffixes, mapped to the content type to serve them as. The hub's shared
-#: fonts are served with a font type that does not depend on the host's mime
-#: table.
-_STATIC_FONT_TYPES = {".ttf": "font/ttf"}
 
 
 def _contained_asset(root: Path, asset_path: str) -> Path | None:
@@ -964,22 +1251,6 @@ def _contained_asset(root: Path, asset_path: str) -> Path | None:
     return candidate
 
 
-def _asset_media_type(candidate: Path) -> str:
-    """The content type to serve *candidate* as.
-
-    :data:`_STATIC_TEXT_TYPES` first — it is the deliberate mapping, and it is
-    what decides whether the design-system route rewrites a body — then
-    ``mimetypes`` for images and fonts, then a bytes-shaped fallback so an
-    unknown suffix is still served rather than guessed wrong as text.
-    """
-    suffix = candidate.suffix.lower()
-    mapped = _STATIC_TEXT_TYPES.get(suffix) or _STATIC_FONT_TYPES.get(suffix)
-    if mapped is not None:
-        return mapped
-    guessed, _ = mimetypes.guess_type(candidate.name)
-    return guessed or "application/octet-stream"
-
-
 @router.api_route(
     "/panel/{panel_id}/design-system/{asset_path:path}",
     methods=["GET", "HEAD"],
@@ -1008,15 +1279,27 @@ async def proxy_panel_design_system(panel_id: str, asset_path: str, _request: Re
 
     Falls through to the sidecar (404 here → the generic proxy never runs, so
     a genuinely missing asset 404s) rather than masking a bad path.
+
+    A C-ASSETS path: exempt from the auth gate for ``GET``/``HEAD``
+    (:func:`~osprey.interfaces.common_middleware.is_panel_asset_path`) and
+    answered with ``Access-Control-Allow-Origin: *``, so an opaque agent
+    document embedded under this panel can still import the theme modules.
     """
     if not _DESIGN_SYSTEM_DIR.is_dir():  # pragma: no cover - packaging guard
         return Response(content="design system unavailable", status_code=404)
+
+    # The id is interpolated into the rewritten body below (and into a
+    # ``re.sub`` replacement string), and this route answers anyone: it is a
+    # C-ASSETS path, exempt from the gate. A segment outside the mount class —
+    # a quote, a backslash — is refused before it can reach a served module.
+    if MOUNT_SEGMENT_RE.fullmatch(panel_id) is None:
+        return Response(content="Not found", status_code=404)
 
     candidate = _contained_asset(_DESIGN_SYSTEM_DIR, asset_path)
     if candidate is None:
         return Response(content="Not found", status_code=404)
 
-    headers = {"cache-control": _DEFAULT_NO_CACHE}
+    headers = {"cache-control": _DEFAULT_NO_CACHE, **ASSET_CORS_HEADERS}
     media_type = _asset_media_type(candidate)
 
     if candidate.suffix.lower() not in _STATIC_TEXT_TYPES:
@@ -1063,10 +1346,13 @@ async def proxy_panel_terminal_static(
     Relative imports (``./api.js``) need no rewrite — they already resolve
     inside this route's own directory.
 
-    The tier is the design-system route's: nothing under ``/panel/`` is exempt
-    from the auth gate, so this is operator-tier like every path under
-    ``/panel/`` but the dispatcher MCP hop, and ``PANEL_TIER_ROUTES`` is
-    untouched. That is the right level — the page
+    The tier is operator, like every path under ``/panel/`` but the agent hops
+    — the dispatcher MCP hop and each sidecar panel's declared ``agent_hop`` at
+    its ``mcp_path`` (see :func:`~osprey.interfaces.web_auth.panel_tier_routes`)
+    — and ``PANEL_TIER_ROUTES`` is untouched. Unlike its design-system
+    neighbour this route is not a C-ASSETS path
+    (:func:`~osprey.interfaces.common_middleware.is_panel_asset_path`),
+    so it stays behind the auth gate. That is the right level — the page
     doing the importing is one the operator is already logged in to.
 
     Only :data:`_TERMINAL_STATIC_SUFFIXES` are served; the rest of the tree —
@@ -1143,13 +1429,19 @@ def _script_safe(value: object) -> str:
     return json.dumps(value).replace("<", "\\u003c")
 
 
-def _control_target_bar_markup(panel_prefix: str, outer_prefix: str) -> str:
+def _control_target_bar_markup(
+    panel_prefix: str, outer_prefix: str, nonce: str | None = None
+) -> str:
     """The three tags that put the control-target bar on an embedded page.
 
     Args:
         panel_prefix: ``{outer_prefix}/panel/{panel_id}``, i.e. the sidecar's
             own ``base_url`` without the trailing slash.
         outer_prefix: the per-user mount prefix (``compute_url_prefix()``).
+        nonce: the page's script nonce (:func:`_lab_page_csp`). Every tag
+            carries it — an inline import map is governed by ``script-src``
+            exactly like an inline script — so the bar runs under the policy
+            and nothing the page did not get from the proxy does.
 
     Three tags, in the order they have to run:
 
@@ -1159,10 +1451,11 @@ def _control_target_bar_markup(panel_prefix: str, outer_prefix: str) -> str:
        path: the chip reads the *hub's* ``/api/terminal/posture``, and a prefix
        of ``/panel/jupyter`` would aim every read at JupyterLab, which answers
        none of them.
-    2. **A scoped import map**, for the one root-absolute module specifier in
-       the bar's import closure (``confirm-skip.js`` imports
-       ``/design-system/js/storage-scope.js``). The hub's own page retargets
-       that with a document-wide import map; here the mapping is confined to a
+    2. **A scoped import map**, for the root-absolute module specifiers in the
+       bar's import closure, both under ``/design-system/`` (``confirm-skip.js``
+       imports ``storage-scope.js``, ``lab-theme-follow.js`` imports
+       ``tokens.js``). The hub's own page retargets that prefix with a
+       document-wide import map; here the mapping is confined to a
        ``scopes`` entry keyed on the bar's own directory, so nothing the panel
        itself imports can be redirected by it. With an empty prefix the mapping
        is the identity, which is what the hub's map is there too.
@@ -1182,15 +1475,171 @@ def _control_target_bar_markup(panel_prefix: str, outer_prefix: str) -> str:
             }
         }
     }
+    attr = "" if nonce is None else f' nonce="{html.escape(nonce, quote=True)}"'
     return (
-        f"<script>window.__OSPREY_PREFIX__ = {_script_safe(outer_prefix)};</script>"
-        f'<script type="importmap">{_script_safe(import_map)}</script>'
-        f'<script type="module" src="{html.escape(module_src, quote=True)}"></script>'
+        f"<script{attr}>window.__OSPREY_PREFIX__ = {_script_safe(outer_prefix)};</script>"
+        f'<script{attr} type="importmap">{_script_safe(import_map)}</script>'
+        f'<script{attr} type="module" src="{html.escape(module_src, quote=True)}"></script>'
     )
 
 
+def _is_lab_application_page(text: str, panel_id: str, path: str, base_type: str) -> bool:
+    """The four conditions that make a response one of JupyterLab's own pages.
+
+    The notebook panel (:data:`_LAB_BAR_PANEL_ID`), a path that is one of
+    Lab's application routes (:func:`_is_lab_application_route`), an HTML
+    body, and a document with a ``<head>``. One predicate for both decisions
+    taken on that page — the bar goes in, and every ``<script>`` on it is
+    trusted with the policy's nonce — so the two can never disagree about which
+    documents they cover.
+    """
+    if panel_id != _LAB_BAR_PANEL_ID or base_type != "text/html":
+        return False
+    if not _is_lab_application_route(path):
+        return False
+    return _HEAD_OPEN_RE.search(text) is not None
+
+
+#: The route shape jupyterlab_server renders Lab's ``index.html`` template on,
+#: after ``lab`` or ``doc``: an optional named workspace, then an optional
+#: ``tree/`` path (``jupyterlab_server.handlers.MASTER_URL_PATTERN``).
+_LAB_APP_ROUTE_REST_RE = re.compile(r"(?:/workspaces/[A-Za-z0-9_-]+)?(?:/tree(?:/.*)?)?/?")
+
+
+def _is_lab_application_route(path: str) -> bool:
+    """Whether *path* is a route that answers with Lab's own template.
+
+    ``lab`` and ``doc`` are matched by the full route shape, not the first
+    segment: the same prefix also carries ``lab/extensions/`` (a file handler
+    that serves any file type out of the extension directories) and
+    ``lab/api/`` (settings, themes, workspaces), neither of which is the
+    template. The other entries of :data:`_LAB_BAR_PAGES` are template-only
+    pages and match by first segment.
+    """
+    head, sep, rest = path.lstrip("/").partition("/")
+    if head not in _LAB_BAR_PAGES:
+        return False
+    if head in {"lab", "doc"}:
+        return _LAB_APP_ROUTE_REST_RE.fullmatch(sep + rest) is not None
+    return True
+
+
+#: Where, under the notebook panel's own prefix, Lab loads script from.
+#:
+#: ``static/`` is the application bundle and its webpack chunks,
+#: ``lab/extensions/`` the prebuilt (federated) extensions — plotly, the
+#: widget manager — and ``terminal-static/`` the control-target bar. Each is a
+#: tree the image ships; none is a store anything at run time writes into.
+#: ``lab/extensions/`` holds to that only because the sidecar pins
+#: ``labextensions_path`` to the image's install tree
+#: (``jupyter_sidecar.JupyterSidecar._argv``): jupyter-server's default also
+#: searches ``$JUPYTER_DATA_DIR``, which is on the agent-writable shared root.
+#: ``files/`` — the user's and the agent's notebooks and HTML — is the tree
+#: that must never be in this list, which is why the policy names paths and
+#: not the origin.
+_LAB_SCRIPT_TREES = ("static/", "lab/extensions/", "terminal-static/")
+
+#: Every ``<script`` opening tag, attributes and all.
+_SCRIPT_OPEN_RE = re.compile(r"<script\b[^>]*>", re.IGNORECASE)
+
+
+def _lab_page_csp(nonce: str, origin: str, outer_prefix: str) -> str:
+    """The ``Content-Security-Policy`` for one JupyterLab application page.
+
+    Kernel output renders inside this document, on the console's origin, with
+    the operator's cookie; output written by an agent must not be able to run
+    there. So ``script-src`` admits exactly two things: the parser-inserted
+    tags the proxy relayed or injected, by **per-response nonce**, and Lab's
+    static trees plus the hub's design system, by **fully qualified path**
+    (``<origin><prefix>/panel/jupyter/static/`` …). The origin itself is not a
+    source: it also serves ``/panel/jupyter/files/`` and the artifact store,
+    both agent-writable, so ``'self'`` would admit a script an agent saved.
+    No ``'unsafe-inline'`` (a ``<script>`` in an HTML output) and no
+    ``'strict-dynamic'`` (it would discard the path list in favour of whatever
+    a nonced script chose to load).
+
+    ``'unsafe-eval'`` is in, as the q-0001 fallback: JupyterLab's own settings
+    registry validates every plugin's settings with Ajv, which compiles each
+    schema with ``new Function`` — without it the settings plugin fails to
+    activate and Lab comes up unthemed and unconfigured (JupyterLab 4.6). It
+    lets a script that is already running evaluate a string; it admits no new
+    script. The Lab renderers that evaluate *output* —
+    ``@jupyterlab/javascript-extension`` (``application/javascript``) and
+    ``@jupyterlab/vega5-extension`` (Vega compiles spec expressions with
+    ``new Function``) — are disabled in
+    ``jupyter_sidecar.LAB_DISABLED_EXTENSIONS``, so kernel output has no path
+    into it.
+
+    ``object-src 'none'`` and ``base-uri 'none'`` close the two classic
+    script-src bypasses; ``frame-ancestors 'self'`` keeps the frame rule
+    jupyter-server's own policy carried (the hub frames this page from the same
+    origin); ``form-action 'none'`` because a form post is the one
+    page-initiated write a script policy does not stop, and Lab posts none.
+
+    Args:
+        nonce: this response's nonce, used once.
+        origin: the browser-facing origin, as :func:`_browser_origin` resolves it.
+        outer_prefix: the per-user mount prefix (``compute_url_prefix()``).
+    """
+    panel_root = f"{origin}{outer_prefix}/panel/{_LAB_BAR_PANEL_ID}/"
+    sources = [f"'nonce-{nonce}'", "'unsafe-eval'"]
+    sources += [f"{panel_root}{tree}" for tree in _LAB_SCRIPT_TREES]
+    sources.append(f"{origin}{outer_prefix}/design-system/")
+    return "; ".join(
+        (
+            f"script-src {' '.join(sources)}",
+            "object-src 'none'",
+            "base-uri 'none'",
+            "frame-ancestors 'self'",
+            "form-action 'none'",
+        )
+    )
+
+
+def _browser_origin(request: Request) -> str:
+    """The origin a browser reaches this app at, resolved as the Origin check resolves it.
+
+    :data:`EXTERNAL_ORIGIN_ENV` wins where it is set — behind nginx the
+    request's own ``Host`` is a container name no browser has seen — and
+    otherwise the request's scheme and ``Host``. The same order as
+    ``WebAuthMiddleware._resolve_external_origin``, so a page whose script
+    sources name one origin is never accepted under another; normalized the
+    way that check compares (lower case, default port dropped).
+    """
+    configured = os.environ.get(EXTERNAL_ORIGIN_ENV, "").strip()
+    if configured:
+        return _normalize_external_origin(configured).rstrip("/")
+    host = request.headers.get("host", "").strip() or request.url.netloc
+    return _normalize_external_origin(f"{request.url.scheme}://{host}")
+
+
+def _nonce_scripts(text: str, nonce: str) -> str:
+    """Put *nonce* on every ``<script>`` tag of a JupyterLab application page.
+
+    Called only on a page :func:`_is_lab_application_page` admits, and before
+    the bar goes in. Such a page is jupyter-server's rendering of Lab's own
+    ``index.html`` template: its tags are the config data block, the deferred
+    main bundle and the inline token-stripper, and every value the template
+    interpolates goes through ``tojson`` or ``escape``, so no ``<script`` in it
+    was written by a notebook, a kernel or an agent. Output reaches this
+    document later, through the DOM, where the parser-inserted nonce does not
+    follow it.
+
+    Every tag rather than a list of the two that execute, so a Lab upgrade
+    that adds or reorders a script degrades to "still runs" rather than to a
+    blank page — the template is the thing being trusted either way.
+    """
+    attr = f' nonce="{html.escape(nonce, quote=True)}"'
+    return _SCRIPT_OPEN_RE.sub(lambda m: m.group(0)[:7] + attr + m.group(0)[7:], text)
+
+
 def _inject_control_target_bar(
-    text: str, panel_id: str, path: str, base_type: str, outer_prefix: str
+    text: str,
+    panel_id: str,
+    path: str,
+    base_type: str,
+    outer_prefix: str,
+    nonce: str | None = None,
 ) -> str:
     """Put the control-target bar into the notebook panel's HTML, and nothing else's.
 
@@ -1212,25 +1661,21 @@ def _inject_control_target_bar(
     bytes ahead of its own ``<meta charset>``, which stays far inside the
     1024 bytes the encoding sniff is allowed to read.
 
-    **No CSP is rewritten here.** The relayed ``/lab`` response carries
-    jupyter-server's own ``Content-Security-Policy``, which declares
-    ``frame-ancestors`` and nothing about scripts, so the injected tags run. A
-    backend that grew a ``script-src`` would silently stop the bar loading
-    rather than break the page — the failure to look for is a blank bar with a
-    CSP violation in the console, and the answer would be a deliberate decision
-    about that header, not a rewrite hidden in this function.
+    **No header is set here.** The page's ``Content-Security-Policy`` is
+    :func:`_lab_page_csp`, set by :func:`proxy_panel` on the same predicate
+    (:func:`_is_lab_application_page`); *nonce* is that policy's, and every
+    injected tag carries it. Without one the tags are emitted bare, which only
+    a caller that sets no script policy may do.
     """
-    if panel_id != _LAB_BAR_PANEL_ID or base_type != "text/html":
-        return text
-    if path.lstrip("/").split("/", 1)[0] not in _LAB_BAR_PAGES:
+    if not _is_lab_application_page(text, panel_id, path, base_type):
         return text
 
     head = _HEAD_OPEN_RE.search(text)
-    if head is None:
+    if head is None:  # unreachable: the predicate found it
         return text
 
     panel_prefix = f"{outer_prefix}/panel/{panel_id}"
-    markup = _control_target_bar_markup(panel_prefix, outer_prefix)
+    markup = _control_target_bar_markup(panel_prefix, outer_prefix, nonce)
     return f"{text[: head.end()]}{markup}{text[head.end() :]}"
 
 
@@ -1243,7 +1688,9 @@ def _inject_control_target_bar(
 _HTML_OPEN_RE = re.compile(r"<html(?=[\s/>])", re.IGNORECASE)
 
 
-def _stamp_storage_scope(text: str, base_type: str, scope: str) -> str:
+def _stamp_storage_scope(
+    text: str, base_type: str, scope: str, attribute: str = STORAGE_SCOPE_ATTRIBUTE
+) -> str:
     """Stamp the mount's storage scope on a relayed document's ``<html>`` tag.
 
     Why the proxy: every panel page reaches the browser through this hop, and
@@ -1264,6 +1711,7 @@ def _stamp_storage_scope(text: str, base_type: str, scope: str) -> str:
         text: The relayed body, already rewritten for this deployment.
         base_type: The response's media type without parameters.
         scope: The mount's storage scope, ``""`` when there is no mount user.
+        attribute: The attribute the panel reads the scope from.
 
     Returns:
         ``text`` with the attribute as the root tag's first attribute, or
@@ -1275,7 +1723,7 @@ def _stamp_storage_scope(text: str, base_type: str, scope: str) -> str:
     match = _HTML_OPEN_RE.search(text)
     if match is None:
         return text
-    stamp = f' {STORAGE_SCOPE_ATTRIBUTE}="{html.escape(scope, quote=True)}"'
+    stamp = f' {attribute}="{html.escape(scope, quote=True)}"'
     return f"{text[: match.end()]}{stamp}{text[match.end() :]}"
 
 
@@ -1350,21 +1798,171 @@ async def proxy_panel_shared_fonts(
 
     return Response(
         content=candidate.read_bytes(),
-        headers={"cache-control": _DEFAULT_NO_CACHE},
+        headers={"cache-control": _DEFAULT_NO_CACHE, **ASSET_CORS_HEADERS},
         media_type=_asset_media_type(candidate),
     )
 
 
+#: Where each first-party panel's ``/static`` tree lives in this package — the
+#: directory that panel's own app mounts at ``/static``. The hub and these apps
+#: ship in one package, so the hub can answer the panel's module tree itself.
+#: Every panel id in
+#: :data:`~osprey.interfaces.common_middleware.FIRST_PARTY_PANEL_STATIC` must
+#: have an entry here.
+_FIRST_PARTY_STATIC_ROOTS = {
+    "artifacts": Path(__file__).resolve().parents[2] / "artifacts" / "static",
+}
+
+#: Cache-Control for a versioned vendor bundle, the policy the panel's own app
+#: applies to ``/static/…/vendor/`` (``NoCacheStaticMiddleware``).
+_VENDOR_CACHE = "public, max-age=31536000, immutable"
+
+
+def _first_party_static_route(panel_id: str, subpath: str, root: Path):
+    """Build the handler serving ``/panel/<panel_id>/<subpath>/…`` from *root*.
+
+    *root* is the directory the panel's own app serves at ``/<subpath>``. The
+    body is what the proxy's catch-all used to relay from that app: text
+    types get the same root-absolute rewrite into this panel's namespace, so
+    ``import '/static/js/state.js'`` still lands back on this route.
+    """
+
+    async def serve(asset_path: str) -> Response:
+        if not root.is_dir():  # pragma: no cover - packaging guard
+            return Response(content="panel static assets unavailable", status_code=404)
+
+        candidate = _contained_asset(root, asset_path)
+        if candidate is None:
+            return Response(content="Not found", status_code=404)
+
+        vendored = "vendor" in Path(asset_path).parts
+        headers = {
+            "cache-control": _VENDOR_CACHE if vendored else _DEFAULT_NO_CACHE,
+            **ASSET_CORS_HEADERS,
+        }
+        media_type = _asset_media_type(candidate)
+        if media_type not in _REWRITABLE_TYPES:
+            return Response(content=candidate.read_bytes(), headers=headers, media_type=media_type)
+        text = _rewrite_content(
+            candidate.read_text(encoding="utf-8"), panel_id, compute_url_prefix()
+        )
+        return Response(content=text, headers=headers, media_type=media_type)
+
+    serve.__name__ = f"proxy_panel_first_party_{panel_id}_{subpath}".replace("/", "_").replace(
+        "-", "_"
+    )
+    serve.__doc__ = (
+        f"Serve the {panel_id} panel's own ``/{subpath}`` tree from the hub's package.\n\n"
+        "A C-ASSETS path: declared above ``proxy_panel``, exempt from the auth gate for "
+        "GET/HEAD, answered with ``Access-Control-Allow-Origin: *`` and no credentials."
+    )
+    return serve
+
+
+# The static module trees of config-defined first-party panels (C-ASSETS),
+# one literal route per panel and sub-path. Literal, never ``/panel/{id}/…``:
+# a runtime or discovered panel's ``/panel/<id>/static/…`` must still reach the
+# catch-all below (and stay gated). Registered HERE, above ``proxy_panel``,
+# because Starlette matches in declaration order.
+for _panel_id, _subpaths in FIRST_PARTY_PANEL_STATIC.items():
+    for _subpath in _subpaths:
+        _root = _FIRST_PARTY_STATIC_ROOTS[_panel_id] / _subpath.removeprefix("static/")
+        router.add_api_route(
+            f"/panel/{_panel_id}/{_subpath}/{{asset_path:path}}",
+            _first_party_static_route(_panel_id, _subpath, _root),
+            methods=["GET", "HEAD"],
+        )
+del _panel_id, _subpaths, _subpath, _root
+
+
+_PROXY_METHODS = ["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"]
+
+
+def _cap_base(panel_id: str, cap: str) -> str:
+    """The browser path a C-CAP request for ``panel_id`` is served under."""
+    return f"{compute_url_prefix()}/panel/{panel_id}/{PANEL_CAP_SEGMENT}/{cap}"
+
+
+def _mark_opaque_response(response: Response) -> Response:
+    """Give a response carrying an opaque panel's bytes its sandbox headers.
+
+    Every non-inert type carries ``opaque_headers()``: the sandbox CSP is
+    *appended* beside any policy the upstream wrote, since a browser enforces
+    every CSP it receives. Inert types get ``nosniff``.
+    """
+    for name, value in document_headers(response.headers.get("content-type")).items():
+        if name.lower() == "content-security-policy":
+            response.headers.append(name, value)
+        else:
+            response.headers[name] = value
+    return response
+
+
+def _mark_cap_response(response: Response) -> Response:
+    """Give a response served under a cap path its C-CAP headers.
+
+    ``Access-Control-Allow-Origin: *`` and never credentials (the upstream's own
+    CORS headers were already dropped by :func:`_filter_response_headers`), so
+    the panel's opaque document can read its own files, plus the sandbox
+    headers of :func:`_mark_opaque_response`.
+    """
+    response.headers.update(ASSET_CORS_HEADERS)
+    return _mark_opaque_response(response)
+
+
 @router.api_route(
-    "/panel/{panel_id}/{path:path}",
-    methods=["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"],
+    f"/panel/{{panel_id}}/{PANEL_CAP_SEGMENT}/{{cap}}/{{path:path}}", methods=_PROXY_METHODS
 )
+async def proxy_panel_cap(panel_id: str, cap: str, path: str, request: Request):
+    """Relay a request under a runtime panel's C-CAP path to that panel only.
+
+    Declared above :func:`proxy_panel`, which would otherwise relay
+    ``~c/<cap>/…`` to the backend as a path. The auth gate exempts this path
+    (:func:`~osprey.interfaces.common_middleware.is_panel_cap_path`), so the cap
+    is validated here instead of the cookie: forged, foreign-login, expired or
+    other-panel → ``403``. Only a runtime-registered panel is ever capped, and a
+    runtime backend earns no credential, so nothing but the request itself goes
+    upstream. The root-path rewrite targets the cap prefix, so the panel's own
+    absolute paths keep resolving under its cap.
+    """
+    if not verify_request_cap(request, panel_id, cap, "proxy"):
+        return Response(content="Forbidden", status_code=403, media_type="text/plain")
+    base = _cap_base(panel_id, cap)
+    response = await _forward_to_panel(panel_id, path, request, panel_base=base)
+    return _mark_cap_response(response)
+
+
+@router.api_route("/panel/{panel_id}/{path:path}", methods=_PROXY_METHODS)
 async def proxy_panel(panel_id: str, path: str, request: Request):
     """Forward a request to the companion panel server.
 
     Inbound operator credentials are stripped and, for a config-declared
     loopback backend only, the operator secret is re-issued — see this
     module's docstring for why the proxy is the boundary where that happens.
+
+    A runtime-registered panel's bytes are agent-writable whoever serves them,
+    so on this cookie-gated path too its documents carry ``opaque_headers()``
+    (decided by where the panel came from, never by a flag it declares);
+    config-defined and first-party panels keep their headers.
+    """
+    response = await _forward_to_panel(panel_id, path, request)
+    if opaque_panel_kind(request, panel_id) == "proxy":
+        return _mark_opaque_response(response)
+    return response
+
+
+async def _forward_to_panel(
+    panel_id: str, path: str, request: Request, *, panel_base: str | None = None
+) -> Response:
+    """Relay one request to ``panel_id``'s backend and shape its answer.
+
+    Args:
+        panel_id: The panel id from the proxied URL.
+        path: The path under the panel's namespace.
+        request: The inbound request.
+        panel_base: The browser path the panel is served under, when it is not
+            ``<prefix>/panel/<id>`` — a C-CAP path. Redirects, the forwarded
+            prefix and the root-path rewrite all target it.
     """
     backend_url = _resolve_panel_url(request, panel_id)
     if not backend_url:
@@ -1374,6 +1972,7 @@ async def proxy_panel(panel_id: str, path: str, request: Request):
         )
 
     outer_prefix = compute_url_prefix()
+    panel_prefix = panel_base or f"{outer_prefix}/panel/{panel_id}"
 
     # Build the target URL. The dispatcher's MCP transport is addressed from
     # DISPATCHER_MCP_PATH, not from the inbound spelling: this hop and the
@@ -1382,12 +1981,35 @@ async def proxy_panel(panel_id: str, path: str, request: Request):
     # same path literally and are held to the constant by tests. A hop that
     # rebuilt the path from the request would answer to none of them.
     dispatcher_mcp = _is_dispatcher_mcp_hop(panel_id, path)
+    if dispatcher_mcp and request.method == "POST":
+        refusal = await _refuse_held_call(request, _JOB_FIRING_TOOLS, hop="dispatcher hop")
+        if refusal is not None:
+            return refusal
     if dispatcher_mcp:
         target = f"{backend_url.rstrip('/')}{DISPATCHER_MCP_PATH}"
     else:
         target = f"{backend_url.rstrip('/')}/{path}"
     if request.url.query:
         target = f"{target}?{request.url.query}"
+
+    path_status = _mcp_path_refusal(request, panel_id, path, target)
+    if path_status is not None:
+        return Response(
+            content="Not found" if path_status == 404 else "Forbidden",
+            status_code=path_status,
+        )
+
+    # A sidecar's declared agent hop, admitted on the panel token. Like the
+    # dispatcher hop it carries a JSON-RPC conversation, not a page, and like
+    # the dispatcher hop it is held with the calling session: the tools the
+    # sidecar asks the operator about are the ones that act.
+    agent_hop = _is_admitted_agent_hop(request, panel_id, path)
+    if agent_hop and request.method == "POST":
+        refusal = await _refuse_held_call(
+            request, SIDECAR_PANELS[panel_id].mcp_ask, hop=f"{panel_id} panel hop"
+        )
+        if refusal is not None:
+            return refusal
 
     client: httpx.AsyncClient = request.app.state.proxy_client
 
@@ -1420,13 +2042,19 @@ async def proxy_panel(panel_id: str, path: str, request: Request):
         and k.lower() not in ("host", "accept-encoding", "origin")
         and not _is_stripped_header(k)
     }
-    fwd_headers["x-forwarded-prefix"] = f"{outer_prefix}/panel/{panel_id}"
+    fwd_headers["x-forwarded-prefix"] = panel_prefix
 
     # Re-issue the operator secret, but only toward a backend that is both
     # config-declared and on loopback. This runs after the strip above, so a
     # header the browser sent can never masquerade as an injected one.
-    secret_header = _terminal_secret_header(request, panel_id, backend_url)
-    fwd_headers.update(secret_header)
+    #
+    # Never on a sidecar's agent hop. That caller holds the panel token, and
+    # sending the upstream the operator secret on its behalf would hand a
+    # backend the strong credential for a call the weak one made. The
+    # transport authenticates the hop by the sidecar's own launch credential,
+    # injected below.
+    if not agent_hop:
+        fwd_headers.update(_terminal_secret_header(request, panel_id, backend_url))
 
     # The event-dispatcher dashboard endpoints and its MCP transport are both
     # bearer-gated. Inject the dispatcher token server-side for the EVENTS panel
@@ -1454,7 +2082,7 @@ async def proxy_panel(panel_id: str, path: str, request: Request):
     # so an inbound claim can neither survive nor sit beside the minted value.
     fwd_headers.update(_owner_header(request, panel_id, backend_url))
 
-    outer_panel_prefix = f"{outer_prefix}/panel/{panel_id}"
+    outer_panel_prefix = panel_prefix
 
     # The base a relative ``Location`` is resolved against, and the origin a
     # relayed one is allowed to name. The panel prefix is spelled as a directory
@@ -1463,8 +2091,16 @@ async def proxy_panel(panel_id: str, path: str, request: Request):
     relative_base = f"{outer_panel_prefix}/{path}"
     terminal_origin = f"{request.url.scheme}://{request.url.netloc}"
 
+    observer = None
     try:
         body = await request.body()
+
+        # The agent's CANOPY workspace calls pass no OSPREY audit middleware;
+        # this hop is where OSPREY sees them, and each becomes a history row
+        # (see workspace_activity). Only a request carrying such a call is
+        # observed, and its reply is read as it is relayed, never held back.
+        if agent_hop:
+            observer = observe_set_workspace(request, panel_id, body)
 
         # SSE: stream the response.
         if "text/event-stream" in request.headers.get("accept", ""):
@@ -1478,7 +2114,7 @@ async def proxy_panel(panel_id: str, path: str, request: Request):
                     method=request.method,
                     url=target,
                     headers=fwd_headers,
-                    content=body if body else None,
+                    content=body or None,
                     # SSE streams idle between events — disable the read
                     # timeout so quiet periods don't kill the connection.
                     timeout=httpx.Timeout(None, connect=5.0),
@@ -1489,6 +2125,8 @@ async def proxy_panel(panel_id: str, path: str, request: Request):
 
             if _is_redirect(upstream):
                 await upstream.aclose()
+                if observer is not None:
+                    observer.close()
                 return _relay_redirect(
                     upstream,
                     outer_panel_prefix,
@@ -1497,11 +2135,18 @@ async def proxy_panel(panel_id: str, path: str, request: Request):
                     terminal_origin=terminal_origin,
                 )
 
+            if observer is not None:
+                observer.begin(upstream.headers.get("content-type", ""))
+
             async def _stream():
                 try:
                     async for chunk in upstream.aiter_bytes():
+                        if observer is not None:
+                            observer.feed(chunk)
                         yield chunk
                 finally:
+                    if observer is not None:
+                        observer.close()
                     await upstream.aclose()
 
             resp_headers = _filter_response_headers(upstream.headers)
@@ -1530,8 +2175,13 @@ async def proxy_panel(panel_id: str, path: str, request: Request):
             method=request.method,
             url=target,
             headers=fwd_headers,
-            content=body if body else None,
+            content=body or None,
         )
+        if observer is not None:
+            if not _is_redirect(resp):
+                observer.begin(resp.headers.get("content-type", ""))
+                observer.feed(resp.content)
+            observer.close()
         if _is_redirect(resp):
             return _relay_redirect(
                 resp,
@@ -1542,6 +2192,8 @@ async def proxy_panel(panel_id: str, path: str, request: Request):
                 terminal_origin=terminal_origin,
             )
     except httpx.RequestError as exc:
+        if observer is not None:
+            observer.close()
         logger.warning("Proxy error for panel %s: %s", panel_id, exc)
         return Response(
             content=f"Upstream connection failed: {exc}",
@@ -1564,12 +2216,14 @@ async def proxy_panel(panel_id: str, path: str, request: Request):
     # rewrite, which a panel's own configuration could otherwise aim at this
     # path. Nothing on this hop is addressed by a browser, so there is no
     # root-absolute path here that would need moving under the panel prefix.
-    if dispatcher_mcp:
+    # A sidecar's agent hop is the same kind of conversation and is relayed
+    # the same way.
+    if dispatcher_mcp or agent_hop:
         return Response(
             content=resp.content,
             status_code=resp.status_code,
             headers=resp_headers,
-            media_type=content_type if content_type else None,
+            media_type=content_type or None,
         )
 
     # Rewrite root-absolute paths in HTML/JS/CSS — skip vendor assets
@@ -1577,16 +2231,48 @@ async def proxy_panel(panel_id: str, path: str, request: Request):
     if base_type in _REWRITABLE_TYPES and "/vendor/" not in path:
         text = resp.text
         text = _rewrite_content(
-            text, panel_id, outer_prefix, _panel_rewrite_prefixes(request, panel_id)
+            text,
+            panel_id,
+            outer_prefix,
+            _panel_rewrite_prefixes(request, panel_id),
+            panel_base=panel_base,
         )
+        # A JupyterLab application page runs under the proxy's script policy
+        # (_lab_page_csp): Lab's own tags and the bar's carry this response's
+        # nonce, and the upstream policy is replaced rather than relayed. Every
+        # other response, notably files/ with jupyter-server's sandbox, keeps
+        # the policy its upstream wrote.
+        lab_page_nonce = None
+        if _is_lab_application_page(text, panel_id, path, base_type):
+            lab_page_nonce = secrets.token_urlsafe(18)
+            text = _nonce_scripts(text, lab_page_nonce)
+            for key in [k for k in resp_headers if k.lower() == "content-security-policy"]:
+                del resp_headers[key]
+            resp_headers["content-security-policy"] = _lab_page_csp(
+                lab_page_nonce, _browser_origin(request), outer_prefix
+            )
+            # A nonce is per response only if the page is never reused: no
+            # cache, and none of the upstream's validators, which describe the
+            # un-nonced body and would let a 304 hand back an old nonce.
+            for key in [
+                k
+                for k in resp_headers
+                if k.lower() in {"cache-control", "etag", "last-modified", "expires"}
+            ]:
+                del resp_headers[key]
+            resp_headers["cache-control"] = "no-store"
         # After the rewrite, never before: everything injected here is already
         # fully formed for this deployment, and a second pass over it would
         # aim the bar's own URLs into the panel's namespace.
-        text = _inject_control_target_bar(text, panel_id, path, base_type, outer_prefix)
+        text = _inject_control_target_bar(
+            text, panel_id, path, base_type, outer_prefix, lab_page_nonce
+        )
         text = _stamp_storage_scope(
             text,
             base_type,
             resolve_storage_scope(getattr(request.app.state, "terminal_user", "")),
+            (sidecar.storage_scope_attribute if (sidecar := SIDECAR_PANELS.get(panel_id)) else None)
+            or STORAGE_SCOPE_ATTRIBUTE,
         )
         # Resolved per request, like the storage scope, by the call the hub's own pages use.
         if base_type == "text/html":
@@ -1611,7 +2297,11 @@ async def proxy_panel(panel_id: str, path: str, request: Request):
         if any(stripped.endswith(sfx) for sfx in _panel_json_rewrite_paths(request, panel_id)):
             return Response(
                 content=_rewrite_content(
-                    resp.text, panel_id, outer_prefix, _panel_rewrite_prefixes(request, panel_id)
+                    resp.text,
+                    panel_id,
+                    outer_prefix,
+                    _panel_rewrite_prefixes(request, panel_id),
+                    panel_base=panel_base,
                 ),
                 status_code=resp.status_code,
                 headers=resp_headers,
@@ -1623,7 +2313,7 @@ async def proxy_panel(panel_id: str, path: str, request: Request):
         content=resp.content,
         status_code=resp.status_code,
         headers=resp_headers,
-        media_type=content_type if content_type else None,
+        media_type=content_type or None,
     )
 
 
@@ -1648,6 +2338,31 @@ async def proxy_panel_root(panel_id: str, request: Request):
 #: kernel came up fine behind it. The budget is the panel's, plus room for the
 #: upgrade itself; a handshake still unanswered after this is not going to be.
 UPSTREAM_OPEN_TIMEOUT = 90.0
+
+#: The largest single message, in bytes, the relay accepts from a panel's
+#: upstream. ``websockets`` caps an incoming message at 1 MiB by default and
+#: closes with 1009 past it, which breaks a panel whose one frame carries more
+#: (a plot's history, a CANOPY screen document). The browser leg is bounded at
+#: 16 MiB by uvicorn's own ``ws_max_size``; this matches it rather than lifting
+#: the bound, because an unbounded frame is an unbounded allocation in the web
+#: terminal's process. A larger message still closes the relay.
+PANEL_WS_MAX_SIZE = 16 * 1024 * 1024
+
+
+@router.websocket(f"/panel/{{panel_id}}/{PANEL_CAP_SEGMENT}/{{cap}}/{{path:path}}")
+async def proxy_panel_ws_cap(panel_id: str, cap: str, path: str, websocket: WebSocket):
+    """Relay a websocket under a runtime panel's C-CAP path to that panel's backend.
+
+    The one ``Origin: null`` handshake the console accepts: the auth gate
+    exempts the cap path, so the cap is validated here instead of the cookie
+    and the Origin, and the socket reaches only this panel's own backend. A
+    forged, foreign-login, expired or other-panel cap is refused at the
+    handshake (``403``). Declared above :func:`proxy_panel_ws`.
+    """
+    if not verify_request_cap(websocket, panel_id, cap, "proxy"):
+        await websocket.close(code=1008, reason="invalid capability")
+        return
+    await proxy_panel_ws(panel_id, path, websocket)
 
 
 @router.websocket("/panel/{panel_id}/{path:path}")
@@ -1680,6 +2395,15 @@ async def proxy_panel_ws(panel_id: str, path: str, websocket: WebSocket):
     if websocket.url.query:
         target = f"{target}?{websocket.url.query}"
 
+    # Refused before the browser's handshake is answered and before any
+    # upstream connect, with the HTTP status spelled as a 4xxx close code.
+    refusal = _mcp_path_refusal(websocket, panel_id, path, target)
+    if refusal is not None:
+        await websocket.close(
+            code=4000 + refusal, reason="Not found" if refusal == 404 else "Forbidden"
+        )
+        return
+
     try:
         import websockets
     except ImportError:
@@ -1706,6 +2430,10 @@ async def proxy_panel_ws(panel_id: str, path: str, websocket: WebSocket):
         additional_headers=upstream_headers or None,
         subprotocols=offered or None,
         open_timeout=UPSTREAM_OPEN_TIMEOUT,
+        max_size=PANEL_WS_MAX_SIZE,
+        # No permessage-deflate on the upstream hop: it is loopback or the
+        # compose network, where compressing every frame only spends CPU.
+        compression=None,
     )
 
     client_gone = False

@@ -95,6 +95,7 @@ def test_importing_the_module_does_not_build_the_web_application() -> None:
         capture_output=True,
         text=True,
         check=True,
+        timeout=120,
     )
 
     assert result.stdout.strip() == "False"

@@ -9,8 +9,8 @@ a ``pyaml_measure`` run hold on their control target, so two runs never drive
 one machine at once. No other write path takes part.
 :ref:`Guarded Runs <architecture-safety-chain-guarded-run>` places it among
 the write paths and says what it does not cover. This page is the exact
-behaviour: where the lock lives, who holds it, what a second run is told, and
-what a stopped run leaves.
+behaviour: where the lock lives, who holds it, whose run its record names,
+what a second run is told, and what a stopped run leaves.
 
 Every write made under the lock is an ordinary write. It goes through the
 connector like any other, so the kill switch, the limits check and the
@@ -30,7 +30,8 @@ contends for the same lock.
 
 The lock is taken without waiting and held until the run ends. A second run
 on the same target, of either kind, is refused before it starts, with the
-process id of the holder and the time it took the lock. A read-only run is
+holder's process id, the time it took the lock, whose run it is, its target
+and the name it writes under. A read-only run is
 refused before the lock is taken.
 
 Who holds it
@@ -43,6 +44,22 @@ Who holds it
 - ``pyaml_cs_osprey.run_tool``, which runs every pyAML tool of a measurement,
   runs under the lock the process already holds, and takes it when the process
   holds none.
+
+Whose run it is
+===============
+
+A run takes the lock with a record of whose run it is: the target it drives,
+the account it acts for (or nobody) and the target it was admitted on. A
+record whose target or admitted target is not the target the lock resolves to
+is refused before anything is opened, so a run is never admitted on one target
+and driven on another. Joining the process's hold with no record runs under
+the held one; joining with a different record is refused.
+
+- A read-write ``execute`` or ``execute_file`` run fills the record once, as
+  its sandbox starts: the stamped target, the account the write path names
+  (nobody when it names none) and that same target as the admitted one, which
+  the executor checked before it started the sandbox. Nothing about the
+  sandbox's writes changes.
 
 The process holds it
 ====================
@@ -71,16 +88,22 @@ directory or at the file. A link, a hard link, a FIFO or anything else that is
 not such a file is refused with its path named: the run does not start, and
 nothing is read or written through it.
 
-While a run holds the lock, the file records its holder, ``{"pid", "started"}``;
-the record is emptied on release. A created lock file has mode ``0o664``, and
-each created directory ``0o2775``, setgid, so every identity of the deployment
+While a run holds the lock, the file records its holder,
+``{"pid", "started", "owner", "target", "identity"}``: the process, the time it
+took the lock, the account the run acts for (``null`` for nobody), the target,
+and the name the process writes under on the control system, from
+``OSPREY_CONTROL_IDENTITY`` (``null`` when it sets none). The record is
+emptied on release. A created lock file has mode ``0o664``, and each created
+directory ``0o2775``, setgid, so every identity of the deployment
 sharing its group can take the lock. The directory holds no file but
 ``run.lock``.
 
 The approval prompt never opens this directory: it binds the call to its target
 (``approved_target``) and asks. Only the run refuses a held target, before its
 code starts and with nothing moved:
-``another guarded run is live under <directory> (pid <pid>, since <time>)``.
+``another guarded run is live under <directory> (pid <pid>, since <time>,
+owner <owner>, target <target>, identity <identity>)``, each field reading
+``unknown`` when the holder's record does not name it.
 
 What the lock does not do
 =========================
@@ -91,9 +114,9 @@ them with their old values.
 - The lock records and restores nothing.
 - A run that is killed, fails or is interrupted leaves every setpoint where it
   stopped, as the MATLAB Middle Layer and pyAML do.
-- ``pyaml_measure`` lists in its result every setpoint the call moved, with its
-  value before the call (``moved``), whether the run completed, stopped or
-  failed.
+- ``pyaml_measure`` lists in its result every setpoint whose write may have
+  gone out, a write whose outcome is unknown included, with its value before
+  the call (``moved``), whether the run completed, stopped or failed.
 - A run killed outright cannot list values, and its failure names the channels
   it attempted. That includes a run that reaches the execution timeout:
   nothing stops a tool early to leave time for a report, so it is killed like

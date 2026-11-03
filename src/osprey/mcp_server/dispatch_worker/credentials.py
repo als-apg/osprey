@@ -35,11 +35,11 @@ __all__ = [
 ]
 
 #: The bearer the dispatcher presents to this worker's ``/dispatch`` API.
-WORKER_TOKEN_ENV = "DISPATCH_WORKER_TOKEN"
+WORKER_TOKEN_ENV = "DISPATCH_WORKER_TOKEN"  # noqa: S105 -- names an environment variable, holds no secret
 
 #: The dispatcher's own bearer. Taken out of the environment with the worker's,
 #: and kept only so run output can still be masked against it.
-DISPATCHER_TOKEN_ENV = "EVENT_DISPATCHER_TOKEN"
+DISPATCHER_TOKEN_ENV = "EVENT_DISPATCHER_TOKEN"  # noqa: S105 -- names an environment variable, holds no secret
 
 
 @dataclass(frozen=True)

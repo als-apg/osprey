@@ -11,6 +11,7 @@ import pytest
 
 from osprey.services.ariel_search.config import ARIELConfig
 from osprey.services.ariel_search.models import ARIELSearchResult
+from osprey.services.ariel_search.search._offload import SEARCH_CALL_WORKERS, run_search_call
 from osprey.services.ariel_search.search.keyword import (
     KeywordSearchInput,
     format_keyword_result,
@@ -178,7 +179,6 @@ class TestARIELSearchService:
         assert service.pool is not None
         assert service.repository is not None
         assert service._embedder is None
-        assert service._validated_search_model is False
 
     @pytest.mark.asyncio
     async def test_context_manager_enter(self):
@@ -194,6 +194,69 @@ class TestARIELSearchService:
         async with service:
             pass
         service.pool.close.assert_called_once()
+
+    def test_the_service_owns_a_bounded_search_call_pool(self):
+        """Search-time provider calls run on the service's own small pool."""
+        service = self._create_mock_service()
+        try:
+            assert service._search_calls._size == SEARCH_CALL_WORKERS
+            assert service._search_calls._thread_name_prefix == "ariel-search-call"
+        finally:
+            service._search_calls.close()
+
+    @pytest.mark.asyncio
+    async def test_aclose_releases_the_search_calls_then_both_pools_and_a_second_call_does_nothing(
+        self,
+    ):
+        """One close, in order: search-call pool, read-only pool, ingestion pool."""
+        service = self._create_mock_service()
+        order: list[str] = []
+        real_close = service._search_calls.close
+
+        def _close() -> None:
+            order.append("search_calls")
+            real_close()
+
+        service._search_calls.close = _close  # type: ignore[method-assign]
+        service.readonly_pool = MagicMock()
+        service.readonly_pool.close = AsyncMock(side_effect=lambda: order.append("readonly"))
+        service.pool.close = AsyncMock(side_effect=lambda: order.append("pool"))
+
+        await service.aclose()
+        await service.aclose()
+
+        assert order == ["search_calls", "readonly", "pool"]
+        service.pool.close.assert_awaited_once()
+        service.readonly_pool.close.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_a_failing_readonly_close_still_closes_the_ingestion_pool(self):
+        """A close that raises does not leave the next resource open; its error surfaces."""
+        service = self._create_mock_service()
+        service.readonly_pool = MagicMock()
+        service.readonly_pool.close = AsyncMock(side_effect=RuntimeError("readonly close failed"))
+
+        with pytest.raises(RuntimeError, match="readonly close failed"):
+            await service.aclose()
+
+        service.pool.close.assert_awaited_once()
+        assert service._search_calls._closed is True
+
+    @pytest.mark.asyncio
+    async def test_a_closed_service_leaves_no_search_call_thread(self):
+        """After ``aclose()`` the exit report names no search-call worker."""
+        import io
+
+        from osprey_connectors_tests._harness._live_threads import report_live_threads
+
+        service = self._create_mock_service()
+        assert await run_search_call(service._search_calls, lambda: 42) == 42
+
+        await service.aclose()
+
+        report = io.StringIO()
+        report_live_threads(report, grace=2.0)
+        assert "ariel-search-call" not in report.getvalue()
 
     @pytest.mark.asyncio
     async def test_health_check_healthy(self):
@@ -624,97 +687,187 @@ class TestFormatResultsNullHandling:
         assert result["title"] is None
 
 
-class TestServiceValidateSearchModel:
-    """Tests for _validate_search_model method."""
+class TestServiceVerifySearchModelTable:
+    """Tests for the verify_search_model_table probe."""
 
-    @pytest.mark.asyncio
-    async def test_validate_search_model_called_once(self):
-        """_validate_search_model only validates once."""
-        config = ARIELConfig.from_dict(
-            {
-                "database": {"uri": "postgresql://localhost:5432/test"},
-                "search_modules": {"semantic": {"enabled": True, "model": "test-model"}},
-            }
-        )
-        mock_pool = MagicMock()
+    @staticmethod
+    def _service(
+        search_modules: dict | None = None,
+        side_effect: object = None,
+    ) -> ARIELSearchService:
+        config_dict: dict = {"database": {"uri": "postgresql://localhost:5432/test"}}
+        if search_modules is not None:
+            config_dict["search_modules"] = search_modules
         mock_repository = MagicMock()
-        mock_repository.validate_search_model_table = AsyncMock()
-
-        service = ARIELSearchService(
-            config=config,
-            pool=mock_pool,
-            repository=mock_repository,
-        )
-
-        # First call - should validate
-        await service._validate_search_model()
-        mock_repository.validate_search_model_table.assert_called_once_with("test-model")
-
-        # Second call - should not validate again
-        await service._validate_search_model()
-        mock_repository.validate_search_model_table.assert_called_once()  # Still just once
-
-    @pytest.mark.asyncio
-    async def test_validate_search_model_no_model_configured(self):
-        """_validate_search_model handles no model configured."""
-        config = ARIELConfig.from_dict(
-            {
-                "database": {"uri": "postgresql://localhost:5432/test"},
-            }
-        )
-        mock_pool = MagicMock()
-        mock_repository = MagicMock()
-        mock_repository.validate_search_model_table = AsyncMock()
-
-        service = ARIELSearchService(
-            config=config,
-            pool=mock_pool,
-            repository=mock_repository,
-        )
-
-        await service._validate_search_model()
-        mock_repository.validate_search_model_table.assert_not_called()
-
-    @pytest.mark.asyncio
-    async def test_validate_search_model_disables_semantic_when_table_missing(self, caplog):
-        """A missing embedding table disables semantic search instead of raising.
-
-        The config is built inside the test because this branch mutates
-        ``search_modules["semantic"].enabled`` -- a shared config would leak the
-        disabled flag into every test that ran afterwards.
-        """
-        from osprey.services.ariel_search.exceptions import ConfigurationError
-
-        config = ARIELConfig.from_dict(
-            {
-                "database": {"uri": "postgresql://localhost:5432/test"},
-                "search_modules": {"semantic": {"enabled": True, "model": "test-model"}},
-            }
-        )
-        mock_repository = MagicMock()
-        mock_repository.validate_search_model_table = AsyncMock(
-            side_effect=ConfigurationError(
-                "embedding table embeddings_test_model not found",
-                config_key="search_modules.semantic.model",
-            )
-        )
-
-        service = ARIELSearchService(
-            config=config,
+        mock_repository.validate_search_model_table = AsyncMock(side_effect=side_effect)
+        return ARIELSearchService(
+            config=ARIELConfig.from_dict(config_dict),
             pool=MagicMock(),
             repository=mock_repository,
         )
 
-        with caplog.at_level(logging.WARNING, logger="ariel"):
-            await service._validate_search_model()
+    @staticmethod
+    def _table_missing() -> Exception:
+        from osprey.services.ariel_search.exceptions import ConfigurationError
 
-        assert config.search_modules["semantic"].enabled is False
-        assert config.is_search_module_enabled("semantic") is False
-        assert "Semantic search disabled" in caplog.text
-        assert "embeddings_test_model" in caplog.text
-        assert "quickstart" in caplog.text
-        # Still marked validated, so the failure is not retried on every search.
-        assert service._validated_search_model is True
+        return ConfigurationError(
+            "search_modules.semantic.model: no embedding table for 'test-model'",
+            config_key="search_modules.semantic.model",
+        )
+
+    @pytest.mark.asyncio
+    async def test_verify_search_model_table_remembers_a_pass(self):
+        """A pass is remembered: two calls, one repository query."""
+        service = self._service({"semantic": {"enabled": True, "model": "test-model"}})
+
+        await service.verify_search_model_table()
+        await service.verify_search_model_table()
+
+        service.repository.validate_search_model_table.assert_awaited_once_with("test-model")
+
+    @pytest.mark.asyncio
+    async def test_verify_search_model_table_probes_a_failure_again(self):
+        """A failure is probed again: refuse, refuse, pass -> three queries."""
+        from osprey.services.ariel_search.exceptions import ConfigurationError
+
+        service = self._service(
+            {"semantic": {"enabled": True, "model": "test-model"}},
+            side_effect=[self._table_missing(), self._table_missing(), None],
+        )
+
+        with pytest.raises(ConfigurationError):
+            await service.verify_search_model_table()
+        with pytest.raises(ConfigurationError):
+            await service.verify_search_model_table()
+        await service.verify_search_model_table()
+
+        assert service.repository.validate_search_model_table.await_count == 3
+
+    @pytest.mark.asyncio
+    async def test_verify_search_model_table_no_model_configured(self):
+        """With semantic search off the probe asks the repository nothing."""
+        service = self._service()
+
+        await service.verify_search_model_table()
+
+        service.repository.validate_search_model_table.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_verify_search_model_table_missing_table_raises_and_leaves_semantic_enabled(
+        self, caplog
+    ):
+        """A missing embedding table is refused; the configuration is never rewritten."""
+        from osprey.services.ariel_search.exceptions import ConfigurationError
+
+        service = self._service(
+            {"semantic": {"enabled": True, "model": "test-model"}},
+            side_effect=self._table_missing(),
+        )
+
+        with caplog.at_level(logging.WARNING):
+            with pytest.raises(ConfigurationError) as exc_info:
+                await service.verify_search_model_table()
+
+        assert exc_info.value.config_key == "search_modules.semantic.model"
+        assert service.config.search_modules["semantic"].enabled is True
+        assert service.config.get_search_model() == "test-model"
+        assert not [r for r in caplog.records if r.levelno >= logging.WARNING]
+
+    @pytest.mark.asyncio
+    async def test_verify_search_model_table_database_error_propagates(self):
+        """A database that cannot be asked is reported as such, and not remembered."""
+        from osprey.services.ariel_search.exceptions import DatabaseQueryError
+
+        service = self._service(
+            {"semantic": {"enabled": True, "model": "test-model"}},
+            side_effect=[DatabaseQueryError("database unreachable"), None],
+        )
+
+        with pytest.raises(DatabaseQueryError):
+            await service.verify_search_model_table()
+        await service.verify_search_model_table()
+
+        assert service.repository.validate_search_model_table.await_count == 2
+
+    @pytest.mark.asyncio
+    async def test_keyword_search_refused_while_semantic_table_missing(self):
+        """Keyword mode refuses while semantic search is enabled with no table."""
+        from osprey.services.ariel_search.exceptions import ConfigurationError
+
+        service = self._service(
+            {
+                "keyword": {"enabled": True},
+                "semantic": {"enabled": True, "model": "test-model"},
+            },
+            side_effect=self._table_missing(),
+        )
+
+        with patch(
+            "osprey.services.ariel_search.search.keyword.keyword_search",
+            new=AsyncMock(return_value=[]),
+        ) as keyword_search:
+            with pytest.raises(ConfigurationError) as exc_info:
+                await service.search("beam current", mode="keyword")
+
+        assert exc_info.value.config_key == "search_modules.semantic.model"
+        keyword_search.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_keyword_search_with_semantic_disabled_makes_no_probe(self):
+        """Keyword mode with semantic search off never asks for the table."""
+        service = self._service({"keyword": {"enabled": True}})
+
+        with patch(
+            "osprey.services.ariel_search.search.keyword.keyword_search",
+            new=AsyncMock(return_value=[]),
+        ):
+            await service.search("beam current", mode="keyword")
+
+        service.repository.validate_search_model_table.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_capability_singleton_refuses_then_serves_without_rebuild(self):
+        """The agent capability's cached service refuses, then heals in place."""
+        from osprey.services.ariel_search import capability
+        from osprey.services.ariel_search.exceptions import ConfigurationError
+
+        service = self._service(
+            {
+                "keyword": {"enabled": True},
+                "semantic": {"enabled": True, "model": "test-model"},
+            },
+            side_effect=[self._table_missing(), None],
+        )
+        create = AsyncMock(return_value=service)
+        raw = {
+            "database": {"uri": "postgresql://localhost:5432/test"},
+            "search_modules": {
+                "keyword": {"enabled": True},
+                "semantic": {"enabled": True, "model": "test-model"},
+            },
+        }
+
+        with (
+            patch.object(
+                capability,
+                "get_config_value",
+                side_effect=lambda key, default=None: raw if key == "ariel" else default,
+            ),
+            patch("osprey.services.ariel_search.service.create_ariel_service", new=create),
+            patch(
+                "osprey.services.ariel_search.search.keyword.keyword_search",
+                new=AsyncMock(return_value=[]),
+            ),
+        ):
+            cached = await capability.get_ariel_search_service()
+            with pytest.raises(ConfigurationError):
+                await cached.search("beam current", mode="keyword")
+            result = await (await capability.get_ariel_search_service()).search(
+                "beam current", mode="keyword"
+            )
+
+        assert result.search_modes_used == ("keyword",)
+        create.assert_awaited_once()
 
 
 class TestServiceGetStatus:

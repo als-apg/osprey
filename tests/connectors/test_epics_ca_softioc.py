@@ -25,16 +25,23 @@ from pathlib import Path
 
 import pytest
 
+import osprey_connectors
+from osprey_connectors_tests._harness._ports import reserved_port
+from tests._live import wait_until
+
 pytest.importorskip("aioca", reason="the EPICS connector's Channel Access client")
 pytest.importorskip("epicscorelibs.ioc", reason="serves the soft IOC")
 
 DRIVER = Path(__file__).with_name("_epics_ca_driver.py")
 REPO_ROOT = Path(__file__).resolve().parents[2]
+# The connectors under test, wherever they are installed: the workspace member
+# here, the floor release in the framework-at-connectors-floor lane.
+CONNECTORS_ROOT = Path(osprey_connectors.__file__).resolve().parents[1]
 PYTHONPATH = os.pathsep.join(
     [
         str(REPO_ROOT),
         str(REPO_ROOT / "src"),
-        str(REPO_ROOT / "packages" / "osprey-connectors" / "src"),
+        str(CONNECTORS_ROOT),
     ]
 )
 RESULT_MARKER = "__RESULT__"
@@ -73,12 +80,6 @@ record(ao, "{prefix}:DISABLED") {{ field(DISV, "1") field(DISA, "1") field(DISP,
 """
 
 
-def _free_port() -> int:
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
-        probe.bind(("127.0.0.1", 0))
-        return probe.getsockname()[1]
-
-
 def _ca_env(port: int) -> dict[str, str]:
     env = {k: v for k, v in os.environ.items() if not k.startswith(("EPICS_CA", "EPICS_PVA"))}
     env.update(
@@ -100,38 +101,47 @@ def prefix() -> str:
 
 @pytest.fixture
 def ioc(tmp_path, prefix):
-    """A soft IOC with access security on a port of its own; yields its CA env."""
-    port = _free_port()
+    """A soft IOC with access security on a port of its own; yields its CA env.
+
+    The port is held reserved for the IOC's whole life: Channel Access needs the
+    number in the environment before the IOC binds it.
+    """
     database = tmp_path / "test.db"
     database.write_text(_database(prefix))
     acf = tmp_path / "test.acf"
     acf.write_text(_ACF)
     log = tmp_path / "ioc.log"
-    env = _ca_env(port)
-    with log.open("wb") as output:
-        process = subprocess.Popen(
-            [sys.executable, "-c", _IOC_SCRIPT, str(acf), str(database)],
-            stdin=subprocess.DEVNULL,
-            stdout=output,
-            stderr=subprocess.STDOUT,
-            env=env,
-        )
-    try:
-        deadline = time.monotonic() + IOC_READY_TIMEOUT_S
-        while True:
+    with reserved_port() as port:
+        env = _ca_env(port)
+        with log.open("wb") as output:
+            process = subprocess.Popen(
+                [sys.executable, "-c", _IOC_SCRIPT, str(acf), str(database)],
+                stdin=subprocess.DEVNULL,
+                stdout=output,
+                stderr=subprocess.STDOUT,
+                env=env,
+            )
+
+        def _listening() -> bool:
             if process.poll() is not None:
                 raise RuntimeError(f"soft IOC exited: {log.read_text(errors='replace')}")
             try:
                 with socket.create_connection(("127.0.0.1", port), timeout=0.5):
-                    break
+                    return True
             except OSError:
-                if time.monotonic() > deadline:
-                    raise RuntimeError(f"soft IOC never listened on {port}") from None
-                time.sleep(0.1)
-        yield env
-    finally:
-        process.kill()
-        process.wait(timeout=10)
+                return False
+
+        try:
+            wait_until(
+                _listening,
+                timeout=IOC_READY_TIMEOUT_S,
+                interval=0.1,
+                what=f"the soft IOC listening on {port}",
+            )
+            yield env
+        finally:
+            process.kill()
+            process.wait(timeout=10)
 
 
 def _drive(scenario: str, prefix: str, env: dict[str, str], marker: str = RESULT_MARKER) -> dict:
@@ -167,7 +177,7 @@ def test_reads_writes_and_monitors_over_the_wire(ioc, prefix):
     assert reads["MBBO"]["enum_label"] == "On"
     assert reads["MBBO"]["enum_labels"] == ["Off", "On"]
     assert reads["STR"]["value"] == "hello"
-    assert reads["NOPE"] == "ConnectionError"
+    assert reads["NOPE"] == "ChannelUnreachableError"
 
     assert writes["confirmed"]["outcome"] == "CONFIRMED"
     assert writes["confirmed"]["observed"] == 2.25
@@ -224,7 +234,8 @@ def test_aioca_and_the_connector_share_one_context_and_exit_cleanly(ioc, prefix,
 def test_the_dispatch_source_and_the_connector_share_the_ca_loop(ioc, prefix):
     result = _drive("dispatch", prefix, ioc)
 
-    assert result["fired"] == [[1.0, 6.0], [2.0, 7.5]]
+    assert result["writes"] == ["CONFIRMED"] * 4, result
+    assert result["fired"] == [[1.0, 6.0], [2.0, 7.5]], result
 
 
 def test_the_ca_loop_is_stopped_before_aioca_tears_channel_access_down(ioc, prefix):
@@ -240,7 +251,7 @@ def test_an_unreachable_name_server_does_not_hold_the_exit(ioc, prefix):
     started = time.monotonic()
     result = _drive("unreachable_name_server", prefix, ioc)
 
-    assert result == {"read": "ConnectionError"}
+    assert result == {"read": "ChannelUnreachableError"}
     assert time.monotonic() - started < 15
 
 
@@ -248,7 +259,7 @@ def test_a_connect_to_another_gateway_repoints_the_process(ioc, prefix):
     """A notebook kernel follows a target switch in-process: each connect moves CA."""
     result = _drive("repoint", prefix, ioc)
 
-    assert result["moved"] == "ConnectionError", result
+    assert result["moved"] == "ChannelUnreachableError", result
     assert result["write"] == "CONFIRMED", result
     assert result["after"] == 4.0, result
     # aioca closes every monitor with the context it drops; the connector
@@ -260,6 +271,7 @@ def test_a_dispatch_trigger_stays_armed_across_a_repoint(ioc, prefix):
     """The dispatch source watches through the connector, so its monitor comes back too."""
     result = _drive("dispatch_repoint", prefix, ioc)
 
+    assert result["writes"] == ["CONFIRMED"] * 2, result
     assert result["fired"] == [[1.0, 6.0]], result
 
 

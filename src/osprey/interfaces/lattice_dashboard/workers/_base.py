@@ -58,7 +58,7 @@ def unpack_tracking(result: Any) -> np.ndarray:
 def parse_args() -> tuple[Path, Path]:
     """Parse CLI args: job_path, output_path."""
     if len(sys.argv) != 3:
-        print(f"Usage: {sys.argv[0]} <job_path> <output_path>", file=sys.stderr)
+        print(f"Usage: {sys.argv[0]} <job_path> <output_path>", file=sys.stderr)  # noqa: T201 -- the worker's usage line on stderr
         sys.exit(1)
     return Path(sys.argv[1]), Path(sys.argv[2])
 

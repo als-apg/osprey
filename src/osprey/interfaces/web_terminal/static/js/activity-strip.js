@@ -56,10 +56,14 @@ export const ACTIVITY_CLEAR_MS = 6000;
  */
 function suppressionPanelFor(target) {
   switch (target.kind) {
-    case 'artifact': return 'artifacts';
-    case 'run': return 'bluesky';
-    case 'panel': return target.panel ?? null;
-    default: return null; // 'channel' — never suppressed
+    case 'artifact':
+      return 'artifacts';
+    case 'run':
+      return 'bluesky';
+    case 'panel':
+      return target.panel ?? null;
+    default:
+      return null; // 'channel' — never suppressed
   }
 }
 
@@ -102,7 +106,10 @@ export function createActivityStrip({ mount, getActivePanel, labelOf: panelLabel
   const history = createActivityHistory({ mount, labelOf: panelLabel });
 
   function clear() {
-    if (timer != null) { clearTimeout(timer); timer = null; }
+    if (timer != null) {
+      clearTimeout(timer);
+      timer = null;
+    }
     arrangeRun = 0;
     mount.textContent = '';
   }

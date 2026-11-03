@@ -66,9 +66,12 @@ runs:
       # The directories exist because resolving the version below imports
       # osprey from the editable install.
       #
-      # The version is resolved on the host and passed in: the staged tree has
+      # The versions are resolved on the host and passed in: the staged tree has
       # no .git, and without a version the build backend refuses to produce
-      # metadata at all.
+      # metadata at all. Two of them, because osprey-connectors has its own
+      # calendar stream: scripts/va/connectors_version.py runs the package's own
+      # describe command, and falls back to the framework's number (what the
+      # image carried before the split) where no connectors tag is reachable.
       #
       # The tag is `osprey-va-full:latest` exactly, because that is the
       # default of tests/va/e2e/_image.py, the one place the image under
@@ -85,9 +88,11 @@ runs:
         cp docker/virtual-accelerator/Containerfile "$staging/docker/virtual-accelerator/Containerfile"
         find "$staging" -depth -type d -name __pycache__ -exec rm -rf {} +
         version="$(uv run python -c 'import osprey; print(osprey.__version__)')"
-        echo "Building osprey-va-full:latest from osprey $version"
+        connectors_version="$(uv run python scripts/va/connectors_version.py --fallback "$version")"
+        echo "Building osprey-va-full:latest from osprey $version, osprey-connectors $connectors_version"
         docker buildx build \
           --build-arg "OSPREY_VERSION=$version" \
+          --build-arg "OSPREY_CONNECTORS_VERSION=$connectors_version" \
           --tag osprey-va-full:latest \
           --load \
           --cache-from type=local,src=/tmp/va-buildx-cache \

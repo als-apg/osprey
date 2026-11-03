@@ -13,15 +13,14 @@ bluesky panel to that preset.
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Any
 
 import pytest
 import yaml
-from click.testing import CliRunner
 
 from osprey.cli import build_profile as bp
-from osprey.cli.build_cmd import build
 from osprey.cli.build_profile import (
     BlueskyWebConfig,
     BuildProfile,
@@ -38,6 +37,9 @@ from osprey.cli.build_profile_presets import (
 )
 from osprey.port_layout import default_port
 from osprey_connectors.errors import BuildProfileError
+from tests.cli._lifecycle_build import invoke_build
+
+pytestmark = pytest.mark.usefixtures("facility_data_tree")
 
 
 def test_no_bluesky_web_validates(tmp_path: Path) -> None:
@@ -133,7 +135,9 @@ def test_panel_presets_builtin_members_validate(tmp_path: Path) -> None:
     """A preset whose members are the universal panel and a SELECTED built-in
     validates without raising."""
     profile = _profile(
-        name="x", web_panels=["ariel"], panel_presets={"Machine setup": ["artifacts", "ariel"]}
+        name="x",
+        web_panels=["ariel"],
+        panel_presets={"Machine setup": {"tabs": ["artifacts", "ariel"]}},
     )
     profile.validate(tmp_path)  # must not raise
 
@@ -141,14 +145,22 @@ def test_panel_presets_builtin_members_validate(tmp_path: Path) -> None:
 def test_panel_presets_unselected_builtin_member_raises(tmp_path: Path) -> None:
     """A built-in the profile never selected renders no tab, so a preset naming
     it would open on nothing."""
-    profile = _profile(name="x", panel_presets={"Machine setup": ["artifacts", "ariel"]})
+    profile = _profile(
+        name="x",
+        panel_presets={
+            "Machine setup": {
+                "split": "row",
+                "items": [{"tabs": ["artifacts"]}, {"tabs": ["ariel"]}],
+            }
+        },
+    )
     with pytest.raises(BuildProfileError, match="'ariel'"):
         profile.validate(tmp_path)
 
 
 def test_panel_presets_unknown_member_raises(tmp_path: Path) -> None:
     """A preset member that is not a known panel id fails validation."""
-    profile = _profile(name="x", panel_presets={"Setup": ["artifacts", "ghost"]})
+    profile = _profile(name="x", panel_presets={"Setup": {"tabs": ["artifacts", "ghost"]}})
     with pytest.raises(BuildProfileError, match="ghost"):
         profile.validate(tmp_path)
 
@@ -159,7 +171,7 @@ def test_panel_presets_url_backed_member_validates(tmp_path: Path) -> None:
     profile = _profile(
         name="x",
         web_panels=["grafana"],
-        panel_presets={"Dash": ["grafana"]},
+        panel_presets={"Dash": {"tabs": ["grafana"]}},
         config={"web.panels.grafana.url": "http://grafana.local:3000"},
     )
     profile.validate(tmp_path)  # must not raise
@@ -214,14 +226,74 @@ def test_a_panels_key_inside_a_web_mapping_fails_validation(tmp_path: Path) -> N
 
 def test_panel_presets_web_panels_member_validates(tmp_path: Path) -> None:
     """A member declared in web_panels is a known id."""
-    profile = _profile(name="x", web_panels=["ariel"], panel_presets={"L": ["ariel"]})
+    profile = _profile(
+        name="x", web_panels=["ariel"], panel_presets={"L": {"tabs": ["ariel"], "showing": "ariel"}}
+    )
     profile.validate(tmp_path)  # must not raise
 
 
-def test_panel_presets_non_list_value_raises(tmp_path: Path) -> None:
-    """A preset whose value is not a list of ids is rejected."""
+def test_panel_presets_non_layout_value_raises(tmp_path: Path) -> None:
+    """A preset whose value is neither a layout nor the retired list is rejected."""
     profile = _profile(name="x", panel_presets={"Bad": "artifacts"})  # type: ignore[dict-item]
-    with pytest.raises(BuildProfileError, match="must be a list"):
+    with pytest.raises(BuildProfileError, match="must be a layout"):
+        profile.validate(tmp_path)
+
+
+def test_panel_presets_old_list_shape_says_how_to_rewrite(tmp_path: Path) -> None:
+    """The retired ``label: [ids]`` form fails the build and names the layout to write."""
+    profile = _profile(
+        name="x",
+        web_panels=["ariel"],
+        panel_presets={"Ops": ["artifacts", "ariel"]},  # type: ignore[dict-item]
+    )
+    with pytest.raises(BuildProfileError) as excinfo:
+        profile.validate(tmp_path)
+    message = str(excinfo.value)
+    assert "panel_presets['Ops'] is the retired list-of-panel-ids form" in message
+    assert "{split: row, items: [{tabs: [artifacts]}, {tabs: [ariel]}]}" in message
+    assert "{tabs: [artifacts, ariel]}" in message
+
+
+def test_panel_presets_nested_layout_with_weights_validates(tmp_path: Path) -> None:
+    """Splits nest, tiles hold several tabs, sizes are weights, showing is optional."""
+    layout = {
+        "split": "row",
+        "items": [
+            {"tabs": ["artifacts", "ariel"], "showing": "ariel", "size": 2},
+            {"split": "column", "items": [{"tabs": ["okf"]}, {"tabs": ["lattice"], "size": 3}]},
+        ],
+    }
+    profile = _profile(
+        name="x", web_panels=["ariel", "okf", "lattice"], panel_presets={"L": layout}
+    )
+    profile.validate(tmp_path)  # must not raise
+
+
+@pytest.mark.parametrize(
+    ("layout", "fragment"),
+    [
+        pytest.param({"tabs": []}, "empty_tabs", id="empty-tabs"),
+        pytest.param(
+            {"tabs": ["artifacts"], "showing": "ariel"}, "showing_not_in_tabs", id="showing"
+        ),
+        pytest.param(
+            {"split": "row", "items": [{"tabs": ["artifacts"]}]},
+            "split_too_few_items",
+            id="one-item",
+        ),
+        pytest.param({"tabs": ["artifacts"], "size": 0}, "bad_size", id="size"),
+        pytest.param({"tile": "t1", "tabs": ["artifacts"]}, "unknown_field", id="tile-id"),
+        pytest.param({"slot": 0}, "not_layout", id="not-a-layout"),
+        pytest.param({"tabs": [0]}, "not member indexes", id="index-key"),
+        pytest.param({"tabs": ["terminal", "artifacts"]}, "names the terminal", id="terminal"),
+    ],
+)
+def test_panel_presets_invalid_layout_raises(
+    tmp_path: Path, layout: dict[str, Any], fragment: str
+) -> None:
+    """A preset breaking a dock-layout collection-form rule fails with its named reason."""
+    profile = _profile(name="x", panel_presets={"L": layout})
+    with pytest.raises(BuildProfileError, match=re.escape(fragment)):
         profile.validate(tmp_path)
 
 
@@ -287,8 +359,7 @@ def turnkey_plan_project(tmp_path_factory: pytest.TempPathFactory) -> Path:
 
     tmp_path = tmp_path_factory.mktemp("turnkey-plan")
     repo = build_exemplar_repo(tmp_path / "turnkey-plan")
-    runner = CliRunner()
-    result = runner.invoke(build, ["--repo", str(repo), "--skip-deps", "--skip-lifecycle"])
+    result = invoke_build(repo)
     assert result.exit_code == 0, result.output
     project_dir = repo / "build"
     assert (project_dir / "config.yml").exists()
@@ -603,9 +674,20 @@ class TestEnvironmentValidation:
         profile = _profile(name="x", environment=EnvironmentConfig(python=str(venv_interpreter)))
         profile.validate(tmp_path)  # must not raise
 
-    def test_missing_python_raises(self, tmp_path: Path) -> None:
-        profile = _profile(name="x", environment=EnvironmentConfig(python="/nope/bin/python"))
-        with pytest.raises(BuildProfileError, match="environment.python not found"):
+    @pytest.mark.parametrize(
+        ("python", "message"),
+        [
+            ("/nope/bin/python", "environment.python not found"),
+            # environment.python names a host interpreter, not a profile-relative
+            # asset — consumers hold only the profile, so it must be absolute.
+            ("venv/bin/python", "must be an absolute path"),
+            ("   ", "environment.python must be a non-empty"),
+        ],
+        ids=["missing", "relative", "empty"],
+    )
+    def test_an_unusable_python_raises(self, tmp_path: Path, python: str, message: str) -> None:
+        profile = _profile(name="x", environment=EnvironmentConfig(python=python))
+        with pytest.raises(BuildProfileError, match=message):
             profile.validate(tmp_path)
 
     def test_non_executable_python_raises(self, tmp_path: Path) -> None:
@@ -620,18 +702,6 @@ class TestEnvironmentValidation:
         """A directory is traversable-executable but is not an interpreter."""
         profile = _profile(name="x", environment=EnvironmentConfig(python=str(tmp_path)))
         with pytest.raises(BuildProfileError, match="is not an executable file"):
-            profile.validate(tmp_path)
-
-    def test_relative_python_raises(self, tmp_path: Path) -> None:
-        """environment.python names a host interpreter, not a profile-relative
-        asset — consumers hold only the profile, so it must be absolute."""
-        profile = _profile(name="x", environment=EnvironmentConfig(python="venv/bin/python"))
-        with pytest.raises(BuildProfileError, match="must be an absolute path"):
-            profile.validate(tmp_path)
-
-    def test_empty_python_string_raises(self, tmp_path: Path) -> None:
-        profile = _profile(name="x", environment=EnvironmentConfig(python="   "))
-        with pytest.raises(BuildProfileError, match="environment.python must be a non-empty"):
             profile.validate(tmp_path)
 
     @pytest.mark.parametrize("bad", ["", "   "])
@@ -716,17 +786,6 @@ class TestEnvironmentValidation:
 
 
 SETUP_PATCH = "mcp__osprey_workspace__setup_patch"
-
-
-@pytest.fixture(autouse=True)
-def _facility_data_tree(tmp_path: Path) -> None:
-    """The tree every profile's ``data:`` key names, beside the profile.
-
-    ``data:`` is required of every repo profile and must resolve to a real
-    directory, so without this each profile below would report one extra
-    failure about a key none of these tests is about.
-    """
-    (tmp_path / "data").mkdir(exist_ok=True)
 
 
 def _profile(**fields: Any) -> BuildProfile:

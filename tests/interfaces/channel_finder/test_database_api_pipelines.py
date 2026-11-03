@@ -142,10 +142,18 @@ class TestHierarchicalExplore:
         assert data["total"] == 2
         mock_db.get_options_at_level.assert_called_once_with("system", {"a": "b"})
 
-    def test_explore_options_invalid_json_422(self, client):
+    @pytest.mark.parametrize(
+        "url",
+        [
+            "/api/explore/options?level=system&selections={bad",
+            "/api/explore/build?selections={bad",
+        ],
+        ids=["options", "build"],
+    )
+    def test_explore_invalid_json_422(self, client, url):
         _set_pipeline(client, "hierarchical")
         with patch(_DB_PATCH, return_value=MagicMock(spec=HierarchicalChannelDatabase)):
-            resp = client.get("/api/explore/options?level=system&selections={bad")
+            resp = client.get(url)
         assert resp.status_code == 422
 
     def test_explore_build_partitions_valid_invalid(self, client):
@@ -159,12 +167,6 @@ class TestHierarchicalExplore:
         data = resp.json()
         assert data["valid"] == ["A"]
         assert data["invalid"] == ["B"]
-
-    def test_explore_build_invalid_json_422(self, client):
-        _set_pipeline(client, "hierarchical")
-        with patch(_DB_PATCH, return_value=MagicMock(spec=HierarchicalChannelDatabase)):
-            resp = client.get("/api/explore/build?selections={bad")
-        assert resp.status_code == 422
 
     def test_hierarchy_info(self, client):
         _set_pipeline(client, "hierarchical")
@@ -601,5 +603,7 @@ class TestGraphImportClosure:
             "assert 'neo4j' not in sys.modules, 'neo4j imported at module scope'\n"
             "assert 'duckdb' not in sys.modules, 'duckdb imported at module scope'\n"
         )
-        result = subprocess.run([sys.executable, "-c", source], capture_output=True, text=True)
+        result = subprocess.run(
+            [sys.executable, "-c", source], capture_output=True, text=True, timeout=120
+        )
         assert result.returncode == 0, result.stderr

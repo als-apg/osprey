@@ -1,0 +1,1 @@
+The watchdog decision engine can run on a self-hosted model: `api.jev.route: openai` sends each question to an OpenAI-compatible chat server (a stock vLLM) as one constrained one-token completion and reads the option probabilities from its logprobs. Set `api.jev.routes.openai.base_url` and `model`; `api_key` may be omitted on a loopback or private address.

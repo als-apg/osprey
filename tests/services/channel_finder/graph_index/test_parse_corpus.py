@@ -16,7 +16,6 @@ import textwrap
 from pathlib import Path
 
 import pytest
-from tests._builds import BuiltProject
 from tests.services.channel_finder.graph_index import corpora
 
 from osprey.services.channel_finder.core.exceptions import GraphIndexBuildError
@@ -35,22 +34,32 @@ BINDING = corpora.BINDING
 
 #: Store-verified counts for the control-assistant build's graph view, as
 #: ``tests/integration/test_graph_mcp.py`` pins them against Neo4j.
-#: ``DEMO_DEVICES`` counts every binding owner: the 644 typed devices and the
-#: top place ``SR``, which carries the tune and chromaticity channels itself.
-DEMO_DEVICES = 645
-DEMO_TYPED_DEVICES = 644
-DEMO_BINDINGS = 3338
-DEMO_WRITE_ONLY = 522
-DEMO_READ_ONLY = 2812
-DEMO_MAGNETS = 466
-#: 32 ``owl:Class`` subjects less the ``SemanticSignal`` and ``ChannelBinding``
+#: ``DEMO_DEVICES`` counts every binding owner: the 1016 typed devices and the
+#: top place ``SR``, which carries the tune, chromaticity, user beam mode
+#: and operation-mode channels itself.
+DEMO_DEVICES = 1017
+DEMO_TYPED_DEVICES = 1016
+DEMO_BINDINGS = 4731
+DEMO_WRITE_ONLY = 674
+DEMO_READ_ONLY = 4052
+DEMO_MAGNETS = 480
+#: 38 ``owl:Class`` subjects less the ``SemanticSignal`` and ``ChannelBinding``
 #: leaves that pruning drops.
-DEMO_CLASS_COUNT = 30
+DEMO_CLASS_COUNT = 36
 #: The channels bound to the top place rather than to a device: no system, no
-#: signal, no class.
+#: class.
 DEMO_PLACE_BOUND = frozenset(
-    {"SR:DIAG:CHROM:X", "SR:DIAG:CHROM:Y", "SR:DIAG:TUNE:X", "SR:DIAG:TUNE:Y"}
+    {
+        "SR:BEAM:USER_MODE",
+        "SR:DIAG:CHROM:X",
+        "SR:DIAG:CHROM:Y",
+        "SR:DIAG:TUNE:X",
+        "SR:DIAG:TUNE:Y",
+        "SR:OPS:MODE:RB",
+    }
 )
+#: The place-bound channels that name a signal, each read: the operation mode.
+DEMO_PLACE_BOUND_SIGNALLED = frozenset({"SR:OPS:MODE:RB"})
 
 
 def _rows_by_pv(parsed: ParsedCorpus) -> dict[str, BindingRow]:
@@ -61,12 +70,6 @@ def _rows_by_pv(parsed: ParsedCorpus) -> dict[str, BindingRow]:
 
 def _classes_by_name(parsed: ParsedCorpus) -> dict[str, ClassRow]:
     return {row.name: row for row in parsed.class_rows}
-
-
-@pytest.fixture(scope="module")
-def demo_path(built_control_assistant: BuiltProject) -> Path:
-    """The graph view the control-assistant build writes."""
-    return built_control_assistant.build_dir / "data" / "graph" / "facility.ttl"
 
 
 @pytest.fixture(scope="module")
@@ -437,7 +440,7 @@ class TestModuleImport:
             """
         )
         result = subprocess.run(
-            [sys.executable, "-c", script], capture_output=True, text=True, check=False
+            [sys.executable, "-c", script], capture_output=True, text=True, check=False, timeout=120
         )
         assert result.returncode == 0, result.stderr
         assert "ok" in result.stdout
@@ -467,7 +470,10 @@ class TestTheBuildsGraphView:
             assert row.class_uris == sorted(row.class_uris)
             if row.device_name is None:
                 place_bound.add(row.full_pv)
-                assert (row.system, row.edges, row.class_uris) == (None, [], [])
+                assert (row.system, row.class_uris) == (None, []), row.full_pv
+                signalled = row.full_pv in DEMO_PLACE_BOUND_SIGNALLED
+                assert row.edges == ([EDGE_READS] if signalled else []), row.full_pv
+                assert bool(row.signal_names) is signalled, row.full_pv
                 continue
             assert row.system != "" and row.system is not None
             assert row.class_uris, row.full_pv
@@ -487,7 +493,7 @@ class TestTheBuildsGraphView:
         assert sum(row.direct_devices for row in demo.class_rows) == DEMO_TYPED_DEVICES
 
     def test_censuses(self, demo):
-        assert demo.signal_count == 46
+        assert demo.signal_count == 62
         assert demo.section_codes == frozenset(
             {
                 "SR",

@@ -117,10 +117,18 @@
   align-items: center;
   gap: var(--space-1);
   flex: 1;
-  justify-content: center;
+  /* The strip gives way to the close button: where the tabs are wider than the
+     drawer (a wider monospace face), they scroll in their own box instead of
+     pushing the button out of view. */
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+  justify-content: safe center;
 }
 
 .drawer-tab {
+  flex-shrink: 0;
+  white-space: nowrap;
   font-family: var(--font-mono);
   font-size: var(--text-sm);
   font-weight: var(--weight-medium);
@@ -232,14 +240,6 @@
 }
 
 /* ---- Header Icon Buttons ---- */
-
-.header-actions {
-  display: flex;
-  align-items: center;
-  gap: var(--space-1);
-  margin-left: var(--space-3);
-  flex: 0 0 auto;
-}
 
 .header-icon-btn {
   background: transparent;

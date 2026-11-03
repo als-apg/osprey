@@ -12,11 +12,6 @@
        are handled by the theme-manager FOLLOWER role in app.js. -->
   <script src="/design-system/js/theme-boot.js"></script>
 
-  <!-- Mode boot: applies data-ui-mode (expert/simple) pre-paint, same zero-dep
-       synchronous contract as theme-boot.js. Live Expert<->Simple switches are
-       handled by the osprey-mode-change listener in app.js. -->
-  <script src="/design-system/js/mode-boot.js"></script>
-
   <!-- Design system tokens (shared across every OSPREY interface) -->
   <link rel="stylesheet" href="/design-system/css/tokens.css" />
   <link rel="stylesheet" href="/design-system/css/base.css" />
@@ -26,7 +21,7 @@
 
   <!-- Root-absolute asset refs: osprey's panel proxy rewrites these under
        /panel/okf/ in production; served verbatim at / in local/dev. Loaded
-       after tokens.css/base.css so its local scale/layout tokens win. -->
+       after tokens.css/base.css so its panel rules win over base.css. -->
   <link rel="stylesheet" href="/static/style.css" />
 </head>
 <body>
@@ -62,26 +57,6 @@
          aria-orientation="vertical" aria-label="Resize sidebar"
          tabindex="0"></div>
     <main id="reader">
-      <!-- Reading-focused (Simple) affordance: hidden in Expert, a sticky
-           "Browse all pages" bar in Simple that returns to the structure
-           overview (the plain doc list). Sits OUTSIDE #reader-content because
-           app.js replaces that element's innerHTML on every render. -->
-      <div class="reader-topbar">
-        <button type="button" id="browse-all" class="browse-all-btn">
-          <svg class="browse-all-icon" viewBox="0 0 24 24" fill="none"
-               stroke="currentColor" stroke-width="2" stroke-linecap="round"
-               stroke-linejoin="round" aria-hidden="true">
-            <line x1="8" y1="6" x2="21" y2="6" />
-            <line x1="8" y1="12" x2="21" y2="12" />
-            <line x1="8" y1="18" x2="21" y2="18" />
-            <line x1="3" y1="6" x2="3.01" y2="6" />
-            <line x1="3" y1="12" x2="3.01" y2="12" />
-            <line x1="3" y1="18" x2="3.01" y2="18" />
-          </svg>
-          Browse all pages
-          <span class="browse-all-arrow" aria-hidden="true">&rarr;</span>
-        </button>
-      </div>
       <div id="reader-content">
         <p class="muted">Loading knowledge base…</p>
       </div>
@@ -91,9 +66,14 @@
        Provenance: marked v12.0.2 (MIT), https://github.com/markedjs/marked —
        vendored verbatim; the pinned file carries its own license header. -->
   <script src="/static/vendor/marked.min.js"></script>
+  <!-- DOMPurify must load before app.js too: bundle markdown is files an agent
+       can write, so app.js writes marked's output only through
+       DOMPurify.sanitize. The CDN copy by default, the copy `osprey vendor
+       fetch` places in static/vendor/ when the deployment is offline. -->
+  <script src="{{ vendor_url('DOMPurify', '/static/vendor/purify.min.js') }}"></script>
   <!-- ES module: imports the theme-manager follower + shared dom helpers.
-       Deferred by nature, so it runs after the non-module marked script above
-       (marked stays a global). -->
+       Deferred by nature, so it runs after the non-module scripts above
+       (marked and DOMPurify stay globals). -->
   <script type="module" src="/static/js/app.js"></script>
 </body>
 </html>

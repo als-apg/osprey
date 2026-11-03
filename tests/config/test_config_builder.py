@@ -314,21 +314,21 @@ class TestRequiredConfig:
 
 
 class TestConfigFileShape:
-    @pytest.mark.parametrize("body", ["- a\n- b\n", "just a string\n", "42\n"])
-    def test_a_config_file_that_is_not_a_mapping_is_refused(self, tmp_path, body):
+    @pytest.mark.parametrize(
+        ("body", "message"),
+        [
+            ("- a\n- b\n", "Configuration file must contain a dictionary/mapping"),
+            ("just a string\n", "Configuration file must contain a dictionary/mapping"),
+            ("42\n", "Configuration file must contain a dictionary/mapping"),
+            ("execution: subprocess\n", "'execution' in .* must be a mapping, got str"),
+        ],
+        ids=["list", "string", "number", "non-mapping-execution-section"],
+    )
+    def test_a_config_file_of_the_wrong_shape_is_refused(self, tmp_path, body, message):
         config_file = tmp_path / "config.yml"
         config_file.write_text(body)
 
-        with pytest.raises(
-            ValueError, match="Configuration file must contain a dictionary/mapping"
-        ):
-            ConfigBuilder(str(config_file))
-
-    def test_a_non_mapping_execution_section_is_refused(self, tmp_path):
-        config_file = tmp_path / "config.yml"
-        config_file.write_text("execution: subprocess\n")
-
-        with pytest.raises(ValueError, match="'execution' in .* must be a mapping, got str"):
+        with pytest.raises(ValueError, match=message):
             ConfigBuilder(str(config_file))
 
 
@@ -425,13 +425,13 @@ class TestToFacilityIso:
         config_module._default_configurable = None
 
     def test_none_passes_through(self):
-        from osprey_connectors.config import to_facility_iso
+        from osprey.utils.facility import to_facility_iso
 
         assert to_facility_iso(None) is None
 
     def test_non_datetime_degrades_to_str(self):
         """A value already serialized upstream (or any non-datetime) must not crash."""
-        from osprey_connectors.config import to_facility_iso
+        from osprey.utils.facility import to_facility_iso
 
         assert to_facility_iso("2026-06-01T00:00:00+00:00") == "2026-06-01T00:00:00+00:00"
 
@@ -441,7 +441,7 @@ class TestToFacilityIso:
         $TZ dependence on the egress side — mirrors the parse-side contract."""
         from datetime import datetime
 
-        from osprey_connectors.config import to_facility_iso
+        from osprey.utils.facility import to_facility_iso
 
         config_file = tmp_path / "config.yml"
         config_file.write_text("system:\n  timezone: Asia/Tokyo\n")  # +09:00
@@ -457,7 +457,7 @@ class TestToFacilityIso:
         """A UTC instant is rendered in the configured facility zone, with offset."""
         from datetime import UTC, datetime
 
-        from osprey_connectors.config import to_facility_iso
+        from osprey.utils.facility import to_facility_iso
 
         config_file = tmp_path / "config.yml"
         config_file.write_text("system:\n  timezone: Asia/Tokyo\n")  # +09:00, no DST

@@ -11,12 +11,12 @@ map), and that a successful run is left untouched.
 from __future__ import annotations
 
 import asyncio
-from typing import Any
 
 import pytest
 
-from osprey.agent_runner import AgentRunError, ResultEvent, TextEvent, ToolUseEvent
+from osprey.agent_runner import AgentRunError, TextEvent, ToolUseEvent
 from osprey.mcp_server.dispatch_worker import failure_class, run_stats, sdk_runner
+from tests.dispatch_worker._runner import drain, result_event, stub_osprey_helpers
 
 
 @pytest.fixture(autouse=True)
@@ -32,46 +32,11 @@ def _isolation():
 @pytest.fixture(autouse=True)
 def _stub_osprey_helpers(monkeypatch):
     """Stub the deferred OSPREY helpers so run_dispatch runs without a project."""
-    monkeypatch.setattr(
-        "osprey.agent_runner.clean_env.build_clean_env",
-        lambda **kw: {},
-    )
-    monkeypatch.setattr(
-        "osprey.agent_runner.sdk_context.build_system_prompt",
-        lambda *a, **k: "system",
-    )
-    monkeypatch.setattr(
-        "osprey_connectors.config.get_facility_timezone",
-        lambda *a, **k: "UTC",
-    )
-
-
-def _result(**overrides: Any) -> ResultEvent:
-    """A successful result record; any field can be overridden."""
-    fields: dict[str, Any] = {
-        "subtype": "success",
-        "is_error": False,
-        "num_turns": 1,
-        "duration_ms": 0,
-        "session_id": "s",
-        "total_cost_usd": 0.1,
-        "usage": None,
-        "result": None,
-        "api_error_status": None,
-    }
-    fields.update(overrides)
-    return ResultEvent(**fields)
+    stub_osprey_helpers(monkeypatch)
 
 
 def _tool_use(tool_use_id: str) -> ToolUseEvent:
     return ToolUseEvent(tool_use_id=tool_use_id, name="Read", input={}, parent_tool_use_id=None)
-
-
-async def _drain(queue: asyncio.Queue) -> list[dict]:
-    events = []
-    while not queue.empty():
-        events.append(await queue.get())
-    return events
 
 
 # ---------------------------------------------------------------------------
@@ -83,7 +48,7 @@ async def _drain(queue: asyncio.Queue) -> list[dict]:
 async def test_success_is_unchanged(monkeypatch):
     async def fake_stream(project_dir, prompt, **_kw):  # noqa: ARG001 - matches the stream_query signature
         yield TextEvent(text="hi", parent_tool_use_id=None)
-        yield _result(is_error=False, subtype="success")
+        yield result_event(is_error=False, subtype="success")
 
     monkeypatch.setattr(sdk_runner, "stream_query", fake_stream)
 
@@ -94,7 +59,7 @@ async def test_success_is_unchanged(monkeypatch):
     assert result["error"] is None
     # Success results carry no failure taxonomy fields.
     assert "failure_class" not in result
-    types = [e["type"] for e in await _drain(queue)]
+    types = [e["type"] for e in await drain(queue)]
     assert "done" in types
     assert "error" not in types
 
@@ -108,7 +73,7 @@ async def test_success_is_unchanged(monkeypatch):
 async def test_budget_cap_subtype_flips_to_run(monkeypatch):
     async def fake_stream(project_dir, prompt, **_kw):  # noqa: ARG001 - matches the stream_query signature
         yield _tool_use("t1")
-        yield _result(is_error=True, subtype="error_max_budget_usd", result="Budget exceeded")
+        yield result_event(is_error=True, subtype="error_max_budget_usd", result="Budget exceeded")
 
     monkeypatch.setattr(sdk_runner, "stream_query", fake_stream)
 
@@ -120,7 +85,7 @@ async def test_budget_cap_subtype_flips_to_run(monkeypatch):
     assert result["error"] == "Budget exceeded"
     assert result["num_tool_calls"] == 1
     # SSE gets an error, not a done, so stream consumers see the failure.
-    types = [e["type"] for e in await _drain(queue)]
+    types = [e["type"] for e in await drain(queue)]
     assert "error" in types
     assert "done" not in types
 
@@ -128,7 +93,7 @@ async def test_budget_cap_subtype_flips_to_run(monkeypatch):
 @pytest.mark.asyncio
 async def test_max_turns_subtype_flips_to_run(monkeypatch):
     async def fake_stream(project_dir, prompt, **_kw):  # noqa: ARG001 - matches the stream_query signature
-        yield _result(is_error=True, subtype="error_max_turns", result="Max turns")
+        yield result_event(is_error=True, subtype="error_max_turns", result="Max turns")
 
     monkeypatch.setattr(sdk_runner, "stream_query", fake_stream)
 
@@ -143,7 +108,7 @@ async def test_error_result_with_provider_text_is_provider(monkeypatch):
     """A non-budget error whose text reads as a provider fault stays retryable."""
 
     async def fake_stream(project_dir, prompt, **_kw):  # noqa: ARG001 - matches the stream_query signature
-        yield _result(
+        yield result_event(
             is_error=True,
             subtype="error_during_execution",
             result="upstream 429 rate limit exceeded",
@@ -162,7 +127,7 @@ async def test_error_result_api_status_folds_into_classification(monkeypatch):
     """api_error_status is appended to the error text and drives classification."""
 
     async def fake_stream(project_dir, prompt, **_kw):  # noqa: ARG001 - matches the stream_query signature
-        yield _result(
+        yield result_event(
             is_error=True,
             subtype="error_during_execution",
             result="request failed",
@@ -180,7 +145,7 @@ async def test_error_result_api_status_folds_into_classification(monkeypatch):
 @pytest.mark.asyncio
 async def test_error_result_generic_is_run(monkeypatch):
     async def fake_stream(project_dir, prompt, **_kw):  # noqa: ARG001 - matches the stream_query signature
-        yield _result(
+        yield result_event(
             is_error=True, subtype="error_during_execution", result="a tool crashed mid-run"
         )
 
@@ -194,7 +159,7 @@ async def test_error_result_generic_is_run(monkeypatch):
 @pytest.mark.asyncio
 async def test_error_result_without_text_gets_synthesized_message(monkeypatch):
     async def fake_stream(project_dir, prompt, **_kw):  # noqa: ARG001 - matches the stream_query signature
-        yield _result(is_error=True, subtype="error_during_execution", result=None)
+        yield result_event(is_error=True, subtype="error_during_execution", result=None)
 
     monkeypatch.setattr(sdk_runner, "stream_query", fake_stream)
 
@@ -216,7 +181,7 @@ async def test_inactivity_timeout_is_provider(monkeypatch):
     async def fake_stream(project_dir, prompt, **_kw):  # noqa: ARG001 - matches the stream_query signature
         yield _tool_use("t1")
         await asyncio.sleep(10)  # provider goes silent -> watchdog trips
-        yield _result()
+        yield result_event()
 
     monkeypatch.setattr(sdk_runner, "stream_query", fake_stream)
 
@@ -289,7 +254,7 @@ async def test_counter_hook_bumped_on_error(monkeypatch):
     failure_class.register_counter_hook(seen.append)
 
     async def fake_stream(project_dir, prompt, **_kw):  # noqa: ARG001 - matches the stream_query signature
-        yield _result(is_error=True, subtype="error_during_execution", result="crash")
+        yield result_event(is_error=True, subtype="error_during_execution", result="crash")
 
     monkeypatch.setattr(sdk_runner, "stream_query", fake_stream)
 

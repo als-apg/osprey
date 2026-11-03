@@ -44,7 +44,10 @@ function stubFetch(writeResponse) {
     vi.fn(async (/** @type {string} */ url, /** @type {any} */ init) => {
       if (init?.method && init.method !== 'GET') return writeResponse;
       if (typeof url === 'string' && url.endsWith('/api/claude-memory')) {
-        return { ok: true, json: async () => ({ files: [FILE], line_limit: 200, line_warning: 180 }) };
+        return {
+          ok: true,
+          json: async () => ({ files: [FILE], line_limit: 200, line_warning: 180 }),
+        };
       }
       if (typeof url === 'string' && url.includes('/api/claude-memory/')) {
         return { ok: true, json: async () => ({ content: 'hello' }) };
@@ -64,9 +67,8 @@ beforeEach(async () => {
   // The gallery caches its file list at module level, and a create writes into
   // that list: a fresh module per test keeps one test's writes out of the next.
   vi.resetModules();
-  ({ initMemoryGallery } = await import(
-    '../../../src/osprey/interfaces/web_terminal/static/js/memory-gallery.js'
-  ));
+  ({ initMemoryGallery } =
+    await import('../../../src/osprey/interfaces/web_terminal/static/js/memory-gallery.js'));
 });
 
 afterEach(() => {
@@ -89,7 +91,10 @@ describe('deleteCurrentFile', () => {
   test('prepends window.__OSPREY_PREFIX__ to the DELETE (multi-user deployments)', async () => {
     window.__OSPREY_PREFIX__ = '/u/alice';
     stubFetch({ ok: true });
-    vi.stubGlobal('confirm', vi.fn(() => true));
+    vi.stubGlobal(
+      'confirm',
+      vi.fn(() => true)
+    );
 
     await openFixtureDetail();
     /** @type {HTMLElement} */ (document.querySelector('.memory-delete-btn')).click();
@@ -128,7 +133,10 @@ describe('promptCreateFile', () => {
   test('prepends window.__OSPREY_PREFIX__ to the POST (multi-user deployments)', async () => {
     window.__OSPREY_PREFIX__ = '/u/alice';
     stubFetch({ ok: true, json: async () => ({ filename: 'new-topic.md' }) });
-    vi.stubGlobal('prompt', vi.fn(() => 'new-topic.md'));
+    vi.stubGlobal(
+      'prompt',
+      vi.fn(() => 'new-topic.md')
+    );
 
     initMemoryGallery();
     document.getElementById('tab-memory')?.dispatchEvent(new Event('drawer:tab-activate'));
@@ -170,8 +178,22 @@ describe('line gauge', () => {
 
 describe('a failed write', () => {
   test.each([
-    ['without a server detail', { ok: false, status: 500, json: async () => { throw new SyntaxError('not JSON'); } }, 'Save failed (HTTP 500)'],
-    ['with a server detail', { ok: false, status: 409, json: async () => ({ detail: 'file changed on disk' }) }, 'Save failed: file changed on disk'],
+    [
+      'without a server detail',
+      {
+        ok: false,
+        status: 500,
+        json: async () => {
+          throw new SyntaxError('not JSON');
+        },
+      },
+      'Save failed (HTTP 500)',
+    ],
+    [
+      'with a server detail',
+      { ok: false, status: 409, json: async () => ({ detail: 'file changed on disk' }) },
+      'Save failed: file changed on disk',
+    ],
   ])('names the action once, %s', async (_name, response, banner) => {
     stubFetch(response);
 

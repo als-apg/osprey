@@ -328,11 +328,11 @@ async def _unsubscribe(queue: asyncio.Queue[Any]) -> None:
 # flow is deliberately split into lock-guarded steps with the mint/enqueue
 # happening between them, outside the lock:
 #
-#   snapshot = await check_launchable(draft_revision)   # under _lock; RESERVES
+#   snapshot = await check_launchable(draft_revision)   # under _lock; RESERVES  # noqa: ERA001 -- the launch protocol in pseudo-code
 #   ... mint the run id + enqueue the item ...          # NO lock held
-#   await record_and_broadcast_launch(run_id, rev)      # under _lock; consumes
+#   await record_and_broadcast_launch(run_id, rev)      # under _lock; consumes  # noqa: ERA001 -- the launch protocol in pseudo-code
 #   # ...or, on ANY failure after a successful check:
-#   await release_launch(rev)                           # under _lock; releases
+#   await release_launch(rev)                           # under _lock; releases  # noqa: ERA001 -- the launch protocol in pseudo-code
 #
 # `check_launchable` mints nothing on failure — a stale, already-launched, or
 # currently-launching revision returns a typed `LaunchRejected` the caller

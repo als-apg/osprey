@@ -1,8 +1,13 @@
 """Single-writer report file saying what one controls server is doing.
 
 A controls MCP server is the ONLY writer of its own report, and it writes
-nothing else here. What the deployment IS on — target, generation, posture —
-belongs to the control-context record
+nothing else here. The one other kind of process that writes a report in this
+directory is a display process (a panel backend such as
+:mod:`osprey.integrations.canopy.backend`), which holds a connector to show the
+machine: its report is display-only, written by its own writer, never
+through :func:`write_server_record`, and the fleet readers leave it out at the source
+(:func:`osprey_connectors.control_context.live_reports`). What the deployment
+IS on — target, generation, posture — belongs to the control-context record
 (:mod:`osprey_connectors.control_context`), which one owner writes; this file
 is one fleet member's observation of itself, and a reader that wants the fleet
 reads all of them. That asymmetry is the whole design: a reader never has to
@@ -55,9 +60,11 @@ fixed and greppable:
 
 Report shape
 ------------
-The ten fields :class:`osprey_connectors.control_context.ServerReport` parses,
-and nothing else — a payload written here round-trips through
-:func:`~osprey_connectors.control_context.parse_report` unchanged::
+The fields :class:`osprey_connectors.control_context.ServerReport` parses, and
+nothing else — a payload written here round-trips through
+:func:`~osprey_connectors.control_context.parse_report` unchanged. A controls
+server writes the first ten; the eleventh, ``statement``, is carried only by a
+display-only report, and a well-formed one is what marks it::
 
     {
       "server_pid": 4321,          # os.getpid() of the controls server
@@ -86,8 +93,23 @@ and nothing else — a payload written here round-trips through
         "targets": {"live": {"<role>": {"state": str, "probed_at": str, ...}}}
       },
       "last_posture_realign": {"state": "pending" | "done", "at": str},
-      "updated_at": str            # wall clock, ISO-8601, every write
+      "updated_at": str,           # wall clock, ISO-8601, every write
+      "statement": {               # display-only reports ONLY; never written
+                                   # by write_server_record
+        "reachable": {"state": "yes" | "no", "since": str, "reason": str} | null,
+        "writes": {"allowed": bool, "position": str, "reason": str, "kind": str}
+                                   # the execution verdict's own terms
+      }
     }
+
+A display-only report states no session, no switch, no realignment, no
+children, no targets and no reachability (``null``, ``[]``, ``{}``); only its
+``applied_target``/``applied_generation`` (its connector's binding) and its
+``statement`` say anything. ``writes`` is
+:func:`osprey_connectors.control_context.write_statement` of the session's
+execution verdict, and ``reachable`` is ``no`` only for a lost connector. A
+statement of any other shape states nothing, and the report reads as a
+controls server's.
 
 ``applied_target`` and ``applied_generation`` are **null until the first child
 has answered its init frame** — :func:`publish_switch` is the one publisher that
@@ -412,6 +434,12 @@ def record_pid(record: Mapping[str, Any], field: str) -> int | None:
 #: fabricated, so a reader can tell "not resolved" from "resolved as".
 _OPTIONAL_TARGET_KEYS = ("probe_channel", "selected_role")
 
+#: The key each target's published machine kind sits under, and the values it
+#: may carry (C-KIND). Read back by ``osprey_connectors.types.published_machine_kind``
+#: and its hook twin.
+_MACHINE_KIND_KEY = "machine_kind"
+_MACHINE_KINDS = frozenset({"real", "rehearsal", "simulator"})
+
 
 def _normalize_target_meta(value: Any) -> dict[str, Any]:
     """Coerce one target's display metadata to the shape readers expect.
@@ -433,6 +461,12 @@ def _normalize_target_meta(value: Any) -> dict[str, Any]:
         optional = meta.get(key)
         if isinstance(optional, str) and optional:
             normalized[key] = optional
+    # The published kind (C-KIND) passes through only when the writer stated
+    # one of the three: a reader that finds none reads ``standin`` as the real
+    # machine, so an invented value here would be the one claim that matters.
+    kind = meta.get(_MACHINE_KIND_KEY)
+    if isinstance(kind, str) and kind in _MACHINE_KINDS:
+        normalized[_MACHINE_KIND_KEY] = kind
     return normalized
 
 

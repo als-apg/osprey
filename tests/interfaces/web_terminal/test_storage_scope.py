@@ -2,7 +2,7 @@
 
 Multi-user deployments run one Web Terminal container per user behind a shared
 nginx front door, each mounted at ``/u/<user>/``. Same origin, one shared
-``localStorage`` — so every stored key (dock layout, rail position, recent
+``localStorage`` — so every stored key (dock layout, sidebar state, recent
 palette items, the active PTY session id, per-panel agent acks, …) collides
 between users unless it is namespaced.
 
@@ -18,7 +18,7 @@ mount user. Two properties make it usable as such:
 - **On both served documents.** ``index.html`` and ``static/session.html`` are
   both Jinja-rendered, and the session page's module-import closure reaches the
   storage-owning modules (``terminal.js``, ``dock-workspace.js``,
-  ``rail-position.js``, ``panel-agent-attention.js``, ``dock-reconcile.js``), so
+  ``panel-agent-attention.js``, ``dock-reconcile.js``), so
   a stamp on only the index page would leave that page unscoped.
 """
 
@@ -28,10 +28,9 @@ import re
 from unittest.mock import patch
 
 import pytest
-from fastapi.testclient import TestClient
 
 from osprey.interfaces.common_middleware import resolve_storage_scope
-from osprey.interfaces.web_terminal.app import create_app
+from tests.interfaces.web_terminal._started_app import terminal_client
 
 #: The attribute under test.
 ATTR = "data-osprey-storage-scope"
@@ -43,14 +42,6 @@ _PAGES = [
     ("session", "/static/session.html"),
 ]
 _PAGE_IDS = [p[0] for p in _PAGES]
-
-
-@pytest.fixture
-def workspace_dir(tmp_path):
-    """Temporary workspace directory for the app to watch."""
-    ws = tmp_path / "_agent_data"
-    ws.mkdir()
-    return ws
 
 
 def _html_tag(body: str) -> str:
@@ -77,21 +68,16 @@ def _serve(workspace_dir, terminal_user: str | None):
         ``{page_id: response_body}`` for every page in :data:`_PAGES`.
     """
     env = {} if terminal_user is None else {"OSPREY_TERMINAL_USER": terminal_user}
-    with (
-        patch(
-            "osprey.interfaces.web_terminal.app._load_web_config",
-            return_value={"watch_dir": str(workspace_dir)},
-        ),
+    with terminal_client(
+        workspace_dir,
         patch.dict("os.environ", env),
-    ):
-        app = create_app(shell_command=["echo"])
-        with TestClient(app) as client:
-            bodies = {}
-            for page_id, path in _PAGES:
-                response = client.get(path)
-                assert response.status_code == 200, f"{page_id} did not render"
-                bodies[page_id] = response.text
-            return bodies
+    ) as client:
+        bodies = {}
+        for page_id, path in _PAGES:
+            response = client.get(path)
+            assert response.status_code == 200, f"{page_id} did not render"
+            bodies[page_id] = response.text
+        return bodies
 
 
 class TestResolveStorageScope:
@@ -125,9 +111,7 @@ class TestMountedRender:
         assert f'{ATTR}="alice"' in tag
         if page_id == "index":
             # The stamp joins the index's existing ones; it does not displace them.
-            assert "data-ui-mode=" in tag
             assert "data-theme=" in tag
-            assert "data-rail-position=" in tag
 
     @pytest.mark.parametrize("page_id", _PAGE_IDS)
     def test_stamped_exactly_once(self, workspace_dir, page_id):

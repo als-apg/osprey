@@ -28,9 +28,9 @@ from queue import Empty, Queue
 import pytest
 from click.testing import CliRunner
 
-from osprey.cli.build_cmd import build
 from osprey.cli.build_profile_emit import _MCP_SERVERS_APPENDIX
 from osprey.cli.init_cmd import init
+from tests.cli._lifecycle_build import invoke_build
 from tests.integration._mcp_handshake import _STARTUP_TIMING, list_mcp_tools
 
 #: How long the spawned entry gets to say it is serving. It is a bound on a
@@ -65,6 +65,7 @@ def _repo_root() -> Path:
             capture_output=True,
             text=True,
             check=True,
+            timeout=60,
         )
     except (OSError, subprocess.CalledProcessError):
         pytest.skip("not a git checkout")
@@ -81,6 +82,7 @@ def test_packaged_seed_is_not_git_ignored() -> None:
             ["git", "check-ignore", "-q", str(path)],
             cwd=root,
             check=False,
+            timeout=60,
         )
         assert result.returncode == 1, (
             f"{path} is git-ignored (git check-ignore exit {result.returncode}); "
@@ -154,11 +156,6 @@ def test_hello_world_only_comments_are_all_present() -> None:
     )
 
 
-@pytest.fixture
-def runner() -> CliRunner:
-    return CliRunner()
-
-
 def test_rendered_entry_spawns_the_seeded_server(runner: CliRunner, tmp_path: Path) -> None:
     """The rendered ``example_server`` entry is not just present -- it launches.
 
@@ -176,7 +173,7 @@ def test_rendered_entry_spawns_the_seeded_server(runner: CliRunner, tmp_path: Pa
     init_result = runner.invoke(init, [str(target), "--preset", "hello-world", "--no-git"])
     assert init_result.exit_code == 0, init_result.output
 
-    build_result = runner.invoke(build, ["--repo", str(target), "--skip-deps", "--skip-lifecycle"])
+    build_result = invoke_build(target)
     assert build_result.exit_code == 0, build_result.output
 
     server_py = target / "build" / "_mcp_servers" / "example_server" / "server.py"
@@ -220,7 +217,7 @@ def test_the_rendered_entry_announces_when_it_is_ready(runner: CliRunner, tmp_pa
     init_result = runner.invoke(init, [str(target), "--preset", "hello-world", "--no-git"])
     assert init_result.exit_code == 0, init_result.output
 
-    build_result = runner.invoke(build, ["--repo", str(target), "--skip-deps", "--skip-lifecycle"])
+    build_result = invoke_build(target)
     assert build_result.exit_code == 0, build_result.output
 
     entry = json.loads((target / "build" / ".mcp.json").read_text(encoding="utf-8"))["mcpServers"][

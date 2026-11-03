@@ -33,15 +33,19 @@ function renderContainer(jsonString) {
   return container;
 }
 
-const MCP_JSON = JSON.stringify({
-  mcpServers: {
-    bluesky: {
-      command: 'python',
-      args: ['-m', 'osprey.mcp_server.bluesky'],
-      env: { BLUESKY_LAUNCH_TOKEN: '${BLUESKY_LAUNCH_TOKEN}' },
+const MCP_JSON = JSON.stringify(
+  {
+    mcpServers: {
+      bluesky: {
+        command: 'python',
+        args: ['-m', 'osprey.mcp_server.bluesky'],
+        env: { BLUESKY_LAUNCH_TOKEN: '${BLUESKY_LAUNCH_TOKEN}' },
+      },
     },
   },
-}, null, 2);
+  null,
+  2
+);
 
 describe('renderMcpJson', () => {
   afterEach(() => {
@@ -49,7 +53,7 @@ describe('renderMcpJson', () => {
     delete window.__OSPREY_PREFIX__;
   });
 
-  test('returns null on invalid JSON (matches the other renderers\' parse-guard)', () => {
+  test("returns null on invalid JSON (matches the other renderers' parse-guard)", () => {
     expect(renderMcpJson('not json')).toBeNull();
   });
 
@@ -59,7 +63,10 @@ describe('renderMcpJson', () => {
   });
 
   test('renders a basic card synchronously, before any fetch resolves', () => {
-    vi.stubGlobal('fetch', vi.fn(() => new Promise(() => {}))); // never resolves
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => new Promise(() => {}))
+    ); // never resolves
 
     const container = renderContainer(MCP_JSON);
 
@@ -71,21 +78,23 @@ describe('renderMcpJson', () => {
   });
 
   test('enriches a card in-place once /api/mcp-servers resolves (fetch mocked)', async () => {
-    vi.stubGlobal('fetch', vi.fn(() =>
-      Promise.resolve({
-        ok: true,
-        json: () => Promise.resolve([
-          {
-            name: 'bluesky',
-            description: 'Bluesky plan/run control server.',
-            tool_count: 1,
-            tools: [
-              { name: 'launch_run', description: 'Args:\n    plan: The plan name.' },
-            ],
-          },
-        ]),
-      })
-    ));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() =>
+        Promise.resolve({
+          ok: true,
+          json: () =>
+            Promise.resolve([
+              {
+                name: 'bluesky',
+                description: 'Bluesky plan/run control server.',
+                tool_count: 1,
+                tools: [{ name: 'launch_run', description: 'Args:\n    plan: The plan name.' }],
+              },
+            ]),
+        })
+      )
+    );
 
     const container = renderContainer(MCP_JSON);
     const card = qs(container, '.config-mcp-card');
@@ -110,14 +119,18 @@ describe('renderMcpJson', () => {
    * @param {string|null|undefined} description
    */
   async function renderTool(description) {
-    vi.stubGlobal('fetch', vi.fn(() =>
-      Promise.resolve({
-        ok: true,
-        json: () => Promise.resolve([
-          { name: 'bluesky', tool_count: 1, tools: [{ name: 'launch_run', description }] },
-        ]),
-      })
-    ));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() =>
+        Promise.resolve({
+          ok: true,
+          json: () =>
+            Promise.resolve([
+              { name: 'bluesky', tool_count: 1, tools: [{ name: 'launch_run', description }] },
+            ]),
+        })
+      )
+    );
     const card = qs(renderContainer(MCP_JSON), '.config-mcp-card');
     await new Promise((resolve) => setTimeout(resolve, 0));
     await new Promise((resolve) => setTimeout(resolve, 0));
@@ -128,13 +141,16 @@ describe('renderMcpJson', () => {
   const texts = (item, selector) =>
     [...item.querySelectorAll(selector)].map((el) => el.textContent);
 
-  test.each([[''], [undefined], [null]])('a tool with no docstring (%o) renders its name and no detail', async (description) => {
-    const item = await renderTool(description);
+  test.each([[''], [undefined], [null]])(
+    'a tool with no docstring (%o) renders its name and no detail',
+    async (description) => {
+      const item = await renderTool(description);
 
-    expect(qs(item, '.config-mcp-tool-name').textContent).toBe('launch_run');
-    expect(item.querySelector('.config-mcp-tool-summary')).toBeNull();
-    expect(item.querySelector('.config-mcp-tool-body')).toBeNull();
-  });
+      expect(qs(item, '.config-mcp-tool-name').textContent).toBe('launch_run');
+      expect(item.querySelector('.config-mcp-tool-summary')).toBeNull();
+      expect(item.querySelector('.config-mcp-tool-body')).toBeNull();
+    }
+  );
 
   test('a single-line docstring is a summary with no ARGS or RETURNS', async () => {
     const item = await renderTool('Look up a channel by name.');
@@ -145,17 +161,19 @@ describe('renderMcpJson', () => {
   });
 
   test('a multi-line docstring splits into summary, ARGS rows and RETURNS', async () => {
-    const item = await renderTool([
-      'Search for a channel across the ontology.',
-      'Falls back to fuzzy matching when an exact name is not found.',
-      '',
-      'Args:',
-      '    name: The channel name or alias to search for.',
-      '    limit: Maximum number of results to return.',
-      '',
-      'Returns:',
-      'A list of matching channel records.',
-    ].join('\n'));
+    const item = await renderTool(
+      [
+        'Search for a channel across the ontology.',
+        'Falls back to fuzzy matching when an exact name is not found.',
+        '',
+        'Args:',
+        '    name: The channel name or alias to search for.',
+        '    limit: Maximum number of results to return.',
+        '',
+        'Returns:',
+        'A list of matching channel records.',
+      ].join('\n')
+    );
 
     expect(qs(item, '.config-mcp-tool-desc-full').textContent).toBe(
       'Search for a channel across the ontology. Falls back to fuzzy matching when an exact name is not found.'
@@ -165,26 +183,34 @@ describe('renderMcpJson', () => {
       'The channel name or alias to search for.',
       'Maximum number of results to return.',
     ]);
-    expect(qs(item, '.config-mcp-tool-returns').textContent).toBe('A list of matching channel records.');
+    expect(qs(item, '.config-mcp-tool-returns').textContent).toBe(
+      'A list of matching channel records.'
+    );
   });
 
   test('an arg description continued on the next line stays one arg', async () => {
-    const item = await renderTool(['Args:', '    name: The channel name', '        spanning multiple lines.'].join('\n'));
+    const item = await renderTool(
+      ['Args:', '    name: The channel name', '        spanning multiple lines.'].join('\n')
+    );
 
     expect(texts(item, '.config-mcp-tool-arg-name')).toEqual(['name']);
-    expect(texts(item, '.config-mcp-tool-arg-desc')).toEqual(['The channel name spanning multiple lines.']);
+    expect(texts(item, '.config-mcp-tool-arg-desc')).toEqual([
+      'The channel name spanning multiple lines.',
+    ]);
   });
 
   test('a Raises section is dropped, not folded into RETURNS', async () => {
-    const item = await renderTool([
-      'Do a thing.',
-      '',
-      'Raises:',
-      '    ValueError: if the thing cannot be done.',
-      '',
-      'Returns:',
-      'Nothing of note.',
-    ].join('\n'));
+    const item = await renderTool(
+      [
+        'Do a thing.',
+        '',
+        'Raises:',
+        '    ValueError: if the thing cannot be done.',
+        '',
+        'Returns:',
+        'Nothing of note.',
+      ].join('\n')
+    );
 
     expect(qs(item, '.config-mcp-tool-desc-full').textContent).toBe('Do a thing.');
     expect(qs(item, '.config-mcp-tool-returns').textContent).toBe('Nothing of note.');
@@ -202,7 +228,10 @@ describe('renderMcpJson', () => {
   });
 
   test('falls back to "tools not available" when the fetch rejects', async () => {
-    vi.stubGlobal('fetch', vi.fn(() => Promise.reject(new Error('network down'))));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => Promise.reject(new Error('network down')))
+    );
 
     const container = renderContainer(MCP_JSON);
     const card = qs(container, '.config-mcp-card');

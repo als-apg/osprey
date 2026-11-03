@@ -46,9 +46,9 @@ on:
           its pull requests. After reading the dependency diff, a maintainer
           revalidates the branch with:
           gh workflow run ci.yml --ref <branch> -f revalidate_secret_lanes=true
-          The same dispatch is how these lanes run against main: nothing
-          runs them on a schedule, so main gets its agentic coverage from a
-          labeled pull request or from this command with --ref main.
+          The same dispatch with --ref main is how main gets every lane a
+          push skips: main-full-ci.yml starts it once a day when main has
+          moved, and a maintainer can start it by hand.
         required: false
         type: boolean
         default: false
@@ -57,7 +57,8 @@ on:
 #
 # These jobs drive real Claude sessions through the ALS-APG gateway:
 # agentic-per-preset (x2), e2e-tests, dispatch-deploy-e2e,
-# single-user-narrowing-e2e, dispatch-overlay-e2e, scan-agentic-e2e,
+# single-user-narrowing-e2e, host-record-e2e, dispatch-overlay-e2e,
+# scan-agentic-e2e,
 # nextcloud-talk-bridge-e2e, gchat-bridge-e2e, target-switch-agentic-e2e.
 # The list is the whole set, and tests/deployment/test_ci_workflow_wiring.py
 # holds it against the workflow. Measured on the gateway ledger for the week of
@@ -68,19 +69,23 @@ on:
 # (an Opus diagnostic session re-reads ~100k cached tokens per turn, 50
 # turns), and volume -- ~10 PRs a day at ~2.2 pushes each.
 #
-# So the lever is WHEN, not WHAT. Each of these lanes now runs on exactly
-# two events, spelled out in its `if:` in this order:
+# So the lever is WHEN, not WHAT. Each of these lanes runs on exactly two
+# events, spelled out in its `if:` in this order:
 #
 #   1. a same-repo, non-Dependabot pull request carrying the `full-ci`
 #      label -- opt-in per PR, for the change that touches what these lanes
 #      cover (`gh pr edit <n> --add-label full-ci`; the roll-up gate prints
 #      that command in the run summary of every unlabeled PR);
-#   2. a maintainer's `revalidate_secret_lanes` dispatch against any ref --
-#      the Dependabot path, and the way main gets the lanes at all.
+#   2. a `revalidate_secret_lanes` dispatch against any ref -- the
+#      Dependabot path, and the way main gets these lanes. Every pull-request
+#      -only lane carries the same dispatch arm, so a revalidation run covers
+#      every lane a push skips.
 #
-# There is deliberately no schedule. A scheduled run spends model tokens
-# with nobody watching, and its red reaches nobody: a lane that only runs
-# when someone asked for it has a person waiting on the result.
+# This workflow has no schedule. Main's nightly run comes from
+# main-full-ci.yml, which spends nothing itself: once a day, and only when
+# main's head differs from the last revalidation run's sha, it dispatches
+# the revalidation run against main. Its red opens or updates one tracker
+# issue, which closes on the next green, so every red reaches a person.
 #
 # Path filtering was measured and rejected: over the 161 PRs merged in the
 # two weeks before this landed, 86-91% touched something under src/ that
@@ -166,23 +171,25 @@ jobs:
     # spread is the runner pool, not the suite (the coverage cell is no
     # outlier either: it measures through PEP 669, see COVERAGE_CORE below,
     # which costs near enough nothing). The shard axis below splits what one
-    # cell runs three ways, which is what keeps a slow runner clear of this
-    # cap. What forces the headroom on top is a known intermittent tail worth
-    # ~12 minutes: a worker wedges mid-test and its share has to be
-    # redistributed to a replacement, or the session hangs after the last test
-    # on non-daemon threads that outlive it. Both are visible in this lane's
+    # ubuntu cell runs three ways and the macOS cells run a trimmed sweep,
+    # which is what keeps a slow runner clear of this cap. What forces the
+    # headroom on top is a known intermittent tail worth ~12 minutes: a
+    # worker wedges mid-test and its share has to be redistributed to a
+    # replacement, or the session hangs after the last test on non-daemon
+    # threads that outlive it. Both are visible in this lane's
     # uploaded diagnostics, and neither is bounded by anything the suite
     # controls, so a cap tight enough to catch them also reds the runs where
     # they merely cost time. The 40-minute step cap below sat at the healthy
     # runtime for a day and did exactly that: main timed out on the macOS cell
     # at 99% three times on 2026-09-01 with zero test failures.
-    timeout-minutes: 60
+    timeout-minutes: 75
     strategy:
       fail-fast: false
       matrix:
         python-version: ['3.11', '3.12', '3.14']
-        os: [ubuntu-latest, macos-latest]
-        # Each cell runs as three jobs, one per set of directories. `cli` is
+        # macOS cells come from `include` below, not from this axis.
+        os: [ubuntu-latest]
+        # Each ubuntu cell runs as three jobs, one per directory set. `cli` is
         # tests/cli alone, the heaviest single directory (its ~120 tests that
         # run a real `osprey build` are most of that). `rest-a` is
         # tests/facility, tests/mcp_server and tests/deployment. `rest-b` is
@@ -197,43 +204,30 @@ jobs:
         # when one side drifts far from half. test_ci_workflow_wiring.py holds
         # that the three sets cover tests/ exactly once.
         #
-        # Runner-minutes are unchanged by the split; the macOS concurrency
-        # ceiling discussed below sees more jobs at a shorter length each. A
-        # main push runs two macOS cells, so 6 macOS jobs against the ceiling
-        # of 5: one queues until the first finishes, which delays that one
-        # job's start and costs no runner-minutes.
+        # Runner-minutes are unchanged by the split.
         shard: [cli, rest-a, rest-b]
-        # Pull requests drop the 3.11/macOS cell; every other event runs the
-        # full product.
+        # A macOS cell is ONE job, `shard: macos`: the whole sweep minus the
+        # files repo_checks.py lists in _MACOS_REPEATS_UBUNTU. One job, not one
+        # per shard, because the macOS concurrency ceiling is 5 jobs across the
+        # whole account (it moves only on Enterprise): a main push takes 2
+        # slots and a PR 1. The trimmed sweep is sized so the slowest runner
+        # plus the ~12 minute tail described on the job cap above fits the
+        # step cap below.
         #
-        # Two reasons, and neither is "macOS does not matter". The macOS
-        # concurrency ceiling is 5 jobs across the whole account and does not
-        # move on Free, Pro or Team -- only on Enterprise. Every macOS cell is
-        # three jobs (the shard axis above), so at one cell per PR two in-flight
-        # PRs already want 6 of those 5 slots, and at two cells they would want
-        # 12. A 3.12/macOS cell was measured sitting 24.8 minutes in the queue
-        # behind other PRs at two cells per PR. The second reason is load: the four
-        # test cells are ~101 of the ~350 job-minutes a PR run costs, the
-        # largest single item in this file.
+        # Pull requests run 3.12 only, paired with the 3.12/ubuntu coverage
+        # cell so a failure isolates to the OS; every other event adds 3.11.
+        # Zero macOS cells on PRs was rejected: a main push catches a break
+        # only after the merge, and every in-flight PR rebases onto it.
         #
-        # Dropping to ZERO macOS cells on PRs was considered and rejected. The
-        # merge commit a PR creates is itself a push to main, so main-push runs
-        # do exercise macOS on every merge -- but that is detection after the
-        # fact, not prevention, and a broken main is rebased onto by every
-        # other in-flight PR. Keeping one cell costs ~23 job-minutes and buys
-        # back the pre-merge signal.
-        #
-        # 3.12 is the surviving macOS cell so it pairs with the 3.12/ubuntu
-        # coverage cell: same interpreter, different OS, so a failure isolates
-        # to the OS. 3.11 stays covered on ubuntu, and on macOS everywhere
-        # except pull requests.
-        #
-        # 3.14 runs on ubuntu only, on every event. It is in the matrix for the
-        # interpreter's own removals -- behaviour 3.11 and 3.12 only warn about
-        # and 3.14 raises on -- and those do not depend on the OS. A third macOS
-        # cell would add three more macOS jobs to a main-push run that already
-        # queues one against the ceiling of 5.
-        exclude: ${{ fromJSON(github.event_name == 'pull_request' && '[{"python-version":"3.11","os":"macos-latest"},{"python-version":"3.14","os":"macos-latest"}]' || '[{"python-version":"3.14","os":"macos-latest"}]') }}
+        # 3.14 runs as a full cell on ubuntu only, on every event. It is in the
+        # matrix for the interpreter's own removals -- behaviour 3.11 and 3.12
+        # only warn about and 3.14 raises on. The stdlib's lazy native loads are
+        # OS-specific (ctypes.util loads libc through find_library on darwin and
+        # through CDLL(None) on other POSIX), so on macOS the readonly-gate
+        # warm-up module runs under 3.14 as one step of the 3.12 macOS cell
+        # ("Readonly gate under Python 3.14" below). No 3.14 macOS cell is
+        # added: it would take another job against the ceiling of 5.
+        include: ${{ fromJSON(github.event_name == 'pull_request' && '[{"python-version":"3.12","os":"macos-latest","shard":"macos"}]' || '[{"python-version":"3.11","os":"macos-latest","shard":"macos"},{"python-version":"3.12","os":"macos-latest","shard":"macos"}]') }}
 
     steps:
     - name: Checkout repository
@@ -287,10 +281,13 @@ jobs:
       # have passed anyway; the value is deliberately loose for that reason, and
       # tightening it is how this lane starts flaking. 55 was sized when a cell
       # ran the whole suite and the slowest healthy one took ~41 min; a shard
-      # runs about half of it or less, so the same cap leaves room for the
-      # slowest runner in the pool AND the tail. The previous 40 was sized for
-      # a ~18 min cell and became the healthy runtime itself.
-      timeout-minutes: 55
+      # runs about half of it or less and the trimmed macOS sweep about as
+      # long as that cell, so the same cap leaves room for the slowest runner
+      # in the pool AND the tail. The previous 40 was sized for
+      # a ~18 min cell and became the healthy runtime itself. 70 because the
+      # macOS sweep then grew past 55: it was cut off at 97% and 99% with zero
+      # test failures on 2026-11-02.
+      timeout-minutes: 70
       env:
         # Switches on _harness/ci_diagnostics.py: a continuously flushed event log
         # and stack-dump file per xdist worker, written here and uploaded below.
@@ -355,8 +352,8 @@ jobs:
       # this invocation and the conftest override, so the flag cannot outlive
       # the scheduler that makes it safe.
       #
-      # -m "not pty and not wallclock": "not pty" hands the real-terminal suite
-      # to the serial step below.
+      # -m "not pty and not wallclock and not canopy": "not pty" hands the
+      # real-terminal suite to the serial step below.
       # Those scenarios assert on repaint cadence and on a spinner ADVANCING
       # between two frames, so they measure the box as much as the code, and
       # three other xdist workers competing for it is exactly the load that
@@ -371,6 +368,10 @@ jobs:
       # reason: a budget timed beside three loaded workers measures them. Each
       # is timed in a serial step that selects the marker: the qmd panel
       # budget in qmd-sidecar-e2e's "Run the wall-clock budgets serially".
+      #
+      # `not canopy` leaves the CANOPY contract to its own lane: this lane
+      # installs no CANOPY, and a `canopy`-marked test never skips. The run's
+      # summary says the contract was not exercised here.
       run: |
         if [ "${{ matrix.python-version }}" = "3.12" ] && [ "${{ matrix.os }}" = "ubuntu-latest" ]; then
           COV_ARGS="--cov=src/osprey --cov=packages/osprey-connectors/src/osprey_connectors --cov=packages/pyaml-cs-osprey/src/pyaml_cs_osprey --cov-report=xml --cov-report=term"
@@ -393,7 +394,7 @@ jobs:
         # --timeout=600 --timeout-method=signal is the per-test cap that ends a
         # hang, and it is deliberately not the ini option above. Without a cap,
         # a single wedged test is indistinguishable from "still running" until
-        # the 40-minute step cap cancels the job — which truncates the log, so
+        # the 55-minute step cap cancels the job — which truncates the log, so
         # the run ends with no name for the test that hung (#743). Ten minutes
         # is chosen to clear a cold container image pull: the files in the one
         # sanctioned xdist group legitimately sit in one for minutes, so a
@@ -446,30 +447,42 @@ jobs:
         # which is after tee has to open its file.
         mkdir -p ci-diag
         set -o pipefail
-        # The shard: SHARD_PATH completes the first path, SHARD_ARGS names the
-        # shard's further directories or, for rest-b, ignores every directory
-        # another shard names, so rest-b is everything else by construction.
-        # rest-b also takes the connectors package's own suite: an explicit path
-        # replaces testpaths, so a suite outside tests/ runs only where named.
-        # Spelled as two variables on the one pytest line so the invocation
-        # test_ci_workflow_wiring.py pins stays one line; the same file holds
-        # that the shards cover tests/ exactly once.
-        case "${{ matrix.shard }}" in
-          cli)    SHARD_PATH="cli";      SHARD_ARGS="" ;;
-          rest-a) SHARD_PATH="facility"; SHARD_ARGS="tests/mcp_server tests/deployment" ;;
-          rest-b) SHARD_PATH="";         SHARD_ARGS="--ignore=tests/cli --ignore=tests/facility --ignore=tests/mcp_server --ignore=tests/deployment packages/osprey-connectors/tests" ;;
-        esac
-        # Three integration modules are dropped by name rather than by marker. Each
-        # renders and builds a real project, and each is run by name in a job that
-        # carries no `if:` — one by the boot smoke over its preset matrix, two by
-        # the Tier 0 static job — so collecting them here buys a second reading of
-        # the same tests at the price of real builds in every cell of this matrix.
-        # The drop is safe only while those jobs stay unconditional: put an `if:`
-        # on either one, or on the step that names the file, and the module is
-        # read on fewer events than it is here.
-        # tests/deployment/test_ci_workflow_wiring.py holds that rule over every
-        # file this line ignores by name, and lists the exemptions to it.
-        uv run pytest tests/$SHARD_PATH $SHARD_ARGS --ignore=tests/e2e --ignore=tests/va/test_apply_fault.py --ignore=tests/va/test_lume_pva_seam.py --ignore=tests/services/channel_finder/graph_index/test_scale.py --ignore=tests/integration/test_build_boot.py --ignore=tests/integration/test_preset_static.py --ignore=tests/integration/test_preset_build.py -m "not pty and not wallclock" -v --tb=short --durations=50 --timeout=600 --timeout-method=signal -n 4 --dist loadgroup $COV_ARGS 2>&1 | tee ci-diag/pytest.log
+        # The shard is named by the matrix and defined by the check: `cli` is
+        # tests/cli alone, `rest-a` is tests/facility, tests/mcp_server and
+        # tests/deployment, and `rest-b` is everything else, the connectors
+        # package's own suite included; tests/deployment/test_ci_workflow_wiring.py
+        # holds that the three cover tests/ exactly once. `macos` is outside
+        # that partition: the whole sweep minus the check's macOS trim.
+        #
+        # The check leaves three integration modules out of the sweep by name.
+        # Each renders and builds a real project, and each is run by name in a
+        # job that carries no `if:` — one by the boot smoke over its preset
+        # matrix, two by the Tier 0 static job — so collecting them here buys a
+        # second reading of the same tests at the price of real builds in every
+        # cell of this matrix. The drop is safe only while those jobs stay
+        # unconditional: put an `if:` on either one, or on the step that names
+        # the file, and the module is read on fewer events than it is here.
+        # tests/deployment/test_ci_workflow_wiring.py holds that rule over
+        # every file the check ignores by name, and lists the exemptions to it.
+        # Verbosity and traceback style come from addopts.
+        # $COV_ARGS splits into its flags on purpose: it is empty or several words.
+        # shellcheck disable=SC2086
+        uv run python scripts/check.py run pytest --shard "${{ matrix.shard }}" -- --durations=50 --timeout=600 --timeout-method=signal -n 4 $COV_ARGS 2>&1 | tee ci-diag/pytest.log
+        if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
+          grep -m1 '^CANOPY contract not exercised here' ci-diag/pytest.log >> "$GITHUB_STEP_SUMMARY" || true
+        fi
+
+    - name: Readonly gate under Python 3.14
+      # The readonly gate refuses every shared-library load once user code
+      # starts, so a stdlib lookup that loads native code lazily must be warmed
+      # before it closes, and which lookups do so depends on the OS. The ubuntu
+      # 3.14 cells run this module in their shard; this step runs it under 3.14
+      # on macOS, once per event, in the cell that runs on pull requests and
+      # pushes alike. `--isolated` builds a throwaway 3.14 environment and
+      # leaves the cell's 3.12 .venv to the steps below.
+      if: matrix.os == 'macos-latest' && matrix.python-version == '3.12' && matrix.shard == 'macos'
+      timeout-minutes: 15
+      run: uv run python scripts/check.py run readonly-warmups-py314
 
     # The two steps below are the reason the step above has its own timeout.
     # They run on success too: on a green lane the summary is the slow-test
@@ -538,7 +551,7 @@ jobs:
       # short in that case. On a healthy lane this step costs well under a
       # minute, so the tail margin the job cap comment argues for is untouched.
       timeout-minutes: 10
-      run: uv run pytest tests/pty/ -m pty -v --tb=short
+      run: uv run python scripts/check.py run pytest-pty
 
     - name: Run live Channel Access suites in isolation
       # One pytest process per module via the live-CA gate — the same venue
@@ -551,7 +564,7 @@ jobs:
       # shard per cell, rest-b, the one whose directories hold tests/va, as for
       # the pty suite above.
       if: matrix.os == 'ubuntu-latest' && matrix.shard == 'rest-b'
-      run: uv run python scripts/va/live_ca/gate.py --pva
+      run: uv run python scripts/check.py run live-ca
 
     - name: Upload coverage reports to Codecov
       # Every shard of the coverage cell uploads under its own name; Codecov
@@ -668,6 +681,182 @@ jobs:
       with:
         name: connectors-standalone
 
+  # The two connectors compatibility lanes and the plan they read.
+  #
+  # osprey-connectors releases on its own tags, and every framework release pins
+  # it with a floor and no ceiling, so a framework rebuilt today resolves the
+  # newest connectors. Lane A (`connectors-compat`) holds HEAD of the connectors
+  # to every supported framework release; Lane B
+  # (`framework-at-connectors-floor`) holds HEAD of the framework to the
+  # connectors release its floor names. scripts/ci/connectors_compat_matrix.py
+  # is the one reader of both declarations, scripts/ci/connectors_compat_lane.py
+  # holds the steps a cell runs, and the nightly connectors-compat-nightly.yml
+  # runs Lane A's checks and each release's own connector tests the same way
+  # (and, dispatched, against a named release as a dry run).
+  #
+  # STAND-DOWNS, until the cut-over. No framework release is supported yet
+  # ([tool.osprey-connectors.compat] frameworks is empty: the 2026.9.0 betas are
+  # superseded, not supported) and the floor still names a connectors build from
+  # before its independent releases. So Lane A runs one empty cell and Lane B
+  # stands down, each saying why in its log and succeeding. Both lift by data,
+  # not by an edit here: listing a release fills Lane A's matrix, and raising
+  # the floor to FIRST_INDEPENDENT_CONNECTORS arms Lane B. The plan step holds
+  # the declarations to the tags reachable from HEAD (its docstring states the
+  # rules), so a tagged release cannot stay unlisted once a newer one follows
+  # it, and the floor cannot name a connectors release with no tag; it needs
+  # the full history for that. Not path-filtered: the workflow's header gives
+  # why no lane is.
+  connectors-compat-plan:
+    name: Plan the connectors compatibility lanes
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+      floor: ${{ steps.plan.outputs.floor }}
+      floor-applicable: ${{ steps.plan.outputs.floor-applicable }}
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v7
+      # Full history + tags: the plan reads every tag reachable from HEAD.
+      with:
+        fetch-depth: 0
+
+    - name: Read the supported releases and the connectors floor
+      id: plan
+      # The runner's python3: the script is stdlib-only, and the plan must not
+      # wait on a dependency install.
+      run: python3 scripts/ci/connectors_compat_matrix.py github-output
+
+  connectors-compat:
+    name: Connectors HEAD under framework ${{ matrix.framework || '(none listed)' }}
+    needs: connectors-compat-plan
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    # One cell per supported framework release: that release from PyPI with
+    # the connectors wheel built here in place of the one it resolved. What a
+    # cell proves is what an operator's rebuild of that release would meet.
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.connectors-compat-plan.outputs.matrix) }}
+    env:
+      FRAMEWORK: ${{ matrix.framework }}
+      # Outside the checkout, so nothing of this tree is importable from it.
+      COMPAT_VENV: /tmp/connectors-compat
+    steps:
+    - name: Stand down while no framework release is listed
+      if: matrix.framework == ''
+      env:
+        REASON: ${{ matrix.reason }}
+      run: echo "$REASON"
+
+    - name: Checkout repository
+      if: matrix.framework != ''
+      uses: actions/checkout@v7
+      # Full history + tags: the wheel's version is derived from the git tag.
+      with:
+        fetch-depth: 0
+
+    - name: Install uv
+      if: matrix.framework != ''
+      uses: astral-sh/setup-uv@v7
+      with:
+        enable-cache: true
+
+    - name: Set up Python
+      if: matrix.framework != ''
+      run: uv python install 3.11
+
+    - name: Build the connectors wheel at HEAD
+      if: matrix.framework != ''
+      run: uv build --package osprey-connectors --wheel --out-dir dist/
+
+    - name: Install the framework release from PyPI with the HEAD connectors
+      if: matrix.framework != ''
+      run: >-
+        python3 scripts/ci/connectors_compat_lane.py install
+        --venv "$COMPAT_VENV" --framework "$FRAMEWORK" --connectors head
+
+    - name: Check the release against the connectors
+      if: matrix.framework != ''
+      # Scans the release's packages for connectors names that no longer
+      # resolve, imports every module of them, renders a deployment with its
+      # own CLI and opens the simulator view with HEAD, and reads the
+      # control-context record across its hook and the golden files.
+      run: >-
+        python3 scripts/ci/connectors_compat_lane.py check
+        --venv "$COMPAT_VENV" --workdir "$RUNNER_TEMP/contracts"
+
+  framework-at-connectors-floor:
+    name: Framework HEAD at its declared connectors floor
+    needs: connectors-compat-plan
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    # The framework declares `osprey-connectors>=FLOOR`, and every other lane
+    # pairs it with the workspace's own connectors, so nothing else ever ran the
+    # floor. This installs the framework with the connectors as published
+    # metadata states them (`--no-sources`: the floor release from PyPI, not the
+    # workspace member; pyaml-cs-osprey stays the workspace's, named by its path
+    # because `--no-sources-package osprey-connectors` alone leaves the root's
+    # `pyaml-cs-osprey = { workspace = true }` source, which a `uv pip install`
+    # of the root refuses as not a workspace member) and runs the framework
+    # suites that drive the connectors against it. Stands down until the floor is an independent release (see
+    # the plan job).
+    env:
+      FLOOR: ${{ needs.connectors-compat-plan.outputs.floor }}
+    steps:
+    - name: Stand down while the floor predates the independent releases
+      if: needs.connectors-compat-plan.outputs.floor-applicable != 'true'
+      run: |
+        echo "not applicable yet: the connectors floor $FLOOR predates the first independent"
+        echo "osprey-connectors release (FIRST_INDEPENDENT_CONNECTORS in scripts/ci/connectors_compat_matrix.py)"
+
+    - name: Checkout repository
+      if: needs.connectors-compat-plan.outputs.floor-applicable == 'true'
+      uses: actions/checkout@v7
+      with:
+        fetch-depth: 0
+
+    - name: Install uv
+      if: needs.connectors-compat-plan.outputs.floor-applicable == 'true'
+      uses: astral-sh/setup-uv@v7
+      with:
+        enable-cache: true
+
+    - name: Set up Python
+      if: needs.connectors-compat-plan.outputs.floor-applicable == 'true'
+      run: uv python install 3.11
+
+    - name: Install the framework with the floor connectors
+      if: needs.connectors-compat-plan.outputs.floor-applicable == 'true'
+      run: |
+        uv venv --python 3.11
+        uv pip install --no-sources -e ".[dev]" -e ./packages/pyaml-cs-osprey "osprey-connectors==$FLOOR"
+
+    - name: Hold the lane to the floor connectors from site-packages
+      if: needs.connectors-compat-plan.outputs.floor-applicable == 'true'
+      run: >-
+        python3 scripts/ci/connectors_compat_lane.py assert-installed
+        --python .venv/bin/python --module osprey_connectors --connectors-version "$FLOOR"
+
+    - name: Scan the framework for connectors names the floor lacks
+      if: needs.connectors-compat-plan.outputs.floor-applicable == 'true'
+      run: >-
+        .venv/bin/python -I
+        packages/osprey-connectors/tests/osprey_connectors_tests/compat/scan_framework_imports.py
+        src/osprey packages/pyaml-cs-osprey/src/pyaml_cs_osprey
+
+    - name: Run the connector-facing framework suites at the floor
+      if: needs.connectors-compat-plan.outputs.floor-applicable == 'true'
+      # The guard holds the suites to the floor connectors in every worker, and
+      # the source-text tests (which read this checkout's connectors tree, not
+      # the floor) are deselected; see scripts/ci/connectors_compat_lane.py.
+      run: >-
+        python3 scripts/ci/connectors_compat_lane.py pytest
+        --python .venv/bin/python --installed osprey_connectors --
+        tests/connectors tests/registry
+        -m "not pty and not wallclock" -n 4 --dist loadgroup
+        --timeout=600 --timeout-method=signal
+
   lint:
     name: Lint and Code Quality + Tier 0 config-key guard
     runs-on: ubuntu-latest
@@ -694,18 +883,16 @@ jobs:
       # runner and goes green — so a split pair (e.g. a floor bump without a
       # re-lock) is invisible everywhere except here. Ordering is
       # load-bearing: this must run BEFORE `uv sync` rewrites the lock.
-      run: uv lock --check
+      run: python3 scripts/check.py run lockfile
 
     - name: Install dependencies
       run: uv sync --extra dev
 
     - name: Run ruff (linting)
-      run: |
-        uv run ruff check . --output-format=github
+      run: uv run python scripts/check.py run ruff
 
     - name: Run ruff (formatting)
-      run: |
-        uv run ruff format --check .
+      run: uv run python scripts/check.py run ruff-format
 
     - name: Run lint-imports (import boundaries)
       # The contracts live in [tool.importlinter] in pyproject.toml: the
@@ -714,7 +901,7 @@ jobs:
       # package's own layers hold. `!cancelled()` so a ruff failure above does
       # not hide a boundary break and buy a second CI cycle to discover it.
       if: ${{ !cancelled() }}
-      run: uv run lint-imports
+      run: uv run python scripts/check.py run import-contracts
 
     - name: Run ruff import-private-name on the framework
       # PLC2701 flags a `_`-name imported from another package, which is how a
@@ -724,7 +911,7 @@ jobs:
       # rather than by turning preview on for every rule, and a per-file
       # ignore in pyproject.toml scopes it to src/osprey.
       if: ${{ !cancelled() }}
-      run: uv run ruff check --preview --select=PLC2701 . --output-format=github
+      run: uv run python scripts/check.py run private-imports
 
     - name: Run config-key resurrection guard (with back-test)
       # `!cancelled()` so folding this in never costs a signal: a ruff
@@ -746,13 +933,14 @@ jobs:
       # marker-deselection change over there would drop the proof with no red
       # signal to say so. Pinning it to this lane, whose full history is its
       # stated purpose, is what makes the coverage non-revocable.
-      run: uv run python scripts/check_config_keys.py --back-test
+      run: uv run python scripts/check.py run config-keys
 
     - name: Run changelog-fragment guard
-      # A PR that touches src/ or packages/ must carry a fragment in
-      # changelog.d/, and nobody may hand-edit CHANGELOG.md's [Unreleased]
-      # block — the release fold owns it. scripts/premerge_check.sh runs the
-      # same command locally.
+      # A PR that touches a directory the gate covers (GATED_PREFIXES in the
+      # script) must carry a fragment in changelog.d/, and nobody may
+      # hand-edit CHANGELOG.md's [Unreleased] block — the release fold owns
+      # it. `scripts/check.py quick --changed origin/main` runs the same
+      # command locally.
       #
       # `python3`, not `uv run`: the script is stdlib-only and standalone by
       # design, the same reason scripts/ci/diag_summary.py runs bare above
@@ -774,7 +962,7 @@ jobs:
       if: ${{ !cancelled() && github.event_name == 'pull_request' }}
       env:
         BASE_REF: ${{ github.event.pull_request.base.ref }}
-      run: python3 scripts/changelog_fragments.py check --base "origin/$BASE_REF"
+      run: python3 scripts/check.py run changelog --base "origin/$BASE_REF"
 
     - name: Run plugin version-bump gate
       # A PR that edits the plugin tree must also bump the plugin version.
@@ -800,21 +988,42 @@ jobs:
       if: ${{ !cancelled() && github.event_name == 'pull_request' }}
       env:
         BASE_REF: ${{ github.event.pull_request.base.ref }}
-      run: python3 scripts/plugin_version.py check --base "origin/$BASE_REF"
+      run: python3 scripts/check.py run plugin-version --base "origin/$BASE_REF"
 
     - name: No tracked file is gitignored
       # A tracked file an ignore rule matches is one a fresh `git add` would silently drop.
       if: ${{ !cancelled() }}
+      run: python3 scripts/check.py run tracked-ignored
+
+    - name: Install gitleaks
+      # The secret scan's binary, at the version the pre-commit hook pins;
+      # tests/deployment/test_ci_workflow_wiring.py holds the two equal. A
+      # release archive checked against its published digest; nothing is built.
+      if: ${{ !cancelled() }}
+      env:
+        GITLEAKS_VERSION: 8.30.0
+        GITLEAKS_SHA256: 79a3ab579b53f71efd634f3aaf7e04a0fa0cf206b7ed434638d1547a2470a66e
       run: |
-        ignored=$(git ls-files -ci --exclude-standard)
-        if [ -n "$ignored" ]; then
-          echo "::error::tracked files matched by .gitignore (narrow the rule or untrack the file):"
-          echo "$ignored"
-          exit 1
-        fi
+        curl -sSfL -o "$RUNNER_TEMP/gitleaks.tar.gz" "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+        echo "${GITLEAKS_SHA256}  $RUNNER_TEMP/gitleaks.tar.gz" | sha256sum -c -
+        sudo tar -C /usr/local/bin -xzf "$RUNNER_TEMP/gitleaks.tar.gz" gitleaks
+
+    - name: Run gitleaks (secret scan)
+      # Pull requests only, through env: and never ${{ }} in run:, for the
+      # reasons the changelog step gives.
+      if: ${{ !cancelled() && github.event_name == 'pull_request' }}
+      env:
+        BASE_REF: ${{ github.event.pull_request.base.ref }}
+      run: python3 scripts/check.py run gitleaks --base "origin/$BASE_REF"
 
     - name: Run mypy (type checking)
-      run: uv run python scripts/mypy_gate.py
+      run: uv run python scripts/check.py run mypy
+
+    - name: Run actionlint (workflow lint)
+      # The workflows lint with the pinned linter, and their `run:` blocks
+      # through shellcheck.
+      if: ${{ !cancelled() }}
+      run: uv run python scripts/check.py run actionlint
 
   docs:
     name: Documentation Build (Check Only)
@@ -847,15 +1056,7 @@ jobs:
     # :file: include, or a broken :doc:/:ref: target fails this job. So does a
     # redirect key with no stub page: docs/source/conf.py fails the build.
     - name: Build documentation
-      run: |
-        cd docs
-        uv run make html SPHINXOPTS="-W --keep-going"
-
-    - name: Check for broken links
-      run: |
-        cd docs
-        uv run make linkcheck || true
-      continue-on-error: true
+      run: python3 scripts/check.py run docs
 
     - name: Upload documentation artifact
       uses: actions/upload-artifact@v7
@@ -864,6 +1065,12 @@ jobs:
         name: documentation-preview
         path: docs/build/html
         retention-days: 7
+
+    # A link no reader can follow fails this job. An address that answers a
+    # reader and not a checker is listed in `linkcheck_ignore` in
+    # docs/source/conf.py.
+    - name: Check for broken links
+      run: python3 scripts/check.py run linkcheck
 
   package:
     name: Package Build (framework + lean connectors wheel)
@@ -885,85 +1092,22 @@ jobs:
     - name: Set up Python
       run: uv python install 3.11
 
-    - name: Build package
-      run: uv build
+    # One step: the check builds the framework, twine-checks dist/ while it
+    # holds only the framework's own artifacts, builds the lean connectors
+    # wheel and import-walks it on a bare venv, and builds pyaml-cs-osprey and
+    # import-walks it beside the other two wheels. The order is declared once,
+    # in PACKAGE_STEPS of scripts/repo_checks.py.
+    - name: Build and check the packages
+      run: python3 scripts/check.py run package
 
-    - name: Check package
-      run: uvx twine check dist/*
-
+    # The framework's own artifacts only, as when they were uploaded before
+    # the connectors and pyaml-cs-osprey wheels were built.
     - name: Upload package artifacts
       uses: actions/upload-artifact@v7
       with:
         name: package
-        path: dist/
+        path: dist/osprey_framework-*
         retention-days: 7
-
-    # Folded in from the former `lean-wheel` job, which shared this job's whole
-    # setup -- checkout, uv, Python 3.11 -- and then ran for ~12 seconds. As a
-    # job of its own it spent a runner slot re-paying for setup already done
-    # here, and slots, not seconds, are what PR wall-clock is made of.
-    #
-    # Position is load-bearing. `uv build` above must reach `twine check` and
-    # the uploaded `package` artifact with only the framework's own artifacts in
-    # dist/, exactly as it did when these were two jobs; building the connectors
-    # wheel earlier would quietly widen both.
-    - name: Build osprey-connectors wheel
-      run: uv build --package osprey-connectors
-
-    - name: Verify wheel is self-contained on a bare venv
-      run: |
-        uv venv /tmp/lean-check --python 3.11
-        uv pip install --python /tmp/lean-check/bin/python dist/osprey_connectors-*.whl
-        /tmp/lean-check/bin/python -c "
-        import importlib, pkgutil, sys
-        import osprey_connectors.control_system._epics_connector
-        import osprey_connectors.control_system
-        import osprey_connectors.errors, osprey_connectors.config, osprey_connectors.logger
-        import osprey_connectors.simulation
-        bad = sorted({m.split('.')[0] for m in sys.modules} & {'litellm','openai','anthropic','fastapi','playwright','osprey'})
-        assert not bad, f'lean wheel loaded: {bad}'
-        # Every module in the wheel must import on the bare venv — a missed
-        # osprey.* rewrite in a leaf nothing imports transitively (honesty,
-        # procedural, the mock/doocs/mongodb connectors) would otherwise ship.
-        # walk_packages swallows package import errors unless onerror raises.
-        import osprey_connectors
-        def _raise(name):
-            raise ImportError(f'failed to walk {name}')
-        modules = [m.name for m in pkgutil.walk_packages(osprey_connectors.__path__, 'osprey_connectors.', onerror=_raise)]
-        for name in modules:
-            importlib.import_module(name)
-        assert 'osprey' not in sys.modules, 'a lean-wheel module imported the osprey framework'
-        # The PEP 561 marker: without it a type checker treats the installed
-        # package as untyped and every name imported from it as Any.
-        import importlib.resources
-        assert (importlib.resources.files('osprey_connectors') / 'py.typed').is_file(), 'py.typed missing from the wheel'
-        print(f'LEAN WHEEL OK ({len(modules)} modules)')
-        "
-
-    # A step of its own, after the lean check rather than inside it: the pyAML
-    # control-system wheel imports the framework (osprey.runtime)
-    # by design, so the no-framework assertion above must keep reading a venv
-    # that holds the connectors wheel alone. This venv holds all three wheels
-    # from dist/ -- the framework declares a dependency on this one, and this
-    # one needs the framework at import -- so a wheel that omits a module, or a
-    # module that imports something no wheel ships, fails here and not on a
-    # user's install.
-    - name: Build pyaml-cs-osprey wheel and import-walk it with the framework
-      run: |
-        uv build --package pyaml-cs-osprey
-        uv venv /tmp/pyaml-check --python 3.11
-        uv pip install --python /tmp/pyaml-check/bin/python \
-          dist/osprey_framework-*.whl dist/osprey_connectors-*.whl dist/pyaml_cs_osprey-*.whl
-        /tmp/pyaml-check/bin/python -c "
-        import importlib, pkgutil
-        import pyaml_cs_osprey
-        def _raise(name):
-            raise ImportError(f'failed to walk {name}')
-        modules = [m.name for m in pkgutil.walk_packages(pyaml_cs_osprey.__path__, 'pyaml_cs_osprey.', onerror=_raise)]
-        for name in modules:
-            importlib.import_module(name)
-        print(f'PYAML WHEEL OK ({len(modules)} modules)')
-        "
 
   static-checks:
     name: Tier 0 — Static (preset YAML + builds, skill ↔ MCP-tool consistency, podman-compose parse)
@@ -1080,7 +1224,6 @@ jobs:
           --set dispatch.worker_count=1 \
           --set dispatch.workspace_mode=isolated \
           --set dispatch.network=bridge \
-          --set config.claude_code.telemetry.enabled=false \
           --set 'config.deployed_services=[]'
         cd parse-check
         # The two chain members carry the SAME key with DIFFERENT values, so
@@ -1168,8 +1311,8 @@ jobs:
     # could be skipped reports as a step success and a job whose steps all
     # skipped reports as a job success, which `all-checks-passed` reads as a
     # lane that ran. The lane costs a chromium and a WebKit install, so it always
-    # runs; the WebKit one is there because the bar-items suite runs its
-    # gestures in both engines.
+    # runs; the WebKit one is there because the graph finder suite runs in
+    # both engines.
     # The default GITHUB_TOKEN is read-only repo-wide; this job's last step
     # pushes regenerated Linux baselines back to the PR branch, so it alone
     # needs contents: write (matches docs.yml's workflow-level grant for the
@@ -1195,11 +1338,93 @@ jobs:
     - name: Install dependencies
       run: uv sync --extra dev
 
+    # The artifact pages are served opaque, and the suites that prove it run
+    # with OSPREY_OFFLINE=1 so every vendor library comes through the proxy's
+    # cookie-less asset routes rather than a CDN. The vendor trees are
+    # gitignored; this writes them, each file checked against its manifest
+    # SHA256.
+    - name: Fetch vendor assets
+      timeout-minutes: 5
+      run: uv run osprey vendor fetch --quiet
+
+    # `--with-deps` apt-installs ~140 MB of system debs (WebKit's gstreamer and
+    # codec stack is most of it), and the runner's default mirror,
+    # azure.archive.ubuntu.com, some days serves them at 30-100 kB/s: the
+    # installs then take 20-40 minutes and the lane hits its timeout without
+    # running a test. The browsers come from Playwright's CDN and are always
+    # fast. So the debs and the browsers are cached across runs, apt prefers
+    # archive.ubuntu.com, and each install step has its own short timeout.
+    - name: Resolve Playwright browser cache key
+      id: playwright-key
+      run: |
+        version=$(uv run python -c 'import importlib.metadata as m; print(m.version("playwright"))')
+        : "${ImageOS:?runner image name missing}" "${ImageVersion:?runner image version missing}"
+        echo "prefix=playwright-${version}-${ImageOS}-" >> "$GITHUB_OUTPUT"
+        echo "key=playwright-${version}-${ImageOS}-${ImageVersion}" >> "$GITHUB_OUTPUT"
+
+    - name: Configure apt for the Playwright system deps
+      # The runner's sources read `mirror+file:/etc/apt/apt-mirrors.txt`, one
+      # `URL<TAB>priority:N` per line, lowest tried first. Swapping azure's 1
+      # with archive.ubuntu.com's 2 keeps azure as the fallback; a file in any
+      # other shape is left as it is. Downloaded debs are kept in a
+      # runner-owned directory the cache steps can reach. The snippet's name
+      # sorts after the image's own `zz-retries`, which would otherwise
+      # override its retry count.
+      run: |
+        sudo sed -i -E \
+          -e 's#^(http://azure\.archive\.ubuntu\.com/ubuntu/\t)priority:1$#\1priority:2#' \
+          -e 's#^(https?://archive\.ubuntu\.com/ubuntu/\t)priority:2$#\1priority:1#' \
+          /etc/apt/apt-mirrors.txt
+        cat /etc/apt/apt-mirrors.txt
+        grep -Eq '^https?://archive\.ubuntu\.com/ubuntu/[[:space:]]+priority:1$' /etc/apt/apt-mirrors.txt \
+          || echo "::warning::apt-mirrors.txt not in the expected shape; apt keeps the image's mirror order"
+        mkdir -p "$HOME/apt-archives/partial"
+        sudo tee /etc/apt/apt.conf.d/zzz-playwright-deps-cache >/dev/null <<EOF
+        Dir::Cache::Archives "$HOME/apt-archives";
+        APT::Keep-Downloaded-Packages "true";
+        Acquire::http::Timeout "15";
+        Acquire::Retries "3";
+        EOF
+
+    - name: Restore Playwright browsers and apt debs
+      id: playwright-cache
+      uses: actions/cache/restore@v6
+      with:
+        path: |
+          ~/.cache/ms-playwright
+          ~/apt-archives
+        key: ${{ steps.playwright-key.outputs.key }}
+        restore-keys: |
+          ${{ steps.playwright-key.outputs.prefix }}
+
     - name: Install Playwright chromium
+      timeout-minutes: 10
       run: uv run playwright install chromium --with-deps
 
     - name: Install Playwright webkit
+      timeout-minutes: 10
       run: uv run playwright install webkit --with-deps
+
+    - name: Hand the apt debs to the runner user
+      # apt wrote them as root, along with its lock file; the save cannot
+      # archive what it cannot read. autoclean first drops debs the current
+      # indexes no longer list, so a cache carried across image bumps by the
+      # prefix restore-key does not keep every superseded version.
+      run: |
+        sudo apt-get autoclean
+        sudo chown -R "$USER" ~/apt-archives
+        rm -f ~/apt-archives/lock
+
+    - name: Save Playwright browsers and apt debs
+      # Saved here rather than in a post step, so a later test failure still
+      # leaves the next run a warm cache. An exact hit has nothing new to save.
+      if: steps.playwright-cache.outputs.cache-hit != 'true'
+      uses: actions/cache/save@v6
+      with:
+        path: |
+          ~/.cache/ms-playwright
+          ~/apt-archives
+        key: ${{ steps.playwright-key.outputs.key }}
 
     - name: Run behavioral theming suite
       run: |
@@ -1207,8 +1432,8 @@ jobs:
           tests/interfaces/design_system/test_theme_lab.py \
           tests/interfaces/design_system/test_dispatch_dashboard_unauthorized.py \
           tests/interfaces/design_system/test_panel_browser.py \
-          tests/interfaces/design_system/test_dispatch_dashboard_modes.py \
           tests/interfaces/design_system/test_dispatch_run_crosslinks.py \
+          tests/interfaces/design_system/test_dispatch_run_thinking_browser.py \
           tests/interfaces/design_system/test_dispatch_dashboard_clock_trigger.py \
           tests/interfaces/design_system/test_dispatch_dashboard_facility_time.py \
           tests/interfaces/design_system/test_dispatch_dashboard_trigger_tools.py \
@@ -1218,10 +1443,15 @@ jobs:
           tests/interfaces/artifacts/test_gallery_interactions.py \
           tests/interfaces/artifacts/test_plot_theme_browser.py \
           tests/interfaces/artifacts/test_plot_export_browser.py \
+          tests/interfaces/artifacts/test_opaque_origin_browser.py \
           tests/docs/screenshots/test_video_probes_browser.py \
           tests/interfaces/web_terminal/test_panels_browser.py \
+          tests/interfaces/web_terminal/test_opaque_panel_browser.py \
           tests/interfaces/web_terminal/test_facility_time_browser.py \
           tests/interfaces/web_terminal/test_panels_collab_browser.py \
+          tests/interfaces/web_terminal/test_dock_tiles_browser.py \
+          tests/interfaces/web_terminal/test_dock_perf_browser.py \
+          tests/interfaces/web_terminal/test_dock_agent_parity_browser.py \
           tests/interfaces/web_terminal/test_jupyter_panel_browser.py \
           tests/interfaces/web_terminal/test_agent_activity_browser.py \
           tests/interfaces/web_terminal/test_contract_params.py \
@@ -1229,17 +1459,19 @@ jobs:
           tests/interfaces/web_terminal/test_auth_login_browser.py \
           tests/interfaces/web_terminal/test_feedback_rail_browser.py \
           tests/interfaces/web_terminal/test_feedback_modal_browser.py \
+          tests/interfaces/web_terminal/test_watchdog_dialog_browser.py \
           tests/interfaces/web_terminal/test_posture_toggle_browser.py \
           tests/interfaces/web_terminal/test_control_context_browser.py \
-          tests/interfaces/web_terminal/test_bar_items_browser.py \
-          tests/interfaces/web_terminal/test_ui_mode_browser.py \
-          tests/interfaces/web_terminal/test_first_contact_simple_browser.py \
+          tests/interfaces/web_terminal/test_agent_surface_browser.py \
+          tests/interfaces/web_terminal/test_first_contact_browser.py \
           tests/interfaces/web_terminal/test_chat_browser.py \
-          tests/interfaces/web_terminal/test_rail_position_browser.py \
           tests/interfaces/web_terminal/test_session_persistence_browser.py \
+          tests/interfaces/web_terminal/test_canopy_host_themes.py \
           tests/interfaces/web_terminal/test_osprey_drawer.py \
           tests/interfaces/web_terminal/test_scaffold_detail.py \
           tests/interfaces/web_terminal/test_session_page.py \
+          tests/interfaces/web_terminal/test_sidebar_resize_browser.py \
+          tests/interfaces/web_terminal/test_sidebar_panel_availability_browser.py \
           tests/interfaces/channel_finder/test_graph_finder_browser.py \
           tests/interfaces/bluesky_web/test_channel_combobox_browser.py \
           tests/interfaces/bluesky_web/test_lane_picker_browser.py \
@@ -1252,6 +1484,47 @@ jobs:
           tests/interfaces/test_browser_helper.py \
           tests/interfaces/test_lattice_dashboard_browser.py \
           tests/interfaces/test_load_smokes.py -v --tb=short
+
+    - name: Install the pinned Claude Code CLI
+      # The watchdog suite below launches the agent the web terminal launches,
+      # against a scripted model. Every agent run refuses to start without the
+      # version OSPREY pins.
+      uses: ./.github/actions/install-pinned-claude-code
+
+    - name: Run the watchdog browser suite
+      timeout-minutes: 20
+      # Apart from the list above, whose suites need no agent on the runner.
+      run: |
+        uv run pytest tests/interfaces/test_watchdog_e2e.py -m browser -v --tb=short \
+          --junitxml=junit-watchdog-browser.xml
+
+    - name: Fail the lane on any skipped watchdog browser test
+      run: |
+        # The chromium fixture skips when its binary is absent, and pytest's
+        # exit code cannot tell "everything passed" from "everything was
+        # skipped". The junit report is read instead: zero skips, and a
+        # non-zero test count so an empty selection cannot pass either.
+        uv run python - <<'PY'
+        import sys
+        import xml.etree.ElementTree as ET
+
+        report = "junit-watchdog-browser.xml"
+        total = skipped = 0
+        for suite in ET.parse(report).getroot().iter("testsuite"):
+            total += int(suite.get("tests", 0))
+            skipped += int(suite.get("skipped", 0))
+        print(f"{report}: {total} test(s), {skipped} skipped")
+        failed = False
+        if total == 0:
+            print(f"::error::{report} collected no tests")
+            failed = True
+        if skipped:
+            print(f"::error::{report} reports {skipped} skipped test(s)")
+            failed = True
+        if failed:
+            sys.exit(1)
+        print("every watchdog browser test ran; none skipped")
+        PY
 
     - name: Run visual regression suite
       # Linux is the authoritative platform for the pixel diff (see
@@ -1311,13 +1584,16 @@ jobs:
       run: npm ci
 
     - name: Typecheck (tsc --noEmit)
-      run: npm run typecheck
+      run: python3 scripts/check.py run tsc
 
     - name: Lint (eslint)
-      run: npm run lint
+      run: python3 scripts/check.py run eslint
+
+    - name: Format (prettier)
+      run: python3 scripts/check.py run prettier
 
     - name: Run JS tests (vitest)
-      run: npm run test:js
+      run: python3 scripts/check.py run vitest
 
   plugin-smoke:
     name: Plugin marketplace smoke (install the osprey plugin)
@@ -1526,20 +1802,6 @@ jobs:
         name: agentic-per-preset-${{ matrix.preset }}
         engine: docker
 
-    # Belt-and-suspenders on top of the tutorial test's own try/finally: the
-    # hello-world tutorial test deploys the telemetry store and gateway under
-    # one fixed compose project. Every name here is exact (never a prune, -a
-    # or wildcard) and matches TUTORIAL_PROJECT_NAME in
-    # tests/e2e/test_preset_agentic.py.
-    - name: Clean up any stranded tutorial-stack resources
-      if: always()
-      run: |
-        docker rm -f osprey-e2e-hello-world-tutorial-telemetry-gateway || true
-        docker rm -f osprey-e2e-hello-world-tutorial-telemetry-store || true
-        docker volume rm osprey-e2e-hello-world-tutorial_telemetry_store_data || true
-        docker volume rm osprey-e2e-hello-world-tutorial_gateway-state || true
-        docker network rm osprey-e2e-hello-world-tutorial_osprey-network || true
-
   e2e-tests:
     name: E2E Tests
     runs-on: ubuntu-latest
@@ -1568,6 +1830,14 @@ jobs:
     timeout-minutes: 50
 
     steps:
+    # Image-building E2E lanes run the hosted runner out of disk ("No space left
+    # on device" in the image's deps layer). Drop the preinstalled SDKs this job
+    # never uses, as the other image-building E2E jobs do.
+    - name: Free runner disk
+      run: |
+        sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+        df -h /
+
     - name: Checkout repository
       uses: actions/checkout@v7
       with:
@@ -1638,11 +1908,13 @@ jobs:
           echo "Running scoped E2E filter: $E2E_FILTER"
           # Word-splitting on $E2E_FILTER is intentional so callers can
           # pass multiple paths or extra pytest args in one input.
+          # shellcheck disable=SC2086
           uv run pytest $E2E_FILTER -v --tb=short
         else
           # Tier 3 per-preset agentic flows live in their own matrix job
           # (agentic-per-preset). The full Docker-stack tests
-          # (dispatch-deploy-e2e, dispatch-overlay-e2e, bluesky-deploy-e2e,
+          # (dispatch-deploy-e2e, dispatch-overlay-e2e, host-record-e2e,
+          # bluesky-deploy-e2e,
           # tiled-roundtrip-e2e, va-substrate-equivalence-e2e,
           # orm-roundtrip-e2e, bluesky-catalog-e2e,
           # bluesky-sandbox-escape-e2e,
@@ -1657,8 +1929,8 @@ jobs:
           # pinned on first init) that breaks later tests sharing
           # this runner. NOTE: "--ignore" means "not in this secret-gated
           # LLM lane," NOT "not tested" — every ignored file below runs in
-          # its own job (the deploy-lifecycle jobs run on PRs into main
-          # only — see those jobs' comments), except the channel-finder
+          # its own job (the deploy-lifecycle jobs included; their `if:`
+          # says when they run), except the channel-finder
           # benchmarks, which run on demand via the run_benchmarks
           # dispatch input (channel-finder-benchmarks): they are a
           # statistical quality score with flaky reruns, not a per-PR
@@ -1685,6 +1957,9 @@ jobs:
           # pull request. They run in e2e-no-model, which is this lane's
           # directory sweep minus the gateway key — named there by path, and
           # ignored here one by one so the two sets stay disjoint.
+          # The live watchdog checks leave because they are opt-in: a run that
+          # names a provider and lacks the Jev key fails them on purpose, and
+          # this lane holds no Jev key.
           # -n 4 --dist loadfile (pytest-xdist): this lane is ~18 min of
           # real-LLM round-trips at near-zero CPU, so four workers cut it to
           # roughly the slowest single file. loadfile (not load) keeps every
@@ -1737,8 +2012,8 @@ jobs:
             --ignore=tests/e2e/test_full_chain_auth.py \
             --ignore=tests/e2e/test_jupyter_panel_lifecycle.py \
             --ignore=tests/e2e/claude_code/test_channel_finder_mcp_benchmarks.py \
-            --ignore=tests/e2e/test_telemetry_store_e2e.py \
-            --ignore=tests/e2e/test_telemetry_access_e2e.py \
+            --ignore=tests/e2e/test_agent_record_e2e.py \
+            --ignore=tests/e2e/test_host_record_e2e.py \
             --ignore=tests/e2e/test_sdk_helpers.py \
             --ignore=tests/e2e/test_scripted_model.py \
             --ignore=tests/e2e/claude_code/test_safety_gates_scripted.py \
@@ -1753,6 +2028,9 @@ jobs:
             --ignore=tests/e2e/claude_code/test_chat_approval_gates_scripted.py \
             --ignore=tests/e2e/claude_code/test_chat_plan_mode_scripted.py \
             --ignore=tests/e2e/claude_code/test_chat_attachment_read_scripted.py \
+            --ignore=tests/e2e/test_watchdog_agent_scripted.py \
+            --ignore=tests/e2e/test_watchdog_hold_scripted.py \
+            --ignore=tests/e2e/test_watchdog_live.py \
             --ignore=tests/e2e/tier2
         fi
     # On failure only: container logs, exit codes, `OOMKilled`, and runner
@@ -1765,101 +2043,101 @@ jobs:
         engine: docker
     # Belt and suspenders: the deploy's own teardown does not run when the job
     # is killed. A hosted runner is discarded with the job, but a self-hosted
-    # or reused runner, or a local `act` run, keeps the store's port and its
-    # credential-pinned volume. Names are exact, never a prune.
+    # or reused runner, or a local `act` run, keeps the record store's port and
+    # its data volume. Names are exact, never a prune.
     # E2E_FILTER can run any full-stack module here, so every one is named.
     - name: Clean up any stranded stack resources
       if: always()
       run: |
         docker compose -p queue-e2e down || true
-        docker rm -f queue-e2e-telemetry-store || true
-        docker rm -f queue-e2e-telemetry-gateway || true
+        docker rm -f queue-e2e-agent-record || true
+        docker rm -f queue-e2e-agent-record-clickhouse || true
         docker volume ls -q --filter "name=^queue-e2e_" \
           | xargs -r docker volume rm -f || true
         docker compose -p osprey-e2e-bluesky-deploy down || true
-        docker rm -f osprey-e2e-bluesky-deploy-telemetry-store || true
-        docker rm -f osprey-e2e-bluesky-deploy-telemetry-gateway || true
+        docker rm -f osprey-e2e-bluesky-deploy-agent-record || true
+        docker rm -f osprey-e2e-bluesky-deploy-agent-record-clickhouse || true
         docker volume ls -q --filter "name=^osprey-e2e-bluesky-deploy_" \
           | xargs -r docker volume rm -f || true
         docker compose -p osprey-e2e-catalog down || true
-        docker rm -f osprey-e2e-catalog-telemetry-store || true
-        docker rm -f osprey-e2e-catalog-telemetry-gateway || true
+        docker rm -f osprey-e2e-catalog-agent-record || true
+        docker rm -f osprey-e2e-catalog-agent-record-clickhouse || true
         docker volume ls -q --filter "name=^osprey-e2e-catalog_" \
           | xargs -r docker volume rm -f || true
         docker compose -p osprey-e2e-tiled down || true
-        docker rm -f osprey-e2e-tiled-telemetry-store || true
-        docker rm -f osprey-e2e-tiled-telemetry-gateway || true
+        docker rm -f osprey-e2e-tiled-agent-record || true
+        docker rm -f osprey-e2e-tiled-agent-record-clickhouse || true
         docker volume ls -q --filter "name=^osprey-e2e-tiled_" \
           | xargs -r docker volume rm -f || true
         docker compose -p panels-proj down || true
-        docker rm -f panels-proj-telemetry-store || true
-        docker rm -f panels-proj-telemetry-gateway || true
+        docker rm -f panels-proj-agent-record || true
+        docker rm -f panels-proj-agent-record-clickhouse || true
         docker volume ls -q --filter "name=^panels-proj_" \
           | xargs -r docker volume rm -f || true
         docker compose -p plan-agentic down || true
-        docker rm -f plan-agentic-telemetry-store || true
-        docker rm -f plan-agentic-telemetry-gateway || true
+        docker rm -f plan-agentic-agent-record || true
+        docker rm -f plan-agentic-agent-record-clickhouse || true
         docker volume ls -q --filter "name=^plan-agentic_" \
           | xargs -r docker volume rm -f || true
         docker compose -p orm-roundtrip down || true
-        docker rm -f orm-roundtrip-telemetry-store || true
-        docker rm -f orm-roundtrip-telemetry-gateway || true
+        docker rm -f orm-roundtrip-agent-record || true
+        docker rm -f orm-roundtrip-agent-record-clickhouse || true
         docker volume ls -q --filter "name=^orm-roundtrip_" \
           | xargs -r docker volume rm -f || true
         docker compose -p grid-scan-roundtrip down || true
-        docker rm -f grid-scan-roundtrip-telemetry-store || true
-        docker rm -f grid-scan-roundtrip-telemetry-gateway || true
+        docker rm -f grid-scan-roundtrip-agent-record || true
+        docker rm -f grid-scan-roundtrip-agent-record-clickhouse || true
         docker volume ls -q --filter "name=^grid-scan-roundtrip_" \
           | xargs -r docker volume rm -f || true
         docker compose -p bump-roundtrip down || true
-        docker rm -f bump-roundtrip-telemetry-store || true
-        docker rm -f bump-roundtrip-telemetry-gateway || true
+        docker rm -f bump-roundtrip-agent-record || true
+        docker rm -f bump-roundtrip-agent-record-clickhouse || true
         docker volume ls -q --filter "name=^bump-roundtrip_" \
           | xargs -r docker volume rm -f || true
         docker compose -p preflight-probe down || true
-        docker rm -f preflight-probe-telemetry-store || true
-        docker rm -f preflight-probe-telemetry-gateway || true
+        docker rm -f preflight-probe-agent-record || true
+        docker rm -f preflight-probe-agent-record-clickhouse || true
         docker volume ls -q --filter "name=^preflight-probe_" \
           | xargs -r docker volume rm -f || true
         docker compose -p sandbox-escape down || true
-        docker rm -f sandbox-escape-telemetry-store || true
-        docker rm -f sandbox-escape-telemetry-gateway || true
+        docker rm -f sandbox-escape-agent-record || true
+        docker rm -f sandbox-escape-agent-record-clickhouse || true
         docker volume ls -q --filter "name=^sandbox-escape_" \
           | xargs -r docker volume rm -f || true
         docker compose -p osprey-e2e-dispatch down || true
-        docker rm -f osprey-e2e-dispatch-telemetry-store || true
-        docker rm -f osprey-e2e-dispatch-telemetry-gateway || true
+        docker rm -f osprey-e2e-dispatch-agent-record || true
+        docker rm -f osprey-e2e-dispatch-agent-record-clickhouse || true
         docker volume ls -q --filter "name=^osprey-e2e-dispatch_" \
           | xargs -r docker volume rm -f || true
         docker compose -p osprey-e2e-overlay down || true
-        docker rm -f osprey-e2e-overlay-telemetry-store || true
-        docker rm -f osprey-e2e-overlay-telemetry-gateway || true
+        docker rm -f osprey-e2e-overlay-agent-record || true
+        docker rm -f osprey-e2e-overlay-agent-record-clickhouse || true
         docker volume ls -q --filter "name=^osprey-e2e-overlay_" \
           | xargs -r docker volume rm -f || true
         docker compose -p suproj down || true
-        docker rm -f suproj-telemetry-store || true
-        docker rm -f suproj-telemetry-gateway || true
+        docker rm -f suproj-agent-record || true
+        docker rm -f suproj-agent-record-clickhouse || true
         docker volume ls -q --filter "name=^suproj_" \
           | xargs -r docker volume rm -f || true
         docker compose -p osprey-e2e-va-substrate down || true
-        docker rm -f osprey-e2e-va-substrate-telemetry-store || true
-        docker rm -f osprey-e2e-va-substrate-telemetry-gateway || true
+        docker rm -f osprey-e2e-va-substrate-agent-record || true
+        docker rm -f osprey-e2e-va-substrate-agent-record-clickhouse || true
         docker volume ls -q --filter "name=^osprey-e2e-va-substrate_" \
           | xargs -r docker volume rm -f || true
         docker compose -p lane-e2e down || true
-        docker rm -f lane-e2e-telemetry-store || true
-        docker rm -f lane-e2e-telemetry-gateway || true
+        docker rm -f lane-e2e-agent-record || true
+        docker rm -f lane-e2e-agent-record-clickhouse || true
         docker volume ls -q --filter "name=^lane-e2e_" \
           | xargs -r docker volume rm -f || true
-        docker compose -p osprey-e2e-telemetry-store down || true
-        docker rm -f osprey-e2e-telemetry-store-telemetry-store || true
-        docker rm -f osprey-e2e-telemetry-store-telemetry-gateway || true
-        docker volume ls -q --filter "name=^osprey-e2e-telemetry-store_" \
+        docker compose -p osprey-e2e-agent-record down || true
+        docker rm -f osprey-e2e-agent-record-agent-record || true
+        docker rm -f osprey-e2e-agent-record-agent-record-clickhouse || true
+        docker volume ls -q --filter "name=^osprey-e2e-agent-record_" \
           | xargs -r docker volume rm -f || true
-        docker compose -p osprey-e2e-telemetry-access down || true
-        docker rm -f osprey-e2e-telemetry-access-telemetry-store || true
-        docker rm -f osprey-e2e-telemetry-access-telemetry-gateway || true
-        docker volume ls -q --filter "name=^osprey-e2e-telemetry-access_" \
+        docker compose -p osprey-e2e-host-record down || true
+        docker rm -f osprey-e2e-host-record-agent-record || true
+        docker rm -f osprey-e2e-host-record-agent-record-clickhouse || true
+        docker volume ls -q --filter "name=^osprey-e2e-host-record_" \
           | xargs -r docker volume rm -f || true
 
 
@@ -1867,8 +2145,8 @@ jobs:
     name: Model-Free E2E (the tests/e2e files that reach no gateway)
     runs-on: ubuntu-latest
     # Every pull request, fork pull requests included: this lane declares no
-    # gateway key and every image it pulls is public (the store from Docker
-    # Hub, the collector from public ghcr), so there is nothing a fork run's
+    # gateway key and every image it pulls is public (the agent record's
+    # ClickHouse store from Docker Hub), so there is nothing a fork run's
     # token cannot read. No `full-ci` label — nothing here spends model
     # tokens, so there is nothing for a label to protect, and a lane that only
     # runs on labelled pull requests proves nothing on the ones that break it.
@@ -1877,7 +2155,9 @@ jobs:
     # see; this one resolves none. Excluding Dependabot here would take the
     # model-free proof off the pull requests that move the dependency set,
     # which is where it is worth the most.
-    if: github.event_name == 'pull_request'
+    if: >-
+      (github.event_name == 'pull_request')
+      || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
     # Not measured on a runner: no lane has run these files on their own.
     # Sized against tiled-roundtrip-e2e (30), the closest shape here — one
     # compose stack, no image build, no model call — with the step cap under
@@ -1888,6 +2168,14 @@ jobs:
     timeout-minutes: 30
 
     steps:
+    # Image-building E2E lanes run the hosted runner out of disk ("No space left
+    # on device" in the image's deps layer). Drop the preinstalled SDKs this job
+    # never uses, as the other image-building E2E jobs do.
+    - name: Free runner disk
+      run: |
+        sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+        df -h /
+
     - name: Checkout repository
       # Full history: `uv sync` builds the package from source and the version
       # backend cannot derive a version without the tags.
@@ -1907,8 +2195,9 @@ jobs:
       run: uv sync --extra dev
 
     - name: Assert a container runtime is present
-      # The telemetry module skips itself when `docker` is absent, and this
-      # lane treats a skip as a failure — so the runtime is asserted here,
+      # A file here that needs containers skips itself when `docker` is
+      # absent, and this lane treats a skip as a failure — so the runtime is
+      # asserted here,
       # where the cause is named, rather than diagnosed from a skip count at
       # the bottom of the job.
       run: |
@@ -1930,16 +2219,14 @@ jobs:
         # would select nothing and green it. Every test this step selects
         # carries model_free, and the wiring test holds the two equal.
         #
-        # The two telemetry modules are named first because they are the only
-        # ones that deploy a stack, and xdist hands the first files to the
-        # first workers; each has its own project name and port base.
+        # The agent record's replay deploys a stack and runs in its own lane
+        # (agent-record-e2e) so its two five-minute stopped-source waits do not
+        # size this one.
         # -n 4 --dist loadfile is the mode these files already run under in
         # the shared lane: loadfile keeps a file's tests on one worker, and
         # the three real-process web-terminal modules each bind an ephemeral
         # port, so nothing here contends for a fixed one.
         uv run pytest \
-          tests/e2e/test_telemetry_store_e2e.py \
-          tests/e2e/test_telemetry_access_e2e.py \
           tests/e2e/test_sdk_helpers.py \
           tests/e2e/test_scripted_model.py \
           tests/e2e/claude_code/test_safety_gates_scripted.py \
@@ -1954,6 +2241,8 @@ jobs:
           tests/e2e/claude_code/test_chat_approval_gates_scripted.py \
           tests/e2e/claude_code/test_chat_plan_mode_scripted.py \
           tests/e2e/claude_code/test_chat_attachment_read_scripted.py \
+          tests/e2e/test_watchdog_agent_scripted.py \
+          tests/e2e/test_watchdog_hold_scripted.py \
           -v --tb=short --durations=15 -n 4 --dist loadfile \
           --junitxml=junit-e2e-no-model.xml
 
@@ -1995,23 +2284,123 @@ jobs:
       with:
         name: e2e-no-model
         engine: docker
+
+
+  agent-record-e2e:
+    name: Agent Record E2E (replays every captured fixture through the real stack, both backends)
+    runs-on: ubuntu-latest
+    # Every pull request, fork pull requests included, for the reasons the
+    # model-free lane gives: no gateway key, public images only, no label and
+    # no actor guard. The replay is model-free — every test in it carries
+    # `model_free` — but it is its own lane because it deploys two stacks one
+    # after the other and waits out a stopped source twice.
+    if: >-
+      (github.event_name == 'pull_request')
+      || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
+    # Sized for its waits, not measured: two stopped-source waits of up to five
+    # minutes each; two deploys (hello-world, and control-assistant with its
+    # services and web terminals), each with a restart, an outage, a re-`up`
+    # that closes the day and a reset, and hello-world's rebuild after it; and
+    # a one-minute readability bound per step. The step cap sits under the job
+    # cap so a hang fails the run step and the capture step still runs.
+    timeout-minutes: 135
+    steps:
+    # The project image's deps layer ran the runner out of disk: uv reported
+    # "No space left on device" installing into the image. Drop the preinstalled
+    # SDKs this job never uses, as the other image-building E2E jobs do.
+    - name: Free runner disk
+      run: |
+        sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+        df -h /
+
+    - name: Checkout repository
+      # Full history: `uv sync` builds the package from source and the version
+      # backend cannot derive a version without the tags.
+      uses: actions/checkout@v7
+      with:
+        fetch-depth: 0
+
+    - name: Install uv
+      uses: astral-sh/setup-uv@v7
+      with:
+        enable-cache: true
+
+    - name: Set up Python
+      run: uv python install 3.11
+
+    - name: Install dependencies
+      run: uv sync --extra dev
+
+    - name: Assert a container runtime is present
+      # The replay skips itself when `docker` is absent, and this lane treats
+      # a skip as a failure — so the runtime is asserted here, where the cause
+      # is named.
+      run: |
+        set -euo pipefail
+        docker info > /dev/null
+
+    - name: Install the pinned Claude Code CLI
+      # The deployments this lane brings up start a dispatch worker, which
+      # refuses to start without the Claude Code OSPREY pins.
+      uses: ./.github/actions/install-pinned-claude-code
+
+    - name: Run the agent record replay
+      timeout-minutes: 120
+      run: |
+        # Named by path: a path that stops existing exits pytest 4 and reds
+        # this step. Serial on purpose — the two cases share one host port
+        # block and run one after the other.
+        uv run pytest \
+          tests/e2e/test_agent_record_e2e.py \
+          -v --tb=short --durations=15 \
+          --junitxml=junit-agent-record-e2e.xml
+
+    - name: Fail the lane on any skipped test
+      run: |
+        # A skip here is the lane being wrong about its own runner, and
+        # pytest's exit code cannot tell "everything passed" from "everything
+        # was skipped" — so the junit report is read instead.
+        uv run python - <<'PY'
+        import sys
+        import xml.etree.ElementTree as ET
+
+        report = "junit-agent-record-e2e.xml"
+        total = skipped = 0
+        for suite in ET.parse(report).getroot().iter("testsuite"):
+            total += int(suite.get("tests", 0))
+            skipped += int(suite.get("skipped", 0))
+        print(f"{report}: {total} test(s), {skipped} skipped")
+        failed = False
+        if total == 0:
+            print(f"::error::{report} collected no tests")
+            failed = True
+        if skipped:
+            print(f"::error::{report} reports {skipped} skipped test(s)")
+            failed = True
+        if failed:
+            sys.exit(1)
+        print("✅ every agent record replay test ran; none skipped")
+        PY
+    # On failure only: container logs, exit codes, `OOMKilled`, and runner
+    # disk/memory state, uploaded as the `ci-diag-<lane>` artifact.
+    - name: Capture failure diagnostics
+      if: failure()
+      uses: ./.github/actions/capture-ci-diagnostics
+      with:
+        name: agent-record-e2e
+        engine: docker
     # Belt and suspenders: the deploy's own teardown does not run when the job
     # is killed. A hosted runner is discarded with the job, but a self-hosted
-    # or reused runner, or a local `act` run, keeps the store's port and its
-    # credential-pinned volume. Names are exact, never a prune.
-    # The two telemetry modules deploy a store each, under their own project.
+    # or reused runner, or a local `act` run, keeps the record store's port and
+    # its data volume. Names are exact, never a prune.
+    # The replay deploys the record and its ClickHouse store.
     - name: Clean up any stranded stack resources
       if: always()
       run: |
-        docker compose -p osprey-e2e-telemetry-store down || true
-        docker rm -f osprey-e2e-telemetry-store-telemetry-store || true
-        docker rm -f osprey-e2e-telemetry-store-telemetry-gateway || true
-        docker volume ls -q --filter "name=^osprey-e2e-telemetry-store_" \
-          | xargs -r docker volume rm -f || true
-        docker compose -p osprey-e2e-telemetry-access down || true
-        docker rm -f osprey-e2e-telemetry-access-telemetry-store || true
-        docker rm -f osprey-e2e-telemetry-access-telemetry-gateway || true
-        docker volume ls -q --filter "name=^osprey-e2e-telemetry-access_" \
+        docker compose -p osprey-e2e-agent-record down || true
+        docker rm -f osprey-e2e-agent-record-agent-record || true
+        docker rm -f osprey-e2e-agent-record-agent-record-clickhouse || true
+        docker volume ls -q --filter "name=^osprey-e2e-agent-record_" \
           | xargs -r docker volume rm -f || true
 
 
@@ -2256,13 +2645,14 @@ jobs:
         uv run osprey build --skip-deps --skip-lifecycle
         ls -la
 
-    - name: osprey up (deploys the telemetry store and gateway for hello-world)
+    - name: osprey up (hello-world)
       env:
         ALS_APG_API_KEY: ${{ secrets.ALS_APG_API_KEY }}
       run: |
         cd hello-world-test
-        # hello-world declares deployed_services: [telemetry_store,
-        # telemetry_gateway], so this verifies that pair deploying end-to-end.
+        # hello-world declares deployed_services: [] and keeps its agent
+        # record embedded, so this verifies `osprey up` on a container-free
+        # deployment end-to-end.
         uv run osprey up -d --dev
 
     # Runs BEFORE the teardown below: the cleanup step deletes the very
@@ -2283,6 +2673,17 @@ jobs:
         # its exit code is how the retired verb here went unnoticed — a
         # guaranteed usage error read as a clean no-op teardown.
         uv run osprey down
+
+    # Runs even when the build or `osprey down` itself failed: the agent record
+    # renders into every deployment, and a record left running holds its port
+    # and volume for the next lane on a reused runner. Names are exact.
+    - name: Clean up any stranded hello-world resources
+      if: always()
+      run: |
+        docker compose -p hello-world-test down || true
+        docker rm -f hello-world-test-agent-record || true
+        docker rm -f hello-world-test-agent-record-clickhouse || true
+        docker volume rm hello-world-test_agent_record_clickhouse_data || true
 
   dispatch-deploy-e2e:
     name: Dispatch Deploy E2E (full Docker stack + real agent runs + multi-user web tier)
@@ -2305,6 +2706,14 @@ jobs:
       || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
 
     steps:
+    # Image-building E2E lanes run the hosted runner out of disk ("No space left
+    # on device" in the image's deps layer). Drop the preinstalled SDKs this job
+    # never uses, as the other image-building E2E jobs do.
+    - name: Free runner disk
+      run: |
+        sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+        df -h /
+
     - name: Checkout repository
       uses: actions/checkout@v7
       with:
@@ -2349,9 +2758,18 @@ jobs:
         fi
         echo "✅ ALS-APG endpoint reachable (HTTP 200)"
 
+    - name: Build the qmd sidecar image
+      # The control-assistant preset deploys the qmd sidecar, which `osprey up`
+      # would otherwise build cold here, fetching 2.1 GB of models from
+      # huggingface.co. Built from the layer cache the main-branch warm-up
+      # saves instead, and started through OSPREY_QMD_IMAGE below.
+      uses: ./.github/actions/build-qmd-image
+
     - name: Run dispatch deploy E2E
       timeout-minutes: 55
       env:
+        # The image built above; holds qmd out of `osprey up`'s build.
+        OSPREY_QMD_IMAGE: osprey-qmd:ci
         ALS_APG_API_KEY: ${{ secrets.ALS_APG_API_KEY }}
         EVENT_DISPATCHER_TOKEN: dev-token
         DISPATCH_WORKER_TOKEN: dev-token
@@ -2367,14 +2785,14 @@ jobs:
         engine: docker
     # Belt and suspenders: the deploy's own teardown does not run when the job
     # is killed. A hosted runner is discarded with the job, but a self-hosted
-    # or reused runner, or a local `act` run, keeps the store's port and its
-    # credential-pinned volume. Names are exact, never a prune.
+    # or reused runner, or a local `act` run, keeps the record store's port and
+    # its data volume. Names are exact, never a prune.
     - name: Clean up any stranded stack resources
       if: always()
       run: |
         docker compose -p osprey-e2e-dispatch down || true
-        docker rm -f osprey-e2e-dispatch-telemetry-store || true
-        docker rm -f osprey-e2e-dispatch-telemetry-gateway || true
+        docker rm -f osprey-e2e-dispatch-agent-record || true
+        docker rm -f osprey-e2e-dispatch-agent-record-clickhouse || true
         docker volume ls -q --filter "name=^osprey-e2e-dispatch_" \
           | xargs -r docker volume rm -f || true
 
@@ -2402,6 +2820,14 @@ jobs:
       || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
 
     steps:
+    # Image-building E2E lanes run the hosted runner out of disk ("No space left
+    # on device" in the image's deps layer). Drop the preinstalled SDKs this job
+    # never uses, as the other image-building E2E jobs do.
+    - name: Free runner disk
+      run: |
+        sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+        df -h /
+
     - name: Checkout repository
       uses: actions/checkout@v7
       with:
@@ -2446,9 +2872,18 @@ jobs:
         fi
         echo "✅ ALS-APG endpoint reachable (HTTP 200)"
 
+    - name: Build the qmd sidecar image
+      # The control-assistant preset deploys the qmd sidecar, which `osprey up`
+      # would otherwise build cold here, fetching 2.1 GB of models from
+      # huggingface.co. Built from the layer cache the main-branch warm-up
+      # saves instead, and started through OSPREY_QMD_IMAGE below.
+      uses: ./.github/actions/build-qmd-image
+
     - name: Run single-user narrowing E2E
       timeout-minutes: 55
       env:
+        # The image built above; holds qmd out of `osprey up`'s build.
+        OSPREY_QMD_IMAGE: osprey-qmd:ci
         ALS_APG_API_KEY: ${{ secrets.ALS_APG_API_KEY }}
         EVENT_DISPATCHER_TOKEN: dev-token
         DISPATCH_WORKER_TOKEN: dev-token
@@ -2464,15 +2899,148 @@ jobs:
         engine: docker
     # Belt and suspenders: the deploy's own teardown does not run when the job
     # is killed. A hosted runner is discarded with the job, but a self-hosted
-    # or reused runner, or a local `act` run, keeps the store's port and its
-    # credential-pinned volume. Names are exact, never a prune.
+    # or reused runner, or a local `act` run, keeps the record store's port and
+    # its data volume. Names are exact, never a prune.
     - name: Clean up any stranded stack resources
       if: always()
       run: |
         docker compose -p suproj down || true
-        docker rm -f suproj-telemetry-store || true
-        docker rm -f suproj-telemetry-gateway || true
+        docker rm -f suproj-agent-record || true
+        docker rm -f suproj-agent-record-clickhouse || true
         docker volume ls -q --filter "name=^suproj_" \
+          | xargs -r docker volume rm -f || true
+
+
+  host-record-e2e:
+    name: Host Record E2E (host sessions record without a container; the stack takes the record over)
+    runs-on: ubuntu-latest
+    # Model-spending lane (see the workflow-level note): one live `osprey
+    # query` and one live `osprey chat` against the host-local agent record,
+    # then an `osprey up --dev` that takes the record over and hands it back.
+    # It is its own job because it builds the project image and starts the
+    # record container, which the shared e2e-tests lane leaves to dedicated
+    # lanes; its project name and port block are its own.
+    # Secret-dependent lane: skips on Dependabot PRs, which get no Actions
+    # secrets. Revalidate with the `revalidate_secret_lanes` dispatch input.
+    if: >-
+      (github.event_name == 'pull_request'
+        && github.event.pull_request.head.repo.full_name == github.repository
+        && github.actor != 'dependabot[bot]'
+        && contains(github.event.pull_request.labels.*.name, 'full-ci'))
+      || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
+    # `osprey build --dev` plus `osprey up --dev` build the project venv and
+    # image cold, as dispatch-overlay-e2e's deploy does; past the cap it is
+    # wedged, not slow.
+    timeout-minutes: 60
+
+    steps:
+    # Image-building E2E lanes run the hosted runner out of disk ("No space left
+    # on device" in the image's deps layer). Drop the preinstalled SDKs this job
+    # never uses, as the other image-building E2E jobs do.
+    - name: Free runner disk
+      run: |
+        sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+        df -h /
+
+    - name: Checkout repository
+      uses: actions/checkout@v7
+      with:
+        fetch-depth: 0
+
+    - name: Install uv
+      uses: astral-sh/setup-uv@v7
+      with:
+        enable-cache: true
+
+    - name: Set up Python
+      run: uv python install 3.11
+
+    - name: Set up Docker Compose
+      uses: docker/setup-compose-action@v2
+
+    - name: Install osprey
+      run: uv sync --extra dev
+
+    - name: Pre-flight LLM endpoint reachability check
+      env:
+        ALS_APG_API_KEY: ${{ secrets.ALS_APG_API_KEY }}
+      run: |
+        # Same probe as dispatch-overlay-e2e: fail fast if the proxy is
+        # unreachable rather than burning a multi-minute container build first.
+        if [ -z "${ALS_APG_API_KEY:-}" ]; then
+          echo "❌ ALS_APG_API_KEY secret is not set on this runner"
+          exit 1
+        fi
+        ALS_APG_PROBE_BASE="${ALS_APG_BASE_URL}"
+        ALS_APG_PROBE_BASE="${ALS_APG_PROBE_BASE%/}"; ALS_APG_PROBE_BASE="${ALS_APG_PROBE_BASE%/v1}"
+        HTTP_CODE=$(curl -sS -o /tmp/probe.txt -w "%{http_code}" --max-time 15 \
+          -X POST "$ALS_APG_PROBE_BASE/v1/messages" \
+          -H "Content-Type: application/json" \
+          -H "anthropic-version: 2023-06-01" \
+          -H "Authorization: Bearer $ALS_APG_API_KEY" \
+          -d '{"model":"claude-haiku-5-5","max_tokens":4,"messages":[{"role":"user","content":"ping"}]}')
+        if [ "$HTTP_CODE" != "200" ]; then
+          echo "❌ ALS-APG endpoint probe failed (HTTP $HTTP_CODE)"
+          head -c 500 /tmp/probe.txt; echo
+          exit 1
+        fi
+        echo "✅ ALS-APG endpoint reachable (HTTP 200)"
+
+    - name: Install the pinned Claude Code CLI
+      # The host chat and query run the version OSPREY pins; the module skips
+      # without a `claude` on PATH, which the skip gate below turns into a red.
+      uses: ./.github/actions/install-pinned-claude-code
+
+    - name: Run host record E2E
+      # Step cap under the job cap so a hang fails THIS step, leaving the
+      # capture step below room to run.
+      timeout-minutes: 55
+      env:
+        ALS_APG_API_KEY: ${{ secrets.ALS_APG_API_KEY }}
+      run: |
+        uv run pytest tests/e2e/test_host_record_e2e.py -v --tb=short \
+          --junitxml=junit-host-record.xml
+
+    - name: Fail the lane on any skipped test
+      run: |
+        # The module's only skip paths are "no docker" and "no claude CLI",
+        # and this lane exists to have both; pytest exits 0 on an all-skipped
+        # run, so the junit report is read instead.
+        uv run python - <<'PY'
+        import sys
+        import xml.etree.ElementTree as ET
+
+        report = "junit-host-record.xml"
+        total = skipped = 0
+        for suite in ET.parse(report).getroot().iter("testsuite"):
+            total += int(suite.get("tests", 0))
+            skipped += int(suite.get("skipped", 0))
+        print(f"{report}: {total} test(s), {skipped} skipped")
+        if total == 0:
+            print(f"::error::{report} collected no tests")
+            sys.exit(1)
+        if skipped:
+            print(f"::error::{report} reports {skipped} skipped test(s)")
+            sys.exit(1)
+        print("✅ every host record test ran; none skipped")
+        PY
+    # On failure only: container logs, exit codes, `OOMKilled`, and runner
+    # disk/memory state, uploaded as the `ci-diag-<lane>` artifact.
+    - name: Capture failure diagnostics
+      if: failure()
+      uses: ./.github/actions/capture-ci-diagnostics
+      with:
+        name: host-record-e2e
+        engine: docker
+    # Belt and suspenders: the deploy's own teardown does not run when the job
+    # is killed. Names are exact, never a prune.
+    - name: Clean up any stranded stack resources
+      if: always()
+      run: |
+        docker compose -p osprey-e2e-host-record down || true
+        docker rm -f osprey-e2e-host-record-agent-record || true
+        docker rm -f osprey-e2e-host-record-agent-record-clickhouse || true
+        docker volume ls -q --filter "name=^osprey-e2e-host-record_" \
           | xargs -r docker volume rm -f || true
 
 
@@ -2496,11 +3064,20 @@ jobs:
     # (~11min when it ran in-lane, including the web-terminal image builds
     # its fixture has since dropped); past the cap it's wedged, not slow.
     # Same budget as dispatch-deploy-e2e: the test's `osprey up --dev` builds
-    # the project image and the qmd sidecar cold on every runner, about a
-    # quarter of an hour on four cores before the first container exists.
+    # the project image cold on every runner, and the qmd sidecar comes from
+    # the shared layer cache (cold too when that misses), about a quarter of
+    # an hour on four cores before the first container exists.
     timeout-minutes: 60
 
     steps:
+    # Image-building E2E lanes run the hosted runner out of disk ("No space left
+    # on device" in the image's deps layer). Drop the preinstalled SDKs this job
+    # never uses, as the other image-building E2E jobs do.
+    - name: Free runner disk
+      run: |
+        sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+        df -h /
+
     - name: Checkout repository
       uses: actions/checkout@v7
       with:
@@ -2545,12 +3122,21 @@ jobs:
         fi
         echo "✅ ALS-APG endpoint reachable (HTTP 200)"
 
+    - name: Build the qmd sidecar image
+      # The control-assistant preset deploys the qmd sidecar, which `osprey up`
+      # would otherwise build cold here, fetching 2.1 GB of models from
+      # huggingface.co. Built from the layer cache the main-branch warm-up
+      # saves instead, and started through OSPREY_QMD_IMAGE below.
+      uses: ./.github/actions/build-qmd-image
+
     - name: Run dispatch overlay visibility E2E
       # Step cap under the job cap so a hang fails THIS step, leaving the
       # capture step below room to run. A job-level timeout is a hard cancel
       # that takes the container logs with it.
       timeout-minutes: 55
       env:
+        # The image built above; holds qmd out of `osprey up`'s build.
+        OSPREY_QMD_IMAGE: osprey-qmd:ci
         ALS_APG_API_KEY: ${{ secrets.ALS_APG_API_KEY }}
         EVENT_DISPATCHER_TOKEN: dev-token
         DISPATCH_WORKER_TOKEN: dev-token
@@ -2566,14 +3152,14 @@ jobs:
         engine: docker
     # Belt and suspenders: the deploy's own teardown does not run when the job
     # is killed. A hosted runner is discarded with the job, but a self-hosted
-    # or reused runner, or a local `act` run, keeps the store's port and its
-    # credential-pinned volume. Names are exact, never a prune.
+    # or reused runner, or a local `act` run, keeps the record store's port and
+    # its data volume. Names are exact, never a prune.
     - name: Clean up any stranded stack resources
       if: always()
       run: |
         docker compose -p osprey-e2e-overlay down || true
-        docker rm -f osprey-e2e-overlay-telemetry-store || true
-        docker rm -f osprey-e2e-overlay-telemetry-gateway || true
+        docker rm -f osprey-e2e-overlay-agent-record || true
+        docker rm -f osprey-e2e-overlay-agent-record-clickhouse || true
         docker volume ls -q --filter "name=^osprey-e2e-overlay_" \
           | xargs -r docker volume rm -f || true
 
@@ -2586,9 +3172,19 @@ jobs:
     # gating). This job needs no secrets — the bluesky bridge never shells out
     # to an LLM — but the same-repo restriction is the house policy for any
     # extra Docker-build-and-deploy job, not just secret-gated ones.
-    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    if: >-
+      (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)
+      || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
 
     steps:
+    # The project image's deps layer ran the runner out of disk: uv reported
+    # "No space left on device" installing into the image. Drop the preinstalled
+    # SDKs this job never uses, as the other image-building E2E jobs do.
+    - name: Free runner disk
+      run: |
+        sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+        df -h /
+
     - name: Checkout repository
       uses: actions/checkout@v7
       with:
@@ -2622,14 +3218,14 @@ jobs:
         engine: docker
     # Belt and suspenders: the deploy's own teardown does not run when the job
     # is killed. A hosted runner is discarded with the job, but a self-hosted
-    # or reused runner, or a local `act` run, keeps the store's port and its
-    # credential-pinned volume. Names are exact, never a prune.
+    # or reused runner, or a local `act` run, keeps the record store's port and
+    # its data volume. Names are exact, never a prune.
     - name: Clean up any stranded stack resources
       if: always()
       run: |
         docker compose -p osprey-e2e-bluesky-deploy down || true
-        docker rm -f osprey-e2e-bluesky-deploy-telemetry-store || true
-        docker rm -f osprey-e2e-bluesky-deploy-telemetry-gateway || true
+        docker rm -f osprey-e2e-bluesky-deploy-agent-record || true
+        docker rm -f osprey-e2e-bluesky-deploy-agent-record-clickhouse || true
         docker volume ls -q --filter "name=^osprey-e2e-bluesky-deploy_" \
           | xargs -r docker volume rm -f || true
 
@@ -2640,7 +3236,9 @@ jobs:
     # Only run on PRs from same repo (mirrors bluesky-deploy-e2e/va-substrate-
     # equivalence-e2e gating). This job needs no secrets — neither the
     # bridge nor the bluesky-web sidecar shells out to an LLM.
-    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    if: >-
+      (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)
+      || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
     # Co-deploys the VA (native PyAT/serving-stack build, same cold-cache cost as
     # va-substrate-equivalence-e2e) alongside the bridge, Tiled, and the
     # bluesky-web sidecar, then drives a real plan end to end through the
@@ -2649,6 +3247,14 @@ jobs:
     timeout-minutes: 45
 
     steps:
+    # Image-building E2E lanes run the hosted runner out of disk ("No space left
+    # on device" in the image's deps layer). Drop the preinstalled SDKs this job
+    # never uses, as the other image-building E2E jobs do.
+    - name: Free runner disk
+      run: |
+        sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+        df -h /
+
     - name: Checkout repository
       uses: actions/checkout@v7
       with:
@@ -2668,11 +3274,21 @@ jobs:
     - name: Install osprey
       run: uv sync --extra dev
 
+    - name: Build the qmd sidecar image
+      # The control-assistant preset deploys the qmd sidecar, which `osprey up`
+      # would otherwise build cold here, fetching 2.1 GB of models from
+      # huggingface.co. Built from the layer cache the main-branch warm-up
+      # saves instead, and started through OSPREY_QMD_IMAGE below.
+      uses: ./.github/actions/build-qmd-image
+
     - name: Run bluesky web deploy E2E
       # Step cap under the job cap so a hang fails THIS step, leaving the
       # capture step below room to run. A job-level timeout is a hard cancel
       # that takes the container logs with it.
       timeout-minutes: 40
+      env:
+        # The image built above; holds qmd out of `osprey up`'s build.
+        OSPREY_QMD_IMAGE: osprey-qmd:ci
       run: |
         uv run pytest tests/e2e/test_bluesky_web_deploy.py -v --tb=short
     # On failure only: container logs, exit codes, `OOMKilled`, and runner
@@ -2685,14 +3301,14 @@ jobs:
         engine: docker
     # Belt and suspenders: the deploy's own teardown does not run when the job
     # is killed. A hosted runner is discarded with the job, but a self-hosted
-    # or reused runner, or a local `act` run, keeps the store's port and its
-    # credential-pinned volume. Names are exact, never a prune.
+    # or reused runner, or a local `act` run, keeps the record store's port and
+    # its data volume. Names are exact, never a prune.
     - name: Clean up any stranded stack resources
       if: always()
       run: |
         docker compose -p panels-proj down || true
-        docker rm -f panels-proj-telemetry-store || true
-        docker rm -f panels-proj-telemetry-gateway || true
+        docker rm -f panels-proj-agent-record || true
+        docker rm -f panels-proj-agent-record-clickhouse || true
         docker volume ls -q --filter "name=^panels-proj_" \
           | xargs -r docker volume rm -f || true
 
@@ -2706,7 +3322,9 @@ jobs:
     # dedicated job and was only ever swept into e2e-tests' glob (the
     # secret-gated LLM lane), contradicting its own docstring ("never
     # collected by the fast lane"). This job is that missing lane.
-    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    if: >-
+      (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)
+      || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
     # The VA image build + `osprey up` inside the test carry their own
     # generous internal timeouts (5min build, 20min deploy-up) to absorb a
     # cold image cache; that's 25min before the five CA proofs (P1-P5, with
@@ -2717,6 +3335,14 @@ jobs:
     timeout-minutes: 45
 
     steps:
+    # Image-building E2E lanes run the hosted runner out of disk ("No space left
+    # on device" in the image's deps layer). Drop the preinstalled SDKs this job
+    # never uses, as the other image-building E2E jobs do.
+    - name: Free runner disk
+      run: |
+        sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+        df -h /
+
     - name: Checkout repository
       uses: actions/checkout@v7
       with:
@@ -2736,11 +3362,21 @@ jobs:
     - name: Install osprey
       run: uv sync --extra dev
 
+    - name: Build the qmd sidecar image
+      # The control-assistant preset deploys the qmd sidecar, which `osprey up`
+      # would otherwise build cold here, fetching 2.1 GB of models from
+      # huggingface.co. Built from the layer cache the main-branch warm-up
+      # saves instead, and started through OSPREY_QMD_IMAGE below.
+      uses: ./.github/actions/build-qmd-image
+
     - name: Run VA substrate equivalence E2E
       # Step cap under the job cap so a hang fails THIS step, leaving the
       # capture step below room to run. A job-level timeout is a hard cancel
       # that takes the container logs with it.
       timeout-minutes: 40
+      env:
+        # The image built above; holds qmd out of `osprey up`'s build.
+        OSPREY_QMD_IMAGE: osprey-qmd:ci
       run: |
         uv run pytest tests/e2e/test_va_substrate_equivalence.py -v --tb=short
     # On failure only: container logs, exit codes, `OOMKilled`, and runner
@@ -2753,14 +3389,14 @@ jobs:
         engine: docker
     # Belt and suspenders: the deploy's own teardown does not run when the job
     # is killed. A hosted runner is discarded with the job, but a self-hosted
-    # or reused runner, or a local `act` run, keeps the store's port and its
-    # credential-pinned volume. Names are exact, never a prune.
+    # or reused runner, or a local `act` run, keeps the record store's port and
+    # its data volume. Names are exact, never a prune.
     - name: Clean up any stranded stack resources
       if: always()
       run: |
         docker compose -p osprey-e2e-va-substrate down || true
-        docker rm -f osprey-e2e-va-substrate-telemetry-store || true
-        docker rm -f osprey-e2e-va-substrate-telemetry-gateway || true
+        docker rm -f osprey-e2e-va-substrate-agent-record || true
+        docker rm -f osprey-e2e-va-substrate-agent-record-clickhouse || true
         docker volume ls -q --filter "name=^osprey-e2e-va-substrate_" \
           | xargs -r docker volume rm -f || true
 
@@ -2783,7 +3419,9 @@ jobs:
     # VA/bridge/Tiled stack — more than one at once is more than a GHA runner
     # has to give. Sequential steps also keep the four failures separately
     # attributable in the job log.
-    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    if: >-
+      (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)
+      || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
     # Builds the native PyAT/serving-stack VA image from source like
     # va-substrate-equivalence-e2e (see its timeout note) — generous cap so a
     # cold image cache can't red the job. Raised from 45 when the grid-scan
@@ -2803,6 +3441,13 @@ jobs:
     timeout-minutes: 100
 
     steps:
+    # The qmd, VA, bridge and Tiled images fill the runner's ~14 GB; drop the
+    # preinstalled SDKs this job never uses.
+    - name: Free runner disk
+      run: |
+        sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+        df -h /
+
     - name: Checkout repository
       uses: actions/checkout@v7
       with:
@@ -2822,6 +3467,13 @@ jobs:
     - name: Install osprey
       run: uv sync --extra dev
 
+    - name: Build the qmd sidecar image
+      # The control-assistant preset deploys the qmd sidecar, which `osprey up`
+      # would otherwise build cold here, fetching 2.1 GB of models from
+      # huggingface.co. Built from the layer cache the main-branch warm-up
+      # saves instead, and started through OSPREY_QMD_IMAGE below.
+      uses: ./.github/actions/build-qmd-image
+
     # Step caps under the job cap, each sized from its module's own internal
     # timeouts (see the job-cap note above), so a hang fails THAT step and the
     # diagnostics step below still runs. A job-level timeout is a hard cancel
@@ -2829,21 +3481,33 @@ jobs:
     # va-substrate-equivalence-e2e's step cap).
     - name: Run ORM roundtrip E2E
       timeout-minutes: 45
+      env:
+        # The image built above; holds qmd out of `osprey up`'s build.
+        OSPREY_QMD_IMAGE: osprey-qmd:ci
       run: |
         uv run pytest tests/e2e/test_orm_roundtrip.py -v --tb=short
 
     - name: Run grid scan roundtrip E2E
       timeout-minutes: 40
+      env:
+        # The image built above; holds qmd out of `osprey up`'s build.
+        OSPREY_QMD_IMAGE: osprey-qmd:ci
       run: |
         uv run pytest tests/e2e/test_grid_scan_roundtrip.py -v --tb=short
 
     - name: Run orbit bump sweep roundtrip E2E
       timeout-minutes: 45
+      env:
+        # The image built above; holds qmd out of `osprey up`'s build.
+        OSPREY_QMD_IMAGE: osprey-qmd:ci
       run: |
         uv run pytest tests/e2e/test_bump_roundtrip.py -v --tb=short
 
     - name: Run preflight probe E2E
       timeout-minutes: 45
+      env:
+        # The image built above; holds qmd out of `osprey up`'s build.
+        OSPREY_QMD_IMAGE: osprey-qmd:ci
       run: |
         uv run pytest tests/e2e/test_preflight_probe.py -v --tb=short
     # On failure only: container logs, exit codes, `OOMKilled`, and runner
@@ -2856,29 +3520,29 @@ jobs:
         engine: docker
     # Belt and suspenders: the deploy's own teardown does not run when the job
     # is killed. A hosted runner is discarded with the job, but a self-hosted
-    # or reused runner, or a local `act` run, keeps the store's port and its
-    # credential-pinned volume. Names are exact, never a prune.
+    # or reused runner, or a local `act` run, keeps the record store's port and
+    # its data volume. Names are exact, never a prune.
     - name: Clean up any stranded stack resources
       if: always()
       run: |
         docker compose -p orm-roundtrip down || true
-        docker rm -f orm-roundtrip-telemetry-store || true
-        docker rm -f orm-roundtrip-telemetry-gateway || true
+        docker rm -f orm-roundtrip-agent-record || true
+        docker rm -f orm-roundtrip-agent-record-clickhouse || true
         docker volume ls -q --filter "name=^orm-roundtrip_" \
           | xargs -r docker volume rm -f || true
         docker compose -p grid-scan-roundtrip down || true
-        docker rm -f grid-scan-roundtrip-telemetry-store || true
-        docker rm -f grid-scan-roundtrip-telemetry-gateway || true
+        docker rm -f grid-scan-roundtrip-agent-record || true
+        docker rm -f grid-scan-roundtrip-agent-record-clickhouse || true
         docker volume ls -q --filter "name=^grid-scan-roundtrip_" \
           | xargs -r docker volume rm -f || true
         docker compose -p bump-roundtrip down || true
-        docker rm -f bump-roundtrip-telemetry-store || true
-        docker rm -f bump-roundtrip-telemetry-gateway || true
+        docker rm -f bump-roundtrip-agent-record || true
+        docker rm -f bump-roundtrip-agent-record-clickhouse || true
         docker volume ls -q --filter "name=^bump-roundtrip_" \
           | xargs -r docker volume rm -f || true
         docker compose -p preflight-probe down || true
-        docker rm -f preflight-probe-telemetry-store || true
-        docker rm -f preflight-probe-telemetry-gateway || true
+        docker rm -f preflight-probe-agent-record || true
+        docker rm -f preflight-probe-agent-record-clickhouse || true
         docker volume ls -q --filter "name=^preflight-probe_" \
           | xargs -r docker volume rm -f || true
 
@@ -2889,7 +3553,9 @@ jobs:
     # Only run on PRs from same repo (mirrors orm-roundtrip-e2e gating). This
     # job needs no secrets — every stage drives the bridge HTTP API and the
     # osprey CLI directly, no LLM involved.
-    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    if: >-
+      (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)
+      || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
     # Sized from the suite's own internal caps rather than a guess: the 2400s
     # `osprey up` budget is spent TWICE (stage 8 flips the control
     # system to mock and redeploys the whole stack), plus a 900s whole-queue
@@ -2899,6 +3565,14 @@ jobs:
     timeout-minutes: 75
 
     steps:
+    # Image-building E2E lanes run the hosted runner out of disk ("No space left
+    # on device" in the image's deps layer). Drop the preinstalled SDKs this job
+    # never uses, as the other image-building E2E jobs do.
+    - name: Free runner disk
+      run: |
+        sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+        df -h /
+
     - name: Checkout repository
       uses: actions/checkout@v7
       with:
@@ -2918,11 +3592,21 @@ jobs:
     - name: Install osprey
       run: uv sync --extra dev
 
+    - name: Build the qmd sidecar image
+      # The control-assistant preset deploys the qmd sidecar, which `osprey up`
+      # would otherwise build cold here, fetching 2.1 GB of models from
+      # huggingface.co. Built from the layer cache the main-branch warm-up
+      # saves instead, and started through OSPREY_QMD_IMAGE below.
+      uses: ./.github/actions/build-qmd-image
+
     - name: Run Bluesky queue E2E
       # Step cap under the job cap so a hang fails THIS step, leaving the
       # capture step below room to run. A job-level timeout is a hard cancel
       # that takes the container logs with it.
       timeout-minutes: 70
+      env:
+        # The image built above; holds qmd out of `osprey up`'s build.
+        OSPREY_QMD_IMAGE: osprey-qmd:ci
       run: |
         uv run pytest tests/e2e/test_bluesky_queue_e2e.py -v --tb=short
     # On failure only: container logs, exit codes, `OOMKilled`, and runner
@@ -2935,14 +3619,14 @@ jobs:
         engine: docker
     # Belt and suspenders: the deploy's own teardown does not run when the job
     # is killed. A hosted runner is discarded with the job, but a self-hosted
-    # or reused runner, or a local `act` run, keeps the store's port and its
-    # credential-pinned volume. Names are exact, never a prune.
+    # or reused runner, or a local `act` run, keeps the record store's port and
+    # its data volume. Names are exact, never a prune.
     - name: Clean up any stranded stack resources
       if: always()
       run: |
         docker compose -p queue-e2e down || true
-        docker rm -f queue-e2e-telemetry-store || true
-        docker rm -f queue-e2e-telemetry-gateway || true
+        docker rm -f queue-e2e-agent-record || true
+        docker rm -f queue-e2e-agent-record-clickhouse || true
         docker volume ls -q --filter "name=^queue-e2e_" \
           | xargs -r docker volume rm -f || true
 
@@ -2984,6 +3668,14 @@ jobs:
     timeout-minutes: 75
 
     steps:
+    # Image-building E2E lanes run the hosted runner out of disk ("No space left
+    # on device" in the image's deps layer). Drop the preinstalled SDKs this job
+    # never uses, as the other image-building E2E jobs do.
+    - name: Free runner disk
+      run: |
+        sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+        df -h /
+
     - name: Checkout repository
       uses: actions/checkout@v7
       with:
@@ -3035,12 +3727,21 @@ jobs:
       # rather than skipping its agent tests or running some other build.
       uses: ./.github/actions/install-pinned-claude-code
 
+    - name: Build the qmd sidecar image
+      # The control-assistant preset deploys the qmd sidecar, which `osprey up`
+      # would otherwise build cold here, fetching 2.1 GB of models from
+      # huggingface.co. Built from the layer cache the main-branch warm-up
+      # saves instead, and started through OSPREY_QMD_IMAGE below.
+      uses: ./.github/actions/build-qmd-image
+
     - name: Run scan stack agentic E2E
       # Step cap under the job cap so a hang fails THIS step, leaving the
       # capture step below room to run. A job-level timeout is a hard cancel
       # that takes the container logs with it.
       timeout-minutes: 70
       env:
+        # The image built above; holds qmd out of `osprey up`'s build.
+        OSPREY_QMD_IMAGE: osprey-qmd:ci
         ALS_APG_API_KEY: ${{ secrets.ALS_APG_API_KEY }}
         # Arms the agent-transcript dump (tests/e2e/sdk_helpers.py). The LLM
         # judge reads tool results cut at JUDGE_RESULT_CHARS and only the head
@@ -3101,14 +3802,14 @@ jobs:
         engine: docker
     # Belt and suspenders: the deploy's own teardown does not run when the job
     # is killed. A hosted runner is discarded with the job, but a self-hosted
-    # or reused runner, or a local `act` run, keeps the store's port and its
-    # credential-pinned volume. Names are exact, never a prune.
+    # or reused runner, or a local `act` run, keeps the record store's port and
+    # its data volume. Names are exact, never a prune.
     - name: Clean up any stranded stack resources
       if: always()
       run: |
         docker compose -p plan-agentic down || true
-        docker rm -f plan-agentic-telemetry-store || true
-        docker rm -f plan-agentic-telemetry-gateway || true
+        docker rm -f plan-agentic-agent-record || true
+        docker rm -f plan-agentic-agent-record-clickhouse || true
         docker volume ls -q --filter "name=^plan-agentic_" \
           | xargs -r docker volume rm -f || true
 
@@ -3123,8 +3824,10 @@ jobs:
     # turn — but the same-repo restriction is house policy for any extra
     # Docker-build-and-deploy job, not just secret-gated ones. A secret
     # appearing here would mean the lane's scope silently grew; that is guarded
-    # by test_archiver_world_job_has_no_llm_secret.
-    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    # by test_secret_free_lane_has_no_llm_secret[archiver-world-e2e].
+    if: >-
+      (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)
+      || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
     # Builds the native PyAT/serving-stack VA image from source (same cost as
     # orm-roundtrip-e2e) and then seeds a DEFAULT-knob archive: 30-day
     # retention at two tiers across the full channel manifest. The seed itself
@@ -3133,6 +3836,13 @@ jobs:
     timeout-minutes: 45
 
     steps:
+    # The VA, recorder and store images fill the runner's ~14 GB; drop the
+    # preinstalled SDKs this job never uses.
+    - name: Free runner disk
+      run: |
+        sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+        df -h /
+
     - name: Checkout repository
       uses: actions/checkout@v7
       with:
@@ -3141,7 +3851,7 @@ jobs:
     # No ghcr login step: the trimmed stack pulls nothing from a private
     # registry. The VA image builds locally from
     # python:3.11-slim, mongodb is mongo:7 from Docker Hub, and the recorder
-    # reuses the VA image — no telemetry store is deployed here at all.
+    # reuses the VA image.
     - name: Install uv
       uses: astral-sh/setup-uv@v7
       with:
@@ -3176,13 +3886,26 @@ jobs:
         name: archiver-world-e2e
         engine: docker
 
+    # `osprey up` renders the agent record into every deployment, so a killed
+    # run leaves it holding its port on a self-hosted or reused runner. Names
+    # are exact, never a wildcard, matching the module's own teardown.
+    - name: Clean up any stranded archiver-world resources
+      if: always()
+      run: |
+        docker compose -p archiver-world down || true
+        docker rm -f archiver-world-agent-record || true
+        docker rm -f archiver-world-agent-record-clickhouse || true
+        docker volume rm archiver-world_agent_record_clickhouse_data || true
+
 
   graph-reseed-e2e:
     name: Graph Reseed Stamp E2E (render + real Neo4j store, no model)
     runs-on: ubuntu-latest
     # Same-repo-PR gating, house policy for every extra Docker lane. No
     # secrets: the file reads the render and the store, and reaches no model.
-    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    if: >-
+      (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)
+      || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
     # Three `osprey build`s of the control-assistant preset plus one
     # testcontainers Neo4j store; about a minute on a workstation.
     timeout-minutes: 30
@@ -3236,9 +3959,12 @@ jobs:
     # job needs no secrets — the bridge never shells out to an LLM — but the
     # same-repo restriction is the house policy for any extra
     # Docker-build-and-deploy job, not just secret-gated ones.
-    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    if: >-
+      (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)
+      || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
     # Deploys the control-assistant preset, so the bring-up builds that preset's
-    # images (qmd ~3.4GB, bluesky-web ~2.4GB, va ~2.4GB) before the bridge image
+    # images (bluesky-web ~2.4GB, va ~2.4GB; qmd ~3.4GB comes from the shared
+    # layer cache, and builds cold when that misses) before the bridge image
     # and the Tiled image pull it actually tests. ~6.5min with
     # images cached, ~9-11min on a warm runner, but a fully cold one has been
     # observed still building at 15min with every build progressing normally —
@@ -3248,6 +3974,14 @@ jobs:
     timeout-minutes: 30
 
     steps:
+    # Image-building E2E lanes run the hosted runner out of disk ("No space left
+    # on device" in the image's deps layer). Drop the preinstalled SDKs this job
+    # never uses, as the other image-building E2E jobs do.
+    - name: Free runner disk
+      run: |
+        sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+        df -h /
+
     - name: Checkout repository
       uses: actions/checkout@v7
       with:
@@ -3267,11 +4001,21 @@ jobs:
     - name: Install osprey
       run: uv sync --extra dev
 
+    - name: Build the qmd sidecar image
+      # The control-assistant preset deploys the qmd sidecar, which `osprey up`
+      # would otherwise build cold here, fetching 2.1 GB of models from
+      # huggingface.co. Built from the layer cache the main-branch warm-up
+      # saves instead, and started through OSPREY_QMD_IMAGE below.
+      uses: ./.github/actions/build-qmd-image
+
     - name: Run Tiled roundtrip E2E
       # Step cap under the job cap so a hang fails THIS step, leaving the
       # capture step below room to run. A job-level timeout is a hard cancel
       # that takes the container logs with it.
       timeout-minutes: 25
+      env:
+        # The image built above; holds qmd out of `osprey up`'s build.
+        OSPREY_QMD_IMAGE: osprey-qmd:ci
       run: |
         uv run pytest tests/e2e/test_tiled_roundtrip.py -v --tb=short
     # On failure only: container logs, exit codes, `OOMKilled`, and runner
@@ -3284,14 +4028,14 @@ jobs:
         engine: docker
     # Belt and suspenders: the deploy's own teardown does not run when the job
     # is killed. A hosted runner is discarded with the job, but a self-hosted
-    # or reused runner, or a local `act` run, keeps the store's port and its
-    # credential-pinned volume. Names are exact, never a prune.
+    # or reused runner, or a local `act` run, keeps the record store's port and
+    # its data volume. Names are exact, never a prune.
     - name: Clean up any stranded stack resources
       if: always()
       run: |
         docker compose -p osprey-e2e-tiled down || true
-        docker rm -f osprey-e2e-tiled-telemetry-store || true
-        docker rm -f osprey-e2e-tiled-telemetry-gateway || true
+        docker rm -f osprey-e2e-tiled-agent-record || true
+        docker rm -f osprey-e2e-tiled-agent-record-clickhouse || true
         docker volume ls -q --filter "name=^osprey-e2e-tiled_" \
           | xargs -r docker volume rm -f || true
 
@@ -3309,9 +4053,18 @@ jobs:
     # amd64-emulated Virtual Accelerator image (mock devices, no EPICS), so
     # it's comparable in weight to bluesky-deploy-e2e rather than
     # va-substrate-equivalence-e2e.
-    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    if: >-
+      (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)
+      || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
 
     steps:
+    # The image build's uv install runs the runner out of its ~14 GB; drop the
+    # preinstalled SDKs this job never uses.
+    - name: Free runner disk
+      run: |
+        sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+        df -h /
+
     - name: Checkout repository
       uses: actions/checkout@v7
       with:
@@ -3345,14 +4098,14 @@ jobs:
         engine: docker
     # Belt and suspenders: the deploy's own teardown does not run when the job
     # is killed. A hosted runner is discarded with the job, but a self-hosted
-    # or reused runner, or a local `act` run, keeps the store's port and its
-    # credential-pinned volume. Names are exact, never a prune.
+    # or reused runner, or a local `act` run, keeps the record store's port and
+    # its data volume. Names are exact, never a prune.
     - name: Clean up any stranded stack resources
       if: always()
       run: |
         docker compose -p osprey-e2e-catalog down || true
-        docker rm -f osprey-e2e-catalog-telemetry-store || true
-        docker rm -f osprey-e2e-catalog-telemetry-gateway || true
+        docker rm -f osprey-e2e-catalog-agent-record || true
+        docker rm -f osprey-e2e-catalog-agent-record-clickhouse || true
         docker volume ls -q --filter "name=^osprey-e2e-catalog_" \
           | xargs -r docker volume rm -f || true
 
@@ -3371,10 +4124,21 @@ jobs:
     # Accelerator image (the negative case's IOC no-write proof reads a real
     # corrector setpoint over Channel Access, independent of the bridge), so
     # it's as heavy as va-substrate-equivalence-e2e, not bluesky-catalog-e2e.
-    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    if: >-
+      (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)
+      || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
     timeout-minutes: 45
 
     steps:
+    # The qmd sidecar and the deployment's generated image are built side by
+    # side, which overruns the ~14 GB a hosted runner starts with free (the
+    # 2026-10-31 attempts died in `uv` with "No space left on device" during
+    # the image build); drop the preinstalled SDKs this job never uses.
+    - name: Free runner disk
+      run: |
+        sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+        df -h /
+
     - name: Checkout repository
       uses: actions/checkout@v7
       with:
@@ -3394,11 +4158,21 @@ jobs:
     - name: Install osprey
       run: uv sync --extra dev
 
+    - name: Build the qmd sidecar image
+      # The control-assistant preset deploys the qmd sidecar, which `osprey up`
+      # would otherwise build cold here, fetching 2.1 GB of models from
+      # huggingface.co. Built from the layer cache the main-branch warm-up
+      # saves instead, and started through OSPREY_QMD_IMAGE below.
+      uses: ./.github/actions/build-qmd-image
+
     - name: Run bluesky sandbox escape E2E
       # Step cap under the job cap so a hang fails THIS step, leaving the
       # capture step below room to run. A job-level timeout is a hard cancel
       # that takes the container logs with it.
       timeout-minutes: 40
+      env:
+        # The image built above; holds qmd out of `osprey up`'s build.
+        OSPREY_QMD_IMAGE: osprey-qmd:ci
       run: |
         uv run pytest tests/e2e/test_bluesky_sandbox_escape_e2e.py -v --tb=short
     # On failure only: container logs, exit codes, `OOMKilled`, and runner
@@ -3411,14 +4185,14 @@ jobs:
         engine: docker
     # Belt and suspenders: the deploy's own teardown does not run when the job
     # is killed. A hosted runner is discarded with the job, but a self-hosted
-    # or reused runner, or a local `act` run, keeps the store's port and its
-    # credential-pinned volume. Names are exact, never a prune.
+    # or reused runner, or a local `act` run, keeps the record store's port and
+    # its data volume. Names are exact, never a prune.
     - name: Clean up any stranded stack resources
       if: always()
       run: |
         docker compose -p sandbox-escape down || true
-        docker rm -f sandbox-escape-telemetry-store || true
-        docker rm -f sandbox-escape-telemetry-gateway || true
+        docker rm -f sandbox-escape-agent-record || true
+        docker rm -f sandbox-escape-agent-record-clickhouse || true
         docker volume ls -q --filter "name=^sandbox-escape_" \
           | xargs -r docker volume rm -f || true
 
@@ -3455,6 +4229,14 @@ jobs:
     timeout-minutes: 45
 
     steps:
+    # Image-building E2E lanes run the hosted runner out of disk ("No space left
+    # on device" in the image's deps layer). Drop the preinstalled SDKs this job
+    # never uses, as the other image-building E2E jobs do.
+    - name: Free runner disk
+      run: |
+        sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+        df -h /
+
     - name: Checkout repository
       uses: actions/checkout@v7
       with:
@@ -3587,6 +4369,14 @@ jobs:
       OSPREY_E2E_RUNTIME: docker
 
     steps:
+    # Image-building E2E lanes run the hosted runner out of disk ("No space left
+    # on device" in the image's deps layer). Drop the preinstalled SDKs this job
+    # never uses, as the other image-building E2E jobs do.
+    - name: Free runner disk
+      run: |
+        sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+        df -h /
+
     - name: Checkout repository
       uses: actions/checkout@v7
       with:
@@ -3625,7 +4415,9 @@ jobs:
         # and pinning it is the fixture's call to make — via its
         # OSPREY_E2E_GCHAT_PUBSUB_IMAGE override, which this step would then
         # follow for free.
-        IMAGE=$(uv run python -c 'from tests.e2e.fixtures.gchat_pubsub_emulator import IMAGE; print(IMAGE)')
+        # The fixture imports the connectors test harness, which pytest finds
+        # through its pythonpath; a plain interpreter is handed the same path.
+        IMAGE=$(PYTHONPATH=packages/osprey-connectors/tests uv run python -c 'from tests.e2e.fixtures.gchat_pubsub_emulator import IMAGE; print(IMAGE)')
         echo "Pulling emulator image: $IMAGE"
         docker pull "$IMAGE"
 
@@ -3844,9 +4636,19 @@ jobs:
     # lifecycle lanes this touches nothing host-global — every image and
     # container it creates carries a per-run uuid under the
     # osprey-e2e-privsplit prefix — so it is safe to run on per-phase PRs too.
-    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    if: >-
+      (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)
+      || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
 
     steps:
+    # Image-building E2E lanes run the hosted runner out of disk ("No space left
+    # on device" in the image's deps layer). Drop the preinstalled SDKs this job
+    # never uses, as the other image-building E2E jobs do.
+    - name: Free runner disk
+      run: |
+        sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+        df -h /
+
     - name: Checkout repository
       uses: actions/checkout@v7
       with:
@@ -3966,9 +4768,19 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     # Only run on PRs from same repo (mirrors deploy-e2e gating)
-    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    if: >-
+      (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)
+      || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
 
     steps:
+    # The cache-hit test rebuilds the generated image (Playwright's Chromium
+    # included) next to the first build, which overruns the ~14 GB a hosted
+    # runner starts with free; drop the preinstalled SDKs this job never uses.
+    - name: Free runner disk
+      run: |
+        sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+        df -h /
+
     - name: Checkout repository
       uses: actions/checkout@v7
       with:
@@ -3990,7 +4802,7 @@ jobs:
       env:
         # Install the PR branch inside the image (not the PyPI release) so
         # the generated Dockerfile is tested against the code under review.
-        OSPREY_E2E_PIP_SPEC: git+https://github.com/${{ github.repository }}.git@${{ github.event.pull_request.head.sha }}
+        OSPREY_E2E_PIP_SPEC: git+https://github.com/${{ github.repository }}.git@${{ github.event.pull_request.head.sha || github.sha }}
         # Drives the real-LLM round-trip in test_generated_image_serves_agent_
         # over_http (injected into the container at run time). The build/boot
         # test needs no key; the HTTP test auto-skips (requires_als_apg) if the
@@ -4222,7 +5034,9 @@ jobs:
     # Same-repo PRs only — house policy for any extra Docker-build-and-deploy
     # job. This one needs no secrets: it builds an image and runs `print(2+2)`
     # through the python-executor path; no LLM is called anywhere in the file.
-    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    if: >-
+      (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)
+      || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
     # Must exceed the test's own BUILD_TIMEOUT (1200s) plus checkout, uv sync,
     # the wheel build and four container runs — so a slow-but-progressing build
     # is killed by the test (which prints the docker log) rather than silently
@@ -4273,15 +5087,26 @@ jobs:
     runs-on: ubuntu-latest
     # Only run on PRs from same repo (mirrors deploy-e2e gating). Unlike the
     # lifecycle lanes this is scoped to every same-repo PR rather than PRs into
-    # main: it builds no image and runs no destructive verb — it deploys two
-    # public upstream stores under project names it owns outright and tears
+    # main: it runs no destructive verb — it deploys a public upstream store
+    # and the agent record under project names it owns outright and tears
     # them down in a `finally` — so it is cheap enough to gate every PR that
     # can touch the build/deploy/profile path. No secrets: nothing here reaches
-    # an LLM.
-    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
-    timeout-minutes: 20
+    # an LLM. Sized for two deployments that each build the project image the
+    # agent record runs, the second from the first one's layer cache.
+    if: >-
+      (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)
+      || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
+    timeout-minutes: 40
 
     steps:
+    # Image-building E2E lanes run the hosted runner out of disk ("No space left
+    # on device" in the image's deps layer). Drop the preinstalled SDKs this job
+    # never uses, as the other image-building E2E jobs do.
+    - name: Free runner disk
+      run: |
+        sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+        df -h /
+
     - name: Checkout repository
       uses: actions/checkout@v7
       with:
@@ -4305,7 +5130,7 @@ jobs:
       # Step cap under the job cap so a hang fails THIS step, leaving the
       # capture step below room to run. A job-level timeout is a hard cancel
       # that takes the container logs with it.
-      timeout-minutes: 15
+      timeout-minutes: 35
       run: |
         uv run pytest tests/e2e/test_deploy_writeback_e2e.py -v --tb=short
 
@@ -4329,26 +5154,39 @@ jobs:
         for case in rebuild divergent render; do
           project="osprey-e2e-wb-${case}"
           docker rm -f "${project}-ariel-postgres" || true
+          docker rm -f "${project}-agent-record" || true
+          docker rm -f "${project}-agent-record-clickhouse" || true
           docker compose -p "$project" down || true
           docker volume rm "${project}_ariel_postgres_data" || true
+          docker volume rm "${project}_agent_record_clickhouse_data" || true
         done
 
   multi-user-deploy-lifecycle-e2e:
-    name: Multi-User Deploy Lifecycle E2E (PRs into main, real container runtime)
+    name: Multi-User Deploy Lifecycle E2E (real container runtime)
     runs-on: ubuntu-latest
     timeout-minutes: 60
-    # Runs on every same-repo PR whose BASE is main — which is every ordinary
-    # PR, but not per-phase PRs inside an epic (those target epic/* and skip
-    # it, matching how the epic workflow scopes its heavier gates; the job
-    # then runs once at the epic→main boundary). Scoped this way because it
-    # drives REAL, destructive container/volume lifecycle operations
-    # (decommission/prune/nuke) against the runtime.
-    if: |
-      github.event_name == 'pull_request' &&
-      github.event.pull_request.base.ref == 'main' &&
-      github.event.pull_request.head.repo.full_name == github.repository
+    # Pull-request scope is main only: every ordinary PR, but not per-phase
+    # PRs inside an epic (those target epic/* and skip it, matching how the
+    # epic workflow scopes its heavier gates; the job then runs once at the
+    # epic→main boundary). Scoped this way because it drives REAL, destructive
+    # container/volume lifecycle operations (decommission/prune/nuke) against
+    # the runtime. The `if:` below is the exact condition; its dispatch arm is
+    # the one every pull-request-only lane carries (see the workflow header).
+    if: >-
+      (github.event_name == 'pull_request' &&
+        github.event.pull_request.base.ref == 'main' &&
+        github.event.pull_request.head.repo.full_name == github.repository)
+      || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
 
     steps:
+    # Image-building E2E lanes run the hosted runner out of disk ("No space left
+    # on device" in the image's deps layer). Drop the preinstalled SDKs this job
+    # never uses, as the other image-building E2E jobs do.
+    - name: Free runner disk
+      run: |
+        sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+        df -h /
+
     - name: Checkout repository
       uses: actions/checkout@v7
       with:
@@ -4401,18 +5239,19 @@ jobs:
         done
         docker rm -f osprey-e2e-mus-p3-nginx || true
         docker rm -f osprey-e2e-mus-p3-registry || true
-        docker rm -f osprey-e2e-mus-p3-telemetry-store || true
-        docker rm -f osprey-e2e-mus-p3-telemetry-gateway || true
+        docker rm -f osprey-e2e-mus-p3-agent-record || true
+        docker rm -f osprey-e2e-mus-p3-agent-record-clickhouse || true
         docker compose -p osprey-e2e-mus-p3 down || true
-        docker volume rm osprey-e2e-mus-p3_telemetry_store_data || true
-        docker volume rm osprey-e2e-mus-p3_gateway-state || true
+        docker volume rm osprey-e2e-mus-p3_agent_record_clickhouse_data || true
 
   auth-perimeter-e2e:
     name: Auth Perimeter E2E (real sidecar image + nginx auth_request)
     runs-on: ubuntu-latest
     timeout-minutes: 60
-    # Same PR scoping as the lifecycle lanes above: same-repo PRs into main
-    # only, since this drives real container lifecycle against the runtime.
+    # Pull-request scope is main plus epic/* (reason below); this drives real
+    # container lifecycle against the runtime. The `if:` below is the exact
+    # condition; its dispatch arm is the one every pull-request-only lane
+    # carries (see the workflow header).
     #
     # DELIBERATELY ITS OWN LANE. This is the only job in the repo that builds
     # the deployed auth-sidecar Dockerfile, which is a real
@@ -4428,12 +5267,21 @@ jobs:
     # that changes what it covers, and a safety lane that only runs after the
     # work is already merged is one that can go red inside a green gate.
     if: >-
-      github.event_name == 'pull_request'
-      && github.event.pull_request.head.repo.full_name == github.repository
-      && (github.event.pull_request.base.ref == 'main'
-      || startsWith(github.event.pull_request.base.ref, 'epic/'))
+      (github.event_name == 'pull_request'
+        && github.event.pull_request.head.repo.full_name == github.repository
+        && (github.event.pull_request.base.ref == 'main'
+        || startsWith(github.event.pull_request.base.ref, 'epic/')))
+      || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
 
     steps:
+    # Image-building E2E lanes run the hosted runner out of disk ("No space left
+    # on device" in the image's deps layer). Drop the preinstalled SDKs this job
+    # never uses, as the other image-building E2E jobs do.
+    - name: Free runner disk
+      run: |
+        sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+        df -h /
+
     - name: Checkout repository
       uses: actions/checkout@v7
       with:
@@ -4485,6 +5333,9 @@ jobs:
         docker rm -f osprey-e2e-auth-perimeter-auth || true
         docker rm -f osprey-e2e-auth-perimeter-nginx || true
         docker compose -p osprey-e2e-auth-perimeter down || true
+        docker rm -f osprey-e2e-auth-perimeter-agent-record || true
+        docker rm -f osprey-e2e-auth-perimeter-agent-record-clickhouse || true
+        docker volume rm osprey-e2e-auth-perimeter_agent_record_clickhouse_data || true
         docker rmi -f osprey-e2e-auth-perimeter-auth:local || true
         docker rmi -f osprey-e2e-auth-perimeter-readonly:local || true
 
@@ -4506,9 +5357,11 @@ jobs:
     # `test_full_chain_auth_lane_outbudgets_the_single_build_lanes` pins: that
     # lane builds two real images where this one builds one.
     timeout-minutes: 70
-    # Same PR scoping as the lifecycle and auth-perimeter lanes above: same-repo
-    # PRs into main only, since this drives a real `osprey up` (container and
-    # volume lifecycle) against the runtime.
+    # Same pull-request scope as auth-perimeter-e2e above: main plus epic/*
+    # (reason below); this drives a real `osprey up` (container and volume
+    # lifecycle) against the runtime. The `if:` below is the exact condition;
+    # its dispatch arm is the one every pull-request-only lane carries (see the
+    # workflow header).
     #
     # DELIBERATELY ITS OWN LANE, for the same reason auth-perimeter-e2e is one.
     # The terminal behind nginx here is the REAL `osprey web`, so the render
@@ -4539,12 +5392,21 @@ jobs:
     # that changes what it covers, and a safety lane that only runs after the
     # work is already merged is one that can go red inside a green gate.
     if: >-
-      github.event_name == 'pull_request'
-      && github.event.pull_request.head.repo.full_name == github.repository
-      && (github.event.pull_request.base.ref == 'main'
-      || startsWith(github.event.pull_request.base.ref, 'epic/'))
+      (github.event_name == 'pull_request'
+        && github.event.pull_request.head.repo.full_name == github.repository
+        && (github.event.pull_request.base.ref == 'main'
+        || startsWith(github.event.pull_request.base.ref, 'epic/')))
+      || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
 
     steps:
+    # Image-building E2E lanes run the hosted runner out of disk ("No space left
+    # on device" in the image's deps layer). Drop the preinstalled SDKs this job
+    # never uses, as the other image-building E2E jobs do.
+    - name: Free runner disk
+      run: |
+        sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+        df -h /
+
     - name: Checkout repository
       uses: actions/checkout@v7
       with:
@@ -4597,6 +5459,9 @@ jobs:
         done
         docker rm -f osprey-e2e-token-multiuser-nginx || true
         docker compose -p osprey-e2e-token-multiuser down || true
+        docker rm -f osprey-e2e-token-multiuser-agent-record || true
+        docker rm -f osprey-e2e-token-multiuser-agent-record-clickhouse || true
+        docker volume rm osprey-e2e-token-multiuser_agent_record_clickhouse_data || true
         for user in alice kiosk; do
           docker rm -f "osprey-e2e-open-multiuser-web-${user}" || true
           docker volume rm "osprey-e2e-open-multiuser_${user}-claude-config" || true
@@ -4604,6 +5469,9 @@ jobs:
         done
         docker rm -f osprey-e2e-open-multiuser-nginx || true
         docker compose -p osprey-e2e-open-multiuser down || true
+        docker rm -f osprey-e2e-open-multiuser-agent-record || true
+        docker rm -f osprey-e2e-open-multiuser-agent-record-clickhouse || true
+        docker volume rm osprey-e2e-open-multiuser_agent_record_clickhouse_data || true
         # Each lane's tier image, tagged `<project_name>-<tier>:local`.
         docker rmi -f osprey-e2e-token-multiuser-readonly:local || true
         docker rmi -f osprey-e2e-open-multiuser-readonly:local || true
@@ -4620,9 +5488,8 @@ jobs:
     # build_lanes` pins the RELATION (strictly more than either sibling, at both
     # caps), not these numbers; record the first cold wall clock in the PR body
     # so the margin is sized from a measurement rather than from this estimate.
-    # The telemetry store and gateway add no build (public images, a pull
-    # each) and the history service runs the project image already built, so
-    # they cost container starts only: on a developer host the whole module
+    # The history service runs the project image already built, so it costs a
+    # container start only: on a developer host the whole module
     # runs in about 5 minutes with the project image built, 1 minute warm.
     # The history cases add a second `osprey up` (no build) and six browser
     # runs; re-measured with them on a developer host: the whole module in
@@ -4660,12 +5527,20 @@ jobs:
     # lane that only runs after the work is already merged is one that can go
     # red inside a green gate.
     if: >-
-      github.event_name == 'pull_request'
-      && github.event.pull_request.head.repo.full_name == github.repository
-      && (github.event.pull_request.base.ref == 'main'
-      || startsWith(github.event.pull_request.base.ref, 'epic/'))
+      (github.event_name == 'pull_request'
+        && github.event.pull_request.head.repo.full_name == github.repository
+        && (github.event.pull_request.base.ref == 'main'
+        || startsWith(github.event.pull_request.base.ref, 'epic/')))
+      || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
 
     steps:
+    # The image build's uv install runs the runner out of its ~14 GB; drop the
+    # preinstalled SDKs this job never uses.
+    - name: Free runner disk
+      run: |
+        sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+        df -h /
+
     - name: Checkout repository
       uses: actions/checkout@v7
       with:
@@ -4685,9 +5560,51 @@ jobs:
     - name: Install osprey
       run: uv sync --extra dev
 
-    # The reader origin's `/play` page and the history page are proved in a
-    # real browser against this lane's stack.
+    # `--with-deps` apt-installs chromium's system debs from the runner's
+    # default mirror, azure.archive.ubuntu.com, which some days serves them at
+    # 30-100 kB/s. The same treatment as the visual-theming lane: apt prefers
+    # archive.ubuntu.com, and the install has its own cap. That lane writes the
+    # Playwright cache (both browsers and their debs); this one only reads it,
+    # so the two never store a second copy under a second key.
+    - name: Resolve Playwright browser cache key
+      id: playwright-key
+      run: |
+        version=$(uv run python -c 'import importlib.metadata as m; print(m.version("playwright"))')
+        : "${ImageOS:?runner image name missing}" "${ImageVersion:?runner image version missing}"
+        echo "prefix=playwright-${version}-${ImageOS}-" >> "$GITHUB_OUTPUT"
+        echo "key=playwright-${version}-${ImageOS}-${ImageVersion}" >> "$GITHUB_OUTPUT"
+
+    - name: Configure apt for the Playwright system deps
+      # See the visual-theming lane's step of the same name.
+      run: |
+        sudo sed -i -E \
+          -e 's#^(http://azure\.archive\.ubuntu\.com/ubuntu/\t)priority:1$#\1priority:2#' \
+          -e 's#^(https?://archive\.ubuntu\.com/ubuntu/\t)priority:2$#\1priority:1#' \
+          /etc/apt/apt-mirrors.txt
+        cat /etc/apt/apt-mirrors.txt
+        grep -Eq '^https?://archive\.ubuntu\.com/ubuntu/[[:space:]]+priority:1$' /etc/apt/apt-mirrors.txt \
+          || echo "::warning::apt-mirrors.txt not in the expected shape; apt keeps the image's mirror order"
+        mkdir -p "$HOME/apt-archives/partial"
+        sudo tee /etc/apt/apt.conf.d/zzz-playwright-deps-cache >/dev/null <<EOF
+        Dir::Cache::Archives "$HOME/apt-archives";
+        APT::Keep-Downloaded-Packages "true";
+        Acquire::http::Timeout "15";
+        Acquire::Retries "3";
+        EOF
+
+    - name: Restore Playwright browsers and apt debs
+      uses: actions/cache/restore@v6
+      with:
+        path: |
+          ~/.cache/ms-playwright
+          ~/apt-archives
+        key: ${{ steps.playwright-key.outputs.key }}
+        restore-keys: |
+          ${{ steps.playwright-key.outputs.prefix }}
+
+    # The history page is proved in a real browser against this lane's stack.
     - name: Install Playwright chromium
+      timeout-minutes: 10
       run: uv run playwright install chromium --with-deps
 
     # The fixture drives `osprey init`/`osprey build`/`osprey up --dev` itself;
@@ -4756,8 +5673,8 @@ jobs:
         done
         docker rm -f osprey-e2e-full-chain-auth-auth || true
         docker rm -f osprey-e2e-full-chain-auth-nginx || true
-        docker rm -f osprey-e2e-full-chain-auth-telemetry-store || true
-        docker rm -f osprey-e2e-full-chain-auth-telemetry-gateway || true
+        docker rm -f osprey-e2e-full-chain-auth-agent-record || true
+        docker rm -f osprey-e2e-full-chain-auth-agent-record-clickhouse || true
         docker rm -f osprey-e2e-full-chain-auth-history || true
         docker volume ls -q --filter "name=^osprey-e2e-full-chain-auth_" \
           | xargs -r docker volume rm -f || true
@@ -4773,7 +5690,9 @@ jobs:
     # Same-repo PRs only — house policy for any extra Docker-build-and-deploy
     # job. No secret is needed: the fixture writes a fake ANTHROPIC_API_KEY and
     # nothing in the module contacts a model.
-    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    if: >-
+      (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)
+      || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
     # One cold render image build (the neighbouring single-build auth lanes
     # measure 7-11 minutes for the same work), one `osprey up --dev`, then the
     # notebook assertions and a second down/up in the last test — which reuses
@@ -4783,6 +5702,15 @@ jobs:
     timeout-minutes: 75
 
     steps:
+    # The qmd sidecar and the deployment's generated image are built side by
+    # side, which overruns the ~14 GB a hosted runner starts with free (the
+    # 2026-10-31 attempts died in `uv` with "No space left on device" during
+    # the image build); drop the preinstalled SDKs this job never uses.
+    - name: Free runner disk
+      run: |
+        sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+        df -h /
+
     - name: Checkout repository
       uses: actions/checkout@v7
       with:
@@ -4812,6 +5740,13 @@ jobs:
         set -euo pipefail
         docker info > /dev/null
 
+    - name: Build the qmd sidecar image
+      # The preset deploys the qmd sidecar, and `osprey up` would otherwise
+      # build it cold here, fetching 2.1 GB of models from huggingface.co on
+      # every run. Built once from the layer cache the main-branch warm-up
+      # saves, and started through OSPREY_QMD_IMAGE below.
+      uses: ./.github/actions/build-qmd-image
+
     # The fixture drives `osprey init`/`osprey build`/`osprey up --dev` itself;
     # `--dev` stages this branch's locally-built wheel into the render image,
     # so the kernel launcher, the sidecar and the guard hook under test are all
@@ -4821,6 +5756,10 @@ jobs:
       # the capture step below room to run. A job-level timeout is a hard
       # cancel that takes the container logs with it.
       timeout-minutes: 65
+      env:
+        # Holds qmd out of `osprey up`'s build: the sidecar runs the image the
+        # step above built, so the module's `<project>-qmd:local` is never built.
+        OSPREY_QMD_IMAGE: osprey-qmd:ci
       run: |
         uv run pytest tests/e2e/test_jupyter_panel_lifecycle.py -v --tb=short
 
@@ -4842,30 +5781,42 @@ jobs:
       run: |
         docker rm -f osprey-e2e-jnb-web-alice || true
         docker rm -f osprey-e2e-jnb-nginx || true
-        docker rm -f osprey-e2e-jnb-telemetry-store || true
-        docker rm -f osprey-e2e-jnb-telemetry-gateway || true
+        docker rm -f osprey-e2e-jnb-agent-record || true
+        docker rm -f osprey-e2e-jnb-agent-record-clickhouse || true
         docker compose -p osprey-e2e-jnb down || true
         docker volume ls -q --filter "name=^osprey-e2e-jnb_" \
           | xargs -r docker volume rm -f || true
         docker rmi -f osprey-e2e-jnb-operator:local || true
         docker rmi -f osprey-e2e-jnb-va:local || true
         docker rmi -f osprey-e2e-jnb-qmd:local || true
+        docker rmi -f osprey-qmd:ci || true
 
   multi-user-deploy-lifecycle-e2e-podman:
-    name: Multi-User Deploy Lifecycle E2E (PRs into main, podman runtime)
+    name: Multi-User Deploy Lifecycle E2E (podman runtime)
     runs-on: ubuntu-latest
     timeout-minutes: 60
     # Podman counterpart of multi-user-deploy-lifecycle-e2e above — same job,
     # same real-runtime lifecycle mechanics, run against rootless podman
     # instead of docker (tests/e2e/test_deploy_lifecycle.py picks its runtime
-    # from OSPREY_E2E_RUNTIME). Scoped identically: same-repo PRs into main
-    # (per-phase PRs inside an epic target epic/* and skip it).
-    if: |
-      github.event_name == 'pull_request' &&
-      github.event.pull_request.base.ref == 'main' &&
-      github.event.pull_request.head.repo.full_name == github.repository
+    # from OSPREY_E2E_RUNTIME). Scoped identically: pull-request scope is main
+    # only (per-phase PRs inside an epic target epic/* and skip it). The `if:`
+    # below is the exact condition; its dispatch arm is the one every
+    # pull-request-only lane carries (see the workflow header).
+    if: >-
+      (github.event_name == 'pull_request' &&
+        github.event.pull_request.base.ref == 'main' &&
+        github.event.pull_request.head.repo.full_name == github.repository)
+      || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
 
     steps:
+    # Image-building E2E lanes run the hosted runner out of disk ("No space left
+    # on device" in the image's deps layer). Drop the preinstalled SDKs this job
+    # never uses, as the other image-building E2E jobs do.
+    - name: Free runner disk
+      run: |
+        sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+        df -h /
+
     - name: Checkout repository
       uses: actions/checkout@v7
       with:
@@ -4950,11 +5901,10 @@ jobs:
         done
         podman rm -f osprey-e2e-mus-p3-nginx || true
         podman rm -f osprey-e2e-mus-p3-registry || true
-        podman rm -f osprey-e2e-mus-p3-telemetry-store || true
-        podman rm -f osprey-e2e-mus-p3-telemetry-gateway || true
+        podman rm -f osprey-e2e-mus-p3-agent-record || true
+        podman rm -f osprey-e2e-mus-p3-agent-record-clickhouse || true
         podman compose -p osprey-e2e-mus-p3 down || true
-        podman volume rm osprey-e2e-mus-p3_telemetry_store_data || true
-        podman volume rm osprey-e2e-mus-p3_gateway-state || true
+        podman volume rm osprey-e2e-mus-p3_agent_record_clickhouse_data || true
 
   two-shape-boot-e2e:
     name: Two-Shape Boot E2E (bridge + host network axis, podman-compose)
@@ -4977,12 +5927,24 @@ jobs:
     # would skip on every PR that changes what it covers and only ever run once
     # the work was already merged into the epic.
     if: >-
-      github.event_name == 'pull_request'
-      && github.event.pull_request.head.repo.full_name == github.repository
-      && (github.event.pull_request.base.ref == 'main'
-      || startsWith(github.event.pull_request.base.ref, 'epic/'))
+      (github.event_name == 'pull_request'
+        && github.event.pull_request.head.repo.full_name == github.repository
+        && (github.event.pull_request.base.ref == 'main'
+        || startsWith(github.event.pull_request.base.ref, 'epic/')))
+      || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
 
     steps:
+    # The project image's deps layer, the dispatch image beside it and the uv
+    # and pip caches overrun the ~14 GB a hosted runner starts with free: a run
+    # ended at 89 % with a dangling 4.47 GB layer and no tagged image, and
+    # podman-compose 1.0.6 answered `up -d` 0 with no container created. Drop
+    # the preinstalled SDKs this job never uses, as the other image-building
+    # E2E jobs do.
+    - name: Free runner disk
+      run: |
+        sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+        df -h /
+
     - name: Checkout repository
       uses: actions/checkout@v7
       with:
@@ -5069,22 +6031,20 @@ jobs:
       # were on the author's macOS host. If anything else already holds either
       # port the module's exposure test reads a foreign socket out of the
       # runner's own /proc/net/tcp and fails in a way that points at the
-      # feature rather than at the runner. 18151, 18152 and 18904 are the
-      # telemetry case's gateway, gateway counters and store, published on the
-      # runner's loopback from that case's own port block. Refusing here costs
-      # a second and names the actual cause.
+      # feature rather than at the runner. Refusing here costs a second and
+      # names the actual cause.
       #
       # Fails open if `ss` is missing: an absent tool is not evidence of a busy
       # port, and the module's own preflight would still refuse below.
       run: |
-        for port in 21781 21791 18151 18152 18904; do
+        for port in 21781 21791; do
           if ss -ltnH "sport = :$port" 2>/dev/null | grep -q .; then
             echo "❌ port $port is already bound on this runner:"
             ss -ltnp "sport = :$port" || true
             exit 1
           fi
         done
-        echo "✅ 21781, 21791, 18151, 18152 and 18904 are free"
+        echo "✅ 21781 and 21791 are free"
 
     - name: Diagnostic — podman's inspect .State schema (health-field spelling)
       # INFORMATIONAL, not protective. The module reads the health field
@@ -5179,13 +6139,11 @@ jobs:
         podman rm -f osprey-e2e-two-shape-event-dispatcher || true
         podman rm -f osprey-e2e-two-shape-dispatch-worker-1 || true
         podman rm -f osprey-e2e-two-shape-schema-probe || true
-        podman rm -f osprey-e2e-two-shape-telemetry-telemetry-store || true
-        podman rm -f osprey-e2e-two-shape-telemetry-telemetry-gateway || true
+        podman rm -f osprey-e2e-two-shape-agent-record || true
+        podman rm -f osprey-e2e-two-shape-agent-record-clickhouse || true
         podman volume rm osprey-e2e-two-shape_dispatch_workspace_1 || true
-        podman volume rm osprey-e2e-two-shape-telemetry_telemetry_store_data || true
-        podman volume rm osprey-e2e-two-shape-telemetry_gateway-state || true
+        podman volume rm osprey-e2e-two-shape_agent_record_clickhouse_data || true
         podman network rm osprey-e2e-two-shape_osprey-network || true
-        podman network rm osprey-e2e-two-shape-telemetry_osprey-network || true
         podman rmi -f osprey-e2e-two-shape:local || true
         podman rmi -f osprey-e2e-two-shape-dispatch:local || true
 
@@ -5196,15 +6154,25 @@ jobs:
     # Same-repo PRs only — house policy for any extra Docker-build-and-deploy
     # job. This one needs no secrets: the sidecar is a local container serving
     # a fixture corpus, and no LLM is called anywhere in the module.
-    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    if: >-
+      (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)
+      || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
     # Cold-cache shape: 2.1 GB of GGUF models fetched during the build, plus
     # qmd's fail-closed startup pass, which will not serve until it has
-    # embedded the corpus. Warm-cache runs skip the fetch entirely (see the
-    # cache step). Deliberately generous — this lane has never run in GHA, so
+    # embedded the corpus. Warm-cache runs skip the fetch entirely (see
+    # .github/actions/build-qmd-image). Deliberately generous — this lane has never run in GHA, so
     # there are no observed green timings to tighten against yet.
     timeout-minutes: 60
 
     steps:
+    # Image-building E2E lanes run the hosted runner out of disk ("No space left
+    # on device" in the image's deps layer). Drop the preinstalled SDKs this job
+    # never uses, as the other image-building E2E jobs do.
+    - name: Free runner disk
+      run: |
+        sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+        df -h /
+
     - name: Checkout repository
       uses: actions/checkout@v7
       with:
@@ -5240,68 +6208,14 @@ jobs:
         set -euo pipefail
         docker info > /dev/null
 
-    - name: Set up Docker Buildx
-      # Needed only for `type=local` layer caching; the plain docker builder
-      # every other lane uses cannot import or export one.
-      uses: docker/setup-buildx-action@v3
-
-    - name: Derive the model-pin cache key
-      id: pins
-      # The three GGUFs are fetched INSIDE the image build, so what is cached
-      # is the buildx layer cache rather than the files themselves. Keying it
-      # on the SHA256 pins is what makes "fetch once per pin bump" true: bump a
-      # pin and the RUN text changes, its layer misses, and the new key starts
-      # a fresh entry instead of restoring one that could never hit.
-      #
-      # `pipefail` is set explicitly. GitHub Actions' default shell does not
-      # set it, so a pipeline reports the LAST command's status: a `grep` that
-      # matched nothing would be masked by a succeeding `sha256sum` and key the
-      # cache on the digest of the empty string — one shared key for every set
-      # of pins, which is worse than having no cache at all. The `-eq 3` check
-      # is the second half of that guard: it fails loudly if the label block is
-      # ever renamed, rather than silently keying on a partial match.
-      run: |
-        set -euo pipefail
-        dockerfile=src/osprey/templates/services/qmd/Dockerfile
-        pins="$(grep -oE 'com\.osprey\.qmd\.[a-z]+_sha256="[0-9a-f]{64}"' "$dockerfile" | sort)"
-        printf '%s\n' "$pins"
-        test "$(printf '%s\n' "$pins" | wc -l)" -eq 3
-        echo "digest=$(printf '%s' "$pins" | sha256sum | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
-
-    - name: Cache the sidecar image layers (keyed on the model SHA256 pins)
-      uses: actions/cache@v6
-      with:
-        path: /tmp/qmd-buildx-cache
-        key: qmd-buildx-${{ runner.os }}-${{ steps.pins.outputs.digest }}-${{ hashFiles('src/osprey/templates/services/qmd/Dockerfile', 'src/osprey/templates/services/qmd/entrypoint.sh', 'src/osprey/templates/services/qmd/patches/**') }}
-        # Pins unchanged but the Dockerfile or entrypoint edited: restore the
-        # previous entry anyway. buildx revalidates every layer against the
-        # current instructions, so at worst the model layers miss and refetch —
-        # a stale model can never be served as a fresh one.
-        restore-keys: |
-          qmd-buildx-${{ runner.os }}-${{ steps.pins.outputs.digest }}-
-
     - name: Build the sidecar image
-      # The template directory IS the build context: Dockerfile and
-      # entrypoint.sh are siblings there and carry no Jinja, so what builds
-      # here is byte-identical to what a rendered deployment builds.
-      run: |
-        set -euo pipefail
-        docker buildx build \
-          --tag osprey-qmd:ci \
-          --load \
-          --cache-from type=local,src=/tmp/qmd-buildx-cache \
-          --cache-to type=local,dest=/tmp/qmd-buildx-cache-new,mode=max \
-          src/osprey/templates/services/qmd
-
-    - name: Rotate the layer cache
-      # buildx cannot safely export to the directory it imported from in the
-      # same build, so the export goes to a sibling and is swapped in here.
-      # Without the swap the cache would grow every run until it evicted
-      # itself.
-      run: |
-        set -euo pipefail
-        rm -rf /tmp/qmd-buildx-cache
-        mv /tmp/qmd-buildx-cache-new /tmp/qmd-buildx-cache
+      # Restores the layer cache the main-branch warm-up job saves, then
+      # builds `osprey-qmd:ci` from it, so a warm run fetches no model. Restore
+      # only: a cache this PR saved would be readable by this PR alone.
+      uses: ./.github/actions/build-qmd-image
+      with:
+        # The mounted-models build below reuses this builder and cache.
+        keep-builder: "true"
 
     - name: Run qmd sidecar E2E
       # Step cap under the job cap so a wedged query fails THIS step, leaving
@@ -5356,8 +6270,9 @@ jobs:
       # check — and it is cheap for exactly the reason the path exists: the
       # 2.1 GB of downloads is what the build arg skips.
       #
-      # `cache-from` only. Exporting a second cache here would race the rotated
-      # entry above and evict the model layers, which are the expensive half.
+      # `cache-from` only, like every PR-side build: the layers it shares with
+      # the image above come from the restored cache or from the builder the
+      # action left behind, and nothing here is saved.
       run: |
         set -euo pipefail
         docker buildx build \
@@ -5403,6 +6318,9 @@ jobs:
         docker rm -f osprey-e2e-mus-p3-nginx || true
         docker rm -f osprey-e2e-mus-p3-registry || true
         docker compose -p osprey-e2e-mus-p3 down || true
+        docker rm -f osprey-e2e-mus-p3-agent-record || true
+        docker rm -f osprey-e2e-mus-p3-agent-record-clickhouse || true
+        docker volume rm osprey-e2e-mus-p3_agent_record_clickhouse_data || true
 
     - name: Clean up the sidecar images
       # Exact tags only — never a prune, an -a/--all, or a wildcard, matching
@@ -5411,6 +6329,29 @@ jobs:
       run: |
         docker rmi -f osprey-qmd:ci || true
         docker rmi -f osprey-qmd:ci-mounted || true
+
+  qmd-cache-warmup:
+    name: qmd Layer Cache Warm-up (pushes to main)
+    runs-on: ubuntu-latest
+    # Pushes to main only, and that is the whole point of the job. A PR can
+    # restore a cache saved on its own branch or on main and nowhere else, so
+    # the qmd layer cache every PR lane restores has to be saved from here:
+    # one entry in main's scope instead of one 2.5 GB entry per PR that no
+    # other PR can read. The PR lanes restore it and never save.
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    # A hit is a metadata lookup and nothing else. A miss (a pin, Dockerfile,
+    # entrypoint, patch or base-image change) is one cold build: the 2.1 GB
+    # model fetch plus the npm install, then a 2.5 GB cache upload.
+    timeout-minutes: 45
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v7
+
+    - name: Warm the qmd layer cache
+      uses: ./.github/actions/build-qmd-image
+      with:
+        warm: "true"
 
   target-switch-e2e:
     name: Control-Target Switch E2E (virtual accelerator + bench IOC, two live CA servers)
@@ -5422,7 +6363,9 @@ jobs:
     # the same channel names with different values), and every assertion here
     # reads back a number. No LLM is called anywhere in either module. The
     # agent-driven half of this feature is a separate, secret-gated lane.
-    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    if: >-
+      (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)
+      || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
     # Measured once on this branch rather than guessed, on an Apple Silicon
     # host where BOTH images are pinned linux/amd64 and therefore emulated:
     #   - virtual accelerator image, cold (`--no-cache`):     226 s
@@ -5551,6 +6494,7 @@ jobs:
       run: |
         uv run pytest tests/va/e2e/test_target_switch.py tests/va/e2e/test_bench_ioc_live.py \
           tests/va/e2e/test_live_standin.py tests/va/e2e/test_per_target_posture.py tests/va/e2e/test_model_status_va.py \
+          tests/va/e2e/test_ca_loop_exit.py \
           -v --tb=short --junitxml=junit-target-switch-e2e.xml
 
     - name: Fail the lane on any skipped test
@@ -5669,6 +6613,14 @@ jobs:
     timeout-minutes: 45
 
     steps:
+    # Image-building E2E lanes run the hosted runner out of disk ("No space left
+    # on device" in the image's deps layer). Drop the preinstalled SDKs this job
+    # never uses, as the other image-building E2E jobs do.
+    - name: Free runner disk
+      run: |
+        sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+        df -h /
+
     - name: Checkout repository
       # Full history, not a shallow clone: the image build below stages a tree
       # with no .git in it and passes the version in from the host, and
@@ -5880,7 +6832,9 @@ jobs:
     # of its subject: every assertion reads a value back from a container this
     # job built, and no module in it calls a model. A fork therefore loses
     # nothing here that a secret would have given it.
-    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    if: >-
+      (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)
+      || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
     # The composition this cap bounds, piece by piece rather than as one
     # guessed number:
     #   - the virtual accelerator image build, which target-switch-e2e
@@ -6081,7 +7035,9 @@ jobs:
     # job, secret-gated or not. This one needs no secret: the deployment's
     # .env is seeded from the rendered .env.example, and nothing in the module
     # calls a model.
-    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    if: >-
+      (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)
+      || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
     # Sized against bluesky-deploy-e2e's 60 rather than against the container
     # lane above, because that is the comparable surface: `osprey init`,
     # `osprey build`, `osprey up`, a stack of containers and `osprey down`,
@@ -6200,14 +7156,14 @@ jobs:
         engine: docker
     # Belt and suspenders: the deploy's own teardown does not run when the job
     # is killed. A hosted runner is discarded with the job, but a self-hosted
-    # or reused runner, or a local `act` run, keeps the store's port and its
-    # credential-pinned volume. Names are exact, never a prune.
+    # or reused runner, or a local `act` run, keeps the record store's port and
+    # its data volume. Names are exact, never a prune.
     - name: Clean up any stranded stack resources
       if: always()
       run: |
         docker compose -p lane-e2e down || true
-        docker rm -f lane-e2e-telemetry-store || true
-        docker rm -f lane-e2e-telemetry-gateway || true
+        docker rm -f lane-e2e-agent-record || true
+        docker rm -f lane-e2e-agent-record-clickhouse || true
         docker volume ls -q --filter "name=^lane-e2e_" \
           | xargs -r docker volume rm -f || true
 
@@ -6218,9 +7174,213 @@ jobs:
       if: always()
       uses: ./.github/actions/remove-virtual-accelerator-images
 
+  # The CANOPY contract: `scripts/check.py run canopy-contract` against
+  # CANOPY and PyDMConverter installed at the commits the package pins.
+  #
+  #   * Always started, with no job-level `if:`. The job decides inside
+  #     itself whether the change needs the proof, so it ends `success` or
+  #     `failure` and never `skipped`, and the gate reads it as always-on.
+  #   * Every same-repository pull request and push into an integration base
+  #     runs the contract, whatever it touches, and fails closed without the
+  #     read credential: an integration base takes no change the contract did
+  #     not run against. Which checks a range touches is the check command's
+  #     question on a laptop and on a gate, not this job's.
+  #   * A pull request from a fork gets no secrets, so the job skips the
+  #     contract there with a line in the run summary; a maintainer runs it
+  #     on the fork's branch through a workflow dispatch before merging.
+  #   * The check command is the contract's one spelling. It refuses an
+  #     installation at any commit other than the ones the package declares
+  #     in PROVEN_COMMITS, and its verdict line, copied into the run summary,
+  #     names the two commits and the platform the contract ran on. No
+  #     commit is written in this file.
+  #   * The read credential never shares a step with code the change
+  #     controls. One step holds it and runs git alone, to clone the two
+  #     repositories; the sync, the install and the tests run afterwards
+  #     with no secret, from those local clones.
+  #   * Nothing the job downloads or builds reaches the shared Actions cache.
+  #
+  # The repository names come from Actions variables and the credential from
+  # a secret; both reach the shell through `env:` only.
+  canopy-contract:
+    name: CANOPY contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v7
+      with:
+        # Later steps run the change's code: the checkout leaves no token in
+        # the clone's git configuration.
+        persist-credentials: false
+
+    - name: Install uv
+      uses: astral-sh/setup-uv@v7
+      with:
+        # The cache is shared across the repository's runs; the CANOPY
+        # sources and wheels this job builds stay out of it.
+        enable-cache: false
+
+    - name: Decide whether the change needs the contract
+      id: decide
+      env:
+        EVENT_NAME: ${{ github.event_name }}
+        BASE_REF: ${{ github.base_ref }}
+        REF_NAME: ${{ github.ref_name }}
+        HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+        REPO: ${{ github.repository }}
+      # The integration bases are the ones the pull_request trigger names. A
+      # change into one runs the contract; a dispatch runs it on its ref. A
+      # pull request from a fork has no read credential and is skipped.
+      run: |
+        set -euo pipefail
+        case "$EVENT_NAME" in
+          pull_request) base="$BASE_REF" ;;
+          push) base="$REF_NAME" ;;
+          *) base="" ;;
+        esac
+        run=true
+        reason=""
+        case "$base" in
+          ""|main|epic/*) ;;
+          *) run=false; reason="$base is not an integration base" ;;
+        esac
+        if [[ "$run" == "true" && "$EVENT_NAME" == "pull_request" && "$HEAD_REPO" != "$REPO" ]]; then
+          run=false
+          reason="a pull request from a fork has no CANOPY read credential; a maintainer runs the contract through a workflow dispatch"
+        fi
+        echo "run=$run" >> "$GITHUB_OUTPUT"
+        if [[ "$run" == "false" ]]; then
+          echo "CANOPY contract not run: $reason" >> "$GITHUB_STEP_SUMMARY"
+        fi
+
+    - name: Require the CANOPY read credential
+      id: credential
+      if: steps.decide.outputs.run == 'true'
+      env:
+        TOKEN: ${{ secrets.CANOPY_READ_TOKEN }}
+        BRANCH: ${{ github.head_ref || github.ref_name }}
+      run: |
+        if [[ -z "$TOKEN" ]]; then
+          echo "::error::this change needs the CANOPY contract, which needs the CANOPY read credential: a maintainer re-runs it with gh workflow run ci.yml --ref $BRANCH"
+          exit 1
+        fi
+
+    - name: Read the proven commits from the package
+      id: pin
+      if: steps.decide.outputs.run == 'true'
+      # The pins are read by running the stdlib-only module that declares
+      # them with the runner's own python3, before anything is installed.
+      # Each value reaches `git fetch` beside the credential, so this shell
+      # accepts only 40 lower-case hex before writing any output.
+      run: |
+        python3 src/osprey/integrations/canopy/proven.py --pins > pins
+        canopy="$(sed -n 's/^canopy=//p' pins)"
+        pydm="$(sed -n 's/^PyDMConverter=//p' pins)"
+        for value in "$canopy" "$pydm"; do
+          if [[ ! "$value" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::proven.py --pins names a value that is not a 40-hex commit: $value"
+            exit 1
+          fi
+        done
+        {
+          echo "canopy=$canopy"
+          echo "pydm=$pydm"
+        } >> "$GITHUB_OUTPUT"
+
+    - name: Fetch CANOPY and PyDMConverter at the proven commits
+      id: fetch
+      if: steps.decide.outputs.run == 'true'
+      env:
+        TOKEN: ${{ secrets.CANOPY_READ_TOKEN }}
+        CANOPY_REPOSITORY: ${{ vars.CANOPY_REPOSITORY }}
+        PYDMCONVERTER_REPOSITORY: ${{ vars.PYDMCONVERTER_REPOSITORY }}
+        CANOPY_COMMIT: ${{ steps.pin.outputs.canopy }}
+        PYDM_COMMIT: ${{ steps.pin.outputs.pydm }}
+        SOURCES: ${{ runner.temp }}/canopy-sources
+      # The one step that uses the read credential, and it runs git alone:
+      # nothing the change controls executes beside it. The credential
+      # reaches the clone and the fetch through an askpass helper named on
+      # those two command lines. Git's configuration is never written, the
+      # helper file holds no secret, and a clone stores its remote without
+      # one.
+      run: |
+        set -euo pipefail
+        askpass="$RUNNER_TEMP/canopy-askpass"
+        # The helper answers git from this step's environment, which no
+        # other step shares.
+        # The single quotes are the point: $1 and ${TOKEN} expand when git
+        # runs the written helper, not here.
+        # shellcheck disable=SC2016
+        printf '%s\n' '#!/bin/sh' 'case "$1" in Username*) echo x-access-token ;; *) printf "%s\n" "${TOKEN}" ;; esac' > "$askpass"
+        chmod 700 "$askpass"
+        fetch_at() {
+          # $1 = clone directory, $2 = owner/name, $3 = commit
+          GIT_ASKPASS="$askpass" GIT_TERMINAL_PROMPT=0 git clone --quiet "https://github.com/$2" "$1"
+          if ! git -C "$1" cat-file -e "$3^{commit}" 2>/dev/null; then
+            GIT_ASKPASS="$askpass" GIT_TERMINAL_PROMPT=0 git -C "$1" fetch --quiet origin "$3"
+          fi
+          git -C "$1" checkout --quiet --detach "$3"
+          # The install asks the clone for the commit by its id.
+          git -C "$1" config uploadpack.allowAnySHA1InWant true
+        }
+        fetch_at "$SOURCES/canopy" "$CANOPY_REPOSITORY" "$CANOPY_COMMIT"
+        fetch_at "$SOURCES/pydmconverter" "$PYDMCONVERTER_REPOSITORY" "$PYDM_COMMIT"
+        {
+          echo "canopy=$SOURCES/canopy"
+          echo "pydm=$SOURCES/pydmconverter"
+        } >> "$GITHUB_OUTPUT"
+
+    - name: Install CANOPY and PyDMConverter at the proven commits
+      id: install
+      if: steps.decide.outputs.run == 'true'
+      env:
+        CANOPY_CLONE: ${{ steps.fetch.outputs.canopy }}
+        PYDM_CLONE: ${{ steps.fetch.outputs.pydm }}
+        CANOPY_COMMIT: ${{ steps.pin.outputs.canopy }}
+        PYDM_COMMIT: ${{ steps.pin.outputs.pydm }}
+      # No secret here: the sync and the builds run the change's code and
+      # CANOPY's, from the local clones. A `git+file://` install rather than
+      # a path: the installed distribution then records the commit it was
+      # built from, which the contract reads.
+      run: |
+        set -euo pipefail
+        if git config --global --get-regexp '^url\..*\.insteadof$' > /dev/null; then
+          echo "::error::a git URL rewrite is still configured; refusing to run the build beside it"
+          exit 1
+        fi
+        uv sync --extra dev
+        # CANOPY names a source of its own for PyDMConverter. The override
+        # makes the local clone the one source, so the resolver sees a single
+        # URL for it and the install reaches no remote.
+        pydm="PyDMConverter @ git+file://${PYDM_CLONE}@${PYDM_COMMIT}"
+        printf '%s\n' "$pydm" > "$RUNNER_TEMP/canopy-overrides.txt"
+        uv pip install --override "$RUNNER_TEMP/canopy-overrides.txt" \
+          "canopy[mcp,convert] @ git+file://${CANOPY_CLONE}@${CANOPY_COMMIT}" \
+          "PyDMConverter @ git+file://${PYDM_CLONE}@${PYDM_COMMIT}"
+
+    - name: Run the CANOPY contract
+      id: contract
+      if: steps.decide.outputs.run == 'true'
+      # The check probes the installed pair before any test and runs the
+      # contract's directories whole through `uv run --no-sync`, so the tests
+      # see the environment the install step built. `pipefail` keeps the
+      # check's exit status through the tee.
+      run: |
+        set -o pipefail
+        python3 scripts/check.py run canopy-contract 2>&1 | tee canopy-contract.log
+
+    - name: Name the proven commits
+      id: summary
+      if: always() && (steps.contract.outcome == 'success' || steps.contract.outcome == 'failure')
+      # The check's last line is its verdict, which names the pair and the
+      # platform the contract ran on.
+      run: |
+        grep '^check: ' canopy-contract.log | tail -n 1 >> "$GITHUB_STEP_SUMMARY"
+
   all-checks-passed:
     name: All CI Checks Passed
-    needs: [test, dependency-floor, connectors-standalone, lint, docs, package, static-checks, visual-theming, frontend-js, build-boot-smoke, e2e-tests, e2e-no-model, deploy-e2e, dispatch-deploy-e2e, single-user-narrowing-e2e, dispatch-overlay-e2e, bluesky-deploy-e2e, bluesky-web-deploy-e2e, va-substrate-equivalence-e2e, orm-roundtrip-e2e, bluesky-queue-e2e, scan-agentic-e2e, archiver-world-e2e, graph-reseed-e2e, tiled-roundtrip-e2e, bluesky-catalog-e2e, bluesky-sandbox-escape-e2e, nextcloud-talk-bridge-e2e, gchat-bridge-e2e, teams-bridge-e2e, dockerfile-e2e, privilege-split-e2e, execution-environment-parity-e2e, agentic-per-preset, deploy-writeback-e2e, multi-user-deploy-lifecycle-e2e, multi-user-deploy-lifecycle-e2e-podman, auth-perimeter-e2e, terminal-auth-multiuser-e2e, full-chain-auth-e2e, two-shape-boot-e2e, qmd-sidecar-e2e, jupyter-panel-e2e, target-switch-e2e, target-switch-agentic-e2e, va-live-e2e, va-bluesky-deploy-e2e, plugin-smoke]
+    needs: [test, dependency-floor, connectors-standalone, connectors-compat-plan, connectors-compat, framework-at-connectors-floor, lint, docs, package, static-checks, visual-theming, frontend-js, build-boot-smoke, e2e-tests, e2e-no-model, agent-record-e2e, deploy-e2e, dispatch-deploy-e2e, single-user-narrowing-e2e, host-record-e2e, dispatch-overlay-e2e, bluesky-deploy-e2e, bluesky-web-deploy-e2e, va-substrate-equivalence-e2e, orm-roundtrip-e2e, bluesky-queue-e2e, scan-agentic-e2e, archiver-world-e2e, graph-reseed-e2e, tiled-roundtrip-e2e, bluesky-catalog-e2e, bluesky-sandbox-escape-e2e, nextcloud-talk-bridge-e2e, gchat-bridge-e2e, teams-bridge-e2e, dockerfile-e2e, privilege-split-e2e, execution-environment-parity-e2e, agentic-per-preset, deploy-writeback-e2e, multi-user-deploy-lifecycle-e2e, multi-user-deploy-lifecycle-e2e-podman, auth-perimeter-e2e, terminal-auth-multiuser-e2e, full-chain-auth-e2e, two-shape-boot-e2e, qmd-cache-warmup, qmd-sidecar-e2e, jupyter-panel-e2e, target-switch-e2e, target-switch-agentic-e2e, va-live-e2e, va-bluesky-deploy-e2e, plugin-smoke, canopy-contract]
     runs-on: ubuntu-latest
     timeout-minutes: 60
     # The gate runs whenever the run was not cancelled, so a failed, cancelled
@@ -6245,7 +7405,11 @@ jobs:
       #     -phase runs and passes the gate; any OTHER non-success result
       #     (failure, cancelled) fails it. Corollary: on fork PRs the secret
       #     -gated lanes don't run at all — the gate can't vouch for them
-      #     there, same as before.
+      #     there.
+      #   * A revalidation dispatch (`revalidate_secret_lanes`) runs every
+      #     conditionally-run lane, so there a "skipped" lane FAILS the gate:
+      #     a green revalidation run vouches for every lane on its sha, and
+      #     the last green main sha is read off these runs.
       #
       # Dependabot PRs are a third case that looks like the second: the lanes
       # skip legitimately (no secrets are issued to them), so the gate passes —
@@ -6259,6 +7423,7 @@ jobs:
         ACTOR: ${{ github.actor }}
         HEAD_BRANCH: ${{ github.head_ref }}
         EVENT_NAME: ${{ github.event_name }}
+        REVALIDATE: ${{ inputs.revalidate_secret_lanes }}
         PR_NUMBER: ${{ github.event.pull_request.number }}
         HAS_FULL_CI: ${{ contains(github.event.pull_request.labels.*.name, 'full-ci') }}
       run: |
@@ -6272,6 +7437,18 @@ jobs:
         fi
         if [[ "${{ needs.connectors-standalone.result }}" != "success" ]]; then
           echo "❌ Connectors suite failed without the framework installed"
+          exit 1
+        fi
+        if [[ "${{ needs.connectors-compat-plan.result }}" != "success" ]]; then
+          echo "❌ Connectors compatibility plan failed (supported releases or connectors floor)"
+          exit 1
+        fi
+        if [[ "${{ needs.connectors-compat.result }}" != "success" ]]; then
+          echo "❌ Connectors HEAD broke a supported framework release"
+          exit 1
+        fi
+        if [[ "${{ needs.framework-at-connectors-floor.result }}" != "success" ]]; then
+          echo "❌ Framework HEAD failed at its declared connectors floor"
           exit 1
         fi
         if [[ "${{ needs.lint.result }}" != "success" ]]; then
@@ -6309,9 +7486,18 @@ jobs:
           echo "❌ Tier 1 build + boot smoke failed"
           exit 1
         fi
+        if [[ "${{ needs.canopy-contract.result }}" != "success" ]]; then
+          # The lane reports success itself when the change does not need
+          # the contract, so a skip is never a pass here.
+          echo "❌ CANOPY contract failed"
+          exit 1
+        fi
         check_pr_lane() {
           # $1 = human-readable lane name, $2 = needs.<job>.result
-          if [[ "$2" == "skipped" ]]; then
+          if [[ "$2" == "skipped" && "$EVENT_NAME" == "workflow_dispatch" && "$REVALIDATE" == "true" ]]; then
+            echo "❌ $1 skipped on a revalidation run, which must run every lane"
+            exit 1
+          elif [[ "$2" == "skipped" ]]; then
             echo "⏭️  $1 skipped (lane's if: condition not met on this event)"
           elif [[ "$2" != "success" ]]; then
             echo "❌ $1 failed (result: $2)"
@@ -6323,9 +7509,11 @@ jobs:
         check_pr_lane "Agentic per-preset"           "${{ needs.agentic-per-preset.result }}"
         check_pr_lane "E2E tests"                    "${{ needs.e2e-tests.result }}"
         check_pr_lane "Model-free E2E"               "${{ needs.e2e-no-model.result }}"
+        check_pr_lane "Agent record E2E"             "${{ needs.agent-record-e2e.result }}"
         check_pr_lane "Deploy E2E"                   "${{ needs.deploy-e2e.result }}"
         check_pr_lane "Dispatch deploy E2E"          "${{ needs.dispatch-deploy-e2e.result }}"
         check_pr_lane "Single-user narrowing E2E"    "${{ needs.single-user-narrowing-e2e.result }}"
+        check_pr_lane "Host record E2E"              "${{ needs.host-record-e2e.result }}"
         check_pr_lane "Dispatch overlay E2E"         "${{ needs.dispatch-overlay-e2e.result }}"
         check_pr_lane "Bluesky deploy E2E"           "${{ needs.bluesky-deploy-e2e.result }}"
         check_pr_lane "Bluesky web deploy E2E"    "${{ needs.bluesky-web-deploy-e2e.result }}"
@@ -6351,6 +7539,7 @@ jobs:
         check_pr_lane "Terminal auth multi-user E2E" "${{ needs.terminal-auth-multiuser-e2e.result }}"
         check_pr_lane "Full-chain auth E2E"        "${{ needs.full-chain-auth-e2e.result }}"
         check_pr_lane "Two-shape boot E2E (podman-compose)" "${{ needs.two-shape-boot-e2e.result }}"
+        check_pr_lane "qmd layer cache warm-up"      "${{ needs.qmd-cache-warmup.result }}"
         check_pr_lane "qmd sidecar E2E"              "${{ needs.qmd-sidecar-e2e.result }}"
         check_pr_lane "Notebook panel E2E"           "${{ needs.jupyter-panel-e2e.result }}"
         check_pr_lane "Control-target switch E2E"    "${{ needs.target-switch-e2e.result }}"

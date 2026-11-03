@@ -17,14 +17,13 @@ Two halves:
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
 
 from osprey.services.bluesky_bridge import app as app_module
-from osprey.services.bluesky_bridge import document_plane, history_removals, live_rows
+from osprey.services.bluesky_bridge import document_plane, live_rows
 from osprey.services.bluesky_bridge.app import app
 from osprey.services.bluesky_bridge.queue_backend import QueueBackend
 
@@ -75,21 +74,6 @@ def _item(run_id: str, *, name: str = "grid_scan", result: dict | None = None) -
     if result is not None:
         item["result"] = result
     return item
-
-
-@pytest.fixture(autouse=True)
-def _isolated_state(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    # The removed-runs store persists into the bridge's writable directory;
-    # point it at a fresh one so no test sees another's removals.
-    monkeypatch.setenv("BLUESKY_SESSION_PLAN_DIR", str(tmp_path / "plans_session"))
-    history_removals._clear()
-    live_rows._clear()
-    document_plane._clear()
-    yield
-    history_removals._clear()
-    live_rows._clear()
-    document_plane._clear()
-    app_module.set_queue_backend(None)
 
 
 @pytest.fixture
@@ -145,21 +129,25 @@ def test_list_runs_passes_the_limit_through(bridge) -> None:
     assert [r["id"] for r in body] == ["run-0", "run-1"]
 
 
-def test_list_runs_reports_an_unreachable_manager_as_503_with_a_code(bridge) -> None:
+@pytest.mark.parametrize(
+    "url",
+    [pytest.param("/runs", id="list-runs"), pytest.param("/runs/anything", id="get-run")],
+)
+def test_a_run_route_reports_an_unreachable_manager_as_503_with_a_code(bridge, url) -> None:
     """Same refusal shape as the queue surface: a bare-string detail here would
     make this the one route a consumer has to special-case."""
     from bluesky_queueserver_api.comm_base import RequestTimeoutError
 
     client, _ = bridge(queue=RequestTimeoutError("no answer", {}))
     with client:
-        resp = client.get("/runs")
+        resp = client.get(url)
 
     assert resp.status_code == 503
     assert resp.json()["detail"]["code"] == "manager_unreachable"
 
 
 # =========================================================================
-# GET /runs/{id}
+# Tests of GET /runs/{id}
 # =========================================================================
 
 
@@ -200,17 +188,6 @@ def test_get_run_carries_progress_once_the_document_plane_has_rows(bridge) -> No
 
     assert body["progress"]["rows_seen"] == 1
     assert body["progress"]["fraction"] == pytest.approx(0.5)
-
-
-def test_get_run_reports_an_unreachable_manager_as_503_with_a_code(bridge) -> None:
-    from bluesky_queueserver_api.comm_base import RequestTimeoutError
-
-    client, _ = bridge(queue=RequestTimeoutError("no answer", {}))
-    with client:
-        resp = client.get("/runs/anything")
-
-    assert resp.status_code == 503
-    assert resp.json()["detail"]["code"] == "manager_unreachable"
 
 
 # =========================================================================

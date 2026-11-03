@@ -106,10 +106,10 @@ class TestCalibration:
             physics.append(bare)
             scaled = copy.deepcopy(bare)
             if _is_monitor(record):
-                # hardware = monitor_gain * metres
+                # The hardware reading is monitor_gain times metres.
                 scaled["calibration"] = _linear(1.0 / monitor_gain, 0.0)
             elif record["address"] == CORRECTOR_X:
-                # hardware = corrector_gain * radians
+                # The hardware setting is corrector_gain times radians.
                 scaled["calibration"] = _linear(1.0 / corrector_gain, 0.0)
             calibrated.append(scaled)
         physics_step = 1.0e-5
@@ -195,11 +195,11 @@ class TestSolveErrors:
         assert engine.start_values(demo["deck"], setpoints, demo["settings"]) == before
 
     def test_a_corrector_that_is_not_a_wired_setpoint_is_refused(self, demo):
-        with pytest.raises(ValueError, match="SR:NOT:A:SETPOINT"):
+        with pytest.raises(engine.RequestRefused, match="SR:NOT:A:SETPOINT"):
             _matrix(demo, ["SR:NOT:A:SETPOINT"], 0.5)
 
     def test_a_corrector_without_a_step_is_refused(self, demo):
-        with pytest.raises(ValueError, match=CORRECTOR_Y):
+        with pytest.raises(engine.RequestRefused, match=CORRECTOR_Y):
             engine.response_matrix(
                 demo["deck"], demo["wiring"], demo["settings"], [CORRECTOR_Y], {}
             )

@@ -25,8 +25,12 @@ test('severity runs error over warning over skip over ok', () => {
 
 test('the worst status wins wherever it sits in the list', () => {
   expect(worstStatus([{ status: 'ok' }, { status: 'warning' }, { status: 'ok' }])).toBe('warning');
-  expect(worstStatus([{ status: 'error' }, { status: 'warning' }, { status: 'skip' }])).toBe('error');
-  expect(worstStatus([{ status: 'skip' }, { status: 'warning' }, { status: 'error' }])).toBe('error');
+  expect(worstStatus([{ status: 'error' }, { status: 'warning' }, { status: 'skip' }])).toBe(
+    'error'
+  );
+  expect(worstStatus([{ status: 'skip' }, { status: 'warning' }, { status: 'error' }])).toBe(
+    'error'
+  );
   expect(worstStatus([{ status: 'ok' }, { status: 'skip' }])).toBe('skip');
 });
 

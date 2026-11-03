@@ -1,6 +1,6 @@
 """One execution root per conversation: ``OSPREY_SESSION_ID`` on every spawn.
 
-Both views are windows onto one session key. The key is the PTY pool key, the
+Both surfaces are windows onto one session key. The key is the PTY pool key, the
 chat pool key, the audit session id — and it has to be the execution root too,
 or the two children a flip puts on either side of one conversation work out of
 different directories: the python and sandbox executors put their run
@@ -34,10 +34,8 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
-from fastapi.testclient import TestClient
 
 from osprey.audit.posture import OSPREY_AGENT_DATA_ROOT
-from osprey.interfaces.web_terminal.app import create_app
 from osprey.interfaces.web_terminal.operator_session import (
     POSTURE_SOURCE_LIVE,
     POSTURE_SOURCE_SPAWN,
@@ -45,6 +43,7 @@ from osprey.interfaces.web_terminal.operator_session import (
 )
 from osprey.interfaces.web_terminal.routes import websocket as websocket_routes
 from osprey_connectors import posture_store, workspace
+from tests.interfaces.web_terminal._started_app import terminal_client
 
 SESSION_ID_ENV = "OSPREY_SESSION_ID"
 
@@ -57,13 +56,6 @@ OPERATOR_KEY = "operator-deadbeef"
 # --------------------------------------------------------------------------- #
 # Harness
 # --------------------------------------------------------------------------- #
-
-
-@pytest.fixture
-def workspace_dir(tmp_path):
-    ws = tmp_path / "_agent_data"
-    ws.mkdir()
-    return ws
 
 
 @pytest.fixture
@@ -90,13 +82,8 @@ def shared_root(tmp_path, monkeypatch):
 def client(workspace_dir, shared_root):  # noqa: ARG001
     @contextmanager
     def _make():
-        with patch(
-            "osprey.interfaces.web_terminal.app._load_web_config",
-            return_value={"watch_dir": str(workspace_dir)},
-        ):
-            app = create_app(shell_command="echo")
-            with TestClient(app) as test_client:
-                yield test_client
+        with terminal_client(workspace_dir) as test_client:
+            yield test_client
 
     with _make() as c:
         yield c
@@ -238,7 +225,7 @@ class TestTheTelemetryPair:
         assert "OSPREY_TELEMETRY_SESSION_ID" not in env
         assert "OSPREY_TELEMETRY_SESSION_START" not in env
 
-    def test_every_pty_session_is_marked_expert_surface(self, client):
-        """PTY sessions serve the expert web surface — new and resumed alike."""
-        assert _pty_env(client, None, SESSION_A)["OSPREY_WEB_UX"] == "expert"
-        assert _pty_env(client, SESSION_A, SESSION_A)["OSPREY_WEB_UX"] == "expert"
+    def test_every_pty_session_is_marked_terminal_surface(self, client):
+        """PTY sessions serve the terminal surface — new and resumed alike."""
+        assert _pty_env(client, None, SESSION_A)["OSPREY_WEB_UX"] == "terminal"
+        assert _pty_env(client, SESSION_A, SESSION_A)["OSPREY_WEB_UX"] == "terminal"

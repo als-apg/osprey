@@ -1,6 +1,6 @@
 // @ts-check
 /**
- * Unit tests for the Simple-view chat controller (chat.js):
+ * Unit tests for the chat chat controller (chat.js):
  *   ./node_modules/.bin/vitest run tests/interfaces/web_terminal/chat.test.mjs
  *
  * Two things are worth pinning here.
@@ -15,7 +15,7 @@
  *
  * The second is the binding. The console has no conversation of its own: it
  * addresses the tab's session pointer, replays that key's transcript, and
- * arrives from the Expert view through a hand-off that the other view can
+ * arrives from the terminal through a hand-off that the other surface can
  * refuse. Those paths are DOM-and-transport glue, so they are driven here
  * against a real (happy-dom) container with chat-client.js mocked — what is
  * asserted is which key was addressed, what reached the log, and which one
@@ -29,7 +29,10 @@
 
 import { test, expect, describe, beforeEach, afterEach, vi } from 'vitest';
 
-import { HANDOFF_FALLBACK, transportNotice } from '../../../src/osprey/interfaces/web_terminal/static/js/chat-notices.js';
+import {
+  HANDOFF_FALLBACK,
+  transportNotice,
+} from '../../../src/osprey/interfaces/web_terminal/static/js/chat-notices.js';
 import { HANDOFF_RESTART_BUDGET_MS } from '../../../src/osprey/interfaces/web_terminal/static/js/terminal-handoff.js';
 
 const CHAT_JS = '../../../src/osprey/interfaces/web_terminal/static/js/chat.js';
@@ -44,6 +47,8 @@ const transport = {
   requestHandoff: vi.fn(),
   fetchCommands: vi.fn(),
   followChat: vi.fn(),
+  uploadChatAttachment: vi.fn(),
+  removeChatAttachment: vi.fn(),
 };
 
 vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/chat-client.js', () => ({
@@ -56,6 +61,10 @@ vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/chat-client.js', 
   fetchCommands: () => transport.fetchCommands(),
   followChat: (/** @type {any} */ key, /** @type {any} */ callbacks) =>
     transport.followChat(key, callbacks),
+  uploadChatAttachment: (/** @type {any} */ key, /** @type {any} */ file, /** @type {any} */ o) =>
+    transport.uploadChatAttachment(key, file, o),
+  removeChatAttachment: (/** @type {any} */ key, /** @type {any} */ name, /** @type {any} */ o) =>
+    transport.removeChatAttachment(key, name, o),
 }));
 
 // terminal.js is xterm glue; the console only needs its panel broadcast, and
@@ -126,10 +135,12 @@ let container;
 
 /**
  * Mount a fresh console into a fresh container.
- * @param {{ mode?: string, pointer?: string|null }} [options]
+ * @param {{ surface?: 'chat'|'terminal', pointer?: string|null }} [options]
  */
-async function mountChat({ mode = 'simple', pointer = null } = {}) {
-  document.documentElement.setAttribute('data-ui-mode', mode);
+async function mountChat({ surface = 'chat', pointer = null } = {}) {
+  if (surface === 'terminal')
+    document.documentElement.setAttribute('data-agent-surface', 'terminal');
+  else document.documentElement.removeAttribute('data-agent-surface');
   if (pointer) localStorage.setItem(STORAGE_KEY, pointer);
   container = document.createElement('div');
   container.id = 'operator-container';
@@ -160,21 +171,32 @@ beforeEach(() => {
   transport.fetchHistory.mockReset().mockResolvedValue([]);
   transport.sendPrompt.mockReset().mockReturnValue({ abort: () => {}, aborted: false });
   transport.interrupt.mockReset().mockResolvedValue(undefined);
-  transport.requestHandoff.mockReset().mockResolvedValue({ state: 'simple', session_id: 'k' });
-  transport.fetchCommands.mockReset().mockResolvedValue([
-    { name: 'diagnose', description: 'Investigate failures', argument_hint: '', kind: 'skill' },
-  ]);
+  transport.requestHandoff.mockReset().mockResolvedValue({ state: 'chat', session_id: 'k' });
+  transport.fetchCommands
+    .mockReset()
+    .mockResolvedValue([
+      { name: 'diagnose', description: 'Investigate failures', argument_hint: '', kind: 'skill' },
+    ]);
   transport.followChat.mockReset().mockReturnValue({ close: () => {} });
+  transport.uploadChatAttachment
+    .mockReset()
+    .mockImplementation(async (/** @type {string} */ _key, /** @type {File} */ file) => ({
+      name: file.name,
+      path: `/store/b1-${file.name}`,
+      size: file.size,
+      type: file.type,
+    }));
+  transport.removeChatAttachment.mockReset().mockResolvedValue(undefined);
 });
 
 afterEach(() => {
   vi.useRealTimers();
-  document.documentElement.removeAttribute('data-ui-mode');
+  document.documentElement.removeAttribute('data-agent-surface');
 });
 
 describe('initChat binding', () => {
-  test('a tab with no pointer, in the Expert view, leaves the pointer to the terminal', async () => {
-    await mountChat({ mode: 'expert' });
+  test('a tab with no pointer, in the terminal, leaves the pointer to the terminal', async () => {
+    await mountChat({ surface: 'terminal' });
     // The terminal's server confirmation is the session this tab is on; a key
     // minted here would be a key no server has.
     expect(localStorage.getItem(STORAGE_KEY)).toBeNull();
@@ -182,7 +204,7 @@ describe('initChat binding', () => {
     expect(transport.fetchHistory).not.toHaveBeenCalled();
   });
 
-  test('a tab with no pointer, in the Simple view, mints one and stores it', async () => {
+  test('a tab with no pointer, in the chat, mints one and stores it', async () => {
     await mountChat();
     const stored = localStorage.getItem(STORAGE_KEY);
     expect(stored).toMatch(/^[0-9a-f-]{36}$/);
@@ -190,7 +212,7 @@ describe('initChat binding', () => {
     expect(transport.fetchHistory).not.toHaveBeenCalled();
   });
 
-  test('a page that opens in Simple mode replays the pointer it adopted', async () => {
+  test('a page that opens on the chat replays the pointer it adopted', async () => {
     transport.fetchHistory.mockResolvedValue([
       { role: 'user', content: 'status?' },
       { role: 'assistant', content: 'All quiet.' },
@@ -217,9 +239,8 @@ describe('initChat binding', () => {
     expect(logEntries()).toEqual(['from K1']);
 
     transport.fetchHistory.mockResolvedValue([{ role: 'assistant', content: 'from K2' }]);
-    const pointer = await import(
-      '../../../src/osprey/interfaces/web_terminal/static/js/session-pointer.js'
-    );
+    const pointer =
+      await import('../../../src/osprey/interfaces/web_terminal/static/js/session-pointer.js');
     pointer.setPointer('K2');
     await Promise.resolve();
     await Promise.resolve();
@@ -232,16 +253,15 @@ describe('initChat binding', () => {
   test('a cleared pointer leaves the log on the key it was bound to', async () => {
     transport.fetchHistory.mockResolvedValue([{ role: 'assistant', content: 'from K1' }]);
     await mountChat({ pointer: 'K1' });
-    const pointer = await import(
-      '../../../src/osprey/interfaces/web_terminal/static/js/session-pointer.js'
-    );
+    const pointer =
+      await import('../../../src/osprey/interfaces/web_terminal/static/js/session-pointer.js');
 
     transport.fetchHistory.mockClear();
     pointer.clearPointer();
     await Promise.resolve();
     await Promise.resolve();
 
-    // A clear says the key is dead for both views, not that this console
+    // A clear says the key is dead for both surfaces, not that this console
     // moved to another conversation. There is nothing to replay.
     expect(logEntries()).toEqual(['from K1']);
     expect(transport.fetchHistory).not.toHaveBeenCalled();
@@ -249,9 +269,8 @@ describe('initChat binding', () => {
 
   test('overlapping pointer changes render only the newer key turns', async () => {
     await mountChat({ pointer: 'K1' });
-    const pointer = await import(
-      '../../../src/osprey/interfaces/web_terminal/static/js/session-pointer.js'
-    );
+    const pointer =
+      await import('../../../src/osprey/interfaces/web_terminal/static/js/session-pointer.js');
 
     /** @type {((value: any) => void)[]} */
     const admit = [];
@@ -327,15 +346,15 @@ describe('the busy signal', () => {
     await mountChat({ pointer: 'K1' });
     const heard = await heardBusy();
 
-    const entered = chat.enterFromExpert();
+    const entered = chat.enterFromTerminal();
     expect(heard.at(-1)).toBe(true);
-    admit({ state: 'simple', session_id: 'K1' });
+    admit({ state: 'chat', session_id: 'K1' });
     await entered;
     expect(heard.at(-1)).toBe(false);
   });
 });
 
-describe('enterFromExpert', () => {
+describe('enterFromTerminal', () => {
   test('shows the transitional state, then the replayed history and a live input', async () => {
     /** @type {(value: any) => void} */
     let admit = () => {};
@@ -347,37 +366,40 @@ describe('enterFromExpert', () => {
     transport.fetchHistory.mockResolvedValue([{ role: 'assistant', content: 'carried over' }]);
     await mountChat({ pointer: 'K1' });
 
-    const entered = chat.enterFromExpert();
+    const entered = chat.enterFromTerminal();
     expect(/** @type {HTMLElement} */ (one('.op-handoff')).hidden).toBe(false);
-    // Nothing says the other view is mid-turn, so what is on screen is the
+    // Nothing says the other surface is mid-turn, so what is on screen is the
     // restart: no clock, no way out, because there is nothing to cut short.
-    expect(textOf('.op-handoff-message')).toBe('Restarting the agent in this view…');
+    expect(textOf('.op-handoff-message')).toBe('Restarting the agent…');
     expect(one('.op-handoff-elapsed')).toBeNull();
     expect(/** @type {HTMLButtonElement} */ (one('.op-handoff-action')).hidden).toBe(true);
     expect(/** @type {HTMLTextAreaElement} */ (one('textarea')).disabled).toBe(true);
 
-    admit({ state: 'simple', session_id: 'K1' });
+    admit({ state: 'chat', session_id: 'K1' });
     await entered;
 
-    expect(transport.requestHandoff).toHaveBeenCalledWith('K1', expect.objectContaining({
-      interrupt: false,
-    }));
+    expect(transport.requestHandoff).toHaveBeenCalledWith(
+      'K1',
+      expect.objectContaining({
+        interrupt: false,
+      })
+    );
     expect(/** @type {HTMLElement} */ (one('.op-handoff')).hidden).toBe(true);
     expect(logEntries()).toEqual(['carried over']);
     expect(/** @type {HTMLTextAreaElement} */ (one('textarea')).disabled).toBe(false);
   });
 
-  test('a restart that outlasts its budget becomes the wait, clocked from the flip', async () => {
+  test('a restart that outlasts its budget becomes the wait, clocked from the change', async () => {
     vi.useFakeTimers();
     transport.requestHandoff.mockReturnValue(new Promise(() => {}));
     await mountChat({ pointer: 'K1' });
 
-    void chat.enterFromExpert();
+    void chat.enterFromTerminal();
     vi.advanceTimersByTime(HANDOFF_RESTART_BUDGET_MS - 1);
-    expect(textOf('.op-handoff-message')).toBe('Restarting the agent in this view…');
+    expect(textOf('.op-handoff-message')).toBe('Restarting the agent…');
 
     vi.advanceTimersByTime(1);
-    expect(textOf('.op-handoff-message')).toBe('Finishing in the other view · 0:04');
+    expect(textOf('.op-handoff-message')).toBe('Finishing the running turn · 0:04');
     const action = /** @type {HTMLButtonElement} */ (one('.op-handoff-action'));
     expect(action.hidden).toBe(false);
     expect(action.textContent).toBe('Stop and switch now');
@@ -385,14 +407,14 @@ describe('enterFromExpert', () => {
 
   test('a restart that completes in budget never shows the wait', async () => {
     vi.useFakeTimers();
-    transport.requestHandoff.mockResolvedValue({ state: 'simple', session_id: 'K1' });
+    transport.requestHandoff.mockResolvedValue({ state: 'chat', session_id: 'K1' });
     await mountChat({ pointer: 'K1' });
 
-    await chat.enterFromExpert();
+    await chat.enterFromTerminal();
     vi.advanceTimersByTime(HANDOFF_RESTART_BUDGET_MS * 2);
 
     expect(/** @type {HTMLElement} */ (one('.op-handoff')).hidden).toBe(true);
-    expect(textOf('.op-handoff-message')).not.toContain('Finishing in the other view');
+    expect(textOf('.op-handoff-message')).not.toContain('Finishing in the other surface');
   });
 
   test('the elapsed counter ticks while the wait runs', async () => {
@@ -400,7 +422,7 @@ describe('enterFromExpert', () => {
     transport.requestHandoff.mockReturnValue(new Promise(() => {}));
     await mountChat({ pointer: 'K1' });
 
-    void chat.enterFromExpert();
+    void chat.enterFromTerminal();
     vi.advanceTimersByTime(62_000);
     expect(textOf('.op-handoff-elapsed')).toBe('1:02');
   });
@@ -408,43 +430,46 @@ describe('enterFromExpert', () => {
   test('"Stop and switch now" shows the wait at once: a turn is being cut short', async () => {
     transport.requestHandoff.mockRejectedValueOnce(transportError(409, 'handoff_needs_interrupt'));
     await mountChat({ pointer: 'K1' });
-    await chat.enterFromExpert();
+    await chat.enterFromTerminal();
 
     transport.requestHandoff.mockReturnValue(new Promise(() => {}));
     /** @type {HTMLButtonElement} */ (one('.op-handoff-action')).click();
     await Promise.resolve();
 
-    expect(textOf('.op-handoff-message')).toBe('Finishing in the other view · 0:00');
+    expect(textOf('.op-handoff-message')).toBe('Finishing the running turn · 0:00');
   });
 
   test('a hook-less refusal offers only the stop, which re-asks with interrupt', async () => {
     transport.requestHandoff.mockRejectedValueOnce(transportError(409, 'handoff_needs_interrupt'));
     await mountChat({ pointer: 'K1' });
 
-    await chat.enterFromExpert();
+    await chat.enterFromTerminal();
     const action = /** @type {HTMLButtonElement} */ (one('.op-handoff-action'));
-    expect(textOf('.op-handoff-message')).toBe('The other view may still be working.');
+    expect(textOf('.op-handoff-message')).toBe('The agent may still be working.');
     expect(action.hidden).toBe(false);
     expect(action.textContent).toBe('Stop and switch now');
     expect(/** @type {HTMLTextAreaElement} */ (one('textarea')).disabled).toBe(true);
 
-    transport.requestHandoff.mockResolvedValue({ state: 'simple', session_id: 'K1' });
+    transport.requestHandoff.mockResolvedValue({ state: 'chat', session_id: 'K1' });
     action.click();
     await Promise.resolve();
     await Promise.resolve();
     await Promise.resolve();
 
-    expect(transport.requestHandoff).toHaveBeenLastCalledWith('K1', expect.objectContaining({
-      interrupt: true,
-    }));
+    expect(transport.requestHandoff).toHaveBeenLastCalledWith(
+      'K1',
+      expect.objectContaining({
+        interrupt: true,
+      })
+    );
   });
 
   test('a session held elsewhere states the fact and offers nothing', async () => {
     transport.requestHandoff.mockRejectedValue(transportError(409, 'session_attached_elsewhere'));
     await mountChat({ pointer: 'K1' });
 
-    await chat.enterFromExpert();
-    expect(textOf('.op-handoff-message')).toBe('This session is in use in another tab or view.');
+    await chat.enterFromTerminal();
+    expect(textOf('.op-handoff-message')).toBe('This session is in use in another tab.');
     expect(/** @type {HTMLButtonElement} */ (one('.op-handoff-action')).hidden).toBe(true);
   });
 
@@ -455,42 +480,48 @@ describe('enterFromExpert', () => {
     transport.requestHandoff.mockRejectedValueOnce(transportError(status, slug));
     await mountChat({ pointer: 'K1' });
 
-    await chat.enterFromExpert();
+    await chat.enterFromTerminal();
     const action = /** @type {HTMLButtonElement} */ (one('.op-handoff-action'));
     expect(textOf('.op-handoff-message')).toBe(message);
     expect(action.hidden).toBe(false);
     expect(action.textContent).toBe('Retry');
 
     // The retry re-asks without an interrupt: nothing here consents to cutting a turn.
-    transport.requestHandoff.mockResolvedValue({ state: 'simple', session_id: 'K1' });
+    transport.requestHandoff.mockResolvedValue({ state: 'chat', session_id: 'K1' });
     action.click();
     await Promise.resolve();
     await Promise.resolve();
     await Promise.resolve();
 
-    expect(transport.requestHandoff).toHaveBeenLastCalledWith('K1', expect.objectContaining({
-      interrupt: false,
-    }));
+    expect(transport.requestHandoff).toHaveBeenLastCalledWith(
+      'K1',
+      expect.objectContaining({
+        interrupt: false,
+      })
+    );
   });
 
   test('a capacity 429 offers a retry that re-asks without interrupting', async () => {
     transport.requestHandoff.mockRejectedValueOnce(transportError(429, 'chat_capacity'));
     await mountChat({ pointer: 'K1' });
 
-    await chat.enterFromExpert();
+    await chat.enterFromTerminal();
     const action = /** @type {HTMLButtonElement} */ (one('.op-handoff-action'));
     expect(textOf('.op-handoff-message')).toBe('No chat capacity right now.');
     expect(action.textContent).toBe('Retry');
 
-    transport.requestHandoff.mockResolvedValue({ state: 'simple', session_id: 'K1' });
+    transport.requestHandoff.mockResolvedValue({ state: 'chat', session_id: 'K1' });
     action.click();
     await Promise.resolve();
     await Promise.resolve();
     await Promise.resolve();
 
-    expect(transport.requestHandoff).toHaveBeenLastCalledWith('K1', expect.objectContaining({
-      interrupt: false,
-    }));
+    expect(transport.requestHandoff).toHaveBeenLastCalledWith(
+      'K1',
+      expect.objectContaining({
+        interrupt: false,
+      })
+    );
     expect(/** @type {HTMLElement} */ (one('.op-handoff')).hidden).toBe(true);
   });
 
@@ -503,10 +534,10 @@ describe('enterFromExpert', () => {
     await mountChat({ pointer: 'K1' });
     transport.fetchHistory.mockClear();
 
-    await chat.enterFromExpert();
+    await chat.enterFromTerminal();
 
     expect(/** @type {HTMLElement} */ (one('.op-handoff')).hidden).toBe(false);
-    expect(textOf('.op-handoff-message')).toBe('Restarting the agent in this view…');
+    expect(textOf('.op-handoff-message')).toBe('Restarting the agent…');
     expect(/** @type {HTMLButtonElement} */ (one('.op-handoff-action')).hidden).toBe(true);
     expect(/** @type {HTMLTextAreaElement} */ (one('textarea')).disabled).toBe(true);
     // Nothing was handed over, so nothing is replayed.
@@ -526,22 +557,22 @@ describe('enterFromExpert', () => {
     );
     await mountChat({ pointer: 'K1' });
 
-    const first = chat.enterFromExpert();
-    const second = chat.enterFromExpert();
+    const first = chat.enterFromTerminal();
+    const second = chat.enterFromTerminal();
     // The newer attempt lands first; the older one is still in flight.
-    admit[1]({ state: 'simple', session_id: 'K1' });
+    admit[1]({ state: 'chat', session_id: 'K1' });
     await second;
     transport.requestHandoff.mockClear();
 
     // Nothing is waiting any more, so re-arm the wait the newer attempt would
     // be showing had the older one not been about to answer.
-    const third = chat.enterFromExpert();
-    admit[0]({ state: 'simple', session_id: 'K1' });
+    const third = chat.enterFromTerminal();
+    admit[0]({ state: 'chat', session_id: 'K1' });
     await first;
 
     expect(/** @type {HTMLElement} */ (one('.op-handoff')).hidden).toBe(false);
     expect(/** @type {HTMLTextAreaElement} */ (one('textarea')).disabled).toBe(true);
-    admit[2]({ state: 'simple', session_id: 'K1' });
+    admit[2]({ state: 'chat', session_id: 'K1' });
     await third;
   });
 
@@ -549,7 +580,7 @@ describe('enterFromExpert', () => {
     transport.requestHandoff.mockRejectedValue(new Error('network down'));
     await mountChat({ pointer: 'K1' });
 
-    await chat.enterFromExpert();
+    await chat.enterFromTerminal();
     // The in-log transport copy is for the log; the overlay states its own
     // failure in its own voice.
     expect(textOf('.op-handoff-message')).toBe(HANDOFF_FALLBACK.message);
@@ -561,7 +592,7 @@ describe('enterFromExpert', () => {
     transport.requestHandoff.mockReturnValue(new Promise(() => {}));
     await mountChat({ pointer: 'K1' });
 
-    void chat.enterFromExpert();
+    void chat.enterFromTerminal();
     vi.advanceTimersByTime(HANDOFF_RESTART_BUDGET_MS);
     expect(one('.op-handoff')?.getAttribute('aria-live')).toBe('polite');
     expect(one('.op-handoff-elapsed')?.getAttribute('aria-live')).toBe('off');
@@ -570,11 +601,11 @@ describe('enterFromExpert', () => {
   test('a console that was never mounted resolves rather than throwing', async () => {
     vi.resetModules();
     const fresh = await import(CHAT_JS);
-    await expect(fresh.enterFromExpert()).resolves.toBeUndefined();
+    await expect(fresh.enterFromTerminal()).resolves.toBeUndefined();
   });
 });
 
-describe('a prompt refused by the other view', () => {
+describe('a prompt refused by the other surface', () => {
   test('routes through the hand-off overlay and gives the text back', async () => {
     await mountChat({ pointer: 'K1' });
     const textarea = /** @type {HTMLTextAreaElement} */ (one('textarea'));
@@ -584,7 +615,7 @@ describe('a prompt refused by the other view', () => {
     const callbacks = transport.sendPrompt.mock.calls[0][2];
     callbacks.onError(transportError(409, 'handoff_needs_interrupt'));
 
-    expect(textOf('.op-handoff-message')).toBe('The other view may still be working.');
+    expect(textOf('.op-handoff-message')).toBe('The agent may still be working.');
     // The prompt never ran, so neither its bubble nor its text is lost.
     expect(logEntries()).toEqual([]);
     expect(textarea.value).toBe('open the shutter');
@@ -603,7 +634,7 @@ describe('a prompt refused by the other view', () => {
     // refused because another tab holds the session is the same fact as a
     // hand-off refused for it, and a second phrasing would read as a second
     // problem.
-    expect(textOf('.op-handoff-message')).toBe('This session is in use in another tab or view.');
+    expect(textOf('.op-handoff-message')).toBe('This session is in use in another tab.');
     expect(/** @type {HTMLButtonElement} */ (one('.op-handoff-action')).hidden).toBe(true);
     expect(logEntries()).toEqual([]);
     expect(textarea.value).toBe('status?');
@@ -645,12 +676,354 @@ describe('a prompt refused by the other view', () => {
     expect(textOf('.op-system')).toBe(transportNotice(err));
     expect(published).toEqual([transportNotice(err)]);
     expect(/** @type {HTMLElement} */ (one('.op-handoff')).hidden).toBe(true);
-    expect(logEntries()).toEqual(['status?']);
+    // No frame of the turn arrived, so its bubble goes and its text comes back.
+    expect(logEntries()).toEqual([]);
+    expect(textarea.value).toBe('status?');
+  });
+});
+
+describe('a prompt that never reached the agent', () => {
+  test.each([
+    ['another turn is already running', transportError(409, 'turn_in_progress')],
+    ['the command is not offered', transportError(400, 'command_not_available')],
+    ['the server failed', transportError(500)],
+    ['the network failed', new Error('network down')],
+  ])('%s: the bubble goes, the text comes back, and the reason shows', async (_why, err) => {
+    await mountChat({ pointer: 'K1' });
+    const textarea = /** @type {HTMLTextAreaElement} */ (one('textarea'));
+    textarea.value = 'open the shutter';
+    /** @type {HTMLButtonElement} */ (one('.op-send-btn')).click();
+    expect(logEntries()).toEqual(['open the shutter']);
+    expect(textarea.value).toBe('');
+
+    const callbacks = transport.sendPrompt.mock.calls[0][2];
+    callbacks.onError(err);
+    callbacks.onClose();
+
+    expect(logEntries()).toEqual([]);
+    expect(textarea.value).toBe('open the shutter');
+    expect(textarea.disabled).toBe(false);
+    expect(textOf('.op-system')).toBe(transportNotice(err));
+  });
+
+  test('a failure after the turn started keeps the bubble: the agent has the prompt', async () => {
+    await mountChat({ pointer: 'K1' });
+    const textarea = /** @type {HTMLTextAreaElement} */ (one('textarea'));
+    textarea.value = 'open the shutter';
+    /** @type {HTMLButtonElement} */ (one('.op-send-btn')).click();
+
+    const callbacks = transport.sendPrompt.mock.calls[0][2];
+    callbacks.onEvent({ type: 'turn_start', prompt: 'open the shutter', seq: 1 });
+    callbacks.onError(new Error('network down'));
+    callbacks.onClose();
+
+    expect(logEntries()).toEqual(['open the shutter']);
+    expect(textarea.value).toBe('');
+  });
+});
+
+describe('following a turn on the live feed', () => {
+  /** The callbacks of the feed the console opened last. */
+  const feedCallbacks = () => transport.followChat.mock.calls.at(-1)?.[1];
+
+  /** @param {Record<string, any>} frame - hand one frame to the live feed */
+  const feed = (frame) => feedCallbacks().onEvent(frame);
+
+  /** Whether the console shows a turn running: input out of reach, Stop in place of Send. */
+  const busy = () => {
+    const textarea = /** @type {HTMLTextAreaElement} */ (one('textarea'));
+    const stop = /** @type {HTMLButtonElement} */ (one('.op-stop-btn'));
+    const send = /** @type {HTMLButtonElement} */ (one('.op-send-btn'));
+    return textarea.disabled && !stop.hidden && send.hidden;
+  };
+
+  /** Let the transcript re-read that a frame started settle. */
+  const settle = async () => {
+    for (let i = 0; i < 5; i += 1) await Promise.resolve();
+  };
+
+  const agentEntries = () => container.querySelectorAll('.op-entry.assistant');
+
+  /** A turn the transcript shows finished. */
+  const finished = (/** @type {string} */ prompt, /** @type {string} */ answer) => [
+    { role: 'user', content: prompt },
+    {
+      role: 'assistant',
+      content: answer,
+      events: [
+        { type: 'text', content: answer },
+        { type: 'result', is_error: false, duration_ms: 2000 },
+      ],
+    },
+  ];
+
+  test('a snapshot that says nothing runs ends a turn whose end the feed missed', async () => {
+    await mountChat({ pointer: 'K1' });
+    feed({ type: 'hello', seq: 0, in_flight: false, pending: [] });
+    feed({ type: 'turn_start', prompt: 'read the orbit', seq: 1 });
+    feed({ type: 'text', content: 'Reading.', seq: 2 });
+    expect(busy()).toBe(true);
+
+    // The feed dropped, and the turn's result went by while it was down.
+    transport.fetchHistory.mockResolvedValue(finished('read the orbit', 'It is flat.'));
+    feed({ type: 'hello', seq: 6, in_flight: false, pending: [] });
+    await settle();
+
+    expect(busy()).toBe(false);
+    expect(/** @type {HTMLTextAreaElement} */ (one('textarea')).disabled).toBe(false);
+    // The transcript has the turn whole.
+    expect(logEntries()).toEqual(['read the orbit', 'It is flat.']);
+  });
+
+  test('the feed finding no agent ends a turn it was following', async () => {
+    await mountChat({ pointer: 'K1' });
+    feed({ type: 'hello', seq: 0, in_flight: false, pending: [] });
+    feed({ type: 'turn_start', prompt: 'read the orbit', seq: 1 });
+    expect(busy()).toBe(true);
+
+    feedCallbacks().onNoAgent();
+    await settle();
+
+    expect(busy()).toBe(false);
+  });
+
+  test('a turn that starts while an earlier one still shows running draws as a turn of its own', async () => {
+    await mountChat({ pointer: 'K1' });
+    feed({ type: 'hello', seq: 0, in_flight: false, pending: [] });
+    feed({ type: 'turn_start', prompt: 'read the orbit', seq: 1 });
+    feed({ type: 'text', content: 'Reading.', seq: 2 });
+    // That turn's result never arrived; the next turn starts.
+    feed({ type: 'turn_start', prompt: 'and the tunes?', seq: 9 });
+    feed({ type: 'text', content: 'Tunes are nominal.', seq: 10 });
+
+    expect(logEntries()).toEqual([
+      'read the orbit',
+      'Reading.',
+      'and the tunes?',
+      'Tunes are nominal.',
+    ]);
+    expect(agentEntries()).toHaveLength(2);
+    expect(busy()).toBe(true);
+
+    // It ends: the transcript is read again, for the turn whose end was missed.
+    transport.fetchHistory.mockResolvedValue([
+      ...finished('read the orbit', 'It is flat.'),
+      ...finished('and the tunes?', 'Tunes are nominal.'),
+    ]);
+    feed({ type: 'result', is_error: false, duration_ms: 1000, seq: 11 });
+    await settle();
+
+    expect(transport.fetchHistory).toHaveBeenCalledTimes(2);
+    expect(logEntries()).toEqual([
+      'read the orbit',
+      'It is flat.',
+      'and the tunes?',
+      'Tunes are nominal.',
+    ]);
+  });
+
+  test('a reload mid-turn continues the turn the transcript left open', async () => {
+    transport.fetchHistory.mockResolvedValue([
+      { role: 'user', content: 'read the orbit' },
+      { role: 'assistant', content: 'Reading.', events: [{ type: 'text', content: 'Reading.' }] },
+    ]);
+    await mountChat({ pointer: 'K1' });
+    feed({ type: 'hello', seq: 4, in_flight: true, pending: [] });
+    expect(busy()).toBe(true);
+
+    feed({ type: 'text', content: 'It is flat.', seq: 5 });
+
+    expect(agentEntries()).toHaveLength(1);
+    expect(logEntries()).toEqual(['read the orbit', 'Reading.', 'It is flat.']);
+
+    transport.fetchHistory.mockResolvedValue(finished('read the orbit', 'Reading. It is flat.'));
+    feed({ type: 'result', is_error: false, duration_ms: 3000, seq: 6 });
+    await settle();
+
+    expect(busy()).toBe(false);
+    expect(container.querySelectorAll('.op-footer')).toHaveLength(1);
+  });
+
+  test('a turn the transcript left open, with nothing running, is read again and closed', async () => {
+    transport.fetchHistory.mockResolvedValueOnce([
+      { role: 'user', content: 'read the orbit' },
+      { role: 'assistant', content: 'Reading.', events: [{ type: 'text', content: 'Reading.' }] },
+    ]);
+    await mountChat({ pointer: 'K1' });
+    expect(container.querySelector('.op-footer')).toBeNull();
+
+    // The turn ended between the transcript read and the feed's snapshot.
+    transport.fetchHistory.mockResolvedValue(finished('read the orbit', 'It is flat.'));
+    feed({ type: 'hello', seq: 7, in_flight: false, pending: [] });
+    await settle();
+
+    expect(transport.fetchHistory).toHaveBeenCalledTimes(2);
+    expect(logEntries()).toEqual(['read the orbit', 'It is flat.']);
+    expect(container.querySelectorAll('.op-footer')).toHaveLength(1);
+    expect(busy()).toBe(false);
+  });
+
+  test('a reconnect that missed frames of the running turn redraws it from the transcript, then carries on live', async () => {
+    await mountChat({ pointer: 'K1' });
+    feed({ type: 'hello', seq: 0, in_flight: false, pending: [] });
+    feed({ type: 'turn_start', prompt: 'write the corrector', seq: 1 });
+    feed({ type: 'text', content: 'Writing it.', seq: 2 });
+
+    // While the feed was down the agent called a tool, which now waits on the operator.
+    const call = {
+      type: 'tool_use',
+      tool_name: 'Execute',
+      tool_name_raw: 'mcp__python__execute',
+      tool_use_id: 't1',
+      input: { code: 'print(1)' },
+    };
+    transport.fetchHistory.mockResolvedValue([
+      { role: 'user', content: 'write the corrector' },
+      {
+        role: 'assistant',
+        content: 'Writing it.',
+        events: [{ type: 'text', content: 'Writing it.' }, call],
+      },
+    ]);
+    const ask = {
+      type: 'permission_request',
+      request_id: 'req-1',
+      kind: 'tool',
+      tool_name: 'Execute',
+      tool_name_raw: 'mcp__python__execute',
+      tool_use_id: 't1',
+      input: call.input,
+      reason: null,
+      can_allow_session: false,
+      seq: 4,
+    };
+    feed({ type: 'hello', seq: 4, in_flight: true, pending: [ask] });
+    await settle();
+
+    expect(transport.fetchHistory).toHaveBeenCalledTimes(2);
+    expect(container.querySelectorAll('.op-tool')).toHaveLength(1);
+    expect(container.querySelectorAll('.op-approval')).toHaveLength(1);
+    expect(busy()).toBe(true);
+
+    feed({ type: 'text', content: 'Done.', seq: 5 });
+    expect(agentEntries()).toHaveLength(1);
+    expect(logEntries()).toEqual(['write the corrector', 'Writing it.', 'Done.']);
+  });
+
+  test('a reconnect that missed nothing keeps drawing the turn as it was', async () => {
+    await mountChat({ pointer: 'K1' });
+    feed({ type: 'hello', seq: 0, in_flight: false, pending: [] });
+    feed({ type: 'turn_start', prompt: 'read the orbit', seq: 1 });
+    feed({ type: 'text', content: 'Reading.', seq: 2 });
+
+    feed({ type: 'hello', seq: 2, in_flight: true, pending: [] });
+    await settle();
+
+    expect(transport.fetchHistory).toHaveBeenCalledTimes(1);
+    expect(busy()).toBe(true);
+    feed({ type: 'text', content: 'It is flat.', seq: 3 });
+    expect(logEntries()).toEqual(['read the orbit', 'Reading.', 'It is flat.']);
+  });
+
+  /** Put one file in the composer's tray, as the picker hands it over. */
+  const attachFile = (/** @type {string} */ name) => {
+    const picker = /** @type {HTMLInputElement} */ (one('input[type="file"]'));
+    const file = new File([new Uint8Array(10)], name, { type: 'image/png' });
+    Object.defineProperty(picker, 'files', { value: [file], configurable: true });
+    picker.dispatchEvent(new Event('change'));
+  };
+
+  /** The names on the chips in the composer's tray. */
+  const trayNames = () =>
+    [...container.querySelectorAll('.op-attach-chip-name')].map((el) => el.textContent);
+
+  test('a re-read of the same conversation keeps the files waiting in the tray', async () => {
+    await mountChat({ pointer: 'K1' });
+    feed({ type: 'hello', seq: 0, in_flight: false, pending: [] });
+    attachFile('shot.png');
+    await settle();
+    expect(trayNames()).toEqual(['shot.png']);
+
+    // Another tab's turn runs, and its end goes by while the feed is down.
+    feed({ type: 'turn_start', prompt: 'read the orbit', seq: 1 });
+    transport.fetchHistory.mockResolvedValue(finished('read the orbit', 'It is flat.'));
+    feed({ type: 'hello', seq: 6, in_flight: false, pending: [] });
+    await settle();
+
+    // The log was read again from the transcript; the unsent file stays.
+    expect(logEntries()).toEqual(['read the orbit', 'It is flat.']);
+    expect(trayNames()).toEqual(['shot.png']);
+    expect(transport.removeChatAttachment).not.toHaveBeenCalled();
+  });
+
+  test('"New conversation" empties the tray and removes its files', async () => {
+    await mountChat({ pointer: 'K1' });
+    attachFile('shot.png');
+    await settle();
+
+    /** @type {HTMLButtonElement} */ (one('.op-session-new')).click();
+    await settle();
+
+    expect(trayNames()).toEqual([]);
+    expect(transport.removeChatAttachment).toHaveBeenCalledTimes(1);
+    expect(transport.removeChatAttachment.mock.calls[0][0]).toBe('K1');
+  });
+
+  test('a switch to another conversation empties the tray and removes its files', async () => {
+    await mountChat({ pointer: 'K1' });
+    attachFile('shot.png');
+    await settle();
+    const pointer =
+      await import('../../../src/osprey/interfaces/web_terminal/static/js/session-pointer.js');
+
+    pointer.setPointer('K2');
+    await settle();
+
+    expect(trayNames()).toEqual([]);
+    expect(transport.removeChatAttachment).toHaveBeenCalledTimes(1);
+    expect(transport.removeChatAttachment.mock.calls[0][0]).toBe('K1');
+  });
+});
+
+describe('following a sent turn', () => {
+  test('the reply to a prompt sent into a full log stays on screen', async () => {
+    await mountChat({ pointer: 'K1' });
+    // happy-dom lays nothing out: give the log a 300px window over 100px rows.
+    const log = /** @type {HTMLElement} */ (one('.op-messages'));
+    const height = () => log.children.length * 100;
+    let top = 0;
+    Object.defineProperties(log, {
+      clientHeight: { get: () => 300 },
+      scrollHeight: { get: height },
+      scrollTop: {
+        get: () => top,
+        set: (value) => {
+          top = Math.max(0, Math.min(value, height() - 300));
+        },
+      },
+    });
+    // An earlier exchange already fills the window.
+    for (let i = 0; i < 5; i += 1) log.append(document.createElement('div'));
+
+    const textarea = /** @type {HTMLTextAreaElement} */ (one('textarea'));
+    textarea.value = 'Now give me a full correlation plot';
+    /** @type {HTMLButtonElement} */ (one('.op-send-btn')).click();
+    transport.sendPrompt.mock.calls[0][2].onEvent({ type: 'text', content: 'Here it is.' });
+
+    expect(log.scrollHeight - log.scrollTop - log.clientHeight).toBe(0);
   });
 });
 
 describe('started commands', () => {
   const MAGNET = { label: 'magnet_scan.py', command: 'python magnet_scan.py -s 3' };
+
+  afterEach(async () => {
+    // A question left up would answer the next test's Escape: take it down
+    // through the module instance this test's chat.js raised it with.
+    const confirm =
+      await import('../../../src/osprey/interfaces/web_terminal/static/js/posture-confirm.js');
+    confirm.dismissConfirm();
+  });
 
   /**
    * The refusal the hand-off answers when stopping the agent would end commands it started.
@@ -676,20 +1049,15 @@ describe('started commands', () => {
   const dialogButton = (selector) =>
     /** @type {HTMLButtonElement} */ (document.querySelector(selector));
 
-  /** The mode-change broadcasts this window posted, as frame-params' pickUiMode sends them. */
-  function modeChanges(/** @type {import('vitest').MockInstance} */ spy) {
-    return spy.mock.calls
-      .map((call) => call[0])
-      .filter((message) => message?.type === 'osprey-mode-change');
-  }
-
   test('a stop refused for started commands asks, and "Stop both" re-sends with end_started', async () => {
     transport.requestHandoff.mockRejectedValueOnce(startedRefusal([MAGNET]));
     await mountChat({ pointer: 'K1' });
 
-    await chat.enterFromExpert({ interrupt: true });
+    await chat.enterFromTerminal({ interrupt: true });
 
-    expect(textOf('.op-handoff-message')).toBe('The agent started a command that is still running.');
+    expect(textOf('.op-handoff-message')).toBe(
+      'The agent started a command that is still running.'
+    );
     expect(dialog()).not.toBeNull();
     expect(dialogTitle()).toBe('This also ends magnet_scan.py.');
     expect(document.activeElement).toBe(dialogButton('.posture-modal-cancel'));
@@ -698,10 +1066,13 @@ describe('started commands', () => {
     await settle();
 
     expect(transport.requestHandoff).toHaveBeenCalledTimes(2);
-    expect(transport.requestHandoff).toHaveBeenLastCalledWith('K1', expect.objectContaining({
-      interrupt: true,
-      endStarted: true,
-    }));
+    expect(transport.requestHandoff).toHaveBeenLastCalledWith(
+      'K1',
+      expect.objectContaining({
+        interrupt: true,
+        endStarted: true,
+      })
+    );
     expect(dialog()).toBeNull();
     expect(/** @type {HTMLElement} */ (one('.op-handoff')).hidden).toBe(true);
     expect(/** @type {HTMLTextAreaElement} */ (one('textarea')).disabled).toBe(false);
@@ -713,7 +1084,7 @@ describe('started commands', () => {
     transport.requestHandoff.mockRejectedValueOnce(refused);
     await mountChat({ pointer: 'K1' });
 
-    await chat.enterFromExpert({ interrupt: true });
+    await chat.enterFromTerminal({ interrupt: true });
 
     expect(textOf('.op-handoff-message')).toBe('Could not check what the agent started.');
     expect(dialogTitle()).toBe('Could not check what the agent started.');
@@ -722,71 +1093,95 @@ describe('started commands', () => {
     dialogButton('.posture-modal-confirm').click();
     await settle();
 
-    expect(transport.requestHandoff).toHaveBeenLastCalledWith('K1', expect.objectContaining({
-      interrupt: true,
-      endStarted: true,
-    }));
+    expect(transport.requestHandoff).toHaveBeenLastCalledWith(
+      'K1',
+      expect.objectContaining({
+        interrupt: true,
+        endStarted: true,
+      })
+    );
   });
 
-  test('"Cancel" sends nothing more and flips to the Expert view', async () => {
-    const posted = vi.spyOn(window, 'postMessage');
+  test('"Cancel" sends nothing more and returns to the terminal it came from', async () => {
     transport.requestHandoff.mockRejectedValueOnce(startedRefusal([MAGNET]));
     await mountChat({ pointer: 'K1' });
-    await chat.enterFromExpert({ interrupt: true });
+    await chat.enterFromTerminal({ interrupt: true });
 
     dialogButton('.posture-modal-cancel').click();
     await settle();
 
     expect(transport.requestHandoff).toHaveBeenCalledTimes(1);
-    expect(modeChanges(posted)).toEqual([{ type: 'osprey-mode-change', mode: 'expert' }]);
+    expect(document.documentElement.getAttribute('data-agent-surface')).toBe('terminal');
     expect(dialog()).toBeNull();
     expect(/** @type {HTMLElement} */ (one('.op-handoff')).hidden).toBe(true);
-    // The session is the Expert view's again, so this console stays out of reach.
+    // The session is the terminal's again, so this console stays out of reach.
     expect(/** @type {HTMLTextAreaElement} */ (one('textarea')).disabled).toBe(true);
-    posted.mockRestore();
   });
 
   test('Escape behaves as Cancel', async () => {
-    const posted = vi.spyOn(window, 'postMessage');
     transport.requestHandoff.mockRejectedValueOnce(startedRefusal([MAGNET]));
     await mountChat({ pointer: 'K1' });
-    await chat.enterFromExpert({ interrupt: true });
+    await chat.enterFromTerminal({ interrupt: true });
 
     document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
     await settle();
 
     expect(transport.requestHandoff).toHaveBeenCalledTimes(1);
-    expect(modeChanges(posted)).toEqual([{ type: 'osprey-mode-change', mode: 'expert' }]);
+    expect(document.documentElement.getAttribute('data-agent-surface')).toBe('terminal');
     expect(dialog()).toBeNull();
-    posted.mockRestore();
   });
 
-  test('a plain flip refused for started commands asks without an interrupt, and "Stop both" keeps it plain', async () => {
+  test('"Cancel" stays in chat when the operator never left the terminal', async () => {
+    // A retry after a refused send: the holder is another tab, not this one's
+    // terminal, so nothing here is theirs to go back to.
+    transport.requestHandoff.mockRejectedValueOnce(startedRefusal([MAGNET]));
+    await mountChat({ pointer: 'K1' });
+    await settle();
+    /** @type {HTMLTextAreaElement} */ (one('textarea')).value = 'hello';
+    /** @type {HTMLButtonElement} */ (one('.op-send-btn')).click();
+    transport.sendPrompt.mock.calls[0][2].onError(transportError(409, 'handoff_needs_interrupt'));
+    /** @type {HTMLButtonElement} */ (one('.op-handoff-action')).click();
+    await settle();
+
+    dialogButton('.posture-modal-cancel').click();
+    await settle();
+
+    expect(document.documentElement.hasAttribute('data-agent-surface')).toBe(false);
+    expect(/** @type {HTMLElement} */ (one('.op-handoff')).hidden).toBe(false);
+  });
+
+  test('a plain hand-off refused for started commands asks without an interrupt, and "Stop both" keeps it plain', async () => {
     transport.requestHandoff.mockRejectedValueOnce(startedRefusal([MAGNET]));
     await mountChat({ pointer: 'K1' });
 
-    await chat.enterFromExpert();
+    await chat.enterFromTerminal();
     expect(dialogTitle()).toBe('This also ends magnet_scan.py.');
 
     dialogButton('.posture-modal-confirm').click();
     await settle();
 
-    expect(transport.requestHandoff).toHaveBeenLastCalledWith('K1', expect.objectContaining({
-      interrupt: false,
-      endStarted: true,
-    }));
+    expect(transport.requestHandoff).toHaveBeenLastCalledWith(
+      'K1',
+      expect.objectContaining({
+        interrupt: false,
+        endStarted: true,
+      })
+    );
   });
 
   test('with nothing running the stop goes straight through and nothing is asked', async () => {
     await mountChat({ pointer: 'K1' });
 
-    await chat.enterFromExpert({ interrupt: true });
+    await chat.enterFromTerminal({ interrupt: true });
 
     expect(transport.requestHandoff).toHaveBeenCalledTimes(1);
-    expect(transport.requestHandoff).toHaveBeenCalledWith('K1', expect.objectContaining({
-      interrupt: true,
-      endStarted: false,
-    }));
+    expect(transport.requestHandoff).toHaveBeenCalledWith(
+      'K1',
+      expect.objectContaining({
+        interrupt: true,
+        endStarted: false,
+      })
+    );
     expect(document.querySelector('.posture-modal-overlay')).toBeNull();
     expect(/** @type {HTMLElement} */ (one('.op-handoff')).hidden).toBe(true);
   });
@@ -800,7 +1195,9 @@ describe('started commands', () => {
     const callbacks = transport.sendPrompt.mock.calls[0][2];
     callbacks.onError(startedRefusal(undefined));
 
-    expect(textOf('.op-handoff-message')).toBe('The agent started a command that is still running.');
+    expect(textOf('.op-handoff-message')).toBe(
+      'The agent started a command that is still running.'
+    );
     const action = /** @type {HTMLButtonElement} */ (one('.op-handoff-action'));
     expect(action.textContent).toBe('Stop and switch now');
     // The chat endpoint's refusal carries no list, so nothing is asked yet.
@@ -810,10 +1207,13 @@ describe('started commands', () => {
     action.click();
     await settle();
 
-    expect(transport.requestHandoff).toHaveBeenCalledWith('K1', expect.objectContaining({
-      interrupt: true,
-      endStarted: false,
-    }));
+    expect(transport.requestHandoff).toHaveBeenCalledWith(
+      'K1',
+      expect.objectContaining({
+        interrupt: true,
+        endStarted: false,
+      })
+    );
     expect(dialogTitle()).toBe('This also ends magnet_scan.py.');
 
     dialogButton('.posture-modal-cancel').click();
@@ -821,7 +1221,7 @@ describe('started commands', () => {
   });
 });
 
-describe('slash commands in the Simple view', () => {
+describe('slash commands in the chat', () => {
   test('picking a suggestion fills the box and does not send', async () => {
     await mountChat({ pointer: 'K1' });
     const textarea = /** @type {HTMLTextAreaElement} */ (one('textarea'));
@@ -890,7 +1290,38 @@ describe('renderChatBootFailure', () => {
 
     renderChatBootFailure('operator-container');
 
-    expect(host.textContent).toContain('failed to start');
+    expect(host.textContent).toContain('The agent console failed to start');
     expect(host.textContent).not.toContain('stale');
+  });
+});
+
+describe('the Agent bar', () => {
+  test('reads dot, Agent, New conversation, bell, Export, then the ⋯', async () => {
+    await mountChat();
+    const bar = /** @type {HTMLElement} */ (one('.op-session-bar'));
+    const parts = [...bar.children].map(
+      (el) => el.getAttribute('aria-label') ?? el.textContent ?? ''
+    );
+    expect(parts).toEqual([
+      '',
+      'Agent',
+      'New conversation',
+      'Desktop notifications',
+      'Export',
+      'Earlier conversations',
+    ]);
+  });
+
+  test('the ⋯ opens the earlier conversations menu', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ({ ok: true, status: 200, json: async () => ({ sessions: [] }) }))
+    );
+    await mountChat();
+    /** @type {HTMLButtonElement} */ (one('.op-session-more')).click();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const menu = /** @type {HTMLElement} */ (document.getElementById('agent-conversations-menu'));
+    expect(menu.hidden).toBe(false);
+    vi.unstubAllGlobals();
   });
 });

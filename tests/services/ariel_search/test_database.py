@@ -164,29 +164,24 @@ def sql_index(conn, needle: str) -> int:
 class TestModelToTableName:
     """Tests for model_to_table_name function."""
 
-    def test_hyphenated_name(self) -> None:
-        """Test conversion of hyphenated model name."""
-        assert model_to_table_name("nomic-embed-text") == "text_embeddings_nomic_embed_text"
-
-    def test_dotted_name(self) -> None:
-        """Test conversion of dotted model name."""
-        assert model_to_table_name("bge.large.v1") == "text_embeddings_bge_large_v1"
-
-    def test_slashed_name(self) -> None:
-        """Test conversion of slashed model name."""
-        assert model_to_table_name("org/model-name") == "text_embeddings_org_model_name"
-
-    def test_mixed_name(self) -> None:
-        """Test conversion of mixed format name."""
-        assert model_to_table_name("org/model-v1.2") == "text_embeddings_org_model_v1_2"
-
-    def test_uppercase_lowercased(self) -> None:
-        """Test that uppercase is converted to lowercase."""
-        assert model_to_table_name("NOMIC-EMBED-TEXT") == "text_embeddings_nomic_embed_text"
-
-    def test_double_underscore_collapsed(self) -> None:
-        """Test that double underscores are collapsed."""
-        assert model_to_table_name("model--name") == "text_embeddings_model_name"
+    @pytest.mark.parametrize(
+        ("model", "table"),
+        [
+            pytest.param("nomic-embed-text", "text_embeddings_nomic_embed_text", id="hyphenated"),
+            pytest.param("bge.large.v1", "text_embeddings_bge_large_v1", id="dotted"),
+            pytest.param("org/model-name", "text_embeddings_org_model_name", id="slashed"),
+            pytest.param("org/model-v1.2", "text_embeddings_org_model_v1_2", id="mixed"),
+            pytest.param(
+                "NOMIC-EMBED-TEXT", "text_embeddings_nomic_embed_text", id="uppercase_lowercased"
+            ),
+            pytest.param(
+                "model--name", "text_embeddings_model_name", id="double_underscore_collapsed"
+            ),
+        ],
+    )
+    def test_model_to_table_name(self, model: str, table: str) -> None:
+        """Separators become one underscore, case folds, and the table prefix is added."""
+        assert model_to_table_name(model) == table
 
 
 class TestBaseMigration:
@@ -269,7 +264,15 @@ class TestMigrationTopologicalSort:
 class TestRequiresModule:
     """Tests for requires_module decorator."""
 
-    def test_module_not_enabled_raises(self) -> None:
+    @pytest.mark.parametrize(
+        ("module_type", "module_name"),
+        [
+            pytest.param("enhancement", "text_embedding", id="disabled-module"),
+            # An unknown module type is treated as disabled.
+            pytest.param("unknown_type", "some_module", id="unknown-module-type"),
+        ],
+    )
+    def test_module_not_enabled_raises(self, module_type: str, module_name: str) -> None:
         """Test that disabled module raises ModuleNotEnabledError."""
         from osprey.services.ariel_search.database.repository import (
             ARIELRepository,
@@ -284,11 +287,11 @@ class TestRequiresModule:
 
         repo = ARIELRepository(MockPool(), config)  # type: ignore[arg-type]
 
-        @requires_module("enhancement", "text_embedding")
+        @requires_module(module_type, module_name)
         def test_method(self: ARIELRepository) -> str:  # noqa: ARG001 - the decorator reads the receiver
             return "success"
 
-        with pytest.raises(ModuleNotEnabledError, match="text_embedding"):
+        with pytest.raises(ModuleNotEnabledError, match=module_name):
             test_method(repo)
 
     def test_module_enabled_succeeds(self) -> None:
@@ -347,28 +350,6 @@ class TestRequiresModule:
             return "success"
 
         with pytest.raises(ModuleNotEnabledError, match="keyword"):
-            test_method(repo)
-
-    def test_unknown_module_type_disabled(self) -> None:
-        """Test unknown module type is treated as disabled."""
-        from osprey.services.ariel_search.database.repository import (
-            ARIELRepository,
-            requires_module,
-        )
-        from osprey.services.ariel_search.exceptions import ModuleNotEnabledError
-
-        config = ARIELConfig(database=DatabaseConfig(uri="postgresql://localhost:5432/test"))
-
-        class MockPool:
-            pass
-
-        repo = ARIELRepository(MockPool(), config)  # type: ignore[arg-type]
-
-        @requires_module("unknown_type", "some_module")
-        def test_method(self: ARIELRepository) -> str:  # noqa: ARG001 - the decorator reads the receiver
-            return "success"
-
-        with pytest.raises(ModuleNotEnabledError, match="some_module"):
             test_method(repo)
 
 

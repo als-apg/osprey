@@ -303,7 +303,10 @@ describe('--color-on-accent picks the most readable candidate', () => {
   test('never returns a candidate a rival beats', () => {
     const derived = deriveAccentVars(state, 'dark', DARK_SCOPE);
     const accent = /** @type {any} */ (hexToRgb(derived['--color-accent']));
-    const chosen = contrastRatio(accent, /** @type {any} */ (hexToRgb(derived['--color-on-accent'])));
+    const chosen = contrastRatio(
+      accent,
+      /** @type {any} */ (hexToRgb(derived['--color-on-accent']))
+    );
     for (const rival of [DARK_SCOPE.bgPrimary, DARK_SCOPE.textPrimary, '#000000', '#ffffff']) {
       expect(chosen).toBeGreaterThanOrEqual(
         contrastRatio(accent, /** @type {any} */ (hexToRgb(rival)))
@@ -348,7 +351,10 @@ describe('evaluateGates', () => {
     for (const [mode, scope] of cases) {
       const derived = deriveThemeVars(OSPREY_STATE, OSPREY_SECONDARY, mode, scope);
       const gates = evaluateGates(derived, scope);
-      expect(gates.every((gate) => gate.pass), `${mode}: ${JSON.stringify(gates)}`).toBe(true);
+      expect(
+        gates.every((gate) => gate.pass),
+        `${mode}: ${JSON.stringify(gates)}`
+      ).toBe(true);
     }
   });
 
@@ -369,8 +375,14 @@ describe('evaluateGates', () => {
     // Against white, #949494 is 3.033:1 and #959595 is 2.995:1 -- one step of
     // gray on either side of the non-text-UI threshold.
     const white = { bgPrimary: '#ffffff', textPrimary: '#000000' };
-    const passing = evaluateGates({ '--color-accent': '#949494', '--color-on-accent': '#000000' }, white);
-    const failing = evaluateGates({ '--color-accent': '#959595', '--color-on-accent': '#000000' }, white);
+    const passing = evaluateGates(
+      { '--color-accent': '#949494', '--color-on-accent': '#000000' },
+      white
+    );
+    const failing = evaluateGates(
+      { '--color-accent': '#959595', '--color-on-accent': '#000000' },
+      white
+    );
     expect(passing[0].ratio).toBeCloseTo(3.033, 3);
     expect(passing[0].pass).toBe(true);
     expect(failing[0].ratio).toBeCloseTo(2.995, 3);
@@ -381,8 +393,14 @@ describe('evaluateGates', () => {
     // On-accent against the accent fill: #767676 under white is 4.542:1,
     // #777777 is 4.478:1 -- either side of the body-text threshold.
     const scope = { bgPrimary: '#000000', textPrimary: '#ffffff' };
-    const passing = evaluateGates({ '--color-accent': '#767676', '--color-on-accent': '#ffffff' }, scope);
-    const failing = evaluateGates({ '--color-accent': '#777777', '--color-on-accent': '#ffffff' }, scope);
+    const passing = evaluateGates(
+      { '--color-accent': '#767676', '--color-on-accent': '#ffffff' },
+      scope
+    );
+    const failing = evaluateGates(
+      { '--color-accent': '#777777', '--color-on-accent': '#ffffff' },
+      scope
+    );
     expect(passing[1].ratio).toBeCloseTo(4.542, 3);
     expect(passing[1].pass).toBe(true);
     expect(failing[1].ratio).toBeCloseTo(4.478, 3);
