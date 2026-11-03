@@ -28,11 +28,12 @@ from pathlib import Path
 from typing import NoReturn
 
 import click
-import yaml
+from ruamel.yaml import YAMLError
 
 from osprey.apps.boundary import check_package
 from osprey.apps.errors import AppManifestError, Violation
 from osprey.apps.manifest import APP_NAME_PATTERN
+from osprey.utils.config_writer import load_config_document
 from osprey.utils.workspace import APPS_DIRNAME
 
 from .application_material import app_build_output
@@ -71,7 +72,7 @@ def app() -> None:
 @app.command("new")
 @click.argument("name")
 @repo_option
-@click.option("--force", is_flag=True, help="Replace an existing apps/NAME/ directory.")
+@click.option("--force", is_flag=True, help="Replace whatever exists at apps/NAME/.")
 def new(name: str, repo: Path | None, force: bool) -> None:
     """Copy the shipped example application into apps/NAME/ and list it.
 
@@ -79,7 +80,7 @@ def new(name: str, repo: Path | None, force: bool) -> None:
     NAME with underscores); no port is pinned. The profile's apps: block gains
     NAME: {}, and .gitignore the entry that keeps fetched panel files out of git. A name
     whose package would be a Python keyword or shadow a standard-library or OSPREY module
-    is refused. An existing apps/NAME/ is left alone unless --force replaces it.
+    is refused. Whatever exists at apps/NAME/ is left alone unless --force replaces it.
     """
     from .build_profile import write_back_cli_overrides
 
@@ -118,10 +119,12 @@ def new(name: str, repo: Path | None, force: bool) -> None:
 def _listed_apps(profile_path: Path) -> Mapping[str, object]:
     """The profile's ``apps:`` block, refused before anything on disk changes."""
     try:
-        profile = yaml.safe_load(profile_path.read_text(encoding="utf-8")) or {}
-    except (yaml.YAMLError, UnicodeDecodeError) as error:
+        profile = load_config_document(profile_path)
+    except (YAMLError, UnicodeDecodeError) as error:
         raise click.UsageError(f"{PROFILE_FILENAME} does not parse: {error}") from error
-    listed = profile.get("apps") or {} if isinstance(profile, dict) else None
+    listed = profile.get("apps") if isinstance(profile, dict) else []
+    if listed is None:
+        return {}
     if not isinstance(listed, dict):
         raise click.UsageError(f"{PROFILE_FILENAME} has no mapping to list an application in.")
     return listed
