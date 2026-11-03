@@ -82,15 +82,17 @@ from osprey.deployment.web_terminals.render_naming import (
     RENDER_KIND_TIER,
     RENDERS_KEY,
 )
-from osprey.facility.served import SERVED_PROBE_KEYS, facility_tree_fill
+from osprey.facility.settings import FACILITY_SETTINGS
 from osprey.port_layout import DEFAULT_PORT_BASE
 from osprey.profiles.providers import load_provider_catalog
-from tests._preset_data import packaged_facility_dir
 from tests.cli.test_explicit_config_equivalence import (
     _CATALOG_ADDITIONS,
     ABSENT,
     CELL_DELTAS,
 )
+
+#: The keys the build derives from the facility when the profile leaves them unstated.
+_FACT_KEYS = {row.key for row in FACILITY_SETTINGS}
 
 FIXTURE_ROOT = Path(__file__).resolve().parents[1] / "fixtures" / "explicit_config"
 
@@ -283,15 +285,7 @@ def _carried_block_switches(render: Mapping[str, Any], config: Mapping[str, Any]
     return switches
 
 
-def _tree_fill(preset: str, document: Mapping[str, Any]) -> set[str]:
-    """The keys the build states from the facility tree the preset lands at ``data/facility/``."""
-    facility_dir = packaged_facility_dir(preset.replace("-", "_"))
-    return set(facility_tree_fill(facility_dir, dict(document.get("config") or {})))
-
-
-def _partition(
-    render: Mapping[str, Any], document: Mapping[str, Any], preset: str
-) -> dict[str, set[str]]:
+def _partition(render: Mapping[str, Any], document: Mapping[str, Any]) -> dict[str, set[str]]:
     """Split the render's keys into the eight named sets, in claim order.
 
     Claim order matters only where a key could be read two ways: a port leaf
@@ -304,7 +298,6 @@ def _partition(
     block_prefixes = _block_derived_prefixes(document)
     panel_switches = _panel_switches(document)
     corpus = set(graphdb_corpus_fill(dict(document.get("config") or {})))
-    tree_fill = _tree_fill(preset, document)
     sets: dict[str, set[str]] = {
         "D": set(),
         "P": set(),
@@ -329,7 +322,7 @@ def _partition(
             sets["Ports"].add(key)
         elif key in corpus:
             sets["Corpus"].add(key)
-        elif (key in SERVED_PROBE_KEYS and key not in config) or key in tree_fill:
+        elif key in _FACT_KEYS and key not in config:
             sets["Fill"].add(key)
         elif _WRITTEN_BY_BUILD_PATTERN.match(key) and key not in config:
             sets["W"].add(key)
@@ -346,7 +339,7 @@ def test_root_render_is_partitioned_between_its_sources(
     render = _render(directory)
     document = _preset_document(preset)
     config = _config_leaves(document)
-    sets = _partition(render, document, preset)
+    sets = _partition(render, document)
 
     claimed = set().union(*sets.values())
     unclaimed = sorted(set(render) - claimed)
@@ -406,7 +399,7 @@ def test_ports_are_the_layout_fill_and_nothing_else(
     render = _render(directory)
     document = _preset_document(preset)
     config = _config_leaves(document)
-    ports = _partition(render, document, preset)["Ports"]
+    ports = _partition(render, document)["Ports"]
 
     assert not {key for key in config if _PORT_LEAF.match(key)}
     filled = layout_port_fill(dict(document.get("config") or {}), DEFAULT_PORT_BASE)
@@ -515,7 +508,6 @@ def test_render_stays_inside_the_partition(stem: str, preset: str, directory: st
         }
     )
     corpus = set(graphdb_corpus_fill(dict(root_document.get("config") or {})))
-    tree_fill = _tree_fill(preset, root_document)
     unclaimed = [
         key
         for key in render
@@ -523,8 +515,7 @@ def test_render_stays_inside_the_partition(stem: str, preset: str, directory: st
             is_derived_key(key)
             or _WRITTEN_BY_BUILD_PATTERN.match(key)
             or key in corpus
-            or key in SERVED_PROBE_KEYS
-            or key in tree_fill
+            or (key in _FACT_KEYS and key not in config)
             or key == _PROVIDERS_KEY
             or key in panel_switches
             or _PORT_LEAF.match(key)

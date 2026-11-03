@@ -29,7 +29,7 @@ import yaml
 from click.testing import CliRunner, Result
 
 from osprey.facility import TEXTURE
-from osprey.facility.served import NO_READBACK_WARNING
+from osprey.facility.settings import NO_READBACK_WARNING
 from osprey_connectors.errors import ChannelNotFoundError
 from osprey_connectors_tests._write_fakes import arm_switch, writes_enabled_config
 

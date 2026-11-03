@@ -30,7 +30,7 @@ from osprey.cli.main import cli
 from osprey.facility.build import build_facility
 from osprey.facility.errors import KINDS
 from osprey.facility.records import FacilityRecords
-from osprey.facility.served import NO_READBACK_WARNING
+from osprey.facility.settings import NO_READBACK_WARNING
 from osprey.facility.views import VIEWS, ViewInputs
 from osprey.utils.workspace import TIERS_DIRNAME
 from tests._builds import init_project, run_build

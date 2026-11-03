@@ -10,7 +10,7 @@ import yaml
 from click.testing import CliRunner
 
 from osprey.cli.main import cli
-from osprey.facility.served import NO_READBACK_WARNING, SERVED_PROBE_KEYS
+from osprey.facility.settings import NO_READBACK_WARNING, SERVED_PROBE_KEYS
 from osprey.facility.views.facts import zero_source_facts
 from tests._builds import init_machineless
 
