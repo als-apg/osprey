@@ -3345,7 +3345,7 @@ def _describe_queue_deployment(repo: Path) -> None:
     assert binding is not None, f"corrector {bounded} has no served binding"
     other_plane = sorted(
         b.address
-        for b in view.bindings(role="setpoint", model=model)
+        for b in view.bindings(engine_role="setpoint", model=model)
         if b.plane is not None and b.plane != binding.plane
     )
     assert other_plane, f"model {model} wires no corrector of a second plane"

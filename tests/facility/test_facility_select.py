@@ -101,7 +101,7 @@ def test_monitors_in_plane_are_monitors_of_that_plane_in_address_order(
     for address in picked:
         binding = view.binding(address)
         assert binding is not None
-        assert binding.role == "monitor"
+        assert binding.engine_role == "monitor"
         assert binding.plane == "x"
 
 

@@ -1142,7 +1142,7 @@ def corrector_at_slot(slot: int) -> Corrector:
     model = lane_model(view)
     kicks = [
         binding.address
-        for binding in view.bindings(role="setpoint", model=model)
+        for binding in view.bindings(engine_role="setpoint", model=model)
         if binding.plane is not None
     ]
     assert len(kicks) > slot, (

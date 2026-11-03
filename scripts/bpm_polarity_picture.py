@@ -149,7 +149,7 @@ def bump_test(view: SimulatorView, scenario: str = SCENARIO) -> BumpTest:
     horizontal = [
         a
         for a in polarity
-        if by_address[a].role == "monitor"
+        if by_address[a].engine_role == "monitor"
         and by_address[a].plane == "x"
         and by_address[a].element is not None
     ]
@@ -169,8 +169,8 @@ def bump_test(view: SimulatorView, scenario: str = SCENARIO) -> BumpTest:
     for binding in model.bindings:
         if binding.element is None:
             continue
-        is_monitor = binding.role == "monitor" and binding.plane == "x"
-        is_corrector = binding.role == "setpoint" and binding.plane == "x"
+        is_monitor = binding.engine_role == "monitor" and binding.plane == "x"
+        is_corrector = binding.engine_role == "setpoint" and binding.plane == "x"
         if not (is_monitor or is_corrector):
             continue
         index = _element_index(lattice, binding.element)

@@ -846,7 +846,7 @@ def _physics_monitors(root: Path) -> dict[str, list[str]]:
     """Each physics model's float monitor addresses, sorted, in the view at ``root``."""
     view = SimulatorView.open(root / "data" / "simulator")
     monitors: dict[str, list[str]] = {}
-    for binding in view.bindings(role="monitor", served_only=False):
+    for binding in view.bindings(engine_role="monitor", served_only=False):
         if view.channel(binding.address).value_type == "float":
             monitors.setdefault(binding.model, []).append(binding.address)
     return {model: sorted(addresses) for model, addresses in monitors.items()}

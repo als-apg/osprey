@@ -376,7 +376,7 @@ def _select_stuck_corrector(repo: Path, limits: dict[str, Any]) -> tuple[str, st
             setpoint = binding.address
             entry = limits.get(setpoint) or {}
             if (
-                binding.role == "setpoint"
+                binding.engine_role == "setpoint"
                 and binding.plane is not None
                 and readback_of.get(setpoint) in wired
                 and "min_value" in entry
