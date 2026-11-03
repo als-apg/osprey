@@ -404,6 +404,10 @@ class ComposeProvider(StrEnum):
 #: distribution packages are covered without building anything from source.
 PODMAN_COMPOSE_MIN_VERSION: tuple[int, ...] = (1, 0, 6)
 
+#: Oldest podman-compose whose ``container_to_build_args`` passes a service's
+#: ``platform:`` to ``podman build``; older ones apply it only to ``podman create``.
+PODMAN_COMPOSE_PLATFORM_BUILD_VERSION: tuple[int, ...] = (1, 3, 0)
+
 #: ``podman-compose version 1.0.6``, however it is embedded in the surrounding
 #: dispatcher chatter. Requires the literal hyphenated name, so the docker
 #: pattern below cannot match it.
@@ -587,6 +591,34 @@ def detect_compose_provider(
     if result.returncode != 0:
         detail += f" (probe exited {result.returncode})"
     raise UnsupportedComposeProviderError(_unsupported_provider_message(base, detail, banner))
+
+
+def podman_compose_platform_refusal(info: ComposeProviderInfo, platform: str | None) -> str | None:
+    """Refusal text when this podman-compose would ignore a stated build platform.
+
+    podman-compose older than :data:`PODMAN_COMPOSE_PLATFORM_BUILD_VERSION`
+    builds a service natively even when its ``platform:`` names another one, so
+    the images would not match the ``FROM`` the build rendered.
+
+    Args:
+        info: The compose provider the host reported.
+        platform: The stated ``images.platform``, or None to build natively.
+
+    Returns:
+        The refusal text, or None when the pairing builds for the stated platform.
+    """
+    if not platform:
+        return None
+    if info.provider is not ComposeProvider.PODMAN_COMPOSE:
+        return None
+    if info.version >= PODMAN_COMPOSE_PLATFORM_BUILD_VERSION:
+        return None
+    floor = _format_version(PODMAN_COMPOSE_PLATFORM_BUILD_VERSION)
+    return (
+        f"podman-compose {info.version_text} ignores images.platform: {platform} when it "
+        "builds, so it would build these images natively for this host. "
+        f"Fix: upgrade podman-compose to {floor} or newer, or unset images.platform."
+    )
 
 
 #: Environment variable carrying :func:`env_chain_digest`'s answer into a

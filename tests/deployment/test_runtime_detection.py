@@ -22,11 +22,14 @@ import pytest
 from osprey.deployment import runtime_helper
 from osprey.deployment.runtime_helper import (
     PODMAN_COMPOSE_MIN_VERSION,
+    PODMAN_COMPOSE_PLATFORM_BUILD_VERSION,
     ComposeProvider,
+    ComposeProviderInfo,
     UnsupportedComposeProviderError,
     detect_compose_provider,
     get_ps_command,
     get_runtime_command,
+    podman_compose_platform_refusal,
     verify_runtime_is_running,
 )
 
@@ -575,6 +578,41 @@ class TestDetectComposeProvider:
 
     def test_refusal_is_a_runtime_error(self):
         assert issubclass(UnsupportedComposeProviderError, RuntimeError)
+
+
+class TestPodmanComposePlatformRefusal:
+    """A stated platform needs a podman-compose that passes it to ``podman build``."""
+
+    @staticmethod
+    def _info(provider: ComposeProvider, text: str) -> ComposeProviderInfo:
+        return ComposeProviderInfo(
+            provider=provider,
+            version=tuple(int(part) for part in text.split(".")),
+            version_text=text,
+            banner="",
+        )
+
+    def test_old_podman_compose_with_a_platform_is_refused(self):
+        info = self._info(ComposeProvider.PODMAN_COMPOSE, "1.2.0")
+        refusal = podman_compose_platform_refusal(info, "linux/amd64")
+        assert refusal is not None
+        assert "1.2.0" in refusal
+        assert "images.platform" in refusal
+        assert "1.3.0" in refusal
+
+    def test_the_build_version_is_accepted(self):
+        text = ".".join(str(part) for part in PODMAN_COMPOSE_PLATFORM_BUILD_VERSION)
+        info = self._info(ComposeProvider.PODMAN_COMPOSE, text)
+        assert podman_compose_platform_refusal(info, "linux/amd64") is None
+
+    def test_no_platform_is_accepted_at_the_floor(self):
+        text = ".".join(str(part) for part in PODMAN_COMPOSE_MIN_VERSION)
+        info = self._info(ComposeProvider.PODMAN_COMPOSE, text)
+        assert podman_compose_platform_refusal(info, None) is None
+
+    def test_docker_compose_is_untouched(self):
+        info = self._info(ComposeProvider.DOCKER_V2, "2.24.5")
+        assert podman_compose_platform_refusal(info, "linux/amd64") is None
 
 
 class TestVerifyRuntimeIsRunning:
