@@ -102,6 +102,7 @@ asserts its own derivation against::
       "target":         str,
       "writes_enabled": bool,    # the posture the gateway selection was made
       "readonly_run":   bool,    # on, and the run mode (see below)
+      "authorization":  str | None,  # the write authorization it names
       "epics_env":      {...},   # EPICS_CA_*/EPICS_PVA_* set by connect()
       "pid":            int,
     }
@@ -120,7 +121,11 @@ verdict allows a write to this child's target — because that is the value
 ``connect()`` selected on, and the parent verifies the reported role against a
 derivation made with the same verdict. In a readonly run, where that verdict
 refuses for every type, the write tier is reported instead and ``readonly_run``
-names the reason.
+names the reason. A child that names a program's write authorization
+(``OSPREY_WRITE_AUTHORIZATION``, which the pool sets for a key that names one)
+reports it in ``authorization``, and its ``writes_enabled`` is the
+authorization's verdict, channels aside: a child spawned under a live
+authorization selects the write gateway with the machine's switch off.
 
 **A connector that configures no CA environment reports all five as
 null/false**, and that is a well-formed report rather than a degraded one: the
@@ -496,6 +501,17 @@ def _selection_writes_enabled(connector: Any) -> bool:
         return False
 
 
+def _named_authorization() -> str | None:
+    """The program's write authorization this child names, for its report; ``None`` for none.
+
+    The child's ``writes_enabled`` and its gateway were decided on it
+    (:func:`~osprey_connectors.write_authorization.authorized_write_verdict`).
+    """
+    from osprey_connectors.write_authorization import named_authorization
+
+    return named_authorization()
+
+
 def _rule_role(gateways: dict[str, Any], writes_enabled: bool, readonly_run: bool) -> str | None:
     """The gateway role ``connect()`` selects, given its inputs; ``None`` with no gateways.
 
@@ -590,6 +606,7 @@ def _post_connect_report(
         "target": target,
         "writes_enabled": writes_enabled,
         "readonly_run": readonly_run,
+        "authorization": _named_authorization(),
         "epics_env": {
             name: value for name, value in os.environ.items() if name.startswith(EPICS_ENV_PREFIXES)
         },

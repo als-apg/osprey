@@ -766,6 +766,9 @@ name = "The connector package's top-level modules, in layers"
 # The read-only predicate lives in `posture_env`, a leaf, so the posture store
 # no longer imports the control-system connectors that consult it.
 #
+# `write_authorization` reads the record and the posture store and is read by
+# the write guard in the control-system connectors, so it sits between them.
+#
 # A layer written with ":" holds two modules that still import each other,
 # each in one direction from inside a function: `posture_store` reads the
 # record `control_context` parses, and `control_context` takes its root and
@@ -781,6 +784,7 @@ layers = [
     "osprey_connectors.settle",
     "osprey_connectors.recovery",
     "osprey_connectors.errors | osprey_connectors.write_target",
+    "osprey_connectors.write_authorization",
     "osprey_connectors.control_context : osprey_connectors.posture_store",
     "osprey_connectors.logger",
     "osprey_connectors.config : osprey_connectors.workspace",
@@ -807,6 +811,10 @@ ignore_imports = [
     # read from the controls server's report beside the control-context record.
     "osprey_connectors.types -> osprey_connectors.control_context",
     "osprey_connectors.types -> osprey_connectors.posture_store",
+    # A stop is one gesture: the switch's one writer marks the program
+    # authorizations on the stopped machines revoked inside its record lock,
+    # through one function-local import of the grant format's own writer.
+    "osprey_connectors.control_context -> osprey_connectors.write_authorization",
 ]
 
 # Ruff configuration for modern Python linting
