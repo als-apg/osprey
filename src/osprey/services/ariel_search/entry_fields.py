@@ -46,6 +46,7 @@ if TYPE_CHECKING:
 
 __all__ = [
     "ALL_PARAM_TYPES",
+    "RESERVED_DIMENSION_NAMES",
     "RESERVED_FIELD_NAMES",
     "STATIC_PARAM_TYPES",
     "EntryFieldDeclarationError",
@@ -75,6 +76,12 @@ ALL_PARAM_TYPES: frozenset[str] = STATIC_PARAM_TYPES | {"dynamic_select"}
 #: the built-in input.
 RESERVED_FIELD_NAMES: frozenset[str] = frozenset(
     {"tags", "sync_status", "created_via", "session_metadata", "title"}
+)
+
+#: Filter-dimension names a ``facet: true`` field may not take, because the
+#: filter model already has a dimension (or the ``time`` window) by that name.
+RESERVED_DIMENSION_NAMES: frozenset[str] = frozenset(
+    {"author", "source_system", "tags", "time", "enhancement"}
 )
 
 #: Longest string accepted for any entry-field value, in characters.
@@ -168,8 +175,10 @@ def check_declarations(
     """Refuse a broken set of entry-field declarations.
 
     A declaration set is refused when a name is declared twice, a name is
-    reserved, a ``param_type`` is unknown, a ``select`` has no options, or a
-    ``depends_on`` entry names a field that is not declared or is not static.
+    reserved, a ``param_type`` is unknown, a ``select`` has no options, a
+    ``facet`` flag is not a bool, a ``facet: true`` field takes one of
+    :data:`RESERVED_DIMENSION_NAMES`, or a ``depends_on`` entry names a field
+    that is not declared or is not static.
     ``depends_on`` may name a field declared later in the list.
 
     Args:
@@ -203,6 +212,10 @@ def check_declarations(
             raise refuse(name, f"unknown type '{descriptor.param_type}' (expected one of {known})")
         if descriptor.param_type == "select" and not descriptor.options:
             raise refuse(name, "a select needs at least one option")
+        if not isinstance(descriptor.facet, bool):
+            raise refuse(name, f"facet must be true or false, got {descriptor.facet!r}")
+        if descriptor.facet and name in RESERVED_DIMENSION_NAMES:
+            raise refuse(name, "a facet may not take the name of a built-in filter dimension")
         by_name[name] = descriptor
 
     for descriptor in by_name.values():
