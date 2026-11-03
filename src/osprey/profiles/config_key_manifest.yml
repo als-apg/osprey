@@ -2088,16 +2088,18 @@ keys:
       `services.graphdb.query_max_rows`, the same bound for the graph paradigm.
     default: 500
   channel_finder.benchmark:
+    rendered: false
     evidence: 'channel_finder\.benchmark\.dataset_path'
     note: >-
-      control_assistant ONLY, deliberately. It is the only bundle shipping the
-      query corpus; the build copies the mode's benchmark query file to
-      data/benchmarks/queries.json, and a bundle that ships none has no
-      queries.json, so a dataset_path in the other templates would name a
-      phantom. The channel-finder app runs the command
-      via --queries-path instead.
+      The benchmarks facility view writes the mode's query file to
+      dataset_path; a facility that ships no query sources gets none. No preset
+      states it: the build states data/benchmarks/queries.json when the
+      facility ships data/facility/benchmarks/cross_paradigm/queries/, a stated
+      value is the location, and a stated value for a facility with no query
+      sources is refused at build.
     default: {}
   channel_finder.benchmark.dataset_path:
+    rendered: false
     evidence: 'No benchmark query set configured'
     default: no-fallback
     default_note: >-
@@ -2204,16 +2206,21 @@ keys:
     evidence: 'config_dict\.get\("vocabulary"\)'
     default: {}
   ariel.vocabulary.enabled:
+    rendered: false
     evidence: '_vocab_bool\(data, "enabled"'
     note: >-
-      The off switch. Shipped false everywhere except the control_assistant
-      bundle, which ships the example vocabulary as the format tutorial. False
-      means nothing is read at all, so a stale `path` left behind is inert
-      rather than a startup failure.
+      The off switch. No preset states it: the build states true when the
+      facility ships data/facility/ariel/vocabulary.yml, a stated false turns
+      it off, and a stated true with no such file and no path of its own is
+      refused at build. False means nothing is read at all, so a stale `path`
+      left behind is inert rather than a startup failure.
     default: false
   ariel.vocabulary.path:
+    rendered: false
     evidence: '_VOCABULARY_PREFIX\}\.path must be a non-empty string'
     note: >-
+      The build states data/facility/ariel/vocabulary.yml when the facility
+      ships that file; a stated value is the profile's own file.
       Config-relative, resolved against the directory holding config.yml — the
       same rule as `facility_knowledge.bundle_path` and the qmd mirror. Enabled
       with no value here is a validate() error rather than a silent no-op, and
@@ -4027,7 +4034,7 @@ render_contexts:
     panels_on: web.panels.channel-finder.enabled
     default_panel_set: web.default_panel
     panel_presets_set: web.presets
-  expected_union_size: 366
+  expected_union_size: 362
   note_union_size: >-
     An assertion: the guard derives the union on every run and fails when this
     figure disagrees with it, or when it is missing. It moves whenever the
