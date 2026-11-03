@@ -282,9 +282,10 @@ and every rewrite is reported back with the results, so a hit that looks
 surprising always arrives with the reason it appeared.
 
 Nothing is built in. With no vocabulary configured, no query is ever rewritten.
-The ``control-assistant`` template ships an example at
-``data/facility/ariel/vocabulary.yml`` as a starting point and a format tutorial; it is
-meant to be edited down to what your control room actually says.
+``osprey build`` turns expansion on when the facility ships
+``data/facility/ariel/vocabulary.yml``, and states that path. The example
+facility ships one as a starting point and a format tutorial; it is meant to be
+edited down to what your control room actually says.
 
 The vocabulary file
 ~~~~~~~~~~~~~~~~~~~
@@ -461,6 +462,8 @@ Turning expansion off, for a deployment or for one search
 
 ``ariel.vocabulary.enabled: false`` switches the whole thing off: nothing is
 read, and a stale ``path`` left behind is inert rather than a startup failure.
+A profile that states ``true`` and no ``path`` of its own, for a facility that
+ships no ``data/facility/ariel/vocabulary.yml``, is refused at ``osprey build``.
 
 For a single search, every surface takes an ``expand_query`` argument --- the
 **Expand vocabulary** toggle in the web interface's advanced options, and an
@@ -564,8 +567,8 @@ Configuration
 
    ariel:
      vocabulary:
-       enabled: true                                # default: false
-       path: data/facility/ariel/vocabulary.yml     # required when enabled
+       enabled: true                                # stated by the build when the file exists
+       path: data/facility/ariel/vocabulary.yml     # stated by the build when the file exists
        expand_by_default: true                      # default: true
        expand_entries: false                        # default: false
        canonical_to_acronym: true                   # default: true

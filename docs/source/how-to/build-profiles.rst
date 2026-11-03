@@ -135,6 +135,7 @@ the render, never back into ``data/facility/``:
      data/graph/facility.ttl          the graph view
      data/channel_finder/<mode>.json  the channel-finder view the profile selects
      data/bluesky_devices.yml         the device view, when Bluesky is configured
+     data/benchmarks/queries.json     the benchmarks view, when a benchmark dataset is configured
 
 ``osprey facility show`` prints the facility the tree builds and each view's
 path. What a scenario file holds is in :doc:`/how-to/run-scenarios`.
