@@ -569,7 +569,13 @@ files = [
 ]
 warn_return_any = true
 warn_unused_configs = true
+# A suppression that no longer silences anything is reported, so a fix or a stub
+# upgrade cannot leave a `# type: ignore` behind that would hide the next error.
+warn_unused_ignores = true
 disallow_untyped_defs = false  # Gradual typing
+# An unannotated function is not required to gain annotations, but its body is
+# still checked against the types it calls into.
+check_untyped_defs = true
 ignore_missing_imports = true
 exclude = [
     "^build/",

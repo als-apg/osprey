@@ -633,7 +633,7 @@ def _patch_rows(
                 spec.loader = _OspreyGuardLoader(loader)
             return spec
 
-    sys.meta_path.insert(0, _OspreyGuardFinder())  # type: ignore[arg-type]
+    sys.meta_path.insert(0, _OspreyGuardFinder())
     for name in list(sys.modules):
         if name in rows_by_module:
             module = sys.modules.get(name)
@@ -934,7 +934,7 @@ def _install_no_client(
             return None
 
     # Placed after the loader rows' finder, so this one is consulted first.
-    sys.meta_path.insert(0, _OspreyNoClientFinder())  # type: ignore[arg-type]
+    sys.meta_path.insert(0, _OspreyNoClientFinder())
 
 
 def install(mode: str, **contract: Any) -> None:

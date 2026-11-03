@@ -671,7 +671,7 @@ def _calculate_level_statistics(database, hierarchy_levels):
 
 def _calculate_breakdown(database, hierarchy_levels):
     """Calculate channel count breakdown by path."""
-    path_counts = {}
+    path_counts: dict = {}
 
     for ch_data in database.channel_map.values():
         path = ch_data.get("path", {})

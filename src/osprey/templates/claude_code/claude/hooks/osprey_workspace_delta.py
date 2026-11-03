@@ -423,7 +423,7 @@ def _match_tiles(before, after, survivors):
 
 def _group(keys, where):
     """Group ``keys`` by tile index, keeping first-appearance order."""
-    groups = {}
+    groups: dict[object, list] = {}
     for key in keys:
         groups.setdefault(where[key], []).append(key)
     return groups
