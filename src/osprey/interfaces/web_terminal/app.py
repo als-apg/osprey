@@ -868,7 +868,9 @@ def _load_panel_config() -> tuple[set[str], list[dict], str | None]:
                 # login's tier, routes/proxy.py) and the exact routes the
                 # panel credential may reach on it.
                 "app": spec.get("app"),
-                "agentRoutes": _panel_agent_routes(str(panel_id), spec.get("agent_routes")),
+                "agentRoutes": _panel_agent_routes(
+                    str(panel_id), spec.get("agent_routes"), spec.get("app")
+                ),
             }
             # The NAME of the variable holding this panel's launch token, never
             # its value: this dict reaches the browser. Absent on a render that
@@ -915,21 +917,25 @@ def _hold_panel_launch_tokens(app: FastAPI, custom_panels: list[dict]) -> None:
             logger.warning("Panel %s names %s, which holds no value", panel["id"], name)
 
 
-def _panel_agent_routes(panel_id: str, routes: object) -> list[dict[str, str]]:
+def _panel_agent_routes(panel_id: str, routes: object, app: object) -> list[dict[str, str]]:
     """Validate ``web.panels.<id>.agent_routes`` into ``{method, path}`` entries.
 
     Each entry is exactly ``{method, path}``: the method is upper-cased, the
     path is backend-root-relative (leading ``/``, no query) and is composed
-    under ``/panel/<id>`` by the proxy, never here.
+    under ``/panel/<id>`` by the proxy, never here. Agent routes are an
+    application's door, so a panel that declares them names its ``app``.
 
     Raises:
-        ValueError: Any entry of another shape, naming the config key.
+        ValueError: Any entry of another shape, or routes on a panel that names
+            no application, naming the config key.
     """
     if routes is None:
         return []
     key = f"web.panels.{panel_id}.agent_routes"
     if not isinstance(routes, list):
         raise ValueError(f"{key} must be a list of {{method, path}} entries")
+    if routes and not app:
+        raise ValueError(f"{key} needs web.panels.{panel_id}.app: agent routes open an application")
     entries = []
     for route in routes:
         if (

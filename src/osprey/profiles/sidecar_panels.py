@@ -1,4 +1,4 @@
-"""Sidecar panel registry — the panels the web terminal starts itself.
+"""Panel registry — the panels the web terminal starts itself, and its applications' panels.
 
 A leaf module: it imports ``dataclasses`` and nothing else, and must stay that
 way. ``osprey.profiles.web_panels`` re-exports everything here and is where
@@ -251,10 +251,16 @@ class ApplicationPanel:
         app: The application serving the panel.
         agent_routes: The exact ``(method, path)`` pairs the application
             declares for the agent, ``path`` relative to the panel's mount.
+        session_writes: Whether the panel's writes belong to the terminal's
+            sessions, as :attr:`SidecarPanel.session_writes` says for a
+            sidecar: a hold on any of them holds the panel's writes, the
+            operator's from the application's own page as well as the agent's.
+            Every application panel's writes do.
     """
 
     app: str
     agent_routes: tuple[tuple[str, str], ...] = ()
+    session_writes: bool = True
 
 
 @dataclass(frozen=True)

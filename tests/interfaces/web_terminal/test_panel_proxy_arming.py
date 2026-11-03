@@ -226,7 +226,30 @@ class TestPanelSpec:
     )
     def test_malformed_agent_routes_refuse_at_boot(self, routes):
         with pytest.raises(ValueError, match=f"web.panels.{PANEL_ID}.agent_routes"):
-            _load({PANEL_ID: {"url": "http://127.0.0.1:9300", "agent_routes": routes}})
+            _load(
+                {
+                    PANEL_ID: {
+                        "url": "http://127.0.0.1:9300",
+                        "app": APP_NAME,
+                        "agent_routes": routes,
+                    }
+                }
+            )
+
+    def test_agent_routes_on_a_panel_naming_no_application_refuse_at_boot(self):
+        """Agent routes are an application's door: without ``app`` they would open nothing."""
+        with pytest.raises(
+            ValueError,
+            match=rf"web\.panels\.{PANEL_ID}\.agent_routes needs web\.panels\.{PANEL_ID}\.app",
+        ):
+            _load(
+                {
+                    PANEL_ID: {
+                        "url": "http://127.0.0.1:9300",
+                        "agent_routes": [{"method": "GET", "path": STATE_PATH}],
+                    }
+                }
+            )
 
 
 # ---------------------------------------------------------------------------
