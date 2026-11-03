@@ -72,8 +72,10 @@ class FacilityReference:
     """One mention of a facility record in a text.
 
     Attributes:
-        start: The offset where the mention starts in the text.
-        end: The offset just past the mention; greater than ``start``.
+        start: The Unicode code-point offset into the text where the mention
+            starts.
+        end: The Unicode code-point offset into the text just past the
+            mention; greater than ``start``.
         target: The channel id or device id the mention names; never empty.
         kinds: The kinds of record ``target`` resolves to, in ``LINK_KINDS``
             order and distinct; empty when it resolves to none or was not

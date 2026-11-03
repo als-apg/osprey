@@ -2,7 +2,7 @@
 
 Six verbs have a ``--json`` flag: ``audit``, ``health``, ``query``,
 ``ariel status``, ``ariel search`` and ``facility show``, which has two
-documents (the facility, and one record under an ID). Whatever the output hierarchy does to a
+documents (the facility, and the records under an ID). Whatever the output hierarchy does to a
 verb's *human* output, its *machine* output has one job -- a caller pipes stdout
 into ``json.load`` and gets the document it expected. Three things have to hold
 for that, and each is pinned here for every path:

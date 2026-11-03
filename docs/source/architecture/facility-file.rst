@@ -117,7 +117,9 @@ filters the file's own channel records and names a model or a place.
      - Empty when nothing matches; ``ValueError`` naming a model, place or group the file does not hold, or a role or plane outside the schema's vocabulary.
 
 ``osprey.facility.references.resolved_references`` is the one describer of
-references: every surface that returns ``facility_references`` calls it.
+references: every surface that returns ``facility_references`` calls it, and each
+reference's ``start`` and ``end`` are Unicode code-point offsets into the text it
+was found in.
 
 The read model relies on four things the build guarantees:
 

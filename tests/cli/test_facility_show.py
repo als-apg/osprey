@@ -172,11 +172,12 @@ def test_a_record_matches_its_golden(repo: Path) -> None:
     assert result.exit_code == 0, result.output
     document = json.loads(result.stdout)
     _assert_matches_golden(document, "facility_show_record")
-    assert document["kind"] == "device"
-    assert document["record"]["id"] == DEVICE
-    assert "provenance" not in document["record"]
-    assert document["provenance"]["sources"][0]["file"] == "records/devices.yaml"
-    assert document["fixes_applied"] == document["provenance"]["fixes"]
+    (entry,) = document["records"]
+    assert entry["kind"] == "device"
+    assert entry["record"]["id"] == DEVICE
+    assert "provenance" not in entry["record"]
+    assert entry["provenance"]["sources"][0]["file"] == "records/devices.yaml"
+    assert entry["fixes_applied"] == entry["provenance"]["fixes"]
 
 
 def test_a_fixed_record_lists_the_fix_applied(repo: Path) -> None:
@@ -201,9 +202,10 @@ def test_a_fixed_record_lists_the_fix_applied(repo: Path) -> None:
 
     assert result.exit_code == 0, result.output
     document = json.loads(result.stdout)
-    assert document["kind"] == "channel"
-    assert document["fixes_applied"] == [{"op": "set", "why": "The unit is micrometres."}]
-    assert document["record"]["unit"] == "um"
+    (entry,) = document["records"]
+    assert entry["kind"] == "channel"
+    assert entry["fixes_applied"] == [{"op": "set", "why": "The unit is micrometres."}]
+    assert entry["record"]["unit"] == "um"
 
 
 def test_the_human_record_prints_its_provenance(repo: Path) -> None:
@@ -227,7 +229,7 @@ def test_an_unknown_id_exits_1(repo: Path, as_json: bool) -> None:
 
 
 @pytest.mark.parametrize("as_json", [False, True])
-def test_an_id_naming_a_place_and_a_device_exits_1(repo: Path, as_json: bool) -> None:
+def test_an_id_naming_a_place_and_a_device_shows_both(repo: Path, as_json: bool) -> None:
     _append(
         repo / "data" / "facility" / "records" / "devices.yaml",
         {"id": "BR", "class": "BeamPositionMonitor", "place": "BR"},
@@ -235,6 +237,20 @@ def test_an_id_naming_a_place_and_a_device_exits_1(repo: Path, as_json: bool) ->
 
     result = _show(repo, *(["--json"] if as_json else []), "BR")
 
-    assert result.exit_code == 1, result.output
-    assert result.stdout == ""
-    assert result.stderr.splitlines()[-1] == "facility show: BR names a place and a device"
+    assert result.exit_code == 0, result.output
+    if as_json:
+        records = json.loads(result.stdout)["records"]
+        assert [entry["kind"] for entry in records] == ["place", "device"]
+        for entry in records:
+            assert entry["record"]["id"] == "BR"
+            assert "provenance" not in entry["record"]
+            assert entry["fixes_applied"] == list(entry["provenance"].get("fixes") or [])
+        files = [{source["file"] for source in entry["provenance"]["sources"]} for entry in records]
+        assert "records/devices.yaml" not in files[0]
+        assert "records/devices.yaml" in files[1]
+    else:
+        lines = result.stdout.splitlines()
+        assert lines[0] == "place BR"
+        device_at = lines.index("device BR")
+        assert lines[device_at - 1] == ""
+        assert lines.count("") == 1

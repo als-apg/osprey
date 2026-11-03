@@ -87,7 +87,8 @@ records the target names (``{kind, id, unit?, description?}``, channel before
 device); it is empty when the facility file no longer holds the target and
 ``null`` when no facility file was read. An entry never checked against a facility
 file carries no key, and a cut entry lists only the references inside the text
-shown. Search and embeddings read the stored text unchanged.
+shown. ``start`` and ``end`` are Unicode code-point offsets into the entry text.
+Search and embeddings read the stored text unchanged.
 
 ``entries_by_ids`` names each requested ID the logbook does not hold under
 ``missing``, mapped to ``null``; when it holds none of them the call fails as
