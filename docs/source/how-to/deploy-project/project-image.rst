@@ -683,7 +683,8 @@ rebuild:
      images.platform: linux/amd64
 
 ``osprey build`` judges the deployment's wheels against it and names it on the
-Dockerfile's ``FROM``; ``osprey up`` builds every image it builds for it.
+Dockerfile's ``FROM``; ``osprey up`` builds every image it builds for it
+(podman-compose 1.3.0 or newer; an older one is refused).
 Unset, images are built for this host.
 
 Customizing
