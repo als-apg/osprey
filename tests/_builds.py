@@ -68,10 +68,23 @@ def init_machineless(parent: Path, name: str) -> Path:
     Returns:
         The repo.
     """
+    repo = init_project(parent, "control-assistant", name)
+    strip_machine(repo)
+    return repo
+
+
+def strip_machine(repo: Path) -> None:
+    """Take the machine out of a control-assistant repo.
+
+    The facility tree is left holding the blank knowledge index the facility
+    import seeds, and the profile states the empty start set.
+
+    Args:
+        repo: The repo.
+    """
     from osprey.cli.main import cli
     from osprey.facility.layers import _seed_knowledge_index
 
-    repo = init_project(parent, "control-assistant", name)
     facility = repo / "data" / "facility"
     shutil.rmtree(facility)
     _seed_knowledge_index(facility)
@@ -79,7 +92,6 @@ def init_machineless(parent: Path, name: str) -> Path:
         cli, ["set", "--repo", str(repo), "config.simulation.default_scenarios=[]"]
     )
     assert stated.exit_code == 0, stated.output
-    return repo
 
 
 def run_build(repo: Path) -> Result:
