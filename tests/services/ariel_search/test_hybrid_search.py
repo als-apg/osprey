@@ -2659,12 +2659,15 @@ def _with_facts(repo):
 
 
 @pytest.fixture
-def _no_enhancement_registry(monkeypatch):
-    from unittest.mock import MagicMock
+def _no_enhancement_registry(_mock_ariel_registry):
+    # Nested inside the conftest's patch so the two unwind in order; a
+    # monkeypatch here would restore the conftest's mock after it exits.
+    from unittest.mock import MagicMock, patch
 
     registry = MagicMock()
     registry.list_ariel_enhancement_modules.return_value = []
-    monkeypatch.setattr("osprey.registry.get_registry", lambda *a, **k: registry)
+    with patch("osprey.registry.get_registry", return_value=registry):
+        yield
 
 
 @pytest.mark.asyncio

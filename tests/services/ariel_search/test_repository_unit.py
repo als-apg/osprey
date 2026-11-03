@@ -19,6 +19,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+from collections.abc import Iterator
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -1475,12 +1476,15 @@ class TestSearchEntryFilter:
     """The dimension filter (C-FILTER) joins each search statement over alias ``e``."""
 
     @pytest.fixture(autouse=True)
-    def _registry(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        from unittest.mock import MagicMock
+    def _registry(self, _mock_ariel_registry: None) -> Iterator[None]:
+        # Nested inside the conftest's patch so the two unwind in order; a
+        # monkeypatch here would restore the conftest's mock after it exits.
+        from unittest.mock import MagicMock, patch
 
         registry = MagicMock()
         registry.list_ariel_enhancement_modules.return_value = []
-        monkeypatch.setattr("osprey.registry.get_registry", lambda *a, **k: registry)
+        with patch("osprey.registry.get_registry", return_value=registry):
+            yield
 
     @staticmethod
     def _filter() -> Any:
