@@ -135,6 +135,50 @@ def is_image_present(reference: str) -> bool:
         return False
 
 
+#: How long one whole ``docker pull`` may take, wall clock. A test bound, not a
+#: served value: it covers fetching a small image on a loaded host and sits
+#: under the harness hang-breaker, so a slow pull fails as a pull.
+IMAGE_PULL_BUDGET = 300.0
+
+
+def ensure_image(reference: str, *, budget: float = IMAGE_PULL_BUDGET) -> None:
+    """Make ``reference`` present locally, pulling it once if it is absent.
+
+    For suites that ``docker run`` an image under a short per-run bound: the
+    pull happens here, under its own budget, so a slow pull is reported as a
+    pull and never as a timeout of the first run that happened to need it.
+    The pull goes through the CLI under a subprocess timeout, which bounds the
+    whole pull rather than each socket read.
+
+    Args:
+        reference: Image reference, e.g. ``nginx:1.31-alpine``.
+        budget: Seconds the whole ``docker pull`` may take.
+
+    Raises:
+        AssertionError: The pull timed out, could not be started, or exited
+            non-zero. The message names the reference, the elapsed time and
+            either the budget or the pull's last output line.
+    """
+    if is_image_present(reference):
+        return
+    started = time.monotonic()
+    try:
+        pull = subprocess.run(
+            ["docker", "pull", reference], capture_output=True, text=True, timeout=budget
+        )
+    except subprocess.TimeoutExpired:
+        detail = f"no answer within the {budget:g}s pull budget"
+    except OSError as exc:
+        detail = f"docker CLI could not be run: {exc}"
+    else:
+        if pull.returncode == 0:
+            return
+        lines = (pull.stderr or pull.stdout).strip().splitlines()
+        detail = lines[-1].strip() if lines else f"exit {pull.returncode}"
+    elapsed = time.monotonic() - started
+    raise AssertionError(f"pulling {reference} failed after {elapsed:.1f}s: {detail}")
+
+
 def stop_quietly(container: object) -> None:
     """Stop a container, swallowing teardown errors.
 

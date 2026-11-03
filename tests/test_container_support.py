@@ -21,6 +21,7 @@ from tests._container_support import (
     RuntimeContainer,
     container_state,
     docker_cli_unavailable_reason,
+    ensure_image,
     start_or_skip,
     wait_until_ready,
 )
@@ -267,6 +268,73 @@ def test_docker_probe_is_silent_when_the_cli_works(monkeypatch):
     monkeypatch.setattr(_container_support.subprocess, "run", lambda argv, **kwargs: _completed(0))
 
     assert docker_cli_unavailable_reason() is None
+
+
+_IMAGE = "example/image:1.0"
+
+
+def _image_presence(monkeypatch, *answers: bool) -> None:
+    """Answer ``is_image_present`` from *answers*, one per call, in order."""
+    remaining = list(answers)
+    monkeypatch.setattr(_container_support, "is_image_present", lambda _ref: remaining.pop(0))
+
+
+def _recording_run(monkeypatch, result) -> list[tuple[list[str], dict]]:
+    """Replace ``subprocess.run``: record each call, then return or raise *result*."""
+    calls: list[tuple[list[str], dict]] = []
+
+    def fake_run(argv, **kwargs):
+        calls.append((argv, kwargs))
+        if isinstance(result, BaseException):
+            raise result
+        return result
+
+    monkeypatch.setattr(_container_support.subprocess, "run", fake_run)
+    return calls
+
+
+def test_ensure_image_leaves_a_present_image_alone(monkeypatch):
+    _image_presence(monkeypatch, True)
+    calls = _recording_run(monkeypatch, _completed(0))
+
+    ensure_image(_IMAGE)
+
+    assert calls == []
+
+
+def test_ensure_image_pulls_an_absent_image_once(monkeypatch):
+    _image_presence(monkeypatch, False, True)
+    calls = _recording_run(monkeypatch, _completed(0))
+
+    ensure_image(_IMAGE, budget=42.0)
+
+    assert [argv for argv, _ in calls] == [["docker", "pull", _IMAGE]]
+    assert calls[0][1]["timeout"] == 42.0
+
+
+def test_ensure_image_names_the_pull_and_its_elapsed_time_on_failure(monkeypatch):
+    _image_presence(monkeypatch, False)
+    stderr = "Pulling from library/example\nError response from daemon: manifest unknown\n"
+    _recording_run(monkeypatch, _completed(1, stderr))
+
+    with pytest.raises(AssertionError) as raised:
+        ensure_image(_IMAGE)
+
+    message = str(raised.value)
+    assert message.startswith(f"pulling {_IMAGE} failed after ")
+    assert message.endswith("Error response from daemon: manifest unknown")
+
+
+def test_ensure_image_names_the_budget_when_the_pull_times_out(monkeypatch):
+    _image_presence(monkeypatch, False)
+    _recording_run(monkeypatch, subprocess.TimeoutExpired(["docker", "pull", _IMAGE], 7.0))
+
+    with pytest.raises(AssertionError) as raised:
+        ensure_image(_IMAGE, budget=7.0)
+
+    message = str(raised.value)
+    assert message.startswith(f"pulling {_IMAGE} failed after ")
+    assert "7s pull budget" in message
 
 
 # ---------------------------------------------------------------------------
