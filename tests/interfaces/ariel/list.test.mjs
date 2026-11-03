@@ -9,7 +9,8 @@
  * cursor, with day separators and a Load older control; any other query runs
  * the search driver and pages by offset, in ranked order. Both apply the
  * filter; the mailbox scopes both: Mine sends its name as the exact author
- * (and locks the Filters author), Drafts shows its empty state. The store's
+ * (and locks the Filters author), Drafts hands the body to drafts-list.js
+ * (its own cases live in drafts-list.test.mjs). The store's
  * notice shows in the banners. Row click selects. paging.js's own cases live
  * in paging.test.mjs. The
  * two-phase paint cases live in list-paint.test.mjs, the banners in
@@ -28,6 +29,7 @@ vi.mock('../../../src/osprey/interfaces/ariel/static/js/api.js', async (importOr
     ...actual,
     searchApi: { ...actual.searchApi, search: vi.fn() },
     entriesApi: { ...actual.entriesApi, list: vi.fn(), get: vi.fn() },
+    draftsApi: { ...actual.draftsApi, list: vi.fn() },
   };
 });
 
@@ -154,6 +156,7 @@ async function mount({ capabilities = CAPABILITIES, state = {}, firstPage = list
   store.setState(state);
   vi.mocked(api.entriesApi.list).mockResolvedValue(firstPage);
   vi.mocked(api.searchApi.search).mockResolvedValue(searchResponse([]));
+  vi.mocked(api.draftsApi.list).mockResolvedValue({ drafts: [] });
   list.initList(root(), { capabilities });
   await flush();
 }
@@ -513,15 +516,32 @@ describe('mailboxes', () => {
     });
   });
 
-  test('Drafts shows its empty state, with or without a query, and requests nothing', async () => {
+  test('Drafts lists the drafts, with or without a query, and never entries or search', async () => {
     await mount({ state: { mailbox: 'drafts' } });
-    expect(body().textContent).toContain(list.DRAFTS_EMPTY.text);
+    expect(api.draftsApi.list).toHaveBeenCalledTimes(1);
+    expect(body().textContent).toContain('No Drafts');
     enter('quench');
     await flush();
-    expect(body().textContent).toContain(list.DRAFTS_EMPTY.text);
+    expect(api.draftsApi.list).toHaveBeenCalledTimes(2);
+    expect(body().textContent).toContain('No Drafts');
     expect(api.entriesApi.list).not.toHaveBeenCalled();
     expect(api.searchApi.search).not.toHaveBeenCalled();
     expect(loadMoreButton(), 'Drafts has no Load more').toBeNull();
+    expect(body().getAttribute('aria-busy')).toBe('false');
+  });
+
+  test('leaving Drafts before the drafts answer keeps the listing painted', async () => {
+    await mount({ firstPage: listPage([entry('e1')]) });
+    /** @type {(value: any) => void} */
+    let answer = () => {};
+    vi.mocked(api.draftsApi.list).mockReturnValue(new Promise((resolve) => (answer = resolve)));
+    store.setState({ mailbox: 'drafts' });
+    store.setState({ mailbox: 'all' });
+    await flush();
+    answer({ drafts: [{ draft_id: 'd1', subject: 'late', created_at: '2026-08-25T12:00:00Z' }] });
+    await flush();
+    expect(body().querySelector('[data-draft-id]')).toBeNull();
+    expect(body().querySelector('[data-entry-id="e1"]')).not.toBeNull();
   });
 
   test('switching mailbox re-runs the list', async () => {

@@ -14,8 +14,8 @@
  * hands the query to the search driver with the state's `rerank` (any other
  * query), in ranked order. paging.js owns the pages: any of those changes
  * starts over, and "Load more" fetches the next one. Both apply the filter;
- * the mailbox is a scope: Mine sends its name as the exact author, Drafts has
- * no listing this phase and shows its empty state whatever the query. A
+ * the mailbox is a scope: Mine sends its name as the exact author, Drafts
+ * hands the body to drafts-list.js whatever the query. A
  * display-prefs.js change re-runs the list; `notice` shows until a filter change.
  *
  * The list writes only what it chooses: `query` (search-box Enter, with
@@ -58,6 +58,7 @@ import {
   FALLBACK_CAPABILITIES,
 } from './advanced-options.js';
 import { getState, setState, subscribe } from './store.js';
+import { renderDrafts } from './drafts-list.js';
 import { onStripPrefChange } from './display-prefs.js';
 import { isEmbedded } from '/design-system/js/frame-params.js';
 import { icon } from '/design-system/js/icons.js';
@@ -69,12 +70,6 @@ import { togglePopover, closePopover } from '/design-system/js/popover.js';
 /** @typedef {import('./search.js').RerankStatus} RerankStatus */
 
 export { PAGE_SIZE };
-
-/** The Drafts mailbox's empty state: no draft listing in this phase. */
-export const DRAFTS_EMPTY = {
-  title: 'No Draft Listing Yet',
-  text: "Agent drafts open from the agent's link.",
-};
 
 /** Store keys whose change re-runs the list. */
 const LIST_KEYS = ['query', 'mode', 'filters', 'filter', 'mailbox'];
@@ -325,8 +320,8 @@ async function runQuery(seq, state) {
 }
 
 /**
- * Re-run the list for the current state: Drafts' empty state, the listing, or
- * a search.
+ * Re-run the list for the current state: the Drafts rows, the listing, or a
+ * search.
  */
 function refresh() {
   if (!view) return;
@@ -341,7 +336,8 @@ function refresh() {
   };
 
   if (state.mailbox === 'drafts') {
-    still(renderEmptyState(DRAFTS_EMPTY.title, DRAFTS_EMPTY.text));
+    still('');
+    if (view) renderDrafts(view.body, () => seq === runSeq);
     return;
   }
   if (state.mailbox === 'mine' && !state.mineAuthor) {
