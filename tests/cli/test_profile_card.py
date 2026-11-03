@@ -365,9 +365,13 @@ def test_the_panels_row_is_the_union_across_renders(exemplar_lines: list[str]) -
     # come from `web.panels.<id>.label` — they are not built-ins.
     # The order is declaration order: the host profile's `web_panels` first, in
     # the order it lists them, then whatever the layers add. JUPYTER
-    # follows SYSTEM because the profile lists `jupyter` after `system-health`.
+    # follows SYSTEM because the profile lists `jupyter` after `system-health`,
+    # and CANOPY follows JUPYTER because the profile lists `canopy` next.
     panels = line_with(exemplar_lines, "panels")
-    assert "ARIEL · CHANNELS · LATTICE · KNOWLEDGE · SYSTEM · JUPYTER · EVENTS · BLUESKY" in panels
+    assert (
+        "ARIEL · CHANNELS · LATTICE · KNOWLEDGE · SYSTEM · JUPYTER · CANOPY · EVENTS · BLUESKY"
+        in panels
+    )
 
 
 def test_the_agent_group_names_servers_and_counts_its_toolkit(
@@ -510,6 +514,13 @@ def test_a_panel_served_mcp_server_is_listed_only_with_its_panel(monkeypatch) ->
     assert "controls" in _enabled_mcp_servers(without_panel, {})
     # A layer that adds the panel ships the server for that render.
     assert "screens" in _enabled_mcp_servers(without_panel, {"ops": {"web_panels": ["screens"]}})
+
+
+def test_the_mcp_row_lists_the_canopy_server_the_host_panel_ships(
+    exemplar_lines: list[str],
+) -> None:
+    """The host profile selects the CANOPY panel, so every render ships its server."""
+    assert "canopy" in mcp_servers_on(exemplar_lines)
 
 
 def test_the_model_row_names_the_provider_default_when_the_profile_names_none(

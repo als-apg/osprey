@@ -1476,6 +1476,9 @@ def test_facility_extension_guidance_is_appended(runner: CliRunner, tmp_path: Pa
     assert _new(runner, target, "control-assistant").exit_code == 0
 
     text = (target / "profile.yml").read_text()
+    # control-assistant declares no mcp_servers of its own (the CANOPY screen
+    # server is the panel's declaration, not the preset's), so it gets the
+    # facility MCP server guidance like every other preset.
     assert "# mcp_servers:" in text
     assert "#   lattice:" in text
     assert "# artifact_server:" in text

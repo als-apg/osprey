@@ -95,11 +95,11 @@ skills:
   - writing-bluesky-plans  # Write, check and queue a plan (needs the Bluesky server)
   - operating-bluesky-plans  # Stage, queue and watch a plan (needs the Bluesky server)
   - bluesky-plans  # Browse which plans this deployment can run
+  - canopy-panel-builder  # Build, port and check CANOPY screens (goes with the canopy panel)
+  - canopy-operator  # Open, arrange and close what the CANOPY panel shows (goes with the panel)
+  - canopy-screens  # Which CANOPY screen shows which device, built from the library (goes with the panel)
   - pyaml-tools  # Measure through pyaml_measure (renders only with a pyAML view)
   # Available — uncomment to enable:
-  # - canopy-operator  # Open, arrange, zoom and close what the operator's CANOPY window shows.
-  # - canopy-panel-builder  # Build, port and check CANOPY screens.
-  # - canopy-screens  # Which CANOPY screen shows which device: an index built from the project's screen library, its devices, collections and the tools' default views; renders only with the CANOPY panel
   # - logbook-deep-research  # Multi-phase logbook investigation skill
 
 agents:
@@ -130,10 +130,12 @@ web_panels:
   - okf             # KNOWLEDGE tab, for browsing the facility knowledge bundle
   - system-health   # SYSTEM tab, a framework health dashboard
   - jupyter         # JUPYTER tab, JupyterLab with kernels that follow the terminal session
+  - canopy          # CANOPY tab, the operator GUI: machine screens and Trace, one per terminal
   # The events and bluesky panels are added by the write-armed tiers
   # (readwrite and admin) instead, so the read-only login is built without them.
-  # Available — uncomment to enable:
-  # - canopy  # CANOPY, the operator GUI: machine screens and Trace
+
+# The tab the web terminal opens on: CANOPY, the operator GUI.
+default_panel: canopy
 
 # ── Scanning and simulated hardware ──────────────────────────────────────────
 # These three blocks give you a working plan setup with no real hardware: a
@@ -1041,6 +1043,20 @@ config:
   # snapshot, so a database with more channels than this is skipped (the build
   # says so) and the fields simply offer no suggestions.
   web.channel_suggestions.max_channels: 50000
+  # The CANOPY tab is built in: each web terminal starts its own CANOPY for the
+  # user it serves, so the tab has no url, label or health endpoint to set.
+  # Trace, the correlation page and the waveform page open empty: the default
+  # collection's Orbit, RF thermal and Septum pulse carry their own views.
+  # A `*_default_query` here would give the bare tools a view as well.
+  # web.panels.canopy.trace_default_query: pv=SR:DIAG:BPM:03:POSITION:X&range=-1h
+  # The screen CANOPY opens on, by its id in data/canopy/library/screens.
+  web.panels.canopy.home_screen: facility/overview
+  # Ceiling in bytes on the live-value buffers one user's CANOPY keeps in
+  # memory (256 MB).
+  web.panels.canopy.vole_bytes_max: 268435456
+  # A colour theme for CANOPY, as a path relative to the project root
+  # (absolute accepted). Unset keeps CANOPY's own theme.
+  # web.panels.canopy.theme_file: data/canopy/theme/colors.json
   # The SYSTEM tab is served but starts out of the sidebar: `+ Add panel` and
   # the command palette open it, and `+ Add panel` can also pin it there.
   # Delete this line to give it a sidebar row from the first load.
@@ -1278,6 +1294,20 @@ services:
   archive:
     template: osprey.archive
 
+# ── Build checks ─────────────────────────────────────────────────────────────
+# `canopy-payload` copies the prebuilt CANOPY payload (the wheels, the viewer,
+# Trace and the staged spec, made by the canopy repo's scripts/build-payload.sh)
+# into this repo, where the image build picks it up. The directory is
+# OSPREY_CANOPY_PAYLOAD (shell, then .env.shared/.env in this repo). With none
+# named, the build leaves the CANOPY panel out and says so; a named payload that
+# is missing or half-built stops the build. Set OSPREY_CANOPY_PAYLOAD_CHECK=0 to
+# skip the step.
+lifecycle:
+  pre_build:
+    - name: canopy-payload
+      timeout: 30
+      run: '"{python}" -m osprey.integrations.canopy.stage'
+
 # ── Answering webhooks (optional) ────────────────────────────────────────────
 # Lets an outside system ask the agent a question over HTTP. The triggers that
 # ship need no control system, so a single `curl` after `osprey up` exercises
@@ -1345,13 +1375,6 @@ provenance:
 deploy_services: true
 # Named web-terminal layouts, as label -> tiles of panel-id tabs.
 panel_presets: {}
-
-# --- Default web-terminal panel ----------------------------------------------
-# Panel id opened when the web terminal loads. Must be a built-in, an entry in
-# the web_panels list above, or a custom panel backed by a web.panels.<id>.url
-# config override.
-#
-# default_panel: artifacts
 
 # --- Deployment coordinates --------------------------------------------------
 # Where this deployment is built, pushed, and run. Needed only once it leaves

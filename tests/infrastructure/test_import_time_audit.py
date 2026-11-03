@@ -84,6 +84,9 @@ WHITELIST: dict[str, set[str]] = {
     # imports any osprey module: osprey.cli.styles builds its Console at import
     # time, so a fixture would un-force a console that already exists.
     "packages/osprey-connectors/tests/osprey_connectors_tests/_harness/_guards.py": {"os.environ"},
+    # the root conftest skips the CANOPY payload step before collection, so every
+    # xdist worker holds it from its first import.
+    "tests/conftest.py": {"os.environ"},
 }
 
 #: Marker every whitelisted site must carry, next to the mutation.
