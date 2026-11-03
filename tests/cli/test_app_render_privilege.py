@@ -496,3 +496,22 @@ def test_a_set_edit_can_still_add_a_guard_to_an_app(tmp_path: Path) -> None:
     )
 
     assert {"memory-guard", "approval", "limits", "writes-check"} <= set(edited.profile.hooks)
+
+
+@pytest.mark.parametrize(
+    "guard",
+    [_HOUSE_GUARD, {"hook": "house_guard.py", "matcher": "Bash|Edit", "timeout": 5}],
+    ids=["name", "mapping"],
+)
+def test_a_host_facility_guard_is_declared_once_in_a_composed_and_resealed_app(
+    guard: Any,
+) -> None:
+    from osprey.cli.build_profile_merge import GuardFloor, seal_app_render
+
+    host = {"config": {_WRITES: "allowed", _GUARD_WIRING: [guard]}}
+    render = compose_app_render(host, {"name": "Logbook"}, "apps/logbook.yml")
+    assert _guard_wiring(render["config"]) == [guard]
+
+    # A --set edit seals the render again: the floor is still not added twice.
+    resealed = seal_app_render(copy.deepcopy(render), "apps/logbook.yml", GuardFloor.of(host))
+    assert _guard_wiring(resealed["config"]) == [guard]

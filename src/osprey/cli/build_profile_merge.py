@@ -1113,7 +1113,10 @@ def _guard_wiring_floor(floor: GuardFloor, config: dict[str, Any]) -> dict[str, 
     The ``claude_code`` section is flattened first, so a nested and a dotted
     spelling are one path; a key above the guard path is dropped, since the
     only thing it can hold there is a value that would erase the floor (an
-    empty mapping, or no mapping at all).
+    empty mapping, or no mapping at all). A declaration *config* already
+    carries is not added again: the composer hands the host's guards over
+    before the seal runs, and a mapping spelling is a group in the rendered
+    settings, so a second copy would bind the hook twice.
     """
     from .profile_conventions import GUARD_EVENT
 
@@ -1126,7 +1129,11 @@ def _guard_wiring_floor(floor: GuardFloor, config: dict[str, Any]) -> dict[str, 
         if not key.startswith(f"{k}.")
     }
     declared = flat.get(key)
-    flat[key] = _merge_lists(list(floor.wiring), declared if isinstance(declared, list) else [])
+    merged = list(floor.wiring)
+    for entry in declared if isinstance(declared, list) else []:
+        if entry not in merged:
+            merged.append(entry)
+    flat[key] = merged
     return flat
 
 
