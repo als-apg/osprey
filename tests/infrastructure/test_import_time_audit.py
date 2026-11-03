@@ -60,6 +60,10 @@ WHITELIST: dict[str, set[str]] = {
     "tests/models/jev/test_jev_manifest.py": {"sys.modules"},
     "tests/scripts/test_fusion_calibration.py": {"sys.modules"},
     "tests/scripts/test_bpm_polarity_picture.py": {"sys.modules"},
+    # The facility overview generator is a script loaded by path; its constants
+    # and rows feed module-level budgets and parametrize decorators.
+    "tests/scripts/test_facility_overview.py": {"sys.modules"},
+    "tests/templates/canopy/test_facility_overview_screen.py": {"sys.modules"},
     # The Teams relay ships as a service template, not a package: its
     # validation.py is loaded by path the same way, and the module-level load
     # feeds a parametrize decorator, which is evaluated at import.
@@ -80,6 +84,9 @@ WHITELIST: dict[str, set[str]] = {
     # imports any osprey module: osprey.cli.styles builds its Console at import
     # time, so a fixture would un-force a console that already exists.
     "packages/osprey-connectors/tests/osprey_connectors_tests/_harness/_guards.py": {"os.environ"},
+    # the root conftest skips the CANOPY payload step before collection, so every
+    # xdist worker holds it from its first import.
+    "tests/conftest.py": {"os.environ"},
 }
 
 #: Marker every whitelisted site must carry, next to the mutation.

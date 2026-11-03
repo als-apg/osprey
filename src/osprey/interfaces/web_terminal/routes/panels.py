@@ -28,7 +28,15 @@ from osprey.interfaces.common_middleware import (
     compute_url_prefix,
 )
 from osprey.interfaces.opaque_origin import document_headers
-from osprey.interfaces.panel_urls import navigation_url_refusal, normalise_navigation_url
+from osprey.interfaces.panel_urls import (
+    Origin,
+    agent_hop_panel_ids,
+    agent_hop_url_refusal,
+    canonical_origin,
+    navigation_url_refusal,
+    normalise_navigation_url,
+    same_place,
+)
 from osprey.interfaces.web_terminal import panel_cap
 from osprey.interfaces.web_terminal.dock_layout import (
     REASON_TEXT,
@@ -511,6 +519,40 @@ def _known_panel_ids(request: Request) -> set[str]:
     known: set[str] = set(getattr(request.app.state, "enabled_panels", set()))
     known |= {p["id"] for p in getattr(request.app.state, "custom_panels", [])}
     return known
+
+
+def agent_hop_refusal(request: Request, member: str, url: str) -> str | None:
+    """Why *url* may not reach panel *member*, judged against this terminal's panels; or ``None``.
+
+    :func:`~osprey.interfaces.panel_urls.agent_hop_url_refusal`, where an
+    agent-hop panel's process is any listener its configured backend names, in
+    any spelling the browser reads as that listener (``127.1``,
+    ``0x7f.0.0.1``, ``[::ffff:127.0.0.1]``, ``localhost.``, ...:
+    :func:`~osprey.interfaces.panel_urls.same_place`). That much names the
+    refusal. What fails closed is the check after it: an op admits an http(s)
+    URL only on the member's own configured backend
+    (:func:`~osprey.interfaces.panel_urls.member_navigation_url`, exact origin),
+    and a registration admits no loopback URL at all, so an address this rule
+    does not recognise is refused there, never admitted by guessing.
+
+    Args:
+        request: The request; its app's state holds the panels' backends.
+        member: The panel the url is for (the id being registered, for a
+            registration).
+        url: The url, already passed through ``normalise_navigation_url``.
+    """
+    hop_ids = agent_hop_panel_ids(SIDECAR_PANELS)
+    hop_origins = [
+        origin
+        for panel_id in hop_ids
+        if (backend := _resolve_panel_url(request, panel_id))
+        and (origin := canonical_origin(backend)) is not None
+    ]
+
+    def is_hop_origin(origin: Origin) -> bool:
+        return any(same_place(origin, hop) for hop in hop_origins)
+
+    return agent_hop_url_refusal(member, url, hop_ids=hop_ids, is_hop_origin=is_hop_origin)
 
 
 #: Panel id of the Config surface. It is not a built-in dock panel — the Config
@@ -1247,6 +1289,9 @@ async def register_panel(body: PanelRegisterRequest, request: Request):
     panel_url = normalise_navigation_url(body.url)
     url_error = navigation_url_refusal(panel_url)
     if url_error is None:
+        hop_refusal = agent_hop_refusal(request, body.id, panel_url)
+        if hop_refusal is not None:
+            raise HTTPException(status_code=422, detail=f"agent_hop_panel_url: {hop_refusal}")
         allowlist: list[str] | None = getattr(request.app.state, "runtime_panel_allowlist", None)
         url_error = await _validate_panel_url(panel_url, allowlist)
     if url_error:

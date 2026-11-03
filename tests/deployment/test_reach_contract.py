@@ -45,6 +45,7 @@ from osprey.deployment.reach import (
 from osprey.deployment.web_terminals.artifacts import resolve_render_inputs
 from osprey.deployment.web_terminals.render import render_web_terminals
 from osprey.deployment.web_terminals.roster import resolve_cards
+from osprey.profiles.web_panels import SIDECAR_PANELS
 from tests._renders import tier_render
 
 pytestmark = pytest.mark.slow
@@ -134,6 +135,19 @@ def test_a_service_that_listens_keeps_its_hand_written_contract():
         assert REACH_CONTRACTS[name].no_client_reach is True
         entry = BUNDLED_HOST_BINDINGS.get(name)
         assert entry is None or entry.binding.listens is True
+
+
+def test_the_canopy_tab_is_served_by_each_terminals_sidecar():
+    """The CANOPY tab is a builtin each terminal serves from its own sidecar.
+
+    A render that selects the tab needs no ``web.panels.canopy.url`` and no
+    deployed service: the selected-panel rule has nothing to refuse.
+    """
+    assert "canopy" in SIDECAR_PANELS
+
+    selected = {"web": {"panels": {"canopy": {"enabled": True}}, "default_panel": "canopy"}}
+    assert reach_errors({**selected, "deployed_services": []}) == []
+    assert live_consumers(selected) == []
 
 
 def test_every_contract_names_a_deployable_service():

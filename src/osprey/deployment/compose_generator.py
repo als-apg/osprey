@@ -4180,21 +4180,81 @@ def _ensure_agent_data_structure(config):
 
 
 #: Basename of the one service directory whose build context carries the
-#: channel snapshot: the bluesky_web sidecar's /channels route serves it.
+#: channel snapshot: the bluesky_web sidecar's /channels route serves it to its
+#: plan form. The per-user CANOPY panel reads its own copy, the one
+#: :func:`stage_web_terminal_channel_snapshot` writes for the web terminals.
 _CHANNEL_SNAPSHOT_SERVICE = "bluesky_web"
 
 #: Basename of the archiver recorder's service directory.
 ARCHIVER_RECORDER_SERVICE = "archiver_recorder"
 
-#: Filename the sidecar's /channels route expects beside its mounted config.yml.
+#: Filename the services' /channels routes read from their mounted snapshot.
 CHANNEL_SNAPSHOT_FILENAME = "channels.json"
+
+#: Where the web terminals' copy of the channel snapshot lives, relative to the
+#: build directory: outside every service directory, because it belongs to no
+#: service. ``render_web_terminals`` bind-mounts it read-only into each web
+#: container when, and only when, the file is there.
+WEB_TERMINAL_CHANNEL_SNAPSHOT = Path("web_terminals") / CHANNEL_SNAPSHOT_FILENAME
+
+
+def _write_channel_snapshot(config, snapshot_path):
+    """Write the build's channel snapshot to ``snapshot_path``, or remove a stale one.
+
+    One decision (:func:`compute_channel_snapshot`) for every copy the build
+    writes. When the decision is not to emit, a file left at ``snapshot_path``
+    by an earlier build is removed, so a reused directory cannot keep a
+    snapshot the decision revoked.
+
+    :return: True iff a snapshot was written
+    :rtype: bool
+    """
+    decision = compute_channel_snapshot(config)
+    if not decision.emit:
+        try:
+            os.remove(snapshot_path)
+        except FileNotFoundError:
+            pass
+        except OSError as e:
+            logger.warning(f"Could not remove the stale channel snapshot {snapshot_path}: {e}")
+        return False
+
+    try:
+        os.makedirs(os.path.dirname(snapshot_path) or ".", exist_ok=True)
+        with open(snapshot_path, "w") as f:
+            json.dump(decision.channels, f)
+    except OSError as e:
+        logger.warning(f"Could not write the channel snapshot to {snapshot_path}: {e}")
+        return False
+    logger.debug(f"Wrote channel snapshot ({decision.count} channels) to {snapshot_path}")
+    return True
+
+
+def stage_web_terminal_channel_snapshot(config, build_dir):
+    """Write the web terminals' channel snapshot under ``build_dir``; report success.
+
+    ``osprey build`` calls this once per build, with the config the services
+    render used, so the per-user CANOPY panel serves the same addresses the
+    bluesky_web sidecar does. The file goes to
+    :data:`WEB_TERMINAL_CHANNEL_SNAPSHOT` below ``build_dir``; a stale copy is
+    removed when the decision is not to emit.
+
+    :param config: Full project configuration dictionary
+    :type config: dict
+    :param build_dir: The build directory being rendered
+    :type build_dir: str | os.PathLike
+    :return: True iff a snapshot was written
+    :rtype: bool
+    """
+    return _write_channel_snapshot(config, os.path.join(build_dir, WEB_TERMINAL_CHANNEL_SNAPSHOT))
 
 
 def _stage_channel_snapshot(config, source_dir, out_dir):
-    """Write the channel snapshot into the bluesky_web build context; report success.
+    """Write the channel snapshot into a serving service's build context; report success.
 
-    Only the bluesky_web sidecar serves the snapshot, so every other service
-    render skips the database load entirely and reports False. The boolean
+    Only ``_CHANNEL_SNAPSHOT_SERVICE`` serves the snapshot, so
+    every other service render skips the database load entirely and reports
+    False. The boolean
     return is the value the render context's ``channel_snapshot`` key carries —
     fail-closed exactly like dev_mode's wheel gating: the compose template may
     only mount a file that was actually written. When the decision is not to
@@ -4213,25 +4273,7 @@ def _stage_channel_snapshot(config, source_dir, out_dir):
     if os.path.basename(source_dir) != _CHANNEL_SNAPSHOT_SERVICE:
         return False
 
-    snapshot_path = os.path.join(out_dir, CHANNEL_SNAPSHOT_FILENAME)
-    decision = compute_channel_snapshot(config)
-    if not decision.emit:
-        try:
-            os.remove(snapshot_path)
-        except FileNotFoundError:
-            pass
-        except OSError as e:
-            logger.warning(f"Could not remove the stale channel snapshot {snapshot_path}: {e}")
-        return False
-
-    try:
-        with open(snapshot_path, "w") as f:
-            json.dump(decision.channels, f)
-    except OSError as e:
-        logger.warning(f"Could not write the channel snapshot to {snapshot_path}: {e}")
-        return False
-    logger.debug(f"Wrote channel snapshot ({decision.count} channels) to {snapshot_path}")
-    return True
+    return _write_channel_snapshot(config, os.path.join(out_dir, CHANNEL_SNAPSHOT_FILENAME))
 
 
 #: The one service whose compose environment lists the roster's per-user

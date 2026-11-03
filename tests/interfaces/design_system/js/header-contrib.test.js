@@ -70,7 +70,7 @@ describe('onHeaderAction', () => {
     const callback = vi.fn();
     onHeaderAction(callback);
 
-    deliverMessage({ type: 'osprey-header-action', id: 'view', value: 'browse' });
+    deliverMessage({ type: 'canopy-host-header-action', id: 'view', value: 'browse' });
 
     expect(callback).toHaveBeenCalledWith('view', 'browse');
   });
@@ -79,7 +79,7 @@ describe('onHeaderAction', () => {
     const callback = vi.fn();
     onHeaderAction(callback);
 
-    deliverMessage({ type: 'osprey-header-action', id: 'refresh' });
+    deliverMessage({ type: 'canopy-host-header-action', id: 'refresh' });
 
     expect(callback).toHaveBeenCalledWith('refresh', undefined);
   });
@@ -88,7 +88,7 @@ describe('onHeaderAction', () => {
     const callback = vi.fn();
     onHeaderAction(callback);
 
-    deliverMessage({ type: 'osprey-header-action', id: 'view' }, 'https://evil.example');
+    deliverMessage({ type: 'canopy-host-header-action', id: 'view' }, 'https://evil.example');
 
     expect(callback).not.toHaveBeenCalled();
   });
@@ -98,8 +98,8 @@ describe('onHeaderAction', () => {
     onHeaderAction(callback);
 
     deliverMessage({ type: 'osprey-theme-change', theme: 'dark' });
-    deliverMessage({ type: 'osprey-header-action' }); // no id
-    deliverMessage({ type: 'osprey-header-action', id: 42 }); // non-string id
+    deliverMessage({ type: 'canopy-host-header-action' }); // no id
+    deliverMessage({ type: 'canopy-host-header-action', id: 42 }); // non-string id
     deliverMessage(null);
 
     expect(callback).not.toHaveBeenCalled();
@@ -109,7 +109,7 @@ describe('onHeaderAction', () => {
     const callback = vi.fn();
     onHeaderAction(callback);
 
-    deliverMessage({ type: 'osprey-header-action', id: 'view', value: 7 });
+    deliverMessage({ type: 'canopy-host-header-action', id: 'view', value: 7 });
 
     expect(callback).toHaveBeenCalledWith('view', undefined);
   });

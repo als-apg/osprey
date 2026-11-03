@@ -1,0 +1,14 @@
+accepted bob/0123456789abcdef -> screens/sr/rf/ (reviewer carol, digest ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff)
+library: /srv/mca/data/canopy/library
+pushed (compare with: git -C /srv/mca diff --cached -- data/canopy/library):
+  screens/sr/rf/img/logo.png
+  screens/sr/rf/parts/inner.screen.json
+  screens/sr/rf/view.screen.json
+  LIBRARY-REPORT.md
+  LIBRARY-REPORT.json
+commit the library with the path-limited form; an uncommitted developer-avenue change in the library is committed with it:
+  git -C /srv/mca add -- data/canopy/library
+  git -C /srv/mca status --ignored -- data/canopy/library     # nothing may be ignored
+  git -C /srv/mca commit -m 'canopy: accept bob/0123456789abcdef (sr/rf), reviewer carol, digest ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff' -- data/canopy/library
+then build: push to the deployment remote, let the pipeline build and publish the images, then osprey up
+until osprey build runs, osprey up and osprey restart refuse on source drift; osprey up --as-built restarts the stack as last built

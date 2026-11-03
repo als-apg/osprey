@@ -397,6 +397,160 @@ class TestOpenPanel:
         assert "rev" not in ctx["envelope"]["details"]
 
 
+@pytest.fixture
+def _pinned_deployment():
+    """Pin the port block (default base 10000) and the terminal's own port."""
+    with (
+        patch("osprey_connectors.workspace.load_osprey_config", return_value={}),
+        patch("osprey.mcp_server.http.web_terminal_url", return_value="http://127.0.0.1:10100"),
+    ):
+        yield
+
+
+class TestOpenPanelCanopyRefusal:
+    """An agent-hop panel's screen moves through its own tool, never a url.
+
+    The refusal happens in the tool, so it can name the panel's own tool: a
+    refused call must raise the structured envelope naming ``set_workspace``
+    and must not reach ``panel_op`` at all.
+    """
+
+    async def _assert_refused(self, panel_id: str, url: str) -> dict:
+        fn = _get_open_panel()
+        with patch(f"{_MODULE}.panel_op") as mock_op:
+            with assert_raises_error(error_type="agent_hop_panel_url") as ctx:
+                await fn(panel_id, url=url)
+        mock_op.assert_not_called()
+        envelope = ctx["envelope"]
+        assert "set_workspace" in " ".join(envelope["suggestions"])
+        assert envelope["details"]["panel"] == panel_id
+        assert "canopy" in envelope["details"]["agent_hop_panels"]
+        return envelope
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "url",
+        [
+            "/panel/canopy/embed/drafts/beam-tune",
+            "/s/GTLView",
+            "https://example.org/",
+        ],
+    )
+    async def test_open_panel_canopy_with_url_refused(self, url, _pinned_deployment):
+        """Any url for the canopy panel itself is refused, even a harmless one."""
+        await self._assert_refused("canopy", url)
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "url",
+        [
+            "/panel/canopy/embed/drafts/x",
+            "/panel/canopy",
+            "/u/alice/panel/canopy/s/GTLView",
+            "http://127.0.0.1:10100/panel/canopy/s/x",
+            "https://terminal.example.org/panel/canopy/trace/",
+            "\\panel\\canopy\\s\\x",
+            "/panel/%63anopy/s/x",
+            "/panel/%2563anopy/s/x",
+            "/panel/ariel/../canopy/s/x",
+            "/panel/./canopy/s/x",
+            "/panel//canopy/s/x",
+            "/panel/canopy;x=1/s/x",
+            "/PANEL/CANOPY/s/x",
+            "  /panel/canopy/s/x\t",
+        ],
+    )
+    async def test_open_panel_other_panel_with_canopy_path_refused(self, url, _pinned_deployment):
+        """A url resolving under /panel/canopy/ is refused whatever panel_id names."""
+        await self._assert_refused("ariel", url)
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "url",
+        [
+            "http://127.0.0.1:54321/embed/drafts/x",
+            "http://localhost:49200/s/GTLView",
+            "http://[::1]:61000/",
+            "HTTP://127.0.0.1:54321/",
+            # The spellings a browser reads as the same loopback listener.
+            "http://127.1:54321/",
+            "http://2130706433:54321/",
+            "http://0x7f.0.0.1:54321/",
+            "http://0177.0.0.1:54321/",
+            "http://[::ffff:127.0.0.1]:54321/",
+            "http://localhost.:54321/",
+            "http://foo.localhost:54321/",
+        ],
+    )
+    async def test_open_panel_canopy_sidecar_origin_refused(self, url, _pinned_deployment):
+        """The sidecar's own ephemeral loopback origin is refused for any panel."""
+        await self._assert_refused("artifacts", url)
+
+    @pytest.mark.asyncio
+    async def test_open_panel_canopy_without_url_still_focuses(self):
+        """No url: one ``open`` op is the only thing sent.
+
+        The tool reaches neither the rail nor any other op, so the CANOPY slot
+        and its pending batches are untouched.
+        """
+        fn = _get_open_panel()
+        with (
+            patch(f"{_MODULE}.panel_op", return_value=_applied()) as mock_op,
+            patch(f"{_MODULE}.notify_panel_visibility") as mock_visibility,
+        ):
+            result = extract_response_dict(await fn("canopy"))
+
+        assert result == {
+            "status": "success",
+            "panel": "canopy",
+            "layout": _LAYOUT,
+            "rev": 7,
+            "popouts": [],
+        }
+        mock_op.assert_called_once_with("open", {"member": "canopy"}, base_rev=None)
+        mock_visibility.assert_not_called()
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "url",
+        [
+            "/panel/ariel/#/draft/7",
+            "/panel/ariel/#/panel/canopy/s/x",
+            "/panel/ariel/?next=/panel/canopy/s/x",
+            "/panel/canopy-notes/x",
+            "http://127.0.0.1:10300/#draft",
+            "http://127.0.0.1:10100/panel/ariel/",
+            "https://grafana.example.org:54321/d/x",
+        ],
+    )
+    async def test_open_panel_canopy_unrelated_urls_pass(self, url, _pinned_deployment):
+        """Deep links into other panels are unchanged by the canopy refusal."""
+        fn = _get_open_panel()
+        with patch(f"{_MODULE}.panel_op", return_value=_applied()) as mock_op:
+            result = extract_response_dict(await fn("ariel", url=url))
+
+        assert result["status"] == "success"
+        mock_op.assert_called_once_with("open", {"member": "ariel", "url": url}, base_rev=None)
+
+    @pytest.mark.asyncio
+    async def test_open_panel_canopy_refusal_is_data_driven(self, _pinned_deployment):
+        """The refused set is the agent_hop flag, not the literal 'canopy'."""
+        from osprey.profiles.sidecar_panels import SIDECAR_PANELS, SidecarPanel
+
+        hop = SidecarPanel("hop", "x:y", mcp_path="/mcp", agent_hop=True)
+        no_hop = SidecarPanel("plain", "x:y", mcp_path="/mcp")
+        with patch.dict(SIDECAR_PANELS, {"hop-panel": hop, "plain-panel": no_hop}):
+            await self._assert_refused("hop-panel", "/x")
+            await self._assert_refused("ariel", "/panel/hop-panel/x")
+            fn = _get_open_panel()
+            with patch(f"{_MODULE}.panel_op", return_value=_applied()) as mock_op:
+                result = extract_response_dict(await fn("plain-panel", url="/panel/plain-panel/x"))
+        assert result["status"] == "success"
+        mock_op.assert_called_once_with(
+            "open", {"member": "plain-panel", "url": "/panel/plain-panel/x"}, base_rev=None
+        )
+
+
 def _get_add_panel_to_rail():
     from osprey.mcp_server.workspace.tools.panel_tools import add_panel_to_rail
 

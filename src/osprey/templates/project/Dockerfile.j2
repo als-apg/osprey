@@ -275,7 +275,8 @@ RUN --mount=type=cache,target=/root/.cache/pip \
 # shared path so that user finds it. The headless shell is all the converter
 # launches, so the full browser is not installed. It sits after the deps layer
 # because the playwright package it runs comes from there, and before the dev
-# wheel so that rebuilding with a local wheel does not fetch it again.
+# wheel so that rebuilding with a local wheel does not fetch it again. The
+# CANOPY panel's sidecar drives the same headless shell.
 ENV PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt/lists,sharing=locked \

@@ -2,8 +2,10 @@
 
 The benchmark compares a recent partial beam loss, read out of the archive,
 with an older one that exists only as a plot on a logbook entry. The recent
-loss is two ``step`` events in ``scenarios/beam-dip-recent.yaml``; the older
-one is this module's picture, attached to an entry of
+loss is one bounded step, back on the baseline, in
+``scenarios/beam-dip-recent.yaml``: when it ends the stored current returns to
+its top-off sawtooth, never to a fixed value. The older one is this module's
+picture, attached to an entry of
 ``scenarios/beam-loss-decay-run.yaml``: a lifetime study with top-up off, so
 the current decays and is refilled by hand every :data:`REFILL_PERIOD_H`, and
 one refill cycle carries a loss of :data:`DIP_DEPTH_MA` that stays until the
@@ -28,18 +30,35 @@ from typing import Any
 
 import numpy as np
 
+import osprey
+from osprey.facility.sources import read_yaml
+from osprey_connectors.simulation import topoff
+
 SCENARIOS_DIR = Path(__file__).parent / "scenarios"
 RECENT_SCENARIO = "beam-dip-recent"
 LOGBOOK_SCENARIO = "beam-loss-decay-run"
 TARGET_ENTRY_ID = "BLC-DECAY-001"
 
 DCCT_CHANNEL = "SR:DIAG:DCCT:01:CURRENT:RB"
+#: The example facility's seeds, whose ``topoff`` seed sets the DCCT baseline.
+EXAMPLE_SEEDS = Path(osprey.__file__).parent / "templates/facilities/example/seeds.yaml"
 
-#: Stored current right after a refill, and the recent dip the archive holds.
+
+def _held_current() -> float:
+    seeds = read_yaml(EXAMPLE_SEEDS.read_text(encoding="utf-8"))
+    held = topoff.held_value(seeds[DCCT_CHANNEL])
+    if held is None:
+        raise ValueError(f"{DCCT_CHANNEL} carries no topoff seed in {EXAMPLE_SEEDS}")
+    return held
+
+
+#: The stored current the DCCT holds, and the recent dip the archive holds below it.
+#: The baseline is the top-off seed's held level (the period mean of the
+#: sawtooth), the level the recent dip's bounded step departs from and returns to.
 #: The recent dip is the larger of the two losses, so an agent that assumes the
 #: logged event must be the bigger one, or reads the plot as larger than it is,
 #: gets the comparison backwards.
-BASELINE_MA = 500.0
+BASELINE_MA = _held_current()
 RECENT_DIP_MA = 60.0
 
 #: The decay-mode sawtooth: current lost between refills, and how often they come.

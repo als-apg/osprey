@@ -9,6 +9,8 @@ As shipped by the preset:
 
 ```
 data/
+├── canopy/
+│   └── library/screens/                  # CANOPY screens (facility overview and sections)
 ├── landing/
 │   └── working-safely.md                 # A notice on the web terminal's landing page
 └── facility/                             # The facility's authored sources
@@ -47,6 +49,36 @@ The benchmarks view writes `benchmarks/queries.json` from
 `facility/benchmarks/cross_paradigm/queries/`: `in_context_queries.json` for
 `in_context`, `tree_queries.json` for every other mode. The query sources do
 not reach the render.
+
+## CANOPY screens
+
+`canopy/library/` is the deployment's CANOPY screen library: the control
+system screens the web terminal's CANOPY panel lists and opens. Screens live
+under `canopy/library/screens/` as Screen-IR documents (`*.screen.json`), one
+file per screen, addressed by their path without the suffix. The template
+ships:
+
+- `facility/overview` — the facility at a glance: the plan of gun, linac,
+  booster and storage ring with BPM status, the storage-ring status, RF,
+  magnet supplies, injector and booster; each storage-ring sector, the
+  booster, BTS and GTL (gun, linac and LTB) opens its screen;
+- `br/overview` — the booster: its BPM status, the dipole and quadrupole
+  ramps, the septa and kicker, and the booster DCCT;
+- `sr/sector-01` to `sr/sector-12` — one storage-ring sector each: its
+  straight and arc in beam order, every magnet, corrector and BPM with its
+  status and readbacks, and the sector's vacuum;
+- `sr/orbit-feedback` — storage-ring orbit feedback: the BPM orbit and
+  corrector readbacks, the DCCT, the orbit RMS per plane as CANOPY Fox
+  formulas, and one corrector setpoint input;
+- the transfer-line panels `gtl/GTL` and `bts/BTS`, with the screens and
+  images they embed under `common/`.
+
+The screens bind the simulator's channels (see the simulator view the build
+writes under `data/simulator/`);
+readouts show their units and alarm state.
+
+The library is baked into the image: after editing a screen here, run
+`osprey build` and then `osprey up`; `osprey up` alone does not refresh it.
 
 ## Database Paradigms
 

@@ -91,6 +91,7 @@ from osprey.interfaces.web_terminal.operator_session import session_hold_root_of
 from osprey.interfaces.web_terminal.panel_cap import opaque_panel_kind, verify_request_cap
 from osprey.interfaces.web_terminal.panel_sandbox import apply_panel_sandbox, builtin_entry_pages
 from osprey.interfaces.web_terminal.routes.watchdog import session_is_live
+from osprey.interfaces.web_terminal.routes.workspace_activity import observe_set_workspace
 from osprey.profiles.web_panels import SIDECAR_PANELS
 from osprey.registry.web import FRAMEWORK_WEB_SERVERS, panel_url_state_attr
 from osprey.utils.http_proxy import HOP_BY_HOP
@@ -1687,7 +1688,9 @@ def _inject_control_target_bar(
 _HTML_OPEN_RE = re.compile(r"<html(?=[\s/>])", re.IGNORECASE)
 
 
-def _stamp_storage_scope(text: str, base_type: str, scope: str) -> str:
+def _stamp_storage_scope(
+    text: str, base_type: str, scope: str, attribute: str = STORAGE_SCOPE_ATTRIBUTE
+) -> str:
     """Stamp the mount's storage scope on a relayed document's ``<html>`` tag.
 
     Why the proxy: every panel page reaches the browser through this hop, and
@@ -1708,6 +1711,7 @@ def _stamp_storage_scope(text: str, base_type: str, scope: str) -> str:
         text: The relayed body, already rewritten for this deployment.
         base_type: The response's media type without parameters.
         scope: The mount's storage scope, ``""`` when there is no mount user.
+        attribute: The attribute the panel reads the scope from.
 
     Returns:
         ``text`` with the attribute as the root tag's first attribute, or
@@ -1719,7 +1723,7 @@ def _stamp_storage_scope(text: str, base_type: str, scope: str) -> str:
     match = _HTML_OPEN_RE.search(text)
     if match is None:
         return text
-    stamp = f' {STORAGE_SCOPE_ATTRIBUTE}="{html.escape(scope, quote=True)}"'
+    stamp = f' {attribute}="{html.escape(scope, quote=True)}"'
     return f"{text[: match.end()]}{stamp}{text[match.end() :]}"
 
 
@@ -2087,8 +2091,16 @@ async def _forward_to_panel(
     relative_base = f"{outer_panel_prefix}/{path}"
     terminal_origin = f"{request.url.scheme}://{request.url.netloc}"
 
+    observer = None
     try:
         body = await request.body()
+
+        # The agent's CANOPY workspace calls pass no OSPREY audit middleware;
+        # this hop is where OSPREY sees them, and each becomes a history row
+        # (see workspace_activity). Only a request carrying such a call is
+        # observed, and its reply is read as it is relayed, never held back.
+        if agent_hop:
+            observer = observe_set_workspace(request, panel_id, body)
 
         # SSE: stream the response.
         if "text/event-stream" in request.headers.get("accept", ""):
@@ -2113,6 +2125,8 @@ async def _forward_to_panel(
 
             if _is_redirect(upstream):
                 await upstream.aclose()
+                if observer is not None:
+                    observer.close()
                 return _relay_redirect(
                     upstream,
                     outer_panel_prefix,
@@ -2121,11 +2135,18 @@ async def _forward_to_panel(
                     terminal_origin=terminal_origin,
                 )
 
+            if observer is not None:
+                observer.begin(upstream.headers.get("content-type", ""))
+
             async def _stream():
                 try:
                     async for chunk in upstream.aiter_bytes():
+                        if observer is not None:
+                            observer.feed(chunk)
                         yield chunk
                 finally:
+                    if observer is not None:
+                        observer.close()
                     await upstream.aclose()
 
             resp_headers = _filter_response_headers(upstream.headers)
@@ -2156,6 +2177,11 @@ async def _forward_to_panel(
             headers=fwd_headers,
             content=body or None,
         )
+        if observer is not None:
+            if not _is_redirect(resp):
+                observer.begin(resp.headers.get("content-type", ""))
+                observer.feed(resp.content)
+            observer.close()
         if _is_redirect(resp):
             return _relay_redirect(
                 resp,
@@ -2166,6 +2192,8 @@ async def _forward_to_panel(
                 terminal_origin=terminal_origin,
             )
     except httpx.RequestError as exc:
+        if observer is not None:
+            observer.close()
         logger.warning("Proxy error for panel %s: %s", panel_id, exc)
         return Response(
             content=f"Upstream connection failed: {exc}",
@@ -2243,6 +2271,8 @@ async def _forward_to_panel(
             text,
             base_type,
             resolve_storage_scope(getattr(request.app.state, "terminal_user", "")),
+            (sidecar.storage_scope_attribute if (sidecar := SIDECAR_PANELS.get(panel_id)) else None)
+            or STORAGE_SCOPE_ATTRIBUTE,
         )
         # Resolved per request, like the storage scope, by the call the hub's own pages use.
         if base_type == "text/html":
@@ -2308,6 +2338,15 @@ async def proxy_panel_root(panel_id: str, request: Request):
 #: kernel came up fine behind it. The budget is the panel's, plus room for the
 #: upgrade itself; a handshake still unanswered after this is not going to be.
 UPSTREAM_OPEN_TIMEOUT = 90.0
+
+#: The largest single message, in bytes, the relay accepts from a panel's
+#: upstream. ``websockets`` caps an incoming message at 1 MiB by default and
+#: closes with 1009 past it, which breaks a panel whose one frame carries more
+#: (a plot's history, a CANOPY screen document). The browser leg is bounded at
+#: 16 MiB by uvicorn's own ``ws_max_size``; this matches it rather than lifting
+#: the bound, because an unbounded frame is an unbounded allocation in the web
+#: terminal's process. A larger message still closes the relay.
+PANEL_WS_MAX_SIZE = 16 * 1024 * 1024
 
 
 @router.websocket(f"/panel/{{panel_id}}/{PANEL_CAP_SEGMENT}/{{cap}}/{{path:path}}")
@@ -2391,6 +2430,10 @@ async def proxy_panel_ws(panel_id: str, path: str, websocket: WebSocket):
         additional_headers=upstream_headers or None,
         subprotocols=offered or None,
         open_timeout=UPSTREAM_OPEN_TIMEOUT,
+        max_size=PANEL_WS_MAX_SIZE,
+        # No permessage-deflate on the upstream hop: it is loopback or the
+        # compose network, where compressing every frame only spends CPU.
+        compression=None,
     )
 
     client_gone = False

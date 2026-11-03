@@ -24,6 +24,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from osprey.agent_runner.clean_env import SHELL_ENV_FILE
 from osprey.cli.chat_cmd import _launch_companion_servers, chat
 from tests.cli._lifecycle_build import stub_build
 from tests.cli._scoped_subprocess import patch_subprocess
@@ -205,6 +206,7 @@ class TestAgentChildEnvironment:
         assert result.exit_code == 0
         env = captured["env"]
         assert env.get("OSPREY_PANEL_TOKEN") == "holder-panel-token"
+        assert env.get("CLAUDE_ENV_FILE") == str(SHELL_ENV_FILE)
         assert "OSPREY_TERMINAL_SECRET" not in env
 
     def test_no_companion_means_no_panel_token_for_the_child(

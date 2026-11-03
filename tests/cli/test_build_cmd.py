@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+import sys
 import tomllib
 from pathlib import Path
 from textwrap import dedent
@@ -1191,6 +1192,41 @@ class TestLifecyclePhaseRunner:
         ]
         _run_lifecycle_phase("post_build", steps, tmp_path, tmp_path)
         assert marker.exists()
+
+    def test_python_placeholder_is_the_running_interpreter(self, tmp_path: Path):
+        """`{python}` runs a step under the interpreter running the build, even
+        when the project venv is first on the step's PATH."""
+        from osprey.cli.build_cmd import _run_lifecycle_phase
+
+        venv_bin = tmp_path / ".venv" / "bin"
+        venv_bin.mkdir(parents=True)
+        decoy = venv_bin / "python"
+        decoy.write_text("#!/bin/sh\nexit 97\n")
+        decoy.chmod(0o755)
+        steps = [
+            LifecycleStep(
+                name="which python",
+                run=(
+                    '"{python}" -c "import sys, pathlib; '
+                    "pathlib.Path(r'{project_root}/python.txt').write_text(sys.executable)\""
+                ),
+            )
+        ]
+        _run_lifecycle_phase("pre_build", steps, tmp_path, tmp_path)
+        assert (tmp_path / "python.txt").read_text() == sys.executable
+
+    def test_python_placeholder_is_replaced_in_a_shell_step(self, tmp_path: Path):
+        """The replacement is plain text, so it reaches a step the shell runs."""
+        from osprey.cli.build_cmd import _run_lifecycle_phase
+
+        steps = [
+            LifecycleStep(
+                name="piped python",
+                run="echo '{python}' | cat > {project_root}/python.txt",
+            )
+        ]
+        _run_lifecycle_phase("pre_build", steps, tmp_path, tmp_path)
+        assert (tmp_path / "python.txt").read_text().strip() == sys.executable
 
 
 # ---------------------------------------------------------------------------
@@ -2518,11 +2554,8 @@ def test_lint_accepts_a_declared_matcher_but_warns_that_it_proves_nothing(
     So a tool whose only gate is a matcher the profile declared itself passes
     with a warning rather than silently.
 
-    For ``Bash`` the warning also says what the shell reaches beyond the
-    filesystem: the panel token is in the agent's process env, so a shell
-    command can fire a dispatcher job over ``/panel/events/mcp`` with no
-    approval prompt. A facility reading this warning is deciding whether its own
-    hook is enough, and that decision needs the dispatcher wire in view.
+    The warning names no panel wire: a shell command starts without the panel
+    token, so it cannot reach the dispatcher or a panel's MCP transport.
     """
     import logging
 
@@ -2544,55 +2577,7 @@ def test_lint_accepts_a_declared_matcher_but_warns_that_it_proves_nothing(
     assert gate_warnings, (
         f"expected an unverifiable-gate warning; got: {[r.message for r in caplog.records]}"
     )
-    assert any("/panel/events/mcp" in message for message in gate_warnings), (
-        f"the Bash warning must name the dispatcher wire the shell reaches: got {gate_warnings}"
-    )
-    # No shipped sidecar panel opens a transport to the agent, so the
-    # dispatcher's wire is the only one named.
-    assert all(message.count("/panel/") == 1 for message in gate_warnings), gate_warnings
-
-
-def test_the_declared_gate_warning_names_every_panel_hop_the_shell_reaches(
-    tmp_path: Path, caplog, monkeypatch
-) -> None:
-    """A panel that opens its MCP transport to the agent is one more wire the
-    panel token reaches from a shell, so the Bash warning names its path too —
-    read off the registry, beside the dispatcher's.
-    """
-    import logging
-
-    from osprey.profiles.sidecar_panels import SidecarPanel
-    from osprey.registry.mcp import FRAMEWORK_SERVERS, derive_panel_servers
-
-    panel = SidecarPanel(
-        "Synthetic screens",
-        "tests.synthetic:Sidecar",
-        mcp_path="/mcp",
-        agent_hop=True,
-        mcp_ask=("push_screen",),
-    )
-    monkeypatch.setitem(
-        FRAMEWORK_SERVERS, "screens", derive_panel_servers({"screens": panel})["screens"]
-    )
-
-    manager, project = _project_with_permissions(
-        tmp_path, "declared-bash-gate-hop", {"remove_deny": ["Bash"]}
-    )
-    _ship_declared_pre_hook(project, "facility_bash_gate.py", "Bash")
-
-    with caplog.at_level(logging.WARNING):
-        manager.regenerate_claude_code(project)
-
-    gate_warnings = [
-        record.message
-        for record in caplog.records
-        if "Bash" in record.message and "permissionDecision" in record.message
-    ]
-    assert gate_warnings
-    assert any(
-        "/panel/events/mcp" in message and "/panel/screens/mcp" in message
-        for message in gate_warnings
-    ), gate_warnings
+    assert not any("/panel/" in message for message in gate_warnings), gate_warnings
 
 
 @pytest.mark.parametrize("tool", ["Monitor", "EnterWorktree"])
@@ -2601,9 +2586,8 @@ def test_a_declared_gate_lifts_a_write_floor_tool(tmp_path: Path, caplog, tool: 
     lifting the deny and declaring its own PreToolUse gate, which builds with
     the unverifiable-gate warning.
 
-    Monitor runs shell commands with the agent's process env, so its warning
-    names the dispatcher wire as the Bash warning does; EnterWorktree writes to
-    disk only, so its warning does not.
+    Neither warning names a panel wire: Monitor's commands start without the
+    panel token, as Bash's do, and EnterWorktree writes to disk only.
     """
     import logging
 
@@ -2627,8 +2611,7 @@ def test_a_declared_gate_lifts_a_write_floor_tool(tmp_path: Path, caplog, tool: 
     assert gate_warnings, (
         f"expected an unverifiable-gate warning; got: {[r.message for r in caplog.records]}"
     )
-    names_the_wire = any("/panel/events/mcp" in message for message in gate_warnings)
-    assert names_the_wire is (tool == "Monitor"), gate_warnings
+    assert not any("/panel/" in message for message in gate_warnings), gate_warnings
 
 
 def test_a_framework_matcher_gates_without_the_warning(tmp_path: Path, caplog) -> None:

@@ -1,0 +1,5707 @@
+{
+  "schemaVersion": "1.1",
+  "kind": "screen",
+  "id": "bts/BTS",
+  "metadata": {
+    "title": "BTS",
+    "source": {
+      "type": "bob-converter"
+    },
+    "size": {
+      "width": 2000,
+      "height": 910
+    }
+  },
+  "macros": [],
+  "formulas": [
+    {
+      "name": "f-001",
+      "kind": "scalar",
+      "expression": "0 if {0} > 0 else 1",
+      "bindings": {
+        "0": "BTS:DIAG:PADDLES:01:COUNT:INSERTED"
+      }
+    }
+  ],
+  "root": {
+    "id": "w-001",
+    "type": "absolute-canvas",
+    "props": {
+      "width": 2000,
+      "height": 910,
+      "backgroundColor": {
+        "$role": "Display_Background",
+        "fallback": "#ffffff"
+      }
+    },
+    "geometry": {
+      "x": 0,
+      "y": 0,
+      "width": 2000,
+      "height": 910
+    },
+    "children": [
+      {
+        "id": "w-002",
+        "type": "pv-label",
+        "props": {
+          "pv": "loc://testtriggercolorcode?type=int&init=1"
+        },
+        "geometry": {
+          "x": 0,
+          "y": 0,
+          "width": 0,
+          "height": 0
+        }
+      },
+      {
+        "id": "w-003",
+        "type": "line",
+        "props": {
+          "lineColor": {
+            "$role": "Grid",
+            "fallback": "#808080"
+          },
+          "lineWidth": 3,
+          "points": [
+            {
+              "x": 50,
+              "y": 0
+            },
+            {
+              "x": 0,
+              "y": 14
+            }
+          ],
+          "arrowStart": false,
+          "arrowEnd": false
+        },
+        "geometry": {
+          "x": 830,
+          "y": 280,
+          "width": 50,
+          "height": 14
+        }
+      },
+      {
+        "id": "w-004",
+        "type": "line",
+        "props": {
+          "lineColor": {
+            "$role": "Grid",
+            "fallback": "#808080"
+          },
+          "lineWidth": 3,
+          "points": [
+            {
+              "x": 160,
+              "y": 0
+            },
+            {
+              "x": 0,
+              "y": 61.99999999999999
+            }
+          ],
+          "arrowStart": false,
+          "arrowEnd": false
+        },
+        "geometry": {
+          "x": 441,
+          "y": 360,
+          "width": 160,
+          "height": 62
+        }
+      },
+      {
+        "id": "w-005",
+        "type": "line",
+        "props": {
+          "lineColor": {
+            "$role": "Grid",
+            "fallback": "#808080"
+          },
+          "lineWidth": 3,
+          "points": [
+            {
+              "x": 0,
+              "y": 0
+            },
+            {
+              "x": 240,
+              "y": 0
+            }
+          ],
+          "arrowStart": false,
+          "arrowEnd": false
+        },
+        "geometry": {
+          "x": 1710,
+          "y": 520,
+          "width": 240,
+          "height": 1
+        }
+      },
+      {
+        "id": "w-006",
+        "type": "line",
+        "props": {
+          "lineColor": {
+            "$role": "Grid",
+            "fallback": "#808080"
+          },
+          "lineWidth": 3,
+          "points": [
+            {
+              "x": 0,
+              "y": 0
+            },
+            {
+              "x": 50,
+              "y": 29.000000000000007
+            }
+          ],
+          "arrowStart": false,
+          "arrowEnd": false
+        },
+        "geometry": {
+          "x": 1740,
+          "y": 490,
+          "width": 50,
+          "height": 29
+        }
+      },
+      {
+        "id": "w-007",
+        "type": "line",
+        "props": {
+          "lineColor": {
+            "$role": "Grid",
+            "fallback": "#808080"
+          },
+          "lineWidth": 3,
+          "points": [
+            {
+              "x": 0,
+              "y": 0
+            },
+            {
+              "x": 190,
+              "y": 109.00000000000001
+            }
+          ],
+          "arrowStart": false,
+          "arrowEnd": false
+        },
+        "geometry": {
+          "x": 1550,
+          "y": 383,
+          "width": 190,
+          "height": 109
+        }
+      },
+      {
+        "id": "w-008",
+        "type": "line",
+        "props": {
+          "lineColor": {
+            "$role": "Grid",
+            "fallback": "#808080"
+          },
+          "lineWidth": 3,
+          "points": [
+            {
+              "x": 0,
+              "y": 0
+            },
+            {
+              "x": 40,
+              "y": 23
+            }
+          ],
+          "arrowStart": false,
+          "arrowEnd": false
+        },
+        "geometry": {
+          "x": 1510,
+          "y": 360,
+          "width": 40,
+          "height": 23
+        }
+      },
+      {
+        "id": "w-009",
+        "type": "line",
+        "props": {
+          "lineColor": {
+            "$role": "Grid",
+            "fallback": "#808080"
+          },
+          "lineWidth": 3,
+          "points": [
+            {
+              "x": 0,
+              "y": 0
+            },
+            {
+              "x": 300,
+              "y": 80
+            }
+          ],
+          "arrowStart": false,
+          "arrowEnd": false
+        },
+        "geometry": {
+          "x": 1211,
+          "y": 280,
+          "width": 300,
+          "height": 80
+        }
+      },
+      {
+        "id": "w-010",
+        "type": "line",
+        "props": {
+          "lineColor": {
+            "$role": "Grid",
+            "fallback": "#808080"
+          },
+          "lineWidth": 3,
+          "points": [
+            {
+              "x": 229.99999999999997,
+              "y": 0
+            },
+            {
+              "x": 0,
+              "y": 0
+            }
+          ],
+          "arrowStart": false,
+          "arrowEnd": false
+        },
+        "geometry": {
+          "x": 980,
+          "y": 280,
+          "width": 230,
+          "height": 1
+        }
+      },
+      {
+        "id": "w-011",
+        "type": "line",
+        "props": {
+          "lineColor": {
+            "$role": "Grid",
+            "fallback": "#808080"
+          },
+          "lineWidth": 3,
+          "points": [
+            {
+              "x": 100,
+              "y": 0
+            },
+            {
+              "x": 0,
+              "y": 0
+            }
+          ],
+          "arrowStart": false,
+          "arrowEnd": false
+        },
+        "geometry": {
+          "x": 880,
+          "y": 280,
+          "width": 100,
+          "height": 1
+        }
+      },
+      {
+        "id": "w-012",
+        "type": "line",
+        "props": {
+          "lineColor": {
+            "$role": "Grid",
+            "fallback": "#808080"
+          },
+          "lineWidth": 3,
+          "points": [
+            {
+              "x": 230,
+              "y": 0
+            },
+            {
+              "x": 0,
+              "y": 66
+            }
+          ],
+          "arrowStart": false,
+          "arrowEnd": false
+        },
+        "geometry": {
+          "x": 600,
+          "y": 294,
+          "width": 230,
+          "height": 66
+        }
+      },
+      {
+        "id": "w-013",
+        "type": "line",
+        "props": {
+          "lineColor": {
+            "$role": "Grid",
+            "fallback": "#808080"
+          },
+          "lineWidth": 3,
+          "points": [
+            {
+              "x": 100,
+              "y": 0
+            },
+            {
+              "x": 0,
+              "y": 39
+            }
+          ],
+          "arrowStart": false,
+          "arrowEnd": false
+        },
+        "geometry": {
+          "x": 340,
+          "y": 423,
+          "width": 100,
+          "height": 39
+        }
+      },
+      {
+        "id": "w-014",
+        "type": "line",
+        "props": {
+          "lineColor": {
+            "$role": "Grid",
+            "fallback": "#808080"
+          },
+          "lineWidth": 3,
+          "points": [
+            {
+              "x": 150,
+              "y": 0
+            },
+            {
+              "x": 0,
+              "y": 58
+            }
+          ],
+          "arrowStart": false,
+          "arrowEnd": false
+        },
+        "geometry": {
+          "x": 190,
+          "y": 462,
+          "width": 150,
+          "height": 58
+        }
+      },
+      {
+        "id": "w-015",
+        "type": "line",
+        "props": {
+          "lineColor": {
+            "$role": "Grid",
+            "fallback": "#808080"
+          },
+          "lineWidth": 3,
+          "points": [
+            {
+              "x": 280,
+              "y": 0
+            },
+            {
+              "x": 0,
+              "y": 0
+            }
+          ],
+          "arrowStart": false,
+          "arrowEnd": false
+        },
+        "geometry": {
+          "x": 30,
+          "y": 520,
+          "width": 280,
+          "height": 1
+        }
+      },
+      {
+        "id": "w-016",
+        "type": "group",
+        "props": {
+          "layoutMode": "absolute"
+        },
+        "geometry": {
+          "x": 1668,
+          "y": 436,
+          "width": 25,
+          "height": 24
+        },
+        "children": [
+          {
+            "id": "w-017",
+            "type": "text-label",
+            "props": {
+              "text": "BPM6",
+              "align": "center",
+              "foregroundColor": {
+                "$role": "Text",
+                "fallback": "#000000"
+              },
+              "fontSize": 8
+            },
+            "geometry": {
+              "x": 1668,
+              "y": 436,
+              "width": 25,
+              "height": 10
+            }
+          }
+        ]
+      },
+      {
+        "id": "w-018",
+        "type": "group",
+        "props": {
+          "layoutMode": "absolute"
+        },
+        "geometry": {
+          "x": 1568,
+          "y": 379,
+          "width": 25,
+          "height": 24
+        },
+        "children": [
+          {
+            "id": "w-019",
+            "type": "text-label",
+            "props": {
+              "text": "BPM5",
+              "align": "center",
+              "foregroundColor": {
+                "$role": "Text",
+                "fallback": "#000000"
+              },
+              "fontSize": 8
+            },
+            "geometry": {
+              "x": 1568,
+              "y": 379,
+              "width": 25,
+              "height": 10
+            }
+          }
+        ]
+      },
+      {
+        "id": "w-020",
+        "type": "group",
+        "props": {
+          "layoutMode": "absolute"
+        },
+        "geometry": {
+          "x": 1298,
+          "y": 284,
+          "width": 25,
+          "height": 26
+        },
+        "children": [
+          {
+            "id": "w-021",
+            "type": "text-label",
+            "props": {
+              "text": "BPM4",
+              "align": "center",
+              "foregroundColor": {
+                "$role": "Text",
+                "fallback": "#000000"
+              },
+              "fontSize": 8
+            },
+            "geometry": {
+              "x": 1298,
+              "y": 284,
+              "width": 25,
+              "height": 10
+            }
+          }
+        ]
+      },
+      {
+        "id": "w-022",
+        "type": "group",
+        "props": {
+          "layoutMode": "absolute"
+        },
+        "geometry": {
+          "x": 1701,
+          "y": 432,
+          "width": 20,
+          "height": 35
+        },
+        "children": [
+          {
+            "id": "w-023",
+            "type": "text-label",
+            "props": {
+              "text": "VC9",
+              "align": "center",
+              "foregroundColor": {
+                "$role": "Text",
+                "fallback": "#000000"
+              },
+              "fontSize": 8
+            },
+            "geometry": {
+              "x": 1701,
+              "y": 432,
+              "width": 20,
+              "height": 10
+            }
+          },
+          {
+            "id": "w-024",
+            "type": "rectangle",
+            "props": {
+              "lineColor": {
+                "$role": "Text",
+                "fallback": "#000000"
+              },
+              "lineWidth": 1,
+              "fill": true,
+              "fillColor": {
+                "$role": "Text",
+                "fallback": "#000000"
+              }
+            },
+            "geometry": {
+              "x": 1706,
+              "y": 447,
+              "width": 10,
+              "height": 20
+            },
+            "rules": [
+              {
+                "id": "r-001",
+                "name": "Background color",
+                "targetProperty": "fillColor",
+                "pvs": [
+                  {
+                    "name": "BTS:MAG:VCM:09:STATUS:ON",
+                    "trigger": true
+                  }
+                ],
+                "conditions": [
+                  {
+                    "expression": "{0} == 1",
+                    "value": {
+                      "$role": "On",
+                      "fallback": "#00ff00"
+                    }
+                  },
+                  {
+                    "expression": "{0} == 0",
+                    "value": {
+                      "$role": "MAJOR",
+                      "fallback": "#ff0000"
+                    }
+                  },
+                  {
+                    "expression": "{0} != (1  or  0)",
+                    "value": {
+                      "$role": "INVALID",
+                      "fallback": "#ff00ff"
+                    }
+                  }
+                ],
+                "default": {
+                  "$role": "Text",
+                  "fallback": "#000000"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "w-025",
+        "type": "group",
+        "props": {
+          "layoutMode": "absolute"
+        },
+        "geometry": {
+          "x": 1701,
+          "y": 483,
+          "width": 20,
+          "height": 25
+        },
+        "children": [
+          {
+            "id": "w-026",
+            "type": "text-label",
+            "props": {
+              "text": "HC9",
+              "align": "center",
+              "foregroundColor": {
+                "$role": "Text",
+                "fallback": "#000000"
+              },
+              "fontSize": 8
+            },
+            "geometry": {
+              "x": 1701,
+              "y": 498,
+              "width": 20,
+              "height": 10
+            }
+          },
+          {
+            "id": "w-027",
+            "type": "rectangle",
+            "props": {
+              "lineColor": {
+                "$role": "Text",
+                "fallback": "#000000"
+              },
+              "lineWidth": 1,
+              "fill": true,
+              "fillColor": {
+                "$role": "Text",
+                "fallback": "#000000"
+              }
+            },
+            "geometry": {
+              "x": 1701,
+              "y": 483,
+              "width": 20,
+              "height": 10
+            },
+            "rules": [
+              {
+                "id": "r-002",
+                "name": "Background color",
+                "targetProperty": "fillColor",
+                "pvs": [
+                  {
+                    "name": "BTS:MAG:HCM:09:STATUS:ON",
+                    "trigger": true
+                  }
+                ],
+                "conditions": [
+                  {
+                    "expression": "{0} == 1",
+                    "value": {
+                      "$role": "On",
+                      "fallback": "#00ff00"
+                    }
+                  },
+                  {
+                    "expression": "{0} == 0",
+                    "value": {
+                      "$role": "MAJOR",
+                      "fallback": "#ff0000"
+                    }
+                  },
+                  {
+                    "expression": "{0} != (1  or  0)",
+                    "value": {
+                      "$role": "INVALID",
+                      "fallback": "#ff00ff"
+                    }
+                  }
+                ],
+                "default": {
+                  "$role": "Text",
+                  "fallback": "#000000"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "w-028",
+        "type": "group",
+        "props": {
+          "layoutMode": "absolute"
+        },
+        "geometry": {
+          "x": 1640,
+          "y": 397,
+          "width": 20,
+          "height": 35
+        },
+        "children": [
+          {
+            "id": "w-029",
+            "type": "text-label",
+            "props": {
+              "text": "VC8",
+              "align": "center",
+              "foregroundColor": {
+                "$role": "Text",
+                "fallback": "#000000"
+              },
+              "fontSize": 8
+            },
+            "geometry": {
+              "x": 1640,
+              "y": 397,
+              "width": 20,
+              "height": 10
+            }
+          },
+          {
+            "id": "w-030",
+            "type": "rectangle",
+            "props": {
+              "lineColor": {
+                "$role": "Text",
+                "fallback": "#000000"
+              },
+              "lineWidth": 1,
+              "fill": true,
+              "fillColor": {
+                "$role": "Text",
+                "fallback": "#000000"
+              }
+            },
+            "geometry": {
+              "x": 1645,
+              "y": 412,
+              "width": 10,
+              "height": 20
+            },
+            "rules": [
+              {
+                "id": "r-003",
+                "name": "Background color",
+                "targetProperty": "fillColor",
+                "pvs": [
+                  {
+                    "name": "BTS:MAG:VCM:08:STATUS:ON",
+                    "trigger": true
+                  }
+                ],
+                "conditions": [
+                  {
+                    "expression": "{0} == 1",
+                    "value": {
+                      "$role": "On",
+                      "fallback": "#00ff00"
+                    }
+                  },
+                  {
+                    "expression": "{0} == 0",
+                    "value": {
+                      "$role": "MAJOR",
+                      "fallback": "#ff0000"
+                    }
+                  },
+                  {
+                    "expression": "{0} != (1  or  0)",
+                    "value": {
+                      "$role": "INVALID",
+                      "fallback": "#ff00ff"
+                    }
+                  }
+                ],
+                "default": {
+                  "$role": "Text",
+                  "fallback": "#000000"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "w-031",
+        "type": "group",
+        "props": {
+          "layoutMode": "absolute"
+        },
+        "geometry": {
+          "x": 1640,
+          "y": 448,
+          "width": 20,
+          "height": 25
+        },
+        "children": [
+          {
+            "id": "w-032",
+            "type": "text-label",
+            "props": {
+              "text": "HC8",
+              "align": "center",
+              "foregroundColor": {
+                "$role": "Text",
+                "fallback": "#000000"
+              },
+              "fontSize": 8
+            },
+            "geometry": {
+              "x": 1640,
+              "y": 463,
+              "width": 20,
+              "height": 10
+            }
+          },
+          {
+            "id": "w-033",
+            "type": "rectangle",
+            "props": {
+              "lineColor": {
+                "$role": "Text",
+                "fallback": "#000000"
+              },
+              "lineWidth": 1,
+              "fill": true,
+              "fillColor": {
+                "$role": "Text",
+                "fallback": "#000000"
+              }
+            },
+            "geometry": {
+              "x": 1640,
+              "y": 448,
+              "width": 20,
+              "height": 10
+            },
+            "rules": [
+              {
+                "id": "r-004",
+                "name": "Background color",
+                "targetProperty": "fillColor",
+                "pvs": [
+                  {
+                    "name": "BTS:MAG:HCM:08:STATUS:ON",
+                    "trigger": true
+                  }
+                ],
+                "conditions": [
+                  {
+                    "expression": "{0} == 1",
+                    "value": {
+                      "$role": "On",
+                      "fallback": "#00ff00"
+                    }
+                  },
+                  {
+                    "expression": "{0} == 0",
+                    "value": {
+                      "$role": "MAJOR",
+                      "fallback": "#ff0000"
+                    }
+                  },
+                  {
+                    "expression": "{0} != (1  or  0)",
+                    "value": {
+                      "$role": "INVALID",
+                      "fallback": "#ff00ff"
+                    }
+                  }
+                ],
+                "default": {
+                  "$role": "Text",
+                  "fallback": "#000000"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "w-034",
+        "type": "group",
+        "props": {
+          "layoutMode": "absolute"
+        },
+        "geometry": {
+          "x": 1490,
+          "y": 334,
+          "width": 40,
+          "height": 35
+        },
+        "children": [
+          {
+            "id": "w-035",
+            "type": "text-label",
+            "props": {
+              "text": "B4",
+              "align": "center",
+              "foregroundColor": {
+                "$role": "Text",
+                "fallback": "#000000"
+              },
+              "fontSize": 8
+            },
+            "geometry": {
+              "x": 1500,
+              "y": 334,
+              "width": 20,
+              "height": 10
+            }
+          },
+          {
+            "id": "w-036",
+            "type": "rectangle",
+            "props": {
+              "lineColor": {
+                "$role": "Text",
+                "fallback": "#000000"
+              },
+              "lineWidth": 1,
+              "fill": true,
+              "fillColor": {
+                "$role": "MINOR",
+                "fallback": "#ff8000"
+              }
+            },
+            "geometry": {
+              "x": 1490,
+              "y": 349,
+              "width": 40,
+              "height": 20
+            },
+            "rules": [
+              {
+                "id": "r-005",
+                "name": "Box color",
+                "targetProperty": "fillColor",
+                "pvs": [
+                  {
+                    "name": "BTS:MAG:DIPOLE:04:STATUS:ON",
+                    "trigger": true
+                  }
+                ],
+                "conditions": [
+                  {
+                    "expression": "{0} == 1",
+                    "value": {
+                      "$role": "On",
+                      "fallback": "#00ff00"
+                    }
+                  },
+                  {
+                    "expression": "{0} == 0",
+                    "value": {
+                      "$role": "MAJOR",
+                      "fallback": "#ff0000"
+                    }
+                  },
+                  {
+                    "expression": "{0} != (1  or  0)",
+                    "value": {
+                      "$role": "INVALID",
+                      "fallback": "#ff00ff"
+                    }
+                  }
+                ],
+                "default": {
+                  "$role": "MINOR",
+                  "fallback": "#ff8000"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "w-037",
+        "type": "group",
+        "props": {
+          "layoutMode": "absolute"
+        },
+        "geometry": {
+          "x": 1600,
+          "y": 381,
+          "width": 20,
+          "height": 55
+        },
+        "children": [
+          {
+            "id": "w-038",
+            "type": "polygon",
+            "props": {
+              "lineColor": {
+                "$role": "Text",
+                "fallback": "#000000"
+              },
+              "lineWidth": 1,
+              "points": [
+                {
+                  "x": 10,
+                  "y": 0
+                },
+                {
+                  "x": 0,
+                  "y": 20
+                },
+                {
+                  "x": 10,
+                  "y": 40
+                },
+                {
+                  "x": 20,
+                  "y": 20
+                }
+              ],
+              "closed": true,
+              "fill": true,
+              "fillColor": {
+                "$role": "Attention",
+                "fallback": "#ffa000"
+              }
+            },
+            "geometry": {
+              "x": 1600,
+              "y": 396,
+              "width": 20,
+              "height": 40
+            },
+            "rules": [
+              {
+                "id": "r-006",
+                "name": "Background color",
+                "targetProperty": "fillColor",
+                "pvs": [
+                  {
+                    "name": "BTS:MAG:QF:06:STATUS:ON",
+                    "trigger": true
+                  }
+                ],
+                "conditions": [
+                  {
+                    "expression": "{0} == 1",
+                    "value": {
+                      "$role": "On",
+                      "fallback": "#00ff00"
+                    }
+                  },
+                  {
+                    "expression": "{0} == 0",
+                    "value": {
+                      "$role": "MAJOR",
+                      "fallback": "#ff0000"
+                    }
+                  },
+                  {
+                    "expression": "{0} != (1  or  0)",
+                    "value": {
+                      "$role": "INVALID",
+                      "fallback": "#ff00ff"
+                    }
+                  }
+                ],
+                "default": {
+                  "$role": "Attention",
+                  "fallback": "#ffa000"
+                }
+              }
+            ]
+          },
+          {
+            "id": "w-039",
+            "type": "text-label",
+            "props": {
+              "text": "Q7",
+              "align": "center",
+              "foregroundColor": {
+                "$role": "Text",
+                "fallback": "#000000"
+              },
+              "fontSize": 8
+            },
+            "geometry": {
+              "x": 1600,
+              "y": 381,
+              "width": 20,
+              "height": 10
+            }
+          }
+        ]
+      },
+      {
+        "id": "w-040",
+        "type": "group",
+        "props": {
+          "layoutMode": "absolute"
+        },
+        "geometry": {
+          "x": 1440,
+          "y": 297,
+          "width": 20,
+          "height": 35
+        },
+        "children": [
+          {
+            "id": "w-041",
+            "type": "text-label",
+            "props": {
+              "text": "VC7",
+              "align": "center",
+              "foregroundColor": {
+                "$role": "Text",
+                "fallback": "#000000"
+              },
+              "fontSize": 8
+            },
+            "geometry": {
+              "x": 1440,
+              "y": 297,
+              "width": 20,
+              "height": 10
+            }
+          },
+          {
+            "id": "w-042",
+            "type": "rectangle",
+            "props": {
+              "lineColor": {
+                "$role": "Text",
+                "fallback": "#000000"
+              },
+              "lineWidth": 1,
+              "fill": true,
+              "fillColor": {
+                "$role": "Text",
+                "fallback": "#000000"
+              }
+            },
+            "geometry": {
+              "x": 1445,
+              "y": 312,
+              "width": 10,
+              "height": 20
+            },
+            "rules": [
+              {
+                "id": "r-007",
+                "name": "Background color",
+                "targetProperty": "fillColor",
+                "pvs": [
+                  {
+                    "name": "BTS:MAG:VCM:07:STATUS:ON",
+                    "trigger": true
+                  }
+                ],
+                "conditions": [
+                  {
+                    "expression": "{0} == 1",
+                    "value": {
+                      "$role": "On",
+                      "fallback": "#00ff00"
+                    }
+                  },
+                  {
+                    "expression": "{0} == 0",
+                    "value": {
+                      "$role": "MAJOR",
+                      "fallback": "#ff0000"
+                    }
+                  },
+                  {
+                    "expression": "{0} != (1  or  0)",
+                    "value": {
+                      "$role": "INVALID",
+                      "fallback": "#ff00ff"
+                    }
+                  }
+                ],
+                "default": {
+                  "$role": "Text",
+                  "fallback": "#000000"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "w-043",
+        "type": "group",
+        "props": {
+          "layoutMode": "absolute"
+        },
+        "geometry": {
+          "x": 1440,
+          "y": 351,
+          "width": 20,
+          "height": 25
+        },
+        "children": [
+          {
+            "id": "w-044",
+            "type": "text-label",
+            "props": {
+              "text": "HC7",
+              "align": "center",
+              "foregroundColor": {
+                "$role": "Text",
+                "fallback": "#000000"
+              },
+              "fontSize": 8
+            },
+            "geometry": {
+              "x": 1440,
+              "y": 366,
+              "width": 20,
+              "height": 10
+            }
+          },
+          {
+            "id": "w-045",
+            "type": "rectangle",
+            "props": {
+              "lineColor": {
+                "$role": "Text",
+                "fallback": "#000000"
+              },
+              "lineWidth": 1,
+              "fill": true,
+              "fillColor": {
+                "$role": "Text",
+                "fallback": "#000000"
+              }
+            },
+            "geometry": {
+              "x": 1440,
+              "y": 351,
+              "width": 20,
+              "height": 10
+            },
+            "rules": [
+              {
+                "id": "r-008",
+                "name": "Background color",
+                "targetProperty": "fillColor",
+                "pvs": [
+                  {
+                    "name": "BTS:MAG:HCM:07:STATUS:ON",
+                    "trigger": true
+                  }
+                ],
+                "conditions": [
+                  {
+                    "expression": "{0} == 1",
+                    "value": {
+                      "$role": "On",
+                      "fallback": "#00ff00"
+                    }
+                  },
+                  {
+                    "expression": "{0} == 0",
+                    "value": {
+                      "$role": "MAJOR",
+                      "fallback": "#ff0000"
+                    }
+                  },
+                  {
+                    "expression": "{0} != (1  or  0)",
+                    "value": {
+                      "$role": "INVALID",
+                      "fallback": "#ff00ff"
+                    }
+                  }
+                ],
+                "default": {
+                  "$role": "Text",
+                  "fallback": "#000000"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "w-046",
+        "type": "group",
+        "props": {
+          "layoutMode": "absolute"
+        },
+        "geometry": {
+          "x": 1390,
+          "y": 294,
+          "width": 20,
+          "height": 55
+        },
+        "children": [
+          {
+            "id": "w-047",
+            "type": "text-label",
+            "props": {
+              "text": "Q6.2",
+              "align": "center",
+              "foregroundColor": {
+                "$role": "Text",
+                "fallback": "#000000"
+              },
+              "fontSize": 8
+            },
+            "geometry": {
+              "x": 1390,
+              "y": 294,
+              "width": 20,
+              "height": 10
+            }
+          },
+          {
+            "id": "w-048",
+            "type": "polygon",
+            "props": {
+              "lineColor": {
+                "$role": "Text",
+                "fallback": "#000000"
+              },
+              "lineWidth": 1,
+              "points": [
+                {
+                  "x": 0,
+                  "y": 0
+                },
+                {
+                  "x": 20,
+                  "y": 0
+                },
+                {
+                  "x": 0,
+                  "y": 40
+                },
+                {
+                  "x": 20,
+                  "y": 40
+                }
+              ],
+              "closed": true,
+              "fill": true,
+              "fillColor": "#3232ff"
+            },
+            "geometry": {
+              "x": 1390,
+              "y": 309,
+              "width": 20,
+              "height": 40
+            },
+            "rules": [
+              {
+                "id": "r-009",
+                "name": "Background color",
+                "targetProperty": "fillColor",
+                "pvs": [
+                  {
+                    "name": "BTS:MAG:QD:05:STATUS:ON",
+                    "trigger": true
+                  }
+                ],
+                "conditions": [
+                  {
+                    "expression": "{0} == 1",
+                    "value": {
+                      "$role": "On",
+                      "fallback": "#00ff00"
+                    }
+                  },
+                  {
+                    "expression": "{0} == 0",
+                    "value": {
+                      "$role": "MAJOR",
+                      "fallback": "#ff0000"
+                    }
+                  },
+                  {
+                    "expression": "{0} != (1  or  0)",
+                    "value": {
+                      "$role": "INVALID",
+                      "fallback": "#ff00ff"
+                    }
+                  }
+                ],
+                "default": "#3232ff"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "w-049",
+        "type": "group",
+        "props": {
+          "layoutMode": "absolute"
+        },
+        "geometry": {
+          "x": 1340,
+          "y": 281,
+          "width": 20,
+          "height": 55
+        },
+        "children": [
+          {
+            "id": "w-050",
+            "type": "polygon",
+            "props": {
+              "lineColor": {
+                "$role": "Text",
+                "fallback": "#000000"
+              },
+              "lineWidth": 1,
+              "points": [
+                {
+                  "x": 10,
+                  "y": 0
+                },
+                {
+                  "x": 0,
+                  "y": 20
+                },
+                {
+                  "x": 10,
+                  "y": 40
+                },
+                {
+                  "x": 20,
+                  "y": 20
+                }
+              ],
+              "closed": true,
+              "fill": true,
+              "fillColor": {
+                "$role": "Attention",
+                "fallback": "#ffa000"
+              }
+            },
+            "geometry": {
+              "x": 1340,
+              "y": 296,
+              "width": 20,
+              "height": 40
+            },
+            "rules": [
+              {
+                "id": "r-010",
+                "name": "Background color",
+                "targetProperty": "fillColor",
+                "pvs": [
+                  {
+                    "name": "BTS:MAG:QF:05:STATUS:ON",
+                    "trigger": true
+                  }
+                ],
+                "conditions": [
+                  {
+                    "expression": "{0} == 1",
+                    "value": {
+                      "$role": "On",
+                      "fallback": "#00ff00"
+                    }
+                  },
+                  {
+                    "expression": "{0} == 0",
+                    "value": {
+                      "$role": "MAJOR",
+                      "fallback": "#ff0000"
+                    }
+                  },
+                  {
+                    "expression": "{0} != (1  or  0)",
+                    "value": {
+                      "$role": "INVALID",
+                      "fallback": "#ff00ff"
+                    }
+                  }
+                ],
+                "default": {
+                  "$role": "Attention",
+                  "fallback": "#ffa000"
+                }
+              }
+            ]
+          },
+          {
+            "id": "w-051",
+            "type": "text-label",
+            "props": {
+              "text": "Q6.1",
+              "align": "center",
+              "foregroundColor": {
+                "$role": "Text",
+                "fallback": "#000000"
+              },
+              "fontSize": 8
+            },
+            "geometry": {
+              "x": 1340,
+              "y": 281,
+              "width": 20,
+              "height": 10
+            }
+          }
+        ]
+      },
+      {
+        "id": "w-052",
+        "type": "group",
+        "props": {
+          "layoutMode": "absolute"
+        },
+        "geometry": {
+          "x": 1190,
+          "y": 254,
+          "width": 40,
+          "height": 35
+        },
+        "children": [
+          {
+            "id": "w-053",
+            "type": "text-label",
+            "props": {
+              "text": "B3",
+              "align": "center",
+              "foregroundColor": {
+                "$role": "Text",
+                "fallback": "#000000"
+              },
+              "fontSize": 8
+            },
+            "geometry": {
+              "x": 1200,
+              "y": 254,
+              "width": 20,
+              "height": 10
+            }
+          },
+          {
+            "id": "w-054",
+            "type": "rectangle",
+            "props": {
+              "lineColor": {
+                "$role": "Text",
+                "fallback": "#000000"
+              },
+              "lineWidth": 1,
+              "fill": true,
+              "fillColor": {
+                "$role": "MINOR",
+                "fallback": "#ff8000"
+              }
+            },
+            "geometry": {
+              "x": 1190,
+              "y": 269,
+              "width": 40,
+              "height": 20
+            },
+            "rules": [
+              {
+                "id": "r-011",
+                "name": "Box color",
+                "targetProperty": "fillColor",
+                "pvs": [
+                  {
+                    "name": "BTS:MAG:DIPOLE:03:STATUS:ON",
+                    "trigger": true
+                  }
+                ],
+                "conditions": [
+                  {
+                    "expression": "{0} == 1",
+                    "value": {
+                      "$role": "On",
+                      "fallback": "#00ff00"
+                    }
+                  },
+                  {
+                    "expression": "{0} == 0",
+                    "value": {
+                      "$role": "MAJOR",
+                      "fallback": "#ff0000"
+                    }
+                  },
+                  {
+                    "expression": "{0} != (1  or  0)",
+                    "value": {
+                      "$role": "INVALID",
+                      "fallback": "#ff00ff"
+                    }
+                  }
+                ],
+                "default": {
+                  "$role": "MINOR",
+                  "fallback": "#ff8000"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "w-055",
+        "type": "group",
+        "props": {
+          "layoutMode": "absolute"
+        },
+        "geometry": {
+          "x": 1728,
+          "y": 470,
+          "width": 25,
+          "height": 24
+        },
+        "children": [
+          {
+            "id": "w-056",
+            "type": "text-label",
+            "props": {
+              "text": "TV6",
+              "align": "center",
+              "foregroundColor": {
+                "$role": "Text",
+                "fallback": "#000000"
+              },
+              "fontSize": 8
+            },
+            "geometry": {
+              "x": 1728,
+              "y": 470,
+              "width": 25,
+              "height": 10
+            }
+          }
+        ]
+      },
+      {
+        "id": "w-057",
+        "type": "group",
+        "props": {
+          "layoutMode": "absolute"
+        },
+        "geometry": {
+          "x": 1538,
+          "y": 362,
+          "width": 25,
+          "height": 24
+        },
+        "children": [
+          {
+            "id": "w-058",
+            "type": "text-label",
+            "props": {
+              "text": "TV5",
+              "align": "center",
+              "foregroundColor": {
+                "$role": "Text",
+                "fallback": "#000000"
+              },
+              "fontSize": 8
+            },
+            "geometry": {
+              "x": 1538,
+              "y": 362,
+              "width": 25,
+              "height": 10
+            }
+          }
+        ]
+      },
+      {
+        "id": "w-059",
+        "type": "group",
+        "props": {
+          "layoutMode": "absolute"
+        },
+        "geometry": {
+          "x": 1760,
+          "y": 484,
+          "width": 60,
+          "height": 45
+        },
+        "children": [
+          {
+            "id": "w-060",
+            "type": "text-label",
+            "props": {
+              "text": "SEK",
+              "align": "center",
+              "foregroundColor": {
+                "$role": "Text",
+                "fallback": "#000000"
+              },
+              "fontSize": 8
+            },
+            "geometry": {
+              "x": 1780,
+              "y": 484,
+              "width": 20,
+              "height": 10
+            }
+          },
+          {
+            "id": "w-061",
+            "type": "polygon",
+            "props": {
+              "lineColor": {
+                "$role": "Text",
+                "fallback": "#000000"
+              },
+              "lineWidth": 1,
+              "points": [
+                {
+                  "x": 0,
+                  "y": 30
+                },
+                {
+                  "x": 0,
+                  "y": 0
+                },
+                {
+                  "x": 60,
+                  "y": 10
+                },
+                {
+                  "x": 60,
+                  "y": 30
+                }
+              ],
+              "closed": true,
+              "fill": true,
+              "fillColor": {
+                "$role": "ActiveText",
+                "fallback": "#ffff00"
+              }
+            },
+            "geometry": {
+              "x": 1760,
+              "y": 499,
+              "width": 60,
+              "height": 30
+            },
+            "rules": [
+              {
+                "id": "r-012",
+                "name": "Background color",
+                "targetProperty": "fillColor",
+                "pvs": [
+                  {
+                    "name": "SR:MAG:SEPTUM:01:STATUS:ON",
+                    "trigger": true
+                  }
+                ],
+                "conditions": [
+                  {
+                    "expression": "{0} == 1",
+                    "value": {
+                      "$role": "On",
+                      "fallback": "#00ff00"
+                    }
+                  },
+                  {
+                    "expression": "{0} == 0",
+                    "value": {
+                      "$role": "STOP",
+                      "fallback": "#ff0000"
+                    }
+                  },
+                  {
+                    "expression": "{0} != (1  or  0)",
+                    "value": {
+                      "$role": "INVALID",
+                      "fallback": "#ff00ff"
+                    }
+                  }
+                ],
+                "default": {
+                  "$role": "ActiveText",
+                  "fallback": "#ffff00"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "w-062",
+        "type": "group",
+        "props": {
+          "layoutMode": "absolute"
+        },
+        "geometry": {
+          "x": 1840,
+          "y": 484,
+          "width": 60,
+          "height": 45
+        },
+        "children": [
+          {
+            "id": "w-063",
+            "type": "text-label",
+            "props": {
+              "text": "SEN",
+              "align": "center",
+              "foregroundColor": {
+                "$role": "Text",
+                "fallback": "#000000"
+              },
+              "fontSize": 8
+            },
+            "geometry": {
+              "x": 1860,
+              "y": 484,
+              "width": 20,
+              "height": 10
+            }
+          }
+        ]
+      },
+      {
+        "id": "w-064",
+        "type": "polygon",
+        "props": {
+          "lineColor": {
+            "$role": "Text",
+            "fallback": "#000000"
+          },
+          "lineWidth": 1,
+          "points": [
+            {
+              "x": 0,
+              "y": 25
+            },
+            {
+              "x": 0,
+              "y": 0
+            },
+            {
+              "x": 60,
+              "y": 5
+            },
+            {
+              "x": 60,
+              "y": 25
+            }
+          ],
+          "closed": true,
+          "fill": true,
+          "fillColor": {
+            "$role": "ActiveText",
+            "fallback": "#ffff00"
+          }
+        },
+        "geometry": {
+          "x": 1840,
+          "y": 505,
+          "width": 60,
+          "height": 45
+        },
+        "rules": [
+          {
+            "id": "r-013",
+            "name": "Background color",
+            "targetProperty": "fillColor",
+            "pvs": [
+              {
+                "name": "SR:MAG:SEPTUM:02:STATUS:ON",
+                "trigger": true
+              }
+            ],
+            "conditions": [
+              {
+                "expression": "{0} == 1",
+                "value": {
+                  "$role": "On",
+                  "fallback": "#00ff00"
+                }
+              },
+              {
+                "expression": "{0} == 0",
+                "value": {
+                  "$role": "STOP",
+                  "fallback": "#ff0000"
+                }
+              },
+              {
+                "expression": "{0} != (1  or  0)",
+                "value": {
+                  "$role": "INVALID",
+                  "fallback": "#ff00ff"
+                }
+              }
+            ],
+            "default": {
+              "$role": "ActiveText",
+              "fallback": "#ffff00"
+            }
+          }
+        ]
+      },
+      {
+        "id": "w-065",
+        "type": "group",
+        "props": {
+          "layoutMode": "absolute"
+        },
+        "geometry": {
+          "x": 1148,
+          "y": 257,
+          "width": 25,
+          "height": 26
+        },
+        "children": [
+          {
+            "id": "w-066",
+            "type": "text-label",
+            "props": {
+              "text": "BPM3",
+              "align": "center",
+              "foregroundColor": {
+                "$role": "Text",
+                "fallback": "#000000"
+              },
+              "fontSize": 8
+            },
+            "geometry": {
+              "x": 1148,
+              "y": 257,
+              "width": 25,
+              "height": 10
+            }
+          }
+        ]
+      },
+      {
+        "id": "w-067",
+        "type": "group",
+        "props": {
+          "layoutMode": "absolute"
+        },
+        "geometry": {
+          "x": 1110,
+          "y": 244,
+          "width": 20,
+          "height": 55
+        },
+        "children": [
+          {
+            "id": "w-068",
+            "type": "polygon",
+            "props": {
+              "lineColor": {
+                "$role": "Text",
+                "fallback": "#000000"
+              },
+              "lineWidth": 1,
+              "points": [
+                {
+                  "x": 10,
+                  "y": 0
+                },
+                {
+                  "x": 0,
+                  "y": 20
+                },
+                {
+                  "x": 10,
+                  "y": 40
+                },
+                {
+                  "x": 20,
+                  "y": 20
+                }
+              ],
+              "closed": true,
+              "fill": true,
+              "fillColor": {
+                "$role": "Attention",
+                "fallback": "#ffa000"
+              }
+            },
+            "geometry": {
+              "x": 1110,
+              "y": 259,
+              "width": 20,
+              "height": 40
+            },
+            "rules": [
+              {
+                "id": "r-014",
+                "name": "Background color",
+                "targetProperty": "fillColor",
+                "pvs": [
+                  {
+                    "name": "BTS:MAG:QF:04:STATUS:ON",
+                    "trigger": true
+                  }
+                ],
+                "conditions": [
+                  {
+                    "expression": "{0} == 1",
+                    "value": {
+                      "$role": "On",
+                      "fallback": "#00ff00"
+                    }
+                  },
+                  {
+                    "expression": "{0} == 0",
+                    "value": {
+                      "$role": "MAJOR",
+                      "fallback": "#ff0000"
+                    }
+                  },
+                  {
+                    "expression": "{0} != (1  or  0)",
+                    "value": {
+                      "$role": "INVALID",
+                      "fallback": "#ff00ff"
+                    }
+                  }
+                ],
+                "default": {
+                  "$role": "Attention",
+                  "fallback": "#ffa000"
+                }
+              }
+            ]
+          },
+          {
+            "id": "w-069",
+            "type": "text-label",
+            "props": {
+              "text": "Q5.2",
+              "align": "center",
+              "foregroundColor": {
+                "$role": "Text",
+                "fallback": "#000000"
+              },
+              "fontSize": 8
+            },
+            "geometry": {
+              "x": 1110,
+              "y": 244,
+              "width": 20,
+              "height": 10
+            }
+          }
+        ]
+      },
+      {
+        "id": "w-070",
+        "type": "group",
+        "props": {
+          "layoutMode": "absolute"
+        },
+        "geometry": {
+          "x": 1060,
+          "y": 244,
+          "width": 20,
+          "height": 55
+        },
+        "children": [
+          {
+            "id": "w-071",
+            "type": "text-label",
+            "props": {
+              "text": "Q5.1",
+              "align": "center",
+              "foregroundColor": {
+                "$role": "Text",
+                "fallback": "#000000"
+              },
+              "fontSize": 8
+            },
+            "geometry": {
+              "x": 1060,
+              "y": 244,
+              "width": 20,
+              "height": 10
+            }
+          },
+          {
+            "id": "w-072",
+            "type": "polygon",
+            "props": {
+              "lineColor": {
+                "$role": "Text",
+                "fallback": "#000000"
+              },
+              "lineWidth": 1,
+              "points": [
+                {
+                  "x": 0,
+                  "y": 0
+                },
+                {
+                  "x": 20,
+                  "y": 0
+                },
+                {
+                  "x": 0,
+                  "y": 40
+                },
+                {
+                  "x": 20,
+                  "y": 40
+                }
+              ],
+              "closed": true,
+              "fill": true,
+              "fillColor": "#3232ff"
+            },
+            "geometry": {
+              "x": 1060,
+              "y": 259,
+              "width": 20,
+              "height": 40
+            },
+            "rules": [
+              {
+                "id": "r-015",
+                "name": "Background color",
+                "targetProperty": "fillColor",
+                "pvs": [
+                  {
+                    "name": "BTS:MAG:QD:04:STATUS:ON",
+                    "trigger": true
+                  }
+                ],
+                "conditions": [
+                  {
+                    "expression": "{0} == 1",
+                    "value": {
+                      "$role": "On",
+                      "fallback": "#00ff00"
+                    }
+                  },
+                  {
+                    "expression": "{0} == 0",
+                    "value": {
+                      "$role": "MAJOR",
+                      "fallback": "#ff0000"
+                    }
+                  },
+                  {
+                    "expression": "{0} != (1  or  0)",
+                    "value": {
+                      "$role": "INVALID",
+                      "fallback": "#ff00ff"
+                    }
+                  }
+                ],
+                "default": "#3232ff"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "w-073",
+        "type": "group",
+        "props": {
+          "layoutMode": "absolute"
+        },
+        "geometry": {
+          "x": 1010,
+          "y": 290,
+          "width": 20,
+          "height": 25
+        },
+        "children": [
+          {
+            "id": "w-074",
+            "type": "text-label",
+            "props": {
+              "text": "HC5",
+              "align": "center",
+              "foregroundColor": {
+                "$role": "Text",
+                "fallback": "#000000"
+              },
+              "fontSize": 8
+            },
+            "geometry": {
+              "x": 1010,
+              "y": 305,
+              "width": 20,
+              "height": 10
+            }
+          },
+          {
+            "id": "w-075",
+            "type": "rectangle",
+            "props": {
+              "lineColor": {
+                "$role": "Text",
+                "fallback": "#000000"
+              },
+              "lineWidth": 1,
+              "fill": true,
+              "fillColor": {
+                "$role": "Text",
+                "fallback": "#000000"
+              }
+            },
+            "geometry": {
+              "x": 1010,
+              "y": 290,
+              "width": 20,
+              "height": 10
+            },
+            "rules": [
+              {
+                "id": "r-016",
+                "name": "Background color",
+                "targetProperty": "fillColor",
+                "pvs": [
+                  {
+                    "name": "BTS:MAG:HCM:05:STATUS:ON",
+                    "trigger": true
+                  }
+                ],
+                "conditions": [
+                  {
+                    "expression": "{0} == 1",
+                    "value": {
+                      "$role": "On",
+                      "fallback": "#00ff00"
+                    }
+                  },
+                  {
+                    "expression": "{0} == 0",
+                    "value": {
+                      "$role": "MAJOR",
+                      "fallback": "#ff0000"
+                    }
+                  },
+                  {
+                    "expression": "{0} != (1  or  0)",
+                    "value": {
+                      "$role": "INVALID",
+                      "fallback": "#ff00ff"
+                    }
+                  }
+                ],
+                "default": {
+                  "$role": "Text",
+                  "fallback": "#000000"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "w-076",
+        "type": "group",
+        "props": {
+          "layoutMode": "absolute"
+        },
+        "geometry": {
+          "x": 969,
+          "y": 260,
+          "width": 25,
+          "height": 24
+        },
+        "children": [
+          {
+            "id": "w-077",
+            "type": "text-label",
+            "props": {
+              "text": "TV4",
+              "align": "center",
+              "foregroundColor": {
+                "$role": "Text",
+                "fallback": "#000000"
+              },
+              "fontSize": 8
+            },
+            "geometry": {
+              "x": 969,
+              "y": 260,
+              "width": 25,
+              "height": 10
+            }
+          }
+        ]
+      },
+      {
+        "id": "w-078",
+        "type": "group",
+        "props": {
+          "layoutMode": "absolute"
+        },
+        "geometry": {
+          "x": 930,
+          "y": 244,
+          "width": 20,
+          "height": 55
+        },
+        "children": [
+          {
+            "id": "w-079",
+            "type": "polygon",
+            "props": {
+              "lineColor": {
+                "$role": "Text",
+                "fallback": "#000000"
+              },
+              "lineWidth": 1,
+              "points": [
+                {
+                  "x": 10,
+                  "y": 0
+                },
+                {
+                  "x": 0,
+                  "y": 20
+                },
+                {
+                  "x": 10,
+                  "y": 40
+                },
+                {
+                  "x": 20,
+                  "y": 20
+                }
+              ],
+              "closed": true,
+              "fill": true,
+              "fillColor": {
+                "$role": "Attention",
+                "fallback": "#ffa000"
+              }
+            },
+            "geometry": {
+              "x": 930,
+              "y": 259,
+              "width": 20,
+              "height": 40
+            },
+            "rules": [
+              {
+                "id": "r-017",
+                "name": "Background color",
+                "targetProperty": "fillColor",
+                "pvs": [
+                  {
+                    "name": "BTS:MAG:QF:03:STATUS:ON",
+                    "trigger": true
+                  }
+                ],
+                "conditions": [
+                  {
+                    "expression": "{0} == 1",
+                    "value": {
+                      "$role": "On",
+                      "fallback": "#00ff00"
+                    }
+                  },
+                  {
+                    "expression": "{0} == 0",
+                    "value": {
+                      "$role": "MAJOR",
+                      "fallback": "#ff0000"
+                    }
+                  },
+                  {
+                    "expression": "{0} != (1  or  0)",
+                    "value": {
+                      "$role": "INVALID",
+                      "fallback": "#ff00ff"
+                    }
+                  }
+                ],
+                "default": {
+                  "$role": "Attention",
+                  "fallback": "#ffa000"
+                }
+              }
+            ]
+          },
+          {
+            "id": "w-080",
+            "type": "text-label",
+            "props": {
+              "text": "Q4",
+              "align": "center",
+              "foregroundColor": {
+                "$role": "Text",
+                "fallback": "#000000"
+              },
+              "fontSize": 8
+            },
+            "geometry": {
+              "x": 930,
+              "y": 244,
+              "width": 20,
+              "height": 10
+            }
+          }
+        ]
+      },
+      {
+        "id": "w-081",
+        "type": "group",
+        "props": {
+          "layoutMode": "absolute"
+        },
+        "geometry": {
+          "x": 860,
+          "y": 254,
+          "width": 40,
+          "height": 35
+        },
+        "children": [
+          {
+            "id": "w-082",
+            "type": "text-label",
+            "props": {
+              "text": "B2",
+              "align": "center",
+              "foregroundColor": {
+                "$role": "Text",
+                "fallback": "#000000"
+              },
+              "fontSize": 8
+            },
+            "geometry": {
+              "x": 870,
+              "y": 254,
+              "width": 20,
+              "height": 10
+            }
+          },
+          {
+            "id": "w-083",
+            "type": "rectangle",
+            "props": {
+              "lineColor": {
+                "$role": "Text",
+                "fallback": "#000000"
+              },
+              "lineWidth": 1,
+              "fill": true,
+              "fillColor": {
+                "$role": "MINOR",
+                "fallback": "#ff8000"
+              }
+            },
+            "geometry": {
+              "x": 860,
+              "y": 269,
+              "width": 40,
+              "height": 20
+            },
+            "rules": [
+              {
+                "id": "r-018",
+                "name": "Box color",
+                "targetProperty": "fillColor",
+                "pvs": [
+                  {
+                    "name": "BTS:MAG:DIPOLE:02:STATUS:ON",
+                    "trigger": true
+                  }
+                ],
+                "conditions": [
+                  {
+                    "expression": "{0} == 1",
+                    "value": {
+                      "$role": "On",
+                      "fallback": "#00ff00"
+                    }
+                  },
+                  {
+                    "expression": "{0} == 0",
+                    "value": {
+                      "$role": "MAJOR",
+                      "fallback": "#ff0000"
+                    }
+                  },
+                  {
+                    "expression": "{0} != (1  or  0)",
+                    "value": {
+                      "$role": "INVALID",
+                      "fallback": "#ff00ff"
+                    }
+                  }
+                ],
+                "default": {
+                  "$role": "MINOR",
+                  "fallback": "#ff8000"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "w-084",
+        "type": "group",
+        "props": {
+          "layoutMode": "absolute"
+        },
+        "geometry": {
+          "x": 818,
+          "y": 274,
+          "width": 25,
+          "height": 24
+        },
+        "children": [
+          {
+            "id": "w-085",
+            "type": "text-label",
+            "props": {
+              "text": "TV3",
+              "align": "center",
+              "foregroundColor": {
+                "$role": "Text",
+                "fallback": "#000000"
+              },
+              "fontSize": 8
+            },
+            "geometry": {
+              "x": 818,
+              "y": 274,
+              "width": 25,
+              "height": 10
+            }
+          }
+        ]
+      },
+      {
+        "id": "w-086",
+        "type": "group",
+        "props": {
+          "layoutMode": "absolute"
+        },
+        "geometry": {
+          "x": 780,
+          "y": 261,
+          "width": 20,
+          "height": 35
+        },
+        "children": [
+          {
+            "id": "w-087",
+            "type": "text-label",
+            "props": {
+              "text": "VC4",
+              "align": "center",
+              "foregroundColor": {
+                "$role": "Text",
+                "fallback": "#000000"
+              },
+              "fontSize": 8
+            },
+            "geometry": {
+              "x": 780,
+              "y": 261,
+              "width": 20,
+              "height": 10
+            }
+          },
+          {
+            "id": "w-088",
+            "type": "rectangle",
+            "props": {
+              "lineColor": {
+                "$role": "Text",
+                "fallback": "#000000"
+              },
+              "lineWidth": 1,
+              "fill": true,
+              "fillColor": {
+                "$role": "Text",
+                "fallback": "#000000"
+              }
+            },
+            "geometry": {
+              "x": 785,
+              "y": 276,
+              "width": 10,
+              "height": 20
+            },
+            "rules": [
+              {
+                "id": "r-019",
+                "name": "Background color",
+                "targetProperty": "fillColor",
+                "pvs": [
+                  {
+                    "name": "BTS:MAG:VCM:04:STATUS:ON",
+                    "trigger": true
+                  }
+                ],
+                "conditions": [
+                  {
+                    "expression": "{0} == 1",
+                    "value": {
+                      "$role": "On",
+                      "fallback": "#00ff00"
+                    }
+                  },
+                  {
+                    "expression": "{0} == 0",
+                    "value": {
+                      "$role": "MAJOR",
+                      "fallback": "#ff0000"
+                    }
+                  },
+                  {
+                    "expression": "{0} != (1  or  0)",
+                    "value": {
+                      "$role": "INVALID",
+                      "fallback": "#ff00ff"
+                    }
+                  }
+                ],
+                "default": {
+                  "$role": "Text",
+                  "fallback": "#000000"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "w-089",
+        "type": "group",
+        "props": {
+          "layoutMode": "absolute"
+        },
+        "geometry": {
+          "x": 780,
+          "y": 315,
+          "width": 20,
+          "height": 25
+        },
+        "children": [
+          {
+            "id": "w-090",
+            "type": "text-label",
+            "props": {
+              "text": "HC4",
+              "align": "center",
+              "foregroundColor": {
+                "$role": "Text",
+                "fallback": "#000000"
+              },
+              "fontSize": 8
+            },
+            "geometry": {
+              "x": 780,
+              "y": 330,
+              "width": 20,
+              "height": 10
+            }
+          },
+          {
+            "id": "w-091",
+            "type": "rectangle",
+            "props": {
+              "lineColor": {
+                "$role": "Text",
+                "fallback": "#000000"
+              },
+              "lineWidth": 1,
+              "fill": true,
+              "fillColor": {
+                "$role": "Text",
+                "fallback": "#000000"
+              }
+            },
+            "geometry": {
+              "x": 780,
+              "y": 315,
+              "width": 20,
+              "height": 10
+            },
+            "rules": [
+              {
+                "id": "r-020",
+                "name": "Background color",
+                "targetProperty": "fillColor",
+                "pvs": [
+                  {
+                    "name": "BTS:MAG:HCM:04:STATUS:ON",
+                    "trigger": true
+                  }
+                ],
+                "conditions": [
+                  {
+                    "expression": "{0} == 1",
+                    "value": {
+                      "$role": "On",
+                      "fallback": "#00ff00"
+                    }
+                  },
+                  {
+                    "expression": "{0} == 0",
+                    "value": {
+                      "$role": "MAJOR",
+                      "fallback": "#ff0000"
+                    }
+                  },
+                  {
+                    "expression": "{0} != (1  or  0)",
+                    "value": {
+                      "$role": "INVALID",
+                      "fallback": "#ff00ff"
+                    }
+                  }
+                ],
+                "default": {
+                  "$role": "Text",
+                  "fallback": "#000000"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "w-092",
+        "type": "group",
+        "props": {
+          "layoutMode": "absolute"
+        },
+        "geometry": {
+          "x": 730,
+          "y": 284,
+          "width": 20,
+          "height": 55
+        },
+        "children": [
+          {
+            "id": "w-093",
+            "type": "polygon",
+            "props": {
+              "lineColor": {
+                "$role": "Text",
+                "fallback": "#000000"
+              },
+              "lineWidth": 1,
+              "points": [
+                {
+                  "x": 10,
+                  "y": 0
+                },
+                {
+                  "x": 0,
+                  "y": 20
+                },
+                {
+                  "x": 10,
+                  "y": 40
+                },
+                {
+                  "x": 20,
+                  "y": 20
+                }
+              ],
+              "closed": true,
+              "fill": true,
+              "fillColor": {
+                "$role": "Attention",
+                "fallback": "#ffa000"
+              }
+            },
+            "geometry": {
+              "x": 730,
+              "y": 299,
+              "width": 20,
+              "height": 40
+            },
+            "rules": [
+              {
+                "id": "r-021",
+                "name": "Background color",
+                "targetProperty": "fillColor",
+                "pvs": [
+                  {
+                    "name": "BTS:MAG:QF:02:STATUS:ON",
+                    "trigger": true
+                  }
+                ],
+                "conditions": [
+                  {
+                    "expression": "{0} == 1",
+                    "value": {
+                      "$role": "On",
+                      "fallback": "#00ff00"
+                    }
+                  },
+                  {
+                    "expression": "{0} == 0",
+                    "value": {
+                      "$role": "MAJOR",
+                      "fallback": "#ff0000"
+                    }
+                  },
+                  {
+                    "expression": "{0} != (1  or  0)",
+                    "value": {
+                      "$role": "INVALID",
+                      "fallback": "#ff00ff"
+                    }
+                  }
+                ],
+                "default": {
+                  "$role": "Attention",
+                  "fallback": "#ffa000"
+                }
+              }
+            ]
+          },
+          {
+            "id": "w-094",
+            "type": "text-label",
+            "props": {
+              "text": "Q3.2",
+              "align": "center",
+              "foregroundColor": {
+                "$role": "Text",
+                "fallback": "#000000"
+              },
+              "fontSize": 8
+            },
+            "geometry": {
+              "x": 730,
+              "y": 284,
+              "width": 20,
+              "height": 10
+            }
+          }
+        ]
+      },
+      {
+        "id": "w-095",
+        "type": "group",
+        "props": {
+          "layoutMode": "absolute"
+        },
+        "geometry": {
+          "x": 680,
+          "y": 298,
+          "width": 20,
+          "height": 55
+        },
+        "children": [
+          {
+            "id": "w-096",
+            "type": "text-label",
+            "props": {
+              "text": "Q3.1",
+              "align": "center",
+              "foregroundColor": {
+                "$role": "Text",
+                "fallback": "#000000"
+              },
+              "fontSize": 8
+            },
+            "geometry": {
+              "x": 680,
+              "y": 298,
+              "width": 20,
+              "height": 10
+            }
+          },
+          {
+            "id": "w-097",
+            "type": "polygon",
+            "props": {
+              "lineColor": {
+                "$role": "Text",
+                "fallback": "#000000"
+              },
+              "lineWidth": 1,
+              "points": [
+                {
+                  "x": 0,
+                  "y": 0
+                },
+                {
+                  "x": 20,
+                  "y": 0
+                },
+                {
+                  "x": 0,
+                  "y": 40
+                },
+                {
+                  "x": 20,
+                  "y": 40
+                }
+              ],
+              "closed": true,
+              "fill": true,
+              "fillColor": "#3232ff"
+            },
+            "geometry": {
+              "x": 680,
+              "y": 313,
+              "width": 20,
+              "height": 40
+            },
+            "rules": [
+              {
+                "id": "r-022",
+                "name": "Background color",
+                "targetProperty": "fillColor",
+                "pvs": [
+                  {
+                    "name": "BTS:MAG:QD:03:STATUS:ON",
+                    "trigger": true
+                  }
+                ],
+                "conditions": [
+                  {
+                    "expression": "{0} == 1",
+                    "value": {
+                      "$role": "On",
+                      "fallback": "#00ff00"
+                    }
+                  },
+                  {
+                    "expression": "{0} == 0",
+                    "value": {
+                      "$role": "MAJOR",
+                      "fallback": "#ff0000"
+                    }
+                  },
+                  {
+                    "expression": "{0} != (1  or  0)",
+                    "value": {
+                      "$role": "INVALID",
+                      "fallback": "#ff00ff"
+                    }
+                  }
+                ],
+                "default": "#3232ff"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "w-098",
+        "type": "group",
+        "props": {
+          "layoutMode": "absolute"
+        },
+        "geometry": {
+          "x": 638,
+          "y": 323,
+          "width": 25,
+          "height": 26
+        },
+        "children": [
+          {
+            "id": "w-099",
+            "type": "text-label",
+            "props": {
+              "text": "BPM2",
+              "align": "center",
+              "foregroundColor": {
+                "$role": "Text",
+                "fallback": "#000000"
+              },
+              "fontSize": 8
+            },
+            "geometry": {
+              "x": 638,
+              "y": 323,
+              "width": 25,
+              "height": 10
+            }
+          }
+        ]
+      },
+      {
+        "id": "w-100",
+        "type": "group",
+        "props": {
+          "layoutMode": "absolute"
+        },
+        "geometry": {
+          "x": 580,
+          "y": 334,
+          "width": 40,
+          "height": 35
+        },
+        "children": [
+          {
+            "id": "w-101",
+            "type": "text-label",
+            "props": {
+              "text": "B1",
+              "align": "center",
+              "foregroundColor": {
+                "$role": "Text",
+                "fallback": "#000000"
+              },
+              "fontSize": 8
+            },
+            "geometry": {
+              "x": 590,
+              "y": 334,
+              "width": 20,
+              "height": 10
+            }
+          },
+          {
+            "id": "w-102",
+            "type": "rectangle",
+            "props": {
+              "lineColor": {
+                "$role": "Text",
+                "fallback": "#000000"
+              },
+              "lineWidth": 1,
+              "fill": true,
+              "fillColor": {
+                "$role": "MINOR",
+                "fallback": "#ff8000"
+              }
+            },
+            "geometry": {
+              "x": 580,
+              "y": 349,
+              "width": 40,
+              "height": 20
+            },
+            "rules": [
+              {
+                "id": "r-023",
+                "name": "Box color",
+                "targetProperty": "fillColor",
+                "pvs": [
+                  {
+                    "name": "BTS:MAG:DIPOLE:01:STATUS:ON",
+                    "trigger": true
+                  }
+                ],
+                "conditions": [
+                  {
+                    "expression": "{0} == 1",
+                    "value": {
+                      "$role": "On",
+                      "fallback": "#00ff00"
+                    }
+                  },
+                  {
+                    "expression": "{0} == 0",
+                    "value": {
+                      "$role": "MAJOR",
+                      "fallback": "#ff0000"
+                    }
+                  },
+                  {
+                    "expression": "{0} != (1  or  0)",
+                    "value": {
+                      "$role": "INVALID",
+                      "fallback": "#ff00ff"
+                    }
+                  }
+                ],
+                "default": {
+                  "$role": "MINOR",
+                  "fallback": "#ff8000"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "w-103",
+        "type": "group",
+        "props": {
+          "layoutMode": "absolute"
+        },
+        "geometry": {
+          "x": 541,
+          "y": 336,
+          "width": 20,
+          "height": 35
+        },
+        "children": [
+          {
+            "id": "w-104",
+            "type": "text-label",
+            "props": {
+              "text": "VC3",
+              "align": "center",
+              "foregroundColor": {
+                "$role": "Text",
+                "fallback": "#000000"
+              },
+              "fontSize": 8
+            },
+            "geometry": {
+              "x": 541,
+              "y": 336,
+              "width": 20,
+              "height": 10
+            }
+          },
+          {
+            "id": "w-105",
+            "type": "rectangle",
+            "props": {
+              "lineColor": {
+                "$role": "Text",
+                "fallback": "#000000"
+              },
+              "lineWidth": 1,
+              "fill": true,
+              "fillColor": {
+                "$role": "Text",
+                "fallback": "#000000"
+              }
+            },
+            "geometry": {
+              "x": 546,
+              "y": 351,
+              "width": 10,
+              "height": 20
+            },
+            "rules": [
+              {
+                "id": "r-024",
+                "name": "Background color",
+                "targetProperty": "fillColor",
+                "pvs": [
+                  {
+                    "name": "BTS:MAG:VCM:03:STATUS:ON",
+                    "trigger": true
+                  }
+                ],
+                "conditions": [
+                  {
+                    "expression": "{0} == 1",
+                    "value": {
+                      "$role": "On",
+                      "fallback": "#00ff00"
+                    }
+                  },
+                  {
+                    "expression": "{0} == 0",
+                    "value": {
+                      "$role": "MAJOR",
+                      "fallback": "#ff0000"
+                    }
+                  },
+                  {
+                    "expression": "{0} != (1  or  0)",
+                    "value": {
+                      "$role": "INVALID",
+                      "fallback": "#ff00ff"
+                    }
+                  }
+                ],
+                "default": {
+                  "$role": "Text",
+                  "fallback": "#000000"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "w-106",
+        "type": "group",
+        "props": {
+          "layoutMode": "absolute"
+        },
+        "geometry": {
+          "x": 541,
+          "y": 390,
+          "width": 20,
+          "height": 25
+        },
+        "children": [
+          {
+            "id": "w-107",
+            "type": "text-label",
+            "props": {
+              "text": "HC3",
+              "align": "center",
+              "foregroundColor": {
+                "$role": "Text",
+                "fallback": "#000000"
+              },
+              "fontSize": 8
+            },
+            "geometry": {
+              "x": 541,
+              "y": 405,
+              "width": 20,
+              "height": 10
+            }
+          },
+          {
+            "id": "w-108",
+            "type": "rectangle",
+            "props": {
+              "lineColor": {
+                "$role": "Text",
+                "fallback": "#000000"
+              },
+              "lineWidth": 1,
+              "fill": true,
+              "fillColor": {
+                "$role": "Text",
+                "fallback": "#000000"
+              }
+            },
+            "geometry": {
+              "x": 541,
+              "y": 390,
+              "width": 20,
+              "height": 10
+            },
+            "rules": [
+              {
+                "id": "r-025",
+                "name": "Background color",
+                "targetProperty": "fillColor",
+                "pvs": [
+                  {
+                    "name": "BTS:MAG:HCM:03:STATUS:ON",
+                    "trigger": true
+                  }
+                ],
+                "conditions": [
+                  {
+                    "expression": "{0} == 1",
+                    "value": {
+                      "$role": "On",
+                      "fallback": "#00ff00"
+                    }
+                  },
+                  {
+                    "expression": "{0} == 0",
+                    "value": {
+                      "$role": "MAJOR",
+                      "fallback": "#ff0000"
+                    }
+                  },
+                  {
+                    "expression": "{0} != (1  or  0)",
+                    "value": {
+                      "$role": "INVALID",
+                      "fallback": "#ff00ff"
+                    }
+                  }
+                ],
+                "default": {
+                  "$role": "Text",
+                  "fallback": "#000000"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "w-109",
+        "type": "group",
+        "props": {
+          "layoutMode": "absolute"
+        },
+        "geometry": {
+          "x": 501,
+          "y": 360,
+          "width": 20,
+          "height": 55
+        },
+        "children": [
+          {
+            "id": "w-110",
+            "type": "polygon",
+            "props": {
+              "lineColor": {
+                "$role": "Text",
+                "fallback": "#000000"
+              },
+              "lineWidth": 1,
+              "points": [
+                {
+                  "x": 10,
+                  "y": 0
+                },
+                {
+                  "x": 0,
+                  "y": 20
+                },
+                {
+                  "x": 10,
+                  "y": 40
+                },
+                {
+                  "x": 20,
+                  "y": 20
+                }
+              ],
+              "closed": true,
+              "fill": true,
+              "fillColor": {
+                "$role": "Attention",
+                "fallback": "#ffa000"
+              }
+            },
+            "geometry": {
+              "x": 501,
+              "y": 375,
+              "width": 20,
+              "height": 40
+            },
+            "rules": [
+              {
+                "id": "r-026",
+                "name": "Background color",
+                "targetProperty": "fillColor",
+                "pvs": [
+                  {
+                    "name": "BTS:MAG:QD:02:STATUS:ON",
+                    "trigger": true
+                  }
+                ],
+                "conditions": [
+                  {
+                    "expression": "{0} == 1",
+                    "value": {
+                      "$role": "On",
+                      "fallback": "#00ff00"
+                    }
+                  },
+                  {
+                    "expression": "{0} == 0",
+                    "value": {
+                      "$role": "MAJOR",
+                      "fallback": "#ff0000"
+                    }
+                  },
+                  {
+                    "expression": "{0} != (1  or  0)",
+                    "value": {
+                      "$role": "INVALID",
+                      "fallback": "#ff00ff"
+                    }
+                  }
+                ],
+                "default": {
+                  "$role": "Attention",
+                  "fallback": "#ffa000"
+                }
+              }
+            ]
+          },
+          {
+            "id": "w-111",
+            "type": "text-label",
+            "props": {
+              "text": "Q2.2",
+              "align": "center",
+              "foregroundColor": {
+                "$role": "Text",
+                "fallback": "#000000"
+              },
+              "fontSize": 8
+            },
+            "geometry": {
+              "x": 501,
+              "y": 360,
+              "width": 20,
+              "height": 10
+            }
+          }
+        ]
+      },
+      {
+        "id": "w-112",
+        "type": "group",
+        "props": {
+          "layoutMode": "absolute"
+        },
+        "geometry": {
+          "x": 461,
+          "y": 377,
+          "width": 20,
+          "height": 55
+        },
+        "children": [
+          {
+            "id": "w-113",
+            "type": "text-label",
+            "props": {
+              "text": "Q2.1",
+              "align": "center",
+              "foregroundColor": {
+                "$role": "Text",
+                "fallback": "#000000"
+              },
+              "fontSize": 8
+            },
+            "geometry": {
+              "x": 461,
+              "y": 377,
+              "width": 20,
+              "height": 10
+            }
+          },
+          {
+            "id": "w-114",
+            "type": "polygon",
+            "props": {
+              "lineColor": {
+                "$role": "Text",
+                "fallback": "#000000"
+              },
+              "lineWidth": 1,
+              "points": [
+                {
+                  "x": 0,
+                  "y": 0
+                },
+                {
+                  "x": 20,
+                  "y": 0
+                },
+                {
+                  "x": 0,
+                  "y": 40
+                },
+                {
+                  "x": 20,
+                  "y": 40
+                }
+              ],
+              "closed": true,
+              "fill": true,
+              "fillColor": "#3232ff"
+            },
+            "geometry": {
+              "x": 461,
+              "y": 392,
+              "width": 20,
+              "height": 40
+            },
+            "rules": [
+              {
+                "id": "r-027",
+                "name": "Background color",
+                "targetProperty": "fillColor",
+                "pvs": [
+                  {
+                    "name": "BTS:MAG:QD:01:STATUS:ON",
+                    "trigger": true
+                  }
+                ],
+                "conditions": [
+                  {
+                    "expression": "{0} == 1",
+                    "value": {
+                      "$role": "On",
+                      "fallback": "#00ff00"
+                    }
+                  },
+                  {
+                    "expression": "{0} == 0",
+                    "value": {
+                      "$role": "MAJOR",
+                      "fallback": "#ff0000"
+                    }
+                  },
+                  {
+                    "expression": "{0} != (1  or  0)",
+                    "value": {
+                      "$role": "INVALID",
+                      "fallback": "#ff00ff"
+                    }
+                  }
+                ],
+                "default": "#3232ff"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "w-115",
+        "type": "group",
+        "props": {
+          "layoutMode": "absolute"
+        },
+        "geometry": {
+          "x": 428,
+          "y": 403,
+          "width": 25,
+          "height": 24
+        },
+        "children": [
+          {
+            "id": "w-116",
+            "type": "text-label",
+            "props": {
+              "text": "TV2",
+              "align": "center",
+              "foregroundColor": {
+                "$role": "Text",
+                "fallback": "#000000"
+              },
+              "fontSize": 8
+            },
+            "geometry": {
+              "x": 428,
+              "y": 403,
+              "width": 25,
+              "height": 10
+            }
+          }
+        ]
+      },
+      {
+        "id": "w-117",
+        "type": "group",
+        "props": {
+          "layoutMode": "absolute"
+        },
+        "geometry": {
+          "x": 400,
+          "y": 391,
+          "width": 20,
+          "height": 35
+        },
+        "children": [
+          {
+            "id": "w-118",
+            "type": "text-label",
+            "props": {
+              "text": "VC2",
+              "align": "center",
+              "foregroundColor": {
+                "$role": "Text",
+                "fallback": "#000000"
+              },
+              "fontSize": 8
+            },
+            "geometry": {
+              "x": 400,
+              "y": 391,
+              "width": 20,
+              "height": 10
+            }
+          },
+          {
+            "id": "w-119",
+            "type": "rectangle",
+            "props": {
+              "lineColor": {
+                "$role": "Text",
+                "fallback": "#000000"
+              },
+              "lineWidth": 1,
+              "fill": true,
+              "fillColor": {
+                "$role": "Text",
+                "fallback": "#000000"
+              }
+            },
+            "geometry": {
+              "x": 405,
+              "y": 406,
+              "width": 10,
+              "height": 20
+            },
+            "rules": [
+              {
+                "id": "r-028",
+                "name": "Background color",
+                "targetProperty": "fillColor",
+                "pvs": [
+                  {
+                    "name": "BTS:MAG:VCM:02:STATUS:ON",
+                    "trigger": true
+                  }
+                ],
+                "conditions": [
+                  {
+                    "expression": "{0} == 1",
+                    "value": {
+                      "$role": "On",
+                      "fallback": "#00ff00"
+                    }
+                  },
+                  {
+                    "expression": "{0} == 0",
+                    "value": {
+                      "$role": "MAJOR",
+                      "fallback": "#ff0000"
+                    }
+                  },
+                  {
+                    "expression": "{0} != (1  or  0)",
+                    "value": {
+                      "$role": "INVALID",
+                      "fallback": "#ff00ff"
+                    }
+                  }
+                ],
+                "default": {
+                  "$role": "Text",
+                  "fallback": "#000000"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "w-120",
+        "type": "group",
+        "props": {
+          "layoutMode": "absolute"
+        },
+        "geometry": {
+          "x": 400,
+          "y": 445,
+          "width": 20,
+          "height": 25
+        },
+        "children": [
+          {
+            "id": "w-121",
+            "type": "group",
+            "props": {
+              "layoutMode": "absolute"
+            },
+            "geometry": {
+              "x": 400,
+              "y": 445,
+              "width": 20,
+              "height": 25
+            },
+            "children": [
+              {
+                "id": "w-122",
+                "type": "text-label",
+                "props": {
+                  "text": "HC2",
+                  "align": "center",
+                  "foregroundColor": {
+                    "$role": "Text",
+                    "fallback": "#000000"
+                  },
+                  "fontSize": 8
+                },
+                "geometry": {
+                  "x": 400,
+                  "y": 460,
+                  "width": 20,
+                  "height": 10
+                }
+              },
+              {
+                "id": "w-123",
+                "type": "rectangle",
+                "props": {
+                  "lineColor": {
+                    "$role": "Text",
+                    "fallback": "#000000"
+                  },
+                  "lineWidth": 1,
+                  "fill": true,
+                  "fillColor": {
+                    "$role": "Text",
+                    "fallback": "#000000"
+                  }
+                },
+                "geometry": {
+                  "x": 400,
+                  "y": 445,
+                  "width": 20,
+                  "height": 10
+                },
+                "rules": [
+                  {
+                    "id": "r-029",
+                    "name": "Background color",
+                    "targetProperty": "fillColor",
+                    "pvs": [
+                      {
+                        "name": "BTS:MAG:HCM:02:STATUS:ON",
+                        "trigger": true
+                      }
+                    ],
+                    "conditions": [
+                      {
+                        "expression": "{0} == 1",
+                        "value": {
+                          "$role": "On",
+                          "fallback": "#00ff00"
+                        }
+                      },
+                      {
+                        "expression": "{0} == 0",
+                        "value": {
+                          "$role": "MAJOR",
+                          "fallback": "#ff0000"
+                        }
+                      },
+                      {
+                        "expression": "{0} != (1  or  0)",
+                        "value": {
+                          "$role": "INVALID",
+                          "fallback": "#ff00ff"
+                        }
+                      }
+                    ],
+                    "default": {
+                      "$role": "Text",
+                      "fallback": "#000000"
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "w-124",
+        "type": "group",
+        "props": {
+          "layoutMode": "absolute"
+        },
+        "geometry": {
+          "x": 361,
+          "y": 416,
+          "width": 20,
+          "height": 55
+        },
+        "children": [
+          {
+            "id": "w-125",
+            "type": "polygon",
+            "props": {
+              "lineColor": {
+                "$role": "Text",
+                "fallback": "#000000"
+              },
+              "lineWidth": 1,
+              "points": [
+                {
+                  "x": 10,
+                  "y": 0
+                },
+                {
+                  "x": 0,
+                  "y": 20
+                },
+                {
+                  "x": 10,
+                  "y": 40
+                },
+                {
+                  "x": 20,
+                  "y": 20
+                }
+              ],
+              "closed": true,
+              "fill": true,
+              "fillColor": {
+                "$role": "Attention",
+                "fallback": "#ffa000"
+              }
+            },
+            "geometry": {
+              "x": 361,
+              "y": 431,
+              "width": 20,
+              "height": 40
+            },
+            "rules": [
+              {
+                "id": "r-030",
+                "name": "Background color",
+                "targetProperty": "fillColor",
+                "pvs": [
+                  {
+                    "name": "BTS:MAG:QF:01:STATUS:ON",
+                    "trigger": true
+                  }
+                ],
+                "conditions": [
+                  {
+                    "expression": "{0} == 1",
+                    "value": {
+                      "$role": "On",
+                      "fallback": "#00ff00"
+                    }
+                  },
+                  {
+                    "expression": "{0} == 0",
+                    "value": {
+                      "$role": "MAJOR",
+                      "fallback": "#ff0000"
+                    }
+                  },
+                  {
+                    "expression": "{0} != (1  or  0)",
+                    "value": {
+                      "$role": "INVALID",
+                      "fallback": "#ff00ff"
+                    }
+                  }
+                ],
+                "default": {
+                  "$role": "Attention",
+                  "fallback": "#ffa000"
+                }
+              }
+            ]
+          },
+          {
+            "id": "w-126",
+            "type": "text-label",
+            "props": {
+              "text": "Q1",
+              "align": "center",
+              "foregroundColor": {
+                "$role": "Text",
+                "fallback": "#000000"
+              },
+              "fontSize": 8
+            },
+            "geometry": {
+              "x": 361,
+              "y": 416,
+              "width": 20,
+              "height": 10
+            }
+          }
+        ]
+      },
+      {
+        "id": "w-127",
+        "type": "group",
+        "props": {
+          "layoutMode": "absolute"
+        },
+        "geometry": {
+          "x": 328,
+          "y": 442,
+          "width": 25,
+          "height": 24
+        },
+        "children": [
+          {
+            "id": "w-128",
+            "type": "text-label",
+            "props": {
+              "text": "TV1",
+              "align": "center",
+              "foregroundColor": {
+                "$role": "Text",
+                "fallback": "#000000"
+              },
+              "fontSize": 8
+            },
+            "geometry": {
+              "x": 328,
+              "y": 442,
+              "width": 25,
+              "height": 10
+            }
+          }
+        ]
+      },
+      {
+        "id": "w-129",
+        "type": "group",
+        "props": {
+          "layoutMode": "absolute"
+        },
+        "geometry": {
+          "x": 300,
+          "y": 427,
+          "width": 20,
+          "height": 35
+        },
+        "children": [
+          {
+            "id": "w-130",
+            "type": "text-label",
+            "props": {
+              "text": "VC1",
+              "align": "center",
+              "foregroundColor": {
+                "$role": "Text",
+                "fallback": "#000000"
+              },
+              "fontSize": 8
+            },
+            "geometry": {
+              "x": 300,
+              "y": 427,
+              "width": 20,
+              "height": 10
+            }
+          },
+          {
+            "id": "w-131",
+            "type": "rectangle",
+            "props": {
+              "lineColor": {
+                "$role": "Text",
+                "fallback": "#000000"
+              },
+              "lineWidth": 1,
+              "fill": true,
+              "fillColor": {
+                "$role": "Text",
+                "fallback": "#000000"
+              }
+            },
+            "geometry": {
+              "x": 305,
+              "y": 442,
+              "width": 10,
+              "height": 20
+            },
+            "rules": [
+              {
+                "id": "r-031",
+                "name": "Background color",
+                "targetProperty": "fillColor",
+                "pvs": [
+                  {
+                    "name": "BTS:MAG:VCM:01:STATUS:ON",
+                    "trigger": true
+                  }
+                ],
+                "conditions": [
+                  {
+                    "expression": "{0} == 1",
+                    "value": {
+                      "$role": "On",
+                      "fallback": "#00ff00"
+                    }
+                  },
+                  {
+                    "expression": "{0} == 0",
+                    "value": {
+                      "$role": "MAJOR",
+                      "fallback": "#ff0000"
+                    }
+                  },
+                  {
+                    "expression": "{0} != (1  or  0)",
+                    "value": {
+                      "$role": "INVALID",
+                      "fallback": "#ff00ff"
+                    }
+                  }
+                ],
+                "default": {
+                  "$role": "Text",
+                  "fallback": "#000000"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "w-132",
+        "type": "group",
+        "props": {
+          "layoutMode": "absolute"
+        },
+        "geometry": {
+          "x": 268,
+          "y": 463,
+          "width": 25,
+          "height": 26
+        },
+        "children": [
+          {
+            "id": "w-133",
+            "type": "text-label",
+            "props": {
+              "text": "BPM1",
+              "align": "center",
+              "foregroundColor": {
+                "$role": "Text",
+                "fallback": "#000000"
+              },
+              "fontSize": 8
+            },
+            "geometry": {
+              "x": 268,
+              "y": 463,
+              "width": 25,
+              "height": 10
+            }
+          }
+        ]
+      },
+      {
+        "id": "w-134",
+        "type": "group",
+        "props": {
+          "layoutMode": "absolute"
+        },
+        "geometry": {
+          "x": 160,
+          "y": 485,
+          "width": 60,
+          "height": 45
+        },
+        "children": [
+          {
+            "id": "w-135",
+            "type": "text-label",
+            "props": {
+              "text": "SEK",
+              "align": "center",
+              "foregroundColor": {
+                "$role": "Text",
+                "fallback": "#000000"
+              },
+              "fontSize": 8
+            },
+            "geometry": {
+              "x": 180,
+              "y": 485,
+              "width": 20,
+              "height": 10
+            }
+          },
+          {
+            "id": "w-136",
+            "type": "polygon",
+            "props": {
+              "lineColor": {
+                "$role": "Text",
+                "fallback": "#000000"
+              },
+              "lineWidth": 1,
+              "points": [
+                {
+                  "x": 0,
+                  "y": 30
+                },
+                {
+                  "x": 0,
+                  "y": 10
+                },
+                {
+                  "x": 60,
+                  "y": 0
+                },
+                {
+                  "x": 60,
+                  "y": 30
+                }
+              ],
+              "closed": true,
+              "fill": true,
+              "fillColor": {
+                "$role": "ActiveText",
+                "fallback": "#ffff00"
+              }
+            },
+            "geometry": {
+              "x": 160,
+              "y": 500,
+              "width": 60,
+              "height": 30
+            },
+            "rules": [
+              {
+                "id": "r-032",
+                "name": "Background color",
+                "targetProperty": "fillColor",
+                "pvs": [
+                  {
+                    "name": "BR:MAG:SEPTUM:02:STATUS:ON",
+                    "trigger": true
+                  }
+                ],
+                "conditions": [
+                  {
+                    "expression": "{0} == 1",
+                    "value": {
+                      "$role": "On",
+                      "fallback": "#00ff00"
+                    }
+                  },
+                  {
+                    "expression": "{0} == 0",
+                    "value": {
+                      "$role": "STOP",
+                      "fallback": "#ff0000"
+                    }
+                  },
+                  {
+                    "expression": "{0} != (1  or  0)",
+                    "value": {
+                      "$role": "INVALID",
+                      "fallback": "#ff00ff"
+                    }
+                  }
+                ],
+                "default": {
+                  "$role": "ActiveText",
+                  "fallback": "#ffff00"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "w-137",
+        "type": "group",
+        "props": {
+          "layoutMode": "absolute"
+        },
+        "geometry": {
+          "x": 80,
+          "y": 485,
+          "width": 60,
+          "height": 45
+        },
+        "children": [
+          {
+            "id": "w-138",
+            "type": "text-label",
+            "props": {
+              "text": "SEN",
+              "align": "center",
+              "foregroundColor": {
+                "$role": "Text",
+                "fallback": "#000000"
+              },
+              "fontSize": 8
+            },
+            "geometry": {
+              "x": 100,
+              "y": 485,
+              "width": 20,
+              "height": 10
+            }
+          }
+        ]
+      },
+      {
+        "id": "w-139",
+        "type": "polygon",
+        "props": {
+          "lineColor": {
+            "$role": "Text",
+            "fallback": "#000000"
+          },
+          "lineWidth": 1,
+          "points": [
+            {
+              "x": 0,
+              "y": 25
+            },
+            {
+              "x": 0,
+              "y": 5
+            },
+            {
+              "x": 60,
+              "y": 0
+            },
+            {
+              "x": 60,
+              "y": 25
+            }
+          ],
+          "closed": true,
+          "fill": true,
+          "fillColor": {
+            "$role": "ActiveText",
+            "fallback": "#ffff00"
+          }
+        },
+        "geometry": {
+          "x": 80,
+          "y": 505,
+          "width": 60,
+          "height": 45
+        },
+        "rules": [
+          {
+            "id": "r-033",
+            "name": "Background color",
+            "targetProperty": "fillColor",
+            "pvs": [
+              {
+                "name": "BR:MAG:SEPTUM:01:STATUS:ON",
+                "trigger": true
+              }
+            ],
+            "conditions": [
+              {
+                "expression": "{0} == 1",
+                "value": {
+                  "$role": "On",
+                  "fallback": "#00ff00"
+                }
+              },
+              {
+                "expression": "{0} == 0",
+                "value": {
+                  "$role": "STOP",
+                  "fallback": "#ff0000"
+                }
+              },
+              {
+                "expression": "{0} != (1  or  0)",
+                "value": {
+                  "$role": "INVALID",
+                  "fallback": "#ff00ff"
+                }
+              }
+            ],
+            "default": {
+              "$role": "ActiveText",
+              "fallback": "#ffff00"
+            }
+          }
+        ]
+      },
+      {
+        "id": "w-140",
+        "type": "group",
+        "props": {
+          "layoutMode": "absolute"
+        },
+        "geometry": {
+          "x": 1010,
+          "y": 235,
+          "width": 20,
+          "height": 35
+        },
+        "children": [
+          {
+            "id": "w-141",
+            "type": "text-label",
+            "props": {
+              "text": "VC5",
+              "align": "center",
+              "foregroundColor": {
+                "$role": "Text",
+                "fallback": "#000000"
+              },
+              "fontSize": 8
+            },
+            "geometry": {
+              "x": 1010,
+              "y": 235,
+              "width": 20,
+              "height": 10
+            }
+          },
+          {
+            "id": "w-142",
+            "type": "rectangle",
+            "props": {
+              "lineColor": {
+                "$role": "Text",
+                "fallback": "#000000"
+              },
+              "lineWidth": 1,
+              "fill": true,
+              "fillColor": {
+                "$role": "Text",
+                "fallback": "#000000"
+              }
+            },
+            "geometry": {
+              "x": 1015,
+              "y": 250,
+              "width": 10,
+              "height": 20
+            },
+            "rules": [
+              {
+                "id": "r-034",
+                "name": "Background color",
+                "targetProperty": "fillColor",
+                "pvs": [
+                  {
+                    "name": "BTS:MAG:VCM:05:STATUS:ON",
+                    "trigger": true
+                  }
+                ],
+                "conditions": [
+                  {
+                    "expression": "{0} == 1",
+                    "value": {
+                      "$role": "On",
+                      "fallback": "#00ff00"
+                    }
+                  },
+                  {
+                    "expression": "{0} == 0",
+                    "value": {
+                      "$role": "MAJOR",
+                      "fallback": "#ff0000"
+                    }
+                  },
+                  {
+                    "expression": "{0} != (1  or  0)",
+                    "value": {
+                      "$role": "INVALID",
+                      "fallback": "#ff00ff"
+                    }
+                  }
+                ],
+                "default": {
+                  "$role": "Text",
+                  "fallback": "#000000"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "w-143",
+        "type": "group",
+        "props": {
+          "layoutMode": "absolute"
+        },
+        "geometry": {
+          "x": 240,
+          "y": 506,
+          "width": 20,
+          "height": 25
+        },
+        "children": [
+          {
+            "id": "w-144",
+            "type": "group",
+            "props": {
+              "layoutMode": "absolute"
+            },
+            "geometry": {
+              "x": 240,
+              "y": 506,
+              "width": 20,
+              "height": 25
+            },
+            "children": [
+              {
+                "id": "w-145",
+                "type": "text-label",
+                "props": {
+                  "text": "HC1",
+                  "align": "center",
+                  "foregroundColor": {
+                    "$role": "Text",
+                    "fallback": "#000000"
+                  },
+                  "fontSize": 8
+                },
+                "geometry": {
+                  "x": 240,
+                  "y": 521,
+                  "width": 20,
+                  "height": 10
+                }
+              },
+              {
+                "id": "w-146",
+                "type": "rectangle",
+                "props": {
+                  "lineColor": {
+                    "$role": "Text",
+                    "fallback": "#000000"
+                  },
+                  "lineWidth": 1,
+                  "fill": true,
+                  "fillColor": {
+                    "$role": "Text",
+                    "fallback": "#000000"
+                  }
+                },
+                "geometry": {
+                  "x": 240,
+                  "y": 506,
+                  "width": 20,
+                  "height": 10
+                },
+                "rules": [
+                  {
+                    "id": "r-035",
+                    "name": "Background color",
+                    "targetProperty": "fillColor",
+                    "pvs": [
+                      {
+                        "name": "BTS:MAG:HCM:01:STATUS:ON",
+                        "trigger": true
+                      }
+                    ],
+                    "conditions": [
+                      {
+                        "expression": "{0} == 1",
+                        "value": {
+                          "$role": "On",
+                          "fallback": "#00ff00"
+                        }
+                      },
+                      {
+                        "expression": "{0} == 0",
+                        "value": {
+                          "$role": "MAJOR",
+                          "fallback": "#ff0000"
+                        }
+                      },
+                      {
+                        "expression": "{0} != (1  or  0)",
+                        "value": {
+                          "$role": "INVALID",
+                          "fallback": "#ff00ff"
+                        }
+                      }
+                    ],
+                    "default": {
+                      "$role": "Text",
+                      "fallback": "#000000"
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "w-147",
+        "type": "embedded-display",
+        "props": {
+          "file": "../common/embedded/_tv.screen.json",
+          "macros": {
+            "TV": "TV6",
+            "light": "BTS:DIAG:TV:06:LAMP:RB",
+            "loctv": "loc://btstv6",
+            "paddle": "BTS:DIAG:TV:06:PADDLE:SP",
+            "paddle_rb": "BTS:DIAG:TV:06:PADDLE:RB"
+          }
+        },
+        "geometry": {
+          "x": 700,
+          "y": 490,
+          "width": 30,
+          "height": 110
+        }
+      },
+      {
+        "id": "w-148",
+        "type": "embedded-display",
+        "props": {
+          "file": "../common/embedded/_tv.screen.json",
+          "macros": {
+            "TV": "TV5",
+            "light": "BTS:DIAG:TV:05:LAMP:RB",
+            "loctv": "loc://btstv5",
+            "paddle": "BTS:DIAG:TV:05:PADDLE:SP",
+            "paddle_rb": "BTS:DIAG:TV:05:PADDLE:RB"
+          }
+        },
+        "geometry": {
+          "x": 660,
+          "y": 490,
+          "width": 30,
+          "height": 110
+        }
+      },
+      {
+        "id": "w-149",
+        "type": "embedded-display",
+        "props": {
+          "file": "../common/embedded/_tv.screen.json",
+          "macros": {
+            "TV": "TV4",
+            "light": "BTS:DIAG:TV:04:LAMP:RB",
+            "loctv": "loc://btstv4",
+            "paddle": "BTS:DIAG:TV:04:PADDLE:SP",
+            "paddle_rb": "BTS:DIAG:TV:04:PADDLE:RB"
+          }
+        },
+        "geometry": {
+          "x": 620,
+          "y": 490,
+          "width": 30,
+          "height": 110
+        }
+      },
+      {
+        "id": "w-150",
+        "type": "embedded-display",
+        "props": {
+          "file": "../common/embedded/_tv.screen.json",
+          "macros": {
+            "TV": "TV3",
+            "light": "BTS:DIAG:TV:03:LAMP:RB",
+            "loctv": "loc://btstv3",
+            "paddle": "BTS:DIAG:TV:03:PADDLE:SP",
+            "paddle_rb": "BTS:DIAG:TV:03:PADDLE:RB"
+          }
+        },
+        "geometry": {
+          "x": 580,
+          "y": 490,
+          "width": 30,
+          "height": 110
+        }
+      },
+      {
+        "id": "w-151",
+        "type": "embedded-display",
+        "props": {
+          "file": "../common/embedded/_tv.screen.json",
+          "macros": {
+            "TV": "TV2",
+            "light": "BTS:DIAG:TV:02:LAMP:RB",
+            "loctv": "loc://btstv2",
+            "paddle": "BTS:DIAG:TV:02:PADDLE:SP",
+            "paddle_rb": "BTS:DIAG:TV:02:PADDLE:RB"
+          }
+        },
+        "geometry": {
+          "x": 540,
+          "y": 490,
+          "width": 30,
+          "height": 110
+        }
+      },
+      {
+        "id": "w-152",
+        "type": "embedded-display",
+        "props": {
+          "file": "../common/embedded/_tv.screen.json",
+          "macros": {
+            "TV": "TV1",
+            "light": "BTS:DIAG:TV:01:LAMP:RB",
+            "loctv": "loc://btstv1",
+            "paddle": "BTS:DIAG:TV:01:PADDLE:SP",
+            "paddle_rb": "BTS:DIAG:TV:01:PADDLE:RB"
+          }
+        },
+        "geometry": {
+          "x": 500,
+          "y": 490,
+          "width": 30,
+          "height": 110
+        }
+      },
+      {
+        "id": "w-153",
+        "type": "embedded-display",
+        "props": {
+          "file": "../common/embedded/_bpm.screen.json",
+          "macros": {
+            "BPM": "BTS BPM1",
+            "BPM_X": "BTS:DIAG:BPM:01:POSITION:X",
+            "BPM_Y": "BTS:DIAG:BPM:01:POSITION:Y"
+          }
+        },
+        "geometry": {
+          "x": 740,
+          "y": 450,
+          "width": 140,
+          "height": 200
+        }
+      },
+      {
+        "id": "w-154",
+        "type": "embedded-display",
+        "props": {
+          "file": "../common/embedded/_bpm.screen.json",
+          "macros": {
+            "BPM": "BTS BPM2",
+            "BPM_X": "BTS:DIAG:BPM:02:POSITION:X",
+            "BPM_Y": "BTS:DIAG:BPM:02:POSITION:Y"
+          }
+        },
+        "geometry": {
+          "x": 870,
+          "y": 450,
+          "width": 140,
+          "height": 200
+        }
+      },
+      {
+        "id": "w-155",
+        "type": "embedded-display",
+        "props": {
+          "file": "../common/embedded/_bpm.screen.json",
+          "macros": {
+            "BPM": "BTS BPM3",
+            "BPM_X": "BTS:DIAG:BPM:03:POSITION:X",
+            "BPM_Y": "BTS:DIAG:BPM:03:POSITION:Y"
+          }
+        },
+        "geometry": {
+          "x": 1000,
+          "y": 450,
+          "width": 140,
+          "height": 200
+        }
+      },
+      {
+        "id": "w-156",
+        "type": "embedded-display",
+        "props": {
+          "file": "../common/embedded/_bpm.screen.json",
+          "macros": {
+            "BPM": "BTS BPM4",
+            "BPM_X": "BTS:DIAG:BPM:04:POSITION:X",
+            "BPM_Y": "BTS:DIAG:BPM:04:POSITION:Y"
+          }
+        },
+        "geometry": {
+          "x": 1130,
+          "y": 450,
+          "width": 140,
+          "height": 200
+        }
+      },
+      {
+        "id": "w-157",
+        "type": "embedded-display",
+        "props": {
+          "file": "../common/embedded/_bpm.screen.json",
+          "macros": {
+            "BPM": "BTS BPM5",
+            "BPM_X": "BTS:DIAG:BPM:05:POSITION:X",
+            "BPM_Y": "BTS:DIAG:BPM:05:POSITION:Y"
+          }
+        },
+        "geometry": {
+          "x": 1250,
+          "y": 450,
+          "width": 140,
+          "height": 200
+        }
+      },
+      {
+        "id": "w-158",
+        "type": "embedded-display",
+        "props": {
+          "file": "../common/embedded/_bpm.screen.json",
+          "macros": {
+            "BPM": "BTS BPM6",
+            "BPM_X": "BTS:DIAG:BPM:06:POSITION:X",
+            "BPM_Y": "BTS:DIAG:BPM:06:POSITION:Y"
+          }
+        },
+        "geometry": {
+          "x": 1380,
+          "y": 450,
+          "width": 140,
+          "height": 200
+        }
+      },
+      {
+        "id": "w-159",
+        "type": "embedded-display",
+        "props": {
+          "file": "../common/embedded/_KnobDevice.screen.json",
+          "macros": {
+            "CNTL_PV": "BTS:MAG:VCM:01:CURRENT:SP",
+            "COLOR_CODE": "0",
+            "COLOR_PV": "BTS:MAG:VCM:01:STATUS:ON",
+            "DESC": "BTS VC1",
+            "MON_PV": "BTS:MAG:VCM:01:CURRENT:RB"
+          }
+        },
+        "geometry": {
+          "x": 610,
+          "y": 40,
+          "width": 72,
+          "height": 62
+        }
+      },
+      {
+        "id": "w-160",
+        "type": "embedded-display",
+        "props": {
+          "file": "../common/embedded/_KnobDevice.screen.json",
+          "macros": {
+            "CNTL_PV": "BTS:MAG:QF:01:CURRENT:SP",
+            "COLOR_CODE": "3",
+            "COLOR_PV": "BTS:MAG:QF:01:STATUS:ON",
+            "DESC": "BTS Q1",
+            "MON_PV": "BTS:MAG:QF:01:CURRENT:RB"
+          }
+        },
+        "geometry": {
+          "x": 460,
+          "y": 660,
+          "width": 72,
+          "height": 62
+        }
+      },
+      {
+        "id": "w-161",
+        "type": "embedded-display",
+        "props": {
+          "file": "../common/embedded/_KnobDevice.screen.json",
+          "macros": {
+            "CNTL_PV": "BTS:MAG:HCM:01:CURRENT:SP",
+            "COLOR_CODE": "2",
+            "COLOR_PV": "BTS:MAG:HCM:01:STATUS:ON",
+            "DESC": "BTS HC1",
+            "MON_PV": "BTS:MAG:HCM:01:CURRENT:RB"
+          }
+        },
+        "geometry": {
+          "x": 610,
+          "y": 120,
+          "width": 72,
+          "height": 62
+        }
+      },
+      {
+        "id": "w-162",
+        "type": "embedded-display",
+        "props": {
+          "file": "../common/embedded/_KnobDevice.screen.json",
+          "macros": {
+            "CNTL_PV": "BR:MAG:SEPTUM:01:CURRENT:SP",
+            "COLOR_CODE": "4",
+            "COLOR_PV": "BR:MAG:SEPTUM:01:STATUS:ON",
+            "DESC": "BR SEN",
+            "MON_PV": "BR:MAG:SEPTUM:01:CURRENT:RB"
+          }
+        },
+        "geometry": {
+          "x": 460,
+          "y": 740,
+          "width": 72,
+          "height": 62
+        }
+      },
+      {
+        "id": "w-163",
+        "type": "embedded-display",
+        "props": {
+          "file": "../common/embedded/_KnobDevice.screen.json",
+          "macros": {
+            "CNTL_PV": "BTS:MAG:VCM:02:CURRENT:SP",
+            "COLOR_CODE": "0",
+            "COLOR_PV": "BTS:MAG:VCM:02:STATUS:ON",
+            "DESC": "BTS VC2",
+            "MON_PV": "BTS:MAG:VCM:02:CURRENT:RB"
+          }
+        },
+        "geometry": {
+          "x": 700,
+          "y": 40,
+          "width": 72,
+          "height": 62
+        }
+      },
+      {
+        "id": "w-164",
+        "type": "embedded-display",
+        "props": {
+          "file": "../common/embedded/_KnobDevice.screen.json",
+          "macros": {
+            "CNTL_PV": "BTS:MAG:VCM:03:CURRENT:SP",
+            "COLOR_CODE": "0",
+            "COLOR_PV": "BTS:MAG:VCM:03:STATUS:ON",
+            "DESC": "BTS VC3",
+            "MON_PV": "BTS:MAG:VCM:03:CURRENT:RB"
+          }
+        },
+        "geometry": {
+          "x": 790,
+          "y": 40,
+          "width": 72,
+          "height": 62
+        }
+      },
+      {
+        "id": "w-165",
+        "type": "embedded-display",
+        "props": {
+          "file": "../common/embedded/_KnobDevice.screen.json",
+          "macros": {
+            "CNTL_PV": "BTS:MAG:VCM:04:CURRENT:SP",
+            "COLOR_CODE": "0",
+            "COLOR_PV": "BTS:MAG:VCM:04:STATUS:ON",
+            "DESC": "BTS VC4",
+            "MON_PV": "BTS:MAG:VCM:04:CURRENT:RB"
+          }
+        },
+        "geometry": {
+          "x": 880,
+          "y": 40,
+          "width": 72,
+          "height": 62
+        }
+      },
+      {
+        "id": "w-166",
+        "type": "embedded-display",
+        "props": {
+          "file": "../common/embedded/_KnobDevice.screen.json",
+          "macros": {
+            "CNTL_PV": "BTS:MAG:VCM:05:CURRENT:SP",
+            "COLOR_CODE": "0",
+            "COLOR_PV": "BTS:MAG:VCM:05:STATUS:ON",
+            "DESC": "BTS VC5",
+            "MON_PV": "BTS:MAG:VCM:05:CURRENT:RB"
+          }
+        },
+        "geometry": {
+          "x": 970,
+          "y": 40,
+          "width": 72,
+          "height": 62
+        }
+      },
+      {
+        "id": "w-167",
+        "type": "embedded-display",
+        "props": {
+          "file": "../common/embedded/_KnobDevice.screen.json",
+          "macros": {
+            "CNTL_PV": "BTS:MAG:VCM:07:CURRENT:SP",
+            "COLOR_CODE": "0",
+            "COLOR_PV": "BTS:MAG:VCM:07:STATUS:ON",
+            "DESC": "BTS VC7",
+            "MON_PV": "BTS:MAG:VCM:07:CURRENT:RB"
+          }
+        },
+        "geometry": {
+          "x": 1060,
+          "y": 40,
+          "width": 72,
+          "height": 62
+        }
+      },
+      {
+        "id": "w-168",
+        "type": "embedded-display",
+        "props": {
+          "file": "../common/embedded/_KnobDevice.screen.json",
+          "macros": {
+            "CNTL_PV": "BTS:MAG:VCM:08:CURRENT:SP",
+            "COLOR_CODE": "0",
+            "COLOR_PV": "BTS:MAG:VCM:08:STATUS:ON",
+            "DESC": "BTS VC8",
+            "MON_PV": "BTS:MAG:VCM:08:CURRENT:RB"
+          }
+        },
+        "geometry": {
+          "x": 1150,
+          "y": 40,
+          "width": 72,
+          "height": 62
+        }
+      },
+      {
+        "id": "w-169",
+        "type": "embedded-display",
+        "props": {
+          "file": "../common/embedded/_KnobDevice.screen.json",
+          "macros": {
+            "CNTL_PV": "BTS:MAG:VCM:09:CURRENT:SP",
+            "COLOR_CODE": "0",
+            "COLOR_PV": "BTS:MAG:VCM:09:STATUS:ON",
+            "DESC": "BTS VC9",
+            "MON_PV": "BTS:MAG:VCM:09:CURRENT:RB"
+          }
+        },
+        "geometry": {
+          "x": 1240,
+          "y": 40,
+          "width": 72,
+          "height": 62
+        }
+      },
+      {
+        "id": "w-170",
+        "type": "embedded-display",
+        "props": {
+          "file": "../common/embedded/_KnobDevice.screen.json",
+          "macros": {
+            "CNTL_PV": "BTS:MAG:HCM:02:CURRENT:SP",
+            "COLOR_CODE": "2",
+            "COLOR_PV": "BTS:MAG:HCM:02:STATUS:ON",
+            "DESC": "BTS HC2",
+            "MON_PV": "BTS:MAG:HCM:02:CURRENT:RB"
+          }
+        },
+        "geometry": {
+          "x": 700,
+          "y": 120,
+          "width": 72,
+          "height": 62
+        }
+      },
+      {
+        "id": "w-171",
+        "type": "embedded-display",
+        "props": {
+          "file": "../common/embedded/_KnobDevice.screen.json",
+          "macros": {
+            "CNTL_PV": "BTS:MAG:HCM:03:CURRENT:SP",
+            "COLOR_CODE": "2",
+            "COLOR_PV": "BTS:MAG:HCM:03:STATUS:ON",
+            "DESC": "BTS HC3",
+            "MON_PV": "BTS:MAG:HCM:03:CURRENT:RB"
+          }
+        },
+        "geometry": {
+          "x": 790,
+          "y": 120,
+          "width": 72,
+          "height": 62
+        }
+      },
+      {
+        "id": "w-172",
+        "type": "embedded-display",
+        "props": {
+          "file": "../common/embedded/_KnobDevice.screen.json",
+          "macros": {
+            "CNTL_PV": "BTS:MAG:HCM:04:CURRENT:SP",
+            "COLOR_CODE": "2",
+            "COLOR_PV": "BTS:MAG:HCM:04:STATUS:ON",
+            "DESC": "BTS HC4",
+            "MON_PV": "BTS:MAG:HCM:04:CURRENT:RB"
+          }
+        },
+        "geometry": {
+          "x": 880,
+          "y": 120,
+          "width": 72,
+          "height": 62
+        }
+      },
+      {
+        "id": "w-173",
+        "type": "embedded-display",
+        "props": {
+          "file": "../common/embedded/_KnobDevice.screen.json",
+          "macros": {
+            "CNTL_PV": "BTS:MAG:HCM:05:CURRENT:SP",
+            "COLOR_CODE": "2",
+            "COLOR_PV": "BTS:MAG:HCM:05:STATUS:ON",
+            "DESC": "BTS HC5",
+            "MON_PV": "BTS:MAG:HCM:05:CURRENT:RB"
+          }
+        },
+        "geometry": {
+          "x": 970,
+          "y": 120,
+          "width": 72,
+          "height": 62
+        }
+      },
+      {
+        "id": "w-174",
+        "type": "embedded-display",
+        "props": {
+          "file": "../common/embedded/_KnobDevice.screen.json",
+          "macros": {
+            "CNTL_PV": "BTS:MAG:HCM:07:CURRENT:SP",
+            "COLOR_CODE": "2",
+            "COLOR_PV": "BTS:MAG:HCM:07:STATUS:ON",
+            "DESC": "BTS HC7",
+            "MON_PV": "BTS:MAG:HCM:07:CURRENT:RB"
+          }
+        },
+        "geometry": {
+          "x": 1060,
+          "y": 120,
+          "width": 72,
+          "height": 62
+        }
+      },
+      {
+        "id": "w-175",
+        "type": "embedded-display",
+        "props": {
+          "file": "../common/embedded/_KnobDevice.screen.json",
+          "macros": {
+            "CNTL_PV": "BTS:MAG:HCM:08:CURRENT:SP",
+            "COLOR_CODE": "2",
+            "COLOR_PV": "BTS:MAG:HCM:08:STATUS:ON",
+            "DESC": "BTS HC8",
+            "MON_PV": "BTS:MAG:HCM:08:CURRENT:RB"
+          }
+        },
+        "geometry": {
+          "x": 1150,
+          "y": 120,
+          "width": 72,
+          "height": 62
+        }
+      },
+      {
+        "id": "w-176",
+        "type": "embedded-display",
+        "props": {
+          "file": "../common/embedded/_KnobDevice.screen.json",
+          "macros": {
+            "CNTL_PV": "BTS:MAG:HCM:09:CURRENT:SP",
+            "COLOR_CODE": "2",
+            "COLOR_PV": "BTS:MAG:HCM:09:STATUS:ON",
+            "DESC": "BTS HC9",
+            "MON_PV": "BTS:MAG:HCM:09:CURRENT:RB"
+          }
+        },
+        "geometry": {
+          "x": 1240,
+          "y": 120,
+          "width": 72,
+          "height": 62
+        }
+      },
+      {
+        "id": "w-177",
+        "type": "embedded-display",
+        "props": {
+          "file": "../common/embedded/_KnobDevice.screen.json",
+          "macros": {
+            "CNTL_PV": "BTS:MAG:QD:01:CURRENT:SP",
+            "COLOR_CODE": "3",
+            "COLOR_PV": "BTS:MAG:QD:01:STATUS:ON",
+            "DESC": "BTS Q2.1",
+            "MON_PV": "BTS:MAG:QD:01:CURRENT:RB"
+          }
+        },
+        "geometry": {
+          "x": 550,
+          "y": 660,
+          "width": 72,
+          "height": 62
+        }
+      },
+      {
+        "id": "w-178",
+        "type": "embedded-display",
+        "props": {
+          "file": "../common/embedded/_KnobDevice.screen.json",
+          "macros": {
+            "CNTL_PV": "BTS:MAG:QD:02:CURRENT:SP",
+            "COLOR_CODE": "3",
+            "COLOR_PV": "BTS:MAG:QD:02:STATUS:ON",
+            "DESC": "BTS Q2.2",
+            "MON_PV": "BTS:MAG:QD:02:CURRENT:RB"
+          }
+        },
+        "geometry": {
+          "x": 640,
+          "y": 660,
+          "width": 72,
+          "height": 62
+        }
+      },
+      {
+        "id": "w-179",
+        "type": "embedded-display",
+        "props": {
+          "file": "../common/embedded/_KnobDevice.screen.json",
+          "macros": {
+            "CNTL_PV": "BTS:MAG:QD:03:CURRENT:SP",
+            "COLOR_CODE": "3",
+            "COLOR_PV": "BTS:MAG:QD:03:STATUS:ON",
+            "DESC": "BTS Q3.1",
+            "MON_PV": "BTS:MAG:QD:03:CURRENT:RB"
+          }
+        },
+        "geometry": {
+          "x": 730,
+          "y": 660,
+          "width": 72,
+          "height": 62
+        }
+      },
+      {
+        "id": "w-180",
+        "type": "embedded-display",
+        "props": {
+          "file": "../common/embedded/_KnobDevice.screen.json",
+          "macros": {
+            "CNTL_PV": "BTS:MAG:QF:02:CURRENT:SP",
+            "COLOR_CODE": "3",
+            "COLOR_PV": "BTS:MAG:QF:02:STATUS:ON",
+            "DESC": "BTS Q3.2",
+            "MON_PV": "BTS:MAG:QF:02:CURRENT:RB"
+          }
+        },
+        "geometry": {
+          "x": 820,
+          "y": 660,
+          "width": 72,
+          "height": 62
+        }
+      },
+      {
+        "id": "w-181",
+        "type": "embedded-display",
+        "props": {
+          "file": "../common/embedded/_KnobDevice.screen.json",
+          "macros": {
+            "CNTL_PV": "BTS:MAG:QF:03:CURRENT:SP",
+            "COLOR_CODE": "3",
+            "COLOR_PV": "BTS:MAG:QF:03:STATUS:ON",
+            "DESC": "BTS Q4",
+            "MON_PV": "BTS:MAG:QF:03:CURRENT:RB"
+          }
+        },
+        "geometry": {
+          "x": 910,
+          "y": 660,
+          "width": 72,
+          "height": 62
+        }
+      },
+      {
+        "id": "w-182",
+        "type": "embedded-display",
+        "props": {
+          "file": "../common/embedded/_KnobDevice.screen.json",
+          "macros": {
+            "CNTL_PV": "BTS:MAG:QD:04:CURRENT:SP",
+            "COLOR_CODE": "3",
+            "COLOR_PV": "BTS:MAG:QD:04:STATUS:ON",
+            "DESC": "BTS Q5.1",
+            "MON_PV": "BTS:MAG:QD:04:CURRENT:RB"
+          }
+        },
+        "geometry": {
+          "x": 1000,
+          "y": 660,
+          "width": 72,
+          "height": 62
+        }
+      },
+      {
+        "id": "w-183",
+        "type": "embedded-display",
+        "props": {
+          "file": "../common/embedded/_KnobDevice.screen.json",
+          "macros": {
+            "CNTL_PV": "BTS:MAG:QF:04:CURRENT:SP",
+            "COLOR_CODE": "3",
+            "COLOR_PV": "BTS:MAG:QF:04:STATUS:ON",
+            "DESC": "BTS 5.2",
+            "MON_PV": "BTS:MAG:QF:04:CURRENT:RB"
+          }
+        },
+        "geometry": {
+          "x": 1090,
+          "y": 660,
+          "width": 72,
+          "height": 62
+        }
+      },
+      {
+        "id": "w-184",
+        "type": "embedded-display",
+        "props": {
+          "file": "../common/embedded/_KnobDevice.screen.json",
+          "macros": {
+            "CNTL_PV": "BTS:MAG:QF:05:CURRENT:SP",
+            "COLOR_CODE": "3",
+            "COLOR_PV": "BTS:MAG:QF:05:STATUS:ON",
+            "DESC": "BTS Q6.1",
+            "MON_PV": "BTS:MAG:QF:05:CURRENT:RB"
+          }
+        },
+        "geometry": {
+          "x": 1180,
+          "y": 660,
+          "width": 72,
+          "height": 62
+        }
+      },
+      {
+        "id": "w-185",
+        "type": "embedded-display",
+        "props": {
+          "file": "../common/embedded/_KnobDevice.screen.json",
+          "macros": {
+            "CNTL_PV": "BTS:MAG:QD:05:CURRENT:SP",
+            "COLOR_CODE": "3",
+            "COLOR_PV": "BTS:MAG:QD:05:STATUS:ON",
+            "DESC": "BTS Q6.2",
+            "MON_PV": "BTS:MAG:QD:05:CURRENT:RB"
+          }
+        },
+        "geometry": {
+          "x": 1270,
+          "y": 660,
+          "width": 72,
+          "height": 62
+        }
+      },
+      {
+        "id": "w-186",
+        "type": "embedded-display",
+        "props": {
+          "file": "../common/embedded/_KnobDevice.screen.json",
+          "macros": {
+            "CNTL_PV": "BTS:MAG:QF:06:CURRENT:SP",
+            "COLOR_CODE": "3",
+            "COLOR_PV": "BTS:MAG:QF:06:STATUS:ON",
+            "DESC": "BTS Q7",
+            "MON_PV": "BTS:MAG:QF:06:CURRENT:RB"
+          }
+        },
+        "geometry": {
+          "x": 1360,
+          "y": 660,
+          "width": 72,
+          "height": 62
+        }
+      },
+      {
+        "id": "w-187",
+        "type": "embedded-display",
+        "props": {
+          "file": "../common/embedded/_KnobDevice.screen.json",
+          "macros": {
+            "CNTL_PV": "BR:MAG:SEPTUM:02:CURRENT:SP",
+            "COLOR_CODE": "4",
+            "COLOR_PV": "BR:MAG:SEPTUM:02:STATUS:ON",
+            "DESC": "BR SEK",
+            "MON_PV": "BR:MAG:SEPTUM:02:CURRENT:RB"
+          }
+        },
+        "geometry": {
+          "x": 550,
+          "y": 740,
+          "width": 72,
+          "height": 62
+        }
+      },
+      {
+        "id": "w-188",
+        "type": "embedded-display",
+        "props": {
+          "file": "../common/embedded/_KnobDevice.screen.json",
+          "macros": {
+            "CNTL_PV": "BTS:MAG:DIPOLE:01:CURRENT:SP",
+            "COLOR_CODE": "5",
+            "COLOR_PV": "BTS:MAG:DIPOLE:01:STATUS:ON",
+            "DESC": "BTS B1",
+            "MON_PV": "BTS:MAG:DIPOLE:01:CURRENT:RB"
+          }
+        },
+        "geometry": {
+          "x": 730,
+          "y": 740,
+          "width": 72,
+          "height": 62
+        }
+      },
+      {
+        "id": "w-189",
+        "type": "embedded-display",
+        "props": {
+          "file": "../common/embedded/_KnobDevice.screen.json",
+          "macros": {
+            "CNTL_PV": "BTS:MAG:DIPOLE:02:CURRENT:SP",
+            "COLOR_CODE": "5",
+            "COLOR_PV": "BTS:MAG:DIPOLE:02:STATUS:ON",
+            "DESC": "BTS B2",
+            "MON_PV": "BTS:MAG:DIPOLE:02:CURRENT:RB"
+          }
+        },
+        "geometry": {
+          "x": 820,
+          "y": 740,
+          "width": 72,
+          "height": 62
+        }
+      },
+      {
+        "id": "w-190",
+        "type": "embedded-display",
+        "props": {
+          "file": "../common/embedded/_KnobDevice.screen.json",
+          "macros": {
+            "CNTL_PV": "BTS:MAG:DIPOLE:03:CURRENT:SP",
+            "COLOR_CODE": "5",
+            "COLOR_PV": "BTS:MAG:DIPOLE:03:STATUS:ON",
+            "DESC": "BTS B3",
+            "MON_PV": "BTS:MAG:DIPOLE:03:CURRENT:RB"
+          }
+        },
+        "geometry": {
+          "x": 910,
+          "y": 740,
+          "width": 72,
+          "height": 62
+        }
+      },
+      {
+        "id": "w-191",
+        "type": "embedded-display",
+        "props": {
+          "file": "../common/embedded/_KnobDevice.screen.json",
+          "macros": {
+            "CNTL_PV": "BTS:MAG:DIPOLE:04:CURRENT:SP",
+            "COLOR_CODE": "5",
+            "COLOR_PV": "BTS:MAG:DIPOLE:04:STATUS:ON",
+            "DESC": "BTS B4",
+            "MON_PV": "BTS:MAG:DIPOLE:04:CURRENT:RB"
+          }
+        },
+        "geometry": {
+          "x": 1000,
+          "y": 740,
+          "width": 72,
+          "height": 62
+        }
+      },
+      {
+        "id": "w-192",
+        "type": "embedded-display",
+        "props": {
+          "file": "../common/embedded/_KnobDevice.screen.json",
+          "macros": {
+            "CNTL_PV": "SR:MAG:SEPTUM:01:CURRENT:SP",
+            "COLOR_CODE": "4",
+            "COLOR_PV": "SR:MAG:SEPTUM:01:STATUS:ON",
+            "DESC": "SR SEK",
+            "MON_PV": "SR:MAG:SEPTUM:01:CURRENT:RB"
+          }
+        },
+        "geometry": {
+          "x": 1270,
+          "y": 740,
+          "width": 72,
+          "height": 62
+        }
+      },
+      {
+        "id": "w-193",
+        "type": "embedded-display",
+        "props": {
+          "file": "../common/embedded/_KnobDevice.screen.json",
+          "macros": {
+            "CNTL_PV": "SR:MAG:SEPTUM:02:CURRENT:SP",
+            "COLOR_CODE": "4",
+            "COLOR_PV": "SR:MAG:SEPTUM:02:STATUS:ON",
+            "DESC": "SR SEN",
+            "MON_PV": "SR:MAG:SEPTUM:02:CURRENT:RB"
+          }
+        },
+        "geometry": {
+          "x": 1360,
+          "y": 740,
+          "width": 72,
+          "height": 62
+        }
+      },
+      {
+        "id": "w-210",
+        "type": "regular-button",
+        "props": {
+          "label": "Open GTL",
+          "actions": [
+            {
+              "type": "open_display",
+              "file": "../gtl/GTL.screen.json",
+              "target": "window"
+            }
+          ]
+        },
+        "geometry": {
+          "x": 910,
+          "y": 830,
+          "width": 120,
+          "height": 55
+        }
+      },
+      {
+        "id": "w-196",
+        "type": "pv-led",
+        "props": {
+          "pv": "formula://f-001",
+          "onColor": "#00ff00",
+          "offColor": {
+            "$role": "MAJOR",
+            "fallback": "#ff0000"
+          }
+        },
+        "geometry": {
+          "x": 960,
+          "y": 388,
+          "width": 20,
+          "height": 20
+        }
+      },
+      {
+        "id": "w-197",
+        "type": "text-label",
+        "props": {
+          "text": "All paddles out:",
+          "align": "center",
+          "foregroundColor": {
+            "$role": "Text",
+            "fallback": "#000000"
+          }
+        },
+        "geometry": {
+          "x": 842,
+          "y": 388,
+          "width": 100,
+          "height": 20
+        }
+      },
+      {
+        "id": "w-198",
+        "type": "ellipse",
+        "props": {
+          "lineColor": {
+            "$role": "Text",
+            "fallback": "#000000"
+          },
+          "lineWidth": 1,
+          "fill": true,
+          "fillColor": "#ffff00"
+        },
+        "geometry": {
+          "x": 274,
+          "y": 478,
+          "width": 12,
+          "height": 12
+        }
+      },
+      {
+        "id": "w-199",
+        "type": "ellipse",
+        "props": {
+          "lineColor": {
+            "$role": "Text",
+            "fallback": "#000000"
+          },
+          "lineWidth": 1,
+          "fill": true,
+          "fillColor": "#1e90ff"
+        },
+        "geometry": {
+          "x": 334,
+          "y": 456,
+          "width": 12,
+          "height": 12
+        }
+      },
+      {
+        "id": "w-200",
+        "type": "ellipse",
+        "props": {
+          "lineColor": {
+            "$role": "Text",
+            "fallback": "#000000"
+          },
+          "lineWidth": 1,
+          "fill": true,
+          "fillColor": "#1e90ff"
+        },
+        "geometry": {
+          "x": 434,
+          "y": 417,
+          "width": 12,
+          "height": 12
+        }
+      },
+      {
+        "id": "w-201",
+        "type": "ellipse",
+        "props": {
+          "lineColor": {
+            "$role": "Text",
+            "fallback": "#000000"
+          },
+          "lineWidth": 1,
+          "fill": true,
+          "fillColor": "#ffff00"
+        },
+        "geometry": {
+          "x": 644,
+          "y": 339,
+          "width": 12,
+          "height": 12
+        }
+      },
+      {
+        "id": "w-202",
+        "type": "ellipse",
+        "props": {
+          "lineColor": {
+            "$role": "Text",
+            "fallback": "#000000"
+          },
+          "lineWidth": 1,
+          "fill": true,
+          "fillColor": "#1e90ff"
+        },
+        "geometry": {
+          "x": 824,
+          "y": 288,
+          "width": 12,
+          "height": 12
+        }
+      },
+      {
+        "id": "w-203",
+        "type": "ellipse",
+        "props": {
+          "lineColor": {
+            "$role": "Text",
+            "fallback": "#000000"
+          },
+          "lineWidth": 1,
+          "fill": true,
+          "fillColor": "#1e90ff"
+        },
+        "geometry": {
+          "x": 975,
+          "y": 274,
+          "width": 12,
+          "height": 12
+        }
+      },
+      {
+        "id": "w-204",
+        "type": "ellipse",
+        "props": {
+          "lineColor": {
+            "$role": "Text",
+            "fallback": "#000000"
+          },
+          "lineWidth": 1,
+          "fill": true,
+          "fillColor": "#ffff00"
+        },
+        "geometry": {
+          "x": 1154,
+          "y": 273,
+          "width": 12,
+          "height": 12
+        }
+      },
+      {
+        "id": "w-205",
+        "type": "ellipse",
+        "props": {
+          "lineColor": {
+            "$role": "Text",
+            "fallback": "#000000"
+          },
+          "lineWidth": 1,
+          "fill": true,
+          "fillColor": "#ffff00"
+        },
+        "geometry": {
+          "x": 1304,
+          "y": 300,
+          "width": 12,
+          "height": 12
+        }
+      },
+      {
+        "id": "w-206",
+        "type": "ellipse",
+        "props": {
+          "lineColor": {
+            "$role": "Text",
+            "fallback": "#000000"
+          },
+          "lineWidth": 1,
+          "fill": true,
+          "fillColor": "#1e90ff"
+        },
+        "geometry": {
+          "x": 1544,
+          "y": 376,
+          "width": 12,
+          "height": 12
+        }
+      },
+      {
+        "id": "w-207",
+        "type": "ellipse",
+        "props": {
+          "lineColor": {
+            "$role": "Text",
+            "fallback": "#000000"
+          },
+          "lineWidth": 1,
+          "fill": true,
+          "fillColor": "#ffff00"
+        },
+        "geometry": {
+          "x": 1574,
+          "y": 393,
+          "width": 12,
+          "height": 12
+        }
+      },
+      {
+        "id": "w-208",
+        "type": "ellipse",
+        "props": {
+          "lineColor": {
+            "$role": "Text",
+            "fallback": "#000000"
+          },
+          "lineWidth": 1,
+          "fill": true,
+          "fillColor": "#ffff00"
+        },
+        "geometry": {
+          "x": 1674,
+          "y": 450,
+          "width": 12,
+          "height": 12
+        }
+      },
+      {
+        "id": "w-209",
+        "type": "ellipse",
+        "props": {
+          "lineColor": {
+            "$role": "Text",
+            "fallback": "#000000"
+          },
+          "lineWidth": 1,
+          "fill": true,
+          "fillColor": "#1e90ff"
+        },
+        "geometry": {
+          "x": 1734,
+          "y": 484,
+          "width": 12,
+          "height": 12
+        }
+      }
+    ]
+  }
+}

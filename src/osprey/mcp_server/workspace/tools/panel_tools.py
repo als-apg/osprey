@@ -22,10 +22,18 @@ deployment did not ship (requires opt-in).
 import functools
 import json
 from typing import Any, Literal
+from urllib.parse import urlsplit
 
 import anyio
 
-from osprey.interfaces.panel_urls import navigation_url_refusal, normalise_navigation_url
+from osprey.interfaces.panel_urls import (
+    Origin,
+    agent_hop_panel_ids,
+    agent_hop_url_refusal,
+    is_loopback_host,
+    navigation_url_refusal,
+    normalise_navigation_url,
+)
 from osprey.mcp_server.errors import make_error
 from osprey.mcp_server.http import (
     NO_WEB_TERMINAL,
@@ -35,6 +43,7 @@ from osprey.mcp_server.http import (
     panel_op,
 )
 from osprey.mcp_server.workspace.server import mcp
+from osprey.profiles.sidecar_panels import SIDECAR_PANELS
 
 
 @mcp.tool()
@@ -429,6 +438,70 @@ def _indexed_layout(layout: object, members: list[str]) -> object:
     return out
 
 
+def _agent_hop_panel_ids() -> frozenset[str]:
+    """The sidecar panels whose own MCP transport the agent drives directly.
+
+    :func:`~osprey.interfaces.panel_urls.agent_hop_panel_ids` of the registry
+    the gate and the panel proxy read. Such a panel has a tool of its own for
+    what is on its screen, so a url pushed into its iframe from here would
+    bypass that tool's input checks and attribution.
+    """
+    return agent_hop_panel_ids(SIDECAR_PANELS)
+
+
+def _deployment_ports() -> tuple[range, int | None]:
+    """The deployment's port block and the web terminal's own port.
+
+    Every port OSPREY publishes lies in the block (``osprey.port_layout``); the
+    terminal's port may be moved out of it by ``OSPREY_WEB_PORT``. A config that
+    cannot be read yields the default block and no terminal port.
+    """
+    from osprey.port_layout import BLOCK_SIZE, resolve_port_base
+
+    terminal_port: int | None = None
+    try:
+        from osprey.mcp_server.http import web_terminal_url
+        from osprey_connectors.workspace import load_osprey_config
+
+        base = resolve_port_base(load_osprey_config())
+        terminal_port = urlsplit(web_terminal_url()).port
+    except Exception:  # an unreadable config falls back to the default block
+        base = resolve_port_base(None)
+    return range(base, base + BLOCK_SIZE), terminal_port
+
+
+def _is_sidecar_origin(origin: Origin) -> bool:
+    """Whether *origin* can be a panel sidecar's own address.
+
+    A sidecar listens on an ephemeral loopback port the terminal never
+    publishes: the browser only ever reaches it through ``/panel/<id>``. So a
+    loopback address (:func:`~osprey.interfaces.panel_urls.is_loopback_host`,
+    in any spelling) outside the deployment's port block, and not the
+    terminal's own port, is taken as a sidecar's. This guess only words the
+    agent's error; the terminal judges the url again against the addresses it
+    is configured with, and refuses it there whatever this says.
+    """
+    _scheme, host, port = origin
+    if not is_loopback_host(host):
+        return False
+    block, terminal_port = _deployment_ports()
+    return not (port in block or port == terminal_port)
+
+
+def _agent_hop_url_refusal(panel_id: str, url: str, hop_ids: frozenset[str]) -> str | None:
+    """Why *url* may not be pushed into a panel by ``open_panel``, or ``None``.
+
+    The terminal's own rule (:func:`~osprey.interfaces.panel_urls.agent_hop_url_refusal`),
+    run here first so the refusal can name the panel's own tool.
+
+    Args:
+        panel_id: The panel the agent asked to open.
+        url: The url, already passed through ``normalise_navigation_url``.
+        hop_ids: The agent-hop panel ids (:func:`_agent_hop_panel_ids`).
+    """
+    return agent_hop_url_refusal(panel_id, url, hop_ids=hop_ids, is_hop_origin=_is_sidecar_origin)
+
+
 @mcp.tool()
 async def open_panel(panel_id: str, url: str | None = None) -> str:
     """Put a panel on screen in front of the operator.
@@ -468,6 +541,11 @@ async def open_panel(panel_id: str, url: str | None = None) -> str:
             foreign host, a ``javascript:``, ``data:`` or scheme-relative
             ``//host`` URL) is refused with an ``invalid_url`` error and
             nothing is opened.
+            A panel that has its own workspace tool (CANOPY:
+            ``set_workspace``) takes no url: a url for it, a url under
+            ``/panel/<that panel>/`` for any panel, or its sidecar's own address
+            raises an ``agent_hop_panel_url`` error and opens nothing. Open such
+            a panel without a url and change its screen with its tool.
 
     Returns:
         JSON with ``status``, ``panel``, the resulting ``layout`` and its
@@ -477,8 +555,25 @@ async def open_panel(panel_id: str, url: str | None = None) -> str:
     args: dict[str, Any] = {"member": panel_id}
     if url is not None:
         # Judged here as well as by the terminal's route, so a refused url is
-        # an error the agent sees rather than a success nothing applied.
-        refusal = navigation_url_refusal(normalise_navigation_url(url))
+        # an error the agent sees rather than a success nothing applied, and the
+        # agent-hop refusal can name the panel's own tool.
+        normalised = normalise_navigation_url(url)
+        hop_ids = _agent_hop_panel_ids()
+        hop_refusal = _agent_hop_url_refusal(panel_id, normalised, hop_ids)
+        if hop_refusal is not None:
+            make_error(
+                "agent_hop_panel_url",
+                f"URL refused: {hop_refusal}. Nothing was opened.",
+                [
+                    "Change what the panel shows with its set_workspace tool "
+                    "(read it first with get_workspace).",
+                    f"Call open_panel('{panel_id}') without a url to bring the panel on screen."
+                    if panel_id in hop_ids
+                    else "Open a panel with its own id and no url to bring it on screen.",
+                ],
+                {"panel": panel_id, "agent_hop_panels": sorted(hop_ids)},
+            )
+        refusal = navigation_url_refusal(normalised)
         if refusal is not None:
             make_error(
                 "invalid_url",

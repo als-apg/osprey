@@ -1,4 +1,4 @@
-"""The structural edits ``panel_rename.py apply`` makes to GTLView/BTSView.
+"""The structural edits ``panel_rename.py apply`` makes to the GTL and BTS panels.
 
 The rename map rewrites binding values; these edits change the panels' shape.
 Each one is keyed by the panel's path under ``screens/`` and, where the source
@@ -18,11 +18,11 @@ checks for its own result first, so a second ``apply`` finds nothing to do.
   ``GAIN``, ``MIN``, ``MAX`` leave every declaration and instance.
 * **Cuts.** The two hidden knob-assignment buttons of ``_KnobDevice``, both
   "Open KnobPanel" buttons, both Matlab ``execute`` buttons and an empty 1x1
-  button of GTLView. ``common/KnobPanel.screen.json`` is deleted.
-* **Cross-links.** GTLView opens BTSView and BTSView opens GTLView, each by a
-  path relative to the panel's own file. BTSView's link takes the slot of its
-  cut "Open KnobPanel" button. GTLView's KnobPanel button sat far from the
-  booster/BTS TV bank, so its link takes the free slot under the BTS TV bank.
+  button of GTL. ``common/KnobPanel.screen.json`` is deleted.
+* **Cross-links.** GTL opens BTS and BTS opens GTL, each by a path relative to
+  the panel's own file. BTS's link takes the slot of its cut "Open KnobPanel"
+  button. GTL's KnobPanel button sat far from the booster/BTS TV bank, so its
+  link takes the free slot under the BTS TV bank.
 * **Source bugs.** The LTB Q5 glyph read Q4.2's supply status; it now reads the
   status its own knob shows. The BTS BPM5 plot was titled "BPM1". Two more
   source bugs, the LTB Q4.1 knob reading its setpoint and the BTS Q6.1 knob
@@ -39,8 +39,10 @@ from dataclasses import dataclass, field
 from typing import Any
 
 #: The panel files, relative to ``screens/``.
-GTL_VIEW = "gtb/GTLView.screen.json"
-BTS_VIEW = "bts/BTSView.screen.json"
+GTL_VIEW = "gtl/GTL.screen.json"
+BTS_VIEW = "bts/BTS.screen.json"
+#: The knob sub-screen both panels embed.
+KNOB_DEVICE = "common/embedded/_KnobDevice.screen.json"
 
 #: The file the cut "Open KnobPanel" buttons opened, relative to the library.
 KNOB_PANEL = "screens/common/KnobPanel.screen.json"
@@ -49,8 +51,7 @@ KNOB_PANEL = "screens/common/KnobPanel.screen.json"
 CUT_NODES: dict[str, frozenset[str]] = {
     GTL_VIEW: frozenset({"w-322", "w-323", "w-415"}),
     BTS_VIEW: frozenset({"w-194", "w-195"}),
-    "gtb/embedded/_KnobDevice.screen.json": frozenset({"w-006", "w-007"}),
-    "bts/embedded/_KnobDevice.screen.json": frozenset({"w-006", "w-007"}),
+    KNOB_DEVICE: frozenset({"w-006", "w-007"}),
 }
 
 #: Macros removed from every screen declaration and every embed instance.
@@ -86,12 +87,12 @@ class Link:
     geometry: dict[str, int] | None = None
 
 
-#: GTLView's link: the free slot under the BTS TV PADDLES bank.
+#: GTL's link: the free slot under the BTS TV PADDLES bank.
 GTL_LINK_GEOMETRY = {"x": 1960, "y": 490, "width": 130, "height": 24}
 
 LINKS = (
-    Link(GTL_VIEW, "Open BTSView", "../bts/BTSView.screen.json", "w-415", GTL_LINK_GEOMETRY),
-    Link(BTS_VIEW, "Open GTLView", "../gtb/GTLView.screen.json", "w-195"),
+    Link(GTL_VIEW, "Open BTS", "../bts/BTS.screen.json", "w-415", GTL_LINK_GEOMETRY),
+    Link(BTS_VIEW, "Open GTL", "../gtl/GTL.screen.json", "w-195"),
 )
 
 

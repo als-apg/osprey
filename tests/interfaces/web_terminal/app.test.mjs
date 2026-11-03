@@ -5,7 +5,7 @@
  *   npx vitest run tests/interfaces/web_terminal/app.test.mjs
  *
  * A frame cannot move focus in its parent, so a panel whose Tab order runs off
- * either end posts `{type:'osprey-focus-exit', direction}` to `window.parent`
+ * either end posts `{type:'canopy-host-focus-exit', direction}` to `window.parent`
  * and the hub moves focus for it: to the previous/next tabbable element in host
  * document order relative to where the panel sits in the dock. Where that is
  * — the panel's placeholder in dock mode, the iframe in fallback mount — is
@@ -117,7 +117,7 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe('osprey-focus-exit: the walk', () => {
+describe('canopy-host-focus-exit: the walk', () => {
   test('backward focuses the tabbable element before the panel', async () => {
     const app = await import(APP);
     page();
@@ -168,22 +168,30 @@ describe('osprey-focus-exit: the walk', () => {
   });
 });
 
-describe('osprey-focus-exit: the message', () => {
+describe('canopy-host-focus-exit: the message', () => {
   test('a same-origin message from the panel frame moves focus', async () => {
+    const app = await import(APP);
+    page();
+    app.initIframePasteBridge();
+    post({ type: 'canopy-host-focus-exit', direction: 'forward' }, PANEL_WINDOW);
+    expect(activeId()).toBe('after');
+    expect(state.askedBy).toBe(PANEL_WINDOW);
+  });
+
+  test("a viewer's old osprey-focus-exit name is read for one release", async () => {
     const app = await import(APP);
     page();
     app.initIframePasteBridge();
     post({ type: 'osprey-focus-exit', direction: 'forward' }, PANEL_WINDOW);
     expect(activeId()).toBe('after');
-    expect(state.askedBy).toBe(PANEL_WINDOW);
   });
 
   test('a window that is not a panel frame is ignored', async () => {
     const app = await import(APP);
     page();
     app.initIframePasteBridge();
-    post({ type: 'osprey-focus-exit', direction: 'forward' }, { other: true });
-    post({ type: 'osprey-focus-exit', direction: 'forward' }, null);
+    post({ type: 'canopy-host-focus-exit', direction: 'forward' }, { other: true });
+    post({ type: 'canopy-host-focus-exit', direction: 'forward' }, null);
     expect(activeId()).toBe('');
   });
 
@@ -191,7 +199,11 @@ describe('osprey-focus-exit: the message', () => {
     const app = await import(APP);
     page();
     app.initIframePasteBridge();
-    post({ type: 'osprey-focus-exit', direction: 'forward' }, PANEL_WINDOW, 'https://evil.example');
+    post(
+      { type: 'canopy-host-focus-exit', direction: 'forward' },
+      PANEL_WINDOW,
+      'https://evil.example'
+    );
     expect(activeId()).toBe('');
     expect(state.askedBy).toBeNull();
   });
@@ -200,7 +212,7 @@ describe('osprey-focus-exit: the message', () => {
     const app = await import(APP);
     page();
     app.initIframePasteBridge();
-    post({ type: 'osprey-focus-exit', direction: 'sideways' }, PANEL_WINDOW);
+    post({ type: 'canopy-host-focus-exit', direction: 'sideways' }, PANEL_WINDOW);
     expect(activeId()).toBe('');
   });
 });

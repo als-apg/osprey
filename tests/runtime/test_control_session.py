@@ -30,6 +30,7 @@ from osprey.runtime.session import (
 )
 from osprey_connectors import control_context, posture_store, types
 from osprey_connectors.control_system import _base as connector_base
+from osprey_connectors.control_system._epics_connector import EPICSConnector
 from osprey_connectors.control_system._limits_validator import STEP_READ_TIMEOUT_KEY
 from osprey_connectors.factory import ConnectorFactory
 from osprey_connectors.identity import AUDIT_IDENTITY_ENV, TERMINAL_USER_ENV
@@ -149,6 +150,17 @@ def mock_va(monkeypatch, state_dir):
     _CountingFake.configs = []
     with isolated_connector_registries():
         ConnectorFactory.register_control_system(types.VIRTUAL_ACCELERATOR, _CountingFake)
+        yield state_dir
+
+
+@pytest.fixture
+def epics_gateways(monkeypatch, state_dir):
+    """The virtual accelerator behind a real EPICS connector with a read and a write gateway."""
+    gateway = {"address": "127.0.0.1", "port": 5064}
+    block = {"gateways": {"read_only": gateway, "write_access": {**gateway, "port": 5065}}}
+    _serve(monkeypatch, {**VA_SECTION, "connector": {types.VIRTUAL_ACCELERATOR: block}})
+    with isolated_connector_registries():
+        ConnectorFactory.register_control_system(types.VIRTUAL_ACCELERATOR, EPICSConnector)
         yield state_dir
 
 
@@ -758,26 +770,95 @@ class TestMoved:
         assert session.moved() is True
         await session.close()
 
-    async def test_switching_the_bound_target_off_is_a_move_that_keeps_the_binding_id(
-        self, mock_va
-    ):
+    async def test_switching_the_bound_target_off_is_no_move_and_shows_in_writes(self, mock_va):
         write_record(mock_va, target="va", generation=3)
         session = await _opened()
 
         write_record(mock_va, target="va", generation=3, switch=())
 
-        assert session.moved() is True
+        assert session.moved() is False
         assert session.binding.id == "va@3"
+        assert session.writes["reason"] == "switch_off"
         await session.close()
 
-    async def test_switching_the_bound_target_on_is_a_move(self, mock_va):
+    async def test_switching_the_bound_target_on_is_no_move_and_shows_in_writes(self, mock_va):
         write_record(mock_va, target="va", generation=3, switch=())
         session = await _opened()
         assert session.moved() is False
 
         write_record(mock_va, target="va", generation=3)
 
-        assert session.moved() is True
+        assert session.moved() is False
+        assert session.writes["allowed"] is True
+        await session.close()
+
+    @pytest.mark.parametrize(
+        ("before", "after", "lags"),
+        [
+            ({}, {"va": "asked"}, True),
+            ({}, {"va": "allowed"}, True),
+            ({"va": "asked"}, {}, True),
+            ({"va": "allowed"}, {}, True),
+            ({"va": "asked"}, {"va": "allowed"}, False),
+            ({}, {"live": "allowed"}, False),
+        ],
+    )
+    async def test_a_switch_asking_for_the_other_gateway_is_a_move(
+        self, epics_gateways, before, after, lags
+    ):
+        """DATA at off sits on the read gateway and would refuse every write ``switching``."""
+        write_record(epics_gateways, target="va", generation=3, switch=before)
+        session = await _opened()
+        assert session.moved() is False
+
+        write_record(epics_gateways, target="va", generation=3, switch=after)
+
+        assert session.moved() is lags
+        await session.close()
+
+    async def test_a_write_gateway_alone_never_lags(self, monkeypatch, state_dir):
+        """Such a block stays on its one gateway whatever the switch says."""
+        block = {"gateways": {"write_access": {"address": "127.0.0.1", "port": 5065}}}
+        _serve(monkeypatch, {**VA_SECTION, "connector": {types.VIRTUAL_ACCELERATOR: block}})
+        with isolated_connector_registries():
+            ConnectorFactory.register_control_system(types.VIRTUAL_ACCELERATOR, EPICSConnector)
+            write_record(state_dir, target="va", generation=3, switch={})
+            session = await _opened()
+            write_record(state_dir, target="va", generation=3, switch={"va": "asked"})
+            assert session.moved() is False
+            await session.close()
+
+    async def test_the_next_process_after_off_to_asked_writes_through_the_write_gateway(
+        self, epics_gateways
+    ):
+        write_record(epics_gateways, target="va", generation=3, switch={})
+        stuck = await _opened()
+        refusal = stuck.connector._role_refusal("SR:SP", 1.0)
+        assert refusal is not None
+        assert "switch" in str(refusal.notes or refusal).lower()
+        await stuck.close()
+
+        write_record(epics_gateways, target="va", generation=3, switch={"va": "asked"})
+        session = await _opened()
+
+        assert session.connector._selected_role == "write_access"
+        assert session.connector._role_refusal("SR:SP", 1.0) is None
+        assert session.moved() is False
+        await session.close()
+
+    async def test_wait_moved_returns_and_marks_the_target_moving_on_off_to_asked(
+        self, epics_gateways
+    ):
+        write_record(epics_gateways, target="va", generation=3, switch={})
+        session = await _opened()
+        watcher = asyncio.create_task(session.wait_moved())
+        await asyncio.sleep(0.05)
+        assert not watcher.done()
+
+        write_record(epics_gateways, target="va", generation=3, switch={"va": "asked"})
+
+        await asyncio.wait_for(watcher, timeout=5)
+        assert session.target_moving is True
         await session.close()
 
     async def test_another_targets_write_state_is_not_a_move(self, mock_va):

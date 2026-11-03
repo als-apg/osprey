@@ -151,6 +151,7 @@ describe('the sidecar panels come from the page', () => {
       'channel-finder',
       'lattice',
       'jupyter',
+      'canopy',
       'okf',
       'system-health',
     ]);

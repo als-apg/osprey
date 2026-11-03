@@ -31,6 +31,7 @@ const SERVER_COLORS = {
   bluesky: 'srv-bluesky',
   health: 'srv-health',
   event_dispatcher: 'srv-event-dispatcher',
+  canopy: 'srv-canopy',
 };
 
 /**

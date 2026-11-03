@@ -985,8 +985,8 @@ DEMO_GROUPS = {
     ],
     "LTB": ["BPM", "DIPOLE", "HCM", "ICT", "QD", "QF", "TV", "VCM"],
     "SR": [
-        *("BPM", "DIAG", "DIPOLE", "HCM", "MAG", "QD", "QF", "QFA"),
-        *("RF", "SD", "SEPTUM", "SF", "SHD", "SHF", "VAC", "VCM"),
+        *("BPM", "DIAG", "DIPOLE", "ENV", "FE", "HC", "HCM", "ID", "MAG", "QD", "QF"),
+        *("QFA", "RF", "SCRAPER", "SD", "SEPTUM", "SF", "SHD", "SHF", "TC", "VAC", "VCM"),
     ],
 }
 
@@ -999,8 +999,8 @@ DEMO_DERIVED = {
     "LN": [],
     "LTB": [],
     "SR": [
-        *("AcceleratingCavity", "BeamCurrentMonitor", "BeamLossMonitor", "Gauge"),
-        *("Modulator", "Pump", "Valve"),
+        *("AcceleratingCavity", "AirHandler", "BeamCurrentMonitor", "BeamLossMonitor"),
+        *("Gauge", "Modulator", "Pump", "TemperatureSensor", "Valve"),
     ],
 }
 
@@ -1016,7 +1016,7 @@ def test_every_demo_group_and_ungrouped_class_is_a_family(
     assert _families(document) == {
         system: sorted([*DEMO_GROUPS[system], *DEMO_DERIVED[system]]) for system in DEMO_GROUPS
     }
-    assert sum(len(families) for families in _families(document).values()) == 81
+    assert sum(len(families) for families in _families(document).values()) == 89
     fields = [
         field
         for system, families in document.items()
@@ -1025,9 +1025,9 @@ def test_every_demo_group_and_ungrouped_class_is_a_family(
         if not key.startswith("_")
         for field in _fields(family)
     ]
-    assert len(fields) == 1699
-    assert by_address == 1417
-    assert left_out == 5
+    assert len(fields) == 2453
+    assert by_address == 2143
+    assert left_out == 6
     assert document["count"] == len(built_control_assistant.facility["channels"]) - left_out
     assert left_out == sum(
         1
@@ -1178,7 +1178,7 @@ def test_the_demo_database_holds_a_row_per_channel_and_family(
     finally:
         con.close()
 
-    assert counts == (6266, 3334)
+    assert counts == (8297, 4725)
     assert bpm and bpm < diag
     assert quads and quads < magnets
 
@@ -1222,7 +1222,7 @@ def test_a_middle_layer_build_writes_the_index_and_notes_its_counts_once(
     index = repo / "build" / "data" / "channel_finder" / MIDDLE_LAYER_FILE
     assert json.loads(index.read_bytes())["schema"] == CHANNEL_FINDER_SCHEMA
     assert "view middle_layer not written" not in built.output
-    assert built.output.count("view middle_layer: 5 channels in no family left out") == 1
+    assert built.output.count("view middle_layer: 6 channels in no family left out") == 1
 
 
 def test_an_imported_field_keyed_by_its_signal_carries_the_vocabulary_sentence(

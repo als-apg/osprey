@@ -236,6 +236,19 @@
   color: var(--text-muted);
 }
 
+/* ---- CANOPY rows ----
+ * Rows from the CANOPY provider (screens and collections). The detail is the
+ * screen's category/id path or the collection's source; a long path gives way
+ * to the label rather than pushing it out. */
+.command-palette-item--canopy .command-palette-item-detail {
+  flex-shrink: 1;
+  min-width: 0;
+  max-width: 45%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* ---- Matched-character highlight ----
  * Accent + bold; legible on both normal rows and the accent-tinted active row
  * (accent-light stays readable over accent-tint-10). */

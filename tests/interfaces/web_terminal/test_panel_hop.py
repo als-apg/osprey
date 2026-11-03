@@ -20,6 +20,7 @@ Every other spelling of the path stays refused, whoever asks.
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 import json
 from pathlib import Path
 from unittest.mock import AsyncMock
@@ -54,6 +55,15 @@ CLOSED_PANEL = "mcp-no-hop"
 
 HOP_ROUTE = f"/panel/{HOP_PANEL}/mcp"
 HOP_PAIRS = {("GET", HOP_ROUTE), ("POST", HOP_ROUTE), ("DELETE", HOP_ROUTE)}
+
+#: What the panels this tree ships add to the tier before any test declares
+#: one: the CANOPY panel opts in, and it is the only one that does.
+SHIPPED_HOP_ROUTE = "/panel/canopy/mcp"
+SHIPPED_HOP_PAIRS = {
+    ("GET", SHIPPED_HOP_ROUTE),
+    ("POST", SHIPPED_HOP_ROUTE),
+    ("DELETE", SHIPPED_HOP_ROUTE),
+}
 
 PANEL_TOKEN = "panel-token-value"
 OPERATOR_SECRET = "operator-secret-value"
@@ -103,14 +113,21 @@ def sidecars(monkeypatch):
 class TestTheRouteTable:
     """What the opt-in adds to the panel tier: three exact pairs."""
 
-    def test_with_no_opted_in_panel_the_table_is_the_static_one(self):
-        # The shipped registry has no panel that opts in.
+    def test_with_no_opted_in_panel_the_table_is_the_static_one(self, monkeypatch):
+        shipped = web_panels.SIDECAR_PANELS["canopy"]
+        monkeypatch.setitem(
+            web_panels.SIDECAR_PANELS, "canopy", dataclasses.replace(shipped, agent_hop=False)
+        )
+
         assert web_auth.panel_tier_routes() == web_auth.PANEL_TIER_ROUTES
+
+    def test_the_shipped_panels_add_exactly_the_canopy_hop(self):
+        assert web_auth.panel_tier_routes() - web_auth.PANEL_TIER_ROUTES == SHIPPED_HOP_PAIRS
 
     @pytest.mark.usefixtures("sidecars")
     def test_opting_in_opens_exactly_the_three_pairs(self):
         added = web_auth.panel_tier_routes() - web_auth.PANEL_TIER_ROUTES
-        assert added == HOP_PAIRS
+        assert added - SHIPPED_HOP_PAIRS == HOP_PAIRS
         assert web_auth.PANEL_TIER_ROUTES <= web_auth.panel_tier_routes()
 
     @pytest.mark.usefixtures("sidecars")

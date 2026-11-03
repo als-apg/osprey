@@ -517,9 +517,10 @@ class TestTheFacilityImportOfATwoZeroExport:
     ) -> None:
         """One line, and the preset's records are gone.
 
-        The preset ships no ``classes.yaml``, so the import seeds the tree's
-        own classes and the build reaches the limits records rather than
-        stopping on a class nothing declares.
+        The preset's ``classes.yaml`` goes with the rest of the bundled
+        facility, and the import seeds the tree's own classes in its place, so
+        the build reaches the limits records rather than stopping on a class
+        nothing declares.
         """
         facility = served_repo["repo"] / FACILITY_DIR
         lines = served_repo["imported"].stderr.splitlines()
@@ -536,8 +537,10 @@ class TestTheFacilityImportOfATwoZeroExport:
             lines[0] == f"import mml: replaced the bundled example facility ({len(packaged)} files)"
         )
         assert not (facility / "records").exists()
-        assert not (PACKAGED_FACILITY / "classes.yaml").exists()
-        assert (facility / "classes.yaml").is_file()
+        assert (PACKAGED_FACILITY / "classes.yaml").is_file()
+        assert (facility / "classes.yaml").read_text(encoding="utf-8") != (
+            PACKAGED_FACILITY / "classes.yaml"
+        ).read_text(encoding="utf-8")
         assert (facility / "imported" / "mml" / "channels.yaml").is_file()
 
     @pytest.mark.parametrize("served_repo", ["spear3", "synthetic"], indirect=True)

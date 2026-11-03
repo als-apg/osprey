@@ -14,6 +14,8 @@ a panel's chip, the agent's hook and a refused write say the same thing:
 * a refusal the connector decided names its
   :class:`~osprey_connectors.errors.RefusalReason` and carries the connector's
   own words;
+* a write at the ``asked`` position that no person confirmed is refused
+  ``approval_missing``, main's word for an approval that left no record;
 * the session's own states keep their own short texts: no record to write
   under, no connector to write through, a write to the channel still in
   flight, an audit ledger that is down. They are states of this process, not
@@ -24,7 +26,7 @@ a panel's chip, the agent's hook and a refused write say the same thing:
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
@@ -42,8 +44,8 @@ OUTCOME_UNKNOWN = "unknown"
 
 #: The verdict reasons the session answers for its own binding, spelled as
 #: :data:`osprey_connectors.refusals.REASONS` spells them: the binding moved
-#: under the write (the record, the switch position, or a switch in flight),
-#: and the switch state could not be checked.
+#: under the write (the record, or a switch in flight), and the switch state
+#: could not be checked.
 REASON_SWITCHING = "switching"
 REASON_RECORD_UNAVAILABLE = "record_unavailable"
 
@@ -59,12 +61,18 @@ REASON_WRITE_ATTEMPT = "write_attempt"
 REASON_WRITE_LANDED = "write_landed"
 REASON_WRITE_UNCONFIRMED = "write_unconfirmed"
 
+#: A write at the ``asked`` position that carries no person's confirmation:
+#: main's word for an approval that left no record
+#: (``osprey.mcp_server.approval_record.APPROVAL_MISSING``).
+REASON_APPROVAL_MISSING = "approval_missing"
+
 #: The text each of the session's own states answers with, which is the
 #: envelope ``detail`` the client shows verbatim.
 MESSAGE_NO_RECORD = "no control target record; nothing written"
 MESSAGE_UNSERVABLE = "this control target cannot be served here; nothing written"
 MESSAGE_AUDIT_UNAVAILABLE = "the audit ledger is unavailable; nothing written"
 MESSAGE_WRITE_IN_PROGRESS = "a write to this channel is still in progress; nothing written"
+MESSAGE_CONFIRMATION_MISSING = "This write needs your confirmation; nothing written."
 MESSAGE_WRITTEN = "written"
 MESSAGE_UNCONFIRMED = "sent, not verified"
 MESSAGE_UNKNOWN = "outcome unknown — check the readback"
@@ -161,6 +169,9 @@ IDENTIFIER_TOKEN_CHARS = 128
 #: other tokens.
 CHANNEL_TOKEN_CHARS = 256
 
+#: Characters kept of the ``sessions=`` token: four session keys, joined.
+SESSIONS_TOKEN_CHARS = 160
+
 
 def identifier_token(value: Any, limit: int = IDENTIFIER_TOKEN_CHARS) -> str:
     """*value* as one token: whitespace runs joined by ``_``, bounded; ``-`` when empty."""
@@ -190,8 +201,22 @@ def value_token(text: str, room: int) -> str:
     return '"' + "".join(parts) + '"'
 
 
-def detail_tokens(address: str, value: Any, origin: Any) -> str:
-    """The audit record's ``detail``: ``channel= screen= rev= ca_user= ca_host= value_len= value=``.
+def detail_tokens(
+    address: str,
+    value: Any,
+    origin: Any,
+    *,
+    position: str | None = None,
+    confirmed: bool = False,
+    sessions: Sequence[str] = (),
+) -> str:
+    """The audit record's ``detail``.
+
+    ``channel= screen= rev= ca_user= ca_host= position= confirmed= sessions=
+    value_len= value=``: *position* is the verdict's (``asked``, ``allowed``,
+    or ``-`` for none), *confirmed* whether a person confirmed the write
+    (``yes``/``no``), *sessions* the session keys it was judged under, joined
+    by ``,`` (``-`` for none).
 
     Every token but ``value=`` is an identifier (:func:`identifier_token`).
     ``value=`` comes last and is the written text cut at
@@ -213,6 +238,9 @@ def detail_tokens(address: str, value: Any, origin: Any) -> str:
             f"rev={origin_token(origin, 'rev')}",
             f"ca_user={identifier_token(stamps.get('ca_user') or ABSENT)}",
             f"ca_host={identifier_token(stamps.get('ca_host') or ABSENT)}",
+            f"position={identifier_token(position or ABSENT)}",
+            f"confirmed={'yes' if confirmed else 'no'}",
+            f"sessions={identifier_token(','.join(sessions) or ABSENT, SESSIONS_TOKEN_CHARS)}",
             f"value_len={len(text)}",
             "value=",
         )

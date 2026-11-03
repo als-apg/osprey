@@ -375,6 +375,10 @@ export function initAgentLinks() {
 /** The panel that hosts the artifact gallery. */
 const ARTIFACTS_PANEL_ID = 'artifacts';
 
+// A panel handing focus back. The old name is read until canopy-screen-runtime
+// 0.2.0, whose viewers stop sending it.
+const FOCUS_EXIT_TYPES = new Set(['canopy-host-focus-exit', 'osprey-focus-exit']);
+
 /**
  * Make an artifact id in a chat agent answer show that artifact: the
  * gallery is asked to focus it through the hub's panel proxy (the request the
@@ -466,7 +470,7 @@ export function initIframePasteBridge() {
     // same-origin window from steering the operator's focus.
     if (
       e.data &&
-      e.data.type === 'osprey-focus-exit' &&
+      FOCUS_EXIT_TYPES.has(e.data.type) &&
       (e.data.direction === 'forward' || e.data.direction === 'backward')
     ) {
       moveFocusOutOfPanel(e.source, e.data.direction);

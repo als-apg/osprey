@@ -64,9 +64,13 @@ from collections.abc import Mapping
 #: It is not a credential: it is how a child resolves the directory its own
 #: records are filed under (see ``osprey_connectors.identity``), and stripping
 #: it makes that child answer under a name no reader looks for rather than fail.
+#: The panel token's variable, the one sensitive name an agent child is given
+#: back (see :func:`osprey.agent_runner.clean_env.add_panel_token`).
+PANEL_TOKEN_ENV = "OSPREY_PANEL_TOKEN"  # noqa: S105 -- names an environment variable
+
 SENSITIVE_ENV_EXACT: tuple[str, ...] = (
     "OSPREY_TERMINAL_SECRET",
-    "OSPREY_PANEL_TOKEN",
+    PANEL_TOKEN_ENV,
     "EVENT_DISPATCHER_TOKEN",
     "DISPATCH_WORKER_TOKEN",
 )

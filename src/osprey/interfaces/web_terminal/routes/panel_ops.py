@@ -43,6 +43,7 @@ from osprey.interfaces.web_terminal.routes.panels import (
     _mirror_agent_panel_activity,
     _prefix_path,
     _record_dock_report,
+    agent_hop_refusal,
 )
 from osprey.interfaces.web_terminal.routes.proxy import _resolve_panel_url
 
@@ -92,6 +93,10 @@ OP_REFUSAL_TEXT: dict[str, str] = {
     "invalid_url": (
         "a url is a path under the panel's own mount (/panel/<id>/...) or an http(s) "
         "URL on the panel's own server"
+    ),
+    "agent_hop_panel_url": (
+        "a panel driven by its own workspace tool takes no url, and no url may reach "
+        "such a panel's mount or process"
     ),
     "unknown_key": "no such tab",
     "unknown_tile": "no tile with this id in the current layout",
@@ -581,7 +586,12 @@ async def op_open(body: OpenOpRequest, request: Request):
     (:func:`~osprey.interfaces.panel_urls.member_navigation_url`): a path
     under the panel's own mount, or an http(s) URL on the panel's own server,
     which is rewritten into the mount. Anything else is refused
-    ``invalid_url`` and no frame is relayed. The admitted path is then
+    ``invalid_url`` and no frame is relayed. Before either, a url for an
+    agent-hop panel (CANOPY), under one's mount or on one's process is refused
+    ``agent_hop_panel_url`` (:func:`~osprey.interfaces.web_terminal.routes.panels.agent_hop_refusal`):
+    the agent's ``open_panel`` judges it too, but only for a friendlier error,
+    and a caller posting here directly meets the same rule. ``open_set``,
+    ``open_arrangement`` and ``drop`` name panels by id and take no url. The admitted path is then
     prefixed into the user's mount. A panel that is
     not on the rail joins it once the dock shows it. A panel in a pop-out
     window is brought forward in its window and the layout comes back unchanged.
@@ -592,6 +602,9 @@ async def op_open(body: OpenOpRequest, request: Request):
         args: dict = {"member": member}
         if body.url is not None:
             url = normalise_navigation_url(body.url)
+            hop_refusal = agent_hop_refusal(request, member, url)
+            if hop_refusal is not None:
+                raise OpRefused("agent_hop_panel_url", hop_refusal)
             refusal = navigation_url_refusal(url)
             if refusal is not None:
                 raise OpRefused("invalid_url", refusal)
