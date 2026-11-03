@@ -34,15 +34,30 @@ def _terms() -> dict[str | None, str]:
     return {t: posture_store._launch_pin_term(t) for t in [*CONTROL_TARGETS, None]}
 
 
-def test_an_absent_stamp_is_none_for_every_target(stamp):
-    stamp(None)
-    assert set(_terms().values()) == {"none"}
-
-
-@pytest.mark.parametrize("value", ["", "   ", "\t\n"])
-def test_a_blank_stamp_is_none_for_every_target(stamp, value):
+@pytest.mark.parametrize(
+    ("value", "term"),
+    [
+        pytest.param(None, "none", id="absent"),
+        pytest.param("", "none", id="blank-empty"),
+        pytest.param("   ", "none", id="blank-spaces"),
+        pytest.param("\t\n", "none", id="blank-whitespace"),
+        pytest.param("*=sandbox", "pinned", id="all-targets-sandbox"),
+        pytest.param("va=writes", "none", id="writes"),
+        pytest.param("*=writes", "none", id="all-targets-writes"),
+        pytest.param("mars=sandbox", "unreadable", id="unreadable-unknown-target"),
+        pytest.param("mars=writes", "unreadable", id="unreadable-unknown-target-writes"),
+        pytest.param("sandbox", "unreadable", id="unreadable-no-separator"),
+        pytest.param("live", "unreadable", id="unreadable-no-separator-target"),
+        pytest.param("=sandbox", "unreadable", id="unreadable-empty-target"),
+        pytest.param("live=bananas", "unreadable", id="unreadable-garbage-posture"),
+        pytest.param("live=", "unreadable", id="unreadable-empty-posture"),
+        pytest.param("live=SANDBOX", "unreadable", id="unreadable-case-mismatched-posture"),
+        pytest.param("live=sandbox=writes", "unreadable", id="unreadable-two-separators"),
+    ],
+)
+def test_a_stamp_reads_as_the_same_term_for_every_target(stamp, value, term):
     stamp(value)
-    assert set(_terms().values()) == {"none"}
+    assert set(_terms().values()) == {term}
 
 
 def test_a_target_sandbox_stamp_pins_that_target_only(stamp):
@@ -66,49 +81,15 @@ def test_the_stamp_written_by_launch_posture_stamp_reads_back_pinned(stamp):
     assert posture_store._launch_pin_term("live") == "none"
 
 
-def test_an_all_targets_sandbox_stamp_pins_every_target(stamp):
-    stamp("*=sandbox")
-    assert set(_terms().values()) == {"pinned"}
-
-
 def test_an_unnamed_target_stamp_from_the_writer_pins_every_target(stamp):
     stamp(posture_store.launch_posture_stamp(None, posture_store.POSTURE_SANDBOX))
     assert set(_terms().values()) == {"pinned"}
-
-
-def test_a_writes_stamp_is_none_for_every_target(stamp):
-    stamp("va=writes")
-    assert set(_terms().values()) == {"none"}
-
-
-def test_an_all_targets_writes_stamp_is_none_for_every_target(stamp):
-    stamp("*=writes")
-    assert set(_terms().values()) == {"none"}
 
 
 def test_surrounding_whitespace_is_tolerated(stamp):
     stamp("  live = sandbox \n")
     assert posture_store._launch_pin_term("live") == "pinned"
     assert posture_store._launch_pin_term("va") == "none"
-
-
-@pytest.mark.parametrize(
-    "value",
-    [
-        pytest.param("mars=sandbox", id="unknown-target"),
-        pytest.param("mars=writes", id="unknown-target-writes"),
-        pytest.param("sandbox", id="no-separator"),
-        pytest.param("live", id="no-separator-target"),
-        pytest.param("=sandbox", id="empty-target"),
-        pytest.param("live=bananas", id="garbage-posture"),
-        pytest.param("live=", id="empty-posture"),
-        pytest.param("live=SANDBOX", id="case-mismatched-posture"),
-        pytest.param("live=sandbox=writes", id="two-separators"),
-    ],
-)
-def test_an_unreadable_stamp_is_unreadable_for_every_target(stamp, value):
-    stamp(value)
-    assert set(_terms().values()) == {"unreadable"}
 
 
 def test_an_unknown_target_is_unreadable_even_for_a_named_known_target(stamp):

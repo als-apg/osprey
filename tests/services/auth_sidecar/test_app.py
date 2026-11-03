@@ -1039,15 +1039,17 @@ class TestOwnerAdmitted:
         """The distinction the member exists to express."""
         assert self._settings('["self","domain:example.com"]').owner_admitted("alice") is True
 
-    def test_a_card_handed_to_a_domain_alone_locks_its_owner_out(self) -> None:
-        assert self._settings('["domain:example.com"]').owner_admitted("alice") is False
-
-    def test_an_unreadable_rule_admits_no_owner(self) -> None:
-        assert self._settings("ANY").owner_admitted("alice") is False
-
-    def test_a_roster_card_does_not_admit_its_owner_by_this_route(self) -> None:
-        """``roster`` covers the owner as a roster member, which is `card_admits`."""
-        assert self._settings("any").owner_admitted("alice") is False
+    @pytest.mark.parametrize(
+        "access",
+        [
+            pytest.param('["domain:example.com"]', id="card-handed-to-a-domain-alone"),
+            pytest.param("ANY", id="unreadable-rule"),
+            # ``roster`` covers the owner as a roster member, which is `card_admits`.
+            pytest.param("any", id="roster-card"),
+        ],
+    )
+    def test_a_rule_that_does_not_name_the_owner_locks_the_owner_out(self, access) -> None:
+        assert self._settings(access).owner_admitted("alice") is False
 
     def test_an_unknown_card_reads_as_owner_only(self) -> None:
         """Documented rather than relied on: callers refuse an unknown card first."""

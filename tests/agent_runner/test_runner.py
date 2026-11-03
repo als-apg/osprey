@@ -323,8 +323,18 @@ async def test_run_query_passes_disallowed_tools_to_options(project_dir: Path) -
 
 
 @pytest.mark.asyncio
-async def test_run_query_uses_resolved_model_when_none(project_dir: Path) -> None:
-    """When model=None, the project's main model is resolved from its config."""
+@pytest.mark.parametrize(
+    ("model", "expected"),
+    [
+        # When model=None, the project's main model is resolved from its config.
+        pytest.param(None, "claude-haiku-4-5-20251001", id="resolved-when-none"),
+        # When model is explicitly provided it is passed through unchanged.
+        pytest.param("claude-sonnet-4-6", "claude-sonnet-4-6", id="explicit-when-supplied"),
+    ],
+)
+async def test_run_query_uses_the_model_it_settles_on(
+    project_dir: Path, model: str | None, expected: str
+) -> None:
     async_cm, _ = _make_mock_client()
     captured_options: list[ClaudeAgentOptions] = []
 
@@ -348,40 +358,9 @@ async def test_run_query_uses_resolved_model_when_none(project_dir: Path) -> Non
             return_value=set(),
         ),
     ):
-        await run_query(project_dir, "query", disallowed_tools=[], model=None)
+        await run_query(project_dir, "query", disallowed_tools=[], model=model)
 
-    assert captured_options[0].model == "claude-haiku-4-5-20251001"
-
-
-@pytest.mark.asyncio
-async def test_run_query_uses_explicit_model_when_supplied(project_dir: Path) -> None:
-    """When model is explicitly provided it is passed through unchanged."""
-    async_cm, _ = _make_mock_client()
-    captured_options: list[ClaudeAgentOptions] = []
-
-    def _capture_client(options: ClaudeAgentOptions) -> MagicMock:
-        captured_options.append(options)
-        return async_cm
-
-    with (
-        patch("osprey.agent_runner.runner.ClaudeSDKClient", side_effect=_capture_client),
-        patch(
-            "osprey.agent_runner.primitives.await_mcp_ready",
-            new=AsyncMock(return_value=[]),
-        ),
-        patch("osprey.agent_runner.primitives.sdk_env", return_value={"CLAUDECODE": ""}),
-        patch(
-            "osprey.agent_runner.primitives.resolve_default_model",
-            return_value="claude-haiku-4-5-20251001",
-        ),
-        patch(
-            "osprey.agent_runner.primitives.expected_mcp_servers",
-            return_value=set(),
-        ),
-    ):
-        await run_query(project_dir, "query", disallowed_tools=[], model="claude-sonnet-4-6")
-
-    assert captured_options[0].model == "claude-sonnet-4-6"
+    assert captured_options[0].model == expected
 
 
 @pytest.mark.asyncio

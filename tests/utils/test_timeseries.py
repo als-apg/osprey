@@ -228,19 +228,19 @@ class TestLttbDownsampleChannel:
         assert out_ts is timestamps
         assert out_vals is values
 
-    def test_returns_input_when_n_equals_max_points(self):
-        """The boundary: exactly ``max_points`` samples is already small enough."""
-        timestamps = [f"t{i}" for i in range(4)]
-        values = [float(i) for i in range(4)]
-        out_ts, out_vals = lttb_downsample_channel(timestamps, values, max_points=4)
-        assert out_ts is timestamps
-        assert out_vals is values
-
-    def test_returns_input_when_max_points_below_three(self):
-        """LTTB needs at least first/last plus one bucket; <3 is a no-op."""
-        timestamps = [f"t{i}" for i in range(100)]
-        values = [float(i) for i in range(100)]
-        out_ts, out_vals = lttb_downsample_channel(timestamps, values, max_points=2)
+    @pytest.mark.parametrize(
+        ("n", "max_points"),
+        [
+            # The boundary: exactly ``max_points`` samples is already small enough.
+            pytest.param(4, 4, id="n-equals-max-points"),
+            # LTTB needs at least first/last plus one bucket; <3 is a no-op.
+            pytest.param(100, 2, id="max-points-below-three"),
+        ],
+    )
+    def test_returns_input_when_no_reduction_applies(self, n, max_points):
+        timestamps = [f"t{i}" for i in range(n)]
+        values = [float(i) for i in range(n)]
+        out_ts, out_vals = lttb_downsample_channel(timestamps, values, max_points=max_points)
         assert out_ts is timestamps
         assert out_vals is values
 

@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from osprey.services.channel_finder.databases import FlatChannelDatabase, MiddleLayerDatabase
 
 _DB_PATCH = "osprey.interfaces.channel_finder.database_api._get_database"
@@ -126,15 +128,10 @@ class TestPipelineGating:
 class TestUnknownPipelineType:
     """The API refuses to serve a pipeline type it does not recognise."""
 
-    def test_unknown_pipeline_type_returns_400_naming_the_value(self, client):
+    @pytest.mark.parametrize("path", ["/api/statistics", "/api/info"])
+    def test_unknown_pipeline_type_returns_400_naming_the_value(self, client, path):
         client.app.state.pipeline_type = "telepathic"
-        resp = client.get("/api/statistics")
-        assert resp.status_code == 400
-        assert "telepathic" in resp.json()["detail"]
-
-    def test_unknown_pipeline_type_is_rejected_on_info_too(self, client):
-        client.app.state.pipeline_type = "telepathic"
-        resp = client.get("/api/info")
+        resp = client.get(path)
         assert resp.status_code == 400
         assert "telepathic" in resp.json()["detail"]
 

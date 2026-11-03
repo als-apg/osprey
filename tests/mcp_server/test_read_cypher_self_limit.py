@@ -56,14 +56,23 @@ def test_row_count_equal_to_the_querys_own_limit_carries_guidance(monkeypatch) -
     assert "count" in guidance.lower(), "the remedy must name a count() check"
 
 
-def test_fewer_rows_than_the_limit_stays_clean(monkeypatch) -> None:
-    payload = _call(monkeypatch, "MATCH (b:ChannelBinding) RETURN b.fullPv AS pv LIMIT 10", rows=3)
-
-    assert "guidance" not in payload, payload
-
-
-def test_a_query_without_a_limit_stays_clean(monkeypatch) -> None:
-    payload = _call(monkeypatch, "MATCH (b:ChannelBinding) RETURN b.fullPv AS pv", rows=3)
+@pytest.mark.parametrize(
+    ("query", "rows"),
+    [
+        pytest.param(
+            "MATCH (b:ChannelBinding) RETURN b.fullPv AS pv LIMIT 10", 3, id="fewer-rows-than-limit"
+        ),
+        pytest.param("MATCH (b:ChannelBinding) RETURN b.fullPv AS pv", 3, id="no-limit"),
+        # Aggregates and existence probes end in LIMIT 1 and always fill it.
+        pytest.param(
+            "MATCH (d:Resource) RETURN count(d) AS n LIMIT 1", 1, id="limit-one-is-intentional"
+        ),
+    ],
+)
+def test_a_query_that_was_not_cut_short_by_its_own_limit_stays_clean(
+    monkeypatch, query, rows
+) -> None:
+    payload = _call(monkeypatch, query, rows=rows)
 
     assert "guidance" not in payload, payload
 
@@ -75,13 +84,6 @@ def test_the_final_limit_is_the_one_that_counts(monkeypatch) -> None:
         "MATCH (b:ChannelBinding) RETURN b.fullPv AS pv LIMIT 50"
     )
     payload = _call(monkeypatch, query, rows=1)
-
-    assert "guidance" not in payload, payload
-
-
-def test_limit_one_is_an_intentional_single_row_and_stays_clean(monkeypatch) -> None:
-    """Aggregates and existence probes end in LIMIT 1 and always fill it."""
-    payload = _call(monkeypatch, "MATCH (d:Resource) RETURN count(d) AS n LIMIT 1", rows=1)
 
     assert "guidance" not in payload, payload
 

@@ -481,18 +481,18 @@ def test_post_json_sends_bearer_when_token_set(panel_token):
     assert req.headers["Content-type"] == "application/json"
 
 
-def test_post_json_omits_authorization_when_token_unset(panel_token):
-    """No carrier means no header at all — never a bare ``Bearer``."""
-    panel_token(None)
-    with patch("urllib.request.urlopen") as urlopen:
-        http.post_json("http://localhost:1/api", {"a": 1})
-    req = urlopen.call_args.args[0]
-    assert req.get_header("Authorization") is None
-
-
-@pytest.mark.parametrize("blank", ["", "   ", "\t\n"])
-def test_post_json_omits_authorization_when_token_blank(panel_token, blank):
-    """A blank carrier counts as absent — an uninterpolated compose var is ``""``."""
+@pytest.mark.parametrize(
+    "blank",
+    [
+        # No carrier means no header at all — never a bare ``Bearer``.
+        pytest.param(None, id="unset"),
+        # A blank carrier counts as absent — an uninterpolated compose var is ``""``.
+        pytest.param("", id="empty"),
+        pytest.param("   ", id="spaces"),
+        pytest.param("\t\n", id="tab-and-newline"),
+    ],
+)
+def test_post_json_omits_authorization_when_token_unset_or_blank(panel_token, blank):
     panel_token(blank)
     with patch("urllib.request.urlopen") as urlopen:
         http.post_json("http://localhost:1/api", {"a": 1})

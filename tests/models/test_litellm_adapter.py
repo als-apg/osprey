@@ -151,21 +151,25 @@ class TestSupportsNativeStructuredOutput:
     supports_response_schema() function, with fallback for OpenAI-compatible providers.
     """
 
-    def test_takes_litellm_model_string(self):
-        """anthropic declares the flag as None, so the decision defers to litellm.
-
-        litellm does not recognize the bare "claude-sonnet-4" model string, so
-        ``supports_response_schema`` reports False — i.e. OSPREY uses its
-        prompt-based fallback. Asserting the concrete decision (not just that a
-        bool came back) catches an inverted or short-circuited routing bug.
-        """
-        result = _supports_native_structured_output("anthropic/claude-sonnet-4", "anthropic")
-        assert result is False
-
-    def test_handles_unknown_model_gracefully(self):
-        """Returns False for unknown models instead of raising."""
-        # Unknown models should return False (use prompt-based fallback)
-        result = _supports_native_structured_output("unknown/nonexistent-model-xyz", "unknown")
+    @pytest.mark.parametrize(
+        ("model", "provider"),
+        [
+            # anthropic declares the flag as None, so the decision defers to litellm.
+            #
+            # litellm does not recognize the bare "claude-sonnet-4" model string, so
+            # ``supports_response_schema`` reports False — i.e. OSPREY uses its
+            # prompt-based fallback. Asserting the concrete decision (not just that a
+            # bool came back) catches an inverted or short-circuited routing bug.
+            pytest.param("anthropic/claude-sonnet-4", "anthropic", id="litellm-string"),
+            # Unknown models should return False (use prompt-based fallback)
+            # instead of raising.
+            pytest.param("unknown/nonexistent-model-xyz", "unknown", id="unknown-model"),
+        ],
+    )
+    def test_a_model_litellm_does_not_recognize_has_no_native_structured_output(
+        self, model, provider
+    ):
+        result = _supports_native_structured_output(model, provider)
         assert result is False
 
     @patch("osprey.models.providers.litellm_adapter.litellm")

@@ -127,13 +127,20 @@ class TestPreflightDevMode:
 class TestWheelBuildFailuresRaise:
     """A failed wheel build must not degrade into a released-code deploy."""
 
-    def test_missing_build_module_raises(self, editable_checkout, monkeypatch):
+    @pytest.mark.parametrize(
+        ("returncode", "stderr"),
+        [
+            pytest.param(1, "No module named build", id="missing-build-module"),
+            pytest.param(0, "", id="no-wheel-produced"),
+        ],
+    )
+    def test_a_build_that_yields_no_wheel_raises(
+        self, editable_checkout, monkeypatch, returncode, stderr
+    ):
         monkeypatch.setattr(
             subprocess,
             "run",
-            lambda *a, **k: subprocess.CompletedProcess(
-                a[0] if a else [], 1, "", "No module named build"
-            ),
+            lambda *a, **k: subprocess.CompletedProcess(a[0] if a else [], returncode, "", stderr),
         )
 
         with pytest.raises(DevModeUnavailableError):
@@ -169,16 +176,6 @@ class TestWheelBuildFailuresRaise:
                 _build_dev_wheel_cached(editable_checkout)
 
         assert len(calls) == 2, "failed builds must not be cached"
-
-    def test_build_producing_no_wheel_raises(self, editable_checkout, monkeypatch):
-        monkeypatch.setattr(
-            subprocess,
-            "run",
-            lambda *a, **k: subprocess.CompletedProcess(a[0] if a else [], 0, "", ""),
-        )
-
-        with pytest.raises(DevModeUnavailableError):
-            _build_dev_wheel_cached(editable_checkout)
 
 
 class TestStagingNeverSilentlyFallsBack:

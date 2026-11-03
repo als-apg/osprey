@@ -611,22 +611,25 @@ def test_accent_map_covers_every_token_accent_var() -> None:
     _assert_accent_map_covers_tokens()  # must not raise
 
 
-def test_accent_map_flags_an_unhandled_token_var(monkeypatch) -> None:
-    """A new /accent/ var outside the map and exclusions fails the run."""
+@pytest.mark.parametrize(
+    ("tokens_css", "match"),
+    [
+        # A new /accent/ var outside the map and exclusions fails the run.
+        pytest.param(
+            "--color-accent-brandnew: #fff;",
+            "neither overrides nor excludes",
+            id="unhandled-token-var",
+        ),
+        # An override key that no longer exists in tokens.css fails the run. This
+        # tokens.css has only one of the many overridden vars present.
+        pytest.param("--color-accent: #fff;", "absent from tokens.css", id="stale-override-key"),
+    ],
+)
+def test_accent_map_self_check_fails_the_run(monkeypatch, tokens_css, match) -> None:
     from docs.screenshots import contact_sheet as cs
 
-    monkeypatch.setattr(cs, "_tokens_css_text", lambda: "--color-accent-brandnew: #fff;")
-    with pytest.raises(RuntimeError, match="neither overrides nor excludes"):
-        cs._assert_accent_map_covers_tokens()
-
-
-def test_accent_map_flags_a_stale_override_key(monkeypatch) -> None:
-    """An override key that no longer exists in tokens.css fails the run."""
-    from docs.screenshots import contact_sheet as cs
-
-    # tokens.css with only one of the many overridden vars present.
-    monkeypatch.setattr(cs, "_tokens_css_text", lambda: "--color-accent: #fff;")
-    with pytest.raises(RuntimeError, match="absent from tokens.css"):
+    monkeypatch.setattr(cs, "_tokens_css_text", lambda: tokens_css)
+    with pytest.raises(RuntimeError, match=match):
         cs._assert_accent_map_covers_tokens()
 
 

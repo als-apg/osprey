@@ -498,13 +498,25 @@ async def test_expand_query_is_forwarded_in_advanced_params(value, ariel_registr
     assert kwargs["advanced_params"]["expand_query"] is value
 
 
-async def test_expand_query_omitted_when_unset(ariel_registry):
-    """Silence leaves the deployment's ``expand_by_default`` in charge."""
+@pytest.mark.parametrize(
+    ("query", "preference"),
+    [
+        # Silence leaves the deployment's ``expand_by_default`` in charge.
+        pytest.param("ts bpm", "expand_query", id="expand-query"),
+        # Silence leaves the deployment's ``settings.rerank`` in charge.
+        pytest.param("beam loss", "rerank", id="rerank"),
+        # Silence leaves the service to decide from image_embedding.enabled.
+        pytest.param("orbit kick", "include_images", id="include-images"),
+    ],
+)
+async def test_a_preference_left_unset_is_omitted_from_the_advanced_params(
+    ariel_registry, query, preference
+):
     ariel_registry()
 
-    kwargs = await _searched_with(query="ts bpm")
+    kwargs = await _searched_with(query=query)
 
-    assert "expand_query" not in kwargs["advanced_params"]
+    assert preference not in kwargs["advanced_params"]
 
 
 async def test_envelope_reports_the_applied_expansion(ariel_registry):
@@ -573,15 +585,6 @@ async def test_rerank_is_forwarded_in_advanced_params(value, ariel_registry):
     assert kwargs["advanced_params"]["rerank"] is value
 
 
-async def test_rerank_omitted_when_unset(ariel_registry):
-    """Silence leaves the deployment's ``settings.rerank`` in charge."""
-    ariel_registry()
-
-    kwargs = await _searched_with(query="beam loss")
-
-    assert "rerank" not in kwargs["advanced_params"]
-
-
 def test_docstring_gives_the_rerank_speed_tradeoff():
     """The agent can only choose rerank if the prompt tells it what it costs."""
     from osprey.mcp_server.ariel.tools.hybrid_search import hybrid_search
@@ -607,15 +610,6 @@ async def test_include_images_is_forwarded_in_advanced_params(value, ariel_regis
     kwargs = await _searched_with(query="orbit kick", include_images=value)
 
     assert kwargs["advanced_params"]["include_images"] is value
-
-
-async def test_include_images_omitted_when_unset(ariel_registry):
-    """Silence leaves the service to decide from image_embedding.enabled."""
-    ariel_registry()
-
-    kwargs = await _searched_with(query="orbit kick")
-
-    assert "include_images" not in kwargs["advanced_params"]
 
 
 def test_advanced_params_builder_carries_include_images_only_when_given():

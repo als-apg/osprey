@@ -516,24 +516,21 @@ def _deck_facts(ring: Iterable[object]) -> list[dict[str, object]]:
     return facts
 
 
-def test_the_exported_virtual_accelerator_matches_the_committed_export(
-    case: Case, export: Callable[[Case], Path]
+@pytest.mark.parametrize(
+    "suffix",
+    [
+        # The machine block, to the tolerance this module's docstring names.
+        pytest.param(".va.json", id="virtual-accelerator"),
+        # The orbit-response file, including which file it was read from.
+        pytest.param(".response.json", id="response"),
+    ],
+)
+def test_the_exported_file_matches_the_committed_export(
+    case: Case, export: Callable[[Case], Path], suffix: str
 ) -> None:
-    """The machine block, to the tolerance this module's docstring names."""
-    expected = json.loads(_committed_file(case, ".va.json").read_text(encoding="utf-8"))
+    expected = json.loads(_committed_file(case, suffix).read_text(encoding="utf-8"))
 
-    actual = _sibling(export(case), ".va.json")
-
-    assert _differences(_without_export(actual), _without_export(expected)) == []
-
-
-def test_the_exported_response_matches_the_committed_export(
-    case: Case, export: Callable[[Case], Path]
-) -> None:
-    """The orbit-response file, including which file it was read from."""
-    expected = json.loads(_committed_file(case, ".response.json").read_text(encoding="utf-8"))
-
-    actual = _sibling(export(case), ".response.json")
+    actual = _sibling(export(case), suffix)
 
     assert _differences(_without_export(actual), _without_export(expected)) == []
 

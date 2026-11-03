@@ -164,7 +164,15 @@ def test_a_framework_tool_is_refused_while_its_target_is_off(
     assert reason_of(channel_write(tmp_path, hook_runner, config)) == deny_text("switch_off", kind)
 
 
-@pytest.mark.parametrize("target", ["live", "va"])
+@pytest.mark.parametrize(
+    "target",
+    [
+        pytest.param("live", id="live"),
+        pytest.param("va", id="va"),
+        # An extra naming a framework tool was not appended, so it follows the session.
+        pytest.param("va", id="named-in-write-tools-stays-a-framework-tool"),
+    ],
+)
 def test_a_framework_tool_is_allowed_while_its_target_is_on(
     tmp_path, hook_runner, make_config, target
 ):
@@ -299,16 +307,6 @@ def test_a_facility_tool_is_always_refused_on_a_deployment_with_no_live_target(
     write_record(tmp_path, "va", on=["va", "live"])
 
     assert reason_of(call(tmp_path, hook_runner, config, tool)) == deny_text("target_unknown")
-
-
-def test_a_framework_tool_named_in_write_tools_stays_a_framework_tool(
-    tmp_path, hook_runner, make_config
-):
-    """An extra naming a framework tool was not appended, so it follows the session."""
-    config = make_config({"control_system": TWO_TARGETS})
-    write_record(tmp_path, "va", on=["va"])
-
-    assert channel_write(tmp_path, hook_runner, config) is None
 
 
 # ---------------------------------------------------------------------------

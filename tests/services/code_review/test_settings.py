@@ -348,9 +348,17 @@ def test_resolve_prompt_in_another_source_entry(repo):
     assert resolve_prompt(ReviewSettings(prompt="rules/review.md"), repo, {}) == "from rules"
 
 
-def test_resolve_refuses_missing_prompt(repo):
-    with pytest.raises(ReviewConfigError, match="data/code_review/absent.md"):
-        resolve_prompt(ReviewSettings(prompt="data/code_review/absent.md"), repo, {})
+@pytest.mark.parametrize(
+    ("prompt", "match"),
+    [
+        pytest.param("data/code_review/absent.md", "data/code_review/absent.md", id="missing"),
+        pytest.param("data/code_review", "code_review.prompt", id="directory"),
+        pytest.param("data/a\0b.md", "code_review.prompt", id="nul-in-path"),
+    ],
+)
+def test_resolve_refuses_an_unusable_prompt_path(repo, prompt, match):
+    with pytest.raises(ReviewConfigError, match=match):
+        resolve_prompt(ReviewSettings(prompt=prompt), repo, {})
 
 
 @pytest.mark.parametrize("text", ["", "  \n\t\n"], ids=["empty", "whitespace"])
@@ -360,11 +368,6 @@ def test_resolve_refuses_empty_prompt_as_it_refuses_a_missing_one(repo, text):
         ReviewConfigError, match="is empty: a reviewer with no rules judges nothing"
     ):
         resolve_prompt(ReviewSettings(prompt="data/code_review/empty.md"), repo, {})
-
-
-def test_resolve_refuses_directory_prompt(repo):
-    with pytest.raises(ReviewConfigError, match="code_review.prompt"):
-        resolve_prompt(ReviewSettings(prompt="data/code_review"), repo, {})
 
 
 def test_resolve_refuses_non_utf8_prompt(repo):
@@ -382,11 +385,6 @@ def test_resolve_refuses_unreadable_prompt(repo):
             resolve_prompt(ReviewSettings(), repo, {})
     finally:
         prompt.chmod(0o600)
-
-
-def test_resolve_refuses_nul_in_prompt_path(repo):
-    with pytest.raises(ReviewConfigError, match="code_review.prompt"):
-        resolve_prompt(ReviewSettings(prompt="data/a\0b.md"), repo, {})
 
 
 @pytest.mark.parametrize(

@@ -140,31 +140,29 @@ class TestRequestRefusedOnTheWire:
     """What a server refuses from a client that did not use build_request."""
 
     @pytest.mark.parametrize(
-        "values",
+        ("values", "match"),
         [
-            '{"A": NaN}',
-            '{"A": Infinity}',
-            '{"A": -Infinity}',
-            '{"A": 1e999}',
-            '{"A": "1.0"}',
-            '{"A": {"x": 1.0}}',
-            '{"A": [1.0]}',
-            '{"A": true}',
-            '{"A": null}',
+            pytest.param('{"A": NaN}', "'A'", id="entry-nan"),
+            pytest.param('{"A": Infinity}', "'A'", id="entry-infinity"),
+            pytest.param('{"A": -Infinity}', "'A'", id="entry-negative-infinity"),
+            pytest.param('{"A": 1e999}', "'A'", id="entry-overflowing-number"),
+            pytest.param('{"A": "1.0"}', "'A'", id="entry-string"),
+            pytest.param('{"A": {"x": 1.0}}', "'A'", id="entry-nested-object"),
+            pytest.param('{"A": [1.0]}', "'A'", id="entry-list"),
+            pytest.param('{"A": true}', "'A'", id="entry-bool"),
+            pytest.param('{"A": null}', "'A'", id="entry-null"),
+            pytest.param("not json", "JSON", id="not-json"),
+            pytest.param('{"A": 1.0', "JSON", id="truncated-json"),
+            pytest.param("{'A': 1.0}", "JSON", id="single-quoted-json"),
+            pytest.param("[1.0, 2.0]", "object", id="top-level-list"),
+            pytest.param("1.0", "object", id="top-level-number"),
+            pytest.param('"A"', "object", id="top-level-string"),
+            pytest.param("NaN", "object", id="top-level-nan"),
+            pytest.param("null", "object", id="top-level-null"),
         ],
     )
-    def test_non_finite_or_non_numeric_entry(self, values):
-        with pytest.raises(ModelRpcError, match="'A'"):
-            parse_request(_full_raw_request(values))
-
-    @pytest.mark.parametrize("values", ["not json", '{"A": 1.0', "{'A': 1.0}"])
-    def test_non_json_values(self, values):
-        with pytest.raises(ModelRpcError, match="JSON"):
-            parse_request(_full_raw_request(values))
-
-    @pytest.mark.parametrize("values", ["[1.0, 2.0]", "1.0", '"A"', "NaN", "null"])
-    def test_values_that_are_not_an_object(self, values):
-        with pytest.raises(ModelRpcError, match="object"):
+    def test_a_values_field_that_is_unusable_is_refused_naming_the_fault(self, values, match):
+        with pytest.raises(ModelRpcError, match=match):
             parse_request(_full_raw_request(values))
 
     @pytest.mark.parametrize("verb", ["frobnicate", "", "GET", "set "])

@@ -690,14 +690,15 @@ def test_list_members_stops_at_the_limit_and_reports_more():
     assert len(endpoint.requests) == 1
 
 
-def test_list_members_stops_on_a_repeated_token():
+@pytest.mark.parametrize("limit", [200, None], ids=["with-a-limit", "without-a-limit"])
+def test_list_members_stops_on_a_repeated_token(limit):
     endpoint = MembersEndpoint(
         {"members": [person(1)], "continuationToken": "loop"},
         {"members": [person(2)], "continuationToken": "loop"},
         {"members": [person(3)], "continuationToken": "loop"},
     )
 
-    members, more = members_client(endpoint).list_members(SERVICE_URL, CHANNEL, limit=200)
+    members, more = members_client(endpoint).list_members(SERVICE_URL, CHANNEL, limit=limit)
 
     assert [m["id"] for m in members] == ["29:1", "29:2"]
     assert more is False
@@ -758,20 +759,6 @@ def test_list_members_without_a_limit_asks_the_largest_page():
     endpoint = MembersEndpoint({"members": []})
     members_client(endpoint).list_members(SERVICE_URL, CHANNEL, limit=None)
     assert endpoint.params(0)["pageSize"] == "500"
-
-
-def test_list_members_without_a_limit_still_stops_on_a_repeated_token():
-    endpoint = MembersEndpoint(
-        {"members": [person(1)], "continuationToken": "loop"},
-        {"members": [person(2)], "continuationToken": "loop"},
-        {"members": [person(3)], "continuationToken": "loop"},
-    )
-
-    members, more = members_client(endpoint).list_members(SERVICE_URL, CHANNEL, limit=None)
-
-    assert [m["id"] for m in members] == ["29:1", "29:2"]
-    assert more is False
-    assert len(endpoint.requests) == 2
 
 
 def test_members_url_keeps_the_conversation_id_as_sent():

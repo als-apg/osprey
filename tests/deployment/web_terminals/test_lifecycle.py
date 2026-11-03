@@ -1578,24 +1578,22 @@ def test_passwd_recreate_carries_no_env_file_argument_without_a_dotenv(tmp_path,
     assert "--env-file" not in argv[0]
 
 
-def test_passwd_refuses_when_authentication_is_off(tmp_path, monkeypatch, fake_runtime):
-    """`auth.method: none` has no password to change — writing a hash would
-    produce a credential nothing ever checks, over a success message."""
+@pytest.mark.parametrize(
+    ("method", "match"),
+    [
+        # `auth.method: none` has no password to change — writing a hash would
+        # produce a credential nothing ever checks, over a success message.
+        pytest.param("none", "none", id="authentication-is-off"),
+        pytest.param("oidc", "identity provider", id="credentials-held-by-the-idp"),
+    ],
+)
+def test_passwd_refuses_when_there_is_no_local_password_to_change(
+    tmp_path, monkeypatch, fake_runtime, method, match
+):
     monkeypatch.chdir(tmp_path)
-    config_path = _write_config(tmp_path, _auth_config(["alice"], method="none"))
+    config_path = _write_config(tmp_path, _auth_config(["alice"], method=method))
 
-    with pytest.raises(ValueError, match="none"):
-        lifecycle.rotate_user_password(str(config_path), "alice", "alices-new-password")
-
-    assert not (tmp_path / AUTH_ENV_FILENAME).exists()
-    assert fake_runtime == []
-
-
-def test_passwd_refuses_when_credentials_are_held_by_the_idp(tmp_path, monkeypatch, fake_runtime):
-    monkeypatch.chdir(tmp_path)
-    config_path = _write_config(tmp_path, _auth_config(["alice"], method="oidc"))
-
-    with pytest.raises(ValueError, match="identity provider"):
+    with pytest.raises(ValueError, match=match):
         lifecycle.rotate_user_password(str(config_path), "alice", "alices-new-password")
 
     assert not (tmp_path / AUTH_ENV_FILENAME).exists()

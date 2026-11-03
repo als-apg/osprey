@@ -60,29 +60,31 @@ def _make_repo(path, tag, extra_commits=0):
 
 
 class TestDescribeParsing:
-    def test_exact_tag_is_the_bare_release(self):
-        assert version_module._pep440_from_describe("v2026.6.2-0-g1234567") == "2026.6.2"
-
-    def test_distance_becomes_a_post_release_with_the_commit(self):
-        assert (
-            version_module._pep440_from_describe("v2026.6.2-783-g83fda5e60")
-            == "2026.6.2.post783+g83fda5e60"
-        )
+    @pytest.mark.parametrize(
+        ("describe", "expected"),
+        [
+            pytest.param("v2026.6.2-0-g1234567", "2026.6.2", id="exact-tag-is-the-bare-release"),
+            pytest.param(
+                "v2026.6.2-783-g83fda5e60",
+                "2026.6.2.post783+g83fda5e60",
+                id="distance-becomes-a-post-release-with-the-commit",
+            ),
+            # The describe the runtime runs pins --abbrev=40; the parse trims to the
+            # 9 hex the build backend stamps, so clone size cannot change the string.
+            pytest.param(
+                "v2026.6.2-783-g0123456789abcdef0123456789abcdef01234567",
+                "2026.6.2.post783+g012345678",
+                id="full-width-node-is-sliced-to-the-build-stamps-width",
+            ),
+        ],
+    )
+    def test_describe_output_parses_to_the_pep440_version(self, describe, expected):
+        assert version_module._pep440_from_describe(describe) == expected
 
     def test_dirty_tree_is_marked_and_never_reads_as_a_release(self):
         parsed = version_module._pep440_from_describe("v2026.6.2-0-g1234567-dirty")
         assert parsed is not None
         assert parsed.startswith("2026.6.2.post0+g1234567.d")
-
-    def test_a_full_width_node_is_sliced_to_the_build_stamps_width(self):
-        # The describe the runtime runs pins --abbrev=40; the parse trims to the
-        # 9 hex the build backend stamps, so clone size cannot change the string.
-        assert (
-            version_module._pep440_from_describe(
-                "v2026.6.2-783-g0123456789abcdef0123456789abcdef01234567"
-            )
-            == "2026.6.2.post783+g012345678"
-        )
 
     def test_a_pre_release_tag_parses_like_any_other(self):
         # The beta channel's whole tag grammar: the PEP 440 segment rides the

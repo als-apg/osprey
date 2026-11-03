@@ -429,11 +429,55 @@ def test_the_state_section_reads_the_saved_deck_before_the_orbit(
     assert "'device_list', DeviceList" in body
 
 
-def test_the_cavity_state_is_the_decks_own_word_or_none(exporter_source: str) -> None:
-    body = _code(_function_body(exporter_source, "local_model_cavity"))
+@pytest.mark.parametrize(
+    ("function", "statement", "other_statement"),
+    [
+        pytest.param(
+            "local_model_cavity",
+            "state = 'none';",
+            "state = deblank(cavity(1, :));",
+            id="cavity-state-is-the-decks-own-word-or-none",
+        ),
+        pytest.param(
+            "local_energy_table",
+            "~any(isfinite(values))",
+            "mml_export:energy_table",
+            id="energy-table-refuses-a-conversion-that-answered-with-no-number",
+        ),
+        pytest.param(
+            "local_nominals",
+            "record.values = values;",
+            "record.units = units;",
+            id="nominal-records-the-units-the-read-answered-in",
+        ),
+        pytest.param(
+            "local_va_family",
+            "isfield(sampled.Monitor, 'monitor_inverse')",
+            "monitor.monitor_inverse = sampled.Monitor.monitor_inverse;",
+            id="monitor-inverse-is-lifted-into-the-monitor-block",
+        ),
+        pytest.param(
+            "local_va_family",
+            "DeviceList = local_device_list(AO, family);",
+            "block.device_list = DeviceList;",
+            id="device-list-is-the-order-every-row-of-the-block-is-in",
+        ),
+        # Read as no flags at all, a logical side's bad devices would come out good.
+        pytest.param(
+            "local_response_status",
+            "~(isnumeric(status) || islogical(status))",
+            "status = double(status(:));",
+            id="status-kept-as-true-and-false-is-still-a-status",
+        ),
+    ],
+)
+def test_the_exporter_source_carries_the_statements_behind_each_behaviour(
+    exporter_source: str, function: str, statement: str, other_statement: str
+) -> None:
+    body = _code(_function_body(exporter_source, function))
 
-    assert "state = 'none';" in body
-    assert "state = deblank(cavity(1, :));" in body
+    assert statement in body
+    assert other_statement in body
 
 
 def test_the_probe_reads_the_orbit_once_and_the_nominal_seam_twice(
@@ -1220,15 +1264,6 @@ def test_energy_table_is_written_exactly_as_it_was_sampled(exporter_source: str)
     assert "flat" not in body.lower()
 
 
-def test_energy_table_refuses_a_conversion_that_answered_with_no_number(
-    exporter_source: str,
-) -> None:
-    body = _code(_function_body(exporter_source, "local_energy_table"))
-
-    assert "~any(isfinite(values))" in body
-    assert "mml_export:energy_table" in body
-
-
 def test_energy_table_keeps_what_it_sampled_when_the_nominal_refuses(
     exporter_source: str,
 ) -> None:
@@ -1375,13 +1410,6 @@ def test_a_nominal_answered_in_physics_units_is_refused_for_the_hardware_nominal
     assert re.search(r"error\('mml_export:nominals'", body)
     assert body.index("recorded.(field) = record;") < body.index("mml_export:nominals")
     assert body.index("mml_export:nominals") < body.index("nominals.(field) = values;")
-
-
-def test_a_nominal_records_the_units_the_read_answered_in(exporter_source: str) -> None:
-    body = _code(_function_body(exporter_source, "local_nominals"))
-
-    assert "record.values = values;" in body
-    assert "record.units = units;" in body
 
 
 def test_a_nominal_records_the_at_block_the_read_went_through(
@@ -1554,12 +1582,31 @@ def test_a_family_name_of_more_than_one_row_is_refused_by_name(
     assert body.count("error('mml_export:lattice'") == 2
 
 
-def test_an_element_with_no_family_name_is_refused_by_name(exporter_source: str) -> None:
-    """A consumer binds an element by its name; one it cannot name it cannot bind."""
-    body = _code(_function_body(exporter_source, "local_famnames"))
+@pytest.mark.parametrize(
+    ("function", "condition", "error_pattern"),
+    [
+        # A consumer binds an element by its name; one it cannot name it cannot bind.
+        pytest.param(
+            "local_famnames",
+            "~ischar(name) || isempty(name)",
+            r"error\('mml_export:lattice'",
+            id="element-with-no-family-name",
+        ),
+        pytest.param(
+            "local_response",
+            "isempty(S) || ~isstruct(S)",
+            r"error\('mml_export:response'",
+            id="response-answer-that-is-no-matrix",
+        ),
+    ],
+)
+def test_an_answer_the_exporter_cannot_use_is_refused_by_name(
+    exporter_source: str, function: str, condition: str, error_pattern: str
+) -> None:
+    body = _code(_function_body(exporter_source, function))
 
-    assert "~ischar(name) || isempty(name)" in body
-    assert re.search(r"error\('mml_export:lattice'", body)
+    assert condition in body
+    assert re.search(error_pattern, body)
 
 
 def test_the_ring_parameter_elements_are_recorded_by_position(
@@ -1707,15 +1754,6 @@ def test_the_energy_verdict_is_lifted_into_the_setpoint_block(
     assert "setpoint.energy_deviation = sampled.Setpoint.energy_deviation;" in body
 
 
-def test_the_monitor_inverse_is_lifted_into_the_monitor_block(
-    exporter_source: str,
-) -> None:
-    body = _code(_function_body(exporter_source, "local_va_family"))
-
-    assert "isfield(sampled.Monitor, 'monitor_inverse')" in body
-    assert "monitor.monitor_inverse = sampled.Monitor.monitor_inverse;" in body
-
-
 def test_a_fact_that_was_never_read_is_absent_rather_than_empty(
     exporter_source: str,
 ) -> None:
@@ -1761,15 +1799,6 @@ def test_the_fields_of_a_family_are_the_ones_carrying_a_mode(
     assert "fieldnames(body)" in body
     assert "isstruct(value)" in body
     assert "isfield(value, 'Mode')" in body
-
-
-def test_the_device_list_is_the_order_every_row_of_the_block_is_in(
-    exporter_source: str,
-) -> None:
-    body = _code(_function_body(exporter_source, "local_va_family"))
-
-    assert "DeviceList = local_device_list(AO, family);" in body
-    assert "block.device_list = DeviceList;" in body
 
 
 def test_the_nominal_block_carries_the_frozen_nominal_keys(exporter_source: str) -> None:
@@ -2012,15 +2041,6 @@ def test_the_model_measurement_asks_for_no_dialog_no_archive_and_no_display(
     assert "file = '';" in model, "no file answered, and the read leaves it empty"
 
 
-def test_a_response_answer_that_is_no_matrix_is_refused_by_name(
-    exporter_source: str,
-) -> None:
-    body = _code(_function_body(exporter_source, "local_response"))
-
-    assert "isempty(S) || ~isstruct(S)" in body
-    assert re.search(r"error\('mml_export:response'", body)
-
-
 def test_a_response_block_names_the_two_families_it_was_measured_between(
     exporter_source: str,
 ) -> None:
@@ -2082,14 +2102,6 @@ def test_a_response_side_with_no_status_counts_every_device_good(
     assert "status = status * ones(nDev, 1);" in body, "one flag covers the whole side"
     assert "numel(status) ~= nDev" in body
     assert re.search(r"error\('mml_export:response'", body)
-
-
-def test_a_status_kept_as_true_and_false_is_still_a_status(exporter_source: str) -> None:
-    """Read as no flags at all, a logical side's bad devices would come out good."""
-    body = _code(_function_body(exporter_source, "local_response_status"))
-
-    assert "~(isnumeric(status) || islogical(status))" in body
-    assert "status = double(status(:));" in body
 
 
 def test_the_operating_point_is_held_to_the_device_list(exporter_source: str) -> None:

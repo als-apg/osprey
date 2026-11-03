@@ -207,23 +207,22 @@ def test_orm_params_accepts_a_span_larger_than_any_one_facilitys_band() -> None:
     assert params.span_a == 120.0
 
 
-@pytest.mark.parametrize("value", [float("inf"), float("-inf"), float("nan")])
-def test_orm_params_rejects_a_non_finite_span(value: float) -> None:
-    """With the upper bound gone, `gt=0` is the only magnitude constraint —
-    and `inf > 0` is true, so infinity would sail through and generate a
-    sweep of non-finite setpoints. Non-finite spans are rejected outright."""
+@pytest.mark.parametrize(
+    ("span_a", "num"),
+    [
+        # With the upper bound gone, `gt=0` is the only magnitude constraint —
+        # and `inf > 0` is true, so infinity would sail through and generate a
+        # sweep of non-finite setpoints. Non-finite spans are rejected outright.
+        pytest.param(float("inf"), 5, id="infinite-span"),
+        pytest.param(float("-inf"), 5, id="negative-infinite-span"),
+        pytest.param(float("nan"), 5, id="nan-span"),
+        pytest.param(0.0, 5, id="non-positive-span"),
+        pytest.param(2.0, 2, id="too-few-points"),
+    ],
+)
+def test_orm_params_rejects_an_unusable_span_or_point_count(span_a: float, num: int) -> None:
     with pytest.raises(ValidationError):
-        ORMParams(correctors=["hcm1"], readbacks=["bpm1"], span_a=value, num=5)
-
-
-def test_orm_params_rejects_a_non_positive_span() -> None:
-    with pytest.raises(ValidationError):
-        ORMParams(correctors=["hcm1"], readbacks=["bpm1"], span_a=0.0, num=5)
-
-
-def test_orm_params_rejects_too_few_points() -> None:
-    with pytest.raises(ValidationError):
-        ORMParams(correctors=["hcm1"], readbacks=["bpm1"], span_a=2.0, num=2)
+        ORMParams(correctors=["hcm1"], readbacks=["bpm1"], span_a=span_a, num=num)
 
 
 def test_orm_params_rejects_overlapping_correctors_and_bpms() -> None:

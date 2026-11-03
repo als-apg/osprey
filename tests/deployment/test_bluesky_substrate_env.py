@@ -277,15 +277,23 @@ class TestControlPlaneKeys:
         assert "orphan" in caplog.text
         assert "fail-closed" in caplog.text
 
-    def test_empty_private_key_is_refused_not_honoured(self, env_path, monkeypatch):
-        """Plaintext is not a supported mode — empty is unsatisfiable, not a choice.
-
-        The compose template guards this variable with `:?`, which rejects
-        empty exactly as it rejects unset, so an empty value cannot produce a
-        running stack. Refusing here turns a confusing abort deep inside
-        compose into an actionable message.
-        """
-        monkeypatch.setenv("BLUESKY_QSERVER_ZMQ_PRIVATE_KEY", "")
+    @pytest.mark.parametrize(
+        "variable",
+        [
+            # Plaintext is not a supported mode — empty is unsatisfiable, not a choice.
+            #
+            # The compose template guards this variable with `:?`, which rejects
+            # empty exactly as it rejects unset, so an empty value cannot produce a
+            # running stack. Refusing here turns a confusing abort deep inside
+            # compose into an actionable message.
+            "BLUESKY_QSERVER_ZMQ_PRIVATE_KEY",
+            # Symmetric: an empty public half cannot authenticate to a keyed manager.
+            "BLUESKY_QSERVER_ZMQ_PUBLIC_KEY",
+        ],
+        ids=["private-key", "public-key"],
+    )
+    def test_empty_key_is_refused_not_honoured(self, env_path, monkeypatch, variable):
+        monkeypatch.setenv(variable, "")
 
         with pytest.raises(RuntimeError, match="plaintext"):
             _ensure_bluesky_control_plane_keys(
@@ -295,15 +303,6 @@ class TestControlPlaneKeys:
     def test_empty_private_key_in_dotenv_is_refused_too(self, env_path):
         """Same ruling whichever source the empty value came from."""
         env_path.write_text("BLUESKY_QSERVER_ZMQ_PRIVATE_KEY=\n", encoding="utf-8")
-
-        with pytest.raises(RuntimeError, match="plaintext"):
-            _ensure_bluesky_control_plane_keys(
-                {"deployed_services": ["bluesky"]}, env_path=env_path
-            )
-
-    def test_empty_public_key_is_refused_too(self, env_path, monkeypatch):
-        """Symmetric: an empty public half cannot authenticate to a keyed manager."""
-        monkeypatch.setenv("BLUESKY_QSERVER_ZMQ_PUBLIC_KEY", "")
 
         with pytest.raises(RuntimeError, match="plaintext"):
             _ensure_bluesky_control_plane_keys(

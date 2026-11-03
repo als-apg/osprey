@@ -50,11 +50,23 @@ def test_native_source_system_constant():
     assert server.ARIEL_NATIVE_SOURCE_SYSTEM == "ARIEL MCP"
 
 
-def test_build_entry_url_renders_with_template():
-    """FR1/FR2: a facility entry renders the template with its id."""
+@pytest.mark.parametrize(
+    ("entry_id", "expected"),
+    [
+        # FR1/FR2: a facility entry renders the template with its id.
+        pytest.param("175353", "https://logbook.example/olog.php?id=175353", id="renders-id"),
+        # FR4: entry_id is URL-encoded with safe='' when substituted.
+        pytest.param(
+            "a b/c?d&e",
+            "https://logbook.example/olog.php?id=a%20b%2Fc%3Fd%26e",
+            id="url-encodes-id",
+        ),
+    ],
+)
+def test_build_entry_url_substitutes_the_id_into_the_template(entry_id, expected):
     with patch("osprey_connectors.config.get_config_value", _fake_config(GENERIC_TEMPLATE)):
-        url = server.build_entry_url("175353", "Facility eLog")
-    assert url == "https://logbook.example/olog.php?id=175353"
+        url = server.build_entry_url(entry_id, "Facility eLog")
+    assert url == expected
 
 
 def test_build_entry_url_source_system_defaults_to_facility():
@@ -62,13 +74,6 @@ def test_build_entry_url_source_system_defaults_to_facility():
     with patch("osprey_connectors.config.get_config_value", _fake_config(GENERIC_TEMPLATE)):
         url = server.build_entry_url("42")
     assert url == "https://logbook.example/olog.php?id=42"
-
-
-def test_build_entry_url_url_encodes_id():
-    """FR4: entry_id is URL-encoded with safe='' when substituted."""
-    with patch("osprey_connectors.config.get_config_value", _fake_config(GENERIC_TEMPLATE)):
-        url = server.build_entry_url("a b/c?d&e", "Facility eLog")
-    assert url == "https://logbook.example/olog.php?id=a%20b%2Fc%3Fd%26e"
 
 
 def test_build_entry_url_none_when_template_unset():

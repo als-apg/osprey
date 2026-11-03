@@ -222,19 +222,19 @@ class TestTheConfiguredInterval:
         """The state every unit test runs in: nothing primed, nothing raised."""
         assert reconcile_interval_seconds() == DEFAULT_RECONCILE_SECONDS
 
-    def test_a_configured_positive_number_is_honoured(self, monkeypatch):
+    @pytest.mark.parametrize(
+        ("configured", "expected"),
+        [
+            pytest.param(7.5, 7.5, id="positive-number"),
+            pytest.param(5, 5.0, id="integer-as-seconds"),
+        ],
+    )
+    def test_a_configured_number_is_honoured_as_seconds(self, monkeypatch, configured, expected):
         monkeypatch.setattr(
-            "osprey_connectors.config.get_config_value", lambda key, default=None: 7.5
+            "osprey_connectors.config.get_config_value", lambda key, default=None: configured
         )
 
-        assert reconcile_interval_seconds() == 7.5
-
-    def test_a_configured_integer_is_honoured_as_seconds(self, monkeypatch):
-        monkeypatch.setattr(
-            "osprey_connectors.config.get_config_value", lambda key, default=None: 5
-        )
-
-        assert reconcile_interval_seconds() == 5.0
+        assert reconcile_interval_seconds() == expected
 
     @pytest.mark.parametrize("configured", [0, -1, True, "2.0"])
     def test_anything_else_is_logged_and_the_default_kept(self, monkeypatch, caplog, configured):

@@ -285,19 +285,21 @@ class TestSpans:
 
 
 class TestPlaces:
-    def test_an_ancestor_hand_place_is_refined(self, tmp_path):
+    @pytest.mark.parametrize(
+        ("hand_place", "place", "place_from"),
+        [
+            pytest.param("SR", "SR/A", "span", id="ancestor-hand-place-is-refined"),
+            pytest.param("SR/B", "SR/B", "authored", id="authored-contradiction-is-recorded"),
+        ],
+    )
+    def test_a_hand_place_builds_and_records_where_it_came_from(
+        self, tmp_path, hand_place, place, place_from
+    ):
         files = _tree()
-        files["records/devices.yaml"][1]["place"] = "SR"
+        files["records/devices.yaml"][1]["place"] = hand_place
         qd = _devices(_ok(tmp_path, files))["SR/QD"]
-        assert qd["place"] == "SR/A"
-        assert qd["provenance"]["place_from"] == "span"
-
-    def test_an_authored_contradiction_builds_and_is_recorded(self, tmp_path):
-        files = _tree()
-        files["records/devices.yaml"][1]["place"] = "SR/B"
-        qd = _devices(_ok(tmp_path, files))["SR/QD"]
-        assert qd["place"] == "SR/B"
-        assert qd["provenance"]["place_from"] == "authored"
+        assert qd["place"] == place
+        assert qd["provenance"]["place_from"] == place_from
 
     def test_an_imported_contradiction_stops(self, tmp_path):
         files = _tree()

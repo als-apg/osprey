@@ -405,18 +405,16 @@ class TestRouting:
         )
         assert located(repo, entry_id)[0].parent == spool_dir(repo, "dispatch")
 
-    def test_a_blank_rung_falls_through(self, emitter, repo, monkeypatch):
+    @pytest.mark.parametrize(
+        "terminal_user",
+        [
+            pytest.param("   ", id="blank"),
+            pytest.param("../elsewhere", id="not-one-path-component"),
+        ],
+    )
+    def test_an_unusable_rung_falls_through(self, emitter, repo, monkeypatch, terminal_user):
         monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(repo))
-        monkeypatch.setenv("OSPREY_TERMINAL_USER", "   ")
-        monkeypatch.setenv("OSPREY_AUDIT_IDENTITY", "dispatch")
-        entry_id = emitter.emit_audit(
-            "limits", {}, decision="refused", subject="tool", reason="limits_violation"
-        )
-        assert located(repo, entry_id)[0].parent == spool_dir(repo, "dispatch")
-
-    def test_a_rung_that_is_not_one_path_component_falls_through(self, emitter, repo, monkeypatch):
-        monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(repo))
-        monkeypatch.setenv("OSPREY_TERMINAL_USER", "../elsewhere")
+        monkeypatch.setenv("OSPREY_TERMINAL_USER", terminal_user)
         monkeypatch.setenv("OSPREY_AUDIT_IDENTITY", "dispatch")
         entry_id = emitter.emit_audit(
             "limits", {}, decision="refused", subject="tool", reason="limits_violation"

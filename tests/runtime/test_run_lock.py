@@ -635,19 +635,15 @@ def forked_children():
 
 @pytest.mark.skipif(not hasattr(os, "fork"), reason="POSIX fork only")
 @pytest.mark.usefixtures("forked_children")
-def test_a_fork_during_lock_entry_waits_for_the_hold(repo: Path) -> None:
-    parent, child = _fork_during(repo, "write_holder")
-
-    assert parent[0] == "True", "the fork waited until the hold was published"
-    assert child == ["True", "True"], "the child holds no descriptor of the lock"
-    with lock("live"):
-        pass
-
-
-@pytest.mark.skipif(not hasattr(os, "fork"), reason="POSIX fork only")
-@pytest.mark.usefixtures("forked_children")
-def test_a_fork_between_the_open_and_the_flock_waits_too(repo: Path) -> None:
-    parent, child = _fork_during(repo, "flock")
+@pytest.mark.parametrize(
+    "stage",
+    [
+        pytest.param("write_holder", id="during-lock-entry"),
+        pytest.param("flock", id="between-the-open-and-the-flock"),
+    ],
+)
+def test_a_fork_during_lock_entry_waits_for_the_hold(repo: Path, stage: str) -> None:
+    parent, child = _fork_during(repo, stage)
 
     assert parent[0] == "True", "the fork waited until the hold was published"
     assert child == ["True", "True"], "the child holds no descriptor of the lock"

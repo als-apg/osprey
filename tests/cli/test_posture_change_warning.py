@@ -166,16 +166,31 @@ def test_no_change_from_today_stays_silent(tmp_path, caplog, root, layer):
     assert _posture_warnings(caplog) == []
 
 
-def test_render_with_no_retired_origin_is_skipped(tmp_path, caplog):
-    """Only the new key anywhere: nothing to compare against."""
-    path = _repo(
-        tmp_path,
-        {**_TWO_MACHINES, "control_system.writes": "allowed"},
-        {"control_system.writes": "never"},
-    )
+@pytest.mark.parametrize(
+    ("root", "layer", "tier"),
+    [
+        # Only the new key anywhere: nothing to compare against.
+        (
+            {**_TWO_MACHINES, "control_system.writes": "allowed"},
+            {"control_system.writes": "never"},
+            "never",
+        ),
+        # Every configured machine was armed: asked reaches nothing new.
+        (
+            {**_TWO_MACHINES, "control_system.writes_enabled": True},
+            {"control_system.writes": "asked"},
+            "asked",
+        ),
+    ],
+    ids=["no-retired-origin", "fully-armed-retired-root"],
+)
+def test_a_tier_with_nothing_new_to_compare_or_arm_stays_silent(
+    tmp_path, caplog, root, layer, tier
+):
+    path = _repo(tmp_path, root, layer)
     with caplog.at_level(logging.WARNING):
         document = _resolve(path)
-    assert _tier(document) == "never"
+    assert _tier(document) == tier
     assert _posture_warnings(caplog) == []
 
 
@@ -291,20 +306,6 @@ def test_an_asked_tier_over_an_unarmed_retired_root_warns_the_change(tmp_path, c
     [message] = _posture_warnings(caplog)
     assert "was never, now asked" in message
     assert "`control_system.writes` reads `asked`" in message
-
-
-def test_an_asked_tier_over_a_fully_armed_retired_root_stays_silent(tmp_path, caplog):
-    """Every configured machine was armed: asked reaches nothing new."""
-    path = _repo(
-        tmp_path,
-        {**_TWO_MACHINES, "control_system.writes_enabled": True},
-        {"control_system.writes": "asked"},
-    )
-    with caplog.at_level(logging.WARNING):
-        document = _resolve(path)
-
-    assert _tier(document) == "asked"
-    assert _posture_warnings(caplog) == []
 
 
 def test_a_never_tier_over_an_armed_retired_root_still_warns_the_change(tmp_path, caplog):

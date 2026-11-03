@@ -461,27 +461,24 @@ def test_a_non_html_lab_answer_keeps_its_upstream_policy(jupyter_proxy) -> None:
     assert resp.headers["content-security-policy"] == JUPYTER_CSP
 
 
-def test_labs_javascript_output_renderer_is_switched_off() -> None:
-    """Output carrying ``application/javascript`` has no renderer to run it."""
+@pytest.mark.parametrize(
+    "extension",
+    [
+        # Output carrying ``application/javascript`` has no renderer to run it.
+        pytest.param("@jupyterlab/javascript-extension", id="javascript"),
+        # Vega compiles spec expressions with ``new Function``; under the policy's
+        # ``'unsafe-eval'`` a kernel-emitted Vega-Lite output would be an eval sink.
+        pytest.param("@jupyterlab/vega5-extension", id="vega"),
+    ],
+)
+def test_labs_code_running_output_renderers_are_switched_off(extension) -> None:
     from osprey.interfaces.web_terminal.jupyter_sidecar import (
         LAB_DISABLED_EXTENSIONS,
         lab_page_config,
     )
 
-    assert "@jupyterlab/javascript-extension" in LAB_DISABLED_EXTENSIONS
-    assert lab_page_config()["disabledExtensions"]["@jupyterlab/javascript-extension"] is True
-
-
-def test_labs_vega_output_renderer_is_switched_off() -> None:
-    """Vega compiles spec expressions with ``new Function``; under the policy's
-    ``'unsafe-eval'`` a kernel-emitted Vega-Lite output would be an eval sink."""
-    from osprey.interfaces.web_terminal.jupyter_sidecar import (
-        LAB_DISABLED_EXTENSIONS,
-        lab_page_config,
-    )
-
-    assert "@jupyterlab/vega5-extension" in LAB_DISABLED_EXTENSIONS
-    assert lab_page_config()["disabledExtensions"]["@jupyterlab/vega5-extension"] is True
+    assert extension in LAB_DISABLED_EXTENSIONS
+    assert lab_page_config()["disabledExtensions"][extension] is True
 
 
 def test_labs_app_is_published_for_the_jupyter_tiles_theme_follower() -> None:

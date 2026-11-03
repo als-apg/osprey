@@ -118,11 +118,20 @@ def test_assert_valid_panel_does_not_raise_for_compliant_panel(tmp_path: Path) -
     assert_valid_panel(panel)  # no exception
 
 
-def test_compliant_panel_with_token_only_css_sibling_passes(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    "css",
+    [
+        pytest.param(".widget { color: var(--accent-base); }\n", id="token-only"),
+        # #12345 (5 digits) is not a valid color length; it must not be
+        # mis-read as #1234 or #123.
+        pytest.param(".a { --raw: #12345; }\n", id="wrong-length-hex-run"),
+    ],
+)
+def test_compliant_panel_with_css_sibling_passes(tmp_path: Path, css: str) -> None:
     panel = _write_panel(
         tmp_path / "panel",
         entry_html=_compliant_html(),
-        extra_files={"panel.css": ".widget { color: var(--accent-base); }\n"},
+        extra_files={"panel.css": css},
     )
     assert validate_panel(panel) == []
 
@@ -302,18 +311,6 @@ def test_html_numeric_entity_does_not_false_positive(tmp_path: Path) -> None:
     # though their digits are hex-shaped -- the (?<!&) guard must skip them.
     html = _compliant_html(body="<p>a&#160;b&#8212;c</p>")
     panel = _write_panel(tmp_path / "panel", entry_html=html)
-
-    assert validate_panel(panel) == []
-
-
-def test_wrong_length_hex_run_is_not_flagged(tmp_path: Path) -> None:
-    # #12345 (5 digits) is not a valid color length; it must not be
-    # mis-read as #1234 or #123.
-    panel = _write_panel(
-        tmp_path / "panel",
-        entry_html=_compliant_html(),
-        extra_files={"panel.css": ".a { --raw: #12345; }\n"},
-    )
 
     assert validate_panel(panel) == []
 

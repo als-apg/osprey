@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import logging
 
+import pytest
+
 from osprey.mcp_server.channel_finder_common import (
     load_cf_config,
     resolve_cf_path,
@@ -116,17 +118,15 @@ def test_a_missing_config_warns_and_returns_empty(tmp_path, monkeypatch, caplog)
     assert str(missing) in records[0].getMessage()
 
 
-def test_malformed_yaml_warns_and_returns_empty(tmp_path, monkeypatch, caplog):
-    config = _write_osprey_config(tmp_path, monkeypatch, "channel_finder: [unclosed\n")
-    caplog.set_level(logging.WARNING, logger=LOGGER_NAME)
-
-    assert load_cf_config(_logger()) == {}
-    messages = [r.getMessage() for r in _warnings(caplog)]
-    assert any(str(config) in m and "could not be loaded" in m for m in messages)
-
-
-def test_a_non_mapping_config_warns_and_returns_empty(tmp_path, monkeypatch, caplog):
-    config = _write_osprey_config(tmp_path, monkeypatch, "- a\n- b\n")
+@pytest.mark.parametrize(
+    "text",
+    [
+        pytest.param("channel_finder: [unclosed\n", id="malformed-yaml"),
+        pytest.param("- a\n- b\n", id="non-mapping-config"),
+    ],
+)
+def test_an_unloadable_config_warns_and_returns_empty(tmp_path, monkeypatch, caplog, text):
+    config = _write_osprey_config(tmp_path, monkeypatch, text)
     caplog.set_level(logging.WARNING, logger=LOGGER_NAME)
 
     assert load_cf_config(_logger()) == {}
