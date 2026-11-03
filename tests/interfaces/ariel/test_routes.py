@@ -2712,3 +2712,247 @@ def test_search_route_filters_a_third_party_mode_that_ignores_the_filter():
     assert response.status_code == 200, response.text
     assert [e["entry_id"] for e in response.json()["entries"]] == ["E1"]
     assert "entry_filter" not in recorder.kwargs
+
+
+# ---------------------------------------------------------------------------
+# C-FOLLOWS-UP and C-CREATE-RESULT on both create routes
+# ---------------------------------------------------------------------------
+
+_CREATE_ROUTES = ["json", "upload"]
+
+
+def _create_result(*, attachment_count=0, attachments_published=False):
+    from osprey.services.ariel_search.models import FacilityEntryCreateResult, SyncStatus
+
+    return FacilityEntryCreateResult(
+        entry_id="e-2",
+        source_system="Generic JSON",
+        sync_status=SyncStatus.PENDING_SYNC,
+        message="Entry e-2 created in Generic JSON",
+        attachment_count=attachment_count,
+        attachments_published=attachments_published,
+    )
+
+
+def _post_create(client, route, metadata, *, files=None):
+    """POST one entry through the named create route with the given metadata."""
+    import json as json_module
+
+    if route == "json":
+        return client.post(
+            "/api/entries",
+            json={"subject": "Follow-up", "details": "Body", "metadata": metadata},
+        )
+    return client.post(
+        "/api/entries/upload",
+        data={
+            "subject": "Follow-up",
+            "details": "Body",
+            "metadata": json_module.dumps(metadata),
+        },
+        files=files or [],
+    )
+
+
+def _hold_entries(mock_ariel_service, *ids):
+    async def get_entry(entry_id):
+        return {"entry_id": entry_id} if entry_id in ids else None
+
+    mock_ariel_service.repository.get_entry = AsyncMock(side_effect=get_entry)
+
+
+@pytest.mark.parametrize("route", _CREATE_ROUTES)
+def test_create_carries_follows_up_into_both_metadata_dicts(client, mock_ariel_service, route):
+    """A known parent id reaches the adapter request and ARIEL's local copy."""
+    _hold_entries(mock_ariel_service, "e-1")
+    mock_ariel_service.create_entry = AsyncMock(return_value=_create_result())
+
+    response = _post_create(client, route, {"follows_up": "e-1"})
+
+    assert response.status_code == 200
+    call = mock_ariel_service.create_entry.await_args
+    assert call.args[0].metadata["follows_up"] == "e-1"
+    assert call.kwargs["local_metadata"]["follows_up"] == "e-1"
+    mock_ariel_service.repository.get_entry.assert_awaited_once_with("e-1")
+
+
+@pytest.mark.parametrize("route", _CREATE_ROUTES)
+def test_create_local_only_fallback_keeps_follows_up(client, mock_ariel_service, route):
+    """A read-only adapter's local save still stores the follow-up."""
+    _hold_entries(mock_ariel_service, "e-1")
+    mock_ariel_service.create_entry = AsyncMock(side_effect=NotImplementedError("read-only"))
+    mock_ariel_service.repository.upsert_entry = AsyncMock()
+
+    response = _post_create(client, route, {"follows_up": "e-1"})
+
+    assert response.status_code == 200
+    stored = mock_ariel_service.repository.upsert_entry.await_args.args[0]
+    assert stored["metadata"]["follows_up"] == "e-1"
+
+
+@pytest.mark.parametrize("route", _CREATE_ROUTES)
+@pytest.mark.parametrize("metadata", [{}, {"follows_up": None}, {"follows_up": ""}])
+def test_create_without_follows_up_leaves_the_key_out(client, mock_ariel_service, route, metadata):
+    """A missing key, null and "" mean no follow-up: no lookup, no key in either dict."""
+    mock_ariel_service.repository.get_entry = AsyncMock(return_value=None)
+    mock_ariel_service.create_entry = AsyncMock(return_value=_create_result())
+
+    response = _post_create(client, route, metadata)
+
+    assert response.status_code == 200
+    call = mock_ariel_service.create_entry.await_args
+    assert "follows_up" not in call.args[0].metadata
+    assert "follows_up" not in call.kwargs["local_metadata"]
+    mock_ariel_service.repository.get_entry.assert_not_called()
+
+
+@pytest.mark.parametrize("route", _CREATE_ROUTES)
+@pytest.mark.parametrize("value", ["e-404", 7, False, ["e-1"], {"id": "e-1"}])
+def test_create_refuses_a_bad_follows_up_before_any_write(client, mock_ariel_service, route, value):
+    """An unknown id or a non-string value is the 422 naming follows_up; nothing is written."""
+    _hold_entries(mock_ariel_service, "e-1")
+    mock_ariel_service.create_entry = AsyncMock(return_value=_create_result())
+    mock_ariel_service.repository.upsert_entry = AsyncMock()
+
+    response = _post_create(client, route, {"follows_up": value})
+
+    assert response.status_code == 422
+    body = response.json()
+    assert body["code"] == "invalid_entry_field"
+    assert body["field"] == "follows_up"
+    mock_ariel_service.create_entry.assert_not_called()
+    mock_ariel_service.repository.upsert_entry.assert_not_called()
+
+
+def test_json_create_reports_no_attachments_published(client, mock_ariel_service):
+    """With no attachments, attachments_published is null."""
+    mock_ariel_service.create_entry = AsyncMock(return_value=_create_result())
+
+    response = _post_create(client, "json", {})
+
+    assert response.status_code == 200
+    assert response.json()["attachments_published"] is None
+
+
+def test_upload_without_files_reports_no_attachments_published(client, mock_ariel_service):
+    """An upload carrying no files reports null, whatever the result's default says."""
+    mock_ariel_service.create_entry = AsyncMock(return_value=_create_result())
+
+    response = _post_create(client, "upload", {})
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["attachment_count"] == 0
+    assert data["attachments_published"] is None
+
+
+@pytest.mark.parametrize("published", [True, False])
+def test_upload_reports_whether_attachments_were_published(client, mock_ariel_service, published):
+    """With files, attachments_published is the service's answer: True, or False if kept local."""
+    mock_ariel_service.create_entry = AsyncMock(
+        return_value=_create_result(attachment_count=1, attachments_published=published)
+    )
+
+    response = _post_create(client, "upload", {}, files=_upload_files())
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["attachment_count"] == 1
+    assert data["attachments_published"] is published
+
+
+def test_upload_local_only_fallback_reports_attachments_not_published(client, mock_ariel_service):
+    """A local-only save with files reports False: the files stayed in ARIEL."""
+    mock_ariel_service.create_entry = AsyncMock(side_effect=NotImplementedError("read-only"))
+    mock_ariel_service.repository.upsert_entry = AsyncMock()
+
+    with patch.object(routes, "_store_and_link_attachments", AsyncMock(return_value=1)):
+        response = _post_create(client, "upload", {}, files=_upload_files())
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["attachment_count"] == 1
+    assert data["attachments_published"] is False
+
+
+# ---------------------------------------------------------------------------
+# C-THREAD: GET /api/entries/{id}/thread
+# ---------------------------------------------------------------------------
+
+
+def _hold_thread(service, entries, children=()):
+    """The repository holds ``entries`` by id; ``get_follow_ups`` returns ``children``."""
+    held = {e["entry_id"]: e for e in entries}
+
+    async def get_entry(entry_id):
+        return held.get(entry_id)
+
+    service.repository.get_entry = AsyncMock(side_effect=get_entry)
+    service.repository.get_follow_ups = AsyncMock(return_value=list(children))
+
+
+def test_thread_returns_parent_and_children_oldest_first_as_rows(client, field_service):
+    """A follow-up with a held parent and two follow-ups of its own returns the
+    parent and both children as list rows, children in repository order."""
+    parent = _field_entry(entry_id="P-1")
+    entry = _field_entry(entry_id="E-1", metadata={"follows_up": "P-1"})
+    first = _field_entry(entry_id="C-1", timestamp=datetime(2025, 10, 6, 10, 0))
+    second = _field_entry(entry_id="C-2", timestamp=datetime(2025, 10, 6, 11, 0))
+    _hold_thread(field_service, [parent, entry], children=[first, second])
+
+    response = client.get("/api/entries/E-1/thread")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["parent_id"] == "P-1"
+    assert data["parent"]["entry_id"] == "P-1"
+    assert [c["entry_id"] for c in data["children"]] == ["C-1", "C-2"]
+    field_service.repository.get_follow_ups.assert_awaited_once_with("E-1")
+    # Same row builder as the list: every child carries the C-ROW shape.
+    row = client.get("/api/entries/E-1/thread").json()["children"][0]
+    assert _ROW_KEYS <= set(row)
+    assert set(data["parent"]) == set(row)
+
+
+def test_thread_keeps_parent_id_when_parent_is_not_held(client, field_service):
+    """An unresolved parent leaves ``parent`` null and ``parent_id`` set."""
+    entry = _field_entry(entry_id="E-1", metadata={"follows_up": "GONE-9"})
+    _hold_thread(field_service, [entry])
+
+    response = client.get("/api/entries/E-1/thread")
+
+    assert response.status_code == 200
+    assert response.json() == {"parent_id": "GONE-9", "parent": None, "children": []}
+
+
+def test_thread_of_unthreaded_entry_is_empty(client, field_service):
+    """An entry that follows nothing and has no follow-ups returns an empty thread."""
+    entry = _field_entry(entry_id="E-1")
+    _hold_thread(field_service, [entry])
+
+    response = client.get("/api/entries/E-1/thread")
+
+    assert response.status_code == 200
+    assert response.json() == {"parent_id": None, "parent": None, "children": []}
+
+
+def test_thread_never_lists_the_entry_as_its_own_child(client, field_service):
+    """The entry itself is dropped from its children even if the store returns it."""
+    entry = _field_entry(entry_id="E-1")
+    other = _field_entry(entry_id="C-1")
+    _hold_thread(field_service, [entry], children=[entry, other])
+
+    data = client.get("/api/entries/E-1/thread").json()
+
+    assert [c["entry_id"] for c in data["children"]] == ["C-1"]
+
+
+def test_thread_of_unknown_entry_is_404(client, field_service):
+    """An id the store does not hold returns 404."""
+    _hold_thread(field_service, [])
+
+    response = client.get("/api/entries/NOPE/thread")
+
+    assert response.status_code == 404
+    assert "not found" in response.json()["detail"]
+    field_service.repository.get_follow_ups.assert_not_awaited()

@@ -38,6 +38,7 @@ from osprey.interfaces.ariel.api.schemas import (
     SearchRequest,
     SearchResponse,
     StatusResponse,
+    ThreadResponse,
 )
 from osprey.utils.facility import to_facility_iso
 from osprey_connectors.config import get_facility_timezone
@@ -401,7 +402,7 @@ def _row_facets(entry: Mapping[str, Any], dimensions: list[FilterDimension]) -> 
 
 async def _row_responses(
     service: ARIELSearchService,
-    entries: list[Mapping[str, Any]],
+    entries: Sequence[Mapping[str, Any]],
     *,
     with_scores: bool = False,
 ) -> list[RowResponse]:
@@ -1217,6 +1218,37 @@ async def get_entry(request: Request, entry_id: str) -> EntryResponse:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
+@router.get("/entries/{entry_id}/thread", response_model=ThreadResponse)
+async def get_entry_thread(request: Request, entry_id: str) -> ThreadResponse:
+    """Get the parent and follow-ups of one entry as list rows (C-THREAD)."""
+    service = _require_service(request)
+
+    try:
+        entry = await service.repository.get_entry(entry_id)
+        if not entry:
+            raise HTTPException(status_code=404, detail=f"Entry {entry_id} not found")
+
+        parent_id = (entry.get("metadata") or {}).get("follows_up") or None
+        parent = await service.repository.get_entry(parent_id) if parent_id else None
+        children = [
+            c
+            for c in await service.repository.get_follow_ups(entry_id)
+            if c["entry_id"] != entry_id
+        ]
+
+        rows = await _row_responses(service, ([parent] if parent else []) + children)
+        return ThreadResponse(
+            parent_id=parent_id,
+            parent=rows[0] if parent else None,
+            children=rows[1:] if parent else rows,
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
 def _auth_required_response(exc: Exception) -> JSONResponse:
     """Build a 401 that asks the operator for logbook credentials.
 
@@ -1291,7 +1323,9 @@ async def _resolve_create_fields(
     The declared values are read from the client's ``metadata`` and checked in
     full, with each ``dynamic_select`` checked against the adapter's live
     choices; keys that are not declared fields are ignored. A draft's
-    ``session_metadata`` is kept as provenance for ARIEL's local copy only.
+    ``session_metadata`` is kept as provenance for ARIEL's local copy only. A
+    ``follows_up`` id is checked against the entries ARIEL holds (see
+    ``check_follows_up``) and carried into both metadata dicts.
 
     Args:
         service: The ARIEL search service.
@@ -1314,6 +1348,7 @@ async def _resolve_create_fields(
         EntryFieldDeclarationError,
         EntryFieldError,
         EntryFieldOptionsUnavailable,
+        check_follows_up,
         entry_field_descriptors,
         resolve_entry_write,
         validate_entry_fields,
@@ -1332,6 +1367,7 @@ async def _resolve_create_fields(
         declared = await validate_entry_fields(
             adapter, descriptors, client_metadata, partial=False, check_live=True, strict=False
         )
+        follows_up = await check_follows_up(client_metadata, service.repository.get_entry)
         session_metadata = client_metadata.get("session_metadata")
         return resolve_entry_write(
             descriptors,
@@ -1341,6 +1377,7 @@ async def _resolve_create_fields(
             tags=tags,
             created_via="ariel-web",
             session_metadata=session_metadata if isinstance(session_metadata, dict) else None,
+            follows_up=follows_up,
         )
     except (EntryFieldError, EntryFieldOptionsUnavailable, EntryFieldDeclarationError) as exc:
         return _entry_field_error_response(exc)
@@ -1415,6 +1452,11 @@ async def _publish_or_local(
         )
 
 
+def _attachments_published(result: FacilityEntryCreateResult) -> bool | None:
+    """``None`` for an entry without attachments, else whether the logbook took them."""
+    return result.attachments_published if result.attachment_count else None
+
+
 @router.post("/entries", response_model=EntryCreateResponse)
 async def create_entry(
     request: Request,
@@ -1473,6 +1515,8 @@ async def create_entry(
         message=result.message,
         sync_status=result.sync_status.value,
         source_system=result.source_system,
+        attachment_count=result.attachment_count,
+        attachments_published=_attachments_published(result),
     )
 
 
@@ -1746,6 +1790,7 @@ async def create_entry_with_attachments(
         sync_status=result.sync_status.value,
         source_system=result.source_system,
         attachment_count=count,
+        attachments_published=_attachments_published(result),
     )
 
 

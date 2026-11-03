@@ -29,7 +29,7 @@ def test_create_and_read_draft(tmp_path, monkeypatch):
 
     monkeypatch.setattr(drafts_mod, "_drafts_dir", lambda: tmp_path / "drafts")
 
-    draft_id = "draft-abc123"
+    draft_id = "draft-abc123abc123"
     data = {
         "draft_id": draft_id,
         "subject": "Test subject",
@@ -54,7 +54,7 @@ def test_get_nonexistent_returns_none(tmp_path, monkeypatch):
 
     monkeypatch.setattr(drafts_mod, "_drafts_dir", lambda: tmp_path / "drafts")
 
-    result = read_draft("draft-nonexistent")
+    result = read_draft("draft-00000000dead")
     assert result is None
 
 
@@ -67,14 +67,14 @@ def test_expired_drafts_cleaned_up(tmp_path, monkeypatch):
     monkeypatch.setattr(drafts_mod, "_drafts_dir", lambda: drafts_dir)
 
     # Write a draft file and backdate its mtime
-    draft_id = "draft-expired1"
+    draft_id = "draft-e0e0e0e0e0e1"
     filepath = drafts_dir / f"{draft_id}.json"
     filepath.write_text(json.dumps({"draft_id": draft_id, "subject": "Old"}))
     old_time = time.time() - DRAFT_TTL_SECONDS - 60
     os.utime(filepath, (old_time, old_time))
 
     # Write a fresh draft
-    fresh_id = "draft-fresh1"
+    fresh_id = "draft-f0f0f0f0f0f1"
     fresh_path = drafts_dir / f"{fresh_id}.json"
     fresh_path.write_text(json.dumps({"draft_id": fresh_id, "subject": "New"}))
 
@@ -124,11 +124,19 @@ async def test_api_create_and_get_draft(draft_app):
         assert draft["author"] == "Bob"
 
 
-async def test_api_get_nonexistent_returns_404(draft_app):
-    """GET /api/drafts/{bad_id} returns 404."""
+async def test_api_get_bad_id_returns_422(draft_app):
+    """GET /api/drafts/{bad_id} is refused: the id breaks C-DRAFT-ID."""
     transport = ASGITransport(app=draft_app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         resp = await client.get("/api/drafts/draft-doesnotexist")
+        assert resp.status_code == 422
+
+
+async def test_api_get_absent_draft_returns_404(draft_app):
+    """GET /api/drafts/{id} for a well-formed id with no draft returns 404."""
+    transport = ASGITransport(app=draft_app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.get("/api/drafts/draft-00000000dead")
         assert resp.status_code == 404
 
 
@@ -148,7 +156,7 @@ def test_read_draft_resolves_dir_without_dict_injection(tmp_path, monkeypatch):
     monkeypatch.setattr(ws_mod, "resolve_shared_data_root", lambda: tmp_path)
 
     # No NameError, no crash — just a clean "not found".
-    assert read_draft("draft-missing") is None
+    assert read_draft("draft-0000000dead0") is None
 
 
 @pytest.mark.usefixtures("example_entry_fields")
