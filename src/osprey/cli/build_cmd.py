@@ -2228,6 +2228,7 @@ def _render_project(
         facility_fill = fill_facility_settings(
             FacilityRecords(shared.facility),
             data_root / "facility",
+            repo_root,
             _rendered_config(render_dir),
             build_profile.config,
             build_profile.va_archiver,
