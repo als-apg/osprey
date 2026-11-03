@@ -164,7 +164,8 @@ idle. The build wires the hook that hands prompts to the watchdogs by itself.
 **5. See it work.** In a web-terminal session, type one of your risky test prompts; the dialog
 in the video at the top of this page appears.
 
-Until you answer, the agent's writes in that session are refused with ``session_held``. The
+Until you answer, the agent's writes in that session are refused with ``session_held``, and so
+are clicks on that terminal's CANOPY screens (:doc:`web-terminal/canopy`). The
 verdict and your answer are both in the audit trail, on the ``safety_watchdog`` surface.
 
 If a line saying ``Watchdog guard-circumvention: unavailable`` appears instead, the watchdog

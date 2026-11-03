@@ -1,7 +1,8 @@
 <div class="osprey-diagram">
-<svg viewBox="0 0 1020 368" role="img" aria-labelledby="canopy-panel-title canopy-panel-desc">
+<svg id="canopy-panel-svg" viewBox="0 0 1020 368" role="img" aria-labelledby="canopy-panel-title canopy-panel-desc">
   <title id="canopy-panel-title">Where a CANOPY screen gets its values, and where its writes go</title>
   <desc id="canopy-panel-desc">The CANOPY tab in your browser reaches your own CANOPY only through the web terminal, behind your login. Your CANOPY is two processes: a front process that serves the screens, Trace and the agent's screen tools, and a data process that reads and writes channels. The data process goes through the control session, the same path, verdict, limits and audit trail as every other OSPREY write, to the machine. The agent in the same terminal reaches the screen tools through the terminal's proxy; it opens, arranges and drafts screens and writes no channel there. Screens come from the shared library, which everyone sees read-only, and from your personal store, which only you see.</desc>
+  <style>#canopy-panel-svg .tn { font-size: 13px; } #canopy-panel-svg .ts { font-size: 10.5px; } #canopy-panel-svg .ta { font-size: 10px; } #canopy-panel-svg .te { font-size: 9.5px; }</style>
   <defs>
     <marker id="canopy-panel-arr" viewBox="0 0 8 6" refX="7" refY="3" markerWidth="8" markerHeight="6" orient="auto-start-reverse">
       <polygon points="0,0 8,3 0,6" fill="context-stroke"/>
@@ -10,19 +11,19 @@
 
   <!-- edges -->
   <line class="e" x1="315" y1="76" x2="315" y2="124" marker-end="url(#canopy-panel-arr)"/>
-  <line class="e" x1="180" y1="154" x2="238" y2="154" marker-end="url(#canopy-panel-arr)"/>
-  <line class="e" x1="390" y1="154" x2="450" y2="154" marker-end="url(#canopy-panel-arr)"/>
+  <line class="e" x1="180" y1="154" x2="228" y2="154" marker-end="url(#canopy-panel-arr)"/>
+  <line class="e" x1="400" y1="154" x2="450" y2="154" marker-end="url(#canopy-panel-arr)"/>
   <line class="e" x1="555" y1="180" x2="555" y2="194" marker-end="url(#canopy-panel-arr)"/>
   <line class="e-acc" x1="658" y1="224" x2="708" y2="224" marker-end="url(#canopy-panel-arr)"/>
-  <line class="e-acc" x1="860" y1="224" x2="898" y2="224" marker-end="url(#canopy-panel-arr)"/>
-  <line class="e e-dash" x1="502" y1="296" x2="502" y2="264" marker-end="url(#canopy-panel-arr)"/>
-  <line class="e e-dash" x1="608" y1="296" x2="608" y2="264" marker-end="url(#canopy-panel-arr)"/>
+  <line class="e-acc" x1="882" y1="224" x2="904" y2="224" marker-end="url(#canopy-panel-arr)"/>
+  <line class="e e-dash" x1="500" y1="296" x2="500" y2="264" marker-end="url(#canopy-panel-arr)"/>
+  <line class="e e-dash" x1="614" y1="296" x2="614" y2="264" marker-end="url(#canopy-panel-arr)"/>
   <text class="ta" x="325" y="104">writes no channel</text>
-  <text class="ta" x="785" y="272" text-anchor="middle">the same path as every write</text>
+  <text class="ta" x="796" y="272" text-anchor="middle">the same path as every write</text>
 
   <!-- the agent -->
-  <rect class="mask" x="240" y="20" width="150" height="56" rx="6"/>
-  <rect class="nb-in" x="240" y="20" width="150" height="56" rx="6"/>
+  <rect class="mask" x="230" y="20" width="170" height="56" rx="6"/>
+  <rect class="nb-in" x="230" y="20" width="170" height="56" rx="6"/>
   <text class="tn" x="315" y="42" text-anchor="middle">OSPREY agent</text>
   <text class="ts" x="315" y="58" text-anchor="middle">opens · arranges · drafts</text>
 
@@ -31,8 +32,8 @@
   <rect class="nb-in" x="40" y="126" width="140" height="56" rx="6"/>
   <text class="tn" x="110" y="148" text-anchor="middle">CANOPY tab</text>
   <text class="ts" x="110" y="164" text-anchor="middle">in your browser</text>
-  <rect class="mask" x="240" y="126" width="150" height="56" rx="6"/>
-  <rect class="nb" x="240" y="126" width="150" height="56" rx="6"/>
+  <rect class="mask" x="230" y="126" width="170" height="56" rx="6"/>
+  <rect class="nb" x="230" y="126" width="170" height="56" rx="6"/>
   <text class="tn" x="315" y="148" text-anchor="middle">web terminal</text>
   <text class="ts" x="315" y="164" text-anchor="middle">your login · its proxy</text>
 
@@ -49,22 +50,22 @@
   <text class="ts" x="555" y="234" text-anchor="middle">reads and writes channels</text>
 
   <!-- the control session and the machine -->
-  <rect class="mask" x="710" y="196" width="150" height="56" rx="6"/>
-  <rect class="nb nb-acc-stroke" x="710" y="196" width="150" height="56" rx="6"/>
-  <text class="tn" x="785" y="218" text-anchor="middle">control session</text>
-  <text class="ts" x="785" y="234" text-anchor="middle">verdict · limits · audit</text>
-  <rect class="mask" x="900" y="196" width="80" height="56" rx="6"/>
-  <rect class="nb-foc" x="900" y="196" width="80" height="56" rx="6"/>
-  <text class="tn" x="940" y="228" text-anchor="middle">machine</text>
+  <rect class="mask" x="710" y="196" width="172" height="56" rx="6"/>
+  <rect class="nb nb-acc-stroke" x="710" y="196" width="172" height="56" rx="6"/>
+  <text class="tn" x="796" y="218" text-anchor="middle">control session</text>
+  <text class="ts" x="796" y="234" text-anchor="middle">verdict · limits · audit</text>
+  <rect class="mask" x="906" y="196" width="86" height="56" rx="6"/>
+  <rect class="nb-foc" x="906" y="196" width="86" height="56" rx="6"/>
+  <text class="tn" x="949" y="228" text-anchor="middle">machine</text>
 
   <!-- where screens come from -->
-  <rect class="mask" x="452" y="296" width="100" height="52" rx="6"/>
-  <rect class="nb-st" x="452" y="296" width="100" height="52" rx="6"/>
-  <text class="tn" x="502" y="317" text-anchor="middle">library</text>
-  <text class="ts" x="502" y="333" text-anchor="middle">everyone sees it</text>
-  <rect class="mask" x="558" y="296" width="100" height="52" rx="6"/>
-  <rect class="nb-st" x="558" y="296" width="100" height="52" rx="6"/>
-  <text class="tn" x="608" y="317" text-anchor="middle">personal store</text>
-  <text class="ts" x="608" y="333" text-anchor="middle">only you see it</text>
+  <rect class="mask" x="446" y="296" width="108" height="52" rx="6"/>
+  <rect class="nb-st" x="446" y="296" width="108" height="52" rx="6"/>
+  <text class="tn" x="500" y="317" text-anchor="middle">library</text>
+  <text class="ts" x="500" y="333" text-anchor="middle">everyone sees it</text>
+  <rect class="mask" x="560" y="296" width="108" height="52" rx="6"/>
+  <rect class="nb-st" x="560" y="296" width="108" height="52" rx="6"/>
+  <text class="tn" x="614" y="317" text-anchor="middle">personal store</text>
+  <text class="ts" x="614" y="333" text-anchor="middle">only you see it</text>
 </svg>
 </div>

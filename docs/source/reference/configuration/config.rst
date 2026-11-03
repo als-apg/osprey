@@ -752,57 +752,11 @@ There is no ``url``, ``label`` or ``health_endpoint`` either, because the
 terminal starts the server itself, and no key that turns the agent's screen
 tools on or off, because those follow the panel.
 
-What the panel declares
-^^^^^^^^^^^^^^^^^^^^^^^
-
-A panel the terminal serves from a process of its own is described by one
-``SidecarPanel`` entry in OSPREY's panel registry
-(``osprey.profiles.sidecar_panels``). The fields below are **registry fields,
-not configuration keys**: no profile or ``config.yml`` sets them, and they are
-listed here because they explain what a build and a terminal do for a
-deployment that shows the panel. Each is false, empty or ``0`` unless a panel
-says otherwise.
-
-.. list-table::
-   :header-rows: 1
-   :widths: 20 36 44
-
-   * - Field
-     - What it means
-     - CANOPY's value
-   * - ``agent_hop``
-     - The agent of a terminal may reach the panel's MCP transport through
-       that terminal's own panel proxy. Without it the transport is refused
-       for every caller. The build then renders the agent's server entry from
-       the panel, so no profile states one.
-     - on: the build writes a ``canopy`` entry into ``.mcp.json``
-   * - ``mcp_allow``
-     - The tools on that transport the agent may call without being asked.
-     - the twelve tools that read or arrange the workspace: ``check``,
-       ``read_pv``, ``search_pvs``, ``screenshot``, ``get_screen``,
-       ``list_drafts``, ``list_widgets``, ``get_widget``, ``get_schema``,
-       ``list_collections``, ``get_workspace``, ``set_workspace``
-   * - ``mcp_ask``
-     - The tools that need the operator's approval on every call. A tool in
-       neither list is not offered to the agent.
-     - the seven authoring tools: ``new_screen``, ``patch_node``,
-       ``add_node``, ``remove_node``, ``convert_legacy``, ``delete_draft``,
-       ``request_push``
-   * - ``image_checks``
-     - Commands an image build runs from the deployment directory once the
-       deployment is copied in. A failing one fails the build.
-     - two, run by the CANOPY inside the image: the screen library against its
-       write-binding report, and the facility collections against the library
-   * - ``entry_pages``
-     - The panel's own application pages. The panel proxy serves every other
-       document the panel returns into a sandboxed origin, because it may be a
-       page an agent wrote.
-     - ``/``, ``/s/*``, ``/embed/*``, ``/trace/*``; a draft stays sandboxed
-   * - ``stop_grace_s``
-     - Seconds the panel needs between the stop signal and the kill. A
-       terminal's compose service gets the largest value among the panels it
-       shows as its stop grace period.
-     - ``34``, so a write already sent is finished, not killed
+The panel's other properties are fixed in OSPREY's panel registry
+(``osprey.profiles.sidecar_panels``), not set in configuration: which of its
+agent tools run without a prompt and which ask on every call (see
+:doc:`/how-to/web-terminal/canopy`), the two library checks an image build runs,
+and the 34 s a stopping terminal gives a write already sent.
 
 .. _config-dangerously-allow-bash:
 

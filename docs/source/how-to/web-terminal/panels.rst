@@ -91,7 +91,7 @@ because a slow backend often still serves what is loaded. Both clear on the
 next answer. A panel that has not answered since the page loaded keeps its
 greyed-out entry and does not open.
 
-This applies to panels that have a health check: Jupyter, SYSTEM, and any
+This applies to panels that have a health check: Jupyter, CANOPY, SYSTEM, and any
 URL-backed panel whose entry names a ``health_endpoint``.
 
 Clicking a dimmed entry closes its tile as usual, but the panel cannot be

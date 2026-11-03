@@ -291,27 +291,21 @@ the same way; cells a person writes are never reviewed
 A panel write
 -------------
 
-A click on a screen of a panel that writes --- CANOPY is the one OSPREY ships --- is a person's
-action, so no tool call and none of the checks are involved. Each click is judged by the same
-verdict as every write: tier, session hold, record, switch. At *asked* the panel asks in place:
-the click and its confirm are the prompt, and the write carries the confirmation; a write
-without it is refused ``approval_missing``. At *allowed* there is no dialog.
+A click on a CANOPY screen is a person's action, so no tool call and none of the checks are
+involved. Each click is judged by the same verdict as every write: tier, session hold, record,
+switch. At *asked* the panel shows a confirm, and the write carries it; a write without it is
+refused ``approval_missing``. At *allowed* there is no dialog.
 
-The panel's data process holds one control session, bound for its whole life to the machine
-the deployment's record named when the process started. Every click goes through that session
-in one order. A second write to a channel that already has one in flight is refused, with no
-queue. The write then leaves the same in-flight mark a Python run leaves, so a switch of the
-control target waits for it. The record must still name the machine the session was bound to;
-the verdict must allow the write; a switch in progress refuses it; and an attempt line is written to the audit trail before
-anything is sent --- a write whose attempt cannot be recorded is refused. The value then goes to
-the connector through the same checked write a Python run's write uses, and
-:ref:`the connector's checks <architecture-safety-chain-shared>` apply. A change of machine,
-or a switch moved to or from *off* on a machine with a separate write gateway, ends the data process, and
-the terminal starts a new one; any other position change or a hold reaches the open panel at once
-and restarts nothing. CANOPY's backend is a documented exception to the connector-host
-service: it holds its own connector in process and guards target switches with its session
-binding; moving it onto the connector-host service is follow-up work.
-See :doc:`/how-to/web-terminal/canopy`.
+The panel's data process holds one control session, bound for its whole life to the machine the
+record named when the process started. A click is refused when the record has moved on, when a
+switch of the control target is in progress, when the same channel already has a write in flight,
+or when its attempt line cannot be written to the audit trail first. Otherwise the value goes to
+the connector through the same checked write a Python run uses, and :ref:`the connector's checks
+<architecture-safety-chain-shared>` apply; while it is in flight, a target switch waits for it. A
+change of machine, or a switch moved to or from *off* where the machine has a separate write
+gateway, replaces the data process. Any other switch change or a hold reaches the open panel
+without a restart. Unlike the agent's servers, the data process holds its connector in its own
+process. See :doc:`/how-to/web-terminal/canopy`.
 
 .. _architecture-safety-chain-guarded-run:
 
@@ -497,7 +491,9 @@ gaps follow from that, and a deployment should know them:
   token, which only the agent's MCP client and hooks hold, and a sandboxed run has neither the
   token nor the port. The agent's own process still holds the token, so a same-user process
   that reads another's environment (``/proc`` on Linux) could fire a job without the approval
-  prompt. The job still runs as the real person, under their switch.
+  prompt, or call CANOPY's authoring tools without theirs. The job still runs as the real
+  person, under their switch; the CANOPY tools change only that person's own screens and push
+  requests, and write no channel.
 - **A direct login at the panel's own address.** Unnamed, as above, so it writes nothing.
 
 A panel write has a gap of the same kind, because its name belongs to the process, not to the

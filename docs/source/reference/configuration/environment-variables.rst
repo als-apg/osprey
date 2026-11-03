@@ -124,8 +124,7 @@ CANOPY payload (:doc:`/how-to/web-terminal/canopy`). Two variables steer the
        copies it into the deployment as ``canopy_payload/``; a directory that
        is missing or not a finished payload stops the build. The payload must
        be built at the CANOPY and PyDMConverter commits this OSPREY is proven
-       against; a payload built at any other commit stops the build. Pointing
-       it at a payload with a staged ``spec/`` replaces one without.
+       against; a payload built at any other commit stops the build.
        :ref:`canopy-upgrading` covers moving to a new CANOPY.
    * - ``OSPREY_CANOPY_PAYLOAD_CHECK``
      - ``0`` skips the staging step, for a build that needs no CANOPY, such
