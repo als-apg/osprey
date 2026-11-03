@@ -187,11 +187,10 @@ def served_channel_fill(
     The probe is the first readback by address in the served scope, written only
     for a render that carries the simulator's connector block: a key under the
     block would make the simulator a target of a deployment that has none. The
-    freshness check watches the first readback by address whose seed states a
-    ``noise`` block, the facility's own statement that the reading moves, and is
-    written only for a profile with a ``va_archiver:`` block that states no
-    channel and does not write the health category itself. The start set is
-    never derived.
+    freshness check watches the same channel, and is written only for a profile
+    with a ``va_archiver:`` block that states no channel and does not write the
+    health category itself. Its contract is that the recorder is writing, which
+    never reads whether the value moves. The start set is never derived.
 
     Args:
         records: The build's facility file's records.
@@ -242,19 +241,15 @@ def served_channel_fill(
     fill: dict[str, Any] = {}
     if serves_simulator and dotted_get(profile, SERVED_PROBE_KEYS[0]) is None:
         fill[SERVED_PROBE_KEYS[0]] = readbacks[0]["id"]
-    noisy = [
-        channel
-        for channel in readbacks
-        if (channel.get("simulation") or {}).get("noise") is not None
-    ]
     if (
         va_archiver is not None
-        and noisy
         and not stated_channel
         and not _addresses_freshness_category(profile_config)
     ):
         fill.update(
-            freshness_check_override(replace(va_archiver, freshness_channel=str(noisy[0]["id"])))
+            freshness_check_override(
+                replace(va_archiver, freshness_channel=str(readbacks[0]["id"]))
+            )
         )
     return fill
 

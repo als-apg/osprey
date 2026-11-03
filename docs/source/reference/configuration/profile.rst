@@ -1212,8 +1212,8 @@ presence is the decision, not its contents.
      - derived
      - Canary channel for a derived ``archiver_freshness`` health check. The
        build derives it from the facility file: the first readback by address
-       the served simulator holds whose seed states ``noise``; none derives no
-       check. A stated value is an override checked against the file (see
+       the served simulator holds (the probe's channel); none derives no check.
+       A stated value is an override checked against the file (see
        :doc:`/how-to/health-and-monitoring/configure-health-checks`).
    * - ``host``
      - ``localhost``

@@ -1,8 +1,8 @@
 """The build derives the channels a served simulator proves itself by from the facility file.
 
 Each proof relates the rendered value to the facility file a build wrote: the
-probe is the first readback by address the served simulator holds, the
-freshness check the first of those whose seed states ``noise``.
+probe and the freshness check are the first readback by address the served
+simulator holds.
 """
 
 from __future__ import annotations
@@ -38,10 +38,6 @@ VA_PROBE_KEY = SERVED_PROBE_KEYS[0]
 
 def _channel(address: str, **slots: Any) -> dict[str, Any]:
     return {"id": address, **slots}
-
-
-def _noisy(address: str, **slots: Any) -> dict[str, Any]:
-    return _channel(address, simulation={"nominal": 1.0, "noise": 0.1}, **slots)
 
 
 #: A render whose connector table carries the simulator.
@@ -109,19 +105,17 @@ def test_the_stand_in_proves_the_channel_the_simulator_proves(built: dict) -> No
     )
 
 
-def test_the_freshness_check_watches_the_first_noisy_readback(built: dict) -> None:
+def test_the_freshness_check_watches_the_first_readback(built: dict) -> None:
     (check,) = built["config"]["health"]["categories"]["archiver"]["checks"]
-    channel = built["records"].require("channel", check["channel"])
-    assert channel["simulation"]["noise"] is not None
-    noisy = [c for c in built["readbacks"] if (c.get("simulation") or {}).get("noise") is not None]
-    assert check["channel"] == min(str(c["id"]) for c in noisy)
+    assert check["channel"] == min(str(c["id"]) for c in built["readbacks"])
 
 
-def test_a_quiet_facility_gets_a_probe_and_no_health_check() -> None:
+def test_a_quiet_facility_gets_the_probe_channel_as_its_health_check() -> None:
     document = {"channels": [_channel("B:RB"), _channel("A:RB")]}
     fill = _fill(document, va_archiver=VAArchiverConfig())
     assert fill[VA_PROBE_KEY] == "A:RB"
-    assert FRESHNESS_CONFIG_KEY not in fill
+    (check,) = fill[FRESHNESS_CONFIG_KEY]
+    assert check["channel"] == "A:RB"
 
 
 def test_a_facility_with_no_readback_derives_nothing_and_says_so(
@@ -157,19 +151,19 @@ def test_a_stated_probe_is_not_derived_over() -> None:
 
 
 def test_a_stated_freshness_channel_is_kept() -> None:
-    document = {"channels": [_noisy("A:RB"), _noisy("B:RB")]}
+    document = {"channels": [_channel("A:RB"), _channel("B:RB")]}
     archiver = replace(VAArchiverConfig(), freshness_channel="B:RB")
     assert FRESHNESS_CONFIG_KEY not in _fill(document, va_archiver=archiver)
 
 
 def test_a_profile_that_writes_the_category_owns_it() -> None:
-    document = {"channels": [_noisy("A:RB")]}
+    document = {"channels": [_channel("A:RB")]}
     profile = {"health.categories.archiver.checks": []}
     assert FRESHNESS_CONFIG_KEY not in _fill(document, profile, VAArchiverConfig())
 
 
 def test_no_archive_block_gets_no_health_check() -> None:
-    assert FRESHNESS_CONFIG_KEY not in _fill({"channels": [_noisy("A:RB")]})
+    assert FRESHNESS_CONFIG_KEY not in _fill({"channels": [_channel("A:RB")]})
 
 
 def test_a_device_assigned_channel_of_an_unserved_model_is_out_of_scope() -> None:
