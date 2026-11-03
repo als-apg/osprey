@@ -1088,7 +1088,6 @@ def test_a_module_in_an_interface_without_tests_widens_to_every_test() -> None:
         (WT + "vendor/xterm.js", "vitest"),
         # What the mapping cannot place widens pytest to the sweep.
         ("tests/conftest.py", "pytest"),
-        ("tests/cli/conftest.py", "pytest"),
         ("tests/_shared_contract.py", "pytest"),
         ("src/osprey/lonely/thing.py", "pytest"),
         ("src/osprey/__init__.py", "pytest"),
@@ -1998,6 +1997,8 @@ def test_list_probes_nothing(
 ) -> None:
     for need in check.NEED_PROBES:
         monkeypatch.setitem(check.NEED_PROBES, need, _faulting("free space", "listed"))
+    # The recorder's root is no repository; a derived scope is computed from its files.
+    monkeypatch.setattr(check, "repository_files", lambda worktree=False: [])
     assert check.main(words) == 0
     assert recorder.calls == []
 
@@ -2772,7 +2773,7 @@ def test_every_pytest_run_on_the_synced_venv_needs_a_current_install() -> None:
         if _runs_pytest(c)
         and tuple(c.argv[:3]) == fw.UV_RUN
         and "--isolated" not in c.argv
-        and c.id != "invariant-tests"
+        and c.kind != "invariant"
     ]
     assert {c.id for c in synced} >= {"pytest", "pytest-pty", "pytest-wallclock", "app-check-js"}
     assert [c.id for c in synced if "install-current" not in c.needs] == []
