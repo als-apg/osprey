@@ -188,15 +188,20 @@ describe('parseHash: aliases', () => {
     });
   });
 
-  test('#create and #create?draft open compose', () => {
+  test('#create and #create?draft open compose without writing narrowView', () => {
     expect(router.parseHash('#create')).toEqual({
       compose: { draft: null },
-      narrowView: 'list',
       rerank: 'now',
     });
     expect(router.parseHash('#create?draft=D%201')).toEqual({
       compose: { draft: 'D 1' },
-      narrowView: 'list',
+      rerank: 'now',
+    });
+  });
+
+  test('#create?draft= with an empty value is a new entry', () => {
+    expect(router.parseHash('#create?draft=')).toEqual({
+      compose: { draft: null },
       rerank: 'now',
     });
   });
@@ -359,6 +364,125 @@ describe('initRouter: canonical hash and write-back', () => {
     go('/#create');
     hashchange();
     expect(changed).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('compose in the hash (C-HASH)', () => {
+  test('P2 canonical hashes are unchanged', () => {
+    const base = store.getState();
+    const cases = /** @type {Array<[any, string]>} */ ([
+      [base, '#box=all'],
+      [{ ...base, mailbox: 'drafts', sel: 'x' }, '#box=drafts&sel=x'],
+      [{ ...base, mailbox: { saved: 'x' } }, '#q=&box=saved%3Ax&f=%7B%7D'],
+      [
+        { ...base, query: 'rf', mode: 'keyword', mailbox: 'mine', sel: 'E9', att: 'A1' },
+        '#q=rf&mode=keyword&box=mine&sel=E9&att=A1',
+      ],
+      [{ ...base, filter: { tags: ['t'] } }, `#box=all&f=${encodeURIComponent('{"tags":["t"]}')}`],
+    ]);
+    for (const [state, hash] of cases) {
+      expect(router.serializeState(/** @type {any} */ (state))).toBe(hash);
+      // A new-entry or follow-up sheet never reaches the hash.
+      for (const compose of [{ draft: null }, { draft: null, followsUp: 'E1' }]) {
+        expect(router.serializeState(/** @type {any} */ ({ ...state, compose }))).toBe(hash);
+      }
+      expect('compose' in router.parseHash(hash)).toBe(false);
+    }
+  });
+
+  test('a draft is serialised last, as compose=draft:<id>, URL-encoded', () => {
+    const s = {
+      ...store.getState(),
+      sel: 'E1',
+      att: 'A1',
+      compose: { draft: 'draft-0123456789ab' },
+    };
+    expect(router.serializeState(s)).toBe(
+      '#box=all&sel=E1&att=A1&compose=draft%3Adraft-0123456789ab'
+    );
+  });
+
+  test('a non-draft-<hex> id such as D1 round-trips', () => {
+    for (const draft of ['D1', 'a b&c=d', 'draft:x']) {
+      const hash = router.serializeState({ ...store.getState(), compose: { draft } });
+      const patch = router.parseHash(hash);
+      expect(patch.compose).toEqual({ draft });
+      expect(router.serializeState({ ...store.getState(), ...patch })).toBe(hash);
+    }
+    expect(router.parseHash('#compose=draft:D1').compose).toEqual({ draft: 'D1' });
+  });
+
+  test('a malformed compose value is ignored', () => {
+    for (const hash of [
+      '#box=all&compose=D1',
+      '#box=all&compose=draft%3A',
+      '#compose=',
+      '#compose=Draft:D1',
+    ]) {
+      expect('compose' in router.parseHash(hash)).toBe(false);
+    }
+  });
+
+  test('a canonical hash without compose leaves an open new-entry or follow-up sheet', () => {
+    router.initRouter();
+    for (const compose of [{ draft: null }, { draft: null, followsUp: 'E1' }]) {
+      store.setState({ compose });
+      go('/#q=other&box=all');
+      hashchange();
+      expect(store.getState()).toMatchObject({ query: 'other', compose });
+      go('/#q=again&box=drafts');
+      hashchange();
+      expect(store.getState().compose).toEqual(compose);
+      store.setState({ compose: null, query: '' });
+    }
+  });
+
+  test('a draft hash opens the draft at init without writing narrowView', () => {
+    go('/#box=drafts&compose=draft%3AD1');
+    router.initRouter();
+    expect(store.getState()).toMatchObject({ compose: { draft: 'D1' }, narrowView: 'list' });
+    expect(window.location.hash).toBe('#box=drafts&compose=draft%3AD1');
+  });
+
+  test('Back/Forward away from a compose=draft hash closes the sheet', () => {
+    go('/#box=all&compose=draft%3AD1');
+    router.initRouter();
+    expect(store.getState().compose).toEqual({ draft: 'D1' });
+    go('/#box=all');
+    hashchange();
+    expect(store.getState().compose).toBeNull();
+    expect(window.location.hash).toBe('#box=all');
+    // ... and forward again reopens it.
+    go('/#box=all&compose=draft%3AD1');
+    hashchange();
+    expect(store.getState().compose).toEqual({ draft: 'D1' });
+  });
+
+  test('Back/Forward from one draft hash to another switches drafts', () => {
+    go('/#compose=draft%3AD1');
+    router.initRouter();
+    go('/#box=all&compose=draft%3AD2');
+    hashchange();
+    expect(store.getState().compose).toEqual({ draft: 'D2' });
+  });
+
+  test('closing a draft in the store drops compose from the hash, and a later hashchange keeps a new sheet', () => {
+    go('/#compose=draft%3AD1');
+    router.initRouter();
+    store.setState({ compose: { draft: null } });
+    expect(window.location.hash).toBe('#box=all');
+    go('/#q=x&box=all');
+    hashchange();
+    expect(store.getState().compose).toEqual({ draft: null });
+  });
+
+  test('#create?draft canonicalises to compose=draft and keeps the pane', () => {
+    store.setState({ sel: 'E1', narrowView: 'reader' });
+    router.initRouter();
+    go('/#create?draft=D1');
+    hashchange();
+    expect(store.getState()).toMatchObject({ compose: { draft: 'D1' }, narrowView: 'reader' });
+    expect(window.location.hash).toBe('#box=all&sel=E1&compose=draft%3AD1');
   });
 });
 

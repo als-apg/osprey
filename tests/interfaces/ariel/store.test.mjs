@@ -27,6 +27,7 @@ describe('initial state', () => {
       sel: null,
       att: null,
       compose: null,
+      draftsRev: 0,
       drawer: null,
       railCollapsed: false,
       stacked: false,
@@ -221,5 +222,34 @@ describe('force', () => {
     store.subscribe(fn);
     store.setState({ query: '' }, { force: false });
     expect(fn).not.toHaveBeenCalled();
+  });
+});
+
+describe('compose and draftsRev (C-COMPOSE)', () => {
+  test('a follow-up is a distinct compose value from a new entry', () => {
+    const seen = /** @type {string[][]} */ ([]);
+    store.subscribe((_s, _p, changed) => seen.push([...changed]));
+    store.setState({ compose: { draft: null } });
+    store.setState({ compose: { draft: null, followsUp: 'E1' } });
+    store.setState({ compose: { draft: null, followsUp: 'E1' } });
+    store.setState({ compose: { draft: 'D1' } });
+    expect(seen).toEqual([['compose'], ['compose'], ['compose']]);
+    expect(store.getState().compose).toEqual({ draft: 'D1' });
+  });
+
+  test('opening and closing the sheet leaves narrowView alone', () => {
+    store.setState({ narrowView: 'reader' });
+    store.setState({ compose: { draft: null } });
+    store.setState({ compose: null });
+    expect(store.getState().narrowView).toBe('reader');
+  });
+
+  test('bumping draftsRev notifies with draftsRev changed', () => {
+    const seen = /** @type {string[][]} */ ([]);
+    store.subscribe((_s, _p, changed) => seen.push([...changed]));
+    store.setState({ draftsRev: store.getState().draftsRev + 1 });
+    store.setState({ draftsRev: store.getState().draftsRev + 1 });
+    expect(store.getState().draftsRev).toBe(2);
+    expect(seen).toEqual([['draftsRev'], ['draftsRev']]);
   });
 });

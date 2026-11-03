@@ -23,7 +23,12 @@
  * @property {Mailbox} mailbox
  * @property {string|null} sel
  * @property {string|null} att
- * @property {null|{draft: string|null}} compose
+ * @property {null|{draft: string|null, followsUp?: string}} compose - null: no sheet;
+ *   `{draft:null}` a new entry; `{draft:null, followsUp:<entry id>}` a follow-up;
+ *   `{draft:<id>}` a draft (never with `followsUp`). Opening, closing or
+ *   maximising the sheet never writes `narrowView`.
+ * @property {number} draftsRev - Incremented once a draft DELETE settles, whatever
+ *   its outcome; the Drafts list refetches when it changes
  * @property {null|'status'|'settings'} drawer
  * @property {boolean} railCollapsed
  * @property {boolean} stacked
@@ -51,6 +56,7 @@ let state = {
   sel: null,
   att: null,
   compose: null,
+  draftsRev: 0,
   drawer: null,
   railCollapsed: false,
   stacked: false,

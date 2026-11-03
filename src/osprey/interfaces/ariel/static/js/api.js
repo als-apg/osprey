@@ -299,6 +299,16 @@ export const entriesApi = {
   },
 
   /**
+   * Get the follow-up thread of an entry (C-THREAD): the entry it follows up,
+   * when any, and the entries that follow it up.
+   * @param {string} entryId - Entry ID
+   * @returns {Promise<{parent_id: ?string, parent: any, children: any[]}>} The thread
+   */
+  async thread(entryId) {
+    return api.get(`/entries/${encodeURIComponent(entryId)}/thread`);
+  },
+
+  /**
    * Create a new entry.
    * @param {any} data - Entry data
    * @returns {Promise<any>} Created entry
@@ -368,6 +378,31 @@ export const draftsApi = {
    */
   async get(draftId) {
     return api.get(`/drafts/${draftId}`);
+  },
+
+  /**
+   * List the staged drafts, newest first (C-DRAFTS-LIST).
+   * @returns {Promise<{drafts: Array<{draft_id: string, subject: string, author: ?string,
+   *   logbook: ?string, created_at: string, staged_by: ?string, attachment_count: number}>}>}
+   */
+  async list() {
+    return api.get('/drafts');
+  },
+
+  /**
+   * Delete a draft and its sidecar (C-DRAFT-DELETE). The server answers 204
+   * with an empty body, so nothing is read from a successful response.
+   * @param {string} draftId - Draft ID
+   * @returns {Promise<void>}
+   */
+  async delete(draftId) {
+    const response = await fetch(API_BASE + `/drafts/${encodeURIComponent(draftId)}`, {
+      method: 'DELETE',
+    });
+    if (!response.ok) {
+      throw await errorFromResponse(response);
+    }
+    return undefined;
   },
 };
 
