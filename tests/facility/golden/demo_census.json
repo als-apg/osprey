@@ -47,7 +47,7 @@
     {
       "file": "tests/facility/golden/nominal_va.json",
       "pin": "json:len(channels)",
-      "value": 3344
+      "value": 4734
     },
     {
       "file": "src/osprey/templates/apps/control_assistant/data/benchmarks/cross_paradigm/queries/tree_queries.json",
