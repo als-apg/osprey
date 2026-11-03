@@ -160,7 +160,7 @@ async def _worker(request: dict) -> dict:
     raise ValueError(f"unknown worker op {op!r}")
 
 
-if __name__ == "__main__" and len(sys.argv) > 2 and sys.argv[1] == "--worker":
+if __name__ == "__main__" and len(sys.argv) > 1 and sys.argv[1] == "--worker":
     # Leave through ``os._exit`` whichever way the operation ends. A normal
     # exit runs aioca's teardown hook, whose ``ca_context_destroy`` blocks for
     # as long as a name-server circuit is still retrying a port nothing serves
@@ -170,7 +170,9 @@ if __name__ == "__main__" and len(sys.argv) > 2 and sys.argv[1] == "--worker":
     # path: a read of an address not served yet has used Channel Access just
     # the same.
     try:
-        print(json.dumps(asyncio.run(_worker(json.loads(sys.argv[2]))), default=str), flush=True)
+        print(
+            json.dumps(asyncio.run(_worker(json.loads(sys.stdin.read()))), default=str), flush=True
+        )
     except BaseException:
         import traceback
 
@@ -420,7 +422,10 @@ def _ca_call(port: int, request: dict, *, timeout: float = 600.0) -> dict:
     """Run one worker operation against the container published on ``port``."""
     environment = e2e_conftest.ca_client_environment(port)
     result = subprocess.run(
-        [sys.executable, __file__, "--worker", json.dumps(request)],
+        # The request goes on stdin: a read of every served address is one JSON
+        # document longer than the kernel allows a single argument to be.
+        [sys.executable, __file__, "--worker"],
+        input=json.dumps(request),
         capture_output=True,
         text=True,
         timeout=timeout,
@@ -870,7 +875,8 @@ def test_a_worker_that_fails_leaves_as_promptly_as_one_that_answers() -> None:
 
         started = time.monotonic()
         result = subprocess.run(
-            [sys.executable, __file__, "--worker", json.dumps(request)],
+            [sys.executable, __file__, "--worker"],
+            input=json.dumps(request),
             capture_output=True,
             text=True,
             timeout=120.0,
