@@ -87,7 +87,7 @@ function contribute(source, items) {
     new MessageEvent('message', {
       origin: window.location.origin,
       source: /** @type {any} */ (source),
-      data: { type: 'osprey-header-contribution', version: 1, items },
+      data: { type: 'canopy-host-header-contribution', version: 1, items },
     })
   );
 }
@@ -146,7 +146,7 @@ describe('hub with no dockview', () => {
 
     /** @type {HTMLButtonElement} */ (open).click();
     expect(win.postMessage).toHaveBeenCalledWith(
-      { type: 'osprey-header-action', id: 'session-open' },
+      { type: 'canopy-host-header-action', id: 'session-open' },
       window.location.origin
     );
   });
