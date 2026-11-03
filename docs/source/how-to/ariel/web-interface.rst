@@ -20,8 +20,18 @@ histogram; click a value or a day to filter by it. The search box also takes
 ``author:bob``, ``author:"a b"`` or ``date:2026-10`` (or a full day), and
 **Load more** at the end of the list fetches the next page. Drag the rail's edge to resize it; released narrow, it snaps
 to an icon strip. Below 640 px the list and reader stack and the reader gets a
-Back button. **Compose** opens the new-entry form in place of the list; the
-**Status and settings** button in the header opens those drawers.
+Back button. The **Status and settings** button in the header opens those
+drawers.
+
+**Compose** opens a sheet over the list column; **Expand** spans the panel,
+and when stacked it covers the tile. **Follow up** in the reader opens it
+prefilled from the entry and links the new entry to it; the reader lists an
+entry's parent and follow-ups. **Drafts** holds the drafts agents stage, shared
+across the deployment and expiring after an hour; open one in the sheet,
+**Discard** deletes it, Submit uses it up. The sheet autosaves to this browser
+only, never credentials or attachments, and keeps it when closed until Submit
+or Discard. The footer line says where Submit goes: local ARIEL only, or the
+facility logbook (and whether it needs credentials).
 
 .. figure:: /_static/screenshots/ariel_screen.png
    :alt: ARIEL rail, entry list and reader
@@ -31,8 +41,8 @@ Back button. **Compose** opens the new-entry form in place of the list; the
    Captured with OSPREY |captured_ariel| from the ``control-assistant``
    tutorial's seeded logbook.
 
-The address records the screen as ``#q=&mode=&box=&f=&sel=&att=``, so a link
-reopens the same search, mailbox, filter, entry and attachment. Old links still work:
+The address records the screen as ``#q=&mode=&box=&f=&sel=&att=&compose=``, so a link
+reopens the same search, mailbox, filter, entry, attachment and open draft. Old links still work:
 ``#entry?id=…&attachment=…``, ``#create``, ``#status``, ``#search`` and
 ``#browse`` are rewritten to that form.
 
@@ -56,8 +66,11 @@ immediately.
      - Focus the search box (standalone)
    * - ``[``
      - Collapse or expand the rail
+   * - ``c`` / ``r``
+     - Compose a new entry / follow up the selected entry
    * - ``Esc``
-     - Close the picture, then the compose form, then go Back when stacked
+     - Close the picture, then the compose sheet (autosave kept), then go Back
+       when stacked
 
 Advanced Options
 ================

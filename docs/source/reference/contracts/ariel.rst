@@ -401,11 +401,21 @@ The web interface discovers its search modes and tunable parameters dynamically 
               - ``/api/drafts``
               - Create a draft entry (pre-fill data for the web form)
             * - GET
+              - ``/api/drafts``
+              - List unexpired drafts, newest first
+            * - GET
               - ``/api/drafts/{draft_id}``
               - Read a draft entry
+            * - DELETE
+              - ``/api/drafts/{draft_id}``
+              - Discard a draft (204); its staged attachments are kept
             * - GET
               - ``/api/drafts/{draft_id}/attachments/{filename}``
               - Download a draft's attachment
+            * - GET
+              - ``/api/entries/{entry_id}/thread``
+              - The entry's parent and follow-ups, as rows (follow-ups oldest
+                first; ``parent`` null when ARIEL does not hold it)
 
          **Entry fields.** ``GET /api/publish-info`` returns
          ``{supports_write, requires_auth, source_system, entry_fields}``.
@@ -424,7 +434,17 @@ The web interface discovers its search modes and tunable parameters dynamically 
          anything is written; the adapter receives the declared values only,
          and undeclared metadata stays in ARIEL's copy of the entry. A draft
          read from ``GET /api/drafts/{draft_id}`` carries the values an agent
-         stored as ``fields``; ``POST /api/drafts`` does not accept them.
+         stored as ``fields``; ``POST /api/drafts`` does not accept them. A
+         draft id that is not ``draft-<12 hex>`` is 422.
+
+         **Follow-ups.** ``metadata.follows_up`` on ``POST /api/entries`` and
+         ``/upload``, and on a draft ``entry_publish`` publishes, names the
+         entry this one follows up. It must be an entry ARIEL holds and not the
+         entry itself; otherwise the refusal names ``follows_up`` (REST:
+         ``invalid_entry_field``; MCP: ``validation_error``). ``follows_up`` is
+         reserved: an adapter cannot declare it. Both create endpoints return
+         ``attachments_published``: null without attachments, ``false`` when
+         the logbook did not take them and they stayed in ARIEL only.
 
          An entry-field failure on any of these endpoints returns one of three
          envelopes:
@@ -667,7 +687,9 @@ The web interface discovers its search modes and tunable parameters dynamically 
             * - ``advanced-options.js``
               - Capabilities-driven filters panel (dynamic parameter controls)
             * - ``entries.js``, ``entries-form.js``, ``entries-helpers.js``
-              - The compose form and its draft loading and submission
+              - The compose sheet and its draft loading and submission
+            * - ``compose-autosave.js``, ``compose-lifecycle.js``, ``drafts-list.js``
+              - Browser-local compose autosave; the Drafts mailbox
             * - ``entry-fields.js``
               - The new entry form's facility-declared field sections: renders
                 them from ``/api/publish-info``, refetches a ``dynamic_select``'s
@@ -718,12 +740,13 @@ The web interface discovers its search modes and tunable parameters dynamically 
          defined per page — they come from the shared design system's
          ``/design-system/css/tokens.css``.
 
-         **Routing:** The hash is the screen's state, ``#q=&mode=&box=&f=&sel=&att=``
+         **Routing:** The hash is the screen's state, ``#q=&mode=&box=&f=&sel=&att=&compose=``
          (empty keys omitted; ``box`` is ``all``, ``drafts``, ``mine`` or
-         ``saved:<name>``; ``f`` is the filter as JSON), kept in step with ``history.replaceState``. Legacy
+         ``saved:<name>``; ``f`` is the filter as JSON; ``compose`` is
+         ``draft:<id>`` for an open draft only), kept in step with ``history.replaceState``. Legacy
          aliases are applied and then rewritten canonical: ``#entry?id=&attachment=``
          selects the entry and opens the picture, ``#create[?draft=]`` opens
-         compose, ``#status`` opens the Status drawer (embedded: the list), and
+         the compose sheet, ``#status`` opens the Status drawer (embedded: the list), and
          ``#search``, ``#browse`` or an unknown hash show the list.
 
 .. _`database`:
