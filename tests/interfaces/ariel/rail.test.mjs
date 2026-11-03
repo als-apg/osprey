@@ -162,6 +162,37 @@ describe('Mine', () => {
     expect(shown(mineInput())).toBe(false);
   });
 
+  test('the name field suggests every author from the authors endpoint, narrowed by typing', async () => {
+    const authors = ['Jane Doe', 'Janet Roe', 'Bob'];
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        field: 'authors',
+        options: authors.map((a) => ({ value: a, label: a })),
+      }),
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+    try {
+      await boot();
+      row('mine').click();
+      const input = mineInput();
+      expect(
+        fetchMock,
+        'nothing is fetched until the operator presses into the field'
+      ).not.toHaveBeenCalled();
+      const list = document.getElementById(/** @type {string} */ (input.getAttribute('list')));
+      const offered = () => Array.from(list?.querySelectorAll('option') ?? []).map((o) => o.value);
+      input.dispatchEvent(new Event('pointerdown'));
+      await vi.waitFor(() => expect(offered()).toEqual(authors));
+      expect(fetchMock.mock.calls[0]).toEqual(['/api/filter-options/authors']);
+      input.value = 'jan';
+      input.dispatchEvent(new Event('input'));
+      expect(offered()).toEqual(['Jane Doe', 'Janet Roe']);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   test('submitting blank or Anonymous keeps asking', async () => {
     await boot();
     row('mine').click();
@@ -188,6 +219,41 @@ describe('Mine', () => {
     row('mine').click();
     expect(store.getState().mailbox).toBe('mine');
     expect(shown(mineInput())).toBe(false);
+  });
+
+  test('selecting Mine clears filter.author in the same write', async () => {
+    localStorage.setItem(MINE_KEY, 'Jane');
+    await boot();
+    store.setState({ filter: { author: ['Bob'], source_system: ['ops'] } });
+    const spy = vi.fn();
+    store.subscribe(spy);
+    row('mine').click();
+    expect(spy).toHaveBeenCalledTimes(1);
+    expect(store.getState()).toMatchObject({
+      mailbox: 'mine',
+      filter: { source_system: ['ops'] },
+      rerank: 'now',
+    });
+  });
+
+  test('submitting the Mine name clears filter.author in the same write', async () => {
+    await boot();
+    store.setState({ filter: { author: ['Bob'] } });
+    row('mine').click();
+    const spy = vi.fn();
+    store.subscribe((_s, _p, changed) => spy([...changed]));
+    submit(mineInput(), 'Jane');
+    // One write for the name (rememberAuthor), one selecting Mine with the filter.
+    expect(spy).toHaveBeenLastCalledWith(expect.arrayContaining(['mailbox', 'filter']));
+    expect(store.getState().mailbox).toBe('mine');
+    expect(store.getState().filter).toEqual({});
+  });
+
+  test('selecting another mailbox leaves filter.author alone', async () => {
+    await boot();
+    store.setState({ filter: { author: ['Bob'] } });
+    row('drafts').click();
+    expect(store.getState().filter).toEqual({ author: ['Bob'] });
   });
 
   test('mineAuthor is loaded from browser storage at init', async () => {
@@ -267,12 +333,13 @@ describe('rememberAuthor', () => {
 });
 
 describe('saved searches', () => {
-  test('saveCurrentSearch stores query, mode and filters under a name and lists it', async () => {
+  test('saveCurrentSearch stores query, mode, filter and knobs under a name and lists it', async () => {
     await boot();
     store.setState({
       query: 'kicker',
       mode: 'keyword',
-      filters: { author: 'Bob', max_results: 5 },
+      filter: { author: ['Bob'] },
+      filters: { max_results: 5 },
     });
     rail.saveCurrentSearch('  Kickers  ');
     const btn = savedRow('Kickers');
@@ -285,7 +352,8 @@ describe('saved searches', () => {
         name: 'Kickers',
         query: 'kicker',
         mode: 'keyword',
-        filters: { author: 'Bob', max_results: 5 },
+        filter: { author: ['Bob'] },
+        filters: { max_results: 5 },
       },
     ]);
   });
@@ -323,12 +391,41 @@ describe('saved searches', () => {
 
   test('saved filters are a copy, not the live state object', async () => {
     await boot();
-    const filters = { author: 'Bob' };
+    const filters = { max_results: 3 };
     store.setState({ filters });
     rail.saveCurrentSearch('s');
-    filters.author = 'Eve';
+    filters.max_results = 9;
     const stored = JSON.parse(localStorage.getItem(SAVED_KEY) || '[]');
-    expect(stored[0].filters).toEqual({ author: 'Bob' });
+    expect(stored[0].filters).toEqual({ max_results: 3 });
+  });
+
+  test('a search saved under Mine carries the Mine name as its author', async () => {
+    localStorage.setItem(MINE_KEY, 'Jane');
+    await boot();
+    row('mine').click();
+    store.setState({ query: 'rf', filter: { source_system: ['ops'] } });
+    rail.saveCurrentSearch('My RF');
+    const stored = JSON.parse(localStorage.getItem(SAVED_KEY) || '[]');
+    expect(stored[0].filter).toEqual({ author: ['Jane'], source_system: ['ops'] });
+  });
+
+  test('a P1 record is listed and runs with its filter migrated', async () => {
+    localStorage.setItem(
+      SAVED_KEY,
+      JSON.stringify([
+        {
+          name: 'Old',
+          query: 'beam',
+          mode: 'keyword',
+          filters: { author: 'Bob', start_date: '2026-01-01', max_results: 5 },
+        },
+      ])
+    );
+    await boot();
+    savedRow('Old').click();
+    const s = store.getState();
+    expect(s.filter).toEqual({ author: ['Bob'], time: { start: '2026-01-01', end: null } });
+    expect(s.filters).toEqual({ max_results: 5 });
   });
 
   test('saved searches are listed at init from storage', async () => {
@@ -352,17 +449,29 @@ describe('saved searches', () => {
     expect(root.querySelectorAll('[data-box^="saved:"]').length).toBe(1);
   });
 
-  test('running a saved search restores query, mode and filters and selects its row', async () => {
+  test('running a saved search restores query, mode, filter and knobs and selects its row', async () => {
     await boot();
-    store.setState({ query: 'kicker', mode: 'semantic', filters: { author: 'Bob' } });
+    store.setState({
+      query: 'kicker',
+      mode: 'semantic',
+      filter: { author: ['Bob'] },
+      filters: { max_results: 4 },
+    });
     rail.saveCurrentSearch('K');
-    store.setState({ query: 'other', mode: 'keyword', filters: {}, rerank: 'when-stable' });
+    store.setState({
+      query: 'other',
+      mode: 'keyword',
+      filter: {},
+      filters: {},
+      rerank: 'when-stable',
+    });
     savedRow('K').click();
     const s = store.getState();
     expect(s.mailbox).toEqual({ saved: 'K' });
     expect(s.query).toBe('kicker');
     expect(s.mode).toBe('semantic');
-    expect(s.filters).toEqual({ author: 'Bob' });
+    expect(s.filter).toEqual({ author: ['Bob'] });
+    expect(s.filters).toEqual({ max_results: 4 });
     expect(s.rerank).toBe('now');
     expect(savedRow('K').getAttribute('aria-current')).toBe('page');
     expect(row('all').hasAttribute('aria-current')).toBe(false);
@@ -413,41 +522,18 @@ describe('saved searches', () => {
     expect(rows[0].querySelector('.osprey-nav-label')?.textContent).toBe(name);
   });
 
-  test("box=saved:<name> applied from the hash restores that search's filters", async () => {
+  test('a saved mailbox selected from elsewhere is not restored by the rail', async () => {
     await boot();
-    store.setState({
-      query: 'kicker',
-      mode: 'semantic',
-      filters: { author: 'Bob', max_results: 3 },
-    });
+    store.setState({ filters: { max_results: 3 } });
     rail.saveCurrentSearch('K');
-    store.setState({ query: 'kicker', mode: 'semantic', filters: {} });
-    // What router.js writes for '#q=kicker&mode=semantic&box=saved:K'.
-    store.setState({ query: 'kicker', mode: 'semantic', mailbox: { saved: 'K' }, rerank: 'now' });
-    const s = store.getState();
-    expect(s.filters).toEqual({ author: 'Bob', max_results: 3 });
-    expect(s.rerank).toBe('now');
-    expect(savedRow('K').getAttribute('aria-current')).toBe('page');
-  });
-
-  test('a saved mailbox already set before initRail has its filters restored at init', async () => {
-    localStorage.setItem(
-      SAVED_KEY,
-      JSON.stringify([{ name: 'K', query: 'k', mode: null, filters: { author: 'Bob' } }])
-    );
-    vi.resetModules();
-    store = await import(STORE);
-    rail = await import(RAIL);
+    store.setState({ filters: {} });
+    const spy = vi.fn();
+    store.subscribe(spy);
+    // The router restores a hash-driven saved box in its own patch.
     store.setState({ mailbox: { saved: 'K' } });
-    rail.initRail(root);
-    expect(store.getState().filters).toEqual({ author: 'Bob' });
-  });
-
-  test('box=saved:<unknown> leaves filters alone', async () => {
-    await boot();
-    store.setState({ filters: { author: 'Eve' } });
-    store.setState({ mailbox: { saved: 'nope' } });
-    expect(store.getState().filters).toEqual({ author: 'Eve' });
+    expect(spy).toHaveBeenCalledTimes(1);
+    expect(store.getState().filters).toEqual({});
+    expect(savedRow('K').getAttribute('aria-current')).toBe('page');
   });
 
   test('the saved-searches key honours the storage scope', async () => {
@@ -482,6 +568,7 @@ describe('promptSaveSearch', () => {
       name: 'Dumps',
       query: 'beam dump',
       mode: 'keyword',
+      filter: {},
       filters: { a: 1 },
     });
   });
@@ -525,7 +612,8 @@ describe('initRail', () => {
     const spy = vi.fn();
     store.subscribe(spy);
     store.setState({ mailbox: { saved: 'K' } });
-    // One write from the test, one restore from the rail.
-    expect(spy).toHaveBeenCalledTimes(2);
+    // One write from the test; the rail writes nothing for a saved box.
+    expect(spy).toHaveBeenCalledTimes(1);
+    expect(root.querySelectorAll('[aria-current="page"]').length).toBe(1);
   });
 });

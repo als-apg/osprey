@@ -369,6 +369,67 @@ body.embedded .header {
   display: none;
 }
 
+/* Facets (facets.js): value rows reuse the nav-row primitive untouched; the
+   histogram is one bar per day, filled to --ariel-facet-day-fill. */
+.ariel-rail-facets {
+  margin-top: var(--space-3);
+}
+
+.app-container[data-rail-collapsed] .ariel-rail .ariel-facets-sections {
+  display: none;
+}
+
+.ariel-facet-section {
+  margin-top: var(--space-3);
+}
+
+.ariel-facet-histogram {
+  display: flex;
+  align-items: flex-end;
+  gap: 0;
+  height: 40px;
+  margin: var(--space-1) var(--space-3) 0;
+}
+
+.ariel-facet-day {
+  flex: 1 1 0;
+  min-width: 0;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  cursor: pointer;
+  background: linear-gradient(
+    to top,
+    var(--text-muted) var(--ariel-facet-day-fill, 0%),
+    transparent var(--ariel-facet-day-fill, 0%)
+  );
+}
+
+.ariel-facet-day:hover {
+  background-color: var(--surface-hover);
+}
+
+.ariel-facet-day-selected {
+  background: linear-gradient(
+    to top,
+    var(--color-accent) var(--ariel-facet-day-fill, 0%),
+    var(--surface-selected) var(--ariel-facet-day-fill, 0%)
+  );
+}
+
+.ariel-facets-note,
+.ariel-facets-hint {
+  margin: var(--space-1) var(--space-3) 0;
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+}
+
+.ariel-facets-hint code {
+  font-family: var(--font-mono);
+  overflow-wrap: anywhere;
+}
+
 .ariel-list-col {
   position: relative;
   flex: 0 0 380px;

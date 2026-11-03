@@ -10,32 +10,36 @@
  * Mine needs a name: until one is known, selecting Mine expands the rail and
  * asks for it inline. `mineAuthor` is written only here — loaded from browser
  * storage at init and updated by `rememberAuthor` (which the compose host also
- * calls after a successful create).
+ * calls after a successful create). The name field suggests every author
+ * (the Filters author pick-list's suggestions), because Mine matches its name
+ * exactly.
  *
- * Saved searches keep query, mode and the touched Filters values under a name,
- * in browser storage only (ruling e-0001 R3). Running one restores all three.
- * A `box=saved:<name>` that reaches the store from elsewhere (the hash)
- * restores that search's filters.
+ * Saved searches (saved-searches.js) keep query, mode, filter and knobs under
+ * a name, in browser storage only (ruling e-0001 R3). Running one restores all
+ * of them in one write. A `box=saved:<name>` arriving through the hash is
+ * restored by router.js, not here.
+ *
+ * Selecting Mine clears `filter.author` in the same write: Mine scopes the
+ * author itself.
+ *
+ * Below the saved searches sits `.ariel-rail-facets`, the mount facets.js
+ * renders the value counts and the day histogram into.
  */
 
 import { icon } from '/design-system/js/icons.js';
 import { scopedStorageKey } from '/design-system/js/storage-scope.js';
 import { getState, setState, subscribe, mailboxKey, savedName } from './store.js';
+import { mergeFilter, normalizeFilter, requestFilter } from './filter-state.js';
+import { readSaved, findSaved, saveSearch, removeSearch } from './saved-searches.js';
+import { attachAuthorSuggestions } from './advanced-options.js';
 
 /** @typedef {import('./store.js').State} State */
 /** @typedef {import('./store.js').Mailbox} Mailbox */
 
-/**
- * @typedef {Object} SavedSearch
- * @property {string} name
- * @property {string} query
- * @property {string|null} mode
- * @property {Record<string, any>} filters
- */
+/** @typedef {import('./saved-searches.js').SavedSearch} SavedSearch */
 
-/** Base storage keys; one scoped key each, shared by both frames. */
+/** Base storage key of the Mine name; scoped, shared by both frames. */
 const MINE_KEY = 'ariel-mine-author';
-const SAVED_KEY = 'ariel-saved-searches';
 
 /** @type {ReadonlyArray<{box: 'all'|'drafts'|'mine', label: string, icon: string}>} */
 const MAILBOXES = Object.freeze([
@@ -91,50 +95,6 @@ function cleanAuthor(name) {
   return trimmed;
 }
 
-/** @returns {SavedSearch[]} */
-function readSaved() {
-  const raw = readStored(SAVED_KEY);
-  if (!raw) return [];
-  /** @type {unknown} */
-  let parsed;
-  try {
-    parsed = JSON.parse(raw);
-  } catch {
-    return [];
-  }
-  if (!Array.isArray(parsed)) return [];
-  /** @type {SavedSearch[]} */
-  const out = [];
-  for (const item of parsed) {
-    if (!item || typeof item !== 'object') continue;
-    const name = typeof item.name === 'string' ? item.name.trim() : '';
-    if (!name || out.some((s) => s.name === name)) continue;
-    out.push({
-      name,
-      query: typeof item.query === 'string' ? item.query : '',
-      mode: typeof item.mode === 'string' ? item.mode : null,
-      filters:
-        item.filters && typeof item.filters === 'object' && !Array.isArray(item.filters)
-          ? { ...item.filters }
-          : {},
-    });
-  }
-  return out;
-}
-
-/** @param {SavedSearch[]} list */
-function writeSaved(list) {
-  writeStored(SAVED_KEY, JSON.stringify(list));
-}
-
-/**
- * @param {string} name
- * @returns {SavedSearch|undefined}
- */
-function findSaved(name) {
-  return readSaved().find((s) => s.name === name);
-}
-
 // ---------------------------------------------------------------------------
 // Public API
 
@@ -151,23 +111,23 @@ export function rememberAuthor(name) {
 }
 
 /**
- * Save the current query, mode and filters under `name` (blank is ignored).
- * Saving an existing name replaces that entry in place. Changes nothing shown
- * besides the rail's list.
+ * Save the current query, mode, filter and knobs under `name` (blank is
+ * ignored). The filter is the one the search sends (`requestFilter`), so a
+ * search saved under Mine keeps the Mine name as its author. Saving an
+ * existing name replaces that entry in place. Changes nothing shown besides
+ * the rail's list.
  * @param {string} name
  */
 export function saveCurrentSearch(name) {
-  const trimmed = typeof name === 'string' ? name.trim() : '';
-  if (!trimmed) return;
-  const { query, mode, filters } = getState();
-  /** @type {SavedSearch} */
-  const entry = { name: trimmed, query, mode, filters: structuredClone(filters ?? {}) };
-  const list = readSaved();
-  const at = list.findIndex((s) => s.name === trimmed);
-  if (at >= 0) list[at] = entry;
-  else list.push(entry);
-  writeSaved(list);
-  renderSaved();
+  const state = getState();
+  const stored = saveSearch({
+    name,
+    query: state.query,
+    mode: state.mode,
+    filter: requestFilter(state) ?? normalizeFilter(state.filter),
+    filters: state.filters ?? {},
+  });
+  if (stored) renderSaved();
 }
 
 /**
@@ -199,9 +159,14 @@ export function initRail(root) {
   const mine = buildField('mine', 'Your name for Mine', 'Your name', (value) => {
     rememberAuthor(value);
     if (!getState().mineAuthor) return false;
-    setState({ mailbox: 'mine', rerank: 'now' });
+    setState(minePatch());
     return true;
   });
+  const mineSuggestions = document.createElement('datalist');
+  mineSuggestions.id = 'ariel-mine-suggestions';
+  mine.input.setAttribute('list', mineSuggestions.id);
+  mine.form.append(mineSuggestions);
+  attachAuthorSuggestions(mine.input, mineSuggestions);
   boxes.append(mine.form);
 
   const head = document.createElement('div');
@@ -228,7 +193,12 @@ export function initRail(root) {
   const savedList = document.createElement('div');
   savedList.className = 'ariel-rail-saved';
 
-  root.append(boxes, head, save.form, savedList);
+  // The facets mount (facets.js renders into it); it always exists.
+  const facets = document.createElement('div');
+  facets.className = 'ariel-rail-facets';
+  facets.setAttribute('aria-busy', 'false');
+
+  root.append(boxes, head, save.form, savedList, facets);
 
   mounted = {
     root,
@@ -264,26 +234,23 @@ function onStateChange(state, _prev, changed) {
 }
 
 /**
- * What a mailbox selected from elsewhere asks of the rail: a saved search's
- * filters restored, or the Mine name.
+ * What a mailbox selected from elsewhere asks of the rail: the Mine name.
  * @param {State} state
  */
 function followMailbox(state) {
-  const saved = savedName(state.mailbox);
-  if (saved !== null) restoreSavedFilters(saved);
-  else if (state.mailbox === 'mine' && !state.mineAuthor) askForMineName();
+  if (state.mailbox === 'mine' && !state.mineAuthor) askForMineName();
 }
 
 /**
- * Restore a saved search's filters when the store selected it from elsewhere
- * (the hash). A no-op when they already match, which is the case after the
- * rail's own run, so the run stays a single write.
- * @param {string} name
+ * The write that selects Mine: its author scope replaces any author selection.
+ * @returns {Partial<State>}
  */
-function restoreSavedFilters(name) {
-  const saved = findSaved(name);
-  if (!saved) return;
-  setState({ filters: saved.filters, rerank: 'now' });
+function minePatch() {
+  return {
+    mailbox: 'mine',
+    filter: mergeFilter(getState().filter, { author: null }),
+    rerank: 'now',
+  };
 }
 
 /** @param {'all'|'drafts'|'mine'} box */
@@ -293,7 +260,7 @@ function selectMailbox(box) {
     return;
   }
   if (mounted) closeField(mounted.mineForm);
-  setState({ mailbox: box, rerank: 'now' });
+  setState(box === 'mine' ? minePatch() : { mailbox: box, rerank: 'now' });
 }
 
 function askForMineName() {
@@ -308,6 +275,7 @@ function runSaved(saved) {
     mailbox: { saved: saved.name },
     query: saved.query,
     mode: saved.mode,
+    filter: saved.filter,
     filters: saved.filters,
     rerank: 'now',
   });
@@ -315,7 +283,7 @@ function runSaved(saved) {
 
 /** @param {string} name */
 function removeSaved(name) {
-  writeSaved(readSaved().filter((s) => s.name !== name));
+  removeSearch(name);
   renderSaved();
   if (savedName(getState().mailbox) === name) setState({ mailbox: 'all', rerank: 'now' });
 }
