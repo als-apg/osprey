@@ -18,7 +18,9 @@
  *     POST;
  *   - the LAYOUT REPORT reads the layout holder (never dockview's toJSON), sends
  *     the page's client_id and the pop-outs beside the layout, and hands the
- *     ack's rev back to the holder;
+ *     ack's rev back to the holder; a lost report is resent with a capped
+ *     backoff, a 4xx is logged and held back until the layout changes, and a
+ *     forced report (reportLayoutNow) goes out even when unchanged;
  *   - dockPanelBesideActive and dockPanelAt run one engine op on the layout
  *     holder, which applies it under the same guard;
  *   - the listeners wire idempotently and tolerate late DockviewApi arrival.
@@ -706,7 +708,7 @@ describe('layout reporter — from the holder, settle debounce, content dedupe, 
     ['a 500', () => Promise.resolve(httpError(500))],
     ['a request timeout (408)', () => Promise.resolve(httpError(408))],
     ['too many requests (429)', () => Promise.resolve(httpError(429))],
-  ])('a report lost to %s is sent again with backoff, with no layout change', async (_name, fail) => {
+  ])('a report lost to %s is resent with backoff, the layout unchanged', async (_name, fail) => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     serverReport.mockImplementation(fail);
     const { holder } = await wireReporting(row(['ariel']));
