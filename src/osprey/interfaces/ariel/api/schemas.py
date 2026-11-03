@@ -67,6 +67,46 @@ class EntryResponse(BaseModel):
     # How a search found the entry, and which of its attachments it matched.
     matched_via: list[str] = []
     matched_attachment_ids: list[str] = []
+    # The stored subject line (``enhanced_entries.subject``), derived from the
+    # entry when the store predates the column.
+    subject: str | None = None
+    # The canonical facility logbook URL, or null for an ARIEL-only entry or a
+    # deployment with no ``ariel.entry_url_template``.
+    entry_url: str | None = None
+    # The stored ``enhancement_status`` object; every enabled module's object
+    # also carries its computed ``state`` (pending, stale, failed, complete, n/a).
+    enhancement_status: dict[str, Any] = {}
+
+
+class RowResponse(BaseModel):
+    """One entry as a list row: what the list pane renders, and nothing more.
+
+    It carries no ``raw_text`` and no attachment summaries. ``snippet`` is the
+    first search highlight, else the first 300 characters of the entry's text
+    after its subject line. ``facets`` holds the entry's value of each builtin
+    and declared filter dimension (a list for ``tags``). ``enhancements`` is the
+    state of every enabled enhancement module.
+    """
+
+    entry_id: str
+    timestamp: str | None
+    author: str
+    source_system: str
+    subject: str | None = None
+    snippet: str = ""
+    facets: dict[str, Any] = {}
+    attachment_count: int = 0
+    has_images: bool = False
+    enhancements: dict[str, str] = {}
+    entry_url: str | None = None
+    score: float | None = None
+    highlights: list[str] = []
+    keywords: list[str] = []
+    matched_via: list[str] = []
+
+
+#: The two shapes an entry page comes in: ``full`` entries, or list ``row`` s (C-ROW).
+EntryView = Literal["full", "row"]
 
 
 class SearchRequest(BaseModel):
@@ -87,6 +127,11 @@ class SearchRequest(BaseModel):
     advanced_params: dict[str, Any] = Field(
         default_factory=dict, description="Mode-specific advanced parameters"
     )
+    # The C-FILTER object, or its JSON text; ANDed with the legacy fields above.
+    filters: dict[str, Any] | str | None = Field(None, description="Filter object (C-FILTER)")
+    # max_results is the page size; offset is where the page starts (C-PAGE).
+    offset: int = Field(0, ge=0, description="Results to skip before this page")
+    view: EntryView = Field("full", description="Entry shape: full entries or list rows")
 
 
 class DiagnosticResponse(BaseModel):
@@ -113,25 +158,76 @@ class ExpandedTermResponse(BaseModel):
 class SearchResponse(BaseModel):
     """Search response payload."""
 
-    entries: list[EntryResponse]
+    entries: list[EntryResponse | RowResponse]
     answer: str | None = None
     sources: list[str] = []
     search_modes_used: list[str] = []
     reasoning: str = ""
+    # Equal to ``total``; kept for older callers.
     total_results: int = 0
+    # Every match the module counted, capped (C-PAGE); ``total_exact`` is false
+    # for a capped or approximate count. Load more reads ``has_more``.
+    total: int = 0
+    total_exact: bool = False
+    has_more: bool = False
     execution_time_ms: int = 0
     diagnostics: list[DiagnosticResponse] = []
     expanded_terms: list[ExpandedTermResponse] = []
 
 
 class EntriesListResponse(BaseModel):
-    """Response for entry listing."""
+    """Response for entry listing.
 
-    entries: list[EntryResponse]
+    Cursor paging (C-PAGE) carries ``next_cursor``, null on the last page, and a
+    null ``page``; the legacy ``page`` parameter echoes its page and returns no
+    cursor.
+    """
+
+    entries: list[EntryResponse | RowResponse]
     total: int
-    page: int
+    page: int | None = None
     page_size: int
     total_pages: int
+    next_cursor: str | None = None
+
+
+class FacetValueResponse(BaseModel):
+    """One value of a facet dimension and how many entries it selects."""
+
+    value: str
+    count: int
+
+
+class FacetDimensionResponse(BaseModel):
+    """One filter dimension's counts, under the filter minus its own selection."""
+
+    name: str
+    label: str
+    kind: str
+    values: list[FacetValueResponse] = []
+
+
+class FacetDayResponse(BaseModel):
+    """Entries on one facility-local day (``YYYY-MM-DD``)."""
+
+    day: str
+    count: int
+
+
+class FacetsResponse(BaseModel):
+    """Facet counts and the day histogram for one list (C-FACETS).
+
+    ``available`` is false, with no dimensions and no histogram, when the
+    service cannot count; the panel then shows no counts. ``exact`` is false
+    when the counts cover a capped or approximate matched set, and ``tier`` is
+    the keyword tier the counted set came from.
+    """
+
+    available: bool = True
+    dimensions: list[FacetDimensionResponse] = []
+    histogram: list[FacetDayResponse] = []
+    exact: bool = True
+    tier: str | None = None
 
 
 class EntryCreateRequest(BaseModel):
