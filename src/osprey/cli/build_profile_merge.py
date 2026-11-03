@@ -1317,7 +1317,9 @@ def seal_login_render(render: dict[str, Any], seal: RenderSeal) -> dict[str, Any
     hooks = _guard_floor(seal.floor, render.get("hooks"))
     if not seal.shared:
         render["config"] = config
-        render["hooks"] = hooks
+        # A render that selects no hook and gains none keeps its shape.
+        if hooks or "hooks" in render:
+            render["hooks"] = hooks
         return render
 
     from .profile_conventions import library_selection
