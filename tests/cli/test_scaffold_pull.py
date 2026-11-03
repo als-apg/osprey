@@ -351,6 +351,25 @@ def test_list_pullable_paths_drops_what_the_packaged_data_copy_drops(tmp_path: P
     ]
 
 
+def test_list_pullable_paths_never_lists_a_bytecode_cache(tmp_path: Path) -> None:
+    """Importing a template's modules leaves ``__pycache__`` beside them; it is never content."""
+    root = tmp_path / "app_template"
+    _stage_template(
+        root,
+        [
+            "__init__.py",
+            "__pycache__/__init__.cpython-313.pyc",
+            "data/README.md",
+            "data/tools/__pycache__/x.cpython-313.pyc",
+            "data/tools/x.py",
+        ],
+    )
+
+    listed = list_pullable_paths(PresetData(root))
+
+    assert listed == ["data/", "data/tools/", "data/README.md", "data/tools/x.py"]
+
+
 def test_list_pullable_paths_restricts_to_a_subtree(control_assistant: PresetData) -> None:
     """A directory subtree yields itself and everything below it, and nothing else."""
     listed = list_pullable_paths(control_assistant, "data/facility/knowledge")
