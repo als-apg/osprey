@@ -18,7 +18,7 @@ from typing import IO, Any
 
 import pytest
 
-from osprey.deployment.subprocess_capture import StopOutcome, group_is_gone
+from osprey.deployment.subprocess_capture import _KILL_WAIT_S, StopOutcome, group_is_gone
 from tests._by_path import load_module
 from tests._live import wait_until
 from tests._processes import kill_group, kill_quietly, pid_alive
@@ -45,8 +45,12 @@ _LIMIT_S = 5.0
 #: counts on a host busy with a parallel suite, and still far short of the hang.
 _REPORT_S = 20
 
+#: The hang-ceiling multiple: a wait here is bounded by this many times the
+#: waits it covers.
+_CEILING_FACTOR = 3
 
-def _wait_for_pid(pid_file: Path, within_s: float = 10.0) -> int:
+
+def _wait_for_pid(pid_file: Path, within_s: float) -> int:
     def written() -> int | None:
         text = pid_file.read_text() if pid_file.exists() else ""
         return int(text) if text.endswith("\n") else None
@@ -94,21 +98,34 @@ def test_a_child_that_outlives_its_limit_is_killed_and_its_output_so_far_is_retu
 
 def test_a_child_past_its_limit_has_its_group_stopped_once(monkeypatch: pytest.MonkeyPatch) -> None:
     """The timer is the one path that stops a timed-out child; nothing stops it twice."""
-    stopped: list[int] = []
+    stopped: list[subprocess.Popen[str]] = []
     real_stop_child = gate.stop_child
 
     def recording_stop_child(proc, **kwargs):
-        stopped.append(proc.pid)
+        stopped.append(proc)
         return real_stop_child(proc, **kwargs)
 
+    spawned: list[subprocess.Popen[str]] = []
+
+    def recording_popen(*args: Any, **kwargs: Any) -> subprocess.Popen[str]:
+        proc = subprocess.Popen(*args, **kwargs)
+        spawned.append(proc)
+        return proc
+
     monkeypatch.setattr(gate, "stop_child", recording_stop_child)
+    monkeypatch.setattr(
+        gate,
+        "subprocess",
+        types.SimpleNamespace(Popen=recording_popen, TimeoutExpired=subprocess.TimeoutExpired),
+    )
     cmd = [sys.executable, "-c", f"import time; time.sleep({_HANG_S})"]
 
     _stdout, _stderr, _returncode, timed_out, outcome = gate._run_child(cmd, _LIMIT_S)
 
     assert timed_out is True
     assert outcome is not None
-    assert len(stopped) == 1
+    assert len(spawned) == 1
+    assert stopped == spawned
 
 
 def test_an_orphan_holding_the_output_open_cannot_block_the_read(tmp_path: Path) -> None:
@@ -120,7 +137,7 @@ def test_an_orphan_holding_the_output_open_cannot_block_the_read(tmp_path: Path)
         stdout, _stderr, returncode, timed_out, _outcome = gate._run_child(cmd, _PROMPT_S)
         elapsed = time.monotonic() - started
 
-        orphan = _wait_for_pid(pid_file)
+        orphan = _wait_for_pid(pid_file, within_s=_REPORT_S)
         assert timed_out is False
         assert returncode == 0
         assert "child-done" in stdout
@@ -129,25 +146,33 @@ def test_an_orphan_holding_the_output_open_cannot_block_the_read(tmp_path: Path)
         assert pid_alive(orphan)
     finally:
         if pid_file.exists():
-            kill_quietly([_wait_for_pid(pid_file)])
+            kill_quietly([_wait_for_pid(pid_file, within_s=_REPORT_S)])
 
 
-def test_a_grandchild_in_the_module_session_dies_with_the_module_on_timeout(
+def test_a_session_stop_takes_the_grandchild_in_the_module_session_with_it(
     tmp_path: Path,
 ) -> None:
     pid_file = tmp_path / "grandchild.pid"
     cmd = _spawning_child(pid_file, new_session=False, then=f"time.sleep({_HANG_S})")
+    proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, start_new_session=True)
 
     try:
-        _stdout, _stderr, _returncode, timed_out, outcome = gate._run_child(cmd, 2)
+        # The child is ready once its group, which its grandchild shares, is on disk.
+        group = _wait_for_pid(_group_file(pid_file), within_s=_REPORT_S)
+        outcome = gate.stop_child(proc, grace=gate._STOP_GRACE_S)
 
-        grandchild_group = _wait_for_pid(_group_file(pid_file))
-        assert timed_out is True
-        assert outcome is not None and outcome.gone
-        assert group_is_gone(grandchild_group), "the grandchild survived its module's timeout"
+        assert outcome.gone
+        wait_until(
+            lambda: group_is_gone(group),
+            timeout=_CEILING_FACTOR * (gate._STOP_GRACE_S + _KILL_WAIT_S),
+            what=f"the end of group {group} after its session was stopped",
+        )
     finally:
         if _group_file(pid_file).exists():
-            kill_group(_wait_for_pid(_group_file(pid_file)))
+            kill_group(_wait_for_pid(_group_file(pid_file), within_s=_REPORT_S))
+        if proc.returncode is None:
+            kill_group(proc.pid)
+            proc.wait(timeout=_CEILING_FACTOR * _KILL_WAIT_S)
 
 
 def test_a_hung_module_is_reported_as_one_error_with_a_timed_out_line(
