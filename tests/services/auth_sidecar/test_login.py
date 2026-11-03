@@ -219,14 +219,6 @@ def test_page_escapes_the_username_it_echoes() -> None:
     assert "&lt;script&gt;" in response.text
 
 
-def test_empty_next_falls_back_to_the_users_own_terminal() -> None:
-    """nginx emits an empty ``next`` when the original path fails its allowlist."""
-    response = _client().get(LOGIN_PATH, params={"user": "alice", "next": ""})
-
-    assert response.status_code == 200
-    assert 'name="next" value="/u/alice/"' in response.text
-
-
 def test_a_same_origin_next_is_carried_into_the_form() -> None:
     response = _client().get(LOGIN_PATH, params={"user": "alice", "next": "/u/alice/files/log"})
 
@@ -234,8 +226,11 @@ def test_a_same_origin_next_is_carried_into_the_form() -> None:
 
 
 @pytest.mark.parametrize(
-    "hostile",
+    "next_param",
     [
+        # nginx emits an empty ``next`` when the original path fails its allowlist.
+        "",
+        # The rest could leave this origin: replaced, never repaired.
         "https://evil.example/",
         "//evil.example/",
         "/\\evil.example/",
@@ -246,9 +241,8 @@ def test_a_same_origin_next_is_carried_into_the_form() -> None:
         "/u/alice/\r\nSet-Cookie: x=y",
     ],
 )
-def test_an_off_origin_next_is_discarded(hostile: str) -> None:
-    """Anything that could leave this origin is replaced, never repaired."""
-    response = _client().get(LOGIN_PATH, params={"user": "alice", "next": hostile})
+def test_an_unusable_next_falls_back_to_the_users_own_terminal(next_param: str) -> None:
+    response = _client().get(LOGIN_PATH, params={"user": "alice", "next": next_param})
 
     assert response.status_code == 200
     assert 'name="next" value="/u/alice/"' in response.text
@@ -1103,13 +1097,21 @@ def test_the_deployments_declared_origin_is_accepted(origin: str) -> None:
     assert response.status_code == 303
 
 
-def test_the_declared_origin_outranks_the_host_the_request_arrived_on() -> None:
-    """``external_origin`` is the deployment's own word about where it lives;
-    ``Host`` is the client's. Where the two disagree, the client does not win."""
+@pytest.mark.parametrize(
+    "origin",
+    [
+        # ``external_origin`` is the deployment's own word about where it lives;
+        # ``Host`` is the client's. Where the two disagree, the client does not win.
+        pytest.param("https://testserver", id="host-the-request-arrived-on"),
+        # Sandboxed iframes and some redirect chains send the literal string.
+        pytest.param("null", id="null-origin"),
+    ],
+)
+def test_an_origin_other_than_the_declared_one_is_refused(origin: str) -> None:
     response = _post(
         _client(),
         {"user": "alice", "next": "", "password": ALICE_PASSWORD},
-        headers={"Origin": "https://testserver"},
+        headers={"Origin": origin},
     )
 
     assert response.status_code == 400
@@ -1169,17 +1171,6 @@ def test_a_post_that_declares_no_origin_at_all_is_refused() -> None:
 
     assert response.status_code == 400
     assert "set-cookie" not in response.headers
-
-
-def test_a_null_origin_is_not_an_origin() -> None:
-    """Sandboxed iframes and some redirect chains send the literal string."""
-    response = _post(
-        _client(),
-        {"user": "alice", "next": "", "password": ALICE_PASSWORD},
-        headers={"Origin": "null"},
-    )
-
-    assert response.status_code == 400
 
 
 @pytest.mark.parametrize(

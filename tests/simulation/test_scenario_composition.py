@@ -59,24 +59,24 @@ def test_sim_apply_activates_the_built_in_still(project: Path) -> None:
     assert _active(project) == ["still"]
 
 
-def test_still_and_rf_thermal_live_are_refused_together(project: Path) -> None:
+@pytest.mark.parametrize(
+    ("scenarios", "match"),
+    [
+        pytest.param(
+            ["still", "rf-thermal-live"], "both set the motion of", id="still-and-rf-live"
+        ),
+        # Both script the beam current, so the pair touches one channel twice.
+        pytest.param(
+            ["vacuum-burst", "rf-thermal"],
+            r"SR:DIAG:DCCT:01:CURRENT:RB.*disjoint channel sets",
+            id="vacuum-burst-and-rf-thermal",
+        ),
+    ],
+)
+def test_scenarios_that_clash_are_refused_together(project: Path, scenarios, match) -> None:
     apply_scenarios(project, ["still"], seed_logbook=False, seed_archive=False)
 
-    with pytest.raises(ValueError, match="both set the motion of"):
-        apply_scenarios(
-            project, ["still", "rf-thermal-live"], seed_logbook=False, seed_archive=False
-        )
-
-    assert _active(project) == ["still"]
-
-
-def test_vacuum_burst_and_rf_thermal_are_refused_together(project: Path) -> None:
-    """Both script the beam current, so the pair touches one channel twice."""
-    apply_scenarios(project, ["still"], seed_logbook=False, seed_archive=False)
-
-    with pytest.raises(ValueError, match=r"SR:DIAG:DCCT:01:CURRENT:RB.*disjoint channel sets"):
-        apply_scenarios(
-            project, ["vacuum-burst", "rf-thermal"], seed_logbook=False, seed_archive=False
-        )
+    with pytest.raises(ValueError, match=match):
+        apply_scenarios(project, scenarios, seed_logbook=False, seed_archive=False)
 
     assert _active(project) == ["still"]

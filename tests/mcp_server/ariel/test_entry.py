@@ -169,20 +169,19 @@ async def test_entry_create_minimal_fields(ariel_registry):
     assert call_args["author"] == "Anonymous"
 
 
-async def test_entry_create_empty_subject():
-    """Empty subject returns validation error."""
+@pytest.mark.parametrize(
+    ("subject", "details"),
+    [
+        # Empty subject returns validation error.
+        pytest.param("", "some details", id="empty-subject"),
+        # Empty details returns validation error.
+        pytest.param("A subject", "", id="empty-details"),
+    ],
+)
+async def test_entry_create_empty_field_is_a_validation_error(subject, details):
     fn = _get_entry_create()
     with assert_raises_error(error_type="validation_error") as _exc_ctx:
-        await fn(subject="", details="some details")
-
-    _exc_ctx["envelope"]
-
-
-async def test_entry_create_empty_details():
-    """Empty details returns validation error."""
-    fn = _get_entry_create()
-    with assert_raises_error(error_type="validation_error") as _exc_ctx:
-        await fn(subject="A subject", details="")
+        await fn(subject=subject, details=details)
 
     _exc_ctx["envelope"]
 

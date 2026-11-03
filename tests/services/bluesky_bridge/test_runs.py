@@ -295,16 +295,19 @@ def test_an_interrupted_item_requeued_by_the_manager_is_stopped_not_pending(
     )
 
 
-def test_a_requeued_failed_item_is_an_error_not_pending() -> None:
-    """The same mechanism requeues FAILED plans; they must read as errors."""
-    requeued = _item("run-1", item_uid="new-uid", result={"exit_status": "failed"})
-    (record,) = _records(pending=[requeued])
-    assert record["status"] == "error"
-
-
-def test_a_requeued_item_with_an_unrecognized_exit_status_fails_closed() -> None:
-    """Same fail-closed rule as history: not-a-clean-finish never reads as success."""
-    requeued = _item("run-1", item_uid="new-uid", result={"exit_status": "something-new"})
+@pytest.mark.parametrize(
+    "exit_status",
+    [
+        # The same mechanism requeues FAILED plans; they must read as errors.
+        pytest.param("failed", id="failed"),
+        # Same fail-closed rule as history: not-a-clean-finish never reads as success.
+        pytest.param("something-new", id="unrecognized-exit-status"),
+    ],
+)
+def test_a_requeued_item_that_did_not_finish_cleanly_is_an_error_not_pending(
+    exit_status: str,
+) -> None:
+    requeued = _item("run-1", item_uid="new-uid", result={"exit_status": exit_status})
     (record,) = _records(pending=[requeued])
     assert record["status"] == "error"
 

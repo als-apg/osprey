@@ -6,7 +6,7 @@ import re
 import shutil
 import sys
 import warnings
-from collections.abc import Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from fnmatch import fnmatchcase
 from functools import lru_cache
 from pathlib import Path, PurePosixPath
@@ -341,6 +341,58 @@ def _graphdb_configured(config: dict) -> bool:
         return False
 
 
+def panel_declared_context(declares_panel: Callable[[str], bool]) -> dict[str, bool]:
+    """The ctx keys the panel-derived MCP servers are conditioned on.
+
+    One key per server the registry derived from a sidecar panel, true when
+    *declares_panel* says the panel is there. The question is put by the
+    caller because its two askers hold different things: the render holds a
+    ``config.yml`` and asks whether it declares ``web.panels.<id>``, and the
+    profile card holds a build profile and asks whether the panel is among its
+    resolved ``web_panels``.
+
+    Args:
+        declares_panel: Panel id to whether that panel is served.
+
+    Returns:
+        ``{"panel_declared:<id>": bool}`` for every panel-derived server, to
+        be merged into the context before ``resolve_servers`` runs.
+    """
+    from osprey.registry.mcp import FRAMEWORK_SERVERS
+
+    return {
+        sdef.condition: bool(declares_panel(sdef.panel_id))
+        for sdef in FRAMEWORK_SERVERS.values()
+        if sdef.panel_id is not None and sdef.condition
+    }
+
+
+def _shell_wire_note() -> str:
+    """What a shell command reaches with the panel token, for the gate warning.
+
+    The dispatcher's path is spelled here because the dispatcher is not a
+    sidecar panel; every other path is read off the registry, so a panel that
+    opens its transport to the agent is named without this text being edited.
+    """
+    from osprey.registry.mcp import panel_hop_paths
+
+    note = (
+        " The shell also reaches the dispatcher wire: the panel "
+        "token sits in the agent's process env, so a shell command "
+        "can POST to /panel/events/mcp and fire a job without the "
+        "approval prompt — the job still runs as the real user "
+        "under their chip."
+    )
+    hops = panel_hop_paths()
+    if hops:
+        note += (
+            " The same token opens the MCP transport of every panel that offers "
+            f"one to the agent ({', '.join(hops)}), so a shell command can call "
+            "those panels' tools without their approval prompts either."
+        )
+    return note
+
+
 def config_derived_context(config: dict, project_dir: Path) -> dict[str, Any]:
     """The template-context keys read out of a project's ``config.yml`` and facts file.
 
@@ -360,7 +412,10 @@ def config_derived_context(config: dict, project_dir: Path) -> dict[str, Any]:
             resolved against the files it ships, and the facts are read from
             its ``data/facility_facts.json``.
     """
-    from osprey.deployment.web_terminals.roster import config_needs_dispatcher_token
+    from osprey.deployment.web_terminals.roster import (
+        config_declares_panel,
+        config_needs_dispatcher_token,
+    )
     from osprey.facility.views.facts import hook_measurement, read_facts
     from osprey.mcp_server.http import phoebus_bridge_default
     from osprey_connectors.types import connector_transport
@@ -429,6 +484,10 @@ def config_derived_context(config: dict, project_dir: Path) -> dict[str, Any]:
         # it, or the credential with no entry to spend it on. The panel
         # declaration IS that entitlement; there is no separate key.
         "event_dispatcher_wired": config_needs_dispatcher_token(config),
+        # Gates for the MCP servers derived from sidecar panels, one key per
+        # server, read the way the two above are. The predicate is the same
+        # "this project shows that panel" the dispatcher key rests on.
+        **panel_declared_context(lambda panel_id: config_declares_panel(config, panel_id)),
         # Render-time fallback for the phoebus server's PHOEBUS_BRIDGE_URL env
         # entry, derived from the same phoebus.host/phoebus.port the backend is
         # deployed on. One spelling with the runtime resolution (the shared
@@ -2477,15 +2536,7 @@ def _lint_write_tools_are_gated(ctx: dict, fw_pre_rules: list[dict]) -> None:
                 # dispatcher wire too: OSPREY_PANEL_TOKEN is in the agent's
                 # process env, which is all it takes to fire a job from a shell
                 # command, in the foreground or the background.
-                shell_note = (
-                    " The shell also reaches the dispatcher wire: the panel "
-                    "token sits in the agent's process env, so a shell command "
-                    "can POST to /panel/events/mcp and fire a job without the "
-                    "approval prompt — the job still runs as the real user "
-                    "under their chip."
-                    if tool in SHELL_TOOLS
-                    else ""
-                )
+                shell_note = _shell_wire_note() if tool in SHELL_TOOLS else ""
                 logger.warning(
                     "%s is not in permissions.deny and is gated only by a "
                     "PreToolUse matcher this profile declares itself (%s). The "

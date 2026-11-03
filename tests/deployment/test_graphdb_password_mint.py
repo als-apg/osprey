@@ -157,12 +157,20 @@ def test_graphdb_mint_is_idempotent(tmp_path):
     assert (tmp_path / ".env").read_text().count("GRAPHDB_PASSWORD=") == 1
 
 
+@pytest.mark.parametrize(
+    "password",
+    [
+        # The volume that adopted the value outlives any later mint.
+        pytest.param("preexistingvalue", id="existing-is-preserved"),
+        # Exactly 8 characters is Neo4j's floor, not one over it.
+        pytest.param("eightchr", id="minimum-length"),
+    ],
+)
 @pytest.mark.usefixtures("captured_argv")
-def test_existing_graphdb_password_is_preserved(tmp_path):
-    """The volume that adopted the value outlives any later mint."""
-    (tmp_path / ".env").write_text("GRAPHDB_PASSWORD=preexistingvalue\n", encoding="utf-8")
+def test_an_operator_graphdb_password_is_kept_as_written(tmp_path, password):
+    (tmp_path / ".env").write_text(f"GRAPHDB_PASSWORD={password}\n", encoding="utf-8")
     container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
-    assert project_env(tmp_path)["GRAPHDB_PASSWORD"] == "preexistingvalue"
+    assert project_env(tmp_path)["GRAPHDB_PASSWORD"] == password
 
 
 @pytest.mark.parametrize(
@@ -198,14 +206,6 @@ def test_operator_password_under_the_neo4j_minimum_is_rejected(tmp_path, short):
     (tmp_path / ".env").write_text(f"GRAPHDB_PASSWORD={short}\n", encoding="utf-8")
     with pytest.raises(RuntimeError, match="GRAPHDB_PASSWORD"):
         container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
-
-
-@pytest.mark.usefixtures("captured_argv")
-def test_password_at_the_minimum_length_is_accepted(tmp_path):
-    """Exactly 8 characters is Neo4j's floor, not one over it."""
-    (tmp_path / ".env").write_text("GRAPHDB_PASSWORD=eightchr\n", encoding="utf-8")
-    container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
-    assert project_env(tmp_path)["GRAPHDB_PASSWORD"] == "eightchr"
 
 
 @pytest.mark.usefixtures("captured_argv")

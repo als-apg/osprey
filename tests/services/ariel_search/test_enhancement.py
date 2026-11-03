@@ -508,16 +508,14 @@ class TestSemanticProcessorParseResponseEdgeCases:
         assert result is not None
         assert result.keywords == ["test"]
 
-    def test_parse_response_empty_string(self):
-        """Parse handles empty string."""
+    @pytest.mark.parametrize(
+        "response",
+        [pytest.param("", id="empty-string"), pytest.param("   \n   ", id="whitespace-only")],
+    )
+    def test_parse_response_without_content_returns_none(self, response):
+        """Parse handles a response with no content."""
         module = SemanticProcessorModule()
-        result = module._parse_response("")
-        assert result is None
-
-    def test_parse_response_whitespace_only(self):
-        """Parse handles whitespace-only string."""
-        module = SemanticProcessorModule()
-        result = module._parse_response("   \n   ")
+        result = module._parse_response(response)
         assert result is None
 
 
@@ -1261,28 +1259,26 @@ class TestTextEmbeddingEnhanceWithProvider:
         assert provider.calls[0]["api_key"] is None
 
     @pytest.mark.asyncio
-    async def test_enhance_cuts_a_long_entry_to_the_model_input_limit(self, monkeypatch):
-        """A long entry is cut to the model's limit less the reserved tokens, in bytes."""
+    @pytest.mark.parametrize(
+        "raw_text",
+        [
+            # Cut to the model's limit less the reserved tokens, in bytes.
+            pytest.param("x" * 100, id="long-entry-is-cut"),
+            # An entry that fits the limit is sent unchanged.
+            pytest.param("x" * 32, id="entry-within-limit-is-sent-whole"),
+        ],
+    )
+    async def test_enhance_sends_an_entry_no_longer_than_the_model_input_limit(
+        self, monkeypatch, raw_text
+    ):
+        """An entry reaches the provider no longer than the model's input limit allows."""
         provider = _route_provider(monkeypatch, make_fake_embedding_provider())
         module = _embedding_module(
             models=[{"name": "test-model", "dimension": 4, "max_input_tokens": 40}]
         )
         conn = _FakeConnection(rows_for={TABLES_QUERY: [(True,)]})
 
-        await module.enhance({"entry_id": "entry-001", "raw_text": "x" * 100}, conn)
-
-        assert provider.calls[0]["texts"] == ["x" * 32]
-
-    @pytest.mark.asyncio
-    async def test_enhance_sends_an_entry_within_the_limit_whole(self, monkeypatch):
-        """An entry that fits the limit is sent unchanged."""
-        provider = _route_provider(monkeypatch, make_fake_embedding_provider())
-        module = _embedding_module(
-            models=[{"name": "test-model", "dimension": 4, "max_input_tokens": 40}]
-        )
-        conn = _FakeConnection(rows_for={TABLES_QUERY: [(True,)]})
-
-        await module.enhance({"entry_id": "entry-001", "raw_text": "x" * 32}, conn)
+        await module.enhance({"entry_id": "entry-001", "raw_text": raw_text}, conn)
 
         assert provider.calls[0]["texts"] == ["x" * 32]
 

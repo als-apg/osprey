@@ -37,19 +37,18 @@ def _refused_url(port: int) -> str:
 
 
 class TestAgainstLlamaCpp:
-    def test_401_is_unavailable_auth(self, llama_stub):
+    @pytest.mark.parametrize(
+        ("status", "reason"),
+        [pytest.param(401, "auth", id="401-auth"), pytest.param(404, "model", id="404-model")],
+    )
+    def test_an_auth_or_model_status_is_unavailable_with_its_reason(
+        self, llama_stub, status, reason
+    ):
         stub = llama_stub()
-        stub.status = 401
+        stub.status = status
         exc = _embed(stub.url)
         assert classify_vision_error(exc) == "unavailable"
-        assert availability.unavailable_reason(exc) == "auth"
-
-    def test_404_is_unavailable_model(self, llama_stub):
-        stub = llama_stub()
-        stub.status = 404
-        exc = _embed(stub.url)
-        assert classify_vision_error(exc) == "unavailable"
-        assert availability.unavailable_reason(exc) == "model"
+        assert availability.unavailable_reason(exc) == reason
 
     def test_400_is_deterministic(self, llama_stub):
         stub = llama_stub()

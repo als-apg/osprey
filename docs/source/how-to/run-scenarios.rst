@@ -139,7 +139,10 @@ name. Every key is optional:
        ramp ends at ``until_offset``), ``at_time`` (a daily ``HH:MM:SS`` in the
        facility time zone) or ``at_when`` (``{days_ago, time}``), which places
        an event at the instant a logbook entry's ``when`` names. ``at_time``
-       and ``at_when`` take ``step`` and ``spike`` only.
+       and ``at_when`` take ``step`` and ``spike`` only. A ``step`` on a float
+       channel may end with ``until``, ``until_offset`` or ``until_when``,
+       matching its position and later than it; after the end the channel
+       returns to its baseline. A daily ``at_time`` step does not end.
    * - ``logbook``
      - The entries the scenario narrates, each with ``entry_id``, ``when``
        (``{days_ago, time}``), ``author``, ``title`` and ``text``, and

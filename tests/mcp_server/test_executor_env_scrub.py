@@ -47,35 +47,23 @@ def _write_subprocess_config(tmp_path):
 # ---------------------------------------------------------------------------
 
 
-def test_scrub_removes_bluesky_launch_token():
-    """BLUESKY_LAUNCH_TOKEN is dropped via the *_LAUNCH_TOKEN suffix rule."""
-    env = {"BLUESKY_LAUNCH_TOKEN": "secret", "PATH": "/usr/bin"}
+@pytest.mark.parametrize(
+    "name",
+    [
+        # BLUESKY_LAUNCH_TOKEN is dropped via the *_LAUNCH_TOKEN suffix rule.
+        pytest.param("BLUESKY_LAUNCH_TOKEN", id="bluesky-launch-token"),
+        # EVENT_DISPATCHER_TOKEN is dropped via the exact-name rule.
+        pytest.param("EVENT_DISPATCHER_TOKEN", id="event-dispatcher-token"),
+        # OSPREY_TERMINAL_SECRET is dropped: it authenticates a web-terminal session.
+        pytest.param("OSPREY_TERMINAL_SECRET", id="terminal-secret"),
+        # OSPREY_PANEL_TOKEN is dropped: no sandbox has business calling panel routes.
+        pytest.param("OSPREY_PANEL_TOKEN", id="panel-token"),
+    ],
+)
+def test_scrub_removes_write_arming_secrets(name):
+    env = {name: "secret", "PATH": "/usr/bin"}
     scrubbed = scrub_sensitive_env(env)
-    assert "BLUESKY_LAUNCH_TOKEN" not in scrubbed
-    assert scrubbed["PATH"] == "/usr/bin"
-
-
-def test_scrub_removes_event_dispatcher_token():
-    """EVENT_DISPATCHER_TOKEN is dropped via the exact-name rule."""
-    env = {"EVENT_DISPATCHER_TOKEN": "secret", "PATH": "/usr/bin"}
-    scrubbed = scrub_sensitive_env(env)
-    assert "EVENT_DISPATCHER_TOKEN" not in scrubbed
-    assert scrubbed["PATH"] == "/usr/bin"
-
-
-def test_scrub_removes_terminal_secret():
-    """OSPREY_TERMINAL_SECRET is dropped: it authenticates a web-terminal session."""
-    env = {"OSPREY_TERMINAL_SECRET": "secret", "PATH": "/usr/bin"}
-    scrubbed = scrub_sensitive_env(env)
-    assert "OSPREY_TERMINAL_SECRET" not in scrubbed
-    assert scrubbed["PATH"] == "/usr/bin"
-
-
-def test_scrub_removes_panel_token():
-    """OSPREY_PANEL_TOKEN is dropped: no sandbox has business calling panel routes."""
-    env = {"OSPREY_PANEL_TOKEN": "secret", "PATH": "/usr/bin"}
-    scrubbed = scrub_sensitive_env(env)
-    assert "OSPREY_PANEL_TOKEN" not in scrubbed
+    assert name not in scrubbed
     assert scrubbed["PATH"] == "/usr/bin"
 
 

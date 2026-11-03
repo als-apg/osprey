@@ -114,8 +114,8 @@ guides are the better starting point.
       :link-type: doc
       :shadow: md
 
-      The dock layout engine OSPREY and CANOPY share: one case set, one JS
-      engine, one Python rule implementation, and where each is edited.
+      The dock engine the web terminal vendors from CANOPY's screen runtime,
+      the server's copy of its layout rules, and how the copies are pinned.
 
 .. toctree::
    :hidden:

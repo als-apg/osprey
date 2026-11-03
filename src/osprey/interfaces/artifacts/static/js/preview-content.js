@@ -24,7 +24,7 @@
 
 import { fileUrl } from './state.js';
 import { escapeHtml } from './types.js';
-import { configureMarked, markdownSanitizer, renderMathInMarkdown } from './md-render.js';
+import { renderMathInMarkdown, renderMarkdownInto } from './md-render.js';
 
 // ---- Markdown Rendering ---- //
 
@@ -45,17 +45,11 @@ export async function renderMarkdownView(container, artifact) {
     if (!resp.ok) throw new Error(`Fetch failed: ${resp.status}`);
     const text = await resp.text();
 
-    configureMarked();
-
     const mdDiv = document.createElement('div');
     mdDiv.className = 'osprey-md-rendered';
-    if (typeof marked !== 'undefined' && markdownSanitizer()) {
-      // The artifact is agent-written: renderMathInMarkdown returns only
-      // DOMPurify-sanitized HTML, so no script in it reaches this page.
-      mdDiv.innerHTML = renderMathInMarkdown(text);
-    } else {
-      mdDiv.textContent = text;
-    }
+    // Agent-authored markdown: md-render.js sanitises with DOMPurify before
+    // its one innerHTML assignment, and writes inert text without it.
+    renderMarkdownInto(mdDiv, text);
     container.innerHTML = '';
     container.appendChild(mdDiv);
   } catch (err) {

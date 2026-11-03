@@ -355,7 +355,7 @@ def test_a_session_not_held_gets_the_write_verdict_unchanged(monkeypatch, tmp_pa
 def test_the_keywords_reach_the_write_verdict(monkeypatch, tmp_path):
     _armed(monkeypatch, tmp_path)
     assert execution_verdict(ARMED_SECTION, TARGET_VA, owner=NO_OWNER).reason == "owner_unknown"
-    monkeypatch.setattr(posture_store, "launch_pin_term", lambda *a, **k: "pinned")
+    monkeypatch.setattr(posture_store, "_launch_pin_term", lambda *a, **k: "pinned")
     assert execution_verdict(ARMED_SECTION, TARGET_VA).reason == "launch_pinned"
     assert execution_verdict(ARMED_SECTION, TARGET_VA, ignore_launch_pin=True).allowed is True
 

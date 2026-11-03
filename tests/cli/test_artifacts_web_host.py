@@ -49,18 +49,20 @@ def test_explicit_host_keeps_configured_port(tmp_path, monkeypatch, bound):
     assert bound == [("127.0.0.1", CONFIGURED_PORT)]
 
 
-def test_explicit_port_keeps_configured_host(tmp_path, monkeypatch, bound):
+@pytest.mark.parametrize(
+    ("port_arg", "port"),
+    [
+        pytest.param("18999", 18999, id="explicit-port"),
+        pytest.param("0", 0, id="port-zero"),
+    ],
+)
+def test_an_explicit_port_is_bound_as_given_with_the_configured_host(
+    tmp_path, monkeypatch, bound, port_arg, port
+):
     _write_config(tmp_path, monkeypatch, CONFIGURED)
-    result = CliRunner().invoke(artifacts, ["web", "--port", "18999"])
+    result = CliRunner().invoke(artifacts, ["web", "--port", port_arg])
     assert result.exit_code == 0, result.output
-    assert bound == [(CONFIGURED_HOST, 18999)]
-
-
-def test_port_zero_is_bound_as_given(tmp_path, monkeypatch, bound):
-    _write_config(tmp_path, monkeypatch, CONFIGURED)
-    result = CliRunner().invoke(artifacts, ["web", "--port", "0"])
-    assert result.exit_code == 0, result.output
-    assert bound == [(CONFIGURED_HOST, 0)]
+    assert bound == [(CONFIGURED_HOST, port)]
 
 
 def test_both_flags_do_not_read_the_config(tmp_path, monkeypatch, bound):

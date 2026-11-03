@@ -317,8 +317,8 @@ virtual_accelerator:
   # in that block — so pointing this deployment at your facility is that one
   # edit and nothing here.
   # `osprey sim apply` moves both machines — a scenario changes the world, not
-  # one lane. The archiver records the stand-in: the archive belongs to the
-  # machine.
+  # one lane. The stand-in is never recorded: it reads the facility's archive,
+  # and the store holds the simulator's past.
   # `true` serves the stand-in on this deployment's own stand-in port, so two
   # deployments on one host never collide over it. Write a Channel Access port
   # number instead only to pin it somewhere specific.
@@ -430,13 +430,11 @@ config:
   # `gateways` and `probe_channel` first — then the switch probes that target
   # and requires your own
   # `control_system.target_switch.live_gateway_acknowledged` — the operator
-  # saying those gateways really are this facility's — and it still refuses
-  # while this deployment records its own archive from the stand-in, because
-  # that store's history is the stand-in's (see `va_archiver:` above).
+  # saying those gateways really are this facility's.
   # `osprey set connector=<type>` ("epics", "doocs" or "tango") makes your
   # facility's machine the session baseline in place of the simulator, with
   # `osprey set config.archiver.type=<the archiver that records it>` and
-  # `osprey set va_archiver=null`, because the recorded archive goes with it.
+  # `osprey set va_archiver=null`, because that store records the simulator.
   control_system.type: virtual_accelerator
   # Write ceiling, the FIRST guard in the write-safety chain: `never` refuses
   # every hardware write before the limits check or the approval prompt is
@@ -1433,7 +1431,7 @@ provenance:
   providers_hash: @PROVIDERS_HASH@
 # true builds its own services stack; false attaches to another project's.
 deploy_services: true
-# Named web-terminal layouts, as label -> list of panel ids.
+# Named web-terminal layouts, as label -> tiles of panel-id tabs.
 panel_presets: {}
 
 # --- Default web-terminal panel ----------------------------------------------

@@ -247,28 +247,21 @@ def test_a_role_that_names_no_render_is_refused(entry: Any) -> None:
         _authorization_context(web_terminals)
 
 
-def test_a_claim_map_naming_an_undeclared_role_is_refused() -> None:
-    """Dead config: a login the operator believes is granted that role is not."""
-    # Arrange
-    web_terminals = _web(
-        {
-            "roles": {"operator": {"tier": "operator"}},
-            "claims": {"claim": "groups", "map": {"dls-experts": "expert"}},
-        }
-    )
-
-    # Act / Assert
-    with pytest.raises(ValueError, match="dls-experts"):
-        _authorization_context(web_terminals)
-
-
 @pytest.mark.parametrize(
-    ("value", "role"),
-    [(7, "operator"), ("dls-operators", 7), ("dls-operators", None)],
-    ids=["non-string-value", "non-string-role", "null-role"],
+    ("value", "role", "match"),
+    [
+        # Dead config: a login the operator believes is granted that role is not.
+        ("dls-experts", "expert", "dls-experts"),
+        # Neither half of a mapping may be a type the resolver can never match.
+        (7, "operator", "claims.map"),
+        ("dls-operators", 7, "claims.map"),
+        ("dls-operators", None, "claims.map"),
+    ],
+    ids=["undeclared-role", "non-string-value", "non-string-role", "null-role"],
 )
-def test_a_claim_map_entry_that_cannot_name_a_role_is_refused(value: Any, role: Any) -> None:
-    """Neither half of a mapping may be a type the resolver can never match."""
+def test_a_claim_map_entry_that_cannot_name_a_declared_role_is_refused(
+    value: Any, role: Any, match: str
+) -> None:
     # Arrange
     web_terminals = _web(
         {
@@ -278,7 +271,7 @@ def test_a_claim_map_entry_that_cannot_name_a_role_is_refused(value: Any, role: 
     )
 
     # Act / Assert
-    with pytest.raises(ValueError, match="claims.map"):
+    with pytest.raises(ValueError, match=match):
         _authorization_context(web_terminals)
 
 
@@ -536,24 +529,23 @@ def test_lint_accepts_a_coherent_authorization_block() -> None:
 
 @pytest.mark.parametrize(
     "role_name",
-    ["Operator", "op erator", "-operator", "opérateur", "op/erator"],
-    ids=["uppercase", "space", "leading-dash", "non-ascii", "slash"],
+    [
+        "Operator",
+        "op erator",
+        "-operator",
+        "opérateur",
+        "op/erator",
+        # The parser drops it as unreferenceable; lint is where the operator is
+        # told why their role never applies.
+        7,
+    ],
+    ids=["uppercase", "space", "leading-dash", "non-ascii", "slash", "non-string"],
 )
-def test_lint_rejects_a_role_name_outside_the_username_charset(role_name: str) -> None:
+def test_lint_rejects_a_role_name_outside_the_username_charset(role_name: Any) -> None:
     """A role name is carried on a roster entry, mapped from a claim value and
     forwarded in an HTTP header — the same charset a username is held to."""
     # Arrange / Act
     findings = _lint({"roles": {role_name: {"tier": "operator"}}})
-
-    # Assert
-    assert "web_terminals.invalid_role_charset" in _codes(findings)
-
-
-def test_lint_rejects_a_non_string_role_name() -> None:
-    """The parser drops it as unreferenceable; lint is where the operator is
-    told why their role never applies."""
-    # Arrange / Act
-    findings = _lint({"roles": {7: {"tier": "operator"}}})
 
     # Assert
     assert "web_terminals.invalid_role_charset" in _codes(findings)
@@ -618,30 +610,29 @@ def test_lint_rejects_a_wrong_typed_inner_container(key: str) -> None:
     assert "web_terminals.invalid_authorization_stanza" in _codes(findings)
 
 
-def test_lint_rejects_a_roster_entry_naming_an_undeclared_role() -> None:
-    """The entry would render with the deployment's default tier instead of
-    the one the operator meant to bind."""
+@pytest.mark.parametrize(
+    ("role", "code"),
+    [
+        # The entry would render with the deployment's default tier instead of
+        # the one the operator meant to bind.
+        ("admin", "web_terminals.unknown_role_reference"),
+        # `normalize_users` drops it defensively, so nothing downstream can see the
+        # typo — this is the only surface that reports it.
+        (7, "web_terminals.invalid_user_role"),
+    ],
+    ids=["undeclared-role", "wrong-typed-role"],
+)
+def test_lint_rejects_a_roster_entry_whose_role_is_not_a_declared_role(
+    role: Any, code: str
+) -> None:
     # Arrange / Act
     findings = _lint(
         copy.deepcopy(_AUTHORIZATION),
-        users=[{"name": "alice", "index": 0, "role": "admin"}],
+        users=[{"name": "alice", "index": 0, "role": role}],
     )
 
     # Assert
-    assert "web_terminals.unknown_role_reference" in _codes(findings)
-
-
-def test_lint_rejects_a_wrong_typed_role_on_a_roster_entry() -> None:
-    """`normalize_users` drops it defensively, so nothing downstream can see the
-    typo — this is the only surface that reports it."""
-    # Arrange / Act
-    findings = _lint(
-        copy.deepcopy(_AUTHORIZATION),
-        users=[{"name": "alice", "index": 0, "role": 7}],
-    )
-
-    # Assert
-    assert "web_terminals.invalid_user_role" in _codes(findings)
+    assert code in _codes(findings)
 
 
 def test_lint_accepts_a_roster_entry_naming_a_declared_role() -> None:

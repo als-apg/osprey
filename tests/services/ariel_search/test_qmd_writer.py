@@ -223,13 +223,23 @@ class TestMirrorPath:
 class TestSanitize:
     """Sanitization of pathological content."""
 
-    def test_strips_nul_and_control_chars(self):
-        """NUL and other control characters never reach the file."""
-        assert sanitize_text("a\x00b\x01c\x1fd\x7fe") == "abcde"
-
-    def test_keeps_structural_whitespace(self):
-        """Tab, newline and carriage return survive."""
-        assert sanitize_text("a\tb\nc\rd") == "a\tb\nc\rd"
+    @pytest.mark.parametrize(
+        ("text", "expected"),
+        [
+            # NUL and other control characters never reach the file.
+            pytest.param("a\x00b\x01c\x1fd\x7fe", "abcde", id="strips-nul-and-control-chars"),
+            # Tab, newline and carriage return survive.
+            pytest.param("a\tb\nc\rd", "a\tb\nc\rd", id="keeps-structural-whitespace"),
+            # A NULL column renders as empty text.
+            pytest.param(None, "", id="none-becomes-empty"),
+            # Legitimate unicode is untouched.
+            pytest.param(
+                "β beam 測定 \U0001f600", "β beam 測定 \U0001f600", id="preserves-unicode"
+            ),
+        ],
+    )
+    def test_sanitize_text_returns_text_that_is_safe_to_write(self, text, expected):
+        assert sanitize_text(text) == expected
 
     def test_replaces_lone_surrogate(self):
         """Invalid UTF-8 is replaced rather than raising."""
@@ -237,14 +247,6 @@ class TestSanitize:
         cleaned.encode("utf-8")
         assert cleaned.startswith("before")
         assert cleaned.endswith("after")
-
-    def test_none_becomes_empty(self):
-        """A NULL column renders as empty text."""
-        assert sanitize_text(None) == ""
-
-    def test_preserves_unicode(self):
-        """Legitimate unicode is untouched."""
-        assert sanitize_text("β beam 測定 \U0001f600") == "β beam 測定 \U0001f600"
 
 
 class TestRender:

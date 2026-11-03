@@ -39,6 +39,7 @@ import {
   sendThemeToWindow,
   sendSessionToWindow,
   buildPopoutSrc,
+  isUrlWithinMount,
 } from './panel-iframe-sync.js';
 import { renderEmptyState as renderEmptyStateInto } from './panel-empty-state.js';
 import { hiddenPanels, visiblePanelsExcept, standaloneUrl } from './panel-queries.js';
@@ -46,6 +47,7 @@ import { applyPreset, wirePanelHeaderControls } from './panel-presets.js';
 import { setPanelVisibility, setPanelFocus, registerUrlPanel } from './panel-commands.js';
 import { applyConfigTabGate, applyConfigUnreadableNotice } from './config-tab.js';
 import { applyScaffoldWriteGate } from './scaffold/write-gate.js';
+import { applyLoginNudge } from './login-nudge.js';
 import { applyTourConfig } from './tour.js';
 import { setFacts } from './first-contact.js';
 import {
@@ -59,7 +61,7 @@ import {
   setPlaceholdersAppliedHandler,
   PLACEHOLDER_PREFIX,
 } from './dock-iframe.js';
-import { initPanelPlacement, dropPanelAt } from './panel-placement.js';
+import { initPanelPlacement, landDroppedPanel } from './panel-placement.js';
 import { createPanelIframe, framePanel } from './panel-iframe-factory.js';
 import { PANELS, TERMINAL_RAIL_ID, DEFAULT_PANEL_FALLBACK, titleCase } from './panel-catalog.js';
 import {
@@ -67,11 +69,17 @@ import {
   withEchoSuppressed,
   setTileCloseHandler,
   setTileFocusHandler,
-  dockPanelBesideActive,
 } from './dock-sync.js';
 import { setTileContextMenuHandler } from './dock-tab.js';
 import { initRailDrag } from './rail-drag.js';
-import { openTerminalPanel, getDockApi } from './dock-workspace.js';
+import {
+  openTerminalPanel,
+  getDockApi,
+  bootLayoutSettled,
+  setLayoutRestoredHook,
+} from './dock-workspace.js';
+import { getLayoutHolder, TERMINAL_KEY } from './dock-apply.js';
+import { serviceTileTarget } from './dock-open.js';
 import {
   initMenuPolicy,
   openTileContextMenu,
@@ -115,6 +123,7 @@ import { onSessionChange } from './terminal.js';
  * @property {ReturnType<typeof setTimeout> | null} pollTimer
  * @property {boolean} polling
  * @property {boolean} configLoaded
+ * @property {boolean} settled - the first liveness verdict is in: healthy, unhealthy, failed, or no backend to ask
  * @property {string | null} [pendingUrl]
  * @property {string | null} [failedMessage] - the server's sentence while a sidecar's start has failed
  * @property {boolean} [activateOnHealthy] - surface the panel on its first healthy settle (an operator retry)
@@ -125,13 +134,9 @@ import { onSessionChange } from './terminal.js';
 /**
  * SSE payloads broadcast on /api/files/events, discriminated on `type`.
  * `source: 'agent'` marks a frame as agent-originated (absent = human/browser
- * origin); absent optional keys are omitted by the server, never null.
- * @typedef {object} PanelFocusEvent
- * @property {'panel_focus'} type
- * @property {string} panel
- * @property {string} [url]
- * @property {'agent'} [source]
- *
+ * origin); absent optional keys are omitted by the server, never null. The
+ * agent's dock changes are not broadcast: they arrive as `panel_op` frames
+ * addressed to one dock client (panel-placement.js's PanelOpFrame).
  * @typedef {object} PanelVisibilityEvent
  * @property {'panel_visibility'} type
  * @property {string} panel
@@ -144,11 +149,6 @@ import { onSessionChange } from './terminal.js';
  * @property {'rail_order'} type
  * @property {string[]} order - every rail member, top to bottom (Agent not included)
  *
- * @typedef {object} PanelCloseEvent
- * @property {'panel_close'} type
- * @property {string} panel
- * @property {'agent'} [source]
- *
  * @typedef {object} PanelRegisterEvent
  * @property {'panel_register'} type
  * @property {string} id
@@ -158,13 +158,6 @@ import { onSessionChange } from './terminal.js';
  * @property {string} [path]
  * @property {'agent'} [source]
  *
- * @typedef {object} PanelArrangeEvent
- * @property {'panel_arrange'} type
- * @property {string[]} tiles      - the service tiles to have open, left to right
- * @property {string} [focus]      - requested focus target, one of `tiles`
- * @property {boolean} [prune_rail] - preset path: rail membership becomes exactly `tiles`
- * @property {'agent'} [source]
- *
  * @typedef {object} AgentActivityEvent
  * @property {typeof import('./activity-format.js').AGENT_ACTIVITY_FRAME} type
  * @property {string} tool
@@ -172,8 +165,7 @@ import { onSessionChange } from './terminal.js';
  *   panel?: string, detail?: string }} target
  * @property {number} [ts]
  *
- * @typedef {PanelFocusEvent | PanelVisibilityEvent | RailOrderEvent | PanelCloseEvent
- *   | PanelRegisterEvent | PanelArrangeEvent | AgentActivityEvent} PanelSSEEvent
+ * @typedef {PanelVisibilityEvent | RailOrderEvent | PanelRegisterEvent | AgentActivityEvent} PanelSSEEvent
  */
 
 // ---- State ----
@@ -335,6 +327,12 @@ export async function initPanelManager(panelId) {
   // and agent use. Wires lazily once the dockview shell is up; no-ops without it.
   initDockSync();
 
+  // The landing must not claim the workspace slot while a stored layout may
+  // still arrive (dock-workspace restores it after its own /api/panels round
+  // trip): re-run it once the boot layout is final. Latched, so a layout that
+  // settled before this registration fires it at once.
+  setLayoutRestoredHook(ensureActivePanel);
+
   // Hand panel-placement (the tile-geometry half of this module: open-beside,
   // agent switch, arrange rebuild) live access to the state it places panels
   // through. Every entry is a closure over this module's private state, so the
@@ -403,11 +401,11 @@ export async function initPanelManager(panelId) {
   subscribeTheme(() => broadcastToPopouts(sendThemeToWindow));
   onSessionChange(() => broadcastToPopouts(sendSessionToWindow));
 
-  // Rail drag-and-drop: a rail entry dropped on a tile edge opens (or moves)
-  // that panel as a new tile at the drop position, then reveals it through the
-  // same activate/show tail every other open path uses. Wires lazily like
-  // initDockSync; no-ops without a dock shell.
-  initRailDrag({ onDropPanel: dropPanelAt });
+  // Rail drag-and-drop: a sidebar row dropped on a tile edge or a dock edge
+  // opens (or moves) that panel as a new tile there — the drop bridge places
+  // it through the engine and the holder — and the landing reveals it through
+  // the same activate/show tail every other open path uses.
+  initRailDrag({ onRailDrop: landDroppedPanel, labelOf });
 
   // Fetch panel config and filter PANELS before rendering
   let panelConfig = null;
@@ -497,6 +495,11 @@ export async function initPanelManager(panelId) {
   // the policy; a failed fetch (null) leaves the tour on-demand only.
   applyTourConfig(panelConfig);
 
+  // The personal-login nudge reads its two facts off the same round trip:
+  // shown only when the deployment allows a personal login and this terminal
+  // holds none. login-nudge.js owns the dismissal; a failed fetch shows nothing.
+  applyLoginNudge(panelConfig);
+
   // Hand first contact the same facts off the same round trip. Unlike every
   // other server-config read above, the failed fetch (null) is NOT a no-op
   // here: the greeting and its starter prompts render either way, so they need
@@ -577,6 +580,10 @@ export async function initPanelManager(panelId) {
           const panel = PANELS.find((p) => p.id === cp.id);
           if (panel) startHealthPolling(panel);
         }
+      } else if (ps) {
+        // Declared without an address: there is nothing to ask, so the verdict
+        // is in and a default that names this panel falls through at once.
+        ps.settled = true;
       }
     }
   }
@@ -603,6 +610,9 @@ export async function initPanelManager(panelId) {
     resetActive: () => {
       activeTabId = null;
     },
+    // Forget the surfaced panel AND its rail accent: an op that took the
+    // viewed panel away and could surface nothing in its place.
+    clearActive: clearActivePanel,
     renderEmpty: renderEmptyState,
     // Closure, not the value: onAgentActivity is reassigned whenever the
     // activity strip registers (setActivityStripHandler), and the dispatcher
@@ -688,19 +698,12 @@ function vacateForPopout(panelId) {
 }
 
 /**
- * Put a panel's tile back after its pop-out window closed: beside the active
- * tile when a service tile is open (the placement an agent switch uses, so
- * whatever the operator was watching survives), else by the plain activation
- * and its first-tile rule. Nobody asked the server for this surfacing, so the
- * activation carries no focus report.
+ * Put a panel back in the dock after its pop-out window closed, by the open
+ * rule: a tab in front of the service tile used last. Nobody asked the server
+ * for this surfacing, so the activation carries no focus report.
  * @param {string} panelId
  */
 function redockPanel(panelId) {
-  const panels = getDockApi()?.panels;
-  const hasServiceTile = (Array.isArray(panels) ? panels : []).some(
-    (/** @type {any} */ p) => typeof p?.id === 'string' && p.id.startsWith(PLACEHOLDER_PREFIX)
-  );
-  if (hasServiceTile) dockPanelBesideActive(panelId, labelOf(panelId));
   activateTab(panelId, { userInitiated: false });
 }
 
@@ -739,26 +742,52 @@ function hydrateRestoredTiles() {
 }
 
 /**
+ * The panel the empty slot goes to first: what a restored layout shows in the
+ * service tile the operator used last, when the dock holds one and this page
+ * knows the panel — so a stored arrangement comes back as it was saved — else
+ * the profile-pinned default.
+ * @returns {string}
+ */
+function landingTarget() {
+  const holder = getLayoutHolder();
+  const layout = holder?.layout ?? null;
+  if (holder && layout) {
+    const key = serviceTileTarget(layout, holder.context())?.showing;
+    if (key && key !== TERMINAL_KEY && panelState[key]) return key;
+  }
+  return DEFAULT_PANEL;
+}
+
+/**
  * Give the empty slot to the best panel available, if any.
  *
  * Health-driven, so {auto: true} keeps it from ever surfacing a hidden panel.
  * Safe to call on every settle: it no-ops once something is active.
  *
  * This is deliberately re-entrant rather than a one-shot at each health
- * transition. A panel's FIRST healthy transition can land while the default is
- * still loading its config — decline then and that panel never gets another
- * transition to try again, stranding the pane blank.
+ * transition. Another panel's FIRST healthy transition can land while the
+ * wanted panel is still loading its config or waiting on its first health
+ * answer — decline then, and let that panel's own settle re-run the policy.
  */
 function ensureActivePanel() {
   if (activeTabId) return;
-  const ds = panelState[DEFAULT_PANEL];
-  if (!ds?.configLoaded) return; // default may still claim the slot — wait
-  // Hidden disqualifies the default exactly as unhealthy does; activateTab
-  // would refuse it anyway, and the slot must not sit empty behind it. So
-  // does a panel living in its own window: its tile is retired on purpose.
+  // A stored layout is applied after a network round trip and may hold the
+  // tabs this session starts with: nothing claims the slot before it is in.
+  // The boot-layout hook re-runs this. Fallback mode has no layout to wait for.
+  if (getDockApi() && !bootLayoutSettled()) return;
+  const wanted = landingTarget();
+  const ds = panelState[wanted];
+  // It may still claim the slot: its config is loading, or its backend has not
+  // answered its first probe (a sidecar still starting, a health poll in
+  // flight). Decline until its first verdict is in — every path reaches one
+  // (panel-lifecycle's `settled`), so a dead panel releases the slot too.
+  if (!ds?.configLoaded || !ds.settled) return;
+  // Hidden disqualifies it exactly as unhealthy does; activateTab would refuse
+  // it anyway, and the slot must not sit empty behind it. So does a panel
+  // living in its own window: its tile is retired on purpose.
   const target =
-    ds.healthy && visiblePanels.has(DEFAULT_PANEL) && !isPoppedOut(DEFAULT_PANEL)
-      ? DEFAULT_PANEL
+    ds.healthy && visiblePanels.has(wanted) && !isPoppedOut(wanted)
+      ? wanted
       : PANELS.find(
           (p) => visiblePanels.has(p.id) && panelState[p.id]?.healthy && !isPoppedOut(p.id)
         )?.id;
@@ -863,9 +892,10 @@ export function showPanel(panelId) {
 
 /**
  * Apply a config-defined preset ("Layout") by name — the "+" menu's and the
- * command palette's Layouts action. One arrange request; the panel_arrange echo
- * opens exactly the preset's tiles and prunes the rail to its members on every
- * client, so nothing is applied locally ahead of it.
+ * command palette's Layouts action. One open-arrangement op through the same
+ * route an agent uses; the current dock client's op runner applies it and the
+ * server prunes the rail to the preset's members, so nothing is applied locally
+ * ahead of it.
  * @param {string} name
  */
 export function applyMenuPreset(name) {
@@ -881,9 +911,16 @@ export function applyMenuPreset(name) {
 function navigatePanel(panelId, url) {
   const state = panelState[panelId];
   if (!state) return;
+  // The navigation guard's member rule, applied here as the server applies it
+  // to the op: a url that leaves this panel's own mount (another path on this
+  // origin, another host, an encoded way out) moves nothing, whatever sent it.
+  if (!isUrlWithinMount(url, state.url)) {
+    console.warn(`[panels] refused a url for ${panelId} that leaves its mount`);
+    return;
+  }
 
   // Store the target URL so that createIframe() picks it up if the iframe
-  // hasn't been lazy-loaded yet (e.g. first panel_focus SSE before the user
+  // hasn't been lazy-loaded yet (e.g. an agent open before the user
   // has ever clicked the tab).
   state.pendingUrl = url;
 
@@ -906,12 +943,20 @@ function navigatePanel(panelId, url) {
   state.pendingUrl = null;
 }
 
-/** Human-local twin of the panel_focus SSE path: navigate a panel to `url`
+/** Human-local twin of an agent's open with a url: navigate a panel to `url`
  *  and plain-activate it. No agent glow, no server broadcast.
  *  @param {string} panelId
  *  @param {string} url */
 export function navigateAndActivatePanel(panelId, url) {
-  if (url) navigatePanel(panelId, url);
+  if (url) {
+    // A url that leaves the panel's own mount moves nothing and surfaces
+    // nothing: the sender may be an agent-authored page in a sandboxed panel.
+    if (!isUrlWithinMount(url, panelState[panelId]?.url)) {
+      console.warn(`[panels] refused a url for ${panelId} that leaves its mount`);
+      return;
+    }
+    navigatePanel(panelId, url);
+  }
   activateTab(panelId);
 }
 

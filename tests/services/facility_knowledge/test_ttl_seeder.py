@@ -127,18 +127,12 @@ class TestModuleImport:
             seed_from_ttl,
         )
 
-    def test_seed_from_ttl_returns_empty_for_none(self):
-        """seed_from_ttl(None) returns [] without touching rdflib."""
+    @pytest.mark.parametrize("ttl", [None, ""], ids=["none", "empty-string"])
+    def test_seed_from_ttl_returns_empty_for_no_content(self, ttl):
+        """seed_from_ttl returns [] for an absent or empty input without touching rdflib."""
         from osprey.services.facility_knowledge.seeder import seed_from_ttl
 
-        result = seed_from_ttl(None)
-        assert result == []
-
-    def test_seed_from_ttl_returns_empty_for_empty_string(self):
-        """seed_from_ttl('') returns [] without touching rdflib."""
-        from osprey.services.facility_knowledge.seeder import seed_from_ttl
-
-        result = seed_from_ttl("")
+        result = seed_from_ttl(ttl)
         assert result == []
 
 

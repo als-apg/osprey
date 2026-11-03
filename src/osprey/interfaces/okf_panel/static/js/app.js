@@ -135,6 +135,52 @@ initSidebarResize();
  */
 
 /**
+ * The DOMPurify instance this page sanitises markdown HTML with, or `null`.
+ *
+ * `index.html` loads DOMPurify as a page global (CDN, or the copy vendored
+ * into this panel's `static/vendor/` when offline); `null` when it did not
+ * load.
+ *
+ * @param {Window} [win]
+ * @returns {{ sanitize: (html: string) => string } | null}
+ */
+export function resolveSanitizer(win = window) {
+  const own = /** @type {any} */ (win).DOMPurify;
+  return own && typeof own.sanitize === 'function' ? own : null;
+}
+
+/**
+ * The panel's one markdown-to-HTML sink: both the concept body and the
+ * structure overview render through it.
+ *
+ * HTML is written only when BOTH the vendored `marked` and a DOMPurify
+ * ({@link resolveSanitizer}) are available, and only DOMPurify's output ever
+ * reaches `innerHTML` — bundle markdown is files on disk an agent can write,
+ * so raw `marked` output is untrusted HTML (`<img onerror>`, `<script>`,
+ * `javascript:` links). Missing either library, or either step throwing,
+ * writes the source as inert `textContent` instead (the chat-render.js
+ * precedent).
+ *
+ * @param {HTMLElement} target - its contents are replaced
+ * @param {unknown} markdown - raw markdown; `null`/`undefined` render empty
+ * @returns {void}
+ */
+export function renderMarkdownInto(target, markdown) {
+  const text = markdown != null ? String(markdown) : '';
+  const parser = /** @type {any} */ (globalThis).marked;
+  const purify = resolveSanitizer();
+  if (purify && parser && typeof parser.parse === 'function') {
+    try {
+      target.innerHTML = purify.sanitize(String(parser.parse(text)));
+      return;
+    } catch {
+      // Fall through to inert text.
+    }
+  }
+  target.textContent = text;
+}
+
+/**
  * @param {string} id
  * @returns {HTMLElement}
  */
@@ -341,21 +387,11 @@ function requireEl(id) {
       readerEl.appendChild(tagWrap);
     }
 
-    // Markdown body, rendered via the vendored marked. The container MUST be
-    // exactly class="osprey-md-rendered" so the gallery markdown CSS applies.
-    //
-    // TRUST MODEL: marked.parse output is assigned to innerHTML unsanitized.
-    // This is safe under OKF's authoring model — bundles are admin-authored,
-    // read-only facility knowledge served locally, the same trust assumption as
-    // the artifact gallery / channel-finder markdown. If bundles ever accepted
-    // untrusted authorship this would need a sanitizer (e.g. DOMPurify).
-    const body = doc.body != null ? String(doc.body) : '';
+    // Markdown body. The container MUST be exactly class="osprey-md-rendered"
+    // so the gallery markdown CSS applies. Rendered through the one sanitising
+    // sink (renderMarkdownInto): a bundle is files on disk an agent can write.
     const bodyEl = el('div', { class: 'osprey-md-rendered' });
-    try {
-      bodyEl.innerHTML = marked.parse(body);
-    } catch {
-      bodyEl.textContent = body;
-    }
+    renderMarkdownInto(bodyEl, doc.body);
     readerEl.appendChild(bodyEl);
 
     currentFacilityReferences = doc.facility_references || null;
@@ -397,12 +433,7 @@ function requireEl(id) {
 
     readerEl.innerHTML = '';
     const container = el('div', { class: 'osprey-md-rendered' });
-    const md = data.markdown != null ? String(data.markdown) : '';
-    try {
-      container.innerHTML = marked.parse(md);
-    } catch {
-      container.textContent = md;
-    }
+    renderMarkdownInto(container, data.markdown);
     readerEl.appendChild(container);
     afterRender(container);
 

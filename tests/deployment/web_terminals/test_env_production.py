@@ -112,8 +112,15 @@ def test_env_production_present_in_registry_mode_returned_as_is(tmp_path):
     assert result.read_text(encoding="utf-8") == marker
 
 
-def test_env_production_neither_present_raises_actionably(tmp_path):
-    with pytest.raises(RuntimeError, match=r"\.env\.users.*\.env"):
+@pytest.mark.parametrize(
+    "match",
+    [
+        pytest.param(r"\.env\.users.*\.env", id="actionably"),
+        pytest.param(r"\.env\.shared, \.env", id="naming-both-chain-files"),
+    ],
+)
+def test_env_production_neither_present_raises_actionably(tmp_path, match):
+    with pytest.raises(RuntimeError, match=match):
         env_production.ensure_env_production(_FULL_CONFIG, tmp_path)
 
     assert not (tmp_path / ".env.users").exists()
@@ -624,25 +631,23 @@ def test_env_production_missing_gateway_endpoint_refuses_the_deploy(
     assert not (tmp_path / ".env.users").exists()
 
 
-def test_env_production_a_literal_endpoint_asks_nothing_of_the_chain(tmp_path):
-    """A config that names the URL outright resolves it inside the container
-    with no variable at all, so nothing is required and nothing is copied."""
+@pytest.mark.parametrize(
+    "base_url",
+    [
+        # A config that names the URL outright resolves it inside the container
+        # with no variable at all, so nothing is required and nothing is copied.
+        pytest.param("https://literal.test/v1", id="literal"),
+        # A reference carrying its own fallback resolves on its own, so its
+        # absence from the chain is no refusal -- it is copied when set, as a
+        # redirect.
+        pytest.param("${ALS_APG_BASE_URL:-https://fb.test/v1}", id="defaulted-reference"),
+    ],
+)
+def test_env_production_an_endpoint_that_resolves_on_its_own_asks_nothing_of_the_chain(
+    tmp_path, base_url
+):
     _write_dotenv(tmp_path / ".env", {"ALS_APG_API_KEY": "render-secret"})
-    config = _gateway_render_config(tmp_path, base_url="https://literal.test/v1")
-
-    generated = env_production.parse_dotenv_file(
-        env_production.ensure_env_production(config, tmp_path)
-    )
-
-    assert "ALS_APG_BASE_URL" not in generated
-
-
-def test_env_production_a_defaulted_endpoint_reference_is_not_required(tmp_path):
-    """A reference carrying its own fallback resolves on its own, so its
-    absence from the chain is no refusal -- it is copied when set, as a
-    redirect."""
-    _write_dotenv(tmp_path / ".env", {"ALS_APG_API_KEY": "render-secret"})
-    config = _gateway_render_config(tmp_path, base_url="${ALS_APG_BASE_URL:-https://fb.test/v1}")
+    config = _gateway_render_config(tmp_path, base_url=base_url)
 
     generated = env_production.parse_dotenv_file(
         env_production.ensure_env_production(config, tmp_path)
@@ -1087,13 +1092,6 @@ def test_env_production_missing_from_the_whole_chain_still_raises(tmp_path):
     message = str(excinfo.value)
     assert str(tmp_path / ".env.shared") in message
     assert f"variable(s) to {tmp_path / '.env'}" in message
-    assert not (tmp_path / ".env.users").exists()
-
-
-def test_env_production_neither_chain_file_present_raises_naming_both(tmp_path):
-    with pytest.raises(RuntimeError, match=r"\.env\.shared, \.env"):
-        env_production.ensure_env_production(_FULL_CONFIG, tmp_path)
-
     assert not (tmp_path / ".env.users").exists()
 
 

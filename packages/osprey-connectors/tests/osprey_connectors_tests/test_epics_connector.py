@@ -1211,20 +1211,23 @@ class TestChannelAccessAlarmNames:
     """
 
     @pytest.mark.asyncio
-    async def test_read_reports_alarm_name_not_code(self):
-        connector = _channel_connector(ca_reading(1.0, status=3, severity=2))
+    @pytest.mark.parametrize(
+        ("code", "severity", "name"),
+        [
+            # the name, not the integer 3
+            pytest.param(3, 2, "HIHI", id="alarm-name-not-code"),
+            pytest.param(0, 0, "NO_ALARM", id="healthy-alarm-by-name"),
+            pytest.param(11, 1, "HW_LIMIT", id="epics-alarm-h-hw-limit"),
+            pytest.param(17, 1, "UDF", id="epics-alarm-h-udf"),
+            pytest.param(21, 1, "WRITE_ACCESS", id="epics-alarm-h-write-access"),
+        ],
+    )
+    async def test_read_reports_the_alarm_name_for_the_code(self, code, severity, name):
+        connector = _channel_connector(ca_reading(1.0, status=code, severity=severity))
 
         result = await connector.read_channel("SR:CH", timeout=1.0)
 
-        assert result.metadata.alarm_status == "HIHI"  # not the integer 3
-
-    @pytest.mark.asyncio
-    async def test_read_reports_healthy_alarm_by_name(self):
-        connector = _channel_connector(ca_reading(1.0, status=0, severity=0))
-
-        result = await connector.read_channel("SR:CH", timeout=1.0)
-
-        assert result.metadata.alarm_status == "NO_ALARM"
+        assert result.metadata.alarm_status == name
 
     @pytest.mark.asyncio
     async def test_read_keeps_the_raw_code_beside_the_severity(self):
@@ -1235,17 +1238,6 @@ class TestChannelAccessAlarmNames:
         assert result.metadata.alarm_status == "LOLO"
         assert result.metadata.raw_metadata["status"] == 5
         assert result.metadata.raw_metadata["severity"] == 1
-
-    @pytest.mark.asyncio
-    @pytest.mark.parametrize(
-        ("code", "name"), [(11, "HW_LIMIT"), (17, "UDF"), (21, "WRITE_ACCESS")]
-    )
-    async def test_the_names_match_epics_alarm_h(self, code, name):
-        connector = _channel_connector(ca_reading(1.0, status=code, severity=1))
-
-        result = await connector.read_channel("SR:CH", timeout=1.0)
-
-        assert result.metadata.alarm_status == name
 
     @pytest.mark.asyncio
     async def test_unmappable_code_reads_as_unknown(self):
@@ -1289,20 +1281,20 @@ class TestReadAlarmSeverity:
     """
 
     @pytest.mark.asyncio
-    async def test_read_reports_the_typed_severity(self):
-        connector = _channel_connector(ca_reading(1.0, status=3, severity=2))
+    @pytest.mark.parametrize(
+        ("status", "severity"),
+        [
+            pytest.param(3, 2, id="typed-severity"),
+            # not None: healthy is a report
+            pytest.param(0, 0, id="healthy-severity-stays-zero"),
+        ],
+    )
+    async def test_read_reports_the_severity_the_control_system_gave(self, status, severity):
+        connector = _channel_connector(ca_reading(1.0, status=status, severity=severity))
 
         result = await connector.read_channel("SR:CH", timeout=1.0)
 
-        assert result.metadata.alarm_severity == 2
-
-    @pytest.mark.asyncio
-    async def test_a_reported_healthy_severity_stays_zero(self):
-        connector = _channel_connector(ca_reading(1.0, status=0, severity=0))
-
-        result = await connector.read_channel("SR:CH", timeout=1.0)
-
-        assert result.metadata.alarm_severity == 0  # not None: healthy is a report
+        assert result.metadata.alarm_severity == severity
 
     @pytest.mark.asyncio
     async def test_an_unreported_severity_reads_as_none(self):

@@ -22,6 +22,11 @@
  * Scope: iframe panels only; geometry synced on layout/resize events only;
  * floating groups and maximize are out of scope for the overlay bound.
  *
+ * The adapter never touches dockview's panels itself: a placeholder enters or
+ * leaves the dock as one operation on the layout holder (dock-apply.js), by
+ * the placement rules in dock-open.js, and the holder applies the result.
+ * The adapter reads the groups back to place its iframes.
+ *
  * LIVE SYNC: geometry re-syncs on dockview's settle events — onDidLayoutChange
  * (panel add/move/close and sash-END), onDidActivePanelChange, and window
  * resize — and, between settles, via a ResizeObserver on each managed
@@ -62,13 +67,16 @@
  * export for the exact signature its consumer wires against.
  */
 
+import { getDockApi, setServiceRedock } from './dock-workspace.js';
+import { setDragShield } from './dock-drop.js';
 import {
-  getDockApi,
-  onDragGesture,
-  defaultServiceWidth,
-  setServiceRedock,
-} from './dock-workspace.js';
-import { PLACEHOLDER_PREFIX } from './dock-reconcile.js';
+  PLACEHOLDER_COMPONENT,
+  PLACEHOLDER_PREFIX,
+  TERMINAL_KEY,
+  getLayoutHolder,
+} from './dock-apply.js';
+import { closeKeys, openTab } from './dock-open.js';
+import { keysOf } from '/static/vendor/dock-engine.mjs';
 import { flashElement } from '/design-system/js/highlight.js';
 import { isPoppedOut } from './popout.js';
 
@@ -90,20 +98,11 @@ import { isPoppedOut } from './popout.js';
  */
 
 const OVERLAY_CLASS = 'dock-iframe-overlay';
-// Component name for the empty placeholder panels. dock-workspace.js's
-// createComponent doesn't know it, so it returns its neutral fallback element —
-// exactly the empty content node we want (we measure the group, never this node).
-// This module owns the placeholder lifecycle; dock-sync.js imports both these
-// ids to resolve/pre-create placeholders against the same namespace.
-export const PLACEHOLDER_COMPONENT = 'dock-iframe-placeholder';
-// The placeholder id namespace is defined in dock-reconcile.js (reconcile()
-// treats it as always-recreatable); re-exported here as the adapter's public
-// constant so dock-sync.js keeps one import site for the adapter contract.
-export { PLACEHOLDER_PREFIX };
-// dockview panel id of the native terminal/chat card (dock-core-shell), used as
-// the anchor for the first placeholder: services open LEFT of the terminal at
-// the classic 60/40 split.
-const TERMINAL_PANEL_ID = 'terminal';
+// The placeholder id namespace and component are the layout holder's
+// (dock-apply.js adds and strips the prefix, and serializes the component);
+// re-exported here as the adapter's public contract for the modules that
+// resolve placeholders by id.
+export { PLACEHOLDER_COMPONENT, PLACEHOLDER_PREFIX };
 
 /** @type {HTMLElement | null} */
 let overlayEl = null;
@@ -143,12 +142,10 @@ function ensureDock() {
   if (api && !dockWired) {
     ensureOverlay();
     if (overlayEl) {
-      disposers.push(
-        api.onDidLayoutChange(syncGeometry),
-        api.onDidActivePanelChange(syncGeometry),
-        api.onDidActivePanelChange(trackActiveServiceGroup)
-      );
-      wireDragShield(api);
+      disposers.push(api.onDidLayoutChange(syncGeometry), api.onDidActivePanelChange(syncGeometry));
+      // The drop bridge raises the drag shield over the overlay iframes for
+      // every dock drag (a header tab, a tile, a sidebar row).
+      setDragShield(setIframePointerShield);
       window.addEventListener('resize', syncGeometry);
       // After a default-layout rebuild (reset / restore-fallback) the grid holds
       // only the terminal — re-dock every visible managed panel's placeholder so
@@ -184,17 +181,8 @@ function ensureOverlay() {
  * Toggle the inline pointer shield over every managed overlay iframe. The
  * shared `.main-container.dock-dragging iframe { pointer-events:none }` rule
  * can't win against the inline `pointer-events:auto` these iframes carry, so
- * the toggle must be inline. Exported for rail-drag.js, whose HTML5 drags
- * start outside dockview and therefore outside onDragGesture's coverage.
- * @param {boolean} on
- */
-export function setIframePointerShield(on) {
-  for (const e of managed.values()) e.iframe.style.pointerEvents = on ? 'none' : 'auto';
-}
-
-/**
- * Re-apply dock-workspace.js's pointer shield to the overlay iframes across
- * every dockview-initiated drag gesture (start → any natural terminator).
+ * the toggle must be inline. Registered with the drop bridge (dock-drop.js),
+ * which raises it for every dock drag and lowers it at the drag's end.
  *
  * SASH drags need no shield here — and must not get one. dockview-core's own
  * sash handling already disables pointer-events on every iframe in the
@@ -206,15 +194,10 @@ export function setIframePointerShield(on) {
  * re-freezes every overlay iframe after the drag — permanently, since each
  * further drag re-snapshots the poisoned value. That was the issue-638
  * panel freeze; dock-iframe.test.mjs pins the gesture contract.
- * @param {any} api
+ * @param {boolean} on
  */
-function wireDragShield(api) {
-  disposers.push(
-    ...onDragGesture(api, {
-      onStart: () => setIframePointerShield(true),
-      onEnd: () => setIframePointerShield(false),
-    })
-  );
+export function setIframePointerShield(on) {
+  for (const e of managed.values()) e.iframe.style.pointerEvents = on ? 'none' : 'auto';
 }
 
 /**
@@ -242,105 +225,32 @@ function styleOverlayIframe(iframe) {
 }
 
 /**
- * The dockview group id that most recently held the focused service placeholder.
- * Tracked on every active-panel change so a placement can target "the service
- * tile the operator last worked in" even while the terminal is focused. May go
- * stale across layout rebuilds — consumers re-validate through the live api.
- * @type {string | null}
+ * The service keys the layout holder's dock holds right now — every key but
+ * the terminal's. Empty before the holder exists.
+ * @returns {Set<string>}
  */
-let lastServiceGroupId = null;
-
-/** Record the focused service tile's group on every active-panel change. */
-function trackActiveServiceGroup() {
-  const api = getDockApi();
-  const active = api?.activePanel;
-  if (typeof active?.id === 'string' && active.id.startsWith(PLACEHOLDER_PREFIX)) {
-    lastServiceGroupId = active.group?.id ?? lastServiceGroupId;
-  }
-}
-
-/** @param {any} group @returns {boolean} whether the group holds a service placeholder */
-function groupHasServicePlaceholder(group) {
-  return (group?.panels ?? []).some(
-    (/** @type {any} */ p) => typeof p?.id === 'string' && p.id.startsWith(PLACEHOLDER_PREFIX)
-  );
+function dockedServiceKeys() {
+  const keys = new Set(keysOf(getLayoutHolder()?.layout ?? null));
+  keys.delete(TERMINAL_KEY);
+  return keys;
 }
 
 /**
- * The service tile a placement should target: the focused service tile's group,
- * else the last one the operator focused (re-validated — layouts rebuild), else
- * any existing service tile. Null when no service tile exists at all.
- * @param {any} api
- * @returns {any} a dockview group, or null
- */
-function targetServiceGroup(api) {
-  const active = api.activePanel;
-  if (typeof active?.id === 'string' && active.id.startsWith(PLACEHOLDER_PREFIX) && active.group) {
-    return active.group;
-  }
-  if (lastServiceGroupId) {
-    const group = (api.groups ?? []).find((/** @type {any} */ g) => g?.id === lastServiceGroupId);
-    if (group && groupHasServicePlaceholder(group)) return group;
-  }
-  for (const e of managed.values()) {
-    const group = api.getPanel(e.placeholderId)?.group;
-    if (group) return group;
-  }
-  for (const p of Array.isArray(api.panels) ? api.panels : []) {
-    if (typeof p?.id === 'string' && p.id.startsWith(PLACEHOLDER_PREFIX) && p.group) {
-      return p.group;
-    }
-  }
-  return null;
-}
-
-/**
- * Ensure the empty placeholder dockview panel for a managed panel exists,
- * enforcing the one-panel-per-tile model. Placement by intent:
- *
- *   'replace' (an activation — rail click, agent focus): the new placeholder
- *   takes over the target service tile and the tile's previous occupant is
- *   evicted: its placeholder is removed and its iframe concealed, a purely
- *   local vacate that leaves its rail membership alone. The rail is the tab
- *   system; an activation switches the tile rather than stacking a tab into it.
- *
- *   'beside' (a redock after a layout rebuild): the placeholder docks as a
- *   NEW tile beside the target group — re-materializing several visible
- *   panels must not have them evict one another.
- *
- * With no service tile at all, either intent opens the first one LEFT of the
- * terminal at the classic 60/40 split (or against the grid's left edge when
- * the terminal tile is closed too).
- * @param {any} api
+ * Put a managed panel's placeholder in the dock through the layout holder, by
+ * the open rule (dock-open.js's openTab): a panel already in the dock stays
+ * where it is; otherwise its tab lands in front in the service tile the
+ * operator used last, so nothing resizes and no panel is evicted. With no
+ * service tile at all it opens the first one LEFT of the agent pane at the
+ * classic 60/40 split (or against the grid's left edge when the agent pane's
+ * tile is closed too). No-op without a holder (fallback mode).
+ * @param {string} panelId
  * @param {ManagedPanel} entry
- * @param {'replace'|'beside'} [intent]
  */
-function ensurePlaceholder(api, entry, intent = 'replace') {
-  if (api.getPanel(entry.placeholderId)) return;
-  /** @type {any} */
-  const opts = { id: entry.placeholderId, component: PLACEHOLDER_COMPONENT, title: entry.title };
-  const target = targetServiceGroup(api);
-  if (target) {
-    opts.position =
-      intent === 'replace'
-        ? { referenceGroup: target, direction: 'within' }
-        : { referenceGroup: target, direction: 'right' };
-  } else if (api.getPanel(TERMINAL_PANEL_ID)) {
-    opts.position = { referencePanel: TERMINAL_PANEL_ID, direction: 'left' };
-    opts.initialWidth = defaultServiceWidth();
-  } else {
-    // No usable reference at all (terminal tile closed too): split against the
-    // grid edge rather than stacking into the active group — one panel per
-    // tile is an invariant, addPanel's default would violate it.
-    opts.position = { direction: 'left' };
-  }
-  try {
-    api.addPanel(opts);
-  } catch (err) {
-    console.error('dock-iframe: addPanel failed for', entry.placeholderId, err);
-    return;
-  }
-  if (intent === 'replace' && target) evictReplacedOccupants(api, entry.placeholderId);
+function place(panelId, entry) {
+  const holder = getLayoutHolder();
+  if (!holder) return;
+  holder.setPanelRecord(panelId, { title: entry.title });
+  holder.run((layout, ctx) => openTab(layout, panelId, ctx));
 }
 
 /**
@@ -355,49 +265,20 @@ function concealEntry(entry) {
 }
 
 /**
- * Remove every OTHER service placeholder from the group that just received a
- * 'replace' placement — the tile's previous occupant(s). Native panels (the
- * terminal) are never evicted. The evicted iframe is concealed but kept cached
- * so a later re-activation restores its state; the eviction changes no rail or
- * server state.
- * @param {any} api
- * @param {string} keptPlaceholderId
- */
-function evictReplacedOccupants(api, keptPlaceholderId) {
-  const group = api.getPanel(keptPlaceholderId)?.group;
-  if (!group) return;
-  const others = (group.panels ?? []).filter(
-    (/** @type {any} */ p) =>
-      typeof p?.id === 'string' && p.id.startsWith(PLACEHOLDER_PREFIX) && p.id !== keptPlaceholderId
-  );
-  for (const panel of others) {
-    const serviceId = panel.id.slice(PLACEHOLDER_PREFIX.length);
-    try {
-      api.removePanel(panel);
-    } catch (err) {
-      console.error('dock-iframe: replace eviction failed for', panel.id, err);
-      continue;
-    }
-    const evicted = managed.get(serviceId);
-    if (evicted) concealEntry(evicted);
-  }
-}
-
-/**
  * Re-create the placeholder for every visible managed panel, drop orphaned
  * placeholders, and re-sync geometry. Registered with dock-workspace's
- * setServiceRedock, which fires after every layout apply (default rebuild,
- * stored-layout restore). Re-docking uses 'beside'
- * placement — materializing several visible panels into tiles must not have
- * them evict one another.
+ * setServiceRedock, which fires after every whole-layout apply (default
+ * rebuild, stored-layout restore). A visible panel the applied layout lacks
+ * comes back by the open rule — as a tab, so re-materializing several
+ * panels never evicts one of them.
  */
 function redockVisiblePanels() {
   const api = getDockApi();
   if (!api || !overlayEl) return;
-  for (const entry of managed.values()) {
-    if (entry.visible) ensurePlaceholder(api, entry, 'beside');
+  for (const [panelId, entry] of managed) {
+    if (entry.visible) place(panelId, entry);
   }
-  pruneOrphanPlaceholders(api);
+  pruneOrphanPlaceholders();
   syncGeometry();
   placeholdersAppliedHandler?.();
 }
@@ -456,41 +337,35 @@ export function setKnownServicePanels(ids) {
   knownServiceIds = new Set(ids);
   const api = ensureDock();
   if (api) {
-    pruneOrphanPlaceholders(api);
+    pruneOrphanPlaceholders();
     syncGeometry();
   }
 }
 
 /**
- * Remove placeholder panels that must not hold a tile: services neither known
- * to panel-manager nor managed here (removed from the deployment); once the
- * membership set is seeded, services no longer in the rail that are not
- * currently being shown locally (a restored placeholder for a removed panel is
- * a ghost tile under the one-panel-per-tile model); and services living in
- * their own pop-out window (a layout stored before the pop-out and restored
- * after the window was adopted would put an empty tile back). The `managed`
- * visible flag covers the window where a just-added panel's membership POST
- * has not echoed back into the server set yet. No-op until
- * setKnownServicePanels has run — before the registry loads, "unknown" would
- * just mean "not fetched yet".
- * @param {any} api
+ * Take out of the layout the placeholders that must not hold a tile: services
+ * neither known to panel-manager nor managed here (removed from the
+ * deployment); once the membership set is seeded, services no longer in the
+ * rail that are not currently being shown locally (a restored placeholder for
+ * a removed panel is a ghost tile under the one-panel-per-tile model); and
+ * services living in their own pop-out window (a layout stored before the
+ * pop-out and restored after the window was adopted would put an empty tile
+ * back). The `managed` visible flag covers the window where a just-added
+ * panel's membership POST has not echoed back into the server set yet. One
+ * holder operation for all of them. No-op until setKnownServicePanels has run
+ * — before the registry loads, "unknown" would just mean "not fetched yet".
  */
-function pruneOrphanPlaceholders(api) {
-  if (!knownServiceIds) return;
-  const panels = Array.isArray(api.panels) ? [...api.panels] : [];
-  for (const panel of panels) {
-    const id = typeof panel?.id === 'string' ? panel.id : '';
-    if (!id.startsWith(PLACEHOLDER_PREFIX)) continue;
-    const sid = id.slice(PLACEHOLDER_PREFIX.length);
+function pruneOrphanPlaceholders() {
+  const holder = getLayoutHolder();
+  if (!knownServiceIds || !holder) return;
+  /** @type {string[]} */
+  const orphans = [];
+  for (const sid of dockedServiceKeys()) {
     const unknown = !knownServiceIds.has(sid) && !managed.has(sid);
     const closed = !!serverVisibleIds && !serverVisibleIds.has(sid) && !managed.get(sid)?.visible;
-    if (!unknown && !closed && !isPoppedOut(sid)) continue;
-    try {
-      api.removePanel(panel);
-    } catch (err) {
-      console.error('dock-iframe: orphan placeholder removal failed for', id, err);
-    }
+    if (unknown || closed || isPoppedOut(sid)) orphans.push(sid);
   }
+  if (orphans.length > 0) holder.run((layout) => closeKeys(layout, orphans));
 }
 
 /** @param {HTMLIFrameElement} iframe */
@@ -627,7 +502,7 @@ export function adoptIframe(panelId, iframe, { title = panelId } = {}) {
   if (api && overlayEl) {
     styleOverlayIframe(iframe);
     overlayEl.appendChild(iframe);
-    ensurePlaceholder(api, entry);
+    place(panelId, entry);
     syncGeometry();
   } else if (fallbackHostEl) {
     fallbackHostEl.appendChild(iframe);
@@ -646,7 +521,7 @@ export function focusPanel(panelId) {
   entry.visible = true;
   const api = ensureDock();
   if (api && overlayEl) {
-    ensurePlaceholder(api, entry);
+    place(panelId, entry);
     api.getPanel(entry.placeholderId)?.api?.setActive?.();
     syncGeometry();
   } else {
@@ -657,11 +532,11 @@ export function focusPanel(panelId) {
 }
 
 /**
- * Hide a panel (closed / tab hidden): suppress its overlay iframe and drop its
- * placeholder dock panel so no empty tile lingers. The iframe element itself is
- * kept (cached) so a later show/focus re-reveals it with its state intact.
- * Also handles panels this adapter never adopted (no managed entry) — a
- * restored placeholder for a panel closed on another client still needs its
+ * Hide a panel (closed / tab hidden): suppress its overlay iframe and take its
+ * placeholder out of the layout so no empty tile lingers. The iframe element
+ * itself is kept (cached) so a later show/focus re-reveals it with its state
+ * intact. Also handles panels this adapter never adopted (no managed entry) —
+ * a restored placeholder for a panel closed on another client still needs its
  * tile removed. Consumed by panel-manager's, panel-sse's and
  * panel-placement's hide paths.
  * @param {string} panelId
@@ -672,27 +547,19 @@ export function hidePanel(panelId) {
   const api = ensureDock();
   if (!api || !overlayEl) clearFallbackShown(panelId);
   if (api && overlayEl) {
-    const placeholderId = entry?.placeholderId ?? placeholderIdFor(panelId);
-    const panel = api.getPanel(placeholderId);
-    if (panel) {
-      try {
-        api.removePanel(panel);
-      } catch (err) {
-        console.error('dock-iframe: removePanel failed for', placeholderId, err);
-      }
-    }
+    getLayoutHolder()?.run((layout) => closeKeys(layout, [panelId]));
     syncGeometry();
   }
 }
 
 /**
  * Mark a panel vacated WITHOUT touching its dock placeholder — the complement
- * of hidePanel for the human tile-close gesture, where dockview itself is
- * already removing the placeholder (the close click's own bubble handler).
- * Only the adapter-side state is cleared: the overlay iframe is concealed
- * (cached for a later re-activation) and the entry marked not-visible so
- * redocks stop re-materializing it. Geometry re-syncs on the removal's own
- * onDidLayoutChange, so none is forced here.
+ * of hidePanel for the human tile-close gesture, where the tile bar's own
+ * close handler takes the placeholder out through the holder (dock-tab.js,
+ * dock-workspace's closeDockPanel). Only the adapter-side state is cleared:
+ * the overlay iframe is concealed (cached for a later re-activation) and the
+ * entry marked not-visible so redocks stop re-materializing it. Geometry
+ * re-syncs on the removal's own onDidLayoutChange, so none is forced here.
  * @param {string} panelId
  */
 export function concealPanel(panelId) {
@@ -905,4 +772,40 @@ function clearFallbackShown(panelId) {
   if (fallbackShownId !== panelId) return;
   fallbackShownId = null;
   paintFallbackNotice();
+}
+
+// ---- Focus exit -------------------------------------------------------------
+
+/**
+ * Where a panel sits in the host's TAB ORDER, for a panel that hands keyboard
+ * focus back to the host (`osprey-focus-exit`, handled in app.js).
+ *
+ * An overlay iframe lives in the overlay layer, whose place in the document has
+ * nothing to do with where its tile is drawn, so the iframe itself cannot say
+ * what comes before or after the panel. Its placeholder can: the placeholder
+ * group's content container sits in the dock exactly where the tile is, after
+ * that tile's header bar. That container is the anchor in dock mode. In
+ * fallback mount the iframe is in the panel host in normal flow and is its own
+ * anchor.
+ *
+ * `skip` is true for anything in the overlay layer, which a host walk must
+ * step over: other panels' overlay iframes are tabbable in the DOM but drawn
+ * somewhere else, so stopping on one would send focus to another tile. (In
+ * fallback mount the other panels' iframes are display:none, so not tabbable.)
+ *
+ * @param {MessageEventSource | null} source  the `event.source` of the message
+ * @returns {{ anchor: Element, skip: (el: Element) => boolean } | null}
+ *   null when the source is not a managed panel's frame, or the panel has no
+ *   live placeholder to anchor on
+ */
+export function panelFocusAnchor(source) {
+  const entry = source && [...managed.values()].find((e) => e.iframe.contentWindow === source);
+  if (!entry) return null;
+  const skip = (/** @type {Element} */ el) => !!overlayEl?.contains(el);
+  if (getDockApi() && overlayEl && entry.iframe.parentElement === overlayEl) {
+    const group = getDockApi().getPanel(entry.placeholderId)?.group;
+    const anchor = group?.element?.querySelector('.dv-content-container') ?? group?.element;
+    return anchor ? { anchor, skip } : null;
+  }
+  return entry.iframe.isConnected ? { anchor: entry.iframe, skip } : null;
 }

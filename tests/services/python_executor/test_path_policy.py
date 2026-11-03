@@ -34,8 +34,40 @@ def test_profile_source_write_is_flagged(roots):
     assert "profile.yml" in issues[0]
 
 
-def test_agent_data_write_is_clean(roots):
-    assert path_policy_issues("open('var/agent_data/x', 'w')", **roots) == []
+@pytest.mark.parametrize(
+    "code",
+    [
+        pytest.param("open('var/agent_data/x', 'w')", id="agent-data-write"),
+        pytest.param("open('build/config.yml', mode)", id="dynamic-mode"),
+        pytest.param("open('/tmp/scratch.txt', 'w')", id="absolute-path-outside-every-root"),
+        pytest.param("Path('var/agent_data/x').write_text('y')", id="path-write-in-agent-data"),
+        pytest.param("Path('var/agent_data/x').open('w')", id="path-open-in-agent-data"),
+        pytest.param(
+            "shutil.copy('build/config.yml', 'var/agent_data/copy.yml')",
+            id="copy-from-render-zone-into-agent-data",
+        ),
+        pytest.param("os.makedirs('var/agent_data/figures')", id="makedirs-in-agent-data"),
+        pytest.param("shutil.rmtree(target_dir)", id="rmtree-of-dynamic-dir"),
+        pytest.param("os.remove(f'build/{name}')", id="remove-of-dynamic-path"),
+        pytest.param("open('build/x', 'w'", id="syntax-error"),
+        pytest.param("open('../build/config.yml', 'w')", id="parent-escaping-relative-path"),
+        # Near-misses of the sandbox-guard identifiers; the matching rule is
+        # described under "Sandbox-guard tampering" below.
+        pytest.param("my_osprey_fsx = 1", id="embedded-not-prefixed"),
+        pytest.param("osprey_fs = load()", id="no-leading-underscore"),
+        pytest.param("x = df._osprey", id="shorter-than-prefix"),
+        pytest.param("restore_patched_targets()", id="near-miss-exact-name"),
+        pytest.param("_restore_patched_targets_extra = 1", id="exact-name-is-not-a-prefix"),
+        pytest.param("'the _osprey_fs guard rejects this path'", id="prose-mentioning-a-name"),
+        # Reloads that cannot disarm the guard; see "Reloading a guarded module" below.
+        pytest.param("import importlib\nimportlib.reload(numpy)", id="reload-unguarded-module"),
+        pytest.param("config.reload()", id="reload-method-named-reload"),
+        pytest.param("reload()", id="reload-no-argument"),
+        pytest.param("os.remove('scratch.txt')", id="ordinary-os-call"),
+    ],
+)
+def test_a_write_the_policy_must_not_guess_at_stays_clean(code, roots):
+    assert path_policy_issues(code, **roots) == []
 
 
 def test_read_mode_open_is_clean(roots):
@@ -56,10 +88,6 @@ def test_dynamic_path_is_deferred_to_runtime(roots):
     assert path_policy_issues(code, **roots) == []
 
 
-def test_dynamic_mode_is_deferred_to_runtime(roots):
-    assert path_policy_issues("open('build/config.yml', mode)", **roots) == []
-
-
 def test_keyword_spelled_open_is_flagged(roots):
     issues = path_policy_issues("open(file='build/config.yml', mode='w')", **roots)
     assert len(issues) == 1
@@ -68,10 +96,6 @@ def test_keyword_spelled_open_is_flagged(roots):
 def test_absolute_path_into_render_zone_is_flagged(tmp_path, roots):
     issues = path_policy_issues(f"open({str(tmp_path / 'build' / 'x.yml')!r}, 'w')", **roots)
     assert len(issues) == 1
-
-
-def test_absolute_path_outside_every_root_is_clean(roots):
-    assert path_policy_issues("open('/tmp/scratch.txt', 'w')", **roots) == []
 
 
 def test_io_open_write_is_flagged(roots):
@@ -105,21 +129,6 @@ def test_every_covered_write_spelling_is_flagged(code, roots):
     assert issues, f"no issue raised for: {code}"
 
 
-@pytest.mark.parametrize(
-    "code",
-    [
-        "Path('var/agent_data/x').write_text('y')",
-        "Path('var/agent_data/x').open('w')",
-        "shutil.copy('build/config.yml', 'var/agent_data/copy.yml')",
-        "os.makedirs('var/agent_data/figures')",
-        "shutil.rmtree(target_dir)",
-        "os.remove(f'build/{name}')",
-    ],
-)
-def test_permitted_and_dynamic_spellings_stay_clean(code, roots):
-    assert path_policy_issues(code, **roots) == []
-
-
 def test_path_read_methods_are_clean(roots):
     assert path_policy_issues("Path('build/config.yml').read_text()", **roots) == []
     assert path_policy_issues("Path('build/config.yml').open('r')", **roots) == []
@@ -130,16 +139,8 @@ def test_aliased_module_is_still_seen(roots):
     assert path_policy_issues("sh.rmtree('build')", **roots)
 
 
-def test_syntax_error_stays_quiet(roots):
-    assert path_policy_issues("open('build/x', 'w'", **roots) == []
-
-
 def test_no_protected_roots_means_no_issues():
     assert path_policy_issues("open('build/config.yml', 'w')", protected_roots=[]) == []
-
-
-def test_parent_escaping_relative_path_is_deferred(roots):
-    assert path_policy_issues("open('../build/config.yml', 'w')", **roots) == []
 
 
 def test_every_write_in_a_script_is_reported(roots):
@@ -159,37 +160,39 @@ def test_every_write_in_a_script_is_reported(roots):
 
 
 @pytest.mark.parametrize(
-    "code",
+    ("code", "message"),
     [
-        pytest.param("_restore_patched_targets()", id="exact-name"),
-        pytest.param("_osprey_fs_check('x', True)", id="helper-prefix"),
-        pytest.param("x = _OSPREY_FS_PROTECTED", id="table-prefix"),
-        pytest.param("import builtins\nbuiltins._osprey_fs_originals", id="attribute"),
-        pytest.param("getattr(m, '_osprey_fs_check')", id="string-literal"),
-        pytest.param("globals()['_restore_patched_targets']", id="globals-subscript"),
-        pytest.param("def _osprey_fs_under(p, r):\n    return False", id="shadow-def"),
-        pytest.param("import mod as _OSPREY_FS_TARGETS", id="import-alias"),
+        pytest.param("_restore_patched_targets()", "sandbox guard", id="exact-name"),
+        pytest.param("_osprey_fs_check('x', True)", "sandbox guard", id="helper-prefix"),
+        pytest.param("x = _OSPREY_FS_PROTECTED", "sandbox guard", id="table-prefix"),
+        pytest.param(
+            "import builtins\nbuiltins._osprey_fs_originals", "sandbox guard", id="attribute"
+        ),
+        pytest.param("getattr(m, '_osprey_fs_check')", "sandbox guard", id="string-literal"),
+        pytest.param(
+            "globals()['_restore_patched_targets']", "sandbox guard", id="globals-subscript"
+        ),
+        pytest.param(
+            "def _osprey_fs_under(p, r):\n    return False", "sandbox guard", id="shadow-def"
+        ),
+        pytest.param("import mod as _OSPREY_FS_TARGETS", "sandbox guard", id="import-alias"),
+        # Reloading a guarded module: see "Reloading a guarded module" below.
+        pytest.param(
+            "import importlib\nimportlib.reload(os)", "reload", id="reload-importlib-dotted"
+        ),
+        pytest.param("from importlib import reload\nreload(shutil)", "reload", id="reload-bare"),
+        pytest.param("importlib.reload(builtins)", "reload", id="reload-builtins"),
+        pytest.param("importlib.reload(io)", "reload", id="reload-io"),
+        pytest.param(
+            "importlib.reload(sys.modules['os'])", "reload", id="reload-sys-modules-subscript"
+        ),
+        pytest.param("imp.reload(os)", "reload", id="reload-any-receiver"),
     ],
 )
-def test_guard_tamper_identifiers_are_flagged(code, roots):
+def test_guard_tampering_is_flagged(code, message, roots):
     issues = path_policy_issues(code, **roots)
     assert issues, f"no issue raised for: {code}"
-    assert "sandbox guard" in issues[0]
-
-
-@pytest.mark.parametrize(
-    "code",
-    [
-        pytest.param("my_osprey_fsx = 1", id="embedded-not-prefixed"),
-        pytest.param("osprey_fs = load()", id="no-leading-underscore"),
-        pytest.param("x = df._osprey", id="shorter-than-prefix"),
-        pytest.param("restore_patched_targets()", id="near-miss-exact-name"),
-        pytest.param("_restore_patched_targets_extra = 1", id="exact-name-is-not-a-prefix"),
-        pytest.param("'the _osprey_fs guard rejects this path'", id="prose-mentioning-a-name"),
-    ],
-)
-def test_innocent_identifiers_stay_clean(code, roots):
-    assert path_policy_issues(code, **roots) == []
+    assert message in issues[0]
 
 
 def test_guard_tamper_is_flagged_without_any_protected_root():
@@ -212,36 +215,6 @@ def test_each_distinct_guard_name_is_reported_once():
 # the runtime guard cannot see it at all (nothing calls a patched entry point),
 # so this walker is the only layer that can refuse it.
 # ---------------------------------------------------------------------------
-
-
-@pytest.mark.parametrize(
-    "code",
-    [
-        pytest.param("import importlib\nimportlib.reload(os)", id="importlib-dotted"),
-        pytest.param("from importlib import reload\nreload(shutil)", id="bare-reload"),
-        pytest.param("importlib.reload(builtins)", id="builtins"),
-        pytest.param("importlib.reload(io)", id="io"),
-        pytest.param("importlib.reload(sys.modules['os'])", id="sys-modules-subscript"),
-        pytest.param("imp.reload(os)", id="any-receiver"),
-    ],
-)
-def test_reloading_a_guarded_module_is_flagged(code, roots):
-    issues = path_policy_issues(code, **roots)
-    assert issues, f"no issue raised for: {code}"
-    assert "reload" in issues[0]
-
-
-@pytest.mark.parametrize(
-    "code",
-    [
-        pytest.param("import importlib\nimportlib.reload(numpy)", id="unguarded-module"),
-        pytest.param("config.reload()", id="method-named-reload"),
-        pytest.param("reload()", id="no-argument"),
-        pytest.param("os.remove('scratch.txt')", id="ordinary-os-call"),
-    ],
-)
-def test_reloads_that_cannot_disarm_the_guard_stay_clean(code, roots):
-    assert path_policy_issues(code, **roots) == []
 
 
 def test_reload_is_flagged_without_any_protected_root():

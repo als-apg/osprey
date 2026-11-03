@@ -21,9 +21,9 @@ anchored on the repo), what the store file is called (named for the settled
 also named for that port). A drift in any one of those three would leave the in-
 process test green and every real operator logged out on restart anyway.
 
-So this test drives the actual command. Against one deployment repo, on the
-port the first server binds (``--port 0``) and the restart asks for again, it
-asserts:
+So this test drives the actual command. Against one deployment repo, on one
+port held reserved across both launches (the number must still be free when the
+restart asks for it again), it asserts:
 
 1. **The cookie is persistent, not a window-lifetime one.** The ``?token=``
    login URL the detached launcher prints is exchanged (``GET`` → ``303`` +
@@ -317,7 +317,9 @@ def _session_cookie(exchange: httpx.Response, cookie_name: str) -> tuple[str, Mo
     return raw, jar[cookie_name]
 
 
-def test_browser_session_survives_a_server_restart(tmp_path: Path, record_port: int) -> None:
+def test_browser_session_survives_a_server_restart(
+    tmp_path: Path, record_port: int, reserve_port
+) -> None:
     """Stop and restart a real ``osprey web`` and prove the cookie still works.
 
     Asserts, across two launcher invocations against one repo and one port, the
@@ -352,10 +354,15 @@ def test_browser_session_survives_a_server_restart(tmp_path: Path, record_port: 
     # assertion that fires there is precisely the one that fires when the first
     # server has NOT exited. Kept in a list so teardown can reach it anyway.
     pids: list[int] = []
+    # Held for the whole test: between the stop and the restart nothing holds
+    # the port, and a number from the ephemeral range could be handed to any
+    # outgoing connection on the host in that gap.
+    port = reserve_port()
 
     try:
         # -- First server: exchange the login URL for a session cookie. ------
-        first_url, port = _launch_detached(repo, 0, first_log)
+        first_url, first_port = _launch_detached(repo, port, first_log)
+        assert first_port == port, f"the first server bound {first_port}, not {port}"
         base_url = f"http://{_HOST}:{port}"
         # `session_cookie_name()` names the cookie for the settled OSPREY_WEB_PORT,
         # and `SessionStore` names its file for the same value. Both are spelled out

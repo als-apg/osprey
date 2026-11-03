@@ -3980,6 +3980,35 @@ def _profile_setup_patch_capable(build_profile: Any) -> bool:
     return is_setup_patch_capable(render_capability_document(overrides))
 
 
+def _profile_image_checks_context(build_profile: Any) -> dict[str, Any]:
+    """The image checks *build_profile*'s sidecar panels ask of its image.
+
+    One key for ``Dockerfile.j2``, ``image_checks``: every selected panel's
+    :attr:`~osprey.profiles.sidecar_panels.SidecarPanel.image_checks` entries,
+    in selection order (``web_panels``), each of which the image build runs
+    from the deployment directory. An entry two panels share is run once.
+
+    The selection is the right thing to read, as it is for the tabs
+    themselves: the build switches off every ``web.panels`` block of a tab the
+    profile does not select, so a tier that drops a panel drops its checks
+    with it. A profile that selects no such panel gets an empty list.
+
+    Args:
+        build_profile: The resolved profile for the render being built.
+
+    Returns:
+        ``{"image_checks": list[str]}``.
+    """
+    from osprey.profiles.sidecar_panels import SIDECAR_PANELS
+
+    checks: list[str] = []
+    for panel_id in build_profile.web_panels or ():
+        panel = SIDECAR_PANELS.get(panel_id)
+        if panel is not None:
+            checks.extend(check for check in panel.image_checks if check not in checks)
+    return {"image_checks": checks}
+
+
 def _profile_knowledge_bundle_dir(build_profile: Any) -> str:
     """The knowledge bundle *build_profile* names, relative to its render.
 
@@ -4246,6 +4275,9 @@ def _repo_render_context(
         # lifts the base floor — because the rendered config those keys land in
         # does not exist yet when this context is built.
         "is_setup_patch_capable": _profile_setup_patch_capable(build_profile),
+        # The per-panel image checks of Dockerfile.j2, for a profile that
+        # selects a sidecar panel asking for them.
+        **_profile_image_checks_context(build_profile),
         # The directory Dockerfile.j2 hands to the agent's user beside `var/`:
         # the knowledge bundle the profile names, relative to the render.
         "knowledge_bundle_dir": _profile_knowledge_bundle_dir(build_profile),

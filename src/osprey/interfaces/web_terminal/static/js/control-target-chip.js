@@ -71,7 +71,7 @@ import {
   statePhrase,
   switchFailureNote,
 } from './control-target-facts.js';
-import { withPrefix, createEventSource } from './api.js';
+import { withPrefix, createEventSource, pageEventsUrl } from './api.js';
 import { AGENT_ACTIVITY_FRAME } from './activity-format.js';
 
 /**
@@ -813,7 +813,7 @@ function stopFastPolling() {
  * chip must work on a page where no panel workspace ever boots.
  */
 function subscribeRefetchHints() {
-  return createEventSource('/api/files/events', {
+  return createEventSource(pageEventsUrl(), {
     onMessage: (data) => {
       if (!data || typeof data !== 'object') return;
       if (!isRefetchHint(data)) return;

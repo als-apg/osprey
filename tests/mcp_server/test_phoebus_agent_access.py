@@ -11,7 +11,11 @@ import pytest
 import yaml
 
 from osprey.mcp_server.phoebus.server import mcp
-from osprey.mcp_server.phoebus.tools import bridge_tools
+
+# ``databrowser_tools`` is imported for its registration only: the server
+# registers both tool modules at start-up, and without it this file passes only
+# when another test module happened to import it first.
+from osprey.mcp_server.phoebus.tools import bridge_tools, databrowser_tools  # noqa: F401
 from osprey.phoebus_agent_access import agent_access, drive_offered
 from osprey_connectors_tests._harness import (
     isolate_verdict_environment,

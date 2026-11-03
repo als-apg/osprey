@@ -143,17 +143,22 @@ class TestProfileLoading:
         with pytest.raises(BuildProfileError, match="Profile not found"):
             load_profile(tmp_path / "nonexistent.yml")
 
-    def test_load_profile_invalid_yaml(self, tmp_path: Path):
-        bad_yaml = tmp_path / "bad.yml"
-        bad_yaml.write_text("{{invalid yaml: [")
-        with pytest.raises(BuildProfileError, match="Invalid YAML"):
-            load_profile(bad_yaml)
-
-    def test_load_profile_not_a_mapping(self, tmp_path: Path):
-        list_yaml = tmp_path / "list.yml"
-        list_yaml.write_text("- item1\n- item2\n")
-        with pytest.raises(BuildProfileError, match="must be a YAML mapping"):
-            load_profile(list_yaml)
+    @pytest.mark.parametrize(
+        ("filename", "content", "match"),
+        [
+            pytest.param("bad.yml", "{{invalid yaml: [", "Invalid YAML", id="invalid-yaml"),
+            pytest.param(
+                "list.yml", "- item1\n- item2\n", "must be a YAML mapping", id="not-a-mapping"
+            ),
+        ],
+    )
+    def test_load_profile_rejects_content_that_is_not_a_profile(
+        self, tmp_path: Path, filename: str, content: str, match: str
+    ):
+        profile_path = tmp_path / filename
+        profile_path.write_text(content)
+        with pytest.raises(BuildProfileError, match=match):
+            load_profile(profile_path)
 
     def test_load_profile_config_parsed(self, minimal_profile_yaml: Path):
         profile = load_profile(minimal_profile_yaml)
@@ -389,21 +394,18 @@ class TestValidation:
         with pytest.raises(BuildProfileError, match="missing 'run'"):
             profile.validate(tmp_path)
 
-    def test_lifecycle_step_absolute_cwd_blocked(self, tmp_path: Path):
+    @pytest.mark.parametrize(
+        "cwd",
+        [
+            pytest.param("/tmp/evil", id="absolute"),
+            pytest.param("../escape", id="traversal"),
+        ],
+    )
+    def test_lifecycle_step_cwd_outside_the_project_is_blocked(self, tmp_path: Path, cwd: str):
         profile = BuildProfile(
             name="Test",
             lifecycle=LifecycleConfig(
-                pre_build=[LifecycleStep(name="bad", run="echo", cwd="/tmp/evil")],
-            ),
-        )
-        with pytest.raises(BuildProfileError, match="cwd must be relative without"):
-            profile.validate(tmp_path)
-
-    def test_lifecycle_step_traversal_cwd_blocked(self, tmp_path: Path):
-        profile = BuildProfile(
-            name="Test",
-            lifecycle=LifecycleConfig(
-                pre_build=[LifecycleStep(name="bad", run="echo", cwd="../escape")],
+                pre_build=[LifecycleStep(name="bad", run="echo", cwd=cwd)],
             ),
         )
         with pytest.raises(BuildProfileError, match="cwd must be relative without"):
@@ -430,14 +432,24 @@ class TestValidation:
         # Should not raise
         profile.validate(profile_dir)
 
-    def test_default_panel_typo_rejected(self, tmp_path: Path):
-        """A `default_panel` value that doesn't match any known panel is rejected.
-
-        Without this check the frontend silently falls back to the framework
-        default — a typo never surfaces. Validation catches it at build time.
-        """
-        profile = BuildProfile(name="Test", default_panel="areil")
-        with pytest.raises(BuildProfileError, match="Unknown default_panel 'areil'"):
+    @pytest.mark.parametrize(
+        ("default_panel", "match"),
+        [
+            # A `default_panel` value that doesn't match any known panel is rejected.
+            #
+            # Without this check the frontend silently falls back to the framework
+            # default — a typo never surfaces. Validation catches it at build time.
+            pytest.param("areil", "Unknown default_panel 'areil'", id="typo"),
+            # A built-in the profile never selected renders no tab, so naming it
+            # as default_panel would fall back to the workspace silently.
+            pytest.param("ariel", "Unknown default_panel 'ariel'", id="unselected-builtin"),
+        ],
+    )
+    def test_default_panel_that_shows_no_tab_is_rejected(
+        self, tmp_path: Path, default_panel: str, match: str
+    ):
+        profile = BuildProfile(name="Test", default_panel=default_panel)
+        with pytest.raises(BuildProfileError, match=match):
             profile.validate(tmp_path)
 
     def test_default_panel_selected_builtin_accepted(self, tmp_path: Path):
@@ -448,13 +460,6 @@ class TestValidation:
             name="Test", data="data", web_panels=["ariel"], default_panel="ariel"
         )
         profile.validate(tmp_path)  # must not raise
-
-    def test_default_panel_unselected_builtin_rejected(self, tmp_path: Path):
-        """A built-in the profile never selected renders no tab, so naming it
-        as default_panel would fall back to the workspace silently."""
-        profile = BuildProfile(name="Test", default_panel="ariel")
-        with pytest.raises(BuildProfileError, match="Unknown default_panel 'ariel'"):
-            profile.validate(tmp_path)
 
     def test_default_panel_custom_via_config_accepted(self, tmp_path: Path):
         """A custom panel backed by a `web.panels.<id>.url` config override
@@ -698,45 +703,34 @@ class TestBuildHelpers:
             load_profile(p)
 
     @pytest.mark.parametrize(
-        "bad_port",
-        [0, -1, 65536, 80080, 100000],
-        ids=["zero", "negative", "just-above-max", "typo-extra-digit", "way-too-big"],
+        ("name", "bad_port"),
+        [
+            # A `port:` outside 1..65535 must raise BuildProfileError at parse
+            # time, so a typo like `port: 80080` cannot silently flow into the
+            # derived url and the persisted network block.
+            pytest.param("OutOfRange", 0, id="zero"),
+            pytest.param("OutOfRange", -1, id="negative"),
+            pytest.param("OutOfRange", 65536, id="just-above-max"),
+            pytest.param("OutOfRange", 80080, id="typo-extra-digit"),
+            pytest.param("OutOfRange", 100000, id="way-too-big"),
+            # A string `port:` (YAML quoting accident) must be rejected at parse time.
+            pytest.param("Stringy", "8008", id="non-integer"),
+        ],
     )
-    def test_load_profile_mcp_server_port_out_of_range_rejected(
+    def test_load_profile_mcp_server_port_that_is_not_a_valid_port_rejected(
         self,
         tmp_path: Path,
-        bad_port: int,
+        name: str,
+        bad_port: int | str,
     ):
-        """A `port:` outside 1..65535 must raise BuildProfileError at parse
-        time, so a typo like `port: 80080` cannot silently flow into the
-        derived url and the persisted network block."""
         p = tmp_path / "profile.yml"
         p.write_text(
             yaml.dump(
                 {
-                    "name": "OutOfRange",
+                    "name": name,
                     "mcp_servers": {
                         "matlab": {
                             "port": bad_port,
-                            "permissions": {"allow": ["mml_search"]},
-                        }
-                    },
-                }
-            )
-        )
-        with pytest.raises(BuildProfileError, match="port"):
-            load_profile(p)
-
-    def test_load_profile_mcp_server_port_non_integer_rejected(self, tmp_path: Path):
-        """A string `port:` (YAML quoting accident) must be rejected at parse time."""
-        p = tmp_path / "profile.yml"
-        p.write_text(
-            yaml.dump(
-                {
-                    "name": "Stringy",
-                    "mcp_servers": {
-                        "matlab": {
-                            "port": "8008",
                             "permissions": {"allow": ["mml_search"]},
                         }
                     },
@@ -1147,10 +1141,18 @@ class TestProjectPyproject:
 class TestLifecyclePhaseRunner:
     """Tests for _run_lifecycle_phase()."""
 
-    def test_successful_step(self, tmp_path: Path):
+    @pytest.mark.parametrize(
+        ("name", "run"),
+        [
+            pytest.param("echo test", "echo hello", id="plain-command"),
+            # shell=True for pipe
+            pytest.param("piped cmd", "echo hello | cat", id="shell-metacharacters-handled"),
+        ],
+    )
+    def test_successful_step(self, tmp_path: Path, name: str, run: str):
         from osprey.cli.build_cmd import _run_lifecycle_phase
 
-        steps = [LifecycleStep(name="echo test", run="echo hello")]
+        steps = [LifecycleStep(name=name, run=run)]
         # Should not raise
         _run_lifecycle_phase("post_build", steps, tmp_path, tmp_path)
 
@@ -1189,13 +1191,6 @@ class TestLifecyclePhaseRunner:
         ]
         _run_lifecycle_phase("post_build", steps, tmp_path, tmp_path)
         assert marker.exists()
-
-    def test_shell_metacharacters_handled(self, tmp_path: Path):
-        from osprey.cli.build_cmd import _run_lifecycle_phase
-
-        steps = [LifecycleStep(name="piped cmd", run="echo hello | cat")]
-        # Should not raise — shell=True for pipe
-        _run_lifecycle_phase("post_build", steps, tmp_path, tmp_path)
 
 
 # ---------------------------------------------------------------------------
@@ -2104,7 +2099,17 @@ class TestEventsPanelUrlDerivation:
 
         return yaml.safe_load((project_path / "config.yml").read_text()) or {}
 
-    def test_events_panel_url_derived_from_dispatcher_port(self, tmp_path: Path) -> None:
+    @pytest.mark.parametrize(
+        ("port", "url"),
+        [
+            pytest.param(8888, "http://localhost:8888", id="dispatcher-port"),
+            # Different dispatcher_port values produce different derived bare-host URLs.
+            pytest.param(9999, "http://localhost:9999", id="custom-port"),
+        ],
+    )
+    def test_events_panel_url_derived_from_dispatcher_port(
+        self, tmp_path: Path, port: int, url: str
+    ) -> None:
         """events.url is a bare host and events.path carries the /dashboard route."""
         project_path = tmp_path / "project"
         project_path.mkdir()
@@ -2112,29 +2117,14 @@ class TestEventsPanelUrlDerivation:
         profile_dir.mkdir()
         self._write_minimal_config(project_path)
 
-        self._inject(self._dispatch(dispatcher_port=8888), project_path, profile_dir)
+        self._inject(self._dispatch(dispatcher_port=port), project_path, profile_dir)
 
         config = self._read_config(project_path)
         events = config["web"]["panels"]["events"]
         # Bare host in url + /dashboard in path matches the custom-panel proxy
         # convention (url.rstrip('/') + '/' + path); /dashboard must NOT be baked
         # into url or sub-routes would double-prefix.
-        assert events["url"] == "http://localhost:8888"
-        assert events["path"] == "/dashboard"
-
-    def test_events_panel_url_reflects_custom_port(self, tmp_path: Path) -> None:
-        """Different dispatcher_port values produce different derived bare-host URLs."""
-        project_path = tmp_path / "project"
-        project_path.mkdir()
-        profile_dir = tmp_path / "profile"
-        profile_dir.mkdir()
-        self._write_minimal_config(project_path)
-
-        self._inject(self._dispatch(dispatcher_port=9999), project_path, profile_dir)
-
-        config = self._read_config(project_path)
-        events = config["web"]["panels"]["events"]
-        assert events["url"] == "http://localhost:9999"
+        assert events["url"] == url
         assert events["path"] == "/dashboard"
 
     def test_events_panel_path_pinned_by_profile_preserved(self, tmp_path: Path) -> None:
@@ -2557,6 +2547,52 @@ def test_lint_accepts_a_declared_matcher_but_warns_that_it_proves_nothing(
     assert any("/panel/events/mcp" in message for message in gate_warnings), (
         f"the Bash warning must name the dispatcher wire the shell reaches: got {gate_warnings}"
     )
+    # No shipped sidecar panel opens a transport to the agent, so the
+    # dispatcher's wire is the only one named.
+    assert all(message.count("/panel/") == 1 for message in gate_warnings), gate_warnings
+
+
+def test_the_declared_gate_warning_names_every_panel_hop_the_shell_reaches(
+    tmp_path: Path, caplog, monkeypatch
+) -> None:
+    """A panel that opens its MCP transport to the agent is one more wire the
+    panel token reaches from a shell, so the Bash warning names its path too —
+    read off the registry, beside the dispatcher's.
+    """
+    import logging
+
+    from osprey.profiles.sidecar_panels import SidecarPanel
+    from osprey.registry.mcp import FRAMEWORK_SERVERS, derive_panel_servers
+
+    panel = SidecarPanel(
+        "Synthetic screens",
+        "tests.synthetic:Sidecar",
+        mcp_path="/mcp",
+        agent_hop=True,
+        mcp_ask=("push_screen",),
+    )
+    monkeypatch.setitem(
+        FRAMEWORK_SERVERS, "screens", derive_panel_servers({"screens": panel})["screens"]
+    )
+
+    manager, project = _project_with_permissions(
+        tmp_path, "declared-bash-gate-hop", {"remove_deny": ["Bash"]}
+    )
+    _ship_declared_pre_hook(project, "facility_bash_gate.py", "Bash")
+
+    with caplog.at_level(logging.WARNING):
+        manager.regenerate_claude_code(project)
+
+    gate_warnings = [
+        record.message
+        for record in caplog.records
+        if "Bash" in record.message and "permissionDecision" in record.message
+    ]
+    assert gate_warnings
+    assert any(
+        "/panel/events/mcp" in message and "/panel/screens/mcp" in message
+        for message in gate_warnings
+    ), gate_warnings
 
 
 @pytest.mark.parametrize("tool", ["Monitor", "EnterWorktree"])

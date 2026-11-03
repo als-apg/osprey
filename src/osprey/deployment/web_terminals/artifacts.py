@@ -44,6 +44,7 @@ from osprey.deployment.web_terminals.roster import (
     as_dict,
     launch_token_writes_key,
     referenced_render_project_dirs,
+    render_stop_grace,
     rendered_configs,
     renders_needing_archiver_ca_bundles,
     renders_needing_archiver_credentials,
@@ -908,6 +909,7 @@ def resolve_render_inputs(config: Any, repo_root: Path | str) -> dict[str, Any]:
         "ariel_mirror_gid": shared_corpus_gid(resolve_ariel_mirror_dir(config, root)),
         # A pure read of each render's rendered config, like the grants above.
         "phoebus_handle_renders": renders_needing_phoebus_handles(config, root),
+        "stop_grace_renders": render_stop_grace(config, root),
         # The roster's operator secrets, read back off the deploy .env (see
         # _terminal_secrets for the None case and why it is not an open door).
         # Without this the render emits no per-user snippet at all, while

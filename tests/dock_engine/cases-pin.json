@@ -1,0 +1,273 @@
+{
+  "about": [
+    "Byte-identical copies from CANOPY's screen runtime (the mirror als-apg/canopy-osprey-mirror-screen-runtime): the dock engine's built bundle and its validate and normalize cases.",
+    "copy is the OSPREY path, path the runtime path; each is pinned with {runtime commit, path, git blob}.",
+    "test_cases_pin.py fails when a copy no longer hashes to its blob, or a copy is missing or extra. Re-copy and re-pin, never edit."
+  ],
+  "files": [
+    {
+      "copy": "src/osprey/interfaces/web_terminal/static/vendor/dock-engine.mjs",
+      "commit": "add5c4ffe5a004918557bdbb1d7e4537f8a32d16",
+      "path": "packages/dock-engine/dist/dock-engine.mjs",
+      "blob": "ff3e3a0bb2e80ccc3c03c0183c8537459492218f"
+    },
+    {
+      "copy": "src/osprey/interfaces/web_terminal/static/vendor/dock-engine.d.mts",
+      "commit": "add5c4ffe5a004918557bdbb1d7e4537f8a32d16",
+      "path": "packages/dock-engine/dist/dock-engine.d.mts",
+      "blob": "24e7ec4371a83f09a0a4d97faa0b5fc4f75eae82"
+    },
+    {
+      "copy": "tests/dock_engine/cases/validate/validate-collection-duplicate-member.json",
+      "commit": "add5c4ffe5a004918557bdbb1d7e4537f8a32d16",
+      "path": "packages/dock-engine/cases/validate/validate-collection-duplicate-member.json",
+      "blob": "618a7aa0d45985488f947e2be0f079ff0f40b0ee"
+    },
+    {
+      "copy": "tests/dock_engine/cases/validate/validate-collection-from-refused.json",
+      "commit": "add5c4ffe5a004918557bdbb1d7e4537f8a32d16",
+      "path": "packages/dock-engine/cases/validate/validate-collection-from-refused.json",
+      "blob": "0f668cd5e49aaa01421fd673ad0abf6efec0c004"
+    },
+    {
+      "copy": "tests/dock_engine/cases/validate/validate-collection-index-out-of-range.json",
+      "commit": "add5c4ffe5a004918557bdbb1d7e4537f8a32d16",
+      "path": "packages/dock-engine/cases/validate/validate-collection-index-out-of-range.json",
+      "blob": "26f199a6c2cd8668fce7d8e88e72a198b6a4fa22"
+    },
+    {
+      "copy": "tests/dock_engine/cases/validate/validate-collection-member-missing.json",
+      "commit": "add5c4ffe5a004918557bdbb1d7e4537f8a32d16",
+      "path": "packages/dock-engine/cases/validate/validate-collection-member-missing.json",
+      "blob": "578bf9d152af62ad56de0e59c756da08a7582854"
+    },
+    {
+      "copy": "tests/dock_engine/cases/validate/validate-collection-panel-ids.json",
+      "commit": "add5c4ffe5a004918557bdbb1d7e4537f8a32d16",
+      "path": "packages/dock-engine/cases/validate/validate-collection-panel-ids.json",
+      "blob": "48ba796975cf39457d5842e7bdb5873554ccfb5f"
+    },
+    {
+      "copy": "tests/dock_engine/cases/validate/validate-collection-root-tile.json",
+      "commit": "add5c4ffe5a004918557bdbb1d7e4537f8a32d16",
+      "path": "packages/dock-engine/cases/validate/validate-collection-root-tile.json",
+      "blob": "2e04061e4460a59aaf54acd3482522f2ef2f8c70"
+    },
+    {
+      "copy": "tests/dock_engine/cases/validate/validate-collection-showing-not-in-tabs.json",
+      "commit": "add5c4ffe5a004918557bdbb1d7e4537f8a32d16",
+      "path": "packages/dock-engine/cases/validate/validate-collection-showing-not-in-tabs.json",
+      "blob": "9174e5876374f56b3d9399eaa757e7b0ba0eb098"
+    },
+    {
+      "copy": "tests/dock_engine/cases/validate/validate-collection-tile-id-refused.json",
+      "commit": "add5c4ffe5a004918557bdbb1d7e4537f8a32d16",
+      "path": "packages/dock-engine/cases/validate/validate-collection-tile-id-refused.json",
+      "blob": "ee7b0275fc17c2bd306739eeebc5a683b6eaa707"
+    },
+    {
+      "copy": "tests/dock_engine/cases/validate/validate-collection-weights.json",
+      "commit": "add5c4ffe5a004918557bdbb1d7e4537f8a32d16",
+      "path": "packages/dock-engine/cases/validate/validate-collection-weights.json",
+      "blob": "f3cb28c2fea9a7557b9fddcea6dbd4bdd910d14a"
+    },
+    {
+      "copy": "tests/dock_engine/cases/validate/validate-collection-zero-weight.json",
+      "commit": "add5c4ffe5a004918557bdbb1d7e4537f8a32d16",
+      "path": "packages/dock-engine/cases/validate/validate-collection-zero-weight.json",
+      "blob": "8ebec74e110747485245d03442e15c62c7b0f91f"
+    },
+    {
+      "copy": "tests/dock_engine/cases/validate/validate-dock-array.json",
+      "commit": "add5c4ffe5a004918557bdbb1d7e4537f8a32d16",
+      "path": "packages/dock-engine/cases/validate/validate-dock-array.json",
+      "blob": "f362b7b575b1ff71007c6ad83e79a3a96c576ceb"
+    },
+    {
+      "copy": "tests/dock_engine/cases/validate/validate-dock-bad-key.json",
+      "commit": "add5c4ffe5a004918557bdbb1d7e4537f8a32d16",
+      "path": "packages/dock-engine/cases/validate/validate-dock-bad-key.json",
+      "blob": "c39e965898b0850beaca8fce055c1ac14c204d39"
+    },
+    {
+      "copy": "tests/dock_engine/cases/validate/validate-dock-bad-split.json",
+      "commit": "add5c4ffe5a004918557bdbb1d7e4537f8a32d16",
+      "path": "packages/dock-engine/cases/validate/validate-dock-bad-split.json",
+      "blob": "4273b5fc012fd178edb2da9d02050a16dc66203d"
+    },
+    {
+      "copy": "tests/dock_engine/cases/validate/validate-dock-bad-tile-id.json",
+      "commit": "add5c4ffe5a004918557bdbb1d7e4537f8a32d16",
+      "path": "packages/dock-engine/cases/validate/validate-dock-bad-tile-id.json",
+      "blob": "268c0658cc83ecf225623375e41c90b4d11f3541"
+    },
+    {
+      "copy": "tests/dock_engine/cases/validate/validate-dock-deep-no-cap.json",
+      "commit": "add5c4ffe5a004918557bdbb1d7e4537f8a32d16",
+      "path": "packages/dock-engine/cases/validate/validate-dock-deep-no-cap.json",
+      "blob": "1cc12d7410a263b4fb504c23e09fad3c4bf2f86c"
+    },
+    {
+      "copy": "tests/dock_engine/cases/validate/validate-dock-duplicate-key.json",
+      "commit": "add5c4ffe5a004918557bdbb1d7e4537f8a32d16",
+      "path": "packages/dock-engine/cases/validate/validate-dock-duplicate-key.json",
+      "blob": "7f7df8211dfb299fac2226cac58e4e9977dc9ed2"
+    },
+    {
+      "copy": "tests/dock_engine/cases/validate/validate-dock-duplicate-tile.json",
+      "commit": "add5c4ffe5a004918557bdbb1d7e4537f8a32d16",
+      "path": "packages/dock-engine/cases/validate/validate-dock-duplicate-tile.json",
+      "blob": "aaac578bc21105381a068098013c1517c7d45841"
+    },
+    {
+      "copy": "tests/dock_engine/cases/validate/validate-dock-empty-tabs.json",
+      "commit": "add5c4ffe5a004918557bdbb1d7e4537f8a32d16",
+      "path": "packages/dock-engine/cases/validate/validate-dock-empty-tabs.json",
+      "blob": "5a48fa5839d28db577fe1dfc9fb71c4e47678595"
+    },
+    {
+      "copy": "tests/dock_engine/cases/validate/validate-dock-from.json",
+      "commit": "add5c4ffe5a004918557bdbb1d7e4537f8a32d16",
+      "path": "packages/dock-engine/cases/validate/validate-dock-from.json",
+      "blob": "d6cd8742f05e5a4bd85691ee820d4ecb49411482"
+    },
+    {
+      "copy": "tests/dock_engine/cases/validate/validate-dock-missing-showing.json",
+      "commit": "add5c4ffe5a004918557bdbb1d7e4537f8a32d16",
+      "path": "packages/dock-engine/cases/validate/validate-dock-missing-showing.json",
+      "blob": "39d8501058ed4121660b8fb8a62988959089ea19"
+    },
+    {
+      "copy": "tests/dock_engine/cases/validate/validate-dock-missing-tile-id.json",
+      "commit": "add5c4ffe5a004918557bdbb1d7e4537f8a32d16",
+      "path": "packages/dock-engine/cases/validate/validate-dock-missing-tile-id.json",
+      "blob": "7900d34619eed2e044c8f6b46d83626c0b28e5b3"
+    },
+    {
+      "copy": "tests/dock_engine/cases/validate/validate-dock-negative-size.json",
+      "commit": "add5c4ffe5a004918557bdbb1d7e4537f8a32d16",
+      "path": "packages/dock-engine/cases/validate/validate-dock-negative-size.json",
+      "blob": "845b33adf38e8f77ab6eeef158ac1fb8bc5c6e7a"
+    },
+    {
+      "copy": "tests/dock_engine/cases/validate/validate-dock-not-object.json",
+      "commit": "add5c4ffe5a004918557bdbb1d7e4537f8a32d16",
+      "path": "packages/dock-engine/cases/validate/validate-dock-not-object.json",
+      "blob": "8ba44a775a3b376d08a4a4f343ca619a733f0603"
+    },
+    {
+      "copy": "tests/dock_engine/cases/validate/validate-dock-partial-sizes.json",
+      "commit": "add5c4ffe5a004918557bdbb1d7e4537f8a32d16",
+      "path": "packages/dock-engine/cases/validate/validate-dock-partial-sizes.json",
+      "blob": "a7054a7ffd17a90a5715a17052f60bf3304dc3e0"
+    },
+    {
+      "copy": "tests/dock_engine/cases/validate/validate-dock-root-tile.json",
+      "commit": "add5c4ffe5a004918557bdbb1d7e4537f8a32d16",
+      "path": "packages/dock-engine/cases/validate/validate-dock-root-tile.json",
+      "blob": "7b855c99c0d773c9af5c241d0c04ef0c86df0ffb"
+    },
+    {
+      "copy": "tests/dock_engine/cases/validate/validate-dock-showing-not-in-tabs.json",
+      "commit": "add5c4ffe5a004918557bdbb1d7e4537f8a32d16",
+      "path": "packages/dock-engine/cases/validate/validate-dock-showing-not-in-tabs.json",
+      "blob": "68f13b39205b7f6bcf7151c33607adb01896aa25"
+    },
+    {
+      "copy": "tests/dock_engine/cases/validate/validate-dock-sizes-over-one.json",
+      "commit": "add5c4ffe5a004918557bdbb1d7e4537f8a32d16",
+      "path": "packages/dock-engine/cases/validate/validate-dock-sizes-over-one.json",
+      "blob": "002feaa29589e48533ab8bfe530324b0fb3ca7e9"
+    },
+    {
+      "copy": "tests/dock_engine/cases/validate/validate-dock-split-one-item.json",
+      "commit": "add5c4ffe5a004918557bdbb1d7e4537f8a32d16",
+      "path": "packages/dock-engine/cases/validate/validate-dock-split-one-item.json",
+      "blob": "380040cb78cefb7ae976d91c50cfd7740aa11252"
+    },
+    {
+      "copy": "tests/dock_engine/cases/validate/validate-dock-split.json",
+      "commit": "add5c4ffe5a004918557bdbb1d7e4537f8a32d16",
+      "path": "packages/dock-engine/cases/validate/validate-dock-split.json",
+      "blob": "30119a68d4c471dda891ee16f662965abf333dc7"
+    },
+    {
+      "copy": "tests/dock_engine/cases/validate/validate-dock-unknown-field.json",
+      "commit": "add5c4ffe5a004918557bdbb1d7e4537f8a32d16",
+      "path": "packages/dock-engine/cases/validate/validate-dock-unknown-field.json",
+      "blob": "e920601e7f93b81f8a2410e34691a80770719c78"
+    },
+    {
+      "copy": "tests/dock_engine/cases/validate/validate-dock-unknown-from.json",
+      "commit": "add5c4ffe5a004918557bdbb1d7e4537f8a32d16",
+      "path": "packages/dock-engine/cases/validate/validate-dock-unknown-from.json",
+      "blob": "f7bdb040a87dd78230685eddc4ad0cdada9e9aa5"
+    },
+    {
+      "copy": "tests/dock_engine/cases/normalize/normalize-clears-stale-from.json",
+      "commit": "add5c4ffe5a004918557bdbb1d7e4537f8a32d16",
+      "path": "packages/dock-engine/cases/normalize/normalize-clears-stale-from.json",
+      "blob": "873a1d4b4315f705e1e7d97122ebb06789a90157"
+    },
+    {
+      "copy": "tests/dock_engine/cases/normalize/normalize-collapses-one-item-split.json",
+      "commit": "add5c4ffe5a004918557bdbb1d7e4537f8a32d16",
+      "path": "packages/dock-engine/cases/normalize/normalize-collapses-one-item-split.json",
+      "blob": "6a812d11470d651cbb9057f8308e34b6483aa404"
+    },
+    {
+      "copy": "tests/dock_engine/cases/normalize/normalize-collapses-to-root-tile.json",
+      "commit": "add5c4ffe5a004918557bdbb1d7e4537f8a32d16",
+      "path": "packages/dock-engine/cases/normalize/normalize-collapses-to-root-tile.json",
+      "blob": "bd88994bb59cd72a3b2d29f145e1ac873fee3494"
+    },
+    {
+      "copy": "tests/dock_engine/cases/normalize/normalize-collection-flattens.json",
+      "commit": "add5c4ffe5a004918557bdbb1d7e4537f8a32d16",
+      "path": "packages/dock-engine/cases/normalize/normalize-collection-flattens.json",
+      "blob": "2b421b79e7b260ef0540e4cb720e7a4acf91875f"
+    },
+    {
+      "copy": "tests/dock_engine/cases/normalize/normalize-collection-root-tile-showing.json",
+      "commit": "add5c4ffe5a004918557bdbb1d7e4537f8a32d16",
+      "path": "packages/dock-engine/cases/normalize/normalize-collection-root-tile-showing.json",
+      "blob": "8bed136f2eacc90de14f5238accb432a77f56bbd"
+    },
+    {
+      "copy": "tests/dock_engine/cases/normalize/normalize-collection-weights.json",
+      "commit": "add5c4ffe5a004918557bdbb1d7e4537f8a32d16",
+      "path": "packages/dock-engine/cases/normalize/normalize-collection-weights.json",
+      "blob": "331da7fb8a6987dbf6605d385296411b1c0d26ee"
+    },
+    {
+      "copy": "tests/dock_engine/cases/normalize/normalize-drops-root-size.json",
+      "commit": "add5c4ffe5a004918557bdbb1d7e4537f8a32d16",
+      "path": "packages/dock-engine/cases/normalize/normalize-drops-root-size.json",
+      "blob": "33522dbaed12027ce6431d036e68cf5e7fc00d81"
+    },
+    {
+      "copy": "tests/dock_engine/cases/normalize/normalize-fills-missing-sizes.json",
+      "commit": "add5c4ffe5a004918557bdbb1d7e4537f8a32d16",
+      "path": "packages/dock-engine/cases/normalize/normalize-fills-missing-sizes.json",
+      "blob": "30babd5f5bbdcfe831b9126ffc8b702c90bd5b8d"
+    },
+    {
+      "copy": "tests/dock_engine/cases/normalize/normalize-flattens-same-direction.json",
+      "commit": "add5c4ffe5a004918557bdbb1d7e4537f8a32d16",
+      "path": "packages/dock-engine/cases/normalize/normalize-flattens-same-direction.json",
+      "blob": "aa0aa40cb8e95e252177951db3d747a07f2458e6"
+    },
+    {
+      "copy": "tests/dock_engine/cases/normalize/normalize-keeps-live-from.json",
+      "commit": "add5c4ffe5a004918557bdbb1d7e4537f8a32d16",
+      "path": "packages/dock-engine/cases/normalize/normalize-keeps-live-from.json",
+      "blob": "1e39be2034d7e5491f7e573f8ccebf9e46877d9f"
+    },
+    {
+      "copy": "tests/dock_engine/cases/normalize/normalize-renormalises-sizes.json",
+      "commit": "add5c4ffe5a004918557bdbb1d7e4537f8a32d16",
+      "path": "packages/dock-engine/cases/normalize/normalize-renormalises-sizes.json",
+      "blob": "3db0229071511f6a54fceaf485e610d27b0cde1f"
+    }
+  ]
+}

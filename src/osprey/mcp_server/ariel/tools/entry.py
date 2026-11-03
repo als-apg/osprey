@@ -14,6 +14,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, NoReturn
 
+import anyio
 from fastmcp.exceptions import ToolError
 
 from osprey.mcp_server.ariel.server import (
@@ -63,12 +64,17 @@ def ariel_panel_url(route: str) -> str:
     return f"{base_url}/#{route}"
 
 
-def _focus_ariel_panel(url: str) -> None:
-    """Ask the web terminal to show the ARIEL panel at ``url``; non-fatal without one."""
-    try:
-        from osprey.mcp_server.http import notify_panel_focus
+async def _focus_ariel_panel(url: str) -> None:
+    """Ask the web terminal to open the ARIEL panel at ``url``; non-fatal without one.
 
-        notify_panel_focus("ariel", url=url)
+    An ``open {member: "ariel", url}`` op through the op helper, run off the
+    event loop because it waits for the dock to apply it. A refusal or a missing
+    web terminal leaves the result's ``url`` as the operator's way in.
+    """
+    try:
+        from osprey.mcp_server.http import panel_op
+
+        await anyio.to_thread.run_sync(panel_op, "open", {"member": "ariel", "url": url})
     except ToolError:
         raise
     except Exception:
@@ -395,7 +401,7 @@ async def entry_open(
                 )
 
         url = ariel_panel_url(route)
-        _focus_ariel_panel(url)
+        await _focus_ariel_panel(url)
         result: dict = {
             "entry_id": entry["entry_id"],
             "attachment_id": attachment_id,
@@ -613,7 +619,7 @@ async def entry_create(
 
             logger.info("Draft %s created at %s", draft_id, filepath)
 
-            _focus_ariel_panel(url)
+            await _focus_ariel_panel(url)
 
             return json.dumps(
                 {

@@ -677,7 +677,8 @@ describe('refetch hints', () => {
   test('subscribes to the shared panel event stream, once', async () => {
     await boot();
     expect(FakeEventSource.opened).toHaveLength(1);
-    expect(FakeEventSource.opened[0].url).toBe('/api/files/events');
+    // The page's one events URL, tagged with its client id (api.js pageEventsUrl).
+    expect(FakeEventSource.opened[0].url).toMatch(/^\/api\/files\/events\?client_id=[^&]+$/);
     // A second init must not subscribe again: api.js would share the socket,
     // so what a second subscription costs is a second read per frame.
     chipModule.initControlTargetChip({ host: targetHost() });

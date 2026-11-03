@@ -561,30 +561,36 @@ def _one_family(place: str, group: str) -> dict[str, Any]:
     }
 
 
-def test_a_family_name_beginning_with_an_underscore_stops_with_view_unsupported() -> None:
+@pytest.mark.parametrize(
+    ("place", "group", "message"),
+    [
+        pytest.param(
+            "M",
+            "M/_X",
+            "facility: view-unsupported: group M/_X — its tree key `_X` begins with `_`, and a key "
+            "beginning with `_` is a meta key of the middle-layer index; fix: give the group a key "
+            "that does not begin with `_`, or select another channel_finder_mode",
+            id="family-name",
+        ),
+        pytest.param(
+            "_M",
+            "F",
+            "facility: view-unsupported: place _M — its tree key `_M` begins with `_`, and a key "
+            "beginning with `_` is a meta key of the middle-layer index; fix: give the place a key "
+            "that does not begin with `_`, or select another channel_finder_mode",
+            id="system",
+        ),
+    ],
+)
+def test_a_tree_key_beginning_with_an_underscore_stops_with_view_unsupported(
+    place: str, group: str, message: str
+) -> None:
     from osprey.facility.errors import FacilityBuildError
 
     with pytest.raises(FacilityBuildError) as caught:
-        _document(_one_family("M", "M/_X"))
+        _document(_one_family(place, group))
 
-    assert caught.value.format_message() == (
-        "facility: view-unsupported: group M/_X — its tree key `_X` begins with `_`, and a key "
-        "beginning with `_` is a meta key of the middle-layer index; fix: give the group a key "
-        "that does not begin with `_`, or select another channel_finder_mode"
-    )
-
-
-def test_a_system_beginning_with_an_underscore_stops_with_view_unsupported() -> None:
-    from osprey.facility.errors import FacilityBuildError
-
-    with pytest.raises(FacilityBuildError) as caught:
-        _document(_one_family("_M", "F"))
-
-    assert caught.value.format_message() == (
-        "facility: view-unsupported: place _M — its tree key `_M` begins with `_`, and a key "
-        "beginning with `_` is a meta key of the middle-layer index; fix: give the place a key "
-        "that does not begin with `_`, or select another channel_finder_mode"
-    )
+    assert caught.value.format_message() == message
 
 
 @pytest.mark.parametrize("key", ["count", "schema"])

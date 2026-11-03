@@ -257,6 +257,9 @@ describe('boot wiring: initPanelManager applies the gate', () => {
       // to undefined and throw at call time.
       defaultServiceWidth: () => 600,
       setServiceRedock: () => {},
+      // No dock, so the boot layout is final at once.
+      bootLayoutSettled: () => true,
+      setLayoutRestoredHook: (/** @type {() => void} */ fn) => fn(),
       onDragGesture: () => [],
     }));
   }

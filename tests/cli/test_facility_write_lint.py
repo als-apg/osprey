@@ -74,12 +74,22 @@ def test_a_destructive_name_missing_from_writes_warns(tool: str) -> None:
     assert "mcp_servers.logbook" in warning
 
 
-def test_a_bare_permission_entry_is_judged_the_same() -> None:
-    servers = {"magnets": _server(ask=["ramp"], writes=["set_value"])}
+@pytest.mark.parametrize(
+    ("entry", "quoted"),
+    [
+        ("ramp", "`ramp`"),
+        # The entry is judged as written: it is not this server's prefix, so the
+        # whole entry is the name the warning quotes.
+        ("mcp__other__ramp", "`mcp__other__ramp`"),
+    ],
+    ids=["bare-entry", "another-servers-prefix"],
+)
+def test_an_undeclared_permission_entry_is_quoted_as_written(entry, quoted) -> None:
+    servers = {"magnets": _server(ask=[entry], writes=["set_value"])}
 
     (warning,) = _undeclared(facility_write_warnings({}, servers))
 
-    assert "`ramp`" in warning
+    assert quoted in warning
 
 
 def test_a_declared_tool_is_not_flagged() -> None:
@@ -200,16 +210,6 @@ def test_a_disabled_persisted_server_is_not_linted() -> None:
     }
 
     assert _undeclared(facility_write_warnings(config)) == []
-
-
-def test_another_servers_prefix_is_not_this_servers_tool() -> None:
-    servers = {"magnets": _server(ask=["mcp__other__ramp"], writes=["set_value"])}
-
-    (warning,) = _undeclared(facility_write_warnings({}, servers))
-
-    # The entry is judged as written: it is not this server's prefix, so the
-    # whole entry is the name the warning quotes.
-    assert "`mcp__other__ramp`" in warning
 
 
 # --- PR-5a: control_system.write_tools ---------------------------------------

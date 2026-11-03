@@ -610,55 +610,55 @@ def test_the_legacy_restart_verb_emits_the_podman_shape(
     assert runs[-1]["cmd"][-1] == "restart"
 
 
-def test_the_archiver_staging_runs_in_the_shape_the_start_resolved(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+@pytest.mark.parametrize(
+    ("deployed_check", "stage_step", "never_ran"),
+    [
+        # The store is brought up by a separate invocation of the same project.
+        #
+        # Left unthreaded it would create the store's container against a different
+        # project directory than the ``up`` that goes on to run beside it — so what is
+        # asserted here is the threading, the argv being ``compose_base_cmd``'s and
+        # already pinned above.
+        pytest.param(
+            "_archiver_store_deployed",
+            "_stage_archiver_store",
+            "the archiver staging step never ran",
+            id="archiver",
+        ),
+        # The logbook twin of the archiver case, for the same reason.
+        #
+        # ARIEL's store is brought up by its own invocation of the same project;
+        # unthreaded it would run docker-shaped in the middle of a podman-shaped
+        # ``up``, addressing a different project directory with part of the env chain
+        # dropped.
+        pytest.param(
+            "_ariel_store_deployed",
+            "_stage_ariel_store",
+            "the ARIEL staging step never ran",
+            id="ariel",
+        ),
+    ],
+)
+def test_the_store_staging_runs_in_the_shape_the_start_resolved(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    deployed_check: str,
+    stage_step: str,
+    never_ran: str,
 ) -> None:
-    """The store is brought up by a separate invocation of the same project.
-
-    Left unthreaded it would create the store's container against a different
-    project directory than the ``up`` that goes on to run beside it — so what is
-    asserted here is the threading, the argv being ``compose_base_cmd``'s and
-    already pinned above.
-    """
     repo = _started_repo(tmp_path)
     _podman_host(monkeypatch)
     staged: list[dict] = []
-    monkeypatch.setattr(container_lifecycle, "_archiver_store_deployed", lambda config: True)
+    monkeypatch.setattr(container_lifecycle, deployed_check, lambda config: True)
     monkeypatch.setattr(
         container_lifecycle,
-        "_stage_archiver_store",
+        stage_step,
         lambda *args, **kwargs: staged.append(kwargs),
     )
 
     container_lifecycle.up_as_built(repo, detached=True)
 
-    assert staged, "the archiver staging step never ran"
-    assert staged[0]["provider"] is ComposeProvider.PODMAN_COMPOSE
-
-
-def test_the_ariel_staging_runs_in_the_shape_the_start_resolved(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """The logbook twin of the archiver test above, for the same reason.
-
-    ARIEL's store is brought up by its own invocation of the same project;
-    unthreaded it would run docker-shaped in the middle of a podman-shaped
-    ``up``, addressing a different project directory with part of the env chain
-    dropped.
-    """
-    repo = _started_repo(tmp_path)
-    _podman_host(monkeypatch)
-    staged: list[dict] = []
-    monkeypatch.setattr(container_lifecycle, "_ariel_store_deployed", lambda config: True)
-    monkeypatch.setattr(
-        container_lifecycle,
-        "_stage_ariel_store",
-        lambda *args, **kwargs: staged.append(kwargs),
-    )
-
-    container_lifecycle.up_as_built(repo, detached=True)
-
-    assert staged, "the ARIEL staging step never ran"
+    assert staged, never_ran
     assert staged[0]["provider"] is ComposeProvider.PODMAN_COMPOSE
 
 

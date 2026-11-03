@@ -2920,6 +2920,10 @@ def _settle_review(stamp, outcome: str) -> None:
 # not answer is an outcome of its own and takes the level's word for it, as it
 # does on every surface: denied in blocking mode, asked with the note in advisory
 # mode and left unstamped, so the executor tries again.
+#
+# A review an admin switched off in the terminal is not run: the prompt and the
+# activity feed say so, the skip is recorded, and nothing is stamped, so the
+# executor asks the switch again before the launch.
 
 #: The tools whose code this hook reviews ahead of the ask.
 _REVIEWED_TOOLS = frozenset({"execute", "execute_file"})
@@ -2979,9 +2983,13 @@ def _review_prompt_lines(outcome) -> list[str]:
     a line of the prompt itself. The suggested revision goes to the agent, not
     onto the prompt.
     """
-    from osprey.services.code_review.contract import ReviewVerdict
+    from osprey.services.code_review.contract import ReviewSwitchedOff, ReviewVerdict
+    from osprey.services.code_review.review import switched_off_phrase
 
     result = outcome.result
+    if isinstance(result, ReviewSwitchedOff):
+        phrase = _sanitize_label(switched_off_phrase(result))
+        return [f"Code review: skipped, {phrase}; the code runs unreviewed if approved."]
     if not isinstance(result, ReviewVerdict):
         return [f"Code review: did not run ({result.kind}); the code runs unreviewed if approved."]
     headline = f"Code review: {result.verdict}"
@@ -3078,8 +3086,14 @@ def _review_before_ask(hook_input, tool_name, short_name, tool_input):
         import dataclasses
 
         from osprey.services.code_review.contract import SURFACE_EXECUTE, ReviewRequest
-        from osprey.services.code_review.review import ACTION_REFUSE, agent_message, review_code
+        from osprey.services.code_review.review import (
+            ACTION_REFUSE,
+            agent_message,
+            review_code,
+            skip_switched_off,
+        )
         from osprey.services.code_review.stamp import reviewed_fields
+        from osprey.services.code_review.switch import switched_off
 
         description = tool_input.get("description")
         request = ReviewRequest(
@@ -3090,14 +3104,24 @@ def _review_before_ask(hook_input, tool_name, short_name, tool_input):
             mode=mode,
             script_args=script_args,
         )
-        outcome = asyncio.run(
-            review_code(
-                request,
-                dataclasses.replace(settings, time_limit=time_limit),
-                repo_root=Path(get_repo_root(hook_input)),
-                render_dir=locate_osprey_config(hook_input).parent,
+        asked = time.monotonic()
+        off = switched_off()
+        # The switch read spends the budget too; the review gets what it left, and
+        # with nothing left the executor reviews before the launch.
+        time_limit -= time.monotonic() - asked
+        if off is not None:
+            outcome = skip_switched_off(off, settings.level)
+        elif time_limit <= 0:
+            return nothing
+        else:
+            outcome = asyncio.run(
+                review_code(
+                    request,
+                    dataclasses.replace(settings, time_limit=time_limit),
+                    repo_root=Path(get_repo_root(hook_input)),
+                    render_dir=locate_osprey_config(hook_input).parent,
+                )
             )
-        )
     except Exception:
         return nothing
 

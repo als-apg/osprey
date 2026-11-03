@@ -554,6 +554,71 @@ def inject_provider_env(
     return sorted(spec.env_block.keys())
 
 
+#: The deployment config key that lets a terminal run on its user's own Claude
+#: subscription login instead of the deployment provider. Off by default.
+PERSONAL_LOGIN_KEY = "claude_code.allow_personal_login"
+
+#: The file Claude Code keeps a completed ``/login`` in, under the directory
+#: ``CLAUDE_CONFIG_DIR`` names. Its presence is the whole detection: the file
+#: is never opened.
+LOGIN_CREDENTIAL_FILE = ".credentials.json"
+
+
+def personal_login_allowed(config: Mapping[str, Any] | None) -> bool:
+    """Whether *config* lets a terminal run on its user's personal login.
+
+    Reads ``claude_code.allow_personal_login``; anything but a true boolean
+    is off, so a key spelled as a string stays the default rather than
+    quietly switching a deployment's billing route.
+    """
+    claude_code = (config or {}).get("claude_code") or {}
+    return (
+        claude_code.get("allow_personal_login") if isinstance(claude_code, Mapping) else None
+    ) is True
+
+
+def personal_login_present(environ: Mapping[str, str]) -> bool:
+    """Whether the terminal this process serves holds a completed ``/login``.
+
+    Per terminal container, from that user's own ``CLAUDE_CONFIG_DIR`` only:
+    the credential file's existence is checked and nothing of it is read. A
+    process with no ``CLAUDE_CONFIG_DIR`` holds no per-user login the
+    deployment could honour, so it answers False rather than looking in the
+    process owner's home.
+    """
+    config_dir = (environ.get("CLAUDE_CONFIG_DIR") or "").strip()
+    if not config_dir:
+        return False
+    try:
+        return (Path(config_dir) / LOGIN_CREDENTIAL_FILE).is_file()
+    except OSError:
+        return False
+
+
+def withhold_provider_env(
+    environ: MutableMapping[str, str], project_dir: Path | None = None
+) -> list[str]:
+    """Leave *environ* in the state a personal ``/login`` needs: no provider at all.
+
+    The first half of :func:`inject_provider_env` and not the second: the
+    project's env chain is still overlaid (the control-system MCP addressing
+    it carries is unrelated to who pays for the model), and every managed
+    variable is then scrubbed -- auth, base URL, model selectors, backend
+    flags -- so Claude Code's credential precedence falls through to the
+    subscription login. Nothing is injected and no translation proxy belongs
+    after this. Returns the managed names that were present and are gone,
+    for the launch log.
+    """
+    if project_dir is not None:
+        for key, value in _load_dotenv(project_dir).items():
+            environ[key] = value
+    _warn_on_invalid_proxy_env(environ)
+    withheld = sorted(var for var in MANAGED_ENV_VARS if var in environ)
+    for var in MANAGED_ENV_VARS:
+        environ.pop(var, None)
+    return withheld
+
+
 def _without_unresolved_base_urls(api_providers: dict) -> dict:
     """Drop every ``base_url`` that is still an unexported ``${VAR}``.
 

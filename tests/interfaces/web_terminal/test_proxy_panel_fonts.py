@@ -61,20 +61,23 @@ def test_a_font_file_is_served_as_a_font(app_and_client):
     assert resp.content == font.read_bytes()
 
 
-def test_a_path_outside_the_fonts_directory_is_refused(app_and_client):
+@pytest.mark.parametrize(
+    "path",
+    [
+        pytest.param(
+            "/panel/my-dash/static/fonts/%2E%2E/%2E%2E/%2E%2E/%2E%2E/pyproject.toml",
+            id="outside-the-fonts-directory",
+        ),
+        pytest.param("/panel/my-dash/static/fonts/no-such-font.ttf", id="missing-font"),
+    ],
+)
+def test_a_font_path_with_no_servable_font_is_404_without_reaching_the_backend(
+    app_and_client, path
+):
     app, client = app_and_client
     _backend_must_not_be_called(app)
 
-    resp = client.get("/panel/my-dash/static/fonts/%2E%2E/%2E%2E/%2E%2E/%2E%2E/pyproject.toml")
-
-    assert resp.status_code == 404
-
-
-def test_a_missing_font_is_404_without_reaching_the_backend(app_and_client):
-    app, client = app_and_client
-    _backend_must_not_be_called(app)
-
-    resp = client.get("/panel/my-dash/static/fonts/no-such-font.ttf")
+    resp = client.get(path)
 
     assert resp.status_code == 404
 
