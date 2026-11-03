@@ -584,10 +584,12 @@ def test_agent_switch_glows_the_tile_body_not_only_the_rail(tmp_path, chromium_b
         # attribution — nothing may flash, on the rail or over the tile.
         rail_btn.click()
         expect(rail_btn).to_have_class(_ACTIVE_RE, timeout=5_000)
-        # Bounded settle: glowPanel defers its flash into a requestAnimationFrame,
-        # so a wrongly-firing glow lands a frame after `.active`. Without this the
-        # control passes on the very regression it exists to catch.
-        page.wait_for_timeout(250)
+        # glowPanel defers its flash into a requestAnimationFrame, so a wrongly-firing
+        # glow lands a frame after `.active`. Two frames passing proves that frame has
+        # run; without it the control passes on the very regression it exists to catch.
+        page.evaluate(
+            "() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))"
+        )
         assert page.evaluate("(window.__flashLog || []).length") == 0
         expect(page.locator(".dock-iframe-overlay .tile-glow")).to_have_count(0)
 
