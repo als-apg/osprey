@@ -16,15 +16,17 @@ new tests.
 
 ```bash
 # Parallel — what CI runs, and what your change has to pass
-pytest tests/ --ignore=tests/e2e packages/osprey-connectors/tests -m "not pty and not wallclock and not canopy" -n 4 --dist loadgroup
+pytest tests/ --ignore=tests/e2e packages/osprey-connectors/tests -m "not pty and not wallclock and not browser and not canopy" -n 4 --dist loadgroup
 
 # Serial — for debugging one failure, or reading full output in order
 pytest tests/ --ignore=tests/e2e packages/osprey-connectors/tests
 ```
 
-The `pty` and `wallclock` markers are run serially by the full tier of
-`scripts/check.py` (its `pytest-pty` and `pytest-wallclock` checks) and by their
-own CI steps; the `canopy` marker by the CANOPY contract's own check and CI job.
+The `pty`, `wallclock` and `browser` markers are run serially by the full tier
+of `scripts/check.py` (its `pytest-pty`, `pytest-wallclock` and `pytest-browser`
+checks) and by their own CI steps; the `canopy` marker by the CANOPY contract's
+own check and CI job. The browser suites need Playwright's chromium
+(`uv run pytest tests/ -m browser` runs them by hand).
 
 Both must pass. Parallel is the real gate; serial is the one that gives you
 readable output when something is wrong.

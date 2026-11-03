@@ -300,6 +300,7 @@ def test_every_pytest_check_resolves_through_the_bound(check):
         "pytest",
         "pytest-pty",
         "pytest-wallclock",
+        "pytest-browser",
         "readonly-warmups-py314",
         "canopy-contract",
     ]

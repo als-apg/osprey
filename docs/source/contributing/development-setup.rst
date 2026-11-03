@@ -172,8 +172,9 @@ All new functionality must include tests.
    # The e2e tests that reach no model need no provider.
    uv run pytest tests/e2e/ -m model_free -v
 
-   # Browser smokes (Playwright + Chromium; skips if the browser is absent)
-   uv run pytest tests/interfaces/ -m browser -v
+   # Browser suites, serially (Playwright + Chromium: uv run playwright install chromium).
+   # The parallel sweep deselects them; the full tier of scripts/check.py runs them.
+   uv run pytest tests/ -m browser -v
 
    # With coverage
    uv run pytest tests/ --ignore=tests/e2e --cov=src/osprey
@@ -234,12 +235,6 @@ broadest/slowest:
        multi-module wiring didn't drop a call across a split -- the one net a
        per-module Vitest suite (which mocks its neighbors) cannot cast
      - ``uv run pytest tests/interfaces/<iface>/test_<flow>.py -m browser -v``
-
-.. warning::
-
-   ``test_visual.py`` is marked ``slow``, **not** ``browser`` -- an
-   ``-m browser`` selector silently matches zero of its cases. Select it with
-   ``-k <target-name>`` (or run the file directly) instead.
 
 **What a new panel or extracted module must ship with:**
 

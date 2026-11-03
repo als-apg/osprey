@@ -39,6 +39,7 @@ from check_kit import (
     WHOLE,
     Check,
     Context,
+    Install,
     Lane,
     Refused,
     Selection,
@@ -308,8 +309,8 @@ UNIT_SELECTION = UnitSelection(
     ),
     # A `canopy` test needs CANOPY installed and refuses to skip; the CANOPY
     # integration's `canopy-contract` check runs them.
-    marker="not pty and not wallclock and not canopy",
-    quick_marker="not pty and not wallclock and not canopy and not slow",
+    marker="not pty and not wallclock and not browser and not canopy",
+    quick_marker="not pty and not wallclock and not browser and not canopy and not slow",
     shards={
         "cli": (("tests/cli",), ()),
         "rest-a": (_REST_A, ()),
@@ -697,6 +698,8 @@ JS_DEPS_CURRENT = Path(__file__).resolve().with_name("js_deps_current.py")
 #: Runs only in a venv synced with the dev extra. actionlint disables its
 #: shellcheck rule without a word when shellcheck is absent and still exits 0, so
 #: this probe is what keeps the check from passing over unread ``run:`` blocks.
+#: Exit 0 when Playwright's Chromium is installed, 2 when it is not.
+CHROMIUM_PROBE = (*UV_RUN, "python", "-m", "tests._playwright")
 WORKFLOW_LINT_PROBE = (*UV_RUN, "shellcheck", "--version")
 
 
@@ -796,6 +799,18 @@ def _need_va_extra() -> str | None:
     if kit.capture(LIVE_CA_PROBE)[0] == 0:
         return None
     return "the virtual-accelerator extra is not installed: run uv sync --extra virtual-accelerator"
+
+
+def _chromium_install() -> str:
+    return "run uv run playwright install chromium"
+
+
+def _chromium_attestation(passed: bool) -> str:
+    return f"browser suites {'ran' if passed else 'failed'} against Playwright's chromium"
+
+
+#: The engine the browser suites launch: without it every one of them skips.
+CHROMIUM_INSTALL = Install(CHROMIUM_PROBE, _chromium_install, _chromium_attestation)
 
 
 #: Each need to its probe: ``None`` when met, else the refusal.
@@ -1012,6 +1027,29 @@ CHECKS: tuple[Check, ...] = (
         tier_flags={"full": ("--tb=short",)},
         exec_flags=True,
     ),
+    # A real browser beside loaded workers times out on the workers, so the
+    # sweep deselects the marker and this suite runs alone; the CI lane that
+    # installs the engines calls it.
+    Check(
+        "pytest-browser",
+        "tests",
+        FULL,
+        (*UV_RUN, "pytest", "tests/", "-m", "browser"),
+        scope=(
+            "src/osprey/interfaces/**",
+            "tests/interfaces/**/*.py",
+            "tests/interfaces/design_system/baselines/**",
+            "tests/docs/screenshots/**",
+            "tests/screenshots/**",
+        ),
+        needs=("uv", "claude-pin"),
+        bound_s=2700,
+        report="junit-pytest",
+        tier_flags={"full": ("--tb=short",)},
+        prepare=_prune_bytecode,
+        exec_flags=True,
+        install=CHROMIUM_INSTALL,
+    ),
     # The readonly gate refuses every shared-library load once user code starts,
     # so a stdlib lookup that loads native code lazily must be warmed before it
     # closes. The sweep runs the warm-ups on the tree's interpreter; this runs
@@ -1100,7 +1138,7 @@ CHECKS: tuple[Check, ...] = (
 )
 
 #: The CI jobs that call the check command; every other required job is a lane.
-CALLER_JOBS = ("test", "lint", "docs", "package", "frontend-js")
+CALLER_JOBS = ("test", "lint", "docs", "package", "frontend-js", "visual-theming")
 
 #: The paths of the scan stack: a range that touches one needs the container lanes.
 SCAN_STACK = (
@@ -1167,16 +1205,6 @@ LANES: tuple[Lane, ...] = (
         "static-checks",
         "builds a project",
         ("tests/integration/test_preset_static.py", "tests/integration/test_preset_build.py"),
-    ),
-    Lane(
-        "visual-theming",
-        "browser",
-        (
-            "src/osprey/interfaces/**",
-            "tests/interfaces/**/*.py",
-            "tests/interfaces/design_system/baselines/**",
-            "tests/docs/screenshots/**",
-        ),
     ),
     Lane("build-boot-smoke", "matrix", ("tests/integration/test_build_boot.py",)),
     Lane("e2e-tests", "models", ("tests/e2e/**",)),

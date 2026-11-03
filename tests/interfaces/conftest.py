@@ -467,7 +467,8 @@ def _launched_browser(engine: str) -> Iterator[Browser]:
 
     # sync_playwright().start() spins up an asyncio loop on the main thread.  It
     # MUST be stopped on every exit path — including the skip taken when the
-    # chromium binary is absent (the usual CI condition) and a failing test body.
+    # engine binary is absent and a failing test body. A run without the engine
+    # skips; the lanes that place the browser marker install it.
     # Leaking it makes every later asyncio.run()/pytest-asyncio test in the
     # session raise "Runner.run() cannot be called from a running event loop".
     pw = sync_playwright().start()

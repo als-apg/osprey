@@ -33,6 +33,8 @@ from typing import Any
 import pytest
 import yaml
 
+from tests import _playwright
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
 CI_YML = REPO_ROOT / ".github" / "workflows" / "ci.yml"
 
@@ -84,6 +86,11 @@ CANOPY_INSTALL = (
     f"install canopy {PINS['canopy']} and PyDMConverter {PINS['PyDMConverter']} "
     "from git, PyDMConverter also as a uv pip --override"
 )
+
+#: What the chromium probe prints for each state, and the line a browser run ends with.
+CHROMIUM_INSTALLED = _playwright.INSTALLED
+CHROMIUM_ABSENT = _playwright.ABSENT
+BROWSER_ATTESTED = fw._chromium_attestation(True)
 
 BY_ID = {c.id: c for c in check.CHECKS}
 
@@ -195,6 +202,7 @@ def test_the_check_ids_are_the_public_names() -> None:
         "pytest",
         "pytest-pty",
         "pytest-wallclock",
+        "pytest-browser",
         "readonly-warmups-py314",
         "live-ca",
         "vitest",
@@ -207,6 +215,7 @@ def test_the_check_ids_are_the_public_names() -> None:
     assert [c.id for c in check.CHECKS if "quick" not in c.tiers] == [
         "pytest-pty",
         "pytest-wallclock",
+        "pytest-browser",
         "readonly-warmups-py314",
         "live-ca",
         "docs",
@@ -664,7 +673,7 @@ SHARD_SELECTIONS = {
 }
 
 #: The sweep's marker expression in the full tier.
-SWEEP_MARKER = ["-m", "not pty and not wallclock and not canopy"]
+SWEEP_MARKER = ["-m", "not pty and not wallclock and not browser and not canopy"]
 
 
 def pytest_report(check_id: str, reports: str = "{reports}") -> list[str]:
@@ -961,7 +970,7 @@ def test_the_tiers_bound_their_pytest_runs() -> None:
         return [argv[argv.index(script) + 1] for argv in check.resolve([tier]) if script in argv]
 
     assert bounds("quick") == ["1800", "1800"]
-    assert bounds("full") == ["5400", "600", "900", "900", "1800"]
+    assert bounds("full") == ["5400", "600", "900", "2700", "900", "1800"]
 
 
 def test_both_tiers_deselect_the_canopy_contract() -> None:
@@ -1147,7 +1156,7 @@ def test_an_image_selects_the_invariants_only() -> None:
     assert ran == invariants | {"docs", "linkcheck"}
     got = selected("full", WT + "img/icon.png")
     ran = {name for name, selection in got.items() if selection.state != check.NOT_TOUCHED}
-    assert ran == invariants | {"package"}
+    assert ran == invariants | {"package", "pytest-browser"}
     got = selected("quick", "tests/interfaces/design_system/baselines/dark.png")
     assert {n for n, s in got.items() if s.state != check.NOT_TOUCHED} == {
         c.id for c in check.CHECKS if c.kind == "invariant"
@@ -1387,6 +1396,8 @@ class Recorder:
         self.reports: dict[str, str] = {}
         #: What every install probe answers: its exit status and its line.
         self.install: tuple[int, str] = (0, PROBE_PROVEN)
+        #: An install's probe to its own answer, where it differs from ``install``.
+        self.answers: dict[tuple[str, ...], tuple[int, str]] = {}
 
     def __call__(self, argv: Any, cwd: Path | None = None) -> int:  # noqa: ARG002
         argv = list(argv)
@@ -1414,7 +1425,11 @@ def recorder(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Recorder:
     recorder = Recorder()
     monkeypatch.setattr(kit, "ROOT", tmp_path)
     monkeypatch.setattr(kit, "run", recorder)
-    monkeypatch.setattr(check, "probe_install", lambda install: recorder.install)
+    monkeypatch.setattr(
+        check,
+        "probe_install",
+        lambda install: recorder.answers.get(install.probe, recorder.install),
+    )
     monkeypatch.setattr(kit, "capture", lambda argv: (0, ""))
     for need in check.NEED_PROBES:
         monkeypatch.setitem(check.NEED_PROBES, need, lambda: None)
@@ -1441,7 +1456,7 @@ def test_a_clean_full_run_names_what_it_did_not_run(
         assert recorder.ran(text), text
     verdict = last_line(capsys)
     assert verdict.startswith(
-        f"check: clean; {ATTESTED}; "
+        f"check: clean; {BROWSER_ATTESTED}; {ATTESTED}; "
         "not run, no base given: changelog, plugin-version, gitleaks; "
         "run on CI, never run here: dependency-floor, "
     )
@@ -3090,6 +3105,7 @@ def test_the_contract_runs_only_against_the_proven_install(
     last: str,
 ) -> None:
     recorder.install = (status, said)
+    recorder.answers[fw.CHROMIUM_PROBE] = (0, CHROMIUM_INSTALLED)
     assert check.main(verb) == code
     captured = capsys.readouterr()
     line = (captured.err if code == 2 else captured.out).strip().splitlines()[-1]
@@ -3156,6 +3172,67 @@ def test_a_run_of_the_contract__mutation_drops_the_attestation(
     recorder.install = (0, PROBE_PROVEN)
     with pytest.raises(AssertionError):
         _assert_attested(recorder, capsys)
+
+
+def test_the_chromium_probe_is_the_helper_the_suites_skip_on() -> None:
+    """The browser suites' install is judged by the helper their fixtures
+    skip on, run as a command in the project's environment."""
+    assert fw.CHROMIUM_PROBE == (*fw.UV_RUN, "python", "-m", "tests._playwright")
+    assert BY_ID["pytest-browser"].install is fw.CHROMIUM_INSTALL
+    assert _playwright.ABSENT_EXIT == kit.ABSENT_EXIT
+
+
+@pytest.mark.parametrize(
+    ("present", "status", "said"), [(True, 0, CHROMIUM_INSTALLED), (False, 2, CHROMIUM_ABSENT)]
+)
+def test_the_chromium_probe_answers_in_the_install_contract(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    present: bool,
+    status: int,
+    said: str,
+) -> None:
+    monkeypatch.setattr(_playwright, "chromium_available", lambda: present)
+    assert _playwright.main() == status
+    assert capsys.readouterr().out.strip().splitlines()[-1] == said
+
+
+def test_without_chromium_a_run_of_the_browser_suites_is_refused(
+    recorder: Recorder, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """CI calls the check by name, so an absent engine cannot pass as a run of skips."""
+    recorder.answers[fw.CHROMIUM_PROBE] = (kit.ABSENT_EXIT, CHROMIUM_ABSENT)
+    assert check.main(["run", "pytest-browser"]) == 2
+    assert capsys.readouterr().err.strip().splitlines()[-1] == (
+        "check: refused: pytest-browser "
+        "(chromium is not installed: run uv run playwright install chromium)"
+    )
+    assert recorder.calls == []
+
+
+def test_without_chromium_the_full_tier_names_the_browser_suites_and_runs_the_rest(
+    recorder: Recorder, capsys: pytest.CaptureFixture[str]
+) -> None:
+    recorder.answers[fw.CHROMIUM_PROBE] = (kit.ABSENT_EXIT, CHROMIUM_ABSENT)
+    assert check.main(["full"]) == 0
+    verdict = last_line(capsys)
+    assert f"not run here: pytest-browser ({CHROMIUM_ABSENT})" in verdict
+    assert BROWSER_ATTESTED not in verdict
+    assert not recorder.ran("-m browser")
+    assert recorder.ran("--dist loadgroup") and recorder.ran("tests/pty/ -m pty")
+
+
+def test_a_browser_run_ends_with_the_engine_it_ran_against(
+    recorder: Recorder, capsys: pytest.CaptureFixture[str]
+) -> None:
+    assert check.main(["run", "pytest-browser"]) == 0
+    assert last_line(capsys) == f"check: clean; {BROWSER_ATTESTED}"
+    recorder.failing = {"-m browser": 1}
+    assert check.main(["run", "pytest-browser"]) == 1
+    assert last_line(capsys) == (
+        f"check: not clean: failed: pytest-browser; {fw._chromium_attestation(False)}"
+    )
+    assert "chromium" in BROWSER_ATTESTED and "failed" in fw._chromium_attestation(False)
 
 
 def test_the_attestation_is_the_pin_modules_line() -> None:

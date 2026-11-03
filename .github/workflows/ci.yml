@@ -352,8 +352,8 @@ jobs:
       # this invocation and the conftest override, so the flag cannot outlive
       # the scheduler that makes it safe.
       #
-      # -m "not pty and not wallclock and not canopy": "not pty" hands the
-      # real-terminal suite to the serial step below.
+      # -m "not pty and not wallclock and not browser and not canopy": "not
+      # pty" hands the real-terminal suite to the serial step below.
       # Those scenarios assert on repaint cadence and on a spinner ADVANCING
       # between two frames, so they measure the box as much as the code, and
       # three other xdist workers competing for it is exactly the load that
@@ -368,6 +368,10 @@ jobs:
       # reason: a budget timed beside three loaded workers measures them. Each
       # is timed in a serial step that selects the marker: the qmd panel
       # budget in qmd-sidecar-e2e's "Run the wall-clock budgets serially".
+      #
+      # `not browser` hands every real-browser suite to visual-theming's
+      # "Run the browser suites serially": a browser started beside three
+      # loaded workers times out on them, and this lane installs no engine.
       #
       # `not canopy` leaves the CANOPY contract to its own lane: this lane
       # installs no CANOPY, and a `canopy`-marked test never skips. The run's
@@ -1426,112 +1430,56 @@ jobs:
           ~/apt-archives
         key: ${{ steps.playwright-key.outputs.key }}
 
-    - name: Run behavioral theming suite
-      run: |
-        uv run pytest tests/interfaces/design_system/test_behavioral.py \
-          tests/interfaces/design_system/test_theme_lab.py \
-          tests/interfaces/design_system/test_dispatch_dashboard_unauthorized.py \
-          tests/interfaces/design_system/test_panel_browser.py \
-          tests/interfaces/design_system/test_dispatch_run_crosslinks.py \
-          tests/interfaces/design_system/test_dispatch_run_thinking_browser.py \
-          tests/interfaces/design_system/test_dispatch_dashboard_clock_trigger.py \
-          tests/interfaces/design_system/test_dispatch_dashboard_facility_time.py \
-          tests/interfaces/design_system/test_dispatch_dashboard_trigger_tools.py \
-          tests/interfaces/design_system/test_dispatch_run_owner.py \
-          tests/interfaces/design_system/test_osprey_drawer.py \
-          tests/interfaces/design_system/test_splitter_surfaces.py \
-          tests/interfaces/artifacts/test_gallery_interactions.py \
-          tests/interfaces/artifacts/test_plot_theme_browser.py \
-          tests/interfaces/artifacts/test_plot_export_browser.py \
-          tests/interfaces/artifacts/test_opaque_origin_browser.py \
-          tests/docs/screenshots/test_video_probes_browser.py \
-          tests/interfaces/web_terminal/test_panels_browser.py \
-          tests/interfaces/web_terminal/test_opaque_panel_browser.py \
-          tests/interfaces/web_terminal/test_facility_time_browser.py \
-          tests/interfaces/web_terminal/test_panels_collab_browser.py \
-          tests/interfaces/web_terminal/test_dock_tiles_browser.py \
-          tests/interfaces/web_terminal/test_dock_perf_browser.py \
-          tests/interfaces/web_terminal/test_dock_agent_parity_browser.py \
-          tests/interfaces/web_terminal/test_jupyter_panel_browser.py \
-          tests/interfaces/web_terminal/test_agent_activity_browser.py \
-          tests/interfaces/web_terminal/test_contract_params.py \
-          tests/interfaces/web_terminal/test_logout_resume_browser.py \
-          tests/interfaces/web_terminal/test_auth_login_browser.py \
-          tests/interfaces/web_terminal/test_feedback_rail_browser.py \
-          tests/interfaces/web_terminal/test_feedback_modal_browser.py \
-          tests/interfaces/web_terminal/test_watchdog_dialog_browser.py \
-          tests/interfaces/web_terminal/test_posture_toggle_browser.py \
-          tests/interfaces/web_terminal/test_control_context_browser.py \
-          tests/interfaces/web_terminal/test_agent_surface_browser.py \
-          tests/interfaces/web_terminal/test_first_contact_browser.py \
-          tests/interfaces/web_terminal/test_chat_browser.py \
-          tests/interfaces/web_terminal/test_session_persistence_browser.py \
-          tests/interfaces/web_terminal/test_canopy_host_themes.py \
-          tests/interfaces/web_terminal/test_osprey_drawer.py \
-          tests/interfaces/web_terminal/test_scaffold_detail.py \
-          tests/interfaces/web_terminal/test_session_page.py \
-          tests/interfaces/web_terminal/test_sidebar_resize_browser.py \
-          tests/interfaces/web_terminal/test_sidebar_panel_availability_browser.py \
-          tests/interfaces/channel_finder/test_graph_finder_browser.py \
-          tests/interfaces/bluesky_web/test_channel_combobox_browser.py \
-          tests/interfaces/bluesky_web/test_lane_picker_browser.py \
-          tests/interfaces/lattice_dashboard/test_retheme_browser.py \
-          tests/interfaces/lattice_dashboard/test_settings_form.py \
-          tests/interfaces/ariel/test_embedded_nav.py \
-          tests/interfaces/ariel/test_display_menu.py \
-          tests/interfaces/ariel/test_vocabulary_banner.py \
-          tests/interfaces/history/test_history_page_browser.py \
-          tests/interfaces/test_browser_helper.py \
-          tests/interfaces/test_lattice_dashboard_browser.py \
-          tests/interfaces/test_load_smokes.py -v --tb=short
-
     - name: Install the pinned Claude Code CLI
-      # The watchdog suite below launches the agent the web terminal launches,
+      # The watchdog suite launches the agent the web terminal launches,
       # against a scripted model. Every agent run refuses to start without the
       # version OSPREY pins.
       uses: ./.github/actions/install-pinned-claude-code
 
-    - name: Run the watchdog browser suite
-      timeout-minutes: 20
-      # Apart from the list above, whose suites need no agent on the runner.
-      run: |
-        uv run pytest tests/interfaces/test_watchdog_e2e.py -m browser -v --tb=short \
-          --junitxml=junit-watchdog-browser.xml
+    - name: Run the browser suites serially
+      # Every module marked `browser`, and nothing else: the marker is the one
+      # statement of where a browser suite runs, and the check refuses when
+      # chromium is absent, so the lane cannot go green over skips. Linux is
+      # the authoritative platform for test_visual.py's pixel diff; a missing
+      # baseline is written on the spot, and the commit step below lands it.
+      timeout-minutes: 50
+      run: uv run python scripts/check.py run pytest-browser --reports ci-reports
 
     - name: Fail the lane on any skipped watchdog browser test
+      env:
+        REPORT: ci-reports/pytest-browser/junit.xml
       run: |
         # The chromium fixture skips when its binary is absent, and pytest's
         # exit code cannot tell "everything passed" from "everything was
-        # skipped". The junit report is read instead: zero skips, and a
-        # non-zero test count so an empty selection cannot pass either.
+        # skipped". The check's junit report is read instead: zero skips among
+        # the watchdog suite's cases, and a non-zero count of them so an empty
+        # selection cannot pass either.
         uv run python - <<'PY'
+        import os
         import sys
         import xml.etree.ElementTree as ET
 
-        report = "junit-watchdog-browser.xml"
-        total = skipped = 0
-        for suite in ET.parse(report).getroot().iter("testsuite"):
-            total += int(suite.get("tests", 0))
-            skipped += int(suite.get("skipped", 0))
-        print(f"{report}: {total} test(s), {skipped} skipped")
+        report = os.environ["REPORT"]
+        suite = "tests/interfaces/test_watchdog_e2e.py"
+        cases = [
+            case
+            for case in ET.parse(report).getroot().iter("testcase")
+            if case.get("file") == suite
+        ]
+        total = len(cases)
+        skipped = sum(1 for case in cases if case.find("skipped") is not None)
+        print(f"{suite}: {total} test(s), {skipped} skipped")
         failed = False
         if total == 0:
-            print(f"::error::{report} collected no tests")
+            print(f"::error::{report} holds no test of {suite}")
             failed = True
         if skipped:
-            print(f"::error::{report} reports {skipped} skipped test(s)")
+            print(f"::error::{report} reports {skipped} skipped test(s) of {suite}")
             failed = True
         if failed:
             sys.exit(1)
         print("every watchdog browser test ran; none skipped")
         PY
-
-    - name: Run visual regression suite
-      # Linux is the authoritative platform for the pixel diff (see
-      # test_visual.py's module docstring); this runner IS that platform.
-      # A missing baseline is written on the spot — see the "commit" step
-      # below for how a first-time/updated baseline lands back in the repo.
-      run: uv run pytest tests/interfaces/design_system/test_visual.py -v --tb=short
 
     - name: Upload Linux-rendered baselines artifact
       uses: actions/upload-artifact@v7

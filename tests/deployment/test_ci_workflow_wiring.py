@@ -55,7 +55,7 @@ import sys
 import tomllib
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass, replace
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from types import ModuleType
 from typing import Any
 from unittest import mock
@@ -332,6 +332,11 @@ LANE_LEAVING_MARKERS = (
             ),
         ),
     ),
+    # Real-browser suites: the lane that installs the engines runs them alone.
+    LaneLeavingMarker(
+        "browser",
+        (SerialHost("visual-theming", "Run the browser suites serially", "tests/", "-m browser"),),
+    ),
 )
 
 
@@ -355,7 +360,9 @@ def _lane_deselect(rows: tuple[LaneLeavingMarker, ...]) -> str:
 #: The parallel lane's marker expression, derived from the table. Matched as a
 #: literal substring: single spaces and the quoting are part of the pin.
 UNIT_LANE_DESELECT = _lane_deselect(LANE_LEAVING_MARKERS)
-assert UNIT_LANE_DESELECT == '-m "not pty and not wallclock and not canopy"', UNIT_LANE_DESELECT
+assert UNIT_LANE_DESELECT == ('-m "not pty and not wallclock and not browser and not canopy"'), (
+    UNIT_LANE_DESELECT
+)
 
 #: The row the terminal-only cases read (Linux gate, files that open a pty).
 TERMINAL_ROW = _row("pty")
@@ -1707,17 +1714,41 @@ def _unhosted_carriers(row: LaneLeavingMarker, sources: dict[str, str]) -> list[
     ]
 
 
+def _selected_row(command: str) -> LaneLeavingMarker | None:
+    """The row whose marker *command*'s one ``-m`` expression selects, if any."""
+    exprs = [f"-m {expr}" for expr in _MARKER_EXPR_RE.findall(command)]
+    if len(exprs) != 1:
+        return None
+    return next((row for row in LANE_LEAVING_MARKERS if row.select() == exprs[0]), None)
+
+
+def _reaches_carrier(command: str, test_file: str, sources: dict[str, str]) -> bool:
+    """Whether *command* collects marked tests of *test_file*.
+
+    An invocation that selects another row's marker runs only that marker's
+    tests, so it reaches a file only when the file carries that marker too.
+    """
+    selected = _selected_row(command)
+    if selected is not None and not selected.mark_re().search(sources.get(test_file, "")):
+        return False
+    return _invocation_reaches(command, test_file)
+
+
 def _undeselected_reaches(
-    wf: dict[str, Any], row: LaneLeavingMarker, carriers: list[str]
+    wf: dict[str, Any],
+    row: LaneLeavingMarker,
+    carriers: list[str],
+    sources: dict[str, str] | None = None,
 ) -> list[str]:
     """Non-host invocations that reach a marked file without deselecting the
     marker (empty = the row's tests run in its hosts and nowhere else)."""
+    sources = _test_module_sources() if sources is None else sources
     hosts = {(host.job, host.step) for host in row.hosts}
     return [
         f"{job} · {step}: {command}"
         for job, step, command in _ci_pytest_invocations(wf)
         if (job, step) not in hosts
-        and any(_invocation_reaches(command, f) for f in carriers)
+        and any(_reaches_carrier(command, f, sources) for f in carriers)
         and row.deselect_term() not in command
     ]
 
@@ -1855,6 +1886,30 @@ def test_every_marked_file_lives_where_a_serial_step_looks(row: LaneLeavingMarke
     )
 
 
+def _outside_the_hosts(row: LaneLeavingMarker) -> str:
+    """A test directory none of the row's host paths covers: one directory over
+    from the usual test tree, or the workspace package's suite when a host
+    collects the whole of ``tests/``."""
+    candidates = ("tests/cli/", f"{PACKAGE_TEST_ROOTS[0]}/")
+    return next(d for d in candidates if not any(d.startswith(h.path) for h in row.hosts))
+
+
+def test_an_invocation_that_selects_a_row_reaches_only_its_carriers() -> None:
+    """``-m browser`` over ``tests/`` collects no ``pty`` test: pytest runs a
+    file's tests only where they carry the selected marker."""
+    sources = {
+        "tests/pty/test_a.py": "pytestmark = [pytest.mark.pty]\n",
+        "tests/web/test_b_browser.py": "pytestmark = [pytest.mark.browser]\n",
+        "tests/web/test_c.py": "pytestmark = [pytest.mark.browser, pytest.mark.pty]\n",
+    }
+    select = f"{CHECK_UV_RUN} pytest tests/ -m browser"
+    assert not _reaches_carrier(select, "tests/pty/test_a.py", sources)
+    assert _reaches_carrier(select, "tests/web/test_b_browser.py", sources)
+    assert _reaches_carrier(select, "tests/web/test_c.py", sources)
+    sweep = f'{CHECK_UV_RUN} pytest tests/ -m "not browser"'
+    assert _reaches_carrier(sweep, "tests/pty/test_a.py", sources)
+
+
 @pytest.mark.parametrize("row", LANE_LEAVING_MARKERS, ids=_ROW_IDS)
 def test_every_marked_file_lives_where_a_serial_step_looks__mutation_strays(
     row: LaneLeavingMarker,
@@ -1862,7 +1917,7 @@ def test_every_marked_file_lives_where_a_serial_step_looks__mutation_strays(
     """A future marked file one directory over must be reported by name, not
     tolerated because the tests it was modelled on are still in place."""
     sources = _test_module_sources()
-    phantom = f"tests/cli/test_future_{row.marker}_scenarios.py"
+    phantom = f"{_outside_the_hosts(row)}test_future_{row.marker}_scenarios.py"
     sources[phantom] = f"pytestmark = [pytest.mark.{row.marker}]\n"
     assert _unhosted_carriers(row, sources) == [phantom]
 
@@ -2399,7 +2454,8 @@ def test_the_full_tier_runs_what_the_sweep_deselects__mutation_parallelizes_it(
 
 
 @pytest.mark.parametrize(
-    ("marker", "jobs"), [("pty", ["test"]), ("wallclock", ["qmd-sidecar-e2e"])]
+    ("marker", "jobs"),
+    [("pty", ["test"]), ("wallclock", ["qmd-sidecar-e2e"]), ("browser", ["visual-theming"])],
 )
 def test_per_pr_hosts_are_the_hosts_the_merge_gate_needs(
     marker: str, jobs: list[str], workflow: dict[str, Any]
@@ -2486,11 +2542,12 @@ def test_serial_runs_reach_every_per_pr_marked_file__mutation_adds_a_per_pr_dire
     tier: str, row: LaneLeavingMarker, workflow: dict[str, Any]
 ) -> None:
     """A second per-PR host directory is owed too, not only the first."""
+    elsewhere = _outside_the_hosts(row)
     widened = replace(
-        row, hosts=(*row.hosts, SerialHost(UNIT_TEST_JOB, "x", "tests/cli/", row.select()))
+        row, hosts=(*row.hosts, SerialHost(UNIT_TEST_JOB, "x", elsewhere, row.select()))
     )
     sources = _test_module_sources()
-    phantom = f"tests/cli/test_future_{row.marker}.py"
+    phantom = f"{elsewhere}test_future_{row.marker}.py"
     assert phantom not in sources, f"{phantom} exists; mutation is stale"
     sources[phantom] = f"pytestmark = [pytest.mark.{row.marker}]\n"
     assert phantom in _per_pr_carriers(workflow, widened, sources)
@@ -2589,7 +2646,7 @@ def test_the_gate_runs_every_row_serially(row: LaneLeavingMarker) -> None:
 def test_the_gate_runs_exactly_the_lane_expression__mutation_adds_a_term() -> None:
     source = _tier_source("full")
     expr = UNIT_LANE_DESELECT[:-1]
-    mutated = source.replace(UNIT_LANE_DESELECT, f'{expr} and not browser"', 1)
+    mutated = source.replace(UNIT_LANE_DESELECT, f'{expr} and not slow"', 1)
     assert mutated != source, "no lane sweep in the full tier; mutation is stale"
     assert _gate_lines_off_the_table(mutated) != []
 
@@ -4176,30 +4233,50 @@ def test_workflow_on_key_parses_to_bool_true_not_string(workflow: dict[str, Any]
 
 
 # ---------------------------------------------------------------------------
-# (h) multi-user login-flow browser test: named in the lane's file list, which
-# is the only way it is ever collected
+# (h) the browser lane: the job that installs the engines and runs every
+# browser-marked suite through its row of LANE_LEAVING_MARKERS
 # ---------------------------------------------------------------------------
 
-BROWSER_JOB = "visual-theming"
-BROWSER_RUN_STEP = "Run behavioral theming suite"
-AUTH_BROWSER_TEST_FILE = "tests/interfaces/web_terminal/test_auth_login_browser.py"
+BROWSER_ROW = _row("browser")
+(BROWSER_HOST,) = BROWSER_ROW.hosts
+BROWSER_JOB = BROWSER_HOST.job
+BROWSER_RUN_STEP = BROWSER_HOST.step
+#: The step that fails the lane when a watchdog browser test skipped.
+BROWSER_SKIP_GATE_STEP = "Fail the lane on any skipped watchdog browser test"
+WATCHDOG_BROWSER_TEST_FILE = "tests/interfaces/test_watchdog_e2e.py"
 
 
-#: What makes a step of the browser job one that runs suites. The lane runs
-#: its suites in more than one step — the visual-regression step stands apart
-#: so its baseline upload and commit steps can follow it — so a suite named by
-#: any of them is run by the lane, and matching the invocation rather than
-#: listing step names keeps a further step from being named by the lane and
-#: invisible to every guard below.
-_BROWSER_PYTEST_INVOCATION = "uv run pytest "
+def _browser_skip_gate_problems(wf: dict[str, Any]) -> list[str]:
+    """Why the skip gate does not read the watchdog cases of the report the
+    host step writes (empty = it does)."""
+    (command,) = [c for c in _host_invocations(wf, BROWSER_HOST) if BROWSER_HOST.select in c]
+    written = [w.removeprefix("--junitxml=") for w in shlex.split(command) if "--junitxml=" in w]
+    steps = _jobs(wf)[BROWSER_JOB]["steps"]
+    gate = _find_named_step(wf, BROWSER_JOB, BROWSER_SKIP_GATE_STEP)
+    problems = []
+    if written != [gate.get("env", {}).get("REPORT")]:
+        problems.append(f"reads {gate.get('env', {}).get('REPORT')!r}, the host writes {written}")
+    if steps.index(gate) < steps.index(_find_named_step(wf, BROWSER_JOB, BROWSER_RUN_STEP)):
+        problems.append("runs before the host step")
+    if f'"{WATCHDOG_BROWSER_TEST_FILE}"' not in gate["run"]:
+        problems.append(f"does not select {WATCHDOG_BROWSER_TEST_FILE}")
+    return problems
 
 
-def _browser_lane_files(wf: dict[str, Any]) -> str:
-    return "\n".join(
-        step["run"]
-        for step in _jobs(wf)[BROWSER_JOB]["steps"]
-        if _BROWSER_PYTEST_INVOCATION in step.get("run", "")
-    )
+def test_the_watchdog_skip_gate_reads_the_report_the_browser_step_writes(
+    workflow: dict[str, Any],
+) -> None:
+    """The watchdog suite must run, never skip, in the lane; the check writes
+    one report for every browser suite, and the gate reads the watchdog's
+    cases out of that report."""
+    assert BROWSER_ROW.mark_re().search(_test_module_sources()[WATCHDOG_BROWSER_TEST_FILE])
+    assert _browser_skip_gate_problems(workflow) == []
+
+
+def test_the_watchdog_skip_gate__mutation_reads_another_report() -> None:
+    mutated = _load_workflow()
+    _find_named_step(mutated, BROWSER_JOB, BROWSER_SKIP_GATE_STEP)["env"]["REPORT"] = "x.xml"
+    assert _browser_skip_gate_problems(mutated) != []
 
 
 # ---------------------------------------------------------------------------
@@ -4294,47 +4371,9 @@ def test_the_browser_lane_runs_unconditionally__mutation_gates_an_install_on_the
     assert _browser_steps_gated_on_outputs(mutated) == ["Install Playwright webkit"]
 
 
-COMBOBOX_BROWSER_TEST_FILE = "tests/interfaces/bluesky_web/test_channel_combobox_browser.py"
-HISTORY_BROWSER_TEST_FILE = "tests/interfaces/history/test_history_page_browser.py"
-LATTICE_BROWSER_TEST_FILE = "tests/interfaces/test_lattice_dashboard_browser.py"
-
-#: The browser suites (h) and its siblings each pin by name: the login flow, the
-#: channel combobox, the history page and the lattice dashboard.
-_NAMED_BROWSER_TEST_FILES = [
-    AUTH_BROWSER_TEST_FILE,
-    COMBOBOX_BROWSER_TEST_FILE,
-    HISTORY_BROWSER_TEST_FILE,
-    LATTICE_BROWSER_TEST_FILE,
-]
-
-
-@pytest.mark.parametrize("test_file", _NAMED_BROWSER_TEST_FILES)
-def test_browser_test_runs_in_the_browser_lane(workflow: dict[str, Any], test_file: str) -> None:
-    """The suite has to be NAMED in the lane's pytest invocation.
-
-    The lane runs an explicit file list, not a directory glob, so a new
-    browser-marked file that nobody adds here is never collected anywhere: the
-    unit lane skips it (no chromium), and this lane never hears of it. It
-    reports green by running nothing at all."""
-    assert test_file in _browser_lane_files(workflow)
-
-
-@pytest.mark.parametrize("test_file", _NAMED_BROWSER_TEST_FILES)
-def test_browser_test_runs_in_the_browser_lane__mutation_drops_the_file(test_file: str) -> None:
-    """Removing the file from the invocation must fail the guard — the exact
-    vacuous-green shape above."""
-    mutated = copy.deepcopy(_load_workflow())
-    step = _find_named_step(mutated, BROWSER_JOB, BROWSER_RUN_STEP)
-    step["run"] = step["run"].replace(f"{test_file} \\\n", "")
-    assert test_file not in _browser_lane_files(mutated)
-
-
 # ---------------------------------------------------------------------------
-# (h3) every browser suite on disk: (h) and (h2) each pin one file by name,
-# which is exactly how the next one gets forgotten. The lane's explicit file
-# list is checked against the tree instead — a module that marks itself
-# ``browser`` is skipped by the unit lane for want of a chromium binary, so
-# one this lane does not name is collected nowhere at all.
+# (h3) the marker is the one statement of a browser suite: a module named like
+# one carries it, so the row's scan finds every suite the name promises
 # ---------------------------------------------------------------------------
 
 TESTS_ROOT = Path(__file__).resolve().parents[1]
@@ -4345,137 +4384,35 @@ REPO_ROOT = TESTS_ROOT.parent
 PACKAGE_TEST_ROOTS = ("packages/osprey-connectors/tests",)
 
 
-#: The marker a module applies to itself to say it drives a browser. It is
-#: what makes the unit lane skip the module — there is no chromium binary
-#: there — so it is also what decides which lane has to name it.
-BROWSER_MARKER = "browser"
-
-
-def _module_marks(source: str) -> set[str]:
-    """The pytest marker names a module applies to every test it defines.
-
-    Read with ``ast`` rather than by importing: a browser suite pulls in
-    playwright and starts the interface server it drives, neither of which a
-    workflow-wiring check has any business doing. Both ``pytestmark = [...]``
-    and the annotated spelling are read, and a bare ``pytestmark =
-    pytest.mark.browser`` is one mark rather than none.
-    """
-    marks: set[str] = set()
-    for node in ast.parse(source).body:
-        if isinstance(node, ast.AnnAssign):
-            targets, value = [node.target], node.value
-        elif isinstance(node, ast.Assign):
-            targets, value = node.targets, node.value
-        else:
-            continue
-        if value is None:
-            continue
-        if not any(isinstance(t, ast.Name) and t.id == "pytestmark" for t in targets):
-            continue
-        for sub in ast.walk(value):
-            if (
-                isinstance(sub, ast.Attribute)
-                and isinstance(sub.value, ast.Attribute)
-                and sub.value.attr == "mark"
-                and isinstance(sub.value.value, ast.Name)
-                and sub.value.value.id == "pytest"
-            ):
-                marks.add(sub.attr)
-    return marks
-
-
-def _browser_suites_on_disk() -> list[str]:
-    """A fresh list of ``_browser_suites_on_disk_once``, safe for the caller to edit."""
-    return list(_browser_suites_on_disk_once())
-
-
-@functools.cache
-def _browser_suites_on_disk_once() -> tuple[str, ...]:
-    """Every test module that marks itself ``browser``, repo-relative, POSIX-spelled.
-
-    Discovery follows the marker, never the filename: the marker is the
-    module's own declaration that it needs a browser, and a suite is free to
-    be called anything. A filename convention accounts only for the modules
-    that follow it and passes over every other in silence.
-    """
-    return tuple(
-        sorted(
-            path.relative_to(REPO_ROOT).as_posix()
-            for path, source in _test_tree_sources().items()
-            if "__pycache__" not in path.parts and BROWSER_MARKER in _module_marks(source)
-        )
+def _browser_suites_unmarked(sources: dict[str, str]) -> list[str]:
+    """Modules named ``test_*_browser.py`` that do not carry the browser marker
+    (empty = the name and the marker agree)."""
+    carriers = set(_carriers(BROWSER_ROW, sources))
+    return sorted(
+        name
+        for name in sources
+        if PurePosixPath(name).match("test_*_browser.py") and name not in carriers
     )
-
-
-def _browser_lane_named_files(wf: dict[str, Any]) -> set[str]:
-    """The pytest file arguments of the lane's run step, one token at a time —
-    not a substring search, so ``test_panel_browser.py`` is never satisfied by
-    ``test_panels_browser.py``."""
-    return {tok for tok in _browser_lane_files(wf).split() if tok.endswith(".py")}
-
-
-#: The number of browser-marked modules in the tree. A discovery that reads
-#: the marker wrongly still returns a plausible-looking list, and every guard
-#: below it would then pass over the difference, so the floor is worth what
-#: the distance between it and the count is worth: a suite added raises this
-#: and a suite deliberately deleted lowers it, both by hand.
-BROWSER_SUITE_FLOOR = 40
-
-
-def test_browser_suite_discovery_has_a_floor() -> None:
-    """A discovery that finds nothing, or finds a fraction, would make the
-    guards below vacuous rather than red."""
-    found = _browser_suites_on_disk()
-    assert AUTH_BROWSER_TEST_FILE in found
-    assert COMBOBOX_BROWSER_TEST_FILE in found
-    assert len(found) >= BROWSER_SUITE_FLOOR, found
 
 
 def test_browser_suite_discovery_covers_every_suite_named_like_one() -> None:
-    """A module called ``test_*_browser.py`` says the same thing its marker
-    says, so the marker has to find all of them. This is the floor that
-    maintains itself: the naming convention is a subset of the marker, and a
-    walk that silently stops reading one of the two spellings of
-    ``pytestmark`` fails here without anyone remembering to raise a count."""
-    found = set(_browser_suites_on_disk())
-    named_like_one = sorted(
-        path.relative_to(REPO_ROOT).as_posix()
-        for path in _test_tree_paths()
-        if path.match("test_*_browser.py") and "__pycache__" not in path.parts
-    )
-    missing = [suite for suite in named_like_one if suite not in found]
-    assert missing == [], f"browser suites the marker discovery does not find: {missing}"
+    """A module called ``test_*_browser.py`` says what its marker says, so the
+    row's scan has to find all of them. This is the floor that maintains
+    itself: the naming convention is a subset of the marker, and a scan that
+    stops reading the marker fails here without anyone remembering to raise a
+    count."""
+    sources = _test_module_sources()
+    assert any(PurePosixPath(name).match("test_*_browser.py") for name in sources)
+    unmarked = _browser_suites_unmarked(sources)
+    assert unmarked == [], f"browser suites the marker scan does not find: {unmarked}"
 
 
-def test_the_marker_discovery_reads_the_marker_not_the_name() -> None:
-    """The helper the guards rest on, exercised directly: a module is a
-    browser suite because of what it declares, and a module that declares
-    nothing is not one however it is named."""
-    assert BROWSER_MARKER in _module_marks(
-        "import pytest\n\npytestmark = [pytest.mark.browser, pytest.mark.slow]\n"
-    )
-    assert BROWSER_MARKER in _module_marks("import pytest\n\npytestmark = pytest.mark.browser\n")
-    assert BROWSER_MARKER not in _module_marks("import pytest\n\npytestmark = [pytest.mark.slow]\n")
-    assert _module_marks("x = 1\n") == set()
-
-
-def test_every_browser_suite_on_disk_is_named_in_the_browser_lane(
-    workflow: dict[str, Any],
-) -> None:
-    named = _browser_lane_named_files(workflow)
-    missing = [suite for suite in _browser_suites_on_disk() if suite not in named]
-    assert missing == [], (
-        f"browser suites on disk that the '{BROWSER_JOB}' lane never runs (the unit lane "
-        f"skips them without chromium, so nothing collects them anywhere): {missing}"
-    )
-
-
-def test_every_browser_suite_on_disk_is_named__mutation_drops_one_suite() -> None:
-    mutated = copy.deepcopy(_load_workflow())
-    step = _find_named_step(mutated, BROWSER_JOB, BROWSER_RUN_STEP)
-    step["run"] = step["run"].replace(f"{AUTH_BROWSER_TEST_FILE} \\\n", "")
-    named = _browser_lane_named_files(mutated)
-    assert [s for s in _browser_suites_on_disk() if s not in named] == [AUTH_BROWSER_TEST_FILE]
+def test_browser_suite_discovery__mutation_a_suite_without_the_mark() -> None:
+    sources = _test_module_sources()
+    phantom = "tests/interfaces/test_x_browser.py"
+    assert phantom not in sources, f"{phantom} exists; mutation is stale"
+    sources[phantom] = "import pytest\n\npytestmark = [pytest.mark.slow]\n"
+    assert _browser_suites_unmarked(sources) == [phantom]
 
 
 # ---------------------------------------------------------------------------
@@ -4490,9 +4427,8 @@ _INTERFACES_CONFTEST = TESTS_ROOT / "interfaces" / "conftest.py"
 def _browser_engines() -> tuple[str, ...]:
     """``BROWSER_ENGINES`` from the interfaces conftest, read with ``ast``.
 
-    Not imported, for the reason :func:`_module_marks` gives: the conftest pulls
-    in playwright and the interface servers, which a workflow-wiring check has
-    no business loading.
+    Not imported: the conftest pulls in playwright and the interface servers,
+    which a workflow-wiring check has no business loading.
     """
     for node in ast.parse(_INTERFACES_CONFTEST.read_text(encoding="utf-8")).body:
         if isinstance(node, ast.AnnAssign):
@@ -4580,7 +4516,7 @@ def _browser_cache_problems(wf: dict[str, Any]) -> list[str]:
     restores = where(lambda s: str(s.get("uses", "")).startswith("actions/cache/restore@"))
     saves = where(lambda s: str(s.get("uses", "")).startswith(_CACHE_SAVE_ACTION))
     installs = where(lambda s: s.get("name") in _PLAYWRIGHT_INSTALL_STEPS)
-    suites = where(lambda s: _BROWSER_PYTEST_INVOCATION in s.get("run", ""))
+    suites = where(lambda s: s.get("name") == BROWSER_RUN_STEP)
     archives = [
         m.group(1) for s in steps for m in _APT_ARCHIVES_SETTING.finditer(str(s.get("run", "")))
     ]
@@ -6812,27 +6748,6 @@ def test_every_job_is_gated_or_deliberately_excluded__mutation_adds_orphan_job()
 
 
 # ---------------------------------------------------------------------------
-# (q) posture-toggle browser test: named in the browser lane (same vacuous-
-# green shape as (h)/(h2) — the unit lane skips it without chromium)
-# ---------------------------------------------------------------------------
-
-POSTURE_BROWSER_TEST_FILE = "tests/interfaces/web_terminal/test_posture_toggle_browser.py"
-
-
-def test_posture_toggle_browser_test_runs_in_the_browser_lane(workflow: dict[str, Any]) -> None:
-    """The toggle's only end-to-end proof (badge agrees with the store)
-    must be NAMED in the lane's explicit file list; nowhere else in CI has
-    Chromium installed."""
-    assert POSTURE_BROWSER_TEST_FILE in _browser_lane_files(workflow)
-
-
-def test_posture_toggle_browser_test_runs_in_the_browser_lane__mutation_drops_the_file() -> None:
-    mutated = copy.deepcopy(_load_workflow())
-    step = _find_named_step(mutated, BROWSER_JOB, BROWSER_RUN_STEP)
-    step["run"] = step["run"].replace(f"{POSTURE_BROWSER_TEST_FILE} \\\n", "")
-    assert POSTURE_BROWSER_TEST_FILE not in _browser_lane_files(mutated)
-
-
 # The control-target switch lane: registered in both halves of the gate
 # ---------------------------------------------------------------------------
 #
@@ -13349,6 +13264,17 @@ CALLER_SETUP_STEPS: dict[str, tuple[str, ...]] = {
         "Fetch CANOPY and PyDMConverter at the proven commits",
         "Install CANOPY and PyDMConverter at the proven commits",
         "Name the proven commits",
+    ),
+    # The browser lane installs the engines its suites launch, and reads the
+    # check's report for the watchdog suite's skips; each has its tests above.
+    "visual-theming": (
+        "Fetch vendor assets",
+        "Resolve Playwright browser cache key",
+        "Configure apt for the Playwright system deps",
+        "Install Playwright chromium",
+        "Install Playwright webkit",
+        "Hand the apt debs to the runner user",
+        "Fail the lane on any skipped watchdog browser test",
     ),
 }
 #: The commands the checks run. One of these in a caller step is a check

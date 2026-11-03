@@ -252,12 +252,13 @@ in the checkout. Run gates in the foreground. Run e2e only by path
 
 1. Run the smallest owner and sibling tests twice, serially then parallel:
    `uv run pytest tests/<area>/test_x.py`, then, for a unit area,
-   `uv run pytest tests/<area> -m "not pty and not wallclock and not canopy" -n 4 --dist loadgroup`
+   `uv run pytest tests/<area> -m "not pty and not wallclock and not browser and not canopy" -n 4 --dist loadgroup`
    with the `pytest` check's `--ignore` list from `scripts/repo_checks.py`
    (`uv run python scripts/check.py list --json` prints it; those files run
    in their own CI jobs, such as tests/va/test_apply_fault.py — run them by
    path). Run
-   `tests/pty -m pty` and `tests/integration -m wallclock` serially. For e2e,
+   `tests/pty -m pty`, `tests/integration -m wallclock` and
+   `uv run pytest tests/ -m browser` serially. For e2e,
    run one file by path, serially or with `-n 4 --dist loadfile`. Neither run
    is evidence for the other. For vitest files, run
    `npm run test:js -- <path>`, then
