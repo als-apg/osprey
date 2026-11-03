@@ -84,6 +84,10 @@ def ariel_url(_ariel_server: tuple[Any, str]) -> str:
 
 HEALTHY_CAPABILITIES: dict[str, Any] = {
     "status": "healthy",
+    # The zone the fixture timestamps are written in. Without it the day
+    # separators follow the browser's zone, and these fixtures' two days are
+    # one day in UTC.
+    "facility_timezone": "America/Los_Angeles",
     "default_mode": "keyword",
     "categories": {
         "search": {
