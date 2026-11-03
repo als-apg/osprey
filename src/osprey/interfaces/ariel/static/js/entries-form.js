@@ -3,11 +3,16 @@
  * ARIEL Entry Creation & Draft Module
  *
  * Entry creation form: submission, tags, file preview, and draft loading.
+ *
+ * A successful create hands the new entry to the reader through the store
+ * (writes `compose:null`, `sel`, `narrowView:'reader'`) and remembers the
+ * author for the Mine mailbox; failures keep the form open and populated.
  */
 
 import { entriesApi, draftsApi, ApiError } from './api.js';
 import { escapeHtml } from './components.js';
-import { showEntry } from './entries-detail.js';
+import { setState } from './store.js';
+import { rememberAuthor } from './rail.js';
 import {
   collectEntryFieldValues,
   entryFieldsRendered,
@@ -32,6 +37,25 @@ function submissionMetadata() {
   const declared = collectEntryFieldValues();
   if (!draftMetadata && Object.keys(declared).length === 0) return null;
   return { ...(draftMetadata || {}), ...declared };
+}
+
+/**
+ * Empty the create form: its inputs, tags, file previews (including staged
+ * draft attachments), and everything a loaded draft added.
+ */
+export function resetCreateForm() {
+  /** @type {HTMLFormElement|null} */ (document.getElementById('create-entry-form'))?.reset();
+  const tagsContainer = document.getElementById('entry-tags');
+  if (tagsContainer) tagsContainer.innerHTML = '';
+  const preview = document.getElementById('file-preview');
+  if (preview) {
+    preview.innerHTML = '';
+    delete preview.dataset.draftAttachments;
+    delete preview.dataset.draftId;
+  }
+  draftMetadata = null;
+  document.getElementById('session-info-panel')?.remove();
+  document.getElementById('draft-banner')?.remove();
 }
 
 /**
@@ -99,25 +123,10 @@ export async function handleCreateEntry(e) {
       result = await entriesApi.create(entryData);
     }
 
-    // Show success message
-    const attachMsg = result.attachment_count
-      ? ` with ${result.attachment_count} attachment(s)`
-      : '';
-    alert(`Entry created: ${result.entry_id}${attachMsg}`);
-
-    // Reset form, file preview, and draft state
-    form.reset();
-    const tagsContainer = document.getElementById('entry-tags');
-    if (tagsContainer) tagsContainer.innerHTML = '';
-    if (preview) preview.innerHTML = '';
-    draftMetadata = null;
-    const sessionPanel = document.getElementById('session-info-panel');
-    if (sessionPanel) sessionPanel.remove();
-    const draftBanner = document.getElementById('draft-banner');
-    if (draftBanner) draftBanner.remove();
-
-    // Navigate to entry
-    showEntry(result.entry_id);
+    // Close compose and show the new entry in the reader.
+    resetCreateForm();
+    rememberAuthor(String(entryData.author ?? ''));
+    setState({ compose: null, sel: result.entry_id, narrowView: 'reader' });
   } catch (error) {
     console.error('Failed to create entry:', error);
     if (error instanceof ApiError && error.code === 'auth_required') {

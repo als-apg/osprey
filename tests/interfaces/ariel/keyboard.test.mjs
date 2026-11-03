@@ -1,0 +1,333 @@
+// @ts-check
+/**
+ * Unit tests for the ARIEL keyboard shortcuts (keyboard.js): j/k through the
+ * rendered rows, Enter opens the reader, `/` focuses search standalone only,
+ * `[` toggles the rail, and `Esc` closes exactly one layer — skipping events
+ * that were defaultPrevented or arrived while a popover or drawer was open.
+ *
+ *   npx vitest run tests/interfaces/ariel/keyboard.test.mjs
+ *
+ * list.js is mocked to a `focusSearch` spy; popovers and drawers are plain
+ * elements with the design system's open markers, and a document-level
+ * bubble listener stands in for the design system closing them on Escape.
+ */
+
+import { test, expect, describe, beforeEach, afterEach, vi } from 'vitest';
+
+const { focusSearch } = vi.hoisted(() => ({ focusSearch: vi.fn() }));
+
+vi.mock('../../../src/osprey/interfaces/ariel/static/js/list.js', () => ({
+  focusSearch,
+  default: { focusSearch },
+}));
+
+/** @typedef {typeof import('../../../src/osprey/interfaces/ariel/static/js/store.js')} StoreMod */
+/** @typedef {typeof import('../../../src/osprey/interfaces/ariel/static/js/keyboard.js')} KeyboardMod */
+
+/** @type {StoreMod} */ let store;
+/** @type {KeyboardMod} */ let keyboard;
+/** @type {{destroy: () => void} | null} */ let api = null;
+/** @type {((e: KeyboardEvent) => void) | null} */ let designSystemEsc = null;
+
+function mountFixture() {
+  document.body.innerHTML = `
+    <div class="app-container">
+      <div id="ariel-rail"></div>
+      <div id="ariel-list">
+        <input id="search" class="osprey-search" />
+        <div class="list-body">
+          <div class="osprey-list-row" data-entry-id="e1"></div>
+          <div class="osprey-list-row" data-entry-id="e2"></div>
+          <div class="osprey-list-row" data-entry-id="e3"></div>
+        </div>
+        <div id="ariel-compose"><textarea id="entry-body"></textarea><select id="sel"></select></div>
+      </div>
+      <div id="ariel-reader"><button id="back">Back</button></div>
+    </div>
+    <div class="osprey-popover" id="gear-pop" hidden></div>
+    <osprey-drawer id="status-drawer"></osprey-drawer>
+  `;
+  // Stand-in for the design system: popovers and drawers close themselves on
+  // Escape from a bubble-phase document listener, without preventDefault.
+  designSystemEsc = (e) => {
+    if (e.key !== 'Escape') return;
+    document.querySelectorAll('.osprey-popover').forEach((p) => {
+      /** @type {HTMLElement} */ (p).hidden = true;
+    });
+    document.querySelector('osprey-drawer')?.removeAttribute('open');
+  };
+  document.addEventListener('keydown', designSystemEsc);
+}
+
+/**
+ * @param {string} key
+ * @param {EventTarget} [target]
+ * @param {KeyboardEventInit} [init]
+ * @returns {KeyboardEvent}
+ */
+function press(key, target = document.body, init = {}) {
+  const event = new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true, ...init });
+  target.dispatchEvent(event);
+  return event;
+}
+
+/** @param {{embedded?: boolean}} [options] */
+async function boot(options = { embedded: false }) {
+  vi.resetModules();
+  store = await import('../../../src/osprey/interfaces/ariel/static/js/store.js');
+  keyboard = await import('../../../src/osprey/interfaces/ariel/static/js/keyboard.js');
+  api = keyboard.initKeyboard(document, options);
+}
+
+beforeEach(async () => {
+  focusSearch.mockClear();
+  mountFixture();
+  await boot();
+});
+
+afterEach(() => {
+  api?.destroy();
+  api = null;
+  if (designSystemEsc) document.removeEventListener('keydown', designSystemEsc);
+  designSystemEsc = null;
+  document.body.innerHTML = '';
+});
+
+describe('j / k', () => {
+  test('j with nothing selected selects the first rendered row', () => {
+    press('j');
+    expect(store.getState().sel).toBe('e1');
+  });
+
+  test('j and k walk the rendered rows in order and stop at the ends', () => {
+    press('j');
+    press('j');
+    press('j');
+    expect(store.getState().sel).toBe('e3');
+    press('j');
+    expect(store.getState().sel).toBe('e3');
+    press('k');
+    expect(store.getState().sel).toBe('e2');
+    press('k');
+    press('k');
+    expect(store.getState().sel).toBe('e1');
+  });
+
+  test('j/k set only sel, never narrowView', () => {
+    store.setState({ stacked: true });
+    press('j');
+    expect(store.getState().narrowView).toBe('list');
+  });
+
+  test('a selection that is no longer rendered restarts at the first row', () => {
+    store.setState({ sel: 'gone' });
+    press('k');
+    expect(store.getState().sel).toBe('e1');
+  });
+
+  test('no rows: j is a no-op', () => {
+    document.querySelectorAll('[data-entry-id]').forEach((r) => r.remove());
+    const e = press('j');
+    expect(store.getState().sel).toBeNull();
+    expect(e.defaultPrevented).toBe(false);
+  });
+
+  test('ignored while typing in an input, textarea or select', () => {
+    for (const id of ['search', 'entry-body', 'sel']) {
+      press('j', /** @type {HTMLElement} */ (document.getElementById(id)));
+    }
+    expect(store.getState().sel).toBeNull();
+  });
+
+  test('ignored with a modifier held', () => {
+    press('j', document.body, { ctrlKey: true });
+    press('j', document.body, { metaKey: true });
+    expect(store.getState().sel).toBeNull();
+  });
+});
+
+describe('Enter', () => {
+  test('opens the selection in the reader', () => {
+    store.setState({ sel: 'e2' });
+    press('Enter');
+    expect(store.getState()).toMatchObject({ sel: 'e2', narrowView: 'reader' });
+  });
+
+  test('does nothing without a selection', () => {
+    press('Enter');
+    expect(store.getState().narrowView).toBe('list');
+  });
+
+  test('is left to a focused button', () => {
+    store.setState({ sel: 'e2' });
+    press('Enter', /** @type {HTMLElement} */ (document.getElementById('back')));
+    expect(store.getState().narrowView).toBe('list');
+  });
+
+  test('ignored while typing', () => {
+    store.setState({ sel: 'e2' });
+    press('Enter', /** @type {HTMLElement} */ (document.getElementById('search')));
+    expect(store.getState().narrowView).toBe('list');
+  });
+});
+
+describe('/', () => {
+  test('standalone: focuses the search box and swallows the slash', () => {
+    const e = press('/');
+    expect(focusSearch).toHaveBeenCalledTimes(1);
+    expect(e.defaultPrevented).toBe(true);
+  });
+
+  test('embedded: unbound', async () => {
+    api?.destroy();
+    await boot({ embedded: true });
+    const e = press('/');
+    expect(focusSearch).not.toHaveBeenCalled();
+    expect(e.defaultPrevented).toBe(false);
+  });
+
+  test('typing a slash into an input is not a shortcut', () => {
+    press('/', /** @type {HTMLElement} */ (document.getElementById('search')));
+    expect(focusSearch).not.toHaveBeenCalled();
+  });
+});
+
+describe('[', () => {
+  test('toggles railCollapsed both ways', () => {
+    press('[');
+    expect(store.getState().railCollapsed).toBe(true);
+    press('[');
+    expect(store.getState().railCollapsed).toBe(false);
+  });
+
+  test('ignored while typing', () => {
+    press('[', /** @type {HTMLElement} */ (document.getElementById('entry-body')));
+    expect(store.getState().railCollapsed).toBe(false);
+  });
+});
+
+describe('Esc', () => {
+  test('closes the lightbox', () => {
+    store.setState({ sel: 'e1', att: 'a1' });
+    const e = press('Escape');
+    expect(store.getState()).toMatchObject({ sel: 'e1', att: null });
+    expect(e.defaultPrevented).toBe(true);
+  });
+
+  test('closes compose', () => {
+    store.setState({ compose: { draft: null } });
+    press('Escape');
+    expect(store.getState().compose).toBeNull();
+  });
+
+  test('else goes Back in the stacked layout', () => {
+    store.setState({ stacked: true, narrowView: 'reader', sel: 'e1' });
+    press('Escape');
+    expect(store.getState()).toMatchObject({ narrowView: 'list', sel: 'e1' });
+  });
+
+  test('wide layout with nothing open: nothing to close', () => {
+    store.setState({ narrowView: 'reader', sel: 'e1' });
+    const e = press('Escape');
+    expect(store.getState().narrowView).toBe('reader');
+    expect(e.defaultPrevented).toBe(false);
+  });
+
+  test('still acts while typing (closes compose from its textarea)', () => {
+    store.setState({ compose: { draft: null } });
+    press('Escape', /** @type {HTMLElement} */ (document.getElementById('entry-body')));
+    expect(store.getState().compose).toBeNull();
+  });
+
+  test('skips a defaultPrevented event', () => {
+    store.setState({ compose: { draft: null } });
+    const ta = /** @type {HTMLElement} */ (document.getElementById('entry-body'));
+    ta.addEventListener('keydown', (e) => e.preventDefault(), { once: true });
+    press('Escape', ta);
+    expect(store.getState().compose).toEqual({ draft: null });
+  });
+
+  test('skips an Esc that arrived while a popover was open, even though it closed first', () => {
+    store.setState({ att: 'a1' });
+    const pop = /** @type {HTMLElement} */ (document.getElementById('gear-pop'));
+    pop.hidden = false;
+    press('Escape');
+    expect(pop.hidden).toBe(true);
+    expect(store.getState().att).toBe('a1');
+  });
+
+  test('skips an Esc that arrived while a drawer was open', () => {
+    store.setState({ compose: { draft: null } });
+    document.getElementById('status-drawer')?.setAttribute('open', '');
+    press('Escape');
+    expect(document.getElementById('status-drawer')?.hasAttribute('open')).toBe(false);
+    expect(store.getState().compose).toEqual({ draft: null });
+  });
+
+  test('one Esc closes one layer', () => {
+    store.setState({
+      sel: 'e1',
+      att: 'a1',
+      compose: { draft: null },
+      stacked: true,
+      narrowView: 'reader',
+    });
+    const pop = /** @type {HTMLElement} */ (document.getElementById('gear-pop'));
+    const drawer = /** @type {HTMLElement} */ (document.getElementById('status-drawer'));
+    pop.hidden = false;
+    drawer.setAttribute('open', '');
+
+    // 1: the popover and the drawer close (design system); the store is untouched.
+    press('Escape');
+    expect(pop.hidden).toBe(true);
+    expect(store.getState()).toMatchObject({
+      att: 'a1',
+      compose: { draft: null },
+      narrowView: 'reader',
+    });
+
+    // 2: the lightbox.
+    press('Escape');
+    expect(store.getState()).toMatchObject({
+      att: null,
+      compose: { draft: null },
+      narrowView: 'reader',
+    });
+
+    // 3: compose.
+    press('Escape');
+    expect(store.getState()).toMatchObject({ att: null, compose: null, narrowView: 'reader' });
+
+    // 4: Back.
+    press('Escape');
+    expect(store.getState()).toMatchObject({ narrowView: 'list', sel: 'e1' });
+
+    // 5: nothing left.
+    const e = press('Escape');
+    expect(e.defaultPrevented).toBe(false);
+    expect(store.getState()).toMatchObject({ narrowView: 'list', sel: 'e1' });
+  });
+});
+
+describe('scope', () => {
+  test('keydowns from another document are not handled', () => {
+    const other = document.implementation.createHTMLDocument('host');
+    const el = other.createElement('div');
+    other.body.append(el);
+    // Re-dispatch on this window with a foreign target is not possible in the
+    // DOM, so assert the handler only listens on the panel's own window.
+    el.dispatchEvent(new KeyboardEvent('keydown', { key: 'j', bubbles: true }));
+    expect(store.getState().sel).toBeNull();
+  });
+
+  test('destroy removes every shortcut', () => {
+    api?.destroy();
+    api = null;
+    press('j');
+    press('[');
+    store.setState({ compose: { draft: null } });
+    press('Escape');
+    expect(store.getState()).toMatchObject({ sel: null, railCollapsed: false });
+    expect(store.getState().compose).toEqual({ draft: null });
+  });
+});

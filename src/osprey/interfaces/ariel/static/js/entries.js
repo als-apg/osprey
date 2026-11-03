@@ -1,89 +1,80 @@
 // @ts-check
 /**
- * ARIEL Entries Module
+ * ARIEL Entries Module — the compose host.
  *
- * Entry browsing, detail view, and creation.
+ * Hosts the create form in `#ariel-compose` and owns its init. Store keys:
+ *   - reads `compose`: set shows the host (empty, or with `compose.draft`
+ *     loaded via `loadDraft`), null hides it;
+ *   - writes `narrowView:'list'` when compose opens, and `compose:null` on
+ *     Cancel. A successful create writes its own keys (entries-form.js).
+ * The entry list lives in list.js and the reader in reader.js.
  */
 
 import { entriesApi } from './api.js';
-import {
-  renderEntryCard,
-  renderLoading,
-  renderEmptyState,
-  renderErrorState,
-} from './components.js';
-import {
-  showEntry,
-  openEntry,
-  closeEntryModal,
-  showImageLightbox,
-  getCurrentEntry,
-  initEntryDetail,
-} from './entries-detail.js';
 import {
   handleCreateEntry,
   handleTagInput,
   handleFilePreview,
   loadDraft,
   initEntryTags,
+  resetCreateForm,
 } from './entries-form.js';
 import { renderEntryFields } from './entry-fields.js';
+import { getState, setState, subscribe } from './store.js';
 
-// Re-export the detail-view and form public surface — app.js and window.app
-// import these from entries.js, so this module stays their single point of entry.
-export { showEntry, openEntry, closeEntryModal, showImageLightbox, getCurrentEntry };
-export { loadDraft };
+/** @typedef {import('./store.js').State} State */
 
 /**
- * Wire up delegated click handling for entry cards and pagination.
- *
- * #entries-list's innerHTML is replaced wholesale on every loadEntries()
- * call, so the listener is delegated on the stable list container
- * (attached once, at init) instead of bound to child elements that get
- * discarded on the next render.
+ * Show or hide the compose host for `compose`, filling the form on open.
+ * @param {HTMLElement|null} host
+ * @param {State['compose']} compose
  */
-export function initEntriesListDelegation() {
-  const entriesList = document.getElementById('entries-list');
-  entriesList?.addEventListener('click', (e) => {
-    const target = /** @type {HTMLElement} */ (e.target);
-    const pageBtn = target.closest('[data-page]');
-    if (pageBtn) {
-      const page = parseInt(/** @type {HTMLElement} */ (pageBtn).dataset.page ?? '', 10);
-      if (!Number.isNaN(page)) loadEntries({ page });
-      return;
-    }
-    const card = target.closest('[data-entry-id]');
-    if (card) {
-      const entryId = /** @type {HTMLElement} */ (card).dataset.entryId;
-      if (entryId) showEntry(entryId);
-    }
-  });
+function applyCompose(host, compose) {
+  if (host) host.hidden = !compose;
+  if (!compose) return;
+  setState({ narrowView: 'list' });
+  resetCreateForm();
+  if (compose.draft) loadDraft(compose.draft);
 }
 
 /**
- * Initialize entries module.
+ * Initialize the create form and the compose host.
+ * @param {ParentNode} [root=document]
+ * @returns {{destroy(): void}}
  */
-export function initEntries() {
-  // Entry creation form
-  const createForm = document.getElementById('create-entry-form');
-  createForm?.addEventListener('submit', handleCreateEntry);
+export function initEntries(root = document) {
+  const controller = new AbortController();
+  const { signal } = controller;
 
-  // Tag input
-  const tagInput = document.getElementById('entry-tags-input');
-  tagInput?.addEventListener('keydown', handleTagInput);
+  root.querySelector('#create-entry-form')?.addEventListener('submit', handleCreateEntry, {
+    signal,
+  });
+  root
+    .querySelector('#entry-tags-input')
+    ?.addEventListener('keydown', /** @type {EventListener} */ (handleTagInput), { signal });
+  root.querySelector('#entry-files')?.addEventListener('change', handleFilePreview, { signal });
+  root
+    .querySelector('#create-cancel-btn')
+    ?.addEventListener('click', () => setState({ compose: null }), { signal });
 
-  // File input preview
-  const fileInput = document.getElementById('entry-files');
-  fileInput?.addEventListener('change', handleFilePreview);
-
-  // Delegated handlers for the entries list, the detail modal, and the tags input.
-  initEntriesListDelegation();
-  initEntryDetail();
   initEntryTags();
 
   // Adapt the publishing section and the declared entry fields to the
   // configured logbook adapter.
   adaptCreateForm();
+
+  const host = /** @type {HTMLElement|null} */ (root.querySelector('#ariel-compose'));
+  const unsubscribe = subscribe((next, _prev, changed) => {
+    if (changed.has('compose')) applyCompose(host, next.compose);
+  });
+  applyCompose(host, getState().compose);
+
+  return {
+    destroy() {
+      unsubscribe();
+      controller.abort();
+    },
+  };
 }
 
 /**
@@ -132,99 +123,4 @@ function adaptPublishingSection(info) {
   }
 }
 
-/**
- * Load and display entry list.
- * @param {any} params - List parameters
- */
-export async function loadEntries(params = {}) {
-  const container = document.getElementById('entries-list');
-  if (!container) return;
-
-  container.innerHTML = renderLoading('Loading entries...');
-
-  try {
-    const result = await entriesApi.list(params);
-    renderEntriesList(container, result);
-  } catch (error) {
-    console.error('Failed to load entries:', error);
-    container.innerHTML = renderErrorState('Failed to Load Entries', error);
-  }
-}
-
-/**
- * Render entries list.
- * @param {HTMLElement} container - Container element
- * @param {any} result - API result
- */
-function renderEntriesList(container, result) {
-  if (!result.entries?.length) {
-    container.innerHTML = renderEmptyState(
-      'No Entries',
-      'No logbook entries found. Try adjusting your filters.'
-    );
-    return;
-  }
-
-  let html = `
-    <div class="results-header">
-      <span class="results-count">
-        <strong>${result.total}</strong> total entries
-        <span class="text-muted">(page ${result.page} of ${result.total_pages})</span>
-      </span>
-    </div>
-    <div class="results-list">
-  `;
-
-  result.entries.forEach((/** @type {any} */ entry) => {
-    html += renderEntryCard(entry);
-  });
-
-  html += '</div>';
-
-  // Pagination
-  if (result.total_pages > 1) {
-    html += renderPagination(result.page, result.total_pages);
-  }
-
-  container.innerHTML = html;
-}
-
-/**
- * Render pagination controls.
- * @param {number} currentPage - Current page
- * @param {number} totalPages - Total pages
- * @returns {string} HTML string
- */
-function renderPagination(currentPage, totalPages) {
-  // Both buttons ALWAYS render; the ends of the range disable them rather than
-  // dropping them from the DOM. The row is centred, so a member coming and
-  // going re-centres the whole row and moves every OTHER member by half the
-  // delta — and the first click of "Next" is exactly what brings "Previous"
-  // into existence, so Next would slide out from under the cursor on the one
-  // gesture people repeat to page through a list. Disabled buttons hold the
-  // geometry still for the whole run. (artifacts/js/timeseries.js pages its
-  // table the same way, for the same reason.)
-  //
-  // Residual, deliberately left: the page readout still widens when the counts
-  // cross a digit (Page 9 of 9 -> Page 10 of 12), which nudges both buttons by
-  // about half a character. Same class, two orders of magnitude smaller.
-  const atStart = currentPage <= 1;
-  const atEnd = currentPage >= totalPages;
-  return (
-    '<div class="pagination" style="display: flex; justify-content: center; gap: 8px; margin-top: 24px;">' +
-    `<button class="btn btn-secondary btn-sm" data-page="${currentPage - 1}"${atStart ? ' disabled' : ''}>Previous</button>` +
-    `<span class="text-muted" style="padding: 8px;">Page ${currentPage} of ${totalPages}</span>` +
-    `<button class="btn btn-secondary btn-sm" data-page="${currentPage + 1}"${atEnd ? ' disabled' : ''}>Next</button>` +
-    '</div>'
-  );
-}
-
-export default {
-  initEntries,
-  loadEntries,
-  showEntry,
-  closeEntryModal,
-  getCurrentEntry,
-  loadDraft,
-  showImageLightbox,
-};
+export default { initEntries, adaptCreateForm };

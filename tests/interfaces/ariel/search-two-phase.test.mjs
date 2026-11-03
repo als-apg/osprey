@@ -1,34 +1,37 @@
 // @ts-check
 /**
- * Front-end proofs for the two-phase reranked search (Task 4.3).
+ * Driver proofs for the two-phase reranked search.
  *
  * Reranking costs seconds. Rather than hold a spinner for the whole of it, a
- * reranked search issues TWO queries: the fast ranking is fetched and painted
- * first with a "reranking…" status, then the reranked ranking replaces it
- * wholesale (the reranker draws from a larger candidate pool, so membership and
- * not just order may change). What these tests pin down:
+ * reranked search issues TWO queries: the fast ranking is reported first with a
+ * "reranking" status, then the reranked ranking replaces it wholesale (the
+ * reranker draws from a larger candidate pool, so membership and not just order
+ * may change). search.js is a DOM-free driver — runSearch(request, hooks) and
+ * cancelSearch() — so these tests watch what it sends and what it reports
+ * through onStatus/onResults. What they pin down:
  *
  *   - the exact wire bodies of both phases — the driver layers ONLY the
- *     per-phase `rerank` key on top of the operator's touched params, on a copy,
- *     and adds nothing else;
- *   - both paints happen, each carrying its own status line;
- *   - a superseded search's phase-2 response cannot repaint the view — the
- *     second query outlives the state that asked for it, so every render is
- *     guarded on still owning the newest search sequence;
- *   - a phase-2 failure keeps phase-1's results on screen behind a warning,
+ *     per-phase `rerank` key on top of the sent params, on a copy, and adds
+ *     nothing else;
+ *   - the sent params are only the names the passed mode or the shared
+ *     parameters declare, non-null, plus the caller's `author`;
+ *   - a newer call or cancelSearch() supersedes an older search: its phase-2
+ *     response reports nothing;
+ *   - a phase-2 failure reports the fallback status and phase-1's results again,
  *     covering BOTH shapes it arrives in: an HTTP rejection, and the backend's
- *     own 200-with-WARNING rerank fallback (indistinguishable from success
- *     except for the diagnostic);
- *   - a mode with reranking off (or no reranker at all) still issues exactly
- *     ONE query, with no `rerank` key injected.
+ *     own 200-with-WARNING rerank fallback;
+ *   - a mode with reranking off (or no reranker at all) issues exactly ONE
+ *     query, with no `rerank` key injected;
+ *   - `rerank:'when-stable'` reranks only after a quiet second.
+ *
+ * The painting of all this is the list pane's job (list-paint.test.mjs).
  *
  *   npx vitest run tests/interfaces/ariel/search-two-phase.test.mjs
  *
  * Runs under happy-dom (vitest.config.js). Only api.js is mocked (the network
- * boundary); advanced-options.js, components.js and search.js all run for real,
- * so the effective-parameter read and the render sinks are exercised
- * end-to-end. search.js keeps its sequence/status at module scope, so every
- * test re-imports the graph fresh via vi.resetModules().
+ * boundary); advanced-options.js runs for real, so the effective-parameter read
+ * is exercised end-to-end. search.js keeps its sequence at module scope, so
+ * every test re-imports it fresh via vi.resetModules().
  */
 
 import { test, expect, describe, beforeEach, afterEach, vi } from 'vitest';
@@ -43,7 +46,6 @@ vi.mock('../../../src/osprey/interfaces/ariel/static/js/api.js', async (importOr
 
 const API_PATH = '../../../src/osprey/interfaces/ariel/static/js/api.js';
 const SEARCH_PATH = '../../../src/osprey/interfaces/ariel/static/js/search.js';
-const OPTIONS_PATH = '../../../src/osprey/interfaces/ariel/static/js/advanced-options.js';
 
 /**
  * A capabilities payload whose single mode declares `rerank`.
@@ -103,46 +105,6 @@ const KEYWORD_CAPABILITIES = /** @type {any} */ ({
   shared_parameters: [],
   vocabulary: { enabled: false, concepts: 0, expand_by_default: false },
 });
-
-/** The search view plus the advanced-options surface, as index.html lays them out. */
-function mountFixture() {
-  document.body.innerHTML = `
-    <div id="search-mode-tabs" class="search-mode-tabs"></div>
-    <div class="search-form" id="search-form">
-      <div class="search-input-wrapper">
-        <input type="text" id="search-input" class="input">
-        <div class="search-input-actions">
-          <button id="search-btn" class="btn btn-primary">Search</button>
-        </div>
-      </div>
-    </div>
-    <div class="search-options-bar">
-      <button type="button" id="advanced-toggle-btn">Filters &amp; Options</button>
-    </div>
-    <div id="advanced-panel" class="advanced-panel hidden">
-      <div class="advanced-header">
-        <button type="button" id="advanced-reset-btn">Reset</button>
-        <button type="button" id="advanced-close-btn">Close</button>
-      </div>
-      <div class="advanced-sections" id="advanced-sections"></div>
-    </div>
-    <div id="search-results"></div>
-  `;
-}
-
-/**
- * Import the module graph fresh and initialise the panel from `capabilities`,
- * so `getEffectiveParam('rerank')` answers the way that deployment would.
- * @param {any} capabilities - /api/capabilities payload
- * @returns {Promise<{search: any, options: any, searchMock: any}>}
- */
-async function loadModules(capabilities) {
-  const api = await import(API_PATH);
-  const options = await import(OPTIONS_PATH);
-  const search = await import(SEARCH_PATH);
-  options.initAdvancedOptions(capabilities);
-  return { search, options, searchMock: vi.mocked(api.searchApi.search) };
-}
 
 /**
  * A promise whose settlement this test controls, so the DOM can be inspected
@@ -210,42 +172,58 @@ const RERANK_FALLBACK_DIAGNOSTIC = {
   message: 'Reranker unavailable — returning the unreranked ranking',
 };
 
-/** @returns {HTMLElement} */
-function results() {
-  return /** @type {HTMLElement} */ (document.getElementById('search-results'));
-}
-
-/** @returns {HTMLButtonElement} */
-function searchBtn() {
-  return /** @type {HTMLButtonElement} */ (document.getElementById('search-btn'));
+/**
+ * Import the driver fresh, with the search mock.
+ * @returns {Promise<{search: typeof import('../../../src/osprey/interfaces/ariel/static/js/search.js'), searchMock: any}>}
+ */
+async function loadDriver() {
+  const api = await import(API_PATH);
+  const search = await import(SEARCH_PATH);
+  return { search, searchMock: vi.mocked(api.searchApi.search) };
 }
 
 /**
- * The rerank status line's collapsed text, or null when no line is rendered.
- * @returns {string|null}
+ * Hooks that record every report, in order, as `['status', s]` / `['results', ids]`.
+ * @param {any} capabilities
+ * @param {'now'|'when-stable'} [rerank]
  */
-function statusText() {
-  const el = results().querySelector('[data-testid="rerank-status"]');
-  return el ? (el.textContent ?? '').replace(/\s+/g, ' ').trim() : null;
+function recorder(capabilities, rerank = 'now') {
+  /** @type {any[]} */
+  const log = [];
+  return {
+    log,
+    hooks: {
+      capabilities,
+      rerank,
+      /** @param {any} status */
+      onStatus: (status) => log.push(['status', status]),
+      /** @param {any} res */
+      onResults: (res) =>
+        log.push(['results', res.entries.map((/** @type {any} */ e) => e.entry_id)]),
+    },
+  };
 }
+
+/** A hybrid request with nothing touched. */
+const HYBRID = { query: 'quench', mode: 'hybrid', filters: {} };
 
 beforeEach(() => {
   vi.resetModules();
   vi.clearAllMocks();
-  mountFixture();
   vi.spyOn(console, 'error').mockImplementation(() => {});
 });
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.restoreAllMocks();
 });
 
 describe('two-phase search: the wire bodies', () => {
   test('a reranked search issues exactly two queries, rerank false then true', async () => {
-    const { search, searchMock } = await loadModules(hybridCapabilities(true));
+    const { search, searchMock } = await loadDriver();
     searchMock.mockResolvedValue(searchResponse({ entries: [entry('E1')] }));
 
-    await search.performSearch('quench');
+    await search.runSearch(HYBRID, recorder(hybridCapabilities(true)).hooks);
 
     expect(searchMock.mock.calls.length, 'one query per phase').toBe(2);
     expect(searchMock.mock.calls[0][0]).toEqual({
@@ -263,18 +241,11 @@ describe('two-phase search: the wire bodies', () => {
   });
 
   test('the touched params ride along untouched, with only rerank layered on', async () => {
-    const { search, options, searchMock } = await loadModules(hybridCapabilities(true));
-    // attachParamListeners only runs from renderAdvancedPanel, i.e. on open.
-    /** @type {HTMLElement} */ (document.getElementById('advanced-toggle-btn')).click();
-    const slider = /** @type {HTMLInputElement} */ (
-      document.getElementById('param-candidate_limit')
-    );
-    slider.value = '80';
-    slider.dispatchEvent(new Event('input'));
-    expect(options.getAdvancedParams()).toEqual({ candidate_limit: 80 });
-
+    const { search, searchMock } = await loadDriver();
     searchMock.mockResolvedValue(searchResponse({ entries: [entry('E1')] }));
-    await search.performSearch('quench');
+    const filters = { candidate_limit: 80 };
+
+    await search.runSearch({ ...HYBRID, filters }, recorder(hybridCapabilities(true)).hooks);
 
     expect(searchMock.mock.calls[0][0].advancedParams).toEqual({
       candidate_limit: 80,
@@ -284,15 +255,16 @@ describe('two-phase search: the wire bodies', () => {
       candidate_limit: 80,
       rerank: true,
     });
-    // The driver copied; it did not mutate the panel's own view of the world.
-    expect(options.getAdvancedParams()).toEqual({ candidate_limit: 80 });
+    // The driver copied; it did not mutate the caller's filters.
+    expect(filters).toEqual({ candidate_limit: 80 });
   });
 
   test('rerank off sends ONE query with no rerank key injected', async () => {
-    const { search, searchMock } = await loadModules(hybridCapabilities(false));
+    const { search, searchMock } = await loadDriver();
     searchMock.mockResolvedValue(searchResponse({ entries: [entry('E1')] }));
+    const { log, hooks } = recorder(hybridCapabilities(false));
 
-    await search.performSearch('quench');
+    await search.runSearch(HYBRID, hooks);
 
     expect(searchMock.mock.calls.length, 'single-phase path').toBe(1);
     expect(searchMock.mock.calls[0][0]).toEqual({
@@ -301,134 +273,249 @@ describe('two-phase search: the wire bodies', () => {
       maxResults: 10,
       advancedParams: {},
     });
-    expect(statusText(), 'no phase status on a single-phase search').toBeNull();
+    expect(log, 'no phase status on a single-phase search').toEqual([
+      ['status', null],
+      ['results', ['E1']],
+    ]);
+  });
+
+  test('a touched rerank:false turns a reranking default into ONE query that says so', async () => {
+    const { search, searchMock } = await loadDriver();
+    searchMock.mockResolvedValue(searchResponse({ entries: [entry('E1')] }));
+
+    await search.runSearch(
+      { ...HYBRID, filters: { rerank: false } },
+      recorder(hybridCapabilities(true)).hooks
+    );
+
+    expect(searchMock.mock.calls.length).toBe(1);
+    expect(searchMock.mock.calls[0][0].advancedParams).toEqual({ rerank: false });
   });
 
   test('a mode with no reranker at all sends ONE query with no rerank key', async () => {
-    const { search, searchMock } = await loadModules(KEYWORD_CAPABILITIES);
+    const { search, searchMock } = await loadDriver();
     searchMock.mockResolvedValue(searchResponse({ entries: [entry('E1')] }));
+    const { log, hooks } = recorder(KEYWORD_CAPABILITIES);
 
-    await search.performSearch('quench');
+    await search.runSearch({ query: 'quench', mode: 'keyword', filters: {} }, hooks);
 
     expect(searchMock.mock.calls.length).toBe(1);
     expect(searchMock.mock.calls[0][0].mode).toBe('keyword');
     expect(searchMock.mock.calls[0][0].advancedParams).toEqual({});
-    expect(statusText()).toBeNull();
+    expect(log[0]).toEqual(['status', null]);
+  });
+
+  test('an empty query sends nothing and reports nothing', async () => {
+    const { search, searchMock } = await loadDriver();
+    const { log, hooks } = recorder(hybridCapabilities(true));
+
+    await search.runSearch({ ...HYBRID, query: '   ' }, hooks);
+
+    expect(searchMock).not.toHaveBeenCalled();
+    expect(log).toEqual([]);
   });
 });
 
-describe('two-phase search: both paints', () => {
-  test('phase 1 paints the fast ranking, phase 2 replaces it', async () => {
-    const { search, searchMock } = await loadModules(hybridCapabilities(true));
+describe('search driver: per-mode parameters', () => {
+  /** Two modes plus a shared filter, so one mode's knob can leak into the other. */
+  const TWO_MODES = /** @type {any} */ ({
+    categories: {
+      direct: {
+        label: 'Direct',
+        modes: [
+          {
+            name: 'keyword',
+            label: 'Keyword',
+            parameters: [
+              { name: 'fuzzy', label: 'Fuzzy', type: 'bool', default: false },
+              { name: 'max_results', label: 'Max', type: 'int', default: 10 },
+            ],
+          },
+          {
+            name: 'semantic',
+            label: 'Semantic',
+            parameters: [{ name: 'similarity', label: 'Similarity', type: 'float', default: 0.5 }],
+          },
+        ],
+      },
+    },
+    shared_parameters: [{ name: 'author', label: 'Author', type: 'text', default: null }],
+  });
+
+  test("another mode's touched knob stays off the wire", async () => {
+    const { search, searchMock } = await loadDriver();
+    searchMock.mockResolvedValue(searchResponse());
+
+    await search.runSearch(
+      { query: 'q', mode: 'semantic', filters: { fuzzy: true, similarity: 0.8 } },
+      recorder(TWO_MODES).hooks
+    );
+
+    expect(searchMock.mock.calls[0][0].advancedParams).toEqual({ similarity: 0.8 });
+  });
+
+  test('shared parameters are sent in every mode; null values never are', async () => {
+    const { search, searchMock } = await loadDriver();
+    searchMock.mockResolvedValue(searchResponse());
+
+    await search.runSearch(
+      { query: 'q', mode: 'keyword', filters: { author: 'alice', fuzzy: null } },
+      recorder(TWO_MODES).hooks
+    );
+
+    expect(searchMock.mock.calls[0][0].advancedParams).toEqual({ author: 'alice' });
+  });
+
+  test("the caller's author is sent and wins over an author filter", async () => {
+    const { search, searchMock } = await loadDriver();
+    searchMock.mockResolvedValue(searchResponse());
+
+    await search.runSearch(
+      { query: 'q', mode: 'semantic', filters: { author: 'alice' }, author: 'bob' },
+      recorder(TWO_MODES).hooks
+    );
+
+    expect(searchMock.mock.calls[0][0].advancedParams).toEqual({ author: 'bob' });
+  });
+
+  test('a touched max_results sets the request size', async () => {
+    const { search, searchMock } = await loadDriver();
+    searchMock.mockResolvedValue(searchResponse());
+
+    await search.runSearch(
+      { query: 'q', mode: 'keyword', filters: { max_results: 25 } },
+      recorder(TWO_MODES).hooks
+    );
+
+    expect(searchMock.mock.calls[0][0].maxResults).toBe(25);
+  });
+});
+
+describe('two-phase search: both reports', () => {
+  test('phase 1 reports the fast ranking, phase 2 replaces it', async () => {
+    const { search, searchMock } = await loadDriver();
     const fast = deferred();
     const reranked = deferred();
     searchMock
       .mockImplementationOnce(() => fast.promise)
       .mockImplementationOnce(() => reranked.promise);
+    const { log, hooks } = recorder(hybridCapabilities(true));
 
-    const pending = search.performSearch('quench');
+    const pending = search.runSearch(HYBRID, hooks);
 
     fast.resolve(searchResponse({ entries: [entry('FAST-1'), entry('FAST-2')] }));
     await flush();
+    expect(log).toEqual([
+      ['status', 'reranking'],
+      ['results', ['FAST-1', 'FAST-2']],
+    ]);
 
-    expect(results().textContent).toContain('FAST-1');
-    expect(statusText()).toBe('Search complete — reranking with LLM…');
-    expect(searchBtn().disabled, 'still searching between the phases').toBe(true);
-
-    // The reranked pool is not a re-ordering of the same set: membership moves.
     reranked.resolve(searchResponse({ entries: [entry('RERANKED-1'), entry('FAST-2')] }));
     await pending;
 
-    expect(results().textContent).toContain('RERANKED-1');
-    expect(results().textContent, 'phase 1 was replaced wholesale').not.toContain('FAST-1');
-    expect(statusText()).toBe('Results updated after reranking');
-    expect(searchBtn().disabled, 'controls handed back once both phases are done').toBe(false);
+    expect(log.slice(2)).toEqual([
+      ['status', 'updated'],
+      ['results', ['RERANKED-1', 'FAST-2']],
+    ]);
   });
 
-  test('a search cannot start while the first one is still on its second phase', async () => {
-    const { search, searchMock } = await loadModules(hybridCapabilities(true));
+  test('a newer call supersedes a search that is still on its second phase', async () => {
+    const { search, searchMock } = await loadDriver();
+    const fast = deferred();
+    const reranked = deferred();
+    const fastB = deferred();
+    searchMock
+      .mockImplementationOnce(() => fast.promise)
+      .mockImplementationOnce(() => reranked.promise)
+      .mockImplementationOnce(() => fastB.promise);
+    const first = recorder(hybridCapabilities(true));
+    const second = recorder(hybridCapabilities(true));
+
+    const pending = search.runSearch(HYBRID, first.hooks);
+    fast.resolve(searchResponse({ entries: [entry('FAST-1')] }));
+    await flush();
+
+    search.runSearch({ ...HYBRID, query: 'second query' }, second.hooks);
+    await flush();
+    expect(searchMock.mock.calls.length, 'the newer call issued its own phase 1').toBe(3);
+    expect(searchMock.mock.calls[2][0].query).toBe('second query');
+
+    reranked.resolve(searchResponse({ entries: [entry('RERANKED-1')] }));
+    await pending;
+
+    expect(first.log, "the superseded search's phase 2 reported nothing").toEqual([
+      ['status', 'reranking'],
+      ['results', ['FAST-1']],
+    ]);
+    expect(second.log).toEqual([]);
+  });
+});
+
+describe('two-phase search: a superseded phase 2 must not report', () => {
+  test('cancelSearch strands an in-flight phase 2', async () => {
+    const { search, searchMock } = await loadDriver();
     const fast = deferred();
     const reranked = deferred();
     searchMock
       .mockImplementationOnce(() => fast.promise)
       .mockImplementationOnce(() => reranked.promise);
+    const { log, hooks } = recorder(hybridCapabilities(true));
 
-    const pending = search.performSearch('quench');
-    fast.resolve(searchResponse({ entries: [entry('FAST-1')] }));
+    const pending = search.runSearch(HYBRID, hooks);
+    fast.resolve(searchResponse({ entries: [entry('ALPHA-FAST')] }));
     await flush();
 
-    await search.performSearch('second query');
-    expect(searchMock.mock.calls.length, 'no third query was issued').toBe(2);
-
-    reranked.resolve(searchResponse({ entries: [entry('RERANKED-1')] }));
+    search.cancelSearch();
+    reranked.resolve(searchResponse({ entries: [entry('ALPHA-RERANKED')] }));
     await pending;
+
+    expect(log).toEqual([
+      ['status', 'reranking'],
+      ['results', ['ALPHA-FAST']],
+    ]);
   });
-});
 
-describe('two-phase search: a superseded phase 2 must not repaint', () => {
-  test("clearing and re-searching strands the first search's phase 2", async () => {
-    const { search, searchMock } = await loadModules(hybridCapabilities(true));
-    const fastA = deferred();
-    const rerankedA = deferred();
-    const fastB = deferred();
-    searchMock
-      .mockImplementationOnce(() => fastA.promise)
-      .mockImplementationOnce(() => rerankedA.promise)
-      .mockImplementationOnce(() => fastB.promise);
+  test('a cancelled search whose phase 1 fails neither reports nor rejects', async () => {
+    const { search, searchMock } = await loadDriver();
+    const fast = deferred();
+    searchMock.mockImplementationOnce(() => fast.promise);
+    const { log, hooks } = recorder(hybridCapabilities(true));
 
-    const pendingA = search.performSearch('alpha');
-    fastA.resolve(searchResponse({ entries: [entry('ALPHA-FAST')] }));
-    await flush();
-    expect(results().textContent).toContain('ALPHA-FAST');
+    const pending = search.runSearch(HYBRID, hooks);
+    search.cancelSearch();
+    fast.reject(new Error('HTTP 500'));
 
-    // The operator clears the box and searches again while alpha's reranked
-    // query is still in flight.
-    search.clearSearch();
-    search.performSearch('beta');
-    await flush();
-    expect(searchMock.mock.calls.length, 'beta started its own phase 1').toBe(3);
-    expect(searchMock.mock.calls[2][0].query).toBe('beta');
-
-    rerankedA.resolve(searchResponse({ entries: [entry('ALPHA-RERANKED')] }));
-    await pendingA;
-
-    expect(results().textContent, 'the stranded response did not repaint').not.toContain(
-      'ALPHA-RERANKED'
-    );
-    expect(statusText(), 'nor did it plant a status line').toBeNull();
-    expect(search.getSearchState().results, 'nor did it become the current results').toBeNull();
-    expect(search.getSearchState().isSearching, 'beta still owns the in-flight flag').toBe(true);
+    await expect(pending).resolves.toBeUndefined();
+    expect(log).toEqual([]);
+    expect(searchMock.mock.calls.length).toBe(1);
   });
 });
 
 describe('two-phase search: a phase-2 failure keeps the fast results', () => {
-  test('an HTTP rejection leaves phase 1 on screen behind a warning', async () => {
-    const { search, searchMock } = await loadModules(hybridCapabilities(true));
+  test('an HTTP rejection reports the fallback with phase 1 results', async () => {
+    const { search, searchMock } = await loadDriver();
     const fast = deferred();
     const reranked = deferred();
     searchMock
       .mockImplementationOnce(() => fast.promise)
       .mockImplementationOnce(() => reranked.promise);
+    const { log, hooks } = recorder(hybridCapabilities(true));
 
-    const pending = search.performSearch('quench');
+    const pending = search.runSearch(HYBRID, hooks);
     fast.resolve(searchResponse({ entries: [entry('FAST-1'), entry('FAST-2')] }));
     await flush();
 
     reranked.reject(new Error('HTTP 504: reranker timed out loading the model'));
-    await pending;
+    await expect(pending, 'not a failed search').resolves.toBeUndefined();
 
-    expect(results().textContent, 'the fast ranking survived').toContain('FAST-1');
-    expect(results().textContent).toContain('FAST-2');
-    expect(statusText()).toBe('Could not improve the ranking — showing fast results');
-    expect(results().querySelector('.text-error'), 'not an error state').toBeNull();
-    expect(searchBtn().disabled, 'controls handed back').toBe(false);
-    expect(search.getSearchState().results.entries[0].entry_id, 'phase 1 is still current').toBe(
-      'FAST-1'
-    );
+    expect(log.slice(2)).toEqual([
+      ['status', 'fallback'],
+      ['results', ['FAST-1', 'FAST-2']],
+    ]);
   });
 
   test('a 200 carrying the backend rerank warning reads as the fallback, not success', async () => {
-    const { search, searchMock } = await loadModules(hybridCapabilities(true));
+    const { search, searchMock } = await loadDriver();
     searchMock
       .mockResolvedValueOnce(searchResponse({ entries: [entry('FAST-1')] }))
       .mockResolvedValueOnce(
@@ -437,14 +524,15 @@ describe('two-phase search: a phase-2 failure keeps the fast results', () => {
           diagnostics: [RERANK_FALLBACK_DIAGNOSTIC],
         })
       );
+    const { log, hooks } = recorder(hybridCapabilities(true));
 
-    await search.performSearch('quench');
+    await search.runSearch(HYBRID, hooks);
 
-    expect(statusText()).toBe('Could not improve the ranking — showing fast results');
+    expect(log[2]).toEqual(['status', 'fallback']);
   });
 
   test('an unrelated warning does not masquerade as the rerank fallback', async () => {
-    const { search, searchMock } = await loadModules(hybridCapabilities(true));
+    const { search, searchMock } = await loadDriver();
     searchMock
       .mockResolvedValueOnce(searchResponse({ entries: [entry('FAST-1')] }))
       .mockResolvedValueOnce(
@@ -460,58 +548,139 @@ describe('two-phase search: a phase-2 failure keeps the fast results', () => {
           ],
         })
       );
+    const { log, hooks } = recorder(hybridCapabilities(true));
 
-    await search.performSearch('quench');
+    await search.runSearch(HYBRID, hooks);
 
-    expect(statusText()).toBe('Results updated after reranking');
+    expect(log[2]).toEqual(['status', 'updated']);
   });
 
-  test('a phase-1 failure is a failed search: no phase 2, error state', async () => {
-    const { search, searchMock } = await loadModules(hybridCapabilities(true));
+  test('a phase-1 failure is a failed search: no phase 2, the promise rejects', async () => {
+    const { search, searchMock } = await loadDriver();
     searchMock.mockRejectedValueOnce(new Error('HTTP 500: search backend down'));
+    const { log, hooks } = recorder(hybridCapabilities(true));
 
-    await search.performSearch('quench');
+    await expect(search.runSearch(HYBRID, hooks)).rejects.toThrow('search backend down');
 
     expect(searchMock.mock.calls.length, 'no reranked query on a dead search').toBe(1);
-    expect(results().querySelector('.text-error')).not.toBeNull();
-    expect(statusText()).toBeNull();
-    expect(searchBtn().disabled).toBe(false);
+    expect(log).toEqual([]);
   });
 });
 
-describe('two-phase search: the search button', () => {
-  test('the button is disabled for the whole of a two-phase search', async () => {
-    const { search, searchMock } = await loadModules(hybridCapabilities(true));
-    const fast = deferred();
-    const reranked = deferred();
-    searchMock
-      .mockImplementationOnce(() => fast.promise)
-      .mockImplementationOnce(() => reranked.promise);
-
-    expect(searchBtn().disabled).toBe(false);
-    const pending = search.performSearch('quench');
-    expect(searchBtn().disabled, 'disabled from the first request').toBe(true);
-
-    fast.resolve(searchResponse({ entries: [entry('FAST-1')] }));
-    await flush();
-    expect(searchBtn().disabled, 'still disabled with phase-1 results on screen').toBe(true);
-
-    reranked.resolve(searchResponse({ entries: [entry('RERANKED-1')] }));
-    await pending;
-    expect(searchBtn().disabled).toBe(false);
+describe("two-phase search: rerank 'when-stable'", () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
   });
 
-  test('clearing an in-flight search hands the button back', async () => {
-    const { search, searchMock } = await loadModules(hybridCapabilities(true));
-    const fast = deferred();
-    searchMock.mockImplementationOnce(() => fast.promise);
+  test('phase 1 runs at once; phase 2 only after a quiet second', async () => {
+    const { search, searchMock } = await loadDriver();
+    searchMock
+      .mockResolvedValueOnce(searchResponse({ entries: [entry('FAST-1')] }))
+      .mockResolvedValueOnce(searchResponse({ entries: [entry('RERANKED-1')] }));
+    const { log, hooks } = recorder(hybridCapabilities(true), 'when-stable');
 
-    search.performSearch('quench');
-    expect(searchBtn().disabled).toBe(true);
+    const pending = search.runSearch(HYBRID, hooks);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(searchMock.mock.calls.length, 'phase 1 at once').toBe(1);
+    expect(log).toEqual([
+      ['status', 'reranking'],
+      ['results', ['FAST-1']],
+    ]);
 
-    search.clearSearch();
+    await vi.advanceTimersByTimeAsync(search.RERANK_SETTLE_MS - 1);
+    expect(searchMock.mock.calls.length, 'no rerank inside the window').toBe(1);
 
-    expect(searchBtn().disabled).toBe(false);
-    expect(search.getSearchState().isSearching).toBe(false);
+    await vi.advanceTimersByTimeAsync(1);
+    await pending;
+    expect(searchMock.mock.calls.length).toBe(2);
+    expect(searchMock.mock.calls[1][0].advancedParams).toEqual({ rerank: true });
+    expect(log.slice(2)).toEqual([
+      ['status', 'updated'],
+      ['results', ['RERANKED-1']],
+    ]);
+  });
+
+  test('a newer call inside the window means the older search never reranks', async () => {
+    const { search, searchMock } = await loadDriver();
+    searchMock.mockImplementation(async (/** @type {any} */ req) =>
+      searchResponse({ entries: [entry(`${req.query}-${req.advancedParams.rerank}`)] })
+    );
+    const first = recorder(hybridCapabilities(true), 'when-stable');
+    const second = recorder(hybridCapabilities(true), 'when-stable');
+
+    const pendingA = search.runSearch({ ...HYBRID, query: 'que' }, first.hooks);
+    await vi.advanceTimersByTimeAsync(500);
+    const pendingB = search.runSearch({ ...HYBRID, query: 'quench' }, second.hooks);
+    await pendingA;
+    await vi.advanceTimersByTimeAsync(search.RERANK_SETTLE_MS);
+    await pendingB;
+
+    const queries = searchMock.mock.calls.map((/** @type {any} */ c) => [
+      c[0].query,
+      c[0].advancedParams.rerank,
+    ]);
+    expect(queries).toEqual([
+      ['que', false],
+      ['quench', false],
+      ['quench', true],
+    ]);
+    expect(first.log).toEqual([
+      ['status', 'reranking'],
+      ['results', ['que-false']],
+    ]);
+    expect(second.log.slice(2)).toEqual([
+      ['status', 'updated'],
+      ['results', ['quench-true']],
+    ]);
+  });
+
+  test("rerank 'now' does not wait", async () => {
+    const { search, searchMock } = await loadDriver();
+    searchMock.mockResolvedValue(searchResponse({ entries: [entry('E1')] }));
+
+    await search.runSearch(HYBRID, recorder(hybridCapabilities(true), 'now').hooks);
+
+    expect(searchMock.mock.calls.length).toBe(2);
+  });
+});
+
+describe('search driver: cancelSearch', () => {
+  test('cancelling inside the when-stable window releases the search at once, without phase 2', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    const { search, searchMock } = await loadDriver();
+    searchMock.mockResolvedValue(searchResponse({ entries: [entry('FAST-1')] }));
+    const { log, hooks } = recorder(hybridCapabilities(true), 'when-stable');
+
+    let settled = false;
+    const pending = search.runSearch(HYBRID, hooks).then(() => {
+      settled = true;
+    });
+    await vi.advanceTimersByTimeAsync(0);
+
+    search.cancelSearch();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(settled, 'released without waiting out the window').toBe(true);
+    await pending;
+
+    await vi.advanceTimersByTimeAsync(search.RERANK_SETTLE_MS * 2);
+    expect(searchMock.mock.calls.length, 'no phase 2').toBe(1);
+    expect(log).toEqual([
+      ['status', 'reranking'],
+      ['results', ['FAST-1']],
+    ]);
+  });
+
+  test('a search started after cancelSearch runs normally', async () => {
+    const { search, searchMock } = await loadDriver();
+    searchMock.mockResolvedValue(searchResponse({ entries: [entry('E1')] }));
+    search.cancelSearch();
+    const { log, hooks } = recorder(hybridCapabilities(false));
+
+    await search.runSearch(HYBRID, hooks);
+
+    expect(log).toEqual([
+      ['status', null],
+      ['results', ['E1']],
+    ]);
   });
 });

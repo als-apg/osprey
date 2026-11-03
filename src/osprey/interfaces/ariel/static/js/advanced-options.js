@@ -2,8 +2,11 @@
 /**
  * ARIEL Advanced Options
  *
- * Dynamically renders search mode tabs and advanced parameter panels
- * based on capabilities discovered from the backend API.
+ * The Filters view: pure reads of the /api/capabilities descriptor
+ * (`effectiveParam`, `declaredParamNames`, `defaultMode`) and render functions
+ * for the mode choices and the Filters & Options controls. The view renders
+ * from the values passed in and reports changes; the chosen mode and the
+ * touched filter values live in the store, never here.
  */
 
 import { escapeHtml } from '/design-system/js/dom.js';
@@ -69,27 +72,12 @@ import { escapeHtml } from '/design-system/js/dom.js';
  * @property {string} [facility_timezone]
  */
 
-// --- State ---
-/** @type {Capabilities|null} */
-let capabilities = null;
-let currentMode = 'keyword';
-let isPanelOpen = false;
-/** @type {Object<string, *>} */
-let paramValues = {};
-// Names the operator actually moved this session. Key-presence in `paramValues`
-// cannot answer this: resetToDefaults() pre-seeds every non-null descriptor
-// default, so every knob looks "set" before the panel is ever opened.
-/** @type {Set<string>} */
-const touched = new Set();
-/** @type {Object<string, AdvancedParamOption[]>} */
-const dynamicOptionsCache = {};
-
 // --- Fallback ---
 // Used when /api/capabilities could not be fetched at all. The annotation is
 // deliberate: it makes tsc prove the literal still satisfies the typedef every
 // time a capabilities field is added.
 /** @type {Capabilities} */
-const FALLBACK_CAPABILITIES = {
+export const FALLBACK_CAPABILITIES = {
   categories: {
     direct: {
       label: 'Direct',
@@ -103,245 +91,151 @@ const FALLBACK_CAPABILITIES = {
   vocabulary: { enabled: false, concepts: 0, expand_by_default: false },
 };
 
-// --- Public API ---
+// The only module-scope data: fetched dynamic_select options, keyed by
+// endpoint. A cache of the backend's answer, not a choice anyone made.
+/** @type {Object<string, AdvancedParamOption[]>} */
+const dynamicOptionsCache = {};
+
+// --- Pure capabilities reads ---
 
 /**
- * Initialize the advanced options system.
- * @param {Capabilities|null} caps - Capabilities from /api/capabilities (or null for fallback)
+ * Every mode the capabilities payload advertises, in category order.
+ * @param {Capabilities|null|undefined} capabilities
+ * @returns {AdvancedMode[]}
  */
-export function initAdvancedOptions(caps) {
-  capabilities = caps || FALLBACK_CAPABILITIES;
+export function allModes(capabilities) {
+  /** @type {AdvancedMode[]} */
+  const modes = [];
+  for (const cat of Object.values(capabilities?.categories || {})) {
+    modes.push(...(cat.modes || []));
+  }
+  return modes;
+}
 
-  // The deployment decides which mode a search runs in when the user picks
-  // none, so the opening tab follows ariel.default_search_mode rather than a
-  // hardcoded guess. A capabilities payload without it (or naming a mode this
-  // build does not render) leaves the module-level default in place.
+/**
+ * The mode a search runs in when nobody picked one: the deployment's
+ * `default_mode` when it names an advertised mode, else the first advertised
+ * mode, else `keyword`.
+ * @param {Capabilities|null|undefined} capabilities
+ * @returns {string}
+ */
+export function defaultMode(capabilities) {
+  const modes = allModes(capabilities);
   const advertised = capabilities?.default_mode;
-  if (advertised && _modeExists(advertised)) {
-    currentMode = advertised;
-  }
-
-  // Set defaults from capabilities
-  resetToDefaults();
-
-  // Render mode tabs
-  renderModeTabs();
-  selectMode(currentMode);
-
-  // Wire up toggle button (try both IDs for backward compat)
-  const toggleBtn =
-    document.getElementById('advanced-toggle-btn') || document.getElementById('advanced-toggle');
-  toggleBtn?.addEventListener('click', () => {
-    isPanelOpen = !isPanelOpen;
-    const panel = document.getElementById('advanced-panel');
-    if (panel) {
-      panel.classList.toggle('hidden', !isPanelOpen);
-      if (isPanelOpen) {
-        renderAdvancedPanel();
-      }
-    }
-    toggleBtn.classList.toggle('active', isPanelOpen);
-  });
-
-  // Close button
-  const closeBtn = document.getElementById('advanced-close-btn');
-  closeBtn?.addEventListener('click', () => {
-    isPanelOpen = false;
-    document.getElementById('advanced-panel')?.classList.add('hidden');
-    document.getElementById('advanced-toggle-btn')?.classList.remove('active');
-  });
-
-  // Reset button
-  const resetBtn = document.getElementById('advanced-reset-btn');
-  resetBtn?.addEventListener('click', () => {
-    resetToDefaults();
-    if (isPanelOpen) {
-      renderAdvancedPanel();
-    }
-  });
+  if (advertised && modes.some((m) => m.name === advertised)) return advertised;
+  return modes[0]?.name ?? 'keyword';
 }
 
 /**
- * Get the currently selected search mode.
- * @returns {string} Mode name (e.g. "keyword", "semantic")
+ * Parameter descriptors a mode declares (not the shared ones).
+ * @param {Capabilities|null|undefined} capabilities
+ * @param {string|null|undefined} mode - Mode name
+ * @returns {AdvancedParam[]}
  */
-export function getCurrentMode() {
-  return currentMode;
+export function modeParameters(capabilities, mode) {
+  return allModes(capabilities).find((m) => m.name === mode)?.parameters || [];
 }
 
 /**
- * Get current advanced parameter values for the selected mode.
- * Returns only params relevant to the current mode + shared params.
- * @returns {Object} Parameter values keyed by name
+ * The parameter names a search in `mode` may send: the mode's own plus the
+ * shared ones. Anything else in `filters` belongs to another mode and stays
+ * off the wire, so hybrid override validation never sees a foreign knob.
+ * @param {Capabilities|null|undefined} capabilities
+ * @param {string|null|undefined} mode - Mode name
+ * @returns {Set<string>}
  */
-export function getAdvancedParams() {
-  const modeParams = getModeParameters(currentMode);
-  const sharedParams = capabilities?.shared_parameters || [];
-  const allParamNames = new Set([
-    ...modeParams.map((p) => p.name),
-    ...sharedParams.map((p) => p.name),
+export function declaredParamNames(capabilities, mode) {
+  return new Set([
+    ...modeParameters(capabilities, mode).map((p) => p.name),
+    ...(capabilities?.shared_parameters || []).map((p) => p.name),
   ]);
-
-  /** @type {Object<string, *>} */
-  const result = {};
-  for (const name of allParamNames) {
-    if (!touched.has(name)) continue;
-    if (paramValues[name] !== undefined && paramValues[name] !== null) {
-      result[name] = paramValues[name];
-    }
-  }
-  return result;
 }
 
 /**
- * Legacy export for backwards compatibility with search.js.
- * @returns {Object} Advanced options
- */
-export function getAdvancedOptions() {
-  return getAdvancedParams();
-}
-
-/**
- * The value a search would actually run with for one parameter of the current
- * mode: the operator's value when they touched it, otherwise the deployment's
- * configured default from the mode descriptor. Callers use this to read a knob
- * that getAdvancedParams() deliberately omits because it was never touched.
+ * The value a search in `mode` would actually run with for one of that mode's
+ * parameters: the touched value from `filters` when there is one, otherwise the
+ * deployment's configured default from the mode descriptor. Pure.
+ * @param {Capabilities|null|undefined} capabilities
+ * @param {string|null|undefined} mode - Mode name
+ * @param {Object<string, *>|null|undefined} filters - Touched values, any mode
  * @param {string} name - Parameter name
- * @returns {*} Effective value, or undefined if the current mode has no such parameter
+ * @returns {*} Effective value, or undefined when the mode does not declare `name`
  */
-export function getEffectiveParam(name) {
-  const descriptor = getModeParameters(currentMode).find((p) => p.name === name);
+export function effectiveParam(capabilities, mode, filters, name) {
+  const descriptor = modeParameters(capabilities, mode).find((p) => p.name === name);
   if (!descriptor) return undefined;
-  return paramValues[name] ?? descriptor.default;
+  return filters?.[name] ?? descriptor.default;
 }
 
-/**
- * Check if advanced panel is currently open.
- * @returns {boolean}
- */
-export function isAdvancedPanelOpen() {
-  return isPanelOpen;
-}
+// --- View: mode choices ---
 
 /**
- * Close the advanced panel if it is open.
+ * Render the mode choices into `root`. The selected mode is whatever the
+ * caller passes; a click only reports through `onSelect`.
+ * @param {HTMLElement} root
+ * @param {{capabilities: Capabilities|null, mode: string|null, onSelect: (mode: string) => void}} opts
  */
-export function closeAdvancedPanel() {
-  if (!isPanelOpen) return;
-  isPanelOpen = false;
-  document.getElementById('advanced-panel')?.classList.add('hidden');
-  const btn =
-    document.getElementById('advanced-toggle-btn') || document.getElementById('advanced-toggle');
-  btn?.classList.remove('active');
-}
-
-// --- Internal ---
-
-/**
- * Render mode tabs into #search-mode-tabs.
- */
-function renderModeTabs() {
-  const container = document.getElementById('search-mode-tabs');
-  if (!container) return;
-
+export function renderModeChoices(root, { capabilities, mode, onSelect }) {
+  const categories = (capabilities || FALLBACK_CAPABILITIES).categories || {};
   let html = '';
-  const categories = capabilities?.categories || {};
-
-  // Render category groups
   for (const catKey of ['direct']) {
     const cat = categories[catKey];
     if (!cat || !cat.modes?.length) continue;
 
     html += `<div class="mode-tab-group">`;
     html += `<span class="mode-tab-group-label">${escapeHtml(cat.label)}</span>`;
-
-    for (const mode of cat.modes) {
-      const active = mode.name === currentMode ? ' active' : '';
-      html += `<button class="mode-tab${active}" data-mode="${escapeHtml(mode.name)}" title="${escapeHtml(mode.description)}">${escapeHtml(mode.label)}</button>`;
+    for (const m of cat.modes) {
+      const selected = m.name === mode;
+      html += `<button type="button" class="mode-tab${selected ? ' active' : ''}" data-mode="${escapeHtml(m.name)}" aria-pressed="${selected}">${escapeHtml(m.label)}</button>`;
     }
-
     html += `</div>`;
   }
+  root.innerHTML = html;
 
-  container.innerHTML = html;
-
-  // Attach click handlers
-  const tabs = /** @type {NodeListOf<HTMLElement>} */ (container.querySelectorAll('.mode-tab'));
+  const tabs = /** @type {NodeListOf<HTMLElement>} */ (root.querySelectorAll('.mode-tab'));
   tabs.forEach((btn) => {
     btn.addEventListener('click', () => {
-      if (btn.dataset.mode) selectMode(btn.dataset.mode);
+      const chosen = btn.dataset.mode;
+      if (chosen && chosen !== mode) onSelect(chosen);
     });
   });
 }
 
-/**
- * Select a mode and update UI.
- * @param {string} mode - Mode name
- */
-function selectMode(mode) {
-  currentMode = mode;
-
-  // Update active class on tabs
-  const tabs = /** @type {NodeListOf<HTMLElement>} */ (document.querySelectorAll('.mode-tab'));
-  tabs.forEach((btn) => {
-    btn.classList.toggle('active', btn.dataset.mode === mode);
-  });
-
-  // Re-render advanced panel if open
-  if (isPanelOpen) {
-    renderAdvancedPanel();
-  }
-}
+// --- View: filters & options ---
 
 /**
- * Whether the capabilities payload advertises a mode by this name.
- * @param {string} modeName - Mode name
- * @returns {boolean} True when a rendered tab exists for the mode
+ * @typedef {Object} RenderFiltersOptions
+ * @property {Capabilities|null} capabilities
+ * @property {string|null} mode - The mode whose parameters (plus the shared ones) are shown
+ * @property {Object<string, *>} filters - Touched values, any mode; rendered, never mutated
+ * @property {Object<string, *>} [locked] - Name → value rendered disabled and never reported
+ * @property {(filters: Object<string, *>) => void} onChange - Receives the whole new filters object
  */
-function _modeExists(modeName) {
-  const categories = capabilities?.categories || {};
-  for (const cat of Object.values(categories)) {
-    for (const mode of cat.modes || []) {
-      if (mode.name === modeName) {
-        return true;
-      }
-    }
-  }
-  return false;
-}
 
 /**
- * Get parameter descriptors for a mode.
- * @param {string} modeName - Mode name
- * @returns {AdvancedParam[]} Parameter descriptors
+ * Render the Filters & Options controls for `mode` into `root`.
+ *
+ * The view renders from the values passed in and reports changes; it holds no
+ * authoritative state. Each change reports a fresh copy of `filters` with that
+ * one name set (or removed, when a text/select/date control is cleared), and
+ * successive changes before the caller re-renders accumulate on that copy.
+ * Reset reports `{}`.
+ * @param {HTMLElement} root
+ * @param {RenderFiltersOptions} opts
  */
-function getModeParameters(modeName) {
-  const categories = capabilities?.categories || {};
-  for (const cat of Object.values(categories)) {
-    for (const mode of cat.modes || []) {
-      if (mode.name === modeName) {
-        return mode.parameters || [];
-      }
-    }
-  }
-  return [];
-}
+export function renderFilters(root, { capabilities, mode, filters, locked = {}, onChange }) {
+  const caps = capabilities || FALLBACK_CAPABILITIES;
+  /** @type {Object<string, *>} */
+  let current = { ...(filters || {}) };
+  /** @param {*} name */
+  const isLocked = (name) => Object.prototype.hasOwnProperty.call(locked, name);
+  /** @param {string} name */
+  const valueOf = (name) => (isLocked(name) ? locked[name] : current[name]);
 
-/**
- * Render the advanced options panel for the current mode.
- */
-function renderAdvancedPanel() {
-  const container = document.getElementById('advanced-sections');
-  if (!container) return;
-
-  const modeParams = getModeParameters(currentMode);
-  const sharedParams = capabilities?.shared_parameters || [];
-
-  // Combine mode-specific and shared params
-  const allParams = [...modeParams, ...sharedParams];
+  const allParams = [...modeParameters(caps, mode), ...(caps.shared_parameters || [])];
 
   if (allParams.length === 0) {
-    container.innerHTML = `
+    root.innerHTML = `
       <div class="empty-state" style="padding: var(--space-5);">
         <p class="empty-state-text">No advanced options for this mode.</p>
       </div>
@@ -364,56 +258,68 @@ function renderAdvancedPanel() {
     }
   }
 
-  let html = '';
+  /** @param {AdvancedParam} param */
+  const control = (param) => renderParameter(param, valueOf(param.name), isLocked(param.name));
 
-  // Render Filters section first (full-width)
-  if (filterParams.length > 0) {
-    html += `
-      <div class="advanced-section filters-section">
+  /**
+   * @param {string} title
+   * @param {AdvancedParam[]} params
+   * @param {string} [modifier] - Extra class on the section
+   */
+  const section = (title, params, modifier = '') => `
+      <div class="advanced-section${modifier}">
         <div class="advanced-section-header">
-          <span class="section-title">Filters</span>
+          <span class="section-title">${escapeHtml(title)}</span>
         </div>
         <div class="advanced-section-body">
-    `;
-    for (const param of filterParams) {
-      html += renderParameter(param);
-    }
-    html += `</div></div>`;
-  }
+    ${params.map(control).join('')}</div></div>`;
 
-  // Render remaining sections
+  let html = filterParams.length > 0 ? section('Filters', filterParams, ' filters-section') : '';
   for (const [sectionName, params] of Object.entries(otherSections)) {
-    html += `
-      <div class="advanced-section">
-        <div class="advanced-section-header">
-          <span class="section-title">${escapeHtml(sectionName)}</span>
-        </div>
-        <div class="advanced-section-body">
-    `;
-
-    for (const param of params) {
-      html += renderParameter(param);
-    }
-
-    html += `</div></div>`;
+    html += section(sectionName, params);
   }
+  html += `
+    <div class="advanced-actions">
+      <button type="button" class="btn btn-ghost btn-sm" data-action="reset-filters">Reset</button>
+    </div>
+  `;
+  root.innerHTML = html;
 
-  container.innerHTML = html;
+  /**
+   * Report one control's new value; `null` removes the name.
+   * @param {string} name
+   * @param {*} value
+   */
+  const report = (name, value) => {
+    if (isLocked(name)) return;
+    current = { ...current };
+    if (value === null || value === undefined) {
+      delete current[name];
+    } else {
+      current[name] = value;
+    }
+    onChange({ ...current });
+  };
 
-  // Attach event listeners
-  attachParamListeners(container);
+  attachParamListeners(root, report);
+  root.querySelector('[data-action="reset-filters"]')?.addEventListener('click', () => {
+    current = {};
+    onChange({});
+  });
 
-  // Load dynamic select options asynchronously
-  loadDynamicSelectOptions(container);
+  loadDynamicSelectOptions(root, valueOf);
 }
 
 /**
  * Render a single parameter control.
  * @param {AdvancedParam} param - Parameter descriptor
+ * @param {*} touchedValue - The touched (or locked) value, undefined when untouched
+ * @param {boolean} isLocked - Render disabled
  * @returns {string} HTML string
  */
-function renderParameter(param) {
-  const value = paramValues[param.name] ?? param.default;
+function renderParameter(param, touchedValue, isLocked) {
+  const value = touchedValue ?? param.default;
+  const disabled = isLocked ? ' disabled' : '';
   // The description is the knob's documentation, so it is shown rather than
   // hidden behind a hover. escapeHtml() stringifies undefined, so a descriptor
   // without a description is skipped here instead of rendering an empty hint.
@@ -424,17 +330,17 @@ function renderParameter(param) {
   switch (param.type) {
     case 'float':
     case 'int':
-      return renderSlider(param, value) + hint;
+      return renderSlider(param, value, disabled) + hint;
     case 'bool':
-      return renderToggle(param, value) + hint;
+      return renderToggle(param, value, disabled) + hint;
     case 'select':
-      return renderSelect(param, value) + hint;
+      return renderSelect(param, value, disabled) + hint;
     case 'date':
-      return renderDateInput(param, value) + hint;
+      return renderDateInput(param, value, disabled) + hint;
     case 'text':
-      return renderTextInput(param, value) + hint;
+      return renderTextInput(param, value, disabled) + hint;
     case 'dynamic_select':
-      return renderDynamicSelect(param) + hint;
+      return renderDynamicSelect(param, value, disabled) + hint;
     default:
       return '';
   }
@@ -444,9 +350,10 @@ function renderParameter(param) {
  * Render a slider control for float/int params.
  * @param {AdvancedParam} param - Parameter descriptor
  * @param {*} value - Current value
+ * @param {string} disabled - '' or ' disabled'
  * @returns {string} HTML string
  */
-function renderSlider(param, value) {
+function renderSlider(param, value, disabled) {
   const displayValue = param.type === 'float' ? Number(value).toFixed(2) : value;
   return `
     <div class="slider-control">
@@ -457,7 +364,7 @@ function renderSlider(param, value) {
       <input type="range" id="param-${param.name}" class="slider"
         data-param="${param.name}" data-type="${param.type}"
         min="${param.min ?? 0}" max="${param.max ?? 100}"
-        value="${value}" step="${param.step ?? 1}">
+        value="${value}" step="${param.step ?? 1}"${disabled}>
     </div>
   `;
 }
@@ -466,16 +373,17 @@ function renderSlider(param, value) {
  * Render a toggle switch for bool params.
  * @param {AdvancedParam} param - Parameter descriptor
  * @param {*} value - Current value
+ * @param {string} disabled - '' or ' disabled'
  * @returns {string} HTML string
  */
-function renderToggle(param, value) {
+function renderToggle(param, value, disabled) {
   const checked = value ? 'checked' : '';
   return `
     <div class="toggle-control">
       <label class="toggle-label" for="param-${param.name}">${escapeHtml(param.label)}</label>
       <label class="toggle-switch">
         <input type="checkbox" id="param-${param.name}"
-          data-param="${param.name}" data-type="bool" ${checked}>
+          data-param="${param.name}" data-type="bool" ${checked}${disabled}>
         <span class="toggle-slider"></span>
       </label>
     </div>
@@ -483,23 +391,30 @@ function renderToggle(param, value) {
 }
 
 /**
+ * @param {AdvancedParamOption} opt
+ * @param {*} value - The control's current value
+ * @returns {string} HTML string
+ */
+function renderOption(opt, value) {
+  const selected = opt.value === value ? 'selected' : '';
+  return `<option value="${escapeHtml(opt.value)}" ${selected}>${escapeHtml(opt.label)}</option>`;
+}
+
+/**
  * Render a select dropdown for select params.
  * @param {AdvancedParam} param - Parameter descriptor
  * @param {*} value - Current value
+ * @param {string} disabled - '' or ' disabled'
  * @returns {string} HTML string
  */
-function renderSelect(param, value) {
-  let optionsHtml = '';
-  for (const opt of param.options || []) {
-    const selected = opt.value === value ? 'selected' : '';
-    optionsHtml += `<option value="${escapeHtml(opt.value)}" ${selected}>${escapeHtml(opt.label)}</option>`;
-  }
+function renderSelect(param, value, disabled) {
+  const optionsHtml = (param.options || []).map((opt) => renderOption(opt, value)).join('');
 
   return `
     <div class="input-group">
       <label class="input-label" for="param-${param.name}">${escapeHtml(param.label)}</label>
       <select id="param-${param.name}" class="select"
-        data-param="${param.name}" data-type="select">
+        data-param="${param.name}" data-type="select"${disabled}>
         ${optionsHtml}
       </select>
     </div>
@@ -510,15 +425,16 @@ function renderSelect(param, value) {
  * Render a date input control.
  * @param {AdvancedParam} param - Parameter descriptor
  * @param {*} value - Current value
+ * @param {string} disabled - '' or ' disabled'
  * @returns {string} HTML string
  */
-function renderDateInput(param, value) {
+function renderDateInput(param, value, disabled) {
   const val = value || '';
   return `
     <div class="input-group">
       <label class="input-label" for="param-${param.name}">${escapeHtml(param.label)}</label>
       <input type="date" id="param-${param.name}" class="input"
-        data-param="${param.name}" data-type="date" value="${escapeHtml(val)}">
+        data-param="${param.name}" data-type="date" value="${escapeHtml(val)}"${disabled}>
     </div>
   `;
 }
@@ -527,9 +443,10 @@ function renderDateInput(param, value) {
  * Render a text input control.
  * @param {AdvancedParam} param - Parameter descriptor
  * @param {*} value - Current value
+ * @param {string} disabled - '' or ' disabled'
  * @returns {string} HTML string
  */
-function renderTextInput(param, value) {
+function renderTextInput(param, value, disabled) {
   const val = value || '';
   const placeholder = param.placeholder || '';
   return `
@@ -537,24 +454,30 @@ function renderTextInput(param, value) {
       <label class="input-label" for="param-${param.name}">${escapeHtml(param.label)}</label>
       <input type="text" id="param-${param.name}" class="input"
         data-param="${param.name}" data-type="text"
-        value="${escapeHtml(val)}" placeholder="${escapeHtml(placeholder)}">
+        value="${escapeHtml(val)}" placeholder="${escapeHtml(placeholder)}"${disabled}>
     </div>
   `;
 }
 
 /**
- * Render a dynamic select that fetches options from an endpoint.
+ * Render a dynamic select that fetches options from an endpoint. Until they
+ * arrive, a set value is kept as its own option so the control shows it.
  * @param {AdvancedParam} param - Parameter descriptor
+ * @param {*} value - Current value
+ * @param {string} disabled - '' or ' disabled'
  * @returns {string} HTML string
  */
-function renderDynamicSelect(param) {
+function renderDynamicSelect(param, value, disabled) {
+  const pending = value
+    ? `<option value="${escapeHtml(value)}" selected>${escapeHtml(value)}</option>`
+    : '';
   return `
     <div class="input-group">
       <label class="input-label" for="param-${param.name}">${escapeHtml(param.label)}</label>
       <select id="param-${param.name}" class="select"
         data-param="${param.name}" data-type="dynamic_select"
-        data-endpoint="${escapeHtml(param.options_endpoint || '')}">
-        <option value="">All</option>
+        data-endpoint="${escapeHtml(param.options_endpoint || '')}"${disabled}>
+        <option value="">All</option>${pending}
       </select>
     </div>
   `;
@@ -563,8 +486,9 @@ function renderDynamicSelect(param) {
 /**
  * Fetch and populate options for dynamic_select elements.
  * @param {HTMLElement} container - Container to search for dynamic_select elements
+ * @param {(name: string) => *} valueOf - The value each control currently shows
  */
-async function loadDynamicSelectOptions(container) {
+async function loadDynamicSelectOptions(container, valueOf) {
   const selects = /** @type {NodeListOf<HTMLSelectElement>} */ (
     container.querySelectorAll('select[data-type="dynamic_select"]')
   );
@@ -572,7 +496,7 @@ async function loadDynamicSelectOptions(container) {
     const endpoint = select.dataset.endpoint;
     if (!endpoint) continue;
 
-    const currentValue = paramValues[select.dataset.param || ''] || '';
+    const currentValue = valueOf(select.dataset.param || '') || '';
 
     try {
       /** @type {AdvancedParamOption[]} */
@@ -588,12 +512,9 @@ async function loadDynamicSelectOptions(container) {
       }
 
       // Preserve the "All" option and append fetched options
-      let html = '<option value="">All</option>';
-      for (const opt of options) {
-        const selected = opt.value === currentValue ? 'selected' : '';
-        html += `<option value="${escapeHtml(opt.value)}" ${selected}>${escapeHtml(opt.label)}</option>`;
-      }
-      select.innerHTML = html;
+      select.innerHTML =
+        '<option value="">All</option>' +
+        options.map((opt) => renderOption(opt, currentValue)).join('');
     } catch (err) {
       console.warn(`Failed to load options from ${endpoint}:`, err);
     }
@@ -601,117 +522,40 @@ async function loadDynamicSelectOptions(container) {
 }
 
 /**
- * Attach change listeners to parameter controls.
+ * Attach change listeners to parameter controls. Disabled (locked) controls
+ * get none, and `report` refuses locked names besides.
  * @param {HTMLElement} container - Container holding the rendered parameter controls
+ * @param {(name: string, value: *) => void} report - Receives a name and its new value (null = cleared)
  */
-function attachParamListeners(container) {
-  // Sliders
-  const sliders = /** @type {NodeListOf<HTMLInputElement>} */ (
-    container.querySelectorAll('input[type="range"][data-param]')
-  );
-  sliders.forEach((slider) => {
-    slider.addEventListener('input', () => {
-      const name = slider.dataset.param;
-      if (!name) return;
-      touched.add(name);
-      const type = slider.dataset.type;
-      const val = type === 'float' ? parseFloat(slider.value) : parseInt(slider.value, 10);
-      paramValues[name] = val;
-
-      // Update displayed value
-      const display = document.getElementById(`param-${name}-value`);
-      if (display) {
-        display.textContent = type === 'float' ? val.toFixed(2) : String(val);
-      }
+function attachParamListeners(container, report) {
+  /**
+   * @param {string} selector
+   * @param {string} event
+   * @param {(el: HTMLInputElement & HTMLSelectElement) => *} read
+   */
+  const bind = (selector, event, read) => {
+    const controls = /** @type {NodeListOf<HTMLInputElement & HTMLSelectElement>} */ (
+      container.querySelectorAll(selector)
+    );
+    controls.forEach((ctl) => {
+      if (ctl.disabled) return;
+      ctl.addEventListener(event, () => {
+        const name = ctl.dataset.param;
+        if (name) report(name, read(ctl));
+      });
     });
-  });
+  };
 
-  // Toggles
-  const toggles = /** @type {NodeListOf<HTMLInputElement>} */ (
-    container.querySelectorAll('input[type="checkbox"][data-param]')
-  );
-  toggles.forEach((toggle) => {
-    toggle.addEventListener('change', () => {
-      const name = toggle.dataset.param;
-      if (!name) return;
-      touched.add(name);
-      paramValues[name] = toggle.checked;
-    });
+  bind('input[type="range"][data-param]', 'input', (slider) => {
+    const type = slider.dataset.type;
+    const val = type === 'float' ? parseFloat(slider.value) : parseInt(slider.value, 10);
+    const display = container.querySelector(`#param-${slider.dataset.param}-value`);
+    if (display) display.textContent = type === 'float' ? val.toFixed(2) : String(val);
+    return val;
   });
-
-  // Selects (including dynamic_select)
-  const selects = /** @type {NodeListOf<HTMLSelectElement>} */ (
-    container.querySelectorAll('select[data-param]')
-  );
-  selects.forEach((select) => {
-    select.addEventListener('change', () => {
-      const name = select.dataset.param;
-      if (!name) return;
-      touched.add(name);
-      paramValues[name] = select.value || null;
-    });
-  });
-
-  // Date inputs
-  const dateInputs = /** @type {NodeListOf<HTMLInputElement>} */ (
-    container.querySelectorAll('input[type="date"][data-param]')
-  );
-  dateInputs.forEach((input) => {
-    input.addEventListener('change', () => {
-      const name = input.dataset.param;
-      if (!name) return;
-      touched.add(name);
-      paramValues[name] = input.value || null;
-    });
-  });
-
-  // Text inputs
-  const textInputs = /** @type {NodeListOf<HTMLInputElement>} */ (
-    container.querySelectorAll('input[type="text"][data-param]')
-  );
-  textInputs.forEach((input) => {
-    input.addEventListener('input', () => {
-      const name = input.dataset.param;
-      if (!name) return;
-      touched.add(name);
-      paramValues[name] = input.value.trim() || null;
-    });
-  });
+  bind('input[type="checkbox"][data-param]', 'change', (toggle) => toggle.checked);
+  // A cleared select/date/text control means "no value": the name is removed.
+  bind('select[data-param]', 'change', (select) => select.value || null);
+  bind('input[type="date"][data-param]', 'change', (input) => input.value || null);
+  bind('input[type="text"][data-param]', 'input', (input) => input.value.trim() || null);
 }
-
-/**
- * Reset all param values to their defaults from capabilities.
- */
-function resetToDefaults() {
-  paramValues = {};
-  touched.clear();
-  const categories = capabilities?.categories || {};
-
-  // Collect defaults from all modes
-  for (const cat of Object.values(categories)) {
-    for (const mode of cat.modes || []) {
-      for (const param of mode.parameters || []) {
-        if (param.default !== null && param.default !== undefined) {
-          paramValues[param.name] = param.default;
-        }
-      }
-    }
-  }
-
-  // Collect defaults from shared params
-  for (const param of capabilities?.shared_parameters || []) {
-    if (param.default !== null && param.default !== undefined) {
-      paramValues[param.name] = param.default;
-    }
-  }
-}
-
-export default {
-  initAdvancedOptions,
-  getCurrentMode,
-  getAdvancedParams,
-  getAdvancedOptions,
-  getEffectiveParam,
-  isAdvancedPanelOpen,
-  closeAdvancedPanel,
-};

@@ -1,8 +1,11 @@
 // @ts-check
 /**
- * ARIEL Dashboard Module
+ * ARIEL Status drawer.
  *
- * Status monitoring and system health display.
+ * Renders system health into #status-content inside #status-drawer.
+ * Store keys: reads `drawer` only, never writes it. layout.js alone opens and
+ * closes the drawer element; this module loads Status when `drawer` becomes
+ * 'status' and auto-refreshes only while it stays 'status'.
  */
 
 import { statusApi } from './api.js';
@@ -14,19 +17,47 @@ import {
   renderErrorState,
   escapeHtml,
 } from './components.js';
+import { getState, subscribe } from './store.js';
 
 // Refresh interval
 /** @type {ReturnType<typeof setInterval> | null} */
 let refreshInterval = null;
 
 /**
- * Initialize dashboard module.
+ * Wire the Status drawer: the refresh button, and load + auto-refresh while
+ * the store's `drawer` is 'status'.
+ * @param {ParentNode} [root]
+ * @returns {{destroy: () => void}}
  */
-export function initDashboard() {
-  const refreshBtn = document.getElementById('refresh-status');
+export function initDashboard(root = document) {
+  const controller = new AbortController();
+  const refreshBtn = root.querySelector('#refresh-status');
   if (refreshBtn) {
-    refreshBtn.addEventListener('click', () => loadStatus());
+    refreshBtn.addEventListener('click', () => loadStatus(), { signal: controller.signal });
   }
+
+  /** @param {unknown} drawer */
+  const apply = (drawer) => {
+    if (drawer === 'status') {
+      loadStatus();
+      startAutoRefresh();
+    } else {
+      stopAutoRefresh();
+    }
+  };
+
+  const unsubscribe = subscribe((next, _prev, changed) => {
+    if (changed.has('drawer')) apply(next.drawer);
+  });
+  if (getState().drawer === 'status') apply('status');
+
+  return {
+    destroy: () => {
+      controller.abort();
+      unsubscribe();
+      stopAutoRefresh();
+    },
+  };
 }
 
 /**
@@ -96,7 +127,6 @@ function renderStatus(container, status) {
               name: 'Semantic Search',
               enabled: status.enabled_search_modules?.includes('semantic'),
             },
-            { name: 'Vision Search', enabled: false, future: true },
           ])}
         </div>
       </div>
@@ -197,7 +227,7 @@ function renderModuleList(modules) {
       ${modules
         .map((/** @type {any} */ m) => {
           const dot = m.enabled ? 'healthy' : 'inactive';
-          const label = m.enabled ? 'Enabled' : m.future ? '(Future)' : 'Disabled';
+          const label = m.enabled ? 'Enabled' : 'Disabled';
           const labelColor = m.enabled ? 'text-success' : 'text-muted';
           return `
           <div style="display: flex; align-items: center; justify-content: space-between;">
@@ -232,10 +262,3 @@ export function stopAutoRefresh() {
     refreshInterval = null;
   }
 }
-
-export default {
-  initDashboard,
-  loadStatus,
-  startAutoRefresh,
-  stopAutoRefresh,
-};

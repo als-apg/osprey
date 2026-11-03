@@ -1,7 +1,9 @@
 """Real-browser suite for standalone ARIEL's ``<osprey-display-menu>`` popover.
 
 Standalone ARIEL mounts the shared display-preferences popover in its header
-(``<osprey-display-menu settings-drawer="settings-drawer">``). Everything the
+(``<osprey-display-menu settings-drawer="settings-drawer">``), beside the gear
+that opens the Status and Settings drawers; the one screen below the header
+(rail, list, reader) carries no second copy of either. Everything the
 popover does is runtime browser behavior — custom-element upgrade, the theme
 manager's live apply, the pre-paint boot script, ``localStorage`` persistence —
 so a real Chromium page is the only oracle for it.
@@ -217,6 +219,12 @@ def test_popover_opens_with_its_two_rows(tmp_path, monkeypatch, chromium_browser
     with launch_ariel(tmp_path, monkeypatch) as base_url:
         page = chromium_browser.new_page()
         menu = _goto_ariel(page, base_url)
+
+        # One header row: the display menu sits beside the gear, and the panes
+        # below carry no copy of it.
+        expect(page.locator(".header .header-right #ariel-gear-btn")).to_be_visible()
+        expect(page.locator(f".header .header-right {_MENU}")).to_have_count(1)
+        expect(page.locator(f"#ariel-shell {_MENU}")).to_have_count(0)
 
         expect(page.locator(_CARD)).to_be_hidden()
         _open_menu(page)

@@ -12,12 +12,18 @@
  *   - a loaded draft pre-fills the declared inputs from its `fields`, also when
  *     it loads before publish-info answers, and the operator's edits win;
  *   - an `invalid_entry_field` / `entry_field_options_unavailable` error marks
- *     the named input and keeps the form populated; `ApiError` carries `field`.
+ *     the named input and keeps the form populated; `ApiError` carries `field`;
+ *   - entries.js hosts the form in `#ariel-compose` off the store's `compose`
+ *     key: opening shows it (empty, or with `compose.draft` loaded) and sets
+ *     `narrowView:'list'`; Cancel writes `compose:null`; a successful create
+ *     closes compose, selects the new entry for the reader and remembers the
+ *     author, with no `alert()`.
  *
  *   npx vitest run tests/interfaces/ariel/entry-form-submit.test.mjs
  *
- * entry-fields.js and entries-form.js keep state at module scope, so each test
- * re-imports the modules fresh via vi.resetModules(). `fetch` is stubbed per test.
+ * entry-fields.js, entries-form.js and store.js keep state at module scope, so
+ * each test re-imports the modules fresh via vi.resetModules(). `fetch` is
+ * stubbed per test.
  */
 
 import { readFileSync } from 'node:fs';
@@ -26,17 +32,9 @@ import { test, expect, describe, beforeEach, afterEach, vi } from 'vitest';
 
 const STATIC = '../../../src/osprey/interfaces/ariel/static';
 
-vi.mock('../../../src/osprey/interfaces/ariel/static/js/entries-detail.js', () => ({
-  showEntry: vi.fn(),
-  openEntry: vi.fn(),
-  closeEntryModal: vi.fn(),
-  showImageLightbox: vi.fn(),
-  getCurrentEntry: vi.fn(),
-  initEntryDetail: vi.fn(),
-}));
-
-/** The create form as index.html ships it, trimmed to what submission reads. */
+/** The compose host and create form as index.html ships them, trimmed to what submission reads. */
 const FORM_HTML = `
+  <section id="ariel-compose" hidden>
   <form id="create-entry-form">
     <input type="text" id="entry-subject" name="subject" value="Beam dump">
     <textarea id="entry-details" name="details">Lost beam at 10:02</textarea>
@@ -69,8 +67,10 @@ const FORM_HTML = `
     </div>
     <input type="file" id="entry-files" multiple>
     <div id="file-preview"></div>
+    <button type="button" id="create-cancel-btn">Cancel</button>
     <button type="submit">Save</button>
   </form>
+  </section>
 `;
 
 /** Declarations shaped like `publish-info.entry_fields`. */
@@ -152,7 +152,8 @@ async function loadModules() {
   const form = await import(`${STATIC}/js/entries-form.js`);
   const fields = await import(`${STATIC}/js/entry-fields.js`);
   const api = await import(`${STATIC}/js/api.js`);
-  return { entries, form, fields, api };
+  const store = await import(`${STATIC}/js/store.js`);
+  return { entries, form, fields, api, store };
 }
 
 /** @returns {HTMLFormElement} */
@@ -212,6 +213,7 @@ function control(name) {
 
 beforeEach(() => {
   document.body.innerHTML = FORM_HTML;
+  localStorage.clear();
   vi.stubGlobal('alert', vi.fn());
 });
 
@@ -554,5 +556,200 @@ describe('an entry-field error marks the named input', () => {
     expect(error.field).toBe('book');
     expect(error.status).toBe(422);
     expect(new api.ApiError(400, 'x', 'c').field).toBeUndefined();
+  });
+});
+
+describe('the compose host', () => {
+  /** @type {{destroy(): void}|null} */
+  let host = null;
+
+  afterEach(() => {
+    host?.destroy();
+    host = null;
+  });
+
+  /** Let every pending microtask (and the awaits chained behind it) run. */
+  const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+  /** @returns {HTMLElement} */
+  function composeEl() {
+    return /** @type {HTMLElement} */ (document.getElementById('ariel-compose'));
+  }
+
+  /** @param {string} name @returns {HTMLInputElement} */
+  function field(name) {
+    return /** @type {HTMLInputElement} */ (theForm().querySelector(`[name="${name}"]`));
+  }
+
+  /** @param {Parameters<typeof stubFetch>[0]} [routes] */
+  async function boot(routes = {}) {
+    const calls = stubFetch(routes);
+    const mods = await loadModules();
+    host = mods.entries.initEntries();
+    await mods.fields.entryFieldsRendered();
+    return { calls, ...mods };
+  }
+
+  test('stays hidden until compose is set', async () => {
+    await boot();
+    expect(composeEl().hidden).toBe(true);
+  });
+
+  test('opening empty shows the host, clears the form and sets narrowView list', async () => {
+    const { store } = await boot();
+    store.setState({ narrowView: 'reader' });
+    field('subject').value = 'left over';
+
+    store.setState({ compose: { draft: null } });
+
+    expect(composeEl().hidden).toBe(false);
+    expect(store.getState().narrowView).toBe('list');
+    // Reset to the markup's own default: the operator's leftover text is gone.
+    expect(field('subject').value).toBe(field('subject').defaultValue);
+    expect(document.getElementById('draft-banner')).toBeNull();
+  });
+
+  test('opening with a draft loads that draft into the form', async () => {
+    const { store, calls } = await boot({
+      draft: { subject: 'From the agent', details: 'Drafted', tags: ['rf'] },
+    });
+
+    store.setState({ compose: { draft: 'd-7' } });
+    await flush();
+    await flush();
+
+    expect(composeEl().hidden).toBe(false);
+    expect(calls.some((c) => c.url.includes('/api/drafts/d-7'))).toBe(true);
+    expect(field('subject').value).toBe('From the agent');
+    expect(document.querySelector('#entry-tags .tag')?.getAttribute('data-value')).toBe('rf');
+    expect(document.getElementById('draft-banner')?.dataset.draftId).toBe('d-7');
+  });
+
+  test('a compose already set at init is applied', async () => {
+    stubFetch({ draft: { subject: 'Early draft' } });
+    const mods = await loadModules();
+    mods.store.setState({ compose: { draft: 'd-0' }, narrowView: 'reader' });
+    host = mods.entries.initEntries();
+    await mods.fields.entryFieldsRendered();
+    await flush();
+    await flush();
+
+    expect(composeEl().hidden).toBe(false);
+    expect(mods.store.getState().narrowView).toBe('list');
+    expect(field('subject').value).toBe('Early draft');
+  });
+
+  test('closing hides the host; Cancel writes compose null', async () => {
+    const { store } = await boot();
+    store.setState({ compose: { draft: null } });
+
+    /** @type {HTMLElement} */ (document.getElementById('create-cancel-btn')).click();
+
+    expect(store.getState().compose).toBeNull();
+    expect(composeEl().hidden).toBe(true);
+  });
+
+  test('a successful create closes compose, selects the entry and remembers the author', async () => {
+    const { store, form } = await boot({ create: { status: 200, body: { entry_id: 'e-42' } } });
+    store.setState({ compose: { draft: null } });
+    field('subject').value = 'Typed subject';
+    field('author').value = 'Ada';
+
+    await submit(form);
+
+    const state = store.getState();
+    expect(state.compose).toBeNull();
+    expect(state.sel).toBe('e-42');
+    expect(state.narrowView).toBe('reader');
+    expect(state.mineAuthor).toBe('Ada');
+    expect(composeEl().hidden).toBe(true);
+    expect(window.alert).not.toHaveBeenCalled();
+    expect(field('subject').value).toBe(field('subject').defaultValue);
+  });
+
+  test('a successful create from a draft forgets the draft attachments', async () => {
+    const { store, form } = await boot();
+    store.setState({ compose: { draft: null } });
+    stageAttachment();
+
+    await submit(form);
+
+    const preview = /** @type {HTMLElement} */ (document.getElementById('file-preview'));
+    expect(preview.dataset.draftAttachments).toBeUndefined();
+    expect(store.getState().sel).toBe('e-1');
+  });
+
+  test('an Anonymous author is not remembered', async () => {
+    const { store, form } = await boot();
+    store.setState({ compose: { draft: null } });
+    field('subject').value = 'Beam dump';
+    field('author').value = 'Anonymous';
+
+    await submit(form);
+
+    expect(store.getState().mineAuthor).toBeNull();
+    expect(store.getState().sel).toBe('e-1');
+  });
+
+  test('a credentials error keeps compose open and the form populated', async () => {
+    const { store, form } = await boot({
+      create: { status: 401, body: { detail: 'auth', code: 'auth_required' } },
+    });
+    store.setState({ compose: { draft: null } });
+    field('subject').value = 'Beam dump';
+
+    await submit(form);
+
+    expect(window.alert).toHaveBeenCalledWith(
+      'Logbook credentials required to publish. Please enter your username and password.'
+    );
+    expect(store.getState().compose).toEqual({ draft: null });
+    expect(store.getState().sel).toBeNull();
+    expect(field('subject').value).toBe('Beam dump');
+    expect(document.activeElement?.id).toBe('entry-auth-user');
+  });
+
+  test('a generic failure alerts and keeps compose open', async () => {
+    const { store, form } = await boot({ create: { status: 500, body: { detail: 'boom' } } });
+    store.setState({ compose: { draft: null } });
+
+    await submit(form);
+
+    expect(window.alert).toHaveBeenCalledWith('Failed to create entry: boom');
+    expect(store.getState().compose).toEqual({ draft: null });
+  });
+
+  test('destroy stops reacting to compose', async () => {
+    const { store } = await boot();
+    host?.destroy();
+    host = null;
+
+    store.setState({ compose: { draft: null } });
+
+    expect(composeEl().hidden).toBe(true);
+  });
+});
+
+describe('entries.js is the compose host only', () => {
+  test('it no longer re-exports the entry modal surface', async () => {
+    stubFetch({});
+    const { entries } = await loadModules();
+    for (const name of [
+      'showEntry',
+      'openEntry',
+      'closeEntryModal',
+      'showImageLightbox',
+      'getCurrentEntry',
+    ]) {
+      expect(entries[name], name).toBeUndefined();
+      expect(entries.default[name], `default.${name}`).toBeUndefined();
+    }
+  });
+
+  test('neither module imports the retired detail modal', () => {
+    for (const file of ['entries.js', 'entries-form.js']) {
+      const source = readFileSync(join(import.meta.dirname, STATIC, 'js', file), 'utf8');
+      expect(source, file).not.toContain('entries-detail');
+    }
   });
 });

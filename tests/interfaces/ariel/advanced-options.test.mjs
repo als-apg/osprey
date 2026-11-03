@@ -1,29 +1,40 @@
 // @ts-check
 /**
- * Front-end proofs for the ARIEL advanced-options panel's touched-parameter
- * contract (Task 4.1):
+ * Front-end proofs for the Filters view (advanced-options.js).
  *
- *   - `getAdvancedParams()` emits ONLY knobs the operator actually moved, so a
+ * The view holds no authoritative state: it renders from the capabilities,
+ * mode and filters passed in and reports changes. What these tests pin down:
+ *
+ *   - `renderFilters` reports ONLY knobs the operator actually moved, so a
  *     search never overrides the deployment's own configuration for a knob
- *     nobody touched — the panel pre-seeds every non-null descriptor default
- *     into its value map, and those seeds must stay invisible on the wire;
- *   - clearing a text/select/date control writes a literal null, which stays
- *     filtered out even though the name is now touched;
- *   - Reset returns the panel to the untouched state;
- *   - `getEffectiveParam(name)` reports what a search would really run with —
- *     the operator's value if touched, else the mode descriptor's default —
- *     and `undefined` for a name the current mode does not declare.
+ *     nobody touched — the rendered controls show descriptor defaults, and
+ *     those must never appear in a report;
+ *   - clearing a text/select/date control removes the name from the report;
+ *   - Reset reports the untouched state (`{}`);
+ *   - a `locked` parameter renders disabled with its locked value and is never
+ *     reported;
+ *   - the view never mutates the filters it was given;
+ *   - `effectiveParam(capabilities, mode, filters, name)` reports what a search
+ *     would really run with — the touched value if any, else the mode
+ *     descriptor's default — and `undefined` for a name the mode does not
+ *     declare;
+ *   - `renderModeChoices` marks the passed mode and reports a pick;
+ *   - descriptions render as visible hints, never as hover-only titles.
  *
  *   npx vitest run tests/interfaces/ariel/advanced-options.test.mjs
  *
- * Runs under happy-dom (vitest.config.js). The module keeps its state at module
- * scope, so each test re-imports it fresh via vi.resetModules(). Nothing is
- * mocked: the fixture declares no dynamic_select, so no fetch fires.
+ * Runs under happy-dom (vitest.config.js). Nothing is mocked: the fixtures
+ * declare no dynamic_select, so no fetch fires.
  */
 
 import { test, expect, describe, beforeEach, vi } from 'vitest';
-
-const MODULE_PATH = '../../../src/osprey/interfaces/ariel/static/js/advanced-options.js';
+import {
+  effectiveParam,
+  declaredParamNames,
+  defaultMode,
+  renderFilters,
+  renderModeChoices,
+} from '../../../src/osprey/interfaces/ariel/static/js/advanced-options.js';
 
 /** Capabilities payload shaped like the backend's /api/capabilities response. */
 const CAPABILITIES = /** @type {any} */ ({
@@ -87,133 +98,241 @@ const CAPABILITIES = /** @type {any} */ ({
   vocabulary: { enabled: false, concepts: 0, expand_by_default: false },
 });
 
-/** The advanced-options surface as static/index.html lays it out. */
-function mountFixture() {
-  document.body.innerHTML = `
-    <div id="search-mode-tabs" class="search-mode-tabs"></div>
-    <div class="search-options-bar">
-      <button type="button" id="advanced-toggle-btn">Filters &amp; Options</button>
-    </div>
-    <div id="advanced-panel" class="advanced-panel hidden">
-      <div class="advanced-header">
-        <button type="button" id="advanced-reset-btn">Reset</button>
-        <button type="button" id="advanced-close-btn">Close</button>
-      </div>
-      <div class="advanced-sections" id="advanced-sections"></div>
-    </div>
-  `;
-}
-
-/**
- * @param {string} id - Element id
- * @returns {HTMLElement} The element (the fixture guarantees it exists)
- */
-function el(id) {
-  return /** @type {HTMLElement} */ (document.getElementById(id));
-}
-
 /**
  * @param {string} name - Parameter name
  * @returns {HTMLInputElement} The rendered control for that parameter
  */
 function control(name) {
-  return /** @type {HTMLInputElement} */ (el(`param-${name}`));
+  return /** @type {HTMLInputElement} */ (document.getElementById(`param-${name}`));
 }
 
-describe('advanced options: touched parameters and effective values', () => {
-  /** @type {typeof import('../../../src/osprey/interfaces/ariel/static/js/advanced-options.js')} */
-  let mod;
+/**
+ * Render the Filters view into a fresh root and record its reports.
+ * @param {{capabilities?: any, mode?: string, filters?: any, locked?: any}} [opts]
+ */
+function mount({ capabilities = CAPABILITIES, mode = 'hybrid', filters = {}, locked } = {}) {
+  document.body.innerHTML = '<div id="filters-root"></div>';
+  const root = /** @type {HTMLElement} */ (document.getElementById('filters-root'));
+  const onChange = vi.fn();
+  renderFilters(root, { capabilities, mode, filters, locked, onChange });
+  /** @returns {any} The most recent report */
+  const last = () => onChange.mock.calls.at(-1)?.[0];
+  return { root, onChange, last };
+}
 
-  beforeEach(async () => {
-    vi.resetModules();
-    mountFixture();
-    mod = await import(MODULE_PATH);
-    mod.initAdvancedOptions(CAPABILITIES);
-    // attachParamListeners only runs from renderAdvancedPanel, which only runs
-    // when the panel is opened.
-    el('advanced-toggle-btn').click();
-  });
-
-  test('the panel starts on the deployment mode with its controls rendered', () => {
-    expect(mod.getCurrentMode()).toBe('hybrid');
+describe('filters view: touched parameters', () => {
+  test('the controls show the passed filters over the descriptor defaults', () => {
+    mount({ filters: { candidate_limit: 120 } });
     expect(control('rerank').checked).toBe(true);
-    expect(control('candidate_limit').value).toBe('40');
+    expect(control('candidate_limit').value).toBe('120');
   });
 
-  test('an untouched panel sends nothing, despite pre-seeded defaults', () => {
-    expect(mod.getAdvancedParams()).toEqual({});
+  test('rendering alone reports nothing', () => {
+    const { onChange } = mount();
+    expect(onChange).not.toHaveBeenCalled();
   });
 
-  test('flipping one toggle sends that knob and only that knob', () => {
+  test('flipping one toggle reports that knob and only that knob', () => {
+    const { last } = mount();
     const toggle = control('rerank');
     toggle.checked = false;
     toggle.dispatchEvent(new Event('change'));
 
-    expect(mod.getAdvancedParams()).toEqual({ rerank: false });
+    expect(last()).toEqual({ rerank: false });
   });
 
-  test('moving a slider sends only the slider, not its untouched neighbours', () => {
+  test('moving a slider reports only the slider, not its untouched neighbours', () => {
+    const { last } = mount();
     const slider = control('candidate_limit');
     slider.value = '80';
     slider.dispatchEvent(new Event('input'));
 
-    expect(mod.getAdvancedParams()).toEqual({ candidate_limit: 80 });
+    expect(last()).toEqual({ candidate_limit: 80 });
+    expect(document.getElementById('param-candidate_limit-value')?.textContent).toBe('80');
   });
 
-  test('Reset returns the panel to the untouched state', () => {
+  test("a change keeps every other mode's touched values it was given", () => {
+    const { last } = mount({ filters: { similarity: 0.7 } });
     const toggle = control('rerank');
     toggle.checked = false;
     toggle.dispatchEvent(new Event('change'));
-    expect(mod.getAdvancedParams()).toEqual({ rerank: false });
 
-    el('advanced-reset-btn').click();
-
-    expect(mod.getAdvancedParams()).toEqual({});
-    expect(mod.getEffectiveParam('rerank')).toBe(true);
+    expect(last()).toEqual({ similarity: 0.7, rerank: false });
   });
 
-  test('a text filter typed and then cleared sends nothing', () => {
+  test('successive changes before a re-render accumulate', () => {
+    const { last } = mount();
+    const toggle = control('rerank');
+    toggle.checked = false;
+    toggle.dispatchEvent(new Event('change'));
+    const slider = control('candidate_limit');
+    slider.value = '80';
+    slider.dispatchEvent(new Event('input'));
+
+    expect(last()).toEqual({ rerank: false, candidate_limit: 80 });
+  });
+
+  test('the filters passed in are never mutated', () => {
+    const filters = Object.freeze({ candidate_limit: 50 });
+    mount({ filters });
+    const toggle = control('rerank');
+    toggle.checked = false;
+    toggle.dispatchEvent(new Event('change'));
+
+    expect(filters).toEqual({ candidate_limit: 50 });
+  });
+
+  test('Reset reports the untouched state', () => {
+    const { root, last } = mount({ filters: { rerank: false, similarity: 0.7 } });
+    /** @type {HTMLElement} */ (root.querySelector('[data-action="reset-filters"]')).click();
+
+    expect(last()).toEqual({});
+  });
+
+  test('a text filter typed and then cleared reports no value', () => {
+    const { last } = mount();
     const input = control('author');
     input.value = 'alice';
     input.dispatchEvent(new Event('input'));
-    expect(mod.getAdvancedParams()).toEqual({ author: 'alice' });
+    expect(last()).toEqual({ author: 'alice' });
 
     input.value = '';
     input.dispatchEvent(new Event('input'));
 
-    expect(mod.getAdvancedParams()).toEqual({});
+    expect(last()).toEqual({});
   });
 
-  test('a select set and then cleared sends nothing', () => {
+  test('a select set and then cleared reports no value', () => {
+    const { last } = mount();
     const select = /** @type {HTMLSelectElement} */ (/** @type {unknown} */ (control('sort')));
     select.value = 'newest';
     select.dispatchEvent(new Event('change'));
-    expect(mod.getAdvancedParams()).toEqual({ sort: 'newest' });
+    expect(last()).toEqual({ sort: 'newest' });
 
     select.value = '';
     select.dispatchEvent(new Event('change'));
 
-    expect(mod.getAdvancedParams()).toEqual({});
+    expect(last()).toEqual({});
   });
 
-  test('getEffectiveParam reports the configured default until the knob moves', () => {
-    expect(mod.getEffectiveParam('rerank')).toBe(true);
-    expect(mod.getEffectiveParam('candidate_limit')).toBe(40);
+  test('a mode without parameters or shared ones renders the empty state', () => {
+    const { root } = mount({
+      capabilities: { ...CAPABILITIES, shared_parameters: [] },
+      mode: 'not_a_mode',
+    });
+    expect(root.textContent).toContain('No advanced options for this mode.');
+  });
+});
+
+describe('filters view: locked parameters', () => {
+  test('a locked parameter renders disabled with its locked value', () => {
+    mount({ filters: { author: 'alice' }, locked: { author: 'bob' } });
+    expect(control('author').disabled).toBe(true);
+    expect(control('author').value).toBe('bob');
+    expect(control('rerank').disabled).toBe(false);
+  });
+
+  test('a locked parameter is never reported, even if its control fires', () => {
+    const { onChange, last } = mount({ locked: { author: 'bob' } });
+    const input = control('author');
+    input.value = 'mallory';
+    input.dispatchEvent(new Event('input'));
+    expect(onChange).not.toHaveBeenCalled();
 
     const toggle = control('rerank');
     toggle.checked = false;
     toggle.dispatchEvent(new Event('change'));
+    expect(last()).toEqual({ rerank: false });
+  });
+});
 
-    expect(mod.getEffectiveParam('rerank')).toBe(false);
-    // ...without leaking into the wire payload of its neighbours.
-    expect(mod.getEffectiveParam('candidate_limit')).toBe(40);
+describe('effectiveParam', () => {
+  test('reports the configured default until the knob is touched', () => {
+    expect(effectiveParam(CAPABILITIES, 'hybrid', {}, 'rerank')).toBe(true);
+    expect(effectiveParam(CAPABILITIES, 'hybrid', {}, 'candidate_limit')).toBe(40);
+    expect(effectiveParam(CAPABILITIES, 'hybrid', { rerank: false }, 'rerank')).toBe(false);
+    // ...without leaking into its neighbours.
+    expect(effectiveParam(CAPABILITIES, 'hybrid', { rerank: false }, 'candidate_limit')).toBe(40);
   });
 
-  test('getEffectiveParam is undefined for names the current mode does not declare', () => {
-    expect(mod.getEffectiveParam('not_a_parameter')).toBeUndefined();
+  test('a null touched value falls back to the default', () => {
+    expect(effectiveParam(CAPABILITIES, 'hybrid', { rerank: null }, 'rerank')).toBe(true);
+  });
+
+  test('is undefined for names the mode does not declare', () => {
+    expect(effectiveParam(CAPABILITIES, 'hybrid', {}, 'not_a_parameter')).toBeUndefined();
     // `author` is a shared filter, not a mode descriptor: it has no mode-level
     // default to report.
-    expect(mod.getEffectiveParam('author')).toBeUndefined();
+    expect(effectiveParam(CAPABILITIES, 'hybrid', { author: 'x' }, 'author')).toBeUndefined();
+    expect(effectiveParam(CAPABILITIES, 'not_a_mode', { rerank: true }, 'rerank')).toBeUndefined();
+  });
+
+  test('is pure: the same inputs give the same answer whatever was rendered', () => {
+    mount({ filters: { rerank: false } });
+    expect(effectiveParam(CAPABILITIES, 'hybrid', {}, 'rerank')).toBe(true);
+  });
+});
+
+describe('declaredParamNames and defaultMode', () => {
+  test("a mode's names plus the shared ones", () => {
+    expect([...declaredParamNames(CAPABILITIES, 'hybrid')].sort()).toEqual([
+      'author',
+      'candidate_limit',
+      'rerank',
+      'sort',
+    ]);
+    expect([...declaredParamNames(CAPABILITIES, 'not_a_mode')]).toEqual(['author']);
+  });
+
+  test("the deployment's default mode when advertised, else the first mode", () => {
+    expect(defaultMode(CAPABILITIES)).toBe('hybrid');
+    expect(defaultMode({ ...CAPABILITIES, default_mode: 'gone' })).toBe('hybrid');
+    expect(defaultMode(null)).toBe('keyword');
+  });
+});
+
+describe('mode choices', () => {
+  const TWO_MODES = /** @type {any} */ ({
+    categories: {
+      direct: {
+        label: 'Direct',
+        modes: [
+          { name: 'keyword', label: 'Keyword', description: 'Text search' },
+          { name: 'hybrid', label: 'Hybrid' },
+        ],
+      },
+    },
+  });
+
+  /** @param {string} mode */
+  function mountChoices(mode) {
+    document.body.innerHTML = '<div id="modes-root"></div>';
+    const root = /** @type {HTMLElement} */ (document.getElementById('modes-root'));
+    const onSelect = vi.fn();
+    renderModeChoices(root, { capabilities: TWO_MODES, mode, onSelect });
+    /** @param {string} name */
+    const tab = (name) => /** @type {HTMLElement} */ (root.querySelector(`[data-mode="${name}"]`));
+    return { root, onSelect, tab };
+  }
+
+  test('marks the passed mode as the chosen one', () => {
+    const { tab } = mountChoices('hybrid');
+    expect(tab('hybrid').classList.contains('active')).toBe(true);
+    expect(tab('hybrid').getAttribute('aria-pressed')).toBe('true');
+    expect(tab('keyword').classList.contains('active')).toBe(false);
+  });
+
+  test('a pick is reported, and the view does not move the mark itself', () => {
+    const { tab, onSelect } = mountChoices('hybrid');
+    tab('keyword').click();
+    expect(onSelect).toHaveBeenCalledWith('keyword');
+    expect(tab('hybrid').classList.contains('active')).toBe(true);
+  });
+
+  test('picking the current mode reports nothing', () => {
+    const { tab, onSelect } = mountChoices('hybrid');
+    tab('hybrid').click();
+    expect(onSelect).not.toHaveBeenCalled();
   });
 });
 
@@ -269,18 +388,17 @@ const HINT_CAPABILITIES = /** @type {any} */ ({
   vocabulary: { enabled: false, concepts: 0, expand_by_default: false },
 });
 
-describe('advanced options: visible parameter hints', () => {
-  beforeEach(async () => {
-    vi.resetModules();
-    mountFixture();
-    const mod = await import(MODULE_PATH);
-    mod.initAdvancedOptions(HINT_CAPABILITIES);
-    el('advanced-toggle-btn').click();
+describe('filters view: visible parameter hints', () => {
+  /** @type {HTMLElement} */
+  let root;
+
+  beforeEach(() => {
+    root = mount({ capabilities: HINT_CAPABILITIES }).root;
   });
 
   /** @returns {string[]} Text of every rendered hint, in document order. */
   function hintTexts() {
-    return Array.from(el('advanced-sections').querySelectorAll('.param-hint'), (node) =>
+    return Array.from(root.querySelectorAll('.param-hint'), (node) =>
       (node.textContent || '').trim()
     );
   }
@@ -303,6 +421,6 @@ describe('advanced options: visible parameter hints', () => {
   });
 
   test('no rendered control keeps the old hover-only title attribute', () => {
-    expect(el('advanced-sections').querySelectorAll('[title]')).toHaveLength(0);
+    expect(root.querySelectorAll('[title]')).toHaveLength(0);
   });
 });

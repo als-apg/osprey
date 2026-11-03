@@ -319,8 +319,6 @@ Capabilities API
 
 The web interface discovers its search modes and tunable parameters dynamically at startup by calling ``GET /api/capabilities``.
 
-The payload's ``embedded_search`` boolean is ``ariel.embedded_search``: whether the panel embedded in the web terminal offers its Search view and opens on it. A page that cannot read it treats it as false, so embedded it opens on Browse; the standalone page offers Search either way.
-
 **The "add a module, get a UI knob for free" pattern:** When you register a custom search module with ``get_parameter_descriptors()``, its parameters automatically appear in the web interface's advanced options panel. The ``ParameterDescriptor`` dataclass supports types ``int``, ``float``, ``bool``, ``text``, ``date``, ``select``, and ``dynamic_select`` (which fetches options from an API endpoint). Parameters are grouped by ``section`` for visual organization.
 
 .. admonition:: Security & Resilience
@@ -598,31 +596,39 @@ The payload's ``embedded_search`` boolean is ``ariel.embedded_search``: whether 
             * - Module
               - Responsibility
             * - ``app.js``
-              - Application initialization and hash-based routing
+              - Boot: capabilities, theme, then every pane; the router starts last
+            * - ``store.js``, ``router.js``
+              - One state object, and its two-way mapping to the address hash
+            * - ``layout.js``
+              - Rail and list splitters, stacked mode, drawers, gear menu
+            * - ``rail.js``, ``list.js``, ``reader.js``
+              - The three panes: mailboxes and saved searches, the entry list
+                with search box and mode chip, the entry and picture viewer
+            * - ``keyboard.js``, ``header.js``
+              - Key bindings; the embedded tile-bar contribution
             * - ``api.js``
               - REST client wrapping ``fetch()`` for all API endpoints
             * - ``search.js``
-              - Search form, query submission, results rendering
+              - Search driver: runs a (two-phase) search and reports results
             * - ``advanced-options.js``
-              - Capabilities-driven advanced options panel (dynamic parameter controls)
-            * - ``entries.js``, ``entries-detail.js``, ``entries-form.js``, ``entries-helpers.js``
-              - Browse view with pagination, entry detail view, and the new
-                entry form (split across the four modules)
+              - Capabilities-driven filters panel (dynamic parameter controls)
+            * - ``entries.js``, ``entries-form.js``, ``entries-helpers.js``
+              - The compose form and its draft loading and submission
             * - ``entry-fields.js``
               - The new entry form's facility-declared field sections: renders
                 them from ``/api/publish-info``, refetches a ``dynamic_select``'s
                 choices when a field it depends on changes, and marks the input
                 a 422 response names
             * - ``dashboard.js``
-              - Status dashboard rendering and periodic health refresh
+              - Status drawer rendering and periodic health refresh
             * - ``components.js``
-              - Shared UI components (entry cards, loading states, error messages)
+              - Shared UI components (list rows, banners, loading and error states)
             * - ``utils.js``
               - Small shared helpers
             * - ``settings.js``
               - Settings UI: read/write ARIEL config block via ``/api/config``
 
-         Side-drawer behavior (filters, advanced options, settings panels) comes
+         Side-drawer behavior (the Status and Settings drawers) comes
          from the shared ``<osprey-drawer>`` design-system component rather than
          a page-local module. The header's display-preferences popover is the
          shared ``<osprey-display-menu>`` component in the same way: ARIEL
@@ -646,9 +652,9 @@ The payload's ``embedded_search`` boolean is ``ariel.embedded_search``: whether 
             * - ``base.css``
               - Reset, typography, form elements
             * - ``components.css``
-              - Cards, buttons, badges, modals, search results
+              - Cards, buttons, badges, chips, search results
             * - ``layout.css``
-              - Header, navigation, main content, responsive grid
+              - Header, rail | list | reader panes, stacked mode
             * - ``drawer.css``
               - Page-level styling around the shared drawer component
             * - ``settings.css``
@@ -658,8 +664,13 @@ The payload's ``embedded_search`` boolean is ``ariel.embedded_search``: whether 
          defined per page — they come from the shared design system's
          ``/design-system/css/tokens.css``.
 
-         **Routing:** The app uses ``window.location.hash`` for navigation. The ``app.js`` module listens for ``hashchange`` events and shows/hides view sections (``#search``, ``#browse``, ``#create``, ``#status``). No page reloads occur during navigation.
-
+         **Routing:** The hash is the screen's state, ``#q=&mode=&box=&sel=&att=``
+         (empty keys omitted; ``box`` is ``all``, ``drafts``, ``mine`` or
+         ``saved:<name>``), kept in step with ``history.replaceState``. Legacy
+         aliases are applied and then rewritten canonical: ``#entry?id=&attachment=``
+         selects the entry and opens the picture, ``#create[?draft=]`` opens
+         compose, ``#status`` opens the Status drawer (embedded: the list), and
+         ``#search``, ``#browse`` or an unknown hash show the list.
 
 .. _`database`:
 

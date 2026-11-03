@@ -378,6 +378,29 @@ button.osprey-search {
   background: var(--color-accent);
 }
 
+/* Multi-line list row: for a row of stacked lines (a mail list's subject,
+   sender and preview) that 26 px cannot hold. It grows with its lines, and the
+   `time` is an ordinary, always-visible child instead of a hover overlay, so
+   the title needs no mask. The lines are the row's direct children. */
+.osprey-list-row.multiline {
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--space-1);
+  height: auto;
+  padding: var(--space-2);
+}
+
+.osprey-list-row.multiline time {
+  position: static;
+  flex: none;
+  transform: none;
+  opacity: 1;
+}
+
+.osprey-list-row.multiline .osprey-list-title {
+  mask-image: none;
+}
+
 .osprey-list-head {
   height: 20px;
   display: flex;

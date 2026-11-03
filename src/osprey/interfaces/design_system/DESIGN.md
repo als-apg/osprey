@@ -318,7 +318,7 @@ can state and re-apply, because an enumeration built by hand goes stale:
   untouched, forever. There is no automated inventory to run — read the files
   and list them by hand. A keeper gets a comment saying why, because nothing
   else will ever ask again. ARIEL's one surviving set is the image lightbox
-  (`ariel/static/js/entries-detail.js:246-275`): a scrim is conventionally
+  (`ariel/static/js/reader.js:466-473`): a scrim is conventionally
   dark whatever theme the page is on, so its backdrop and caption use
   `black`/`silver`/`white` composites rather than themed tokens that would go
   light-on-light. The justification comment sits directly above the
@@ -493,7 +493,7 @@ high-contrast themes have no hue.
 | `.osprey-mini`, `.osprey-mini-seg` | 20 × 20 row action with a 14 px icon; `.osprey-mini-seg` groups minis into a segmented control (`aria-pressed` marks the choice) |
 | `.osprey-nav-row` | 28 px sidebar row with `.osprey-nav-icon`, `.osprey-nav-label`, `.osprey-nav-badge`, `.osprey-nav-disc`; `.add` and `.parent` modifiers; `[aria-current="page"]` = selected wash and a 3 px accent bar; `[aria-expanded="true"]` turns the disclosure |
 | `.osprey-section-label` | 24 px group heading |
-| `.osprey-list-row` | 26 px child row with `.osprey-list-title` and `time`; `[aria-selected="true"]` = selected wash and a 2 px accent bar; the time fades in on hover and on the selected row |
+| `.osprey-list-row` | 26 px child row with `.osprey-list-title` and `time`; `[aria-selected="true"]` = selected wash and a 2 px accent bar; the time fades in on hover and on the selected row. `.multiline` is the variant for a row of stacked lines (a mail list): it grows with its lines and its `time` is always visible, in the flow of its line |
 | `.osprey-list-head`, `.osprey-list-empty` | Group caption and empty line inside a list |
 | `.osprey-popover` | Body-level, `position: fixed` popover on the card surface; children `.osprey-popover-title`, `.osprey-popover-item` (`.danger`, `[aria-checked]`), `.osprey-popover-aside`, `.osprey-popover-check` (an `icon('check')` shown while the item is checked), `.osprey-popover-sep`. Placed and dismissed by `popover.js` |
 | `.osprey-switch` | 28 × 16 track inside a `[role=switch]` item; the item's `aria-checked` moves the knob |

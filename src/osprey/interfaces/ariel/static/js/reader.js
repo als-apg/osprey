@@ -1,8 +1,12 @@
 // @ts-check
 /**
- * ARIEL Entry Detail Module
+ * ARIEL Reader Module
  *
- * Entry detail view: loading, rendering, and the image lightbox.
+ * Renders one entry into a container the caller hands in (loading, the
+ * entry, or the error state), and the image lightbox over it. The module
+ * holds no application state: the caller learns about the lightbox opening
+ * and closing through callbacks and closes it from outside with
+ * `closeLightbox`. The lightbox installs no `Esc` listener of its own.
  */
 
 import { entriesApi, apiUrl } from './api.js';
@@ -46,7 +50,7 @@ export function safeHref(u) {
  * @param {unknown} displayUrl - The attachment's `display_url`
  * @returns {string|null} The original's URL, or null when there is none
  */
-function originalHref(displayUrl) {
+export function originalHref(displayUrl) {
   const suffix = '/rendition';
   if (typeof displayUrl !== 'string' || !ATTACHMENT_ROUTE.test(displayUrl)) return null;
   if (!displayUrl.endsWith(suffix)) return null;
@@ -103,82 +107,230 @@ function renderAttachmentCard(att) {
   </a>`;
 }
 
-// Current entry detail
-/** @type {any} */
-let currentEntry = null;
+/**
+ * @typedef {object} ReaderCallbacks
+ * @property {(attachmentId: string|null) => void} [onAttachmentOpen] - Called
+ *   when the lightbox opens, with the attachment it shows
+ * @property {() => void} [onAttachmentClose] - Called when the user dismisses
+ *   the lightbox (never by `closeLightbox`, whose caller already knows)
+ */
 
 /**
- * Wire up delegated click handling for the entry detail modal.
- *
- * #entry-modal-body's innerHTML is replaced wholesale on every showEntry()
- * call, so the listener is delegated on the stable modal-body container
- * (attached once, at init) instead of bound to the attachment thumbnails
- * that get discarded on the next render.
+ * @typedef {object} ReaderState
+ * @property {number} seq - Bumped by every `showInReader`/`clearReader` call;
+ *   only the newest call may render or open an attachment
+ * @property {boolean} delegated - Whether the click delegation is bound
+ * @property {ReaderCallbacks} callbacks - Callbacks of the newest call
+ * @property {HTMLElement|null} lightbox - The lightbox this container opened
  */
-export function initEntryDetail() {
-  const modalBody = document.getElementById('entry-modal-body');
-  modalBody?.addEventListener('click', (e) => {
-    const thumb = /** @type {HTMLElement} */ (e.target).closest('[data-lightbox-url]');
-    if (!thumb) return;
-    const raw = /** @type {HTMLElement} */ (thumb).dataset.lightboxUrl;
-    const url = safeHref(raw);
-    const name = /** @type {HTMLElement} */ (thumb).dataset.lightboxName;
-    const attachmentId = /** @type {HTMLElement} */ (thumb).dataset.attachmentId;
-    if (url) showImageLightbox(url, name || '', originalHref(raw), attachmentId || null);
+
+/** @type {WeakMap<HTMLElement, ReaderState>} */
+const readers = new WeakMap();
+
+/**
+ * The per-container state, created on first use.
+ * @param {HTMLElement} container
+ * @returns {ReaderState}
+ */
+function readerState(container) {
+  let state = readers.get(container);
+  if (!state) {
+    state = { seq: 0, delegated: false, callbacks: {}, lightbox: null };
+    readers.set(container, state);
+  }
+  return state;
+}
+
+/**
+ * Open the lightbox for an attachment on behalf of a container, recording it
+ * so `closeLightbox(container)` can close it. A `display_url` that is not safe
+ * opens nothing.
+ * @param {HTMLElement} container
+ * @param {unknown} displayUrl - The attachment's `display_url`
+ * @param {string} filename
+ * @param {string|null} attachmentId
+ */
+function openLightboxFor(container, displayUrl, filename, attachmentId) {
+  const url = safeHref(displayUrl);
+  if (!url) return;
+  const state = readerState(container);
+  /** @type {HTMLElement|null} */
+  let overlay = null;
+  overlay = showImageLightbox(url, filename, originalHref(displayUrl), attachmentId, {
+    onAttachmentOpen: (id) => state.callbacks.onAttachmentOpen?.(id),
+    onAttachmentClose: () => {
+      if (state.lightbox === overlay) state.lightbox = null;
+      state.callbacks.onAttachmentClose?.();
+    },
+  });
+  state.lightbox = overlay;
+}
+
+/**
+ * Bind delegated thumbnail clicks to the container, once. The container's
+ * innerHTML is replaced on every render, so the listener lives on the stable
+ * container rather than on the thumbnails.
+ * @param {HTMLElement} container
+ */
+function bindDelegation(container) {
+  const state = readerState(container);
+  if (state.delegated) return;
+  state.delegated = true;
+  container.addEventListener('click', (e) => {
+    const target = /** @type {HTMLElement|null} */ (e.target);
+    const thumb = /** @type {HTMLElement|null} */ (
+      target?.closest?.('[data-lightbox-url]') ?? null
+    );
+    if (!thumb || !container.contains(thumb)) return;
+    openLightboxFor(
+      container,
+      thumb.dataset.lightboxUrl,
+      thumb.dataset.lightboxName || '',
+      thumb.dataset.attachmentId || null
+    );
   });
 }
 
 /**
- * Show entry detail view.
+ * Load an entry into the container: the loading state first, then the entry,
+ * or the error state when the id is unknown or the request fails. When
+ * `attachmentId` names one of the entry's viewable pictures, that picture
+ * opens in the lightbox. Only the newest call per container renders or opens
+ * an attachment; an older call that resolves later does nothing.
+ * @param {HTMLElement} container - Element the entry is rendered into
  * @param {string} entryId - Entry ID
- * @returns {Promise<any>} The entry shown, or null when it could not be loaded
+ * @param {ReaderCallbacks & {attachmentId?: string|null}} [options]
+ * @returns {Promise<any>} The entry shown, or null when it was not (failed or
+ *   superseded)
  */
-export async function showEntry(entryId) {
-  const modal = document.getElementById('entry-modal');
-  const modalBody = document.getElementById('entry-modal-body');
+export async function showInReader(container, entryId, options = {}) {
+  const { attachmentId = null, onAttachmentOpen, onAttachmentClose } = options;
+  const state = readerState(container);
+  const seq = ++state.seq;
+  state.callbacks = { onAttachmentOpen, onAttachmentClose };
+  bindDelegation(container);
+  container.innerHTML = renderLoading('Loading entry...');
 
-  if (!modal || !modalBody) return null;
-
-  // Show modal with loading state
-  modal.classList.remove('hidden');
-  modalBody.innerHTML = renderLoading('Loading entry...');
-
+  /** @type {any} */
+  let entry;
   try {
-    const entry = await entriesApi.get(entryId);
-    currentEntry = entry;
-    renderEntryDetail(modalBody, entry);
-    return entry;
+    entry = await entriesApi.get(entryId);
+    if (!entry) throw new Error(`Entry ${entryId} not found`);
   } catch (error) {
+    if (seq !== state.seq) return null;
     console.error('Failed to load entry:', error);
-    modalBody.innerHTML = renderErrorState('Failed to Load Entry', error);
+    container.innerHTML = renderErrorState('Failed to Load Entry', error);
     return null;
   }
+  if (seq !== state.seq) return null;
+  renderEntryDetail(container, entry);
+
+  if (attachmentId) {
+    const att = (entry.attachments || []).find(
+      (/** @type {any} */ a) => a && a.attachment_id === attachmentId
+    );
+    if (att?.viewable === true) {
+      openLightboxFor(
+        container,
+        att.display_url,
+        att.filename || 'attachment',
+        att.attachment_id || null
+      );
+    }
+  }
+  return entry;
 }
 
 /**
- * Open an entry's detail card and, when `attachmentId` names one of that
- * entry's viewable pictures, that picture enlarged in the lightbox. An
- * attachment that is not the entry's, not viewable, or has no safe URL leaves
- * the detail card open on its own.
- * @param {string} entryId - Entry ID
- * @param {string|null} [attachmentId] - Attachment to enlarge
- * @returns {Promise<boolean>} Whether a picture was enlarged
+ * Empty the container and cancel any `showInReader` call still in flight.
+ * @param {HTMLElement} container
  */
-export async function openEntry(entryId, attachmentId = null) {
-  const entry = await showEntry(entryId);
-  if (!entry || !attachmentId) return false;
-  const att = (entry.attachments || []).find(
-    (/** @type {any} */ a) => a && a.attachment_id === attachmentId
-  );
-  const href = att && att.viewable === true ? safeHref(att.display_url) : null;
-  if (!href) return false;
-  showImageLightbox(
-    href,
-    att.filename || 'attachment',
-    originalHref(att.display_url),
-    att.attachment_id || null
-  );
-  return true;
+export function clearReader(container) {
+  const state = readerState(container);
+  state.seq += 1;
+  container.innerHTML = '';
+}
+
+/**
+ * Close the lightbox the container opened, if it is still open. This is the
+ * outside direction (the caller's state already says "no attachment"), so it
+ * does not call `onAttachmentClose`.
+ * @param {HTMLElement} container
+ */
+export function closeLightbox(container) {
+  const state = readerState(container);
+  const overlay = state.lightbox;
+  state.lightbox = null;
+  overlay?.remove();
+}
+
+/**
+ * One label/value row of a metadata card.
+ * @param {string} label
+ * @param {unknown} value
+ * @param {boolean} [mono]
+ * @returns {string} HTML string
+ */
+function renderMetaItem(label, value, mono = false) {
+  return `
+    <div class="metadata-item">
+      <span class="metadata-label">${escapeHtml(label)}</span>
+      <span class="metadata-value${mono ? ' font-mono' : ''}">${escapeHtml(value)}</span>
+    </div>
+  `;
+}
+
+/**
+ * A metadata card in the reader's sidebar.
+ * @param {string} title
+ * @param {string} bodyHtml - Already-escaped card body
+ * @returns {string} HTML string
+ */
+function renderMetaCard(title, bodyHtml) {
+  return `
+    <div class="metadata-card">
+      <h4>${title}</h4>
+      ${bodyHtml}
+    </div>
+  `;
+}
+
+/**
+ * A titled section below the entry's content.
+ * @param {string} title - Already-escaped title
+ * @param {string} bodyHtml - Already-escaped section body
+ * @returns {string} HTML string
+ */
+function renderDetailSection(title, bodyHtml) {
+  return `
+    <div class="entry-detail-content" style="margin-top: 24px;">
+      <h3>${title}</h3>
+      ${bodyHtml}
+    </div>
+  `;
+}
+
+/**
+ * The Session Context card, or nothing when the session carries no known field.
+ * @param {any} session - The entry's `metadata.session_metadata`
+ * @returns {string} HTML string
+ */
+function renderSessionCard(session) {
+  if (!session) return '';
+  /** @type {Array<[string, unknown, boolean?]>} */
+  const fields = [
+    ['Operator', session.operator],
+    ['Session', session.session_id, true],
+    ['Branch', session.git_branch, true],
+    ['Model', session.model_name || session.model],
+    ['Source', session.created_via],
+    ['Started', session.session_start_time],
+  ];
+  const items = fields
+    .filter(([, value]) => value)
+    .map(([label, value, mono]) => renderMetaItem(label, String(value), mono));
+  if (items.length === 0) return '';
+  return renderMetaCard('Session Context', `<div class="metadata-list">${items.join('')}</div>`);
 }
 
 /**
@@ -186,10 +338,12 @@ export async function openEntry(entryId, attachmentId = null) {
  * @param {HTMLElement} container - Container element
  * @param {any} entry - Entry data
  */
-function renderEntryDetail(container, entry) {
+export function renderEntryDetail(container, entry) {
+  bindDelegation(container);
   const metadata = entry.metadata || {};
   const keywords = entry.keywords || [];
   const attachments = entry.attachments || [];
+  const time = formatTimestamp(entry.timestamp);
 
   // Parse raw_text for subject and details
   const { subject, details } = parseEntryText(entry.raw_text);
@@ -200,7 +354,7 @@ function renderEntryDetail(container, entry) {
         <h2 class="entry-detail-title">${escapeHtml(subject)}</h2>
         <div class="entry-detail-meta">
           <span class="entry-id font-mono text-accent-secondary">${escapeHtml(entry.entry_id)}</span>
-          <span class="timestamp font-mono">${formatTimestamp(entry.timestamp)}</span>
+          <span class="timestamp font-mono">${escapeHtml(time)}</span>
           <span>${escapeHtml(entry.author || 'Unknown')}</span>
           <span class="text-muted">${escapeHtml(entry.source_system)}</span>
         </div>
@@ -215,119 +369,50 @@ function renderEntryDetail(container, entry) {
 
           ${
             attachments.length > 0
-              ? `
-            <div class="entry-detail-content" style="margin-top: 24px;">
-              <h3>Attachments (${attachments.length})</h3>
-              <div style="display: flex; flex-wrap: wrap; gap: 16px;">
-                ${attachments.map(renderAttachmentCard).join('')}
-              </div>
-            </div>
-          `
+              ? renderDetailSection(
+                  `Attachments (${attachments.length})`,
+                  `<div style="display: flex; flex-wrap: wrap; gap: 16px;">
+                    ${attachments.map(renderAttachmentCard).join('')}
+                  </div>`
+                )
               : ''
           }
 
           ${
             entry.summary
-              ? `
-            <div class="entry-detail-content" style="margin-top: 24px;">
-              <h3>AI Summary</h3>
-              <div class="text-secondary">${escapeHtml(entry.summary)}</div>
-            </div>
-          `
+              ? renderDetailSection(
+                  'AI Summary',
+                  `<div class="text-secondary">${escapeHtml(entry.summary)}</div>`
+                )
               : ''
           }
         </div>
 
         <div class="entry-detail-sidebar">
-          <div class="metadata-card">
-            <h4>Metadata</h4>
-            <div class="metadata-list">
-              <div class="metadata-item">
-                <span class="metadata-label">ID</span>
-                <span class="metadata-value">${escapeHtml(entry.entry_id)}</span>
-              </div>
-              <div class="metadata-item">
-                <span class="metadata-label">Source</span>
-                <span class="metadata-value">${escapeHtml(entry.source_system)}</span>
-              </div>
-              <div class="metadata-item">
-                <span class="metadata-label">Author</span>
-                <span class="metadata-value">${escapeHtml(entry.author || 'Unknown')}</span>
-              </div>
-              <div class="metadata-item">
-                <span class="metadata-label">Timestamp</span>
-                <span class="metadata-value">${formatTimestamp(entry.timestamp)}</span>
-              </div>
-              ${
-                metadata.logbook
-                  ? `
-                <div class="metadata-item">
-                  <span class="metadata-label">Logbook</span>
-                  <span class="metadata-value">${escapeHtml(metadata.logbook)}</span>
-                </div>
-              `
-                  : ''
-              }
-              ${
-                metadata.shift
-                  ? `
-                <div class="metadata-item">
-                  <span class="metadata-label">Shift</span>
-                  <span class="metadata-value">${escapeHtml(metadata.shift)}</span>
-                </div>
-              `
-                  : ''
-              }
-            </div>
-          </div>
+          ${renderMetaCard(
+            'Metadata',
+            `<div class="metadata-list">
+              ${renderMetaItem('ID', entry.entry_id)}
+              ${renderMetaItem('Source', entry.source_system)}
+              ${renderMetaItem('Author', entry.author || 'Unknown')}
+              ${renderMetaItem('Timestamp', time)}
+              ${metadata.logbook ? renderMetaItem('Logbook', metadata.logbook) : ''}
+              ${metadata.shift ? renderMetaItem('Shift', metadata.shift) : ''}
+            </div>`
+          )}
 
           ${
             keywords.length > 0
-              ? `
-            <div class="metadata-card">
-              <h4>Keywords</h4>
-              <div style="display: flex; flex-wrap: wrap; gap: 8px;">
-                ${renderTags(keywords, 'accent')}
-              </div>
-            </div>
-          `
+              ? renderMetaCard(
+                  'Keywords',
+                  `<div style="display: flex; flex-wrap: wrap; gap: 8px;">
+                    ${renderTags(keywords, 'accent')}
+                  </div>`
+                )
               : ''
           }
 
-          ${
-            metadata.session_metadata
-              ? (() => {
-                  const sm = metadata.session_metadata;
-                  const fields = [
-                    ['Operator', sm.operator],
-                    ['Session', sm.session_id, true],
-                    ['Branch', sm.git_branch, true],
-                    ['Model', sm.model_name || sm.model],
-                    ['Source', sm.created_via],
-                    ['Started', sm.session_start_time],
-                  ].filter(([, v]) => v);
-                  return fields.length > 0
-                    ? `
-              <div class="metadata-card">
-                <h4>Session Context</h4>
-                <div class="metadata-list">
-                  ${fields
-                    .map(
-                      ([label, value, mono]) => `
-                    <div class="metadata-item">
-                      <span class="metadata-label">${escapeHtml(label)}</span>
-                      <span class="metadata-value${mono ? ' font-mono' : ''}">${escapeHtml(String(value))}</span>
-                    </div>
-                  `
-                    )
-                    .join('')}
-                </div>
-              </div>
-            `
-                    : '';
-                })()
-              : ''
-          }
+          ${renderSessionCard(metadata.session_metadata)}
         </div>
       </div>
     </div>
@@ -335,7 +420,7 @@ function renderEntryDetail(container, entry) {
 
   // Broken-image fallback for attachment thumbnails, bound here rather than
   // as an inline onerror: the `error` event doesn't bubble, so it can't be
-  // handled by the modal-body delegation above, but these <img> elements are
+  // handled by the container delegation above, but these <img> elements are
   // freshly created by the innerHTML assignment on every render, so binding
   // directly (once each) can never double-bind.
   container.querySelectorAll('[data-lightbox-url] img').forEach((img) => {
@@ -351,15 +436,6 @@ function renderEntryDetail(container, entry) {
 }
 
 /**
- * Close entry detail modal.
- */
-export function closeEntryModal() {
-  const modal = document.getElementById('entry-modal');
-  modal?.classList.add('hidden');
-  currentEntry = null;
-}
-
-/**
  * Show a lightbox overlay for an image attachment.
  * @param {string} url - Image URL
  * @param {string} filename - Display filename
@@ -367,8 +443,17 @@ export function closeEntryModal() {
  *   beside the picture when given
  * @param {string|null} [attachmentId] - Stored attachment identifier for the
  *   local Workspace handoff; an external attachment URL is never used for it
+ * @param {ReaderCallbacks} [callbacks] - `onAttachmentOpen(attachmentId)` once
+ *   the lightbox is shown; `onAttachmentClose()` when the user dismisses it
+ * @returns {HTMLElement} The lightbox overlay
  */
-export function showImageLightbox(url, filename, originalUrl = null, attachmentId = null) {
+export function showImageLightbox(
+  url,
+  filename,
+  originalUrl = null,
+  attachmentId = null,
+  callbacks = {}
+) {
   // Remove existing lightbox if any
   const existing = document.getElementById('image-lightbox');
   if (existing) existing.remove();
@@ -468,30 +553,15 @@ export function showImageLightbox(url, filename, originalUrl = null, attachmentI
     }
   });
 
-  overlay.addEventListener('click', () => overlay.remove());
-  document.addEventListener('keydown', function onKey(e) {
-    if (e.key === 'Escape') {
-      overlay.remove();
-      document.removeEventListener('keydown', onKey);
-    }
+  // Dismissing by a click on the scrim is the only close inside the module;
+  // `Esc` belongs to keyboard.js, and `closeLightbox` closes from outside.
+  overlay.addEventListener('click', () => {
+    if (!overlay.isConnected) return;
+    overlay.remove();
+    callbacks.onAttachmentClose?.();
   });
 
   document.body.appendChild(overlay);
+  callbacks.onAttachmentOpen?.(attachmentId);
+  return overlay;
 }
-
-/**
- * Get current entry.
- * @returns {any} Current entry or null
- */
-export function getCurrentEntry() {
-  return currentEntry;
-}
-
-export default {
-  initEntryDetail,
-  showEntry,
-  openEntry,
-  closeEntryModal,
-  showImageLightbox,
-  getCurrentEntry,
-};
