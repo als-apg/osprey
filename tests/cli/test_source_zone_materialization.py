@@ -78,16 +78,26 @@ def test_writes_expected_tree(runner: CliRunner, tmp_path: Path) -> None:
     assert (target / "data").is_dir()
 
 
-def test_no_overlays_tree_is_seeded(runner: CliRunner, tmp_path: Path) -> None:
-    """`overlay:` was removed with FR-5 — it now hard-errors at load, so a
-    seeded `overlays/` would be a directory nothing reads and the README's
-    instructions would point operators at a mechanism that no longer exists.
-    Artifacts go in convention directories at the profile root instead."""
+@pytest.mark.parametrize(
+    "dirname",
+    [
+        # `overlay:` was removed with FR-5 — it now hard-errors at load, so a
+        # seeded `overlays/` would be a directory nothing reads and the README's
+        # instructions would point operators at a mechanism that no longer exists.
+        # Artifacts go in convention directories at the profile root instead.
+        "overlays",
+        # A profile without a web terminal module seeds no context.
+        "web-terminal-context",
+    ],
+)
+def test_a_new_profile_seeds_no_directory_nothing_reads(
+    runner: CliRunner, tmp_path: Path, dirname: str
+) -> None:
     target = tmp_path / "my-facility"
 
     assert _new(runner, target, "hello-world").exit_code == 0
 
-    assert not (target / "overlays").exists()
+    assert not (target / dirname).exists()
 
 
 def test_profile_is_standalone(runner: CliRunner, tmp_path: Path) -> None:
@@ -336,16 +346,6 @@ def test_context_baseline_falls_back_to_the_framework_text() -> None:
     source = _context_baseline_source(manager, "hello_world")
     assert source == (manager.template_root / "claude_code" / "web-terminal-context" / "base.md")
     assert source.is_file()
-
-
-def test_profile_without_a_web_terminal_module_seeds_no_context(
-    runner: CliRunner, tmp_path: Path
-) -> None:
-    target = tmp_path / "my-facility"
-
-    assert _new(runner, target, "hello-world").exit_code == 0
-
-    assert not (target / "web-terminal-context").exists()
 
 
 # ---------------------------------------------------------------------------
@@ -1156,25 +1156,25 @@ def test_force_leaves_no_holding_directory_behind(runner: CliRunner, tmp_path: P
     assert not (target / HELD_SOURCE_ZONE_DIRNAME).exists()
 
 
-def test_extends_edit_is_rejected(runner: CliRunner, tmp_path: Path) -> None:
-    """A materialized profile is standalone, so nothing may give it a parent."""
-    target = tmp_path / "p-facility"
-
-    result = _new(runner, target, "hello-world", "--set", "extends=control-assistant")
-
-    assert result.exit_code == 2
-    assert "extends" in result.output
-    assert not target.exists()
-
-
-def test_an_invalid_edit_leaves_no_partial_directory(runner: CliRunner, tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    ("edit", "named"),
+    [
+        # A materialized profile is standalone, so nothing may give it a parent.
+        ("extends=control-assistant", "extends"),
+        ("channel_finder_mode=in-context", "channel_finder_mode"),
+    ],
+    ids=["extends", "invalid-value"],
+)
+def test_an_invalid_edit_leaves_no_partial_directory(
+    runner: CliRunner, tmp_path: Path, edit: str, named: str
+) -> None:
     """The atomicity guarantee: a bad edit fails and materializes nothing."""
     target = tmp_path / "p-facility"
 
-    result = _new(runner, target, "hello-world", "--set", "channel_finder_mode=in-context")
+    result = _new(runner, target, "hello-world", "--set", edit)
 
     assert result.exit_code == 2
-    assert "channel_finder_mode" in result.output
+    assert named in result.output
     assert not target.exists()
 
 
@@ -1476,6 +1476,9 @@ def test_facility_extension_guidance_is_appended(runner: CliRunner, tmp_path: Pa
     assert _new(runner, target, "control-assistant").exit_code == 0
 
     text = (target / "profile.yml").read_text()
+    # control-assistant declares no mcp_servers of its own (the CANOPY screen
+    # server is the panel's declaration, not the preset's), so it gets the
+    # facility MCP server guidance like every other preset.
     assert "# mcp_servers:" in text
     assert "#   lattice:" in text
     assert "# artifact_server:" in text

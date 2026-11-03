@@ -378,30 +378,31 @@ def _uncalibrated(root: Path, family: str, device: int) -> list[Path]:
     return sources
 
 
-def test_a_supply_whose_first_device_states_no_calibration_row_stops_the_import(
-    tmp_path: Path,
+@pytest.mark.parametrize(
+    ("device", "message"),
+    [
+        pytest.param(
+            0,
+            "import mml: export-invalid: StorageRing: family QDZ device 1: "
+            "its Setpoint block states no calibration",
+            id="first-device-of-a-supply",
+        ),
+        pytest.param(
+            3,
+            "import mml: export-invalid: StorageRing: family QDZ device 4: "
+            "its Setpoint block states no calibration",
+            id="later-series-member",
+        ),
+    ],
+)
+def test_a_device_that_states_no_calibration_row_stops_the_import(
+    tmp_path: Path, device: int, message: str
 ) -> None:
     facility = _facility(tmp_path, "spear3")
     with pytest.raises(ImportStop) as stop:
-        import_mml(_uncalibrated(tmp_path, "QDZ", 0), facility)
+        import_mml(_uncalibrated(tmp_path, "QDZ", device), facility)
     assert _layer_files(facility) == [MAPPING_FILE]
-    assert stop.value.format_message() == (
-        "import mml: export-invalid: StorageRing: family QDZ device 1: "
-        "its Setpoint block states no calibration"
-    )
-
-
-def test_a_later_series_member_that_states_no_calibration_row_stops_the_import(
-    tmp_path: Path,
-) -> None:
-    facility = _facility(tmp_path, "spear3")
-    with pytest.raises(ImportStop) as stop:
-        import_mml(_uncalibrated(tmp_path, "QDZ", 3), facility)
-    assert _layer_files(facility) == [MAPPING_FILE]
-    assert stop.value.format_message() == (
-        "import mml: export-invalid: StorageRing: family QDZ device 4: "
-        "its Setpoint block states no calibration"
-    )
+    assert stop.value.format_message() == message
 
 
 def test_a_one_way_family_with_no_nominal_is_wired_from_the_deck(

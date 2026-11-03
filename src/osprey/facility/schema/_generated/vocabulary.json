@@ -670,6 +670,34 @@
       "name": "beam_intensity_readback"
     },
     {
+      "aliases": [
+        "beam lifetime",
+        "lifetime"
+      ],
+      "description": "Measured lifetime readback of the stored beam.",
+      "name": "beam_lifetime_readback"
+    },
+    {
+      "aliases": [
+        "blade position",
+        "scraper position",
+        "blade readback",
+        "scraper readback"
+      ],
+      "description": "Measured insertion of a scraper blade into the beam aperture.",
+      "name": "blade_position_readback"
+    },
+    {
+      "aliases": [
+        "blade setpoint",
+        "scraper setpoint",
+        "set blade position",
+        "scraper position setpoint"
+      ],
+      "description": "Commanded insertion of a scraper blade into the beam aperture.",
+      "name": "blade_position_setpoint"
+    },
+    {
       "aliases": [],
       "description": "Fast-orbit-feedback channel-index readback for a BPM.",
       "name": "bpm_fofb_index"
@@ -708,6 +736,17 @@
       "aliases": [],
       "description": "Controlled-power-mode readback for a main dipole supply.",
       "name": "controlled_power_mode_status"
+    },
+    {
+      "aliases": [
+        "coolant flow",
+        "cooling water flow",
+        "water flow",
+        "flow readback",
+        "flow rate"
+      ],
+      "description": "Measured cooling-water flow through a device.",
+      "name": "coolant_flow_readback"
     },
     {
       "aliases": [],
@@ -1001,6 +1040,18 @@
       ],
       "description": "Commanded longitudinal offset (phase) of an insertion device's magnet rows.",
       "name": "offset_setpoint"
+    },
+    {
+      "aliases": [
+        "operation mode",
+        "operating mode",
+        "machine mode",
+        "beam mode",
+        "ops mode",
+        "machine state"
+      ],
+      "description": "Current operating mode of the machine (e.g. user operation, machine development, shutdown).",
+      "name": "operation_mode_status"
     },
     {
       "aliases": [],
@@ -1340,6 +1391,16 @@
     },
     {
       "aliases": [
+        "temperature limit",
+        "trip temperature",
+        "over-temperature limit",
+        "temperature threshold"
+      ],
+      "description": "Temperature above which a device's over-temperature interlock trips.",
+      "name": "temperature_limit_readback"
+    },
+    {
+      "aliases": [
         "temperature",
         "temperature readback",
         "measured temperature",
@@ -1407,6 +1468,16 @@
       "aliases": [],
       "description": "Commanded valve open/close transition.",
       "name": "valve_open_command"
+    },
+    {
+      "aliases": [
+        "valve position",
+        "valve opening",
+        "valve percent open",
+        "chilled-water valve"
+      ],
+      "description": "Measured opening of a modulating valve, in percent.",
+      "name": "valve_position_readback"
     },
     {
       "aliases": [],

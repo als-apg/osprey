@@ -122,11 +122,18 @@ def test_every_result_carries_what_it_moved():
 
 
 @pytest.mark.parametrize("completed", [True, False], ids=["completed", "stopped"])
-def test_a_line_without_moved_is_an_error(completed: bool):
+@pytest.mark.parametrize(
+    ("field", "match"),
+    [
+        pytest.param("moved", "has no 'moved' field", id="moved"),
+        pytest.param("missing", "has no 'missing' field", id="missing"),
+    ],
+)
+def test_a_line_without_a_required_field_is_an_error(completed: bool, field: str, match: str):
     line = _orm() if completed else _stopped_orm()
-    del line["moved"]
+    del line[field]
 
-    with pytest.raises(MeasureResultError, match="has no 'moved' field"):
+    with pytest.raises(MeasureResultError, match=match):
         parse_measure_result(_line(**line), "orm")
 
 
@@ -154,15 +161,6 @@ def test_a_stopped_line_whose_missing_is_not_a_text_map_is_an_error(missing: Any
     line = _stopped_orm() | {"missing": missing}
 
     with pytest.raises(MeasureResultError, match="'missing'"):
-        parse_measure_result(_line(**line), "orm")
-
-
-@pytest.mark.parametrize("completed", [True, False], ids=["completed", "stopped"])
-def test_a_line_without_missing_is_an_error(completed: bool):
-    line = _orm() if completed else _stopped_orm()
-    del line["missing"]
-
-    with pytest.raises(MeasureResultError, match="has no 'missing' field"):
         parse_measure_result(_line(**line), "orm")
 
 
@@ -237,24 +235,26 @@ def test_every_plane_spelling_reads_back_as_x_or_y(plane: str, read: str):
     assert result["observables"] == [["SR_BPM1", read], ["SR_BPM1", "y"]]
 
 
-def test_an_observable_without_a_plane_is_refused_by_name():
-    line = _line(**_orm(observables=[["SR_BPM1", ""], ["SR_BPM1", "y"]]))
+@pytest.mark.parametrize(
+    ("observables", "match"),
+    [
+        pytest.param(
+            [["SR_BPM1", ""], ["SR_BPM1", "y"]],
+            r"observable 'SR_BPM1' has no plane",
+            id="without-a-plane",
+        ),
+        pytest.param(
+            [["SR_BPM1", "s"], ["SR_BPM1", "y"]],
+            r"observable 'SR_BPM1' has plane 's'",
+            id="with-an-unknown-plane",
+        ),
+        pytest.param([["", "x"], ["SR_BPM1", "y"]], "has no name", id="without-a-name"),
+    ],
+)
+def test_an_observable_without_a_usable_name_or_plane_is_refused(observables, match):
+    line = _line(**_orm(observables=observables))
 
-    with pytest.raises(MeasureResultError, match=r"observable 'SR_BPM1' has no plane"):
-        parse_measure_result(line, "orm")
-
-
-def test_an_observable_with_an_unknown_plane_is_refused_by_name():
-    line = _line(**_orm(observables=[["SR_BPM1", "s"], ["SR_BPM1", "y"]]))
-
-    with pytest.raises(MeasureResultError, match=r"observable 'SR_BPM1' has plane 's'"):
-        parse_measure_result(line, "orm")
-
-
-def test_an_observable_without_a_name_is_refused():
-    line = _line(**_orm(observables=[["", "x"], ["SR_BPM1", "y"]]))
-
-    with pytest.raises(MeasureResultError, match="has no name"):
+    with pytest.raises(MeasureResultError, match=match):
         parse_measure_result(line, "orm")
 
 

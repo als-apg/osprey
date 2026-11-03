@@ -350,6 +350,10 @@ class ChatSessionPool:
     def get(self, chat_id: str) -> OperatorSession | None:
         return self._sessions.get(chat_id)
 
+    def keys(self) -> list[str]:
+        """Every chat id the pool answers to now, pooled or starting (see :meth:`has_key`)."""
+        return [*self._sessions, *(key for key in self._pending if key not in self._sessions)]
+
     def has_key(self, chat_id: str) -> bool:
         """Whether the pool would answer to *chat_id* — pooled **or starting**.
 

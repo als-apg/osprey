@@ -4,7 +4,7 @@ Covers URL construction (config + env precedence), the fire-and-forget
 ``post_json`` swallowing unreachable targets, the response-returning
 ``_post_json_with_response`` distinguishing rejection from unreachability,
 ``fetch_panels`` reading live panel state (including the layout-report
-freshness fields), and ``notify_panel_register`` / ``notify_panel_arrange``
+freshness fields), and ``notify_panel_register`` and the dock-op helper ``panel_op``
 mapping HTTP outcomes to their structured dicts.
 
 Also covers the panel-token bearer header the three client paths attach: sent
@@ -258,8 +258,8 @@ def test_fetch_panels_returns_payload_with_freshness_fields():
     """The layout-report fields reach the caller unchanged."""
     body = (
         b'{"enabled": ["artifacts"], "visible": ["artifacts"], "active": null,'
-        b' "open_tiles": ["artifacts", "lattice"], "open_tiles_age_s": 4.5,'
-        b' "open_tiles_dock": true}'
+        b' "layout": {"tile": "t1", "tabs": ["artifacts", "lattice"], "showing": "lattice"},'
+        b' "rev": 3, "layout_age_s": 4.5, "layout_dock": true}'
     )
     with (
         patch.object(http, "web_terminal_url", return_value="http://wt"),
@@ -268,9 +268,10 @@ def test_fetch_panels_returns_payload_with_freshness_fields():
         data = http.fetch_panels()
     assert urlopen.call_args.args[0].full_url == "http://wt/api/panels"
     assert data is not None
-    assert data["open_tiles"] == ["artifacts", "lattice"]
-    assert data["open_tiles_age_s"] == 4.5
-    assert data["open_tiles_dock"] is True
+    assert data["layout"] == {"tile": "t1", "tabs": ["artifacts", "lattice"], "showing": "lattice"}
+    assert data["rev"] == 3
+    assert data["layout_age_s"] == 4.5
+    assert data["layout_dock"] is True
 
 
 def test_fetch_panels_tolerates_server_without_freshness_fields():
@@ -281,7 +282,7 @@ def test_fetch_panels_tolerates_server_without_freshness_fields():
     ):
         data = http.fetch_panels()
     assert data == {"enabled": []}
-    assert data.get("open_tiles_age_s") is None
+    assert data.get("layout_age_s") is None
 
 
 def test_fetch_panels_unreachable_returns_none():
@@ -305,92 +306,130 @@ def test_fetch_panels_non_object_payload_returns_none():
 
 
 # ---------------------------------------------------------------------------
-# notify_panel_arrange
+# panel_op — the one agent dock-write path
 # ---------------------------------------------------------------------------
 
 
-def test_notify_panel_arrange_posts_tiles_and_focus():
-    """Tiles, focus and the agent attribution are sent to the arrange route."""
-    captured: dict = {}
+def _capture_op(status: int = 200, body: dict | None = None):
+    """A fake ``_post_json_with_response`` recording each call."""
+    calls: list[dict] = []
 
-    def _fake(url, payload, *, timeout):  # noqa: ARG001 - _post_json_with_response fixes this keyword-only parameter
-        captured["url"] = url
-        captured["payload"] = payload
-        return 200, {"status": "ok", "tiles": payload["tiles"]}
+    def _fake(url, payload, *, timeout):
+        calls.append({"url": url, "payload": payload, "timeout": timeout})
+        return status, body if body is not None else {"status": "ok", "layout": None, "rev": 4}
 
+    return calls, _fake
+
+
+@pytest.mark.parametrize(
+    ("op", "route"),
+    [
+        ("drop", "/api/panel-op/drop"),
+        ("close_tab", "/api/panel-op/close-tab"),
+        ("close_tile", "/api/panel-op/close-tile"),
+        ("open", "/api/panel-op/open"),
+        ("open_set", "/api/panel-op/open-set"),
+        ("open_arrangement", "/api/panel-op/open-arrangement"),
+    ],
+)
+def test_panel_op_posts_each_op_to_its_route(op, route):
+    calls, fake = _capture_op()
     with (
         patch.object(http, "web_terminal_url", return_value="http://wt"),
-        patch.object(http, "_post_json_with_response", side_effect=_fake),
+        patch.object(http, "_post_json_with_response", side_effect=fake),
     ):
-        http.notify_panel_arrange(tiles=["artifacts", "lattice"], focus="lattice")
+        http.panel_op(op, {})
+    assert calls[0]["url"] == f"http://wt{route}"
 
-    assert captured["url"] == "http://wt/api/panel-arrange"
-    assert captured["payload"] == {
-        "source": "agent",
-        "tiles": ["artifacts", "lattice"],
-        "focus": "lattice",
+
+def test_panel_op_mints_a_fresh_request_id_and_waits_eight_seconds():
+    calls, fake = _capture_op()
+    with (
+        patch.object(http, "web_terminal_url", return_value="http://wt"),
+        patch.object(http, "_post_json_with_response", side_effect=fake),
+    ):
+        http.panel_op("open", {"member": "ariel", "url": "/panel/ariel/#x"})
+        http.panel_op("open", {"member": "ariel"})
+    first, second = (call["payload"] for call in calls)
+    assert {k: v for k, v in first.items() if k != "request_id"} == {
+        "member": "ariel",
+        "url": "/panel/ariel/#x",
+    }
+    assert first["request_id"] and first["request_id"] != second["request_id"]
+    assert "base_rev" not in first
+    assert http.PANEL_OP_TIMEOUT_S == 8
+    assert {call["timeout"] for call in calls} == {8}
+
+
+def test_panel_op_sends_base_rev_when_given():
+    calls, fake = _capture_op()
+    with (
+        patch.object(http, "web_terminal_url", return_value="http://wt"),
+        patch.object(http, "_post_json_with_response", side_effect=fake),
+    ):
+        http.panel_op("close_tile", {"tile": "t1"}, base_rev=7)
+    assert calls[0]["payload"]["base_rev"] == 7
+    assert calls[0]["payload"]["tile"] == "t1"
+
+
+def test_panel_op_success_returns_layout_and_rev():
+    layout = {"tile": "t0", "tabs": ["terminal"], "showing": "terminal", "size": 1}
+    _, fake = _capture_op(200, {"status": "ok", "layout": layout, "rev": 9})
+    with (
+        patch.object(http, "web_terminal_url", return_value="http://wt"),
+        patch.object(http, "_post_json_with_response", side_effect=fake),
+    ):
+        out = http.panel_op("open", {"member": "ariel"})
+    assert out == {"ok": True, "status": 200, "layout": layout, "popouts": [], "rev": 9}
+
+
+def test_panel_op_relays_a_named_refusal():
+    refused = {"status": "refused", "reason": "stale_base", "detail": "read again", "rev": 5}
+    _, fake = _capture_op(409, refused)
+    with (
+        patch.object(http, "web_terminal_url", return_value="http://wt"),
+        patch.object(http, "_post_json_with_response", side_effect=fake),
+    ):
+        out = http.panel_op("drop", {"source": {"tab": "ariel"}, "target": {"outer": "left"}})
+    assert out == {
+        "ok": False,
+        "status": 409,
+        "reason": "stale_base",
+        "detail": "read again",
+        "rev": 5,
     }
 
 
-def test_notify_panel_arrange_preset_omits_tiles_and_focus():
-    """A preset call sends only the preset name (plus attribution)."""
-    captured: dict = {}
-
-    def _fake(_url, payload, *, timeout):  # noqa: ARG001 - _post_json_with_response fixes this keyword-only parameter
-        captured.update(payload)
-        return 200, {}
-
+def test_panel_op_stringifies_a_body_validation_error():
+    structured = [{"loc": ["body", "base_rev"], "msg": "Field required"}]
+    _, fake = _capture_op(422, {"detail": structured})
     with (
         patch.object(http, "web_terminal_url", return_value="http://wt"),
-        patch.object(http, "_post_json_with_response", side_effect=_fake),
+        patch.object(http, "_post_json_with_response", side_effect=fake),
     ):
-        http.notify_panel_arrange(preset="injection")
-
-    assert captured == {"source": "agent", "preset": "injection"}
-
-
-def test_notify_panel_arrange_success_returns_data():
-    applied = {"status": "ok", "tiles": ["artifacts"], "focus": None, "prune_rail": False}
-    with (
-        patch.object(http, "web_terminal_url", return_value="http://wt"),
-        patch.object(http, "_post_json_with_response", return_value=(200, applied)),
-    ):
-        out = http.notify_panel_arrange(tiles=["artifacts"])
-    assert out == {"ok": True, "status": 200, "data": applied}
-
-
-def test_notify_panel_arrange_rejected_surfaces_detail():
-    """A 422 from the route reaches the caller verbatim — never swallowed."""
-    detail = "Unknown panel ids: ['bogus']. Valid panel ids: ['artifacts', 'lattice']"
-    with (
-        patch.object(http, "web_terminal_url", return_value="http://wt"),
-        patch.object(http, "_post_json_with_response", return_value=(422, {"detail": detail})),
-    ):
-        out = http.notify_panel_arrange(tiles=["bogus"])
-    assert out == {"ok": False, "status": 422, "detail": detail}
-
-
-def test_notify_panel_arrange_stringifies_structured_detail():
-    """FastAPI body-validation 422s carry a list; the contract stays textual."""
-    structured = [{"loc": ["body", "tiles"], "msg": "value is not a valid list"}]
-    with (
-        patch.object(http, "web_terminal_url", return_value="http://wt"),
-        patch.object(http, "_post_json_with_response", return_value=(422, {"detail": structured})),
-    ):
-        out = http.notify_panel_arrange(tiles=["artifacts"])
+        out = http.panel_op("drop", {})
     assert out["ok"] is False
-    assert isinstance(out["detail"], str)
-    assert "value is not a valid list" in out["detail"]
+    assert out["reason"] == "invalid_request"
+    assert "Field required" in out["detail"]
 
 
-def test_notify_panel_arrange_unreachable():
-    """A down web terminal is reported as such, not raised."""
+def test_panel_op_unreachable_is_reported_not_raised():
     with (
         patch.object(http, "web_terminal_url", return_value="http://wt"),
         patch.object(http, "_post_json_with_response", side_effect=OSError("no route")),
     ):
-        out = http.notify_panel_arrange(tiles=["artifacts"])
-    assert out == {"ok": False, "status": None, "detail": "Web Terminal is not running."}
+        out = http.panel_op("open", {"member": "ariel"})
+    assert out == {
+        "ok": False,
+        "status": None,
+        "reason": "no_web_terminal",
+        "detail": "Web Terminal is not running.",
+    }
+
+
+def test_panel_op_refuses_an_unknown_op():
+    with pytest.raises(ValueError, match="Unknown panel op"):
+        http.panel_op("place", {})
 
 
 # ---------------------------------------------------------------------------
@@ -407,40 +446,6 @@ def test_notify_panel_visibility_posts_payload():
     url, payload = post.call_args.args
     assert url == "http://wt/api/panel-visibility"
     assert payload == {"panel": "errors", "visible": True, "source": "agent"}
-
-
-def test_notify_panel_close_posts_payload():
-    with (
-        patch.object(http, "web_terminal_url", return_value="http://wt"),
-        patch.object(http, "post_json") as post,
-    ):
-        http.notify_panel_close("errors")
-    url, payload = post.call_args.args
-    assert url == "http://wt/api/panel-close"
-    assert payload == {"panel": "errors", "source": "agent"}
-
-
-def test_notify_panel_focus_includes_url_when_given():
-    with (
-        patch.object(http, "web_terminal_url", return_value="http://wt"),
-        patch.object(http, "post_json") as post,
-    ):
-        http.notify_panel_focus("p1", url="http://up")
-    url, payload = post.call_args.args
-    assert url == "http://wt/api/panel-focus"
-    assert payload == {"panel": "p1", "url": "http://up", "source": "agent"}
-
-
-def test_notify_panel_focus_omits_url_when_none():
-    with (
-        patch.object(http, "web_terminal_url", return_value="http://wt"),
-        patch.object(http, "post_json") as post,
-    ):
-        http.notify_panel_focus("p1")
-    url, payload = post.call_args.args
-    assert url == "http://wt/api/panel-focus"
-    assert payload == {"panel": "p1", "source": "agent"}
-    assert "url" not in payload
 
 
 # ---------------------------------------------------------------------------
@@ -476,18 +481,18 @@ def test_post_json_sends_bearer_when_token_set(panel_token):
     assert req.headers["Content-type"] == "application/json"
 
 
-def test_post_json_omits_authorization_when_token_unset(panel_token):
-    """No carrier means no header at all — never a bare ``Bearer``."""
-    panel_token(None)
-    with patch("urllib.request.urlopen") as urlopen:
-        http.post_json("http://localhost:1/api", {"a": 1})
-    req = urlopen.call_args.args[0]
-    assert req.get_header("Authorization") is None
-
-
-@pytest.mark.parametrize("blank", ["", "   ", "\t\n"])
-def test_post_json_omits_authorization_when_token_blank(panel_token, blank):
-    """A blank carrier counts as absent — an uninterpolated compose var is ``""``."""
+@pytest.mark.parametrize(
+    "blank",
+    [
+        # No carrier means no header at all — never a bare ``Bearer``.
+        pytest.param(None, id="unset"),
+        # A blank carrier counts as absent — an uninterpolated compose var is ``""``.
+        pytest.param("", id="empty"),
+        pytest.param("   ", id="spaces"),
+        pytest.param("\t\n", id="tab-and-newline"),
+    ],
+)
+def test_post_json_omits_authorization_when_token_unset_or_blank(panel_token, blank):
     panel_token(blank)
     with patch("urllib.request.urlopen") as urlopen:
         http.post_json("http://localhost:1/api", {"a": 1})

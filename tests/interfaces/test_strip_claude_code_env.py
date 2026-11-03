@@ -29,6 +29,8 @@ from types import SimpleNamespace
 import pytest
 
 from osprey.agent_runner.clean_env import (
+    SHELL_ENV_FILE,
+    SHELL_ENV_FILE_VAR,
     build_base_child_env,
     build_clean_env,
     strip_claude_code_env,
@@ -253,6 +255,7 @@ def test_pty_child_gets_the_panel_token_and_never_the_operator_secret(announced)
     env = build_pty_env(extra_env)
 
     assert env[PANEL_TOKEN_ENV] == credentials.panel_token
+    assert env[SHELL_ENV_FILE_VAR] == str(SHELL_ENV_FILE)  # its shell commands start without it
     assert OPERATOR_SECRET_ENV not in env
     assert credentials.operator_secret not in env.values()
     # Negative control: a gutted env would satisfy every absence above.
@@ -286,6 +289,7 @@ def test_sdk_operator_child_gets_the_panel_token_and_never_the_operator_secret(t
     sdk_child_env = {**os.environ, **overlay}
 
     assert overlay[PANEL_TOKEN_ENV] == credentials.panel_token
+    assert overlay[SHELL_ENV_FILE_VAR] == str(SHELL_ENV_FILE)
     assert OPERATOR_SECRET_ENV not in sdk_child_env
     assert credentials.operator_secret not in sdk_child_env.values()
     assert "PATH" in sdk_child_env

@@ -326,22 +326,22 @@ async def test_open_panel_timeout_returns_not_ready(tmp_path, monkeypatch):
 
 # ── open_panel auto-focus ──────────────────────────────────────────────────
 async def test_open_panel_focuses_own_web_panel_by_default(tmp_path, monkeypatch):
-    """A successful open notifies the web terminal to focus THIS instance's
-    panel tab, identified by OSPREY_SERVER_NAME (set per-clone by the registry)."""
+    """A successful open asks the web terminal to open THIS instance's panel
+    (one ``open`` op), identified by OSPREY_SERVER_NAME (set per-clone by the registry)."""
     _register_demo_panel(tmp_path, monkeypatch)
     monkeypatch.setenv("OSPREY_SERVER_NAME", "phoebus2")
 
     body = {"id": "d-1", "resource": "/path/osprey_demo.bob", "ready": True}
     with (
         patch(f"{_MOD}._http_post_open", return_value=(200, body)),
-        patch(f"{_MOD}.notify_panel_focus") as mock_focus,
+        patch(f"{_MOD}.panel_op", return_value={"ok": True}) as mock_open,
     ):
         result = await _fn("phoebus_open_panel")(name="osprey_demo")
 
     data = extract_response_dict(result)
     assert data["status"] == "success"
     assert data["focused"] is True
-    mock_focus.assert_called_once_with("phoebus2")
+    mock_open.assert_called_once_with("open", {"member": "phoebus2"})
 
 
 async def test_open_panel_focus_defaults_to_phoebus_panel(tmp_path, monkeypatch):
@@ -353,11 +353,11 @@ async def test_open_panel_focus_defaults_to_phoebus_panel(tmp_path, monkeypatch)
     body = {"id": "d-1", "resource": "/path/osprey_demo.bob", "ready": True}
     with (
         patch(f"{_MOD}._http_post_open", return_value=(200, body)),
-        patch(f"{_MOD}.notify_panel_focus") as mock_focus,
+        patch(f"{_MOD}.panel_op", return_value={"ok": True}) as mock_open,
     ):
         await _fn("phoebus_open_panel")(name="osprey_demo")
 
-    mock_focus.assert_called_once_with("phoebus")
+    mock_open.assert_called_once_with("open", {"member": "phoebus"})
 
 
 async def test_open_panel_focus_opt_out(tmp_path, monkeypatch):
@@ -367,14 +367,14 @@ async def test_open_panel_focus_opt_out(tmp_path, monkeypatch):
     body = {"id": "d-1", "resource": "/path/osprey_demo.bob", "ready": True}
     with (
         patch(f"{_MOD}._http_post_open", return_value=(200, body)),
-        patch(f"{_MOD}.notify_panel_focus") as mock_focus,
+        patch(f"{_MOD}.panel_op") as mock_open,
     ):
         result = await _fn("phoebus_open_panel")(name="osprey_demo", focus=False)
 
     data = extract_response_dict(result)
     assert data["status"] == "success"
     assert data["focused"] is False
-    mock_focus.assert_not_called()
+    mock_open.assert_not_called()
 
 
 async def test_open_panel_focus_failure_is_nonfatal(tmp_path, monkeypatch):
@@ -385,7 +385,7 @@ async def test_open_panel_focus_failure_is_nonfatal(tmp_path, monkeypatch):
     body = {"id": "d-1", "resource": "/path/osprey_demo.bob", "ready": True}
     with (
         patch(f"{_MOD}._http_post_open", return_value=(200, body)),
-        patch(f"{_MOD}.notify_panel_focus", side_effect=OSError("terminal gone")),
+        patch(f"{_MOD}.panel_op", side_effect=OSError("terminal gone")),
     ):
         result = await _fn("phoebus_open_panel")(name="osprey_demo")
 

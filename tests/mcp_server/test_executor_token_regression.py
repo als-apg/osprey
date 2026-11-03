@@ -40,36 +40,31 @@ def _write_subprocess_config(tmp_path):
     (tmp_path / "config.yml").write_text(yaml.dump(config))
 
 
-async def test_sandbox_code_cannot_see_bluesky_launch_token(tmp_path, monkeypatch):
-    """Real sandboxed execution: BLUESKY_LAUNCH_TOKEN is absent from os.environ."""
+@pytest.mark.parametrize(
+    ("name", "value"),
+    [
+        pytest.param(
+            "BLUESKY_LAUNCH_TOKEN", "super-secret-promote-value", id="bluesky-launch-token"
+        ),
+        pytest.param(
+            "EVENT_DISPATCHER_TOKEN", "super-secret-dispatch-value", id="event-dispatcher-token"
+        ),
+    ],
+)
+async def test_sandbox_code_cannot_see_the_token(tmp_path, monkeypatch, name, value):
+    """Real sandboxed execution: the token is absent from os.environ."""
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setenv("BLUESKY_LAUNCH_TOKEN", "super-secret-promote-value")
+    monkeypatch.setenv(name, value)
     _write_subprocess_config(tmp_path)
 
     result = await execute_code(DUMP_ENV_CODE, "readonly", "pentest env dump")
 
     assert result.success, f"sandbox execution failed: {result.error_message}\n{result.stderr}"
     env_keys = extract_env_keys(result.stdout)
-    assert "BLUESKY_LAUNCH_TOKEN" not in env_keys
+    assert name not in env_keys
     # The literal secret value must not leak into stdout/stderr either.
-    assert "super-secret-promote-value" not in result.stdout
-    assert "super-secret-promote-value" not in result.stderr
-
-
-async def test_sandbox_code_cannot_see_event_dispatcher_token(tmp_path, monkeypatch):
-    """Real sandboxed execution: EVENT_DISPATCHER_TOKEN is absent from os.environ."""
-    monkeypatch.chdir(tmp_path)
-    monkeypatch.setenv("EVENT_DISPATCHER_TOKEN", "super-secret-dispatch-value")
-    _write_subprocess_config(tmp_path)
-
-    result = await execute_code(DUMP_ENV_CODE, "readonly", "pentest env dump")
-
-    assert result.success, f"sandbox execution failed: {result.error_message}\n{result.stderr}"
-    env_keys = extract_env_keys(result.stdout)
-    assert "EVENT_DISPATCHER_TOKEN" not in env_keys
-    # The literal secret value must not leak into stdout/stderr either.
-    assert "super-secret-dispatch-value" not in result.stdout
-    assert "super-secret-dispatch-value" not in result.stderr
+    assert value not in result.stdout
+    assert value not in result.stderr
 
 
 async def test_sandbox_code_cannot_see_either_token_simultaneously(tmp_path, monkeypatch):

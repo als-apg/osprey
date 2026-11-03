@@ -97,20 +97,31 @@ async def seeded_repository(repository, seed_entry_factory, seeded_prefixes):
 class TestKeywordSearch:
     """Test keyword search with real PostgreSQL FTS."""
 
-    async def test_keyword_search_finds_matches(self, seeded_repository):
+    @pytest.mark.parametrize(
+        ("term", "expected_id"),
+        [
+            # Should find the vacuum chamber entry.
+            pytest.param("vacuum pressure", "search-kw-001", id="finds-matches"),
+            # Several terms use AND logic. Should find the beam alignment entry.
+            pytest.param("beam alignment orbit", "search-kw-002", id="multiple-terms"),
+        ],
+    )
+    async def test_keyword_search_finds_the_entry_matching_the_terms(
+        self, seeded_repository, term, expected_id
+    ):
         """Keyword search returns matching entries via repository method."""
         # Repository keyword_search uses: where_clauses, params, search_text, max_results
         # Use FTS condition for search
         results = await seeded_repository.keyword_search(
             where_clauses=["to_tsvector('english', raw_text) @@ plainto_tsquery('english', %s)"],
-            params=["vacuum pressure"],
-            search_text="vacuum pressure",
+            params=[term],
+            search_text=term,
             max_results=10,
         )
 
-        # Should find the vacuum chamber entry - results are (entry, score, highlights)
+        # Results are (entry, score, highlights)
         entry_ids = [entry["entry_id"] for entry, score, highlights in results]
-        assert "search-kw-001" in entry_ids
+        assert expected_id in entry_ids
 
     async def test_keyword_search_no_matches_returns_empty(self, seeded_repository):
         """Keyword search returns empty list when no matches."""
@@ -132,19 +143,6 @@ class TestKeywordSearch:
         )
         assert len(results) <= 1
 
-    async def test_keyword_search_multiple_terms(self, seeded_repository):
-        """Keyword search with multiple terms uses AND logic."""
-        results = await seeded_repository.keyword_search(
-            where_clauses=["to_tsvector('english', raw_text) @@ plainto_tsquery('english', %s)"],
-            params=["beam alignment orbit"],
-            search_text="beam alignment orbit",
-            max_results=10,
-        )
-
-        # Should find the beam alignment entry
-        entry_ids = [entry["entry_id"] for entry, score, highlights in results]
-        assert "search-kw-002" in entry_ids
-
 
 class TestKeywordQuerySyntax:
     """Query text reaching real PostgreSQL through the keyword search module.
@@ -161,39 +159,32 @@ class TestKeywordQuerySyntax:
     reason that has nothing to do with the query.
     """
 
-    async def test_an_and_query_requires_both_terms(
-        self, seeded_repository, integration_ariel_config
+    @pytest.mark.parametrize(
+        ("query", "kept", "dropped"),
+        [
+            # ``beam AND orbit`` keeps only the entry carrying both terms.
+            pytest.param("beam AND orbit", "search-kw-002", "search-kw-004", id="and-query"),
+            # ``author:oper_smith beam`` keeps only that author's matching entry.
+            pytest.param(
+                "author:oper_smith beam", "search-kw-004", "search-kw-002", id="author-prefix"
+            ),
+        ],
+    )
+    async def test_a_query_operator_keeps_only_the_entry_it_selects(
+        self, seeded_repository, integration_ariel_config, query, kept, dropped
     ):
-        """``beam AND orbit`` keeps only the entry carrying both terms."""
         from osprey.services.ariel_search.search.keyword import keyword_search
 
         results = await keyword_search(
-            query="beam AND orbit",
+            query=query,
             repository=seeded_repository,
             config=integration_ariel_config,
             max_results=100,
         )
 
         entry_ids = [entry["entry_id"] for entry, _score, _highlights in results]
-        assert "search-kw-002" in entry_ids
-        assert "search-kw-004" not in entry_ids
-
-    async def test_an_author_prefix_narrows_a_text_match(
-        self, seeded_repository, integration_ariel_config
-    ):
-        """``author:oper_smith beam`` keeps only that author's matching entry."""
-        from osprey.services.ariel_search.search.keyword import keyword_search
-
-        results = await keyword_search(
-            query="author:oper_smith beam",
-            repository=seeded_repository,
-            config=integration_ariel_config,
-            max_results=100,
-        )
-
-        entry_ids = [entry["entry_id"] for entry, _score, _highlights in results]
-        assert "search-kw-004" in entry_ids
-        assert "search-kw-002" not in entry_ids
+        assert kept in entry_ids
+        assert dropped not in entry_ids
 
 
 @pytest.fixture
@@ -850,27 +841,24 @@ class TestRequirement3CaptionSearch:
                 await _insert(conn, "req3-control", "Klystron forty one fault cleared.")
             yield ARIELRepository(pool, config), config, {"bpm": plot_id, "qx": magnet_id}
 
-    async def test_requirement_3_caption_only_bpm_mention_is_found_with_its_id(
-        self, captioned_store
+    @pytest.mark.parametrize(
+        ("query", "entry_id", "id_key"),
+        [
+            pytest.param("SR:C07 BPM", "req3-bpm", "bpm", id="caption-only-bpm-mention"),
+            pytest.param("QX-77*", "req3-qx", "qx", id="glob"),
+        ],
+    )
+    async def test_requirement_3_caption_only_entry_is_found_with_its_id(
+        self, captioned_store, query, entry_id, id_key
     ):
         from osprey.services.ariel_search.search.keyword import keyword_search
 
         repository, config, ids = captioned_store
 
-        hits = await keyword_search("SR:C07 BPM", repository, config, max_results=10)
+        hits = await keyword_search(query, repository, config, max_results=10)
 
-        assert [entry["entry_id"] for entry, _s, _h in hits] == ["req3-bpm"]
-        assert hits[0][0]["_matched_attachment_ids"] == [ids["bpm"]]
-
-    async def test_requirement_3_glob_finds_a_caption_only_entry_and_its_id(self, captioned_store):
-        from osprey.services.ariel_search.search.keyword import keyword_search
-
-        repository, config, ids = captioned_store
-
-        hits = await keyword_search("QX-77*", repository, config, max_results=10)
-
-        assert [entry["entry_id"] for entry, _s, _h in hits] == ["req3-qx"]
-        assert hits[0][0]["_matched_attachment_ids"] == [ids["qx"]]
+        assert [entry["entry_id"] for entry, _s, _h in hits] == [entry_id]
+        assert hits[0][0]["_matched_attachment_ids"] == [ids[id_key]]
 
     async def test_requirement_3_b1_row_with_upstream_caption_is_found_after_migrate(
         self, scratch_config

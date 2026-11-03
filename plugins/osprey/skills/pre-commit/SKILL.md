@@ -68,7 +68,7 @@ uv run python scripts/check.py full
 
 Compares the branch against the PR target (`origin/main`). It runs the checks the
 diff touches and the tests it maps to, adds the checks that judge a range (the
-changelog fragment and the plugin version), and
+changelog fragment, the plugin version and the secret scan), and
 names the CI lanes the diff touched.
 
 ```bash

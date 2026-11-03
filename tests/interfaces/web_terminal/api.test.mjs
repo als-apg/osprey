@@ -786,6 +786,18 @@ describe('createEventSource: one connection per URL, shared by every subscriber'
     expect(instances).toHaveLength(1);
   });
 
+  test('the page events URL names one stable page id, so its subscribers share', () => {
+    // panel-sse, the activity strip and the chip all subscribe through
+    // pageEventsUrl(); one id per page is what keeps that one socket.
+    const instances = stubEventSourceRich();
+    const url = api.pageEventsUrl();
+    expect(url).toBe(`/api/files/events?client_id=${encodeURIComponent(api.getPageClientId())}`);
+    expect(api.pageEventsUrl()).toBe(url);
+    api.createEventSource(url);
+    api.createEventSource(api.pageEventsUrl());
+    expect(instances).toHaveLength(1);
+  });
+
   test('different URLs still get their own connection', () => {
     const instances = stubEventSourceRich();
     api.createEventSource('/api/files/events');

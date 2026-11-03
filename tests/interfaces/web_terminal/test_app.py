@@ -6,6 +6,7 @@ from unittest.mock import patch
 
 import pytest
 
+from osprey.interfaces.web_terminal.dock_layout import layout_keys
 from tests.interfaces.web_terminal._started_app import terminal_client
 
 
@@ -65,65 +66,90 @@ class TestPanelFocus:
         assert resp.json()["active_panel"] is None
 
 
-class TestPanelsOpenTiles:
+#: A dock holding only the terminal: every service tile closed.
+_TERMINAL_ONLY = {"tile": "t1", "tabs": ["terminal"], "showing": "terminal"}
+#: A dock with ARTIFACTS beside the terminal.
+_WITH_ARTIFACTS = {
+    "split": "row",
+    "items": [
+        {"tile": "t1", "tabs": ["artifacts"], "showing": "artifacts", "size": 0.5},
+        {"tile": "t2", "tabs": ["terminal"], "showing": "terminal", "size": 0.5},
+    ],
+}
+
+
+def _service_keys(layout) -> list[str]:
+    """The service keys of a reported dock ``layout`` in reading order, terminal excluded."""
+    return [key for key in layout_keys(layout) if key != "terminal"]
+
+
+def _report(client, layout, *, dock: bool = True) -> None:
+    """POST a client's dock-layout report, asserting it was recorded."""
+    resp = client.post(
+        "/api/panel-layout", json={"layout": layout, "dock": dock, "client_id": "page-1"}
+    )
+    assert resp.status_code == 200, resp.text
+
+
+class TestPanelsLayoutOccupancy:
     """``GET /api/panels`` reports tile occupancy and how stale it is.
 
-    ``visible`` is launcher-rail membership; ``open_tiles`` is what a browser
-    last reported as actually on screen. The two freshness companions exist so
-    a consumer can tell "no client has ever reported" from "reported N seconds
-    ago" instead of trusting a possibly-abandoned list.
+    ``visible`` is launcher-rail membership; ``layout`` is the dock layout a
+    browser last reported (``POST /api/panel-layout``). The two freshness
+    companions exist so a consumer can tell "no client has ever reported" from
+    "reported N seconds ago" instead of trusting a possibly-abandoned layout.
 
     The payload carries three distinct states that must never collapse into
-    each other: never reported (all null), unknown occupancy (null list, real
-    age, dock false), and known occupancy (a list, possibly empty).
+    each other: never reported (all null), unknown occupancy (null layout, real
+    age, dock false), and known occupancy (a tree, possibly terminal-only).
     """
 
-    def test_panels_open_tiles_all_null_before_any_report(self, client):
+    def test_panels_layout_all_null_before_any_report(self, client):
         """Never reported is all-null — emphatically not a known-empty screen."""
         body = client.get("/api/panels").json()
-        assert body["open_tiles"] is None
-        assert body["open_tiles_age_s"] is None
-        assert body["open_tiles_dock"] is None
+        assert body["layout"] is None
+        assert body["layout_age_s"] is None
+        assert body["layout_dock"] is None
 
     def test_panels_dock_less_report_is_unknown_occupancy(self, client):
-        """A watching-but-blind client: null tiles, real age, dock false."""
-        client.post("/api/panel-layout", json={"tiles": [], "dock": False})
+        """A watching-but-blind client: null layout, real age, dock false."""
+        _report(client, None, dock=False)
         body = client.get("/api/panels").json()
-        assert body["open_tiles"] is None
-        assert body["open_tiles_age_s"] is not None
-        assert body["open_tiles_dock"] is False
+        assert body["layout"] is None
+        assert body["layout_age_s"] is not None
+        assert body["layout_dock"] is False
 
     def test_panels_known_empty_is_distinct_from_unknown(self, client):
-        """A dock client reporting [] means the operator closed everything."""
-        client.post("/api/panel-layout", json={"tiles": [], "dock": True})
+        """A terminal-only dock means the operator closed every service tile."""
+        _report(client, _TERMINAL_ONLY)
         body = client.get("/api/panels").json()
-        assert body["open_tiles"] == []
-        assert body["open_tiles_dock"] is True
+        assert _service_keys(body["layout"]) == []
+        assert body["layout_dock"] is True
 
-    def test_panels_open_tiles_reflect_the_last_report(self, client):
-        client.post("/api/panel-layout", json={"tiles": ["artifacts"], "dock": True})
+    def test_panels_layout_reflects_the_last_report(self, client):
+        _report(client, _WITH_ARTIFACTS)
         body = client.get("/api/panels").json()
-        assert body["open_tiles"] == ["artifacts"]
-        assert body["open_tiles_dock"] is True
+        assert _service_keys(body["layout"]) == ["artifacts"]
+        assert body["layout_dock"] is True
 
-    def test_panels_open_tiles_age_is_seconds_since_the_report(self, client):
+    def test_panels_layout_age_is_seconds_since_the_report(self, client):
         import time
 
-        client.post("/api/panel-layout", json={"tiles": ["artifacts"], "dock": True})
-        fresh = client.get("/api/panels").json()["open_tiles_age_s"]
+        _report(client, _WITH_ARTIFACTS)
+        fresh = client.get("/api/panels").json()["layout_age_s"]
         assert 0 <= fresh < 60
 
         # Age the stored report; the payload must report it as stale, not fresh.
-        client.app.state.open_tiles_ts = time.time() - 3600
-        aged = client.get("/api/panels").json()["open_tiles_age_s"]
+        client.app.state.layout_ts = time.time() - 3600
+        aged = client.get("/api/panels").json()["layout_age_s"]
         assert aged >= 3600
 
-    def test_panels_open_tiles_are_independent_of_rail_membership(self, client):
+    def test_panels_layout_is_independent_of_rail_membership(self, client):
         """Closing every tile leaves the rail alone — occupancy is not membership."""
         before = client.get("/api/panels").json()["visible"]
         client.post("/api/panel-layout", json={"tiles": [], "dock": True})
         after = client.get("/api/panels").json()
-        assert after["open_tiles"] == []
+        assert _service_keys(after["layout"]) == []
         assert after["visible"] == before
 
 

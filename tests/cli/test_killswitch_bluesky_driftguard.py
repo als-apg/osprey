@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import json
 
+import pytest
 import yaml
 
 from osprey import bluesky_tool_names as bsky
@@ -281,18 +282,22 @@ def _identity(tmp_path, name: str, writes: str, leaves: dict) -> tuple[str, str]
     return tier_only, _settings_text(project_dir)
 
 
-def test_armed_connector_leaves_change_no_byte_of_a_never_render(tmp_path):
-    tier_only, with_leaves = _identity(
-        tmp_path, "killswitch-identity-never", "never", {_LIVE_CONNECTOR: True, _VA_CONNECTOR: True}
-    )
-    assert with_leaves == tier_only
-
-
-def test_disagreeing_connector_leaves_change_no_byte_of_an_allowed_render(tmp_path):
-    tier_only, with_leaves = _identity(
-        tmp_path,
-        "killswitch-identity-allowed",
-        "allowed",
-        {_LIVE_CONNECTOR: False, _VA_CONNECTOR: True},
-    )
+@pytest.mark.parametrize(
+    ("name", "writes", "leaves"),
+    [
+        (
+            "killswitch-identity-never",
+            "never",
+            {_LIVE_CONNECTOR: True, _VA_CONNECTOR: True},
+        ),
+        (
+            "killswitch-identity-allowed",
+            "allowed",
+            {_LIVE_CONNECTOR: False, _VA_CONNECTOR: True},
+        ),
+    ],
+    ids=["armed-leaves-never", "disagreeing-leaves-allowed"],
+)
+def test_connector_leaves_change_no_byte_of_a_tier_render(tmp_path, name, writes, leaves):
+    tier_only, with_leaves = _identity(tmp_path, name, writes, leaves)
     assert with_leaves == tier_only

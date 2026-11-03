@@ -658,30 +658,29 @@ def test_publish_info_requires_auth(client):
 
 
 @pytest.mark.usefixtures("mock_ariel_service")
-def test_publish_info_no_auth(client):
-    """A no-auth write adapter reports requires_auth=False (publishes without creds)."""
+@pytest.mark.parametrize(
+    ("supports_write", "requires_write_auth", "source_system"),
+    [
+        # A no-auth write adapter publishes without creds.
+        pytest.param(True, False, "Generic JSON", id="no-auth"),
+        # A read-only adapter: credentials are irrelevant.
+        pytest.param(False, True, "JLab Logbook", id="read-only"),
+    ],
+)
+def test_publish_info_reports_requires_auth_false(
+    client, supports_write, requires_write_auth, source_system
+):
+    """An adapter that needs no credentials to publish reports requires_auth=False."""
     adapter = _mock_adapter(
-        supports_write=True, requires_write_auth=False, source_system="Generic JSON"
+        supports_write=supports_write,
+        requires_write_auth=requires_write_auth,
+        source_system=source_system,
     )
     with patch("osprey.services.ariel_search.ingestion.get_adapter", return_value=adapter):
         response = client.get("/api/publish-info")
 
     data = response.json()
-    assert data["supports_write"] is True
-    assert data["requires_auth"] is False
-
-
-@pytest.mark.usefixtures("mock_ariel_service")
-def test_publish_info_read_only(client):
-    """A read-only adapter reports requires_auth=False — credentials are irrelevant."""
-    adapter = _mock_adapter(
-        supports_write=False, requires_write_auth=True, source_system="JLab Logbook"
-    )
-    with patch("osprey.services.ariel_search.ingestion.get_adapter", return_value=adapter):
-        response = client.get("/api/publish-info")
-
-    data = response.json()
-    assert data["supports_write"] is False
+    assert data["supports_write"] is supports_write
     assert data["requires_auth"] is False
 
 

@@ -16,8 +16,8 @@ Signatures pinned:
 - ``rf-thermal``: the story its logbook tells -- three CAVITY01 excursions over
   32 degC in the week before the investigation entry, the last the trip four
   days back (34.2 degC, forward power off 03:15-04:30, reflected power over
-  80 kW, the stored beam dumped at the trip and refilled at 04:30), nothing
-  after the repair (26.5 degC).
+  80 kW, the stored beam dumped at the trip and back to the baseline at
+  04:30), nothing after the repair (26.5 degC).
 - ``rf-thermal-live``: over 5-min windows at 1 s, temperature against reflected
   power wanders inside its band and against the tuner stays tight.
 """
@@ -34,16 +34,30 @@ import numpy as np
 import pytest
 import yaml
 
+import osprey
+from osprey.facility.sources import read_yaml
 from osprey_connectors.archiver._mock_archiver_connector import MockArchiverConnector
 from osprey_connectors.config import get_facility_timezone
 from osprey_connectors.control_system._va_in_process_connector import simulation_state_dir
 from osprey_connectors.relative_time import RelativeTimestamp, resolve_relative_timestamp
+from osprey_connectors.simulation import topoff
 from tests.facility.served_tree import in_process_config
 
 GAUGE = "SR:VAC:GAUGE:SR{:02d}:PRESSURE:RB"
 DCCT = "SR:DIAG:DCCT:01:CURRENT:RB"
-#: The stored beam current the DCCT reads with the beam in, and refills to.
-NOMINAL_BEAM_MA = 500.0
+#: The example facility's seeds, whose ``topoff`` seed sets the DCCT baseline.
+EXAMPLE_SEEDS = Path(osprey.__file__).parent / "templates/facilities/example/seeds.yaml"
+
+
+def _held_current() -> float:
+    held = topoff.held_value(read_yaml(EXAMPLE_SEEDS.read_text(encoding="utf-8"))[DCCT])
+    assert held is not None, f"{DCCT} carries no topoff seed"
+    return held
+
+
+#: The stored beam current the DCCT holds with the beam in, and returns to after a
+#: dump: the top-off sawtooth's held level, the mean over one refill period.
+NOMINAL_BEAM_MA = _held_current()
 CAV = "SR:RF:CAVITY:{:02d}:{}"
 CAV_T = CAV.format(1, "TEMPERATURE:RB")
 CAV_REV = CAV.format(1, "POWER:REV")
@@ -236,9 +250,10 @@ class TestRfThermal:
         )[CAV_REV]
         assert reflected.max() > 80.0
 
-    def test_the_trip_dumps_the_stored_beam_until_the_refill(self, scenario, read):
+    def test_the_trip_dumps_the_stored_beam_until_it_is_back_to_the_baseline(self, scenario, read):
         """A ring that loses its RF loses its beam: the DCCT is at zero from the
-        03:15 trip to the 04:30 refill, and stored on either side of it."""
+        03:15 trip until 04:30, back to the baseline after it, and stored on the
+        baseline before it."""
 
         def current(start: tuple[int, int], end: tuple[int, int]) -> np.ndarray:
             return read(

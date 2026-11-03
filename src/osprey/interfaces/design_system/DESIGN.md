@@ -562,3 +562,34 @@ JupyterLab is not a design-system page; its theme follower
 follows the hub's theme in a tile and in a pop-out window, but it does not
 report to the hub, so after a hub reload a popped-out Lab window stays a
 standalone page.
+
+## 11. CANOPY host contract
+
+`static/css/canopy-host.css` maps OSPREY tokens onto the names CANOPY's front
+end reads; `HOST_CONTRACT_NAMES` in `osprey/integrations/canopy/__init__.py`
+pins the list, and the web terminal ships the sheet via
+`CANOPY_HOST_STYLESHEETS`.
+
+**Token vocabulary, not shared rules.** OSPREY never publishes class rules:
+class names would become a second contract. A promoted primitive may not use
+the `canopy-`, `cds-`, `dv-`, `pydm-` or `bar-` prefix (`tokens.css` is also
+linked into CANOPY documents); `validate.py` fails the build on one
+(`forbidden_promoted_prefix`).
+
+**Bar names**, appended in this order. CANOPY's tile bar is as tall as the
+pane header (§9); its other lengths are CANOPY's own:
+
+| Host name | Value | Source |
+|---|---|---|
+| `--canopy-host-bar-h` | 40px | `var(--wt-pane-head-height)` |
+| `--canopy-host-bar-icon` | 14px | length |
+| `--canopy-host-tab-min-w` | 96px | length (CANOPY ruling) |
+| `--canopy-host-tab-max-w` | 220px | length |
+| `--canopy-host-tab-underline` | 2px | length |
+| `--canopy-host-weight-medium` | 500 | `var(--weight-medium)` |
+| `--canopy-host-shadow-dropdown` | per theme | `var(--shadow-dropdown)` |
+| `--canopy-host-z-dropdown` | 100 | `var(--z-dropdown)` |
+
+**Versioning.** Additions keep `--canopy-host-contract: 1`. An older CANOPY
+runtime ignores names it does not know; a newer runtime under an older hub
+falls back to its own same-value defaults.

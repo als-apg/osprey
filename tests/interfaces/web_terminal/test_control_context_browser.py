@@ -253,11 +253,13 @@ def _await_stream_open(page: Page, path: str) -> None:
 #: would carry its own `sharedStreams` map and prove the opposite of what
 #: this asks.
 _ADD_SUBSCRIBER = """
-async (path) => {
+async () => {
   const entry = document.querySelector('script[type="module"][src$="/js/app.js"]');
   if (!entry) throw new Error('the hub page loads no app.js module entrypoint');
   const api = await import(entry.src.replace('/app.js', '/api.js'));
-  window.__ctcExtra = api.createEventSource(path, {});
+  // The page's own events URL (pageEventsUrl tags it with the page's client
+  // id), so a subscriber through api.js keys the socket the page holds.
+  window.__ctcExtra = api.createEventSource(api.pageEventsUrl(), {});
 }
 """
 
@@ -411,7 +413,7 @@ def test_one_event_stream_serves_the_whole_page_across_a_switch(
             )
 
             # A second subscriber, through the page's own api.js.
-            watcher.evaluate(_ADD_SUBSCRIBER, FILES_EVENT_STREAM)
+            watcher.evaluate(_ADD_SUBSCRIBER)
             assert _live_streams(watcher, FILES_EVENT_STREAM) == 1, (
                 "subscribing again opened a second socket instead of sharing the one open"
             )

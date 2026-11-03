@@ -384,24 +384,22 @@ class TestByteRouteIsolation:
         assert r.headers["content-type"].startswith("image/png")
         assert r.content == PNG_BYTES
 
-    def test_cross_run_is_404(self, client):
+    @pytest.mark.parametrize(
+        ("run", "artifact"),
+        [
+            pytest.param("run-1", "other", id="cross-run"),
+            pytest.param("run-1", "legacy", id="untagged-legacy"),
+            pytest.param("no-such-run", "a1", id="unknown-run"),
+        ],
+    )
+    def test_a_denied_artifact_is_404(self, client, run, artifact):
         c, _, ids = client
-        r = c.get(f"/dispatch/run-1/artifacts/{ids['other']}", headers=_auth())
-        assert r.status_code == 404
-
-    def test_untagged_legacy_is_404(self, client):
-        c, _, ids = client
-        r = c.get(f"/dispatch/run-1/artifacts/{ids['legacy']}", headers=_auth())
+        r = c.get(f"/dispatch/{run}/artifacts/{ids[artifact]}", headers=_auth())
         assert r.status_code == 404
 
     def test_unknown_id_is_404(self, client):
         c, _, _ = client
         r = c.get("/dispatch/run-1/artifacts/does-not-exist", headers=_auth())
-        assert r.status_code == 404
-
-    def test_unknown_run_is_404(self, client):
-        c, _, ids = client
-        r = c.get(f"/dispatch/no-such-run/artifacts/{ids['a1']}", headers=_auth())
         assert r.status_code == 404
 
     def test_traversal_shaped_id_is_404(self, client):
@@ -707,17 +705,8 @@ async def _drive_failing_task(monkeypatch, tmp_path, *, kind: str) -> dict:
 
 
 class TestTerminalStateContract:
-    async def test_exception_result_has_empty_artifacts(self, monkeypatch, tmp_path):
-        result = await _drive_failing_task(monkeypatch, tmp_path, kind="exception")
-        assert result["status"] == "error"
-        assert result["artifacts"] == []
-
-    async def test_timeout_result_has_empty_artifacts(self, monkeypatch, tmp_path):
-        result = await _drive_failing_task(monkeypatch, tmp_path, kind="timeout")
-        assert result["status"] == "error"
-        assert result["artifacts"] == []
-
-    async def test_cancel_result_has_empty_artifacts(self, monkeypatch, tmp_path):
-        result = await _drive_failing_task(monkeypatch, tmp_path, kind="cancel")
+    @pytest.mark.parametrize("kind", ["exception", "timeout", "cancel"])
+    async def test_failed_result_has_empty_artifacts(self, monkeypatch, tmp_path, kind):
+        result = await _drive_failing_task(monkeypatch, tmp_path, kind=kind)
         assert result["status"] == "error"
         assert result["artifacts"] == []

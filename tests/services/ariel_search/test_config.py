@@ -427,12 +427,28 @@ class TestARIELConfig:
         errors = config.validate()
         assert "database.uri is required" in errors
 
-    def test_validate_semantic_without_model(self, minimal_config_dict: dict) -> None:
-        """Test validate() catches semantic search without model."""
-        minimal_config_dict["search_modules"] = {"semantic": {"enabled": True}}
+    @pytest.mark.parametrize(
+        ("section", "module", "expected"),
+        [
+            pytest.param(
+                "search_modules", {"semantic": {"enabled": True}}, "semantic.model", id="semantic"
+            ),
+            pytest.param(
+                "enhancement_modules",
+                {"text_embedding": {"enabled": True}},
+                "text_embedding.models",
+                id="text-embedding",
+            ),
+        ],
+    )
+    def test_validate_catches_an_enabled_module_without_its_model(
+        self, minimal_config_dict: dict, section, module, expected
+    ) -> None:
+        """Test validate() catches an enabled module without its model."""
+        minimal_config_dict[section] = module
         config = ARIELConfig.from_dict(minimal_config_dict)
         errors = config.validate()
-        assert any("semantic.model" in e for e in errors)
+        assert any(expected in e for e in errors)
 
     @staticmethod
     def _semantic_and_embedding(
@@ -542,13 +558,6 @@ class TestARIELConfig:
         minimal_config_dict["default_search_mode"] = "hybrid"
         config = ARIELConfig.from_dict(minimal_config_dict)
         assert not [e for e in config.validate() if "default_search_mode" in e]
-
-    def test_validate_text_embedding_without_models(self, minimal_config_dict: dict) -> None:
-        """Test validate() catches text_embedding without models."""
-        minimal_config_dict["enhancement_modules"] = {"text_embedding": {"enabled": True}}
-        config = ARIELConfig.from_dict(minimal_config_dict)
-        errors = config.validate()
-        assert any("text_embedding.models" in e for e in errors)
 
     def test_get_search_model(self, full_config_dict: dict) -> None:
         """Test get_search_model()."""
@@ -1041,13 +1050,29 @@ class TestKeywordPatternSettings:
             KeywordSearchSettings.from_ariel_config(_keyword_config(settings))
         assert str(exc_info.value) == message
 
-    def test_patterns_enabled_rejects_an_integer(self) -> None:
-        """``1`` is not a boolean here; the YAML spelling is ``true``."""
+    @pytest.mark.parametrize(
+        ("setting", "value", "message"),
+        [
+            # ``1`` is not a boolean here; the YAML spelling is ``true``.
+            pytest.param(
+                "patterns_enabled",
+                1,
+                "search_modules.keyword.settings.patterns_enabled must be a boolean",
+                id="patterns-enabled-integer",
+            ),
+            # ``True`` is an int subclass in Python but means nothing as a timeout.
+            pytest.param(
+                "pattern_timeout_seconds",
+                True,
+                "pattern_timeout_seconds must be a number >= 0.001, got True",
+                id="pattern-timeout-seconds-boolean",
+            ),
+        ],
+    )
+    def test_a_setting_of_the_wrong_type_is_rejected(self, setting, value, message) -> None:
         with pytest.raises(ValueError) as exc_info:
-            KeywordSearchSettings.from_ariel_config(_keyword_config({"patterns_enabled": 1}))
-        assert "search_modules.keyword.settings.patterns_enabled must be a boolean" in str(
-            exc_info.value
-        )
+            KeywordSearchSettings.from_ariel_config(_keyword_config({setting: value}))
+        assert message in str(exc_info.value)
 
     def test_patterns_enabled_error_surfaces_from_validate(self) -> None:
         """The resolver validate() calls is the one the search path uses."""
@@ -1065,27 +1090,20 @@ class TestKeywordPatternSettings:
             )
         assert "pattern_timeout_seconds must be a number >= 0.001" in str(exc_info.value)
 
-    def test_pattern_timeout_seconds_accepts_the_floor(self) -> None:
-        """0.001 is inside the range, the value the timeout-effect test configures."""
+    @pytest.mark.parametrize(
+        ("seconds", "resolved"),
+        [
+            # 0.001 is inside the range, the value the timeout-effect test configures.
+            pytest.param(0.001, 0.001, id="the-floor"),
+            # ``5`` is a number; it resolves as a float.
+            pytest.param(5, 5.0, id="an-integer"),
+        ],
+    )
+    def test_pattern_timeout_seconds_accepts_a_number_in_range(self, seconds, resolved) -> None:
         settings = KeywordSearchSettings.from_ariel_config(
-            _keyword_config({"pattern_timeout_seconds": 0.001})
+            _keyword_config({"pattern_timeout_seconds": seconds})
         )
-        assert settings.pattern_timeout_seconds == 0.001
-
-    def test_pattern_timeout_seconds_accepts_an_integer(self) -> None:
-        """``5`` is a number; it resolves as a float."""
-        settings = KeywordSearchSettings.from_ariel_config(
-            _keyword_config({"pattern_timeout_seconds": 5})
-        )
-        assert settings.pattern_timeout_seconds == 5.0
-
-    def test_pattern_timeout_seconds_rejects_a_boolean(self) -> None:
-        """``True`` is an int subclass in Python but means nothing as a timeout."""
-        with pytest.raises(ValueError) as exc_info:
-            KeywordSearchSettings.from_ariel_config(
-                _keyword_config({"pattern_timeout_seconds": True})
-            )
-        assert "pattern_timeout_seconds must be a number >= 0.001, got True" in str(exc_info.value)
+        assert settings.pattern_timeout_seconds == resolved
 
     def test_pattern_timeout_seconds_error_surfaces_from_validate(self) -> None:
         """``vocab-check``, ``status`` and startup all report it, naming the key."""
@@ -1248,21 +1266,28 @@ class TestHybridSettingsValidation:
 class TestSemanticSettingsValidation:
     """Tests for ``search_modules.semantic.settings`` reaching validate()."""
 
-    def test_similarity_threshold_error_surfaces_from_validate(self) -> None:
-        """``vocab-check``, ``status`` and startup all report it, naming the key."""
-        errors = _semantic_config({"similarity_threshold": "high"}).validate()
-        assert (
-            "search_modules.semantic.settings.similarity_threshold must be a float in [0, 1], "
-            "got 'high'" in errors
-        )
-
-    def test_out_of_range_threshold_surfaces_from_validate(self) -> None:
-        """A number outside ``[0, 1]`` is named rather than clamped into range."""
-        errors = _semantic_config({"similarity_threshold": 1.5}).validate()
-        assert (
-            "search_modules.semantic.settings.similarity_threshold must be a float in [0, 1], "
-            "got 1.5" in errors
-        )
+    @pytest.mark.parametrize(
+        ("threshold", "message"),
+        [
+            # ``vocab-check``, ``status`` and startup all report it, naming the key.
+            pytest.param(
+                "high",
+                "search_modules.semantic.settings.similarity_threshold must be a float in [0, 1], "
+                "got 'high'",
+                id="not-a-number",
+            ),
+            # A number outside ``[0, 1]`` is named rather than clamped into range.
+            pytest.param(
+                1.5,
+                "search_modules.semantic.settings.similarity_threshold must be a float in [0, 1], "
+                "got 1.5",
+                id="out-of-range",
+            ),
+        ],
+    )
+    def test_similarity_threshold_error_surfaces_from_validate(self, threshold, message) -> None:
+        errors = _semantic_config({"similarity_threshold": threshold}).validate()
+        assert message in errors
 
     def test_settings_are_not_validated_when_semantic_is_disabled(self) -> None:
         """A disabled module's settings reach no reader, so validate() stays quiet."""
@@ -1409,10 +1434,56 @@ class TestAttachmentsConfig:
     def test_every_copy_mode_is_accepted(self, mode: str) -> None:
         assert AttachmentsConfig.from_dict({"copy_on_ingest": mode}).copy_on_ingest == mode
 
-    @pytest.mark.parametrize("mode", ["bogus", "Images", "", None, True, 1])
-    def test_an_invalid_copy_mode_is_refused_by_name(self, mode: object) -> None:
-        with pytest.raises(ValueError, match=r"ariel\.attachments\.copy_on_ingest"):
-            AttachmentsConfig.from_dict({"copy_on_ingest": mode})
+    @pytest.mark.parametrize(
+        ("key", "value", "match"),
+        [
+            pytest.param(
+                "copy_on_ingest", "bogus", r"ariel\.attachments\.copy_on_ingest", id="mode-bogus"
+            ),
+            pytest.param(
+                "copy_on_ingest",
+                "Images",
+                r"ariel\.attachments\.copy_on_ingest",
+                id="mode-capitalised",
+            ),
+            pytest.param(
+                "copy_on_ingest", "", r"ariel\.attachments\.copy_on_ingest", id="mode-empty"
+            ),
+            pytest.param(
+                "copy_on_ingest", None, r"ariel\.attachments\.copy_on_ingest", id="mode-null"
+            ),
+            pytest.param(
+                "copy_on_ingest", True, r"ariel\.attachments\.copy_on_ingest", id="mode-bool"
+            ),
+            pytest.param("copy_on_ingest", 1, r"ariel\.attachments\.copy_on_ingest", id="mode-int"),
+            pytest.param(
+                "allowed_origins",
+                "https://elog.example.org",
+                r"ariel\.attachments\.allowed_origins",
+                id="origins-string",
+            ),
+            pytest.param(
+                "allowed_origins",
+                {"a": 1},
+                r"ariel\.attachments\.allowed_origins",
+                id="origins-mapping",
+            ),
+            pytest.param(
+                "allowed_origins", 5, r"ariel\.attachments\.allowed_origins", id="origins-int"
+            ),
+            pytest.param(
+                "allowed_origins", True, r"ariel\.attachments\.allowed_origins", id="origins-bool"
+            ),
+            pytest.param(
+                "view", False, r"ariel\.attachments\.view must be a mapping", id="view-non-mapping"
+            ),
+        ],
+    )
+    def test_an_invalid_attachments_setting_is_refused_by_name(
+        self, key: str, value: object, match: str
+    ) -> None:
+        with pytest.raises(ValueError, match=match):
+            AttachmentsConfig.from_dict({key: value})
 
     def test_block_must_be_a_mapping(self) -> None:
         with pytest.raises(ValueError, match=r"ariel\.attachments must be a mapping"):
@@ -1446,11 +1517,6 @@ class TestAttachmentsConfig:
         assert "max_file_mb" not in caplog.text
 
     # allowed_origins: validated and normalised to (scheme, host, effective port).
-
-    @pytest.mark.parametrize("value", ["https://elog.example.org", {"a": 1}, 5, True])
-    def test_a_non_list_allowed_origins_is_refused(self, value: object) -> None:
-        with pytest.raises(ValueError, match=r"ariel\.attachments\.allowed_origins"):
-            AttachmentsConfig.from_dict({"allowed_origins": value})
 
     def test_a_null_allowed_origins_is_empty(self) -> None:
         assert AttachmentsConfig.from_dict({"allowed_origins": None}).allowed_origins == ()
@@ -1512,10 +1578,6 @@ class TestAttachmentsConfig:
     def test_a_non_bool_view_enabled_is_refused_by_name(self, value: object) -> None:
         with pytest.raises(ValueError, match=r"ariel\.attachments\.view\.enabled"):
             AttachmentsConfig.from_dict({"view": {"enabled": value}})
-
-    def test_a_non_mapping_view_is_refused_by_name(self) -> None:
-        with pytest.raises(ValueError, match=r"ariel\.attachments\.view must be a mapping"):
-            AttachmentsConfig.from_dict({"view": False})
 
 
 class TestAttachmentViewEnabledLeaf:

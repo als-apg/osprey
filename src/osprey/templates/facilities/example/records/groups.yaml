@@ -767,6 +767,88 @@
   - SR/DIPOLE34
   - SR/DIPOLE35
   - SR/DIPOLE36
+- id: SR/ENV
+  description: 'Tunnel Environment (ENV): tunnel air temperatures and air-handler valves.'
+  members:
+  - SR/AHU01
+  - SR/AHU03
+  - SR/AHU04
+  - SR/AHU06
+  - SR/AHU12
+  - SR/AIR01
+  - SR/AIR03
+  - SR/AIR04
+  - SR/AIR06
+  - SR/AIR07
+  - SR/AIR08
+  - SR/AIR09
+  - SR/AIR11
+  - SR/AIR12
+- id: SR/FE
+  description: 'Front Ends (FE): the photon shutters of the beamline ports.'
+  members:
+  - SR/SHUTTER01
+  - SR/SHUTTER02
+  - SR/SHUTTER03
+  - SR/SHUTTER04
+  - SR/SHUTTER05
+  - SR/SHUTTER06
+  - SR/SHUTTER07
+  - SR/SHUTTER08
+  - SR/SHUTTER09
+  - SR/SHUTTER10
+  - SR/SHUTTER11
+  - SR/SHUTTER12
+  - SR/SHUTTER13
+  - SR/SHUTTER14
+  - SR/SHUTTER15
+  - SR/SHUTTER16
+  - SR/SHUTTER17
+  - SR/SHUTTER18
+  - SR/SHUTTER19
+  - SR/SHUTTER20
+  - SR/SHUTTER21
+  - SR/SHUTTER22
+  - SR/SHUTTER23
+  - SR/SHUTTER24
+  - SR/SHUTTER25
+  - SR/SHUTTER26
+  - SR/SHUTTER27
+  - SR/SHUTTER28
+  - SR/SHUTTER29
+  - SR/SHUTTER30
+  - SR/SHUTTER31
+  - SR/SHUTTER32
+  - SR/SHUTTER33
+  - SR/SHUTTER34
+  - SR/SHUTTER35
+  - SR/SHUTTER36
+  - SR/SHUTTER37
+  - SR/SHUTTER38
+  - SR/SHUTTER39
+  - SR/SHUTTER40
+  - SR/SHUTTER41
+  - SR/SHUTTER42
+  - SR/SHUTTER43
+  - SR/SHUTTER44
+  - SR/SHUTTER45
+  - SR/SHUTTER46
+  - SR/SHUTTER47
+  - SR/SHUTTER48
+  - SR/SHUTTER49
+  - SR/SHUTTER50
+  - SR/SHUTTER51
+  - SR/SHUTTER52
+  - SR/SHUTTER53
+  - SR/SHUTTER54
+  - SR/SHUTTER55
+  - SR/SHUTTER56
+- id: SR/HC
+  description: 'Harmonic Cavities (HC): passive third-harmonic cavities in straight 2 that lengthen the bunches.'
+  members:
+  - SR/HARMONIC01
+  - SR/HARMONIC02
+  - SR/HARMONIC03
 - id: SR/HCM
   description: 'Horizontal Corrector Magnets (HCM): Small dipole steering magnets for fine horizontal (X) beam position adjustments. Used in closed-orbit correction algorithms to compensate for alignment errors and field imperfections. Bipolar power supplies allow positive and negative deflection.'
   names:
@@ -844,6 +926,23 @@
   - SR/HCM70
   - SR/HCM71
   - SR/HCM72
+- id: SR/ID
+  description: 'Insertion Devices (ID): undulators and wigglers in the storage-ring straights; each one''s gap sets the photon energy of its beamline.'
+  members:
+  - SR/ID01
+  - SR/ID02
+  - SR/ID03
+  - SR/ID04
+  - SR/ID05
+  - SR/ID06
+  - SR/ID07
+  - SR/ID08
+  - SR/ID09
+  - SR/ID10
+  - SR/ID11
+  - SR/ID12
+  - SR/ID13
+  - SR/ID14
 - id: SR/MAG
   description: 'Magnet System (MAG): Controls beam trajectory and focusing in the storage ring. Includes dipole bending magnets, quadrupole focusing magnets, sextupole magnets for chromaticity correction, and corrector magnets for precise beam steering. All magnets are powered by regulated power supplies and are critical for maintaining stable beam orbit and beam quality.'
   members:
@@ -1289,6 +1388,18 @@
   - SR/CAVITY02
   - SR/KLYSTRON01
   - SR/KLYSTRON02
+- id: SR/SCRAPER
+  description: 'Scrapers (SCRAPER): insertable blades that measure the beam halo.'
+  members:
+  - SR/SCRAPER01
+  - SR/SCRAPER02
+  - SR/SCRAPER03
+  - SR/SCRAPER04
+  - SR/SCRAPER05
+  - SR/SCRAPER06
+  - SR/SCRAPER07
+  - SR/SCRAPER08
+  - SR/SCRAPER09
 - id: SR/SD
   description: 'Defocusing Sextupoles (SD): Sextupole magnets with negative polarity for chromatic correction. Work together with SF sextupoles to independently control horizontal and vertical chromaticity.'
   names:
@@ -1412,6 +1523,190 @@
   - SR/SHF22
   - SR/SHF23
   - SR/SHF24
+- id: SR/TC
+  description: 'Absorber Thermocouples (TC): temperatures of the photon absorbers under the straights.'
+  members:
+  - SR/TC02L01
+  - SR/TC02L02
+  - SR/TC02L03
+  - SR/TC02L04
+  - SR/TC02L05
+  - SR/TC02L06
+  - SR/TC02L07
+  - SR/TC02L08
+  - SR/TC02L09
+  - SR/TC02L10
+  - SR/TC02U01
+  - SR/TC02U02
+  - SR/TC02U03
+  - SR/TC02U04
+  - SR/TC02U05
+  - SR/TC02U06
+  - SR/TC02U07
+  - SR/TC02U08
+  - SR/TC02U09
+  - SR/TC02U10
+  - SR/TC04U01
+  - SR/TC05L01
+  - SR/TC05L02
+  - SR/TC05L03
+  - SR/TC05L04
+  - SR/TC05L05
+  - SR/TC05L06
+  - SR/TC05L07
+  - SR/TC05L08
+  - SR/TC05L09
+  - SR/TC05L10
+  - SR/TC05U01
+  - SR/TC05U02
+  - SR/TC05U03
+  - SR/TC05U04
+  - SR/TC05U05
+  - SR/TC05U06
+  - SR/TC05U07
+  - SR/TC05U08
+  - SR/TC05U09
+  - SR/TC05U10
+  - SR/TC06L01
+  - SR/TC06L02
+  - SR/TC06L03
+  - SR/TC06L04
+  - SR/TC06L05
+  - SR/TC06L06
+  - SR/TC06L07
+  - SR/TC06L08
+  - SR/TC06L09
+  - SR/TC06L10
+  - SR/TC06U01
+  - SR/TC06U02
+  - SR/TC06U03
+  - SR/TC06U04
+  - SR/TC06U05
+  - SR/TC06U06
+  - SR/TC06U07
+  - SR/TC06U08
+  - SR/TC06U09
+  - SR/TC06U10
+  - SR/TC07L01
+  - SR/TC07L02
+  - SR/TC07L03
+  - SR/TC07L04
+  - SR/TC07L05
+  - SR/TC07L06
+  - SR/TC07L07
+  - SR/TC07L08
+  - SR/TC07L09
+  - SR/TC07L10
+  - SR/TC07U01
+  - SR/TC07U02
+  - SR/TC07U03
+  - SR/TC07U04
+  - SR/TC07U05
+  - SR/TC07U06
+  - SR/TC07U07
+  - SR/TC07U08
+  - SR/TC07U09
+  - SR/TC07U10
+  - SR/TC08L01
+  - SR/TC08L02
+  - SR/TC08L03
+  - SR/TC08L04
+  - SR/TC08L05
+  - SR/TC08L06
+  - SR/TC08L07
+  - SR/TC08L08
+  - SR/TC08L09
+  - SR/TC08L10
+  - SR/TC08U01
+  - SR/TC08U02
+  - SR/TC08U03
+  - SR/TC08U04
+  - SR/TC08U05
+  - SR/TC08U06
+  - SR/TC08U07
+  - SR/TC08U08
+  - SR/TC08U09
+  - SR/TC08U10
+  - SR/TC09L01
+  - SR/TC09L02
+  - SR/TC09L03
+  - SR/TC09L04
+  - SR/TC09L05
+  - SR/TC09L06
+  - SR/TC09L07
+  - SR/TC09L08
+  - SR/TC09L09
+  - SR/TC09L10
+  - SR/TC09U01
+  - SR/TC09U02
+  - SR/TC09U03
+  - SR/TC09U04
+  - SR/TC09U05
+  - SR/TC09U06
+  - SR/TC09U07
+  - SR/TC09U08
+  - SR/TC09U09
+  - SR/TC09U10
+  - SR/TC10L01
+  - SR/TC10L02
+  - SR/TC10L03
+  - SR/TC10L04
+  - SR/TC10L05
+  - SR/TC10L06
+  - SR/TC10L07
+  - SR/TC10L08
+  - SR/TC10L09
+  - SR/TC10L10
+  - SR/TC10U01
+  - SR/TC10U02
+  - SR/TC10U03
+  - SR/TC10U04
+  - SR/TC10U05
+  - SR/TC10U06
+  - SR/TC10U07
+  - SR/TC10U08
+  - SR/TC10U09
+  - SR/TC10U10
+  - SR/TC11L01
+  - SR/TC11L02
+  - SR/TC11L03
+  - SR/TC11L04
+  - SR/TC11L05
+  - SR/TC11L06
+  - SR/TC11L07
+  - SR/TC11L08
+  - SR/TC11L09
+  - SR/TC11L10
+  - SR/TC11U01
+  - SR/TC11U02
+  - SR/TC11U03
+  - SR/TC11U04
+  - SR/TC11U05
+  - SR/TC11U06
+  - SR/TC11U07
+  - SR/TC11U08
+  - SR/TC11U09
+  - SR/TC11U10
+  - SR/TC12L01
+  - SR/TC12L02
+  - SR/TC12L03
+  - SR/TC12L04
+  - SR/TC12L05
+  - SR/TC12L06
+  - SR/TC12L07
+  - SR/TC12L08
+  - SR/TC12L09
+  - SR/TC12L10
+  - SR/TC12U01
+  - SR/TC12U02
+  - SR/TC12U03
+  - SR/TC12U04
+  - SR/TC12U05
+  - SR/TC12U06
+  - SR/TC12U07
+  - SR/TC12U08
+  - SR/TC12U09
+  - SR/TC12U10
 - id: SR/VAC
   description: 'Vacuum System (VAC): Maintains ultra-high vacuum (UHV) in the beam chamber to minimize beam-gas scattering and maximize beam lifetime. Includes ion pumps, pressure gauges, and vacuum valves. Typical operating pressure: 10^-9 to 10^-10 Torr.'
   members:
@@ -1427,12 +1722,95 @@
   - SR/GAUGESR10
   - SR/GAUGESR11
   - SR/GAUGESR12
+  - SR/GAUGEST01A
+  - SR/GAUGEST01B
+  - SR/GAUGEST02A
+  - SR/GAUGEST03A
+  - SR/GAUGEST03B
+  - SR/GAUGEST04A
+  - SR/GAUGEST04B
+  - SR/GAUGEST05A
+  - SR/GAUGEST06A
+  - SR/GAUGEST06B
+  - SR/GAUGEST07A
+  - SR/GAUGEST08A
+  - SR/GAUGEST09A
+  - SR/GAUGEST10A
+  - SR/GAUGEST11A
+  - SR/GAUGEST11B
+  - SR/GAUGEST12A
   - SR/ION-PUMP01
   - SR/ION-PUMP02
   - SR/ION-PUMP03
   - SR/ION-PUMP04
   - SR/ION-PUMP05
   - SR/ION-PUMP06
+  - SR/ION-PUMP07
+  - SR/ION-PUMP08
+  - SR/ION-PUMP09
+  - SR/ION-PUMP10
+  - SR/ION-PUMP11
+  - SR/ION-PUMP12
+  - SR/ION-PUMP13
+  - SR/ION-PUMP14
+  - SR/ION-PUMP15
+  - SR/ION-PUMP16
+  - SR/ION-PUMP17
+  - SR/ION-PUMP18
+  - SR/ION-PUMP19
+  - SR/ION-PUMP20
+  - SR/ION-PUMP21
+  - SR/ION-PUMP22
+  - SR/ION-PUMP23
+  - SR/ION-PUMP24
+  - SR/ION-PUMP25
+  - SR/ION-PUMP26
+  - SR/ION-PUMP27
+  - SR/ION-PUMP28
+  - SR/ION-PUMP29
+  - SR/ION-PUMP30
+  - SR/ION-PUMP31
+  - SR/ION-PUMP32
+  - SR/ION-PUMP33
+  - SR/ION-PUMP34
+  - SR/ION-PUMP35
+  - SR/ION-PUMP36
+  - SR/ION-PUMP37
+  - SR/ION-PUMP38
+  - SR/ION-PUMP39
+  - SR/ION-PUMP40
+  - SR/ION-PUMP41
+  - SR/ION-PUMP42
+  - SR/ION-PUMP43
+  - SR/ION-PUMP44
+  - SR/ION-PUMP45
+  - SR/ION-PUMP46
+  - SR/ION-PUMP47
+  - SR/ION-PUMP48
+  - SR/ION-PUMP49
+  - SR/ION-PUMP50
+  - SR/ION-PUMP51
+  - SR/ION-PUMP52
+  - SR/ION-PUMP53
+  - SR/ION-PUMP54
+  - SR/ION-PUMP55
+  - SR/ION-PUMP56
+  - SR/ION-PUMP57
+  - SR/ION-PUMP58
+  - SR/ION-PUMP59
+  - SR/ION-PUMP60
+  - SR/ION-PUMP61
+  - SR/ION-PUMP62
+  - SR/ION-PUMP63
+  - SR/ION-PUMP64
+  - SR/ION-PUMP65
+  - SR/ION-PUMP66
+  - SR/ION-PUMP67
+  - SR/ION-PUMP68
+  - SR/ION-PUMP69
+  - SR/ION-PUMP70
+  - SR/ION-PUMP71
+  - SR/ION-PUMP72
   - SR/VALVE01
   - SR/VALVE02
   - SR/VALVE03
@@ -1445,6 +1823,18 @@
   - SR/VALVE10
   - SR/VALVE11
   - SR/VALVE12
+  - SR/VALVE13
+  - SR/VALVE14
+  - SR/VALVE15
+  - SR/VALVE16
+  - SR/VALVE17
+  - SR/VALVE18
+  - SR/VALVE19
+  - SR/VALVE20
+  - SR/VALVE21
+  - SR/VALVE22
+  - SR/VALVE23
+  - SR/VALVE24
 - id: SR/VCM
   description: 'Vertical Corrector Magnets (VCM): Small dipole steering magnets for fine vertical (Y) beam position adjustments. Work with BPMs in feedback loops to maintain desired orbit. Bipolar power supplies allow positive and negative deflection.'
   names:

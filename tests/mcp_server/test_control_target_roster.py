@@ -26,7 +26,6 @@ from osprey.mcp_server.control_system.connector_host_manager import target_displ
 from osprey.mcp_server.control_system.target_eligibility import (
     ACK_LEAF,
     REASON_ALREADY_ACTIVE,
-    REASON_ARCHIVE_BELONGS_TO_STANDIN,
     REASON_OPERATOR_ACK_MISSING,
     REASON_PROBE_CHANNEL_MISSING,
     REASON_STANDIN_NOT_DEPLOYED,
@@ -35,7 +34,6 @@ from osprey.mcp_server.control_system.target_eligibility import (
 )
 from osprey.mcp_server.control_system.tools import control_target
 from osprey_connectors import control_context, posture_store
-from osprey_connectors.standin import ARCHIVER_RECORDER_SERVICE
 from osprey_connectors_tests._harness import owner, write_control_context
 from tests.mcp_server._switch_harness import (
     LIVE_PROBE,
@@ -186,10 +184,12 @@ def standin_config(
     *baseline_type* is ``control_system.type`` — ``live_standin`` for a
     deployment baselined on its own stand-in — *va_gateways* gives the simulator
     a gateway pair so it is a destination and not merely a description, and
-    *acknowledged* and *recorder* set the two FR-8 facts the live machine is
-    gated on (the operator acknowledgment, and whether an ``archiver_recorder``
-    makes the store the stand-in's); *strict_limits* sets the limits block the
-    ``limits_strict`` field reports.
+    *acknowledged* sets the one FR-8 fact the live machine is gated on (the
+    operator acknowledgment); *strict_limits* sets the limits block the
+    ``limits_strict`` field reports; and *recorder* lists an
+    ``archiver_recorder`` beside them — the store it writes is the virtual
+    accelerator's, so it gates nothing, which the roster case that sets it is
+    there to show.
     """
     gateway = {"address": gateway_host, "port": gateway_port, "use_name_server": True}
     write_gateway = dict(gateway)
@@ -234,7 +234,7 @@ def standin_config(
         if deployed:
             raw["deployed_services"] = ["virtual_accelerator", "live_standin"]
     if recorder:
-        raw.setdefault("deployed_services", []).append(ARCHIVER_RECORDER_SERVICE)
+        raw.setdefault("deployed_services", []).append("archiver_recorder")
     return raw
 
 
@@ -749,14 +749,14 @@ class TestThreeTargetRoster:
         assert rows["standin"]["eligible"] is True
 
     @pytest.mark.usefixtures("no_prober")
-    async def test_a_recorded_standin_store_closes_the_live_row(self, make_manager, monkeypatch):
-        """Acknowledged, strict, and still refused: the archive is the stand-in's.
+    async def test_a_recorded_store_leaves_the_live_row_open(self, make_manager, monkeypatch):
+        """Acknowledged and strict: the recorder beside the stand-in changes no row.
 
-        This is the gate the stand-in creates for ``live`` and for nothing else.
-        The deployment runs the recorder, so the store it writes holds the
-        stand-in's synthesized past; selecting the facility's real machine
-        would splice real readings onto it in one store nothing afterwards can
-        tell apart.
+        The store the recorder writes is the virtual accelerator's — it samples
+        the simulator, never the stand-in — and the live machine and its
+        stand-in share the facility's appliance. Selecting the real machine
+        puts nothing into a synthesized past, so the archive is no reason to
+        close the row.
         """
         raw = standin_config(
             baseline_type="live_standin",
@@ -765,17 +765,14 @@ class TestThreeTargetRoster:
             acknowledged=True,
             recorder=True,
         )
-        assert ARCHIVER_RECORDER_SERVICE in raw["deployed_services"]
+        assert "archiver_recorder" in raw["deployed_services"]
         manager = make_manager(raw=raw)
         install_context(manager, monkeypatch)
 
         rows = extract_response_dict(await ROSTER())["access_details"]["targets"]
 
-        assert rows["live"]["available_now"] is False
-        assert rows["live"]["reason"] == REASON_ARCHIVE_BELONGS_TO_STANDIN
-        assert ARCHIVER_RECORDER_SERVICE in rows["live"]["detail"]
-        # Nothing else moved: the recorder is a fact about the store, not about
-        # the machines beside it.
+        assert rows["live"]["available_now"] is True
+        assert rows["live"]["reason"] is None
         assert rows["standin"]["eligible"] is True
         assert rows["va"]["available_now"] is True
 
@@ -785,10 +782,8 @@ class TestThreeTargetRoster:
     ):
         """The same deployment without the recorder: all three rows are usable.
 
-        The positive case the three refusals above are only meaningful against
-        — stop recording and the facility's machine is available from a
-        stand-in baseline, which is the point of standing a stand-in up beside
-        it rather than instead of it.
+        The facility's machine is available from a stand-in baseline, which is
+        the point of standing a stand-in up beside it rather than instead of it.
         """
         raw = standin_config(
             baseline_type="live_standin",

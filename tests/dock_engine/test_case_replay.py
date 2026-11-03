@@ -1,9 +1,9 @@
-"""The C-CASES corpus replayed against the Python layout rules.
+"""The dock engine's validate and normalize cases replayed against the server's layout rules.
 
 Every ``validate`` case gives its ``(reason, where)`` — or no refusal for ``valid: true`` —
 through :func:`layout_refusal`, and every ``normalize`` case gives its ``output`` through
-:func:`normalize_layout`, sizes within ±0.005. The on-disk case counts are pinned to
-``CUTOVER.json`` first, so a case that goes missing cannot shrink the replay unnoticed.
+:func:`normalize_layout`, sizes within ±0.005. The cases are byte copies of the engine's
+own (``cases-pin.json``), so the server refuses a layout exactly as the browser's engine does.
 """
 
 from __future__ import annotations
@@ -14,26 +14,21 @@ from typing import Any
 
 import pytest
 
-from dock_engine import cases_dir, layout_refusal, normalize_layout
+from osprey.interfaces.web_terminal.dock_layout import (
+    LAYOUT_REASONS,
+    layout_refusal,
+    normalize_layout,
+)
 
-PKG = Path(__file__).resolve().parents[2] / "packages" / "dock-engine"
-CUTOVER = json.loads((PKG / "CUTOVER.json").read_text(encoding="utf-8"))
+CASES = Path(__file__).resolve().parent / "cases"
 SIZE_ABS = 0.005
 
-VALIDATE = sorted((cases_dir() / "validate").glob("*.json"))
-NORMALIZE = sorted((cases_dir() / "normalize").glob("*.json"))
+VALIDATE = sorted((CASES / "validate").glob("*.json"))
+NORMALIZE = sorted((CASES / "normalize").glob("*.json"))
 
 
 def _case(path: Path) -> dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8"))
-
-
-def _validate_form(case: dict[str, Any]) -> str:
-    return case.get("options", {}).get("form", "dock")
-
-
-def _normalize_form(case: dict[str, Any]) -> str:
-    return case.get("form", "dock")
 
 
 def _assert_tree(got: Any, want: Any, at: str) -> None:
@@ -56,22 +51,19 @@ def _assert_tree(got: Any, want: Any, at: str) -> None:
         assert got == want and type(got) is type(want), at
 
 
-def test_case_counts_match_cutover() -> None:
-    """Every case kind on disk holds exactly the count CUTOVER.json records."""
-    on_disk = {
-        kind.name: len(list(kind.glob("*.json")))
-        for kind in sorted(cases_dir().iterdir())
-        if kind.is_dir()
-    }
-    assert on_disk == CUTOVER["case_counts"]
-    assert len(VALIDATE) == CUTOVER["case_counts"]["validate"]
-    assert len(NORMALIZE) == CUTOVER["case_counts"]["normalize"]
-
-
 def test_both_forms_are_replayed() -> None:
-    """The validate and normalize corpora each carry dock and collection cases."""
-    assert {_validate_form(_case(p)) for p in VALIDATE} == {"dock", "collection"}
-    assert {_normalize_form(_case(p)) for p in NORMALIZE} == {"dock", "collection"}
+    """The validate and normalize cases each carry dock and collection cases."""
+    assert {_case(p).get("options", {}).get("form", "dock") for p in VALIDATE} == {
+        "dock",
+        "collection",
+    }
+    assert {_case(p).get("form", "dock") for p in NORMALIZE} == {"dock", "collection"}
+
+
+def test_every_reason_is_one_a_case_names() -> None:
+    """The server's reason vocabulary is exactly the one the cases refuse with."""
+    named = {_case(p)["reason"] for p in VALIDATE if not _case(p).get("valid")}
+    assert named == set(LAYOUT_REASONS)
 
 
 @pytest.mark.parametrize("path", VALIDATE, ids=[p.stem for p in VALIDATE])
@@ -89,6 +81,6 @@ def test_normalize_case(path: Path) -> None:
     """A normalize case yields its output tree, sizes within ±0.005."""
     case = _case(path)
     before = json.dumps(case["input"], sort_keys=True)
-    got = normalize_layout(case["input"], _normalize_form(case))
+    got = normalize_layout(case["input"], case.get("form", "dock"))
     _assert_tree(got, case["output"], "layout")
     assert json.dumps(case["input"], sort_keys=True) == before

@@ -31,19 +31,22 @@ import osprey.templates.claude_code.claude.hooks.osprey_hook_log as hook_log
 # ---------------------------------------------------------------------------
 
 
-def test_execute_readonly_is_not_a_write_call():
-    """A readonly python execution writes nothing."""
-    assert hook_log.is_write_call("mcp__python__execute", {"execution_mode": "readonly"}) is False
+@pytest.mark.parametrize(
+    "tool_input",
+    [
+        # A readonly python execution writes nothing.
+        pytest.param({"execution_mode": "readonly"}, id="readonly"),
+        # A missing execution_mode reads as readonly, matching the server default.
+        pytest.param({"code": "print(1)"}, id="without-mode"),
+    ],
+)
+def test_execute_read_only_is_not_a_write_call(tool_input):
+    assert hook_log.is_write_call("mcp__python__execute", tool_input) is False
 
 
 def test_execute_readwrite_is_a_write_call():
     """A non-readonly execution_mode is a write."""
     assert hook_log.is_write_call("mcp__python__execute", {"execution_mode": "readwrite"}) is True
-
-
-def test_execute_without_mode_is_not_a_write_call():
-    """A missing execution_mode reads as readonly, matching the server default."""
-    assert hook_log.is_write_call("mcp__python__execute", {"code": "print(1)"}) is False
 
 
 def test_non_execute_tool_is_always_a_write_call():
@@ -193,12 +196,19 @@ def test_an_explicitly_empty_list_is_taken_at_its_word(hook_config_file):
 # ---------------------------------------------------------------------------
 
 
-def test_short_tool_name_strips_a_matching_prefix():
-    """The ordinary case: a server prefix comes off and the tool name is left."""
-    assert (
-        hook_log.short_tool_name("mcp__controls__channel_write", ["mcp__controls__"])
-        == "channel_write"
-    )
+@pytest.mark.parametrize(
+    ("tool_name", "short_name"),
+    [
+        # The ordinary case: a server prefix comes off and the tool name is left.
+        pytest.param("mcp__controls__channel_write", "channel_write", id="matching-prefix"),
+        # A tool from a server no prefix list carries is still an MCP tool name.
+        pytest.param("mcp__other__do_thing", "do_thing", id="unlisted-server"),
+        # A built-in tool has no server to strip.
+        pytest.param("Bash", "Bash", id="no-mcp-shape"),
+    ],
+)
+def test_short_tool_name_strips_the_server_prefix(tool_name, short_name):
+    assert hook_log.short_tool_name(tool_name, ["mcp__controls__"]) == short_name
 
 
 def test_the_longest_matching_prefix_wins():
@@ -210,16 +220,6 @@ def test_the_longest_matching_prefix_wins():
     prefixes = ["mcp__bluesky__", "mcp__bluesky_va__"]
 
     assert hook_log.short_tool_name("mcp__bluesky_va__queue_start", prefixes) == "queue_start"
-
-
-def test_an_unlisted_server_falls_back_to_the_mcp_shape():
-    """A tool from a server no prefix list carries is still an MCP tool name."""
-    assert hook_log.short_tool_name("mcp__other__do_thing", ["mcp__controls__"]) == "do_thing"
-
-
-def test_a_tool_name_in_no_mcp_shape_is_its_own_short_name():
-    """A built-in tool has no server to strip."""
-    assert hook_log.short_tool_name("Bash", ["mcp__controls__"]) == "Bash"
 
 
 @pytest.mark.parametrize("prefixes", [[], None, [None, 42]])

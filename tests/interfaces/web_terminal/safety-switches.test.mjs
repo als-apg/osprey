@@ -18,7 +18,14 @@ import {
 import { setChatNoticeSink } from '../../../src/osprey/interfaces/web_terminal/static/js/chat-events.js';
 import { dismissConfirm } from '../../../src/osprey/interfaces/web_terminal/static/js/posture-confirm.js';
 
-const ON = { name: 'watchdog', label: 'Safety watchdog', on: true, off_by: null, off_at: null };
+const ON = {
+  name: 'watchdog',
+  label: 'Safety watchdog',
+  note: 'Open holds stay open.',
+  on: true,
+  off_by: null,
+  off_at: null,
+};
 const OFF = { ...ON, on: false, off_by: 'alice', off_at: 1_700_000_000 };
 
 /** @type {{switches: object[], can_change: boolean}} */
@@ -91,6 +98,14 @@ test('a non-admin tier sees the state but cannot move it', async () => {
   expect(toggle().checked).toBe(false);
   expect(toggle().disabled).toBe(true);
   expect(document.querySelector('.safety-switch-state')?.textContent).toContain('alice');
+  expect(document.querySelector('.safety-switch-lock')?.textContent).toBe(
+    '🔒 Set by your deployment admin'
+  );
+});
+
+test('an admin tier has no lock line beside its live toggle', async () => {
+  await refreshSafetySwitches();
+  expect(document.querySelector('.safety-switch-lock')?.textContent).toBe('');
 });
 
 test('a feature newly seen off is announced once, naming who turned it off', async () => {
@@ -107,6 +122,10 @@ test('turning it off asks in the app dialog first, then posts the move', async (
   await refreshSafetySwitches();
   switchOff();
   expect(dialog()?.textContent).toContain('Turn Safety watchdog off?');
+  expect(dialog()?.textContent).toContain(
+    'It stays off for this terminal until it restarts. Open holds stay open. ' +
+      'The move is recorded in the audit trail with your name.'
+  );
   expect(toggle().checked).toBe(true);
   expect(posts).toHaveLength(0);
   press('confirm');

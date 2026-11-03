@@ -147,27 +147,24 @@ async def test_an_owned_run_with_the_switch_on_writes(monkeypatch, tree):
 
 
 @pytest.mark.asyncio
-async def test_an_owned_run_with_the_switch_off_is_refused(monkeypatch, tree):
-    _set_switch(tree, "alice", "off")
-    _dispatch_run(monkeypatch, "alice")
+@pytest.mark.parametrize(
+    ("owner", "switch", "reason"),
+    [
+        pytest.param("alice", "off", "switch_off", id="switch-off"),
+        # ``carol``'s switch is on, but the map does not say what she may do.
+        pytest.param("carol", "asked", "owner_unknown", id="owner-not-in-the-map"),
+    ],
+)
+async def test_an_owned_run_is_refused_when_its_owner_may_not_write(
+    monkeypatch, tree, owner, switch, reason
+):
+    _set_switch(tree, owner, switch)
+    _dispatch_run(monkeypatch, owner)
     connector = _connector()
 
     result = await connector.write_channel(CHANNEL, 0.5)
 
-    _refused(result, "switch_off")
-    assert connector.writes == []
-
-
-@pytest.mark.asyncio
-async def test_an_owner_the_map_does_not_name_is_refused(monkeypatch, tree):
-    """``carol``'s switch is on, but the map does not say what she may do."""
-    _set_switch(tree, "carol", "asked")
-    _dispatch_run(monkeypatch, "carol")
-    connector = _connector()
-
-    result = await connector.write_channel(CHANNEL, 0.5)
-
-    _refused(result, "owner_unknown")
+    _refused(result, reason)
     assert connector.writes == []
 
 

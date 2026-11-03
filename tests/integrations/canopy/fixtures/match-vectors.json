@@ -1,0 +1,988 @@
+{
+  "about": [
+    "Shared vectors for the screen matcher: ranking entries against a query and choosing which manifest screens are searchable.",
+    "Authored in canopy (tests/canopy_mcp/fixtures/collections/match-vectors.json); every other holder keeps a byte-identical copy.",
+    "ASCII-only, no trailing whitespace, one final newline.",
+    "Every case has a name, a kind and an expect array. A reader must fail on a kind it does not know; the kinds are rank and include.",
+    "Words: split the text on non-alphanumerics, then at lower->Upper, at Upper->Upper+lower and at letter<->digit boundaries, and lower-case each part (LinacView -> linac, view; SR01C -> sr, 01, c).",
+    "rank {query, candidates:[{label, keywords[]}], expect:[labels]}: the query is lower-cased and split on whitespace into tokens; no tokens -> no matches. A candidate matches when every token is a prefix of some word of its label or a keyword, or of the joined lower-case words of that label or keyword.",
+    "Matches are ordered by: all tokens matched in the label first; then the first token prefixing the first label word; then more label words prefixed by some token; then candidate list order. expect lists the labels of the matches in that order.",
+    "include {manifest:[{id, category, kind}], showSubScreens, expect:[ids]}: a screen is searchable when kind is 'ir', category does not start with '@', and showSubScreens is true or the id is not a sub-screen. A sub-screen id has a path segment equal to 'embedded' or a basename starting with '_'. expect keeps manifest order."
+  ],
+  "cases": [
+    {
+      "name": "empty query matches nothing",
+      "kind": "rank",
+      "query": "",
+      "candidates": [
+        {
+          "label": "LinacView",
+          "keywords": [
+            "library/linac/LinacView"
+          ]
+        },
+        {
+          "label": "SR Overview",
+          "keywords": [
+            "library/sr/sr-overview"
+          ]
+        },
+        {
+          "label": "Storage Ring Vacuum",
+          "keywords": [
+            "library/sr/vacuum"
+          ]
+        },
+        {
+          "label": "XFER Magnets",
+          "keywords": [
+            "library/xfer/magnets"
+          ]
+        },
+        {
+          "label": "Trace",
+          "keywords": []
+        },
+        {
+          "label": "SR01C Corrector Setpoints",
+          "keywords": [
+            "library/sr/sr01c-correctors"
+          ]
+        }
+      ],
+      "expect": []
+    },
+    {
+      "name": "blank query matches nothing",
+      "kind": "rank",
+      "query": "   ",
+      "candidates": [
+        {
+          "label": "LinacView",
+          "keywords": [
+            "library/linac/LinacView"
+          ]
+        },
+        {
+          "label": "SR Overview",
+          "keywords": [
+            "library/sr/sr-overview"
+          ]
+        },
+        {
+          "label": "Storage Ring Vacuum",
+          "keywords": [
+            "library/sr/vacuum"
+          ]
+        },
+        {
+          "label": "XFER Magnets",
+          "keywords": [
+            "library/xfer/magnets"
+          ]
+        },
+        {
+          "label": "Trace",
+          "keywords": []
+        },
+        {
+          "label": "SR01C Corrector Setpoints",
+          "keywords": [
+            "library/sr/sr01c-correctors"
+          ]
+        }
+      ],
+      "expect": []
+    },
+    {
+      "name": "word prefix of a later label word",
+      "kind": "rank",
+      "query": "vac",
+      "candidates": [
+        {
+          "label": "LinacView",
+          "keywords": [
+            "library/linac/LinacView"
+          ]
+        },
+        {
+          "label": "SR Overview",
+          "keywords": [
+            "library/sr/sr-overview"
+          ]
+        },
+        {
+          "label": "Storage Ring Vacuum",
+          "keywords": [
+            "library/sr/vacuum"
+          ]
+        },
+        {
+          "label": "XFER Magnets",
+          "keywords": [
+            "library/xfer/magnets"
+          ]
+        },
+        {
+          "label": "Trace",
+          "keywords": []
+        },
+        {
+          "label": "SR01C Corrector Setpoints",
+          "keywords": [
+            "library/sr/sr01c-correctors"
+          ]
+        }
+      ],
+      "expect": [
+        "Storage Ring Vacuum"
+      ]
+    },
+    {
+      "name": "camelCase split: second part",
+      "kind": "rank",
+      "query": "view",
+      "candidates": [
+        {
+          "label": "LinacView",
+          "keywords": [
+            "library/linac/LinacView"
+          ]
+        },
+        {
+          "label": "SR Overview",
+          "keywords": [
+            "library/sr/sr-overview"
+          ]
+        },
+        {
+          "label": "Storage Ring Vacuum",
+          "keywords": [
+            "library/sr/vacuum"
+          ]
+        },
+        {
+          "label": "XFER Magnets",
+          "keywords": [
+            "library/xfer/magnets"
+          ]
+        },
+        {
+          "label": "Trace",
+          "keywords": []
+        },
+        {
+          "label": "SR01C Corrector Setpoints",
+          "keywords": [
+            "library/sr/sr01c-correctors"
+          ]
+        }
+      ],
+      "expect": [
+        "LinacView"
+      ]
+    },
+    {
+      "name": "camelCase split: acronym part",
+      "kind": "rank",
+      "query": "linac",
+      "candidates": [
+        {
+          "label": "LinacView",
+          "keywords": [
+            "library/linac/LinacView"
+          ]
+        },
+        {
+          "label": "SR Overview",
+          "keywords": [
+            "library/sr/sr-overview"
+          ]
+        },
+        {
+          "label": "Storage Ring Vacuum",
+          "keywords": [
+            "library/sr/vacuum"
+          ]
+        },
+        {
+          "label": "XFER Magnets",
+          "keywords": [
+            "library/xfer/magnets"
+          ]
+        },
+        {
+          "label": "Trace",
+          "keywords": []
+        },
+        {
+          "label": "SR01C Corrector Setpoints",
+          "keywords": [
+            "library/sr/sr01c-correctors"
+          ]
+        }
+      ],
+      "expect": [
+        "LinacView"
+      ]
+    },
+    {
+      "name": "tokens across the camelCase split",
+      "kind": "rank",
+      "query": "linac view",
+      "candidates": [
+        {
+          "label": "LinacView",
+          "keywords": [
+            "library/linac/LinacView"
+          ]
+        },
+        {
+          "label": "SR Overview",
+          "keywords": [
+            "library/sr/sr-overview"
+          ]
+        },
+        {
+          "label": "Storage Ring Vacuum",
+          "keywords": [
+            "library/sr/vacuum"
+          ]
+        },
+        {
+          "label": "XFER Magnets",
+          "keywords": [
+            "library/xfer/magnets"
+          ]
+        },
+        {
+          "label": "Trace",
+          "keywords": []
+        },
+        {
+          "label": "SR01C Corrector Setpoints",
+          "keywords": [
+            "library/sr/sr01c-correctors"
+          ]
+        }
+      ],
+      "expect": [
+        "LinacView"
+      ]
+    },
+    {
+      "name": "prefix of the joined lowercase label",
+      "kind": "rank",
+      "query": "linacv",
+      "candidates": [
+        {
+          "label": "LinacView",
+          "keywords": [
+            "library/linac/LinacView"
+          ]
+        },
+        {
+          "label": "SR Overview",
+          "keywords": [
+            "library/sr/sr-overview"
+          ]
+        },
+        {
+          "label": "Storage Ring Vacuum",
+          "keywords": [
+            "library/sr/vacuum"
+          ]
+        },
+        {
+          "label": "XFER Magnets",
+          "keywords": [
+            "library/xfer/magnets"
+          ]
+        },
+        {
+          "label": "Trace",
+          "keywords": []
+        },
+        {
+          "label": "SR01C Corrector Setpoints",
+          "keywords": [
+            "library/sr/sr01c-correctors"
+          ]
+        }
+      ],
+      "expect": [
+        "LinacView"
+      ]
+    },
+    {
+      "name": "query is case-insensitive",
+      "kind": "rank",
+      "query": "LINACVIEW",
+      "candidates": [
+        {
+          "label": "LinacView",
+          "keywords": [
+            "library/linac/LinacView"
+          ]
+        },
+        {
+          "label": "SR Overview",
+          "keywords": [
+            "library/sr/sr-overview"
+          ]
+        },
+        {
+          "label": "Storage Ring Vacuum",
+          "keywords": [
+            "library/sr/vacuum"
+          ]
+        },
+        {
+          "label": "XFER Magnets",
+          "keywords": [
+            "library/xfer/magnets"
+          ]
+        },
+        {
+          "label": "Trace",
+          "keywords": []
+        },
+        {
+          "label": "SR01C Corrector Setpoints",
+          "keywords": [
+            "library/sr/sr01c-correctors"
+          ]
+        }
+      ],
+      "expect": [
+        "LinacView"
+      ]
+    },
+    {
+      "name": "multi-token query",
+      "kind": "rank",
+      "query": "sr overview",
+      "candidates": [
+        {
+          "label": "LinacView",
+          "keywords": [
+            "library/linac/LinacView"
+          ]
+        },
+        {
+          "label": "SR Overview",
+          "keywords": [
+            "library/sr/sr-overview"
+          ]
+        },
+        {
+          "label": "Storage Ring Vacuum",
+          "keywords": [
+            "library/sr/vacuum"
+          ]
+        },
+        {
+          "label": "XFER Magnets",
+          "keywords": [
+            "library/xfer/magnets"
+          ]
+        },
+        {
+          "label": "Trace",
+          "keywords": []
+        },
+        {
+          "label": "SR01C Corrector Setpoints",
+          "keywords": [
+            "library/sr/sr01c-correctors"
+          ]
+        }
+      ],
+      "expect": [
+        "SR Overview"
+      ]
+    },
+    {
+      "name": "every token must match",
+      "kind": "rank",
+      "query": "sr magnets",
+      "candidates": [
+        {
+          "label": "LinacView",
+          "keywords": [
+            "library/linac/LinacView"
+          ]
+        },
+        {
+          "label": "SR Overview",
+          "keywords": [
+            "library/sr/sr-overview"
+          ]
+        },
+        {
+          "label": "Storage Ring Vacuum",
+          "keywords": [
+            "library/sr/vacuum"
+          ]
+        },
+        {
+          "label": "XFER Magnets",
+          "keywords": [
+            "library/xfer/magnets"
+          ]
+        },
+        {
+          "label": "Trace",
+          "keywords": []
+        },
+        {
+          "label": "SR01C Corrector Setpoints",
+          "keywords": [
+            "library/sr/sr01c-correctors"
+          ]
+        }
+      ],
+      "expect": []
+    },
+    {
+      "name": "no candidate matches",
+      "kind": "rank",
+      "query": "xyz",
+      "candidates": [
+        {
+          "label": "LinacView",
+          "keywords": [
+            "library/linac/LinacView"
+          ]
+        },
+        {
+          "label": "SR Overview",
+          "keywords": [
+            "library/sr/sr-overview"
+          ]
+        },
+        {
+          "label": "Storage Ring Vacuum",
+          "keywords": [
+            "library/sr/vacuum"
+          ]
+        },
+        {
+          "label": "XFER Magnets",
+          "keywords": [
+            "library/xfer/magnets"
+          ]
+        },
+        {
+          "label": "Trace",
+          "keywords": []
+        },
+        {
+          "label": "SR01C Corrector Setpoints",
+          "keywords": [
+            "library/sr/sr01c-correctors"
+          ]
+        }
+      ],
+      "expect": []
+    },
+    {
+      "name": "letter-digit split",
+      "kind": "rank",
+      "query": "sr 01",
+      "candidates": [
+        {
+          "label": "LinacView",
+          "keywords": [
+            "library/linac/LinacView"
+          ]
+        },
+        {
+          "label": "SR Overview",
+          "keywords": [
+            "library/sr/sr-overview"
+          ]
+        },
+        {
+          "label": "Storage Ring Vacuum",
+          "keywords": [
+            "library/sr/vacuum"
+          ]
+        },
+        {
+          "label": "XFER Magnets",
+          "keywords": [
+            "library/xfer/magnets"
+          ]
+        },
+        {
+          "label": "Trace",
+          "keywords": []
+        },
+        {
+          "label": "SR01C Corrector Setpoints",
+          "keywords": [
+            "library/sr/sr01c-correctors"
+          ]
+        }
+      ],
+      "expect": [
+        "SR01C Corrector Setpoints"
+      ]
+    },
+    {
+      "name": "digit-letter split",
+      "kind": "rank",
+      "query": "01 c",
+      "candidates": [
+        {
+          "label": "LinacView",
+          "keywords": [
+            "library/linac/LinacView"
+          ]
+        },
+        {
+          "label": "SR Overview",
+          "keywords": [
+            "library/sr/sr-overview"
+          ]
+        },
+        {
+          "label": "Storage Ring Vacuum",
+          "keywords": [
+            "library/sr/vacuum"
+          ]
+        },
+        {
+          "label": "XFER Magnets",
+          "keywords": [
+            "library/xfer/magnets"
+          ]
+        },
+        {
+          "label": "Trace",
+          "keywords": []
+        },
+        {
+          "label": "SR01C Corrector Setpoints",
+          "keywords": [
+            "library/sr/sr01c-correctors"
+          ]
+        }
+      ],
+      "expect": [
+        "SR01C Corrector Setpoints"
+      ]
+    },
+    {
+      "name": "joined string crosses the digit split",
+      "kind": "rank",
+      "query": "sr01c",
+      "candidates": [
+        {
+          "label": "LinacView",
+          "keywords": [
+            "library/linac/LinacView"
+          ]
+        },
+        {
+          "label": "SR Overview",
+          "keywords": [
+            "library/sr/sr-overview"
+          ]
+        },
+        {
+          "label": "Storage Ring Vacuum",
+          "keywords": [
+            "library/sr/vacuum"
+          ]
+        },
+        {
+          "label": "XFER Magnets",
+          "keywords": [
+            "library/xfer/magnets"
+          ]
+        },
+        {
+          "label": "Trace",
+          "keywords": []
+        },
+        {
+          "label": "SR01C Corrector Setpoints",
+          "keywords": [
+            "library/sr/sr01c-correctors"
+          ]
+        }
+      ],
+      "expect": [
+        "SR01C Corrector Setpoints"
+      ]
+    },
+    {
+      "name": "first token on the first label word ranks first",
+      "kind": "rank",
+      "query": "ring",
+      "candidates": [
+        {
+          "label": "Main Ring Status",
+          "keywords": []
+        },
+        {
+          "label": "Ring Status",
+          "keywords": []
+        }
+      ],
+      "expect": [
+        "Ring Status",
+        "Main Ring Status"
+      ]
+    },
+    {
+      "name": "more matched label words rank first",
+      "kind": "rank",
+      "query": "ring s",
+      "candidates": [
+        {
+          "label": "Ring Status",
+          "keywords": []
+        },
+        {
+          "label": "Ring Summary Status",
+          "keywords": []
+        }
+      ],
+      "expect": [
+        "Ring Summary Status",
+        "Ring Status"
+      ]
+    },
+    {
+      "name": "keyword-only match ranks below label matches",
+      "kind": "rank",
+      "query": "vacuum",
+      "candidates": [
+        {
+          "label": "Pressure Gauges",
+          "keywords": [
+            "vacuum"
+          ]
+        },
+        {
+          "label": "Storage Ring Vacuum",
+          "keywords": []
+        },
+        {
+          "label": "Vacuum Overview",
+          "keywords": []
+        }
+      ],
+      "expect": [
+        "Vacuum Overview",
+        "Storage Ring Vacuum",
+        "Pressure Gauges"
+      ]
+    },
+    {
+      "name": "keyword-only matches keep list order",
+      "kind": "rank",
+      "query": "beam",
+      "candidates": [
+        {
+          "label": "Orbit",
+          "keywords": [
+            "beam position"
+          ]
+        },
+        {
+          "label": "Lifetime",
+          "keywords": [
+            "beam current"
+          ]
+        },
+        {
+          "label": "Beam Current",
+          "keywords": []
+        }
+      ],
+      "expect": [
+        "Beam Current",
+        "Orbit",
+        "Lifetime"
+      ]
+    },
+    {
+      "name": "tokens split between label and keywords rank below all-label",
+      "kind": "rank",
+      "query": "sr bpm",
+      "candidates": [
+        {
+          "label": "SR Orbit",
+          "keywords": [
+            "library/sr/bpm-orbit"
+          ]
+        },
+        {
+          "label": "SR BPM Table",
+          "keywords": []
+        }
+      ],
+      "expect": [
+        "SR BPM Table",
+        "SR Orbit"
+      ]
+    },
+    {
+      "name": "ties keep list order",
+      "kind": "rank",
+      "query": "status",
+      "candidates": [
+        {
+          "label": "Gun Status",
+          "keywords": []
+        },
+        {
+          "label": "Linac Status",
+          "keywords": []
+        },
+        {
+          "label": "RF Status",
+          "keywords": []
+        }
+      ],
+      "expect": [
+        "Gun Status",
+        "Linac Status",
+        "RF Status"
+      ]
+    },
+    {
+      "name": "an all-caps run before a capitalised word splits",
+      "kind": "rank",
+      "query": "table",
+      "candidates": [
+        {
+          "label": "BPMTable",
+          "keywords": []
+        },
+        {
+          "label": "Table",
+          "keywords": []
+        }
+      ],
+      "expect": [
+        "Table",
+        "BPMTable"
+      ]
+    },
+    {
+      "name": "sub-screens hidden by default",
+      "kind": "include",
+      "manifest": [
+        {
+          "id": "sr/overview",
+          "category": "library",
+          "kind": "ir"
+        },
+        {
+          "id": "sr/embedded/bpm-row",
+          "category": "library",
+          "kind": "ir"
+        },
+        {
+          "id": "sr/_header",
+          "category": "library",
+          "kind": "ir"
+        },
+        {
+          "id": "linac/LinacView",
+          "category": "library",
+          "kind": "ir"
+        },
+        {
+          "id": "tools/trace",
+          "category": "@tools",
+          "kind": "ir"
+        },
+        {
+          "id": "legacy/old",
+          "category": "library",
+          "kind": "bob"
+        },
+        {
+          "id": "drafts/mine",
+          "category": "drafts",
+          "kind": "ir"
+        }
+      ],
+      "showSubScreens": false,
+      "expect": [
+        "sr/overview",
+        "linac/LinacView",
+        "drafts/mine"
+      ]
+    },
+    {
+      "name": "sub-screens shown with showSubScreens",
+      "kind": "include",
+      "manifest": [
+        {
+          "id": "sr/overview",
+          "category": "library",
+          "kind": "ir"
+        },
+        {
+          "id": "sr/embedded/bpm-row",
+          "category": "library",
+          "kind": "ir"
+        },
+        {
+          "id": "sr/_header",
+          "category": "library",
+          "kind": "ir"
+        },
+        {
+          "id": "linac/LinacView",
+          "category": "library",
+          "kind": "ir"
+        },
+        {
+          "id": "tools/trace",
+          "category": "@tools",
+          "kind": "ir"
+        },
+        {
+          "id": "legacy/old",
+          "category": "library",
+          "kind": "bob"
+        },
+        {
+          "id": "drafts/mine",
+          "category": "drafts",
+          "kind": "ir"
+        }
+      ],
+      "showSubScreens": true,
+      "expect": [
+        "sr/overview",
+        "sr/embedded/bpm-row",
+        "sr/_header",
+        "linac/LinacView",
+        "drafts/mine"
+      ]
+    },
+    {
+      "name": "only kind ir is searchable",
+      "kind": "include",
+      "manifest": [
+        {
+          "id": "a/x",
+          "category": "library",
+          "kind": "bob"
+        },
+        {
+          "id": "a/y",
+          "category": "library",
+          "kind": "opi"
+        },
+        {
+          "id": "a/z",
+          "category": "library",
+          "kind": "ir"
+        }
+      ],
+      "showSubScreens": false,
+      "expect": [
+        "a/z"
+      ]
+    },
+    {
+      "name": "@ categories are excluded",
+      "kind": "include",
+      "manifest": [
+        {
+          "id": "t/trace",
+          "category": "@tools",
+          "kind": "ir"
+        },
+        {
+          "id": "t/waveform",
+          "category": "@tool",
+          "kind": "ir"
+        },
+        {
+          "id": "t/screen",
+          "category": "tools@",
+          "kind": "ir"
+        }
+      ],
+      "showSubScreens": true,
+      "expect": [
+        "t/screen"
+      ]
+    },
+    {
+      "name": "an embedded segment anywhere marks a sub-screen",
+      "kind": "include",
+      "manifest": [
+        {
+          "id": "embedded/a",
+          "category": "library",
+          "kind": "ir"
+        },
+        {
+          "id": "a/embedded/b",
+          "category": "library",
+          "kind": "ir"
+        },
+        {
+          "id": "a/embeddedx/c",
+          "category": "library",
+          "kind": "ir"
+        },
+        {
+          "id": "a/notembedded",
+          "category": "library",
+          "kind": "ir"
+        }
+      ],
+      "showSubScreens": false,
+      "expect": [
+        "a/embeddedx/c",
+        "a/notembedded"
+      ]
+    },
+    {
+      "name": "only the basename underscore marks a sub-screen",
+      "kind": "include",
+      "manifest": [
+        {
+          "id": "_a/b",
+          "category": "library",
+          "kind": "ir"
+        },
+        {
+          "id": "a/_b",
+          "category": "library",
+          "kind": "ir"
+        },
+        {
+          "id": "a/b_c",
+          "category": "library",
+          "kind": "ir"
+        }
+      ],
+      "showSubScreens": false,
+      "expect": [
+        "_a/b",
+        "a/b_c"
+      ]
+    },
+    {
+      "name": "empty manifest",
+      "kind": "include",
+      "manifest": [],
+      "showSubScreens": true,
+      "expect": []
+    }
+  ]
+}

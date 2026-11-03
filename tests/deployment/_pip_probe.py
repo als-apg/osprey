@@ -47,15 +47,19 @@ def deps_sandbox(body: str, tmp_path: Path) -> tuple[str, Path]:
     """Point a deps-layer body at temp dirs; return ``(rewritten body, ctx)``.
 
     ``/tmp/deps-ctx`` becomes an empty build context holding only a
-    ``.dockerignore``, and the apt lists directory an empty temp dir.
+    ``.dockerignore``, the apt lists directory an empty temp dir, and
+    ``/opt/osprey`` (where the project image writes its frozen constraints)
+    a temp dir of its own.
     """
     ctx = tmp_path / "deps-ctx"
     ctx.mkdir()
     (ctx / ".dockerignore").write_text("")
     apt_lists = tmp_path / "apt-lists"
     apt_lists.mkdir()
-    rewritten = body.replace("/tmp/deps-ctx", str(ctx)).replace(
-        "/var/lib/apt/lists", str(apt_lists)
+    rewritten = (
+        body.replace("/tmp/deps-ctx", str(ctx))
+        .replace("/var/lib/apt/lists", str(apt_lists))
+        .replace("/opt/osprey", str(tmp_path / "opt-osprey"))
     )
     return rewritten, ctx
 
@@ -63,29 +67,32 @@ def deps_sandbox(body: str, tmp_path: Path) -> tuple[str, Path]:
 def probe_wheel_body(body: str, tmp_path: Path, *, with_wheel: bool):
     """Execute a wheel-layer RUN body in a sandbox with a real shell.
 
-    ``/tmp/ctx`` is rewritten to a temp dir (optionally holding a fake wheel)
-    and a stub ``pip`` that always exits 1 shadows the real one on PATH, so the
-    probe exercises the body's failure-propagation shape without a container.
-    Returns ``(CompletedProcess, ctx_path)``.
+    ``/tmp/ctx`` is rewritten to a temp dir (optionally holding a fake wheel),
+    ``/opt/osprey`` to one holding the frozen constraints the project image's
+    body reads, and a stub ``pip`` that always exits 1 shadows the real one on
+    PATH, so the probe exercises the body's failure-propagation shape without
+    a container. Returns ``(CompletedProcess, ctx_path)``.
     """
     ctx = tmp_path / "ctx"
     ctx.mkdir()
     (ctx / ".dockerignore").write_text("")
     if with_wheel:
         (ctx / "osprey_framework-0.0.0-py3-none-any.whl").write_text("")
+    frozen = tmp_path / "opt-osprey"
+    frozen.mkdir()
+    (frozen / "constraints.txt").write_text("osprey-framework==0.0.0\n")
     env = stubbed_env(tmp_path, {"pip": "#!/bin/sh\nexit 1\n"})
-    return run_body(body.replace("/tmp/ctx", str(ctx)), env), ctx
+    rewritten = body.replace("/tmp/ctx", str(ctx)).replace("/opt/osprey", str(frozen))
+    return run_body(rewritten, env), ctx
 
 
-def primer_pip_argv(body: str, tmp_path: Path, env: dict[str, str]) -> list[str]:
-    """The argv of the deps layer's framework install, as ``pip`` received it.
+def deps_pip_calls(body: str, tmp_path: Path, env: dict[str, str]) -> list[list[str]]:
+    """Every ``pip`` invocation the deps layer makes, in order, as argv lists.
 
-    ``/tmp/deps-ctx`` and the apt lists directory are rewritten to temp dirs,
-    ``apt-get`` is a no-op and ``pip`` appends every invocation to a log and
-    exits 0. *env* carries the build ARGs the body reads (``OSPREY_PIP_SPEC``
-    or ``OSPREY_VERSION``, ``OSPREY_DEV``, ``OSPREY_PIP_PRE`` …).
-
-    Returns the argv of the first ``pip install`` naming ``osprey-framework``.
+    The body runs in :func:`deps_sandbox`'s temp dirs, ``apt-get`` is a no-op
+    and ``pip`` appends every invocation to a log and exits 0. *env* carries
+    the build ARGs the body reads (``OSPREY_PIP_SPEC`` or ``OSPREY_VERSION``,
+    ``OSPREY_DEV``, ``OSPREY_PIP_PRE`` …).
     """
     rewritten, _ = deps_sandbox(body, tmp_path)
     log = tmp_path / "pip-calls.log"
@@ -98,7 +105,16 @@ def primer_pip_argv(body: str, tmp_path: Path, env: dict[str, str]) -> list[str]
     assert result.returncode == 0, (
         f"deps RUN failed under the stub:\n{result.stdout}\n{result.stderr}"
     )
-    calls = [shlex.split(line) for line in log.read_text().splitlines()]
+    return [shlex.split(line) for line in log.read_text().splitlines()]
+
+
+def primer_pip_argv(body: str, tmp_path: Path, env: dict[str, str]) -> list[str]:
+    """The argv of the deps layer's framework install, as ``pip`` received it.
+
+    Runs the body through :func:`deps_pip_calls` and returns the argv of the
+    first ``pip install`` naming ``osprey-framework``.
+    """
+    calls = deps_pip_calls(body, tmp_path, env)
     primers = [c for c in calls if "install" in c and any("osprey-framework" in a for a in c)]
     assert primers, f"no framework install reached pip; calls: {calls}"
     return primers[0]

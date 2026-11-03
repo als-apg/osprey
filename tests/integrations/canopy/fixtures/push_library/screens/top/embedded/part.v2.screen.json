@@ -1,0 +1,60 @@
+{
+  "schemaVersion": "1.0",
+  "kind": "screen",
+  "id": "part",
+  "metadata": {
+    "title": "Part",
+    "source": {
+      "type": "hand-authored"
+    },
+    "size": {
+      "width": 100,
+      "height": 100
+    }
+  },
+  "macros": [
+    {
+      "name": "D",
+      "default": "00"
+    }
+  ],
+  "root": {
+    "id": "part-root",
+    "type": "absolute-canvas",
+    "props": {},
+    "geometry": {
+      "x": 0,
+      "y": 0,
+      "width": 10,
+      "height": 10
+    },
+    "children": [
+      {
+        "id": "pb1",
+        "type": "pv-button",
+        "props": {
+          "pv": "PART:${D}:CMD"
+        },
+        "geometry": {
+          "x": 0,
+          "y": 0,
+          "width": 10,
+          "height": 10
+        }
+      },
+      {
+        "id": "sh1",
+        "type": "shell-command-button",
+        "props": {
+          "text": "sh"
+        },
+        "geometry": {
+          "x": 0,
+          "y": 0,
+          "width": 10,
+          "height": 10
+        }
+      }
+    ]
+  }
+}

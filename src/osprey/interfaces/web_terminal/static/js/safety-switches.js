@@ -1,4 +1,7 @@
-/* OSPREY Web Terminal — runtime safety switches in the Settings drawer's Safety tab */
+/* OSPREY Web Terminal — runtime safety switches in the Settings drawer's Safety tab
+ *
+ * The row is shared: the Review tab shows code review's switch with it, so a
+ * switch looks and moves the same wherever it appears. */
 
 import { formatFacilityTime } from '/design-system/js/facility-time.js';
 
@@ -12,6 +15,7 @@ import { showUndoNotice } from './undo-notice.js';
  * @typedef {object} SafetySwitch
  * @property {string} name
  * @property {string} label
+ * @property {string} [note]  what an off leaves running or stopped, for the dialog
  * @property {boolean} on
  * @property {string | null} off_by
  * @property {number | null} off_at  epoch seconds
@@ -19,6 +23,9 @@ import { showUndoNotice } from './undo-notice.js';
 
 /** The change notice the server broadcasts when a switch moves. */
 export const SAFETY_SWITCH_FRAME = 'safety_switch';
+
+/** Beside a toggle the tier may not move. */
+export const ADMIN_LOCK_TEXT = '🔒 Set by your deployment admin';
 
 /** How long the "turned off" notice stays up. */
 const NOTICE_MS = 8000;
@@ -108,15 +115,18 @@ export function offSentence(sw) {
 function render(container, switches, canChange) {
   container.replaceChildren();
   container.hidden = switches.length === 0;
-  for (const sw of switches) container.appendChild(row(sw, canChange));
+  for (const sw of switches) container.appendChild(switchRow(sw, canChange));
 }
 
 /**
+ * One switch: its label, its state, and a toggle that is live only for a tier
+ * the server says may move it.
  * @param {SafetySwitch} sw
  * @param {boolean} canChange
+ * @param {() => Promise<void>} [refresh]  re-reads the view the row sits in after a move
  * @returns {HTMLElement}
  */
-function row(sw, canChange) {
+export function switchRow(sw, canChange, refresh = refreshSafetySwitches) {
   const bar = document.createElement('div');
   bar.className = 'hook-debug-bar safety-switch-row';
   bar.dataset.switch = sw.name;
@@ -143,17 +153,39 @@ function row(sw, canChange) {
   const slider = document.createElement('span');
   slider.className = 'toggle-slider';
   toggleLabel.append(input, slider);
-  input.addEventListener('change', () => void move(sw, input));
+  input.addEventListener('change', () => void move(sw, input, refresh));
 
-  bar.append(text, toggleLabel);
+  const right = document.createElement('span');
+  right.className = 'safety-switch-lock';
+  if (!canChange) {
+    const lock = document.createElement('span');
+    lock.textContent = ADMIN_LOCK_TEXT;
+    right.appendChild(lock);
+  }
+  right.appendChild(toggleLabel);
+  bar.append(text, right);
   return bar;
+}
+
+/**
+ * The off dialog's body: how long the off lasts, and the switch's own note.
+ * @param {SafetySwitch} sw
+ * @returns {string}
+ */
+export function offDialogText(sw) {
+  const note = sw.note ? ` ${sw.note}` : '';
+  return (
+    `It stays off for this terminal until it restarts.${note} ` +
+    'The move is recorded in the audit trail with your name.'
+  );
 }
 
 /**
  * @param {SafetySwitch} sw
  * @param {HTMLInputElement} input
+ * @param {() => Promise<void>} refresh
  */
-async function move(sw, input) {
+async function move(sw, input, refresh) {
   const on = input.checked;
   if (on) {
     try {
@@ -163,7 +195,7 @@ async function move(sw, input) {
       showUndoNotice({ message: /** @type {Error} */ (err).message, durationMs: NOTICE_MS });
       return;
     }
-    await refreshSafetySwitches();
+    await refresh();
     return;
   }
   // Off waits for the dialog; until it is confirmed the toggle shows on.
@@ -177,11 +209,11 @@ async function move(sw, input) {
   };
   showConfirm({
     title: `Turn ${sw.label} off?`,
-    body: [['It stays off for this terminal until it restarts. Open holds stay open.']],
+    body: [[offDialogText(sw)]],
     live: null,
     confirmLabel: 'Turn off',
     focus: 'cancel',
-    onConfirm: (ui) => void confirmOff(sw, ui),
+    onConfirm: (ui) => void confirmOff(sw, ui, refresh),
     onDismiss: () => document.removeEventListener('keydown', onKey, true),
   });
   document.addEventListener('keydown', onKey, true);
@@ -192,8 +224,9 @@ async function move(sw, input) {
  * where they asked.
  * @param {SafetySwitch} sw
  * @param {import('./posture-confirm.js').ConfirmUi} ui
+ * @param {() => Promise<void>} refresh
  */
-async function confirmOff(sw, ui) {
+async function confirmOff(sw, ui, refresh) {
   ui.confirm.disabled = ui.cancel.disabled = true;
   ui.error.hidden = true;
   try {
@@ -206,7 +239,7 @@ async function confirmOff(sw, ui) {
   }
   ui.done();
   // The frame re-renders every tab; this one re-reads at once.
-  await refreshSafetySwitches();
+  await refresh();
 }
 
 /**

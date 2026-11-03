@@ -294,12 +294,21 @@ class TestBenignPaths:
         assert response.status_code == 303
         assert response.headers["location"] == LANDING_PATH
 
-    def test_a_logout_with_no_user_parameter_redirects_without_error(self) -> None:
-        """Never a 422: FastAPI's validation body is a different status, a
-        different shape, and a description of this endpoint nothing needs."""
+    @pytest.mark.parametrize(
+        "user",
+        [
+            # Never a 422: FastAPI's validation body is a different status, a
+            # different shape, and a description of this endpoint nothing needs.
+            pytest.param(None, id="no-user-parameter"),
+            # Not on the roster at all — still a plain redirect, with no hint that
+            # the name was unrecognised rather than merely locked.
+            pytest.param("mallory", id="unknown-user"),
+        ],
+    )
+    def test_a_logout_that_names_no_unlocked_user_redirects_without_error(self, user) -> None:
         cookie = _mint(_unlocked("alice"))
         with TestClient(_app()) as client:
-            response = _logout(client, None, cookie)
+            response = _logout(client, user, cookie)
 
         assert response.status_code == 303
 
@@ -314,15 +323,6 @@ class TestBenignPaths:
             assert len(app.state.revocation_store) == 0
             assert _verify(client, "alice", cookie) == 200
             assert _verify(client, "bob", cookie) == 200
-
-    def test_a_logout_for_an_unknown_user_redirects_without_error(self) -> None:
-        """Not on the roster at all — still a plain redirect, with no hint that
-        the name was unrecognised rather than merely locked."""
-        cookie = _mint(_unlocked("alice"))
-        with TestClient(_app()) as client:
-            response = _logout(client, "mallory", cookie)
-
-        assert response.status_code == 303
 
     def test_an_unlocked_and_a_locked_logout_are_shaped_identically(self) -> None:
         """The information-leak assertion: status, location and the presence of a

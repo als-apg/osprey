@@ -885,14 +885,17 @@ def _wait_for_announced_port(
 ) -> int | None:
     """The port a detached child names in its startup line, read from its log.
 
-    Returns ``None`` when the child exits, or the line does not appear within
-    *timeout*.
+    Only a whole line counts. Returns ``None`` when the child exits, or the line
+    does not appear within *timeout*.
     """
     deadline = time.monotonic() + timeout
     while True:
         with suppress(OSError):
-            for line in log_path.read_text(encoding="utf-8", errors="replace").splitlines():
-                if line.startswith(f"{_STARTUP_LINE} "):
+            text = log_path.read_text(encoding="utf-8", errors="replace")
+            for line in text.splitlines(keepends=True):
+                # A line without its newline may still be being written, its
+                # port cut short.
+                if line.endswith("\n") and line.startswith(f"{_STARTUP_LINE} "):
                     # ``http://<host>:<port>``; the port follows the last colon
                     # whatever the host, an IPv6 literal included.
                     return int(line.split()[-1].rsplit(":", 1)[1])
@@ -1205,7 +1208,7 @@ def web(
 
     # -- foreground (original behavior) ------------------------------------
 
-    from osprey.interfaces._serving import listening_socket
+    from osprey.interfaces._serving import WEB_HOST_ENV, listening_socket
 
     # The server's own socket, bound before anything names a port: the URL,
     # OSPREY_WEB_PORT and the startup line all read the port from it.
@@ -1236,6 +1239,7 @@ def web(
     # --port differs — reporting success while the real terminal never hears
     # the event.
     os.environ["OSPREY_WEB_PORT"] = str(port)
+    os.environ[WEB_HOST_ENV] = host
 
     # The agent record, held until the server returns: every session this
     # terminal starts writes to it and reads from it.

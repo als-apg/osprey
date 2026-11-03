@@ -1578,23 +1578,25 @@ class TestWebTerminalSubStepRows:
 
         assert_sub_step(printed, "web endpoint reachable")
 
-    def test_the_seed_loop_reports_its_counts(self, printed, monkeypatch, tmp_path):
+    @pytest.mark.parametrize(
+        ("outcomes", "expected"),
+        [
+            ({"alice": True, "bob": True}, "seeded 2/2 user contexts"),
+            # Row 16's whole reason for being a count: ``<n>`` seeded of ``<total>``.
+            ({"alice": True, "bob": None}, "seeded 1/2 user contexts"),
+        ],
+        ids=["all-seeded", "short-seed-legible-on-the-count-line"],
+    )
+    def test_the_seed_loop_reports_its_counts(
+        self, printed, monkeypatch, tmp_path, outcomes, expected
+    ):
         """Row 16: counts, not an announcement, now that the loop is quiet."""
-        _stub_the_seed_loop(monkeypatch, tmp_path, outcomes={"alice": True, "bob": True})
+        _stub_the_seed_loop(monkeypatch, tmp_path, outcomes=outcomes)
         printed.open_phase()
 
         seeding.seed_user_containers(_seed_config(["alice", "bob"]))
 
-        assert_sub_step(printed, "seeded 2/2 user contexts")
-
-    def test_a_short_seed_is_legible_on_the_count_line_alone(self, printed, monkeypatch, tmp_path):
-        """Row 16's whole reason for being a count: ``<n>`` seeded of ``<total>``."""
-        _stub_the_seed_loop(monkeypatch, tmp_path, outcomes={"alice": True, "bob": None})
-        printed.open_phase()
-
-        seeding.seed_user_containers(_seed_config(["alice", "bob"]))
-
-        assert_sub_step(printed, "seeded 1/2 user contexts")
+        assert_sub_step(printed, expected)
 
     def test_a_container_that_was_not_ready_names_the_user_it_cost(
         self, printed, monkeypatch, tmp_path, caplog

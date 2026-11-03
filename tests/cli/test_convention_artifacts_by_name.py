@@ -511,6 +511,40 @@ def test_a_host_library_guard_reaches_an_app_whose_list_omits_it(
     assert (root / ".claude" / "hooks" / "osprey_limits.py").is_file()
 
 
+@pytest.fixture(scope="module")
+def host_mapped_guard(tmp_path_factory: pytest.TempPathFactory) -> tuple[Path, Result]:
+    """A host that wires its facility guard in the mapping spelling, with a matcher."""
+    outside = tmp_path_factory.mktemp("host-mapped-guard")
+    repo = build_exemplar_repo(outside / PROJECT)
+    _write(repo / "hooks" / "house_guard.py", _HOOK).chmod(0o755)
+    _insert_before_config(
+        repo / "profile.yml",
+        "",
+        "  claude_code.hooks.PreToolUse:\n"
+        "    - hook: house_guard.py\n"
+        '      matcher: "Bash|Edit"\n'
+        "      timeout: 5\n",
+    )
+    result = run_build(repo, outside)
+    assert result.exit_code == 0, result.output
+    return repo, result
+
+
+@pytest.mark.parametrize("render", RENDERS)
+def test_a_mapped_host_guard_is_one_hook_group_in_every_render(
+    host_mapped_guard: tuple[Path, Result], render: str | None
+) -> None:
+    # The composer hands the host's guards to an app and the seal floors them
+    # again: a mapping is a group, so a second copy bound the guard twice.
+    settings_file = render_dir(host_mapped_guard[0], render) / ".claude" / "settings.json"
+    groups = json.loads(settings_file.read_text("utf-8"))["hooks"]["PreToolUse"]
+    spelled = [json.dumps(group, sort_keys=True) for group in groups]
+    assert len(spelled) == len(set(spelled)), groups
+    guards = [group for group in groups if "house_guard.py" in json.dumps(group)]
+    assert len(guards) == 1, guards
+    assert guards[0]["matcher"] == "Bash|Edit"
+
+
 def test_revalidate_keeps_a_host_session_hook_in_each_app_by_its_own_declaration(
     tmp_path: Path,
 ) -> None:
@@ -685,9 +719,11 @@ def test_a_fresh_profile_naming_the_kill_switch_by_path_wires_it(
 
 
 def test_the_guard_floor_carries_the_hosts_spelling_and_pins_the_kill_switch() -> None:
-    from osprey.cli.build_profile_merge import _guard_floor
+    from osprey.cli.build_profile_merge import GuardFloor, _guard_floor
 
-    host = ["approval", "hooks/osprey_limits.py", "memory-guard", "error-guidance"]
+    host = GuardFloor.of(
+        {"hooks": ["approval", "hooks/osprey_limits.py", "memory-guard", "error-guidance"]}
+    )
     assert _guard_floor(host, ["approval", "turn-state"]) == [
         "approval",
         "turn-state",

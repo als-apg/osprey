@@ -480,17 +480,18 @@ class TestCheckIndexes:
 
 
 class TestValidateIndex:
-    def test_root_index_with_okf_version_passes(self, tmp_path):
+    @pytest.mark.parametrize(
+        "content",
+        [
+            pytest.param(
+                '---\nokf_version: "0.1"\n---\n\n# Device\n\n* [X](/x.md)\n', id="okf-version"
+            ),
+            pytest.param("# Device\n\n* [X](/x.md)\n", id="no-frontmatter"),
+        ],
+    )
+    def test_root_index_passes(self, tmp_path, content):
         idx = tmp_path / "index.md"
-        idx.write_text(
-            '---\nokf_version: "0.1"\n---\n\n# Device\n\n* [X](/x.md)\n', encoding="utf-8"
-        )
-
-        validate_index(idx, bundle_root=tmp_path)  # must not raise
-
-    def test_root_index_no_frontmatter_passes(self, tmp_path):
-        idx = tmp_path / "index.md"
-        idx.write_text("# Device\n\n* [X](/x.md)\n", encoding="utf-8")
+        idx.write_text(content, encoding="utf-8")
 
         validate_index(idx, bundle_root=tmp_path)  # must not raise
 

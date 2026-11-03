@@ -199,12 +199,20 @@ def test_service_image_key_overrides_the_default_fallback() -> None:
     assert _service(rendered)["image"] == "${OSPREY_WORKER_IMAGE:-registry.example/osprey:pinned}"
 
 
-def test_declares_no_build_block() -> None:
-    """The project image is built once by ``osprey up``.
-
-    A second ``build:`` for the same tag would race the sole builder.
-    """
-    assert "build" not in _service(_render())
+@pytest.mark.parametrize(
+    "key",
+    [
+        # The project image is built once by ``osprey up``. A second ``build:`` for
+        # the same tag would race the sole builder.
+        "build",
+        # A deployment with no chain files gets no ``env_file:`` key at all. An entry
+        # naming a missing path errors ``compose up`` outright.
+        "env_file",
+    ],
+    ids=["build", "env-file-without-a-chain"],
+)
+def test_declares_no_key_it_has_no_use_for(key: str) -> None:
+    assert key not in _service(_render())
 
 
 # ── Config, identity and recreate triggers ──────────────────────────────────
@@ -251,14 +259,6 @@ def test_env_chain_is_listed_in_ascending_precedence_when_present() -> None:
     """
     rendered = _render(env_chain=[".env.shared", ".env"])
     assert _service(rendered)["env_file"] == [".env.shared", ".env"]
-
-
-def test_no_env_file_block_without_a_chain() -> None:
-    """A deployment with no chain files gets no ``env_file:`` key at all.
-
-    An entry naming a missing path errors ``compose up`` outright.
-    """
-    assert "env_file" not in _service(_render())
 
 
 # ── Store address: it follows the deployment's topology ─────────────────────

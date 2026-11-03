@@ -113,20 +113,22 @@ def test_webhook_success_returns_202(app):
     assert isinstance(body["dispatch_id"], str) and body["dispatch_id"]
 
 
-def test_webhook_wrong_token_returns_401(app):
+@pytest.mark.parametrize("path", ["/webhook/deploy", "/retry/deploy"])
+def test_wrong_token_returns_401(app, path):
     with TestClient(app) as client:
         resp = client.post(
-            "/webhook/deploy",
+            path,
             json={},
             headers={"Authorization": "Bearer wrong"},
         )
     assert resp.status_code == 401
 
 
-def test_webhook_unknown_trigger_returns_404(app):
+@pytest.mark.parametrize("path", ["/webhook/nope", "/retry/nope"])
+def test_unknown_trigger_returns_404(app, path):
     with TestClient(app) as client:
         resp = client.post(
-            "/webhook/nope",
+            path,
             json={},
             headers={"Authorization": "Bearer secret"},
         )
@@ -413,24 +415,21 @@ def test_check_auth_routes_reject_unconfigured_token(triggers_yml, monkeypatch):
     assert resp.json() == {"detail": "Server misconfigured"}
 
 
-def test_status_route_wrong_token_returns_401(app):
+@pytest.mark.parametrize(
+    ("status", "token", "expected_status"),
+    [
+        pytest.param("disabled", "wrong", 401, id="wrong-token-returns-401"),
+        pytest.param("bogus", "secret", 400, id="bad-status-returns-400"),
+    ],
+)
+def test_status_route_refuses_a_bad_request(app, status, token, expected_status):
     with TestClient(app) as client:
         resp = client.put(
             "/trigger/deploy/status",
-            json={"status": "disabled"},
-            headers={"Authorization": "Bearer wrong"},
+            json={"status": status},
+            headers={"Authorization": f"Bearer {token}"},
         )
-    assert resp.status_code == 401
-
-
-def test_status_route_bad_status_returns_400(app):
-    with TestClient(app) as client:
-        resp = client.put(
-            "/trigger/deploy/status",
-            json={"status": "bogus"},
-            headers={"Authorization": "Bearer secret"},
-        )
-    assert resp.status_code == 400
+    assert resp.status_code == expected_status
 
 
 def test_retry_known_trigger_returns_202(app):
@@ -444,26 +443,6 @@ def test_retry_known_trigger_returns_202(app):
     body = resp.json()
     assert body["dispatched"] is True
     assert isinstance(body["dispatch_id"], str) and body["dispatch_id"]
-
-
-def test_retry_unknown_trigger_returns_404(app):
-    with TestClient(app) as client:
-        resp = client.post(
-            "/retry/nope",
-            json={},
-            headers={"Authorization": "Bearer secret"},
-        )
-    assert resp.status_code == 404
-
-
-def test_retry_wrong_token_returns_401(app):
-    with TestClient(app) as client:
-        resp = client.post(
-            "/retry/deploy",
-            json={},
-            headers={"Authorization": "Bearer wrong"},
-        )
-    assert resp.status_code == 401
 
 
 @pytest.mark.asyncio

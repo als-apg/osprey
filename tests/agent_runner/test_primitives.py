@@ -493,10 +493,18 @@ class TestTheReadinessBarrierStopsOnEveryTerminalMcpStatus:
     was never going to register.
     """
 
-    async def test_a_needs_auth_snapshot_returns_before_the_deadline(self) -> None:
-        """``needs-auth`` is the SDK's own literal for a server that answered but
-        would not admit us; no amount of waiting supplies the credential."""
-        client = _ScriptedMcpStatusClient([_server("event_dispatcher", "needs-auth")])
+    @pytest.mark.parametrize(
+        "status",
+        [
+            # ``needs-auth`` is the SDK's own literal for a server that answered but
+            # would not admit us; no amount of waiting supplies the credential.
+            pytest.param("needs-auth", id="needs-auth"),
+            # The other terminal status, pinned beside it so the pair cannot drift.
+            pytest.param("failed", id="failed"),
+        ],
+    )
+    async def test_a_terminal_snapshot_returns_before_the_deadline(self, status: str) -> None:
+        client = _ScriptedMcpStatusClient([_server("event_dispatcher", status)])
 
         started = time.monotonic()
         servers = await primitives.await_mcp_ready(
@@ -505,20 +513,7 @@ class TestTheReadinessBarrierStopsOnEveryTerminalMcpStatus:
 
         assert time.monotonic() - started < 1.0
         assert client.calls == 1
-        assert [s["status"] for s in servers] == ["needs-auth"]
-
-    async def test_a_failed_snapshot_returns_before_the_deadline(self) -> None:
-        """The other terminal status, pinned beside it so the pair cannot drift."""
-        client = _ScriptedMcpStatusClient([_server("event_dispatcher", "failed")])
-
-        started = time.monotonic()
-        servers = await primitives.await_mcp_ready(
-            client, {"event_dispatcher"}, timeout_s=5.0, poll_s=0.01
-        )
-
-        assert time.monotonic() - started < 1.0
-        assert client.calls == 1
-        assert [s["status"] for s in servers] == ["failed"]
+        assert [s["status"] for s in servers] == [status]
 
     async def test_a_pending_snapshot_still_waits(self) -> None:
         """``pending`` is a server still starting: the barrier exists for it, so

@@ -422,13 +422,23 @@ def test_a_tier_from_a_source_osprey_does_not_bundle_is_noted_once(repo: Path) -
 # ---------------------------------------------------------------------------
 
 
-def test_validate_refuses_unmarked_drift(repo: Path) -> None:
-    _edit(repo / PROFILE, "  - system-health", "  # - system-health")
+@pytest.mark.parametrize(
+    ("before", "after", "named"),
+    [
+        ("  - system-health", "  # - system-health", "web_panels: system-health"),
+        # A key the preset carries and this copy does not is the silent kind — it
+        # builds green forever — so it still refuses, and the refusal names the key.
+        ("  web.theme: light\n", "", "config.web.theme"),
+    ],
+    ids=["commented-out-entry", "preset-gained-key"],
+)
+def test_validate_refuses_unmarked_drift(repo: Path, before: str, after: str, named: str) -> None:
+    _edit(repo / PROFILE, before, after)
 
     result = CliRunner().invoke(validate, ["--repo", str(repo)])
 
     assert result.exit_code == 2, result.output
-    assert "web_panels: system-health" in result.output
+    assert named in result.output
     assert "# DEVIATION:" in result.output
 
 
@@ -458,21 +468,6 @@ def test_set_knob_then_validate_green(repo: Path) -> None:
     assert result.exit_code == 0, result.output
     assert "preset drift: config.web.theme" in result.output
     assert "Profile is valid" in result.output
-
-
-def test_preset_gained_key_still_refused(repo: Path) -> None:
-    """The failure the lint exists for is untouched by that split.
-
-    A key the preset carries and this copy does not is the silent kind — it
-    builds green forever — so it still refuses, and the refusal names the key.
-    """
-    _edit(repo / PROFILE, "  web.theme: light\n", "")
-
-    result = CliRunner().invoke(validate, ["--repo", str(repo)])
-
-    assert result.exit_code == 2, result.output
-    assert "config.web.theme" in result.output
-    assert "# DEVIATION:" in result.output
 
 
 def test_validate_passes_a_fresh_materialization(repo: Path) -> None:

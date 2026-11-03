@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 
 import httpx
+import pytest
 from fastapi.testclient import TestClient
 
 import osprey.infrastructure.proxy.app as app_module
@@ -359,8 +360,15 @@ class TestNonStreamErrorTranslation:
         assert body["error"]["type"] == "authentication_error"
         assert body["error"]["message"] == "bad key"
 
-    def test_429_maps_to_rate_limit_error(self, monkeypatch):
-        resp = self._error_resp(429, {"error": {"message": "slow down"}})
+    @pytest.mark.parametrize(
+        ("status", "message", "error_type"),
+        [
+            pytest.param(429, "slow down", "rate_limit_error", id="429-rate-limit"),
+            pytest.param(404, "no model", "not_found_error", id="404-not-found"),
+        ],
+    )
+    def test_status_maps_to_its_error_type(self, monkeypatch, status, message, error_type):
+        resp = self._error_resp(status, {"error": {"message": message}})
         _install_fake_stream_client(monkeypatch, post_behavior=lambda: _NonRaisingResp(resp))
         app = create_proxy_app("https://up.example/v1", upstream_api_key="k")
         client = TestClient(app)
@@ -368,20 +376,8 @@ class TestNonStreamErrorTranslation:
         out = client.post(
             "/v1/messages", json={"model": "m", "messages": [{"role": "user", "content": "x"}]}
         )
-        assert out.status_code == 429
-        assert out.json()["error"]["type"] == "rate_limit_error"
-
-    def test_404_maps_to_not_found_error(self, monkeypatch):
-        resp = self._error_resp(404, {"error": {"message": "no model"}})
-        _install_fake_stream_client(monkeypatch, post_behavior=lambda: _NonRaisingResp(resp))
-        app = create_proxy_app("https://up.example/v1", upstream_api_key="k")
-        client = TestClient(app)
-
-        out = client.post(
-            "/v1/messages", json={"model": "m", "messages": [{"role": "user", "content": "x"}]}
-        )
-        assert out.status_code == 404
-        assert out.json()["error"]["type"] == "not_found_error"
+        assert out.status_code == status
+        assert out.json()["error"]["type"] == error_type
 
     def _post_error(self, monkeypatch, status, payload, messages=None, **app_kwargs):
         resp = self._error_resp(status, payload)

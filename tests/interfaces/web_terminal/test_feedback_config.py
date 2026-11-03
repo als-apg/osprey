@@ -353,20 +353,21 @@ class TestFeedbackOwner:
         assert destination.email == "controls@als.example.org"
         assert destination.owner_name == "Example Controls"
 
-    def test_the_leaf_key_still_wins(self):
-        """An already-deployed profile spelling the leaf key keeps its meaning."""
+    @pytest.mark.parametrize(
+        "email",
+        [
+            # An already-deployed profile spelling the leaf key keeps its meaning.
+            pytest.param("legacy@example.org", id="the-leaf-key-wins"),
+            # Blank is a posture, not an absence — it outranks the owner block.
+            pytest.param("", id="a-blank-leaf-key-retires-the-channel"),
+        ],
+    )
+    def test_the_leaf_key_still_outranks_the_owner_block(self, email):
         destination = resolve_feedback_destination(
-            email="legacy@example.org",
+            email=email,
             owner={"email": "controls@als.example.org"},
         )
-        assert destination.email == "legacy@example.org"
-
-    def test_a_blank_leaf_key_still_retires_the_channel(self):
-        """Blank is a posture, not an absence — it outranks the owner block."""
-        destination = resolve_feedback_destination(
-            email="", owner={"email": "controls@als.example.org"}
-        )
-        assert destination.email == ""
+        assert destination.email == email
 
     def test_an_owner_gitlab_tracker_becomes_the_destination(self):
         """A GitLab facility is first-class: no `trackers:` list required."""

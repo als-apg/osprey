@@ -222,31 +222,33 @@ def test_two_mentions_keep_the_colleague_and_lose_only_the_bot():
     assert parsed.text == "ask Alice about the magnets"
 
 
-def test_a_mention_span_in_the_middle_is_removed_where_it_stands():
-    activity = _activity(text="please <at>Osprey</at> report the current")
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        pytest.param(
+            "please <at>Osprey</at> report the current",
+            "please  report the current",
+            id="mention-span-in-the-middle-removed-where-it-stands",
+        ),
+        pytest.param(
+            "<at>Osprey</at> run:\n\n    a = 1\n        b = 2\n",
+            "run:\n\n    a = 1\n        b = 2",
+            id="interior-whitespace-survives-so-pasted-code-does",
+        ),
+        pytest.param(
+            "<at>Osprey</at> what does <at>foo</at> mean?",
+            "what does <at>foo</at> mean?",
+            id="typed-at-tag-without-an-entity-left-as-content",
+        ),
+    ],
+)
+def test_the_mention_span_is_stripped_and_the_rest_of_the_text_kept_as_written(text, expected):
+    activity = _activity(text=text)
 
     parsed = parse_event(activity, CFG)
 
     assert parsed is not None
-    assert parsed.text == "please  report the current"
-
-
-def test_interior_whitespace_survives_so_pasted_code_does():
-    activity = _activity(text="<at>Osprey</at> run:\n\n    a = 1\n        b = 2\n")
-
-    parsed = parse_event(activity, CFG)
-
-    assert parsed is not None
-    assert parsed.text == "run:\n\n    a = 1\n        b = 2"
-
-
-def test_a_typed_at_tag_without_an_entity_is_left_as_content():
-    activity = _activity(text="<at>Osprey</at> what does <at>foo</at> mean?")
-
-    parsed = parse_event(activity, CFG)
-
-    assert parsed is not None
-    assert parsed.text == "what does <at>foo</at> mean?"
+    assert parsed.text == expected
 
 
 def test_a_mention_of_somebody_with_no_name_collapses_to_nothing():

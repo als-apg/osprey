@@ -96,6 +96,7 @@ const PANEL_SYNONYMS = {
   lattice: 'optics',
   okf: 'knowledge docs',
   'system-health': 'status monitoring',
+  canopy: 'screens gui operator',
 };
 
 /** Verb vocabulary for "Pop out …" rows. */
