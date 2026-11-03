@@ -83,11 +83,11 @@ def strip_machine(repo: Path) -> None:
         repo: The repo.
     """
     from osprey.cli.main import cli
-    from osprey.facility.layers import _seed_knowledge_index
+    from osprey.services.facility_knowledge.okf.index import _settle_bundle
 
     facility = repo / "data" / "facility"
     shutil.rmtree(facility)
-    _seed_knowledge_index(facility)
+    _settle_bundle(facility / "knowledge")
     stated = CliRunner().invoke(
         cli, ["set", "--repo", str(repo), "config.simulation.default_scenarios=[]"]
     )
