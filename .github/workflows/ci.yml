@@ -182,7 +182,7 @@ jobs:
     # they merely cost time. The 40-minute step cap below sat at the healthy
     # runtime for a day and did exactly that: main timed out on the macOS cell
     # at 99% three times on 2026-09-01 with zero test failures.
-    timeout-minutes: 60
+    timeout-minutes: 75
     strategy:
       fail-fast: false
       matrix:
@@ -284,8 +284,10 @@ jobs:
       # runs about half of it or less and the trimmed macOS sweep about as
       # long as that cell, so the same cap leaves room for the slowest runner
       # in the pool AND the tail. The previous 40 was sized for
-      # a ~18 min cell and became the healthy runtime itself.
-      timeout-minutes: 55
+      # a ~18 min cell and became the healthy runtime itself. 70 because the
+      # macOS sweep then grew past 55: it was cut off at 97% and 99% with zero
+      # test failures on 2026-11-02.
+      timeout-minutes: 70
       env:
         # Switches on _harness/ci_diagnostics.py: a continuously flushed event log
         # and stack-dump file per xdist worker, written here and uploaded below.
