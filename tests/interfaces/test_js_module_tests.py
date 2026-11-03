@@ -46,7 +46,6 @@ TESTS_JS_DIR = "js"
 #: this table in the change that adds its test or deletes the module; nothing
 #: is added except by an owner-approved change.
 WITHOUT_OWN_TEST: tuple[str, ...] = (
-    "src/osprey/interfaces/ariel/static/js/api.js",
     "src/osprey/interfaces/ariel/static/js/app.js",
     "src/osprey/interfaces/ariel/static/js/components.js",
     "src/osprey/interfaces/ariel/static/js/entries-form.js",

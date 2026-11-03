@@ -1,0 +1,203 @@
+// @ts-check
+/**
+ * ARIEL API client: what each call puts on the wire. What is pinned:
+ *
+ *   - the entries listing sends `cursor`, `page_size`, `view` and the C-FILTER
+ *     as canonical JSON text in `filters`, and leaves `filters` out when the
+ *     filter selects nothing;
+ *   - a search body carries `filters`, `offset` and `view` only when given and
+ *     non-empty;
+ *   - the facets call sends `q`, `mode`, and `filters`/`advanced_params` as
+ *     JSON text, each left out when empty;
+ *   - an AbortSignal reaches fetch on GET and POST, and an aborted request
+ *     rejects with an AbortError, never an ApiError;
+ *   - a refused filter's 422 `detail: {field, reason}` becomes an ApiError
+ *     with that reason and field.
+ *
+ *   npx vitest run tests/interfaces/ariel/api.test.mjs
+ */
+import { test, expect, describe, beforeEach, afterEach, vi } from 'vitest';
+
+import {
+  ApiError,
+  api,
+  entriesApi,
+  facetsApi,
+  searchApi,
+} from '../../../src/osprey/interfaces/ariel/static/js/api.js';
+
+/** @type {any} */
+let fetchMock;
+
+/**
+ * Answer every fetch with `body`, or reject with an AbortError when the
+ * request's signal is already aborted (what a browser does).
+ * @param {any} body
+ * @param {{ok?: boolean, status?: number}} [res]
+ */
+function answer(body, { ok = true, status = 200 } = {}) {
+  fetchMock = vi.fn(async (/** @type {string} */ _url, /** @type {any} */ init) => {
+    if (init?.signal?.aborted) throw new DOMException('The operation was aborted.', 'AbortError');
+    return { ok, status, json: async () => body };
+  });
+  vi.stubGlobal('fetch', fetchMock);
+}
+
+/** @returns {URLSearchParams} the query string of the first fetch */
+function sentParams() {
+  return new URL(fetchMock.mock.calls[0][0], window.location.origin).searchParams;
+}
+
+/** @returns {any} the parsed JSON body of the first fetch */
+function sentBody() {
+  return JSON.parse(fetchMock.mock.calls[0][1].body);
+}
+
+beforeEach(() => answer({ entries: [] }));
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+  vi.restoreAllMocks();
+});
+
+describe('entriesApi.list', () => {
+  test('sends cursor, page size, view and the filter as canonical JSON', async () => {
+    await entriesApi.list({
+      cursor: 'abc',
+      pageSize: 50,
+      view: 'row',
+      filters: { tags: ['rf', 'RF'], author: ['bob', 'alice'] },
+    });
+    const p = sentParams();
+    expect(new URL(fetchMock.mock.calls[0][0]).pathname).toBe('/api/entries');
+    expect(p.get('cursor')).toBe('abc');
+    expect(p.get('page_size')).toBe('50');
+    expect(p.get('view')).toBe('row');
+    expect(p.get('filters')).toBe('{"author":["alice","bob"],"tags":["rf"]}');
+    expect(p.has('page')).toBe(false);
+  });
+
+  test('an empty filter is left out, and so are an absent cursor and view', async () => {
+    await entriesApi.list({ filters: { author: [], time: { start: null, end: null } } });
+    const p = sentParams();
+    expect(p.has('filters')).toBe(false);
+    expect(p.has('cursor')).toBe(false);
+    expect(p.has('view')).toBe(false);
+    expect(p.get('page_size')).toBe('20');
+  });
+
+  test('a time window travels inside filters', async () => {
+    await entriesApi.list({ filters: { time: { start: '2026-01-01', end: null } } });
+    expect(JSON.parse(/** @type {string} */ (sentParams().get('filters')))).toEqual({
+      time: { start: '2026-01-01', end: null },
+    });
+  });
+});
+
+describe('searchApi.search', () => {
+  test('carries filters, offset and view', async () => {
+    await searchApi.search({
+      query: 'quench',
+      mode: 'semantic',
+      maxResults: 20,
+      advancedParams: { similarity: 0.6 },
+      filters: { author: ['bob'] },
+      offset: 40,
+      view: 'row',
+    });
+    expect(fetchMock.mock.calls[0][0]).toBe('/api/search');
+    expect(sentBody()).toEqual({
+      query: 'quench',
+      mode: 'semantic',
+      max_results: 20,
+      advanced_params: { similarity: 0.6 },
+      filters: { author: ['bob'] },
+      offset: 40,
+      view: 'row',
+    });
+  });
+
+  test('leaves filters, offset and view out when absent or empty', async () => {
+    await searchApi.search({ query: 'quench', filters: { tags: [] } });
+    expect(sentBody()).toEqual({
+      query: 'quench',
+      mode: 'keyword',
+      max_results: 10,
+      advanced_params: {},
+    });
+  });
+
+  test('offset 0 is sent', async () => {
+    await searchApi.search({ query: 'q', offset: 0 });
+    expect(sentBody().offset).toBe(0);
+  });
+});
+
+describe('facetsApi.get', () => {
+  test('sends q, mode, filters and advanced_params as JSON text', async () => {
+    await facetsApi.get({
+      query: 'quench',
+      mode: 'keyword',
+      filters: { source_system: ['elog'] },
+      advancedParams: { fuzzy: true },
+    });
+    const p = sentParams();
+    expect(new URL(fetchMock.mock.calls[0][0]).pathname).toBe('/api/facets');
+    expect(p.get('q')).toBe('quench');
+    expect(p.get('mode')).toBe('keyword');
+    expect(p.get('filters')).toBe('{"source_system":["elog"]}');
+    expect(p.get('advanced_params')).toBe('{"fuzzy":true}');
+  });
+
+  test('an empty browse leaves filters, mode and advanced_params out', async () => {
+    await facetsApi.get({ filters: {}, advancedParams: {} });
+    const p = sentParams();
+    expect(p.get('q')).toBe('');
+    expect(p.has('mode')).toBe(false);
+    expect(p.has('filters')).toBe(false);
+    expect(p.has('advanced_params')).toBe(false);
+  });
+});
+
+describe('abort', () => {
+  test('the signal reaches fetch on GET and POST', async () => {
+    const { signal } = new AbortController();
+    await facetsApi.get({ signal });
+    await entriesApi.list({ signal });
+    await searchApi.search({ query: 'q', signal });
+    await api.get('/status', {}, { signal });
+    for (const call of fetchMock.mock.calls) expect(call[1].signal).toBe(signal);
+  });
+
+  test('an aborted request rejects with an AbortError, not an ApiError', async () => {
+    const ctl = new AbortController();
+    ctl.abort();
+    for (const run of [
+      () => entriesApi.list({ signal: ctl.signal }),
+      () => searchApi.search({ query: 'q', signal: ctl.signal }),
+      () => facetsApi.get({ signal: ctl.signal }),
+    ]) {
+      const err = await run().catch((/** @type {any} */ e) => e);
+      expect(err.name).toBe('AbortError');
+      expect(err).not.toBeInstanceOf(ApiError);
+    }
+  });
+});
+
+describe('errors', () => {
+  test("a refused filter's 422 carries its reason and field", async () => {
+    answer({ detail: { field: 'shift', reason: 'unknown dimension' } }, { ok: false, status: 422 });
+    const err = await entriesApi.list({ filters: { shift: ['owl'] } }).catch((e) => e);
+    expect(err).toBeInstanceOf(ApiError);
+    expect(err.status).toBe(422);
+    expect(err.message).toBe('unknown dimension');
+    expect(err.field).toBe('shift');
+  });
+
+  test('a string detail is still the message', async () => {
+    answer({ detail: 'Unknown mode', code: 'bad_mode' }, { ok: false, status: 400 });
+    const err = await searchApi.search({ query: 'q' }).catch((e) => e);
+    expect(err.message).toBe('Unknown mode');
+    expect(err.code).toBe('bad_mode');
+  });
+});
