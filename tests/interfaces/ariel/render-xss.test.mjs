@@ -34,7 +34,13 @@ vi.mock('../../../src/osprey/interfaces/ariel/static/js/api.js', async (importOr
   const actual = /** @type {any} */ (await importOriginal());
   return {
     ...actual,
-    entriesApi: { ...actual.entriesApi, list: vi.fn(), get: vi.fn(), getPublishInfo: vi.fn() },
+    entriesApi: {
+      ...actual.entriesApi,
+      list: vi.fn(),
+      get: vi.fn(),
+      getPublishInfo: vi.fn(),
+      thread: vi.fn(),
+    },
     draftsApi: { ...actual.draftsApi, get: vi.fn() },
     searchApi: { ...actual.searchApi, search: vi.fn() },
   };

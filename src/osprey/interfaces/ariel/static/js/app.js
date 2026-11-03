@@ -9,7 +9,8 @@
  * may remove `#settings-drawer`, which the gear menu then leaves out.
  *
  * The reader is store-free, so its wiring lives here: it reads `sel` and
- * `att`, and writes `att` from the lightbox callbacks.
+ * `att`, writes `att` from the lightbox callbacks, `sel` from thread links and
+ * `compose` from the Follow up action.
  */
 
 import { initTheme } from '/design-system/js/theme-manager.js';
@@ -67,6 +68,12 @@ function wireReader(container) {
     onAttachmentMissing: () => {
       shownAtt = null;
       if (getState().att !== null) setState({ att: null });
+    },
+    onSelectEntry: (/** @type {string} */ id) => {
+      if (id) setState({ sel: id, att: null, narrowView: 'reader' });
+    },
+    onFollowUp: (/** @type {string} */ id) => {
+      if (id) setState({ compose: { draft: null, followsUp: id } });
     },
   };
 
