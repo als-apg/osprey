@@ -282,8 +282,8 @@ and every rewrite is reported back with the results, so a hit that looks
 surprising always arrives with the reason it appeared.
 
 Nothing is built in. With no vocabulary configured, no query is ever rewritten.
-The ``control-assistant`` template ships a twenty-concept example at
-``data/ariel/vocabulary.yml`` as a starting point and a format tutorial; it is
+The ``control-assistant`` template ships an example at
+``data/facility/ariel/vocabulary.yml`` as a starting point and a format tutorial; it is
 meant to be edited down to what your control room actually says.
 
 The vocabulary file
@@ -564,14 +564,14 @@ Configuration
 
    ariel:
      vocabulary:
-       enabled: true                       # default: false
-       path: data/ariel/vocabulary.yml     # required when enabled
-       expand_by_default: true             # default: true
-       expand_entries: false               # default: false
-       canonical_to_acronym: true          # default: true
-       canonical_to_shorthand: false       # default: false
-       # expand_modes: [keyword, semantic] # default: every enabled module
-                                           # (semantic/hybrid only with expand_entries)
+       enabled: true                                # default: false
+       path: data/facility/ariel/vocabulary.yml     # required when enabled
+       expand_by_default: true                      # default: true
+       expand_entries: false                        # default: false
+       canonical_to_acronym: true                   # default: true
+       canonical_to_shorthand: false                # default: false
+       # expand_modes: [keyword, semantic]          # default: every enabled module
+                                                    # (semantic/hybrid only with expand_entries)
 
      search_modules:
        keyword:
@@ -613,7 +613,7 @@ Checking the file, and reading the status
 .. code-block:: bash
 
    osprey ariel vocab-check                            # the configured file
-   osprey ariel vocab-check data/ariel/vocabulary.yml  # any file
+   osprey ariel vocab-check data/facility/ariel/vocabulary.yml  # any file
    osprey ariel vocab-check --json                     # one JSON document
 
 Neither this command nor the vocabulary line of ``osprey ariel status`` needs a

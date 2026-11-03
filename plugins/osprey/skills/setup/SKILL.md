@@ -363,7 +363,7 @@ core: provider ✔ · models ✔ · control system ✔ · writes/safety ✖ · i
 | --- | --- | --- | --- |
 | data/facility/knowledge/ | pulled | skeleton | indexes only |
 | data/facility/knowledge/subsystems/rf.md | derived | LCLS | from lcls-ops-wiki/rf.md |
-| data/ariel/vocabulary.yml | stated | LCLS | localized stub, curation owed |
+| data/facility/ariel/vocabulary.yml | stated | LCLS | localized stub, curation owed |
 | services.postgresql | ported | LCLS | ARIEL store |
 ## Decided
 - <decision> — <one-line rationale> (<date>)

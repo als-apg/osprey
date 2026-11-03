@@ -364,9 +364,9 @@ the devil's advocate walks the same list against the ledger afterwards.
 | `data/facility/knowledge/*/` documents other than the user's stubs | the demo facility's 17 documents |
 | `data/facility/records/`, `seeds.yaml` and `identity.yaml` nobody replaced | the demo facility's channels |
 | `data/facility/limits.yaml` with records nobody ported | the demo facility's limits |
-| `data/benchmarks/` | demo query sets |
+| `data/facility/benchmarks/` | demo query sets |
 | `data/facility/models.yaml`, `decks/`, `measurement/`, `scenarios/` nobody replaced | demo machine model |
-| `data/ariel/vocabulary.yml` | demo facility terms |
+| `data/facility/ariel/vocabulary.yml` | demo facility terms |
 | `data/landing/working-safely.md` | the demo product's safety notice |
 | `web-terminal-context/base.md` | opens by naming the demo product |
 | `profile.yml` roster entries `alice`, `bob`, `carol` | demo logins |

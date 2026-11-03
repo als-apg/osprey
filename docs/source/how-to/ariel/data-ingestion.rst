@@ -275,7 +275,7 @@ The built-in enhancement modules:
       **Turning it on, or editing the vocabulary while it is on.** The
       vocabulary file ships inside the image, so do these steps in order:
 
-      #. Edit ``data/ariel/vocabulary.yml`` and/or set ``expand_entries: true``;
+      #. Edit ``data/facility/ariel/vocabulary.yml`` and/or set ``expand_entries: true``;
          run ``osprey ariel vocab-check``.
       #. Rebuild and redeploy the image.
       #. Restart the sync service. Its startup line prints the new key, and its

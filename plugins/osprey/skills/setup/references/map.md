@@ -89,7 +89,7 @@ The areas, and where each one's components are read from at run time:
 
 | Area | Source it consumes | Components, read from `control-assistant.yml` |
 | --- | --- | --- |
-| LOGBOOK | a facility logbook | `# ── ARIEL logbook search` and `# ── Logbook composition` key groups; `services.postgresql.*`; `ariel` in `web_panels`; agent `logbook-deep-research`; app `logbook` (`apps/logbook.yml`, named under `shared:`); `data/ariel/vocabulary.yml` |
+| LOGBOOK | a facility logbook | `# ── ARIEL logbook search` and `# ── Logbook composition` key groups; `services.postgresql.*`; `ariel` in `web_panels`; agent `logbook-deep-research`; app `logbook` (`apps/logbook.yml`, named under `shared:`); `data/facility/ariel/vocabulary.yml` |
 | KNOWLEDGE | documentation, an IOC database, a device list | `# ── Facility knowledge` group; `services.qmd.*` and `services.graphdb.*`; `okf` in `web_panels`; agents `facility-knowledge`, `facility-knowledge-graph`; app `knowledge` (`apps/knowledge.yml`, named under `shared:`); `data/facility/knowledge/`; the build's graph view |
 | CHANNEL FINDER | a channel list, CSV, IOC database, or an MML export | `channel_finder_mode` (`in_context`, `hierarchical` and `middle_layer` read the view the build writes under `data/channel_finder/`, `graph` reads the graph store; the build writes each from the facility file), `# ── Channel finder` group; agent `channel-finder` |
 | WEB TERMINALS | named operator roles | `# ── Web terminal` and `# ── Multi-user web terminals` groups (`modules.web_terminals`, `deploy.fqdn`, the floor keys); the tiers in `tiers/` and the roster's `shared:` apps in `apps/`; the login wall |
@@ -165,8 +165,8 @@ osprey set config.ariel.ingestion.source_url=<the facility's logbook endpoint or
 The adapter list is `osprey ariel ingest --help` (`-a`) and
 `<OSPREY_ROOT>/services/ariel_search/ingestion/adapters/`; a facility whose logbook has no adapter uses
 `generic_json` over an export and logs a `worked-around` candidate for the native
-adapter. `data/ariel/vocabulary.yml` arrives as a `localize` stub, never as the
-reference example's twenty concepts.
+adapter. `data/facility/ariel/vocabulary.yml` arrives as a `localize` stub, never as the
+reference example's concepts.
 
 ## The web-terminal recipe
 
