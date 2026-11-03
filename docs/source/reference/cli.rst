@@ -1358,7 +1358,7 @@ repo: the commands read its ``build/config.yml``.
 
    osprey ariel quickstart
    osprey ariel search "RF cavity fault"
-   osprey ariel vocab-check data/ariel/vocabulary.yml
+   osprey ariel vocab-check data/facility/ariel/vocabulary.yml
    osprey ariel web --port 8080
 
 osprey artifacts
