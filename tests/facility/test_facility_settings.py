@@ -16,10 +16,12 @@ from typing import Any
 import pytest
 
 from osprey.cli.build_profile_archiver import VAArchiverConfig
+from osprey.cli.build_profile_load import manifest_rows
 from osprey.facility.errors import FacilityBuildError
 from osprey.facility.records import FacilityRecords
 from osprey.facility.settings import (
     BENCHMARK_DATASET_PATH,
+    FACILITY_SETTINGS,
     FRESHNESS_CHANNEL_KEY,
     PROFILE_SOURCE,
     SERVED_PROBE_KEYS,
@@ -224,3 +226,9 @@ def test_a_stated_path_with_the_vocabulary_off_is_inert(tmp_path: Path) -> None:
     profile = {VOCABULARY_ENABLED_KEY: False, VOCABULARY_PATH_KEY: "data/missing.yml"}
 
     assert _fill(_tree(tmp_path, vocabulary=True), profile) == {}
+
+
+def test_the_table_is_the_manifests_facility_rows() -> None:
+    marked = {key for key, row in manifest_rows().items() if (row or {}).get("facility-fact")}
+
+    assert {row.key for row in FACILITY_SETTINGS} == marked
