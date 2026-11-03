@@ -138,16 +138,18 @@ def make_entry(
     timestamp: str = "2026-08-20T12:00:00-07:00",
     author: str = "operator",
     attachments: list[dict[str, Any]] | None = None,
+    metadata: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """An ``EntryResponse``-shaped entry."""
+    """An ``EntryResponse``-shaped entry (``subject`` is filled, as the server fills it)."""
     return {
         "entry_id": entry_id,
         "source_system": "olog",
         "timestamp": timestamp,
         "author": author,
+        "subject": subject,
         "raw_text": f"{subject}\nBody of {entry_id}.",
         "attachments": attachments or [],
-        "metadata": {},
+        "metadata": dict(metadata or {}),
         "created_at": timestamp,
         "updated_at": None,
         "summary": None,
@@ -184,7 +186,8 @@ DRAFT = {
     "shift": None,
     "tags": ["agent"],
     "attachment_paths": [],
-    "metadata": {},
+    # Recorded provenance: the form shows the draft banner only for this.
+    "metadata": {"session_metadata": {"operator": "agent", "created_via": "osprey"}},
 }
 
 
@@ -422,14 +425,64 @@ class FakeBackend:
             new_id = f"NEW-{self.created}"
             self.entries.insert(0, make_entry(new_id, "Freshly created entry"))
             ok({"entry_id": new_id, "message": "created"}, status=201)
+        elif path.startswith("/api/entries/") and path.endswith("/thread"):
+            thread = self._thread(path.split("/")[3])
+            ok(thread, 200) if thread else ok({"detail": "Entry not found"}, 404)
         elif path.startswith("/api/entries/"):
             entry = self.details().get(path.rsplit("/", 1)[1])
             ok(entry, 200) if entry else ok({"detail": "Entry not found"}, 404)
+        elif path == "/api/drafts" and req.method == "GET":
+            ok({"drafts": self._draft_summaries()})
+        elif path.startswith("/api/drafts/") and req.method == "DELETE":
+            gone = self.drafts.pop(path.rsplit("/", 1)[1], None)
+            route.fulfill(status=204) if gone else ok({"detail": "Draft not found"}, 404)
         elif path.startswith("/api/drafts/"):
             draft = self.drafts.get(path.rsplit("/", 1)[1])
             ok(draft, 200) if draft else ok({"detail": "Draft not found"}, 404)
         else:
             route.continue_()
+
+    def _thread(self, entry_id: str) -> dict[str, Any] | None:
+        """GET /api/entries/{id}/thread (C-THREAD): the parent row and the children, oldest first."""
+        details = self.details()
+        entry = details.get(entry_id)
+        if entry is None:
+            return None
+        parent_id = (entry.get("metadata") or {}).get("follows_up")
+        parent = details.get(parent_id) if parent_id else None
+        children = sorted(
+            (
+                e
+                for e in details.values()
+                if (e.get("metadata") or {}).get("follows_up") == entry_id
+            ),
+            key=lambda e: datetime.fromisoformat(e["timestamp"]),
+        )
+        return {
+            "parent_id": parent_id,
+            "parent": to_row(parent) if parent else None,
+            "children": [to_row(e) for e in children],
+        }
+
+    def _draft_summaries(self) -> list[dict[str, Any]]:
+        """GET /api/drafts: one ``DraftSummary`` per held draft, newest first."""
+        summaries = [
+            {
+                "draft_id": draft_id,
+                "subject": draft.get("subject", ""),
+                "author": draft.get("author"),
+                "logbook": draft.get("logbook"),
+                "created_at": draft.get("created_at", "2026-08-20T10:00:00-07:00"),
+                "staged_by": ((draft.get("metadata") or {}).get("session_metadata") or {}).get(
+                    "operator"
+                ),
+                "attachment_count": len(draft.get("attachment_paths") or []),
+            }
+            for draft_id, draft in self.drafts.items()
+        ]
+        return sorted(
+            summaries, key=lambda d: datetime.fromisoformat(d["created_at"]), reverse=True
+        )
 
     def _browse(self, record: Request) -> dict[str, Any]:
         """GET /api/entries: filtered, keyset-paged (the cursor is an offset), C-ROW on request."""
@@ -551,8 +604,11 @@ def canonical(
     f: dict[str, Any] | None = None,
     sel: str | None = None,
     att: str | None = None,
+    compose: str | None = None,
 ) -> str:
     """The router's canonical hash: keys in order, empty ones omitted (``box`` never is).
+
+    ``compose`` is the open draft's value (``draft:<id>``), written last.
 
     ``f`` is the filter as compact JSON with sorted top-level keys (the router's
     ``normalizeFilter`` order; a ``time`` window keeps ``start, end``). Under a
@@ -563,7 +619,15 @@ def canonical(
     if saved:
         q = q or ""
         f_json = f_json or "{}"
-    pairs = [("q", q), ("mode", mode), ("box", box), ("f", f_json), ("sel", sel), ("att", att)]
+    pairs = [
+        ("q", q),
+        ("mode", mode),
+        ("box", box),
+        ("f", f_json),
+        ("sel", sel),
+        ("att", att),
+        ("compose", compose),
+    ]
     always = {"q", "f"} if saved else set()
     return "#" + "&".join(
         f"{k}={quote(v or '', safe='')}" for k, v in pairs if v or (k in always and v is not None)
@@ -695,7 +759,11 @@ def test_req3_unknown_id_shows_the_reader_error_state(
 def test_req3_unfetchable_draft_leaves_the_form_empty_with_an_error(
     ariel_url: str, chromium_browser: Browser
 ) -> None:
-    """``#create?draft=`` of a missing draft opens an empty form and reports the failure."""
+    """``#create?draft=`` of a missing draft opens an empty form with an error toast.
+
+    The draft is gone (404) and nothing was typed under it, so the sheet becomes
+    a new entry (Decision 8).
+    """
     page = chromium_browser.new_page()
     backend = FakeBackend().install(page)
     with page.expect_console_message(lambda m: "Failed to load draft" in m.text):
@@ -706,6 +774,9 @@ def test_req3_unfetchable_draft_leaves_the_form_empty_with_an_error(
     expect(page.locator("#entry-subject")).to_have_value("")
     expect(page.locator("#entry-details")).to_have_value("")
     expect(page.locator("#draft-banner")).to_have_count(0)
+    expect(page.locator(".osprey-toast-host [role=alert] .osprey-toast")).to_contain_text(
+        "draft is gone"
+    )
     page.close()
 
 
@@ -835,7 +906,7 @@ def test_req5_cancel_returns_to_the_list(ariel_url: str, chromium_browser: Brows
 
 
 def test_req5_draft_review_prefills_the_form(ariel_url: str, chromium_browser: Browser) -> None:
-    """``#create?draft=D1`` opens the form prefilled from the draft, with its banner."""
+    """``#create?draft=D1`` opens the form prefilled, with its provenance banner."""
     page, backend = open_panel(chromium_browser, f"{ariel_url}/#create?draft=D1")
 
     expect(page.locator("#ariel-compose")).to_be_visible()
@@ -947,13 +1018,17 @@ def test_mailbox_all_is_current_by_default(ariel_url: str, chromium_browser: Bro
 
 
 def test_mailbox_drafts_shows_its_empty_state(ariel_url: str, chromium_browser: Browser) -> None:
-    """Drafts has no listing yet: it says agent drafts open from the agent's link."""
-    page, _ = open_panel(chromium_browser, f"{ariel_url}/")
+    """Drafts with no live draft says so, and lists no entry rows."""
+    page, backend = open_panel(chromium_browser, f"{ariel_url}/", FakeBackend(drafts={}))
     _box(page, "drafts").click()
     expect(_box(page, "drafts")).to_have_attribute("aria-current", "page")
-    expect(page.locator("#ariel-list-body")).to_contain_text("No Draft Listing Yet")
-    expect(page.locator("#ariel-list-body")).to_contain_text("open from the agent's link")
+    expect(page.locator("#ariel-list-body")).to_contain_text("No Drafts")
+    expect(page.locator("#ariel-list-body")).to_contain_text(
+        "Drafts an agent stages for you appear here."
+    )
+    wait_for_call(page, backend, "GET", "/api/drafts")
     expect(page.locator("#ariel-list [data-entry-id]")).to_have_count(0)
+    expect(page.locator("#ariel-list [data-draft-id]")).to_have_count(0)
     wait_for_hash(page, canonical(box="drafts"))
 
     _box(page, "all").click()
@@ -1212,12 +1287,12 @@ def test_alias_entry_selects_and_opens_the_attachment(
 
 @pytest.mark.parametrize("alias", ["#create", "#create?draft=D1"])
 def test_alias_create_opens_compose(ariel_url: str, chromium_browser: Browser, alias: str) -> None:
-    """``#create`` opens the empty form; ``?draft=`` prefills it."""
+    """``#create`` opens the empty form; ``?draft=`` prefills it and lands on its ``compose``."""
     page, _ = open_panel(chromium_browser, f"{ariel_url}/{alias}")
     expect(page.locator("#ariel-compose")).to_be_visible()
     expected = "Drafted by the agent" if "draft" in alias else ""
     expect(page.locator("#entry-subject")).to_have_value(expected)
-    wait_for_hash(page, canonical())
+    wait_for_hash(page, canonical(compose="draft:D1" if "draft" in alias else None))
     page.close()
 
 
@@ -1745,3 +1820,531 @@ def test_filters_popover_author_and_facet_click_agree(
 
     assert by_popover == by_facet == {"author": ["alice"]}
     assert hash_facet == canonical(f={"author": ["alice"]})
+
+
+# ---------------------------------------------------------------------------
+# Compose sheet: placement, kinds, drafts, follow-ups, autosave, keys
+# ---------------------------------------------------------------------------
+
+
+def _sheet(page: Page):
+    """The compose sheet."""
+    return page.locator("#ariel-compose")
+
+
+def _sheet_title(page: Page):
+    return page.locator("#ariel-compose-title")
+
+
+def _submit(page: Page) -> None:
+    page.click("#create-entry-form button[type=submit]")
+
+
+def _toast(page: Page, role: str):
+    """Toasts in the ``status`` (info/success/warning) or ``alert`` (error) region."""
+    return page.locator(f".osprey-toast-host [role={role}] .osprey-toast")
+
+
+def _go(page: Page, hash_: str) -> None:
+    """Navigate the open page to *hash_* without a reload."""
+    page.evaluate("(h) => { location.hash = h; }", hash_)
+
+
+def _hold(page: Page, pattern: str) -> list[Route]:
+    """Hold every request matching *pattern* unanswered; release one with ``.fallback()``.
+
+    Registered after ``FakeBackend.install``, so it runs first; ``fallback()``
+    hands the request on to the fake.
+    """
+    held: list[Route] = []
+
+    def hold(route: Route) -> None:
+        held.append(route)
+
+    page.route(re.compile(pattern), hold)
+    return held
+
+
+def _wait_until(page: Page, check: Callable[[], bool], what: str, timeout: float = 5.0) -> None:
+    """Poll *check* while the page's routes keep being served."""
+    deadline = time.monotonic() + timeout
+    while not check():
+        if time.monotonic() > deadline:
+            raise AssertionError(f"timed out waiting for {what}")
+        page.wait_for_timeout(50)
+
+
+def _storage_dump(page: Page) -> str:
+    """Everything this origin keeps in localStorage and sessionStorage, as one string."""
+    return page.evaluate(
+        "() => JSON.stringify([Object.entries(localStorage), Object.entries(sessionStorage)])"
+    )
+
+
+def _wait_autosaved(page: Page, text: str) -> None:
+    """Wait until the compose autosave record holds *text* (the debounced save landed)."""
+    page.wait_for_function(
+        "(t) => Object.keys(localStorage).some((k) => k.startsWith('ariel-compose-autosave')"
+        " && (localStorage.getItem(k) || '').includes(t))",
+        arg=text,
+    )
+
+
+def test_compose_sheet_leaves_the_reader_showing_the_selection(
+    ariel_url: str, chromium_browser: Browser
+) -> None:
+    """With an entry selected, the sheet covers the list column and the reader keeps that entry."""
+    page, _ = open_panel(chromium_browser, f"{ariel_url}/{canonical(sel='E2')}")
+    expect(reader_title(page)).to_have_text("Vacuum spike sector 3")
+
+    page.click("#ariel-compose-btn")
+    expect(_sheet(page)).to_be_visible()
+    expect(_sheet_title(page)).to_have_text("New entry")
+    expect(reader_title(page)).to_be_visible()
+    expect(reader_title(page)).to_have_text("Vacuum spike sector 3")
+    sheet = _sheet(page).bounding_box()
+    reader = page.locator("#ariel-reader").bounding_box()
+    assert sheet is not None and reader is not None
+    assert sheet["x"] + sheet["width"] <= reader["x"] + 1, (sheet, reader)
+    # A new entry never reaches the address.
+    wait_for_hash(page, canonical(sel="E2"))
+    page.close()
+
+
+def test_compose_sheet_maximises_and_restores(ariel_url: str, chromium_browser: Browser) -> None:
+    """Maximise widens the sheet across the panel; restore returns it to the list column."""
+    page, _ = open_panel(chromium_browser, f"{ariel_url}/")
+    page.click("#ariel-compose-btn")
+    expect(_sheet(page)).to_be_visible()
+    narrow = width(page, "#ariel-compose")
+    sheet_width = "() => document.querySelector('#ariel-compose').getBoundingClientRect().width"
+
+    page.click("#ariel-compose-max")
+    expect(page.locator("#ariel-compose-max")).to_have_attribute("aria-pressed", "true")
+    page.wait_for_function(f"(n) => ({sheet_width})() > n + 300", arg=narrow)
+    expect(reader_title(page)).to_have_count(0)  # nothing selected: the reader is empty
+
+    page.click("#ariel-compose-max")
+    expect(page.locator("#ariel-compose-max")).to_have_attribute("aria-pressed", "false")
+    page.wait_for_function(f"(n) => Math.abs(({sheet_width})() - n) <= 2", arg=narrow)
+    page.close()
+
+
+def test_compose_sheet_fills_the_tile_when_stacked(
+    ariel_url: str, chromium_browser: Browser
+) -> None:
+    """Stacked, a follow-up opened from the reader pane fills the tile; closing shows the reader."""
+    page, _ = open_panel(chromium_browser, f"{ariel_url}/", viewport={"width": 560, "height": 800})
+    row(page, "E1").click()
+    expect(app(page)).to_have_attribute("data-narrow-view", "reader")
+
+    page.click("#ariel-reader-body [data-follow-up]")
+    expect(_sheet(page)).to_be_visible()
+    expect(_sheet_title(page)).to_have_text("Follow up")
+    expect(page.locator("#ariel-compose-max")).to_be_hidden()
+    sheet = _sheet(page).bounding_box()
+    assert sheet is not None
+    assert sheet["x"] <= 1 and sheet["width"] >= 558, sheet
+    assert sheet["y"] + sheet["height"] >= 798, sheet
+
+    page.click("#ariel-compose-close")
+    expect(_sheet(page)).to_be_hidden()
+    expect(app(page)).to_have_attribute("data-narrow-view", "reader")
+    expect(reader_title(page)).to_have_text("Beam dump at injection")
+    page.close()
+
+
+def test_compose_draft_address_opens_the_draft_and_never_submits_it(
+    ariel_url: str, chromium_browser: Browser
+) -> None:
+    """``#compose=draft:<id>`` opens that draft, survives a reload, and never submits by itself."""
+    page, backend = open_panel(chromium_browser, f"{ariel_url}/{canonical(compose='draft:D1')}")
+
+    expect(_sheet(page)).to_be_visible()
+    expect(_sheet_title(page)).to_have_text("Draft")
+    expect(page.locator("#entry-subject")).to_have_value("Drafted by the agent")
+    expect(page.locator("#draft-banner")).to_have_attribute("data-draft-id", "D1")
+    wait_for_hash(page, canonical(compose="draft:D1"))
+
+    page.reload(wait_until="load")
+    expect(page.locator("#entry-subject")).to_have_value("Drafted by the agent")
+    wait_for_hash(page, canonical(compose="draft:D1"))
+    page.wait_for_timeout(500)
+    assert not backend.calls("POST", "/api/entries"), backend.requests
+    assert not backend.calls("POST", "/api/entries/upload"), backend.requests
+    assert not backend.calls("DELETE", "/api/drafts/D1"), backend.requests
+    page.close()
+
+
+def test_compose_draft_without_provenance_shows_no_banner(
+    ariel_url: str, chromium_browser: Browser
+) -> None:
+    """A draft that records no stager opens without the provenance banner."""
+    plain = {**DRAFT, "draft_id": "D2", "subject": "Gallery draft", "metadata": {}}
+    backend = FakeBackend(drafts={"D2": plain})
+    page, _ = open_panel(chromium_browser, f"{ariel_url}/{canonical(compose='draft:D2')}", backend)
+
+    expect(page.locator("#entry-subject")).to_have_value("Gallery draft")
+    expect(page.locator("#draft-banner")).to_have_count(0)
+    page.close()
+
+
+def test_mailbox_drafts_lists_newest_first_discards_and_submits(
+    ariel_url: str, chromium_browser: Browser
+) -> None:
+    """Drafts lists every draft newest first; Discard and Submit each remove one."""
+    backend = FakeBackend(
+        drafts={
+            "D1": {**DRAFT, "created_at": "2026-08-20T08:00:00-07:00"},
+            "D2": {
+                **DRAFT,
+                "draft_id": "D2",
+                "subject": "Gallery draft",
+                "metadata": {},
+                "created_at": "2026-08-20T11:00:00-07:00",
+            },
+            "D3": {
+                **DRAFT,
+                "draft_id": "D3",
+                "subject": "API draft",
+                "metadata": {},
+                "created_at": "2026-08-20T09:30:00-07:00",
+            },
+        }
+    )
+    page, _ = open_panel(chromium_browser, f"{ariel_url}/", backend)
+    _box(page, "drafts").click()
+    rows = page.locator("#ariel-list [data-draft-id]")
+    expect(rows).to_have_count(3)
+    assert rows.evaluate_all("rs => rs.map(r => r.dataset.draftId)") == ["D2", "D3", "D1"]
+    expect(page.locator("#ariel-list [data-entry-id]")).to_have_count(0)
+
+    # Discard deletes the draft, says so, and the listing drops it.
+    page.locator('#ariel-list [data-draft-id="D3"]').click()
+    expect(_sheet_title(page)).to_have_text("Draft")
+    expect(page.locator("#entry-subject")).to_have_value("API draft")
+    wait_for_hash(page, canonical(box="drafts", compose="draft:D3"))
+    page.click("#create-cancel-btn")
+    wait_for_call(page, backend, "DELETE", "/api/drafts/D3")
+    expect(_toast(page, "status")).to_contain_text("Draft discarded")
+    expect(_sheet(page)).to_be_hidden()
+    expect(rows).to_have_count(2)
+    wait_for_hash(page, canonical(box="drafts"))
+
+    # Submitting a draft removes it as well.
+    page.locator('#ariel-list [data-draft-id="D2"]').click()
+    expect(page.locator("#entry-subject")).to_have_value("Gallery draft")
+    _submit(page)
+    created = wait_for_call(page, backend, "POST", "/api/entries")
+    assert created.json()["subject"] == "Gallery draft"
+    wait_for_call(page, backend, "DELETE", "/api/drafts/D2")
+    expect(_sheet(page)).to_be_hidden()
+    expect(rows).to_have_count(1)
+    expect(page.locator('#ariel-list [data-draft-id="D1"]')).to_be_visible()
+    page.close()
+
+
+def _thread_backend() -> FakeBackend:
+    """T1 followed up by T2 and T3; T4 follows up an entry ARIEL no longer holds."""
+    parent = make_entry("T1", "Magnet trip in sector 5", timestamp="2026-08-20T08:00:00-07:00")
+    first = make_entry(
+        "T2", "Magnet reset", timestamp="2026-08-20T09:00:00-07:00", metadata={"follows_up": "T1"}
+    )
+    second = make_entry(
+        "T3",
+        "Magnet back in service",
+        timestamp="2026-08-20T10:00:00-07:00",
+        metadata={"follows_up": "T1"},
+    )
+    orphan = make_entry(
+        "T4",
+        "Note on a pruned entry",
+        timestamp="2026-08-20T11:00:00-07:00",
+        metadata={"follows_up": "GONE-7"},
+    )
+    return FakeBackend(entries=[orphan, second, first, parent])
+
+
+def test_reader_thread_links_parent_and_children(ariel_url: str, chromium_browser: Browser) -> None:
+    """The body renders before the thread; each thread link opens its entry; a lost parent shows its id."""
+    page, _ = open_panel(chromium_browser, f"{ariel_url}/", _thread_backend())
+    held = _hold(page, r".*/api/entries/T2/thread$")
+
+    row(page, "T2").click()
+    expect(reader_title(page)).to_have_text("Magnet reset")
+    _wait_until(page, lambda: bool(held), "the T2 thread request")
+    expect(page.locator("#ariel-reader-body [data-entry-thread]")).to_have_count(0)
+    held.pop().fallback()
+
+    thread = page.locator("#ariel-reader-body [data-entry-thread]")
+    expect(thread).to_contain_text("Follows up")
+    thread.locator('[data-thread-entry="T1"]').click()
+    expect(reader_title(page)).to_have_text("Magnet trip in sector 5")
+    wait_for_hash(page, canonical(sel="T1"))
+
+    links = page.locator("#ariel-reader-body [data-entry-thread] [data-thread-entry]")
+    expect(links).to_have_count(2)
+    expect(thread).to_contain_text("Follow-ups (2)")
+    assert links.evaluate_all("ls => ls.map(l => l.dataset.threadEntry)") == ["T2", "T3"]
+    links.nth(1).click()
+    expect(reader_title(page)).to_have_text("Magnet back in service")
+    wait_for_hash(page, canonical(sel="T3"))
+
+    row(page, "T4").click()
+    expect(reader_title(page)).to_have_text("Note on a pruned entry")
+    expect(page.locator("#ariel-reader-body .entry-thread-missing")).to_have_text("GONE-7")
+    expect(page.locator("#ariel-reader-body [data-thread-entry]")).to_have_count(0)
+    page.close()
+
+
+def test_follow_up_prefills_names_the_parent_and_submits_follows_up(
+    ariel_url: str, chromium_browser: Browser
+) -> None:
+    """Following up ``Follow-up: X`` keeps the subject, copies logbook and tags, sends follows_up."""
+    parent = make_entry(
+        "F1", "Follow-up: RF trip", metadata={"logbook": "Operations", "tags": ["rf", "trip"]}
+    )
+    backend = FakeBackend(entries=[parent, *DEFAULT_ENTRIES])
+    page, _ = open_panel(chromium_browser, f"{ariel_url}/{canonical(sel='F1')}", backend)
+    expect(reader_title(page)).to_have_text("Follow-up: RF trip")
+
+    page.click("#ariel-reader-body [data-follow-up]")
+    expect(_sheet_title(page)).to_have_text("Follow up")
+    expect(page.locator("#entry-subject")).to_have_value("Follow-up: RF trip")
+    expect(page.locator("#entry-logbook")).to_have_value("Operations")
+    tags = page.locator("#entry-tags .tag")
+    expect(tags).to_have_count(2)
+    assert tags.evaluate_all("ts => ts.map(t => t.dataset.value)") == ["rf", "trip"]
+    expect(page.locator("#ariel-compose-parent")).to_be_visible()
+    expect(page.locator("#ariel-compose-parent-ref")).to_have_text("Follow-up: RF trip")
+    expect(reader_title(page)).to_have_text("Follow-up: RF trip")
+    wait_for_hash(page, canonical(sel="F1"))  # a follow-up never reaches the address
+
+    page.fill("#entry-details", "Recovered after the reset.")
+    page.fill("#entry-author", "bob")
+    _submit(page)
+    body = wait_for_call(page, backend, "POST", "/api/entries").json()
+    assert body["metadata"]["follows_up"] == "F1", body
+    assert body["subject"] == "Follow-up: RF trip"
+    assert body["logbook"] == "Operations"
+    assert body["tags"] == ["rf", "trip"]
+    expect(_sheet(page)).to_be_hidden()
+    page.close()
+
+
+@pytest.mark.parametrize(
+    ("publish", "destination"),
+    [
+        ({"supports_write": True, "requires_auth": False}, "→ olog logbook"),
+        ({"supports_write": True, "requires_auth": True}, "→ olog logbook (credentials required)"),
+        (
+            {"supports_write": False, "requires_auth": False},
+            "→ Local ARIEL only (logbook read-only)",
+        ),
+    ],
+)
+def test_compose_sheet_names_the_destination(
+    ariel_url: str, chromium_browser: Browser, publish: dict[str, bool], destination: str
+) -> None:
+    """The sheet says where the entry goes: the facility logbook, or local ARIEL when read-only."""
+    backend = FakeBackend()
+    backend.publish_info.update(publish)
+    page, _ = open_panel(chromium_browser, f"{ariel_url}/", backend)
+    page.click("#ariel-compose-btn")
+    expect(page.locator("#ariel-compose-dest")).to_have_text(destination)
+    page.close()
+
+
+def test_compose_autosave_survives_reload_and_close_never_credentials(
+    ariel_url: str, chromium_browser: Browser
+) -> None:
+    """Typed text survives a reload and a close/reopen; Discard and Submit clear it.
+
+    Credentials and attachments are never written to browser storage nor restored.
+    """
+    backend = FakeBackend()
+    backend.publish_info["requires_auth"] = True
+    page, _ = open_panel(chromium_browser, f"{ariel_url}/", backend)
+
+    page.click("#ariel-compose-btn")
+    expect(page.locator("#publish-credentials")).to_be_visible()
+    page.fill("#entry-auth-user", "opsuser")
+    page.fill("#entry-auth-password", "s3cret")
+    page.set_input_files(
+        "#entry-files", files=[{"name": "plot.png", "mimeType": "image/png", "buffer": PNG_1X1}]
+    )
+    _fill_entry(page, "Autosaved subject")
+    _wait_autosaved(page, "Some details.")
+    expect(page.locator("#ariel-compose-saved")).to_contain_text("saved locally")
+    dump = _storage_dump(page)
+    for secret in ("opsuser", "s3cret", "plot.png"):
+        assert secret not in dump, (secret, dump)
+
+    # Reload: a new entry is not in the address, so the sheet reopens by hand.
+    page.reload(wait_until="load")
+    expect(page.locator("#ariel-list-body")).to_have_attribute("aria-busy", "false")
+    expect(_sheet(page)).to_be_hidden()
+    page.click("#ariel-compose-btn")
+    expect(page.locator("#entry-subject")).to_have_value("Autosaved subject")
+    expect(page.locator("#entry-details")).to_have_value("Some details.")
+    expect(page.locator("#entry-auth-user")).to_have_value("")
+    expect(page.locator("#entry-auth-password")).to_have_value("")
+    assert page.eval_on_selector("#entry-files", "el => el.files.length") == 0
+
+    # Close keeps it.
+    page.fill("#entry-subject", "Edited after reload")
+    page.click("#ariel-compose-close")
+    expect(_sheet(page)).to_be_hidden()
+    page.click("#ariel-compose-btn")
+    expect(page.locator("#entry-subject")).to_have_value("Edited after reload")
+
+    # Discard clears it.
+    page.click("#create-cancel-btn")
+    expect(_sheet(page)).to_be_hidden()
+    page.click("#ariel-compose-btn")
+    expect(page.locator("#entry-subject")).to_have_value("")
+    expect(page.locator("#entry-details")).to_have_value("")
+
+    # A successful submit clears it.
+    _fill_entry(page, "Submitted subject")
+    page.fill("#entry-auth-user", "opsuser")
+    page.fill("#entry-auth-password", "s3cret")
+    _wait_autosaved(page, "Submitted subject")
+    _submit(page)
+    expect(_sheet(page)).to_be_hidden()
+    expect(reader_title(page)).to_have_text("Freshly created entry")
+    page.click("#ariel-compose-btn")
+    expect(page.locator("#entry-subject")).to_have_value("")
+    dump = _storage_dump(page)
+    for secret in ("opsuser", "s3cret", "plot.png"):
+        assert secret not in dump, (secret, dump)
+    page.close()
+
+
+def test_late_draft_response_never_fills_a_later_sheet(
+    ariel_url: str, chromium_browser: Browser
+) -> None:
+    """Draft A answering after B opened (or after the sheet closed) never shows A's content."""
+    backend = FakeBackend(
+        drafts={
+            "DA": {**DRAFT, "draft_id": "DA", "subject": "Late draft A", "details": "A body."},
+            "DB": {**DRAFT, "draft_id": "DB", "subject": "Draft B", "details": "B body."},
+        }
+    )
+    page, _ = open_panel(chromium_browser, f"{ariel_url}/", backend)
+    held = _hold(page, r".*/api/drafts/DA$")
+
+    def release_a() -> None:
+        before = len(backend.calls("GET", "/api/drafts/DA"))
+        held.pop().fallback()
+        _wait_until(
+            page, lambda: len(backend.calls("GET", "/api/drafts/DA")) > before, "draft A answered"
+        )
+        page.wait_for_timeout(300)  # let A's response reach the page
+
+    # A, then B before A answers.
+    _go(page, canonical(compose="draft:DA"))
+    _wait_until(page, lambda: bool(held), "the draft A request")
+    _go(page, canonical(compose="draft:DB"))
+    expect(page.locator("#entry-subject")).to_have_value("Draft B")
+    release_a()
+    expect(page.locator("#entry-subject")).to_have_value("Draft B")
+    expect(page.locator("#entry-details")).to_have_value("B body.")
+    expect(page.locator("#draft-banner")).to_have_attribute("data-draft-id", "DB")
+
+    # A, then closed before A answers; a new entry opened afterwards stays empty.
+    _go(page, canonical(compose="draft:DA"))
+    _wait_until(page, lambda: bool(held), "the second draft A request")
+    page.click("#ariel-compose-close")
+    expect(_sheet(page)).to_be_hidden()
+    release_a()
+    page.click("#ariel-compose-btn")
+    expect(_sheet_title(page)).to_have_text("New entry")
+    expect(page.locator("#entry-subject")).to_have_value("")
+    expect(page.locator("#entry-details")).to_have_value("")
+    expect(page.locator("#draft-banner")).to_have_count(0)
+    page.close()
+
+
+def test_tag_with_a_quote_adds_and_removes_without_an_error(
+    ariel_url: str, chromium_browser: Browser
+) -> None:
+    """Tags holding ``"`` or ``\\`` are added once and removed without a page error."""
+    page, _ = open_panel(chromium_browser, f"{ariel_url}/")
+    errors: list[str] = []
+    page.on("pageerror", lambda error: errors.append(str(error)))
+    page.click("#ariel-compose-btn")
+
+    for tag in ['a"b', "c\\d", 'a"b']:
+        page.fill("#entry-tags-input", tag)
+        page.press("#entry-tags-input", "Enter")
+    tags = page.locator("#entry-tags .tag")
+    expect(tags).to_have_count(2)
+    assert tags.evaluate_all("ts => ts.map(t => t.dataset.value)") == ['a"b', "c\\d"]
+
+    tags.first.locator("[data-tag-remove]").click()
+    expect(tags).to_have_count(1)
+    assert tags.evaluate_all("ts => ts.map(t => t.dataset.value)") == ["c\\d"]
+    tags.first.locator("[data-tag-remove]").click()
+    expect(tags).to_have_count(0)
+    assert errors == []
+    page.close()
+
+
+def test_key_c_and_r_open_compose_but_not_while_typing(
+    ariel_url: str, chromium_browser: Browser
+) -> None:
+    """``c`` opens a new entry, ``r`` follows up the selection; typed in a field, neither does."""
+    page, _ = open_panel(chromium_browser, f"{ariel_url}/")
+
+    page.keyboard.press("r")  # nothing selected: nothing to follow up
+    expect(_sheet(page)).to_be_hidden()
+    page.focus("#ariel-search-input")
+    page.keyboard.type("cr")
+    expect(page.locator("#ariel-search-input")).to_have_value("cr")
+    expect(_sheet(page)).to_be_hidden()
+    page.fill("#ariel-search-input", "")
+    page.evaluate("document.activeElement.blur()")
+
+    page.keyboard.press("c")
+    expect(_sheet(page)).to_be_visible()
+    expect(_sheet_title(page)).to_have_text("New entry")
+    page.focus("#entry-subject")
+    page.keyboard.type("rc")
+    expect(page.locator("#entry-subject")).to_have_value("rc")
+    expect(_sheet_title(page)).to_have_text("New entry")
+    page.keyboard.press("Escape")
+    expect(_sheet(page)).to_be_hidden()
+
+    row(page, "E1").click()
+    expect(reader_title(page)).to_have_text("Beam dump at injection")
+    page.keyboard.press("r")
+    expect(_sheet_title(page)).to_have_text("Follow up")
+    expect(page.locator("#entry-subject")).to_have_value("Follow-up: Beam dump at injection")
+    expect(page.locator("#ariel-compose-parent-ref")).to_have_text("Beam dump at injection")
+    page.focus("#entry-details")
+    page.keyboard.press("Escape")  # from another field of the sheet
+    expect(_sheet(page)).to_be_hidden()
+    wait_for_hash(page, canonical(sel="E1"))
+    page.close()
+
+
+def test_key_escape_closes_the_lightbox_before_the_sheet(
+    ariel_url: str, chromium_browser: Browser
+) -> None:
+    """With the sheet open, Esc closes a lightbox first, then the sheet from any of its fields."""
+    page, _ = open_panel(chromium_browser, f"{ariel_url}/{canonical(sel='E1')}")
+    expect(reader_title(page)).to_have_text("Beam dump at injection")
+    page.click("#ariel-compose-btn")
+    expect(_sheet(page)).to_be_visible()
+
+    page.click("#ariel-reader-body [data-lightbox-url]")
+    expect(page.locator("#image-lightbox")).to_be_visible()
+    page.keyboard.press("Escape")
+    expect(page.locator("#image-lightbox")).to_have_count(0)
+    expect(_sheet(page)).to_be_visible()
+
+    page.focus("#entry-tags-input")
+    page.keyboard.press("Escape")
+    expect(_sheet(page)).to_be_hidden()
+    page.close()

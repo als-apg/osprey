@@ -2,8 +2,9 @@
 /**
  * Unit tests for the ARIEL keyboard shortcuts (keyboard.js): j/k through the
  * rendered rows, Enter opens the reader, `/` focuses search standalone only,
- * `[` toggles the rail, and `Esc` closes exactly one layer — skipping events
- * that were defaultPrevented or arrived while a popover or drawer was open.
+ * `[` toggles the rail, `c` opens a new entry and `r` a follow-up of the
+ * selection, and `Esc` closes exactly one layer — skipping events that were
+ * defaultPrevented or arrived while a popover or drawer was open.
  *
  *   npx vitest run tests/interfaces/ariel/keyboard.test.mjs
  *
@@ -40,7 +41,7 @@ function mountFixture() {
           <div class="osprey-list-row" data-entry-id="e2"></div>
           <div class="osprey-list-row" data-entry-id="e3"></div>
         </div>
-        <div id="ariel-compose"><textarea id="entry-body"></textarea><select id="sel"></select></div>
+        <div id="ariel-compose"><input id="entry-subject" /><textarea id="entry-body"></textarea><select id="sel"></select><div id="rich" contenteditable="true"><span id="rich-inner"></span></div></div>
       </div>
       <div id="ariel-reader"><button id="back">Back</button></div>
     </div>
@@ -218,6 +219,64 @@ describe('[', () => {
   });
 });
 
+describe('c / r', () => {
+  test('c opens a new entry and swallows the key', () => {
+    const e = press('c');
+    expect(store.getState().compose).toEqual({ draft: null });
+    expect(e.defaultPrevented).toBe(true);
+  });
+
+  test('c with a selection still opens a plain new entry, not a follow-up', () => {
+    store.setState({ sel: 'e2' });
+    press('c');
+    expect(store.getState().compose).toEqual({ draft: null });
+    expect(store.getState().sel).toBe('e2');
+  });
+
+  test('r opens a follow-up of the selected entry', () => {
+    store.setState({ sel: 'e2' });
+    const e = press('r');
+    expect(store.getState().compose).toEqual({ draft: null, followsUp: 'e2' });
+    expect(e.defaultPrevented).toBe(true);
+  });
+
+  test('r with no selection does nothing', () => {
+    const e = press('r');
+    expect(store.getState().compose).toBeNull();
+    expect(e.defaultPrevented).toBe(false);
+  });
+
+  test.each(['c', 'r'])('%s is ignored in an input, textarea, select or contenteditable', (key) => {
+    store.setState({ sel: 'e2' });
+    for (const id of ['search', 'entry-subject', 'entry-body', 'sel', 'rich', 'rich-inner']) {
+      const e = press(key, /** @type {HTMLElement} */ (document.getElementById(id)));
+      expect(e.defaultPrevented).toBe(false);
+    }
+    expect(store.getState().compose).toBeNull();
+  });
+
+  test.each(['c', 'r'])('%s is ignored with a modifier held', (key) => {
+    store.setState({ sel: 'e2' });
+    press(key, document.body, { ctrlKey: true });
+    press(key, document.body, { metaKey: true });
+    press(key, document.body, { altKey: true });
+    expect(store.getState().compose).toBeNull();
+  });
+
+  test('upper-case C / R are not bound', () => {
+    store.setState({ sel: 'e2' });
+    press('C', document.body, { shiftKey: true });
+    press('R', document.body, { shiftKey: true });
+    expect(store.getState().compose).toBeNull();
+  });
+
+  test('r on a lightbox-open selection opens the follow-up for that entry', () => {
+    store.setState({ sel: 'e1', att: 'a1' });
+    press('r');
+    expect(store.getState().compose).toEqual({ draft: null, followsUp: 'e1' });
+  });
+});
+
 describe('Esc', () => {
   test('closes the lightbox', () => {
     store.setState({ sel: 'e1', att: 'a1' });
@@ -274,6 +333,34 @@ describe('Esc', () => {
     press('Escape');
     expect(document.getElementById('status-drawer')?.hasAttribute('open')).toBe(false);
     expect(store.getState().compose).toEqual({ draft: null });
+  });
+
+  test('from a sheet field: lightbox, then sheet close (compose:null), then stacked Back', () => {
+    store.setState({ sel: 'e1', stacked: true, narrowView: 'reader' });
+    press('r');
+    store.setState({ att: 'a1' });
+    const field = /** @type {HTMLElement} */ (document.getElementById('entry-subject'));
+
+    const e1 = press('Escape', field);
+    expect(e1.defaultPrevented).toBe(true);
+    expect(store.getState()).toMatchObject({
+      att: null,
+      compose: { draft: null, followsUp: 'e1' },
+      narrowView: 'reader',
+    });
+
+    const e2 = press('Escape', field);
+    expect(e2.defaultPrevented).toBe(true);
+    expect(store.getState()).toMatchObject({ compose: null, narrowView: 'reader', sel: 'e1' });
+
+    press('Escape', field);
+    expect(store.getState()).toMatchObject({ narrowView: 'list', sel: 'e1' });
+  });
+
+  test('closes the sheet from a contenteditable field', () => {
+    press('c');
+    press('Escape', /** @type {HTMLElement} */ (document.getElementById('rich-inner')));
+    expect(store.getState().compose).toBeNull();
   });
 
   test('one Esc closes one layer', () => {
@@ -337,9 +424,14 @@ describe('scope', () => {
     api = null;
     press('j');
     press('[');
+    store.setState({ sel: 'e2' });
+    press('r');
+    expect(store.getState().compose).toBeNull();
+    press('c');
+    expect(store.getState().compose).toBeNull();
     store.setState({ compose: { draft: null } });
     press('Escape');
-    expect(store.getState()).toMatchObject({ sel: null, railCollapsed: false });
+    expect(store.getState()).toMatchObject({ sel: 'e2', railCollapsed: false });
     expect(store.getState().compose).toEqual({ draft: null });
   });
 });
