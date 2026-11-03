@@ -58,7 +58,7 @@ const {
   setPanelFocus: vi.fn(),
   setPanelVisibility: vi.fn(),
   // The layout-report route: (layout, popouts, dock) -> the server's
-  // acknowledgement, or null for a report that did not land.
+  // acknowledgement, null for a server error (503), or httpError(...).
   serverReport: vi.fn(),
 }));
 // getDockApi reads the mutable holder so a test can swap the live api in place.
@@ -109,8 +109,15 @@ vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/popout.js', () =>
 
 /** Every body POSTed to /api/panel-layout, in order. @type {any[]} */
 let fetchBodies = [];
-/** Flip `ok` to false to model the route refusing a report. */
-const fetchStatus = { ok: true };
+
+/** Marks a serverReport answer as an HTTP error of the route, not an ack. */
+const HTTP_STATUS = Symbol('http status');
+
+/**
+ * The route answering a report with HTTP `status` and FastAPI's `{detail}` body.
+ * @param {number} status @param {unknown} [detail]
+ */
+const httpError = (status, detail = 'refused') => ({ [HTTP_STATUS]: status, detail });
 
 beforeEach(() => {
   vi.resetModules();
@@ -128,16 +135,25 @@ beforeEach(() => {
       Promise.resolve({ status: 'ok', layout, popouts, dock, rev: ++rev, updated: true })
   );
   fetchBodies = [];
-  fetchStatus.ok = true;
   popoutListeners.length = 0;
   vi.stubGlobal(
     'fetch',
     vi.fn(async (/** @type {string} */ _url, /** @type {any} */ opts) => {
       const body = JSON.parse(opts.body);
       fetchBodies.push(body);
-      const ack = await serverReport(body.layout, body.popouts, body.dock);
-      if (!fetchStatus.ok || ack === null) return { ok: false, json: async () => null };
-      return { ok: true, json: async () => ack };
+      // A request the page gives up on (its signal aborts) rejects, as fetch does.
+      const abandoned = new Promise((_resolve, reject) =>
+        opts.signal?.addEventListener('abort', () => reject(new Error('aborted')))
+      );
+      const ack = await Promise.race([
+        serverReport(body.layout, body.popouts, body.dock),
+        abandoned,
+      ]);
+      if (ack === null) return { ok: false, status: 503, json: async () => ({ detail: 'down' }) };
+      if (ack?.[HTTP_STATUS]) {
+        return { ok: false, status: ack[HTTP_STATUS], json: async () => ({ detail: ack.detail }) };
+      }
+      return { ok: true, status: 200, json: async () => ack };
     })
   );
   state.api = null;
@@ -684,16 +700,168 @@ describe('layout reporter — from the holder, settle debounce, content dedupe, 
     expect(serverReport).toHaveBeenCalledTimes(3);
   });
 
-  test('a refused report (HTTP error) is not acked and is retried', async () => {
-    fetchStatus.ok = false;
-    const { api, holder } = await wireReporting(row(['ariel']));
+  test.each([
+    ['a network error', () => Promise.reject(new Error('network down'))],
+    ['a 503', () => Promise.resolve(null)],
+    ['a 500', () => Promise.resolve(httpError(500))],
+    ['a request timeout (408)', () => Promise.resolve(httpError(408))],
+    ['too many requests (429)', () => Promise.resolve(httpError(429))],
+  ])('a report lost to %s is sent again with backoff, with no layout change', async (_name, fail) => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    serverReport.mockImplementation(fail);
+    const { holder } = await wireReporting(row(['ariel']));
     await vi.advanceTimersByTimeAsync(SETTLE);
-    expect(holder.ack).not.toHaveBeenCalled();
-    fetchStatus.ok = true;
+    expect(serverReport).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(499);
+    expect(serverReport).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(serverReport).toHaveBeenCalledTimes(2);
+    await vi.advanceTimersByTimeAsync(999);
+    expect(serverReport).toHaveBeenCalledTimes(2);
+
+    serverReport.mockImplementation((/** @type {any} */ layout) =>
+      Promise.resolve({ status: 'ok', layout, rev: 4, updated: true })
+    );
+    await vi.advanceTimersByTimeAsync(1);
+    expect(serverReport).toHaveBeenCalledTimes(3);
+    expect(holder.ack).toHaveBeenCalledExactlyOnceWith(4);
+    expect(holder.dirty).toBe(false);
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(serverReport).toHaveBeenCalledTimes(3);
+    // One warning for the run of failures, not one per attempt.
+    expect(warn).toHaveBeenCalledTimes(1);
+    warn.mockRestore();
+  });
+
+  test('the backoff doubles up to 30 s: a server down for minutes is asked twice a minute', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const { api } = await wireReporting(row(['ariel']));
+    // Past the boot deadline, whose backstop report would land mid-backoff.
+    await vi.advanceTimersByTimeAsync(10_000);
+    /** @type {number[]} */
+    const at = [];
+    serverReport.mockImplementation(() => {
+      at.push(Date.now());
+      return Promise.resolve(null);
+    });
+    change(api, row(['ariel'], ['okf']));
+    await vi.advanceTimersByTimeAsync(SETTLE + 200_000);
+    const gaps = at.slice(1).map((t, i) => t - at[i]);
+    expect(gaps.slice(0, 7)).toEqual([500, 1000, 2000, 4000, 8000, 16000, 30000]);
+    expect(gaps.length).toBeGreaterThan(8);
+    expect(gaps.slice(7).every((gap) => gap === 30000)).toBe(true);
+    warn.mockRestore();
+  });
+
+  test('a report with no answer in 30 s is given up and sent again', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    serverReport.mockImplementationOnce(() => new Promise(() => {}));
+    const { holder } = await wireReporting(row(['ariel']));
+    await vi.advanceTimersByTimeAsync(SETTLE);
+    expect(serverReport).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(29_999);
+    expect(serverReport).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(1 + 500);
+    expect(serverReport).toHaveBeenCalledTimes(2);
+    expect(holder.dirty).toBe(false);
+    warn.mockRestore();
+  });
+
+  test('a lasting refusal (4xx) is logged with the server detail and not sent again until the layout changes', async () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    serverReport.mockImplementationOnce(() =>
+      Promise.resolve(httpError(422, "Unknown panel ids: ['gone']"))
+    );
+    const { api, holder } = await wireReporting(row(['gone']));
+    await vi.advanceTimersByTimeAsync(SETTLE);
+    expect(serverReport).toHaveBeenCalledTimes(1);
+    const logged = error.mock.calls.flat().map(String).join(' ');
+    expect(logged).toContain('422');
+    expect(logged).toContain("Unknown panel ids: ['gone']");
+
     api.fireLayout();
+    await vi.advanceTimersByTimeAsync(120_000);
+    expect(serverReport).toHaveBeenCalledTimes(1);
+    expect(holder.ack).not.toHaveBeenCalled();
+    expect(holder.dirty).toBe(true);
+    expect(error).toHaveBeenCalledTimes(1);
+
+    change(api, row(['ariel']));
     await vi.advanceTimersByTimeAsync(SETTLE);
     expect(serverReport).toHaveBeenCalledTimes(2);
-    expect(holder.ack).toHaveBeenCalledTimes(1);
+    expect(serverReport).toHaveBeenLastCalledWith(row(['ariel']), [], true);
+    expect(holder.dirty).toBe(false);
+    error.mockRestore();
+  });
+
+  test('a forced report goes out at once, unchanged layout and pop-outs included, and is acked', async () => {
+    const { mod, holder } = await wireReporting(row(['ariel']));
+    await vi.advanceTimersByTimeAsync(SETTLE);
+    expect(serverReport).toHaveBeenCalledTimes(1);
+    holder.popouts = ['okf'];
+    holder.dirty = true;
+    mod.noteReported({ layout: row(['ariel']), popouts: ['okf'] });
+
+    mod.reportLayoutNow();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(serverReport).toHaveBeenCalledTimes(2);
+    expect(serverReport).toHaveBeenLastCalledWith(row(['ariel']), ['okf'], true);
+    expect(holder.ackedRev).toBe(2);
+    expect(holder.dirty).toBe(false);
+  });
+
+  test('a forced report that does not land is sent again', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const { mod } = await wireReporting(row(['ariel']));
+    await vi.advanceTimersByTimeAsync(SETTLE);
+    serverReport.mockImplementationOnce(() => Promise.resolve(null));
+
+    mod.reportLayoutNow();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(serverReport).toHaveBeenCalledTimes(2);
+    await vi.advanceTimersByTimeAsync(500);
+    expect(serverReport).toHaveBeenCalledTimes(3);
+    expect(serverReport).toHaveBeenLastCalledWith(row(['ariel']), [], true);
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(serverReport).toHaveBeenCalledTimes(3);
+    warn.mockRestore();
+  });
+
+  test('a forced report asked for while a report is in flight goes out after it', async () => {
+    // The report in flight may have reached the server before the request was
+    // sent, so only a report sent after the request answers it.
+    /** @type {(() => void)[]} */
+    const pending = [];
+    serverReport.mockImplementation(
+      (/** @type {any} */ layout) =>
+        new Promise((resolve) =>
+          pending.push(() => resolve({ status: 'ok', layout, rev: pending.length, updated: true }))
+        )
+    );
+    const { mod } = await wireReporting(row(['ariel']));
+    await vi.advanceTimersByTimeAsync(SETTLE);
+    mod.reportLayoutNow();
+    await vi.advanceTimersByTimeAsync(SETTLE * 4);
+    expect(serverReport).toHaveBeenCalledTimes(1);
+
+    pending[0]();
+    await vi.advanceTimersByTimeAsync(SETTLE);
+    expect(serverReport).toHaveBeenCalledTimes(2);
+    expect(serverReport).toHaveBeenLastCalledWith(row(['ariel']), [], true);
+    pending[1]();
+    await vi.advanceTimersByTimeAsync(SETTLE * 4);
+    expect(serverReport).toHaveBeenCalledTimes(2);
+  });
+
+  test('a forced report with no holder, or no layout yet, sends nothing', async () => {
+    const { mod } = await wireReporting(null);
+    mod.reportLayoutNow();
+    await vi.advanceTimersByTimeAsync(SETTLE);
+    expect(serverReport).not.toHaveBeenCalled();
+    state.holder = null;
+    mod.reportLayoutNow();
+    await vi.advanceTimersByTimeAsync(SETTLE);
+    expect(serverReport).not.toHaveBeenCalled();
   });
 
   test('a fetch that throws does not strand the in-flight flag and kill reporting', async () => {

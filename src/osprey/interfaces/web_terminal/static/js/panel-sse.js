@@ -10,9 +10,9 @@
  * The boundary is direction of travel: everything here REACTS to a frame the
  * server sent — nothing in this module is reached by a human gesture. The
  * only POSTs are answers the server asked for: the outcome of a `panel_op`
- * frame addressed to this dock client (/api/panel-op-result) and the forced
- * layout report a `panel_report_request` frame asks for. The command half
- * lives in panel-commands.js.
+ * frame addressed to this dock client (/api/panel-op-result), and the forced
+ * layout report a `panel_report_request` frame asks dock-sync's reporter for.
+ * The command half lives in panel-commands.js.
  *
  * Leaf modules are imported directly; everything that lives in panel-manager's
  * private state arrives as injected deps registered once when the stream opens
@@ -26,7 +26,7 @@
 
 import { fetchJSON, createEventSource, getPageClientId, pageEventsUrl } from './api.js';
 import { hidePanel } from './dock-iframe.js';
-import { withEchoSuppressed, noteReported, postLayoutReport, sameReport } from './dock-sync.js';
+import { withEchoSuppressed, noteReported, reportLayoutNow, sameReport } from './dock-sync.js';
 import { getLayoutHolder, TERMINAL_KEY } from './dock-apply.js';
 import {
   flashAgentGlow,
@@ -187,7 +187,7 @@ export function subscribePanelEvents(sseDeps) {
           return;
         }
         if (kind === 'panel_report_request') {
-          void forceLayoutReport();
+          reportLayoutNow();
           return;
         }
         const data = /** @type {PanelSSEEvent} */ (raw);
@@ -452,20 +452,6 @@ async function handlePanelOp(frame) {
   const layout = holder.layout;
   const popouts = holder.popouts;
   recordAck(holder, { layout, popouts }, await postPanelOpResult({ ...answer, layout, popouts }));
-}
-
-/**
- * Answer a `panel_report_request`: POST this dock's layout now, undeduped, and
- * take the returned `rev` as the ack baseline when the layout has not moved
- * since. No holder or no layout reports nothing — a page without a dock must
- * not become the dock client.
- */
-async function forceLayoutReport() {
-  const holder = getLayoutHolder();
-  const layout = holder?.layout ?? null;
-  if (!holder || !layout) return;
-  const popouts = holder.popouts;
-  recordAck(holder, { layout, popouts }, await postLayoutReport(layout, popouts));
 }
 
 /**

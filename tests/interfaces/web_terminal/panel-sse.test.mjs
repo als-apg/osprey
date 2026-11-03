@@ -11,7 +11,7 @@
  *     panels are surfaced, an `open` with a url navigates after placement, and
  *     the resulting layout (or the runner's named refusal) is POSTed to
  *     /api/panel-op-result, whose `rev` becomes the holder's ack baseline;
- *   - a `panel_report_request` frame is answered with an undeduped report;
+ *   - a `panel_report_request` frame asks dock-sync's reporter for a report;
  *   - an `open` of a panel in its own window brings the window forward;
  *   - the retired `panel_focus`, `panel_close` and `panel_arrange` frames do
  *     nothing.
@@ -44,7 +44,7 @@ const { stream, calls, spies, dock } = vi.hoisted(() => {
       hidePanel: vi.fn(),
       runPanelOp: vi.fn(),
       postPanelOpResult: vi.fn(),
-      postLayoutReport: vi.fn(),
+      reportLayoutNow: vi.fn(),
       noteReported: vi.fn(),
       focusPopout: vi.fn(),
       record,
@@ -67,7 +67,7 @@ vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/dock-iframe.js', 
 vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/dock-sync.js', () => ({
   withEchoSuppressed: (/** @type {() => any} */ fn) => fn(),
   noteReported: spies.noteReported,
-  postLayoutReport: spies.postLayoutReport,
+  reportLayoutNow: spies.reportLayoutNow,
   sameReport: (/** @type {any} */ a, /** @type {any} */ b) =>
     JSON.stringify(a) === JSON.stringify(b),
 }));
@@ -170,7 +170,7 @@ beforeEach(async () => {
     spies.hidePanel,
     spies.runPanelOp,
     spies.postPanelOpResult,
-    spies.postLayoutReport,
+    spies.reportLayoutNow,
     spies.noteReported,
     spies.focusPopout,
   ]) {
@@ -182,7 +182,6 @@ beforeEach(async () => {
     calls.push(body.refusal ? `refuse:${body.refusal}` : 'answer');
     return { status: 'ok', layout: body.layout ?? null, rev: 7 };
   });
-  spies.postLayoutReport.mockImplementation(async () => ({ status: 'ok', rev: 9 }));
   dock.holder = fakeHolder();
   const sse = await import(`${JS}/panel-sse.js`);
   deps = {
@@ -494,39 +493,13 @@ describe('surfacing — only an activation that took effect counts', () => {
 });
 
 describe('panel_report_request — a forced report', () => {
-  test("reports the holder layout through dock-sync's poster, and acks the rev", async () => {
-    deliver({ type: 'panel_report_request' });
-    await settle();
-    expect(spies.postLayoutReport).toHaveBeenCalledWith(BEFORE, []);
-    expect(dock.holder.ack).toHaveBeenCalledWith(9);
-  });
-
-  test('reports even an unchanged layout: it is never deduped', async () => {
+  // What the report carries, its resends and its ack are dock-sync's reporter
+  // contract (dock-sync.test.mjs); this module only hands the request over.
+  test("each request asks dock-sync's reporter for a report now", () => {
     deliver({ type: 'panel_report_request' });
     deliver({ type: 'panel_report_request' });
-    await settle();
-    expect(spies.postLayoutReport).toHaveBeenCalledTimes(2);
-  });
-
-  test('a page without a holder reports nothing', async () => {
-    dock.holder = null;
-    deliver({ type: 'panel_report_request' });
-    await settle();
-    expect(spies.postLayoutReport).not.toHaveBeenCalled();
-  });
-
-  test('a report that did not land acks nothing', async () => {
-    spies.postLayoutReport.mockImplementation(async () => null);
-    deliver({ type: 'panel_report_request' });
-    await settle();
-    expect(dock.holder.ack).not.toHaveBeenCalled();
-    expect(spies.noteReported).not.toHaveBeenCalled();
-  });
-
-  test("an acknowledged forced report becomes dock-sync's dedupe baseline", async () => {
-    deliver({ type: 'panel_report_request' });
-    await settle();
-    expect(spies.noteReported).toHaveBeenCalledExactlyOnceWith(key(BEFORE));
+    expect(spies.reportLayoutNow).toHaveBeenCalledTimes(2);
+    expect(spies.postPanelOpResult).not.toHaveBeenCalled();
   });
 });
 
@@ -550,13 +523,6 @@ describe('a panel in its own window', () => {
       popouts: ['b'],
     });
     expect(spies.noteReported).toHaveBeenCalledExactlyOnceWith(key(BEFORE, ['b']));
-  });
-
-  test('the pop-outs ride on a forced report too', async () => {
-    dock.holder = fakeHolder(BEFORE, ['b']);
-    deliver({ type: 'panel_report_request' });
-    await settle();
-    expect(spies.postLayoutReport).toHaveBeenCalledWith(BEFORE, ['b']);
   });
 });
 

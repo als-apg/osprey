@@ -62,12 +62,19 @@
  * treats a report equal to stored state as a no-op. A server-applied
  * arrangement therefore settles after at most one no-op round-trip rather than
  * looping. The baseline tracks acknowledgements, not attempts, so a report that
- * never landed is retried on the next layout change instead of being deduped
- * away forever — and only ONE report is ever in flight, so the ack being waited
- * on always names the last write the server applied. Overlapping reports could
- * be applied in one order and acknowledged in the other, leaving no client-side
- * rule able to tell which one stuck; the overlap is prevented rather than
- * arbitrated.
+ * never landed is never deduped away — and only ONE report is ever in flight,
+ * so the ack being waited on always names the last write the server applied.
+ * Overlapping reports could be applied in one order and acknowledged in the
+ * other, leaving no client-side rule able to tell which one stuck; the overlap
+ * is prevented rather than arbitrated.
+ *
+ * A REPORT THAT DOES NOT LAND is sent again, whether or not the layout changes:
+ * one that got no answer in time, a network error, a 5xx, 408 or 429 may pass,
+ * so it goes out again after a backoff that doubles up to a ceiling. A 4xx is
+ * a refusal the server would repeat (the layout breaks a dock rule, names an
+ * unknown panel): it is logged with the server's detail, and that layout is
+ * not sent again until it changes. Either way the holder stays dirty, which is
+ * the truth: the server does not hold what is on screen.
  *
  * NO SEQUENCE GUARD, DELIBERATELY. The reflex when acks can race is to stamp
  * each request and ignore any ack that is not the newest — do not add that here.
@@ -188,7 +195,22 @@ const REPORT_SETTLE_MS = 250;
  */
 const BOOT_DEADLINE_MS = 10000;
 
-/** Pending settle timer for the layout report, or null when none is armed.
+/** How long a report may wait for its answer before it counts as lost and is
+ *  sent again. A report the server answers takes milliseconds; one with no
+ *  answer at all (a dropped connection) would otherwise stay in flight, and
+ *  hold back every report after it, for good. */
+const REPORT_TIMEOUT_MS = 30000;
+
+/** The wait before a lost report is sent again; it doubles with each loss in
+ *  a row, up to {@link RESEND_MAX_MS}. */
+const RESEND_BASE_MS = 500;
+
+/** The longest wait between two sends of a lost report: a server that is down
+ *  is asked again at least this often, and never more often than the backoff. */
+const RESEND_MAX_MS = 30000;
+
+/** Pending timer for the next flush (the settle window, or the backoff before
+ *  a lost report is sent again), or null when none is armed.
  *  @type {ReturnType<typeof setTimeout> | null} */
 let reportHandle = null;
 
@@ -217,6 +239,20 @@ let reportInFlight = false;
  *  acknowledgement — the server demonstrably holds that layout — so it updates
  *  the baseline too. */
 let lastReported = /** @type {Report | null} */ (null);
+
+/** Reports lost in a row since the server last answered one: what the backoff
+ *  before the next send is computed from. */
+let lostInARow = 0;
+
+/** The last report the server refused with a 4xx it would repeat; that report
+ *  is not sent again until the layout changes. Null once a report lands. */
+let refusedReport = /** @type {Report | null} */ (null);
+
+/** True while a `panel_report_request` waits for its report: the next flush
+ *  sends even a layout the server already acknowledged. Cleared when a report
+ *  is sent, set again if that report is lost — so the request is answered by a
+ *  report sent after it, never by one already in flight when it came. */
+let reportForced = false;
 
 /** True once the no-dock capability report has been sent, so the give-up branch
  *  of initDockSync reports at most once however often it is re-entered. */
@@ -282,12 +318,11 @@ export function sameReport(a, b) {
 
 /**
  * Record a layout the server acknowledged through another path than this
- * module's own scheduled report — an agent op's answer (/api/panel-op-result)
- * or a forced report (`panel_report_request`) — as the dedupe baseline. The
- * server holds that layout now, so it is what a later change is compared with:
- * without this, a person undoing an agent's open would land on the stale
- * baseline, be deduped away as already reported, and leave the server holding
- * the panel open.
+ * module's own report — an agent op's answer (/api/panel-op-result) — as the
+ * dedupe baseline. The server holds that layout now, so it is what a later
+ * change is compared with: without this, a person undoing an agent's open
+ * would land on the stale baseline, be deduped away as already reported, and
+ * leave the server holding the panel open.
  *
  * A holder that no longer holds `sent` reports what it holds. An answer can
  * land after the report of a newer layout (an op the dock answered late, a
@@ -304,27 +339,59 @@ export function noteReported(sent) {
 }
 
 /**
+ * What one report came to: the server's acknowledgement (`{status, layout,
+ * popouts, dock, rev, updated}` — `updated: false` marks a deduped no-op, still
+ * an acknowledgement); a refusal the server would repeat (a 4xx other than 408
+ * and 429), with its status and the server's `detail`; or a loss that may pass
+ * (no answer within {@link REPORT_TIMEOUT_MS}, a network error, a 5xx, 408 or
+ * 429), with what was seen.
+ * @typedef {{ack: {rev?: number} | null}
+ *   | {refused: {status: number, detail: unknown}}
+ *   | {lost: string}} ReportOutcome
+ */
+
+/**
  * POST one layout report with this page's client id — the one poster for
- * /api/panel-layout. It sends what it is given: the dedupe against the last
- * acknowledged layout belongs to the scheduled report (flushLayoutReport), so
- * a forced report (panel-sse.js's answer to `panel_report_request`) calls this
- * directly. Resolves the server's acknowledgement (`{status, layout, popouts,
- * dock, rev, updated}` — `updated: false` marks a deduped no-op, still an
- * acknowledgement) or null when the report did not land. Never rejects.
+ * /api/panel-layout. It sends what it is given: dedupe, resends and the
+ * refusal memory belong to the reporter (flushLayoutReport). Never rejects.
  * @param {unknown} layout  the holder's dock layout, or null for a dock-less report
  * @param {string[]} [popouts]  the panels in windows of their own
  * @param {boolean} [dock]  whether this client has a dock shell
- * @returns {Promise<{rev?: number} | null>}
+ * @returns {Promise<ReportOutcome>}
  */
-export async function postLayoutReport(layout, popouts = [], dock = true) {
+async function postLayoutReport(layout, popouts = [], dock = true) {
+  const abandon = new AbortController();
+  const timer = setTimeout(() => abandon.abort(), REPORT_TIMEOUT_MS);
   try {
     const resp = await fetch(withPrefix('/api/panel-layout'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ layout, popouts, dock, client_id: getPageClientId() }),
+      signal: abandon.signal,
     });
-    if (!resp.ok) return null;
-    return await resp.json();
+    if (resp.ok) return { ack: await resp.json() };
+    const { status } = resp;
+    if (status >= 400 && status < 500 && status !== 408 && status !== 429) {
+      return { refused: { status, detail: await detailOf(resp) } };
+    }
+    return { lost: `HTTP ${status}` };
+  } catch (err) {
+    return { lost: String(err) };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
+ * The `detail` of a refusal's body (the route's error shape), the body itself
+ * when it has none, or null when it is not JSON.
+ * @param {Response} resp
+ * @returns {Promise<unknown>}
+ */
+async function detailOf(resp) {
+  try {
+    const body = await resp.json();
+    return body?.detail ?? body;
   } catch {
     return null;
   }
@@ -335,7 +402,9 @@ export async function postLayoutReport(layout, popouts = [], dock = true) {
  * the last acknowledged report. Read at flush time (not at event time), so an
  * intermediate arrangement is never what gets reported. No holder, or a holder
  * with no layout yet, reports nothing and leaves the dedupe baseline untouched:
- * silence is honest, an invented empty workspace is not.
+ * silence is honest, an invented empty workspace is not. A report the server
+ * refused with a 4xx is not sent again until the layout changes; a forced
+ * report (`reportLayoutNow`) skips only the dedupe.
  *
  * One report at a time: a flush that lands while another is in flight re-arms
  * instead of overlapping it. Two concurrent reports could be applied by the
@@ -356,36 +425,94 @@ function flushLayoutReport() {
   if (!holder || !layout) return;
   const popouts = holder.popouts;
   const sent = { layout, popouts };
-  if (sameReport(sent, lastReported)) {
+  if (!reportForced && sameReport(sent, lastReported)) {
     // Already acknowledged; a dirty flag left by a no-op write settles here.
     if (holder.dirty && holder.ackedRev !== null) holder.ack(holder.ackedRev);
     return;
   }
+  if (sameReport(sent, refusedReport)) return;
+  const forced = reportForced;
+  reportForced = false;
   reportInFlight = true;
   void postLayoutReport(layout, popouts)
-    .then((ack) => {
-      if (!ack) return;
-      lastReported = sent;
-      if (typeof ack.rev !== 'number') return;
-      // Only the layout that was sent is acked; one that moved on meanwhile
-      // stays dirty and goes out on the next flush.
-      if (sameReport({ layout: holder.layout, popouts: holder.popouts }, sent)) {
-        holder.ack(ack.rev);
-      } else {
-        scheduleLayoutReport();
-      }
-    })
-    // postLayoutReport resolves null on failure rather than rejecting, so this
-    // clause should be unreachable — but a rejection escaping it would strand
-    // reportInFlight and kill reporting for the rest of the session. Settling
-    // the flag unconditionally keeps a broken contract merely lossy: the
-    // baseline is left untouched, so the next layout change re-reports.
+    .then((outcome) => settleReport(holder, sent, forced, outcome))
+    // settleReport only records and re-arms, so this clause should be
+    // unreachable — but a rejection escaping it would strand reportInFlight
+    // and kill reporting for the rest of the session. Settling the flag
+    // unconditionally keeps a broken contract merely lossy: the baseline is
+    // left untouched, so the next layout change re-reports.
     .catch((err) => {
       console.error('dock-sync: layout report failed', err);
     })
     .finally(() => {
       reportInFlight = false;
     });
+}
+
+/**
+ * Act on what one report came to. An acknowledged report becomes the dedupe
+ * baseline, and its `rev` acks the holder while the holder still holds what was
+ * sent; a layout that moved on meanwhile goes out next. A lost report is sent
+ * again after the backoff, with one warning for each run of losses. A refused
+ * one is logged with the server's detail and kept, so that the same layout is
+ * not sent again until it changes.
+ * @param {import('./dock-apply.js').LayoutHolder} holder  the holder it was read from
+ * @param {Report} sent  what was sent
+ * @param {boolean} forced  whether it answered a `panel_report_request`
+ * @param {ReportOutcome} outcome
+ */
+function settleReport(holder, sent, forced, outcome) {
+  if ('lost' in outcome) {
+    lostInARow += 1;
+    if (lostInARow === 1) {
+      console.warn('dock-sync: a layout report did not land; sending it again', outcome.lost);
+    }
+    if (forced) reportForced = true;
+    resendLayoutReport();
+    return;
+  }
+  lostInARow = 0;
+  if ('refused' in outcome) {
+    refusedReport = sent;
+    console.error(
+      `dock-sync: the server refused the layout report (HTTP ${outcome.refused.status}); ` +
+        'it is not sent again until the layout changes:',
+      outcome.refused.detail
+    );
+    return;
+  }
+  refusedReport = null;
+  lastReported = sent;
+  const rev = outcome.ack?.rev;
+  if (typeof rev !== 'number') return;
+  // Only the layout that was sent is acked; one that moved on meanwhile stays
+  // dirty and goes out on the next flush.
+  if (sameReport({ layout: holder.layout, popouts: holder.popouts }, sent)) {
+    holder.ack(rev);
+  } else {
+    scheduleLayoutReport();
+  }
+}
+
+/** Flush again once the backoff the losses in a row have earned has passed. */
+function resendLayoutReport() {
+  clearTimeout(reportHandle ?? undefined);
+  const wait = Math.min(RESEND_BASE_MS * 2 ** (lostInARow - 1), RESEND_MAX_MS);
+  reportHandle = setTimeout(flushLayoutReport, wait);
+}
+
+/**
+ * Report the holder's layout now, even when the server has acknowledged it
+ * already — the answer to a `panel_report_request` (panel-sse.js): the current
+ * dock client went away, and a report makes this dock current. It is the
+ * reporter's own flush, so it follows a report in flight rather than
+ * overlapping it, and a lost one is sent again. No holder, or no layout yet,
+ * reports nothing: a page without a dock must not become the dock client.
+ */
+export function reportLayoutNow() {
+  reportForced = true;
+  clearTimeout(reportHandle ?? undefined);
+  flushLayoutReport();
 }
 
 /**
