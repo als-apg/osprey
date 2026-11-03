@@ -28,9 +28,12 @@ def _every_module() -> dict[str, str]:
     return dict(python_sources(Path(__file__)))
 
 
-@cache
 def _parsed(relative: str) -> ast.Module:
-    """The module at *relative*, parsed once for every guard that reads it."""
+    """The module at *relative*, parsed afresh.
+
+    Not cached: every tree of the suite kept for the worker's lifetime is a heap
+    that each later full ``gc.collect()`` on that worker has to walk.
+    """
     return ast.parse(_every_module()[relative], filename=relative)
 
 
@@ -68,6 +71,26 @@ def canopy_skip_sites(tree: ast.AST) -> list[int]:
     return [call.lineno for call in _calls(tree, _SKIP_CALLS) if _names_canopy(call)]
 
 
+def could_skip_on_canopy(text: str) -> bool:
+    """Whether *text* can hold a site ``canopy_skip_sites`` reports, read off the raw text.
+
+    Such a site is a call whose name ends in ``skip`` and a string argument naming
+    a CANOPY package, so a module without both words has none and is not parsed.
+    """
+    lowered = text.lower()
+    return "skip" in lowered and any(word in lowered for word in _CANOPY_WORDS)
+
+
+def canopy_skip_modules(modules: dict[str, str]) -> dict[str, list[int]]:
+    """The modules among *modules* (path to text) with a CANOPY-decided skip, and its lines."""
+    sites = {
+        relative: canopy_skip_sites(ast.parse(text, filename=relative))
+        for relative, text in modules.items()
+        if could_skip_on_canopy(text)
+    }
+    return {relative: lines for relative, lines in sites.items() if lines}
+
+
 hand_marked = contract.hand_marks
 
 
@@ -86,8 +109,7 @@ def test_no_canopy_module_calls_importorskip() -> None:
 
 
 def test_no_skip_here_is_decided_by_whether_canopy_is_installed() -> None:
-    sites = {relative: canopy_skip_sites(_parsed(relative)) for relative in _every_module()}
-    assert {name: lines for name, lines in sites.items() if lines} == {}
+    assert canopy_skip_modules(_every_module()) == {}
 
 
 def test_a_hand_marked_module_is_not_also_marked_from_its_imports() -> None:
@@ -119,6 +141,29 @@ def test_the_guards_see_what_they_guard_against() -> None:
     assert importorskip_sites(tree) == [3]
     assert canopy_skip_sites(tree) == [4, 9]
     assert hand_marked(tree) == {"test_c", "TestD.test_e"}
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("import pytest\npytest.importorskip('canopy')\n", {"m.py": [2]}),
+        ("from pytest import skip\ndef test_a():\n    skip('CANOPY absent')\n", {"m.py": [3]}),
+        (
+            "import pytest\ngate = pytest.mark.skipif(True, reason='no PyDMConverter')\n",
+            {"m.py": [2]},
+        ),
+        ("import pytest\ndef test_a():\n    pytest.skip('no display')\n", {}),
+        ("import canopy\ndef test_a():\n    assert canopy\n", {}),
+    ],
+    ids=["importorskip", "bare-skip", "skipif-pydmconverter", "skip-not-canopy", "no-skip"],
+)
+def test_the_text_filter_keeps_every_module_the_skip_guard_reports(
+    text: str, expected: dict[str, list[int]]
+) -> None:
+    """Reading the raw text first drops no module the parsed guard would report."""
+    assert canopy_skip_modules({"m.py": text}) == expected
+    every = {"m.py": canopy_skip_sites(ast.parse(text))}
+    assert {name: lines for name, lines in every.items() if lines} == expected
 
 
 # --- which modules need CANOPY ----------------------------------------------------------
