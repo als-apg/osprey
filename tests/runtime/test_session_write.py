@@ -594,24 +594,52 @@ class TestSessionRows:
         )
         await session.close()
 
-    @pytest.mark.parametrize(
-        ("opened_at", "now"),
-        [("allowed", "asked"), ("asked", "allowed")],
-        ids=["to-asked", "to-allowed"],
-    )
-    async def test_row_3a_position_moved_is_a_moved_binding(
-        self, va, audit_dir, monkeypatch, opened_at, now
+    async def test_row_3a_a_move_to_asked_refuses_an_unconfirmed_write(
+        self, va, audit_dir, monkeypatch
     ):
         calls = connector_answers(monkeypatch, returns(WriteOutcome.CONFIRMED))
-        write_record(va, switch={"va": opened_at})
+        write_record(va, switch={"va": "allowed"})
         session = await opened()
-        assert session.writes["position"] == opened_at
-        write_record(va, switch={"va": now})
+        assert session.writes["position"] == "allowed"
+        write_record(va, switch={"va": "asked"})
 
         await self._refused(
-            session, va, audit_dir, calls, "target_changed", "switching", phrase("switching")
+            session,
+            va,
+            audit_dir,
+            calls,
+            "refused",
+            "approval_missing",
+            "This write needs your confirmation; nothing written.",
         )
-        assert session.writes["position"] == now
+        assert session.writes["position"] == "asked"
+        assert not session.moved()
+        await session.close()
+
+    async def test_row_3b_at_asked_a_confirmed_write_is_written(self, va, audit_dir, monkeypatch):
+        calls = connector_answers(monkeypatch, returns(WriteOutcome.CONFIRMED))
+        write_record(va, switch={"va": "asked"})
+        session = await opened()
+
+        result = await session.write(CHANNEL, 1.0, origin=ORIGIN, confirmed=True)
+
+        assert result.outcome == "confirmed"
+        assert len(calls) == 1
+        details = [r["detail"] for r in records(audit_dir)]
+        assert all(" position=asked confirmed=yes " in d for d in details), details
+        await session.close()
+
+    async def test_row_3c_a_move_to_allowed_writes_without_a_confirmation(self, va, monkeypatch):
+        calls = connector_answers(monkeypatch, returns(WriteOutcome.CONFIRMED))
+        write_record(va, switch={"va": "asked"})
+        session = await opened()
+        write_record(va, switch={"va": "allowed"})
+
+        result = await session.write(CHANNEL, 1.0, origin=ORIGIN)
+
+        assert result.outcome == "confirmed"
+        assert len(calls) == 1
+        assert not session.moved()
         await session.close()
 
     async def test_row_4_record_gone(self, va, audit_dir, monkeypatch):
@@ -1134,6 +1162,7 @@ class TestRefuseAndAudit:
         expected = (
             f"channel={CHANNEL} screen=sr/overview rev=r7 "
             f"ca_user={stamps.get('ca_user', '-')} ca_host={stamps.get('ca_host', '-')} "
+            f"position=allowed confirmed=no sessions={os.environ.get('OSPREY_SESSION_ID') or '-'} "
             f'value_len=300 value="{"v" * 256}"'
         )
         for record in (attempt, landed):
@@ -1205,6 +1234,9 @@ async def test_a_value_cannot_forge_a_detail_token(va, audit_dir, monkeypatch, v
             "rev",
             "ca_user",
             "ca_host",
+            "position",
+            "confirmed",
+            "sessions",
             "value_len",
             "value",
         ]

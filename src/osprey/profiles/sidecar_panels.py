@@ -73,6 +73,14 @@ class SidecarPanel:
             the approval prompt, so the write switch's position decides it.
             Every other ask tool keeps its approval policy and is never held
             back by the switch.
+        storage_scope_attribute: The ``<html>`` attribute the proxy stamps the
+            mount's storage scope under, when the panel reads another name than
+            the hub's own. ``None`` stands for the hub's own.
+        session_writes: Whether the sidecar writes the machine for the
+            terminal's sessions. Its factory is then also given the terminal's
+            session hold store (``hold_root``) and a callable naming the
+            sessions the terminal runs now (``live_sessions``), so a watchdog's
+            hold on any of them holds the panel's writes too.
         entry_pages: The panel's own application documents, as route
             templates below ``/panel/<id>`` (``/``, ``/lab``, ``/s/*`` — a final
             ``*`` segment matches the rest of the path). The panel proxy serves
@@ -106,6 +114,8 @@ class SidecarPanel:
     mcp_allow: tuple[str, ...] = ()
     mcp_ask: tuple[str, ...] = ()
     mcp_writes: tuple[str, ...] = ()
+    storage_scope_attribute: str | None = None
+    session_writes: bool = False
     entry_pages: tuple[str, ...] = ()
     image_checks: tuple[str, ...] = ()
     stop_grace_s: int = 0
@@ -115,6 +125,11 @@ class SidecarPanel:
 #: reads it on a path that has nothing to do with panels — the session binding
 #: an attach writes is only worth writing where this panel is served.
 JUPYTER_PANEL_ID = "jupyter"
+
+#: The CANOPY panel's id: the per-user operator GUI the terminal starts as a
+#: sidecar. The integration package names the same id as its ``PANEL_ID``; it
+#: is spelled here so reading the panel registry imports nothing from it.
+CANOPY_PANEL_ID = "canopy"
 
 #: Built-in panels the web terminal serves from a sidecar process rather than a
 #: registered companion server. Keyed by panel id, exactly like the ids derived
@@ -150,6 +165,74 @@ SIDECAR_PANELS: dict[str, SidecarPanel] = {
             "/doc/*",
             "/consoles/*",
             "/edit/*",
+        ),
+    ),
+    CANOPY_PANEL_ID: SidecarPanel(
+        "CANOPY, the operator GUI: machine screens and Trace",
+        "osprey.integrations.canopy.sidecar:CanopySidecar",
+        label="CANOPY",
+        icon="layers",
+        description="Machine screens and Trace, which the agent reads and authors",
+        health_endpoint="/health",
+        # The viewer scopes its browser storage per user by this attribute.
+        storage_scope_attribute="data-canopy-storage-scope",
+        # A click on a screen writes for the terminal's sessions, and is held
+        # with them.
+        session_writes=True,
+        # CANOPY authenticates the hop with its own launch credential; the
+        # operator's proof has no reader there.
+        operator_secret=False,
+        # Its MCP transport, which the agent of this terminal reaches through
+        # the terminal's own panel proxy and nobody else reaches at all.
+        mcp_path="/mcp",
+        agent_hop=True,
+        # The read tools: what a screen is, what it shows and whether it holds,
+        # and which collections group the panels. Then the workspace tools: the
+        # tabs and tiles inside this user's own CANOPY panel, which the agent
+        # reads and rearranges without a prompt; they write no PV and no file.
+        mcp_allow=(
+            "check",
+            "read_pv",
+            "search_pvs",
+            "screenshot",
+            "get_screen",
+            "list_drafts",
+            "list_widgets",
+            "get_widget",
+            "get_schema",
+            "list_collections",
+            "get_workspace",
+            "set_workspace",
+        ),
+        # The authoring tools: each call changes the user's personal store, or
+        # asks for a panel to be reviewed for the library.
+        mcp_ask=(
+            "new_screen",
+            "patch_node",
+            "add_node",
+            "remove_node",
+            "convert_legacy",
+            "delete_draft",
+            "request_push",
+        ),
+        # CANOPY's own application documents: the viewer's shell, a screen
+        # (``/s/<name>``), an embedded screen and Trace. A draft
+        # (``/drafts/...``) is a page an agent may have written, and every other
+        # document is not the application: they stay sandboxed.
+        entry_pages=("/", "/s/*", "/embed/*", "/trace/*"),
+        # The CANOPY front-end relay's grace (5 s), then the CANOPY panel
+        # backend's at the write budget's ceiling (D 24 s + 2 s), then the
+        # relay's margin (3 s): a write already sent is finished, not killed. The sidecar's ``PANEL_STOP_GRACE_S`` derives
+        # the same number; a test holds the two equal.
+        stop_grace_s=34,
+        # Two checks, both run by the CANOPY the image carries: the library
+        # the image serves against its library report, then every
+        # facility collection against CANOPY's rules and that library. The
+        # module owns the probe, the skips and their wording; an image without
+        # CANOPY passes both and says so.
+        image_checks=(
+            "python -I -m osprey.integrations.canopy.image_check library",
+            "python -I -m osprey.integrations.canopy.image_check collections",
         ),
     ),
 }

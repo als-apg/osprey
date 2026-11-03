@@ -2908,6 +2908,73 @@ keys:
   web.panels.okf.enabled: {covered-by: web.panels.okf, default: derived, default_note: "the okf panel's registry default; a panel absent from the block is off"}
   web.panels.system-health: {covered-by: web.panels, default: n/a}
   web.panels.system-health.enabled: {covered-by: web.panels.system-health, default: derived, default_note: "the system-health panel's registry default; a panel absent from the block is off"}
+  # The CANOPY tab: a builtin, served by a sidecar each web terminal starts.
+  # Besides the pair every builtin has, its block carries the sidecar's own
+  # settings, each read by name in osprey.integrations.canopy.sidecar.
+  # No shipped preset selects the panel, so no key of the block but the pair
+  # is rendered.
+  web.panels.canopy: {covered-by: web.panels, default: n/a}
+  web.panels.canopy.enabled: {covered-by: web.panels.canopy, default: derived, default_note: "the canopy panel's registry default; a panel absent from the block is off"}
+  web.panels.canopy.trace_default_query:
+    rendered: false
+    deployment-data: true
+    evidence: 'settings\.get\("trace_default_query"\)'
+    note: >-
+      Trace's default view under the per-user CANOPY panel, passed verbatim to
+      the panel's front process as CANOPY_TRACE_DEFAULT_QUERY. Unset passes the
+      empty string, and Trace opens with no channel. Not rendered: a facility
+      sets it, or the other two, where it wants one.
+    default: '""'
+  web.panels.canopy.correlation_default_query:
+    rendered: false
+    deployment-data: true
+    evidence: 'settings\.get\("correlation_default_query"\)'
+    note: >-
+      The correlation page's default view under the per-user CANOPY panel
+      (x=...&y=...&dt=...), passed verbatim to the panel's front process as
+      CANOPY_CORRELATION_DEFAULT_QUERY. Unset passes the empty string, and the
+      page opens with no channel.
+    default: '""'
+  web.panels.canopy.waveform_default_query:
+    rendered: false
+    deployment-data: true
+    evidence: 'settings\.get\("waveform_default_query"\)'
+    note: >-
+      The waveform page's default view under the per-user CANOPY panel,
+      passed verbatim to the panel's front process as
+      CANOPY_WAVEFORM_DEFAULT_QUERY. Unset passes the empty string, and the
+      page opens with no channel.
+    default: '""'
+  web.panels.canopy.home_screen:
+    rendered: false
+    deployment-data: true
+    evidence: 'settings\.get\("home_screen"\)'
+    note: >-
+      The screen the per-user CANOPY panel opens first, by its id in the
+      project's screen library (its path under screens/ without the
+      `.screen.json` suffix), passed to the panel's front process as
+      CANOPY_HOME_SCREEN. Unset or empty passes nothing, and CANOPY opens its
+      first screen; an id the library does not hold is refused by `osprey
+      build` and `osprey validate`, and warned about and passed as nothing by
+      the sidecar.
+    default: '""'
+  web.panels.canopy.vole_bytes_max:
+    rendered: false
+    evidence: 'settings\.get\("vole_bytes_max"'
+    note: >-
+      Ceiling in bytes on the live-value buffers one user's CANOPY keeps,
+      passed as CANOPY_VOLE__GLOBAL_BYTES_MAX. A value that is not an integer
+      keeps the default.
+    default: 268435456
+  web.panels.canopy.theme_file:
+    rendered: false
+    evidence: '_panel_settings\(config\)\.get\("theme_file"\)'
+    note: >-
+      A colour theme for the per-user CANOPY panel, passed to both of its
+      processes as CANOPY_THEME_FILE. A relative path resolves against the
+      project root (the directory holding the rendered build); an absolute
+      path is used as written. Unset keeps CANOPY's own theme.
+    default: null
   web.panels.system-health.hidden:
     evidence: 'spec\.get\("hidden", False\)'
     note: >-
@@ -4042,7 +4109,7 @@ render_contexts:
     panels_on: web.panels.channel-finder.enabled
     default_panel_set: web.default_panel
     panel_presets_set: web.presets
-  expected_union_size: 369
+  expected_union_size: 371
   note_union_size: >-
     An assertion: the guard derives the union on every run and fails when this
     figure disagrees with it, or when it is missing. It moves whenever the

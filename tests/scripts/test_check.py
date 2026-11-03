@@ -53,6 +53,37 @@ def _load(relative: str, name: str) -> ModuleType:
 check = _load("scripts/check.py", "_check_by_path")
 fw = check.FRAMEWORK
 kit = check.kit
+canopy_contract = _load("tests/_canopy_contract.py", "_canopy_contract_by_path")
+
+#: The CANOPY integration's checks module.
+CANOPY_MODULE = "src/osprey/integrations/canopy/repo_checks.py"
+canopy = check.DECLARED.modules[CANOPY_MODULE]
+proven = canopy._proven()
+
+PINS = proven.PROVEN_COMMITS
+#: The line a run of the contract against the proven pair ends with.
+ATTESTED = (
+    f"CANOPY contract proven against canopy {PINS['canopy']}, "
+    f"PyDMConverter {PINS['PyDMConverter']} on {proven.venue()}"
+)
+ATTESTED_FAILED = ATTESTED.replace("proven against", "failed against", 1)
+#: What the probe prints for each installed state, as the pin module words it.
+PROBE_PROVEN = (
+    f"CANOPY at the proven commits: canopy {PINS['canopy']}, PyDMConverter {PINS['PyDMConverter']}"
+)
+PROVEN_SHORT = (
+    f"this OSPREY is proven against canopy {PINS['canopy'][:12]}, "
+    f"PyDMConverter {PINS['PyDMConverter'][:12]}"
+)
+PROBE_ABSENT = f"CANOPY contract not run here: CANOPY is not installed; {PROVEN_SHORT}"
+PROBE_UNPROVEN = (
+    "CANOPY contract proves nothing here: canopy editable, records no commit, "
+    f"PyDMConverter not installed; {PROVEN_SHORT}"
+)
+CANOPY_INSTALL = (
+    f"install canopy {PINS['canopy']} and PyDMConverter {PINS['PyDMConverter']} "
+    "from git, PyDMConverter also as a uv pip --override"
+)
 
 BY_ID = {c.id: c for c in check.CHECKS}
 
@@ -170,6 +201,8 @@ def test_the_check_ids_are_the_public_names() -> None:
         "docs",
         "linkcheck",
         "package",
+        "canopy-marker",
+        "canopy-contract",
     ]
     assert [c.id for c in check.CHECKS if "quick" not in c.tiers] == [
         "pytest-pty",
@@ -402,9 +435,26 @@ def _reads_the_tests_tree(path: Path) -> bool:
     )
 
 
+#: Every module's invariant tests: each owner lists the tree readers it owns.
+INVARIANT_TESTS = tuple(
+    path
+    for module in check.DECLARED.modules.values()
+    for path in getattr(module, "INVARIANT_TESTS", ())
+)
+
+
 def test_every_invariant_test_exists() -> None:
-    assert [p for p in fw.INVARIANT_TESTS if not (REPO_ROOT / p).is_file()] == []
+    assert [p for p in INVARIANT_TESTS if not (REPO_ROOT / p).is_file()] == []
     assert "tests/scripts/test_check.py" in fw.INVARIANT_TESTS
+    assert "tests/integrations/canopy/test_contract_marker.py" in canopy.INVARIANT_TESTS
+
+
+def test_every_invariant_test_runs_in_its_owners_invariant_check() -> None:
+    """Each module's invariant tests are the files of an invariant check it declares."""
+    for path, module in check.DECLARED.modules.items():
+        listed = set(getattr(module, "INVARIANT_TESTS", ()))
+        run = {arg for c in module.CHECKS if c.kind == "invariant" for arg in c.argv}
+        assert listed <= run, path
 
 
 @functools.cache
@@ -431,12 +481,15 @@ def test_every_module_that_reads_the_tests_tree_is_an_invariant_test() -> None:
     """A test that reads the whole tests tree can break on a change anywhere in
     it, so the invariant-tests check, which no change selection leaves out,
     runs it."""
-    assert _tree_readers_outside(fw.INVARIANT_TESTS) == []
+    assert _tree_readers_outside(INVARIANT_TESTS) == []
 
 
-def test_a_tree_reader_left_out_of_the_invariant_tests_is_named() -> None:
-    reader = "tests/test_no_legacy_symbols.py"
-    assert _tree_readers_outside(tuple(p for p in fw.INVARIANT_TESTS if p != reader)) == [reader]
+@pytest.mark.parametrize(
+    "reader",
+    ["tests/test_no_legacy_symbols.py", "tests/integrations/canopy/test_contract_marker.py"],
+)
+def test_a_tree_reader_left_out_of_the_invariant_tests_is_named(reader: str) -> None:
+    assert _tree_readers_outside(tuple(p for p in INVARIANT_TESTS if p != reader)) == [reader]
 
 
 def test_the_need_probes_of_the_new_toolchains_name_their_install(
@@ -611,7 +664,7 @@ SHARD_SELECTIONS = {
 }
 
 #: The sweep's marker expression in the full tier.
-SWEEP_MARKER = ["-m", "not pty and not wallclock"]
+SWEEP_MARKER = ["-m", "not pty and not wallclock and not canopy"]
 
 
 def pytest_report(check_id: str, reports: str = "{reports}") -> list[str]:
@@ -907,8 +960,17 @@ def test_the_tiers_bound_their_pytest_runs() -> None:
         script = "scripts/run_bounded.py"
         return [argv[argv.index(script) + 1] for argv in check.resolve([tier]) if script in argv]
 
-    assert bounds("quick") == ["1800"]
-    assert bounds("full") == ["5400", "600", "900", "900"]
+    assert bounds("quick") == ["1800", "1800"]
+    assert bounds("full") == ["5400", "600", "900", "900", "1800"]
+
+
+def test_both_tiers_deselect_the_canopy_contract() -> None:
+    for tier in check.TIERS:
+        (sweep,) = [argv for argv in check.resolve([tier]) if "--dist" in argv]
+        marker = sweep[sweep.index("-m") + 1]
+        assert canopy_contract.deselects_canopy(marker), marker
+    assert "not slow" in fw.UNIT_SELECTION.quick_marker
+    assert "not slow" not in fw.UNIT_SELECTION.marker
 
 
 # ---------------------------------------------------------------------------
@@ -1324,7 +1386,7 @@ class Recorder:
         #: Line text to the report body the runner writes when that line runs.
         self.reports: dict[str, str] = {}
         #: What every install probe answers: its exit status and its line.
-        self.install: tuple[int, str] = (0, "the install the check proves against")
+        self.install: tuple[int, str] = (0, PROBE_PROVEN)
 
     def __call__(self, argv: Any, cwd: Path | None = None) -> int:  # noqa: ARG002
         argv = list(argv)
@@ -1379,7 +1441,7 @@ def test_a_clean_full_run_names_what_it_did_not_run(
         assert recorder.ran(text), text
     verdict = last_line(capsys)
     assert verdict.startswith(
-        "check: clean; "
+        f"check: clean; {ATTESTED}; "
         "not run, no base given: changelog, plugin-version, gitleaks; "
         "run on CI, never run here: dependency-floor, "
     )
@@ -1396,7 +1458,7 @@ def test_every_check_runs_after_a_failure_and_the_verdict_names_them(
     assert f"check: ruff: failed (exit 1; fix: {check.FIX_HINT})" in out
     assert "check: mypy: ran" in out
     assert out[-1] == (
-        f"check: not clean: failed: ruff (fix: {check.FIX_HINT}), vitest; "
+        f"check: not clean: failed: ruff (fix: {check.FIX_HINT}), vitest; {ATTESTED}; "
         "not run, no base given: changelog, plugin-version, gitleaks"
     )
 
@@ -2494,7 +2556,7 @@ def test_list_json_round_trips(capsys: pytest.CaptureFixture[str]) -> None:
     derived = {
         item["id"]: item["scope"] for item in data["checks"] if BY_ID[item["id"]].derive_scope
     }
-    assert derived == {}
+    assert derived == {"canopy-contract": list(canopy.contract_scope(check.repository_files()))}
     declared = [{**item, "scope": []} if item["id"] in derived else item for item in data["checks"]]
     assert tuple(rebuilt(item) for item in declared) == check.CHECKS
     assert "touched" not in data
@@ -2775,8 +2837,294 @@ def test_the_connectors_package_declares_its_own_lanes() -> None:
     """The lanes that install the connectors on their own are the package's,
     declared beside it and collected after the framework's."""
     connectors = "packages/osprey-connectors/repo_checks.py"
-    assert list(check.DECLARED.modules) == [check.FRAMEWORK_MODULE, connectors]
+    assert list(check.DECLARED.modules) == [check.FRAMEWORK_MODULE, connectors, CANOPY_MODULE]
     own = {lane.job for lane in check.DECLARED.modules[connectors].LANES}
     assert own == {"connectors-standalone", "connectors-compat-plan", "connectors-compat"}
     assert own <= {lane.job for lane in check.LANES}
     assert not own & {lane.job for lane in fw.LANES}
+
+
+# ---------------------------------------------------------------------------
+# The CANOPY contract: a derived scope, an install, an attested verdict
+
+
+def _repository_scope() -> tuple[str, ...]:
+    return canopy.contract_scope(check.repository_files())
+
+
+#: Modules the CANOPY code reaches one import away, the write path among them.
+CONTRACT_HOP = (
+    "src/osprey/runtime/session.py",
+    "src/osprey/runtime/raw_put_block.py",
+    "src/osprey/runtime/budget.py",
+    "src/osprey/services/python_executor/execution/wrapper.py",
+)
+
+
+def test_the_contract_is_the_canopy_integrations_own() -> None:
+    """The contract and the marker's rules are declared beside the CANOPY code,
+    and the framework's module names neither."""
+    assert check.DECLARED.owners["canopy-contract"] == CANOPY_MODULE
+    assert check.DECLARED.owners["canopy-marker"] == CANOPY_MODULE
+    assert check.CALLER_JOBS[-1] == "canopy-contract"
+    assert not {"canopy-contract", "canopy-marker"} & {c.id for c in fw.CHECKS}
+
+
+def test_the_contract_scope_holds_what_the_canopy_code_imports() -> None:
+    scope = _repository_scope()
+    assert scope[: len(canopy.CANOPY_CONTRACT_ROOTS)] == canopy.CANOPY_CONTRACT_ROOTS
+    assert [path for path in CONTRACT_HOP if path not in scope] == []
+    assert "tests/runtime/_patch_restore.py" in scope
+    assert "src/osprey/integrations/__init__.py" not in scope, "a parent package is not a hop"
+    assert [p for p in scope if "*" not in p and not (REPO_ROOT / p).is_file()] == []
+
+
+def _module_level_imports(tree: ast.Module) -> list[ast.Import | ast.ImportFrom]:
+    """The import statements of *tree* outside any function body."""
+    found: list[ast.Import | ast.ImportFrom] = []
+    pending: list[ast.AST] = [tree]
+    while pending:
+        node = pending.pop()
+        if isinstance(node, (ast.Import, ast.ImportFrom)):
+            found.append(node)
+        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) or node is tree:
+            pending.extend(ast.iter_child_nodes(node))
+    return found
+
+
+def test_the_canopy_code_reaches_the_write_path_from_a_function_body(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The CANOPY code imports the write path inside a function, so a walk of
+    module-level imports alone would leave it out of the scope."""
+    monkeypatch.setattr(canopy, "CANOPY_IMPORTING_ROOTS", canopy.CANOPY_CONTRACT_ROOTS[:1])
+    assert "src/osprey/runtime/raw_put_block.py" in _repository_scope()
+    monkeypatch.setattr(canopy, "_import_nodes", _module_level_imports)
+    assert "src/osprey/runtime/raw_put_block.py" not in _repository_scope()
+
+
+def test_the_contract_scope__mutation_drops_the_tests_roots(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    roots = tuple(r for r in canopy.CANOPY_CONTRACT_ROOTS if not r.startswith("tests/"))
+    monkeypatch.setattr(canopy, "CANOPY_CONTRACT_ROOTS", roots)
+    monkeypatch.setattr(canopy, "CANOPY_IMPORTING_ROOTS", roots[:1])
+    assert "tests/runtime/_patch_restore.py" not in _repository_scope()
+
+
+@pytest.mark.parametrize(
+    ("source", "imported"),
+    [
+        ("from osprey.runtime import budget\n", "src/osprey/runtime/budget.py"),
+        ("from osprey.runtime.budget import Budget\n", "src/osprey/runtime/budget.py"),
+        (
+            "import osprey_connectors.config\n",
+            "packages/osprey-connectors/src/osprey_connectors/config.py",
+        ),
+        ("class K:\n    import osprey.port_layout\n", "src/osprey/port_layout.py"),
+        ("def f():\n    from .proven import judge\n", "src/osprey/integrations/canopy/proven.py"),
+        ("from tests.runtime import _patch_restore\n", "tests/runtime/_patch_restore.py"),
+    ],
+)
+def test_an_import_resolves_to_the_file_it_loads(source: str, imported: str) -> None:
+    known = set(check.repository_files())
+    importer = "src/osprey/integrations/canopy/x.py"
+    assert canopy._imported_files(importer, ast.parse(source), known) == {imported}
+
+
+def test_a_third_party_import_is_not_followed() -> None:
+    known = set(check.repository_files())
+    tree = ast.parse("import json\nfrom canopy import x\n")
+    assert canopy._imported_files("tests/integrations/canopy/x.py", tree, known) == set()
+
+
+def test_the_contract_runs_in_both_tiers_as_one_whole_directory() -> None:
+    contract = BY_ID["canopy-contract"]
+    assert contract.tiers == check.BOTH and contract.scope == ()
+    (line,) = check.resolve(["run", "canopy-contract", "--", "-v"])
+    assert line[:7] == [
+        *("uv", "run", "--frozen", "--no-sync", "python", "scripts/run_bounded.py", "1800")
+    ]
+    assert line[line.index("--") + 1 :] == [
+        *("uv", "run", "--frozen", "--no-sync", "pytest", "tests/integrations/canopy"),
+        *("-p", "no:randomly", "--timeout=600", "-v"),
+    ]
+    assert "-m" not in line and "-k" not in line
+
+
+def _contract_range(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, change: str) -> Any:
+    """The quick tier's plan over a real repository whose one commit *change*s
+    the CANOPY code: ``delete`` a module of it, or ``move`` one out of it."""
+    code = tmp_path / "src" / "osprey" / "integrations" / "canopy"
+    code.mkdir(parents=True)
+    (code / "kept.py").write_text("x = 1\n", encoding="utf-8")
+    (code / "leaving.py").write_text("y = 1\n", encoding="utf-8")
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "docs" / "index.rst").write_text("x\n", encoding="utf-8")
+    git(tmp_path, "init", "--initial-branch", "base")
+    git(tmp_path, "add", "-A")
+    git(tmp_path, "commit", "--no-gpg-sign", "-m", "base")
+    git(tmp_path, "checkout", "-b", "work")
+    if change == "delete":
+        git(tmp_path, "rm", "-q", "src/osprey/integrations/canopy/leaving.py")
+    else:
+        git(tmp_path, "mv", "src/osprey/integrations/canopy/leaving.py", "docs/leaving.py")
+    git(tmp_path, "commit", "--no-gpg-sign", "-m", change)
+    monkeypatch.setattr(kit, "ROOT", tmp_path)
+    _replace(monkeypatch, "vitest", selector=lambda *_: check.Selection(check.NOT_TOUCHED))
+    files = check.repository_files()
+    return check.select(
+        "quick", check.touched("base"), (), files, check.touched("base", scope=True)
+    )
+
+
+@pytest.mark.parametrize("change", ["delete", "move"])
+def test_a_module_that_leaves_the_canopy_code_touches_the_contract(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, change: str
+) -> None:
+    plan = _contract_range(tmp_path, monkeypatch, change)
+    assert plan.selections["canopy-contract"].state == check.WHOLE
+    left = "src/osprey/integrations/canopy/leaving.py"
+    assert left not in plan.selections["pytest"].paths
+
+
+def test_a_range_outside_the_contract_scope_leaves_it_not_touched() -> None:
+    plan = check.select("quick", ["docs/index.rst"], (), FILES)
+    assert plan.selections["canopy-contract"].state == check.NOT_TOUCHED
+    plan = check.select("quick", ["src/osprey/runtime/budget.py"], (), check.repository_files())
+    assert plan.selections["canopy-contract"].state == check.WHOLE
+
+
+@pytest.mark.parametrize(
+    "dependency", ["uv.lock", "pyproject.toml", "packages/osprey-connectors/pyproject.toml"]
+)
+def test_a_dependency_only_range_touches_the_contract(dependency: str) -> None:
+    """The contract proves the code and the environment it runs in: a range
+    that changes only what gets installed selects it."""
+    plan = check.select("quick", [dependency], (), check.repository_files())
+    assert plan.selections["canopy-contract"].state == check.WHOLE
+
+
+#: One row per probe answer: (verb, probe status, probe line, exit status, last line).
+INSTALL_ROWS = [
+    (["quick"], 0, PROBE_PROVEN, 0, f"check: clean; {ATTESTED}; not run, no base given: "),
+    (["run", "canopy-contract"], 0, PROBE_PROVEN, 0, f"check: clean; {ATTESTED}"),
+    (
+        ["quick"],
+        2,
+        PROBE_ABSENT,
+        0,
+        f"check: clean; not run here: canopy-contract ({PROBE_ABSENT}); not run, no base given: ",
+    ),
+    (
+        ["run", "canopy-contract"],
+        2,
+        PROBE_ABSENT,
+        2,
+        f"check: refused: canopy-contract ({PROBE_ABSENT}: {CANOPY_INSTALL})",
+    ),
+    (
+        ["quick"],
+        1,
+        PROBE_UNPROVEN,
+        2,
+        f"check: refused: canopy-contract ({PROBE_UNPROVEN}: {CANOPY_INSTALL})",
+    ),
+    (
+        ["full"],
+        1,
+        PROBE_UNPROVEN,
+        2,
+        f"check: refused: canopy-contract ({PROBE_UNPROVEN}: {CANOPY_INSTALL})",
+    ),
+    (
+        ["run", "canopy-contract"],
+        1,
+        PROBE_UNPROVEN,
+        2,
+        f"check: refused: canopy-contract ({PROBE_UNPROVEN}: {CANOPY_INSTALL})",
+    ),
+]
+
+
+@pytest.mark.parametrize(("verb", "status", "said", "code", "last"), INSTALL_ROWS)
+def test_the_contract_runs_only_against_the_proven_install(
+    recorder: Recorder,
+    capsys: pytest.CaptureFixture[str],
+    verb: list[str],
+    status: int,
+    said: str,
+    code: int,
+    last: str,
+) -> None:
+    recorder.install = (status, said)
+    assert check.main(verb) == code
+    captured = capsys.readouterr()
+    line = (captured.err if code == 2 else captured.out).strip().splitlines()[-1]
+    assert line.startswith(last) if last.endswith(": ") else line == last
+    assert recorder.ran("pytest tests/integrations/canopy -p") is (status == 0)
+    if code == 2:
+        assert recorder.calls == []
+
+
+@pytest.mark.usefixtures("recorder")
+def test_an_absent_install_is_probed_only_once_its_toolchain_is_there(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    def unprobed(install: Any) -> tuple[int, str]:
+        raise AssertionError(f"{install.probe} ran without uv")
+
+    monkeypatch.setattr(check, "probe_install", unprobed)
+    monkeypatch.setitem(check.NEED_PROBES, "uv", lambda: "uv is not on PATH")
+    assert check.main(["run", "canopy-contract"]) == 2
+    assert "canopy-contract (uv is not on PATH)" in capsys.readouterr().err
+
+
+def test_the_canopy_probe_is_the_package_command() -> None:
+    """The check judges the install with the command the docs name, the
+    package's own, inside the project's environment as it stands."""
+    assert canopy.CANOPY_PROBE == (
+        *("uv", "run", "--frozen", "--no-sync", "python", "-m", "osprey.integrations.canopy"),
+    )
+    assert BY_ID["canopy-contract"].install is canopy.CANOPY_INSTALL
+    assert (REPO_ROOT / "src/osprey/integrations/canopy/__main__.py").is_file()
+
+
+def test_a_probe_that_says_nothing_is_named_by_its_command(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(kit, "capture", lambda argv: (1, ""))
+    install = canopy.CANOPY_INSTALL
+    assert check.probe_install(install) == (1, f"{shlex.join(canopy.CANOPY_PROBE)} exited 1")
+    monkeypatch.setattr(kit, "capture", lambda argv: (2, f"noise\n{PROBE_ABSENT}\n"))
+    assert check.probe_install(install) == (2, PROBE_ABSENT)
+
+
+def _assert_attested(recorder: Recorder, capsys: pytest.CaptureFixture[str]) -> None:
+    assert check.main(["run", "canopy-contract", "--", "-v"]) == 0
+    assert last_line(capsys) == f"check: clean; {ATTESTED}"
+    recorder.failing = {"tests/integrations/canopy": 1}
+    assert check.main(["run", "canopy-contract"]) == 1
+    assert last_line(capsys) == f"check: not clean: failed: canopy-contract; {ATTESTED_FAILED}"
+
+
+def test_a_run_of_the_contract_ends_with_the_pair_it_ran_against(
+    recorder: Recorder, capsys: pytest.CaptureFixture[str]
+) -> None:
+    assert "failed against canopy" in ATTESTED_FAILED
+    recorder.install = (0, PROBE_PROVEN)
+    _assert_attested(recorder, capsys)
+
+
+def test_a_run_of_the_contract__mutation_drops_the_attestation(
+    recorder: Recorder, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    silent = dataclasses.replace(canopy.CANOPY_INSTALL, attestation=lambda passed: "")
+    _replace(monkeypatch, "canopy-contract", install=silent)
+    recorder.install = (0, PROBE_PROVEN)
+    with pytest.raises(AssertionError):
+        _assert_attested(recorder, capsys)
+
+
+def test_the_attestation_is_the_pin_modules_line() -> None:
+    assert canopy._canopy_attestation(True) == ATTESTED
+    assert canopy._canopy_attestation(False) == ATTESTED_FAILED
+    assert canopy._canopy_install() == CANOPY_INSTALL

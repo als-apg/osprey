@@ -24,8 +24,10 @@ import {
   showPanel,
   activateTab,
   applyMenuPreset,
+  navigateAndActivatePanel,
 } from './panel-manager.js';
 import { popOutPanel } from './popout.js';
+import { CANOPY_PANEL_ID, createCanopyProvider } from './canopy-provider.js';
 import { openPanelBeside } from './panel-placement.js';
 import { resetDockLayout } from './dock-workspace.js';
 import { openDrawerTab, revealSetting } from './settings.js';
@@ -37,6 +39,26 @@ import { openPalette, closePalette, isOpen } from './palette.js';
 import { confirmSignOut } from './sign-out.js';
 import { isMacPlatform } from '/design-system/js/platform.js';
 import { isFeedbackModalOpen } from './feedback-modal.js';
+
+/**
+ * The one CANOPY provider, shared across opens so its newest-read-wins
+ * sequence spans them. Created on first use.
+ * @type {ReturnType<typeof createCanopyProvider> | null}
+ */
+let canopyProvider = null;
+
+/**
+ * Whether this deployment carries the CANOPY panel. Without it there is nothing
+ * to search and nowhere to open a row. Hidden and visible panels exclude the
+ * active one; the pop-out list includes it once its URL has resolved, which is
+ * also the earliest the panel could show a row's target.
+ * @returns {boolean}
+ */
+function canopyPanelPresent() {
+  return [...getHiddenPanels(), ...getVisiblePanels(), ...getPopoutPanels()].some(
+    (p) => p.id === CANOPY_PANEL_ID
+  );
+}
 
 /**
  * Whether this deployment still carries the settings drawer's Config tab.
@@ -61,7 +83,9 @@ function configTabPresent() {
  * Typed against the REGISTRY's dep bundle rather than palette.js's OpenDeps:
  * everything assembled here exists to reach `buildRegistry`, and PaletteDeps is
  * the declaration site for the panel-verb deps. openPalette accepts it as-is.
- * @returns {import('./palette-registry.js').PaletteDeps}
+ * The CANOPY search seam (`searchCanopy` / `startCanopy`) is palette.js's own,
+ * not the registry's, so it is typed from OpenDeps.
+ * @returns {import('./palette-registry.js').PaletteDeps & Pick<import('./palette.js').OpenDeps, 'searchCanopy' | 'startCanopy'>}
  */
 function buildPaletteDeps() {
   /** @type {Array<{ label: string, detail?: string, run: () => void }>} */
@@ -114,7 +138,7 @@ function buildPaletteDeps() {
     });
   }
 
-  /** @type {import('./palette-registry.js').PaletteDeps} */
+  /** @type {import('./palette-registry.js').PaletteDeps & Pick<import('./palette.js').OpenDeps, 'searchCanopy' | 'startCanopy'>} */
   const deps = {
     // Panel show/focus is exactly what a rail click does, and the rail is
     // present in both modes.
@@ -162,6 +186,19 @@ function buildPaletteDeps() {
   deps.getPresets = getPresets;
   deps.applyPreset = applyMenuPreset;
   deps.resetLayout = resetDockLayout;
+
+  // The CANOPY group: screens and collections, opened in place in the CANOPY
+  // panel through the same navigate-and-activate path the agent's panel_focus
+  // uses. Offered only where the deployment has that panel.
+  if (canopyPanelPresent()) {
+    if (!canopyProvider) {
+      canopyProvider = createCanopyProvider({
+        navigate: (panelId, url) => navigateAndActivatePanel(panelId, url),
+      });
+    }
+    deps.searchCanopy = canopyProvider.search;
+    deps.startCanopy = canopyProvider.start;
+  }
 
   return deps;
 }

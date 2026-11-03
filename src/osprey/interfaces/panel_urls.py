@@ -28,11 +28,19 @@ so the MCP server imports it without loading the terminal.
   upstream origin, in which case it is rewritten into the mount so the browser
   only ever loads the proxied form. The client's ``isUrlWithinMount`` applies
   the mount rule again before an iframe moves.
+* :func:`agent_hop_url_refusal` keeps a url away from a panel the agent drives
+  through its own tool (CANOPY): the terminal runs it on every op and
+  registration that takes a url, and the MCP tool runs it again for a friendlier
+  error. :func:`canonical_host` reads a host as the browser does, so
+  ``127.1``, ``0x7f.0.0.1`` and ``[::ffff:127.0.0.1]`` are the loopback they name.
 """
 
 from __future__ import annotations
 
+import ipaddress
 import re
+from collections.abc import Callable, Mapping
+from typing import Any
 from urllib.parse import quote, unquote, urlparse, urlsplit
 
 #: How many percent-decoding rounds a path may need before it is stable. A path
@@ -265,3 +273,169 @@ def member_navigation_url(
     return _canonical(
         base + rest, trailing_slash=slash, query=parts.query, fragment=parts.fragment
     ), None
+
+
+# --- the agent-hop rule ------------------------------------------------------
+
+#: A host as the URL parser reads it, and the origin built from it.
+Origin = tuple[str, str, int]
+
+
+def _ipv4_number(part: str) -> int | None:
+    """One dotted part of an IPv4 host, as the WHATWG IPv4 number parser reads it."""
+    if part[:2].lower() == "0x":
+        digits, base = part[2:], 16
+    elif len(part) > 1 and part.startswith("0"):
+        digits, base = part[1:], 8
+    else:
+        digits, base = part, 10
+    if not digits:
+        return 0
+    try:
+        return int(digits, base) if digits.isalnum() else None
+    except ValueError:
+        return None
+
+
+def _ipv4_host(host: str) -> str | None:
+    """*host* as the dotted IPv4 address a browser reads it as, or ``None``.
+
+    The browser reads a host whose last label is a number as an IPv4 address,
+    in any of the legacy spellings: fewer than four parts (``127.1``), one
+    number (``2130706433``), hex (``0x7f.0.0.1``) or octal (``0177.0.0.1``).
+    ``None`` when the host is not such an address (a name, or a malformed
+    number, which the browser refuses outright).
+    """
+    parts = host.split(".")
+    if len(parts) > 1 and parts[-1] == "":
+        parts.pop()
+    last = parts[-1]
+    if not (last.isdigit() or (last[:2].lower() == "0x" and _ipv4_number(last) is not None)):
+        return None
+    numbers = [_ipv4_number(part) for part in parts]
+    if len(numbers) > 4 or any(number is None for number in numbers):
+        return None
+    head, tail = numbers[:-1], numbers[-1]
+    if any(number > 255 for number in head) or tail >= 256 ** (5 - len(numbers)):  # type: ignore[operator]
+        return None
+    value = tail
+    for index, number in enumerate(head):
+        value += number * 256 ** (3 - index)  # type: ignore[operator]
+    return str(ipaddress.IPv4Address(value))
+
+
+def canonical_host(host: str) -> str:
+    """*host* as a browser reaches it: case-folded, an IPv4 in dotted form, an IPv6 compressed.
+
+    A name keeps its spelling but for case; ``localhost.`` and ``localhost``
+    stay apart here, as they do in a browser's origin.
+    """
+    folded = host.strip().strip("[]").casefold()
+    if ":" in folded:
+        try:
+            return str(ipaddress.IPv6Address(folded.partition("%")[0]))
+        except ValueError:
+            return folded
+    return _ipv4_host(folded) or folded
+
+
+def is_loopback_host(host: str) -> bool:
+    """Whether *host*, in any spelling a browser or resolver reads, addresses this machine.
+
+    ``localhost`` and every ``*.localhost`` (with or without the root's
+    trailing dot), any 127/8 or ``::1`` address, the unspecified addresses, and
+    an IPv4-mapped IPv6 address of any of those.
+    """
+    canonical = canonical_host(host)
+    name = canonical.rstrip(".")
+    if name == "localhost" or name.endswith(".localhost"):
+        return True
+    try:
+        address = ipaddress.ip_address(canonical)
+    except ValueError:
+        return False
+    if isinstance(address, ipaddress.IPv6Address) and address.ipv4_mapped is not None:
+        address = address.ipv4_mapped
+    return address.is_loopback or address.is_unspecified
+
+
+def canonical_origin(url: str) -> Origin | None:
+    """``(scheme, host, port)`` of an http(s) URL as a browser reads it, or ``None``."""
+    origin = _origin(url)
+    if origin is None:
+        return None
+    scheme, host, port = origin
+    return scheme, canonical_host(host), port
+
+
+def same_place(a: Origin, b: Origin) -> bool:
+    """Whether two origins reach the same listener: equal, or both loopback on one port."""
+    if a == b:
+        return True
+    return a[0] == b[0] and a[2] == b[2] and is_loopback_host(a[1]) and is_loopback_host(b[1])
+
+
+def agent_hop_panel_ids(panels: Mapping[str, Any]) -> frozenset[str]:
+    """The sidecar panels whose own MCP transport the agent drives directly.
+
+    A sidecar that declares an ``mcp_path`` and opts in with ``agent_hop``
+    (:class:`~osprey.profiles.sidecar_panels.SidecarPanel`): the same rule the
+    gate's panel tier and the panel proxy apply. Such a panel has a tool of its
+    own for what is on its screen.
+    """
+    return frozenset(
+        panel_id
+        for panel_id, panel in panels.items()
+        if getattr(panel, "agent_hop", False) and getattr(panel, "mcp_path", None)
+    )
+
+
+def agent_hop_url_refusal(
+    member: str,
+    url: str,
+    *,
+    hop_ids: frozenset[str],
+    is_hop_origin: Callable[[Origin], bool],
+) -> str | None:
+    """Why *url* may not be pushed into panel *member*, or ``None``.
+
+    A url pushed into an agent-hop panel's iframe would move its screen around
+    the panel's own tool, its input checks and its attribution; one that
+    reaches the panel's process directly would bypass the terminal's gate. So
+    a url is refused when:
+
+    * *member* is an agent-hop panel, whatever the url;
+    * its path resolves under ``/panel/<agent-hop panel>`` (behind any
+      per-user prefix, in any spelling a server reads the same way);
+    * it is an http(s) URL whose origin, read as a browser reads it
+      (:func:`canonical_origin`), *is_hop_origin* names. The terminal names
+      the listener each agent-hop panel's configured backend is on
+      (:func:`same_place`); the agent's MCP tool, which has no configuration,
+      guesses from the port, for a friendlier error only.
+
+    A url this rule passes is still judged by the navigation guard, which
+    admits an http(s) URL only on the member's own configured backend.
+
+    Args:
+        member: The panel the url is for.
+        url: The url, already passed through :func:`normalise_navigation_url`.
+        hop_ids: The agent-hop panel ids (:func:`agent_hop_panel_ids`).
+        is_hop_origin: Whether an origin may be an agent-hop panel's process.
+    """
+    if member in hop_ids:
+        return f"panel '{member}' is driven by its own workspace tool, not by url"
+    try:
+        parts = urlsplit(url)
+    except ValueError:
+        return None  # malformed: the navigation guard words the refusal
+    segments = resolved_path_segments(parts.path)
+    if segments is None:
+        return "the url path is encoded too many times to read"
+    folded = [segment.casefold() for segment in segments]
+    for index, segment in enumerate(folded[:-1]):
+        if segment == "panel" and folded[index + 1] in hop_ids:
+            return f"the url opens panel '{segments[index + 1]}', which has its own workspace tool"
+    origin = canonical_origin(url)
+    if origin is not None and is_hop_origin(origin):
+        return "the url addresses a panel sidecar directly"
+    return None

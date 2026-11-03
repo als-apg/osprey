@@ -9,12 +9,15 @@ channel values for hours — needs the opposite shape, and this module is it:
   :meth:`ControlSession.open`, and builds one connector for the target that
   record names. That pairing is the :class:`Binding`.
 * The connector is never rebuilt in process. When the binding moves — the
-  record names another ``(target, generation)``, or the write state of the
-  bound target changes — :meth:`ControlSession.moved` says so and the process
-  exits with :data:`EXIT_BINDING_MOVED`; its supervisor starts a new one, which
-  opens against the new record. A connector chooses its gateways at
-  ``connect()``, so re-pointing one in place is not something this module
-  could do honestly.
+  record names another ``(target, generation)`` — :meth:`ControlSession.moved`
+  says so and the process exits with :data:`EXIT_BINDING_MOVED`; its
+  supervisor starts a new one, which opens against the new record. A connector
+  chooses its gateway at ``connect()``, so re-pointing one in place is not
+  something this module could do honestly: a change of the bound target's write
+  state that asks for the other gateway (``read_only`` and ``write_access``) is
+  a move too. Any other change of write state is not: every write is judged on
+  the verdict read at its admission, and :attr:`ControlSession.writes` follows
+  the record and the hold in place.
 * The same holds for a connector whose transport went stale — the control
   system serves a channel again, but the client library will not notice. The
   connector raises that as a lost connector
@@ -44,10 +47,17 @@ half. Whether this login may write here is the execution verdict
 (:func:`~osprey_connectors.posture_store.execution_verdict`): one order shared
 with every other write path, the session's hold included, and every refusal
 it decides names that verdict's reason in that verdict's words
-(:func:`~osprey_connectors.refusals.refusal_phrase`). The session adds no
-reason of its own for "can this login write"; it adds only its own states —
-no record, no connector, a binding that moved, a write still in flight, an
-audit ledger that is down.
+(:func:`~osprey_connectors.refusals.refusal_phrase`). At the ``asked``
+position a person is asked before every write: a write that does not carry
+that person's confirmation is refused ``approval_missing``. The session adds
+no other reason for "can this login write"; it adds only its own states — no
+record, no connector, a binding that moved, a write still in flight, an audit
+ledger that is down.
+
+The hold is asked about for the sessions this process writes for: the
+environment's session key by default, or the keys a ``session_keys``
+provider names at each read — a process that serves a whole terminal is held
+while any of its live sessions is.
 The task's done-callback releases the marker and the write entry when the
 connector call has returned. The caller waits until the write's admission plus
 the bound connector's bound ``D_b`` and the margin ``M``; past that it answers
@@ -63,7 +73,7 @@ import math
 import os
 import time
 import uuid
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -79,6 +89,7 @@ from osprey.runtime.session_outcomes import (
     DECISION_ALLOWED,
     DECISION_REFUSED,
     MESSAGE_AUDIT_UNAVAILABLE,
+    MESSAGE_CONFIRMATION_MISSING,
     MESSAGE_NO_RECORD,
     MESSAGE_UNCONFIRMED,
     MESSAGE_UNKNOWN,
@@ -92,6 +103,7 @@ from osprey.runtime.session_outcomes import (
     OUTCOME_TARGET_CHANGED,
     OUTCOME_UNCONFIRMED,
     OUTCOME_UNKNOWN,
+    REASON_APPROVAL_MISSING,
     REASON_AUDIT_UNAVAILABLE,
     REASON_CONTEXT_UNAVAILABLE,
     REASON_LIMITS,
@@ -242,6 +254,7 @@ class _Write:
         result: The outcome, once the task decided it.
         verdict: The execution verdict at admission — the read this write was
             judged under, kept so a refusal that follows names its kind.
+        confirmed: Whether a person confirmed the write, as the caller said.
     """
 
     task: asyncio.Task[SessionWriteResult] | None
@@ -249,6 +262,7 @@ class _Write:
     recorded: bool = False
     marker: Path | None = None
     result: SessionWriteResult | None = field(default=None, repr=False)
+    confirmed: bool = False
     verdict: WriteVerdict | None = None
 
 
@@ -331,35 +345,42 @@ def _fallback_target(section: dict[str, Any]) -> str:
     return types.TARGET_LIVE
 
 
-def _verdicts(target: str) -> tuple[WriteVerdict, WriteVerdict]:
-    """``(switch, execution)``: the verdicts on a write by this login to *target* now.
+#: What names the sessions a process writes for: a zero-argument callable read
+#: at each verdict, or ``None`` for the environment's session key.
+SessionKeys = Callable[[], Sequence[str]] | None
 
-    *execution* is :func:`~osprey_connectors.posture_store.execution_verdict`,
-    the one a write executes under: the write verdict's terms plus this
-    process's session hold. *switch* is the same verdict without the hold —
-    the switch's own position, which a move is judged on: a hold pauses a
-    session's writes and is answered in place; it never moves the binding.
-    A config that cannot be read refuses both as ``record_unavailable``. Never
-    raises.
+
+def _keys_now(session_keys: SessionKeys) -> list[str] | None:
+    """The keys *session_keys* names now; ``None`` for the environment's.
+
+    Raises whatever the provider raises: a caller that cannot tell which
+    sessions it writes for must not answer as if it wrote for none.
+    """
+    if session_keys is None:
+        return None
+    return [str(key) for key in session_keys() if key]
+
+
+def _verdict(target: str, session_keys: SessionKeys = None) -> WriteVerdict:
+    """The execution verdict on a write by this login to *target* now.
+
+    :func:`~osprey_connectors.posture_store.execution_verdict`: the write
+    verdict's terms plus the hold of the sessions *session_keys* names (the
+    environment's when ``None``). A config or a key list that cannot be read
+    refuses as ``record_unavailable``. Never raises.
     """
     from osprey_connectors.config import get_config_value
-    from osprey_connectors.posture_store import WriteVerdict, execution_verdict, write_verdict
+    from osprey_connectors.posture_store import WriteVerdict, execution_verdict
 
     try:
         section = get_config_value("control_system", {})
+        keys = _keys_now(session_keys)
     except Exception:
-        logger.warning("The control_system config could not be read", exc_info=True)
-        refused = WriteVerdict(allowed=False, reason="record_unavailable", target=target, kind=None)
-        return refused, refused
-    execution = execution_verdict(section, target)
-    if execution.reason != "session_held":
-        return execution, execution
-    return write_verdict(section, target), execution
-
-
-def _position(verdict: WriteVerdict) -> tuple[bool, str | None]:
-    """What a binding is held to: whether writes are allowed, and at which position."""
-    return verdict.allowed, verdict.position
+        logger.warning(
+            "The control_system config or the session keys could not be read", exc_info=True
+        )
+        return WriteVerdict(allowed=False, reason="record_unavailable", target=target, kind=None)
+    return execution_verdict(section, target, session_keys=keys)
 
 
 def _record_signature() -> Any:
@@ -369,21 +390,32 @@ def _record_signature() -> Any:
     return control_context.file_signature(control_context.record_path())
 
 
-def _hold_signature() -> Any:
-    """The session's hold record signature now, or ``None`` when this process has no hold store.
+def _hold_signature(session_keys: SessionKeys = None) -> Any:
+    """The hold records' signatures now, or ``None`` when this process has no hold store.
 
-    The record is ``<hold root>/<session key>/record.json``
+    One record per session, ``<hold root>/<session key>/record.json``
     (:mod:`osprey_connectors.session_hold`); a flag raised or answered replaces
-    it whole, so its signature moves exactly when the hold does. Stats the file
-    and reads nothing.
+    it whole, so its signature moves exactly when the hold does. The keys are
+    *session_keys*' (the environment's when ``None``), so a session that comes
+    or goes moves the signature too. Stats the files and reads nothing else.
     """
     from osprey_connectors import control_context, session_hold
 
-    key = os.environ.get(SESSION_KEY_ENV_VAR, "")
     root = session_hold.hold_root()
-    if not key or root is None or not session_hold.is_safe_session_key(key):
+    if root is None:
         return None
-    return control_context.file_signature(root / key / session_hold.RECORD_NAME)
+    try:
+        keys = _keys_now(session_keys)
+    except Exception:
+        # Unreadable now: a signature of its own, so a later read moves it.
+        return ("unreadable",)
+    if keys is None:
+        keys = [os.environ.get(SESSION_KEY_ENV_VAR, "")]
+    return tuple(
+        (key, control_context.file_signature(root / key / session_hold.RECORD_NAME))
+        for key in sorted(set(keys))
+        if key and session_hold.is_safe_session_key(key)
+    )
 
 
 def _bounded_config(
@@ -455,7 +487,7 @@ class ControlSession:
         connector: ControlSystemConnector | None,
         record_key: tuple[str, int] | None,
         verdict: WriteVerdict,
-        opened_at: tuple[bool, str | None] | None = None,
+        session_keys: SessionKeys = None,
         record_signature: Any = None,
         hold_signature: Any = None,
         call_bound_s: float | None = None,
@@ -467,12 +499,9 @@ class ControlSession:
         self._binding = binding
         self._connector = connector
         self._record_key = record_key
-        #: The switch position this session was opened on, ``(allowed, position)``
-        #: of the write verdict without the hold. A write judged under another
-        #: position is refused and the binding counts as moved: a panel that
-        #: showed no confirm step must not execute a write the switch now asks
-        #: about.
-        self._opened_at = _position(verdict) if opened_at is None else opened_at
+        #: The sessions whose hold this process's writes are held with; ``None``
+        #: is the environment's session key.
+        self._session_keys = session_keys
         #: The execution verdict for this session's own target, as last read: at
         #: open, at every write's admission, and whenever :meth:`wait_moved`
         #: sees the record or the session's hold change. ``writes`` reads only
@@ -508,6 +537,7 @@ class ControlSession:
         subject: str | None = None,
         client_label: str | None = None,
         budget: WriteBudget | None = None,
+        session_keys: SessionKeys = None,
     ) -> ControlSession:
         """Bind this process to the deployment's control target.
 
@@ -530,6 +560,10 @@ class ControlSession:
                 ``a <surface> write`` when omitted.
             budget: The process's write budget; computed from the deployment's
                 ``control_system`` section when omitted.
+            session_keys: What names the sessions this process writes for,
+                read at every verdict: a process serving a whole terminal is
+                held while any of them is. Omitted, the environment's session
+                key (``OSPREY_SESSION_ID``).
 
         Raises:
             SessionEnvironmentError: The environment is one a session must not
@@ -584,8 +618,8 @@ class ControlSession:
             display_name=_display_name(target),
             state=state,
         )
-        hold_signature = _hold_signature()
-        switch, execution = _verdicts(target)
+        hold_signature = _hold_signature(session_keys)
+        execution = _verdict(target, session_keys)
         session = cls(
             surface=surface,
             subject=subject,
@@ -594,7 +628,7 @@ class ControlSession:
             connector=connector,
             record_key=record_key,
             verdict=execution,
-            opened_at=_position(switch),
+            session_keys=session_keys,
             record_signature=record_signature,
             hold_signature=hold_signature,
             call_bound_s=call_bound_s,
@@ -732,6 +766,7 @@ class ControlSession:
         *,
         origin: Any = None,
         timeout: float | None = None,
+        confirmed: bool = False,
     ) -> SessionWriteResult:
         """Write *value* to *address* in the session's fixed order. Never raises for an outcome.
 
@@ -750,10 +785,19 @@ class ControlSession:
                 those attributes), for the audit only.
             timeout: A caller's call bound, clamped to the bound connector's
                 ``T_b``.
+            confirmed: Whether a person confirmed this write. At the ``asked``
+                position a write without it is refused ``approval_missing``;
+                at ``allowed`` it is not read.
         """
         if self._writes_stopped:
             return self._refuse_now(
-                address, value, origin, OUTCOME_TARGET_CHANGED, REASON_SWITCHING, self._phrase()
+                address,
+                value,
+                origin,
+                OUTCOME_TARGET_CHANGED,
+                REASON_SWITCHING,
+                self._phrase(),
+                confirmed=confirmed,
             )
         key = self._channel_key(address)
         if key in self._writes:
@@ -764,9 +808,10 @@ class ControlSession:
                 OUTCOME_REFUSED,
                 REASON_WRITE_IN_PROGRESS,
                 MESSAGE_WRITE_IN_PROGRESS,
+                confirmed=confirmed,
             )
 
-        entry = _Write(task=None, admitted_at=time.monotonic())
+        entry = _Write(task=None, admitted_at=time.monotonic(), confirmed=confirmed)
         self._writes[key] = entry
         self._latest_admission = entry.admitted_at
         call_bound = self._call_bound_s
@@ -797,7 +842,9 @@ class ControlSession:
             address,
             time.monotonic() - entry.admitted_at,
         )
-        self._audit(DECISION_ALLOWED, REASON_WRITE_UNCONFIRMED, address, value, origin)
+        self._audit(
+            DECISION_ALLOWED, REASON_WRITE_UNCONFIRMED, address, value, origin, confirmed=confirmed
+        )
         return result
 
     def refuse(
@@ -807,6 +854,7 @@ class ControlSession:
         reason: str,
         *,
         origin: Any = None,
+        confirmed: bool = False,
     ) -> SessionWriteResult:
         """Audit and answer a refusal the caller decided on. No connector call is made.
 
@@ -823,7 +871,9 @@ class ControlSession:
         if reason not in REASONS:
             raise ValueError(f"not a refusal reason: {reason!r}")
         outcome = OUTCOME_TARGET_CHANGED if reason == REASON_SWITCHING else OUTCOME_REFUSED
-        return self._refuse_now(address, value, origin, outcome, reason, self._phrase(reason))
+        return self._refuse_now(
+            address, value, origin, outcome, reason, self._phrase(reason), confirmed=confirmed
+        )
 
     def stop_writes(self) -> None:
         """Admit no further write. Irreversible for this session."""
@@ -914,17 +964,16 @@ class ControlSession:
             return refused(OUTCOME_REFUSED, REASON_CONTEXT_UNAVAILABLE, MESSAGE_UNSERVABLE)
 
         # The execution verdict, read once for this write: the switch's terms
-        # and this session's hold, in the order every write path shares. A
-        # refusal is answered in the verdict's own words. An allowing verdict at
-        # another position than the one this session opened on is a moved
-        # binding: the process is about to exit, and the write waits for its
-        # successor.
-        switch, execution = _verdicts(self._binding.target)
+        # and the sessions' hold, in the order every write path shares. A
+        # refusal is answered in the verdict's own words. At ``asked`` a person
+        # is asked before every write, so one that carries no confirmation is
+        # refused, whatever position the caller last saw.
+        execution = _verdict(self._binding.target, self._session_keys)
         self._verdict = entry.verdict = execution
         if not execution.allowed:
             return refused(OUTCOME_REFUSED, str(execution.reason), refusal_message(execution))
-        if _position(switch) != self._opened_at:
-            return refused(OUTCOME_TARGET_CHANGED, REASON_SWITCHING, self._phrase())
+        if execution.position == "asked" and not entry.confirmed:
+            return refused(OUTCOME_REFUSED, REASON_APPROVAL_MISSING, MESSAGE_CONFIRMATION_MISSING)
 
         try:
             blocking = control_context.blocking_pids(record, control_context.live_reports(), None)
@@ -936,7 +985,14 @@ class ControlSession:
         if blocking:
             return refused(OUTCOME_SWITCH_IN_PROGRESS, REASON_SWITCHING, self._phrase())
 
-        if not self._audit(DECISION_ALLOWED, REASON_WRITE_ATTEMPT, address, value, origin):
+        if not self._audit(
+            DECISION_ALLOWED,
+            REASON_WRITE_ATTEMPT,
+            address,
+            value,
+            origin,
+            confirmed=entry.confirmed,
+        ):
             return refused(OUTCOME_REFUSED, REASON_AUDIT_UNAVAILABLE, MESSAGE_AUDIT_UNAVAILABLE)
         return None
 
@@ -1048,7 +1104,7 @@ class ControlSession:
             return
         entry.recorded = True
         decision = DECISION_REFUSED if result.outcome in REFUSAL_OUTCOMES else DECISION_ALLOWED
-        self._audit(decision, result.reason, address, value, origin)
+        self._audit(decision, result.reason, address, value, origin, confirmed=entry.confirmed)
 
     def _channel_key(self, address: str) -> str:
         """The key one channel's writes are admitted under: the connector's own.
@@ -1084,9 +1140,11 @@ class ControlSession:
         outcome: str,
         reason: str,
         message: str,
+        *,
+        confirmed: bool = False,
     ) -> SessionWriteResult:
         """A refusal decided without admitting the write: one record, no marker."""
-        self._audit(DECISION_REFUSED, reason, address, value, origin)
+        self._audit(DECISION_REFUSED, reason, address, value, origin, confirmed=confirmed)
         return SessionWriteResult(outcome=outcome, reason=reason, message=message)
 
     def _write_marker(self, address: str) -> Path:
@@ -1115,11 +1173,35 @@ class ControlSession:
 
     # -- audit ----------------------------------------------------------------
 
+    def _audit_keys(self) -> list[str]:
+        """The session keys a write is judged under, for the audit. Never raises."""
+        try:
+            keys = _keys_now(self._session_keys)
+        except Exception:
+            keys = []
+        if keys is None:
+            key = os.environ.get(SESSION_KEY_ENV_VAR, "")
+            keys = [key] if key else []
+        return sorted(set(keys))
+
     def _audit_session(self) -> str:
         return f"{self._surface}:{os.getpid()}"
 
-    def _audit(self, decision: str, reason: str, address: str, value: Any, origin: Any) -> bool:
-        """File one audit record. ``True`` when it was stored. Never raises."""
+    def _audit(
+        self,
+        decision: str,
+        reason: str,
+        address: str,
+        value: Any,
+        origin: Any,
+        *,
+        confirmed: bool = False,
+    ) -> bool:
+        """File one audit record. ``True`` when it was stored. Never raises.
+
+        The detail names the position and the sessions the write was judged
+        under (the latest verdict read) and whether a person confirmed it.
+        """
         try:
             from osprey.audit import posture
             from osprey.audit.writer import record
@@ -1132,7 +1214,14 @@ class ControlSession:
                 subject=self._subject,
                 decision=decision,
                 reason=reason,
-                detail=detail_tokens(address, value, origin),
+                detail=detail_tokens(
+                    address,
+                    value,
+                    origin,
+                    position=self._verdict.position,
+                    confirmed=confirmed,
+                    sessions=self._audit_keys(),
+                ),
             )
         except Exception:
             logger.warning("Could not record a %s write for audit", self._surface, exc_info=True)
@@ -1146,20 +1235,44 @@ class ControlSession:
 
         A move is a record that now names another ``(target, generation)`` —
         including one that appeared where there was none, or went away — or a
-        switch that now holds this session's own target at another position
-        (allowed or not, asked or not) than the one it opened on. Another
-        target's switch is not a move, and neither is a hold on this session:
-        a hold pauses writes and lifts in place.
+        switch that now asks for the gateway the connector did not select
+        (:meth:`_gateway_lags`). Any other switch change is not a move, and
+        neither is a hold: each is judged per write and shown in :attr:`writes`.
 
         The record comparison is :func:`~osprey.runtime.write_steps.pin_verdict`,
         the same one a write's pin uses. Its ``unavailable`` is a move only for a
         session bound to a record: one opened without a record (a fallback) has
         not moved while there is still none to read.
         """
-        if self._record_moved():
-            return True
-        switch, self._verdict = _verdicts(self._binding.target)
-        return _position(switch) != self._opened_at
+        self._verdict = _verdict(self._binding.target, self._session_keys)
+        return self._record_moved() or self._gateway_lags()
+
+    def _gateway_lags(self) -> bool:
+        """Whether the switch now asks for a gateway this session's connector did not select.
+
+        The connector chose at ``connect()`` and keeps its choice, refusing an
+        allowed write ``switching`` while it sits on the read gateway. Only a
+        block with both gateways chooses by the switch; one with a write gateway
+        alone stays on it, and its writes are refused in software. The choice
+        follows :func:`~osprey_connectors.posture_store.write_verdict`, which has
+        no hold term, so a hold never asks for another gateway. There is no
+        public accessor for the choice, so this reads the attributes the
+        connector's ``_role_refusal`` reads, and any other connector never lags.
+        """
+        connector = self._connector
+        selected = getattr(connector, "_selected_role", None)
+        if selected is None or not getattr(connector, "_write_gateway_configured", False):
+            return False
+        from osprey_connectors.posture_store import write_verdict
+
+        section = _control_system_section()
+        blocks = section.get("connector")
+        block = blocks.get(self._binding.connector_type) if isinstance(blocks, Mapping) else None
+        gateways = block.get("gateways") if isinstance(block, Mapping) else None
+        if not isinstance(gateways, Mapping) or not gateways.get("read_only"):
+            return False
+        allowed = write_verdict(section, self._binding.target).allowed
+        return bool(allowed != (selected == "write_access"))
 
     def _record_moved(self) -> bool:
         """Whether the record now names another ``(target, generation)``, as :meth:`moved` reads it."""
@@ -1178,9 +1291,10 @@ class ControlSession:
         verdict, records whether the record now names another ``(target,
         generation)``, and decides the move as :meth:`moved` would. So when this
         returns, :attr:`writes` and :attr:`target_moving` already say what the
-        move is. A changed hold record refreshes the cached verdict only, so
-        :attr:`writes` says ``session_held`` while the hold stands and nothing
-        once it is answered; a hold is never a move.
+        move is, and a switch change that is no move (:meth:`moved`) is in
+        :attr:`writes` without returning. A changed hold record refreshes the cached verdict
+        only, so :attr:`writes` says ``session_held`` while the hold stands and
+        nothing once it is answered; a hold is never a move.
 
         Never returns otherwise; a caller that is shutting down cancels it. A
         watch that fails marks the target moving before the error propagates.
@@ -1190,14 +1304,14 @@ class ControlSession:
                 now = _record_signature()
                 if now != self._seen_signature:
                     self._seen_signature = now
-                    self._seen_hold_signature = _hold_signature()
+                    self._seen_hold_signature = _hold_signature(self._session_keys)
                     if self._refresh():
                         return
                 else:
-                    hold = _hold_signature()
+                    hold = _hold_signature(self._session_keys)
                     if hold != self._seen_hold_signature:
                         self._seen_hold_signature = hold
-                        _switch, self._verdict = _verdicts(self._binding.target)
+                        self._verdict = _verdict(self._binding.target, self._session_keys)
                 await asyncio.sleep(MOVE_POLL_S)
         except asyncio.CancelledError:
             raise
@@ -1207,12 +1321,11 @@ class ControlSession:
 
     def _refresh(self) -> bool:
         """Read the record and the verdicts once; cache both facts; ``True`` on a move."""
-        record_moved = self._record_moved()
-        switch, self._verdict = _verdicts(self._binding.target)
+        record_moved = self._record_moved() or self._gateway_lags()
+        self._verdict = _verdict(self._binding.target, self._session_keys)
         if record_moved:
             self._target_moving = True
-            return True
-        return _position(switch) != self._opened_at
+        return record_moved
 
     async def wait_stale(self) -> None:
         """Return once the connector's transport has gone stale.

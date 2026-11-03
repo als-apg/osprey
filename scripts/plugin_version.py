@@ -7,6 +7,12 @@ This script is the only writer of that string and the one statement of the bump 
 ``show`` prints it and refuses to guess when the two files disagree, ``bump`` advances
 ``YYYY.M.N`` in both at once, and ``check --base <ref>`` refuses a branch that changes
 the plugin tree while still carrying a version the branch it merges into already has.
+Consumers install the plugin by version, so an edit republished under the version it
+already carried never reaches anyone who installed it.
+
+The range ``check`` judges is ``BASE...HEAD``, the committed state a pull request
+carries; with ``--worktree`` it is the merge base against the working tree, so staged,
+unstaged and untracked files count.
 """
 
 from __future__ import annotations

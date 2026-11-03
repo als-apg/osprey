@@ -91,8 +91,8 @@ describe('the state messages', () => {
     sync.sendHeaderActionToIframe(iframe, 'refresh');
     sync.sendHeaderActionToIframe(iframe, 'browse-mode', 'activity');
     expect(postMessage.mock.calls.map((call) => call[0])).toEqual([
-      { type: 'osprey-header-action', id: 'refresh' },
-      { type: 'osprey-header-action', id: 'browse-mode', value: 'activity' },
+      { type: 'canopy-host-header-action', id: 'refresh' },
+      { type: 'canopy-host-header-action', id: 'browse-mode', value: 'activity' },
     ]);
   });
 });

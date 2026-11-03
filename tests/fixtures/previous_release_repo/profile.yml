@@ -97,6 +97,9 @@ skills:
   - bluesky-plans  # Browse which plans this deployment can run
   - pyaml-tools  # Measure through pyaml_measure (renders only with a pyAML view)
   # Available — uncomment to enable:
+  # - canopy-operator  # Open, arrange, zoom and close what the operator's CANOPY window shows.
+  # - canopy-panel-builder  # Build, port and check CANOPY screens.
+  # - canopy-screens  # Which CANOPY screen shows which device: an index built from the project's screen library, its devices, collections and the tools' default views; renders only with the CANOPY panel
   # - logbook-deep-research  # Multi-phase logbook investigation skill
 
 agents:
@@ -129,6 +132,8 @@ web_panels:
   - jupyter         # JUPYTER tab, JupyterLab with kernels that follow the terminal session
   # The events and bluesky panels are added by the write-armed tiers
   # (readwrite and admin) instead, so the read-only login is built without them.
+  # Available — uncomment to enable:
+  # - canopy  # CANOPY, the operator GUI: machine screens and Trace
 
 # ── Scanning and simulated hardware ──────────────────────────────────────────
 # These three blocks give you a working plan setup with no real hardware: a

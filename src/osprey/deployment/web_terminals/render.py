@@ -43,6 +43,7 @@ from osprey.config_guards import is_positive_int
 from osprey.deployment.compose_generator import (
     DISPATCH_WORKER_SERVICE_PREFIX,
     FIXED_SERVICE_AUDIT_IDENTITIES,
+    WEB_TERMINAL_CHANNEL_SNAPSHOT,
     configured_ariel_mirror_path,
     guarded_run_relpath,
     repo_identity,
@@ -85,6 +86,7 @@ from osprey.deployment.web_terminals.roster import (
     roster_role_by_name,
 )
 from osprey.docs_links import PERIMETER_LIMITS_URL
+from osprey.integrations.canopy import CHANNELS_FILE as CANOPY_CHANNELS_FILE
 
 # The one definition of the session-lifetime default lives in web_auth, which is
 # stdlib-only, so importing it here cannot cycle.
@@ -107,7 +109,11 @@ from osprey.services.auth_sidecar.roster_env import (
 from osprey.services.auth_sidecar.throttle import THROTTLE_DEFAULTS, throttle_problems
 from osprey.utils.workspace import SPOOL_DIR_RELPATH, STATE_DIR_RELPATH
 from osprey_connectors.posture_store import CONTROL_CONTEXT_DIR_ENV_VAR, STATE_DIR_NAME
-from osprey_connectors.workspace import SIMULATOR_LOG_DIR_RELPATH, agent_data_base_dir
+from osprey_connectors.workspace import (
+    BUILD_DIR_NAME,
+    SIMULATOR_LOG_DIR_RELPATH,
+    agent_data_base_dir,
+)
 
 # Package-relative location of the .j2 sources (Tasks 1.3/1.6). Resolved via
 # importlib.resources, NOT Path(__file__).parent, so this works from an installed
@@ -784,6 +790,25 @@ def _control_context_mount_source(config: Any, identity: str) -> str:
     return repo_relative_mount_source((base / STATE_DIR_NAME / identity).as_posix())
 
 
+def _channel_catalog_mounts(config: Any) -> list[str]:
+    """The read-only bind of the build's channel catalog, when the build staged one.
+
+    ``osprey build`` writes ``build/web_terminals/channels.json`` (see
+    :func:`osprey.deployment.compose_generator.stage_web_terminal_channel_snapshot`)
+    when the deployment has channels to suggest, and removes it when it has
+    none. Every web container then sees it at the one constant path the
+    per-user CANOPY panel is told (``CANOPY_CHANNELS_FILE``). This is the
+    render's one look at the disk, and it is a look at the build's own output:
+    a bind to a missing file would make the runtime create an empty directory
+    in its place, so the line is emitted only when the file is there, and
+    without it the panel answers ``/channels`` with 404.
+    """
+    relative = Path(BUILD_DIR_NAME) / WEB_TERMINAL_CHANNEL_SNAPSHOT
+    if not (Path(resolve_repo_root(config)) / relative).is_file():
+        return []
+    return [f"{repo_relative_mount_source(relative.as_posix())}:{CANOPY_CHANNELS_FILE}:ro"]
+
+
 def _launch_token_env_vars(
     entry: dict[str, Any],
     launch_token_renders: dict[str, set[str]] | None,
@@ -839,7 +864,9 @@ def render_web_terminals(
             convention as :func:`osprey.deployment.web_terminals.lint.lint_web_terminals`
             — no assumption that ``config`` is a particular schema/dataclass type).
             Deterministic: the same inputs always render the same three artifacts,
-            with no clock/random/filesystem inputs — which is why the digest below
+            with no clock/random inputs and one filesystem input only — whether
+            the build staged ``build/web_terminals/channels.json`` (see
+            :func:`_channel_catalog_mounts`) — which is why the digest below
             arrives as a parameter instead of being read from disk here.
         auth_env_digest: sha256 hex digest of ``.env.auth``'s current content,
             emitted as the :data:`AUTH_ENV_DIGEST_LABEL` label on the auth
@@ -1104,6 +1131,7 @@ def render_web_terminals(
     # actually resolved, read off the config in hand rather than defaulted, so
     # a deployment on its own block publishes its own ports.
     base_ports = base_ports_from_config(web_terminals, base=resolve_port_base(root))
+    channel_catalog_mounts = _channel_catalog_mounts(root)
     record_digests = dict(agent_record_login_digests or {})
     services = []
     for entry in resolved_users:
@@ -1141,7 +1169,9 @@ def render_web_terminals(
                 "claude_config_volume": f"{entry['name']}{CLAUDE_CONFIG_VOLUME_SUFFIX}",
                 # The transcripts volume nested over it, consumed the same way.
                 "claude_projects_volume": f"{entry['name']}{CLAUDE_PROJECTS_VOLUME_SUFFIX}",
-                "extra_mounts": entry["extra_mounts"],
+                # The render's own mounts, then the build's channel catalog
+                # (one file, the same for every user; absent when not staged).
+                "extra_mounts": [*entry["extra_mounts"], *channel_catalog_mounts],
                 # This user's identity, and the spool and state binds that give
                 # it somewhere to write: `spool_mount_source`,
                 # `container_spool_dir`, `state_mount_source`,

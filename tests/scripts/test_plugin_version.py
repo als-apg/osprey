@@ -386,6 +386,14 @@ class TestCheck:
         git(repo, "add", "-A")
         assert run(repo, "check", "--base", "main", "--worktree") == 0
 
+    def test_an_unstaged_plugin_edit_with_a_bump_passes_under_worktree(self, repo, capsys):
+        git(repo, "checkout", "-q", "-b", "work")
+        write(repo, SKILL, "changed\n")
+        assert run(repo, "bump", "--today", "2026-09-15") == 0
+        capsys.readouterr()
+        assert run(repo, "check", "--base", "main", "--worktree") == 0
+        assert capsys.readouterr().out == "plugin version 2026.9.0 -> 2026.9.1\n"
+
     def test_an_untracked_plugin_file_counts_under_worktree(self, repo):
         git(repo, "checkout", "-q", "-b", "work")
         write(repo, SKILL.parent / "NEW.md", "new\n")

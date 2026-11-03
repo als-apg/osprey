@@ -5,9 +5,13 @@ name: Human Approval Gate
 description: Requires human approval for dangerous operations based on per-tool policy
 summary: Requires human approval for dangerous operations
 event: PreToolUse, PostToolUse, PostToolUseFailure, Stop, StopFailure
-tools: channel_write, control_target_set, channel_read, archiver_read, phoebus_drive, execute, execute_file, pyaml_measure, setup_patch, add_panel_to_rail, remove_panel_from_rail, register_panel, entry_create, entry_publish, draft_concept, queue_add, queue_start, queue_stop, queue_remove, stop_run, write_plan, validate_plan, manual_fire
+tools: channel_write, control_target_set, channel_read, archiver_read, phoebus_drive, execute, execute_file, pyaml_measure, setup_patch, add_panel_to_rail, remove_panel_from_rail, register_panel, entry_create, entry_publish, draft_concept, queue_add, queue_start, queue_stop, queue_remove, stop_run, write_plan, validate_plan, manual_fire, mcp__canopy__new_screen, mcp__canopy__patch_node, mcp__canopy__add_node, mcp__canopy__remove_node, mcp__canopy__convert_legacy, mcp__canopy__delete_draft, mcp__canopy__request_push
 safety_layer: 2
 ---
+
+The ``tools:`` line documents what this hook gates; it is not a matcher. The
+matchers come from each server's hook rules. Bare names are OSPREY's own MCP
+tools; ``mcp__canopy__*`` names are tools of the external CANOPY server.
 
 ## Flow
 

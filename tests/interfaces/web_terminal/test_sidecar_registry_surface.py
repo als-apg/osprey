@@ -95,6 +95,19 @@ class TestRegistryEntry:
         assert panel.operator_secret is True
         assert panel.mcp_path is None
 
+    def test_the_canopy_entry_describes_its_own_tab(self):
+        panel = SIDECAR_PANELS["canopy"]
+
+        assert panel.factory_path == "osprey.integrations.canopy.sidecar:CanopySidecar"
+        assert panel.label == "CANOPY"
+        assert panel.icon == "layers"
+        assert panel.health_endpoint == "/health"
+        assert panel.operator_secret is False
+        assert panel.mcp_path == "/mcp"
+        # A click writes for the terminal's sessions and is held with them.
+        assert panel.session_writes is True
+        assert SIDECAR_PANELS["jupyter"].session_writes is False
+
     @pytest.mark.parametrize("panel_id", sorted(SIDECAR_PANELS))
     def test_the_label_table_takes_a_sidecar_label_from_its_entry(self, panel_id):
         assert BUILTIN_PANEL_LABELS[panel_id] == SIDECAR_PANELS[panel_id].label
@@ -112,6 +125,16 @@ class TestDescriptors:
                 "configEndpoint": "/api/jupyter-server",
                 "healthEndpoint": "/api/status",
                 "startEndpoint": "/api/panels/jupyter/start",
+            },
+            {
+                "id": "canopy",
+                "label": "CANOPY",
+                "icon": "layers",
+                "description": SIDECAR_PANELS["canopy"].description,
+                # No route of its own: the generic ones.
+                "configEndpoint": "/api/panels/canopy/server",
+                "healthEndpoint": "/health",
+                "startEndpoint": "/api/panels/canopy/start",
             },
         ]
 
@@ -207,7 +230,7 @@ class TestPageStamp:
         with isolated_app() as client:
             stamped = _stamp(client.get("/").text)
 
-        assert [entry["id"] for entry in stamped] == ["jupyter", PROBE_ID]
+        assert [entry["id"] for entry in stamped] == ["jupyter", "canopy", PROBE_ID]
 
 
 class TestGenericServerRoute:

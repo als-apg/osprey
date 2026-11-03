@@ -91,7 +91,7 @@ because a slow backend often still serves what is loaded. Both clear on the
 next answer. A panel that has not answered since the page loaded keeps its
 greyed-out entry and does not open.
 
-This applies to panels that have a health check: Jupyter, SYSTEM, and any
+This applies to panels that have a health check: Jupyter, CANOPY, SYSTEM, and any
 URL-backed panel whose entry names a ``health_endpoint``.
 
 Clicking a dimmed entry closes its tile as usual, but the panel cannot be
@@ -238,11 +238,12 @@ element:
 .. code-block:: javascript
 
    window.parent.postMessage(
-     { type: 'osprey-focus-exit', direction: 'forward' },  // or 'backward'
+     { type: 'canopy-host-focus-exit', direction: 'forward' },  // or 'backward'
      window.location.origin,
    );
 
-The terminal focuses the next (or previous) element of its own page, in
+The terminal also reads the older ``osprey-focus-exit`` for one release. It then
+focuses the next (or previous) element of its own page, in
 document order relative to the panel's tile — after ``backward``, that is the
 tile's header. It acts only on a message from its own origin and from the
 frame of a panel it shows.

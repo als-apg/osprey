@@ -68,7 +68,7 @@ function addPanelIframe(panelId) {
 function deliverContribution(items, source) {
   window.dispatchEvent(
     new MessageEvent('message', {
-      data: { type: 'osprey-header-contribution', version: 1, items },
+      data: { type: 'canopy-host-header-contribution', version: 1, items },
       origin: window.location.origin,
       source,
     })
@@ -134,7 +134,7 @@ describe('search items', () => {
 
       expect(contentWindow.postMessage).toHaveBeenCalledTimes(1);
       expect(contentWindow.postMessage.mock.calls[0][0]).toEqual({
-        type: 'osprey-header-action',
+        type: 'canopy-host-header-action',
         id: 'filter',
         value: 'grid',
       });
@@ -154,7 +154,7 @@ describe('search items', () => {
 
     expect(input.value).toBe('');
     expect(contentWindow.postMessage).toHaveBeenCalledWith(
-      { type: 'osprey-header-action', id: 'filter', value: '' },
+      { type: 'canopy-host-header-action', id: 'filter', value: '' },
       window.location.origin
     );
   });
@@ -254,7 +254,7 @@ describe('menu items', () => {
     row.dispatchEvent(new Event('click', { bubbles: true }));
 
     expect(contentWindow.postMessage).toHaveBeenCalledWith(
-      { type: 'osprey-header-action', id: 'more', value: 'refresh' },
+      { type: 'canopy-host-header-action', id: 'more', value: 'refresh' },
       window.location.origin
     );
     expect(document.querySelector('.contrib-menu-popover')).toBeNull();
@@ -530,7 +530,7 @@ describe('hub-side kinds', () => {
     /** @type {HTMLButtonElement} */ (host.querySelector('.osprey-icon-btn')).click();
 
     expect(contentWindow.postMessage).toHaveBeenCalledWith(
-      { type: 'osprey-header-action', id: 'next' },
+      { type: 'canopy-host-header-action', id: 'next' },
       window.location.origin
     );
   });

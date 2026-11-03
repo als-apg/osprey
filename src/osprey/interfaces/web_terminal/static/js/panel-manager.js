@@ -41,6 +41,7 @@ import {
   buildPopoutSrc,
   isUrlWithinMount,
 } from './panel-iframe-sync.js';
+import { navigateInPlace, watchNavigateReady } from './panel-navigate.js';
 import { renderEmptyState as renderEmptyStateInto } from './panel-empty-state.js';
 import { hiddenPanels, visiblePanelsExcept, standaloneUrl } from './panel-queries.js';
 import { applyPreset, wirePanelHeaderControls } from './panel-presets.js';
@@ -930,6 +931,7 @@ function navigatePanel(panelId, url) {
   // good page for an error page. The address waits in pendingUrl.
   if (!state.healthy) return;
 
+  if (navigateInPlace(state, url)) return; // the document routes it, keeping its state
   // Through frame resolution, as at first load: an opaque panel is re-framed
   // at a freshly minted cap (its old one may have lapsed), a first-party one
   // at the plain url, which buildEmbedSrc keeps verbatim (already prefixed).
@@ -972,6 +974,7 @@ function createIframe(panelId) {
     panelState[panelId],
     contentEl
   );
+  watchNavigateReady(panelState[panelId]);
 }
 
 // ---- Command Palette Accessors ----
@@ -1043,6 +1046,4 @@ export function getActivePanel() {
  * this module's private container/content refs.
  * @param {string} message
  */
-function renderEmptyState(message) {
-  renderEmptyStateInto(containerEl, contentEl, message);
-}
+const renderEmptyState = (message) => renderEmptyStateInto(containerEl, contentEl, message);
