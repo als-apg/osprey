@@ -484,6 +484,18 @@ KNOWN_MIGRATIONS: list[tuple[str, str, str, str | None]] = [
         "ALSPlainTextMigration",
         None,  # Always runs
     ),
+    (
+        "entry_subject_and_keyset",
+        "osprey.services.ariel_search.database.subject_migration",
+        "EntrySubjectAndKeysetMigration",
+        None,  # Always runs
+    ),
+    (
+        "entry_subject_backfill",
+        "osprey.services.ariel_search.database.subject_backfill",
+        "EntrySubjectBackfillMigration",
+        None,  # Always runs
+    ),
 ]
 
 
@@ -733,9 +745,9 @@ class MigrationRunner:
                         #
                         # Every migration in KNOWN_MIGRATIONS is transactional DDL
                         # (CREATE/DROP INDEX, CREATE TABLE, ALTER TABLE ... ADD
-                        # COLUMN, CREATE EXTENSION, CREATE FUNCTION), except one
-                        # that rewrites rows with UPDATE, which is transactional
-                        # DML. Nothing here uses CREATE INDEX CONCURRENTLY, VACUUM
+                        # COLUMN, CREATE EXTENSION, CREATE FUNCTION), except the
+                        # backfills that rewrite rows with UPDATE, which is
+                        # transactional DML. Nothing here uses CREATE INDEX CONCURRENTLY, VACUUM
                         # or CREATE DATABASE, which are the statements PostgreSQL
                         # forbids inside a transaction block -- so a migration that
                         # needs one of those cannot simply be added here; it needs
