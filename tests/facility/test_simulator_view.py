@@ -28,6 +28,7 @@ from osprey.facility import TEXTURE
 from osprey.facility.errors import FacilityBuildError
 from osprey.facility.records import FacilityRecords
 from osprey.facility.render import FACILITY_FILE, render_facility_outputs
+from osprey.facility.served import BENCHMARK_DATASET_PATH
 from osprey.utils.workspace import TIERS_DIRNAME
 from osprey_connectors.simulation.view import SCENARIOS_SCHEMA, SEEDS_SCHEMA, SimulatorView
 from osprey_connectors.workspace import BUILD_DIR_NAME
@@ -99,6 +100,7 @@ def test_every_render_writes_the_simulator_files_beside_the_limits(
                 *FACTS,
                 GRAPH,
                 *PYAML,
+                BENCHMARK_DATASET_PATH,
             ]
         )
     # The deployment's render runs a Bluesky lane; a render without one has no view.

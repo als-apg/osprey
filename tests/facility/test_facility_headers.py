@@ -11,7 +11,9 @@ OSPREY (the limits view keeps its ``_version`` key, the graph view's TTL keeps a
 comment header), the deck copies (pyAT's own lattice format), the pyAML view
 (pyAML's own configuration, lattice and matrix formats), the copies of the
 files a scenario's logbook entries attach (a plot spec or a picture, in the
-format the seeder reads) and the binary files on ``BINARY_EXEMPTIONS``.
+format the seeder reads), the benchmark query file (a byte copy of the
+facility's query source, in the format the benchmark runner reads) and the
+binary files on ``BINARY_EXEMPTIONS``.
 """
 
 from __future__ import annotations
@@ -25,6 +27,7 @@ from typing import TYPE_CHECKING
 import pytest
 
 from osprey.facility.records import FacilityRecords
+from osprey.facility.served import BENCHMARK_DATASET_PATH
 from osprey.facility.validate import FACILITY_HEADER
 
 if TYPE_CHECKING:
@@ -43,6 +46,7 @@ FORMAT_EXEMPTIONS: dict[str, str] = {
     "*decks/*.json": "a deck copy is pyAT's own lattice format",
     "data/simulator/scenarios/*": "an attached file is a byte copy of the scenario's own",
     "data/pyaml/*": "the pyAML view is in pyAML's own formats",
+    BENCHMARK_DATASET_PATH: "the benchmarks view is a byte copy of the facility's query source",
 }
 
 #: Binary files a view writes, relative to the render root; each is written by

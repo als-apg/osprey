@@ -487,12 +487,9 @@ config:
   # ── Channel finder ─────────────────────────────────────────────────────────
   # The pipeline itself is derived from `channel_finder_mode:` above. When that
   # field selects the graph paradigm it answers from the `services.graphdb.*`
-  # store below.
+  # store below. The build states `channel_finder.benchmark.dataset_path` when
+  # the facility ships benchmark query sources.
   #
-  # The scored benchmark query set every paradigm reads, materialized by the
-  # build; `osprey channel-finder benchmark` runs it (`--queries-path FILE`
-  # for another).
-  channel_finder.benchmark.dataset_path: data/benchmarks/queries.json
   # Rows one `run_sql` answer carries before it is cut. The cap is on the
   # AGENT's context, not on DuckDB: a truncated answer says so and names this
   # key, so the agent narrows the query rather than presenting a partial list.
@@ -589,14 +586,11 @@ config:
   # Facility vocabulary: control-room shorthand ("t/s the bpm offset") mapped
   # to the words the logbook prose contains, so a search typed in shorthand
   # finds the entries about it. Plain dictionary matching, every rewrite
-  # reported back as `expanded_terms`. The file is read once at startup; a
-  # broken one fails loudly there (panel in CONFIGURATION INVALID mode, search
-  # 503, MCP server refuses to start). Check edits with
+  # reported back as `expanded_terms`. The build turns it on when the facility
+  # ships data/facility/ariel/vocabulary.yml. The file is read once at startup;
+  # a broken one fails loudly there (panel in CONFIGURATION INVALID mode,
+  # search 503, MCP server refuses to start). Check edits with
   # `osprey ariel vocab-check data/facility/ariel/vocabulary.yml`.
-  ariel.vocabulary.enabled: true
-  # The example facility's concepts; your facility's vocabulary replaces this
-  # file. Relative to the project root.
-  ariel.vocabulary.path: data/facility/ariel/vocabulary.yml
   # Whether a search that expresses no preference gets expansion. The
   # per-request `expand_query` argument overrides it either way.
   ariel.vocabulary.expand_by_default: true

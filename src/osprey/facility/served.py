@@ -12,12 +12,19 @@ channel, from the channels the served simulator holds; address is the
 tie-break inside that scope. A stated value is an override, and it must be in
 the facility file, as must every name of a stated
 ``simulation.default_scenarios``.
+
+Two other profile keys are facts of the facility tree, and the build states
+them from it the same way: a tree that ships ``ariel/vocabulary.yml`` turns
+ARIEL's shorthand expansion on at that file, and one that ships benchmark query
+sources gets the dataset path the benchmarks view writes the query file to. A
+stated value is the profile's own; one the tree cannot back is refused.
 """
 
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
 from dataclasses import replace
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import click
@@ -25,16 +32,22 @@ import click
 from osprey.facility import DEFAULT_ROLE, TEXTURE
 from osprey.facility.errors import FacilityBuildError, quoted_slots
 from osprey.facility.records import ChannelSelection, FacilityRecords
+from osprey.facility.views.benchmarks import BENCHMARK_DATASET_KEY, QUERY_SOURCES
 from osprey_connectors.types import LIVE_STANDIN, VIRTUAL_ACCELERATOR
 
 if TYPE_CHECKING:
     from osprey.cli.build_profile_archiver import VAArchiverConfig
 
 __all__ = [
+    "BENCHMARK_DATASET_PATH",
     "CONFIG_SOURCE",
     "SERVED_PROBE_KEYS",
     "SIMULATION_MODELS_KEY",
+    "VOCABULARY_ENABLED_KEY",
+    "VOCABULARY_PATH_KEY",
+    "VOCABULARY_SOURCE",
     "check_served_overrides",
+    "facility_tree_fill",
     "resolve_served",
     "served_channel_fill",
 ]
@@ -58,6 +71,19 @@ PROFILE_SOURCE = "profile.yml"
 NO_READBACK_WARNING = (
     "facility: the served models hold no readback; no probe or freshness channel derived"
 )
+
+#: The profile key that turns ARIEL's shorthand expansion on.
+VOCABULARY_ENABLED_KEY = "ariel.vocabulary.enabled"
+
+#: The profile key that names ARIEL's vocabulary file.
+VOCABULARY_PATH_KEY = "ariel.vocabulary.path"
+
+#: The vocabulary a facility tree ships, relative to the render root.
+VOCABULARY_SOURCE = "data/facility/ariel/vocabulary.yml"
+
+#: Where a render carries the benchmark query file when the profile names no
+#: other place, relative to the render root.
+BENCHMARK_DATASET_PATH = "data/benchmarks/queries.json"
 
 #: The probe keys of the connector blocks whose channels the build serves, in
 #: the order they are checked: the stand-in copies the virtual accelerator's.
@@ -251,6 +277,64 @@ def served_channel_fill(
                 replace(va_archiver, freshness_channel=str(readbacks[0]["id"]))
             )
         )
+    return fill
+
+
+def facility_tree_fill(facility_dir: Path, profile_config: Mapping[str, Any]) -> dict[str, Any]:
+    """The dotted config keys the build derives from what the facility tree ships.
+
+    A tree with ``ariel/vocabulary.yml`` states ``ariel.vocabulary.enabled: true``
+    and the file's path; one with benchmark query sources states
+    ``channel_finder.benchmark.dataset_path``. A key the profile states is not
+    written: a stated ``false`` turns the vocabulary off and a stated path is the
+    location.
+
+    Args:
+        facility_dir: The build's ``data/facility`` directory.
+        profile_config: The profile's ``config:`` block.
+
+    Returns:
+        The keys to write; empty when the tree ships neither.
+
+    Raises:
+        FacilityBuildError: ``profile-invalid`` when the profile turns the
+            vocabulary on at no path of its own and the tree ships none, or
+            states a benchmark dataset path and the tree ships no query sources.
+    """
+    from osprey.cli.build_profile_archiver import _expand_dotted
+    from osprey.deployment.reach import dotted_get
+
+    profile = _expand_dotted(profile_config)
+    fill: dict[str, Any] = {}
+
+    enabled = dotted_get(profile, VOCABULARY_ENABLED_KEY)
+    stated_path = dotted_get(profile, VOCABULARY_PATH_KEY)
+    shipped = (facility_dir / "ariel" / "vocabulary.yml").is_file()
+    if enabled is True and stated_path is None and not shipped:
+        raise _invalid(
+            f"is true and the facility ships no {VOCABULARY_SOURCE}",
+            f"add {VOCABULARY_SOURCE}, or remove `{VOCABULARY_ENABLED_KEY}`",
+            VOCABULARY_ENABLED_KEY,
+            PROFILE_SOURCE,
+        )
+    if shipped and enabled is not False:
+        if enabled is None:
+            fill[VOCABULARY_ENABLED_KEY] = True
+        if stated_path is None:
+            fill[VOCABULARY_PATH_KEY] = VOCABULARY_SOURCE
+
+    stated_dataset = dotted_get(profile, BENCHMARK_DATASET_KEY)
+    has_sources = (facility_dir / QUERY_SOURCES).is_dir()
+    if stated_dataset is not None and not has_sources:
+        raise _invalid(
+            f"names a benchmark query file and the facility ships no data/facility/{QUERY_SOURCES}/",
+            f"add the query sources to data/facility/{QUERY_SOURCES}/, "
+            f"or remove `{BENCHMARK_DATASET_KEY}`",
+            BENCHMARK_DATASET_KEY,
+            PROFILE_SOURCE,
+        )
+    if has_sources and stated_dataset is None:
+        fill[BENCHMARK_DATASET_KEY] = BENCHMARK_DATASET_PATH
     return fill
 
 
