@@ -366,6 +366,43 @@ function surfaceOp(before, after, focus, agent) {
 }
 
 /**
+ * Run one op on the holder through the op runner; a runner that throws is
+ * logged and comes back as the `op_failed` refusal.
+ * @param {import('./panel-placement.js').PanelOpFrame} frame
+ * @returns {import('./panel-placement.js').PanelOpOutcome}
+ */
+function runOp(frame) {
+  try {
+    return runPanelOp(frame);
+  } catch (err) {
+    console.error('panel-sse: panel op failed', err, frame);
+    return { refusal: OP_FAILED, detail: String(err) };
+  }
+}
+
+/**
+ * Show what an op the holder took put on screen: surface the placed panels,
+ * or bring a panel's own window forward, and navigate an `open` with a `url`
+ * once the panel is placed.
+ * @param {import('./panel-placement.js').PanelOpFrame} frame
+ * @param {{result: {focus?: string | null}, popout?: string}} outcome
+ * @param {any} before  the layout before the op
+ * @param {any} after   the layout the holder holds now
+ */
+function showOutcome(frame, outcome, before, after) {
+  const args = frame.args ?? {};
+  const url = frame.op === 'open' && typeof args.url === 'string' ? args.url : null;
+  if (outcome.popout !== undefined) {
+    if (url !== null) ctx().navigate(args.member, url);
+    focusPopout(outcome.popout);
+    if (frame.source === 'agent') flashAgentTile(outcome.popout);
+    return;
+  }
+  surfaceOp(before, after, outcome.result.focus, frame.source === 'agent');
+  if (url !== null) ctx().navigate(args.member, url);
+}
+
+/**
  * Run one `panel_op` frame addressed to this dock client and answer it.
  *
  * The op runner (panel-placement.js) refuses a stale or terminal-moving op and
@@ -376,45 +413,44 @@ function surfaceOp(before, after, focus, agent) {
  * answer returns is the holder's new ack baseline — unless the layout moved on
  * meanwhile, which stays dirty for dock-sync's next report. An `open` of a
  * panel in its own window brings that window forward and answers the layout
- * unchanged. A refusal is POSTed by name and changes nothing.
+ * unchanged.
+ *
+ * Every frame is answered. A refusal is POSTed by name only while the holder
+ * still holds the layout it had before the op: then nothing changed. Once the
+ * holder has taken the op, its layout is the answer whatever fails after — a
+ * surfacing, navigation or window error, or a runner that throws after the
+ * holder took the result — because the op happened; the error is logged.
  * @param {import('./panel-placement.js').PanelOpFrame} frame
  */
 async function handlePanelOp(frame) {
   const answer = { request_id: frame.request_id, client_id: getPageClientId() };
-  try {
-    const before = getLayoutHolder()?.layout ?? null;
-    /** @type {import('./panel-placement.js').PanelOpOutcome} */
-    let outcome;
-    try {
-      outcome = runPanelOp(frame);
-    } catch (err) {
-      console.error('panel-sse: panel op failed', err, frame);
-      outcome = { refusal: OP_FAILED, detail: String(err) };
-    }
-    if (outcome.refusal !== undefined) {
-      const detail = outcome.detail ? { detail: outcome.detail.slice(0, DETAIL_CAP) } : {};
-      await postPanelOpResult({ ...answer, refusal: outcome.refusal, ...detail });
-      return;
-    }
-    const holder = getLayoutHolder();
-    if (!holder) return;
-    const args = frame.args ?? {};
-    const url = frame.op === 'open' && typeof args.url === 'string' ? args.url : null;
-    if (outcome.popout !== undefined) {
-      if (url !== null) ctx().navigate(args.member, url);
-      focusPopout(outcome.popout);
-      if (frame.source === 'agent') flashAgentTile(outcome.popout);
-    } else {
-      surfaceOp(before, holder.layout, outcome.result.focus, frame.source === 'agent');
-      if (url !== null) ctx().navigate(args.member, url);
-    }
-    const layout = holder.layout;
-    const popouts = holder.popouts;
-    const ack = await postPanelOpResult({ ...answer, layout, popouts });
-    recordAck(holder, { layout, popouts }, ack);
-  } catch (err) {
-    console.error('panel-sse: panel op answer failed', err, frame);
+  const holder = getLayoutHolder();
+  const before = holder?.layout ?? null;
+  const outcome = runOp(frame);
+  if (!holder || (outcome.refusal !== undefined && holder.layout === before)) {
+    // Nothing was applied, so the refusal is the answer. A page with no holder
+    // gets the runner's own refusal; op_failed covers a runner that did not.
+    const detail =
+      outcome.refusal !== undefined && outcome.detail
+        ? { detail: outcome.detail.slice(0, DETAIL_CAP) }
+        : {};
+    await postPanelOpResult({ ...answer, refusal: outcome.refusal ?? OP_FAILED, ...detail });
+    return;
   }
+  if (outcome.refusal === undefined) {
+    try {
+      showOutcome(frame, outcome, before, holder.layout);
+    } catch (err) {
+      console.error(
+        'panel-sse: showing an applied panel op failed; answering its layout',
+        err,
+        frame
+      );
+    }
+  }
+  const layout = holder.layout;
+  const popouts = holder.popouts;
+  recordAck(holder, { layout, popouts }, await postPanelOpResult({ ...answer, layout, popouts }));
 }
 
 /**

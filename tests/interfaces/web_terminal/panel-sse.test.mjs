@@ -383,6 +383,86 @@ describe('panel_op — addressed to one dock client', () => {
   });
 });
 
+describe('an op the holder took is answered with its layout, whatever fails after', () => {
+  // The op happened, so the server is told what the holder holds: a failure in
+  // the follow-up steps is logged, never turned into silence or a refusal.
+  const silenced = () => vi.spyOn(console, 'error').mockImplementation(() => {});
+
+  test('a surfacing failure is logged and the layout still goes out and is acked', async () => {
+    const error = silenced();
+    runnerApplies(WITH_B, 's1');
+    deps.activate.mockImplementation(() => {
+      throw new Error('activate broke');
+    });
+    deliver(opFrame());
+    await settle();
+    expect(spies.postPanelOpResult).toHaveBeenCalledExactlyOnceWith({
+      request_id: 'r1',
+      client_id: 'me/1',
+      layout: WITH_B,
+      popouts: [],
+    });
+    expect(dock.holder.ack).toHaveBeenCalledWith(7);
+    expect(error).toHaveBeenCalled();
+    error.mockRestore();
+  });
+
+  test('a navigation failure after placement still answers the layout', async () => {
+    const error = silenced();
+    runnerApplies(WITH_B, 's1');
+    deps.navigate.mockImplementation(() => {
+      throw new Error('no iframe');
+    });
+    deliver(opFrame({ args: { member: 'b', url: '/u/x/page' } }));
+    await settle();
+    expect(spies.postPanelOpResult).toHaveBeenCalledExactlyOnceWith({
+      request_id: 'r1',
+      client_id: 'me/1',
+      layout: WITH_B,
+      popouts: [],
+    });
+    error.mockRestore();
+  });
+
+  test("a failure bringing a panel's own window forward still answers the layout", async () => {
+    const error = silenced();
+    dock.holder = fakeHolder(BEFORE, ['b']);
+    spies.runPanelOp.mockImplementation(() => ({
+      result: { layout: BEFORE, changed: false },
+      popout: 'b',
+    }));
+    spies.focusPopout.mockImplementation(() => {
+      throw new Error('window gone');
+    });
+    deliver(opFrame());
+    await settle();
+    expect(spies.postPanelOpResult).toHaveBeenCalledExactlyOnceWith({
+      request_id: 'r1',
+      client_id: 'me/1',
+      layout: BEFORE,
+      popouts: ['b'],
+    });
+    error.mockRestore();
+  });
+
+  test('a runner that throws after the holder took the op answers the layout, not op_failed', async () => {
+    const error = silenced();
+    spies.runPanelOp.mockImplementation(() => {
+      dock.holder.layout = WITH_B;
+      throw new Error('boom after the apply');
+    });
+    deliver(opFrame());
+    await settle();
+    expect(spies.postPanelOpResult).toHaveBeenCalledExactlyOnceWith({
+      request_id: 'r1',
+      client_id: 'me/1',
+      layout: WITH_B,
+      popouts: [],
+    });
+    error.mockRestore();
+  });
+});
+
 describe('surfacing — only an activation that took effect counts', () => {
   test('a refused activation clears the stale accent, but a tile still on screen is not painted over', async () => {
     // a held the view; the op replaced it with b, whose activation is refused
