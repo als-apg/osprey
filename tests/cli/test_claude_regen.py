@@ -1442,8 +1442,8 @@ class TestFacilityMd:
         facility_file = project_dir / ".claude" / "rules" / "facility.md"
         assert facility_file.exists()
         content = facility_file.read_text()
-        assert "Facility Identity" in content
-        assert "Example Research Facility" in content
+        assert "data/facility_facts.md" in content
+        assert "Facility Identity" not in content
 
     def test_facility_md_user_owned_on_init(self, tmp_path):
         """Init auto-registers facility.md as user-owned in config.yml."""
@@ -1517,7 +1517,7 @@ class TestFacilityMd:
 
         assert facility_file.exists()
         content = facility_file.read_text()
-        assert "Facility Identity" in content
+        assert "data/facility_facts.md" in content
 
 
 class TestUserOwned:

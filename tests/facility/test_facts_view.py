@@ -37,6 +37,7 @@ from osprey.facility.views.facts import (
     render_facts_page,
     zero_source_facts,
 )
+from tests._builds import init_machineless, run_build
 from tests.facility._pyaml_trees import measured_tree
 from tests.facility._synthetic_trees import BPM, QUAD, plain_tree, write_tree
 
@@ -47,6 +48,7 @@ pytestmark = [pytest.mark.slow]
 
 FACTS = f"data/{FACTS_FILE}"
 PAGE = f"data/{FACTS_PAGE}"
+NO_CHANNELS = "The facility file holds no channels yet."
 
 ZERO_MODELS = [{"name": TEXTURE, "engine": TEXTURE, "served": True, "solve": None}]
 
@@ -106,9 +108,10 @@ def test_the_facts_are_the_facility_files(built_control_assistant: BuiltProject)
 
     assert facts["identity"] == {
         "code": facility["identity"]["code"],
-        "name": "Example Research Facility",
-        "description": None,
+        "name": facility["identity"]["name"],
+        "description": facility["identity"]["description"],
     }
+    assert facts["identity"]["description"]
     assert facts["place_levels"] == ["machine", "sector"]
     assert facts["channel_count"] == len(facility["channels"])
     assert list(facts["measurement_models"]) == ["BTS", "LINE", "LTB", "SR"]
@@ -122,6 +125,20 @@ def test_the_facts_are_the_facility_files(built_control_assistant: BuiltProject)
         {"name": "SR", "engine": "pyat", "served": True, "solve": "periodic"},
         {"name": TEXTURE, "engine": TEXTURE, "served": True, "solve": None},
     ]
+
+
+def test_only_a_file_with_no_channel_says_it_holds_none(
+    tmp_path: Path, built_control_assistant: BuiltProject
+) -> None:
+    repo = init_machineless(tmp_path, "machineless")
+    result = run_build(repo)
+    assert result.exit_code == 0, result.output
+
+    page = (repo / "build" / PAGE).read_text(encoding="utf-8")
+    assert NO_CHANNELS in page
+    assert "# machineless\n" in page
+    built_page = (built_control_assistant.repo / "build" / PAGE).read_text(encoding="utf-8")
+    assert NO_CHANNELS not in built_page
 
 
 def test_each_device_class_carries_its_count_aliases_and_groups(

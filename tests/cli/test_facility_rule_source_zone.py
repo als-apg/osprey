@@ -17,9 +17,12 @@ import shutil
 from pathlib import Path
 
 import pytest
+import yaml
 from click.testing import CliRunner
 
 from osprey.cli.init_cmd import init
+from tests._builds import strip_machine
+from tests._preset_data import packaged_facility_dir
 from tests.cli._lifecycle_build import invoke_build
 
 #: A preset whose `rules:` selection includes the facility rule. hello-world
@@ -60,7 +63,41 @@ def test_init_seeds_the_rule_in_the_source_zone(initialized_repo):
         "osprey init must seed rules/facility.md in the repo; "
         f"repo holds {sorted(p.name for p in initialized_repo.iterdir())}"
     )
-    assert "Facility Identity" in rule.read_text(encoding="utf-8")
+    text = rule.read_text(encoding="utf-8")
+    assert "data/facility_facts.md" in text
+    assert _bundled_identity_name() not in text
+
+
+def _bundled_identity_name() -> str:
+    """The display name of the facility the preset names, read from the package."""
+    identity = packaged_facility_dir("control_assistant") / "identity.yaml"
+    return yaml.safe_load(identity.read_text(encoding="utf-8"))["name"]
+
+
+def test_a_replaced_facility_leaves_no_stale_identity(tmp_path):
+    """The rule is untouched by a facility swap and the facts page states the new identity."""
+    repo = tmp_path / "deployment"
+    _init(repo)
+    _build(repo)
+    seeded = _source_rule(repo).read_bytes()
+    old_name = _bundled_identity_name()
+
+    new_name = "Second Test Facility"
+    strip_machine(repo)
+    (repo / "data" / "facility" / "identity.yaml").write_text(
+        yaml.safe_dump({"code": "stf", "name": new_name}), encoding="utf-8"
+    )
+    _build(repo)
+
+    assert _source_rule(repo).read_bytes() == seeded
+    for rule_path in (_source_rule(repo), _built_rule(repo)):
+        rule = rule_path.read_text(encoding="utf-8")
+        assert old_name not in rule
+        assert new_name not in rule
+    facts = (repo / "build" / "data" / "facility_facts.md").read_text(encoding="utf-8")
+    assert f"# {new_name}\n" in facts
+    assert "`stf`" in facts
+    assert old_name not in facts
 
 
 def test_the_edited_rule_survives_a_wiped_build(tmp_path):
