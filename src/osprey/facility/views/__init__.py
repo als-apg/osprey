@@ -276,6 +276,18 @@ def _write_graph(root: Path, inputs: ViewInputs) -> list[Path]:
     return write_graph_view(root, inputs)
 
 
+def _benchmarks_wanted(inputs: ViewInputs) -> tuple[bool, str]:
+    from osprey.facility.views.benchmarks import benchmarks_wanted
+
+    return benchmarks_wanted(inputs)
+
+
+def _write_benchmarks(root: Path, inputs: ViewInputs) -> list[Path]:
+    from osprey.facility.views.benchmarks import write_benchmarks_view
+
+    return write_benchmarks_view(root, inputs)
+
+
 #: Every view, in the order a render writes them. The facts view reads the pyAML
 #: views this render wrote, so it comes after them.
 VIEWS: tuple[View, ...] = (
@@ -338,5 +350,12 @@ VIEWS: tuple[View, ...] = (
         path="graph",
         written_when=_always,
         write=_write_graph,
+    ),
+    View(
+        name="benchmarks",
+        path=".",
+        written_when=_benchmarks_wanted,
+        write=_write_benchmarks,
+        reads=("channel_finder.benchmark.dataset_path", PIPELINE_MODE_KEY),
     ),
 )
