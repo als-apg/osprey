@@ -825,6 +825,7 @@ def render_web_terminals(
     archiver_credential_renders: dict[str, tuple[str, ...]] | None = None,
     archiver_ca_bundle_renders: dict[str, tuple[str, ...]] | None = None,
     phoebus_handle_renders: set[str] | None = None,
+    stop_grace_renders: dict[str, int] | None = None,
     terminal_secrets: dict[str, str] | None = None,
     proxy_env_names: tuple[str, ...] = (),
     facility_name: str = "",
@@ -980,6 +981,12 @@ def render_web_terminals(
             host networking, so the implicit ``"active"`` display resolves
             another user's focus. Resolved from disk and passed in for the
             same reason as ``dispatcher_renders``. ``None`` emits no line.
+        stop_grace_renders: ``{render: seconds}`` for renders whose terminal
+            needs more than compose's default to stop (see
+            :func:`osprey.deployment.web_terminals.roster.render_stop_grace`).
+            Each such user's service renders ``stop_grace_period``. Resolved
+            from disk and passed in for the same reason as
+            ``dispatcher_renders``. ``None`` or a ``0`` value emits no line.
         terminal_secrets: ``{username: operator secret}`` as provisioned into
             the deploy ``.env``, resolved from disk and passed in for the same
             reason ``auth_env_digest`` is. Supplying it adds one
@@ -1359,6 +1366,11 @@ def render_web_terminals(
                 # "active" display. Not a credential: a switch the Phoebus MCP
                 # server reads from the environment it inherits.
                 "phoebus_require_handle": entry["render"] in (phoebus_handle_renders or set()),
+                # Seconds between the stop signal and the kill (compose
+                # `stop_grace_period`): the slowest sidecar its project shows
+                # plus the terminal's own stop, when that exceeds compose's
+                # default. 0 emits no line.
+                "stop_grace_s": (stop_grace_renders or {}).get(entry["render"], 0),
             }
         )
 

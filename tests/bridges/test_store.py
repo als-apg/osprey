@@ -74,14 +74,6 @@ def test_missing_file_loads_empty_and_creates_nothing(tmp_path):
     assert store.path == str(path)
 
 
-def test_corrupt_json_loads_empty(tmp_path):
-    """Unparseable content must load empty rather than crash the bridge at startup."""
-    path = tmp_path / "state.json"
-    path.write_text("{not json at all", encoding="utf-8")
-
-    assert JsonFileStore(str(path))._data == {}
-
-
 def test_non_utf8_bytes_load_empty(tmp_path):
     """UnicodeDecodeError is a ValueError — a mojibake file also loads empty."""
     path = tmp_path / "state.json"
@@ -90,14 +82,23 @@ def test_non_utf8_bytes_load_empty(tmp_path):
     assert JsonFileStore(str(path))._data == {}
 
 
-@pytest.mark.parametrize("payload", ["[1, 2, 3]", "null", '"a string"', "42"])
-def test_valid_json_that_is_not_an_object_leaves_data_untouched(tmp_path, payload):
-    """Only a JSON *object* is adopted; anything else leaves ``_data`` as it was.
-
-    On a fresh instance that means empty. Note this is NOT the same as the
-    corrupt path: ``_load`` does not reset ``_data`` here, it simply declines to
-    replace it — see :func:`test_reload_over_a_non_object_file_keeps_prior_data`.
-    """
+@pytest.mark.parametrize(
+    "payload",
+    [
+        # Unparseable content must load empty rather than crash the bridge at startup.
+        pytest.param("{not json at all", id="corrupt-json"),
+        # Only a JSON *object* is adopted; anything else leaves ``_data`` as it was.
+        #
+        # On a fresh instance that means empty. Note this is NOT the same as the
+        # corrupt path: ``_load`` does not reset ``_data`` here, it simply declines to
+        # replace it — see :func:`test_reload_over_a_non_object_file_keeps_prior_data`.
+        pytest.param("[1, 2, 3]", id="array"),
+        pytest.param("null", id="null"),
+        pytest.param('"a string"', id="string"),
+        pytest.param("42", id="number"),
+    ],
+)
+def test_unusable_content_loads_empty_on_a_fresh_store(tmp_path, payload):
     path = tmp_path / "state.json"
     path.write_text(payload, encoding="utf-8")
 

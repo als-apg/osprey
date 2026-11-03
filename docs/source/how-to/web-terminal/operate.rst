@@ -59,7 +59,8 @@ The window has a sidebar on the left and two panes:
   and you can keep a few background conversations alive and hop between them.
   Close the pane with its **×**; the **Agent** row in the sidebar opens it again.
 - **Work pane** (middle) — the artifacts and panels you open from the sidebar,
-  arranged as dockable tiles. New artifacts, plots, and data files appear in
+  as tabs in tiles you arrange by dragging (`Tiles and tabs`_). New artifacts,
+  plots, and data files appear in
   the sidebar's **Artifacts** list as the agent creates them, with no refresh.
   On a fresh deployment the list is not empty: the control-assistant preset
   ships one interactive example plot (synthetic data). It is there for you,
@@ -82,6 +83,42 @@ Option (macOS) or Shift while dragging, then copy with Cmd+C or Ctrl+Shift+C;
 plain Ctrl+C always interrupts the agent. Serve the terminal over HTTPS for
 this to work in every browser — on a plain ``http://`` page copying falls
 back to an older browser mechanism that Safari may refuse.
+
+.. _web-terminal-tiles:
+
+Tiles and tabs
+--------------
+
+The work pane is tiles, and a tile holds one or more tabs. A tile's header
+shows the tab in front — its tabs, once it holds more than one — with that
+tab's controls, **Pop out** and **×** beside them. Click a tab to bring it in
+front; with the header's tab strip focused, the arrow keys do the same and
+Delete closes the tab in front.
+
+A panel you open — from its sidebar row, from a link, or one the agent opens
+for you — lands as a new tab, in front, in the service tile you used last;
+nothing resizes, and the tab it covers is one click away. A panel already
+open is brought forward where it is. To open a panel in a tile of its own,
+pick **Open in a new tile** from its row's menu, or drag the row (below).
+
+Drag a tab, a whole tile (by its header), or a sidebar row, and drop it on the
+tile under the pointer:
+
+- **Header row or centre**: the tab joins that tile, in front. A sidebar row
+  never lands here; it makes a new tile.
+- **Edge**, the outer band of a tile on each side: the tile splits in two, the
+  dropped item on that side. No other tile changes size.
+- **Dock edge**, the outermost strip of the work pane: a new tile along that
+  whole side.
+
+The highlight during the drag is where the item lands. The agent pane is
+always its own tile: a drop onto it splits it, and it never becomes a tab of
+another tile.
+
+**×** closes the tab in front, and a tile closes with its last tab; its space
+goes to the tile it was split from. The panel stays in the sidebar, and its
+row opens it again. The arrangement — tiles, tabs, the tab in front of each,
+sizes — is remembered by the browser you set it in.
 
 .. _web-terminal-one-session:
 
@@ -578,6 +615,47 @@ of the deployment.
 Earlier releases had a header and a status bar that you could arrange. The
 terminal does not show them, and it does not read the bar arrangements that
 those releases saved.
+
+.. _personal-login:
+
+A user's own Claude subscription
+--------------------------------
+
+By default every terminal authenticates with the deployment's provider
+(``claude_code.provider``), one gateway and one key. Some sites let a
+colleague use their own Claude subscription inside the terminal while
+forbidding the deployment to hold that person's credential. The route that
+satisfies both is the interactive ``/login`` inside the user's own terminal,
+whose credential stays in that terminal's config volume.
+
+.. code-block:: yaml
+
+   config:
+     claude_code.allow_personal_login: true   # default false
+
+With the key on, a terminal that holds a completed ``/login`` is launched
+with the deployment provider withheld: no auth token, base URL or model
+variables and no translation proxy, so Claude Code's own credential
+precedence falls through to the subscription. The decision is made per
+terminal container at launch, by the presence of the credential file under
+that user's ``CLAUDE_CONFIG_DIR``; the file is never read, and a login
+survives a container restart because the config volume does. A terminal
+without a login routes to the deployment provider exactly as before and
+shows a dismissable card saying ``/login`` is on offer. With the key off,
+nothing changes.
+
+Whether the ``/login`` flow completes inside a terminal container has not
+been tried yet: the first site that enables the key does that trial. In
+a headless container the CLI should fall back to its paste-a-code path,
+which the terminal can carry.
+
+Two consequences follow. A login-routed session bypasses the gateway, so it
+leaves no row in the deployment's spend ledger; that is the point. And
+``osprey health`` can no longer treat a failed probe of the agent provider
+as the whole deployment down: with the key on it stays a warning, naming the
+dispatch worker and the terminals without a login as the ones affected.
+The dispatch worker and every other headless path keep the deployment
+provider unconditionally.
 
 Documentation and feedback settings
 -----------------------------------

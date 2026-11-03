@@ -901,7 +901,7 @@ keys:
   services.mongodb.username: {covered-by: services.mongodb, default: n/a}
   services.mongodb.compression: {evidence: 'get\(_ARCHIVER_STORE_SERVICE\) or \{\}\)\.get\("compression"\)', default: zstd}
   services.archiver_recorder: {evidence: 'hostenv\.passthrough\(services\.archiver_recorder\)', default: null}
-  services.archiver_recorder.path: {evidence: 'ProjectedKey\("services\.archiver_recorder\.path"', default: no-fallback, default_note: "the compose generator indexes service_config['path'] and raises when absent; the archiver-store injector writes ./services/archiver_recorder"}
+  services.archiver_recorder.path: {evidence: 'service_config\["path"\]', default: no-fallback, default_note: "the compose generator indexes service_config['path'] and raises when absent; the archiver-store injector writes ./services/archiver_recorder"}
   services.archive: {evidence: 'set svc = services\.archive \| default', default: null}
   services.archive.path: {evidence: 'service_config\["path"\]', default: no-fallback, default_note: "the compose generator indexes service_config['path'] and raises when absent; the build writes ./services/archive"}
   services.archive.network: {rendered: false, covered-by: services.archive, default: bridge}
@@ -1888,8 +1888,9 @@ keys:
     evidence: 'block = api\.get\("jev"\) if isinstance\(api, Mapping\)'
     note: >-
       Settings for the Jev decision client: which route serves requests
-      (typesafe direct, or openrouter through the api.providers.openrouter
-      entry), the pinned model and size limits per route, the concurrency cap,
+      (typesafe direct, openrouter through the api.providers.openrouter
+      entry, or openai for an OpenAI-compatible chat server such as a
+      self-hosted vLLM), the pinned model and size limits per route, the concurrency cap,
       the declared input price, and the interactive/batch time budgets. A
       missing block gives every default; a partial budget overrides only the
       keys it names.
@@ -1919,6 +1920,11 @@ keys:
   api.jev.routes.openrouter.model: {covered-by: api.jev, rendered: false, default: typesafe/jev-1.13}
   api.jev.routes.openrouter.max_request_tokens: {covered-by: api.jev, rendered: false, default: 30000}
   api.jev.routes.openrouter.max_state_plus_question_tokens: {covered-by: api.jev, rendered: false, default: 30000}
+  api.jev.routes.openai.model: {covered-by: api.jev, rendered: false, default: null}
+  api.jev.routes.openai.base_url: {covered-by: api.jev, rendered: false, default: null}
+  api.jev.routes.openai.api_key: {covered-by: api.jev, rendered: false, default: null}
+  api.jev.routes.openai.max_request_tokens: {covered-by: api.jev, rendered: false, default: 30000}
+  api.jev.routes.openai.max_state_plus_question_tokens: {covered-by: api.jev, rendered: false, default: 30000}
 
   # ── Claude Code ─────────────────────────────────────────────────────
   claude_code:
@@ -2034,6 +2040,18 @@ keys:
   claude_code.agents.logbook-search.enabled: {covered-by: claude_code.agents.logbook-search, default: derived, default_note: the logbook-search agent's FRAMEWORK_AGENTS default_enabled}
   claude_code.agents.logbook-deep-research: {evidence: 'logbook-deep-research', default: n/a}
   claude_code.agents.logbook-deep-research.enabled: {covered-by: claude_code.agents.logbook-deep-research, default: derived, default_note: the logbook-deep-research agent's FRAMEWORK_AGENTS default_enabled}
+  claude_code.allow_personal_login:
+    rendered: false
+    evidence: 'get\("allow_personal_login"\)'
+    note: >-
+      Lets a web terminal run on its user's own Claude subscription: when on,
+      a terminal whose CLAUDE_CONFIG_DIR holds a completed `/login` is
+      launched with the deployment provider withheld (no auth, base URL or
+      model variables, no translation proxy), so Claude Code falls through to
+      the subscription. The credential never leaves the user's config volume.
+      Off, nothing changes; headless paths (the dispatch worker) always keep
+      the deployment provider.
+    default: false
   claude_code.cli_version:
     rendered: false
     evidence: 'get\("cli_version"\)'
@@ -3977,7 +3995,7 @@ render_contexts:
     web_selection:
     - panels: all          # every builtin the registry declares
       default_panel: ariel
-      panel_presets: {Operations: [ariel, channel-finder]}
+      panel_presets: {Operations: {split: row, items: [{tabs: [ariel]}, {tabs: [channel-finder]}]}}
     - panels: []
       default_panel: null
       panel_presets: null
@@ -4022,7 +4040,7 @@ render_contexts:
     panels_on: web.panels.channel-finder.enabled
     default_panel_set: web.default_panel
     panel_presets_set: web.presets
-  expected_union_size: 367
+  expected_union_size: 369
   note_union_size: >-
     An assertion: the guard derives the union on every run and fails when this
     figure disagrees with it, or when it is missing. It moves whenever the

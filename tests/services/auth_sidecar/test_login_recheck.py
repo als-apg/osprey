@@ -341,11 +341,21 @@ class TestTheOidcRowWithAClaimsMap:
     terminal was rendered as. The token is what decided it, so the token is what
     the grant credits."""
 
-    def test_the_grant_carries_the_mapped_role(self) -> None:
+    @pytest.mark.parametrize(
+        "roster",
+        [
+            pytest.param({"alice": "operator"}, id="rendered-role"),
+            # The one honest gap, stated in the module docstring: a ``tier:``-
+            # pinned entry (or one riding the default tier) has no rendered role
+            # for the claim to disagree with, so the claim's role is what it carries.
+            pytest.param({"bob": "operator"}, id="no-rendered-role"),
+        ],
+    )
+    def test_the_grant_carries_the_mapped_role(self, roster) -> None:
         grant = recheck_login(
             method=METHOD_OIDC,
             user="alice",
-            roster_roles=RosterRoles({"alice": "operator"}),
+            roster_roles=RosterRoles(roster),
             asserted_subject=ALICE_SUBJECT,
             claim_roles=frozenset({"operator"}),
         )
@@ -366,21 +376,6 @@ class TestTheOidcRowWithAClaimsMap:
                 claim_roles=frozenset({"operator"}),
             )
         assert refused.value.reason == audit.REASON_ROLE_MISMATCH
-
-    def test_an_entry_with_no_rendered_role_carries_the_claims(self) -> None:
-        """The one honest gap, stated in the module docstring: a ``tier:``-
-        pinned entry (or one riding the default tier) has no rendered role
-        for the claim to disagree with, so the claim's role is what it carries."""
-        grant = recheck_login(
-            method=METHOD_OIDC,
-            user="alice",
-            roster_roles=RosterRoles({"bob": "operator"}),
-            asserted_subject=ALICE_SUBJECT,
-            claim_roles=frozenset({"operator"}),
-        )
-        assert grant == LoginGrant(
-            subject=ALICE_SUBJECT, role="operator", role_source=ROLE_SOURCE_CLAIM
-        )
 
     def test_several_mapped_roles_grant_the_rendered_one(self) -> None:
         """The card names the role; the token proves it is one of the person's.

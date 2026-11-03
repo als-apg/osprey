@@ -60,9 +60,18 @@ class TestBuildClaudeLaunchArgv:
             "--mcp-config=.mcp.json",
         ]
 
-    def test_a_pin_with_surrounding_whitespace_is_refused_not_trimmed(self):
+    @pytest.mark.parametrize(
+        "pin",
+        [
+            pytest.param("  2.1.146  ", id="surrounding-whitespace-not-trimmed"),
+            pytest.param("", id="empty-string"),
+            pytest.param("   ", id="whitespace-only"),
+            pytest.param(2.1, id="non-string"),
+        ],
+    )
+    def test_a_pin_that_is_not_an_exact_version_is_refused(self, pin):
         with pytest.raises(ValueError, match="exact version"):
-            build_claude_launch_argv({"cli_version": "  2.1.146  "})
+            build_claude_launch_argv({"cli_version": pin})
 
     def test_setting_sources_always_emitted(self):
         """Both the pinned and unpinned prefixes end with the isolation flag."""
@@ -75,18 +84,6 @@ class TestBuildClaudeLaunchArgv:
         chat --no-pin``) yet still restricts setting sources to project scope."""
         argv = build_claude_launch_argv({"cli_version": "2.1.146"}, no_pin=True)
         assert argv == ["claude", "--setting-sources", "project", *_MCP]
-
-    def test_empty_string_pin_raises(self):
-        with pytest.raises(ValueError, match="exact version"):
-            build_claude_launch_argv({"cli_version": ""})
-
-    def test_whitespace_only_pin_raises(self):
-        with pytest.raises(ValueError, match="exact version"):
-            build_claude_launch_argv({"cli_version": "   "})
-
-    def test_non_string_pin_raises(self):
-        with pytest.raises(ValueError, match="exact version"):
-            build_claude_launch_argv({"cli_version": 2.1})
 
     def test_no_pin_flag_skips_pin_validation(self):
         """With ``no_pin=True`` an invalid pin is irrelevant — it is never read."""

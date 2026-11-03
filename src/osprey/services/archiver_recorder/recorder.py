@@ -15,8 +15,8 @@ written to avoid:
 * **Enablement is polled, and a torn read changes nothing.** Config writes are
   truncate-in-place rather than atomic, so a poll can land mid-write and see a
   half file. Treating that as an answer would stop and restart recording on a
-  write that changed nothing at all. The poll asks who is on the other end, not
-  merely what the config calls them — see :data:`RECORDING_CONTROL_SYSTEM`.
+  write that changed nothing at all. The poll asks who is on the other end,
+  not what the config calls them — see :data:`RECORDED_TARGET`.
 
 Waveform channels take their own path. A trace is not one number, so it is read
 apart from the scalar channels and written into the waveform collection, one
@@ -35,8 +35,8 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
-from osprey_connectors.standin import DEPLOYED_SERVICES_KEY, LIVE_STANDIN_PORT_KEY
-from osprey_connectors.types import TRANSPORT_IN_PROCESS, VIRTUAL_ACCELERATOR
+from osprey_connectors.simulator import VIRTUAL_ACCELERATOR_PORT_KEY
+from osprey_connectors.types import TARGET_VA
 
 from .config import ChannelSet, RecorderConfigError, RecorderSettings, read_recording_facts
 from .store import ArchiveWriter
@@ -46,43 +46,31 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-#: The control-system type that, on its own, makes this deployment's machine one
-#: whose past this deployment authored.
+#: The control target this service samples: the deployment's own virtual
+#: accelerator, and nothing else.
 #:
 #: **The archive belongs to the machine it records, and a model has no past.**
-#: This service samples whatever machine the deployment calls its machine, and
-#: stores it in the collection that already holds that machine's history. For a
-#: virtual accelerator — the type named here — the past was synthesized and the
-#: present is recorded, and the two halves are the same kind of thing on one
-#: timeline. A sandbox model nobody calls their machine has no archive of its
-#: own to be written into. And a real machine's readings are never spliced onto
-#: a synthesized past: that two-world archive is what this gate exists to
-#: prevent.
+#: This service samples the simulator and stores it in the collection that
+#: already holds the simulator's seeded history: the past was synthesized and
+#: the present is recorded, and the two halves are the same kind of thing on
+#: one timeline. It records whatever machine a session starts on — a
+#: deployment baselined on its stand-in or on the facility's machine still
+#: built the simulator, and the store is still the simulator's. What it will
+#: not do is record an endpoint it cannot prove is that simulator: the gate is
+#: the ``va`` target's derived endpoint, judged on loopback and on the port the
+#: deployment published (:func:`~osprey.services.archiver_recorder.config.read_recording_facts`),
+#: and a ``va`` block repointed at another host idles it. A real machine's
+#: readings are never spliced onto a synthesized past; that two-world archive
+#: is what the gate exists to prevent. A ``va`` target served in process
+#: derives no endpoint and is never recorded: nothing on a network serves its
+#: channels to sample.
 #:
-#: Which is why this constant is only half the gate. A deployment can stand a
-#: *stand-in* up — a second virtual accelerator wired in as its own ``standin``
-#: control target, with its own physics state and its own history seeded to
-#: match — and a deployment that records its own store beside one records the
-#: stand-in: the machine whose present is sampled and the machine whose past was
-#: seeded are then the same one. Nothing is relabelled ``live``; ``live`` always
-#: means the facility's authored ``epics`` block. But ``osprey set
-#: connector=epics`` still rewrites the rendered ``control_system.type`` to
-#: something that does not match here, while the machine on the other end of the
-#: Channel Access connection has not changed at all. Recording follows the
-#: machine, not the spelling, so the second half of the gate asks
-#: :func:`~osprey_connectors.standin.archive_belongs_to_standin` — whose past is
-#: in this store — through
-#: :func:`~osprey.services.archiver_recorder.config.read_recording_facts`, which
-#: then derives the ``standin`` target's own endpoint through the same resolver
-#: the roster's label uses. It is the one predicate the recorder's compose entry
-#: and the deploy-time archive seed bind to as well, so a machine that is still
-#: the stand-in cannot be quietly dropped out of its own archive.
-#:
-#: The type is necessary, not sufficient: the simulator served in process has
-#: no recorder, because nothing on a network serves its channels to sample, so
-#: the type's half of the gate also asks that the recorded section talks to a
-#: network.
-RECORDING_CONTROL_SYSTEM = VIRTUAL_ACCELERATOR
+#: A live stand-in beside the simulator is never what this service samples.
+#: The stand-in rehearses the facility's real machine, so the past it is shown
+#: is the real machine's — the archiver appliance, when the deployment names
+#: one (:mod:`osprey_connectors.archive_targets`). The compose entry addresses
+#: the ``virtual-accelerator`` service and nothing else.
+RECORDED_TARGET = TARGET_VA
 
 #: Reads a set of addresses and returns the ones that answered.
 #: A waveform channel answers with an array.
@@ -148,46 +136,40 @@ class Recorder:
             logger.debug("enablement poll could not read the config, keeping last state: %s", exc)
             return self._recording
 
-        # Two ways for the machine on the other end to be one whose past this
-        # deployment authored, and neither implies the other: a deployment whose
-        # own type is the virtual accelerator, and a deployment whose archive is
-        # its stand-in's. The first is recorded only when that type is served
-        # over a network: the simulator served in process has nothing to sample.
-        # The stand-in is always a soft IOC on the network. See
-        # RECORDING_CONTROL_SYSTEM.
-        should_record = (
-            facts.control_system_type == RECORDING_CONTROL_SYSTEM
-            and facts.transport != TRANSPORT_IN_PROCESS
-        ) or facts.live_standin
+        # One question: is the endpoint the `va` target dials this deployment's
+        # own simulator? The type is reported beside it and decides nothing.
+        # See RECORDED_TARGET.
+        should_record = facts.virtual_accelerator
         if should_record != self._recording or not self._announced:
             if should_record:
                 logger.info(
-                    "Recording %d channels every %ds and %d waveforms every %ds into %s.%s "
-                    "(control_system.type=%s, this archive is the stand-in's: %s).",
+                    "Recording %d channels every %ds and %d waveforms every %ds into %s.%s: "
+                    "the `%s` target is this deployment's own virtual accelerator "
+                    "(control_system.type=%s).",
                     len(self._addresses),
                     self._settings.cadence_sec,
                     len(self._waveforms),
                     self._settings.tail_cadence_sec,
                     self._settings.database,
                     self._settings.collection,
+                    RECORDED_TARGET,
                     facts.control_system_type or "<unset>",
-                    facts.live_standin,
                 )
             else:
                 logger.info(
-                    "Idle, writing nothing: control_system.type=%s is not %s, and this "
-                    "deployment's archive is not its stand-in's — either no stand-in was "
-                    "stood up, or `%s` does not list this recorder, or the `standin` "
-                    "target's own gateways no longer select the stand-in. History is "
-                    "recorded for a machine whose past this deployment authored, and "
-                    "either of those two makes it one. Setting either in %s takes effect "
-                    "within %ds — no restart needed; a stand-in is named by `%s`.",
-                    facts.control_system_type or "<unset>",
-                    RECORDING_CONTROL_SYSTEM,
-                    DEPLOYED_SERVICES_KEY,
+                    "Idle, writing nothing: the `%s` target does not land on this deployment's "
+                    "own virtual accelerator — either no simulator was built (`%s` is unset), "
+                    "or the `%s` target's gateways no longer select it on loopback at that "
+                    "port. History is recorded only for the simulator this deployment seeded "
+                    "a past for; a real machine's readings are never written into it. A "
+                    "change to %s takes effect within %ds — no restart needed "
+                    "(control_system.type=%s).",
+                    RECORDED_TARGET,
+                    VIRTUAL_ACCELERATOR_PORT_KEY,
+                    RECORDED_TARGET,
                     self._config_path,
                     self._settings.poll_sec,
-                    LIVE_STANDIN_PORT_KEY,
+                    facts.control_system_type or "<unset>",
                 )
             self._recording = should_record
             self._announced = True

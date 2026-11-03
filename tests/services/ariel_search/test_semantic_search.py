@@ -106,23 +106,37 @@ class TestSettings:
         assert settings.similarity_threshold == float(value)
         assert isinstance(settings.similarity_threshold, float)
 
-    @pytest.mark.parametrize("bad", ["0.8", None, [], {}])
-    def test_malformed_threshold_is_refused(self, bad):
-        with pytest.raises(
-            ValueError, match="search_modules.semantic.settings.similarity_threshold"
-        ):
-            SemanticSearchSettings.from_ariel_config(make_config({"similarity_threshold": bad}))
-
-    @pytest.mark.parametrize("bad", [True, False])
-    def test_boolean_threshold_is_refused(self, bad):
-        with pytest.raises(
-            ValueError, match="search_modules.semantic.settings.similarity_threshold"
-        ):
-            SemanticSearchSettings.from_ariel_config(make_config({"similarity_threshold": bad}))
-
-    @pytest.mark.parametrize("bad", [-0.1, 1.5, -1, 2])
-    def test_out_of_range_threshold_is_refused(self, bad):
-        with pytest.raises(ValueError, match=r"must be a float in \[0, 1\]"):
+    @pytest.mark.parametrize(
+        ("bad", "match"),
+        [
+            pytest.param(
+                "0.8",
+                "search_modules.semantic.settings.similarity_threshold",
+                id="malformed-string",
+            ),
+            pytest.param(
+                None, "search_modules.semantic.settings.similarity_threshold", id="malformed-none"
+            ),
+            pytest.param(
+                [], "search_modules.semantic.settings.similarity_threshold", id="malformed-list"
+            ),
+            pytest.param(
+                {}, "search_modules.semantic.settings.similarity_threshold", id="malformed-dict"
+            ),
+            pytest.param(
+                True, "search_modules.semantic.settings.similarity_threshold", id="boolean-true"
+            ),
+            pytest.param(
+                False, "search_modules.semantic.settings.similarity_threshold", id="boolean-false"
+            ),
+            pytest.param(-0.1, r"must be a float in \[0, 1\]", id="out-of-range-negative-float"),
+            pytest.param(1.5, r"must be a float in \[0, 1\]", id="out-of-range-high-float"),
+            pytest.param(-1, r"must be a float in \[0, 1\]", id="out-of-range-negative-int"),
+            pytest.param(2, r"must be a float in \[0, 1\]", id="out-of-range-high-int"),
+        ],
+    )
+    def test_an_unusable_threshold_is_refused(self, bad, match):
+        with pytest.raises(ValueError, match=match):
             SemanticSearchSettings.from_ariel_config(make_config({"similarity_threshold": bad}))
 
     def test_settings_are_frozen(self):
@@ -140,18 +154,29 @@ class TestThresholdResolution:
     """What :func:`semantic_search` hands the repository."""
 
     @pytest.mark.asyncio
-    async def test_explicit_argument_wins_over_config(
-        self, mock_repository, mock_embedder, search_calls
+    @pytest.mark.parametrize(
+        ("config_threshold", "explicit"),
+        [
+            pytest.param(0.8, 0.3, id="wins-over-config"),
+            # A caller that named the threshold never reaches the config block, so
+            # a malformed one does not fail a query that had no use for it. The
+            # deployment-wide answer to a malformed block is startup validation,
+            # not a per-query surprise on the one path that already has a value.
+            pytest.param("high", 0.4, id="short-circuits-a-malformed-config-block"),
+        ],
+    )
+    async def test_explicit_argument_is_what_reaches_the_repository(
+        self, mock_repository, mock_embedder, search_calls, config_threshold, explicit
     ):
         await semantic_search(
             "test",
             mock_repository,
-            make_wired_config({"similarity_threshold": 0.8}),
+            make_wired_config({"similarity_threshold": config_threshold}),
             mock_embedder,
-            similarity_threshold=0.3,
+            similarity_threshold=explicit,
             search_calls=search_calls,
         )
-        assert mock_repository.semantic_search.call_args.kwargs["similarity_threshold"] == 0.3
+        assert mock_repository.semantic_search.call_args.kwargs["similarity_threshold"] == explicit
 
     @pytest.mark.asyncio
     async def test_config_value_is_used_without_an_argument(
@@ -193,24 +218,6 @@ class TestThresholdResolution:
                 search_calls=search_calls,
             )
         mock_repository.semantic_search.assert_not_called()
-
-    @pytest.mark.asyncio
-    async def test_explicit_argument_short_circuits_the_config_block(
-        self, mock_repository, mock_embedder, search_calls
-    ):
-        # A caller that named the threshold never reaches the config block, so
-        # a malformed one does not fail a query that had no use for it. The
-        # deployment-wide answer to a malformed block is startup validation,
-        # not a per-query surprise on the one path that already has a value.
-        await semantic_search(
-            "test",
-            mock_repository,
-            make_wired_config({"similarity_threshold": "high"}),
-            mock_embedder,
-            similarity_threshold=0.4,
-            search_calls=search_calls,
-        )
-        assert mock_repository.semantic_search.call_args.kwargs["similarity_threshold"] == 0.4
 
     @pytest.mark.asyncio
     async def test_empty_query_returns_before_parsing(

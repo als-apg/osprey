@@ -58,6 +58,7 @@ from __future__ import annotations
 import copy
 from pathlib import Path
 
+import pytest
 import yaml
 
 from osprey.deployment.web_terminals.render import render_web_terminals
@@ -158,22 +159,17 @@ def test_golden_fixtures_exist() -> None:
         assert (_GOLDEN_DIR / name).is_file(), f"missing golden fixture: {name}"
 
 
-def test_render_matches_golden_compose_byte_for_byte() -> None:
-    """`docker-compose.web.yml` output is byte-identical to the committed baseline."""
+@pytest.mark.parametrize(
+    ("artifact", "golden"),
+    [
+        pytest.param("docker-compose.web.yml", "docker-compose.web.yml", id="compose"),
+        pytest.param("nginx/nginx.conf", "nginx.conf", id="nginx-conf"),
+        pytest.param("nginx/landing.html", "landing.html", id="landing-html"),
+    ],
+)
+def test_render_matches_golden_byte_for_byte(artifact: str, golden: str) -> None:
     artifacts = render_web_terminals(GOLDEN_CONFIG, facility_name=FACILITY_NAME)
-    assert artifacts["docker-compose.web.yml"] == _read_golden("docker-compose.web.yml")
-
-
-def test_render_matches_golden_nginx_conf_byte_for_byte() -> None:
-    """`nginx/nginx.conf` output is byte-identical to the committed baseline."""
-    artifacts = render_web_terminals(GOLDEN_CONFIG, facility_name=FACILITY_NAME)
-    assert artifacts["nginx/nginx.conf"] == _read_golden("nginx.conf")
-
-
-def test_render_matches_golden_landing_html_byte_for_byte() -> None:
-    """`nginx/landing.html` output is byte-identical to the committed baseline."""
-    artifacts = render_web_terminals(GOLDEN_CONFIG, facility_name=FACILITY_NAME)
-    assert artifacts["nginx/landing.html"] == _read_golden("landing.html")
+    assert artifacts[artifact] == _read_golden(golden)
 
 
 def test_golden_compose_is_valid_yaml_with_expected_services() -> None:

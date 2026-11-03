@@ -2,7 +2,7 @@
 
 Runs against the keyset harness: one entry with a viewable PNG and a skipped
 PDF, plus an entry with no attachments. The web terminal is never reached; the
-panel focus request is captured at ``notify_panel_focus``.
+panel open request is captured at the op helper, ``panel_op``.
 """
 
 from __future__ import annotations
@@ -29,7 +29,7 @@ PDF_ID = attachment_id_for(KEYSET_ENTRY_ID, _PDF)
 async def _open(**kwargs):
     from osprey.mcp_server.ariel.tools.entry import entry_open
 
-    with patch("osprey.mcp_server.http.notify_panel_focus") as focus:
+    with patch("osprey.mcp_server.http.panel_op") as focus:
         raw = await get_tool_fn(entry_open)(**kwargs)
     return json.loads(raw), focus
 
@@ -48,7 +48,7 @@ async def test_opens_the_entry_and_focuses_the_panel(keyset_harness):  # noqa: A
     assert result["entry_id"] == KEYSET_SECOND_ENTRY_ID
     assert result["attachment_id"] is None
     assert url in result["message"]
-    focus.assert_called_once_with("ariel", url=url)
+    focus.assert_called_once_with("open", {"member": "ariel", "url": url})
 
 
 async def test_opens_a_viewable_picture_enlarged(keyset_harness):  # noqa: ARG001
@@ -58,7 +58,7 @@ async def test_opens_a_viewable_picture_enlarged(keyset_harness):  # noqa: ARG00
     assert result["url"] == url
     assert result["opened"] == "entry_and_picture"
     assert result["attachment_id"] == PNG_ID
-    focus.assert_called_once_with("ariel", url=url)
+    focus.assert_called_once_with("open", {"member": "ariel", "url": url})
 
 
 async def test_opened_without_a_picture_the_result_names_the_viewable_ones(keyset_harness):  # noqa: ARG001
@@ -103,7 +103,7 @@ async def test_a_picture_that_is_not_viewable_opens_the_entry_only(keyset_harnes
     assert result["url"] == url
     assert result["opened"] == "entry"
     assert "not viewable" in result["message"]
-    focus.assert_called_once_with("ariel", url=url)
+    focus.assert_called_once_with("open", {"member": "ariel", "url": url})
 
 
 async def test_the_entry_id_is_url_encoded(keyset_harness, monkeypatch):
@@ -127,10 +127,10 @@ async def test_ariel_web_url_sets_the_base(keyset_harness, monkeypatch):  # noqa
 
 
 async def test_without_a_web_terminal_the_result_still_carries_the_url(keyset_harness):  # noqa: ARG001
-    """``notify_panel_focus`` failing is not an error: the url is the fallback."""
+    """``panel_op`` failing is not an error: the url is the fallback."""
     from osprey.mcp_server.ariel.tools.entry import entry_open
 
-    with patch("osprey.mcp_server.http.notify_panel_focus", side_effect=OSError("refused")):
+    with patch("osprey.mcp_server.http.panel_op", side_effect=OSError("refused")):
         result = json.loads(
             await get_tool_fn(entry_open)(entry_id=KEYSET_SECOND_ENTRY_ID, attachment_id=None)
         )
@@ -142,7 +142,7 @@ async def test_unknown_entry_is_not_found(keyset_harness):  # noqa: ARG001
     from osprey.mcp_server.ariel.tools.entry import entry_open
 
     with (
-        patch("osprey.mcp_server.http.notify_panel_focus") as focus,
+        patch("osprey.mcp_server.http.panel_op") as focus,
         assert_raises_error(error_type="not_found"),
     ):
         await get_tool_fn(entry_open)(entry_id="no-such-entry", attachment_id=None)
@@ -153,7 +153,7 @@ async def test_an_attachment_of_another_entry_is_not_found(keyset_harness):  # n
     from osprey.mcp_server.ariel.tools.entry import entry_open
 
     with (
-        patch("osprey.mcp_server.http.notify_panel_focus") as focus,
+        patch("osprey.mcp_server.http.panel_op") as focus,
         assert_raises_error(error_type="not_found"),
     ):
         await get_tool_fn(entry_open)(entry_id=KEYSET_SECOND_ENTRY_ID, attachment_id=PNG_ID)

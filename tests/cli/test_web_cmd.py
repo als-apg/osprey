@@ -29,6 +29,7 @@ from osprey.cli.web_cmd import (
     _read_pid,
     _resolve_web_shell_command,
     _start_detached,
+    _wait_for_announced_port,
     _wait_for_server,
     _write_pid,
     web,
@@ -1996,6 +1997,19 @@ class TestPortZero:
         assert "?token=" not in result.output
         mock_wait.assert_not_called()
         assert not (deployment / PID_FILE).exists()
+
+    def test_a_startup_line_still_being_written_names_no_port(self, tmp_path):
+        """A line cut short in its port is not read as a port, nor as a crash."""
+        log = tmp_path / "osprey-web.log"
+        proc = MagicMock()
+        proc.poll.return_value = None
+        for partial in ("http://127.0.0.1:4312", "http://127.0.0.1:"):
+            log.write_text(f"{_STARTUP_LINE} {partial}")
+
+            assert _wait_for_announced_port(log, proc, timeout=0.3) is None
+
+        log.write_text(f"{_STARTUP_LINE} http://127.0.0.1:43127\n")
+        assert _wait_for_announced_port(log, proc, timeout=0.3) == 43127
 
 
 class TestOperatorSecretDoesNotOutliveTheLaunch:

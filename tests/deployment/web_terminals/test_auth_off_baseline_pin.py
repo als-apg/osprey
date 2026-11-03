@@ -524,6 +524,11 @@ _ALLOWED_COMPOSE_LINES = Counter(
         "      - .env.agent-record.login.alice": 1,
         "      - .env.agent-record.login.bob": 1,
         "      - OSPREY_AGENT_RECORD_URL=http://127.0.0.1:<port>": 2,
+        # An init process as pid 1 — the FIFTEENTH exception to SC6. Every
+        # terminal image carries a headless browser whose children have to be
+        # reaped, whatever the method; it carries no account, role or claim.
+        # Count 2 = alice + bob (nginx runs no browser).
+        "    init: true": 2,
     }
 )
 

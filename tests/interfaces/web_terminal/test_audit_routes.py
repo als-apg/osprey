@@ -234,11 +234,21 @@ class TestTheRead:
         assert payload["ledgers"] == ["http_config", "mcp"]
         assert payload["limit"] == audit_routes.DEFAULT_LIMIT
 
-    def test_the_limit_is_passed_to_the_record(self, client, record):
-        response = client.get(RECENT, params={"limit": 3})
+    @pytest.mark.parametrize(
+        ("limit", "expected"),
+        [
+            pytest.param(3, 3, id="passed-through"),
+            pytest.param(0, 1, id="zero-clamped-to-one"),
+            pytest.param(-1, 1, id="negative-clamped-to-one"),
+        ],
+    )
+    def test_the_limit_is_passed_to_the_record_floored_at_one(
+        self, client, record, limit, expected
+    ):
+        response = client.get(RECENT, params={"limit": limit})
 
-        assert response.json()["limit"] == 3
-        assert record.calls_to("recent_audit")[0]["limit"] == 3
+        assert response.json()["limit"] == expected
+        assert record.calls_to("recent_audit")[0]["limit"] == expected
 
     def test_an_oversized_limit_is_clamped_not_refused(self, client, record):
         response = client.get(RECENT, params={"limit": 10_000})
@@ -246,13 +256,6 @@ class TestTheRead:
         assert response.status_code == 200
         assert response.json()["limit"] == audit_routes.MAX_LIMIT
         assert record.calls_to("recent_audit")[0]["limit"] == audit_routes.MAX_LIMIT
-
-    @pytest.mark.parametrize("limit", [0, -1])
-    def test_a_non_positive_limit_is_clamped_to_one(self, client, record, limit):
-        response = client.get(RECENT, params={"limit": limit})
-
-        assert response.json()["limit"] == 1
-        assert record.calls_to("recent_audit")[0]["limit"] == 1
 
     def test_an_entry_without_a_body_is_skipped(self, client, record):
         """An incomplete entry carries no body; it is not a record to serve."""

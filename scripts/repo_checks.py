@@ -92,11 +92,7 @@ DARWIN_VENUE = "darwin"
 #: lazily depends on the OS and the interpreter.
 READONLY_WARMUPS_TEST_FILE = "tests/runtime/test_raw_put_block_readonly_warmups.py"
 
-#: The dock-engine package: its TypeScript sources, the bundle built from them,
-#: its Vitest suite and the cases both runtimes read.
-DOCK_ENGINE = "packages/dock-engine/**"
-
-#: The scope of ``tsc``: the include globs of both ``tsconfig.json`` files and their inputs.
+#: The scope of ``tsc``: the include globs of ``tsconfig.json`` and their inputs.
 TSC_SCOPE = (
     "src/osprey/interfaces/vendor-globals.d.ts",
     "src/osprey/interfaces/**/static/js/**/*.js",
@@ -104,7 +100,7 @@ TSC_SCOPE = (
     "tests/**/*.js",
     "tests/**/*.mjs",
     "tsconfig.json",
-    DOCK_ENGINE,
+    "src/osprey/interfaces/web_terminal/static/vendor/dock-engine.d.mts",
     "package*.json",
 )
 
@@ -534,19 +530,6 @@ def _pytest_command(
 #: ``PYTHONPATH`` can lend it a module the wheel does not ship.
 LEAN_IMPORT_WALK = "scripts/ci/connectors_lean_import_walk.py"
 
-#: Run with the framework wheel as its argument: the wheel bundles dock_engine
-#: and its package data.
-DOCK_ENGINE_WHEEL_PROBE = """\
-import sys, zipfile
-(wheel,) = sys.argv[1:]
-names = zipfile.ZipFile(wheel).namelist()
-assert 'dock_engine/__init__.py' in names, f'{wheel} carries no dock_engine package'
-cases = [n for n in names if n.startswith('dock_engine/cases/validate/') and n.endswith('.json')]
-assert cases, f'{wheel} carries no dock_engine/cases/validate/ case'
-assert 'dock_engine/manifest.json' in names, f'{wheel} carries no dock_engine/manifest.json'
-print(f'DOCK ENGINE IN FRAMEWORK WHEEL OK ({len(cases)} validate cases)')
-"""
-
 #: Run by a venv holding the framework, connectors and pyaml-cs-osprey wheels.
 PYAML_WHEEL_PROBE = """\
 import importlib, pkgutil
@@ -557,10 +540,6 @@ modules = [m.name for m in pkgutil.walk_packages(pyaml_cs_osprey.__path__, 'pyam
 for name in modules:
     importlib.import_module(name)
 print(f'PYAML WHEEL OK ({len(modules)} modules)')
-import dock_engine
-assert dock_engine.cases_dir().is_dir(), dock_engine.cases_dir()
-assert len(dock_engine.rules_digest()) == 64
-print(f'DOCK ENGINE IMPORT OK ({dock_engine.__version__})')
 """
 
 #: The package build, in order; each step needs the one before it. ``{scratch}``
@@ -580,7 +559,6 @@ PACKAGE_STEPS: tuple[tuple[str, ...], ...] = (
         "dist/osprey_connectors-*.whl",
     ),
     ("{scratch}/lean/bin/python", "-I", LEAN_IMPORT_WALK),
-    ("python3", "-c", DOCK_ENGINE_WHEEL_PROBE, "dist/osprey_framework-*.whl"),
     ("uv", "build", "--package", "pyaml-cs-osprey"),
     ("uv", "venv", "{scratch}/pyaml", "--python", "3.11"),
     (
@@ -1105,24 +1083,6 @@ CHECKS: tuple[Check, ...] = (
         report="junit-vitest",
         named_suffixes=(".test.js", ".test.mjs"),
         selector=_select_vitest,
-    ),
-    # The root Vitest config does not reach the package; it carries its own.
-    Check(
-        "dock-engine-tests",
-        "tests",
-        BOTH,
-        ("npx", "vitest", "run", "-c", "packages/dock-engine/vitest.config.ts"),
-        scope=(DOCK_ENGINE, "package*.json"),
-        needs=("node",),
-        report="junit-vitest",
-    ),
-    Check(
-        "dock-engine-bundle",
-        "build",
-        BOTH,
-        ("node", "packages/dock-engine/scripts/build.mjs", "--check"),
-        scope=(DOCK_ENGINE, "package*.json"),
-        needs=("node",),
     ),
     # The build runs from a clean tree, and every redirect key must leave its
     # stub page in it.

@@ -394,13 +394,23 @@ def _three_chunk_result():
     return {"status": "completed", "text_output": text}
 
 
-def test_a_failing_second_chunk_raises_and_stops_the_answer():
-    ops, talk = _ops(FakeTalk(fail_on={2}))
+@pytest.mark.parametrize(
+    "failing_chunk",
+    [
+        # Chunk 1 landed, chunk 2 was attempted and failed, chunk 3 was never attempted:
+        # the raise is what tells the engine to re-queue for redelivery.
+        pytest.param(2, id="second-chunk-stops-the-answer"),
+        pytest.param(1, id="first-chunk-raises-before-anything-lands"),
+        # The tail is the easiest failure to swallow by accident and the worst to lose: the
+        # user would read a truncated answer as a complete one.
+        pytest.param(3, id="final-chunk-still-raises"),
+    ],
+)
+def test_a_failing_chunk_raises_and_stops_the_answer(failing_chunk):
+    ops, talk = _ops(FakeTalk(fail_on={failing_chunk}))
     with pytest.raises(httpx.HTTPStatusError):
         ops.post_answer(entry(), _three_chunk_result())
-    # Chunk 1 landed, chunk 2 was attempted and failed, chunk 3 was never attempted:
-    # the raise is what tells the engine to re-queue for redelivery.
-    assert len(talk.posts) == 2
+    assert len(talk.posts) == failing_chunk
 
 
 def test_a_retry_after_a_mid_answer_failure_re_posts_from_chunk_one():
@@ -417,22 +427,6 @@ def test_a_retry_after_a_mid_answer_failure_re_posts_from_chunk_one():
     redelivered = talk.texts[len(first_attempt) :]
     assert redelivered[0] == first_attempt[0]
     assert "".join(redelivered) == result["text_output"]
-
-
-def test_a_failing_first_chunk_raises_before_anything_lands():
-    ops, talk = _ops(FakeTalk(fail_on={1}))
-    with pytest.raises(httpx.HTTPStatusError):
-        ops.post_answer(entry(), _three_chunk_result())
-    assert len(talk.posts) == 1
-
-
-def test_a_failing_final_chunk_still_raises():
-    # The tail is the easiest failure to swallow by accident and the worst to lose: the
-    # user would read a truncated answer as a complete one.
-    ops, talk = _ops(FakeTalk(fail_on={3}))
-    with pytest.raises(httpx.HTTPStatusError):
-        ops.post_answer(entry(), _three_chunk_result())
-    assert len(talk.posts) == 3
 
 
 # ==========================================================================
@@ -601,16 +595,47 @@ def _post(text: str, **kwargs) -> tuple[str, FakeTalk]:
     return "".join(talk.texts), talk
 
 
-def test_an_answer_mentioning_a_participant_posts_talk_mention_syntax():
-    assert _post("please tell <@carol>")[0] == 'please tell @"carol"'
-
-
-def test_a_mention_after_punctuation_gets_a_leading_space():
-    assert _post("(<@carol>)")[0] == '( @"carol")'
-
-
-def test_a_mention_at_the_start_or_after_whitespace_gets_no_extra_space():
-    assert _post("<@carol> and\n<@alice>")[0] == '@"carol" and\n@"alice"'
+@pytest.mark.parametrize(
+    ("answer", "posted"),
+    [
+        pytest.param(
+            "please tell <@carol>",
+            'please tell @"carol"',
+            id="participant-posts-talk-mention-syntax",
+        ),
+        pytest.param(
+            "(<@carol>)", '( @"carol")', id="mention-after-punctuation-gets-a-leading-space"
+        ),
+        pytest.param(
+            "<@carol> and\n<@alice>",
+            '@"carol" and\n@"alice"',
+            id="mention-at-the-start-or-after-whitespace-gets-no-extra-space",
+        ),
+        pytest.param("cc <@zed>", "cc zed", id="unknown-id-is-the-bare-id"),
+        pytest.param("ask @alice", "ask alice", id="bare-at-name-loses-its-at-sign"),
+        pytest.param(
+            'ask @"first last"', 'ask "first last"', id="quoted-bare-mention-loses-its-at-sign"
+        ),
+        pytest.param("@all please look", "all please look", id="at-all-loses-its-at-sign"),
+        pytest.param(
+            "<@carol> and @dave",
+            '@"carol" and dave',
+            id="permitted-placeholder-renders-beside-a-neutralised-bare-name",
+        ),
+        pytest.param(
+            "use `@dataclass` here",
+            "use `@dataclass` here",
+            id="inline-code-keeps-the-at-of-a-non-member",
+        ),
+        pytest.param(
+            "decorate with @dataclass",
+            "decorate with dataclass",
+            id="outside-code-a-non-member-loses-its-at",
+        ),
+    ],
+)
+def test_an_answer_is_posted_with_its_mentions_in_the_form_talk_accepts(answer, posted):
+    assert _post(answer)[0] == posted
 
 
 def test_talk_mention_quotes_ids_with_spaces_and_at_signs():
@@ -632,10 +657,6 @@ def test_a_mention_outside_the_roster_is_its_name_without_an_at_sign():
     assert _post("cc <@dave>")[0] == "cc dave"
 
 
-def test_an_unknown_id_is_posted_as_the_bare_id():
-    assert _post("cc <@zed>")[0] == "cc zed"
-
-
 def test_mentions_off_posts_names_without_an_at_sign():
     assert _post("<@carol> and <@alice>", mentions=False)[0] == "Carol and Alice"
 
@@ -645,9 +666,19 @@ def test_everyone_never_renders():
     assert _post("hey <@all>", participants=[everyone, CAROL])[0] == "hey all"
 
 
-def test_an_answer_without_a_mention_never_lists_participants():
-    text, talk = _post("the orbit is flat")
-    assert text == "the orbit is flat"
+@pytest.mark.parametrize(
+    ("answer", "posted"),
+    [
+        pytest.param("the orbit is flat", "the orbit is flat", id="without-a-mention"),
+        pytest.param(
+            "ask @alice and @bob", "ask alice and bob", id="bare-mentions-without-a-placeholder"
+        ),
+        pytest.param("ask @alice", "ask alice", id="no-bare-mention-in-code"),
+    ],
+)
+def test_an_answer_with_no_placeholder_never_lists_participants(answer, posted):
+    text, talk = _post(answer)
+    assert text == posted
     assert talk.listed == 0
 
 
@@ -684,39 +715,13 @@ def test_notices_are_never_rendered():
     assert talk.texts[1:] == [QUEUED_TEXT, GIVEUP_TEXT, SUPERSEDED_TEXT]
 
 
-def test_a_bare_at_name_in_an_answer_loses_its_at_sign():
-    assert _post("ask @alice")[0] == "ask alice"
-
-
-def test_a_quoted_bare_mention_loses_its_at_sign():
-    assert _post('ask @"first last"')[0] == 'ask "first last"'
-
-
-def test_at_all_in_an_answer_loses_its_at_sign():
-    assert _post("@all please look")[0] == "all please look"
-
-
 def test_bare_mentions_are_neutralised_with_mentions_off():
     assert _post("ask @alice", mentions=False)[0] == "ask alice"
-
-
-def test_bare_mentions_are_neutralised_in_an_answer_without_a_placeholder():
-    text, talk = _post("ask @alice and @bob")
-    assert text == "ask alice and bob"
-    assert talk.listed == 0
-
-
-def test_a_permitted_placeholder_still_renders_beside_a_neutralised_bare_name():
-    assert _post("<@carol> and @dave")[0] == '@"carol" and dave'
 
 
 def test_an_email_address_and_a_placeholder_keep_their_at_signs():
     text = "mail carol@example.org or ask <@carol>"
     assert neutralise_bare_mentions(text, members=lambda: None) == text
-
-
-def test_inline_code_keeps_the_at_of_a_non_member():
-    assert _post("use `@dataclass` here")[0] == "use `@dataclass` here"
 
 
 def test_a_fenced_block_keeps_the_at_of_a_non_member():
@@ -736,16 +741,6 @@ def test_code_neutralisation_is_the_same_with_mentions_off():
 
 def test_code_drops_every_at_when_the_roster_is_unavailable():
     assert _post("`@dataclass`", participants=RuntimeError("lobby"))[0] == "`dataclass`"
-
-
-def test_outside_code_a_non_member_still_loses_its_at():
-    assert _post("decorate with @dataclass")[0] == "decorate with dataclass"
-
-
-def test_an_answer_with_no_bare_mention_in_code_never_lists_participants():
-    text, talk = _post("ask @alice")
-    assert text == "ask alice"
-    assert talk.listed == 0
 
 
 @pytest.mark.parametrize(
@@ -784,27 +779,26 @@ def test_an_at_sign_around_a_placeholder_never_leaves_a_bare_mention(text, kwarg
     assert _post(text, **kwargs)[0] == posted
 
 
-def test_the_render_bug_fallback_drops_an_at_sign_before_a_placeholder(monkeypatch):
+@pytest.mark.parametrize(
+    ("answer", "posted"),
+    [
+        pytest.param(
+            "ask @<@dave> and <@@erin>",
+            "ask dave and erin",
+            id="drops-an-at-sign-before-a-placeholder",
+        ),
+        pytest.param("ask @alice about <@carol>", "ask alice about carol", id="neutralises-too"),
+    ],
+)
+def test_the_render_bug_fallback_leaves_no_bare_mention(monkeypatch, answer, posted):
     from osprey.bridges.nextcloud_talk import ops as ops_module
 
     def broken(*_args, **_kwargs):
         raise RuntimeError("render bug")
 
     monkeypatch.setattr(ops_module, "render_mentions", broken)
-    text, _ = _post("ask @<@dave> and <@@erin>")
-    assert text == "ask dave and erin"
-    assert TALK_BARE_MENTION_RE_SAFE(text)
-
-
-def test_the_render_bug_fallback_neutralises_too(monkeypatch):
-    from osprey.bridges.nextcloud_talk import ops as ops_module
-
-    def broken(*_args, **_kwargs):
-        raise RuntimeError("render bug")
-
-    monkeypatch.setattr(ops_module, "render_mentions", broken)
-    text, _ = _post("ask @alice about <@carol>")
-    assert text == "ask alice about carol"
+    text, _ = _post(answer)
+    assert text == posted
     assert TALK_BARE_MENTION_RE_SAFE(text)
 
 

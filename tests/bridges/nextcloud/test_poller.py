@@ -339,17 +339,28 @@ def test_an_idle_poll_advances_nothing(tmp_path):
 # ==========================================================================
 
 
-def test_talks_own_cursor_hint_is_preferred(tmp_path):
-    """``X-Chat-Last-Given`` accounts for messages Talk considered but did not
-    return, so it may legitimately run ahead of the batch's highest id."""
-    talk = FakeTalk(chat=[([_message(11)], 20), None])
+@pytest.mark.parametrize(
+    ("hint", "offset", "requested"),
+    [
+        # ``X-Chat-Last-Given`` accounts for messages Talk considered but did not
+        # return, so it may legitimately run ahead of the batch's highest id.
+        pytest.param(20, 20, [10, 20], id="talks-own-hint-is-preferred"),
+        # A server answering with a cursor behind the one asked for would otherwise
+        # make the same batch arrive on every poll.
+        pytest.param(5, 10, [10, 10], id="hint-behind-the-request-cannot-loop-forever"),
+    ],
+)
+def test_talks_cursor_hint_is_followed_only_when_it_is_ahead_of_the_request(
+    tmp_path, hint, offset, requested
+):
+    talk = FakeTalk(chat=[([_message(11)], hint), None])
     poller, _, offsets = _harness(tmp_path, talk, seed=10)
 
     poller.poll_once()
     poller.poll_once()
 
-    assert offsets.get(ROOM) == 20
-    assert talk.requested == [10, 20]
+    assert offsets.get(ROOM) == offset
+    assert talk.requested == requested
 
 
 def test_the_highest_id_is_the_fallback_when_talk_sends_no_cursor(tmp_path):
@@ -359,19 +370,6 @@ def test_the_highest_id_is_the_fallback_when_talk_sends_no_cursor(tmp_path):
     poller.poll_once()
 
     assert offsets.get(ROOM) == 13
-
-
-def test_a_cursor_hint_behind_the_request_cannot_loop_forever(tmp_path):
-    """A server answering with a cursor behind the one asked for would otherwise
-    make the same batch arrive on every poll."""
-    talk = FakeTalk(chat=[([_message(11)], 5), None])
-    poller, _, offsets = _harness(tmp_path, talk, seed=10)
-
-    poller.poll_once()
-    poller.poll_once()
-
-    assert offsets.get(ROOM) == 10
-    assert talk.requested == [10, 10]
 
 
 def test_a_message_without_a_usable_id_is_still_dispatched(tmp_path):

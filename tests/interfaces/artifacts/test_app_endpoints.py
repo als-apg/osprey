@@ -26,6 +26,26 @@ from osprey.interfaces.artifacts.app import (
 )
 from osprey.interfaces.opaque_origin import INERT_TYPES, OPAQUE_CSP
 
+_PLOTLY_BANNER = "plotly.js v3.3.1"
+
+
+def _inline_file(rel: str) -> str:
+    """A design-system file's text as the content sandbox inlines it."""
+    from osprey.interfaces.artifacts import inline_assets
+
+    text = (inline_assets.DESIGN_SYSTEM_STATIC / rel).read_text()
+    return (
+        inline_assets.inline_style(text)
+        if rel.endswith(".css")
+        else inline_assets.inline_script(text)
+    )
+
+
+def _data_module(rel: str) -> str:
+    from osprey.interfaces.artifacts import inline_assets
+
+    return inline_assets.module_data_url(f"/design-system/{rel}")
+
 
 def _save_text_artifact(store, title="Plain text"):
     return store.save_file(
@@ -49,6 +69,19 @@ def _save_html_artifact(store, content: str):
         mime_type="text/html",
         tool_source="test",
     )
+
+
+@pytest.fixture
+def plotly_vendor(tmp_path, monkeypatch) -> None:
+    """A stand-in for the fetched Plotly bundle, so inlining does not depend on
+    ``osprey vendor fetch`` having run in this checkout."""
+    from osprey.interfaces.artifacts import inline_assets
+
+    root = tmp_path / "vendor-root"
+    bundle = root / "artifacts/static/js/vendor/plotly-3.3.1.min.js"
+    bundle.parent.mkdir(parents=True)
+    bundle.write_text(f"/**\n* {_PLOTLY_BANNER}\n*/window.Plotly={{}};")
+    monkeypatch.setattr(inline_assets, "VENDOR_ROOT", root)
 
 
 class TestArtifactEntryAPI:
@@ -422,11 +455,13 @@ class TestServeFileEndpoint:
         assert resp.status_code == 404
         assert "not found on disk" in resp.json()["detail"]
 
+    @pytest.mark.usefixtures("plotly_vendor")
     def test_plotly_bundle_injected_only_when_absent(self, app_client, monkeypatch):
         """A plot_html artifact saved with include_plotlyjs=False gets the
         local Plotly bundle plus the responsive snippet injected (offline mode
-        pins the injected src to the local vendor path); one already carrying
-        the bundle must not get a second 4.8MB script tag."""
+        inlines the vendored copy: the page is served into the content
+        sandbox, where a /static path would answer 401); one already carrying
+        the bundle must not get a second 4.8MB copy."""
         store = app_client.app.state.artifact_store
 
         monkeypatch.setenv("OSPREY_OFFLINE", "1")
@@ -436,7 +471,8 @@ class TestServeFileEndpoint:
         resp = app_client.get(f"/files/{bare.id}/{bare.filename}")
         assert resp.status_code == 200
         assert resp.headers["content-disposition"].startswith("inline")
-        assert 'src="/static/js/vendor/plotly-3.3.1.min.js"' in resp.text
+        assert resp.text.count(_PLOTLY_BANNER) == 1
+        assert "/static/js/vendor/plotly" not in resp.text
         assert ".js-plotly-plot" in resp.text  # responsive/theming snippet
 
         monkeypatch.setenv("OSPREY_OFFLINE", "0")
@@ -448,12 +484,15 @@ class TestServeFileEndpoint:
         )
         resp = app_client.get(f"/files/{bundled.id}/{bundled.filename}")
         assert resp.status_code == 200
-        assert resp.text.count("plotly-3.3.1.min.js") == 1
+        # The /static tag the sandbox could not load becomes the one inline copy.
+        assert resp.text.count(_PLOTLY_BANNER) == 1
+        assert "/static/js/vendor/plotly" not in resp.text
         assert ".js-plotly-plot" in resp.text  # snippet still injected
 
+    @pytest.mark.usefixtures("plotly_vendor")
     def test_plotly_injection_for_include_plotlyjs_false(self, app_client, monkeypatch):
         """A figure exported with include_plotlyjs=False calls Plotly but never
-        loads it; serving it injects exactly one local bundle script tag."""
+        loads it; serving it offline inlines exactly one local bundle copy."""
         monkeypatch.setenv("OSPREY_OFFLINE", "1")
         entry = _save_html_artifact(
             app_client.app.state.artifact_store,
@@ -464,7 +503,7 @@ class TestServeFileEndpoint:
         )
         resp = app_client.get(f"/files/{entry.id}/{entry.filename}")
         assert resp.status_code == 200
-        assert resp.text.count('src="/static/js/vendor/plotly-3.3.1.min.js"') == 1
+        assert resp.text.count(_PLOTLY_BANNER) == 1
 
     def test_plotly_injection_skipped_for_inline_bundle(self, app_client, monkeypatch):
         """A figure exported with include_plotlyjs=True inlines the bundle
@@ -486,10 +525,10 @@ class TestServeFileEndpoint:
         assert "cdn.plot.ly" not in resp.text
         assert ".js-plotly-plot" in resp.text  # snippet still injected
 
+    @pytest.mark.usefixtures("plotly_vendor")
     def test_offline_rewrites_cdn_plotly_to_local(self, app_client, monkeypatch):
-        """In offline mode a CDN Plotly reference is rewritten to the bundled
-        copy and its SRI attributes are stripped (the local file may differ
-        from the CDN version, and SRI would block it)."""
+        """In offline mode a CDN Plotly reference is replaced by the bundled
+        copy, inlined, and its tag (SRI attributes included) is gone."""
         monkeypatch.setenv("OSPREY_OFFLINE", "1")
         entry = _save_html_artifact(
             app_client.app.state.artifact_store,
@@ -502,11 +541,11 @@ class TestServeFileEndpoint:
         resp = app_client.get(f"/files/{entry.id}/{entry.filename}")
         assert resp.status_code == 200
         body = resp.text
-        assert "cdn.plot.ly" not in body
+        assert 'src="https://cdn.plot.ly' not in body
         assert "integrity=" not in body
         assert "crossorigin" not in body
         # The rewritten reference also satisfies the dedup check -- no second copy.
-        assert body.count("plotly-3.3.1.min.js") == 1
+        assert body.count(_PLOTLY_BANNER) == 1
 
 
 class TestServedPlotThemeBridge:
@@ -520,7 +559,9 @@ class TestServedPlotThemeBridge:
     ``retro-light``, ...) fell to the dark palette even inside the gallery.
     The served page must instead resolve its theme the way every other
     design-system page does (theme-boot.js pre-paint, theme-manager.js at
-    runtime) and take every color from the ``--chart-*`` tokens.
+    runtime) and take every color from the ``--chart-*`` tokens. Served into
+    the content sandbox, the page carries those inline (``data:`` URL modules),
+    never as server paths.
     """
 
     def test_bridge_loads_design_system_instead_of_reading_parent(self, app_client):
@@ -529,9 +570,10 @@ class TestServedPlotThemeBridge:
             '<html><head></head><body><div class="plotly-graph-div"></div></body></html>',
         )
         body = app_client.get(f"/files/{entry.id}/{entry.filename}").text
-        assert '/design-system/js/theme-boot.js"' in body
-        assert '/design-system/css/tokens.css"' in body
-        assert "/design-system/js/theme-manager.js" in body
+        assert "/design-system/" not in body
+        assert _inline_file("js/theme-boot.js") in body
+        assert _inline_file("css/tokens.css") in body
+        assert _data_module("js/theme-manager.js") in body
         # The C-MSG listener posts to window.parent, but nothing reads the
         # parent's document or theme -- on an opaque origin it could not.
         assert "parent.document" not in body
@@ -566,8 +608,9 @@ class TestServedPlotThemeBridge:
             tool_source="test",
         )
         body = app_client.get(f"/files/{entry.id}/{entry.filename}").text
-        assert '/design-system/js/theme-boot.js"' in body
-        assert '/design-system/css/tokens.css"' in body
+        assert "/design-system/" not in body
+        assert _inline_file("js/theme-boot.js") in body
+        assert _inline_file("css/tokens.css") in body
         assert "initTheme({ role: 'follower' })" in body
         assert "artifact-table" in body  # the DataFrame hook finally has CSS behind it
 
@@ -616,7 +659,9 @@ class TestServedPlotThemeBridge:
             client.app.state.artifact_store, "<html><head></head><body></body></html>"
         )
         body = client.get(f"/files/{plot.id}/{plot.filename}").text
-        assert "data-theme=" not in body
+        # The <html> tag carries no pin (inlined theme-boot.js mentions the
+        # attribute in its own source, so the whole body is not the test).
+        assert "data-theme=" not in body.split("<head>", 1)[0]
 
 
 class TestGalleryFacilityTimezone:
@@ -909,9 +954,11 @@ class TestServedArtifactsAreOpaque:
         assert resp.headers["x-content-type-options"] == "nosniff"
         assert resp.headers["content-disposition"].startswith("inline")
 
-    @pytest.mark.parametrize("path", ["/", "/static/js/md-render.js", "/api/artifacts"])
-    def test_the_gallerys_own_pages_carry_no_sandbox(self, app_client, path):
-        resp = app_client.get(path)
+    def test_the_gallery_shell_carries_no_sandbox(self, app_client):
+        # The shell is the one route the content sandbox exempts (``not_content``):
+        # it must stay same-origin to drive the API. Every other answer, the
+        # gallery's own scripts and JSON included, gets the default-deny sandbox.
+        resp = app_client.get("/")
         assert resp.status_code == 200
         assert "content-security-policy" not in resp.headers
 

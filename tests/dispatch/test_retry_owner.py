@@ -268,21 +268,20 @@ async def test_retry_credits_the_owner_named_by_the_header(dispatcher_app):
     assert body["owner"] == "alice"
 
 
-async def test_retry_without_the_header_is_owner_less(dispatcher_app):
-    """A call straight at the dispatcher's port names nobody, as cron does."""
-    body = await _retry_over_the_wire(dispatcher_app, None)
-
-    assert "owner" not in body
-
-
-async def test_retry_with_a_malformed_header_is_owner_less(dispatcher_app):
-    """A header that names nobody costs the owner, never the re-fire.
-
-    The route reads the header through the shared guard, whose refusals are
-    pinned in ``tests/utils/test_owner_header.py``; what matters here is that a
-    refusal degrades to an owner-less dispatch instead of failing the request.
-    """
-    body = await _retry_over_the_wire(dispatcher_app, "${OSPREY_TERMINAL_USER}")
+@pytest.mark.parametrize(
+    "owner_header",
+    [
+        # A call straight at the dispatcher's port names nobody, as cron does.
+        pytest.param(None, id="without-the-header"),
+        # The route reads the header through the shared guard, whose refusals are
+        # pinned in ``tests/utils/test_owner_header.py``; what matters here is that a
+        # refusal degrades to an owner-less dispatch instead of failing the request.
+        pytest.param("${OSPREY_TERMINAL_USER}", id="with-a-malformed-header"),
+    ],
+)
+async def test_retry_with_a_header_that_names_nobody_is_owner_less(dispatcher_app, owner_header):
+    """A header that names nobody costs the owner, never the re-fire."""
+    body = await _retry_over_the_wire(dispatcher_app, owner_header)
 
     assert "owner" not in body
 

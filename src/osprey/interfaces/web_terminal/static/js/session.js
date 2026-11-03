@@ -21,7 +21,7 @@ import {
   renderArtifacts,
   renderConversation,
 } from './session-views.js';
-import { withPrefix, createEventSource } from './api.js';
+import { withPrefix, createEventSource, pageEventsUrl } from './api.js';
 import { bootActivityStrip } from './activity-strip.js';
 import { AGENT_ACTIVITY_FRAME } from './activity-format.js';
 import { sessionIdFromQuery } from './activity-log-link.js';
@@ -186,7 +186,7 @@ window.addEventListener('message', (e) => {
  * @returns {{stop: () => void}}
  */
 export function wireActivityStrip(strip) {
-  return createEventSource('/api/files/events', {
+  return createEventSource(pageEventsUrl(), {
     onMessage: (data) => {
       if (!data || typeof data !== 'object') return;
       if (data.type !== AGENT_ACTIVITY_FRAME || !data.target) return;

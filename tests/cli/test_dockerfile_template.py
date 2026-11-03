@@ -251,14 +251,29 @@ class TestDockerfileContent:
         assert len(bodies) == 1, f"expected exactly one site-CA RUN, got {len(bodies)}"
         return bodies[0]
 
-    def test_site_ca_copy_idiom_present(self, hello_project):
-        """The site CA is staged via the guaranteed-sibling glob idiom — the
-        always-present .dockerignore keeps the COPY from failing when nothing
-        is staged."""
+    @pytest.mark.parametrize(
+        ("pattern", "message"),
+        [
+            # The site CA is staged via the guaranteed-sibling glob idiom — the
+            # always-present .dockerignore keeps the COPY from failing when nothing
+            # is staged.
+            (
+                r"^COPY \.dockerignore \*\.cr\[t\] \*\.pe\[m\] /tmp/ca-ctx/",
+                "missing `COPY .dockerignore *.cr[t] *.pe[m] /tmp/ca-ctx/` CA-staging idiom",
+            ),
+            # The wheel is staged via ``COPY .dockerignore *.wh[l]`` — the
+            # always-present .dockerignore sibling keeps the COPY from failing when no
+            # wheel exists.
+            (
+                r"^COPY \.dockerignore \*\.wh\[l\] /tmp/ctx/",
+                "missing `COPY .dockerignore *.wh[l] /tmp/ctx/` wheel-staging idiom",
+            ),
+        ],
+        ids=["site-ca", "wheel"],
+    )
+    def test_copy_idiom_present(self, hello_project, pattern, message):
         text = (hello_project / "Dockerfile").read_text()
-        assert re.search(
-            r"^COPY \.dockerignore \*\.cr\[t\] \*\.pe\[m\] /tmp/ca-ctx/", text, flags=re.MULTILINE
-        ), "missing `COPY .dockerignore *.cr[t] *.pe[m] /tmp/ca-ctx/` CA-staging idiom"
+        assert re.search(pattern, text, flags=re.MULTILINE), message
 
     def test_site_ca_layer_precedes_the_first_network_fetch(self, hello_project):
         """``update-ca-certificates`` must run before any RUN that fetches over
@@ -429,32 +444,40 @@ class TestDockerfileContent:
         wheel = self._wheel_run_body(text)
         assert "--no-deps --force-reinstall" in wheel
         assert "pip check" in wheel
+        assert "OSPREY_DEV" not in wheel, "the wheel layer's check is not dev-guarded"
         assert "/tmp/ctx/*.whl" in wheel
         assert "rm -rf /tmp/ctx" in wheel
 
-    def test_wheel_copy_idiom_present(self, hello_project):
-        """The wheel is staged via ``COPY .dockerignore *.wh[l]`` — the
-        always-present .dockerignore sibling keeps the COPY from failing when no
-        wheel exists."""
-        text = (hello_project / "Dockerfile").read_text()
-        assert re.search(r"^COPY \.dockerignore \*\.wh\[l\] /tmp/ctx/", text, flags=re.MULTILINE), (
-            "missing `COPY .dockerignore *.wh[l] /tmp/ctx/` wheel-staging idiom"
-        )
+    def test_primer_installs_the_framework_alone(self, hello_project, deps_project):
+        """The primer names the OSPREY spec and nothing else — only whitespace
+        sits between the spec and the ``||`` fallback, whether or not the
+        profile declares dependencies. Those install later, under the frozen
+        set, so they cannot take part in the framework's own resolve."""
+        for project in (hello_project, deps_project):
+            deps = self._deps_run_body((project / "Dockerfile").read_text())
+            assert re.search(r'"\$OSPREY_PIP_SPEC" +\|\|', deps), deps
+            assert re.search(r"uv pip install osprey-framework *;", deps), deps
 
-    def test_deps_run_has_no_deps_for_hello_world(self, hello_project):
-        """hello-world has no profile dependencies — the OSPREY spec is installed
-        bare (only whitespace between the spec and the ``||`` fallback)."""
-        deps = self._deps_run_body((hello_project / "Dockerfile").read_text())
-        assert re.search(r'"\$OSPREY_PIP_SPEC" +\|\|', deps), deps
-
-    def test_profile_dependencies_on_deps_run(self, deps_project):
-        """Profile pip deps appear shlex-quoted after ``$OSPREY_PIP_SPEC`` in the
-        deps RUN (both the primary install and the dev fallback carry them)."""
+    def test_profile_dependencies_install_under_the_frozen_set(self, deps_project):
+        """Profile pip deps appear shlex-quoted on a ``pip install`` of their
+        own, constrained by the set frozen after the primer."""
         deps = self._deps_run_body((deps_project / "Dockerfile").read_text())
-        assert "numpy" in deps
-        assert "'pydantic>=2'" in deps, "version-constrained dep must be shell-quoted"
-        # Deps trail the OSPREY spec token, not precede it.
-        assert "numpy" in deps.split('"$OSPREY_PIP_SPEC"', 1)[1]
+        assert (
+            "uv pip install -c /tmp/deps-ctx/pip-constraints.txt -c /opt/osprey/constraints.txt "
+            "numpy 'pydantic>=2'" in deps
+        ), deps
+        assert deps.count("numpy") == 1, "profile deps belong to exactly one install"
+
+    def test_no_profile_dependencies_renders_no_constrained_install(self, hello_project):
+        """hello-world has no profile dependencies, so there is nothing to
+        install under the frozen set — but the set is still frozen, because
+        the wheel layer reads it."""
+        deps = self._deps_run_body((hello_project / "Dockerfile").read_text())
+        assert "-c /opt/osprey/constraints.txt" not in deps
+        assert (
+            "pip freeze --exclude uv --exclude pip --exclude setuptools --exclude wheel > /opt/osprey/constraints.txt"
+            in deps
+        )
 
     def test_environment_packages_on_deps_run(self, packages_project):
         """A ``--skip-deps`` render installs the list a full build installs:
@@ -556,11 +579,11 @@ class TestDockerfileContent:
 
     @staticmethod
     def _install_calls(log) -> list[str]:
-        """The logged installer calls, less the layer's own uv bootstrap and removal."""
+        """The logged install calls, less the layer's own uv bootstrap."""
         return [
             c
             for c in log.read_text().splitlines()
-            if not c.startswith(("install uv==", "uninstall -y uv"))
+            if c.startswith("install ") and not c.startswith("install uv==")
         ]
 
     def test_git_spec_preinstalls_every_workspace_member(self, hello_project, tmp_path):
@@ -1417,6 +1440,275 @@ class TestLayerOrder:
             assert instr in {"RUN", "ENV", "WORKDIR", "EXPOSE", "ENTRYPOINT", "CMD"}, instr
             if instr == "RUN":
                 assert body.split()[0] in {"mkdir", "groupadd", "chown"}, body
+
+
+# ── Headless browser layer and per-panel image checks ────────────────────────
+
+
+class TestBrowserLayerAndImageChecks:
+    """Every image carries the headless browser; a profile that selects a
+    panel with image checks gets those checks too.
+
+    The browser layer is unconditional: the artifact converter needs Chromium
+    in every image, so no profile key decides it. A sidecar panel's
+    ``image_checks`` are the per-profile fact. These register a synthetic
+    panel, so the pins do not move with what a shipped panel asks for, and ask
+    the two questions the
+    real render asks: what does the profile's selection put in the Dockerfile
+    context (``_profile_image_checks_context``), and what does the template
+    make of that context. A tier is a profile like any other here — the one
+    that keeps the panel carries the checks, the one that drops it does not —
+    and so is the deployment's own project, whose image the dispatch worker
+    and the background jobs run.
+    """
+
+    #: The synthetic panel's id and what it asks of an image. The first check
+    #: carries every character a template with autoescaping would mangle.
+    _PANEL = "screens"
+    _CHECKS = (
+        """python -I -c "import importlib.util as u; print('<ok>')" && test -d data""",
+        "python -I -m synthetic.report data/screens --check",
+    )
+
+    #: The checks block, exactly as rendered for project ``synthetic``. The
+    #: comment is part of the pin: a Dockerfile is read by the operator who
+    #: has to explain a failing first build.
+    _IMAGE_CHECKS = (
+        "\n"
+        "# Image checks. Each panel this profile selects may name commands that have to\n"
+        "# pass before the image exists; they run from the deployment directory, on the\n"
+        "# tree the COPY above just put there, and a failing one fails the build.\n"
+        f"RUN cd /app/synthetic && {_CHECKS[0]}\n"
+        f"RUN cd /app/synthetic && {_CHECKS[1]}\n"
+    )
+
+    #: The one browser install, as every render carries it.
+    _BROWSER_INSTALL = "python -m playwright install --with-deps --only-shell chromium"
+
+    class _Profile:
+        """The one attribute of a resolved profile the context reads."""
+
+        def __init__(self, *web_panels: str):
+            self.web_panels = list(web_panels)
+
+    @pytest.fixture
+    def panel(self, monkeypatch):
+        """Register the synthetic panel; return its id."""
+        from osprey.profiles.sidecar_panels import SIDECAR_PANELS, SidecarPanel
+
+        monkeypatch.setitem(
+            SIDECAR_PANELS,
+            self._PANEL,
+            SidecarPanel(
+                "Synthetic screens",
+                "tests.synthetic:Sidecar",
+                image_checks=self._CHECKS,
+            ),
+        )
+        return self._PANEL
+
+    @staticmethod
+    def _context(*web_panels: str) -> dict:
+        from osprey.cli.build_cmd import _profile_image_checks_context
+
+        return _profile_image_checks_context(TestBrowserLayerAndImageChecks._Profile(*web_panels))
+
+    @staticmethod
+    def _index(instructions: list[tuple[str, str]], instruction: str, fragment: str) -> int:
+        hits = [
+            i
+            for i, (instr, body) in enumerate(instructions)
+            if instr == instruction and fragment in body
+        ]
+        assert len(hits) == 1, (instruction, fragment, hits)
+        return hits[0]
+
+    def _assert_browser_once_before_the_wheel(self, text: str) -> None:
+        """The browser layer: present, exactly once, after deps and before the wheel drop."""
+        instructions = _instructions(text)
+        index = self._index
+        assert text.count(self._BROWSER_INSTALL) == 1
+        assert text.count("ENV PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright\n") == 1
+        deps = index(
+            instructions,
+            "RUN",
+            "pip freeze --exclude uv --exclude pip --exclude setuptools --exclude wheel > /opt/osprey/constraints.txt",
+        )
+        browser_env = index(instructions, "ENV", "PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright")
+        browser = index(instructions, "RUN", "playwright install")
+        wheel_copy = index(instructions, "COPY", "*.wh[l]")
+        wheel = index(instructions, "RUN", "--force-reinstall")
+        assert [deps, browser_env, browser, wheel_copy, wheel] == list(range(deps, deps + 5)), (
+            "the browser layer is not directly between the deps layer and the wheel drop"
+        )
+
+    # -- the context -----------------------------------------------------------
+
+    def test_a_selected_panel_asks_for_its_checks(self, panel):
+        assert self._context("artifacts", panel, "jupyter") == {"image_checks": list(self._CHECKS)}
+
+    @pytest.mark.usefixtures("panel")
+    def test_an_unselected_panel_asks_for_nothing(self):
+        """The registry holds the panel; this profile does not select it."""
+        assert self._context("artifacts", "jupyter") == {"image_checks": []}
+        assert self._context() == {"image_checks": []}
+
+    @pytest.mark.usefixtures("panel")
+    def test_a_profile_with_no_selection_at_all(self):
+        profile = self._Profile()
+        profile.web_panels = None
+        from osprey.cli.build_cmd import _profile_image_checks_context
+
+        assert _profile_image_checks_context(profile) == {"image_checks": []}
+
+    def test_checks_follow_selection_order_and_run_once(self, monkeypatch, panel):
+        from osprey.profiles.sidecar_panels import SIDECAR_PANELS, SidecarPanel
+
+        monkeypatch.setitem(
+            SIDECAR_PANELS,
+            "reports",
+            SidecarPanel("Synthetic reports", "tests.synthetic:Reports", image_checks=("true",)),
+        )
+        assert self._context("reports") == {"image_checks": ["true"]}
+        monkeypatch.setitem(
+            SIDECAR_PANELS,
+            "twin",
+            SidecarPanel("Synthetic twin", "tests.synthetic:Twin", image_checks=("true", "false")),
+        )
+        assert self._context("twin", "reports", panel)["image_checks"] == [
+            "true",
+            "false",
+            *self._CHECKS,
+        ]
+
+    def test_no_shipped_panel_names_checks(self):
+        """The shipped sidecar panels name no image checks."""
+        from osprey.profiles.sidecar_panels import SIDECAR_PANELS
+
+        assert self._context(*SIDECAR_PANELS) == {"image_checks": []}
+
+    def test_the_render_context_carries_the_key(self):
+        """The call site: `_repo_render_context` spreads the helper's keys."""
+        import inspect
+
+        from osprey.cli import build_cmd
+
+        assert "**_profile_image_checks_context(build_profile)" in inspect.getsource(
+            build_cmd._repo_render_context
+        )
+
+    # -- the template ----------------------------------------------------------
+
+    def test_the_browser_is_always_present_once_before_the_wheel_layer(self, panel):
+        """No key turns the browser on or off: the plain render, a render with
+        checks and a render with the checks key empty all carry it once."""
+        for text in (
+            _render_template(),
+            _render_template(image_checks=[]),
+            _render_template(**self._context(panel)),
+        ):
+            self._assert_browser_once_before_the_wheel(text)
+
+    def test_a_profile_without_the_panel_renders_byte_for_byte_as_before(self, panel):
+        """Key absent, key empty, and a profile that drops the panel: one text.
+
+        And that text is the checks render with exactly the checks block taken
+        out, so nothing else in the file depends on the key.
+        """
+        plain = _render_template()
+        assert _render_template(image_checks=[]) == plain
+        assert _render_template(**self._context("artifacts", "jupyter")) == plain
+        for word in ("Image checks", "RUN cd /app/"):
+            assert word not in plain, word
+
+        full = _render_template(**self._context(panel))
+        assert full.count(self._IMAGE_CHECKS) == 1
+        assert full.replace(self._IMAGE_CHECKS, "") == plain
+
+    def test_line_order(self, panel):
+        """deps → browser → wheel drop → deployment COPY → checks → chown.
+
+        The browser layer needs the Playwright the deps layer resolved and
+        must not be rebuilt by a wheel drop; a check needs the deployment tree
+        and whatever the wheel layer installed, and runs before the image
+        hands anything to the runtime user.
+        """
+        text = _render_template(**self._context(panel))
+        self._assert_browser_once_before_the_wheel(text)
+        instructions = _instructions(text)
+        index = self._index
+
+        wheel = index(instructions, "RUN", "--force-reinstall")
+        deployment = index(instructions, "COPY", ". /app/synthetic/")
+        state = index(instructions, "RUN", "/app/synthetic/var/spool")
+        first = index(instructions, "RUN", f"cd /app/synthetic && {self._CHECKS[0]}")
+        second = index(instructions, "RUN", f"cd /app/synthetic && {self._CHECKS[1]}")
+        split = index(instructions, "RUN", "groupadd --gid 1000 osprey")
+
+        assert wheel < deployment < state
+        assert [state, first, second, split] == list(range(state, state + 4))
+
+    def test_checks_render_verbatim(self, panel):
+        """No escaping: a check is shell, quotes and all."""
+        text = _render_template(**self._context(panel), project_name="demo-readwrite")
+        for check in self._CHECKS:
+            assert f"\nRUN cd /app/demo-readwrite && {check}\n" in text
+
+    def test_rendered_checks_stay_valid_shell(self, panel):
+        text = _render_template(**self._context(panel))
+        bodies = [b for i, b in _instructions(text) if i == "RUN"]
+        assert len(bodies) == len(
+            [b for i, b in _instructions(_render_template()) if i == "RUN"]
+        ) + len(self._CHECKS)
+        for body in bodies:
+            if body.startswith("cd /app/synthetic && "):
+                proc = subprocess.run(["sh", "-n", "-c", body], capture_output=True, text=True)
+                assert proc.returncode == 0, (body, proc.stderr)
+
+    # -- the two kinds of image -------------------------------------------------
+
+    def test_tier_case(self, panel):
+        """Per tier: the tier that keeps the panel, and the render that drops it.
+
+        Each render is built from its own resolved profile into its own
+        project (`<repo>-<name>`), so the checks change directory into that
+        render's deployment, and the render without the panel is the plain
+        image — browser included.
+        """
+        keeps = _render_template(**self._context("artifacts", panel), project_name="demo-readwrite")
+        drops = _render_template(**self._context("artifacts"), project_name="demo-knowledge")
+
+        assert keeps.count(self._BROWSER_INSTALL) == 1
+        assert f"RUN cd /app/demo-readwrite && {self._CHECKS[1]}\n" in keeps
+        assert drops == _render_template(project_name="demo-knowledge")
+        assert drops.count(self._BROWSER_INSTALL) == 1
+        assert "RUN cd /app/" not in drops
+
+    def test_tier_case_keeps_its_own_capability_line(self, panel):
+        """The two per-profile conditionals do not disturb each other."""
+        chown = "RUN chown osprey:osprey /app/synthetic/build/config.yml"
+        admin = _render_template(**self._context(panel), is_setup_patch_capable=True)
+        instructions = _instructions(admin)
+        check = self._index(instructions, "RUN", f"cd /app/synthetic && {self._CHECKS[1]}")
+        assert chown in admin
+        assert check < self._index(instructions, "RUN", "chown osprey:osprey /app/synthetic/build")
+        assert admin.replace(self._IMAGE_CHECKS, "") == _render_template(
+            is_setup_patch_capable=True
+        )
+
+    def test_base_project_case(self, panel):
+        """The deployment's own project selects the panel, so its image — the
+        one the dispatch worker and the background jobs run — carries the
+        checks beside the browser every image has."""
+        text = _render_template(**self._context("artifacts", "jupyter", panel), project_name="demo")
+
+        self._assert_browser_once_before_the_wheel(text)
+        runs = [b for i, b in _instructions(text) if i == "RUN" and b.startswith("cd /app/")]
+        assert runs == [f"cd /app/demo && {check}" for check in self._CHECKS]
+        # Still the same image otherwise: one entrypoint, one privilege drop.
+        assert text.replace(
+            self._IMAGE_CHECKS.replace("/app/synthetic", "/app/demo"), ""
+        ) == _render_template(project_name="demo")
 
 
 # ── Anti-drift guard ─────────────────────────────────────────────────────────

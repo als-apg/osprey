@@ -64,14 +64,13 @@ class TestAPrereleasePin:
 
 
 class TestAStablePin:
-    def test_the_resolve_stays_strict(self, calls, tmp_path):
-        data = _build(tmp_path / "project", "osprey-framework==2026.9.0")
-
-        assert "--prerelease" not in _install_cmd(calls)
-        assert "tool" not in data
-
-    def test_a_pin_that_only_excludes_a_prerelease_stays_strict(self, calls, tmp_path):
-        data = _build(tmp_path / "project", "osprey-framework>=2026.6.2,!=2026.6.2a0")
+    @pytest.mark.parametrize(
+        "pin",
+        ["osprey-framework==2026.9.0", "osprey-framework>=2026.6.2,!=2026.6.2a0"],
+        ids=["exact-stable", "excludes-only-a-prerelease"],
+    )
+    def test_the_resolve_stays_strict(self, calls, tmp_path, pin):
+        data = _build(tmp_path / "project", pin)
 
         assert "--prerelease" not in _install_cmd(calls)
         assert "tool" not in data

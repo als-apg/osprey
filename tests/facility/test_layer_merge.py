@@ -165,21 +165,24 @@ class TestSourcesLoad:
         assert (err.kind, err.record_kind, err.record_id) == ("layer-duplicate", "device", "Q1")
         assert "layer mml" in err.detail
 
-    def test_same_id_in_two_layers_is_not_a_duplicate(self, tmp_path: Path) -> None:
-        errors = _load_errors(
-            tmp_path,
-            {
-                "records/devices.yaml": [{"id": "Q1"}],
-                "imported/mml/devices.yaml": [{"id": "Q1"}],
-            },
-        )
-        assert errors == []
-
-    def test_ids_repeat_across_kinds(self, tmp_path: Path) -> None:
-        errors = _load_errors(
-            tmp_path,
-            {"records/places.yaml": [{"id": "A/B"}], "records/devices.yaml": [{"id": "A/B"}]},
-        )
+    @pytest.mark.parametrize(
+        "files",
+        [
+            pytest.param(
+                {
+                    "records/devices.yaml": [{"id": "Q1"}],
+                    "imported/mml/devices.yaml": [{"id": "Q1"}],
+                },
+                id="same-id-in-two-layers",
+            ),
+            pytest.param(
+                {"records/places.yaml": [{"id": "A/B"}], "records/devices.yaml": [{"id": "A/B"}]},
+                id="ids-repeat-across-kinds",
+            ),
+        ],
+    )
+    def test_a_repeated_id_is_not_a_duplicate(self, tmp_path: Path, files) -> None:
+        errors = _load_errors(tmp_path, files)
         assert errors == []
 
     def test_every_stop_is_collected(self, tmp_path: Path) -> None:
@@ -345,16 +348,25 @@ class TestLayerMerge:
         ]
         assert wiring["provenance"]["defaults"] == ["slices.device", "slices.weight"]
 
-    def test_set_valued_lists_compare_sorted(self, tmp_path: Path) -> None:
+    @pytest.mark.parametrize(
+        ("field", "authored", "imported", "merged"),
+        [
+            pytest.param("tags", ["orbit", "bpm"], ["bpm", "orbit"], ["bpm", "orbit"], id="tags"),
+            pytest.param("names", ["b", "a"], ["a", "b"], ["a", "b"], id="names"),
+        ],
+    )
+    def test_set_valued_lists_compare_sorted(
+        self, tmp_path: Path, field, authored, imported, merged
+    ) -> None:
         result = _build(
             tmp_path,
             {
-                "records/channels.yaml": [{"id": "SR:X", "tags": ["orbit", "bpm"]}],
-                "imported/mml/channels.yaml": [{"id": "SR:X", "tags": ["bpm", "orbit"]}],
+                "records/channels.yaml": [{"id": "SR:X", field: authored}],
+                "imported/mml/channels.yaml": [{"id": "SR:X", field: imported}],
             },
         )
         assert result.errors == []
-        assert _record(result, "channels", "SR:X")["tags"] == ["bpm", "orbit"]
+        assert _record(result, "channels", "SR:X")[field] == merged
 
     def test_ordered_lists_compare_in_source_order(self, tmp_path: Path) -> None:
         result = _build(
@@ -369,17 +381,6 @@ class TestLayerMerge:
             },
         )
         assert _one(result.errors).kind == "layer-conflict"
-
-    def test_names_merge_as_a_set(self, tmp_path: Path) -> None:
-        result = _build(
-            tmp_path,
-            {
-                "records/channels.yaml": [{"id": "SR:X", "names": ["b", "a"]}],
-                "imported/mml/channels.yaml": [{"id": "SR:X", "names": ["a", "b"]}],
-            },
-        )
-        assert result.errors == []
-        assert _record(result, "channels", "SR:X")["names"] == ["a", "b"]
 
     def test_bool_options_default(self, tmp_path: Path) -> None:
         result = _build(

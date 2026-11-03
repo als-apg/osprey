@@ -231,17 +231,21 @@ def test_patch_coerces_string_onto_int_and_is_a_noop_when_equal(client: TestClie
     assert isinstance(full["num"], int)
 
 
-def test_patch_field_constraint_violation_422(client: TestClient) -> None:
+@pytest.mark.parametrize(
+    "field",
+    [
+        pytest.param("num", id="constraint-violation"),  # num=1 breaks ge=3
+        pytest.param("bogus_field", id="unknown-field"),
+    ],
+)
+def test_patch_of_a_bad_field_is_422_naming_the_field(client: TestClient, field: str) -> None:
     client.patch(
         "/draft",
         json={"plan_name": "orm", "plan_args_patch": _ORM_ARGS, "client_id": "agent-1"},
     )
-    resp = client.patch(
-        "/draft",
-        json={"plan_args_patch": {"num": 1}, "client_id": "agent-1"},  # ge=3
-    )
+    resp = client.patch("/draft", json={"plan_args_patch": {field: 1}, "client_id": "agent-1"})
     assert resp.status_code == 422
-    assert resp.json()["detail"]["field"] == "num"
+    assert resp.json()["detail"]["field"] == field
 
 
 # ---------------------------------------------------------------------------
@@ -256,18 +260,6 @@ def test_unknown_plan_name_422(client: TestClient) -> None:
     )
     assert resp.status_code == 422
     assert "unknown plan" in str(resp.json()["detail"])
-
-
-def test_unknown_field_rejected_422(client: TestClient) -> None:
-    client.patch(
-        "/draft",
-        json={"plan_name": "orm", "plan_args_patch": _ORM_ARGS, "client_id": "agent-1"},
-    )
-    resp = client.patch(
-        "/draft", json={"plan_args_patch": {"bogus_field": 1}, "client_id": "agent-1"}
-    )
-    assert resp.status_code == 422
-    assert resp.json()["detail"]["field"] == "bogus_field"
 
 
 # ---------------------------------------------------------------------------

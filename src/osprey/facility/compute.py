@@ -671,6 +671,7 @@ def _place_from(device: dict[str, Any], place_from: str) -> None:
 
 
 def _nominal_band(run: _Run) -> None:
+    from osprey_connectors.simulation import topoff
     from osprey_connectors.simulation.values import coerce, zero
 
     channels = {c["id"]: c for c in run.document.get("channels", [])}
@@ -686,8 +687,18 @@ def _nominal_band(run: _Run) -> None:
     }
 
     def seed(address: str) -> dict[str, Any]:
-        value = channels[address].get("simulation")
+        channel = channels.get(address)
+        value = channel.get("simulation") if channel is not None else None
         return value if isinstance(value, dict) else {}
+
+    def derived(address: str) -> str | None:
+        """What a seed's held value is called when the seed derives it, not states it."""
+        own = seed(address)
+        if topoff.topoff_record(own) is not None:
+            return "held level of `topoff`"
+        if topoff.held_value(own, seed) is not None:
+            return "held lifetime of `topoff_lifetime`"
+        return None
 
     def nominal(address: str) -> tuple[Any, list[str]]:
         channel = channels[address]
@@ -695,6 +706,9 @@ def _nominal_band(run: _Run) -> None:
             value, record = defaults[address]
             return value, stating_files(record, None, _MODELS_FILE)
         own = seed(address)
+        held = topoff.held_value(own, seed)
+        if held is not None:
+            return held, stating_files(channel, "simulation", _MODELS_FILE)
         if "nominal" in own:
             value_type = channel.get("value_type")
             coerced = coerce(
@@ -738,6 +752,7 @@ def _nominal_band(run: _Run) -> None:
             and not low <= 0 <= high
             and address not in defaults
             and "nominal" not in seed(address)
+            and derived(address) is None
         ):
             run.stop(
                 "seed-missing",
@@ -759,7 +774,7 @@ def _nominal_band(run: _Run) -> None:
             "channel",
             address,
             sorted({*files, _LIMITS_FILE}),
-            f"nominal {exact_number(value)} lies {'below' if value < low else 'above'} {side} {exact_number(bound)}",
+            f"{derived(address) or 'nominal'} {exact_number(value)} lies {'below' if value < low else 'above'} {side} {exact_number(bound)}",
             "move the operating point inside [min_value, max_value], or widen the limits record",
         )
 

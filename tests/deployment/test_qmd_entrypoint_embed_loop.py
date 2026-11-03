@@ -69,12 +69,21 @@ def _run_embed_pass(tmp_path: Path, *, pending: int, per_round: int, floor: int 
     return result, len(calls.read_text().split())
 
 
-def test_embedding_repeats_until_nothing_is_pending(tmp_path):
-    # 9,984 documents with ~1,258 embedded per session in the field; scaled down.
-    result, rounds = _run_embed_pass(tmp_path, pending=10, per_round=3)
+@pytest.mark.parametrize(
+    ("pending", "expected_rounds"),
+    [
+        # 9,984 documents with ~1,258 embedded per session in the field; scaled down.
+        pytest.param(10, 4, id="repeats-until-nothing-is-pending"),
+        # The status parser fails towards zero; a zero read before any embedding must
+        # not skip the embedding itself.
+        pytest.param(0, 1, id="runs-once-when-status-reports-nothing-pending"),
+    ],
+)
+def test_embedding_runs_until_nothing_is_pending(tmp_path, pending, expected_rounds):
+    result, rounds = _run_embed_pass(tmp_path, pending=pending, per_round=3)
 
     assert result.returncode == 0, result.stdout + result.stderr
-    assert rounds == 4
+    assert rounds == expected_rounds
     assert "PENDING=0" in result.stdout
 
 
@@ -86,13 +95,3 @@ def test_a_round_that_embeds_nothing_ends_the_loop_and_reports_what_is_left(tmp_
     assert rounds == 4
     assert "PENDING=2" in result.stdout
     assert "2 document(s) still have no vectors" in result.stdout
-
-
-def test_embedding_runs_once_even_when_status_reports_nothing_pending(tmp_path):
-    # The status parser fails towards zero; a zero read before any embedding must
-    # not skip the embedding itself.
-    result, rounds = _run_embed_pass(tmp_path, pending=0, per_round=3)
-
-    assert result.returncode == 0, result.stdout + result.stderr
-    assert rounds == 1
-    assert "PENDING=0" in result.stdout

@@ -1,11 +1,13 @@
 // @ts-check
 /* OSPREY Web Terminal — Panel Commands
  *
- * Thin POST helpers for the panel visibility / registration endpoints, shared
- * by the tab strip's "×", the "+" add menu, and any other caller. Kept out of
- * panel-manager so that module stays focused on panel lifecycle and rendering.
- * Each issues its request; the server's SSE echo drives the DOM, so a human
- * action and an agent MCP call are indistinguishable downstream.
+ * Thin POST helpers for the panel endpoints, shared by the tab strip's "×",
+ * the "+" add menu, the Layouts presets, the dock op runner and any other
+ * caller. Kept out of panel-manager so that module stays focused on panel
+ * lifecycle and rendering. Rail commands issue their request and the server's
+ * SSE echo drives the DOM; dock ops go through the same `/api/panel-op/*`
+ * routes an agent uses, so a human action and an agent MCP call are
+ * indistinguishable downstream.
  */
 
 import { withPrefix } from './api.js';
@@ -76,33 +78,18 @@ export function setPanelFocus(panelId) {
 }
 
 /**
- * Report which service tiles this client currently has on screen, in spatial
- * reading order. A REPORT rather than a command: the server records it as the
- * workspace's `open_tiles` for the agent to read and broadcasts nothing, so one
- * operator's tile gestures never rearrange another's workspace. An empty list is
- * a meaningful report — every service tile closed — so a caller that cannot
- * determine occupancy must skip the call rather than send `[]`.
- *
- * Unlike the fire-and-forget commands above this resolves with the server's
- * acknowledgement, because the caller's dedupe baseline must track what the
- * server actually holds: a report the server never received must not be
- * remembered as sent, or the layout it described would be deduped away forever.
- * Never rejects — a failed or rejected report resolves null, which callers read
- * as "baseline unchanged, report again next time".
- * @param {string[]} tiles  service panel ids, left-to-right
- * @param {boolean} dock    whether this client has a dock shell; a false report
- *   carries no meaningful tile order, only the fact that a client is watching
- * @returns {Promise<{status: string, tiles: string[], dock: boolean,
- *   updated: boolean} | null>}  the acknowledgement — `updated: false` marks a
- *   server-side deduped no-op, which is still an acknowledgement — or null when
- *   the report did not land.
+ * POST a JSON body and resolve the parsed answer, or null when the request did
+ * not land (network failure, non-2xx, non-JSON body). Never rejects.
+ * @param {string} path
+ * @param {unknown} body
+ * @returns {Promise<any | null>}
  */
-export async function reportPanelLayout(tiles, dock) {
+async function postJSON(path, body) {
   try {
-    const resp = await fetch(withPrefix('/api/panel-layout'), {
+    const resp = await fetch(withPrefix(path), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ tiles, dock }),
+      body: JSON.stringify(body),
     });
     if (!resp.ok) return null;
     return await resp.json();
@@ -111,23 +98,39 @@ export async function reportPanelLayout(tiles, dock) {
   }
 }
 
+/** A fresh request id for one dock op. */
+function newRequestId() {
+  return typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+    ? crypto.randomUUID()
+    : `r-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+}
+
 /**
- * Request a whole-workspace tile arrangement: exactly these service tiles open,
- * left to right. Fire-and-forget like the commands above — the server validates
- * the request and broadcasts one panel_arrange frame, and this client applies
- * the arrangement from that echo just like every other client, so a human
- * "Layouts" click and an agent arrange_workspace call are one operation.
- *
- * Pass exactly one of `tiles` and `preset`; a `preset` is resolved to its
- * members server-side and additionally prunes rail membership to them.
- * @param {{tiles?: string[], preset?: string, focus?: string}} request
+ * Request one dock op through the same route an agent uses
+ * (`/api/panel-op/<route>`, e.g. `open-arrangement`). The server relays it to
+ * the current dock client as a `panel_op` frame — possibly this page — whose
+ * op runner applies it like any agent op, so a person's preset click and an
+ * agent's arrange_workspace are one operation. Resolves the server's answer
+ * (`{status: 'ok', layout, rev}`), or null for a refusal or a request that did
+ * not land. Never rejects.
+ * @param {string} route  the op route segment (`drop`, `open-arrangement`, ...)
+ * @param {Record<string, unknown>} body  the op's arguments, without `request_id`
+ * @returns {Promise<{status: string, layout?: unknown, rev?: number} | null>}
  */
-export function arrangePanels(request) {
-  fetch(withPrefix('/api/panel-arrange'), {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(request),
-  }).catch(() => {});
+export function requestPanelOp(route, body) {
+  return postJSON(`/api/panel-op/${route}`, { request_id: newRequestId(), ...body });
+}
+
+/**
+ * Answer one `panel_op` frame: the layout the op left, or a named refusal.
+ * Resolves the server's acknowledgement — `rev` is the dock's new ack baseline
+ * — or null when the answer did not land. Never rejects.
+ * @param {{request_id: string, client_id: string, layout?: unknown, popouts?: string[],
+ *   refusal?: string, detail?: string}} answer
+ * @returns {Promise<{status: string, layout?: unknown, popouts?: string[], rev?: number} | null>}
+ */
+export function postPanelOpResult(answer) {
+  return postJSON('/api/panel-op-result', answer);
 }
 
 /**

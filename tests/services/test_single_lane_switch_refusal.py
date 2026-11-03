@@ -203,11 +203,21 @@ async def test_queue_start_on_the_baseline_reaches_the_bridge_when_switched_on(
     assert post.call_args.args[0] == "/queue/start"
 
 
-@pytest.mark.parametrize("baseline", ["live", "va"])
-async def test_a_session_sitting_on_the_baseline_is_not_a_mismatch(deployment, baseline):
-    """A published record is not itself a refusal — only a differing one is."""
+@pytest.mark.parametrize(
+    ("baseline", "recorded"),
+    [
+        # A published record is not itself a refusal — only a differing one is.
+        pytest.param("live", "live", id="live-session-on-the-baseline"),
+        pytest.param("va", "va", id="va-session-on-the-baseline"),
+        # A record whose ``target`` is not one of the known names is not an answer.
+        pytest.param("live", "somewhere-else", id="record-naming-an-unknown-target"),
+    ],
+)
+async def test_a_record_that_does_not_differ_from_the_baseline_is_not_a_mismatch(
+    deployment, baseline, recorded
+):
     root = deployment(baseline)
-    _deployment_on(root, baseline)
+    _deployment_on(root, recorded)
 
     with patch(f"{_MOD}._http_post_json", return_value=(200, {"run_id": "r1"})) as post:
         with patch(f"{_MOD}.notify_agent_activity_async"):
@@ -328,18 +338,6 @@ async def test_halting_is_never_gated_by_the_control_target(deployment):
 async def test_a_corrupt_record_reads_as_the_baseline(deployment):
     root = deployment("live")
     _write_raw_record(root, "{not json at all")
-
-    with patch(f"{_MOD}._http_post_json", return_value=(200, {"run_id": "r1"})) as post:
-        with patch(f"{_MOD}.notify_agent_activity_async"):
-            await _add()
-
-    assert post.called
-
-
-async def test_a_record_naming_an_unknown_target_reads_as_the_baseline(deployment):
-    """A record whose ``target`` is not one of the known names is not an answer."""
-    root = deployment("live")
-    _deployment_on(root, "somewhere-else")
 
     with patch(f"{_MOD}._http_post_json", return_value=(200, {"run_id": "r1"})) as post:
         with patch(f"{_MOD}.notify_agent_activity_async"):

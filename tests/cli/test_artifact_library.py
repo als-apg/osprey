@@ -198,9 +198,17 @@ class TestResolveArtifact:
         # File may be .md or .md.j2
         assert "safety" in path.stem or "safety" in path.name
 
-    def test_resolve_rule_j2_template(self):
-        # control-system-safety is a .md.j2 template
-        path = resolve_artifact("rules", "control-system-safety")
+    @pytest.mark.parametrize(
+        ("artifact_type", "name"),
+        [
+            # control-system-safety is a .md.j2 template
+            pytest.param("rules", "control-system-safety", id="rule-j2-template"),
+            pytest.param("agents", "channel-finder", id="agent"),
+            pytest.param("output_styles", "control-operator", id="output-style"),
+        ],
+    )
+    def test_resolve_returns_an_existing_file(self, artifact_type, name):
+        path = resolve_artifact(artifact_type, name)
         assert path.exists()
         assert path.is_file()
 
@@ -213,16 +221,6 @@ class TestResolveArtifact:
     def test_resolve_skill_directory_contains_skill_md(self):
         path = resolve_artifact("skills", "session-report")
         assert (path / "SKILL.md").exists()
-
-    def test_resolve_agent_returns_path(self):
-        path = resolve_artifact("agents", "channel-finder")
-        assert path.exists()
-        assert path.is_file()
-
-    def test_resolve_output_style_returns_path(self):
-        path = resolve_artifact("output_styles", "control-operator")
-        assert path.exists()
-        assert path.is_file()
 
     def test_resolve_unknown_hook_raises(self):
         with pytest.raises(ValueError) as exc_info:

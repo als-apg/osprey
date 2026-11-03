@@ -1,7 +1,6 @@
 """AskSage Provider Adapter Implementation."""
 
 import contextlib
-import json
 from typing import Any
 
 import openai
@@ -10,7 +9,7 @@ from openai.types.chat import ChatCompletion, ChatCompletionMessageParam
 from osprey_connectors.logger import get_logger
 
 from .base import BaseProvider
-from .litellm_adapter import _clean_json_response, _structured_reply
+from .litellm_adapter import _clean_json_response, _structured_reply, schema_instruction_for
 
 logger = get_logger("asksage")
 
@@ -157,12 +156,7 @@ class AskSageProviderAdapter(BaseProvider):
 
         if output_format is not None:
             schema = output_format.model_json_schema()
-            structured_message = f"""{message}
-
-You must respond with valid JSON that matches this schema:
-{json.dumps(schema, indent=2)}
-
-Respond ONLY with the JSON object, no additional text or markdown formatting."""
+            structured_message = f"{message}\n\n{schema_instruction_for(schema)}"
             messages: list[ChatCompletionMessageParam] = [
                 {"role": "user", "content": structured_message}
             ]

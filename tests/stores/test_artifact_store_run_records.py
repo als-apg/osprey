@@ -10,6 +10,8 @@ not the whole store.
 
 from __future__ import annotations
 
+import pytest
+
 from osprey.stores.artifact_store import RUN_RECORD_KEY, ArtifactStore, is_run_record
 
 
@@ -21,21 +23,23 @@ def _save(store: ArtifactStore, title: str, **kwargs):
 
 
 class TestIsRunRecord:
-    def test_the_metadata_key_marks_a_run_record(self, store):
-        entry = _save(store, "Run", metadata={RUN_RECORD_KEY: True})
-        assert is_run_record(entry) is True
+    @pytest.mark.parametrize(
+        ("title", "key_value", "expected"),
+        [
+            pytest.param("Run", True, True, id="true-key-marks-a-run-record"),
+            pytest.param("Result", False, False, id="false-key"),
+            # Only the literal ``True`` the writers set counts.
+            pytest.param("Result", "yes", False, id="truthy-non-boolean-key"),
+        ],
+    )
+    def test_the_metadata_key_decides_whether_it_is_a_run_record(
+        self, store, title, key_value, expected
+    ):
+        entry = _save(store, title, metadata={RUN_RECORD_KEY: key_value})
+        assert is_run_record(entry) is expected
 
     def test_an_absent_key_is_not_a_run_record(self, store):
         assert is_run_record(_save(store, "Result")) is False
-
-    def test_a_false_key_is_not_a_run_record(self, store):
-        entry = _save(store, "Result", metadata={RUN_RECORD_KEY: False})
-        assert is_run_record(entry) is False
-
-    def test_a_truthy_non_boolean_key_is_not_a_run_record(self, store):
-        """Only the literal ``True`` the writers set counts."""
-        entry = _save(store, "Result", metadata={RUN_RECORD_KEY: "yes"})
-        assert is_run_record(entry) is False
 
     def test_the_code_output_category_marks_a_run_record(self, store):
         assert is_run_record(_save(store, "Output", category="code_output")) is True

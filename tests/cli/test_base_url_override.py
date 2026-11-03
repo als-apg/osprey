@@ -61,26 +61,25 @@ class TestBuiltInProviderOverride:
         )
         assert CLAUDE_CODE_PROVIDERS[provider]["base_url"] == before
 
-    def test_builtin_url_survives_when_config_names_no_base_url(self):
+    @pytest.mark.parametrize(
+        ("provider", "url"),
+        [
+            pytest.param("cborg", "https://api.cborg.lbl.gov", id="cborg"),
+            # als-apg ships the address of the gateway it fronts, as cborg does.
+            #
+            # A deployment that names no endpoint reaches it without configuration.
+            # This is the test that catches a silent revert to "no default", which
+            # refused every render that received no ``ALS_APG_BASE_URL`` -- every
+            # fork pull request, for one.
+            pytest.param("als-apg", "https://llm.als.lbl.gov", id="als-apg"),
+        ],
+    )
+    def test_builtin_url_survives_when_config_names_no_base_url(self, provider, url):
         spec = ClaudeCodeModelResolver.resolve(
-            {"provider": "cborg"},
-            api_providers={"cborg": {"api_key": "k"}},
+            {"provider": provider},
+            api_providers={provider: {"api_key": "k"}},
         )
-        assert spec.env_block["ANTHROPIC_BASE_URL"] == "https://api.cborg.lbl.gov"
-
-    def test_als_apg_ships_its_gateway_when_config_names_no_base_url(self):
-        """als-apg ships the address of the gateway it fronts, as cborg does.
-
-        A deployment that names no endpoint reaches it without configuration.
-        This is the test that catches a silent revert to "no default", which
-        refused every render that received no ``ALS_APG_BASE_URL`` -- every
-        fork pull request, for one.
-        """
-        spec = ClaudeCodeModelResolver.resolve(
-            {"provider": "als-apg"},
-            api_providers={"als-apg": {"api_key": "k"}},
-        )
-        assert spec.env_block["ANTHROPIC_BASE_URL"] == "https://llm.als.lbl.gov"
+        assert spec.env_block["ANTHROPIC_BASE_URL"] == url
 
     def test_a_builtin_that_ships_no_endpoint_is_refused_when_nothing_names_one(self, monkeypatch):
         """A gateway nothing can stand in for is refused rather than fallen through.
@@ -115,17 +114,17 @@ class TestBuiltInProviderOverride:
 class TestV1StripSurvivesTheOverride:
     """Claude Code appends /v1/messages, so the env var must never end in /v1."""
 
-    def test_overridden_url_is_stripped_of_v1(self):
+    @pytest.mark.parametrize(
+        "suffix",
+        [
+            pytest.param("/v1", id="v1"),
+            pytest.param("/v1/", id="trailing-slash-and-v1"),
+        ],
+    )
+    def test_overridden_url_is_stripped_of_v1(self, suffix):
         spec = ClaudeCodeModelResolver.resolve(
             {"provider": "cborg"},
-            api_providers={"cborg": {"base_url": f"{FACILITY_GATEWAY}/v1"}},
-        )
-        assert spec.env_block["ANTHROPIC_BASE_URL"] == FACILITY_GATEWAY
-
-    def test_overridden_url_is_stripped_of_trailing_slash_and_v1(self):
-        spec = ClaudeCodeModelResolver.resolve(
-            {"provider": "cborg"},
-            api_providers={"cborg": {"base_url": f"{FACILITY_GATEWAY}/v1/"}},
+            api_providers={"cborg": {"base_url": f"{FACILITY_GATEWAY}{suffix}"}},
         )
         assert spec.env_block["ANTHROPIC_BASE_URL"] == FACILITY_GATEWAY
 

@@ -125,8 +125,45 @@ def test_the_bold_family_is_correct_on_the_one_application_the_pipeline_uses():
 # --- code masking / restoration -------------------------------------------------
 
 
-def test_text_with_no_code_at_all_round_trips_unchanged():
-    assert markdown_to_chat("no code at all") == "no code at all"
+@pytest.mark.parametrize(
+    ("md", "expected"),
+    [
+        pytest.param("no code at all", "no code at all", id="text-with-no-code-round-trips"),
+        pytest.param("", "", id="empty-input"),
+        pytest.param("## Title ##", "*Title*", id="headings-closing-hashes-dropped"),
+        pytest.param("  * nested", "  - nested", id="indented-bullet-keeps-its-indent"),
+        # ``#tag`` (no space) is not an ATX heading.
+        pytest.param("#tag stays", "#tag stays", id="hash-without-space-is-not-a-heading"),
+        pytest.param("use `$HOME` here", "use `$HOME` here", id="dollar-inside-inline-code"),
+        # ``$$…$$`` is matched as a display block, not two empty inline spans.
+        pytest.param("$$a$$", "a", id="display-math-before-inline-math"),
+        pytest.param("$x$ and $y$", "x and y", id="multiple-inline-math-spans"),
+        # The single stars produced by bold conversion must NOT become italic.
+        pytest.param("**word**", "*word*", id="bold-stars-never-become-italic"),
+        pytest.param("a **b** c *d* e", "a *b* c _d_ e", id="italic-never-eats-bold-output"),
+        # Heading-bold and inline-bold both survive the italic pass in one call.
+        pytest.param(
+            "# Title\n\n**strong** and *soft*",
+            "*Title*\n\n*strong* and _soft_",
+            id="heading-and-inline-bold-protected-in-one-call",
+        ),
+        pytest.param(
+            "compute 2**3 and 4**2", "compute 2**3 and 4**2", id="arithmetic-double-stars"
+        ),
+        pytest.param("a * b * c", "a * b * c", id="stars-with-spaces-are-not-italic"),
+        # A reference use with no matching definition is not rewritten.
+        pytest.param("[docs][missing]", "[docs][missing]", id="unresolved-reference-link"),
+        pytest.param(
+            "[Osprey][]\n[osprey]: http://x",
+            "Osprey: http://x",
+            id="collapsed-reference-link-uses-its-label",
+        ),
+        # Chat auto-links bare URLs; wrapping would defeat it.
+        pytest.param("http://x/y", "http://x/y", id="bare-url-is-never-bracketed"),
+    ],
+)
+def test_markdown_converts_to_its_chat_form(md, expected):
+    assert markdown_to_chat(md) == expected
 
 
 def test_markdown_significant_characters_inside_inline_code_are_preserved():
@@ -159,10 +196,6 @@ def test_multiple_code_spans_are_restored_in_order():
     assert "`one`" in out and "`two`" in out and "```\nthree\n```" in out
 
 
-def test_empty_input_returns_empty():
-    assert markdown_to_chat("") == ""
-
-
 # --- headings + bullets ---------------------------------------------------------
 
 
@@ -171,23 +204,10 @@ def test_a_heading_at_any_level_loses_all_of_its_hashes():
         assert markdown_to_chat("#" * n + " Title") == "*Title*"
 
 
-def test_a_headings_closing_hashes_are_dropped():
-    assert markdown_to_chat("## Title ##") == "*Title*"
-
-
 def test_bold_at_the_start_of_a_line_is_not_a_bullet():
     # ``**bold**`` (no space after the marker) must not be read as a list item.
     out = markdown_to_chat("**bold** line")
     assert not out.startswith("- ")
-
-
-def test_an_indented_bullet_marker_is_normalized_and_keeps_its_indent():
-    assert markdown_to_chat("  * nested") == "  - nested"
-
-
-def test_a_hash_without_a_following_space_is_not_a_heading():
-    # ``#tag`` (no space) is not an ATX heading.
-    assert markdown_to_chat("#tag stays") == "#tag stays"
 
 
 # --- tables ---------------------------------------------------------------------
@@ -225,29 +245,7 @@ def test_a_lone_dollar_sign_is_never_stripped():
     assert markdown_to_chat("a $ b") == "a $ b"
 
 
-def test_a_dollar_sign_inside_inline_code_is_untouched():
-    assert markdown_to_chat("use `$HOME` here") == "use `$HOME` here"
-
-
-def test_display_math_is_matched_before_inline_math():
-    # ``$$…$$`` is matched as a display block, not two empty inline spans.
-    assert markdown_to_chat("$$a$$") == "a"
-
-
-def test_multiple_inline_math_spans_are_each_stripped():
-    assert markdown_to_chat("$x$ and $y$") == "x and y"
-
-
 # --- emphasis -------------------------------------------------------------------
-
-
-def test_the_stars_that_bold_conversion_produces_never_become_italic():
-    # The single stars produced by bold conversion must NOT become italic.
-    assert markdown_to_chat("**word**") == "*word*"
-
-
-def test_italic_never_eats_bold_output_in_the_same_pass():
-    assert markdown_to_chat("a **b** c *d* e") == "a *b* c _d_ e"
 
 
 def test_bold_containing_inner_italic_degrades_rather_than_corrupts():
@@ -256,40 +254,13 @@ def test_bold_containing_inner_italic_degrades_rather_than_corrupts():
     assert out == "*a *b* c*"
 
 
-def test_a_heading_and_an_inline_bold_are_both_protected_in_one_call():
-    # Heading-bold and inline-bold both survive the italic pass in one call.
-    assert markdown_to_chat("# Title\n\n**strong** and *soft*") == "*Title*\n\n*strong* and _soft_"
-
-
-def test_arithmetic_double_stars_are_untouched():
-    assert markdown_to_chat("compute 2**3 and 4**2") == "compute 2**3 and 4**2"
-
-
-def test_stars_with_spaces_around_them_are_not_italic():
-    assert markdown_to_chat("a * b * c") == "a * b * c"
-
-
 # --- links ----------------------------------------------------------------------
-
-
-def test_an_unresolved_reference_link_is_left_as_is():
-    # A reference use with no matching definition is not rewritten.
-    assert markdown_to_chat("[docs][missing]") == "[docs][missing]"
-
-
-def test_a_collapsed_reference_link_uses_its_label_as_the_reference():
-    assert markdown_to_chat("[Osprey][]\n[osprey]: http://x") == "Osprey: http://x"
 
 
 def test_a_reference_definition_line_is_dropped():
     out = markdown_to_chat("body text\n[d]: http://x")
     assert "http://x" not in out  # unused definition line removed
     assert out == "body text"
-
-
-def test_a_bare_url_is_never_bracketed():
-    # Chat auto-links bare URLs; wrapping would defeat it.
-    assert markdown_to_chat("http://x/y") == "http://x/y"
 
 
 # --- render_mentions ----------------------------------------------------------

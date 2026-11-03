@@ -189,12 +189,27 @@ class TestGraphVocabulary:
         assert set(addresses) == {"property", "node_label", "form", "notes"}
         assert any("Take fullPv verbatim" in note for note in addresses["notes"])
 
-    def test_addresses_warn_that_the_shape_is_the_corpus_own(self, payload):
-        """A corpus records its own address shape; the rows say what it is."""
-        notes = " ".join(payload["addresses"]["notes"])
+    @pytest.mark.parametrize(
+        ("section", "first", "second"),
+        [
+            # A corpus records its own address shape; the rows say what it is.
+            pytest.param(
+                "addresses",
+                "read the shape off the rows",
+                "fullPv",
+                id="addresses-shape-is-the-corpus-own",
+            ),
+            # ``CONTAINS`` against a list property matches nothing — say so.
+            pytest.param("synonyms", "CONTAINS", "ARRAY", id="synonyms-not-scalar-matching"),
+        ],
+    )
+    def test_a_vocabulary_section_warns_how_it_must_be_matched(
+        self, payload, section, first, second
+    ):
+        notes = " ".join(payload[section]["notes"])
 
-        assert "read the shape off the rows" in notes
-        assert "fullPv" in notes
+        assert first in notes
+        assert second in notes
 
     def test_no_middle_layer_word_in_the_manifest(self, payload):
         text = json.dumps(payload)
@@ -262,13 +277,6 @@ class TestGraphVocabulary:
         assert synonyms["node_label"] == "Class"
         assert synonyms["type"] == "list"
         assert synonyms["match"].startswith("ANY(")
-
-    def test_synonyms_warn_against_scalar_matching(self, payload):
-        """``CONTAINS`` against a list property matches nothing — say so."""
-        notes = " ".join(payload["synonyms"]["notes"])
-
-        assert "CONTAINS" in notes
-        assert "ARRAY" in notes
 
     def test_corpus_identity_is_the_facility_property(self, payload):
         corpus = payload["corpus"]

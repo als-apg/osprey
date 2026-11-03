@@ -946,20 +946,27 @@ def test_control_tree_source_defaults_to_the_agent_data_root() -> None:
     assert source == f"./{DEFAULT_AGENT_DATA_BASE_DIR}/control_target"
 
 
-def test_control_tree_source_follows_a_relocated_agent_data_root() -> None:
-    """A project that moved its agent-data root moved the tree with it: the
-    writer resolves its record under that root, so a mount left on the default
-    would bind a directory nobody writes."""
-    source, _ = _tree_keys({"agent_data": {"base_dir": "./scratch-data"}})
+@pytest.mark.parametrize(
+    ("agent_data", "expected"),
+    [
+        # A project that moved its agent-data root moved the tree with it: the
+        # writer resolves its record under that root, so a mount left on the
+        # default would bind a directory nobody writes.
+        pytest.param(
+            {"base_dir": "./scratch-data"}, "./scratch-data/control_target", id="relocated"
+        ),
+        # An absolute root is already anchored — a `./` prefix would break it.
+        pytest.param(
+            {"base_dir": "/srv/osprey-state"}, "/srv/osprey-state/control_target", id="absolute"
+        ),
+    ],
+)
+def test_control_tree_source_follows_the_configured_agent_data_root(
+    agent_data: dict, expected: str
+) -> None:
+    source, _ = _tree_keys({"agent_data": agent_data})
 
-    assert source == "./scratch-data/control_target"
-
-
-def test_control_tree_source_accepts_an_absolute_agent_data_root() -> None:
-    """An absolute root is already anchored — a `./` prefix would break it."""
-    source, _ = _tree_keys({"agent_data": {"base_dir": "/srv/osprey-state"}})
-
-    assert source == "/srv/osprey-state/control_target"
+    assert source == expected
 
 
 def test_control_tree_directory_name_comes_from_the_writer() -> None:
@@ -1238,36 +1245,42 @@ def test_worker_agent_data_volume_honors_an_absolute_base_dir() -> None:
     )
 
 
-def test_worker_template_inactivity_defaults_to_120() -> None:
-    """With no inactivity_sec configured, the worker env pins the watchdog to the
-    built-in 120s default — older configs missing the field still render cleanly."""
+@pytest.mark.parametrize(
+    "expected",
+    [
+        # With no inactivity_sec configured, the worker env pins the watchdog to the
+        # built-in 120s default — older configs missing the field still render cleanly.
+        pytest.param('DISPATCH_INACTIVITY_SEC: "120"', id="inactivity"),
+        # With no max_turns configured the worker env pins the built-in default, so a
+        # project built before the key existed still renders a number the worker reads.
+        pytest.param('DISPATCH_MAX_TURNS: "25"', id="max-turns"),
+    ],
+)
+def test_worker_template_pins_the_built_in_default_when_none_is_configured(
+    expected: str,
+) -> None:
     rendered = _render_worker_template(env_present=True)
-    assert 'DISPATCH_INACTIVITY_SEC: "120"' in rendered
+    assert expected in rendered
 
 
-def test_worker_template_inactivity_reflects_injected_value() -> None:
-    """A configured services.dispatch_worker.inactivity_sec flows to the worker's
-    DISPATCH_INACTIVITY_SEC env, so a long single step is not cut off at 120s."""
+@pytest.mark.parametrize(
+    ("dispatch_worker", "expected"),
+    [
+        # A configured services.dispatch_worker.inactivity_sec flows to the worker's
+        # DISPATCH_INACTIVITY_SEC env, so a long single step is not cut off at 120s.
+        pytest.param({"inactivity_sec": 600}, 'DISPATCH_INACTIVITY_SEC: "600"', id="inactivity"),
+        # A configured services.dispatch_worker.max_turns flows to DISPATCH_MAX_TURNS,
+        # which is what a trigger naming no ceiling of its own is given.
+        pytest.param({"max_turns": 60}, 'DISPATCH_MAX_TURNS: "60"', id="max-turns"),
+    ],
+)
+def test_worker_template_reflects_an_injected_dispatch_worker_value(
+    dispatch_worker: dict, expected: str
+) -> None:
     rendered = _render_worker_template(
-        env_present=False, project_name="p", dispatch_worker={"inactivity_sec": 600}
+        env_present=False, project_name="p", dispatch_worker=dispatch_worker
     )
-    assert 'DISPATCH_INACTIVITY_SEC: "600"' in rendered
-
-
-def test_worker_template_max_turns_defaults_to_25() -> None:
-    """With no max_turns configured the worker env pins the built-in default, so a
-    project built before the key existed still renders a number the worker reads."""
-    rendered = _render_worker_template(env_present=True)
-    assert 'DISPATCH_MAX_TURNS: "25"' in rendered
-
-
-def test_worker_template_max_turns_reflects_injected_value() -> None:
-    """A configured services.dispatch_worker.max_turns flows to DISPATCH_MAX_TURNS,
-    which is what a trigger naming no ceiling of its own is given."""
-    rendered = _render_worker_template(
-        env_present=False, project_name="p", dispatch_worker={"max_turns": 60}
-    )
-    assert 'DISPATCH_MAX_TURNS: "60"' in rendered
+    assert expected in rendered
 
 
 def test_worker_command_unchanged() -> None:

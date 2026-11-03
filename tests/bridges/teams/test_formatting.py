@@ -152,8 +152,29 @@ def test_inline_code_and_links_are_preserved_verbatim():
 # --- code masking / restoration --------------------------------------------------
 
 
-def test_text_with_no_code_at_all_round_trips_unchanged():
-    assert markdown_to_teams("no code at all") == "no code at all"
+@pytest.mark.parametrize(
+    ("md", "expected"),
+    [
+        pytest.param("no code at all", "no code at all", id="text-with-no-code-round-trips"),
+        pytest.param("", "", id="empty-input"),
+        # ``$$…$$`` is matched as a display block, not two empty inline spans.
+        pytest.param("$$a$$", "a", id="display-math-before-inline-math"),
+        pytest.param("$x$ and $y$", "x and y", id="multiple-inline-math-spans"),
+        # Teams renders ``**x**``; rewriting it to a single star would make it italic.
+        pytest.param("**word**", "**word**", id="bold-left-in-its-markdown-spelling"),
+        pytest.param(
+            "# Title\n\n**strong** and *soft*",
+            "**Title**\n\n**strong** and *soft*",
+            id="heading-and-inline-bold-both-bold-in-one-call",
+        ),
+        # Teams resolves reference links itself, so the definition must survive.
+        pytest.param(
+            "body\n[d]: http://x", "body\n[d]: http://x", id="reference-definition-line-kept"
+        ),
+    ],
+)
+def test_markdown_converts_to_its_teams_form(md, expected):
+    assert markdown_to_teams(md) == expected
 
 
 def test_markdown_significant_characters_inside_inline_code_are_preserved():
@@ -170,10 +191,6 @@ def test_an_unterminated_fence_is_left_verbatim():
 def test_multiple_code_spans_are_restored_in_order():
     md = "first `one` then `two` then ```\nthree\n``` done"
     assert markdown_to_teams(md) == md
-
-
-def test_empty_input_returns_empty():
-    assert markdown_to_teams("") == ""
 
 
 def test_a_heading_inside_a_fence_is_never_bolded():
@@ -215,32 +232,7 @@ def test_a_lone_dollar_sign_is_never_stripped():
     assert markdown_to_teams("a $ b") == "a $ b"
 
 
-def test_display_math_is_matched_before_inline_math():
-    # ``$$…$$`` is matched as a display block, not two empty inline spans.
-    assert markdown_to_teams("$$a$$") == "a"
-
-
-def test_multiple_inline_math_spans_are_each_stripped():
-    assert markdown_to_teams("$x$ and $y$") == "x and y"
-
-
 # --- emphasis and links pass through ---------------------------------------------
-
-
-def test_bold_is_left_in_its_markdown_spelling():
-    # Teams renders ``**x**``; rewriting it to a single star would make it italic.
-    assert markdown_to_teams("**word**") == "**word**"
-
-
-def test_a_heading_and_an_inline_bold_are_both_bold_in_one_call():
-    assert markdown_to_teams("# Title\n\n**strong** and *soft*") == (
-        "**Title**\n\n**strong** and *soft*"
-    )
-
-
-def test_a_reference_definition_line_is_kept():
-    # Teams resolves reference links itself, so the definition must survive.
-    assert markdown_to_teams("body\n[d]: http://x") == "body\n[d]: http://x"
 
 
 # --- render_mentions ----------------------------------------------------------

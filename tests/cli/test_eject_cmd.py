@@ -3,23 +3,24 @@
 Tests the list and service subcommands.
 """
 
+import pytest
+
 from osprey.cli.eject_cmd import eject
 
 
 class TestEjectList:
     """Test osprey eject list."""
 
-    def test_list_shows_services(self, runner):
+    @pytest.mark.parametrize(
+        "expected",
+        ["Ejectable services", "channel_finder"],
+        ids=["heading", "channel-finder-service"],
+    )
+    def test_list_shows_the_available_components(self, runner, expected):
         """Test that eject list shows available components."""
         result = runner.invoke(eject, ["list"])
         assert result.exit_code == 0
-        assert "Ejectable services" in result.output
-
-    def test_list_shows_channel_finder_service(self, runner):
-        """Test that channel_finder service appears in ejectable list."""
-        result = runner.invoke(eject, ["list"])
-        assert result.exit_code == 0
-        assert "channel_finder" in result.output
+        assert expected in result.output
 
 
 class TestEjectService:

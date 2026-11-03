@@ -168,8 +168,6 @@ def test_the_check_ids_are_the_public_names() -> None:
         "readonly-warmups-py314",
         "live-ca",
         "vitest",
-        "dock-engine-tests",
-        "dock-engine-bundle",
         "docs",
         "linkcheck",
         "package",
@@ -760,11 +758,6 @@ def test_run_resolves_each_check_to_its_one_command(monkeypatch: pytest.MonkeyPa
     assert run("tsc") == [["npm", "run", "typecheck"]] and "typecheck" in scripts
     assert run("eslint") == [["npm", "run", "lint"]] and "lint" in scripts
     assert run("vitest") == [["npx", *shlex.split(scripts["test:js"]), *VITEST_REPORT]]
-    engine_report = [flag.replace("/vitest/", "/dock-engine-tests/") for flag in VITEST_REPORT]
-    assert run("dock-engine-tests") == [
-        ["npx", *shlex.split(scripts["test:dock-engine"]), *engine_report]
-    ]
-    assert run("dock-engine-bundle") == [shlex.split(scripts["check:dock-engine"])]
 
     for shard, selection in SHARD_SELECTIONS.items():
         (sweep,) = run("pytest", "--shard", shard, "--", *CI_UNIT_EXEC_FLAGS)
@@ -818,7 +811,6 @@ def test_run_resolves_each_check_to_its_one_command(monkeypatch: pytest.MonkeyPa
         ["uv", "venv", "{scratch}/lean", "--python", "3.11"],
         ["uv", "pip", "install", "--python", lean, "dist/osprey_connectors-*.whl"],
         [lean, "-I", fw.LEAN_IMPORT_WALK],
-        ["python3", "-c", fw.DOCK_ENGINE_WHEEL_PROBE, "dist/osprey_framework-*.whl"],
         ["uv", "build", "--package", "pyaml-cs-osprey"],
         ["uv", "venv", "{scratch}/pyaml", "--python", "3.11"],
         [
@@ -1094,19 +1086,33 @@ def test_a_module_in_an_interface_without_tests_widens_to_every_test() -> None:
 
 
 @pytest.mark.parametrize(
-    "path",
+    ("path", "tool"),
     [
-        "vitest.config.js",
-        "tests/vitest.setup.mjs",
-        "package.json",
-        "package-lock.json",
-        TW + "panel-labels-fixture.mjs",
-        "src/osprey/interfaces/design_system/static/js/tokens.js",
-        WT + "vendor/xterm.js",
+        # A shared JavaScript input widens vitest to every test.
+        ("vitest.config.js", "vitest"),
+        ("tests/vitest.setup.mjs", "vitest"),
+        ("package.json", "vitest"),
+        ("package-lock.json", "vitest"),
+        (TW + "panel-labels-fixture.mjs", "vitest"),
+        ("src/osprey/interfaces/design_system/static/js/tokens.js", "vitest"),
+        (WT + "vendor/xterm.js", "vitest"),
+        # What the mapping cannot place widens pytest to the sweep.
+        ("tests/conftest.py", "pytest"),
+        ("tests/cli/conftest.py", "pytest"),
+        ("tests/_shared_contract.py", "pytest"),
+        ("src/osprey/lonely/thing.py", "pytest"),
+        ("src/osprey/__init__.py", "pytest"),
+        ("packages/osprey-connectors/src/osprey_connectors/errors.py", "pytest"),
+        ("pyproject.toml", "pytest"),
+        ("uv.lock", "pytest"),
+        # A script without a mirror widens pytest too.
+        ("scripts/_tier_db_common.py", "pytest"),
     ],
 )
-def test_a_shared_javascript_input_widens_vitest_to_every_test(path: str) -> None:
-    assert selected("quick", path)["vitest"].state == check.WHOLE
+def test_a_path_the_mapping_cannot_place_widens_its_tool_to_every_test(
+    path: str, tool: str
+) -> None:
+    assert selected("quick", path)[tool].state == check.WHOLE
 
 
 @needs_mapping
@@ -1134,23 +1140,6 @@ def test_a_source_file_selects_its_mirrored_tests() -> None:
         assert selected("quick", path)["pytest"] == check.Selection(check.PATHS, ("tests/cli",))
 
 
-@pytest.mark.parametrize(
-    "path",
-    [
-        "tests/conftest.py",
-        "tests/cli/conftest.py",
-        "tests/_shared_contract.py",
-        "src/osprey/lonely/thing.py",
-        "src/osprey/__init__.py",
-        "packages/osprey-connectors/src/osprey_connectors/errors.py",
-        "pyproject.toml",
-        "uv.lock",
-    ],
-)
-def test_what_the_mapping_cannot_place_widens_pytest_to_the_sweep(path: str) -> None:
-    assert selected("quick", path)["pytest"].state == check.WHOLE
-
-
 def test_a_helper_script_selects_only_its_mirror() -> None:
     assert selected("quick", "scripts/scenario_plots.py")["pytest"] == check.Selection(
         check.PATHS, ("tests/scripts/test_scenario_plots.py",)
@@ -1174,10 +1163,6 @@ def test_a_file_under_a_tests_directory_selects_that_directory() -> None:
 def test_a_file_under_a_tests_directory_without_test_modules_widens() -> None:
     assert not any(name.startswith("tests/fixtures/") for name in FILES)
     assert selected("quick", "tests/fixtures/config.yml")["pytest"].state == check.WHOLE
-
-
-def test_a_script_without_a_mirror_widens() -> None:
-    assert selected("quick", "scripts/_tier_db_common.py")["pytest"].state == check.WHOLE
 
 
 def test_a_new_check_naming_a_script_makes_it_shaping(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1708,12 +1693,9 @@ def test_a_refusal_names_every_unmet_need(
         f"check: eslint: refused ({node})",
         f"check: prettier: refused ({node})",
         f"check: vitest: refused ({node})",
-        f"check: dock-engine-tests: refused ({node})",
-        f"check: dock-engine-bundle: refused ({node})",
         f"check: docs: refused ({docs})",
         f"check: linkcheck: refused ({docs})",
-        f"check: refused: tsc, eslint, prettier, vitest, dock-engine-tests, dock-engine-bundle "
-        f"({node}); "
+        f"check: refused: tsc, eslint, prettier, vitest ({node}); "
         f"refused: docs, linkcheck ({docs})",
     ]
 
@@ -2093,7 +2075,7 @@ def test_a_tier_without_node_is_refused_and_names_the_install(
     monkeypatch.setattr(kit, "run", recorder)
     assert check.main(["quick"]) == 2
     install = "the Node toolchain is not installed: install Node, then run npm ci"
-    refused = "tsc, eslint, prettier, vitest, dock-engine-tests, dock-engine-bundle"
+    refused = "tsc, eslint, prettier, vitest"
     assert f"check: refused: {refused} ({install})" in capsys.readouterr().err
     probes = {shlex.join(argv[1:]) for argv in _declared_argvs() if argv[:1] == ("uv",)}
     log = tmp_path / "uv.log"
@@ -2549,7 +2531,7 @@ def test_the_package_check_builds_into_an_empty_dist(
     assert check.main(["run", "package"]) == 0
     assert seen == [False]
     build, twine, connectors, venv, install, probe, *rest = recorder.calls
-    wheel_probe, pyaml_build, pyaml_venv, pyaml_install, pyaml_probe = rest
+    pyaml_build, pyaml_venv, pyaml_install, pyaml_probe = rest
     assert twine == [
         "uvx",
         "twine",
@@ -2570,16 +2552,11 @@ def test_the_package_check_builds_into_an_empty_dist(
         "dist/osprey_connectors-1.0-py3-none-any.whl",
     ]
     assert probe == [python, "-I", fw.LEAN_IMPORT_WALK]
-    # A glob no built file matches is passed on as written, for the step to fail on.
-    assert wheel_probe == [
-        "python3",
-        "-c",
-        fw.DOCK_ENGINE_WHEEL_PROBE,
-        "dist/osprey_framework-*.whl",
-    ]
     assert pyaml_build == ["uv", "build", "--package", "pyaml-cs-osprey"]
     pyaml_python = f"{pyaml_venv[2]}/bin/python"
     assert pyaml_install[:5] == ["uv", "pip", "install", "--python", pyaml_python]
+    # A glob no built file matches is passed on as written, for the step to fail on.
+    assert "dist/osprey_framework-*.whl" in pyaml_install
     assert pyaml_probe == [pyaml_python, "-c", fw.PYAML_WHEEL_PROBE]
 
 
@@ -2719,18 +2696,6 @@ def test_the_docs_build_refuses_without_graphviz(
     assert recorder.calls == []
     monkeypatch.setattr(fw.shutil, "which", lambda name: f"/usr/bin/{name}")
     assert check.main(["run", "docs"]) == 0
-
-
-def test_the_dock_engine_steps_run_in_both_tiers() -> None:
-    for check_id in ("dock-engine-bundle", "dock-engine-tests"):
-        declared = BY_ID[check_id]
-        assert declared.tiers == check.BOTH and declared.needs == ("node",)
-        assert fw.DOCK_ENGINE in declared.scope
-    assert fw.DOCK_ENGINE in fw.TSC_SCOPE
-    got = selected("quick", "packages/dock-engine/src/rules.ts")
-    assert got["dock-engine-bundle"].state == got["dock-engine-tests"].state == check.WHOLE
-    got = selected("quick", "src/osprey/cli/main.py")
-    assert got["dock-engine-bundle"].state == got["dock-engine-tests"].state == check.NOT_TOUCHED
 
 
 # ---------------------------------------------------------------------------

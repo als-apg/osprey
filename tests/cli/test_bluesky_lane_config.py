@@ -375,13 +375,23 @@ def test_authored_env_is_carried_on_both_lanes(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("cs_type", [IN_PROCESS, "doocs"])
-def test_second_lane_refuses_an_unswitchable_baseline(tmp_path: Path, cs_type: str) -> None:
-    """An in-process or ``doocs`` deployment has no Channel Access lane to serve."""
+@pytest.mark.parametrize(
+    ("cs_type", "match"),
+    [
+        # An in-process or ``doocs`` deployment has no Channel Access lane to serve.
+        pytest.param(IN_PROCESS, "switchable deployment baseline", id="in-process"),
+        pytest.param("doocs", "switchable deployment baseline", id="doocs"),
+        # The lane the baseline names has to have a machine behind it.
+        pytest.param("live_standin", "live_standin", id="standin-without-a-stand-in-port"),
+    ],
+)
+def test_second_lane_refuses_a_baseline_it_cannot_serve(
+    tmp_path: Path, cs_type: str, match: str
+) -> None:
     project = tmp_path / "project"
     _write_config(project, cs_type=cs_type)
 
-    with pytest.raises(BuildProfileError, match="switchable deployment baseline"):
+    with pytest.raises(BuildProfileError, match=match):
         _inject_bluesky(BlueskyConfig(second_lane=True), project, VAConfig())
 
 
@@ -608,15 +618,6 @@ def test_a_standin_baseline_renders_a_standin_lane_and_a_va_lane(tmp_path: Path)
     assert "ca_name_servers" not in services["bluesky_va"]
     assert "bluesky_live" not in services
     assert config["deployed_services"] == ["postgresql", "bluesky", "bluesky_va"]
-
-
-def test_a_standin_baseline_refuses_without_a_stand_in_port(tmp_path: Path) -> None:
-    """The lane the baseline names has to have a machine behind it."""
-    project = tmp_path / "project"
-    _write_config(project, cs_type="live_standin")
-
-    with pytest.raises(BuildProfileError, match="live_standin"):
-        _inject_bluesky(BlueskyConfig(second_lane=True), project, VAConfig())
 
 
 def test_the_stand_in_moves_nothing_on_a_deployment_that_is_not_baselined_on_it(

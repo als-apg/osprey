@@ -152,7 +152,7 @@ _SYNTHESIS_RATIONALE: dict[str, str] = {
     "config": "config.yml overrides, as dotted keys. Empty means template defaults stand.",
     "services": "Services this profile declares. Injected ones are added at build time.",
     "env": "Environment variables the deployment needs (required:/pinned:/defaults:).",
-    "panel_presets": "Named web-terminal layouts, as label -> list of panel ids.",
+    "panel_presets": "Named web-terminal layouts, as label -> tiles of panel-id tabs.",
     "hooks": "Safety and lifecycle hooks installed into .claude/.",
     "rules": "Facility rules installed into .claude/rules/.",
     "skills": "Skills installed into .claude/skills/.",

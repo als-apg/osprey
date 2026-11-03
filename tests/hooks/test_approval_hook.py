@@ -465,8 +465,19 @@ def test_approval_notebook_failure_nonfatal(tmp_path, hook_runner, make_config):
 # ============================================================================
 
 
-def test_framework_pattern_detection_tango_write(tmp_path, hook_runner, make_config):
-    """Tango write_attribute pattern triggers approval via framework detection."""
+@pytest.mark.parametrize(
+    "code",
+    [
+        # Tango write_attribute pattern.
+        pytest.param("device.write_attribute('MOTOR:POS', 100)", id="tango-write"),
+        # LabVIEW set_control pattern.
+        pytest.param("labview.set_control('temperature', 350)", id="labview-write"),
+        # EPICS .set_value() pattern.
+        pytest.param("pv.set_value(42.0)", id="set-value"),
+    ],
+)
+def test_framework_pattern_detection_triggers_approval(tmp_path, hook_runner, make_config, code):
+    """A write pattern triggers approval via framework detection."""
     config = make_config(
         {
             "approval": {"enabled": True, "default_policy": "selective"},
@@ -477,53 +488,7 @@ def test_framework_pattern_detection_tango_write(tmp_path, hook_runner, make_con
     result = hook_runner(
         "osprey_approval.py",
         "mcp__python__execute",
-        {"code": "device.write_attribute('MOTOR:POS', 100)", "execution_mode": "readonly"},
-        config_path=config,
-        cwd=tmp_path,
-        hook_config=DEFAULT_APPROVAL_CONFIG,
-    )
-
-    assert result is not None
-    output = result["hookSpecificOutput"]
-    assert output["permissionDecision"] == "ask"
-
-
-def test_framework_pattern_detection_labview_write(tmp_path, hook_runner, make_config):
-    """LabVIEW set_control pattern triggers approval via framework detection."""
-    config = make_config(
-        {
-            "approval": {"enabled": True, "default_policy": "selective"},
-            "control_system": {"writes": "allowed"},
-        }
-    )
-
-    result = hook_runner(
-        "osprey_approval.py",
-        "mcp__python__execute",
-        {"code": "labview.set_control('temperature', 350)", "execution_mode": "readonly"},
-        config_path=config,
-        cwd=tmp_path,
-        hook_config=DEFAULT_APPROVAL_CONFIG,
-    )
-
-    assert result is not None
-    output = result["hookSpecificOutput"]
-    assert output["permissionDecision"] == "ask"
-
-
-def test_framework_pattern_detection_set_value(tmp_path, hook_runner, make_config):
-    """EPICS .set_value() pattern triggers approval via framework detection."""
-    config = make_config(
-        {
-            "approval": {"enabled": True, "default_policy": "selective"},
-            "control_system": {"writes": "allowed"},
-        }
-    )
-
-    result = hook_runner(
-        "osprey_approval.py",
-        "mcp__python__execute",
-        {"code": "pv.set_value(42.0)", "execution_mode": "readonly"},
+        {"code": code, "execution_mode": "readonly"},
         config_path=config,
         cwd=tmp_path,
         hook_config=DEFAULT_APPROVAL_CONFIG,
@@ -970,7 +935,20 @@ def test_fallback_regexes_match_pva_client_code(hook_module, code):
 # ============================================================================
 
 
-def test_selective_readwrite_asks_without_write_patterns(tmp_path, hook_runner, make_config):
+@pytest.mark.parametrize(
+    "code",
+    [
+        pytest.param("print('nothing to see')", id="no-write-pattern"),
+        # ``from epics import caput as _w`` evades every write regex.
+        pytest.param(
+            "from epics import caput as _w\n_w('SR:MAG:QF:01:CURRENT:SP', 150)",
+            id="aliased-caput",
+        ),
+    ],
+)
+def test_selective_readwrite_asks_whatever_the_detector_sees(
+    tmp_path, hook_runner, make_config, code
+):
     """A readwrite run prompts even when the detector sees no write pattern.
 
     The agent asking for write mode is itself the signal: approval for
@@ -985,32 +963,7 @@ def test_selective_readwrite_asks_without_write_patterns(tmp_path, hook_runner, 
     result = hook_runner(
         "osprey_approval.py",
         "mcp__python__execute",
-        {"code": "print('nothing to see')", "execution_mode": "readwrite"},
-        config_path=config,
-        cwd=tmp_path,
-        hook_config=DEFAULT_APPROVAL_CONFIG,
-    )
-
-    assert result is not None
-    assert result["hookSpecificOutput"]["permissionDecision"] == "ask"
-
-
-def test_selective_readwrite_asks_for_aliased_caput(tmp_path, hook_runner, make_config):
-    """``from epics import caput as _w`` evades every write regex; readwrite still asks."""
-    config = make_config(
-        {
-            "approval": {"enabled": True, "default_policy": "selective"},
-            "control_system": {"writes": "allowed"},
-        }
-    )
-
-    result = hook_runner(
-        "osprey_approval.py",
-        "mcp__python__execute",
-        {
-            "code": "from epics import caput as _w\n_w('SR:MAG:QF:01:CURRENT:SP', 150)",
-            "execution_mode": "readwrite",
-        },
+        {"code": code, "execution_mode": "readwrite"},
         config_path=config,
         cwd=tmp_path,
         hook_config=DEFAULT_APPROVAL_CONFIG,

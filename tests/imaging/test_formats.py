@@ -300,29 +300,25 @@ def test_source_refused_text():
 
 
 @pytest.mark.parametrize(
-    ("code", "key"),
+    ("code", "expected"),
     [
-        ("origin_not_allowed", "ariel.attachments.allowed_origins"),
-        ("size_cap", "ariel.attachments.max_file_mb"),
-        ("per_entry_limit", "ariel.attachments.max_file_mb"),
-        ("copy_on_ingest_mode", "ariel.attachments.copy_on_ingest"),
+        pytest.param("origin_not_allowed", "ariel.attachments.allowed_origins", id="origin"),
+        pytest.param("size_cap", "ariel.attachments.max_file_mb", id="size-cap"),
+        pytest.param("per_entry_limit", "ariel.attachments.max_file_mb", id="per-entry-limit"),
+        pytest.param(
+            "copy_on_ingest_mode", "ariel.attachments.copy_on_ingest", id="copy-on-ingest"
+        ),
+        pytest.param("decoder_failed", "--retry-decoder-failed", id="decoder-failed-retry-flag"),
+        pytest.param("mystery", "mystery", id="unknown-code-does-not-raise"),
     ],
 )
-def test_config_reasons_name_their_key(code, key):
-    assert key in skip_reason_text(code)
+def test_skip_reason_text_names_what_the_reader_needs(code, expected):
+    assert expected in skip_reason_text(code)
 
 
 @pytest.mark.parametrize("code", sorted(SOURCE_SKIP_REASONS))
 def test_source_reasons_name_backfill(code):
     assert "osprey ariel attachments backfill" in skip_reason_text(code)
-
-
-def test_decoder_failed_names_retry_flag():
-    assert "--retry-decoder-failed" in skip_reason_text("decoder_failed")
-
-
-def test_unknown_code_text_does_not_raise():
-    assert "mystery" in skip_reason_text("mystery")
 
 
 def test_rendition_max_bytes():

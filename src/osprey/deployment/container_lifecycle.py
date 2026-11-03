@@ -4685,8 +4685,12 @@ def _archiver_seed_inputs(config: dict, project_dir: Path):
     a seed of a namespace the deployment does not serve is indistinguishable,
     in the archive, from history.
 
-    The archive is the same whichever machine it belongs to: a stand-in serves
-    the shared active set exactly as the sandbox does.
+    The store is the virtual accelerator's own past on every deployment. A
+    live stand-in built beside the simulator is shown the facility's archive,
+    never this store, so nothing about it reaches the seed. A monitor the
+    served lattice computes is centred on the orbit its physics model solves,
+    because the composite reads each physics channel's held value from that
+    model.
 
     :returns: The archive composite
         (:class:`~osprey_connectors.simulation.archive.ArchiveComposite`); the

@@ -465,21 +465,21 @@ def test_a_same_value_mark_on_a_divergent_key_goes_red():
     assert "control-assistant" in text
 
 
-@pytest.mark.parametrize("key", ["web.theme", "services.qmd.port"])
-def test_a_same_value_mark_no_two_presets_state_goes_red(key: str):
-    # web.theme is live only in control-assistant; services.qmd.port
-    # reaches the union only through the layout fill, which no preset writes.
+@pytest.mark.parametrize(
+    ("key", "message"),
+    [
+        # web.theme is live only in control-assistant; services.qmd.port
+        # reaches the union only through the layout fill, which no preset writes.
+        ("web.theme", "compares nothing"),
+        ("services.qmd.port", "compares nothing"),
+        ("artifact_server", "mark its leaves"),
+    ],
+)
+def test_an_unusable_same_value_mark_goes_red(key: str, message: str):
     guard = make_guard(mark_same_value(key))
     guard.check_parity()
     assert "parity" in modes(guard)
-    assert "compares nothing" in details(guard)
-
-
-def test_a_same_value_mark_on_a_block_goes_red():
-    guard = make_guard(mark_same_value("artifact_server"))
-    guard.check_parity()
-    assert "parity" in modes(guard)
-    assert "mark its leaves" in details(guard)
+    assert message in details(guard)
 
 
 def test_the_parity_table_names_exactly_the_value_marked_keys():

@@ -34,11 +34,13 @@ from osprey.cli.main import cli
 
 OSPREY_SPEC = "osprey-framework==1.2.3"
 
-# The Dockerfile's primer install: the pinned spec, then the project's own
-# requirements. Only the tail is under test here; `tests/cli/test_dockerfile_template.py`
-# owns the shape of the surrounding RUN.
+# The Dockerfile's deps install: the project's own requirements, under the
+# constraints frozen from the primed image. The line is rendered only when there
+# are requirements. Only its tail is under test here;
+# `tests/cli/test_dockerfile_template.py` owns the shape of the surrounding RUN.
 _INSTALL_LINE = re.compile(
-    r'uv pip install \$\{OSPREY_PIP_PRE:\+--prerelease=allow\} "\$OSPREY_PIP_SPEC"(?P<args>[^\\\n]*)'
+    r"uv pip install -c /tmp/deps-ctx/pip-constraints\.txt -c /opt/osprey/constraints\.txt"
+    r"(?P<args>[^\\\n]*)"
 )
 
 
@@ -135,14 +137,9 @@ def _profile_yaml(
 def image_deps(project_path: Path) -> list[str]:
     """The requirements the generated Dockerfile installs, un-shell-quoted."""
     text = (project_path / "Dockerfile").read_text(encoding="utf-8")
-    matches = _INSTALL_LINE.finditer(text)
-    args = [shlex.split(match.group("args")) for match in matches]
-    assert args, 'no `pip install "$OSPREY_PIP_SPEC"` line in the rendered Dockerfile'
-    # The template renders the same args twice (primer + the OSPREY_DEV
-    # fallback). Both must carry the project's requirements, or a dev build
-    # would silently produce a different image than a release build.
-    assert all(rendered == args[0] for rendered in args), "install lines disagree"
-    return args[0]
+    args = [shlex.split(match.group("args")) for match in _INSTALL_LINE.finditer(text)]
+    assert len(args) <= 1, "more than one constrained deps install in the rendered Dockerfile"
+    return args[0] if args else []
 
 
 def recorded_deps(project_path: Path) -> list[str]:

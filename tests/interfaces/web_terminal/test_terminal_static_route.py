@@ -129,15 +129,26 @@ def test_head_answers_without_a_body(client: TestClient) -> None:
 # ---- containment ---- #
 
 
-def test_an_unknown_asset_is_not_found(client: TestClient) -> None:
-    response = client.get(_url("js/no-such-module.js"))
-
-    assert response.status_code == 404
-
-
-def test_a_directory_is_not_a_listing(client: TestClient) -> None:
-    """``is_file()`` is what stands between this route and an index of the tree."""
-    response = client.get(_url("js"))
+@pytest.mark.parametrize(
+    "asset",
+    [
+        pytest.param("js/no-such-module.js", id="unknown-asset"),
+        # ``is_file()`` is what stands between this route and an index of the tree.
+        pytest.param("js", id="directory-is-not-a-listing"),
+        # A path the OS cannot look at is a 404, not a 500. ASGI delivers ``%00``
+        # decoded, and ``Path.resolve()`` raises ``ValueError`` out of ``lstat`` on
+        # it, before any containment check would run. The helper answers that the
+        # same way it answers every other not-a-file-under-the-root path, so both
+        # panel-scoped static routes are covered by this one fix; the design-system
+        # route 500'd on the same input before it.
+        pytest.param("js/%00", id="bare-nul"),
+        pytest.param("js/api.js%00.txt", id="nul-truncation"),
+    ],
+)
+def test_an_asset_that_is_not_a_file_under_the_root_is_not_found(
+    client: TestClient, asset: str
+) -> None:
+    response = client.get(_url(asset))
 
     assert response.status_code == 404
 
@@ -172,27 +183,6 @@ def test_a_traversal_to_a_real_file_is_refused(
         "case would pass without the route containing anything — repoint it"
     )
 
-    response = client.get(_url(asset))
-
-    assert response.status_code == 404
-
-
-@pytest.mark.parametrize(
-    "asset",
-    [
-        pytest.param("js/%00", id="bare-nul"),
-        pytest.param("js/api.js%00.txt", id="nul-truncation"),
-    ],
-)
-def test_a_nul_byte_in_the_path_is_refused(client: TestClient, asset: str) -> None:
-    """A path the OS cannot look at is a 404, not a 500.
-
-    ASGI delivers ``%00`` decoded, and ``Path.resolve()`` raises ``ValueError``
-    out of ``lstat`` on it — before any containment check would run. The helper
-    answers that the same way it answers every other not-a-file-under-the-root
-    path, so both panel-scoped static routes are covered by this one fix; the
-    design-system route 500'd on the same input before it.
-    """
     response = client.get(_url(asset))
 
     assert response.status_code == 404

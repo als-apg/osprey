@@ -931,9 +931,20 @@ class TestPartialMatch:
         ]
 
     @pytest.mark.asyncio
-    async def test_single_word_query_skips_partial(self, mock_repository, mock_config):
-        """One word has no 'most of the words' to fall back to."""
-        await keyword_search("beaam", mock_repository, mock_config)
+    @pytest.mark.parametrize(
+        "query",
+        [
+            # One word has no 'most of the words' to fall back to.
+            pytest.param("beaam", id="single-word"),
+            # An explicit boolean query already says how its words combine.
+            pytest.param("beam AND orbit", id="operator-query"),
+        ],
+    )
+    async def test_query_with_no_words_to_relax_skips_partial(
+        self, mock_repository, mock_config, query
+    ):
+        """Partial matching is skipped and the fuzzy fallback runs once."""
+        await keyword_search(query, mock_repository, mock_config)
 
         mock_repository.keyword_partial_search.assert_not_called()
         assert mock_repository.fuzzy_search.await_count == 1
@@ -952,14 +963,6 @@ class TestPartialMatch:
 
         mock_repository.keyword_partial_search.assert_not_called()
         mock_repository.fuzzy_search.assert_not_called()
-
-    @pytest.mark.asyncio
-    async def test_operator_queries_never_reach_partial(self, mock_repository, mock_config):
-        """An explicit boolean query already says how its words combine."""
-        await keyword_search("beam AND orbit", mock_repository, mock_config)
-
-        mock_repository.keyword_partial_search.assert_not_called()
-        assert mock_repository.fuzzy_search.await_count == 1
 
     @pytest.mark.asyncio
     async def test_fuzzy_fallback_off_still_runs_partial(self, mock_repository, mock_config):

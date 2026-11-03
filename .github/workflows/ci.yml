@@ -353,7 +353,7 @@ jobs:
       # sidecar budget in qmd-sidecar-e2e's step of that name.
       run: |
         if [ "${{ matrix.python-version }}" = "3.12" ] && [ "${{ matrix.os }}" = "ubuntu-latest" ]; then
-          COV_ARGS="--cov=src/osprey --cov=packages/osprey-connectors/src/osprey_connectors --cov=packages/pyaml-cs-osprey/src/pyaml_cs_osprey --cov=packages/dock-engine/src/dock_engine --cov-report=xml --cov-report=term"
+          COV_ARGS="--cov=src/osprey --cov=packages/osprey-connectors/src/osprey_connectors --cov=packages/pyaml-cs-osprey/src/pyaml_cs_osprey --cov-report=xml --cov-report=term"
         else
           COV_ARGS=""
         fi
@@ -373,7 +373,7 @@ jobs:
         # --timeout=600 --timeout-method=signal is the per-test cap that ends a
         # hang, and it is deliberately not the ini option above. Without a cap,
         # a single wedged test is indistinguishable from "still running" until
-        # the 40-minute step cap cancels the job — which truncates the log, so
+        # the 55-minute step cap cancels the job — which truncates the log, so
         # the run ends with no name for the test that hung. Ten minutes
         # is chosen to clear a cold container image pull: the files in the one
         # sanctioned xdist group legitimately sit in one for minutes, so a
@@ -1080,8 +1080,7 @@ jobs:
 
     # One step: the check builds the framework, twine-checks dist/ while it
     # holds only the framework's own artifacts, builds the lean connectors
-    # wheel and import-walks it on a bare venv, asserts the framework wheel
-    # carries dock_engine and its package data, and builds pyaml-cs-osprey and
+    # wheel and import-walks it on a bare venv, and builds pyaml-cs-osprey and
     # import-walks it beside the other two wheels. The order is declared once,
     # in PACKAGE_STEPS of scripts/repo_checks.py.
     - name: Build and check the packages
@@ -1436,6 +1435,9 @@ jobs:
           tests/interfaces/web_terminal/test_opaque_panel_browser.py \
           tests/interfaces/web_terminal/test_facility_time_browser.py \
           tests/interfaces/web_terminal/test_panels_collab_browser.py \
+          tests/interfaces/web_terminal/test_dock_tiles_browser.py \
+          tests/interfaces/web_terminal/test_dock_perf_browser.py \
+          tests/interfaces/web_terminal/test_dock_agent_parity_browser.py \
           tests/interfaces/web_terminal/test_jupyter_panel_browser.py \
           tests/interfaces/web_terminal/test_agent_activity_browser.py \
           tests/interfaces/web_terminal/test_contract_params.py \
@@ -1575,15 +1577,6 @@ jobs:
 
     - name: Run JS tests (vitest)
       run: python3 scripts/check.py run vitest
-
-    # The dock engine's committed bundle, declarations and manifest are build
-    # outputs of its TypeScript; --check rebuilds them in memory and fails when
-    # a committed file differs, so a source edit cannot land without its build.
-    - name: Check the dock-engine bundle is current
-      run: python3 scripts/check.py run dock-engine-bundle
-
-    - name: Run dock-engine tests (vitest)
-      run: python3 scripts/check.py run dock-engine-tests
 
   plugin-smoke:
     name: Plugin marketplace smoke (install the osprey plugin)
@@ -5708,6 +5701,17 @@ jobs:
       || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
 
     steps:
+    # The project image's deps layer, the dispatch image beside it and the uv
+    # and pip caches overrun the ~14 GB a hosted runner starts with free: a run
+    # ended at 89 % with a dangling 4.47 GB layer and no tagged image, and
+    # podman-compose 1.0.6 answered `up -d` 0 with no container created. Drop
+    # the preinstalled SDKs this job never uses, as the other image-building
+    # E2E jobs do.
+    - name: Free runner disk
+      run: |
+        sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+        df -h /
+
     - name: Checkout repository
       uses: actions/checkout@v7
       with:

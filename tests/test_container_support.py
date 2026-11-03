@@ -298,20 +298,19 @@ class CountingProbe:
             raise self.error
 
 
-def test_a_probe_that_answers_at_once_is_called_once():
-    probe = CountingProbe(failures=0)
+@pytest.mark.parametrize(
+    ("failures", "calls"),
+    [
+        pytest.param(0, 1, id="answers-at-once"),
+        pytest.param(2, 3, id="answers-on-the-third-try"),
+    ],
+)
+def test_a_probe_is_called_until_it_answers(failures, calls):
+    probe = CountingProbe(failures=failures)
 
     wait_until_ready(probe, "mongodb", interval=0.0)
 
-    assert probe.calls == 1
-
-
-def test_a_probe_that_answers_on_the_third_try_returns_after_three_calls():
-    probe = CountingProbe(failures=2)
-
-    wait_until_ready(probe, "mongodb", interval=0.0)
-
-    assert probe.calls == 3
+    assert probe.calls == calls
 
 
 def test_a_probe_that_never_answers_fails_with_the_label_and_the_last_cause():

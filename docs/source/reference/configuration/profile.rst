@@ -90,8 +90,11 @@ Profile YAML reference
    * - ``panel_presets``
      - mapping
      - ``{}``
-     - Named web-terminal layouts, as label to list of panel ids. Renders
-       ``web.presets``.
+     - Named web-terminal layouts, as label to dock layout: a tile
+       ``{tabs: [<panel id>, ...], showing?, size?}`` or a split
+       ``{split: row|column, items: [...]}``, never naming the terminal. The
+       ``label: [ids]`` list form fails the build with the layout to write.
+       Renders ``web.presets``.
    * - ``config``
      - mapping
      - ``{}``

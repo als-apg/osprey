@@ -330,20 +330,18 @@ def test_the_conflict_is_caught_when_the_edit_is_parsed() -> None:
         cli_edit_layer(("connector=epics", "config.control_system.type=doocs"))
 
 
-def test_the_shorthand_alone_still_overrides_the_preset_literal_key() -> None:
-    """The preset's own literal key is what the shorthand exists to override."""
-    profile, _dir = resolve_build_profile(
-        None, "control-assistant", set_pairs=("connector=live_standin",)
-    )
-
-    assert profile.config[CONNECTOR_CONFIG_KEY] == "live_standin"
-
-
-def test_a_literal_type_set_now_reaches_the_render() -> None:
-    """No shorthand needed: the dotted key replaces the preset's own entry."""
-    profile, _dir = resolve_build_profile(
-        None, "control-assistant", set_pairs=("config.control_system.type=live_standin",)
-    )
+@pytest.mark.parametrize(
+    "pair",
+    [
+        # The preset's own literal key is what the shorthand exists to override.
+        "connector=live_standin",
+        # No shorthand needed: the dotted key replaces the preset's own entry.
+        "config.control_system.type=live_standin",
+    ],
+    ids=["shorthand-alone", "literal-type-key"],
+)
+def test_a_set_pair_for_the_connector_reaches_the_render(pair: str) -> None:
+    profile, _dir = resolve_build_profile(None, "control-assistant", set_pairs=(pair,))
 
     assert profile.config[CONNECTOR_CONFIG_KEY] == "live_standin"
 

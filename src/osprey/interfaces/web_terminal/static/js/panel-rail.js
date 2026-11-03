@@ -79,7 +79,7 @@
  * A row's tooltip detail (`data-tip-detail`) is the panel's sentence from
  * panel-catalog.js; a panel without one has none.
  *
- * Beyond activation, a row's verbs (open beside, pop out, move to another
+ * Beyond activation, a row's verbs (open in a new tile, pop out, move to another
  * group, remove) live in the caller's right-click context menu — the rail
  * only forwards the contextmenu event through `onContextMenu` and suppresses
  * the browser menu when the caller reports it handled. A caller-supplied

@@ -298,21 +298,17 @@ class TestResolveSharedDataRoot:
 class TestRepoRootForAgentData:
     """The anchor that turns an agent-data root back into the repo root."""
 
-    def test_strips_a_multi_segment_base_dir(self):
-        assert repo_root_for_agent_data(Path("/srv/repo/var/agent_data"), "var/agent_data") == Path(
-            "/srv/repo"
-        )
-
-    def test_strips_a_single_segment_base_dir(self):
-        assert repo_root_for_agent_data(Path("/srv/repo/agent_data"), "agent_data") == Path(
-            "/srv/repo"
-        )
-
-    def test_falls_back_to_the_parent_when_the_tail_does_not_match(self):
-        # A root that was not produced by this base_dir: the pre-base_dir answer.
-        assert repo_root_for_agent_data(Path("/srv/repo/elsewhere"), "var/agent_data") == Path(
-            "/srv/repo"
-        )
+    @pytest.mark.parametrize(
+        ("root", "base_dir"),
+        [
+            pytest.param("/srv/repo/var/agent_data", "var/agent_data", id="multi-segment-base-dir"),
+            pytest.param("/srv/repo/agent_data", "agent_data", id="single-segment-base-dir"),
+            # A root that was not produced by this base_dir: the pre-base_dir answer.
+            pytest.param("/srv/repo/elsewhere", "var/agent_data", id="tail-does-not-match"),
+        ],
+    )
+    def test_answers_the_repo_root(self, root, base_dir):
+        assert repo_root_for_agent_data(Path(root), base_dir) == Path("/srv/repo")
 
     @pytest.mark.parametrize("base_dir", ["/data/agent", "/data", "/srv/deploy/data/agent"])
     def test_an_absolute_base_dir_answers_instead_of_raising(self, base_dir):

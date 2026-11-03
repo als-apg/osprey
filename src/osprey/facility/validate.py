@@ -1177,6 +1177,10 @@ class _Records:
             yield from self._pulse(address, seed["pulse"], files)
         if isinstance(seed.get("gate"), dict):
             yield from self._gate(address, seed["gate"], files)
+        if isinstance(seed.get("topoff"), dict):
+            yield from self._topoff(address, seed, files)
+        if isinstance(seed.get("topoff_lifetime"), dict):
+            yield from self._topoff_lifetime(address, seed["topoff_lifetime"], files)
 
     def _noise_record(
         self, address: str, seed: Mapping[str, Any], files: list[str]
@@ -1330,6 +1334,68 @@ class _Records:
                 "take `pulse.driver` from an unwired float channel and `pulse.enable` from an "
                 "unwired bool channel",
             )
+
+    def _topoff(
+        self, address: str, seed: Mapping[str, Any], files: list[str]
+    ) -> Iterator[FacilityBuildError]:
+        """A ``topoff`` decays and refills a float channel; it holds its level, not ``nominal``."""
+        value_type = self._type(address)
+        if value_type != "float":
+            yield self._error(
+                "value-invalid",
+                "channel",
+                address,
+                files,
+                f"a {value_type} channel carries `topoff`; `topoff` applies to float channels only",
+                "remove `topoff`, or make the channel a float",
+            )
+            return
+        if "nominal" in seed:
+            yield self._error(
+                "seed-invalid",
+                "channel",
+                address,
+                files,
+                "carries `nominal` beside `topoff`",
+                "remove `nominal`; a `topoff` channel holds the level its decay averages to",
+            )
+        topoff = seed["topoff"]
+        problems = [
+            f"`topoff.{slot}` is {topoff.get(slot)}, not above 0"
+            for slot in ("lifetime_h", "period_s")
+            if not (_finite(topoff.get(slot)) and topoff[slot] > 0)
+        ]
+        if problems:
+            yield self._error(
+                "value-invalid",
+                "channel",
+                address,
+                files,
+                "; ".join(problems),
+                "set `topoff.lifetime_h` and `topoff.period_s` above 0",
+            )
+
+    def _topoff_lifetime(
+        self, address: str, lifetime: Mapping[str, Any], files: list[str]
+    ) -> Iterator[FacilityBuildError]:
+        """A ``topoff_lifetime`` reads the lifetime of the ``topoff`` seed ``of`` names."""
+        source = str(lifetime.get("of"))
+        channel = self.index.channels.get(source)
+        if channel is None:
+            problem = f"`topoff_lifetime.of` {source} is no channel"
+        else:
+            seed = channel.get("simulation")
+            if isinstance(seed, dict) and isinstance(seed.get("topoff"), dict):
+                return
+            problem = f"`topoff_lifetime.of` {source} has no `topoff` seed"
+        yield self._error(
+            "seed-invalid",
+            "channel",
+            address,
+            files,
+            problem,
+            "name in `topoff_lifetime.of` a channel whose seed carries `topoff`",
+        )
 
     def _gate(
         self, address: str, gate: Mapping[str, Any], files: list[str]

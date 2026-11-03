@@ -37,7 +37,7 @@
    # one more emulated soft-IOC for the life of the deployment.
 @@ -287,19 +290,20 @@
    # `osprey set config.archiver.type=<the archiver that records it>` and
-   # `osprey set va_archiver=null`, because the recorded archive goes with it.
+   # `osprey set va_archiver=null`, because that store records the simulator.
    control_system.type: virtual_accelerator
 -  # Write ceiling, the FIRST guard in the write-safety chain: `never` refuses
 -  # every hardware write before the limits check or the approval prompt is

@@ -478,7 +478,9 @@ def test_default_panel_naming_an_unselected_builtin_is_rejected(tmp_path: Path) 
 
 def test_unknown_panel_presets_member_is_rejected(tmp_path: Path) -> None:
     """Preset members resolve through the same predicate as default_panel."""
-    profile = _profile(name="x", web_panels=["ariel"], panel_presets={"Ops": ["ariel", "areil"]})
+    profile = _profile(
+        name="x", web_panels=["ariel"], panel_presets={"Ops": {"tabs": ["ariel", "areil"]}}
+    )
     (error,) = _errors(profile, tmp_path)
     assert error.startswith("Unknown panel_presets['Ops'] member 'areil'")
 
@@ -498,11 +500,21 @@ def test_an_authored_enabled_agreeing_with_the_selection_validates(tmp_path: Pat
     )
 
 
-def test_non_list_panel_presets_entry_is_rejected(tmp_path: Path) -> None:
-    """A preset whose value is not a list is reported once and skipped."""
+def test_non_layout_panel_presets_entry_is_rejected(tmp_path: Path) -> None:
+    """A preset whose value is not a layout is reported once and skipped."""
     profile = _parse_profile({"name": "x", "data": "data", "panel_presets": {"Ops": "ariel"}})
     assert _errors(profile, tmp_path) == [
-        "panel_presets['Ops'] must be a list of panel ids (got str)"
+        "panel_presets['Ops'] must be a layout: a tile {tabs: [<panel id>, ...]} or a split "
+        "{split: row|column, items: [...]} (got str)"
+    ]
+
+
+def test_old_list_panel_presets_entry_is_rejected_with_its_rewrite(tmp_path: Path) -> None:
+    """The retired list form is one error that spells the layout to write instead."""
+    profile = _parse_profile({"name": "x", "data": "data", "panel_presets": {"Ops": ["artifacts"]}})
+    assert _errors(profile, tmp_path) == [
+        "panel_presets['Ops'] is the retired list-of-panel-ids form; rewrite it as a layout, "
+        "e.g. 'Ops': {tabs: [artifacts]}"
     ]
 
 

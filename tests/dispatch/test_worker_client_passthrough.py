@@ -78,15 +78,25 @@ async def test_dispatch_passthrough_forwards_input_files():
 
 
 @pytest.mark.asyncio
-async def test_dispatch_passthrough_omits_input_files_when_absent():
-    """No input_files -> the key is absent, so a worker predating the field is unaffected."""
+@pytest.mark.parametrize(
+    "key",
+    [
+        # A worker predating the field is unaffected.
+        "input_files",
+        # No trigger ceiling: the worker applies the deployment's own
+        # ``dispatch.max_turns`` rather than a caller's restatement.
+        "max_turns",
+    ],
+)
+async def test_dispatch_passthrough_omits_an_optional_key_when_absent(key):
+    """No value for the key -> the key is absent from the worker request."""
     captured: dict[str, Any] = {}
     transport = _capturing_transport(captured)
     with _patch_asyncclient(transport):
         await dispatch_to_worker(
             url="http://worker:9190", prompt="hi", allowed_tools=[], token="tok"
         )
-    assert "input_files" not in captured["json"]
+    assert key not in captured["json"]
 
 
 @pytest.mark.asyncio
@@ -244,16 +254,3 @@ async def test_dispatch_passthrough_forwards_a_trigger_turn_ceiling():
             max_turns=60,
         )
     assert captured["json"]["max_turns"] == 60
-
-
-@pytest.mark.asyncio
-async def test_dispatch_passthrough_omits_max_turns_when_absent():
-    """No trigger ceiling -> the key is absent, so the worker applies the
-    deployment's own ``dispatch.max_turns`` rather than a caller's restatement."""
-    captured: dict[str, Any] = {}
-    transport = _capturing_transport(captured)
-    with _patch_asyncclient(transport):
-        await dispatch_to_worker(
-            url="http://worker:9190", prompt="hi", allowed_tools=[], token="tok"
-        )
-    assert "max_turns" not in captured["json"]

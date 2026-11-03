@@ -289,7 +289,13 @@ def test_hook_headers_list_exactly_the_tools_the_registry_attaches() -> None:
 
     The header is what an operator reads to learn what a hook gates, and the
     registry's ``HookRule``s are what actually attach it — so the two are
-    pinned to each other, as sets, across every ``FRAMEWORK_SERVERS`` entry.
+    pinned to each other, as sets, across every ``FRAMEWORK_SERVERS`` entry the
+    framework itself wires. A framework server's tool is named short; a
+    panel-derived server's tool is named in full (``mcp__<panel>__<tool>``),
+    because its gated tools are the panel's own ``mcp_ask`` declaration and the
+    short name alone would not say which transport they arrive on.
+    ``test_a_panel_derived_server_gates_exactly_its_panels_ask_tools`` holds
+    those matchers to the panel's declaration.
     A tool gated in the registry and missing from the header under-reports the
     hook; a tool named in the header and gated nowhere over-reports it. This
     is also what lets a header carry a Bluesky tool name at all: a rename that
@@ -304,7 +310,7 @@ def test_hook_headers_list_exactly_the_tools_the_registry_attaches() -> None:
     for key, entry in HOOK_PRESETS.items():
         filename = _script_of(entry.command)
         attached = {
-            _short_name(rule.matcher)
+            _short_name(rule.matcher) if template.panel_id is None else rule.matcher
             for template in FRAMEWORK_SERVERS.values()
             for rule in template.hooks_pre
             if any(_script_of(hook.command) == filename for hook in rule.hooks)
@@ -315,6 +321,37 @@ def test_hook_headers_list_exactly_the_tools_the_registry_attaches() -> None:
             f"{key!r} hook {sorted(attached)} — under-reported: "
             f"{sorted(attached - declared)}, over-reported: {sorted(declared - attached)}"
         )
+
+
+def test_a_panel_derived_server_gates_exactly_its_panels_ask_tools() -> None:
+    """What a panel-derived server puts behind a hook is the panel's ``mcp_ask``.
+
+    The header comparison above names these servers' tools in full; this is
+    what keeps their gates from drifting off the panel's declaration: every
+    pre-hook matcher of such a server names one of the panel's ask tools on
+    that server, every ask tool has one, every rule ends in the approval hook,
+    and the writes check runs ahead of it exactly for the panel's
+    ``mcp_writes``. A build with no opted-in panel has nothing to check here,
+    and that is a pass rather than a skip.
+    """
+    from osprey.profiles.sidecar_panels import SIDECAR_PANELS
+
+    derived = {
+        name: definition
+        for name, definition in FRAMEWORK_SERVERS.items()
+        if definition.panel_id is not None
+    }
+    for name, definition in derived.items():
+        panel = SIDECAR_PANELS[definition.panel_id]
+        matchers = [rule.matcher for rule in definition.hooks_pre]
+        assert sorted(matchers) == sorted(f"mcp__{name}__{tool}" for tool in panel.mcp_ask)
+        for rule in definition.hooks_pre:
+            scripts = [_script_of(hook.command) for hook in rule.hooks]
+            tool = rule.matcher.removeprefix(f"mcp__{name}__")
+            expected = ["osprey_approval.py"]
+            if tool in panel.mcp_writes:
+                expected = ["osprey_writes_check.py", *expected]
+            assert scripts == expected, (name, rule.matcher, scripts)
 
 
 def test_writes_check_template_carries_no_bluesky_tool_literal() -> None:
@@ -622,8 +659,29 @@ def _approval_hooks() -> list[tuple[str, str, str, int, str]]:
     return found
 
 
+def _per_tool_approval_violations(definition) -> list[str]:
+    """What is wrong with a panel-derived server's approval rules, if anything."""
+    asked = {f"mcp__{definition.name}__{tool}" for tool in definition.permissions_ask}
+    found = []
+    for event, rules in (("pre", definition.hooks_pre), ("post", definition.hooks_post)):
+        for rule in rules:
+            for hook in rule.hooks:
+                if "osprey_approval.py" not in hook.command:
+                    continue
+                if event != "pre" or rule.matcher not in asked:
+                    found.append(f"{event}:{rule.matcher} is not one ask tool's own matcher")
+                if hook.timeout != 5:
+                    found.append(f"{event}:{rule.matcher} has timeout {hook.timeout}")
+    return found
+
+
 def test_approval_rule_table_is_pinned() -> None:
     """The approval surface and its timeouts are exactly the pinned table.
+
+    The table covers the servers spelled in the registry. A server derived from
+    a sidecar panel is not in it — which panels a deployment's build carries is
+    not this table's to say — and is held to a rule instead: see
+    ``test_panel_derived_approval_rules_are_per_tool_with_the_default_budget``.
 
     The wider budget is a safety-relevant asymmetry: a hook the harness kills
     mid-render answers without the preview the operator was promised, while a
@@ -632,7 +690,66 @@ def test_approval_rule_table_is_pinned() -> None:
     wide rows — is what makes either drift fail here rather than in a control
     room.
     """
-    assert {(s, e, m, t) for s, e, m, t, _ in _approval_hooks()} == _APPROVAL_RULE_TABLE
+    spelled = {
+        name for name, definition in FRAMEWORK_SERVERS.items() if definition.panel_id is None
+    }
+    assert {
+        (s, e, m, t) for s, e, m, t, _ in _approval_hooks() if s in spelled
+    } == _APPROVAL_RULE_TABLE
+
+
+def test_panel_derived_approval_rules_are_per_tool_with_the_default_budget(monkeypatch) -> None:
+    """Every approval rule of a panel-derived server is one ask tool's, at 5 s.
+
+    Exactly the per-tool form: a wildcard or an alternation would prompt for
+    tools the panel listed as silent reads, and a wider budget is reserved for
+    the two prompts that render a preview. Run over the catalog and over a
+    synthetic panel, since the framework ships no panel that opts in.
+    """
+    from osprey.profiles.sidecar_panels import SidecarPanel
+    from osprey.registry.mcp import HookEntry, HookRule, _approval_entry, derive_panel_servers
+
+    synthetic = derive_panel_servers(
+        {
+            "screens": SidecarPanel(
+                "Synthetic screens",
+                "tests.synthetic:Sidecar",
+                mcp_path="/mcp",
+                agent_hop=True,
+                mcp_allow=("list_screens",),
+                mcp_ask=("push_screen", "delete_screen"),
+                mcp_writes=("push_screen",),
+            )
+        }
+    )
+    monkeypatch.setitem(FRAMEWORK_SERVERS, "screens", synthetic["screens"])
+
+    derived = [d for d in FRAMEWORK_SERVERS.values() if d.panel_id is not None]
+    assert synthetic["screens"] in derived
+    for definition in derived:
+        assert _per_tool_approval_violations(definition) == [], definition.name
+        assert {rule.matcher for rule in definition.hooks_pre} == {
+            f"mcp__{definition.name}__{tool}" for tool in definition.permissions_ask
+        }
+
+    # The synthetic server's rules are found by the same walk the table pins,
+    # and stay out of the table's comparison.
+    assert {(s, m, t) for s, _e, m, t, _c in _approval_hooks() if s == "screens"} == {
+        ("screens", "mcp__screens__push_screen", 5),
+        ("screens", "mcp__screens__delete_screen", 5),
+    }
+    test_approval_rule_table_is_pinned()
+
+    # …and the rule has teeth: each drift it exists for is reported.
+    screens = synthetic["screens"]
+    screens.hooks_pre[0].matcher = "mcp__screens__.*"
+    assert _per_tool_approval_violations(screens)
+    screens.hooks_pre[0] = HookRule("mcp__screens__push_screen", [_approval_entry(30)])
+    assert _per_tool_approval_violations(screens)
+    screens.hooks_pre[0] = HookRule("mcp__screens__list_screens", [_approval_entry(5)])
+    assert _per_tool_approval_violations(screens)
+    screens.hooks_pre[0] = HookRule("mcp__screens__push_screen", [HookEntry(command="true")])
+    assert _per_tool_approval_violations(screens) == []
 
 
 def test_approval_budget_flag_equals_its_timeout() -> None:

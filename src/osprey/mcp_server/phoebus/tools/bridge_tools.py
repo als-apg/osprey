@@ -110,7 +110,7 @@ from osprey.mcp_server.errors import make_error
 from osprey.mcp_server.http import (
     _post_json_with_response,
     notify_agent_activity_async,
-    notify_panel_focus,
+    panel_op,
     phoebus_bridge_url,
 )
 from osprey.mcp_server.phoebus.server import mcp
@@ -574,10 +574,10 @@ async def phoebus_open_panel(name: str, focus: bool = True) -> str:
     if focus:
         panel_id = os.environ.get("OSPREY_SERVER_NAME", "phoebus")
         try:
-            await anyio.to_thread.run_sync(notify_panel_focus, panel_id)
-            focused = True
+            opened = await anyio.to_thread.run_sync(panel_op, "open", {"member": panel_id})
+            focused = bool(opened["ok"])
         except Exception as exc:
-            logger.debug("panel focus notification failed (non-fatal): %s", exc)
+            logger.debug("panel open failed (non-fatal): %s", exc)
 
     return json.dumps(
         {

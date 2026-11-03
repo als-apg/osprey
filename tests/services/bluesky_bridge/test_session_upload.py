@@ -571,33 +571,26 @@ async def test_worker_failure_leaves_the_plan_uninstalled(
     assert uploader.uploaded_hashes() == {}
 
 
-async def test_upload_that_never_completes_fails_closed(
+@pytest.mark.parametrize(
+    ("task_status", "match"),
+    [
+        pytest.param("running", "did not complete", id="never-completes"),
+        pytest.param("not_found", "lost the result", id="expired-task-result"),
+    ],
+)
+async def test_upload_without_a_completed_task_result_fails_closed(
     tmp_path: Path,
     backend: FakeBackend,
     records: ValidationRecordStore,
     uploader: SessionPlanUploader,
+    task_status: str,
+    match: str,
 ) -> None:
     write_plan(tmp_path, "sample_scan")
     validate_plan(records, tmp_path, "sample_scan")
-    backend.task_status = "running"
+    backend.task_status = task_status
 
-    with pytest.raises(SessionPlanUploadError, match="did not complete"):
-        await uploader.upload_validated("sample_scan")
-
-    assert uploader.uploaded_hashes() == {}
-
-
-async def test_expired_task_result_fails_closed(
-    tmp_path: Path,
-    backend: FakeBackend,
-    records: ValidationRecordStore,
-    uploader: SessionPlanUploader,
-) -> None:
-    write_plan(tmp_path, "sample_scan")
-    validate_plan(records, tmp_path, "sample_scan")
-    backend.task_status = "not_found"
-
-    with pytest.raises(SessionPlanUploadError, match="lost the result"):
+    with pytest.raises(SessionPlanUploadError, match=match):
         await uploader.upload_validated("sample_scan")
 
     assert uploader.uploaded_hashes() == {}

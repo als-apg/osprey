@@ -1365,18 +1365,16 @@ def _declared_channel_fields(model_cls) -> tuple[str, str]:
 
 
 class TestShippedExemplarsPassValidation:
-    def test_orm_source_passes_the_static_and_pattern_stages(self):
-        source = (_PLANS_CORE_DIR / "orm.py").read_text(encoding="utf-8")
-        assert _static_allowlist_check(source) == []
-        assert _ca_pattern_scan(source) == []
-
-    def test_grid_scan_source_passes_the_static_and_pattern_stages(self):
-        source = (_PLANS_CORE_DIR / "grid_scan.py").read_text(encoding="utf-8")
-        assert _static_allowlist_check(source) == []
-        assert _ca_pattern_scan(source) == []
-
-    def test_orbit_bump_sweep_source_passes_the_static_and_pattern_stages(self):
-        source = (_PLANS_CORE_DIR / "orbit_bump_sweep.py").read_text(encoding="utf-8")
+    @pytest.mark.parametrize(
+        "filename",
+        [
+            pytest.param("orm.py", id="orm"),
+            pytest.param("grid_scan.py", id="grid-scan"),
+            pytest.param("orbit_bump_sweep.py", id="orbit-bump-sweep"),
+        ],
+    )
+    def test_shipped_exemplar_source_passes_the_static_and_pattern_stages(self, filename):
+        source = (_PLANS_CORE_DIR / filename).read_text(encoding="utf-8")
         assert _static_allowlist_check(source) == []
         assert _ca_pattern_scan(source) == []
 
