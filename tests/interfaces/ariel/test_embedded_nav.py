@@ -33,6 +33,7 @@ from tests.interfaces.ariel.test_shell import (
     canonical,
     reader_title,
     row,
+    wait_for_call,
     wait_for_hash,
 )
 
@@ -119,7 +120,11 @@ def test_embedded_hides_header_and_contributes_search_compose_and_menu(
     assert compose["id"] == "ariel-compose"
     assert compose["label"] == "Compose"
     assert menu["id"] == "ariel-more"
-    assert [entry["id"] for entry in menu["items"]] == ["toggle-rail", "save-search"]
+    assert [entry["id"] for entry in menu["items"]] == [
+        "toggle-rail",
+        "save-search",
+        "toggle-strip",
+    ]
     assert menu["items"][0]["label"] == "Show sidebar"
     page.close()
 
@@ -310,4 +315,24 @@ def test_standalone_keeps_its_header_and_contributes_nothing(
     expect(page.locator("#ariel-compose-btn")).to_be_visible()
     expect(row(page, "E1")).to_be_visible()
     assert page.evaluate("window.__contributions.length") == 0
+    page.close()
+
+
+def test_tile_bar_operator_is_lifted_after_settle(
+    ariel_url: str, chromium_browser: Browser
+) -> None:
+    """``vacuum author:x`` with no trailing space is lifted once the text settles."""
+    page, backend = _open_embedded(chromium_browser, f"{ariel_url}/?embedded=true")
+    _action(page, _item(page, "search")["id"], "vacuum author:x")
+
+    call = wait_for_call(
+        page,
+        backend,
+        "POST",
+        "/api/search",
+        lambda r: r.filters().get("author") == ["x"],
+        timeout=8.0,
+    )
+    assert call.json()["query"] == "vacuum"
+    wait_for_hash(page, canonical(q="vacuum", f={"author": ["x"]}))
     page.close()

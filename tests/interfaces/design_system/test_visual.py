@@ -221,8 +221,13 @@ def _artifacts_server(tmp_path: Path):
     return run_app_server(create_app(workspace_root=tmp_path / "artifacts_ws"))
 
 
-# ARIEL's list pane once its first load has landed (see the TARGETS below).
-_ARIEL_SETTLED = '#ariel-list-body[aria-busy="false"] > :not(.loading-overlay)'
+# ARIEL once its list pane's first load has landed and the rail's facets
+# mount is idle (see the TARGETS below). The mount always exists and clears
+# ``aria-busy`` even when hidden or degraded, so the wait never hangs.
+_ARIEL_SETTLED = (
+    'body:has(#ariel-list-body[aria-busy="false"] > :not(.loading-overlay))'
+    ':has(.ariel-rail-facets[aria-busy="false"])'
+)
 
 
 def _ariel_server(_tmp_path: Path):

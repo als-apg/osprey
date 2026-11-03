@@ -24,10 +24,14 @@ from __future__ import annotations
 import base64
 import json
 import re
+import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from urllib.parse import parse_qs, quote, urlparse
+from zoneinfo import ZoneInfo
 
 import pytest
 import yaml
@@ -99,7 +103,20 @@ HEALTHY_CAPABILITIES: dict[str, Any] = {
         }
     },
     "shared_parameters": [],
+    "filter_dimensions": [
+        {"name": "author", "label": "Author", "kind": "builtin"},
+        {"name": "source_system", "label": "Source", "kind": "builtin"},
+        {"name": "tags", "label": "Tags", "kind": "builtin"},
+        {"name": "enhancement", "label": "Enhancements", "kind": "enhancement"},
+    ],
+    "enhancement_modules": [
+        {"name": "text_embedding", "label": "Text Embedding"},
+        {"name": "figure_caption", "label": "Figure Caption"},
+    ],
 }
+
+#: The facility zone the fake buckets days in (the fixtures' ``-07:00``).
+FACILITY_ZONE = ZoneInfo("America/Los_Angeles")
 
 INVALID_CAPABILITIES: dict[str, Any] = {
     **HEALTHY_CAPABILITIES,
@@ -192,6 +209,114 @@ def search_response(
     }
 
 
+def facility_day(entry: dict[str, Any]) -> str:
+    """The facility-zone day (``YYYY-MM-DD``) of *entry*'s timestamp."""
+    stamp = datetime.fromisoformat(entry["timestamp"])
+    return stamp.astimezone(FACILITY_ZONE).date().isoformat()
+
+
+def dimension_values(entry: dict[str, Any], dim: str) -> list[str]:
+    """*entry*'s values for filter dimension *dim* (C-FILTER)."""
+    meta = entry.get("metadata") or {}
+    if dim in ("author", "source_system"):
+        value = entry.get(dim)
+    elif dim == "enhancement":
+        states = meta.get("enhancements") or {}
+        return [f"{module}:{state}" for module, state in states.items()]
+    else:
+        value = meta.get(dim)
+    if value is None:
+        return []
+    return [str(v) for v in value] if isinstance(value, list) else [str(value)]
+
+
+def matches_filter(entry: dict[str, Any], filt: dict[str, Any], skip: str | None = None) -> bool:
+    """C-FILTER: OR within a dimension, AND across, exact and case-insensitive.
+
+    ``time`` is an inclusive ``{start, end}`` window of facility days; *skip*
+    leaves one dimension out (a facet's self-exclusion).
+    """
+    for dim, wanted in filt.items():
+        if dim == skip:
+            continue
+        if dim == "time":
+            day = facility_day(entry)
+            start, end = (wanted or {}).get("start"), (wanted or {}).get("end")
+            if (start and day < start[:10]) or (end and day > end[:10]):
+                return False
+            continue
+        want = {str(v).lower() for v in wanted or []}
+        if want and not any(v.lower() in want for v in dimension_values(entry, dim)):
+            return False
+    return True
+
+
+def to_row(entry: dict[str, Any]) -> dict[str, Any]:
+    """An ``EntryResponse``-shaped entry as its C-ROW list row (``view=row``)."""
+    if "raw_text" not in entry:
+        return entry
+    subject, _, rest = entry["raw_text"].partition("\n")
+    attachments = entry.get("attachments") or []
+    meta = entry.get("metadata") or {}
+    return {
+        "entry_id": entry["entry_id"],
+        "timestamp": entry["timestamp"],
+        "author": entry["author"],
+        "source_system": entry["source_system"],
+        "subject": subject,
+        "snippet": rest[:300],
+        "facets": {"author": entry["author"], "source_system": entry["source_system"]},
+        "attachment_count": len(attachments),
+        "has_images": any(str(a.get("mime_type", "")).startswith("image/") for a in attachments),
+        "enhancements": dict(meta.get("enhancements") or {}),
+        "entry_url": None,
+        "score": entry.get("score"),
+        "highlights": entry.get("highlights") or [],
+        "keywords": entry.get("keywords") or [],
+        "matched_via": entry.get("matched_via") or [],
+    }
+
+
+def facets_response(
+    entries: list[dict[str, Any]], filt: dict[str, Any], dimensions: list[dict[str, Any]]
+) -> dict[str, Any]:
+    """C-FACETS counts over *entries*: each dimension under the filter minus itself,
+    values grouped case-insensitively, sorted by count and capped at 50; the day
+    histogram under the filter minus ``time``."""
+    out = []
+    for dim in dimensions:
+        name = dim["name"]
+        counts: dict[str, list[Any]] = {}
+        for entry in entries:
+            if not matches_filter(entry, filt, skip=name):
+                continue
+            for value in dimension_values(entry, name):
+                if name == "enhancement" and value.rsplit(":", 1)[-1] not in ("failed", "stale"):
+                    continue
+                counts.setdefault(value.lower(), [value, 0])[1] += 1
+        values = sorted(counts.values(), key=lambda vc: (-vc[1], vc[0]))[:50]
+        out.append(
+            {
+                "name": name,
+                "label": dim.get("label", name),
+                "kind": dim.get("kind", "builtin"),
+                "values": [{"value": v, "count": c} for v, c in values],
+            }
+        )
+    days: dict[str, int] = {}
+    for entry in entries:
+        if matches_filter(entry, filt, skip="time"):
+            day = facility_day(entry)
+            days[day] = days.get(day, 0) + 1
+    return {
+        "available": True,
+        "dimensions": out,
+        "histogram": [{"day": d, "count": c} for d, c in sorted(days.items())],
+        "exact": True,
+        "tier": None,
+    }
+
+
 @dataclass
 class Request:
     """One recorded ``/api`` request."""
@@ -205,13 +330,24 @@ class Request:
         """The request body parsed as JSON."""
         return json.loads(self.body or "null")
 
+    def filters(self) -> dict[str, Any]:
+        """The C-FILTER the request carries (GET ``filters`` JSON or POST body), else ``{}``."""
+        if self.method == "GET":
+            raw = self.query.get("filters", [None])[0]
+            return json.loads(raw) if raw else {}
+        return (self.json() or {}).get("filters") or {}
+
 
 @dataclass
 class FakeBackend:
     """Answers the screen's ``/api`` requests from fixtures and records them.
 
-    Anything it does not know (status, config) falls through to the real
-    DB-less backend.
+    Listings honour the request's ``filters`` (C-FILTER), keyset ``cursor`` /
+    ``page_size`` (browse) and ``offset`` / ``max_results`` (search, over the
+    ``search`` fixture's entries), and serve C-ROW rows for ``view=row``;
+    ``/api/facets`` counts the same entries. ``facets_status`` other than 200
+    makes the facets route fail. Anything it does not know (status, config)
+    falls through to the real DB-less backend.
     """
 
     capabilities: dict[str, Any] = field(default_factory=lambda: dict(HEALTHY_CAPABILITIES))
@@ -228,6 +364,7 @@ class FakeBackend:
     search: dict[str, Any] = field(default_factory=lambda: search_response(DEFAULT_ENTRIES[:2]))
     requests: list[Request] = field(default_factory=list)
     created: int = 0
+    facets_status: int = 200
 
     def install(self, page: Page) -> FakeBackend:
         """Route the page's ``/api`` and ``/attachments`` traffic here."""
@@ -263,11 +400,23 @@ class FakeBackend:
         elif path == "/api/publish-info":
             ok(self.publish_info)
         elif path == "/api/search" and req.method == "POST":
-            ok(self.search)
+            ok(self._search(record))
         elif path == "/api/entries" and req.method == "GET":
-            author = record.query.get("author", [None])[0]
-            rows = [e for e in self.entries if author is None or e["author"] == author]
-            ok({"entries": rows, "total": len(rows), "page": 1, "page_size": 20, "total_pages": 1})
+            ok(self._browse(record))
+        elif path == "/api/facets" and req.method == "GET":
+            if self.facets_status != 200:
+                ok({"detail": "facets unavailable"}, self.facets_status)
+                return
+            query = record.query.get("q", [""])[0].strip()
+            pool = self.search["entries"] if query else self.entries
+            raw = record.query.get("filters", [None])[0]
+            dims = [
+                d for d in self.capabilities.get("filter_dimensions", []) if d["name"] != "time"
+            ]
+            ok(facets_response(pool, json.loads(raw) if raw else {}, dims))
+        elif path == "/api/filter-options/authors":
+            authors = sorted({e["author"] for e in self.entries})
+            ok({"field": "authors", "options": [{"value": a, "label": a} for a in authors]})
         elif path in ("/api/entries", "/api/entries/upload") and req.method == "POST":
             self.created += 1
             new_id = f"NEW-{self.created}"
@@ -281,6 +430,73 @@ class FakeBackend:
             ok(draft, 200) if draft else ok({"detail": "Draft not found"}, 404)
         else:
             route.continue_()
+
+    def _browse(self, record: Request) -> dict[str, Any]:
+        """GET /api/entries: filtered, keyset-paged (the cursor is an offset), C-ROW on request."""
+        query = record.query
+        filt = record.filters()
+        author = query.get("author", [None])[0]
+        rows = [
+            e
+            for e in self.entries
+            if matches_filter(e, filt) and (author is None or e["author"] == author)
+        ]
+        size = int(query.get("page_size", ["20"])[0])
+        start = int(query.get("cursor", ["0"])[0] or 0)
+        chunk = rows[start : start + size]
+        if query.get("view", [None])[0] == "row":
+            chunk = [to_row(e) for e in chunk]
+        more = start + size < len(rows)
+        return {
+            "entries": chunk,
+            "total": len(rows),
+            "next_cursor": str(start + size) if more else None,
+            "page": None,
+            "page_size": size,
+        }
+
+    def _search(self, record: Request) -> dict[str, Any]:
+        """POST /api/search: the ``search`` fixture, filtered and offset-paged."""
+        body = record.json() or {}
+        filt = body.get("filters") or {}
+        pool = [e for e in self.search["entries"] if matches_filter(e, filt)]
+        offset = int(body.get("offset") or 0)
+        size = int(body.get("max_results") or 10)
+        chunk = pool[offset : offset + size]
+        if body.get("view") == "row":
+            chunk = [to_row(e) for e in chunk]
+        return {
+            **self.search,
+            "entries": chunk,
+            "total": len(pool),
+            "total_results": len(pool),
+            "total_exact": True,
+            "has_more": offset + size < len(pool),
+        }
+
+
+def wait_for_call(
+    page: Page,
+    backend: FakeBackend,
+    method: str,
+    path: str,
+    predicate: Callable[[Request], bool] = lambda _r: True,
+    *,
+    timeout: float = 5.0,
+) -> Request:
+    """The latest recorded *method* *path* request matching *predicate*, polled until one lands.
+
+    A request the page sends after a hash change is recorded asynchronously, so
+    asserting on ``backend.calls`` right after the hash settles races it.
+    """
+    deadline = time.monotonic() + timeout
+    while True:
+        found = [r for r in backend.calls(method, path) if predicate(r)]
+        if found:
+            return found[-1]
+        if time.monotonic() > deadline:
+            raise AssertionError(f"no {method} {path} matching; saw {backend.calls(method, path)}")
+        page.wait_for_timeout(50)
 
 
 def open_panel(
@@ -332,12 +548,26 @@ def canonical(
     q: str | None = None,
     mode: str | None = None,
     box: str = "all",
+    f: dict[str, Any] | None = None,
     sel: str | None = None,
     att: str | None = None,
 ) -> str:
-    """The router's canonical hash: keys in order, empty ones omitted (``box`` never is)."""
-    pairs = [("q", q), ("mode", mode), ("box", box), ("sel", sel), ("att", att)]
-    return "#" + "&".join(f"{k}={quote(v, safe='')}" for k, v in pairs if v)
+    """The router's canonical hash: keys in order, empty ones omitted (``box`` never is).
+
+    ``f`` is the filter as compact JSON with sorted top-level keys (the router's
+    ``normalizeFilter`` order; a ``time`` window keeps ``start, end``). Under a
+    ``saved:`` box ``q`` and ``f`` are always written, even empty (``q=&f={}``).
+    """
+    saved = box.startswith("saved:")
+    f_json = json.dumps({k: f[k] for k in sorted(f)}, separators=(",", ":")) if f else None
+    if saved:
+        q = q or ""
+        f_json = f_json or "{}"
+    pairs = [("q", q), ("mode", mode), ("box", box), ("f", f_json), ("sel", sel), ("att", att)]
+    always = {"q", "f"} if saved else set()
+    return "#" + "&".join(
+        f"{k}={quote(v or '', safe='')}" for k, v in pairs if v or (k in always and v is not None)
+    )
 
 
 def wait_for_hash(page: Page, expected: str) -> None:
@@ -561,7 +791,9 @@ def test_req5_create_selects_the_new_entry_and_remembers_the_author(
     page.click('#ariel-rail button[data-box="mine"]')
     expect(page.locator('[data-rail-field="mine"]')).to_be_hidden()
     page.wait_for_function("location.hash.includes('box=mine')")
-    assert any(r.query.get("author") == ["bob"] for r in backend.calls("GET", "/api/entries"))
+    wait_for_call(
+        page, backend, "GET", "/api/entries", lambda r: r.filters().get("author") == ["bob"]
+    )
     page.close()
 
 
@@ -748,7 +980,9 @@ def test_mailbox_mine_asks_for_the_name_then_scopes_the_list(
     expect(page.locator("#ariel-list [data-entry-id]")).to_have_count(1)
     expect(row(page, "E4")).to_be_visible()
     wait_for_hash(page, canonical(box="mine"))
-    assert backend.calls("GET", "/api/entries")[-1].query.get("author") == ["alice"]
+    wait_for_call(
+        page, backend, "GET", "/api/entries", lambda r: r.filters().get("author") == ["alice"]
+    )
 
     # The name is remembered: a reload on box=mine lists alice's entries directly.
     page.reload(wait_until="load")
@@ -1194,7 +1428,8 @@ def test_every_row_of_the_seeded_logbook_takes_its_own_click(
         FakeBackend(entries=entries),
         viewport={"width": 1280, "height": 900},
     )
-    expect(page.locator("#ariel-list [data-entry-id]")).to_have_count(len(entries))
+    # The first keyset page (20 rows); the rest wait behind Load more.
+    expect(page.locator("#ariel-list [data-entry-id]")).to_have_count(min(len(entries), 20))
 
     for entry in entries[:8]:
         target = row(page, entry["entry_id"])
@@ -1224,3 +1459,289 @@ def test_brand_link_goes_to_the_canonical_empty_hash(
 
     assert page.locator("header a.logo").get_attribute("href") == "#"
     page.close()
+
+
+# ---------------------------------------------------------------------------
+# Facets, query operators, paging, the badge strip
+# ---------------------------------------------------------------------------
+
+
+def _facet(page: Page, dim: str, value: str):
+    """The rail facet row of *value* in dimension *dim*."""
+    return page.locator(
+        f'.ariel-rail-facets button[data-facet-dim="{dim}"][data-facet-value="{value}"]'
+    )
+
+
+def _with_alice() -> FakeBackend:
+    """The default entries plus two of alice's (E4 on 08-20, E5 on 08-19)."""
+    backend = FakeBackend()
+    backend.entries[2:2] = [
+        make_entry(
+            "E4", "Alice's first entry", author="alice", timestamp="2026-08-20T08:00:00-07:00"
+        ),
+    ]
+    backend.entries.append(
+        make_entry(
+            "E5", "Alice's second entry", author="Alice", timestamp="2026-08-19T08:00:00-07:00"
+        )
+    )
+    return backend
+
+
+def _paged_entries(count: int) -> list[dict[str, Any]]:
+    """*count* entries, newest first, an hour apart."""
+    return [
+        make_entry(
+            f"P{i:02d}",
+            f"Paged entry {i}",
+            timestamp=f"2026-08-{20 - i // 24:02d}T{23 - i % 24:02d}:00:00-07:00",
+        )
+        for i in range(count)
+    ]
+
+
+def _rows(page: Page):
+    return page.locator("#ariel-list [data-entry-id]")
+
+
+def test_facet_click_filters_the_list_and_writes_f(
+    ariel_url: str, chromium_browser: Browser
+) -> None:
+    """Counts come from the entries; a value click narrows the list, presses the row, writes ``f``."""
+    page, backend = open_panel(chromium_browser, f"{ariel_url}/", _with_alice())
+    expect(page.locator(".ariel-rail-facets")).to_have_attribute("aria-busy", "false")
+
+    # alice and Alice are one value: matching ignores case.
+    expect(_facet(page, "author", "operator").locator(".osprey-nav-badge")).to_have_text("3")
+    expect(_facet(page, "author", "alice").locator(".osprey-nav-badge")).to_have_text("2")
+
+    _facet(page, "author", "alice").click()
+    expect(_rows(page)).to_have_count(2)
+    expect(row(page, "E4")).to_be_visible()
+    expect(_facet(page, "author", "alice")).to_have_attribute("aria-pressed", "true")
+    wait_for_hash(page, canonical(f={"author": ["alice"]}))
+    wait_for_call(
+        page, backend, "GET", "/api/entries", lambda r: r.filters() == {"author": ["alice"]}
+    )
+    # Self-exclusion: the other author keeps its count to OR with.
+    expect(_facet(page, "author", "operator").locator(".osprey-nav-badge")).to_have_text("3")
+    page.close()
+
+
+def test_facet_filter_survives_reload(ariel_url: str, chromium_browser: Browser) -> None:
+    """A reload restores the filter from ``f``: the list, the pressed row and the request."""
+    page, backend = open_panel(chromium_browser, f"{ariel_url}/", _with_alice())
+    _facet(page, "author", "alice").click()
+    wait_for_hash(page, canonical(f={"author": ["alice"]}))
+
+    backend.requests.clear()
+    page.reload(wait_until="load")
+    expect(_rows(page)).to_have_count(2)
+    expect(_facet(page, "author", "alice")).to_have_attribute("aria-pressed", "true")
+    wait_for_call(
+        page, backend, "GET", "/api/entries", lambda r: r.filters() == {"author": ["alice"]}
+    )
+    page.close()
+
+
+def test_facet_counts_equal_the_list_under_mine(ariel_url: str, chromium_browser: Browser) -> None:
+    """Under Mine the author section shows only Mine's author, its count the list length."""
+    page, backend = open_panel(chromium_browser, f"{ariel_url}/", _with_alice())
+    _box(page, "mine").click()
+    field_ = page.locator('[data-rail-field="mine"]')
+    field_.fill("alice")
+    field_.press("Enter")
+
+    wait_for_hash(page, canonical(box="mine"))
+    expect(_rows(page)).to_have_count(2)
+    authors = page.locator('.ariel-rail-facets button[data-facet-dim="author"]')
+    expect(authors).to_have_count(1)
+    expect(authors.locator(".osprey-nav-badge")).to_have_text(str(_rows(page).count()))
+    wait_for_call(
+        page, backend, "GET", "/api/facets", lambda r: r.filters().get("author") == ["alice"]
+    )
+    page.close()
+
+
+def test_histogram_day_click_lists_only_that_day(ariel_url: str, chromium_browser: Browser) -> None:
+    """A histogram bar sets a one-day ``time`` window; the list shows only that day."""
+    page, _ = open_panel(chromium_browser, f"{ariel_url}/")
+    day = page.locator('.ariel-rail-facets button.ariel-facet-day[data-day="2026-08-19"]')
+    expect(day).to_have_attribute("aria-label", "2026-08-19: 1")
+    # A year of bars in the rail is sub-pixel wide each, so a pointer click
+    # cannot aim at one day; the bar's own click handler is what is tested.
+    day.dispatch_event("click")
+
+    expect(_rows(page)).to_have_count(1)
+    expect(row(page, "E3")).to_be_visible()
+    wait_for_hash(page, canonical(f={"time": {"start": "2026-08-19", "end": "2026-08-19"}}))
+    expect(day).to_have_attribute("aria-pressed", "true")
+    page.close()
+
+
+def test_link_naming_an_undeclared_dimension_shows_the_notice(
+    ariel_url: str, chromium_browser: Browser
+) -> None:
+    """``f`` naming a dimension the logbook does not declare is dropped, with a notice."""
+    f = quote(json.dumps({"bogus": ["x"]}, separators=(",", ":")), safe="")
+    page, backend = open_panel(chromium_browser, f"{ariel_url}/#box=all&f={f}")
+
+    notice = page.locator("[data-list-notice]")
+    expect(notice).to_be_visible()
+    expect(notice).to_have_text("Removed filter this logbook does not offer: bogus")
+    expect(_rows(page)).to_have_count(3)
+    assert all(r.filters() == {} for r in backend.calls("GET", "/api/entries"))
+    page.close()
+
+
+def test_facets_failure_falls_back_to_the_plain_list(
+    ariel_url: str, chromium_browser: Browser
+) -> None:
+    """A failing facets route shows no counts and no error; the list and mount stay usable."""
+    backend = FakeBackend(facets_status=500)
+    page, _ = open_panel(chromium_browser, f"{ariel_url}/", backend)
+
+    expect(page.locator(".ariel-rail-facets")).to_have_attribute("aria-busy", "false")
+    wait_for_call(page, backend, "GET", "/api/facets")
+    expect(page.locator(".ariel-rail-facets [data-facet-section]")).to_have_count(0)
+    expect(_rows(page)).to_have_count(3)
+    expect(page.locator("#ariel-rail button[data-box]")).to_have_count(3)
+    page.close()
+
+
+def test_standalone_search_lifts_operators_into_the_filter(
+    ariel_url: str, chromium_browser: Browser
+) -> None:
+    """``beam author:alice`` + Enter searches ``beam`` filtered to alice, and writes ``f``."""
+    page, backend = open_panel(chromium_browser, f"{ariel_url}/", _with_alice())
+    page.fill("#ariel-search-input", "beam author:alice")
+    page.press("#ariel-search-input", "Enter")
+
+    call = wait_for_call(
+        page, backend, "POST", "/api/search", lambda r: r.filters() == {"author": ["alice"]}
+    )
+    assert call.json()["query"] == "beam"
+    wait_for_hash(page, canonical(q="beam", f={"author": ["alice"]}))
+    expect(page.locator("#ariel-search-input")).to_have_value("beam")
+    page.close()
+
+
+def test_browse_loads_older_entries_to_the_end(ariel_url: str, chromium_browser: Browser) -> None:
+    """Browse pages by cursor; at the end (no ``next_cursor``) the button goes away."""
+    backend = FakeBackend(entries=_paged_entries(45))
+    page, _ = open_panel(chromium_browser, f"{ariel_url}/", backend)
+    more = page.locator("#ariel-list [data-load-more]")
+
+    expect(_rows(page)).to_have_count(20)
+    more.click()
+    expect(_rows(page)).to_have_count(40)
+    more.click()
+    expect(_rows(page)).to_have_count(45)
+    expect(more).to_have_count(0)
+    cursors = [r.query.get("cursor", [None])[0] for r in backend.calls("GET", "/api/entries")]
+    assert cursors == [None, "20", "40"], cursors
+    assert all(r.query.get("view") == ["row"] for r in backend.calls("GET", "/api/entries"))
+    page.close()
+
+
+def test_search_loads_more_results_to_the_end(ariel_url: str, chromium_browser: Browser) -> None:
+    """Search pages by offset; ``has_more`` false hides the button."""
+    entries = _paged_entries(45)
+    backend = FakeBackend(entries=entries, search=search_response(entries))
+    page, _ = open_panel(chromium_browser, f"{ariel_url}/", backend)
+    page.fill("#ariel-search-input", "paged")
+    page.press("#ariel-search-input", "Enter")
+    more = page.locator("#ariel-list [data-load-more]")
+
+    expect(more).to_be_visible()
+    expect(_rows(page)).to_have_count(20)
+    more.click()
+    expect(_rows(page)).to_have_count(40)
+    more.click()
+    expect(_rows(page)).to_have_count(45)
+    expect(more).to_have_count(0)
+    offsets = [r.json().get("offset", 0) for r in backend.calls("POST", "/api/search")]
+    assert offsets[-2:] == [20, 40], offsets
+    page.close()
+
+
+def test_badge_strip_is_on_by_default_and_its_switch_persists(
+    ariel_url: str, chromium_browser: Browser
+) -> None:
+    """Standalone shows the strip; the display-menu switch turns it off, across a reload."""
+    backend = FakeBackend()
+    backend.entries[0]["metadata"] = {"enhancements": {"text_embedding": "failed"}}
+    page, _ = open_panel(chromium_browser, f"{ariel_url}/", backend)
+    toggle = page.locator("#ariel-strip-toggle")
+    cells = page.locator("#ariel-list .ariel-strip-cell")
+
+    expect(
+        row(page, "E1").locator('.ariel-strip-cell[data-module="text_embedding"]')
+    ).to_have_attribute("data-state", "failed")
+    expect(cells).to_have_count(6)  # two modules on each of three rows
+    expect(toggle).to_have_attribute("aria-checked", "true")
+
+    page.click("osprey-display-menu .display-menu-trigger")
+    toggle.click()
+    expect(toggle).to_have_attribute("aria-checked", "false")
+    expect(cells).to_have_count(0)
+
+    page.reload(wait_until="load")
+    expect(row(page, "E1")).to_be_visible()
+    expect(cells).to_have_count(0)
+    expect(toggle).to_have_attribute("aria-checked", "false")
+    page.close()
+
+
+def test_row_click_clears_a_stale_att(ariel_url: str, chromium_browser: Browser) -> None:
+    """Opening another row drops the previous entry's ``att``."""
+    page, _ = open_panel(chromium_browser, f"{ariel_url}/#sel=E1&att=A1")
+    wait_for_hash(page, canonical(sel="E1", att="A1"))
+
+    # The lightbox covers the list; the row's own click handler is what is tested.
+    row(page, "E2").dispatch_event("click")
+    wait_for_hash(page, canonical(sel="E2"))
+    expect(reader_title(page)).to_have_text("Vacuum spike sector 3")
+    page.close()
+
+
+def test_filters_popover_author_and_facet_click_agree(
+    ariel_url: str, chromium_browser: Browser
+) -> None:
+    """A Filters & Options author pick and the author facet send the same filter and ``f``."""
+
+    def backend() -> FakeBackend:
+        fake = _with_alice()
+        fake.capabilities = {
+            **HEALTHY_CAPABILITIES,
+            "shared_parameters": [{"name": "author", "type": "text", "label": "Author"}],
+        }
+        return fake
+
+    # The facet click.
+    page, fake = open_panel(chromium_browser, f"{ariel_url}/", backend())
+    _facet(page, "author", "alice").click()
+    by_facet = wait_for_call(
+        page, fake, "GET", "/api/entries", lambda r: r.filters().get("author") == ["alice"]
+    ).filters()
+    expect(_rows(page)).to_have_count(2)
+    hash_facet = page.evaluate("location.hash")
+    page.close()
+
+    # The popover's author pick.
+    page, fake = open_panel(chromium_browser, f"{ariel_url}/", backend())
+    page.click("#ariel-mode-chip")
+    author = page.locator("#ariel-filters-popover #param-author")
+    expect(author).to_be_visible()
+    author.fill("alice")
+    author.press("Enter")
+    by_popover = wait_for_call(
+        page, fake, "GET", "/api/entries", lambda r: r.filters().get("author") == ["alice"]
+    ).filters()
+    expect(_rows(page)).to_have_count(2)
+    wait_for_hash(page, hash_facet)
+    page.close()
+
+    assert by_popover == by_facet == {"author": ["alice"]}
+    assert hash_facet == canonical(f={"author": ["alice"]})
