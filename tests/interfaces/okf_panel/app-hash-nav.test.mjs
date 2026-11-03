@@ -101,6 +101,13 @@ describe('okf panel fragment navigation', () => {
     expect(fetched).toContain(conceptFetch('devices/bpm'));
   });
 
+  test('the reader marks the concept it rendered', async () => {
+    const reader = /** @type {HTMLElement} */ (document.getElementById('reader-content'));
+    expect(reader.dataset.conceptId).toBe('devices/bpm');
+    await changeHash('#procedures/orbit-correction');
+    expect(reader.dataset.conceptId).toBe('procedures/orbit-correction');
+  });
+
   test('a fragment change loads the concept it names', async () => {
     await changeHash('#procedures/orbit-correction');
     expect(fetched).toContain(conceptFetch('procedures/orbit-correction'));
@@ -110,5 +117,12 @@ describe('okf panel fragment navigation', () => {
   test('an in-page anchor is left alone', async () => {
     await changeHash('#some-heading');
     expect(fetched).not.toContain(conceptFetch('some-heading'));
+  });
+
+  test('the structure overview carries no concept mark', async () => {
+    const reader = /** @type {HTMLElement} */ (document.getElementById('reader-content'));
+    await changeHash('#__structure');
+    expect(fetched).toContain('/api/structure');
+    expect(reader.hasAttribute('data-concept-id')).toBe(false);
   });
 });
