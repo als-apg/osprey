@@ -1,11 +1,12 @@
 """``osprey init --revalidate``: a repo made before tiers and apps, rewritten in place.
 
-The fixture under ``tests/fixtures/previous_release_repo/`` holds the files the
-tier/app vocabulary migrates, as the previous release wrote them: a
-``profile.yml`` spelling the retired default-tier and tier-pin keys and the
-retired render catalog, with the logbook and knowledge cards as users pinned to a
-tier; the five retired layer-directory files exactly as that release emitted
-them (header, no provenance block); and the logbook and knowledge context
+The previous release's ``profile.yml`` is the current exemplar's with the
+retired swaps put back (``_RETIRED_PROFILE_SWAPS``): the default-tier and
+tier-pin keys and the render catalog in their retired spelling, the logbook and
+knowledge cards as users pinned to a tier, and the retired write-posture keys,
+hooks and stanzas. The fixture under ``tests/fixtures/previous_release_repo/``
+holds the five retired layer-directory files exactly as that release emitted
+them (header, no provenance block) and the logbook and knowledge context
 slots. Every other file of the repo — README, data tree, provider catalog, the
 ``channel-finder`` app the previous release had no word for — is the current
 exemplar's own, because the rewrite never touches it. So the gate is exact: the
@@ -78,6 +79,7 @@ def _previous_release_repo(dest: Path, *, git: bool = False) -> Path:
             path = dest / source.relative_to(FIXTURE)
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(expand_sentinels(source.read_text(encoding="utf-8")), encoding="utf-8")
+    (dest / "profile.yml").write_text(previous_release_profile(), encoding="utf-8")
     if git:
         _git(dest, "init", "-q")
         _git(dest, "add", "-A")
@@ -134,6 +136,212 @@ def revalidated_exemplar() -> dict[str, str]:
     assert files["profile.yml"].count(asked) == 1
     files["profile.yml"] = files["profile.yml"].replace(asked, allowed)
     return files
+
+
+#: ``(exemplar text, previous-release text)``: each pair puts back one thing the
+#: previous release's ``profile.yml`` wrote and the revalidate rewrite replaces.
+_RETIRED_PROFILE_SWAPS: tuple[tuple[str, str], ...] = (
+    #: The retired helper hooks.
+    (
+        "hooks:\n",
+        "hooks:\n"
+        "  - hook-log          # Append every tool call to a structured JSONL audit log\n"
+        "  - target-state      # Stdlib reader for the control-target state file (helper, not wired to an event)\n"
+        "  - hook-config       # Inject project config.yml path into every tool call env\n",
+    ),
+    #: The facility rule at its previous-release path, outside rules/.
+    (
+        "  - rules/facility      # Facility-level conventions (naming, units, logbook)\n",
+        "  - facility            # Facility-level conventions (naming, units, logbook)\n",
+    ),
+    #: The retired write-posture keys and their stanzas.
+    (
+        "  - writes-check      # Kill switch: refuse every write while its machine's write switch is off\n",
+        "  - writes-check      # Kill switch: refuse every write while writes_enabled is false\n",
+    ),
+    (
+        "  # Write ceiling, the FIRST guard in the write-safety chain: `never` refuses\n"
+        "  # every hardware write before the limits check or the approval prompt is\n"
+        "  # consulted, `asked` lets a login's write switch reach the position that\n"
+        "  # prompts, and `allowed` also the position that does not. This preset ships\n"
+        "  # `asked`; the read-only tier pins `never`, the admin tier `allowed`. Each\n"
+        "  # login's own switch for each machine decides, so a ceiling arms nothing.\n"
+        "  control_system.writes: asked\n",
+        "  # Master write switch, the FIRST guard in the write-safety chain: while\n"
+        "  # false, every hardware write is refused before the limits check or the\n"
+        "  # approval prompt is consulted. On here because the baseline is the\n"
+        "  # simulator, which cannot move a magnet; the read-only tier pins it off.\n"
+        "  # Write posture is per connector type: a `control_system.connector.<type>.\n"
+        "  # writes_enabled` overrides this for that type alone, and only a literal\n"
+        "  # `true` arms writes at either level.\n"
+        "  control_system.writes_enabled: true\n",
+    ),
+    (
+        "  control_system.connector.virtual_accelerator.timeout_s: 5.0\n",
+        "  control_system.connector.virtual_accelerator.timeout_s: 5.0\n"
+        "  # Write posture for the simulator alone. Uncomment to arm writes here while\n"
+        "  # the master switch keeps the live machine read-only; the shipped\n"
+        "  # `readwrite` and `admin` tiers in tiers/ write this key.\n"
+        "  # control_system.connector.virtual_accelerator.writes_enabled: true\n",
+    ),
+    (
+        "  # control_system.connector.epics.step_read_timeout_s: 2.0\n",
+        "  # control_system.connector.epics.step_read_timeout_s: 2.0\n"
+        "  # Write posture for the live machine. Stating it pins it: a type with its\n"
+        "  # own posture never falls back to the master switch.\n"
+        "  # control_system.connector.epics.writes_enabled: false\n",
+    ),
+    (
+        "  # long a call is given and the probe channel every connector type answers.\n",
+        "  # long a call is given and the two leaves every connector type answers.\n",
+    ),
+    (
+        "  # control_system.connector.doocs.timeout_s: 5.0\n",
+        "  # control_system.connector.doocs.timeout_s: 5.0\n"
+        "  # Write posture for the DOOCS machine. Same tri-state as the epics leaf\n"
+        "  # above: stating it pins it, and only a literal true arms writes.\n"
+        "  # control_system.connector.doocs.writes_enabled: false\n",
+    ),
+    (
+        "  # Device attribute the target switch reads to prove this machine is reachable.\n",
+        "  # The same two leaves as every other connector type, for the TANGO machine.\n"
+        "  # control_system.connector.tango.writes_enabled: false\n",
+    ),
+    #: The per-tool approval policies for the tools the write switch now governs.
+    (
+        "  # still pauses for a yes/no prompt, unless its slider stands at `allowed`.\n"
+        "  # Applied by the approval hook, so it reaches only hook-wired tools; the\n"
+        "  # health check, channel-finder queries and most workspace tools are gated by\n"
+        "  # the rendered settings.json permissions.\n",
+        "  # still pauses for a yes/no prompt. Applied by the approval hook, so it\n"
+        "  # reaches only hook-wired tools; the health check, channel-finder queries and\n"
+        "  # most workspace tools are gated by the rendered settings.json permissions.\n",
+    ),
+    (
+        "  # Per-tool policies: always (prompt every time) or skip (no prompt). A tool\n"
+        "  # the write switch governs, channel writes and Python execution among them,\n"
+        "  # takes no entry here: the slider on the control-target chip decides for it.\n",
+        "  # Per-tool policies: always (prompt every time), skip (no prompt), or\n"
+        "  # selective (content-aware, for `execute` only; other tools read it as\n"
+        "  # always).\n"
+        "  approval.tools.channel_write: always\n",
+    ),
+    (
+        "  approval.tools.archiver_read: skip\n",
+        "  approval.tools.archiver_read: skip\n"
+        "  # Python execution: content-aware, so a script that only reads runs unprompted.\n"
+        "  approval.tools.execute: selective\n",
+    ),
+    #: The previous stand-in banner and control-target chip names.
+    (
+        "  # meets there is a real machine's behaviour — the write switch, approval\n"
+        '  # prompts, limit refusals — under the "Rehearsal — nothing moves" banner,\n'
+        "  # on something that cannot move a magnet.\n",
+        "  # meets there is a real machine's behaviour — approval prompts, limit\n"
+        "  # refusals, the LIVE MACHINE (stand-in) banner — on something that cannot\n"
+        "  # move a magnet.\n",
+    ),
+    (
+        '  # control-target chip. Defaults: "Live", "Rehearsal", "Simulator".\n'
+        "  # control_system.target_display_names.live: Live\n",
+        '  # control-target chip. Defaults: "Real machine", "Rehearsal", "Simulator".\n'
+        "  # control_system.target_display_names.live: Real machine\n",
+    ),
+    #: The retired roster keys and render catalog; the previous release had no apps.
+    (
+        "    default_tier: readonly   # used for any user below with no tier\n",
+        "    default_persona: readonly   # used for any user below with no tier\n",
+    ),
+    (
+        "        # `apps` renders one card per entry in `shared:` below, titled by the\n"
+        "        # app's own `name:` in apps/. Everyone on the roster opens them.\n"
+        "        - type: apps\n"
+        "          label: Apps\n",
+        "",
+    ),
+    (
+        "        tier: readwrite\n",
+        "        persona: readwrite\n",
+    ),
+    (
+        "        tier: readonly\n",
+        "        persona: readonly\n",
+    ),
+    (
+        '        display_name: "Read-Only View (Bob)"\n',
+        '        display_name: "Read-Only View (Bob)"\n'
+        "      # Not a person: a second product running beside them. Same machinery as\n"
+        "      # any other entry — its own container, ports and volumes — but what is\n"
+        "      # behind the card is the ARIEL logbook assistant, not a control terminal.\n"
+        "      - name: logbook\n"
+        "        index: 3\n"
+        "        persona: logbook\n"
+        '        display_name: "Logbook Research"\n'
+        "        # A shared card: everyone on this roster opens it with their own\n"
+        "        # password. It has no password of its own, so none is set in .env.\n"
+        "        access: any\n"
+        "      # The second product beside them: the facility knowledge layer — the\n"
+        "      # knowledge graph, the graph channel finder and the knowledge bundle —\n"
+        "      # read-only, with no control system behind it. Shared like the card\n"
+        "      # above; the page follows roster order, so it sits with its sibling.\n"
+        "      - name: knowledge\n"
+        "        index: 4\n"
+        "        persona: knowledge\n"
+        '        display_name: "Facility Knowledge"\n'
+        "        access: any\n",
+    ),
+    (
+        "        tier: admin\n",
+        "        persona: admin\n",
+    ),
+    (
+        '        display_name: "Deployment Admin (Carol)"\n',
+        '        display_name: "Deployment Admin (Carol)"\n'
+        "    personas:\n"
+        "      # `osprey build` builds one of these per file in personas/, into build/.\n"
+        "      # `osprey up` builds nothing: if one is missing it stops and says so.\n"
+        "      readonly:\n"
+        "        build_profile: personas/readonly.yml\n"
+        "      readwrite:\n"
+        "        build_profile: personas/readwrite.yml\n"
+        "      admin:\n"
+        "        build_profile: personas/admin.yml\n"
+        "      logbook:\n"
+        "        build_profile: personas/logbook.yml\n"
+        "        # Puts this persona's users under their own landing-page heading\n"
+        "        # instead of in with the people. Presentation only — it changes\n"
+        "        # nothing about the container, its ports, or what it can do.\n"
+        "        landing_group: Standalone deployments\n"
+        "      knowledge:\n"
+        "        build_profile: personas/knowledge.yml\n"
+        "        landing_group: Standalone deployments\n",
+    ),
+    (
+        "      - logbook          # Logbook Research: search and synthesise the logbook\n"
+        "      - knowledge        # Facility Knowledge: how the machine is built\n",
+        "",
+    ),
+    #: The previous version floor and provider-catalog verb.
+    (
+        "requires_osprey_version: '>=2026.10.0'\n",
+        "requires_osprey_version: '>=2026.9.0'\n",
+    ),
+    (
+        "# `osprey init --revalidate` adds the packaged entries and keys it lacks.\n",
+        "# `osprey profile expand --providers` refreshes the packaged entries in it.\n",
+    ),
+)
+
+
+def previous_release_profile() -> str:
+    """The previous release's ``profile.yml``: the exemplar's, retired swaps put back."""
+    exemplar = exemplar_source_files()["profile.yml"]
+    for old, _ in _RETIRED_PROFILE_SWAPS:
+        assert exemplar.count(old) == 1, old
+    text = exemplar
+    for old, new in _RETIRED_PROFILE_SWAPS:
+        text = text.replace(old, new)
+    return text
 
 
 # ── The gate ────────────────────────────────────────────────────────────────

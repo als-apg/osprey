@@ -1098,9 +1098,11 @@ def test_every_remedy_names_the_one_migration_verb() -> None:
         timeout=60,
     ).stdout.splitlines()
     this_file = Path(__file__).resolve().relative_to(REPO_ROOT).as_posix()
+    # The previous release's profile text, held as the revalidate gate's swaps.
+    previous_release = "tests/cli/test_init_revalidate.py"
     offenders = []
     for rel in listed:
-        if rel in (this_file, "CHANGELOG.md") or rel.startswith(
+        if rel in (this_file, previous_release, "CHANGELOG.md") or rel.startswith(
             "tests/fixtures/previous_release_repo/"
         ):
             continue
