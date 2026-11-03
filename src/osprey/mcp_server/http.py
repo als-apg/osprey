@@ -2,6 +2,11 @@
 
 import contextlib
 import logging
+import os
+import socket
+import struct
+import sys
+import time
 
 logger = logging.getLogger("osprey.mcp_server.http")
 
@@ -313,6 +318,112 @@ def fetch_panels(timeout: int = 3) -> dict | None:
         )
         return None
     return data if isinstance(data, dict) else None
+
+
+def fetch_code_review_switch(timeout: float = 2) -> dict | None:
+    """Read code review's runtime switch from the web terminal that started this session.
+
+    Only the socket the terminal published (``SWITCH_SOCKET_ENV``) names that terminal, with no
+    fallback: a session no terminal started is under no terminal's switch.
+
+    An answer counts only when the kernel says it was served by a process of this account that
+    is this process's own ancestor (:func:`_served_by_an_ancestor`). The agent's code runs as
+    the same account and can bind a socket at that path whenever the terminal is not on it;
+    what it cannot do is become an ancestor of the hook or the executor asking. The check reads pids only, never
+    another process's ``/proc`` entries, so a terminal that hides its memory still counts.
+
+    .. warning::
+        A **blocking** call bounded by ``timeout`` from the dial to the last byte read,
+        however the answer trickles in; async callers run it in a thread.
+
+    Returns:
+        The parsed JSON object, or ``None`` when no terminal is named, it cannot be reached,
+        is not this session's ancestor, or answers with anything but a JSON object.
+    """
+    import json as _json
+
+    from osprey.services.code_review.switch import SWITCH_ANSWER_LIMIT, SWITCH_SOCKET_ENV
+
+    path = os.environ.get(SWITCH_SOCKET_ENV, "").strip()
+    if not os.path.isabs(path) or not hasattr(socket, "AF_UNIX"):
+        return None
+    deadline = time.monotonic() + timeout
+    try:
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as sock:
+            sock.settimeout(timeout)
+            sock.connect(path)
+            if not _served_by_an_ancestor(sock):
+                logger.warning("code review switch answered by a process outside this session")
+                return None
+            body = b""
+            while chunk := _recv_by(sock, deadline, SWITCH_ANSWER_LIMIT + 1 - len(body)):
+                body += chunk
+                if len(body) > SWITCH_ANSWER_LIMIT:
+                    raise ValueError("the code review switch answer is too long")
+        data = _json.loads(body)
+    except Exception as exc:
+        logger.warning("code review switch read failed: %s", exc)
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def _recv_by(sock: socket.socket, deadline: float, nbytes: int) -> bytes:
+    """Up to *nbytes* from *sock*, waiting only for what is left until *deadline*.
+
+    A socket timeout bounds each receive alone, so a server dripping one byte at a time
+    would keep the reader waiting as long as it liked.
+    """
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        raise TimeoutError("the code review switch read ran out of time")
+    sock.settimeout(remaining)
+    return sock.recv(nbytes)
+
+
+def _served_by_an_ancestor(sock: socket.socket) -> bool:
+    """Whether the process serving *sock* runs as this account and is one of our ancestors.
+
+    The terminal spawns every session, so the session's hooks and MCP servers descend
+    from it; whatever the agent starts is a descendant of the session, never an ancestor
+    of them. Never raises; a peer or process table that cannot be read is no proof.
+    """
+    try:
+        peer = _peer(sock)
+        if peer is None or peer[1] != os.getuid():
+            return False
+        import psutil
+
+        return peer[0] in {p.pid for p in psutil.Process().parents()}
+    except Exception:
+        logger.warning("could not check who answered the code review switch", exc_info=True)
+        return False
+
+
+def _peer(sock: socket.socket) -> tuple[int, int] | None:
+    """The ``(pid, uid)`` the kernel recorded for the listening end of *sock*, or ``None``.
+
+    Linux reads ``SO_PEERCRED`` (``struct ucred``); macOS reads ``LOCAL_PEERPID`` and the uid
+    from ``LOCAL_PEERCRED`` (``struct xucred``). Any other platform names no peer.
+    """
+    if sys.platform == "linux":
+        ucred = struct.Struct("3i")
+        pid, uid, _gid = ucred.unpack(
+            sock.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED, ucred.size)
+        )
+        return pid, uid
+    if sys.platform == "darwin":
+        (pid,) = struct.unpack("i", sock.getsockopt(_SOL_LOCAL, _LOCAL_PEERPID, 4))
+        version, uid = struct.unpack_from("2I", sock.getsockopt(_SOL_LOCAL, _LOCAL_PEERCRED, 76))
+        return (pid, uid) if version == _XUCRED_VERSION else None
+    return None
+
+
+#: ``SOL_LOCAL``, ``LOCAL_PEERCRED``, ``LOCAL_PEERPID`` and ``XUCRED_VERSION`` from macOS
+#: ``<sys/un.h>`` and ``<sys/ucred.h>``; 76 is ``sizeof(struct xucred)``.
+_SOL_LOCAL = 0
+_LOCAL_PEERCRED = 0x001
+_LOCAL_PEERPID = 0x002
+_XUCRED_VERSION = 0
 
 
 def notify_panel_visibility(panel: str, visible: bool) -> None:

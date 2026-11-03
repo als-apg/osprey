@@ -133,3 +133,35 @@ describe('Open activity log', () => {
     expect(features).toBe('noopener');
   });
 });
+
+describe('Code review rules', () => {
+  /** A settings drawer holding the Review tab and no scaffold gallery. */
+  function drawerWithReviewTab() {
+    const drawer = document.createElement('div');
+    drawer.id = 'settings-drawer';
+    const tab = document.createElement('button');
+    tab.className = 'drawer-tab';
+    tab.dataset.tab = 'tab-review';
+    tab.textContent = 'Review';
+    drawer.append(tab);
+    document.body.append(drawer);
+  }
+
+  test('is offered with no scaffold gallery mounted, and reads no gallery', async () => {
+    drawerWithReviewTab();
+    const fetchMock = vi.fn(async () => ({ ok: true, status: 200, json: async () => ({}) }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await openPalette();
+
+    expect(paletteLabels()).toContain('Code review rules');
+    const urls = fetchMock.mock.calls.map((call) => String(/** @type {unknown[]} */ (call)[0]));
+    expect(urls.filter((url) => url.includes('/api/scaffold'))).toEqual([]);
+  });
+
+  test('is not offered where the drawer has no Review tab', async () => {
+    await openPalette();
+
+    expect(paletteLabels()).not.toContain('Code review rules');
+  });
+});

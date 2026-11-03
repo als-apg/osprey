@@ -61,6 +61,7 @@ from osprey.interfaces.web_terminal.routes.safety_switches import router as safe
 from osprey.interfaces.web_terminal.routes.watchdog import make_notifier
 from osprey.interfaces.web_terminal.routes.watchdog import router as watchdog_router
 from osprey.interfaces.web_terminal.safety_switches import (
+    CODE_REVIEW_SWITCH,
     WATCHDOG_SWITCH,
     SafetySwitches,
     feature_is_on,
@@ -1184,7 +1185,7 @@ def _start_watchdogs(app: FastAPI, config_file: Path | None) -> None:
     switches = switches_of(app)
     if switches is None:
         switches = app.state.safety_switches = SafetySwitches()
-    switches.register(WATCHDOG_SWITCH, "Safety watchdog")
+    switches.register(WATCHDOG_SWITCH, "Safety watchdog", "Open holds stay open.")
     app.state.watchdog_runner = WatchdogRunner(
         definitions,
         hold_root=root,
@@ -1192,6 +1193,49 @@ def _start_watchdogs(app: FastAPI, config_file: Path | None) -> None:
         config=config,
         build_dir=build_dir,
         may_hold=lambda: feature_is_on(app, WATCHDOG_SWITCH),
+    )
+
+
+async def _serve_code_review_switch(app: FastAPI, config_file: Path | None) -> None:
+    """Make code review switchable when the rendered config turns it on, and serve the switch.
+
+    Its consumers run in the agent's processes and read the switch from the socket this
+    terminal serves (:mod:`~osprey.interfaces.web_terminal.code_review_switch`). A section
+    that cannot be read registers nothing: every review refuses then, and there is nothing
+    to turn off. Nor does a terminal that cannot serve the socket, which would show an off
+    switch while every review still ran. A socket an outer terminal published is never
+    passed on, so a session started here asks this terminal or nobody.
+    """
+    from osprey.services.code_review.switch import SWITCH_SOCKET_ENV
+
+    os.environ.pop(SWITCH_SOCKET_ENV, None)
+    app.state.code_review_switch_listener = None
+    if config_file is None:
+        return
+    from osprey.services.code_review.settings import (
+        ReviewConfigError,
+        load_review_settings,
+        read_review_config,
+    )
+
+    try:
+        enabled = load_review_settings(read_review_config(config_file)).enabled
+    except ReviewConfigError:
+        return
+    switches = switches_of(app)
+    if not enabled or switches is None:
+        return
+    from osprey.interfaces.web_terminal.code_review_switch import serve_switch
+
+    try:
+        app.state.code_review_switch_listener = await serve_switch(app)
+    except OSError as exc:
+        logger.warning("code review cannot be switched off here: its socket failed (%s)", exc)
+        return
+    switches.register(
+        CODE_REVIEW_SWITCH,
+        "Code review",
+        "Meanwhile the agent's Python and notebook code runs unreviewed.",
     )
 
 
@@ -1371,10 +1415,9 @@ def _create_lifespan(
                 break
         app.state.config_path = resolved_config_path
         # Built before any feature registers into it; a restart starts it empty.
-        # Registered: the watchdog (_start_watchdogs). Code review is not yet:
-        # its hook runs in the agent sandbox and needs the state through the state zone.
         app.state.safety_switches = SafetySwitches()
         _start_watchdogs(app, resolved_config_path)
+        await _serve_code_review_switch(app, resolved_config_path)
 
         # ── Web theme (SSR no-FOUC attribute) ──
         # Resolved once at startup and server-rendered onto <html data-theme>
@@ -1923,6 +1966,9 @@ def _create_lifespan(
             await app.state.watchdog_runner.shutdown()
 
         await app.state.control_context_task.stop()
+
+        if app.state.code_review_switch_listener is not None:
+            await app.state.code_review_switch_listener.close()
 
         reaper_task.cancel()
         with suppress(asyncio.CancelledError):

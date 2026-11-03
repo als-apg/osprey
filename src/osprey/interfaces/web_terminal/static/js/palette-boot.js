@@ -31,6 +31,7 @@ import { resetDockLayout } from './dock-workspace.js';
 import { openDrawerTab, revealSetting } from './settings.js';
 import { CONFIG_TAB_ID } from './config-tab.js';
 import { scaffoldGalleryMounted, listGalleryEntries, revealArtifact } from './scaffold-gallery.js';
+import { REVIEW_TAB_ID, reviewPaletteEntries } from './code-review-tab.js';
 import { startTour } from './tour.js';
 import { openPalette, closePalette, isOpen } from './palette.js';
 import { confirmSignOut } from './sign-out.js';
@@ -137,12 +138,22 @@ function buildPaletteDeps() {
   // Omitting the dep is what drops the rows.
   if (configTabPresent()) deps.revealSetting = revealSetting;
 
-  // The Settings files group (a row per gallery card) reaches the drawer's
-  // galleries; where none mounted, both deps are withheld and the group and
-  // its /api/scaffold read go with them.
-  if (scaffoldGalleryMounted()) {
-    deps.loadArtifacts = listGalleryEntries;
-    deps.revealArtifact = revealArtifact;
+  // The Settings files group holds a row per gallery card, which reaches the
+  // drawer's galleries, and the Review tab's rules row, which opens that tab.
+  // The gallery rows and their /api/scaffold read come only where a gallery
+  // mounted, the rules row only while the Review tab is in the drawer; with
+  // neither, both deps are withheld and the group goes with them.
+  const galleries = scaffoldGalleryMounted();
+  const reviewRows = reviewPaletteEntries();
+  if (galleries || reviewRows.length) {
+    deps.loadArtifacts = async () => [
+      ...(galleries ? await listGalleryEntries() : []),
+      ...reviewRows,
+    ];
+    deps.revealArtifact = (name, tabId) => {
+      if (tabId === REVIEW_TAB_ID) void openDrawerTab(tabId);
+      else void revealArtifact(name, tabId);
+    };
   }
 
   // "Open … in a new tile" and the Layouts group place tiles; both views hold
