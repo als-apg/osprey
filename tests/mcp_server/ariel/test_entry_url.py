@@ -179,6 +179,102 @@ def test_serialize_entry_omits_entry_url_for_native():
     assert "entry_url" not in result
 
 
+def test_serialize_entry_omits_entry_url_for_local_only_web_entry():
+    """C-URL: a local-only ``ARIEL Web`` save is not in the facility logbook, so
+    serialize_entry emits no entry_url even when a template is configured."""
+    entry = {**_entry(entry_id="ariel-web-1", source_system="ARIEL Web")}
+    entry["metadata"] = {"sync_status": "local_only"}
+    with patch("osprey_connectors.config.get_config_value", _fake_config(GENERIC_TEMPLATE)):
+        result = server.serialize_entry(
+            entry,
+            text_limit=DEFAULT_LISTING_TEXT_CHARS,
+            attachment_limit=0,
+            attachment_rows=None,
+            model_id=None,
+            file_source=False,
+        )
+    assert "entry_url" not in result
+
+
+def test_serialize_entry_keeps_entry_url_for_synced_web_entry():
+    """A published (synced) ``ARIEL Web`` entry is in the facility logbook."""
+    entry = {**_entry(entry_id="175353", source_system="ARIEL Web")}
+    entry["metadata"] = {"sync_status": "synced"}
+    with patch("osprey_connectors.config.get_config_value", _fake_config(GENERIC_TEMPLATE)):
+        result = server.serialize_entry(
+            entry,
+            text_limit=DEFAULT_LISTING_TEXT_CHARS,
+            attachment_limit=0,
+            attachment_rows=None,
+            model_id=None,
+            file_source=False,
+        )
+    assert result["entry_url"] == "https://logbook.example/olog.php?id=175353"
+
+
+# ---------------------------------------------------------------------------
+# services.ariel_search.entry_url (C-URL): the shared producer
+# ---------------------------------------------------------------------------
+
+
+def test_server_re_exports_the_shared_producer():
+    """server.py re-exports the service-layer producer, not a copy of it."""
+    from osprey.services.ariel_search import entry_url
+
+    assert server.build_entry_url is entry_url.build_entry_url
+    assert server.is_ariel_only is entry_url.is_ariel_only
+    assert server.ARIEL_NATIVE_SOURCE_SYSTEM == entry_url.ARIEL_NATIVE_SOURCE_SYSTEM
+
+
+@pytest.mark.parametrize(
+    ("source_system", "metadata", "expected"),
+    [
+        ("ARIEL MCP", None, True),  # MCP-native entry
+        ("ARIEL MCP", {"sync_status": "synced"}, True),
+        ("ARIEL Web", {"sync_status": "local_only"}, True),  # local-only web save
+        ("Generic JSON", {"sync_status": "local_only"}, True),
+        ("ARIEL Web", {"sync_status": "synced"}, False),
+        ("ARIEL Web", {"sync_status": "pending_sync"}, False),
+        ("Facility eLog", None, False),
+        ("Facility eLog", {}, False),
+        (None, None, False),
+        ("Facility eLog", "not-a-mapping", False),
+    ],
+)
+def test_is_ariel_only(source_system, metadata, expected):
+    """One predicate: local-only sync status, or the ARIEL-native source."""
+    from osprey.services.ariel_search.entry_url import is_ariel_only
+
+    assert is_ariel_only(source_system, metadata) is expected
+
+
+@pytest.mark.parametrize(
+    ("template", "source_system", "metadata", "expected"),
+    [
+        (GENERIC_TEMPLATE, "Facility eLog", None, "https://logbook.example/olog.php?id=7"),
+        (GENERIC_TEMPLATE, "ARIEL MCP", None, None),  # MCP native
+        (GENERIC_TEMPLATE, "ARIEL Web", {"sync_status": "local_only"}, None),  # local-only
+        (None, "Facility eLog", None, None),  # no template
+        ("", "Facility eLog", None, None),  # blank template
+    ],
+)
+def test_service_build_entry_url(template, source_system, metadata, expected):
+    """The service producer: template set gives a URL; MCP native, a local-only
+    ``ARIEL Web`` entry and no template give None."""
+    from osprey.services.ariel_search.entry_url import build_entry_url
+
+    with patch("osprey_connectors.config.get_config_value", _fake_config(template)):
+        assert build_entry_url("7", source_system, metadata=metadata) == expected
+
+
+def test_service_build_entry_url_metadata_is_keyword_only():
+    """``metadata`` is keyword-only so the positional two-arg callers stay valid."""
+    from osprey.services.ariel_search.entry_url import build_entry_url
+
+    with pytest.raises(TypeError):
+        build_entry_url("7", "ARIEL Web", {"sync_status": "local_only"})  # type: ignore[misc]
+
+
 # ---------------------------------------------------------------------------
 # server-wide guardrail (FR5)
 # ---------------------------------------------------------------------------
