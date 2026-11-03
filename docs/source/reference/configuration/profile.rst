@@ -1106,8 +1106,9 @@ derives exactly seven keys from it, all under
   for each of the ``read_only`` and ``write_access`` roles, pointing both lanes
   at loopback on the stand-in's port over the Channel Access name server;
 - ``probe_channel``, copied from the simulator's own, stated or derived from the
-  facility file, since the stand-in is the same soft IOC over the same machine
-  model. A deployment whose simulator has none gets none here either.
+  facility file (see :ref:`architecture-facility-settings`), since the stand-in
+  is the same soft IOC over the same machine model. A deployment whose simulator
+  has none gets none here either.
 
 A profile that spells any of the seven in its own ``config:`` block is refused by
 name at build time rather than silently having the derived copy win: two homes
@@ -1217,6 +1218,7 @@ presence is the decision, not its contents.
        build derives it from the facility file: the first readback by address
        the served simulator holds (the probe's channel); none derives no check.
        A stated value is an override checked against the file (see
+       :ref:`architecture-facility-settings` and
        :doc:`/how-to/health-and-monitoring/configure-health-checks`).
    * - ``host``
      - ``localhost``

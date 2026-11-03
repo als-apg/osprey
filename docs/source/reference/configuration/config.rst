@@ -42,7 +42,7 @@ may touch.
        and ``[]`` serve no physics. Every shipped preset sets ``null``.
    * - ``simulation.tick_s``
      - Seconds between the simulator's ticks. Absent means ``1.0``; every
-       shipped preset sets ``1.0``. A value at or below ``0`` stops the build
+       shipped preset sets ``1.0``. A value of ``0`` or less stops the build
        with a ``profile-invalid`` line naming the key.
    * - ``simulation.default_scenarios``
      - The scenarios a deployment that has never chosen a set starts in, by
@@ -53,7 +53,8 @@ may touch.
        derives no start set. The control-assistant preset sets ``[rf-thermal]``;
        the other presets leave it out. A value that is not a list of non-empty
        names, or a name that is not a scenario of the facility file, stops the
-       build with a ``profile-invalid`` line naming the key.
+       build with a ``profile-invalid`` line naming the key (see
+       :ref:`architecture-facility-settings`).
 
 ``texture`` is always served, and always last. A name the facility file does
 not hold stops the build with a ``profile-invalid`` line that lists the valid

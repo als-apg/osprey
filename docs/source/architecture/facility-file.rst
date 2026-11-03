@@ -178,6 +178,55 @@ into a temporary directory, adds the response check of a Middle Layer import,
 and writes nothing into the repo. Tier, app and image renders are checked by
 ``osprey build`` alone.
 
+.. _architecture-facility-settings:
+
+Settings the facility decides
+=============================
+
+A few profile settings take their value from the facility: the build derives
+each one from the facility file or tree when the profile leaves it unstated. A
+stated value is an override checked against the facility, the one block of
+derived keys where a stated value is not refused.
+
+.. list-table::
+   :header-rows: 1
+   :widths: 30 20 25 25
+
+   * - Key
+     - Stated at
+     - Derived from
+     - A stated value must
+   * - ``control_system.connector.virtual_accelerator.probe_channel``
+     - the key
+     - the first readback, by address, of the served models; only for a
+       render that carries the simulator's block
+     - be a channel of the facility file, as must a stated stand-in probe
+   * - ``health.categories.archiver.checks``
+     - ``va_archiver.freshness_channel``
+     - the probe's channel, for a profile with a ``va_archiver:`` block
+     - be a channel of the facility file
+   * - ``simulation.default_scenarios``
+     - the key
+     - never derived
+     - name only scenarios of the facility file
+   * - ``ariel.vocabulary.enabled``
+     - the key
+     - ``true`` when the tree ships ``ariel/vocabulary.yml``
+     - when ``true`` with no path, have that file in the tree
+   * - ``ariel.vocabulary.path``
+     - the key
+     - the shipped ``data/facility/ariel/vocabulary.yml``
+     - while the vocabulary is on, name a file, resolved against the project
+       root
+   * - ``channel_finder.benchmark.dataset_path``
+     - the key
+     - ``data/benchmarks/queries.json`` when the tree ships benchmark query
+       sources
+     - have benchmark query sources in the tree
+
+A value the facility contradicts stops the build with a ``profile-invalid``
+line naming the key.
+
 The views
 =========
 
