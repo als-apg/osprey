@@ -433,3 +433,26 @@ def test_the_knowledge_bundle_validates_after_an_import_that_leaves_no_page(clea
     assert index.read_bytes() == b""
     result = CliRunner().invoke(cli, ["knowledge", "validate", str(index.parent)])
     assert result.exit_code == 0, result.output
+
+
+def test_the_knowledge_bundle_validates_after_an_import_of_a_tree_with_no_bundled_file(
+    repo: Path,
+) -> None:
+    pytest.importorskip("at")
+    facility = _facility(repo)
+    shutil.rmtree(facility)
+    (facility / MAPPING_FILE).parent.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(TREE / MAPPING_FILE, facility / MAPPING_FILE)
+    knowledge = facility / "knowledge"
+    knowledge.mkdir()
+    (knowledge / "note.md").write_text(
+        "---\ntype: Note\ntitle: A note\ndescription: Kept.\n---\n\nA note.\n", encoding="utf-8"
+    )
+
+    imported = _import(repo)
+
+    assert imported.exit_code == 0, imported.output
+    assert "replaced the bundled" not in imported.stderr
+    assert "/note.md" in (knowledge / "index.md").read_text(encoding="utf-8")
+    result = CliRunner().invoke(cli, ["knowledge", "validate", str(knowledge)])
+    assert result.exit_code == 0, result.output

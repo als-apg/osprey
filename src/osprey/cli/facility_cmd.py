@@ -40,7 +40,8 @@ bundled files                               replaces them and says so in one lin
 anything else of the deployment's own       keeps it
 ==========================================  ==========================================
 
-It then seeds the knowledge stub when no knowledge index exists.
+The knowledge indexes are then settled, and a blank index is left when no page
+remains.
 
 ``osprey facility import mml EXPORT...`` writes MML exports as the mml layer's
 sources under ``data/facility/imported/mml/`` and seeds each authored file that
@@ -505,15 +506,13 @@ def _named_together(names: list[str]) -> str:
 
 
 def _remove_bundled(facility_dir: Path, bundled: tuple[str, ...]) -> None:
-    """Remove the bundled files, regenerate the knowledge indexes, remove the empty directories.
-
-    The kept pages are indexed; an index whose directory holds no page goes.
-    """
-    from osprey.services.facility_knowledge.okf.index import regenerate_indexes
-
+    """Remove the bundled files; their directories stay until :func:`_prune_empty`."""
     for relative in bundled:
         (facility_dir / relative).unlink()
-    regenerate_indexes(facility_dir / "knowledge")
+
+
+def _prune_empty(facility_dir: Path) -> None:
+    """Remove every empty directory under *facility_dir*, deepest first."""
     directories = (path for path in facility_dir.rglob("*") if path.is_dir())
     for directory in sorted(directories, key=lambda path: -len(path.parts)):
         if not any(directory.iterdir()):
@@ -526,11 +525,11 @@ def _replace_or_refuse(ctx: click.Context, verb: str, facility_dir: Path, repo_r
     Refuses only on overlap: hand-written records of the kinds this verb writes
     exit 1 with nothing changed. Otherwise bundled files are replaced, and the
     line that says so prints at once, so a later stop of the format never hides
-    the deletion. Everything else stays, and a blank knowledge index is seeded when
-    none exists.
+    the deletion. Everything else stays; the knowledge indexes are settled, and a
+    blank index is left when no page remains.
     """
     from osprey.facility.bundled import classify
-    from osprey.facility.layers import _seed_knowledge_index
+    from osprey.services.facility_knowledge.okf.index import _settle_bundle
 
     from .templates.manager import TemplateManager
 
@@ -561,7 +560,9 @@ def _replace_or_refuse(ctx: click.Context, verb: str, facility_dir: Path, repo_r
             f"({len(kinds.bundled)} files)",
             err=True,
         )
-    seeded = _seed_knowledge_index(facility_dir)
+    seeded = _settle_bundle(facility_dir / "knowledge")
+    if kinds.bundled:
+        _prune_empty(facility_dir)
     if seeded is not None:
         report(f"wrote {_shown(seeded, repo_root)}")
         report(KNOWLEDGE_PLACEHOLDER_LINE)
