@@ -16,12 +16,10 @@ from __future__ import annotations
 
 import dataclasses
 import hashlib
-import keyword
 import os
 import re
 import shutil
 import subprocess
-import sys
 import tempfile
 from collections.abc import Iterable, Mapping, Sequence
 from pathlib import Path
@@ -33,6 +31,7 @@ from ruamel.yaml import YAMLError
 from osprey.apps.boundary import check_package
 from osprey.apps.errors import AppManifestError, Violation
 from osprey.apps.manifest import APP_NAME_PATTERN
+from osprey.apps.rules import taken_package
 from osprey.utils.config_writer import load_config_document
 from osprey.utils.workspace import APPS_DIRNAME
 
@@ -45,8 +44,6 @@ _OSPREY_DIR = Path(__file__).resolve().parents[1]
 EXAMPLE_APP_DIR = _OSPREY_DIR / "profiles" / "presets" / APPS_DIRNAME / "knob-example"
 #: Every app-scoped identifier of the example is its name in one of these two forms.
 _EXAMPLE_NAMES = ("knob-example", "knob_example")
-#: Packages an application's own may not be named: a copy would shadow them or fail its check.
-_TAKEN_PACKAGES = sys.stdlib_module_names | {"osprey", "osprey_connectors"}
 #: The anchored ``.gitignore`` entry for the files a build fetches into a panel.
 _VENDOR_IGNORE = f"/{APPS_DIRNAME}/*/panel/vendor/"
 #: The pinned toolchain's manifest, lockfile and configs, copied beside its ``node_modules``.
@@ -89,7 +86,7 @@ def new(name: str, repo: Path | None, force: bool) -> None:
         raise click.BadParameter(
             "lower-case letters, digits and dashes, starting with a letter", param_hint="NAME"
         )
-    if keyword.iskeyword(package) or package in _TAKEN_PACKAGES:
+    if taken_package(package):
         raise click.BadParameter(
             f"the Python package {package} would be a keyword or shadow an existing module",
             param_hint="NAME",

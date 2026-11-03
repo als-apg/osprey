@@ -277,6 +277,19 @@ def test_an_app_tool_may_not_take_a_hook_dispatched_name(name: str) -> None:
     assert err.field == "tools.approval.0.tool" and name in err.message
 
 
+@pytest.mark.parametrize(
+    "module", ["json.tools", "osprey.tools", "osprey_connectors.tools", "class.tools"]
+)
+def test_a_tool_module_in_a_taken_package_is_refused(module: str) -> None:
+    err = _refused([_manifest(tools__module=module)])
+    assert _rules(err) == ["taken_package"]
+    assert err.field == "tools.module"
+
+
+def test_a_tool_module_in_a_package_of_its_own_passes() -> None:
+    validate([_manifest(tools__module="knob_example.tools")], logins={}, reserved=EMPTY)
+
+
 @pytest.mark.parametrize("name", [*bluesky_tool_names.QUEUE_CONTROL_TOOLS, "queue_anything"])
 def test_an_app_tool_may_not_take_a_queue_name(name: str) -> None:
     err = _refused([_manifest(tools__read=[name])])
