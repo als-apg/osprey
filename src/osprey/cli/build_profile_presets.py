@@ -15,6 +15,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from osprey.deployment.compose_generator import TEMPLATE_FILENAME
 from osprey.utils.workspace import APPS_DIRNAME, TIERS_DIRNAME
 from osprey_connectors.errors import BuildProfileError
 
@@ -128,9 +129,6 @@ def resolve_triggers_path(profile_dir: Path, triggers: str) -> TriggersSource | 
     return None
 
 
-_SERVICE_TEMPLATE_FILE = "docker-compose.yml.j2"
-
-
 def bundled_services_dir() -> Path:
     """Locate the OSPREY package's bundled ``templates/services`` directory.
 
@@ -176,7 +174,7 @@ class ServiceTemplateSource:
     @property
     def exists(self) -> bool:
         """Whether ``path`` is a service template: a directory holding its compose template."""
-        return self.path.is_dir() and (self.path / _SERVICE_TEMPLATE_FILE).is_file()
+        return self.path.is_dir() and (self.path / TEMPLATE_FILENAME).is_file()
 
     def refusal(self, service: str) -> str | None:
         """The sentence refusing *service* for this source, or ``None`` when it exists."""
@@ -186,7 +184,7 @@ class ServiceTemplateSource:
             return f"Service '{service}' template '{self.template}' names no template OSPREY ships"
         if not self.path.is_dir():
             return f"Service '{service}' template dir not found: {self.path}"
-        return f"Service '{service}' template dir missing {_SERVICE_TEMPLATE_FILE}"
+        return f"Service '{service}' template dir missing {TEMPLATE_FILENAME}"
 
 
 def resolve_service_template(profile_dir: Path, template: str) -> ServiceTemplateSource:
