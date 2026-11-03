@@ -1,1 +1,0 @@
-The pyat simulation engine registers under the `osprey.simulation.engines` entry-point group with its deck-only contract (element positions, settings checks, start values, corrector planes), and the calibration types live in `osprey.simulation.engines.calibration`.

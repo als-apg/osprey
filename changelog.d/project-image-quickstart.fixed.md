@@ -1,1 +1,0 @@
-The project-image how-to and the rendered `Dockerfile` header now run every by-hand line from the deployment repo root, naming the rendered container repo as the build context. The build-args and Apple Silicon examples, which named no Dockerfile, now build.

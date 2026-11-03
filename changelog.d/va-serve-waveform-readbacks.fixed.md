@@ -1,1 +1,0 @@
-The virtual accelerator serves a float waveform readback (for example an imported machine's tune vector) on Channel Access and PVAccess; such a channel used to fail every runner pass, so the server published no value at all.

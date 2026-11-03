@@ -1,1 +1,0 @@
-A batched channel read that is cancelled part-way now raises the cancellation instead of returning it as one channel's reading. Reads that fail with an ordinary error are still left out of the result.

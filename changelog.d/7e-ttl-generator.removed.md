@@ -1,1 +1,0 @@
-The TTL generator package (`osprey.services.facility_knowledge.ttl_generator`) and its demo ontology tables are removed. The graph view `osprey build` writes from the facility file is the only Turtle writer, and the knowledge seeder reads it.
