@@ -675,6 +675,10 @@ everything else running:
 * The MCP server refuses to start, naming the same key, so the OSPREY agent
   never gets a half-working search.
 
+A stated ``ariel.vocabulary.path`` that is not a file stops ``osprey build``
+while the vocabulary is on, so a missing file never reaches this mode (see
+:ref:`architecture-facility-settings`).
+
 If the broken file is baked into a deployed image, the panel's editor cannot
 reach it: ``vocabulary.yml`` ships inside the image, like the channel databases.
 Fix the file in the project source, then re-run the build and deploy again.

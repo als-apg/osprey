@@ -10,6 +10,7 @@ scenario it does not hold.
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Any
 
@@ -32,6 +33,14 @@ from osprey.facility.settings import (
 )
 from osprey.facility.views.benchmarks import BENCHMARK_DATASET_KEY, QUERY_SOURCES
 from osprey.simulation import DEFAULT_SCENARIOS_KEY
+
+#: The architecture page that lists the table.
+FACILITY_FILE_PAGE = (
+    Path(__file__).resolve().parents[2] / "docs" / "source" / "architecture" / "facility-file.rst"
+)
+
+#: A ``list-table`` row's first cell when it is one RST inline literal.
+KEY_CELL = re.compile(r"^   \* - ``([^`]+)``$")
 
 #: A facility file with one readback and one setpoint.
 DOCUMENT: dict[str, Any] = {
@@ -232,3 +241,22 @@ def test_the_table_is_the_manifests_facility_rows() -> None:
     marked = {key for key, row in manifest_rows().items() if (row or {}).get("facility-fact")}
 
     assert {row.key for row in FACILITY_SETTINGS} == marked
+
+
+def _section_keys(page: Path, heading: str) -> list[str]:
+    """The key cells of the list-table under ``heading``, up to the next ``=`` heading."""
+    lines = page.read_text(encoding="utf-8").splitlines()
+    start = lines.index(heading) + 2
+    keys: list[str] = []
+    for n in range(start, len(lines)):
+        if n + 1 < len(lines) and lines[n + 1].startswith("===") and lines[n].strip():
+            break
+        if match := KEY_CELL.match(lines[n]):
+            keys.append(match.group(1))
+    return keys
+
+
+def test_the_facility_file_page_lists_the_table() -> None:
+    keys = _section_keys(FACILITY_FILE_PAGE, "Settings the facility decides")
+
+    assert keys == [row.key for row in FACILITY_SETTINGS]

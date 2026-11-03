@@ -1,7 +1,7 @@
 """Archiver-freshness health probe — is the archiver actually accumulating data?
 
 Verifies the deployment's archiver is both *reachable* and *live*: it queries a
-short trailing window for a facility-declared canary channel through the suite's
+short trailing window for a derived or stated canary channel through the suite's
 shared archiver connector (obtained from the
 :class:`~osprey.health.runtime.HealthRuntime` on the probe context via
 ``ctx.runtime.get_archiver(...)``) and grades the age of the newest archived
