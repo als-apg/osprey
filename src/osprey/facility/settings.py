@@ -24,7 +24,9 @@ from osprey.facility.records import FacilityRecords
 from osprey.facility.served import SIMULATION_MODELS_KEY, _served_scope, resolve_served
 from osprey.facility.views.benchmarks import BENCHMARK_DATASET_KEY, QUERY_SOURCES
 from osprey.simulation import DEFAULT_SCENARIOS_KEY
+from osprey.utils.config_paths import resolve_config_relative_path
 from osprey_connectors.types import LIVE_STANDIN, VIRTUAL_ACCELERATOR
+from osprey_connectors.workspace import BUILD_DIR_NAME
 
 if TYPE_CHECKING:
     from osprey.cli.build_profile_archiver import VAArchiverConfig
@@ -92,6 +94,7 @@ class _Inputs:
         self,
         records: FacilityRecords,
         facility_dir: Path,
+        project_root: Path,
         rendered_config: Mapping[str, Any],
         profile_config: Mapping[str, Any],
         va_archiver: VAArchiverConfig | None,
@@ -101,6 +104,7 @@ class _Inputs:
 
         self.records = records
         self.facility_dir = facility_dir
+        self.project_root = project_root
         self.rendered_config = rendered_config
         self.profile_config = profile_config
         self.profile: Mapping[str, Any] = _expand_dotted(profile_config)
@@ -300,8 +304,22 @@ def _derive_vocabulary_enabled(inputs: _Inputs) -> Any:
     return None
 
 
-def _check_vocabulary_path(_inputs: _Inputs) -> None:
-    return None
+def _check_vocabulary_path(inputs: _Inputs) -> None:
+    stated = inputs.stated(VOCABULARY_PATH_KEY)
+    enabled = inputs.stated(VOCABULARY_ENABLED_KEY)
+    if stated is None or not (enabled is True or (enabled is None and inputs.vocabulary_shipped)):
+        return
+    # Resolved as ARIEL resolves it from the host render's config.yml: a
+    # relative path anchors on the project root, an absolute one is itself.
+    if (
+        not isinstance(stated, str)
+        or not resolve_config_relative_path(stated, inputs.project_root / BUILD_DIR_NAME).is_file()
+    ):
+        raise _refusal(
+            VOCABULARY_PATH_KEY,
+            f"`{stated}` is not a file",
+            f"set `{VOCABULARY_PATH_KEY}` to a vocabulary file, or remove it",
+        )
 
 
 def _derive_vocabulary_path(inputs: _Inputs) -> Any:
@@ -371,6 +389,7 @@ def __getattr__(name: str) -> Any:
 def fill_facility_settings(
     records: FacilityRecords,
     facility_dir: Path,
+    project_root: Path,
     rendered_config: Mapping[str, Any],
     profile_config: Mapping[str, Any],
     va_archiver: VAArchiverConfig | None,
@@ -382,6 +401,8 @@ def fill_facility_settings(
     Args:
         records: The build's facility file's records.
         facility_dir: The build's ``data/facility`` directory.
+        project_root: The repository the build renders, which a stated
+            relative path is resolved against.
         rendered_config: The render's ``config.yml`` before the profile's overlay.
         profile_config: The profile's ``config:`` block, laid over it.
         va_archiver: The profile's parsed ``va_archiver:`` block, or ``None``.
@@ -396,7 +417,9 @@ def fill_facility_settings(
             stated value the facility contradicts, or ``simulation.models``
             when the served models do not resolve.
     """
-    inputs = _Inputs(records, facility_dir, rendered_config, profile_config, va_archiver, reported)
+    inputs = _Inputs(
+        records, facility_dir, project_root, rendered_config, profile_config, va_archiver, reported
+    )
     for row in _facility_settings():
         row.check(inputs)
     fill: dict[str, Any] = {}

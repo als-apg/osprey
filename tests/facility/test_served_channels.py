@@ -59,7 +59,7 @@ def _served_fill(
     reported: set[str] | None = None,
 ) -> dict[str, Any]:
     return fill_facility_settings(
-        records, NO_TREE, rendered, profile, va_archiver, reported=reported
+        records, NO_TREE, NO_TREE.parent, rendered, profile, va_archiver, reported=reported
     )
 
 

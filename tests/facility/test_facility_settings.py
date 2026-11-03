@@ -44,8 +44,14 @@ def _fill(
     document: dict[str, Any] | None = None,
     va_archiver: VAArchiverConfig | None = None,
 ) -> dict[str, Any]:
+    """Run the table with the facility tree's parent as the project root."""
     return fill_facility_settings(
-        FacilityRecords(document or {}), facility_dir, {}, profile, va_archiver
+        FacilityRecords(document or {}),
+        facility_dir,
+        facility_dir.parent,
+        {},
+        profile,
+        va_archiver,
     )
 
 
@@ -86,8 +92,11 @@ def test_a_stated_false_turns_the_vocabulary_off(tmp_path: Path) -> None:
 
 def test_a_stated_path_is_the_profiles_own(tmp_path: Path) -> None:
     profile = {"ariel": {"vocabulary": {"path": "data/other.yml"}}}
+    facility_dir = _tree(tmp_path, vocabulary=True)
+    (tmp_path / "data").mkdir()
+    (tmp_path / "data" / "other.yml").write_text("concepts: []\n")
 
-    fill = _fill(_tree(tmp_path, vocabulary=True), profile)
+    fill = _fill(facility_dir, profile)
 
     assert fill == {VOCABULARY_ENABLED_KEY: True}
 
@@ -167,3 +176,51 @@ def test_a_start_set_naming_a_scenario_the_file_does_not_hold_is_refused(
 def test_a_start_set_of_the_files_scenarios_is_never_derived(tmp_path: Path) -> None:
     assert _fill(_tree(tmp_path), {DEFAULT_SCENARIOS_KEY: ["cold"]}, DOCUMENT) == {}
     assert DEFAULT_SCENARIOS_KEY not in _fill(_tree(tmp_path / "x"), {}, DOCUMENT)
+
+
+def test_a_stated_vocabulary_path_that_is_not_a_file_is_refused(tmp_path: Path) -> None:
+    profile = {VOCABULARY_PATH_KEY: "data/missing.yml"}
+
+    with pytest.raises(FacilityBuildError) as stop:
+        _fill(_tree(tmp_path, vocabulary=True), profile)
+
+    assert stop.value.kind == "profile-invalid"
+    assert stop.value.sources == (PROFILE_SOURCE,)
+    assert str(stop.value) == (
+        "facility: profile-invalid: path ariel.vocabulary.path — `data/missing.yml` is not a "
+        "file; fix: set `ariel.vocabulary.path` to a vocabulary file, or remove it"
+    )
+
+
+def test_a_stated_vocabulary_path_that_is_not_a_string_is_refused(tmp_path: Path) -> None:
+    profile = {VOCABULARY_PATH_KEY: 7}
+
+    with pytest.raises(FacilityBuildError) as stop:
+        _fill(_tree(tmp_path, vocabulary=True), profile)
+
+    assert stop.value.kind == "profile-invalid"
+    assert stop.value.record_id == VOCABULARY_PATH_KEY
+    assert stop.value.sources == (PROFILE_SOURCE,)
+
+
+def test_a_stated_true_at_a_path_that_is_not_a_file_is_refused(tmp_path: Path) -> None:
+    profile = {VOCABULARY_ENABLED_KEY: True, VOCABULARY_PATH_KEY: str(tmp_path / "gone.yml")}
+
+    with pytest.raises(FacilityBuildError) as stop:
+        _fill(_tree(tmp_path), profile)
+
+    assert stop.value.record_id == VOCABULARY_PATH_KEY
+
+
+def test_a_stated_path_resolves_against_the_project_root(tmp_path: Path) -> None:
+    facility_dir = _tree(tmp_path)
+    (tmp_path / "vocab.yml").write_text("concepts: []\n")
+    profile = {VOCABULARY_ENABLED_KEY: True, VOCABULARY_PATH_KEY: "vocab.yml"}
+
+    assert _fill(facility_dir, profile) == {}
+
+
+def test_a_stated_path_with_the_vocabulary_off_is_inert(tmp_path: Path) -> None:
+    profile = {VOCABULARY_ENABLED_KEY: False, VOCABULARY_PATH_KEY: "data/missing.yml"}
+
+    assert _fill(_tree(tmp_path, vocabulary=True), profile) == {}
