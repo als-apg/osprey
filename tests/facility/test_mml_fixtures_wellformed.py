@@ -240,21 +240,21 @@ class TestEveryFixture:
         for system, body in systems.items():
             assert _families(body), f"{name}: system {system} has no families"
 
-    def test_it_has_a_zero_channel_family(self, name):
-        """A family with devices but no channel is present, so it is reported, never dropped."""
-        assert _census(name)["zero_channel"]
-
-    def test_it_has_a_broadcast_row(self, name):
-        """A one-slot channel list sits on a family with several devices."""
-        assert _census(name)["broadcasts"]
-
-    def test_it_has_a_blank_slot(self, name):
-        """A channel list holds an empty or whitespace slot."""
-        assert _census(name)["blanks"]
-
-    def test_it_has_a_pv_shared_by_two_devices(self, name):
-        """One PV is bound by two distinct devices outside any broadcast row."""
-        assert _census(name)["shared"]
+    @pytest.mark.parametrize(
+        "hazard",
+        [
+            # A family with devices but no channel is present, so it is reported, never dropped.
+            pytest.param("zero_channel", id="zero-channel-family"),
+            # A one-slot channel list sits on a family with several devices.
+            pytest.param("broadcasts", id="broadcast-row"),
+            # A channel list holds an empty or whitespace slot.
+            pytest.param("blanks", id="blank-slot"),
+            # One PV is bound by two distinct devices outside any broadcast row.
+            pytest.param("shared", id="pv-shared-by-two-devices"),
+        ],
+    )
+    def test_it_has_each_hazard_in_its_census(self, name, hazard):
+        assert _census(name)[hazard]
 
     def test_hwunits_come_in_all_three_shapes(self, name):
         """``HWUnits`` appears as ``[]``, as a plain string and as a per-device list."""

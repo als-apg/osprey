@@ -126,18 +126,19 @@ class TestTheBackendApiSource:
         assert docker_desktop.host_networking_enabled() is True
 
     @pytest.mark.usefixtures("no_settings_store")
-    def test_an_api_that_does_not_answer_this_path_tells_us_nothing(self, socket_dir, monkeypatch):
-        """A future Desktop that moves the endpoint must not read as disabled."""
+    @pytest.mark.parametrize(
+        ("status", "body"),
+        [
+            # A future Desktop that moves the endpoint must not read as disabled.
+            pytest.param("404 Not Found", "{}", id="api-does-not-answer-this-path"),
+            pytest.param("200 OK", "not json at all", id="body-not-the-expected-json"),
+        ],
+    )
+    def test_an_api_response_we_cannot_read_tells_us_nothing(
+        self, socket_dir, monkeypatch, status, body
+    ):
         sock = socket_dir / "backend.sock"
-        _serve_once(sock, "404 Not Found", "{}")
-        monkeypatch.setattr(docker_desktop, "backend_socket_path", lambda: sock)
-
-        assert docker_desktop.host_networking_enabled() is None
-
-    @pytest.mark.usefixtures("no_settings_store")
-    def test_a_body_that_is_not_the_expected_json_tells_us_nothing(self, socket_dir, monkeypatch):
-        sock = socket_dir / "backend.sock"
-        _serve_once(sock, "200 OK", "not json at all")
+        _serve_once(sock, status, body)
         monkeypatch.setattr(docker_desktop, "backend_socket_path", lambda: sock)
 
         assert docker_desktop.host_networking_enabled() is None

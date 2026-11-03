@@ -1095,60 +1095,54 @@ class TestRedirectContainment:
         assert resp.status_code == 502
         assert "location" not in _lower(resp.headers)
 
-    def test_terminal_origin_location_is_relayed(self, panels_app):
-        """An absolute Location naming the console itself is not off-site.
-
-        It is the same destination a root-absolute path would name, so refusing
-        it would break a backend that spells its in-console redirect out in full
-        while granting nothing: the browser lands back on the terminal, which
-        gates the re-request like any other.
-        """
-        app, client = panels_app
-        self._record_calls(
-            app,
-            lambda: httpx.Response(
-                302, headers={"location": "http://testserver/panel/trusted/dashboard"}
+    @pytest.mark.parametrize(
+        ("request_path", "location", "expected"),
+        [
+            # An absolute Location naming the console itself is not off-site: it is
+            # the same destination a root-absolute path would name, so refusing it
+            # would break a backend that spells its in-console redirect out in full
+            # while granting nothing.
+            pytest.param(
+                "/panel/trusted/api/thing",
+                "http://testserver/panel/trusted/dashboard",
+                "http://testserver/panel/trusted/dashboard",
+                id="terminal-origin-location-is-relayed",
             ),
-        )
-
-        resp = client.get(
-            "/panel/trusted/api/thing", headers=OPERATOR_HEADERS, follow_redirects=False
-        )
-
-        assert resp.status_code == 302
-        assert resp.headers["location"] == "http://testserver/panel/trusted/dashboard"
-
-    @pytest.mark.parametrize("request_path", ["/panel/registered", "/panel/registered/"])
-    def test_relative_location_from_the_panel_root_stays_in_the_panel(
-        self, panels_app, request_path
+            # ``Location: dashboard/`` on ``/panel/<id>`` must not lose the id: the
+            # browser resolves a relative Location against the *request* path, and
+            # ``/panel/registered`` has no trailing slash, so the proxy resolves it
+            # here, treating the panel prefix as the directory it is.
+            pytest.param(
+                "/panel/registered",
+                "dashboard/",
+                "/panel/registered/dashboard/",
+                id="relative-from-the-panel-root",
+            ),
+            pytest.param(
+                "/panel/registered/",
+                "dashboard/",
+                "/panel/registered/dashboard/",
+                id="relative-from-the-panel-root-with-slash",
+            ),
+            # Deeper paths keep the browser's own resolution, which was correct.
+            pytest.param(
+                "/panel/registered/wizard/step1",
+                "next",
+                "/panel/registered/wizard/next",
+                id="relative-under-a-subpath",
+            ),
+        ],
+    )
+    def test_an_in_console_location_is_relayed_resolved_against_the_request_path(
+        self, panels_app, request_path, location, expected
     ):
-        """``Location: dashboard/`` on ``/panel/<id>`` must not lose the id.
-
-        The browser resolves a relative Location against the *request* path, and
-        ``/panel/registered`` has no trailing slash — so an unrewritten
-        ``dashboard/`` resolves to ``/panel/dashboard/``, a different panel id.
-        The proxy resolves it here instead, treating the panel prefix as the
-        directory it is.
-        """
         app, client = panels_app
-        self._record_calls(app, lambda: httpx.Response(302, headers={"location": "dashboard/"}))
+        self._record_calls(app, lambda: httpx.Response(302, headers={"location": location}))
 
         resp = client.get(request_path, headers=OPERATOR_HEADERS, follow_redirects=False)
 
         assert resp.status_code == 302
-        assert resp.headers["location"] == "/panel/registered/dashboard/"
-
-    def test_relative_location_under_a_subpath_resolves_against_it(self, panels_app):
-        """Deeper paths keep the browser's own resolution, which was correct."""
-        app, client = panels_app
-        self._record_calls(app, lambda: httpx.Response(302, headers={"location": "next"}))
-
-        resp = client.get(
-            "/panel/registered/wizard/step1", headers=OPERATOR_HEADERS, follow_redirects=False
-        )
-
-        assert resp.status_code == 302
-        assert resp.headers["location"] == "/panel/registered/wizard/next"
+        assert resp.headers["location"] == expected
 
     def test_not_modified_is_not_treated_as_a_redirect(self, panels_app):
         """304 shares the 3xx range but is a cache answer, not a redirect.
@@ -1378,10 +1372,17 @@ class TestWebSocketBoundary:
         sentinel = RuntimeError("redirect")
         assert _RedirectRefusingConnect("ws://127.0.0.1:9/").process_redirect(sentinel) is sentinel
 
-    def test_registered_panel_ws_carries_no_headers(self, panels_app):
+    @pytest.mark.parametrize(
+        "path",
+        [
+            pytest.param("/panel/registered/ws/stream", id="registered-panel"),
+            pytest.param("/panel/facility/ws/stream", id="offbox-panel"),
+        ],
+    )
+    def test_a_panel_ws_carries_no_headers(self, panels_app, path):
         _app, client = panels_app
 
-        fake = self._connect(client, "/panel/registered/ws/stream")
+        fake = self._connect(client, path)
 
         assert fake.kwargs["additional_headers"] is None
         # No secret in flight → the default redirect handling is left in place.
@@ -1408,14 +1409,6 @@ class TestWebSocketBoundary:
 
         assert fake.kwargs["open_timeout"] == UPSTREAM_OPEN_TIMEOUT
         assert UPSTREAM_OPEN_TIMEOUT >= MappingKernelManager.kernel_info_timeout.default_value
-
-    def test_offbox_panel_ws_carries_no_headers(self, panels_app):
-        _app, client = panels_app
-
-        fake = self._connect(client, "/panel/facility/ws/stream")
-
-        assert fake.kwargs["additional_headers"] is None
-        assert not fake.refuses_redirects
 
     def test_real_websockets_exposes_process_redirect(self):
         """The redirect refusal above is only real if the library still has the hook.

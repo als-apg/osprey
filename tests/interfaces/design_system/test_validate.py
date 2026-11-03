@@ -380,11 +380,12 @@ def test_check_theme_metadata_flags_invalid_mode_value() -> None:
 # --- check_theme_metadata: $extensions.family_label (optional family display name) ---
 
 
-def test_check_theme_metadata_accepts_absent_family_label() -> None:
+@pytest.mark.parametrize("family", ["main", "high-contrast"])
+def test_check_theme_metadata_accepts_a_well_formed_family_without_a_label(family: str) -> None:
     """family_label is optional — consumers derive one from the family id."""
     tree = _tree(
         themes={"dark": {"bg.primary": _token("bg.primary", "#000")}},
-        theme_metadata={"dark": {"mode": "dark", "id": "dark", "label": "Dark", "family": "main"}},
+        theme_metadata={"dark": {"mode": "dark", "id": "dark", "label": "Dark", "family": family}},
     )
 
     assert check_theme_metadata(tree) == []
@@ -513,17 +514,6 @@ def test_check_theme_metadata_flags_a_bad_family(family: dict[str, object]) -> N
     assert len(errors) == 1
     assert errors[0].rule == ValidationRule.INVALID_THEME_METADATA
     assert "family" in errors[0].message
-
-
-def test_check_theme_metadata_accepts_well_formed_family() -> None:
-    tree = _tree(
-        themes={"dark": {"bg.primary": _token("bg.primary", "#000")}},
-        theme_metadata={
-            "dark": {"mode": "dark", "id": "dark", "label": "Dark", "family": "high-contrast"}
-        },
-    )
-
-    assert check_theme_metadata(tree) == []
 
 
 # --- check_default_flag -----------------------------------------------------------

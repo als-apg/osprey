@@ -279,50 +279,38 @@ def test_disabling_the_graph_server_leaves_the_graph_paradigm_intact(tmp_path):
     assert validate_agent_tools_against_permissions(project_dir) == []
 
 
-def test_a_project_with_no_graph_store_still_renders_the_graph_paradigm(tmp_path):
-    """A project that declares no store at all still renders the paradigm.
-
-    The paradigm is a rendering decision and the store is a deployment one, so
-    the agent renders the same either way; what changes is whether the tools it
-    calls find anything at the other end. Pinned because the opposite wiring —
-    a frontmatter gated on ``graphdb_configured`` — would silently produce an
-    agent with no channel-finding tools whenever the store is external or
-    attached rather than deployed.
-
-    A deployment declares its store by spelling ``services.graphdb`` in its own
-    ``config:``, so taking the block back out of the rendered config is how
-    this fixture gets a project that runs none.
+@pytest.mark.parametrize(
+    ("name", "paradigm"),
+    [
+        # The paradigm is a rendering decision and the store is a deployment one, so
+        # the agent renders the same either way; what changes is whether the tools it
+        # calls find anything at the other end. Pinned because the opposite wiring —
+        # a frontmatter gated on ``graphdb_configured`` — would silently produce an
+        # agent with no channel-finding tools whenever the store is external or
+        # attached rather than deployed.
+        ("cf-graph-nostore", "graph"),
+        # Neither a store nor the graph paradigm.
+        ("cf-nostore-tools", "hierarchical"),
+    ],
+    ids=["graph-paradigm", "other-paradigm"],
+)
+def test_a_project_with_no_graph_store_renders_its_paradigm_and_no_graph_server(
+    tmp_path, name, paradigm
+):
+    """A deployment declares its store by spelling ``services.graphdb`` in its own
+    ``config:``, so taking the block back out of the rendered config is how this
+    fixture gets a project that runs none.
     """
     from osprey.utils.config_writer import config_delete_field
 
-    manager, project_dir = _control_assistant(
-        tmp_path, "cf-graph-nostore", "graph", deploy_services=False
-    )
+    manager, project_dir = _control_assistant(tmp_path, name, paradigm, deploy_services=False)
     config_delete_field(project_dir / "config.yml", "services.graphdb")
     manager.regenerate_claude_code(project_dir)
 
     config = yaml.safe_load((project_dir / "config.yml").read_text(encoding="utf-8"))
     assert (config.get("services") or {}).get("graphdb") is None, "the render shape under test"
 
-    assert _frontmatter_tools(project_dir) == _expected_frontmatter_tools("graph")
-    assert _graph_server_entries(_settings_permission_entries(project_dir)) == []
-    assert validate_agent_tools_against_permissions(project_dir) == []
-
-
-def test_a_project_with_no_store_renders_its_paradigm_and_no_graph_server(tmp_path):
-    """A project that declares neither a store nor the graph paradigm."""
-    from osprey.utils.config_writer import config_delete_field
-
-    manager, project_dir = _control_assistant(
-        tmp_path, "cf-nostore-tools", "hierarchical", deploy_services=False
-    )
-    config_delete_field(project_dir / "config.yml", "services.graphdb")
-    manager.regenerate_claude_code(project_dir)
-
-    config = yaml.safe_load((project_dir / "config.yml").read_text(encoding="utf-8"))
-    assert (config.get("services") or {}).get("graphdb") is None, "the render shape under test"
-
-    assert _frontmatter_tools(project_dir) == _expected_frontmatter_tools("hierarchical")
+    assert _frontmatter_tools(project_dir) == _expected_frontmatter_tools(paradigm)
     assert _graph_server_entries(_settings_permission_entries(project_dir)) == []
     assert validate_agent_tools_against_permissions(project_dir) == []
 

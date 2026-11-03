@@ -80,17 +80,18 @@ class TestRegexSpans:
         assert parsed.pattern_spans[0].body == "beam loss"
         assert parsed.pattern_spans[0].source == "regex"
 
-    def test_trailing_question_stripped_before_span_extraction(self):
-        parsed = parse_keyword_query(r"/SR0[1-4]C___BPM\d+/?")
+    @pytest.mark.parametrize(
+        ("query", "body"),
+        [
+            pytest.param(r"/SR0[1-4]C___BPM\d+/?", r"SR0[1-4]C___BPM\d+", id="trailing-stripped"),
+            pytest.param("/BPMs?/", "BPMs?", id="internal-survives"),
+        ],
+    )
+    def test_only_a_trailing_question_mark_is_stripped_from_a_span(self, query, body):
+        parsed = parse_keyword_query(query)
 
         assert len(parsed.pattern_spans) == 1
-        assert parsed.pattern_spans[0].body == r"SR0[1-4]C___BPM\d+"
-
-    def test_internal_question_mark_survives(self):
-        parsed = parse_keyword_query("/BPMs?/")
-
-        assert len(parsed.pattern_spans) == 1
-        assert parsed.pattern_spans[0].body == "BPMs?"
+        assert parsed.pattern_spans[0].body == body
 
     def test_empty_pattern_is_dropped_with_info(self):
         parsed = parse_keyword_query("//")

@@ -26,25 +26,25 @@ def _item(url: str, filename: str = "beam.png", caption: str | None = None) -> d
 
 
 class TestInert:
-    def test_brackets_become_parentheses(self):
-        assert _inert("[image not sent - route]", 100) == "(image not sent - route)"
-
-    def test_line_breaks_and_tabs_become_spaces(self):
-        assert _inert("a\rb\nc\td e f", 100) == "a b c d e f"
-
-    def test_control_characters_are_stripped(self):
-        assert _inert("a\x00b\x1bc\x7fd\x85e\x9ff", 100) == "abcdef"
+    @pytest.mark.parametrize(
+        ("raw", "cleaned"),
+        [
+            pytest.param("[image not sent - route]", "(image not sent - route)", id="brackets"),
+            pytest.param("a\rb\nc\td\u2028e\u2029f", "a b c d e f", id="line-breaks-and-tabs"),
+            pytest.param("a\x00b\x1bc\x7fd\x85e\x9ff", "abcdef", id="control-characters"),
+            pytest.param("QX-77 tune (ok)", "QX-77 tune (ok)", id="plain-text-unchanged"),
+            pytest.param(None, "", id="non-string-none"),
+            pytest.param(3, "", id="non-string-int"),
+            pytest.param(b"[x]", "", id="non-string-bytes"),
+            pytest.param(["[x]"], "", id="non-string-list"),
+        ],
+    )
+    def test_inert_cleans_its_input_to_prompt_safe_text(self, raw, cleaned):
+        assert _inert(raw, 100) == cleaned
 
     def test_length_cap_applies_after_cleaning(self):
         assert _inert("x" * 200, FILENAME_MAX_CHARS) == "x" * 120
         assert len(_inert("y" * 5000, CAPTION_MAX_CHARS)) == 1000
-
-    @pytest.mark.parametrize("value", [None, 3, b"[x]", ["[x]"]])
-    def test_non_string_renders_empty(self, value):
-        assert _inert(value, 100) == ""
-
-    def test_plain_text_unchanged(self):
-        assert _inert("QX-77 tune (ok)", 100) == "QX-77 tune (ok)"
 
 
 class TestCaptionModelId:

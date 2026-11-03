@@ -89,11 +89,12 @@ async def test_trigger_history_returns_events():
     assert result[0]["result"] == "dispatched"
 
 
-async def test_trigger_history_unknown_trigger_errors():
+@pytest.mark.parametrize("tool", ["trigger_history", "trigger_status"])
+async def test_unknown_trigger_errors(tool):
     registry = await _registry_with(_trigger("a"))
     tools = await _get_tools(registry, DispatchPool(max_concurrent=1, max_queue_depth=1))
 
-    result = json.loads(await tools["trigger_history"]("nope"))
+    result = json.loads(await tools[tool]("nope"))
 
     assert "error" in result
 
@@ -152,15 +153,6 @@ async def test_trigger_status_includes_pool():
 
     assert result["name"] == "a"
     assert result["pool"]["max"] == 3
-
-
-async def test_trigger_status_unknown_trigger_errors():
-    registry = await _registry_with(_trigger("a"))
-    tools = await _get_tools(registry, DispatchPool(max_concurrent=1, max_queue_depth=1))
-
-    result = json.loads(await tools["trigger_status"]("nope"))
-
-    assert "error" in result
 
 
 # ---------------------------------------------------------------------------

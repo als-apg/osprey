@@ -105,19 +105,20 @@ def test_load_facility_plans_raises_on_missing_module_file(tmp_path: Path) -> No
         plan_loader.load_facility_plans(str(tmp_path / "does_not_exist.py"))
 
 
-def test_load_facility_plans_raises_when_plans_attribute_missing(tmp_path: Path) -> None:
-    module_path = tmp_path / "no_plans.py"
-    module_path.write_text("def get_devices():\n    return {}\n")
+@pytest.mark.parametrize(
+    ("filename", "source", "missing"),
+    [
+        pytest.param("no_plans.py", "def get_devices():\n    return {}\n", "PLANS", id="plans"),
+        pytest.param("no_get_devices.py", "PLANS = {}\n", "get_devices", id="get-devices"),
+    ],
+)
+def test_load_facility_plans_raises_when_a_required_attribute_is_missing(
+    tmp_path: Path, filename: str, source: str, missing: str
+) -> None:
+    module_path = tmp_path / filename
+    module_path.write_text(source)
 
-    with pytest.raises(AttributeError, match="PLANS"):
-        plan_loader.load_facility_plans(str(module_path))
-
-
-def test_load_facility_plans_raises_when_get_devices_missing(tmp_path: Path) -> None:
-    module_path = tmp_path / "no_get_devices.py"
-    module_path.write_text("PLANS = {}\n")
-
-    with pytest.raises(AttributeError, match="get_devices"):
+    with pytest.raises(AttributeError, match=missing):
         plan_loader.load_facility_plans(str(module_path))
 
 

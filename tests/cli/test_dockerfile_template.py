@@ -241,14 +241,29 @@ class TestDockerfileContent:
         assert len(bodies) == 1, f"expected exactly one site-CA RUN, got {len(bodies)}"
         return bodies[0]
 
-    def test_site_ca_copy_idiom_present(self, hello_project):
-        """The site CA is staged via the guaranteed-sibling glob idiom — the
-        always-present .dockerignore keeps the COPY from failing when nothing
-        is staged."""
+    @pytest.mark.parametrize(
+        ("pattern", "message"),
+        [
+            # The site CA is staged via the guaranteed-sibling glob idiom — the
+            # always-present .dockerignore keeps the COPY from failing when nothing
+            # is staged.
+            (
+                r"^COPY \.dockerignore \*\.cr\[t\] \*\.pe\[m\] /tmp/ca-ctx/",
+                "missing `COPY .dockerignore *.cr[t] *.pe[m] /tmp/ca-ctx/` CA-staging idiom",
+            ),
+            # The wheel is staged via ``COPY .dockerignore *.wh[l]`` — the
+            # always-present .dockerignore sibling keeps the COPY from failing when no
+            # wheel exists.
+            (
+                r"^COPY \.dockerignore \*\.wh\[l\] /tmp/ctx/",
+                "missing `COPY .dockerignore *.wh[l] /tmp/ctx/` wheel-staging idiom",
+            ),
+        ],
+        ids=["site-ca", "wheel"],
+    )
+    def test_copy_idiom_present(self, hello_project, pattern, message):
         text = (hello_project / "Dockerfile").read_text()
-        assert re.search(
-            r"^COPY \.dockerignore \*\.cr\[t\] \*\.pe\[m\] /tmp/ca-ctx/", text, flags=re.MULTILINE
-        ), "missing `COPY .dockerignore *.cr[t] *.pe[m] /tmp/ca-ctx/` CA-staging idiom"
+        assert re.search(pattern, text, flags=re.MULTILINE), message
 
     def test_site_ca_layer_precedes_the_first_network_fetch(self, hello_project):
         """``update-ca-certificates`` must run before any RUN that fetches over
@@ -422,15 +437,6 @@ class TestDockerfileContent:
         assert "OSPREY_DEV" not in wheel, "the wheel layer's check is not dev-guarded"
         assert "/tmp/ctx/*.whl" in wheel
         assert "rm -rf /tmp/ctx" in wheel
-
-    def test_wheel_copy_idiom_present(self, hello_project):
-        """The wheel is staged via ``COPY .dockerignore *.wh[l]`` — the
-        always-present .dockerignore sibling keeps the COPY from failing when no
-        wheel exists."""
-        text = (hello_project / "Dockerfile").read_text()
-        assert re.search(r"^COPY \.dockerignore \*\.wh\[l\] /tmp/ctx/", text, flags=re.MULTILINE), (
-            "missing `COPY .dockerignore *.wh[l] /tmp/ctx/` wheel-staging idiom"
-        )
 
     def test_primer_installs_the_framework_alone(self, hello_project, deps_project):
         """The primer names the OSPREY spec and nothing else — only whitespace

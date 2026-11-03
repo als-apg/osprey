@@ -62,22 +62,22 @@ class TestTheRecordCarriesItsLabels:
         assert records["OPS:MODE"].options == tuple(MODES)
         assert records["OPS:MODE"].options[0] == "User operation"
 
-    def test_a_bool_record_carries_its_own_labels(self, tmp_path: Path) -> None:
-        write_facility_file(tmp_path, _labelled_tree())
-
-        records = {r.address: r for r in registered_channels(_config(tmp_path)).records}
-
-        assert records["VALVE:OPEN"].options == ("Closed", "Open")
-
-    def test_a_bool_without_options_carries_the_labels_the_build_gave_it(
-        self, tmp_path: Path
+    @pytest.mark.parametrize(
+        ("address", "options"),
+        [
+            pytest.param("VALVE:OPEN", ("Closed", "Open"), id="own-labels"),
+            # The build fills a bare bool's labels, so its record is never label-less.
+            pytest.param("FLAG", ("FALSE", "TRUE"), id="labels-the-build-gave-a-bare-bool"),
+        ],
+    )
+    def test_a_bool_record_carries_its_labels(
+        self, tmp_path: Path, address: str, options: tuple[str, str]
     ) -> None:
-        """The build fills a bare bool's labels, so its record is never label-less."""
         write_facility_file(tmp_path, _labelled_tree())
 
         records = {r.address: r for r in registered_channels(_config(tmp_path)).records}
 
-        assert records["FLAG"].options == ("FALSE", "TRUE")
+        assert records[address].options == options
 
     def test_an_unlabelled_record_carries_none(self, tmp_path: Path) -> None:
         write_facility_file(tmp_path, _labelled_tree())

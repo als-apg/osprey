@@ -54,11 +54,16 @@ class TestCommandStructure:
         result = runner.invoke(channel_finder, ["--help"])
         assert result.exit_code == 0
 
-    def test_help_shows_subcommands(self, runner):
-        """--help shows all subcommands."""
+    @pytest.mark.parametrize(
+        ("first", "second"),
+        [("validate", "preview"), ("--verbose", "-v")],
+        ids=["subcommands", "verbose-option"],
+    )
+    def test_help_shows_what_the_group_offers(self, runner, first, second):
+        """--help shows all subcommands and the --verbose option."""
         result = runner.invoke(channel_finder, ["--help"])
-        assert "validate" in result.output
-        assert "preview" in result.output
+        assert first in result.output
+        assert second in result.output
 
     def test_help_shows_project_option(self, runner):
         """--help shows --project, and no ``-p`` short alias.
@@ -70,12 +75,6 @@ class TestCommandStructure:
         result = runner.invoke(channel_finder, ["--help"])
         assert "--project" in result.output
         assert "-p," not in result.output
-
-    def test_help_shows_verbose_option(self, runner):
-        """--help shows --verbose option."""
-        result = runner.invoke(channel_finder, ["--help"])
-        assert "--verbose" in result.output
-        assert "-v" in result.output
 
 
 # ============================================================================
@@ -387,8 +386,9 @@ class TestGraphParadigmGuidance:
                 with patch("osprey_connectors.config.load_config", return_value=GRAPH_CONFIG):
                     return runner.invoke(channel_finder, args)
 
-    def test_validate_prints_the_graph_panel_and_succeeds(self, runner, tmp_path):
-        result = self._invoke(runner, ["--project", str(tmp_path), "validate"])
+    @pytest.mark.parametrize("verb", ["validate", "preview"])
+    def test_the_verb_prints_the_graph_panel_and_succeeds(self, runner, tmp_path, verb):
+        result = self._invoke(runner, ["--project", str(tmp_path), verb])
         printed = " ".join(result.output.split())
         assert result.exit_code == 0
         assert "Graph Paradigm" in printed
@@ -403,16 +403,6 @@ class TestGraphParadigmGuidance:
         assert "No database configured" not in printed
         assert "database.path" not in printed
         assert "Database Path" not in printed
-
-    def test_preview_prints_the_graph_panel_and_succeeds(self, runner, tmp_path):
-        result = self._invoke(runner, ["--project", str(tmp_path), "preview"])
-        printed = " ".join(result.output.split())
-        assert result.exit_code == 0
-        assert "Graph Paradigm" in printed
-        assert "The graph store is the database" in printed
-        assert GRAPHDB_REBUILD_HINT in printed
-        assert "osprey health --category graphdb" in printed
-        assert "get_schema and read_cypher" in printed
 
     def test_preview_does_not_offer_the_file_remedy(self, runner, tmp_path):
         result = self._invoke(runner, ["--project", str(tmp_path), "preview"])

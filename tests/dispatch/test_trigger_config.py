@@ -271,15 +271,17 @@ def test_missing_source_raises_value_error(tmp_path):
 # ---------------------------------------------------------------------------
 
 
-def test_empty_yaml_raises_clean_error(tmp_path):
-    path = write_yaml(tmp_path, "")
-    with pytest.raises(ValueError, match="empty"):
-        load_triggers(path)
-
-
-def test_non_mapping_yaml_raises_clean_error(tmp_path):
-    path = write_yaml(tmp_path, "- just\n- a\n- list\n")
-    with pytest.raises(ValueError, match="mapping"):
+@pytest.mark.parametrize(
+    ("content", "match"),
+    [
+        pytest.param("", "empty", id="empty-yaml"),
+        pytest.param("- just\n- a\n- list\n", "mapping", id="non-mapping-yaml"),
+        pytest.param("triggers: [beam-loss]\n", "index 0", id="trigger-entry-not-a-mapping"),
+    ],
+)
+def test_a_malformed_document_raises_a_clean_error(tmp_path, content, match):
+    path = write_yaml(tmp_path, content)
+    with pytest.raises(ValueError, match=match):
         load_triggers(path)
 
 
@@ -635,13 +637,6 @@ def test_a_trigger_part_that_is_not_a_mapping_is_refused_by_name(tmp_path, field
     )
 
     with pytest.raises(ValueError, match=f"'beam-loss' field '{field_name}' must be a mapping"):
-        load_triggers(path)
-
-
-def test_a_trigger_entry_that_is_not_a_mapping_is_refused_by_index(tmp_path):
-    path = write_yaml(tmp_path, "triggers: [beam-loss]\n")
-
-    with pytest.raises(ValueError, match="index 0"):
         load_triggers(path)
 
 

@@ -674,9 +674,20 @@ class TestEnvironmentValidation:
         profile = _profile(name="x", environment=EnvironmentConfig(python=str(venv_interpreter)))
         profile.validate(tmp_path)  # must not raise
 
-    def test_missing_python_raises(self, tmp_path: Path) -> None:
-        profile = _profile(name="x", environment=EnvironmentConfig(python="/nope/bin/python"))
-        with pytest.raises(BuildProfileError, match="environment.python not found"):
+    @pytest.mark.parametrize(
+        ("python", "message"),
+        [
+            ("/nope/bin/python", "environment.python not found"),
+            # environment.python names a host interpreter, not a profile-relative
+            # asset — consumers hold only the profile, so it must be absolute.
+            ("venv/bin/python", "must be an absolute path"),
+            ("   ", "environment.python must be a non-empty"),
+        ],
+        ids=["missing", "relative", "empty"],
+    )
+    def test_an_unusable_python_raises(self, tmp_path: Path, python: str, message: str) -> None:
+        profile = _profile(name="x", environment=EnvironmentConfig(python=python))
+        with pytest.raises(BuildProfileError, match=message):
             profile.validate(tmp_path)
 
     def test_non_executable_python_raises(self, tmp_path: Path) -> None:
@@ -691,18 +702,6 @@ class TestEnvironmentValidation:
         """A directory is traversable-executable but is not an interpreter."""
         profile = _profile(name="x", environment=EnvironmentConfig(python=str(tmp_path)))
         with pytest.raises(BuildProfileError, match="is not an executable file"):
-            profile.validate(tmp_path)
-
-    def test_relative_python_raises(self, tmp_path: Path) -> None:
-        """environment.python names a host interpreter, not a profile-relative
-        asset — consumers hold only the profile, so it must be absolute."""
-        profile = _profile(name="x", environment=EnvironmentConfig(python="venv/bin/python"))
-        with pytest.raises(BuildProfileError, match="must be an absolute path"):
-            profile.validate(tmp_path)
-
-    def test_empty_python_string_raises(self, tmp_path: Path) -> None:
-        profile = _profile(name="x", environment=EnvironmentConfig(python="   "))
-        with pytest.raises(BuildProfileError, match="environment.python must be a non-empty"):
             profile.validate(tmp_path)
 
     @pytest.mark.parametrize("bad", ["", "   "])

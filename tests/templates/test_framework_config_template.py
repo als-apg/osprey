@@ -381,30 +381,25 @@ def test_web_renders_an_explicit_empty_panels_map_when_a_field_opens_it():
     assert config["web"]["panels"] == {}
 
 
-def test_a_render_without_the_panel_selection_refuses():
-    """The selection is wiring, not a profile field, so an absent one is a fault.
-
-    Defaulting it to `[]` would render `panels: {}` — a tab strip with every
-    selected tab silently missing — and nothing downstream could tell that
-    apart from a profile that selected no builtin.
-    """
-    context = {
-        key: value for key, value in MINIMAL_CONFIG_CONTEXT.items() if key != "selected_web_panels"
-    }
-    with pytest.raises(TemplateRuntimeError, match="selected_web_panels"):
-        TemplateManager().jinja_env.get_template(CONFIG_TEMPLATE).render(**context)
-
-
-def test_a_render_without_the_builtin_panel_registry_refuses():
-    """The registry the selection is filtered against is wiring too.
-
-    Without it every selected builtin filters away, so the same `panels: {}`
-    comes out — an absent registry is a wiring fault, not an empty one.
-    """
-    context = {
-        key: value for key, value in MINIMAL_CONFIG_CONTEXT.items() if key != "builtin_panels"
-    }
-    with pytest.raises(TemplateRuntimeError, match="builtin_panels"):
+@pytest.mark.parametrize(
+    "missing_key",
+    [
+        # The selection is wiring, not a profile field, so an absent one is a fault.
+        #
+        # Defaulting it to `[]` would render `panels: {}` — a tab strip with every
+        # selected tab silently missing — and nothing downstream could tell that
+        # apart from a profile that selected no builtin.
+        pytest.param("selected_web_panels", id="panel-selection"),
+        # The registry the selection is filtered against is wiring too.
+        #
+        # Without it every selected builtin filters away, so the same `panels: {}`
+        # comes out — an absent registry is a wiring fault, not an empty one.
+        pytest.param("builtin_panels", id="builtin-panel-registry"),
+    ],
+)
+def test_a_render_without_panel_wiring_refuses(missing_key):
+    context = {key: value for key, value in MINIMAL_CONFIG_CONTEXT.items() if key != missing_key}
+    with pytest.raises(TemplateRuntimeError, match=missing_key):
         TemplateManager().jinja_env.get_template(CONFIG_TEMPLATE).render(**context)
 
 
@@ -487,26 +482,23 @@ def test_two_spellings_that_disagree_are_refused():
     assert "True" in message and "False" in message
 
 
-def test_two_spellings_that_agree_are_accepted():
-    """Agreement is the same fact twice, which is untidy but not a contradiction."""
+@pytest.mark.parametrize(
+    ("dotted", "nested", "expected"),
+    [
+        # Agreement is the same fact twice, which is untidy but not a contradiction.
+        pytest.param(False, False, False, id="two-spellings-that-agree"),
+        # Only booleans are answers, so one of them cannot disagree with a string.
+        pytest.param(True, "yes", True, id="non-boolean-spelling"),
+    ],
+)
+def test_two_spellings_that_do_not_contradict_are_accepted(dotted, nested, expected):
     profile = SimpleNamespace(
         config={
-            "claude_code.servers.ariel.enabled": False,
-            "claude_code": {"servers": {"ariel": {"enabled": False}}},
+            "claude_code.servers.ariel.enabled": dotted,
+            "claude_code": {"servers": {"ariel": {"enabled": nested}}},
         }
     )
-    assert _ariel_server_enabled(profile) is False
-
-
-def test_a_non_boolean_spelling_does_not_make_a_contradiction():
-    """Only booleans are answers, so one of them cannot disagree with a string."""
-    profile = SimpleNamespace(
-        config={
-            "claude_code.servers.ariel.enabled": True,
-            "claude_code": {"servers": {"ariel": {"enabled": "yes"}}},
-        }
-    )
-    assert _ariel_server_enabled(profile) is True
+    assert _ariel_server_enabled(profile) is expected
 
 
 def test_ariel_gate_ignores_a_non_boolean_enabled():

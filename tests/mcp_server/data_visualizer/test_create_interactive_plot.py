@@ -224,13 +224,20 @@ class TestCreateInteractivePlot:
 class TestResolveDataSource:
     """Tests for the resolve_data_source helper."""
 
-    def test_file_path_returned_as_is(self):
-        result = resolve_data_source("/some/path/to/data.csv")
-        assert result == "/some/path/to/data.csv"
-
-    def test_relative_path_returned_as_is(self):
-        result = resolve_data_source("data/002_archiver_read.json")
-        assert result == "data/002_archiver_read.json"
+    @pytest.mark.parametrize(
+        "source",
+        [
+            pytest.param("/some/path/to/data.csv", id="file-path"),
+            pytest.param("data/002_archiver_read.json", id="relative-path"),
+            # Numeric strings are not context entry IDs; treated as file paths.
+            # Numeric strings don't match the 12-char hex pattern, so they
+            # fall through to the "assume file path" branch and are returned as-is.
+            pytest.param("42", id="numeric-string"),
+        ],
+    )
+    def test_a_source_that_is_not_an_artifact_id_is_returned_as_is(self, source):
+        result = resolve_data_source(source)
+        assert result == source
 
     def test_artifact_id_resolves_via_store(self):
         with patch("osprey.stores.artifact_store.get_artifact_store") as mock_store:
@@ -262,10 +269,3 @@ class TestResolveDataSource:
         """Non-existent hex artifact ID should raise FileNotFoundError."""
         with pytest.raises(FileNotFoundError, match="Artifact.*not found"):
             resolve_data_source("deadbeef0123")
-
-    def test_numeric_string_treated_as_file_path(self):
-        """Numeric strings are not context entry IDs; treated as file paths."""
-        # Numeric strings don't match the 12-char hex pattern, so they
-        # fall through to the "assume file path" branch and are returned as-is.
-        result = resolve_data_source("42")
-        assert result == "42"

@@ -145,21 +145,18 @@ class TestArgoGetAvailableModels:
 class TestArgoHealthCheck:
     """Test ARGO health check functionality via LiteLLM."""
 
-    def test_health_check_no_api_key(self):
-        """Test health check fails without API key."""
+    @pytest.mark.parametrize(
+        ("api_key", "reason"),
+        [
+            pytest.param(None, "key", id="no-api-key"),
+            pytest.param("${ARGO_API_KEY}", "placeholder", id="placeholder-api-key"),
+        ],
+    )
+    def test_health_check_fails_for_an_unusable_api_key(self, api_key, reason):
         provider = ArgoProviderAdapter()
-        success, message = provider.check_health(api_key=None, base_url="https://test.url")
+        success, message = provider.check_health(api_key=api_key, base_url="https://test.url")
         assert success is False
-        assert "key" in message.lower()
-
-    def test_health_check_placeholder_api_key(self):
-        """Test health check detects placeholder API key."""
-        provider = ArgoProviderAdapter()
-        success, message = provider.check_health(
-            api_key="${ARGO_API_KEY}", base_url="https://test.url"
-        )
-        assert success is False
-        assert "placeholder" in message.lower()
+        assert reason in message.lower()
 
     def test_health_check_uses_default_model(self):
         """Test health check uses default model when none provided."""

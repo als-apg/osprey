@@ -200,10 +200,23 @@ class TestTheDefaultsLedger:
         """``build_dir``'s reader falls back to ``./build``, so the ledger says so."""
         assert "\nbuild_dir: ./build\n" in config_cmd._render_defaults_ledger()
 
-    def test_defaults_show_expand_entries_off(self):
-        """The entry-expansion switch is in the ledger, off by default."""
+    @pytest.mark.parametrize(
+        "entry",
+        [
+            # The entry-expansion switch is in the ledger, off by default.
+            "\nariel.vocabulary.expand_entries: false\n",
+            # ``<derived>`` alone says nothing; the note is the whole answer.
+            "# the profile's top-level `project_name:` field\nproject_name: <derived>\n",
+            # A leaf with no reader of its own points at the block that has one,
+            # rather than dropping out of the ledger.
+            "\ncontrol_system.connector.epics: <covered by control_system.connector>\n",
+        ],
+        ids=["expand-entries-off", "derived-key-note", "covered-leaf"],
+    )
+    def test_the_ledger_prints_an_entry_the_way_the_manifest_declares_it(self, entry):
         ledger = config_cmd._render_defaults_ledger()
-        assert "\nariel.vocabulary.expand_entries: false\n" in ledger
+
+        assert entry in ledger
 
     def test_the_empty_string_default_stays_quoted(self):
         """Unquoted, an empty value would read back as null rather than as ''."""
@@ -215,21 +228,6 @@ class TestTheDefaultsLedger:
         """The posture floor has no fallback. Inventing one for this view would
         be the same wrong answer the build itself refuses to make."""
         assert "\ncontrol_system.type: <required>\n" in config_cmd._render_defaults_ledger()
-
-    def test_a_derived_key_carries_its_note_above_it(self):
-        """``<derived>`` alone says nothing; the note is the whole answer."""
-        ledger = config_cmd._render_defaults_ledger()
-
-        assert (
-            "# the profile's top-level `project_name:` field\nproject_name: <derived>\n" in ledger
-        )
-
-    def test_a_covered_leaf_names_the_key_that_covers_it(self):
-        """A leaf with no reader of its own points at the block that has one,
-        rather than dropping out of the ledger."""
-        ledger = config_cmd._render_defaults_ledger()
-
-        assert "\ncontrol_system.connector.epics: <covered by control_system.connector>\n" in ledger
 
     def test_a_covered_leaf_with_nothing_to_cite_says_so(self):
         """The manifest's contract makes this unreachable today. It is still the

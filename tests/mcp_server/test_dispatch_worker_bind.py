@@ -8,6 +8,8 @@ service config.
 
 from unittest.mock import patch
 
+import pytest
+
 from osprey.mcp_server.dispatch_worker.__main__ import main
 
 
@@ -25,19 +27,17 @@ def _run_main_and_capture_host(monkeypatch, env_value: str | None) -> str:
     return kwargs["host"]
 
 
-def test_bind_defaults_to_all_interfaces(monkeypatch):
-    """No override preserves today's bridge behavior of binding 0.0.0.0."""
-    host = _run_main_and_capture_host(monkeypatch, None)
-    assert host == "0.0.0.0"
-
-
-def test_bind_honors_loopback_override(monkeypatch):
-    """Host-mode renders set DISPATCH_WORKER_BIND=127.0.0.1."""
-    host = _run_main_and_capture_host(monkeypatch, "127.0.0.1")
-    assert host == "127.0.0.1"
-
-
-def test_bind_honors_explicit_override(monkeypatch):
-    """Remote callers can point the worker at any explicit bind address."""
-    host = _run_main_and_capture_host(monkeypatch, "10.0.0.5")
-    assert host == "10.0.0.5"
+@pytest.mark.parametrize(
+    ("env_value", "expected"),
+    [
+        # No override preserves today's bridge behavior of binding 0.0.0.0.
+        pytest.param(None, "0.0.0.0", id="defaults-to-all-interfaces"),
+        # Host-mode renders set DISPATCH_WORKER_BIND=127.0.0.1.
+        pytest.param("127.0.0.1", "127.0.0.1", id="loopback-override"),
+        # Remote callers can point the worker at any explicit bind address.
+        pytest.param("10.0.0.5", "10.0.0.5", id="explicit-override"),
+    ],
+)
+def test_bind_follows_the_override_else_all_interfaces(monkeypatch, env_value, expected):
+    host = _run_main_and_capture_host(monkeypatch, env_value)
+    assert host == expected

@@ -80,11 +80,18 @@ class TestSubmitResponse:
 
     @pytest.mark.asyncio
     @pytest.mark.usefixtures("workspace")
-    async def test_submit_response_empty_title(self):
+    @pytest.mark.parametrize(
+        ("title", "content", "field"),
+        [
+            pytest.param("", "Some content.", "title", id="empty-title"),
+            pytest.param("Valid Title", "", "content", id="empty-content"),
+        ],
+    )
+    async def test_submit_response_empty_field_is_named(self, title, content, field):
         with assert_raises_error(error_type="validation_error") as _exc_ctx:
-            await _fn(title="", content="Some content.")
+            await _fn(title=title, content=content)
         data = _exc_ctx["envelope"]
-        assert "title" in data["error_message"]
+        assert field in data["error_message"]
 
     @pytest.mark.asyncio
     @pytest.mark.usefixtures("workspace")
@@ -102,14 +109,6 @@ class TestSubmitResponse:
         with assert_raises_error(error_type="validation_error") as _exc_ctx:
             await _fn(title="   ", content="Some content.")
         _exc_ctx["envelope"]
-
-    @pytest.mark.asyncio
-    @pytest.mark.usefixtures("workspace")
-    async def test_submit_response_empty_content(self):
-        with assert_raises_error(error_type="validation_error") as _exc_ctx:
-            await _fn(title="Valid Title", content="")
-        data = _exc_ctx["envelope"]
-        assert "content" in data["error_message"]
 
     @pytest.mark.asyncio
     @pytest.mark.usefixtures("workspace")

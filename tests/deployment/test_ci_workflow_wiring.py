@@ -585,16 +585,16 @@ def test_gate_job_stands_down_only_when_the_run_is_cancelled(workflow: dict[str,
     assert _gate_stands_down_only_when_cancelled(workflow)
 
 
-def test_gate_job_stands_down_only_when_the_run_is_cancelled__mutation_reverts_to_always() -> None:
+@pytest.mark.parametrize(
+    "condition",
+    ["always()", "${{ success() }}"],
+    ids=["reverts_to_always", "uses_success"],
+)
+def test_gate_job_stands_down_only_when_the_run_is_cancelled__mutation_changes_the_condition(
+    condition: str,
+) -> None:
     mutated = copy.deepcopy(_load_workflow())
-    _jobs(mutated)[GATE_JOB]["if"] = "always()"
-    with pytest.raises(AssertionError):
-        assert _gate_stands_down_only_when_cancelled(mutated)
-
-
-def test_gate_job_stands_down_only_when_the_run_is_cancelled__mutation_uses_success() -> None:
-    mutated = copy.deepcopy(_load_workflow())
-    _jobs(mutated)[GATE_JOB]["if"] = "${{ success() }}"
+    _jobs(mutated)[GATE_JOB]["if"] = condition
     with pytest.raises(AssertionError):
         assert _gate_stands_down_only_when_cancelled(mutated)
 
@@ -819,41 +819,37 @@ def test_lume_pva_pin_carries_the_live_ca_marker__mutation_unmarks_it() -> None:
         test_lume_pva_pin_carries_the_live_ca_marker(mutated)
 
 
-def test_lume_pva_pin_carries_the_live_ca_marker__mutation_moves_to_another_platform() -> None:
-    """Retargeting the serving pin to another platform must fail. Darwin is the
-    pointed choice — it is where pcaspy's wheels exist but do not load, so a
-    plausible edit could land here."""
+@pytest.mark.parametrize(
+    ("marker", "stale_message"),
+    [
+        # Retargeting the serving pin to another platform must fail. Darwin is the
+        # pointed choice — it is where pcaspy's wheels exist but do not load, so a
+        # plausible edit could land here.
+        ("sys_platform == 'darwin'", "mutation matched nothing — the serving pin is gone"),
+        # Narrowing the serving pin back to x86_64 must fail: the arm64 VA image
+        # builds its own pcaspy, and without aarch64 in the marker its serving stack
+        # installs nothing there.
+        (
+            "sys_platform == 'linux' and platform_machine == 'x86_64'",
+            "mutation matched nothing — the marker is already x86_64-only",
+        ),
+    ],
+    ids=["moves_to_another_platform", "drops_aarch64"],
+)
+def test_lume_pva_pin_carries_the_live_ca_marker__mutation_changes_the_marker(
+    marker: str, stale_message: str
+) -> None:
     mutated = _load_pyproject()
     extra = _va_extra(mutated)
     before = list(extra)
     mutated["project"]["optional-dependencies"]["virtual-accelerator"] = [
-        f"{dep.split(';', 1)[0].strip()}; sys_platform == 'darwin'"
+        f"{dep.split(';', 1)[0].strip()}; {marker}"
         if Requirement(dep).name == "lume-pva-apg"
         else dep
         for dep in extra
     ]
     assert mutated["project"]["optional-dependencies"]["virtual-accelerator"] != before, (
-        "mutation matched nothing — the serving pin is gone"
-    )
-    with pytest.raises(AssertionError, match="lume-pva-apg must stay marked"):
-        test_lume_pva_pin_carries_the_live_ca_marker(mutated)
-
-
-def test_lume_pva_pin_carries_the_live_ca_marker__mutation_drops_aarch64() -> None:
-    """Narrowing the serving pin back to x86_64 must fail: the arm64 VA image
-    builds its own pcaspy, and without aarch64 in the marker its serving stack
-    installs nothing there."""
-    mutated = _load_pyproject()
-    extra = _va_extra(mutated)
-    before = list(extra)
-    mutated["project"]["optional-dependencies"]["virtual-accelerator"] = [
-        f"{dep.split(';', 1)[0].strip()}; sys_platform == 'linux' and platform_machine == 'x86_64'"
-        if Requirement(dep).name == "lume-pva-apg"
-        else dep
-        for dep in extra
-    ]
-    assert mutated["project"]["optional-dependencies"]["virtual-accelerator"] != before, (
-        "mutation matched nothing — the marker is already x86_64-only"
+        stale_message
     )
     with pytest.raises(AssertionError, match="lume-pva-apg must stay marked"):
         test_lume_pva_pin_carries_the_live_ca_marker(mutated)
@@ -960,24 +956,27 @@ def test_unit_test_job_runs_xdist_parallel__mutation_flags_only_in_trailing_comm
     assert _missing_parallel_flags(_unit_test_pytest_line(mutated)) == list(PARALLEL_FLAGS)
 
 
-def test_unit_test_job_runs_xdist_parallel__mutation_drops_worker_count() -> None:
-    """Dropping `-n 4` (leaving `--dist loadgroup`) must be reported: without
-    a worker count xdist does not parallelize at all and the dist mode is
-    inert."""
+@pytest.mark.parametrize(
+    ("dropped", "reported"),
+    [
+        # Dropping `-n 4` (leaving `--dist loadgroup`) must be reported: without
+        # a worker count xdist does not parallelize at all and the dist mode is
+        # inert.
+        (" -n 4", ["-n 4"]),
+        # Dropping `--dist loadgroup` (leaving `-n 4`) must be reported too — the
+        # dangerous half of the revert, since the lane still looks parallelized
+        # while the scheduler override goes inert.
+        (" --dist loadgroup", ["--dist loadgroup"]),
+    ],
+    ids=["worker-count", "dist-mode"],
+)
+def test_unit_test_job_runs_xdist_parallel__mutation_drops_a_flag(
+    dropped: str, reported: list[str]
+) -> None:
     mutated = copy.deepcopy(_load_workflow())
     step = _find_named_step(mutated, UNIT_TEST_JOB, "Run unit tests")
-    step["run"] = step["run"].replace(" -n 4", "")
-    assert _missing_parallel_flags(_unit_test_pytest_line(mutated)) == ["-n 4"]
-
-
-def test_unit_test_job_runs_xdist_parallel__mutation_drops_dist_mode() -> None:
-    """Dropping `--dist loadgroup` (leaving `-n 4`) must be reported too — the
-    dangerous half of the revert, since the lane still looks parallelized
-    while the scheduler override goes inert."""
-    mutated = copy.deepcopy(_load_workflow())
-    step = _find_named_step(mutated, UNIT_TEST_JOB, "Run unit tests")
-    step["run"] = step["run"].replace(" --dist loadgroup", "")
-    assert _missing_parallel_flags(_unit_test_pytest_line(mutated)) == ["--dist loadgroup"]
+    step["run"] = step["run"].replace(dropped, "")
+    assert _missing_parallel_flags(_unit_test_pytest_line(mutated)) == reported
 
 
 # ---------------------------------------------------------------------------
@@ -1167,29 +1166,31 @@ def test_every_boot_smoke_test_runs_in_exactly_one_matrix_cell() -> None:
     )
 
 
-def test_every_boot_smoke_test_runs_in_one_cell__mutation_forgets_the_parametrize() -> None:
-    """The concrete case: a new case lands in the module, passes locally, and is
-    selected by nothing in CI because nobody noticed the missing decorator."""
+@pytest.mark.parametrize(
+    ("addition", "stray_name"),
+    [
+        # The concrete case: a new case lands in the module, passes locally, and is
+        # selected by nothing in CI because nobody noticed the missing decorator.
+        ("\n\ndef test_a_preset_free_case() -> None:\n    pass\n", "test_a_preset_free_case"),
+        # The same case one indent deeper. A method carries no preset in its id for
+        # exactly the same reason a function does, so the scan has to see it.
+        (
+            "\n\nclass TestPresetFree:\n"
+            "    def test_a_preset_free_method(self) -> None:\n"
+            "        pass\n",
+            "test_a_preset_free_method",
+        ),
+    ],
+    ids=["forgets-the-parametrize", "hides-the-case-in-a-class"],
+)
+def test_every_boot_smoke_test_runs_in_one_cell__mutation_adds_a_preset_free_test(
+    addition: str, stray_name: str
+) -> None:
     source = _boot_module_source()
     names, _ = _boot_module_tests(source)
-    mutated = source + "\n\ndef test_a_preset_free_case() -> None:\n    pass\n"
+    mutated = source + addition
     mutated_names, mutated_stray = _boot_module_tests(mutated)
-    assert mutated_stray == ["test_a_preset_free_case"]
-    assert len(mutated_names) == len(names) + 1
-
-
-def test_every_boot_smoke_test_runs_in_one_cell__mutation_hides_the_case_in_a_class() -> None:
-    """The same case one indent deeper. A method carries no preset in its id for
-    exactly the same reason a function does, so the scan has to see it."""
-    source = _boot_module_source()
-    names, _ = _boot_module_tests(source)
-    mutated = source + (
-        "\n\nclass TestPresetFree:\n"
-        "    def test_a_preset_free_method(self) -> None:\n"
-        "        pass\n"
-    )
-    mutated_names, mutated_stray = _boot_module_tests(mutated)
-    assert mutated_stray == ["test_a_preset_free_method"]
+    assert mutated_stray == [stray_name]
     assert len(mutated_names) == len(names) + 1
 
 
@@ -5869,28 +5870,22 @@ def test_two_shape_lane_cleanup_is_exact_named(workflow: dict[str, Any]) -> None
     assert found == [], f"'{TWO_SHAPE_JOB}' contains blanket-removal shape(s) {found}"
 
 
-def test_two_shape_lane_cleanup_is_exact_named__mutation_adds_a_prune() -> None:
-    mutated = copy.deepcopy(_load_workflow())
-    _jobs(mutated)[TWO_SHAPE_JOB]["steps"].append(
-        {"name": "sweep", "run": "podman system prune -f"}
-    )
-    with pytest.raises(AssertionError, match="blanket-removal"):
-        test_two_shape_lane_cleanup_is_exact_named(mutated)
-
-
 @pytest.mark.parametrize(
     "swept",
     [
+        "podman system prune -f",
+        # The shapes the substring tuple missed. Each sweeps every volume or image
+        # on the host rather than the six this lane owns, and each left all of this
+        # module's assertions green before the boundary match replaced the tuple. The
+        # gap existed precisely because it had never been mutated.
         "podman volume rm -a",  # trailing flag: the substring tuple's blind spot
         "podman rmi -af",  # fused cluster: likewise
         "podman rm --all",
     ],
 )
-def test_two_shape_lane_cleanup_is_exact_named__mutation_adds_a_blanket_flag(swept: str) -> None:
-    """The shapes the substring tuple missed. Each sweeps every volume or image
-    on the host rather than the six this lane owns, and each left all of this
-    module's assertions green before the boundary match replaced the tuple. The
-    gap existed precisely because it had never been mutated."""
+def test_two_shape_lane_cleanup_is_exact_named__mutation_adds_a_blanket_removal(
+    swept: str,
+) -> None:
     mutated = copy.deepcopy(_load_workflow())
     _jobs(mutated)[TWO_SHAPE_JOB]["steps"].append({"name": "sweep", "run": swept})
     with pytest.raises(AssertionError, match="blanket-removal"):
@@ -8225,13 +8220,25 @@ def test_lint_runs_the_plugin_version_check__mutation_drops_the_step() -> None:
         test_lint_runs_the_plugin_version_check(mutated)
 
 
-def test_lint_runs_the_plugin_version_check__mutation_interpolates_the_base_ref_into_run() -> None:
+@pytest.mark.parametrize(
+    ("replacement", "expected_in_run", "stale_message"),
+    [
+        (
+            '"origin/${{ github.event.pull_request.base.ref }}"',
+            "${{",
+            "the run line no longer uses $BASE_REF; this mutation is stale",
+        ),
+        ("origin/main", "origin/main", "the run line moved; this mutation is stale"),
+    ],
+    ids=["interpolates_the_base_ref_into_run", "hardcodes_main"],
+)
+def test_lint_runs_the_plugin_version_check__mutation_replaces_the_base_ref(
+    replacement: str, expected_in_run: str, stale_message: str
+) -> None:
     mutated = copy.deepcopy(_load_workflow())
     step = _find_named_step(mutated, LINT_JOB, PLUGIN_VERSION_STEP)
-    step["run"] = step["run"].replace(
-        '"origin/$BASE_REF"', '"origin/${{ github.event.pull_request.base.ref }}"'
-    )
-    assert "${{" in step["run"], "the run line no longer uses $BASE_REF; this mutation is stale"
+    step["run"] = step["run"].replace('"origin/$BASE_REF"', replacement)
+    assert expected_in_run in step["run"], stale_message
     with pytest.raises(AssertionError):
         test_lint_runs_the_plugin_version_check(mutated)
 
@@ -8242,15 +8249,6 @@ def test_lint_runs_the_plugin_version_check__mutation_restates_the_rule_inline()
     original = step["run"]
     step["run"] += '\ngit diff --name-only "origin/$BASE_REF...HEAD" -- plugins'
     assert step["run"] != original
-    with pytest.raises(AssertionError):
-        test_lint_runs_the_plugin_version_check(mutated)
-
-
-def test_lint_runs_the_plugin_version_check__mutation_hardcodes_main() -> None:
-    mutated = copy.deepcopy(_load_workflow())
-    step = _find_named_step(mutated, LINT_JOB, PLUGIN_VERSION_STEP)
-    step["run"] = step["run"].replace('"origin/$BASE_REF"', "origin/main")
-    assert "origin/main" in step["run"], "the run line moved; this mutation is stale"
     with pytest.raises(AssertionError):
         test_lint_runs_the_plugin_version_check(mutated)
 
@@ -8403,17 +8401,20 @@ def _run_check_with_tool_tripwires(
     return result, mark
 
 
-def test_the_gate_refuses_a_test_no_runner_takes(tmp_path: Path) -> None:
-    result, mark = _run_check_with_tool_tripwires(tmp_path, "full", "--", "tests/x.txt")
+@pytest.mark.parametrize(
+    ("flag", "value", "refusal"),
+    [
+        ("--", "tests/x.txt", "check: refused: tests/x.txt: not a test file"),
+        ("--base", "no/such/ref", "check: refused: no/such/ref does not resolve to a commit"),
+    ],
+    ids=["a-test-no-runner-takes", "a-base-that-does-not-resolve"],
+)
+def test_the_gate_refuses_before_any_tool_runs(
+    tmp_path: Path, flag: str, value: str, refusal: str
+) -> None:
+    result, mark = _run_check_with_tool_tripwires(tmp_path, "full", flag, value)
     assert result.returncode == 2, result.stdout + result.stderr
-    assert "check: refused: tests/x.txt: not a test file" in result.stderr
-    assert not mark.exists(), f"a tool ran before the stop: {mark.read_text()}"
-
-
-def test_the_gate_refuses_a_base_that_does_not_resolve(tmp_path: Path) -> None:
-    result, mark = _run_check_with_tool_tripwires(tmp_path, "full", "--base", "no/such/ref")
-    assert result.returncode == 2, result.stdout + result.stderr
-    assert "check: refused: no/such/ref does not resolve to a commit" in result.stderr
+    assert refusal in result.stderr
     assert not mark.exists(), f"a tool ran before the stop: {mark.read_text()}"
 
 
@@ -11562,34 +11563,21 @@ def test_the_release_gate_stages_every_member_wheel_but_the_framework(tmp_path: 
     _assert_release_stages_every_member_wheel(yaml.safe_load(RELEASE_YML.read_text()), tmp_path)
 
 
-def test_the_release_gate_stages_every_member_wheel__mutation_connectors_only(
-    tmp_path: Path,
-) -> None:
-    mutated = _with_staging(
-        yaml.safe_load(RELEASE_YML.read_text()),
+@pytest.mark.parametrize(
+    "staging",
+    [
         f"cp dist/osprey_connectors-*.whl {RELEASE_SIBLING_DIR}/",
-    )
-    with pytest.raises(AssertionError, match="wrong sibling set"):
-        _assert_release_stages_every_member_wheel(mutated, tmp_path)
-
-
-def test_the_release_gate_stages_every_member_wheel__mutation_offers_connectors(
-    tmp_path: Path,
-) -> None:
-    """Staging by exclusion of the framework alone, as before the split."""
-    mutated = _with_staging(
-        yaml.safe_load(RELEASE_YML.read_text()),
+        # Staging by exclusion of the framework alone, as before the split.
         f'for wheel in dist/*.whl; do case "$(basename "$wheel")" in '
         f'osprey_framework-*) ;; *) cp "$wheel" {RELEASE_SIBLING_DIR}/ ;; esac; done',
-    )
-    with pytest.raises(AssertionError, match="wrong sibling set"):
-        _assert_release_stages_every_member_wheel(mutated, tmp_path)
-
-
-def test_the_release_gate_stages_every_member_wheel__mutation_whole_dist(tmp_path: Path) -> None:
-    mutated = _with_staging(
-        yaml.safe_load(RELEASE_YML.read_text()), f"cp dist/* {RELEASE_SIBLING_DIR}/"
-    )
+        f"cp dist/* {RELEASE_SIBLING_DIR}/",
+    ],
+    ids=["connectors_only", "offers_connectors", "whole_dist"],
+)
+def test_the_release_gate_stages_every_member_wheel__mutation_stages_the_wrong_set(
+    tmp_path: Path, staging: str
+) -> None:
+    mutated = _with_staging(yaml.safe_load(RELEASE_YML.read_text()), staging)
     with pytest.raises(AssertionError, match="wrong sibling set"):
         _assert_release_stages_every_member_wheel(mutated, tmp_path)
 

@@ -79,19 +79,19 @@ class TestFacilityKnowledgeAgentResolved:
         names = [a["name"] for a in agents]
         assert "facility-knowledge" in names
 
-    def test_enabled_by_default(self):
+    @pytest.mark.parametrize(
+        ("key", "expected"),
+        [
+            pytest.param("enabled", True, id="enabled-by-default"),
+            pytest.param("is_custom", False, id="is-not-custom"),
+        ],
+    )
+    def test_the_agent_resolves_with_its_default_flags(self, key, expected):
         ctx = base_ctx()
         servers = resolve_servers({}, ctx)
         agents = resolve_agents({}, ctx, resolved_servers=servers)
         agent = _get_agent(agents)
-        assert agent["enabled"] is True
-
-    def test_is_not_custom_in_resolved(self):
-        ctx = base_ctx()
-        servers = resolve_servers({}, ctx)
-        agents = resolve_agents({}, ctx, resolved_servers=servers)
-        agent = _get_agent(agents)
-        assert agent["is_custom"] is False
+        assert agent[key] is expected
 
     def test_can_be_disabled_via_config(self):
         ctx = base_ctx()

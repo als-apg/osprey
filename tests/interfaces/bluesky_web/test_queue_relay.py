@@ -211,10 +211,11 @@ def test_get_queue_never_sends_the_launch_token(monkeypatch: pytest.MonkeyPatch)
     assert "x-launch-token" not in seen[0].headers
 
 
-def test_get_queue_bridge_unreachable_returns_502() -> None:
+@pytest.mark.parametrize("path", ["/queue", "/queue/events"])
+def test_read_route_bridge_unreachable_returns_502(path) -> None:
     app = _build_app(refusing_handler)
     with TestClient(app) as client:
-        response = client.get("/queue")
+        response = client.get(path)
 
     assert response.status_code == 502
     assert response.json() == {"detail": "bluesky bridge unreachable"}
@@ -1051,15 +1052,6 @@ def test_queue_events_never_sends_the_launch_token(monkeypatch: pytest.MonkeyPat
             list(response.iter_bytes())
 
     assert "x-launch-token" not in seen[0].headers
-
-
-def test_queue_events_bridge_unreachable_returns_502() -> None:
-    app = _build_app(refusing_handler)
-    with TestClient(app) as client:
-        response = client.get("/queue/events")
-
-    assert response.status_code == 502
-    assert response.json() == {"detail": "bluesky bridge unreachable"}
 
 
 # ---------------------------------------------------------------------------

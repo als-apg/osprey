@@ -1290,10 +1290,19 @@ class TestSidecarReadyTimeout:
         assert ready_sidecar.waited == [240.0]
         assert url == ready_sidecar.url
 
-    def test_a_numeric_string_is_read_as_seconds(self, workspace_dir, ready_sidecar, caplog):
-        self._launch(workspace_dir, "90", ready_sidecar)
+    @pytest.mark.parametrize(
+        ("value", "waited"),
+        [
+            pytest.param("90", [90.0], id="numeric-string-is-read-as-seconds"),
+            pytest.param(None, [60.0], id="null-waits-the-default"),
+        ],
+    )
+    def test_a_quiet_value_sets_the_wait_without_a_warning(
+        self, workspace_dir, ready_sidecar, caplog, value, waited
+    ):
+        self._launch(workspace_dir, value, ready_sidecar)
 
-        assert ready_sidecar.waited == [90.0]
+        assert ready_sidecar.waited == waited
         assert self._warnings_naming_the_key(caplog) == []
 
     @pytest.mark.parametrize(
@@ -1320,12 +1329,6 @@ class TestSidecarReadyTimeout:
         warnings = self._warnings_naming_the_key(caplog)
         assert len(warnings) == 1
         assert repr(value) in warnings[0].getMessage()
-
-    def test_a_null_value_waits_the_default_quietly(self, workspace_dir, ready_sidecar, caplog):
-        self._launch(workspace_dir, None, ready_sidecar)
-
-        assert ready_sidecar.waited == [60.0]
-        assert self._warnings_naming_the_key(caplog) == []
 
     def test_a_config_read_that_raises_waits_the_default(
         self, workspace_dir, ready_sidecar, caplog
