@@ -1,1 +1,0 @@
-The connectors' simulation package gains a texture model that serves every channel no served model wires: a nominal value, keyed noise and drift, a clamp, setpoint-to-readback echo and linear channels.

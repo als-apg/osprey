@@ -1,1 +1,0 @@
-A deployment repository's own `CLAUDE.md`, `CLAUDE.local.md`, `.claude/` and `.mcp.json` no longer reach its container images. The agent in an image runs one directory below the repository root and loaded that `CLAUDE.md` into every session; the render's own files under `build/` are unchanged.

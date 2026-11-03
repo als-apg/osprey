@@ -1,1 +1,0 @@
-`osprey build` stops with `view-unsupported` when two channels take one key of the hierarchical or middle-layer channel-finder index, which happens when one channel's address is another's signal; before, the later channel silently replaced the earlier one.
