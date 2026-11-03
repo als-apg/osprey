@@ -617,7 +617,8 @@ identically there; this tutorial assumes the web terminal.</p>
 <p>The simulator serves the channels of <code class="docutils literal notranslate"><span class="pre">build/facility.json</span></code>, which
 <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> writes from <code class="docutils literal notranslate"><span class="pre">data/facility/</span></code>, inside this process — that is
 the whole trick behind a five-minute first session. The session is on the
-<code class="docutils literal notranslate"><span class="pre">va</span></code> target, and the web terminal’s header chip reads “Simulator”. Any other
+<code class="docutils literal notranslate"><span class="pre">va</span></code> target, and the control-target chip in the web terminal’s sidebar reads
+“Simulator”. Any other
 address is answered with <code class="docutils literal notranslate"><span class="pre">&lt;address&gt;</span> <span class="pre">is</span> <span class="pre">not</span> <span class="pre">a</span> <span class="pre">channel</span> <span class="pre">of</span> <span class="pre">this</span> <span class="pre">facility</span></code>, for
 example <code class="docutils literal notranslate"><span class="pre">ANY:RANDOM:NAME</span> <span class="pre">is</span> <span class="pre">not</span> <span class="pre">a</span> <span class="pre">channel</span> <span class="pre">of</span> <span class="pre">this</span> <span class="pre">facility</span></code>. Try:</p>
 <div class="highlight-text notranslate"><div class="highlight"><pre><span></span>You: Read channel SR:BEAM:CURRENT

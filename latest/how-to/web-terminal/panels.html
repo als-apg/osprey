@@ -931,15 +931,15 @@ like “set up for machine setup.”</p>
 <h2>Panel tools the agent uses<a class="headerlink" href="#panel-tools-the-agent-uses" title="Link to this heading">#</a></h2>
 <p>The agent changes the dock the way you do, with the same rules: every drop you
 can make, it can make. The panel tools come in two kinds: the ones that say
-what is on screen, which are auto-allowed, and the ones that change rail
-membership, which ask the operator first.</p>
+what is on screen, which are auto-allowed, and the ones that add or remove a
+sidebar row, which ask the operator first.</p>
 <p>What is on screen:</p>
 <ul class="simple">
 <li><p><code class="docutils literal notranslate"><span class="pre">list_panels</span></code> — the panels this deployment has, the dock’s tiles with
 their tabs and the tab in front of each (the terminal included), the panels
 in pop-out windows, and the configured layouts.</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">open_panel</span></code> — put a panel on screen by the opening rule: a new tab in
-front of the service tile used last. It joins the rail if it was off it.</p></li>
+front of the service tile used last. It gets a sidebar row if it had none.</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">open_panel_set</span></code> — open several panels in one call: as tabs of one tile,
 or side by side.</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">arrange_workspace</span></code> — apply a configured layout, or an exact one, in place
@@ -947,18 +947,19 @@ of the service tiles; the terminal keeps its place.</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">drop_panel</span></code> — drop a new panel, an open tab or a whole tile on a tile’s
 centre, a tab position or an edge, along a whole side of the dock, or
 between two tiles.</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">close_panel_tab</span></code> — close a panel’s tab, leaving it on the rail.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">close_panel_tab</span></code> — close a panel’s tab, leaving its sidebar row.</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">close_panel_tile</span></code> — close a whole tile with its tabs.</p></li>
 </ul>
 <p>The agent never moves or closes the terminal, and never moves or closes a
 panel you put in a window of its own; <code class="docutils literal notranslate"><span class="pre">open_panel</span></code> brings that window
 forward.</p>
-<p>Rail membership, each one approved by the operator:</p>
+<p>Sidebar rows, each one approved by the operator (the tool names keep the
+older word <em>rail</em> for the row list):</p>
 <ul class="simple">
-<li><p><code class="docutils literal notranslate"><span class="pre">add_panel_to_rail</span></code> — make a panel launchable from the rail in one click.</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">remove_panel_from_rail</span></code> — take a panel off the rail, and off screen with
-it.</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">register_panel</span></code> — add a rail entry at runtime for an upstream URL the
+<li><p><code class="docutils literal notranslate"><span class="pre">add_panel_to_rail</span></code> — give a panel a sidebar row, so one click opens it.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">remove_panel_from_rail</span></code> — take a panel’s sidebar row away, and its tile
+off screen with it.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">register_panel</span></code> — add a sidebar row at runtime for an upstream URL the
 terminal proxies.</p></li>
 </ul>
 <p><a class="reference internal" href="../../architecture/mcp-servers.html"><span class="doc">MCP Servers</span></a> lists these beside the rest of the workspace
