@@ -73,8 +73,8 @@ created, and switch between companion tools without ever leaving the page.
       :link-type: doc
       :shadow: md
 
-      Machine screens, Trace and the correlation plot in a tab — one CANOPY
-      per user, on the control session the terminal already has.
+      Control-room screens and archived history in a tab, which the agent
+      opens, arranges and builds with you — and a shared screen library.
 
    .. grid-item-card:: Multi-user
       :link: multi-user/index
@@ -93,5 +93,6 @@ created, and switch between companion tools without ever leaving the page.
    lattice-dashboard
    notebooks
    canopy
+   canopy-library
    send-feedback
    multi-user/index

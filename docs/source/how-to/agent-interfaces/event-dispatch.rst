@@ -289,14 +289,20 @@ does that only for the events backend the configuration declares, and only when
 that backend answers on loopback — an EVENTS panel pointed at a dashboard
 elsewhere receives neither the bearer nor your name.
 
-A shell does not reach the route
---------------------------------
+A shell can still reach the route
+---------------------------------
 
-The panel token is in the agent's environment for its MCP tools and hooks
-only. Claude Code starts every ``Bash`` and ``Monitor`` command under a script
-that unsets it, so a shell command cannot post to the proxy route, even on a
-tier whose file lifts the ``Bash`` deny. Code running in a sandbox holds
-neither the panel token nor the terminal's port.
+The panel token is meant for the agent's MCP tools and hooks. Claude Code
+starts every ``Bash`` and ``Monitor`` command with the token removed from its
+environment, but the agent process itself keeps it, and a shell running as the
+same user can read it from that process (``/proc/$PPID/environ`` on Linux). So
+a tier whose file lifts the ``Bash`` deny — a build failure unless that file
+also declares its own ``PreToolUse`` gate covering the shell — can fire a job
+from a shell command with no approval prompt. What that skips is the prompt,
+not the rest: such a job still carries your name from the proxy, still meets
+your chip at every write, and still runs under the worker's denylist. Code
+running in a sandbox holds neither the panel token nor the terminal's port, so
+it cannot make this call.
 
 Authoring Triggers
 ==================

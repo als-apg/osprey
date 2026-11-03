@@ -746,8 +746,8 @@ restart of a terminal.
        root; an absolute path is used as written. Unset keeps CANOPY's own
        theme.
 
-There is no key for the confirmation dialog: a write click asks first exactly
-when the deployment's ``approval`` block asks a human before agent writes.
+There is no key for the confirmation dialog: it follows the chip's write
+switch, so a write click asks first at *asked* and not at *allowed*.
 There is no ``url``, ``label`` or ``health_endpoint`` either, because the
 terminal starts the server itself, and no key that turns the agent's screen
 tools on or off, because those follow the panel.

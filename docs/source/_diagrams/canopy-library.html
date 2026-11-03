@@ -1,0 +1,69 @@
+<div class="osprey-diagram">
+<svg viewBox="0 0 1000 376" role="img" aria-labelledby="canopy-library-title canopy-library-desc">
+  <title id="canopy-library-title">Two ways a screen gets into the CANOPY library</title>
+  <desc id="canopy-library-desc">A user builds a draft with the agent in their personal store, which only they see, and the agent files a push request for it. An administrator reviews the request on the host with push show and accepts it, which writes the screens and the report into the library. A developer can instead run a local CANOPY with mock values and write screens and the report straight into the library in the deployment repository. Either way the change is one git commit of the screens and the report together, and osprey build checks that the report still matches the screens before every user's CANOPY serves them read-only.</desc>
+  <defs>
+    <marker id="canopy-library-arr" viewBox="0 0 8 6" refX="7" refY="3" markerWidth="8" markerHeight="6" orient="auto-start-reverse">
+      <polygon points="0,0 8,3 0,6" fill="context-stroke"/>
+    </marker>
+  </defs>
+
+  <!-- edges -->
+  <line class="e" x1="190" y1="68" x2="218" y2="68" marker-end="url(#canopy-library-arr)"/>
+  <line class="e" x1="370" y1="68" x2="398" y2="68" marker-end="url(#canopy-library-arr)"/>
+  <line class="e" x1="550" y1="68" x2="578" y2="68" marker-end="url(#canopy-library-arr)"/>
+  <path class="e-acc" d="M730,68 H760 V128 H788" marker-end="url(#canopy-library-arr)"/>
+  <line class="e" x1="190" y1="208" x2="218" y2="208" marker-end="url(#canopy-library-arr)"/>
+  <path class="e" d="M370,208 H760 V152 H788" marker-end="url(#canopy-library-arr)"/>
+  <line class="e" x1="875" y1="172" x2="875" y2="208" marker-end="url(#canopy-library-arr)"/>
+  <line class="e" x1="875" y1="266" x2="875" y2="298" marker-end="url(#canopy-library-arr)"/>
+  <rect class="mask" x="448" y="202" width="232" height="12" rx="2"/>
+  <text class="ta" x="564" y="211" text-anchor="middle">writes screens and report into the repository</text>
+  <text class="ta" x="865" y="286" text-anchor="end">checks the report matches</text>
+
+  <!-- a user shares a screen -->
+  <text class="te" x="40" y="28">A USER SHARES A SCREEN</text>
+  <rect class="mask" x="40" y="40" width="150" height="56" rx="6"/>
+  <rect class="nb-in" x="40" y="40" width="150" height="56" rx="6"/>
+  <text class="tn" x="115" y="62" text-anchor="middle">user + agent</text>
+  <text class="ts" x="115" y="78" text-anchor="middle">build a draft</text>
+  <rect class="mask" x="220" y="40" width="150" height="56" rx="6"/>
+  <rect class="nb-st" x="220" y="40" width="150" height="56" rx="6"/>
+  <text class="tn" x="295" y="62" text-anchor="middle">personal store</text>
+  <text class="ts" x="295" y="78" text-anchor="middle">only that user sees it</text>
+  <rect class="mask" x="400" y="40" width="150" height="56" rx="6"/>
+  <rect class="nb" x="400" y="40" width="150" height="56" rx="6"/>
+  <text class="tn" x="475" y="62" text-anchor="middle">push request</text>
+  <text class="ts" x="475" y="78" text-anchor="middle">publishes nothing yet</text>
+  <rect class="mask" x="580" y="40" width="150" height="56" rx="6"/>
+  <rect class="nb-foc" x="580" y="40" width="150" height="56" rx="6"/>
+  <text class="tn" x="655" y="62" text-anchor="middle">administrator</text>
+  <text class="ts" x="655" y="78" text-anchor="middle">push show · accept</text>
+
+  <!-- a developer edits the source tree -->
+  <text class="te" x="40" y="168">A DEVELOPER EDITS THE SOURCE TREE</text>
+  <rect class="mask" x="40" y="180" width="150" height="56" rx="6"/>
+  <rect class="nb-in" x="40" y="180" width="150" height="56" rx="6"/>
+  <text class="tn" x="115" y="202" text-anchor="middle">developer</text>
+  <text class="ts" x="115" y="218" text-anchor="middle">with Claude Code</text>
+  <rect class="mask" x="220" y="180" width="150" height="56" rx="6"/>
+  <rect class="nb-st" x="220" y="180" width="150" height="56" rx="6"/>
+  <text class="tn" x="295" y="202" text-anchor="middle">local CANOPY</text>
+  <text class="ts" x="295" y="218" text-anchor="middle">mock values · no stack</text>
+
+  <!-- the library, the commit, the build -->
+  <rect class="mask" x="790" y="110" width="170" height="62" rx="6"/>
+  <rect class="nb nb-acc-stroke" x="790" y="110" width="170" height="62" rx="6"/>
+  <text class="tn" x="875" y="132" text-anchor="middle">the library</text>
+  <text class="ts" x="875" y="148" text-anchor="middle">data/canopy/library</text>
+  <text class="ts" x="875" y="161" text-anchor="middle">screens + report</text>
+  <rect class="mask" x="790" y="210" width="170" height="56" rx="6"/>
+  <rect class="nb" x="790" y="210" width="170" height="56" rx="6"/>
+  <text class="tn" x="875" y="232" text-anchor="middle">git commit</text>
+  <text class="ts" x="875" y="248" text-anchor="middle">screens and report together</text>
+  <rect class="mask" x="790" y="300" width="170" height="56" rx="6"/>
+  <rect class="nb-st" x="790" y="300" width="170" height="56" rx="6"/>
+  <text class="tn" x="875" y="322" text-anchor="middle">osprey build · osprey up</text>
+  <text class="ts" x="875" y="338" text-anchor="middle">every user's CANOPY serves it</text>
+</svg>
+</div>
