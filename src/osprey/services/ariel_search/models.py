@@ -113,6 +113,8 @@ class EnhancedLogbookEntry(TypedDict):
     enhancement_status: NotRequired[dict[str, Any]]
     attachment_text: NotRequired[str | None]
     attachment_captions: NotRequired[dict[str, Any] | None]
+    subject: NotRequired[str | None]  # Stored subject line (services.ariel_search.subject)
+    has_images: NotRequired[bool]  # Selected by reads via enhancement.status.has_images_sql
 
 
 def enhanced_entry_from_row(row: Any) -> EnhancedLogbookEntry:
@@ -150,6 +152,10 @@ def enhanced_entry_from_row(row: Any) -> EnhancedLogbookEntry:
         entry["attachment_text"] = row_dict["attachment_text"]
     if row_dict.get("attachment_captions") is not None:
         entry["attachment_captions"] = row_dict["attachment_captions"]
+    if row_dict.get("subject") is not None:
+        entry["subject"] = row_dict["subject"]
+    if row_dict.get("has_images") is not None:
+        entry["has_images"] = bool(row_dict["has_images"])
 
     return entry
 
@@ -248,6 +254,12 @@ class ARIELSearchRequest:
         time_range: Default time range filter (see Time Range Semantics)
         facility: Facility filter
         max_results: Maximum results to return (default: 10, range: 1-100)
+        advanced_params: Mode-specific advanced parameters
+        entry_filter: The dimension filter (C-FILTER) every result must
+            match, or None for no filter. An ``EntryFilter``; typed ``Any``
+            here so this module does not import ``filters``.
+        offset: How many results to skip before this page (default: 0;
+            negative values are clamped to 0)
     """
 
     query: str
@@ -256,6 +268,8 @@ class ARIELSearchRequest:
     facility: str | None = None
     max_results: int = 10
     advanced_params: dict[str, Any] = field(default_factory=dict)
+    entry_filter: Any = None
+    offset: int = 0
 
     def __post_init__(self) -> None:
         """Validate request fields and normalize mode names.
@@ -271,6 +285,8 @@ class ARIELSearchRequest:
             self.max_results = 1
         elif self.max_results > 100:
             self.max_results = 100
+        if self.offset < 0:
+            self.offset = 0
 
 
 @dataclass(frozen=True)
@@ -292,6 +308,12 @@ class ARIELSearchResult:
             caller switched expansion off, or when the executed search ran
             without it -- it reports what the search contained, never what was
             merely offered.
+        total: Matches across all pages (C-MODOUT), capped at 1000; ``None``
+            only on a result no module produced (an error result).
+        total_exact: Whether `total` is the exact match count -- true for
+            keyword strict and semantic within the cap, false for keyword
+            partial and fuzzy, hybrid, and modules that cannot count.
+        has_more: Whether a page follows this one; ``None`` as for `total`.
     """
 
     entries: tuple[dict[str, Any], ...]
@@ -301,6 +323,9 @@ class ARIELSearchResult:
     reasoning: str = ""
     diagnostics: tuple[SearchDiagnostic, ...] = field(default_factory=tuple)
     expanded_terms: tuple[dict[str, Any], ...] = field(default_factory=tuple)
+    total: int | None = None
+    total_exact: bool = False
+    has_more: bool | None = None
 
 
 @dataclass

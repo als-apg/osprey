@@ -228,6 +228,79 @@ class TestThresholdResolution:
         assert result == []
 
 
+class TestEntryFilter:
+    """The dimension filter is forwarded to SQL; the return shape is C-MODOUT."""
+
+    @staticmethod
+    def _filter():
+        from osprey.services.ariel_search.filters import BUILTIN_DIMENSIONS, EntryFilter
+
+        return EntryFilter.parse({"author": ["alice"]}, BUILTIN_DIMENSIONS)
+
+    @pytest.mark.asyncio
+    async def test_filter_reaches_the_repository_beside_legacy_filters(
+        self, mock_repository, mock_embedder, search_calls
+    ):
+        from osprey.services.ariel_search.search.base import ModuleOutput
+
+        flt = self._filter()
+        mock_repository.semantic_search = AsyncMock(return_value=[({"entry_id": "e1"}, 0.9)])
+
+        out = await semantic_search(
+            "test",
+            mock_repository,
+            make_wired_config(),
+            mock_embedder,
+            author="ali",
+            entry_filter=flt,
+            offset=0,
+            search_calls=search_calls,
+        )
+
+        kwargs = mock_repository.semantic_search.call_args.kwargs
+        assert kwargs["entry_filter"] is flt
+        assert kwargs["author"] == "ali"
+        assert isinstance(out, ModuleOutput)
+        assert out.filter_applied is True
+        assert out.entries == [({"entry_id": "e1"}, 0.9)]
+
+    @pytest.mark.asyncio
+    async def test_offset_alone_returns_module_output(
+        self, mock_repository, mock_embedder, search_calls
+    ):
+        from osprey.services.ariel_search.search.base import ModuleOutput
+
+        out = await semantic_search(
+            "test",
+            mock_repository,
+            make_wired_config(),
+            mock_embedder,
+            offset=0,
+            search_calls=search_calls,
+        )
+
+        assert isinstance(out, ModuleOutput)
+        assert out.filter_applied is False
+        assert "entry_filter" not in mock_repository.semantic_search.call_args.kwargs
+
+    @pytest.mark.asyncio
+    async def test_direct_call_keeps_the_bare_list(
+        self, mock_repository, mock_embedder, search_calls
+    ):
+        out = await semantic_search(
+            "test", mock_repository, make_wired_config(), mock_embedder, search_calls=search_calls
+        )
+
+        assert out == []
+
+    def test_descriptor_accepts_filter_and_offset(self):
+        from osprey.services.ariel_search.search.semantic import get_tool_descriptor
+
+        descriptor = get_tool_descriptor()
+        assert descriptor.accepts_entry_filter is True
+        assert descriptor.accepts_offset is True
+
+
 class TestEmbeddingTimeout:
     """A query embedding that does not answer is reported as a timeout."""
 

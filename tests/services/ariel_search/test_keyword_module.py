@@ -614,10 +614,17 @@ class TestSchemaBehindDiagnostic:
     ):
         from osprey.services.ariel_search.database.repository import (
             SCHEMA_BEHIND_SEARCH_MESSAGE,
+            SchemaFacts,
             schema_behind_diagnostics,
         )
 
         attach_fake_fts(mock_repository, has_v2=has_v2, has_copy_state=has_copy_state)
+        # The subject column is a third schema fact; only the two under test vary.
+        mock_repository.schema_facts = AsyncMock(
+            return_value=SchemaFacts(
+                has_v2_fts=has_v2, has_copy_state=has_copy_state, has_subject=True
+            )
+        )
 
         found = await schema_behind_diagnostics(mock_repository)
 
@@ -970,3 +977,125 @@ class TestPartialMatch:
 
         assert mock_repository.keyword_partial_search.await_count == 1
         mock_repository.fuzzy_search.assert_not_called()
+
+
+class TestEntryFilter:
+    """The dimension filter reaches every tier; the module reports its tier (C-MODOUT)."""
+
+    @staticmethod
+    def alice_filter():
+        from osprey.services.ariel_search.filters import BUILTIN_DIMENSIONS, EntryFilter
+
+        return EntryFilter.parse({"author": ["alice"]}, BUILTIN_DIMENSIONS)
+
+    @staticmethod
+    def alice_sql(flt) -> tuple[list[str], list]:
+        from osprey.services.ariel_search.enhancement.status import EnhancementContext
+
+        return flt.to_sql("e", EnhancementContext())
+
+    @pytest.fixture(autouse=True)
+    def _registry(self):
+        from unittest.mock import patch
+
+        registry = MagicMock()
+        registry.list_ariel_enhancement_modules.return_value = []
+        with patch("osprey.registry.get_registry", return_value=registry):
+            yield
+
+    @pytest.mark.asyncio
+    async def test_strict_tier_carries_the_filter_clauses(self, mock_repository, mock_config):
+        mock_repository.keyword_search = AsyncMock(
+            return_value=[({"entry_id": "e1", "raw_text": "x"}, 0.5, [])]
+        )
+        flt = self.alice_filter()
+        clauses, params = self.alice_sql(flt)
+
+        out = await keyword_search("beam", mock_repository, mock_config, entry_filter=flt)
+
+        kwargs = repo_call(mock_repository)
+        assert kwargs["where_clauses"][-len(clauses) :] == clauses
+        assert kwargs["params"][-len(params) :] == params
+        assert isinstance(out, ModuleOutput)
+        assert out.tier == "strict"
+        assert out.filter_applied is True
+
+    @pytest.mark.asyncio
+    async def test_partial_tier_carries_the_filter_clauses(self, mock_repository, mock_config):
+        mock_repository.keyword_partial_search = AsyncMock(
+            return_value=TestPartialMatch.partial_hits("e1")
+        )
+        flt = self.alice_filter()
+        clauses, params = self.alice_sql(flt)
+
+        out = await keyword_search(
+            "laser energy pulses", mock_repository, mock_config, entry_filter=flt
+        )
+
+        partial = mock_repository.keyword_partial_search.call_args.kwargs
+        assert partial["where_clauses"][-len(clauses) :] == clauses
+        assert partial["params"][-len(params) :] == params
+        assert out.tier == "partial"
+
+    @pytest.mark.asyncio
+    async def test_fuzzy_tier_gets_the_filter_but_not_the_legacy_author(
+        self, mock_repository, mock_config
+    ):
+        mock_repository.fuzzy_search = AsyncMock(
+            return_value=[({"entry_id": "e1", "raw_text": "x"}, 0.4, [])]
+        )
+        flt = self.alice_filter()
+
+        out = await keyword_search(
+            "quensh", mock_repository, mock_config, author="bob", entry_filter=flt
+        )
+
+        fuzzy = mock_repository.fuzzy_search.call_args.kwargs
+        assert fuzzy["entry_filter"] is flt
+        assert "author" not in fuzzy
+        assert "source_system" not in fuzzy
+        assert out.tier == "fuzzy"
+
+    @pytest.mark.asyncio
+    async def test_legacy_author_stays_its_own_ilike_clause(self, mock_repository, mock_config):
+        flt = self.alice_filter()
+        clauses, _params = self.alice_sql(flt)
+
+        await keyword_search("beam", mock_repository, mock_config, author="ali", entry_filter=flt)
+
+        kwargs = repo_call(mock_repository)
+        assert "author ILIKE %s" in kwargs["where_clauses"]
+        assert "%ali%" in kwargs["params"]
+        assert set(clauses) <= set(kwargs["where_clauses"])
+
+    @pytest.mark.asyncio
+    async def test_no_filter_passes_nothing_to_fuzzy(self, mock_repository, mock_config):
+        await keyword_search("quensh", mock_repository, mock_config, offset=0)
+
+        assert "entry_filter" not in mock_repository.fuzzy_search.call_args.kwargs
+
+    @pytest.mark.asyncio
+    async def test_offset_alone_returns_module_output_with_a_tier(
+        self, mock_repository, mock_config
+    ):
+        out = await keyword_search("beam", mock_repository, mock_config, offset=0)
+
+        assert isinstance(out, ModuleOutput)
+        assert out.tier == "strict"
+        assert out.filter_applied is False
+
+    @pytest.mark.asyncio
+    async def test_empty_query_with_a_filter_returns_module_output(
+        self, mock_repository, mock_config
+    ):
+        out = await keyword_search(
+            " ", mock_repository, mock_config, entry_filter=self.alice_filter()
+        )
+
+        assert isinstance(out, ModuleOutput)
+        assert out.entries == []
+
+    def test_descriptor_accepts_filter_and_offset(self):
+        descriptor = get_tool_descriptor()
+        assert descriptor.accepts_entry_filter is True
+        assert descriptor.accepts_offset is True
