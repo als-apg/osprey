@@ -242,7 +242,7 @@ SCHEDULER_CONFTESTS = (
     Path(__file__).resolve().parents[1] / "conftest.py",
     CONNECTORS_TESTS_ROOT / "conftest.py",
 )
-PARALLEL_FLAGS = ("-n 4", "--dist loadgroup")
+PARALLEL_FLAGS = ("-n auto", "--dist loadgroup")
 
 #: The per-test hang-breaker on the unit lane. Both halves are load-bearing and
 #: pinned as literal substrings: the value has to clear a cold container image
@@ -921,7 +921,7 @@ def _unit_test_pytest_line(wf: dict[str, Any]) -> str:
 
     Everything from an unquoted ``#`` onward is dropped first, so a flag named
     in a shell comment — whole-line or *trailing*, as in
-    ``... $COV_ARGS  # TODO restore -n 4 --dist loadgroup`` — cannot satisfy
+    ``... $COV_ARGS  # TODO restore -n auto --dist loadgroup`` — cannot satisfy
     the pin while the lane actually runs serial. Truncating at a ``#`` inside a
     quoted argument would only ever make the pin stricter, so the naive split
     is the safe direction to be wrong in.
@@ -935,7 +935,7 @@ def _unit_test_pytest_line(wf: dict[str, Any]) -> str:
 
 def _missing_parallel_flags(cmd: str) -> list[str]:
     """Which of the parallel flags are absent (empty = fully wired). Both are
-    load-bearing and checked independently: `-n 4` without `--dist loadgroup`
+    load-bearing and checked independently: `-n auto` without `--dist loadgroup`
     falls back to xdist's default per-test `load` scheduling, which scatters a
     file's tests across workers and reinstates the module-state bleed."""
     return [flag for flag in PARALLEL_FLAGS if flag not in cmd]
@@ -964,8 +964,9 @@ def test_unit_test_job_runs_xdist_parallel__mutation_flags_only_in_trailing_comm
     mutated = copy.deepcopy(_load_workflow())
     step = _find_named_step(mutated, UNIT_TEST_JOB, "Run unit tests")
     original = step["run"]
-    step["run"] = original.replace(" -n 4 --dist loadgroup", "").replace(
-        "| tee ci-diag/pytest.log", "| tee ci-diag/pytest.log  # TODO restore -n 4 --dist loadgroup"
+    step["run"] = original.replace(" -n auto --dist loadgroup", "").replace(
+        "| tee ci-diag/pytest.log",
+        "| tee ci-diag/pytest.log  # TODO restore -n auto --dist loadgroup",
     )
     assert step["run"] != original, "parallel invocation not found — mutation is stale"
     assert _missing_parallel_flags(_unit_test_pytest_line(mutated)) == list(PARALLEL_FLAGS)
@@ -974,11 +975,11 @@ def test_unit_test_job_runs_xdist_parallel__mutation_flags_only_in_trailing_comm
 @pytest.mark.parametrize(
     ("dropped", "reported"),
     [
-        # Dropping `-n 4` (leaving `--dist loadgroup`) must be reported: without
+        # Dropping `-n auto` (leaving `--dist loadgroup`) must be reported: without
         # a worker count xdist does not parallelize at all and the dist mode is
         # inert.
-        (" -n 4", ["-n 4"]),
-        # Dropping `--dist loadgroup` (leaving `-n 4`) must be reported too — the
+        (" -n auto", ["-n auto"]),
+        # Dropping `--dist loadgroup` (leaving `-n auto`) must be reported too — the
         # dangerous half of the revert, since the lane still looks parallelized
         # while the scheduler override goes inert.
         (" --dist loadgroup", ["--dist loadgroup"]),
@@ -992,6 +993,34 @@ def test_unit_test_job_runs_xdist_parallel__mutation_drops_a_flag(
     step = _find_named_step(mutated, UNIT_TEST_JOB, "Run unit tests")
     step["run"] = step["run"].replace(dropped, "")
     assert _missing_parallel_flags(_unit_test_pytest_line(mutated)) == reported
+
+
+#: What ``-n auto`` resolves to on the unit lane: one worker per vCPU. The macOS
+#: runner has 3 vCPUs and 7 GB of RAM, and four workers of the macOS sweep peak
+#: at ~10.6 GB together.
+WORKERS_BY_OS = "${{ matrix.os == 'macos-latest' && '3' || '4' }}"
+
+
+def _workers_by_os_problems(wf: dict[str, Any]) -> list[str]:
+    env = _find_named_step(wf, UNIT_TEST_JOB, "Run unit tests").get("env", {})
+    value = env.get("PYTEST_XDIST_AUTO_NUM_WORKERS")
+    if value != WORKERS_BY_OS:
+        return [f"PYTEST_XDIST_AUTO_NUM_WORKERS is {value!r}, not {WORKERS_BY_OS!r}"]
+    return []
+
+
+def test_unit_test_job_sizes_workers_to_the_runner(workflow: dict[str, Any]) -> None:
+    """Four workers on the 3-vCPU, 7 GB macOS runner page; the sweep's runtime
+    there then depends on how much of the heap the runner swapped out. Unset,
+    ``-n auto`` would follow the host's CPU count instead."""
+    assert _workers_by_os_problems(workflow) == []
+
+
+def test_unit_test_job_sizes_workers_to_the_runner__mutation_four_on_macos() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    env = _find_named_step(mutated, UNIT_TEST_JOB, "Run unit tests")["env"]
+    env["PYTEST_XDIST_AUTO_NUM_WORKERS"] = "4"
+    assert _workers_by_os_problems(mutated) != []
 
 
 # ---------------------------------------------------------------------------
@@ -13516,7 +13545,7 @@ def test_no_ci_step_passes_execution_flags__mutation_the_pty_step_passes_v() -> 
 def test_no_ci_step_passes_execution_flags__mutation_the_sweep_drops_its_flags() -> None:
     mutated = _load_raw_workflow()
     step = _find_named_step(mutated, *EXECUTION_FLAGS_EXCEPTION)
-    old = " -- --durations=50 --timeout=600 --timeout-method=signal -n 4 $COV_ARGS"
+    old = " -- --durations=50 --timeout=600 --timeout-method=signal -n auto $COV_ARGS"
     assert step["run"].count(old) == 1, f"{old!r} moved — mutation is stale"
     step["run"] = step["run"].replace(old, "")
     assert _steps_passing_execution_flags(mutated) == [
@@ -13607,7 +13636,7 @@ def test_no_caller_step_spells_a_check__mutation_passes_a_selection() -> None:
     mutated = _load_raw_workflow()
     step = _find_named_step(mutated, UNIT_TEST_JOB, "Run unit tests")
     original = step["run"]
-    step["run"] = original.replace(" -n 4 $COV_ARGS", " -n 4 -k smoke $COV_ARGS")
+    step["run"] = original.replace(" -n auto $COV_ARGS", " -n auto -k smoke $COV_ARGS")
     assert step["run"] != original, "the unit step's flags moved; mutation is stale"
     (problem,) = _spelled_checks(mutated)
     assert problem.startswith(f"test: 'Run unit tests' makes a call {CHECK_SCRIPT} refuses: -k")

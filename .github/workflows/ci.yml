@@ -308,6 +308,8 @@ jobs:
         # are hardlinked again and cost next to nothing. Inherited by every
         # build the suite spawns.
         TMPDIR: ${{ runner.temp }}
+        # The worker count `-n auto` resolves to; see the -n note below.
+        PYTEST_XDIST_AUTO_NUM_WORKERS: ${{ matrix.os == 'macos-latest' && '3' || '4' }}
       # Coverage is measured only on the cell that uploads to Codecov below —
       # the other three cells were paying for a report nobody reads.
       #
@@ -346,11 +348,17 @@ jobs:
       # connector): one group means one worker, one testcontainers session,
       # one ryuk — two reapers starting at once race the Docker port mapper.
       #
-      # -n 4 rather than `auto`: a fixed count keeps the four matrix cells
-      # comparable and matches the vCPU count of a standard GitHub-hosted
-      # Linux runner. tests/deployment/test_ci_workflow_wiring.py pins both
-      # this invocation and the conftest override, so the flag cannot outlive
-      # the scheduler that makes it safe.
+      # -n auto, sized by PYTEST_XDIST_AUTO_NUM_WORKERS in env above: one
+      # worker per vCPU of the runner, fixed per OS so the cells of one OS stay
+      # comparable — 4 on a standard GitHub-hosted Linux runner, 3 on the M1
+      # macOS one, which also has 7 GB of RAM. A worker holds ~1.4 GB once it
+      # has collected the suite and peaks at 2.0-2.7 GB, so four of them
+      # (10.6 GB together, measured on the macOS sweep) page on that runner.
+      # The paging reads as a 3x runtime spread across macOS runs of one commit
+      # and as 5-60 s stalls on tests that take under a second on ubuntu.
+      # tests/deployment/test_ci_workflow_wiring.py pins the invocation, both
+      # counts and the conftest override, so the flag cannot outlive the
+      # scheduler that makes it safe.
       #
       # -m "not pty and not wallclock and not canopy": "not pty" hands the
       # real-terminal suite to the serial step below.
@@ -467,7 +475,7 @@ jobs:
         # Verbosity and traceback style come from addopts.
         # $COV_ARGS splits into its flags on purpose: it is empty or several words.
         # shellcheck disable=SC2086
-        uv run python scripts/check.py run pytest --shard "${{ matrix.shard }}" -- --durations=50 --timeout=600 --timeout-method=signal -n 4 $COV_ARGS 2>&1 | tee ci-diag/pytest.log
+        uv run python scripts/check.py run pytest --shard "${{ matrix.shard }}" -- --durations=50 --timeout=600 --timeout-method=signal -n auto $COV_ARGS 2>&1 | tee ci-diag/pytest.log
         if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
           grep -m1 '^CANOPY contract not exercised here' ci-diag/pytest.log >> "$GITHUB_STEP_SUMMARY" || true
         fi
