@@ -118,21 +118,23 @@ local refusals (``writes_disabled``, ``launch_token_invalid``,
 (``approval_missing``, ``approval_config_invalid``) and a last-resort ``bluesky_bridge_error`` for a
 bridge response that carried no structured detail at all.
 
-**No reason-code constants are imported here, and exactly one is spelled out.**
-The capability reason codes are defined in
+**The refusal vocabulary is declared once, in the bridge.** Every code, with
+its status and ``retryable``, is a key of ``REFUSAL_REASONS`` in
 ``osprey.services.bluesky_bridge.queue_backend``, which pulls in
 ``bluesky-queueserver-api`` and the runner wiring; importing it would break this
 server's standing invariant of making no bluesky/ophyd/tiled imports (see
-``bluesky/server.py``). For every code the bridge mints, these tools never
-branch on it — they pass the whole capability record through — so they need no
-copy of the vocabulary and cannot drift from it. The two launch-token codes are not capability codes: they come from
-``osprey.utils.launch_token``, the one check every arming service shares, and
-are imported from there. The other exception is
-:data:`REASON_CONTROL_TARGET_MISMATCH`, which no bridge can mint because the
-deployment's target is host state; its string is spelled here and pinned equal to
-``queue_backend``'s constant by a test, so the vocabulary stays single even
-though the two layers cannot import each other. The docstrings below name the
-codes as prose, for the agent reading them.
+``bluesky/server.py``). These tools pass the whole capability record through
+and look a code up only to choose hints (:func:`_code_of`). The two launch-token
+codes, ``launch_token_required`` and ``launch_token_invalid``, are imported from
+``osprey.utils.launch_token``, the one check every arming service shares.
+:data:`REASON_CONTROL_TARGET_MISMATCH` (``control_target_mismatch``) is spelled
+here and pinned equal to the constant in ``queue_backend.py`` by
+tests/services/test_single_lane_switch_refusal.py::test_the_tool_modules_reason_code_is_the_queue_backend_constant.
+``_REFUSAL_HINTS`` is keyed on the two imported launch-token constants, on
+:data:`REASON_CONTROL_TARGET_MISMATCH` and otherwise on string literals, all
+pinned as a subset of ``REFUSAL_REASONS`` by
+tests/mcp_server/bluesky/test_queue_tools.py::test_every_hint_row_is_a_declared_refusal_code.
+The docstrings below name the codes as prose, for the agent reading them.
 """
 
 from __future__ import annotations
