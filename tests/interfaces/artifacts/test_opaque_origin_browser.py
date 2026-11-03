@@ -506,6 +506,35 @@ def _wait_printed(target: Page | Frame) -> None:
     )
 
 
+_IMAGES_SETTLED_JS = """
+async (scope) => {
+  const imgs = [...document.querySelectorAll(scope)].flatMap((s) => [...s.querySelectorAll('img')]);
+  await Promise.all(
+    imgs
+      .filter((i) => !i.complete)
+      .map((i) => new Promise((r) => {
+        i.addEventListener('load', r, { once: true });
+        i.addEventListener('error', r, { once: true });
+      })),
+  );
+  await new Promise((r) => requestAnimationFrame(r));
+  return imgs.filter((i) => i.complete && i.naturalWidth === 0).length;
+}
+"""
+
+
+def _await_images_settled(target: Page | Frame, scope_selector: str) -> int:
+    """Wait until every image under the scope has loaded or failed and its handlers
+    have had a frame to run; return how many are broken."""
+    target.wait_for_function(
+        "(scope) => [...document.querySelectorAll(scope)]"
+        ".every((s) => [...s.querySelectorAll('img')].every((i) => i.complete))",
+        arg=scope_selector,
+        timeout=TIMEOUT,
+    )
+    return target.evaluate(_IMAGES_SETTLED_JS, scope_selector)
+
+
 # ---------------------------------------------------------------------------
 # An artifact's script cannot turn a switch on
 # ---------------------------------------------------------------------------
@@ -593,7 +622,7 @@ def test_markdown_script_html_runs_nothing_in_gallery(hub, chromium_browser):
     expect(rendered.locator("h1")).to_have_text("Shift notes", timeout=TIMEOUT)
     expect(rendered.locator(".katex").first).to_be_visible(timeout=TIMEOUT)
     # Let the broken image fire its error event, then look for any trace.
-    page.wait_for_timeout(500)
+    _await_images_settled(page, "#preview-content .osprey-md-rendered")
     assert rendered.locator("script").count() == 0
     assert rendered.locator("[onerror]").count() == 0
     hrefs = rendered.locator("a").evaluate_all("els => els.map(a => a.getAttribute('href'))")
@@ -628,7 +657,7 @@ def test_markdown_math_renders_opaque_in_new_tab_and_prints(hub, chromium_browse
     tab.wait_for_function(
         "() => document.documentElement?.getAttribute('data-theme') === 'light'", timeout=TIMEOUT
     )
-    tab.wait_for_timeout(500)
+    _await_images_settled(tab, "body")
     assert tab.evaluate("() => document.documentElement.getAttribute('data-md-pwned')") is None
 
     popup = _print_popup(page)
