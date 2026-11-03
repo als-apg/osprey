@@ -1,7 +1,7 @@
 Panels
 ======
 
-A **panel** is a self-contained, themed mini-app the Web Terminal shows as a tab
+A **panel** is a self-contained, themed mini-app the Web Terminal shows
 beside the chat. OSPREY's own tools — Channel Finder, ARIEL, the lattice
 dashboard, the artifact gallery — are all panels, and you can add your own.
 A panel that takes its colors from the shared design tokens (:doc:`theming`)
@@ -64,8 +64,8 @@ Dragging sidebar rows
 Drag a Tools row up or down to change the order. The order is the same for
 everyone on the same terminal, and it stays after a reload. Drag a row onto
 the work pane instead to open the panel as a new tile where you drop it: on a
-tile's edge, or along an edge of the work pane (see
-:ref:`web-terminal-tiles`).
+tile's edge, or along an edge of the work pane; a drop on a tile's header or
+centre does nothing (see :ref:`web-terminal-tiles`).
 
 Taking panels out of the sidebar
 --------------------------------
@@ -402,19 +402,27 @@ menu label and each value is the tiles:
        "Machine setup":
          split: row
          items:
-           - tabs: [channel-finder, lattice]
-             showing: lattice
+           - tabs: [channel-finder]
              size: 2
-           - tabs: [artifacts, okf]
+           - split: column
+             items:
+               - tabs: [lattice]
+               - tabs: [okf]
        "Logbook review":
-         tabs: [ariel, artifacts]
+         split: row
+         items:
+           - tabs: [ariel]
+           - tabs: [artifacts]
 
-A tile is ``tabs``, its panel ids in bar order, with an optional ``showing``
-(the tab in front, by default the first) and ``size`` (a positive weight
-against its siblings). A split is ``split: row`` or ``split: column`` with
-``items``, which are tiles or splits. A layout never names the Agent pane. The
-list form ``"Logbook review": [ariel, artifacts]`` is not read: the profile
-build refuses it and says what to write instead.
+A tile is ``tabs`` — the engine's field name, always a list of one panel id —
+with an optional ``size`` (a positive weight against its siblings); a tile
+shows its one panel, so ``showing`` may be omitted. A tile names one panel: to
+show several, put them side by side in tiles of their own. A tile that names
+several is refused, and the profile build says so (``puts several panels in
+one tile``). A split is ``split: row`` or ``split: column`` with ``items``,
+which are tiles or splits. A layout never names the Agent pane. The list form
+``"Logbook review": [ariel, artifacts]`` is not read: the profile build
+refuses it and says what to write instead.
 
 Each layout appears under a **Layouts** section at the top of the panel ``+``
 menu. Picking one replaces the service tiles with the layout's and leaves the
@@ -441,19 +449,21 @@ sidebar row, which ask the operator first.
 What is on screen:
 
 - ``list_panels`` — the panels this deployment has, the dock's tiles with
-  their tabs and the tab in front of each (the terminal included), the panels
-  in pop-out windows, and the configured layouts.
-- ``open_panel`` — put a panel on screen by the opening rule: a new tab in
-  front of the service tile used last. It gets a sidebar row if it had none.
-- ``open_panel_set`` — open several panels in one call: as tabs of one tile,
-  or side by side.
+  the panel each shows (the terminal included), the panels in pop-out
+  windows, and the configured layouts.
+- ``open_panel`` — put a panel on screen by the opening rule: it replaces the
+  panel in the service tile used last, which keeps its sidebar row. A panel
+  already open is brought forward where it is. It gets a sidebar row if it
+  had none.
+- ``open_panel_set`` — open several panels in one call, side by side in tiles
+  of their own.
 - ``arrange_workspace`` — apply a configured layout, or an exact one, in place
-  of the service tiles; the terminal keeps its place.
-- ``drop_panel`` — drop a new panel, an open tab or a whole tile on a tile's
-  centre, a tab position or an edge, along a whole side of the dock, or
-  between two tiles.
-- ``close_panel_tab`` — close a panel's tab, leaving its sidebar row.
-- ``close_panel_tile`` — close a whole tile with its tabs.
+  of the service tiles; the terminal keeps its place. A layout tile holds one
+  panel: one with several is refused ``one_panel_per_tile``.
+- ``drop_panel`` — drop a new panel, an open panel or a whole tile on a tile's
+  edge, along a whole side of the dock, or between two tiles. A drop on a
+  tile's centre is refused ``one_panel_per_tile``.
+- ``close_panel`` — close a panel's tile, leaving its sidebar row.
 
 The agent never moves or closes the terminal, and never moves or closes a
 panel you put in a window of its own; ``open_panel`` brings that window

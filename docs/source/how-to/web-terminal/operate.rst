@@ -59,7 +59,7 @@ The window has a sidebar on the left and two panes:
   and you can keep a few background conversations alive and hop between them.
   Close the pane with its **×**; the **Agent** row in the sidebar opens it again.
 - **Work pane** (middle) — the artifacts and panels you open from the sidebar,
-  as tabs in tiles you arrange by dragging (`Tiles and tabs`_). New artifacts,
+  in tiles you arrange by dragging (`Tiles`_). New artifacts,
   plots, and data files appear in
   the sidebar's **Artifacts** list as the agent creates them, with no refresh.
   On a fresh deployment the list is not empty: the control-assistant preset
@@ -86,39 +86,37 @@ back to an older browser mechanism that Safari may refuse.
 
 .. _web-terminal-tiles:
 
-Tiles and tabs
---------------
+Tiles
+-----
 
-The work pane is tiles, and a tile holds one or more tabs. A tile's header
-shows the tab in front — its tabs, once it holds more than one — with that
-tab's controls, **Pop out** and **×** beside them. Click a tab to bring it in
-front; with the header's tab strip focused, the arrow keys do the same and
-Delete closes the tab in front.
+The work pane is tiles, and a tile shows one panel. Its header shows the
+panel's name, the panel's controls, **Pop out** and **×**.
 
-A panel you open — from its sidebar row, from a link, or one the agent opens
-for you — lands as a new tab, in front, in the service tile you used last;
-nothing resizes, and the tab it covers is one click away. A panel already
-open is brought forward where it is. To open a panel in a tile of its own,
-pick **Open in a new tile** from its row's menu, or drag the row (below).
+A panel you open — from its sidebar row, from a link, from the **+** menu,
+from a pop-out window coming back, or one the agent opens for you — takes the
+service tile you used last and replaces the panel it showed. Nothing resizes,
+and the panel it replaced stays in the sidebar, one click away. A panel
+already open is brought forward where it is. To open a panel in a tile of
+its own, pick **Open in a new tile** from its row's menu, or drag the row
+(below).
 
-Drag a tab, a whole tile (by its header), or a sidebar row, and drop it on the
-tile under the pointer:
+Drag a whole tile (by its header) or a sidebar row, and drop it on a tile's
+edge or on the work pane's edge:
 
-- **Header row or centre**: the tab joins that tile, in front. A sidebar row
-  never lands here; it makes a new tile.
 - **Edge**, the outer band of a tile on each side: the tile splits in two, the
   dropped item on that side. No other tile changes size.
 - **Dock edge**, the outermost strip of the work pane: a new tile along that
   whole side.
 
-The highlight during the drag is where the item lands. The agent pane is
-always its own tile: a drop onto it splits it, and it never becomes a tab of
-another tile.
+The highlight during the drag is where the item lands. A drop on a tile's
+header or centre does nothing. The agent pane is always its own tile: a drop
+onto it splits it, and a panel never replaces it.
 
-**×** closes the tab in front, and a tile closes with its last tab; its space
-goes to the tile it was split from. The panel stays in the sidebar, and its
-row opens it again. The arrangement — tiles, tabs, the tab in front of each,
-sizes — is remembered by the browser you set it in.
+**×** closes the tile; its space goes to the tile it was split from. The panel
+stays in the sidebar, and its row opens it again. The arrangement — tiles, the
+panel each shows, sizes — is remembered by the browser you set it in. A layout
+saved by an earlier release with several panels in one tile comes back
+showing the panel that was in front; the others are in the sidebar.
 
 .. _web-terminal-one-session:
 
@@ -446,7 +444,7 @@ chip cannot lift it, and a refusal nobody set --- a switch that cannot be read
    address is a **service door, not a terminal**. Log in there directly and the
    deployment has no name to put on what you do, so no switch covers it: a
    plan queued from that page writes nothing (``owner_unknown``). Reaching the
-   same panel from its tab in the terminal is the named path, and the one the
+   same panel from its place in the terminal is the named path, and the one the
    chip governs.
 
 .. _web-terminal-sidebar:

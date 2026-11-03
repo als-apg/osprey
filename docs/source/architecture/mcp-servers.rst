@@ -197,19 +197,19 @@ them (``artifact_list(category="archiver_data")``).
 **Panels:**
 
 - ``list_panels`` -- List the panels available in the Web Terminal (built-in and
-  custom), the dock's layout (every tile with its tabs and showing tab, the
+  custom), the dock's layout (every tile with the panel it shows, the
   terminal included) and its ``rev``.
-- ``open_panel`` -- Put a panel on screen: a new tab of the service tile used
-  last, or focus it where it already is.
-- ``open_panel_set`` -- Open several panels in one call, as tabs of one tile or
-  side by side.
+- ``open_panel`` -- Put a panel on screen: it replaces the panel in the
+  service tile used last (which keeps its rail entry), or is focused where it
+  already is.
+- ``open_panel_set`` -- Open several panels in one call, side by side in tiles
+  of their own.
 - ``arrange_workspace`` -- Lay out the service tiles from a configured preset or
-  an exact layout; the terminal keeps its place.
-- ``drop_panel`` -- Make any drop a person can make (tile centre, tab position,
-  edge, a whole side of the dock), plus a drop between two tiles, with a new
-  panel, an open tab or a whole tile.
-- ``close_panel_tab`` -- Close a panel's tab, leaving it on the rail.
-- ``close_panel_tile`` -- Close a whole tile with its tabs.
+  an exact layout; the terminal keeps its place. A tile holds one panel.
+- ``drop_panel`` -- Make any drop a person can make (a tile's edge, a whole
+  side of the dock), plus a drop between two tiles, with a new panel, an open
+  panel or a whole tile.
+- ``close_panel`` -- Close a panel's tile, leaving the panel on the rail.
 - ``add_panel_to_rail`` -- Make a panel launchable from the rail in one click
   (requires human approval).
 - ``remove_panel_from_rail`` -- Take a panel off the rail (and off screen with it)
@@ -228,14 +228,15 @@ pruning the operator gets by clicking that layout.
 Every layout tool is one agent dock operation sent through the op helper
 (``panel_op``): the web terminal relays it to the browser holding the dock and
 answers with the resulting layout and ``rev``, or with a named refusal
-(``stale_base``, ``no_dock_client``, ``terminal_not_agent_movable``, ...) that
-changed nothing. A browser that does not answer within five seconds gives
-``no_dock_answer``. The browser can still apply that operation, so the outcome
-is unknown: the agent reads the panels again before it tries again. The web
-terminal records the late answer of the browser as its layout report. The
-tools that name tile ids (``drop_panel``, ``close_panel_tile``) take the
-``rev`` of the agent's last read as ``base_rev``. The terminal is never an
-agent drop source or close target, and a layout never names it.
+(``stale_base``, ``no_dock_client``, ``terminal_not_agent_movable``,
+``one_panel_per_tile``, ...) that changed nothing. A browser that does not
+answer within five seconds gives ``no_dock_answer``. The browser can still
+apply that operation, so the outcome is unknown: the agent reads the panels
+again before it tries again. The web terminal records the late answer of the
+browser as its layout report. The one tool that names tile ids,
+``drop_panel``, takes the ``rev`` of the agent's last read as ``base_rev``.
+The terminal is never an agent drop source or close target, and a layout
+never names it.
 
 **Screen Capture:**
 
