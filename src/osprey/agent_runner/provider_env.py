@@ -611,8 +611,7 @@ def withhold_provider_env(
     for the launch log.
     """
     if project_dir is not None:
-        for key, value in _load_dotenv(project_dir).items():
-            environ[key] = value
+        apply_env_chain(environ, chain_files(Path(project_dir)))
     _warn_on_invalid_proxy_env(environ)
     withheld = sorted(var for var in MANAGED_ENV_VARS if var in environ)
     for var in MANAGED_ENV_VARS:
