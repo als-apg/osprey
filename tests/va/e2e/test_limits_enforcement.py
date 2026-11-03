@@ -23,6 +23,7 @@ import pytest
 
 from osprey_connectors.control_system import WriteOutcome
 from osprey_connectors.errors import ChannelLimitsViolationError
+from tests.facility.served_tree import assert_unmoved, assert_write_visible
 from tests.va._collection import assert_module_collected
 from tests.va.e2e import conftest as e2e_conftest
 
@@ -83,12 +84,22 @@ def unlimited_sp() -> str:
 class TestLimitsEnforcement:
     @pytest.mark.asyncio
     @pytest.mark.usefixtures("va_container", "va_switch_on")
-    async def test_out_of_limits_write_rejected_before_reaching_ioc(self, banded_sp, banded_rb):
+    async def test_out_of_limits_write_rejected_before_reaching_ioc(
+        self, banded, banded_sp, banded_rb
+    ):
+        # The readback carries the noise and drift the served tree declares, so
+        # it is held to that band; both demands sit far enough outside it that a
+        # write which reached the IOC could not hide inside the motion.
+        band = banded.readback_band
+
         with e2e_conftest.patched_config(**LIMITS_OVERRIDES):
             connector = await e2e_conftest.connect_va()
 
             sp_before = (await connector.read_channel(banded_sp)).value
             rb_before = (await connector.read_channel(banded_rb)).value
+
+            assert_write_visible(OUT_OF_LIMITS_HIGH, rb_before, band)
+            assert_write_visible(OUT_OF_LIMITS_LOW, rb_before, band)
 
             with pytest.raises(ChannelLimitsViolationError) as exc_info:
                 await connector.write_channel(banded_sp, OUT_OF_LIMITS_HIGH)
@@ -104,10 +115,7 @@ class TestLimitsEnforcement:
                 f"{banded_sp} changed from {sp_before} to {sp_after} despite a "
                 "rejected out-of-limits write"
             )
-            assert rb_after == pytest.approx(rb_before), (
-                f"{banded_rb} changed from {rb_before} to {rb_after} despite a "
-                "rejected out-of-limits write"
-            )
+            assert_unmoved(banded_rb, rb_before, rb_after, band)
 
     @pytest.mark.asyncio
     @pytest.mark.usefixtures("va_container", "va_switch_on")
