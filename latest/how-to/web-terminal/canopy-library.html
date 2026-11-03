@@ -654,6 +654,11 @@ what a change lets people do to the machine.</p></li>
 together with the regenerated report</strong>. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> checks that the report
 still matches the files before it builds anything, and the image build has
 CANOPY recompute the report and compare.</p>
+<p>A deployment made from the <code class="docutils literal notranslate"><span class="pre">control-assistant</span></code> preset starts with the
+example facility’s screens: <code class="docutils literal notranslate"><span class="pre">facility/overview</span></code>, a plan of the whole machine
+where each part opens its own screen (<code class="docutils literal notranslate"><span class="pre">gtl/GTL</span></code>, <code class="docutils literal notranslate"><span class="pre">br/overview</span></code>,
+<code class="docutils literal notranslate"><span class="pre">bts/BTS</span></code>, <code class="docutils literal notranslate"><span class="pre">sr/sector-01</span></code> to <code class="docutils literal notranslate"><span class="pre">sr/sector-12</span></code>), and <code class="docutils literal notranslate"><span class="pre">sr/orbit-feedback</span></code>.
+They are a starting point to replace with your facility’s own.</p>
 <div class="admonition warning">
 <p class="admonition-title">Warning</p>
 <p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span> <span class="pre">--force</span></code> replaces the deployment’s <code class="docutils literal notranslate"><span class="pre">data/</span></code> directory, the
@@ -832,7 +837,10 @@ deployment’s own collections are JSON files in <code class="docutils literal n
 one <code class="docutils literal notranslate"><span class="pre">&lt;id&gt;.json</span></code> each, and every user sees them read-only. The image build
 checks them against the library and fails on a collection that names a
 screen the library does not hold. The format is CANOPY’s own; see its
-documentation on collections.</p>
+documentation on collections. The <code class="docutils literal notranslate"><span class="pre">control-assistant</span></code> preset ships one,
+<code class="docutils literal notranslate"><span class="pre">control-assistant</span></code>, which opens by default: the overview, orbit feedback,
+and Trace, the correlation plot and the waveform view, each already showing
+channels of the example facility.</p>
 </section>
 <section id="when-the-build-refuses-the-library">
 <h1>When the build refuses the library<a class="headerlink" href="#when-the-build-refuses-the-library" title="Link to this heading">#</a></h1>

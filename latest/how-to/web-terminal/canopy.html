@@ -676,9 +676,11 @@ prints:</p>
 </pre></div>
 </div>
 </li>
-<li><p><strong>Add the panel to</strong> <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>. No shipped preset includes it. Add
-<code class="docutils literal notranslate"><span class="pre">canopy</span></code> to <code class="docutils literal notranslate"><span class="pre">web_panels</span></code>, its three skills to <code class="docutils literal notranslate"><span class="pre">skills</span></code>, and the
-build step that copies the payload into the deployment:</p>
+<li><p><strong>Add the panel to</strong> <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>. A deployment made from the
+<code class="docutils literal notranslate"><span class="pre">control-assistant</span></code> preset already has it, and the web terminal opens on
+it at the example facility’s <code class="docutils literal notranslate"><span class="pre">facility/overview</span></code>: skip this step. For any
+other profile, add <code class="docutils literal notranslate"><span class="pre">canopy</span></code> to <code class="docutils literal notranslate"><span class="pre">web_panels</span></code>, its three skills to
+<code class="docutils literal notranslate"><span class="pre">skills</span></code>, and the build step that copies the payload into the deployment:</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">web_panels</span><span class="p">:</span>
 <span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">canopy</span>
 <span class="nt">skills</span><span class="p">:</span>
