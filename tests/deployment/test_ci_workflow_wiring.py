@@ -323,6 +323,13 @@ LANE_LEAVING_MARKERS = (
                 "tests/integration/",
                 "-m wallclock",
             ),
+            # The watchdog browser suite depends on the product's real-time budgets.
+            SerialHost(
+                "visual-theming",
+                "Run the watchdog browser suite",
+                "tests/interfaces/test_watchdog_e2e.py",
+                "-m wallclock",
+            ),
             # On demand: the module is slow, so no per-PR step collects it.
             SerialHost(
                 "channel-finder-benchmarks",
@@ -2399,7 +2406,8 @@ def test_the_full_tier_runs_what_the_sweep_deselects__mutation_parallelizes_it(
 
 
 @pytest.mark.parametrize(
-    ("marker", "jobs"), [("pty", ["test"]), ("wallclock", ["qmd-sidecar-e2e"])]
+    ("marker", "jobs"),
+    [("pty", ["test"]), ("wallclock", ["qmd-sidecar-e2e", "visual-theming"])],
 )
 def test_per_pr_hosts_are_the_hosts_the_merge_gate_needs(
     marker: str, jobs: list[str], workflow: dict[str, Any]

@@ -1495,7 +1495,7 @@ jobs:
       timeout-minutes: 20
       # Apart from the list above, whose suites need no agent on the runner.
       run: |
-        uv run pytest tests/interfaces/test_watchdog_e2e.py -m browser -v --tb=short \
+        uv run pytest tests/interfaces/test_watchdog_e2e.py -m wallclock -v --tb=short \
           --junitxml=junit-watchdog-browser.xml
 
     - name: Fail the lane on any skipped watchdog browser test

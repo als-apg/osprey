@@ -16,7 +16,7 @@ watchdog decided for the submission, read from the deployment's agent record,
 which both the app's intake and the trigger hook's own fallback write.
 
 Run:
-    uv run pytest tests/interfaces/test_watchdog_e2e.py -m browser -q
+    uv run pytest tests/interfaces/test_watchdog_e2e.py -m wallclock -q
 
 The browser lane reads the junit report of this file and fails on any skip.
 """
@@ -80,7 +80,14 @@ if TYPE_CHECKING:
 with contextlib.suppress(ImportError):
     from playwright.sync_api import expect
 
-pytestmark = [pytest.mark.browser, pytest.mark.slow, pytest.mark.usefixtures("real_agent_cli")]
+#: Each verdict runs through the product's own real-time budgets (the intake post,
+#: the judge), so the file runs apart from the parallel sweep.
+pytestmark = [
+    pytest.mark.browser,
+    pytest.mark.slow,
+    pytest.mark.wallclock,
+    pytest.mark.usefixtures("real_agent_cli"),
+]
 
 #: A second watchdog over the same prompt, so one prompt raises two flags.
 SECOND_WATCHDOG = "second-look"
