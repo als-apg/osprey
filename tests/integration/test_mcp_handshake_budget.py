@@ -25,6 +25,7 @@ import subprocess
 import sys
 import textwrap
 import time
+from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
@@ -44,20 +45,21 @@ pytestmark = [
 
 
 @pytest.fixture(autouse=True)
-def _earlier_garbage_swept() -> None:
-    """Finalize what earlier tests on this worker left for the collector, unreported.
+def _earlier_garbage_frozen() -> Iterator[None]:
+    """Leave what earlier tests on this worker made out of this test's collections.
 
     The tests here run ``gc.collect()`` so that a pipe or process the helper
-    leaks fails them. The same call also finalizes any cycle an earlier test on
-    the worker left behind (an unclosed event loop, say) and would blame it on
-    the helper; sweeping first leaves only what the test itself made.
+    leaks fails them. Unfrozen, that call also walks the whole heap the worker
+    built before this test, which on a loaded runner costs minutes, and
+    finalizes any cycle an earlier test left behind (an unclosed event loop,
+    say), blaming it on the helper. Frozen objects are left out of a
+    collection, so it covers only what this test made.
     """
-    previous = sys.unraisablehook
-    sys.unraisablehook = lambda _report: None
+    gc.freeze()
     try:
-        gc.collect()
+        yield
     finally:
-        sys.unraisablehook = previous
+        gc.unfreeze()
 
 
 #: A stub MCP server. With ``phases`` above zero it reports that many startup
