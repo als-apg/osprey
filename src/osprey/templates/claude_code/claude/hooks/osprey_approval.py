@@ -1856,9 +1856,10 @@ def _budgeted_preview_lines(base_url: str, plan_name, plan_args, deadline: float
     What a slow bridge yields therefore depends on which budget binds. With
     more than the bridge's own budget left (~10 s of polling plus at most one
     in-flight RPC) the bridge answers first and the approver reads its
-    `preview_timed_out`; with less, this client gives up first and the
-    budget-spent line says so. A preview the deadline cut — skipped because
-    nothing was left, or cut off mid-fetch — renders that line either way. A
+    refusal, `function_timeout`, which is not retryable; with less, this
+    client gives up first and the budget-spent line says so. A preview the
+    deadline cut — skipped because nothing was left, or cut off mid-fetch —
+    renders that line either way. A
     preview that failed for any other reason (an unreachable bridge, a
     refusal) keeps its own reason word: those name something the approver can
     act on, where a spent budget names only this prompt's own impatience.
