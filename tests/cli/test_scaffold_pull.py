@@ -182,6 +182,7 @@ CONTROL_ASSISTANT_PULLABLE = [
     "data/benchmarks/cross_paradigm/queries/in_context_queries.json",
     "data/benchmarks/cross_paradigm/queries/tree_queries.json",
     "data/code_review/reviewer.md",
+    "data/facility/classes.yaml",
     "data/facility/decks/BTS.json",
     "data/facility/decks/LINE.json",
     "data/facility/decks/LTB.json",
