@@ -1280,6 +1280,11 @@ class RenderSeal:
     floor: GuardFloor
     shared: bool
 
+    @classmethod
+    def of(cls, host: dict[str, Any], login_rel: str) -> RenderSeal:
+        """The seal *host*, a resolved root profile, sets for the login at *login_rel*."""
+        return cls(login_rel, GuardFloor.of(host), is_shared_login(host, login_rel))
+
 
 def seal_login_render(render: dict[str, Any], seal: RenderSeal) -> dict[str, Any]:
     """Seal a login's render: the composition's last step, and the edit's.
@@ -1684,7 +1689,8 @@ def render_document(
             not list, or if an armed machine's connector block held only a
             retired posture leaf.
     """
-    shared = is_shared_login(host_resolved, layer_rel)
+    seal = RenderSeal.of(host_resolved, layer_rel)
+    shared = seal.shared
     if legacy:
         rendered = merge_layer_delta(
             host_resolved,
@@ -1705,9 +1711,7 @@ def render_document(
             login_config if isinstance(login_config, dict) else {}, layer_rel, layer_path
         )
     if shared or not legacy:
-        rendered = seal_login_render(
-            rendered, RenderSeal(layer_rel, GuardFloor.of(host_resolved), shared)
-        )
+        rendered = seal_login_render(rendered, seal)
     if not shared:
         origin_paths = [*host_chain, *([layer_path] if layer_path is not None else [])]
         judge_retired_posture(
@@ -1926,10 +1930,10 @@ def resolve_profile_document(
     served_error = render_served_models_error(normalized, merged, layer_rel)
     if served_error is not None:
         raise served_error
-    shared = is_shared_login(root_resolved, layer_rel)
-    if retired_tier and not shared:
+    seal = RenderSeal.of(root_resolved, layer_rel)
+    if retired_tier and not seal.shared:
         return finish(merged, True)
-    return finish(merged, True, RenderSeal(layer_rel, GuardFloor.of(root_resolved), shared))
+    return finish(merged, True, seal)
 
 
 # ---------------------------------------------------------------------------
