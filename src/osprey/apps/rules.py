@@ -13,7 +13,9 @@ directory seems to satisfy. Each collects every violation and raises one
 
 from __future__ import annotations
 
+import keyword
 import posixpath
+import sys
 import tomllib
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
@@ -30,6 +32,7 @@ from osprey.utils.workspace import PROFILE_FILENAME
 __all__ = [
     "HOOK_DISPATCHED_TOOLS",
     "QUEUE_TOOL_PREFIX",
+    "TAKEN_PACKAGES",
     "AppSelection",
     "LoginSelection",
     "Reserved",
@@ -39,6 +42,7 @@ __all__ = [
     "fixed_names",
     "framework_pins",
     "refuse_shadowed_packages",
+    "taken_package",
     "validate",
 ]
 
@@ -52,6 +56,13 @@ HOOK_DISPATCHED_TOOLS: tuple[str, ...] = (
     "pyaml_measure",
     "channel_write",
 )
+
+#: Import names an application's package may not take: a package so named would shadow
+#: the module it is named for.
+TAKEN_PACKAGES: frozenset[str] = frozenset(sys.stdlib_module_names) | {
+    "osprey",
+    "osprey_connectors",
+}
 
 #: The prefix that makes a tool lane-addressed: the hooks carve such tools out of
 #: the posture gates (``_QUEUE_TOOL_PREFIX`` and ``_LANE_ADDRESSED_TOOL`` in
@@ -323,6 +334,11 @@ def _check_app(
     return out
 
 
+def taken_package(package: str) -> bool:
+    """Whether an application's Python package may not be named *package*."""
+    return keyword.iskeyword(package) or package in TAKEN_PACKAGES
+
+
 def _check_tools(m: AppManifest, reserved: Reserved) -> list[Violation]:
     tools = m.tools
     assert tools is not None
@@ -340,6 +356,14 @@ def _check_tools(m: AppManifest, reserved: Reserved) -> list[Violation]:
         )
     if tools.shown_when == "panel" and m.panel is None:
         refuse("tools.shown_when", "shown_when_panel", "shown_when: panel needs a panel")
+    package = tools.module.split(".")[0]
+    if taken_package(package):
+        refuse(
+            "tools.module",
+            "taken_package",
+            f"the package {package!r} would be a keyword or shadow a standard-library or "
+            "OSPREY module",
+        )
 
     named = [(f"tools.read.{i}", name) for i, name in enumerate(tools.read)]
     named += [(f"tools.approval.{i}.tool", e.tool) for i, e in enumerate(tools.approval)]
