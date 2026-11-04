@@ -2348,9 +2348,11 @@ def refuse_inputs_outside_repository(document: ResolvedProfileDocument) -> None:
     lines = []
     for found in outside:
         entry = found.entry
-        resolved = found.path.resolve().as_posix()
         if entry.role is ProfileInputRole.DOCUMENT and entry.path.resolve() != root_document:
-            lines.append(f"extends: {resolved} is outside the repository. {_MOVE_INSIDE}")
+            lines.append(
+                f"extends: {found.path.resolve().as_posix()} is outside the repository. "
+                f"{_MOVE_INSIDE}"
+            )
             continue
         if entry.label == "data":
             key = f"data: {document.raw['data']}"
@@ -2371,6 +2373,8 @@ def refuse_inputs_outside_repository(document: ResolvedProfileDocument) -> None:
         if found.unresolvable:
             lines.append(f"{key} does not resolve, so the copy cannot stage it. {_REMOVE_LINK}")
             continue
+        # Resolved only here: before Python 3.13 resolve() raises on the looping links above.
+        resolved = found.path.resolve().as_posix()
         lines.append(f"{key} resolves to {resolved}, outside the repository. {_MOVE_INSIDE}")
     raise BuildProfileError("\n".join(lines))
 
