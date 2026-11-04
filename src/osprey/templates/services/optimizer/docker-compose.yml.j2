@@ -61,6 +61,11 @@ services:
     # container_name is a HOST-GLOBAL docker identifier: namespaced per project.
     # In-network consumers reach this service by its compose key `optimizer`.
     container_name: {{ osprey_labels.project_name }}-optimizer
+    # An init process is PID 1, not uvicorn: the connector-host children the
+    # service starts treat a parent of PID 1 as gone and exit at once, so with
+    # uvicorn there every read and write of the machine fails. It also forwards
+    # SIGTERM and reaps the exited children.
+    init: true
     # The service runs as root, so before it starts root is renamed to the
     # optimizer's control identity (uid 0 keeps its number) and every write it
     # makes names the optimizer in the put-log. The name labels and guards

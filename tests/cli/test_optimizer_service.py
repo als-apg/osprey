@@ -309,6 +309,11 @@ def test_the_environments_dir_is_mounted_read_only_when_set() -> None:
     assert "./optimizer/envs:/app/environments:ro" in mounts
 
 
+def test_the_service_runs_under_an_init_process() -> None:
+    """Its connector-host children exit at once under a parent of PID 1, so uvicorn is not PID 1."""
+    assert _render(targets=["va"])["services"]["optimizer"]["init"] is True
+
+
 def test_no_environments_dir_means_no_mount() -> None:
     mounts = _render(targets=["va"])["services"]["optimizer"]["volumes"]
     assert not any(m.endswith(":/app/environments:ro") for m in mounts)
