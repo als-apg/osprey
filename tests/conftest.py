@@ -31,6 +31,7 @@ from osprey_connectors_tests._harness._guards import (  # noqa: F401 - fixtures 
     _no_host_timezone_leak,
     agent_data_never_the_checkout,
     control_context_root,
+    earlier_garbage_frozen,
     long_lived_session_mark_per_test,
     no_agent_data_in_the_repo,
     no_spool_in_the_repo,
