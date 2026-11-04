@@ -65,21 +65,38 @@ def ariel_panel_url(route: str) -> str:
     return f"{base_url}/#{route}"
 
 
-async def _focus_ariel_panel(url: str) -> None:
-    """Ask the web terminal to open the ARIEL panel at ``url``; non-fatal without one.
+async def _focus_ariel_panel(url: str) -> tuple[bool, str, str]:
+    """Ask the web terminal to open the Logbook (ARIEL) panel at ``url``.
 
     An ``open {member: "ariel", url}`` op through the op helper, run off the
-    event loop because it waits for the dock to apply it. A refusal or a missing
-    web terminal leaves the result's ``url`` as the operator's way in.
+    event loop because it waits for the dock to apply it. Only the dock
+    client's confirmation counts as shown: a refusal, a missing web terminal,
+    an error or an answer that is not a confirmation is logged and returned as
+    not shown, and the caller's ``url`` is then the operator's way in.
+
+    Returns:
+        ``(shown, reason, detail)``: ``(True, "", "")`` when the dock applied
+        the open, else ``False`` with the refusal's reason (``no_dock_client``,
+        ``no_web_terminal``, ...), ``"error"`` or ``"unconfirmed"``, and its text.
     """
     try:
         from osprey.mcp_server.http import panel_op
 
-        await anyio.to_thread.run_sync(panel_op, "open", {"member": "ariel", "url": url})
+        outcome = await anyio.to_thread.run_sync(panel_op, "open", {"member": "ariel", "url": url})
     except ToolError:
         raise
-    except Exception:
-        pass  # Non-fatal — web terminal may not be running
+    except Exception as exc:
+        logger.warning("Logbook panel open of %s failed: %s", url, exc, exc_info=True)
+        return False, "error", str(exc)
+    if isinstance(outcome, dict) and outcome.get("ok") is True:
+        return True, "", ""
+    if isinstance(outcome, dict):
+        reason = str(outcome.get("reason") or "unconfirmed")
+        detail = str(outcome.get("detail") or "")
+    else:
+        reason, detail = "unconfirmed", "the web terminal gave no answer"
+    logger.warning("Logbook panel open of %s was not confirmed: %s %s", url, reason, detail)
+    return False, reason, detail
 
 
 def _get_drafts_dir() -> Path:
@@ -279,9 +296,9 @@ async def entry_open(
     entry_id: str,
     attachment_id: str | None,
 ) -> str:
-    """Show a logbook entry to the operator in the ARIEL panel.
+    """Show a logbook entry to the operator in the Logbook panel.
 
-    Opens the entry's detail card in the ARIEL web panel and brings the panel
+    Opens the entry's detail card in the Logbook (ARIEL) web panel and brings the panel
     to the front. With `attachment_id` it also opens that picture enlarged,
     when the picture is one of this entry's and `viewable`. Use it whenever
     the operator asks to see an entry or one of its pictures; it reads no
@@ -298,7 +315,10 @@ async def entry_open(
 
     Returns:
         JSON with `entry_id`, `attachment_id`, `opened` ("entry" or
-        "entry_and_picture"), `pictures` (the `attachment_id` and `filename`
+        "entry_and_picture"), `shown` (true only when the web terminal
+        confirmed the panel shows it; false with `status: "not_shown"` and a
+        `reason` otherwise, and then the operator opens `url`), `pictures`
+        (the `attachment_id` and `filename`
         of each viewable picture of the entry; absent while the attachment
         view is off), the panel `url` (a link the
         operator can follow when no web terminal is running) and a `message`.
@@ -364,7 +384,7 @@ async def entry_open(
 
         route = f"sel={quote(entry['entry_id'], safe='')}"
         opened = "entry"
-        message = f"The ARIEL panel shows entry {entry['entry_id']}."
+        message = f"The Logbook panel shows entry {entry['entry_id']}."
         if attachment_id is None and pictures:
             listed = ", ".join(f"{p['filename']} ({p['attachment_id']})" for p in pictures)
             message += (
@@ -386,7 +406,7 @@ async def entry_open(
                 route += f"&att={attachment_id}"
                 opened = "entry_and_picture"
                 message = (
-                    f"The ARIEL panel shows entry {entry['entry_id']} with picture "
+                    f"The Logbook panel shows entry {entry['entry_id']} with picture "
                     f"{attachment_id} enlarged."
                 )
             else:
@@ -396,14 +416,23 @@ async def entry_open(
                 )
 
         url = ariel_panel_url(route)
-        await _focus_ariel_panel(url)
+        shown, reason, detail = await _focus_ariel_panel(url)
         result: dict = {
             "entry_id": entry["entry_id"],
             "attachment_id": attachment_id,
             "opened": opened,
+            "shown": shown,
             "url": url,
-            "message": f"{message} If no ARIEL panel is in view, open {url}",
+            "message": f"{message} If no Logbook panel is in view, open {url}",
         }
+        if not shown:
+            why = f" ({detail})" if detail else ""
+            result["status"] = "not_shown"
+            result["reason"] = reason
+            result["message"] = (
+                f"Entry {entry['entry_id']} is not on screen: the Logbook panel did not "
+                f"confirm opening it{why}. Tell the operator to open {url}"
+            )
         if view_enabled:
             result["pictures"] = pictures
         return json.dumps(result)
