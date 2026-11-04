@@ -439,6 +439,33 @@ def test_create_entry_endpoint_fallback(client, mock_ariel_service):
     mock_ariel_service.repository.upsert_entry.assert_called_once()
 
 
+def test_create_entry_without_an_ingestion_adapter_saves_locally(client, mock_ariel_service):
+    """No ingestion adapter configured is the case /publish-info answers with
+    ``supports_write: False`` ("entries can only be saved locally"), so a submit
+    takes the same local-only path as a read-only adapter instead of a 500."""
+    from osprey.services.ariel_search.exceptions import AdapterNotFoundError
+
+    mock_ariel_service.create_entry = AsyncMock(
+        side_effect=AdapterNotFoundError(
+            "No ingestion configuration found. Set ariel.ingestion.adapter in config.yml",
+            adapter_name="(none)",
+        )
+    )
+    mock_ariel_service.repository.upsert_entry = AsyncMock()
+
+    response = client.post(
+        "/api/entries",
+        json={"subject": "Vacuum burst", "details": "Sector 6 spike", "author": "R. Patel"},
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["entry_id"].startswith("ariel-")
+    assert data["sync_status"] == "local_only"
+    assert data["source_system"] == "ARIEL Web"
+    mock_ariel_service.repository.upsert_entry.assert_called_once()
+
+
 def test_create_entry_auth_required_returns_401(client, mock_ariel_service):
     """Missing logbook credentials surface as 401 auth_required, NOT a local save.
 
