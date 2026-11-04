@@ -41,7 +41,6 @@ from osprey.utils.workspace import PROFILE_FILENAME
 from osprey_connectors.call_timeout import refuse_renamed_timeout_keys
 from osprey_connectors.errors import BuildProfileError
 from osprey_connectors.simulation import TICK_KEY, resolve_tick_s
-from osprey_connectors.standin import LIVE_STANDIN_PORT_KEY
 from osprey_connectors.types import (
     RETIRED_CONTROL_SYSTEM_TYPES,
     SET_CONTROL_SYSTEM_TYPES,
@@ -61,7 +60,11 @@ from .build_profile_document import (
 )
 from .build_profile_merge import refuse_inputs_outside_repository, resolve_profile_document
 from .build_profile_model import SERVICE_AXES, BuildProfile
-from .build_profile_presets import PRESET_DATA_BUNDLE_KEY, PRESET_FACILITY_KEY
+from .build_profile_presets import (
+    PRESET_DATA_BUNDLE_KEY,
+    PRESET_FACILITY_KEY,
+    bundled_service_names,
+)
 from .build_profile_schema import (
     DEFAULT_DEVIATION_MARKER,
     BlueskyConfig,
@@ -619,15 +622,6 @@ def _reject_unknown_block_keys(keys: Iterable[str], known_keys: frozenset[str], 
     )
 
 
-#: The file that makes a directory a service template, bundled or custom.
-_SERVICE_TEMPLATE_FILE = "docker-compose.yml.j2"
-
-#: The second instance of the virtual accelerator, rendered off the same
-#: template under a service key of its own. Its block keeps its own manifest
-#: rows (``services.live_standin.*``): the instance is told apart by them.
-LIVE_STANDIN_SERVICE = LIVE_STANDIN_PORT_KEY.split(".")[1]
-
-
 def service_family(name: str) -> str:
     """The service whose manifest rows close the ``services.<name>`` block.
 
@@ -637,28 +631,6 @@ def service_family(name: str) -> str:
     service — the live stand-in included — is its own family.
     """
     return LANE_ONE if name in SECOND_LANE_KEYS.values() else name
-
-
-@lru_cache(maxsize=1)
-def bundled_service_names() -> frozenset[str]:
-    """Every service key whose block OSPREY's own template reads.
-
-    The template directories shipped under ``osprey/templates/services``, plus
-    the instances rendered off one of them: the second plan lanes and the live
-    stand-in. A custom service is not here — its template is the facility's
-    own, so its block stays open.
-    """
-    import osprey.templates
-
-    root = Path(osprey.templates.__file__).parent / "services"
-    if not root.is_dir():
-        return frozenset()
-    templates = {
-        entry.name
-        for entry in root.iterdir()
-        if entry.is_dir() and (entry / _SERVICE_TEMPLATE_FILE).is_file()
-    }
-    return frozenset(templates | set(SECOND_LANE_KEYS.values()) | {LIVE_STANDIN_SERVICE})
 
 
 @lru_cache(maxsize=1)
