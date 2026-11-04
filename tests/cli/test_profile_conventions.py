@@ -672,15 +672,6 @@ def test_hidden_entries_do_not_trip_source_validation(profile_dir: Path):
     validate_convention_sources(profile_dir)
 
 
-def test_symlink_escaping_the_profile_is_rejected(profile_dir: Path, tmp_path: Path):
-    outside = _write(tmp_path / "outside" / "safety.md")
-    (profile_dir / "rules").mkdir()
-    (profile_dir / "rules" / "safety.md").symlink_to(outside)
-    with pytest.raises(BuildProfileError) as excinfo:
-        validate_convention_sources(profile_dir)
-    assert "self-contained" in str(excinfo.value)
-
-
 def test_symlink_inside_the_profile_is_allowed(profile_dir: Path):
     target = _write(profile_dir / "rules" / "safety.md")
     _write(profile_dir / "agents" / "orbit-writer.md")

@@ -54,8 +54,6 @@ from osprey_connectors.errors import BuildProfileError
 from osprey_connectors.logger import get_logger
 from osprey_connectors.workspace import BUILD_DIR_NAME
 
-from .profile_root import symlink_escapes
-
 if TYPE_CHECKING:
     from osprey.facility.errors import FacilityBuildError
 
@@ -1566,9 +1564,8 @@ def validate_convention_sources(profile_dir: Path) -> None:
     """Validate every convention directory a profile carries, up front.
 
     Checks that each convention directory is a directory, that its entries have
-    the shape the destination expects, that no entry symlinks outside the
-    profile (a profile must be self-contained to be reproducible), and that the
-    ``project/`` mirror writes no build-owned path.
+    the shape the destination expects, and that the ``project/`` mirror writes
+    no build-owned path.
 
     Args:
         profile_dir: The profile root directory.
@@ -1589,17 +1586,6 @@ def validate_convention_sources(profile_dir: Path) -> None:
                 f"  Make it a directory, or rename the file."
             )
             continue
-
-        escaping = [
-            f"{convention.source}/{path.relative_to(root).as_posix()}"
-            for path in sorted(root.rglob("*"))
-            if symlink_escapes(path, profile_dir)
-        ]
-        errors += [
-            f"{rel} is a symlink pointing outside the profile.\n"
-            f"  A profile must be self-contained — copy the target in instead."
-            for rel in escaping
-        ]
 
         if convention.shape is EntryShape.MARKDOWN:
             errors += _validate_markdown_dir(convention, root)
