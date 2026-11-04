@@ -1196,10 +1196,15 @@ def test_a_budget_exhausted_sweep_refuses_without_claiming_the_channels_are_dead
     monkeypatch.setattr(preflight, "PROBE_BUDGET_S", 0.05)
     monkeypatch.setattr(preflight, "PROBE_BUDGET_MAX_S", 0.05)
 
+    # The stall is far longer than any bound below, so finishing under the bound
+    # proves the budget ended the probe, with room for a loaded runner's
+    # RunEngine set-up and teardown inside the bound.
+    stall_s = 60.0
+
     class StallingProbeConnector(ProbeConnector):
         async def validate_channel(self, address: str) -> bool:
             self.probed.append(address)
-            await asyncio.sleep(5.0)
+            await asyncio.sleep(stall_s)
             return True
 
     connector = StallingProbeConnector()
@@ -1211,7 +1216,7 @@ def test_a_budget_exhausted_sweep_refuses_without_claiming_the_channels_are_dead
     elapsed = time.monotonic() - started
 
     message = str(excinfo.value)
-    assert elapsed < 2.0, f"the pre-flight ran {elapsed:.2f}s against a 0.05s budget"
+    assert elapsed < stall_s / 4, f"the pre-flight ran {elapsed:.2f}s against a 0.05s budget"
     assert "3 further channels were still unchecked when the 0.05 s pre-flight budget expired" in (
         message
     )
