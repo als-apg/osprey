@@ -360,3 +360,134 @@ def test_cleanup_removes_expired_orphan_sidecar(drafts_dir):
 
     assert not orphan.exists()
     assert fresh_orphan.exists()
+
+
+# ---------------------------------------------------------------------------
+# A corrupt or wrong-shape draft is refused with 422, never a 500
+# ---------------------------------------------------------------------------
+
+CORRUPT_CONTENTS = [
+    "{not json",
+    '{"draft_id": "draft-0123456789ab", "sub',
+    "[1, 2]",
+    '"text"',
+    "null",
+    "",
+    json.dumps({"draft_id": ID_A, "details": "no subject"}),
+    json.dumps({"draft_id": ID_A, "subject": "S", "details": "D", "attachment_paths": "a.png"}),
+    json.dumps({"draft_id": ID_A, "subject": "S", "details": "D", "tags": {"a": 1}}),
+]
+CORRUPT_IDS = [
+    "corrupt",
+    "truncated",
+    "array",
+    "string",
+    "null",
+    "empty",
+    "missing-subject",
+    "attachments-not-a-list",
+    "tags-not-a-list",
+]
+
+
+@pytest.mark.parametrize("content", CORRUPT_CONTENTS, ids=CORRUPT_IDS)
+def test_get_corrupt_or_wrong_shape_draft_is_422(client, drafts_dir, content):
+    (drafts_dir / f"{ID_A}.json").write_text(content)
+
+    resp = client.get(f"/api/drafts/{ID_A}")
+
+    assert resp.status_code == 422
+    assert ID_A in resp.json()["detail"]
+
+
+@pytest.mark.parametrize("content", CORRUPT_CONTENTS, ids=CORRUPT_IDS)
+def test_get_attachment_of_corrupt_draft_is_422(client, drafts_dir, content):
+    (drafts_dir / f"{ID_A}.json").write_text(content)
+
+    resp = client.get(f"/api/drafts/{ID_A}/attachments/a.png")
+
+    assert resp.status_code == 422
+
+
+def test_get_non_utf8_draft_is_422(client, drafts_dir):
+    (drafts_dir / f"{ID_A}.json").write_bytes(b"\xff\xfe\x00garbage")
+
+    assert client.get(f"/api/drafts/{ID_A}").status_code == 422
+    assert client.get(f"/api/drafts/{ID_A}/attachments/a.png").status_code == 422
+
+
+def test_read_draft_raises_draft_corrupt(drafts_dir):
+    (drafts_dir / f"{ID_A}.json").write_text("[1, 2]")
+
+    with pytest.raises(drafts_mod.DraftCorrupt):
+        drafts_mod.read_draft(ID_A)
+
+
+def test_get_valid_draft_still_served(client, drafts_dir):
+    _write(drafts_dir, ID_A, tags=["t"])
+
+    resp = client.get(f"/api/drafts/{ID_A}")
+
+    assert resp.status_code == 200
+    assert resp.json()["subject"] == "S"
+    assert resp.json()["tags"] == ["t"]
+
+
+# ---------------------------------------------------------------------------
+# Writes are atomic; their temp files never look like drafts
+# ---------------------------------------------------------------------------
+
+
+def test_interrupted_write_leaves_old_draft_intact(drafts_dir, monkeypatch):
+    import osprey_connectors.safety_file as safety_file
+
+    original = {"draft_id": ID_A, "subject": "old", "details": "D"}
+    drafts_mod.write_draft(ID_A, original)
+
+    def boom(_src, _dst):
+        raise OSError("interrupted before the replace")
+
+    monkeypatch.setattr(safety_file.os, "replace", boom)
+    with pytest.raises(OSError, match="interrupted"):
+        drafts_mod.write_draft(ID_A, {"draft_id": ID_A, "subject": "new", "details": "D"})
+
+    assert json.loads((drafts_dir / f"{ID_A}.json").read_text()) == original
+    assert [p.name for p in drafts_dir.iterdir()] == [f"{ID_A}.json"]
+
+
+def test_write_draft_temp_name_never_matches_the_draft_glob(drafts_dir, monkeypatch):
+    import osprey_connectors.safety_file as safety_file
+
+    seen: list[str] = []
+    real_replace = safety_file.os.replace
+
+    def spy(src, dst):
+        seen.append(os.path.basename(src))
+        # While the temp exists, it is invisible to the store's glob.
+        assert [p.name for p in drafts_dir.glob("draft-*.json")] == []
+        real_replace(src, dst)
+
+    monkeypatch.setattr(safety_file.os, "replace", spy)
+    drafts_mod.write_draft(ID_A, {"draft_id": ID_A, "subject": "S", "details": "D"})
+
+    assert len(seen) == 1
+    assert not drafts_mod.Path(seen[0]).match("draft-*.json")
+    assert [p.name for p in drafts_dir.iterdir()] == [f"{ID_A}.json"]
+
+
+def test_cleanup_removes_expired_orphan_temps_only(drafts_dir):
+    old = time.time() - DRAFT_TTL_SECONDS - 60
+    orphan = drafts_dir / f".{ID_A}.json.k3j2abcd.tmp"
+    orphan.write_text("{half")
+    os.utime(orphan, (old, old))
+    fresh = drafts_dir / f".{ID_B}.json.zz11yy22.tmp"
+    fresh.write_text("{in flight")
+    unrelated = drafts_dir / ".notes.tmp"
+    unrelated.write_text("x")
+    os.utime(unrelated, (old, old))
+
+    drafts_mod._cleanup_expired_drafts()
+
+    assert not orphan.exists()
+    assert fresh.exists(), "a temp younger than the TTL may be a write in flight"
+    assert unrelated.exists()
