@@ -56,7 +56,7 @@ const BASE = '/api/terminal/write-authorizations';
 
 /** Said beside a program's self-issued authorization, which has no Revoke here. */
 export const SELF_ISSUED_SENTENCE =
-  'Self-issued at allowed: moving the switch off allowed ends it.';
+  'Self-issued at allowed: moving the switch away from allowed ends it.';
 
 /** What each completion a run may perform is called on the card. */
 export const COMPLETION_WORDS = {
@@ -82,8 +82,12 @@ export const READING_SENTENCE = 'reading values…';
 /** Said on Approve while the approval is being sent. */
 export const APPROVING_SENTENCE = 'Approving…';
 
+/** @type {number}  bumped by a reset, so a read that left before it is dropped */
+let epoch = 0;
+
 /** Forget everything: the popover closed, or a test starts over. */
 export function resetPrograms() {
+  epoch += 1;
   listing = null;
   card = null;
   note = null;
@@ -97,11 +101,17 @@ export function resetPrograms() {
  * @returns {Promise<void>}
  */
 export async function refreshPrograms() {
+  const then = epoch;
+  /** @type {Listing|null} */
+  let answer;
   try {
-    listing = /** @type {Listing} */ (await targetRequest(BASE));
+    answer = /** @type {Listing} */ (await targetRequest(BASE));
   } catch {
-    listing = null;
+    answer = null;
   }
+  // The popover closed while this read was out: it must not bring back the
+  // listing the close forgot.
+  if (then === epoch) listing = answer;
 }
 
 /** @param {string} tag @param {string} [cls] @param {string} [text] */

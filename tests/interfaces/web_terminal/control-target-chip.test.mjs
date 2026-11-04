@@ -513,6 +513,16 @@ describe('state matrix', () => {
     expect(chip.dataset.state).toBe('off');
     expect(chip.dataset.program).toBe('true');
     expect(stateText()).toBe('writes off · program');
+    // The qualifier is a span of its own (its ` · ` too), so the narrow
+    // sidebar pill can stack it under the word instead of squeezing the name.
+    const program = chip.querySelector('.ctc-state .ctc-state-program');
+    expect(program?.textContent).toBe(' · program');
+    expect(program?.querySelector('.ctc-state-program-sep')?.textContent).toBe(' · ');
+  });
+
+  test('no program span without a program in force', async () => {
+    await boot(viewOf({ targets: [rowOf({ ...STATES.allowed, active: true })] }));
+    expect(chipEl()?.querySelector('.ctc-state-program')).toBeNull();
   });
 
   test('a stored allowed capped at asked reads writes asked', async () => {
