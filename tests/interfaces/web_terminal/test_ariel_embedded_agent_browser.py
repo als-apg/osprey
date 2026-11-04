@@ -676,7 +676,7 @@ def test_ariel_ask_agent_lands_in_composer_unsent_and_waits_for_a_streaming_turn
 
     ask.click()
     expect(textarea).to_have_value(
-        re.compile(r"ARIEL entry orb-03 .*\n> Orbit correction 3 applied"),
+        re.compile(r"Logbook entry orb-03 .*\n> Orbit correction 3 applied"),
         timeout=10_000,
     )
     page.wait_for_timeout(500)
@@ -707,7 +707,7 @@ def test_ariel_ask_agent_lands_in_composer_unsent_and_waits_for_a_streaming_turn
     expect(page.locator(f"{_OP} .op-entry.assistant").last).to_contain_text("Done.", timeout=10_000)
     expect(textarea).to_be_enabled(timeout=10_000)
     expect(textarea).to_have_value(
-        re.compile(r"ARIEL entry orb-05 .*\n> Orbit correction 5 applied"),
+        re.compile(r"Logbook entry orb-05 .*\n> Orbit correction 5 applied"),
         timeout=10_000,
     )
     page.wait_for_timeout(500)

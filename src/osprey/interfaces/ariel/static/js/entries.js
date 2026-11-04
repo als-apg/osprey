@@ -265,7 +265,7 @@ function setDestination(text) {
  */
 function adaptPublishingSection(info) {
   const book = info.source_system ? `${info.source_system} logbook` : 'facility logbook';
-  if (!info.supports_write) setDestination('→ Local ARIEL only (logbook read-only)');
+  if (!info.supports_write) setDestination('→ This Logbook only (facility logbook read-only)');
   else setDestination(`→ ${book}${info.requires_auth ? ' (credentials required)' : ''}`);
 
   const helper = document.getElementById('publish-helper');
@@ -274,7 +274,8 @@ function adaptPublishingSection(info) {
 
   const where = info.source_system ? ` to ${info.source_system}` : '';
   if (!info.supports_write) {
-    helper.textContent = 'Entries are saved to ARIEL only — this logbook is read-only.';
+    helper.textContent =
+      'Entries are saved to this Logbook only — the facility logbook is read-only.';
     if (credentials) credentials.style.display = 'none';
   } else if (info.requires_auth) {
     helper.textContent = `Enter your logbook credentials to publish${where}.`;

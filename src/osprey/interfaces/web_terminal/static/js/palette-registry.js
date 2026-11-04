@@ -83,7 +83,7 @@
 
 /**
  * Domain vocabulary for the built-in panels — the words an operator reaches
- * for when they do not have the catalog label in mind ("logbook" for ARIEL,
+ * for when they do not have the catalog label in mind ("elog" for the Logbook,
  * "pv" for Channel Finder). Folded into the searchText of EVERY row for that
  * panel, so any of its verbs is reachable by the domain word. Keyed by catalog
  * panel id; ids absent here (custom facility panels) contribute no aliases.

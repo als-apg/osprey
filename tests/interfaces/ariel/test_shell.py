@@ -2200,7 +2200,7 @@ def test_follow_up_prefills_names_the_parent_and_submits_follows_up(
         ({"supports_write": True, "requires_auth": True}, "→ olog logbook (credentials required)"),
         (
             {"supports_write": False, "requires_auth": False},
-            "→ Local ARIEL only (logbook read-only)",
+            "→ This Logbook only (facility logbook read-only)",
         ),
     ],
 )

@@ -182,7 +182,7 @@ The checks are about shape: type, options, required, range, and the choices the 
 Entry Attachments
 ~~~~~~~~~~~~~~~~~
 
-By default an entry's files stay in ARIEL: the text reaches the facility logbook, and the submit response says the files were saved to ARIEL only. An adapter whose logbook takes files declares ``supports_attachments = True``. Its ``create_entry`` then receives each file as a local path in ``request.attachment_paths``, valid only while the call runs, and must publish every one of them before it returns.
+By default an entry's files stay in ARIEL: the text reaches the facility logbook, and the submit response says the files were saved to this Logbook only. An adapter whose logbook takes files declares ``supports_attachments = True``. Its ``create_entry`` then receives each file as a local path in ``request.attachment_paths``, valid only while the call runs, and must publish every one of them before it returns.
 
 .. code-block:: python
 
@@ -417,7 +417,7 @@ The built-in enhancement modules:
 
       **Module:** ``enhancement/qmd_export/`` (entry point: ``exporter.py``)
 
-      Writes one markdown file per entry into a **mirror tree** --- the corpus the qmd search sidecar indexes. It is what makes the ``hybrid`` :doc:`search mode <search-modes>` able to answer anything; the shipped templates enable both halves together, and they have to stay that way --- either one alone is useless. Entries created through the ARIEL panel or the agent's ``entry_create`` tool are mirrored inline at creation time (best-effort), so they become hybrid-searchable without waiting for the next enhancement run.
+      Writes one markdown file per entry into a **mirror tree** --- the corpus the qmd search sidecar indexes. It is what makes the ``hybrid`` :doc:`search mode <search-modes>` able to answer anything; the shipped templates enable both halves together, and they have to stay that way --- either one alone is useless. Entries created through the Logbook panel or the agent's ``entry_create`` tool are mirrored inline at creation time (best-effort), so they become hybrid-searchable without waiting for the next enhancement run.
 
       **Configuration:**
 

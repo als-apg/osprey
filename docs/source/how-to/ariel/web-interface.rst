@@ -2,7 +2,7 @@
 Web Interface
 =============
 
-ARIEL ships with a browser-based search interface that provides the same search capabilities as the CLI in a more approachable form. The interface is a FastAPI application serving a JavaScript single-page application (SPA). It connects to the same ``ARIELSearchService`` as the CLI and the ARIEL MCP tools, so any search module you register is automatically available in the UI.
+ARIEL ships with a browser-based search interface, labelled **Logbook**, that provides the same search capabilities as the CLI in a more approachable form. The interface is a FastAPI application serving a JavaScript single-page application (SPA). It connects to the same ``ARIELSearchService`` as the CLI and the ARIEL MCP tools, so any search module you register is automatically available in the UI.
 
 .. raw:: html
    :file: ../../_diagrams/ariel-web-interface.html
@@ -38,11 +38,11 @@ entry's parent and follow-ups. **Drafts** holds the drafts agents stage, shared
 across the deployment and expiring after an hour; open one in the sheet,
 **Discard** deletes it, Submit uses it up. The sheet autosaves to this browser
 only, never credentials or attachments, and keeps it when closed until Submit
-or Discard. The footer line says where Submit goes: local ARIEL only, or the
+or Discard. The footer line says where Submit goes: this Logbook only, or the
 facility logbook (and whether it needs credentials).
 
 .. figure:: /_static/screenshots/ariel_screen.png
-   :alt: ARIEL rail, entry list and reader
+   :alt: Logbook rail, entry list and reader
    :align: center
    :width: 90%
 
@@ -157,7 +157,7 @@ or press ``Escape``, to dismiss it.
 with every OSPREY interface served from the same address, the web terminal
 included, in both directions.
 
-ARIEL running *inside* the web terminal, as a panel, behaves differently on
+The Logbook running *inside* the web terminal, as a panel, behaves differently on
 purpose. The terminal passes its own theme to the panel in the page
 address, and an address always outranks the remembered preference, so an
 embedded panel matches the terminal it sits in no matter what was set

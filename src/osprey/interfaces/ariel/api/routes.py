@@ -1945,7 +1945,7 @@ async def create_entry_with_attachments(
     elif count and result.sync_status is not SyncStatus.LOCAL_ONLY:
         # The text published externally and the files did not: say so.
         message = (
-            f"{message}. {count} attachment(s) saved to ARIEL only; "
+            f"{message}. {count} attachment(s) saved to this Logbook only; "
             "attachments are not published to the external logbook."
         )
 
