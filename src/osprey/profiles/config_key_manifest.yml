@@ -2565,7 +2565,12 @@ keys:
       authoring step rather than a knob with a safe arbitrary value.
     default: derived
     default_note: the module's own DEFAULT_PROMPT_TEMPLATE
-  ariel.enhancement_modules.text_embedding: {evidence: 'text_embedding', default: {}}
+  ariel.enhancement_modules.text_embedding:
+    evidence: 'enhancement_modules\.get\("text_embedding"\)'
+    note: >-
+      Pinned to the config reader rather than to the bare word, which the
+      module, its migrations and the per-module coverage code all mention.
+    default: {}
   ariel.enhancement_modules.text_embedding.enabled: {covered-by: ariel.enhancement_modules.text_embedding, default: false}
   ariel.enhancement_modules.text_embedding.provider: {covered-by: ariel.enhancement_modules.text_embedding, default: null}
   ariel.enhancement_modules.text_embedding.models: {covered-by: ariel.enhancement_modules.text_embedding, default: null}
