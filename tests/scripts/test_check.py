@@ -192,6 +192,7 @@ def test_the_check_ids_are_the_public_names() -> None:
         "eslint",
         "prettier",
         "actionlint",
+        "hand-typed-sweeps",
         "pytest",
         "pytest-pty",
         "pytest-wallclock",
@@ -1636,10 +1637,11 @@ class Recorder:
 
 @pytest.fixture
 def recorder(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Recorder:
-    """An empty root, every need met, the venue met, every install proven, and
-    no process started."""
+    """An empty root with no sweep exception, every need met, the venue met,
+    every install proven, and no process started."""
     recorder = Recorder()
     monkeypatch.setattr(kit, "ROOT", tmp_path)
+    monkeypatch.setattr(fw, "SWEEP_LINE_EXCEPTIONS", {})
     monkeypatch.setattr(kit, "run", recorder)
     monkeypatch.setattr(check, "probe_install", lambda install: recorder.install)
     monkeypatch.setattr(kit, "capture", lambda argv: (0, ""))
@@ -2631,6 +2633,71 @@ def test_a_redirect_without_its_stub_page_is_reported(tmp_path: Path) -> None:
     (tmp_path / "guides").mkdir()
     (tmp_path / "guides" / "old.html").write_text("", encoding="utf-8")
     assert fw.missing_redirect_stubs(["guides/old", "guides/lost"], tmp_path) == ["guides/lost"]
+
+
+def test_a_hand_typed_parallel_sweep_is_named_with_its_line() -> None:
+    text = "# Tests\nuv run pytest tests/ -n 4 --dist loadgroup\n"
+    assert fw.hand_typed_sweeps({"doc.md": text}, exceptions={}) == [
+        "doc.md:2: a hand-typed parallel sweep; name scripts/check.py (quick, full, run pytest)"
+    ]
+
+
+def test_a_serial_line_a_check_py_line_and_flag_prose_pass() -> None:
+    text = (
+        "pytest tests/x.py -v\n"
+        "uv run python scripts/check.py run pytest -- -n 4\n"
+        "A test that flakes under `-n 4` shares state.\n"
+    )
+    assert fw.hand_typed_sweeps({"doc.md": text}, exceptions={}) == []
+
+
+def test_a_continued_sweep_command_is_read_as_one_line() -> None:
+    text = "intro\npython -m pytest tests/ \\\n  --ignore=tests/e2e \\\n  -n auto\n"
+    assert fw.hand_typed_sweeps({"doc.md": text}, exceptions={}) == [
+        "doc.md:2: a hand-typed parallel sweep; name scripts/check.py (quick, full, run pytest)"
+    ]
+
+
+def test_an_exception_that_matches_no_line_is_named() -> None:
+    held = "pytest tests/e2e/ -n 4 --dist loadfile"
+    exceptions = {("doc.md", held): "the e2e lane", ("doc.md", "pytest gone -n 2"): "stale"}
+    assert fw.hand_typed_sweeps({"doc.md": f"It runs `{held}`.\n"}, exceptions=exceptions) == [
+        "stale exception: doc.md: pytest gone -n 2"
+    ]
+
+
+def test_an_exception_whose_document_is_gone_is_named() -> None:
+    exceptions = {("gone.md", "pytest tests/e2e/ -n 4"): "the e2e lane"}
+    assert fw.hand_typed_sweeps({"doc.md": "prose\n"}, exceptions=exceptions) == [
+        "stale exception: gone.md: pytest tests/e2e/ -n 4"
+    ]
+
+
+def test_a_document_that_is_not_utf8_is_named(tmp_path: Path) -> None:
+    (tmp_path / "good.md").write_text("prose\n", encoding="utf-8")
+    (tmp_path / "bad.rst").write_bytes("caf\xe9\n".encode("latin-1"))
+    texts, unreadable = fw.read_doc_texts(["bad.rst", "good.md"], tmp_path)
+    assert texts == {"good.md": "prose\n"}
+    assert unreadable == ["bad.rst"]
+
+
+def test_the_sweep_guard_reads_documents_only() -> None:
+    assert selected("quick", "src/osprey/cli/main.py")["hand-typed-sweeps"].state == (
+        check.NOT_TOUCHED
+    )
+    assert selected("quick", "tests/README.md")["hand-typed-sweeps"].state != check.NOT_TOUCHED
+    assert selected("quick", "docs/source/index.rst")["hand-typed-sweeps"].state != (
+        check.NOT_TOUCHED
+    )
+
+
+def test_the_tree_has_no_hand_typed_sweep() -> None:
+    read = fw.tracked_doc_texts()
+    assert read is not None, "git ls-files failed"
+    texts, unreadable = read
+    assert texts, "no tracked *.md or *.rst file was read"
+    assert unreadable == []
+    assert fw.hand_typed_sweeps(texts) == []
 
 
 @pytest.mark.usefixtures("recorder")
