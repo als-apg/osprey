@@ -117,6 +117,7 @@ def _facility(render_root: Path) -> dict[str, Any]:
 
 def _script(args: MeasureArgs, approved_view_sha256: str | None) -> MeasureScript:
     """The script inputs: the request plus the names and waits the render states."""
+    from osprey.facility.records import FacilityRecords
     from osprey.facility.views.pyaml import view_names
     from pyaml_cs_osprey.names import UnmappedName
 
@@ -127,7 +128,7 @@ def _script(args: MeasureArgs, approved_view_sha256: str | None) -> MeasureScrip
     measurement = record.get("measurement") or {}
     names = None
     if args.correctors is not None:
-        mapping = view_names(document, args.model)
+        mapping = view_names(FacilityRecords(document), args.model)
         try:
             names = [mapping.magnet_name(address) for address in args.correctors]
         except UnmappedName as exc:

@@ -307,6 +307,7 @@ describe('import closure', () => {
       'modal-overlay.js',
       'posture-confirm.js',
       'toast.js',
+      'write-authorization-panel.js',
     ]);
   });
 });

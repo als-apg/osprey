@@ -322,6 +322,12 @@ _ECHO_ALLOWLIST: dict[str, tuple[int, str]] = {
         "alone -- for a caller redirecting it into a file, the same class as "
         "users_cmd's byte render.",
     ),
+    "cli/write_authorization_cmd.py": (
+        1,
+        "`write-authorization list --json`'s `click.echo(json.dumps(...))`. The "
+        "branch runs inside output.machine_mode(), so every human line is on "
+        "stderr and this is the one document on stdout, which scripts parse.",
+    ),
     "cli/profile_cmd.py": (
         1,
         "profile card's `click.echo(json.dumps(rows))`. The --json branch runs "
@@ -349,18 +355,17 @@ _ECHO_ALLOWLIST: dict[str, tuple[int, str]] = {
         "path carries diff bytes only.",
     ),
     "cli/facility_cmd.py": (
-        7,
+        5,
         "Three classes, all already blessed elsewhere. One is the --print-exporter "
         "byte render: `osprey facility import mml --print-exporter` prints the "
         "layer's mml_export.m for a caller redirecting it into a file, the same "
-        "class as users_cmd's byte render. The other two are the import's "
-        "authored-present stop: its `import mml: authored-present: <n> files` "
-        "line and one `rm <path>` line per file, on stderr, which the mml "
-        "recipes apply as printed -- the bare-line shape every facility stop "
-        "prints through its ClickException.show, so this stop reads like the "
-        "importer's own mapping stops beside it. The last two are the same class, "
-        "the import's stale-scenario list: its header line and one `  rm <path>` line per "
-        "file, on stderr, which the mml recipes apply as printed. The third is "
+        "class as users_cmd's byte render. The second is the import's one step, "
+        "on stderr under the `import <verb>: ` prefix of either verb: the "
+        "`replaced the bundled <name> facility (<n> files)` line, and the refusal "
+        "of hand-written records, its first line, one path per line and its "
+        "remedy -- the bare-line shape every facility stop prints through its "
+        "ClickException.show, so this stop reads like the importer's own mapping "
+        "stops beside it. The third is "
         "`osprey facility show`: its --json document on stdout, read by a caller "
         "piping it into a JSON parser, the same class as query_cmd's document; "
         "and its `facility show: no record <id>` / `facility show: <id> names a "

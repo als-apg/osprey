@@ -75,12 +75,36 @@ Several scenarios apply together only when no two of them write one target,
 a channel or a model's fault. A set that breaks the rule is refused before
 anything is written, and the refusal names the target.
 
-Every facility has a scenario named ``still`` that stills every reading:
+Every facility has a scenario named ``still`` that stills every float reading:
 ``osprey sim apply still``, or ``simulation.default_scenarios: [still]`` for a
 deployment that should start still. A file may define its own ``still``,
 which replaces the built-in one. ``still`` composes with overrides and faults,
 and is refused beside a scenario that sets the same reading's ``noise`` or
 ``couple``. It holds in both venues of the simulator.
+
+Any scenario can still a family of readings by selecting it over the facility
+file's own records. Each selection names a model or a place, and the build
+resolves it to plain addresses:
+
+.. code-block:: yaml
+
+   still:
+     - {model: <model>, role: monitor}
+     - {place: <place>, signal: <signal>}
+     - <address>
+
+- ``model``: channels a wiring record of that model names, or on a device of
+  that model.
+- ``place``: channels on that place or on a place under it.
+- ``group``: channels on a device of that group.
+- ``signal``: channels stating that ``signal``.
+- ``role``: channels whose wiring record has that role (``setpoint``,
+  ``readback``, ``monitor`` or ``output``), not the channel's own ``role``.
+- ``plane``: channels whose wiring record has that plane.
+
+The keys of one selection all apply. The build stops on a selection that names
+neither a model nor a place, and on one that matches no float channel; a
+matched channel that is not a float is left out.
 
 Write a scenario
 ================
@@ -132,9 +156,9 @@ name. Every key is optional:
        unit, or ``{<address>: {relative: <fraction>}}`` with the sigma a
        fraction of the reading.
    * - ``still``
-     - ``all``, or a list of addresses: while the scenario is active, those
-       readings serve without drift, couplings or noise; readout faults still
-       apply.
+     - ``all``, or a list of addresses and selections (see `Apply a scenario`_):
+       while the scenario is active, those readings serve without drift,
+       couplings or noise; readout faults still apply.
 
 .. list-table::
    :header-rows: 1

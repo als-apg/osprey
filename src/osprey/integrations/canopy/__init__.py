@@ -29,7 +29,7 @@ ACCESS_HEADER = "X-Canopy-Access"
 BACKEND_PATH = "osprey.integrations.canopy.backend:OspreyPVConnector"
 
 #: The CANOPY modules every data process mounts.
-MODULES = "hare,vole,fox,mole,converter"
+MODULES = "hare,vole,formula-engine,mole,converter"
 
 #: Where saved views live, below the user's agent-data root.
 VIEWS_SUBPATH = ("canopy", "views")

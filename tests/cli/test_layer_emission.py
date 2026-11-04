@@ -620,8 +620,8 @@ def test_benchmark_results_in_a_source_checkout_are_not_materialized(
     runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """A source checkout that has run the channel-finder benchmark holds
-    ``data/benchmarks/results/``; a wheel install never does (hatch excludes
-    it). Emission must be the same tree either way, so the copy drops it.
+    ``data/benchmarks/results/``; a wheel install never does. Emission must be
+    the same tree either way, so the copy drops it.
 
     The checkout is a copy of the shipped template tree: other tests read the
     real one while this runs beside them."""
@@ -643,4 +643,4 @@ def test_benchmark_results_in_a_source_checkout_are_not_materialized(
 
     assert not (target / "data" / "benchmarks" / "results").exists()
     # The sibling staging dir the bundle really ships still comes across.
-    assert (target / "data" / "benchmarks" / "cross_paradigm").is_dir()
+    assert (target / "data" / "facility" / "benchmarks" / "cross_paradigm").is_dir()

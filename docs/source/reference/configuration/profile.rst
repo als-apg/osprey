@@ -1105,9 +1105,10 @@ derives exactly seven keys from it, all under
 - the six ``gateways.*`` keys — ``address``, ``port`` and ``use_name_server``
   for each of the ``read_only`` and ``write_access`` roles, pointing both lanes
   at loopback on the stand-in's port over the Channel Access name server;
-- ``probe_channel``, copied from the simulator's own, since the stand-in is the
-  same soft IOC over the same machine model. A deployment whose simulator names
-  none gets none here either.
+- ``probe_channel``, copied from the simulator's own, stated or derived from the
+  facility file (see :ref:`architecture-facility-settings`), since the stand-in
+  is the same soft IOC over the same machine model. A deployment whose simulator
+  has none gets none here either.
 
 A profile that spells any of the seven in its own ``config:`` block is refused by
 name at build time rather than silently having the derived copy win: two homes
@@ -1170,7 +1171,6 @@ the ``mongodb_archiver`` connector reads it back.
      hot_span_hours: 48
      hot_cadence_sec: 10
      tail_cadence_sec: 60
-     freshness_channel: SR:DIAG:DCCT:01:CURRENT:RB
 
 Every key is optional and the defaults describe a working archive; the block's
 presence is the decision, not its contents.
@@ -1213,9 +1213,12 @@ presence is the decision, not its contents.
        to record at all. It records only for a ``virtual_accelerator`` control
        system, and this is what lets that flip take effect without a restart.
    * - ``freshness_channel``
-     - unset
-     - Canary channel for a derived ``archiver_freshness`` health check. Unset
-       derives no check (see
+     - derived
+     - Canary channel for a derived ``archiver_freshness`` health check. The
+       build derives it from the facility file: the first readback by address
+       the served simulator holds (the probe's channel); none derives no check.
+       A stated value is an override checked against the file (see
+       :ref:`architecture-facility-settings` and
        :doc:`/how-to/health-and-monitoring/configure-health-checks`).
    * - ``host``
      - ``localhost``
@@ -1258,7 +1261,8 @@ by name, rather than silently having one copy win:
   all derived from the keys above;
 - the shape knobs, written to ``va_archiver.*`` in the rendered ``config.yml``
   for the seeder and the recorder to read;
-- ``health.categories.archiver``, when ``freshness_channel`` is set.
+- ``health.categories.archiver``, from the channel the build derives from the
+  facility file or a stated ``freshness_channel``, an override checked against it.
 
 Two homes for one fact are free to disagree, and the disagreement is the
 dangerous case: a stale ``collection`` or ``host`` in ``config:`` points the
@@ -1523,3 +1527,111 @@ build** and prints the valid set:
 Whether a deployment can execute plans at all is not set here: it follows from
 the control system the deployment runs. See :doc:`/how-to/bluesky/queue` for
 what the stack looks like when it is up.
+
+optimizer
+=========
+
+The ``optimizer:`` section deploys the optimizer service, which tunes machine
+variables against an objective with Bayesian optimization (Xopt), and the Redis
+store that keeps its jobs. The block's presence is the switch. It accepts
+exactly three keys; a misspelled or unknown key **fails the build** and prints
+the valid set:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 30 70
+
+   * - Key
+     - What it does
+   * - ``port``
+     - The service's port. Defaults to its slot in the port layout, ``10082``
+       at the default base (:ref:`reference-ports`).
+   * - ``targets``
+     - The control targets the optimizer may drive (default ``[va]``): ``va``,
+       ``standin``, or both. A run naming any other target is refused. The
+       ``live`` machine is **refused at build time** until the optimizer
+       supports it. Each target also needs its connector block in the
+       project's ``control_system:`` section.
+   * - ``environments_dir``
+     - A directory of optimizer environment files (YAML), mounted read-only
+       into the service. Unset, only installed environment plugins are
+       offered.
+
+Every write the optimizer makes goes through the control-system connector, so
+the deployment's write tier, channel limits and ``max_step`` apply to it, and
+its put-log entries name it as ``osprey-optimizer``. A run writes for the login
+that started it: ``POST /jobs/{id}/start`` reads that login from the
+``X-Osprey-Owner`` header, and the run's writes follow that login's tier (the
+staged ``login_tiers`` map). A run started with no owner has every write
+refused. The routes that move hardware are guarded by
+``OPTIMIZER_LAUNCH_TOKEN``, which ``osprey up`` mints into the project ``.env``;
+the token says a caller may start a run, not whose run it is. The image is built locally on the first
+``osprey up``; set ``OSPREY_OPTIMIZER_IMAGE`` to run a published one.
+
+A run writes only under one **write authorization** (:ref:`how-to-write-from-a-program`),
+never under the owner's switch alone, so the switch can stay off for the whole
+run and turning it on does not widen the run:
+
+* **What it asks for.** The setpoint channels the run writes, each with the
+  run's resolved window narrowed to the environment's range and the channel
+  limits database; a step per evaluation (``n_initial + n_iterations``,
+  each evaluation one write call) plus one for the completion write when
+  ``on_complete`` is ``apply_best`` (the default) or ``restore``, none for
+  ``hold``; an eight-hour expiry (``OPTIMIZER_AUTHORIZATION_EXPIRES_S``) and a
+  lease the run renews every 20 seconds. An evaluation whose objective is
+  re-measured only reads it again: it writes once and spends one step.
+* **How it gets it.** While the owner's switch for the machine stands at
+  *allowed*, the run writes its own. Otherwise it writes a request, its job's
+  ``write_authorization.state`` reads ``awaiting``, and the owner approves it
+  from the chip or with ``osprey write-authorization approve``. A request that
+  waits longer than 15 minutes (``OPTIMIZER_AUTHORIZATION_WAIT_S``) ends the
+  run ``authorization_timeout``; a cancel while it waits withdraws it.
+* **How it ends.** A run whose authorization is spent (``auth_exhausted``),
+  stopped (``auth_revoked``), expired, lapsed (``auth_lease_lapsed``) or
+  written outside (``auth_range``, ``auth_channel``) ends with that reason in
+  its job's error and ``write_authorization.reason``, its results so far
+  saved, and writes nothing more. Nothing asks again. A cancelled or failed run
+  writes nothing either: restoring its starting setpoints is the operator's
+  call. A run that issued its own grant marks it revoked when it is done.
+
+The results restore (``POST /results/{env}/{timestamp}/restore``, after its
+preview), ``PUT /environments/{name}/variables`` and ``POST
+/environments/{name}/evaluate`` are each one write under a one-step
+authorization of their own, for exactly the values they write and for the login
+their ``X-Osprey-Owner`` header names. The service issues that grant itself,
+writes once and revokes it, which the switch allows only while it stands at
+*allowed*: below it the call answers ``403`` with the refusal's reason and
+writes nothing; set the switch to *allowed* from the chip and repeat the call.
+There is no request to approve for a manual write; a run still asks for one.
+
+What these rules do not cover:
+
+* **Plugin environments are trusted code.** An installed environment plugin
+  runs inside the service; one that ignores the run's execution mode, or writes
+  through a client of its own instead of the control-system connector, is
+  outside the write authorization, the switch and the put-log. Install only
+  plugins you would trust with the machine.
+* **The owner header is trusted.** ``X-Osprey-Owner`` is taken as given from
+  any caller holding the launch token: a token holder can start runs, and
+  make manual writes while that login's switch is at *allowed*, as any login.
+* **The single-job slot needs Redis.** During a Redis outage longer than the
+  slot's lease (about a minute) while a worker is writing, the slot can lapse
+  and a second job can start.
+* **Windows the service cannot close.** A cancel that lands between a run's
+  last cancellation checkpoint and its completion write does not stop that
+  write; a shutdown that has to kill a worker can stop it in the middle of a
+  write; a paused run keeps its lease renewing, so its authorization stays in
+  force while it is paused; and ``GET /environments/{name}/pv`` reads any
+  channel the environment's connector can reach.
+
+With a writing tier the container binds the deployment's write ledger,
+``var/write_ledger``, read-write as ``OSPREY_WRITE_LEDGER_DIR``: the run's
+requests, its ledgers and its own grants live there, and every web terminal
+reads the requests from it. The service warns at start when it cannot write
+there; every write is then refused ``auth_unreadable``.
+
+.. code-block:: yaml
+
+   optimizer:
+     targets: [va, standin]
+     environments_dir: optimizer/environments

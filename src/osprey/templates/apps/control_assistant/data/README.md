@@ -9,13 +9,8 @@ As shipped by the preset:
 
 ```
 data/
-├── benchmarks/
-│   └── cross_paradigm/queries/           # Benchmark query sources, one per channel-finder pipeline
 ├── canopy/
 │   └── library/screens/                  # CANOPY screens (facility overview and sections)
-├── ariel/
-│   ├── vocabulary.yml                    # Logbook shorthand -> the words entries use
-│   └── README.md                         # Vocabulary format walkthrough
 ├── landing/
 │   └── working-safely.md                 # A notice on the web terminal's landing page
 └── facility/                             # The facility's authored sources
@@ -27,8 +22,16 @@ data/
     ├── limits.yaml                       # Write limits, one record per channel
     ├── seeds.yaml                        # Simulated channels' nominal values and noise
     ├── scenarios/                        # Simulation scenarios, one YAML file each
-    └── knowledge/                        # Markdown knowledge bundle
+    ├── knowledge/                        # Markdown knowledge bundle
+    ├── benchmarks/
+    │   └── cross_paradigm/queries/       # Benchmark query sources, one per channel-finder pipeline
+    └── ariel/
+        ├── vocabulary.yml                # Logbook shorthand -> the words entries use
+        └── README.md                     # Vocabulary format walkthrough
 ```
+
+A bundled facility carries data only: records, decks, models, limits, seeds,
+scenarios, knowledge pages, benchmark query sources and the ARIEL vocabulary.
 
 An importer writes its own layer under `facility/imported/<layer>/`:
 `osprey facility import mml` writes `facility/imported/mml/`. Edit the
@@ -38,15 +41,14 @@ authored files; an import rewrites its own directory.
 into the render, never back here: `facility.json` at the render root, and under
 its `data/` the limits view `channel_limits.json`, the facts view
 `facility_facts.json`, the simulator view `simulator/`, the graph view
-`graph/facility.ttl` and the channel-finder view `channel_finder/<mode>.json`.
-`osprey facility show` prints the facility the tree builds and each view's
-path.
+`graph/facility.ttl`, the channel-finder view `channel_finder/<mode>.json` and
+the benchmarks view `benchmarks/queries.json`. `osprey facility show` prints
+the facility the tree builds and each view's path.
 
-`osprey build` copies the benchmark query file matching `channel_finder_mode`
-to `benchmarks/queries.json`: `in_context_queries.json` for `in_context`,
-`tree_queries.json` for every other mode. Each channel-finder index is the view
-the build writes at its own path; nothing is flattened. The render drops the
-`benchmarks/cross_paradigm/` subtree.
+The benchmarks view writes `benchmarks/queries.json` from
+`facility/benchmarks/cross_paradigm/queries/`: `in_context_queries.json` for
+`in_context`, `tree_queries.json` for every other mode. The query sources do
+not reach the render.
 
 ## CANOPY screens
 
@@ -66,7 +68,7 @@ ships:
   straight and arc in beam order, every magnet, corrector and BPM with its
   status and readbacks, and the sector's vacuum;
 - `sr/orbit-feedback` — storage-ring orbit feedback: the BPM orbit and
-  corrector readbacks, the DCCT, the orbit RMS per plane as CANOPY Fox
+  corrector readbacks, the DCCT, the orbit RMS per plane as CANOPY Formula Engine
   formulas, and one corrector setpoint input;
 - the transfer-line panels `gtl/GTL` and `bts/BTS`, with the screens and
   images they embed under `common/`.

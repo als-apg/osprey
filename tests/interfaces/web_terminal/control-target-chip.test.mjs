@@ -503,6 +503,18 @@ describe('state matrix', () => {
     }
   }
 
+  test('a program holding the machine keeps the switch word and adds a qualifier', async () => {
+    await boot(
+      viewOf({
+        targets: [rowOf({ ...STATES.off, program_hold: true, active: true, is_baseline: true })],
+      })
+    );
+    const chip = /** @type {HTMLButtonElement} */ (chipEl());
+    expect(chip.dataset.state).toBe('off');
+    expect(chip.dataset.program).toBe('true');
+    expect(stateText()).toBe('writes off · program');
+  });
+
   test('a stored allowed capped at asked reads writes asked', async () => {
     // The route answers `prompt: true` from the effective position: the word
     // says what the next write meets, and the stored position stays `allowed`.
@@ -593,6 +605,9 @@ describe('state matrix', () => {
     expect(wordOf({ ...STATES.asked, switch: undefined })).toBe('locked');
     // A row that does not publish `prompt` reads the louder word.
     expect(wordOf({ ...STATES.asked, prompt: undefined })).toBe('allowed');
+    // A program's authorization in force leaves this login's own word as it is.
+    expect(wordOf({ ...STATES.off, program_hold: true })).toBe('off');
+    expect(wordOf({ ...STATES.allowed, program_hold: true })).toBe('allowed');
     // Not even a row whose legacy mirror still says sandbox.
     for (const o of [
       { posture: 'sandbox', effective: false },

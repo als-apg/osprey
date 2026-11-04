@@ -39,7 +39,7 @@ from pathlib import Path
 from typing import Any
 
 from osprey.facility import DEFAULT_ROLE, PN_LOCAL
-from osprey.facility.build import FacilityDocument
+from osprey.facility.records import FacilityRecords
 from osprey.facility.views import ViewInputs
 from osprey.facility.views.graph_iri import iri
 
@@ -197,7 +197,7 @@ def _family_descriptions(groups: Iterable[Mapping[str, Any]]) -> dict[str, str]:
     return {member: rank[2] for member, rank in chosen.items()}
 
 
-def _class_rows(doc: Mapping[str, Any]) -> dict[str, dict[str, Any]]:
+def _class_rows(records: FacilityRecords) -> dict[str, dict[str, Any]]:
     """Every class a device may carry: the vocabulary's and the facility-added ones."""
     from osprey.facility.validate import vocabulary
 
@@ -209,7 +209,7 @@ def _class_rows(doc: Mapping[str, Any]) -> dict[str, dict[str, Any]]:
         }
         for row in vocabulary()["classes"]
     }
-    for row in doc.get("classes") or []:
+    for row in records.document.get("classes") or []:
         name = str(row["class"])
         rows[name] = {
             "iri": f"{NARAD_SEM}{name}",
@@ -230,14 +230,13 @@ def _place_triples(subjects: _Subjects, code: str, places: Iterable[Mapping[str,
 def _device_triples(
     subjects: _Subjects,
     code: str,
-    doc: Mapping[str, Any],
+    records: FacilityRecords,
     classes: Mapping[str, Mapping[str, Any]],
-    places: Mapping[str, Mapping[str, Any]],
 ) -> set[str]:
     """Add every device's triples; return the classes the devices carry."""
-    families = _family_descriptions(doc.get("groups") or [])
+    families = _family_descriptions(records.of_kind("group"))
     used: set[str] = set()
-    for device in doc.get("devices") or []:
+    for device in records.of_kind("device"):
         device_id = str(device["id"])
         subject = iri(code, "device", device_id)
         _add(subjects, subject, _p(P_DEVICE_ID), _text(device_id))
@@ -254,7 +253,8 @@ def _device_triples(
             _add(subjects, subject, _p(P_SYSTEM), _text(top))
             _add(subjects, subject, _p(P_PLACE_PATH), _text(place))
             _add(subjects, subject, _p(P_SECTION_CODE), _text(_last_segment(str(place))))
-            top_description = places.get(top, {}).get("description")
+            top_place = records.record("place", top)
+            top_description = top_place.get("description") if top_place else None
             if top_description:
                 _add(subjects, subject, _p(P_SYSTEM_DESCRIPTION), _text(top_description))
         _add(subjects, subject, _p(P_SOURCE_NAME), _text(device_id))
@@ -271,10 +271,10 @@ def _device_triples(
     return used
 
 
-def _channel_triples(subjects: _Subjects, code: str, doc: Mapping[str, Any]) -> set[str]:
+def _channel_triples(subjects: _Subjects, code: str, records: FacilityRecords) -> set[str]:
     """Add every channel's triples and its owners' edges; return the signals named."""
     signals: set[str] = set()
-    for channel in doc.get("channels") or []:
+    for channel in records.of_kind("channel"):
         address = str(channel["id"])
         subject = iri(code, "channel", address)
         _add(subjects, subject, RDF_TYPE, _iri(CHANNEL_BINDING))
@@ -368,39 +368,38 @@ def _subject_block(subject: str, predicates: Mapping[str, set[_Term]]) -> list[s
     return [line + " ;" for line in lines[:-1]] + [lines[-1] + " ."]
 
 
-#: The document last rendered and its Turtle: every render of one build hands
-#: in the same document, so its graph is rendered once.
-_rendered: tuple[FacilityDocument, str] | None = None
+#: The records last rendered and their Turtle: a render's views share one read
+#: model, so its graph is rendered once.
+_rendered: tuple[FacilityRecords, str] | None = None
 
 
-def graph_text(doc: FacilityDocument) -> str:
+def graph_text(records: FacilityRecords) -> str:
     """The graph view's Turtle for one facility file.
 
     Args:
-        doc: The facility file as ``build_facility`` returned it.
+        records: The records of the facility file as ``build_facility`` returned it.
 
     Returns:
         The Turtle text, its first line the facility file's sha256 header,
         ending in one newline.
     """
     global _rendered
-    if _rendered is None or _rendered[0] is not doc:
-        _rendered = (doc, _turtle(doc))
+    if _rendered is None or _rendered[0] is not records:
+        _rendered = (records, _turtle(records))
     return _rendered[1]
 
 
-def _turtle(doc: FacilityDocument) -> str:
+def _turtle(records: FacilityRecords) -> str:
     """Compute :func:`graph_text` without the per-build memo."""
     from osprey.facility.render import facility_bytes
 
-    code = str(doc["identity"]["code"])
-    places = {str(place["id"]): place for place in doc.get("places") or []}
-    classes = _class_rows(doc)
+    code = str(records.document["identity"]["code"])
+    classes = _class_rows(records)
 
     subjects: _Subjects = {}
-    _place_triples(subjects, code, doc.get("places") or [])
-    used = _device_triples(subjects, code, doc, classes, places)
-    signals = _channel_triples(subjects, code, doc)
+    _place_triples(subjects, code, records.of_kind("place"))
+    used = _device_triples(subjects, code, records, classes)
+    signals = _channel_triples(subjects, code, records)
     for signal in sorted(signals):
         subject = f"{NARAD_SEM}{signal}"
         _add(subjects, subject, RDF_TYPE, _iri(SEMANTIC_SIGNAL))
@@ -408,7 +407,7 @@ def _turtle(doc: FacilityDocument) -> str:
     _class_triples(subjects, used, classes)
     _vocabulary_triples(subjects)
 
-    digest = hashlib.sha256(facility_bytes(doc)).hexdigest()
+    digest = hashlib.sha256(facility_bytes(dict(records.document))).hexdigest()
     lines = [f"{HEADER_PREFIX}{digest}"]
     lines.extend(f"@prefix {prefix}: <{namespace}> ." for prefix, namespace in PREFIXES.items())
     for subject, predicates in subjects.items():
@@ -429,5 +428,5 @@ def write_graph_view(root: Path, inputs: ViewInputs) -> list[Path]:
     """
     root.mkdir(parents=True, exist_ok=True)
     target = root / GRAPH_FILE
-    target.write_bytes(graph_text(inputs.doc).encode("utf-8"))
+    target.write_bytes(graph_text(inputs.records).encode("utf-8"))
     return [target]

@@ -29,8 +29,11 @@ import osprey.facility
 from osprey.cli.main import cli
 from osprey.facility.build import build_facility
 from osprey.facility.errors import KINDS
+from osprey.facility.records import FacilityRecords
+from osprey.facility.settings import NO_READBACK_WARNING
 from osprey.facility.views import VIEWS, ViewInputs
 from osprey.utils.workspace import TIERS_DIRNAME
+from osprey_connectors.simulation import STILL_SCENARIO
 from tests._builds import init_project, run_build
 from tests.facility._synthetic_trees import (
     BPM,
@@ -402,7 +405,7 @@ STOP_SENTENCES: tuple[tuple[str, str, str], ...] = (
         "value-invalid",
         "a scenario `noise` entry stating both terms",
     ),
-    ("value_invalid__still_shape", "value-invalid", "a `still` neither `all` nor addresses"),
+    ("value_invalid__still_shape", "value-invalid", "a `still` neither `all` nor a list"),
     ("value_invalid__still_non_float", "value-invalid", "a `still` listing a non-float"),
     (
         "value_invalid__still_with_motion",
@@ -729,6 +732,16 @@ STOP_SENTENCES: tuple[tuple[str, str, str], ...] = (
         "profile_invalid__served_probe_channel",
         "profile-invalid",
         "a served block's `probe_channel` the facility file does not hold",
+    ),
+    (
+        "profile_invalid__freshness_channel",
+        "profile-invalid",
+        "a stated `va_archiver.freshness_channel` the facility file does not hold",
+    ),
+    (
+        "profile_invalid__default_scenarios",
+        "profile-invalid",
+        "a stated `simulation.default_scenarios` name the facility file does not hold",
     ),
     (
         "profile_invalid__approval_hook_not_selected",
@@ -1530,7 +1543,8 @@ CASES: dict[str, tuple[Callable[[], Tree], str]] = {
         _plain(scenario("warm", {"still": "everything"})),
         (
             "facility: value-invalid: scenario warm — `still` is 'everything', neither `all` "
-            "nor a list of addresses; fix: write `still: all` or a list of addresses"
+            "nor a list of addresses and selections; fix: write `still: all` or a list of "
+            "addresses and selections"
         ),
     ),
     "value_invalid__still_non_float": (
@@ -2536,6 +2550,22 @@ CASES: dict[str, tuple[Callable[[], Tree], str]] = {
             "facility file holds, such as `BPM1:X`"
         ),
     ),
+    "profile_invalid__freshness_channel": (
+        _plain(),
+        (
+            "facility: profile-invalid: path va_archiver.freshness_channel — `NOPE:RB` is not a "
+            "channel of the facility file; fix: set it to a readback the facility file holds, "
+            "such as `BPM1:X`, or remove it"
+        ),
+    ),
+    "profile_invalid__default_scenarios": (
+        _plain(scenario("warm", {}), scenario("cold", {})),
+        (
+            "facility: profile-invalid: path simulation.default_scenarios — `rf-thermal` is not "
+            "a scenario the facility serves; fix: set `simulation.default_scenarios` to `[]` or "
+            "to scenarios it serves: `cold`, `still`, `warm`"
+        ),
+    ),
     "profile_invalid__approval_hook_not_selected": (
         _plain(),
         (
@@ -2622,7 +2652,7 @@ def _start_in(value: Any) -> Callable[[Path], None]:
     return edit
 
 
-#: The simulator's probe key; every case's repo points it at ``BPM1:X``, a channel both trees hold.
+#: The simulator's probe key; the build derives it, so a case states it only to stop on it.
 VA_PROBE_KEY = "control_system.connector.virtual_accelerator.probe_channel"
 
 
@@ -2631,6 +2661,16 @@ def _probe(address: str) -> Callable[[Path], None]:
         profile = repo / "profile.yml"
         data = yaml.safe_load(profile.read_text(encoding="utf-8"))
         data.setdefault("config", {})[VA_PROBE_KEY] = address
+        profile.write_text(yaml.safe_dump(data, sort_keys=False), encoding="utf-8")
+
+    return edit
+
+
+def _watch(address: str) -> Callable[[Path], None]:
+    def edit(repo: Path) -> None:
+        profile = repo / "profile.yml"
+        data = yaml.safe_load(profile.read_text(encoding="utf-8"))
+        data.setdefault("va_archiver", {})["freshness_channel"] = address
         profile.write_text(yaml.safe_dump(data, sort_keys=False), encoding="utf-8")
 
     return edit
@@ -2663,15 +2703,6 @@ def _disable_approval(repo: Path) -> None:
         render.write_text(text.replace(armed, "control_system.writes: never"), encoding="utf-8")
 
 
-def _select_in_context_unprobed(repo: Path) -> None:
-    """Select in_context for a tree with no channel, which no probe can name."""
-    _select_in_context(repo)
-    profile = repo / "profile.yml"
-    data = yaml.safe_load(profile.read_text(encoding="utf-8"))
-    del data["config"][VA_PROBE_KEY]
-    profile.write_text(yaml.safe_dump(data, sort_keys=False), encoding="utf-8")
-
-
 def _ship_limits(repo: Path) -> None:
     (repo / "data" / "channel_limits.json").write_text('{"_version": "4.0"}\n', encoding="utf-8")
 
@@ -2690,7 +2721,7 @@ def _render_serves_models(repo: Path) -> None:
 
 #: The profile edit a case makes beside a clean tree.
 PROFILE_EDITS: dict[str, Callable[[Path], None]] = {
-    "view_unsupported__in_context_no_channel": _select_in_context_unprobed,
+    "view_unsupported__in_context_no_channel": _select_in_context,
     "view_unsupported__hierarchical_meta_key": _select_hierarchical,
     "view_unsupported__hierarchical_shared_leaf_key": _select_hierarchical,
     "view_unsupported__hierarchical_two_level_words": _select_hierarchical,
@@ -2714,6 +2745,8 @@ PROFILE_EDITS: dict[str, Callable[[Path], None]] = {
         "control_system.connector.epics.limits_checking.database_path"
     ),
     "profile_invalid__served_probe_channel": _probe("NOPE:RB"),
+    "profile_invalid__freshness_channel": _watch("NOPE:RB"),
+    "profile_invalid__default_scenarios": _start_in(["rf-thermal"]),
     "profile_invalid__approval_hook_not_selected": _drop_approval_hook,
 }
 
@@ -2728,7 +2761,9 @@ VIEW_STAGE: frozenset[str] = frozenset(
 )
 
 #: The view inputs of a render whose config sets nothing.
-_NO_CONFIG = ViewInputs(doc={}, rendered_config={}, facility_dir=Path(), served=[])
+_NO_CONFIG = ViewInputs(
+    records=FacilityRecords({}), rendered_config={}, facility_dir=Path(), served=[]
+)
 
 #: The lines a build may print before a stop in a render: the main render has
 #: written its views and noted, once each, the views it omits that no mode selects.
@@ -2758,9 +2793,9 @@ def _write(tmp_path: Path, case: str) -> Path:
 
 @pytest.fixture(scope="module")
 def initialised(tmp_path_factory: pytest.TempPathFactory) -> Path:
-    """A control-assistant repo named for the project, probing a channel every tree holds."""
+    """A control-assistant repo named for the project, stating no start set a tree must hold."""
     repo = init_project(tmp_path_factory.mktemp("ca"), "control-assistant", PROJECT)
-    _probe("BPM1:X")(repo)
+    _start_in([])(repo)
     return repo
 
 
@@ -2812,11 +2847,39 @@ def test_build_stops_on_the_line(initialised: Path, tmp_path: Path, case: str) -
     _assert_notes_then_stop(result.stderr, case)
 
 
+@pytest.mark.parametrize(
+    ("case", "kind"),
+    [
+        ("profile_invalid__served_probe_channel", "channels"),
+        ("profile_invalid__freshness_channel", "channels"),
+        ("profile_invalid__default_scenarios", "scenarios"),
+    ],
+)
+def test_an_override_stop_names_what_the_tree_holds(tmp_path: Path, case: str, kind: str) -> None:
+    document = build_facility(_write(tmp_path, case), project_name=PROJECT)
+    slot = "name" if kind == "scenarios" else "id"
+    held = {str(record[slot]) for record in document[kind]}
+    if kind == "scenarios":
+        held.add(STILL_SCENARIO)
+    remedy = CASES[case][1].split("; fix: ", 1)[1]
+    named = re.findall(r"`([^`]+)`", remedy)
+    assert held & set(named)
+    assert (
+        not set(named)
+        - held
+        - {
+            "control_system.connector.virtual_accelerator.probe_channel",
+            "simulation.default_scenarios",
+            "[]",
+        }
+    )
+
+
 def _assert_notes_then_stop(stderr: str, case: str) -> None:
     """``stderr`` is render notes, each once, then the case's one line."""
     *notes, last = stderr.splitlines()
     assert last == CASES[case][1]
-    assert set(notes) <= MAIN_RENDER_NOTES
+    assert set(notes) <= MAIN_RENDER_NOTES | {NO_READBACK_WARNING}
     assert len(notes) == len(set(notes))
 
 

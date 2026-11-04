@@ -258,8 +258,7 @@ MATERIALIZED_SOURCE_ENTRIES: tuple[str, ...] = (
 )
 
 # Build exhaust that a source checkout may hold inside a bundle's data tree but
-# a wheel install never does — hatch excludes it from the package (see the
-# `exclude` in pyproject.toml). Copying it would make an emission from a
+# a wheel install never does. Copying it would make an emission from a
 # checkout differ from an emission from a wheel, so the copy drops it. Paths are
 # relative to the data root, matched segment-wise so an unrelated `results/`
 # elsewhere in the tree is untouched.

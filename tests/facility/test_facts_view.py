@@ -23,6 +23,7 @@ from osprey.cli.templates import claude_code
 from osprey.cli.templates.manager import TemplateManager
 from osprey.facility import TEXTURE
 from osprey.facility.build import build_facility
+from osprey.facility.records import FacilityRecords
 from osprey.facility.render import render_facility_outputs
 from osprey.facility.validate import FACILITY_HEADER, vocabulary
 from osprey.facility.views.facts import (
@@ -36,6 +37,7 @@ from osprey.facility.views.facts import (
     render_facts_page,
     zero_source_facts,
 )
+from tests._builds import init_machineless, run_build
 from tests.facility._pyaml_trees import measured_tree
 from tests.facility._synthetic_trees import BPM, QUAD, plain_tree, write_tree
 
@@ -46,6 +48,7 @@ pytestmark = [pytest.mark.slow]
 
 FACTS = f"data/{FACTS_FILE}"
 PAGE = f"data/{FACTS_PAGE}"
+NO_CHANNELS = "The facility file holds no channels yet."
 
 ZERO_MODELS = [{"name": TEXTURE, "engine": TEXTURE, "served": True, "solve": None}]
 
@@ -105,9 +108,10 @@ def test_the_facts_are_the_facility_files(built_control_assistant: BuiltProject)
 
     assert facts["identity"] == {
         "code": facility["identity"]["code"],
-        "name": "Example Research Facility",
-        "description": None,
+        "name": facility["identity"]["name"],
+        "description": facility["identity"]["description"],
     }
+    assert facts["identity"]["description"]
     assert facts["place_levels"] == ["machine", "sector"]
     assert facts["channel_count"] == len(facility["channels"])
     assert list(facts["measurement_models"]) == ["BTS", "LINE", "LTB", "SR"]
@@ -121,6 +125,20 @@ def test_the_facts_are_the_facility_files(built_control_assistant: BuiltProject)
         {"name": "SR", "engine": "pyat", "served": True, "solve": "periodic"},
         {"name": TEXTURE, "engine": TEXTURE, "served": True, "solve": None},
     ]
+
+
+def test_only_a_file_with_no_channel_says_it_holds_none(
+    tmp_path: Path, built_control_assistant: BuiltProject
+) -> None:
+    repo = init_machineless(tmp_path, "machineless")
+    result = run_build(repo)
+    assert result.exit_code == 0, result.output
+
+    page = (repo / "build" / PAGE).read_text(encoding="utf-8")
+    assert NO_CHANNELS in page
+    assert "# machineless\n" in page
+    built_page = (built_control_assistant.repo / "build" / PAGE).read_text(encoding="utf-8")
+    assert NO_CHANNELS not in built_page
 
 
 def test_each_device_class_carries_its_count_aliases_and_groups(
@@ -275,7 +293,7 @@ def test_places_classes_and_roles_read_off_a_hand_built_document() -> None:
         ],
     }
 
-    facts = facts_document(document, [TEXTURE], "lab")
+    facts = facts_document(FacilityRecords(document), [TEXTURE], "lab")
 
     assert facts["places"] == [
         {"id": "A", "level": "area", "names": ["Alpha", "Zed"], "devices": {"-": 1, QUAD: 1}},
@@ -331,7 +349,7 @@ def test_a_facility_added_class_reaches_the_facts_with_its_aliases(tmp_path: Pat
     quad["class"] = "SkewQuad"
 
     document = build_facility(write_tree(tmp_path / "facility", tree), project_name="p")
-    classes = facts_document(document, [TEXTURE], "p")["device_classes"]
+    classes = facts_document(FacilityRecords(document), [TEXTURE], "p")["device_classes"]
 
     assert declared in document["classes"]
     assert list(classes) == sorted([BPM, "SkewQuad", "Spare"])
@@ -349,7 +367,7 @@ def test_both_groups_over_the_same_device_are_listed(tmp_path: Path) -> None:
     ]
 
     document = build_facility(write_tree(tmp_path / "facility", tree), project_name="p")
-    classes = facts_document(document, [TEXTURE], "p")["device_classes"]
+    classes = facts_document(FacilityRecords(document), [TEXTURE], "p")["device_classes"]
 
     assert classes[QUAD]["groups"] == ["SR/MAG", "SR/QF"]
     assert classes[BPM]["groups"] == []
@@ -360,7 +378,7 @@ def test_every_group_holding_a_device_is_listed(tmp_path: Path) -> None:
     tree["records/groups.yaml"] = [{"id": "SR/MAG", "members": ["SR/Q1"]}]
 
     document = build_facility(write_tree(tmp_path / "facility", tree), project_name="p")
-    classes = facts_document(document, [TEXTURE], "p")["device_classes"]
+    classes = facts_document(FacilityRecords(document), [TEXTURE], "p")["device_classes"]
 
     assert classes[QUAD]["groups"] == ["SR/MAG"]
 
@@ -371,7 +389,7 @@ def test_every_group_holding_a_device_is_listed(tmp_path: Path) -> None:
 def test_a_facility_with_no_sources_has_the_zero_source_facts(tmp_path: Path) -> None:
     document = build_facility(tmp_path / "absent", project_name="my proj")
 
-    facts = facts_document(document, [TEXTURE], "my proj")
+    facts = facts_document(FacilityRecords(document), [TEXTURE], "my proj")
 
     assert facts == zero_source_facts({"code": "my_proj", "name": "my proj", "description": None})
     assert facts["device_classes"] == {}
@@ -505,13 +523,13 @@ def test_the_measurement_block_reads_each_view_the_facts_record(tmp_path: Path) 
     assert block == {
         "LINE": {
             "kinds": {"orm": {"hcor": "LINE_HCM", "vcor": "LINE_VCM"}},
-            "groups": measurement_groups(document, "LINE"),
+            "groups": measurement_groups(FacilityRecords(document), "LINE"),
             "rf": [],
             "view_sha256": facts["measurement_models"]["LINE"]["sha256"],
         },
         "SR": {
             "kinds": {"trm": {"quad": "SR_Q"}},
-            "groups": measurement_groups(document, "SR"),
+            "groups": measurement_groups(FacilityRecords(document), "SR"),
             "rf": [],
             "view_sha256": facts["measurement_models"]["SR"]["sha256"],
         },

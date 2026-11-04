@@ -25,9 +25,12 @@ import yaml
 from click.testing import CliRunner
 
 from osprey.facility import TEXTURE
+from osprey.facility.errors import FacilityBuildError
+from osprey.facility.records import FacilityRecords
 from osprey.facility.render import FACILITY_FILE, render_facility_outputs
+from osprey.facility.settings import BENCHMARK_DATASET_PATH
 from osprey.utils.workspace import TIERS_DIRNAME
-from osprey_connectors.simulation.view import SCENARIOS_SCHEMA, SEEDS_SCHEMA
+from osprey_connectors.simulation.view import SCENARIOS_SCHEMA, SEEDS_SCHEMA, SimulatorView
 from osprey_connectors.workspace import BUILD_DIR_NAME
 
 if TYPE_CHECKING:
@@ -97,6 +100,7 @@ def test_every_render_writes_the_simulator_files_beside_the_limits(
                 *FACTS,
                 GRAPH,
                 *PYAML,
+                BENCHMARK_DATASET_PATH,
             ]
         )
     # The deployment's render runs a Bluesky lane; a render without one has no view.
@@ -270,12 +274,19 @@ CHANNEL_KEYS = {
 }
 CHANNEL_OPTIONAL = {"options", "shape", "precision"}
 SCENARIO_SLOTS = ("description", "drivers", "couple", "noise", "still", "channel_faults")
-BUILT_IN_STILL = {
-    "name": "still",
-    "description": "Every reading serves without drift, couplings or noise.",
-    "still": "all",
-}
+BUILT_IN_DESCRIPTION = "Every reading serves without drift, couplings or noise."
 UNLISTED_SETPOINT = "SR:MAG:HCM:02:CURRENT:SP"
+
+
+def _float_channels(root: Path) -> list[str]:
+    """The float channel addresses of the render at ``root``, as its view lists them."""
+    view = SimulatorView.open(root / "data" / "simulator")
+    return [a for a in view.channels() if view.channel(a).value_type == "float"]
+
+
+def _built_in_still(root: Path) -> dict[str, Any]:
+    """The built-in scenario of the render at ``root``: every float channel, listed."""
+    return {"name": "still", "description": BUILT_IN_DESCRIPTION, "still": _float_channels(root)}
 
 
 def _view(root: Path, relative: str) -> dict[str, Any]:
@@ -352,7 +363,7 @@ def test_the_demo_wiring_is_simulator_wiring_serialised(
     models = {model["name"]: model for model in variables["models"]}
 
     for name, model in models.items():
-        assert model["wiring"] == simulator_wiring(facility, name), name
+        assert model["wiring"] == simulator_wiring(FacilityRecords(facility), name), name
     assert len(models["SR"]["wiring"]) > 0
     assert models["SR"] | {"wiring": None} == {
         "name": "SR",
@@ -577,7 +588,7 @@ def test_scenarios_carry_every_scenario_and_its_blocks(
     assert [entry["name"] for entry in scenarios["scenarios"]] == names
     for entry in scenarios["scenarios"]:
         if entry["name"] == "still":
-            assert entry == BUILT_IN_STILL
+            assert entry == _built_in_still(built_control_assistant.build_dir)
             continue
         authored = yaml.safe_load((source / f"{entry['name']}.yaml").read_text())
         assert entry["description"] == authored["description"], entry["name"]
@@ -776,13 +787,16 @@ def test_a_scenario_stating_none_of_the_optional_slots_carries_none_of_them(
 
 
 def _rendered_scenarios(
-    tmp_path: Path, built: BuiltProject, scenarios: list[dict[str, Any]]
+    tmp_path: Path,
+    built: BuiltProject,
+    scenarios: list[dict[str, Any]],
+    config: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     facility = copy.deepcopy(built.facility)
     facility["scenarios"] = scenarios
     render_dir = tmp_path / "render"
     render_dir.mkdir()
-    render_facility_outputs(render_dir, facility, {}, built.facility_dir)
+    render_facility_outputs(render_dir, facility, config or {}, built.facility_dir)
     return _view(render_dir, SCENARIOS)["scenarios"]
 
 
@@ -793,7 +807,9 @@ def test_the_built_in_still_is_listed_when_no_file_defines_one(
         tmp_path, built_control_assistant, [{"name": "zeta"}, {"name": "alpha"}]
     )
 
-    assert scenarios == [{"name": "alpha"}, BUILT_IN_STILL, {"name": "zeta"}]
+    built_in = _built_in_still(tmp_path / "render")
+    assert built_in["still"]
+    assert scenarios == [{"name": "alpha"}, built_in, {"name": "zeta"}]
 
 
 def test_channel_faults_are_carried_verbatim_on_a_texture_address(
@@ -820,6 +836,146 @@ def test_a_files_still_replaces_the_built_in(
     own = {"name": "still", "description": "Monitors only.", "still": ["SR:DIAG:BPM:01:POSITION"]}
 
     assert _rendered_scenarios(tmp_path, built_control_assistant, [own]) == [own]
+
+
+def _still_of(scenarios: list[dict[str, Any]], name: str) -> list[str]:
+    return next(entry["still"] for entry in scenarios if entry["name"] == name)
+
+
+def _physics_monitors(root: Path) -> dict[str, list[str]]:
+    """Each physics model's float monitor addresses, sorted, in the view at ``root``."""
+    view = SimulatorView.open(root / "data" / "simulator")
+    monitors: dict[str, list[str]] = {}
+    for binding in view.bindings(role="monitor", served_only=False):
+        if view.channel(binding.address).value_type == "float":
+            monitors.setdefault(binding.model, []).append(binding.address)
+    return {model: sorted(addresses) for model, addresses in monitors.items()}
+
+
+def test_an_authored_all_renders_every_float_channel(
+    tmp_path: Path, built_control_assistant: BuiltProject
+) -> None:
+    scenarios = _rendered_scenarios(
+        tmp_path, built_control_assistant, [{"name": "hush", "still": "all"}]
+    )
+
+    assert _still_of(scenarios, "hush") == _float_channels(tmp_path / "render")
+
+
+def test_a_still_selection_renders_the_float_addresses_of_its_model_and_role(
+    tmp_path: Path, built_control_assistant: BuiltProject
+) -> None:
+    model, monitors = next(iter(_physics_monitors(built_control_assistant.build_dir).items()))
+
+    scenarios = _rendered_scenarios(
+        tmp_path,
+        built_control_assistant,
+        [{"name": "quiet", "still": [{"model": model, "role": "monitor"}]}],
+    )
+
+    assert _still_of(scenarios, "quiet") == monitors
+
+
+def test_a_still_selection_of_a_place_takes_the_places_below_it(
+    tmp_path: Path, built_control_assistant: BuiltProject
+) -> None:
+    facility = built_control_assistant.facility
+    place_ids = [str(place["id"]) for place in facility["places"]]
+    parent = next(p for p in place_ids if any(q.startswith(f"{p}/") for q in place_ids))
+    device_place = {str(device["id"]): device.get("place") for device in facility["devices"]}
+
+    def sits_on_parent(channel: dict[str, Any]) -> bool:
+        on = channel.get("on") or {}
+        place = device_place.get(str(on.get("device"))) or on.get("place")
+        return place is not None and (place == parent or str(place).startswith(f"{parent}/"))
+
+    expected = sorted(
+        str(channel["id"])
+        for channel in facility["channels"]
+        if channel.get("value_type", "float") == "float" and sits_on_parent(channel)
+    )
+
+    scenarios = _rendered_scenarios(
+        tmp_path, built_control_assistant, [{"name": "quiet", "still": [{"place": parent}]}]
+    )
+
+    assert expected
+    assert _still_of(scenarios, "quiet") == expected
+
+
+def test_a_still_selection_scoped_to_an_unserved_model_still_resolves(
+    tmp_path: Path, built_control_assistant: BuiltProject
+) -> None:
+    monitors = _physics_monitors(built_control_assistant.build_dir)
+    assert len(monitors) > 1
+    served, unserved = sorted(monitors)[:2]
+
+    scenarios = _rendered_scenarios(
+        tmp_path,
+        built_control_assistant,
+        [{"name": "quiet", "still": [{"model": unserved, "role": "monitor"}]}],
+        {"simulation": {"models": [served]}},
+    )
+
+    view = SimulatorView.open(tmp_path / "render" / "data" / "simulator")
+    assert [model.name for model in view.models() if model.served and model.name == unserved] == []
+    assert _still_of(scenarios, "quiet") == monitors[unserved]
+
+
+def test_a_still_mixes_addresses_and_selections_sorted_without_repeats(
+    tmp_path: Path, built_control_assistant: BuiltProject
+) -> None:
+    model, monitors = next(iter(_physics_monitors(built_control_assistant.build_dir).items()))
+    assert len(monitors) > 1
+
+    scenarios = _rendered_scenarios(
+        tmp_path,
+        built_control_assistant,
+        [{"name": "quiet", "still": [monitors[-1], {"model": model, "role": "monitor"}]}],
+    )
+
+    assert _still_of(scenarios, "quiet") == monitors
+
+
+def test_a_still_selection_matching_no_float_channel_stops_the_build(
+    tmp_path: Path, built_control_assistant: BuiltProject
+) -> None:
+    model = next(iter(_physics_monitors(built_control_assistant.build_dir)))
+    selection = {"model": model, "signal": "no signal states this"}
+
+    with pytest.raises(FacilityBuildError) as caught:
+        _rendered_scenarios(
+            tmp_path, built_control_assistant, [{"name": "quiet", "still": [selection]}]
+        )
+
+    error = caught.value
+    assert error.kind == "value-invalid"
+    assert (error.record_kind, error.record_id) == ("scenario", "quiet")
+    assert error.sources == ("scenarios/quiet.yaml",)
+    assert repr(selection) in error.detail
+
+
+@pytest.mark.parametrize(
+    ("slot", "block"),
+    [("noise", {"absolute": 0.1}), ("couple", [{"driver": "d", "gain": 1.0}])],
+)
+def test_a_still_selection_meeting_the_scenarios_own_motion_stops_the_build(
+    tmp_path: Path, built_control_assistant: BuiltProject, slot: str, block: Any
+) -> None:
+    model, monitors = next(iter(_physics_monitors(built_control_assistant.build_dir).items()))
+    scenario = {
+        "name": "quiet",
+        "still": [{"model": model, "role": "monitor"}],
+        slot: {monitors[0]: block},
+    }
+
+    with pytest.raises(FacilityBuildError) as caught:
+        _rendered_scenarios(tmp_path, built_control_assistant, [scenario])
+
+    error = caught.value
+    assert error.kind == "value-invalid"
+    assert error.sources == ("scenarios/quiet.yaml",)
+    assert f"`{slot}.{monitors[0]}`" in error.detail
 
 
 def _render_channels(

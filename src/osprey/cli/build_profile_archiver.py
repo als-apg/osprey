@@ -216,14 +216,12 @@ class VAArchiverConfig:
     freshness_channel: str | None = None
     """Canary channel the ``archiver_freshness`` health check reads, if any.
 
-    Naming one is what turns the archive from something the deployment *has*
+    A canary is what turns the archive from something the deployment *has*
     into something it is *checked on*: the check queries this channel's newest
     sample and grades its age, which is the difference between "the store is
-    reachable" and "the store is still being written". Which channel is
-    representative is a fact only the facility knows — a stored-beam current, a
-    vacuum gauge, whatever stops moving first when the machine does — so there
-    is no default, and a profile that names none derives no check rather than
-    having the framework guess one.
+    reachable" and "the store is still being written". Derived from the
+    facility file when unstated (the probe's channel); a stated value is an
+    override checked against the file.
     """
 
     host: str | None = None
@@ -610,7 +608,10 @@ def freshness_max_age_s(va_archiver: VAArchiverConfig) -> int:
 
 
 def freshness_check_override(va_archiver: VAArchiverConfig | None) -> dict[str, Any]:
-    """The ``health:`` entry the block contributes, when it names a canary.
+    """The ``health:`` entry the block contributes, when it holds a canary.
+
+    The canary is the block's stated ``freshness_channel``, or a copy of the
+    block carrying the channel the build derives from the facility file.
 
     Scoped to the block's presence on purpose, and that scope is what makes it
     right on both sides of the control-system flip. A deployment carrying the

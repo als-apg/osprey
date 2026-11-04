@@ -357,6 +357,42 @@ class TestMigrationArgs:
         )
         assert AttachmentTextUpstreamFoldMigration(None).depends_on == ["attachment_text_columns"]
 
+    def test_facility_refs_column_row_and_shape(self) -> None:
+        from osprey.services.ariel_search.database.facility_refs_migration import (
+            FacilityRefsColumnMigration,
+        )
+
+        (row,) = [r for r in migrations_module.KNOWN_MIGRATIONS if r[0] == "facility_refs_column"]
+        assert row == (
+            "facility_refs_column",
+            "osprey.services.ariel_search.database.facility_refs_migration",
+            "FacilityRefsColumnMigration",
+            None,
+        )
+        migration = FacilityRefsColumnMigration()
+        assert migration.name == "facility_refs_column"
+        assert migration.depends_on == ["core_schema"]
+
+    def test_the_als_text_rewrite_runs_after_the_column_and_clears_its_references(self) -> None:
+        from osprey.services.ariel_search.ingestion.adapters import als_text_migration
+
+        names = [m.name for m in self._runner()._get_enabled_migrations()]
+
+        assert names.index("facility_refs_column") < names.index("als_logbook_plain_text")
+        assert "facility_refs_column" in als_text_migration.ALSPlainTextMigration().depends_on
+        assert "facility_refs = NULL" in als_text_migration._REWRITE_ROW
+
+    async def test_facility_refs_column_adds_and_drops_under_the_lock(self, ddl_conn) -> None:
+        from osprey.services.ariel_search.database.facility_refs_migration import (
+            FacilityRefsColumnMigration,
+        )
+
+        await FacilityRefsColumnMigration().up(ddl_conn)
+        assert any("ADD COLUMN IF NOT EXISTS facility_refs JSONB" in sql for sql in ddl_conn.sql)
+        await FacilityRefsColumnMigration().down(ddl_conn)
+        assert any("DROP COLUMN IF EXISTS facility_refs" in sql for sql in ddl_conn.sql)
+        assert any("LOCK TABLE" in str(sql) for sql in ddl_conn.sql)
+
     def test_fold_gets_the_configured_caption_model(self) -> None:
         runner = self._runner(
             {"image_caption": {"enabled": False, "provider": "ollama", "model": {"model_id": "m"}}}

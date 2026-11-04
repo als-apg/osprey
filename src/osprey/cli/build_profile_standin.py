@@ -186,11 +186,12 @@ def live_standin_duplicate_key_errors(
 def _va_probe_channel(config: Any, rendered_config: Any) -> Any:
     """The channel the VA block proves, as the finished render will state it.
 
-    The profile's own ``config:`` first, because that overlay is applied in the
-    same pass as these overrides and is what the rendered VA block will end up
-    saying; the render's current value second, which is the template's. Both
-    are read rather than one, so the two blocks cannot end up proving
-    different channels on a deployment that named its own.
+    The ``config:`` overlay first, because it is applied in the same pass as
+    these overrides and is what the rendered VA block will end up saying: the
+    profile's stated probe, or the one the build derives from the facility file,
+    which the caller lays over it. The render's current value second, which is
+    the template's. Both are read rather than one, so the two blocks cannot end
+    up proving different channels.
     """
     spelled = dotted_get(_expand_dotted(config), VA_PROBE_CHANNEL_KEY)
     if spelled is not None:

@@ -35,6 +35,7 @@ names another one explicitly.
    osprey config             # Show the deployment configuration
    osprey chat               # Talk to this deployment's agent
    osprey users              # Manage web-terminal users
+   osprey write-authorization # Approve, list and revoke programs' write authorizations
    osprey feedback           # Read feedback sent from the web terminals
    osprey profile            # Validate and inspect build profiles
    osprey health             # Check system health
@@ -682,6 +683,57 @@ secrets go to the job log.
 See :doc:`/how-to/deploy-a-facility` for the walkthrough that uses these
 verbs end to end.
 
+.. _cli-osprey-write-authorization:
+
+osprey write-authorization
+==========================
+
+Approve, list and revoke a program's bounded write authorization without a web
+terminal (see :ref:`how-to-write-from-a-program`). Inside a deployment repo, or
+with ``--repo DIRECTORY``, the verbs act on the deployment's control-context
+tree as the login a request names, and read the requests from
+``var/write_ledger/requests`` and, for a program run on the host, from each
+login's own ``authorizations/requests``. Outside a deployment they act on this account's
+own state directory: the owner is this account, as on a laptop with no
+terminal.
+
+.. list-table::
+   :header-rows: 1
+   :widths: 26 46 28
+
+   * - Verb
+     - What it does
+     - Also accepts
+   * - ``approve REQUEST``
+     - Show a request (a file, or its id) and approve it: the grant is written
+       under the owner's record lock, with ``approver.identity`` this account
+       and ``surface: "cli"``. Refused, with nothing written, for a target
+       the deployment does not configure, a ``never`` or unknown tier (judged
+       as the program's own writes will be: by the staged login map for a
+       request in ``var/write_ledger``, by the rendered config for one filed on
+       the host), a range
+       outside the limits database, a channel with no numeric range there, and
+       a channel another program of the same owner holds (``auth_overlap``).
+     - ``--owner LOGIN``, ``--config FILE``, ``--yes``
+   * - ``list``
+     - The requests waiting for approval and the authorizations, each in force
+       or not, with the steps used of the total; one whose steps are used or
+       whose lease lapsed is not in force. A program's self-issued grant, written at
+       *allowed* into ``var/write_ledger``, is listed too, marked self-issued.
+       Grants that ended over an hour ago are pruned.
+     - ``--owner LOGIN``, ``--json``
+   * - ``revoke ID``
+     - Mark one authorization revoked, a self-issued one included; the
+       holder's next write is refused.
+     - ``--owner LOGIN``
+
+.. code-block:: bash
+
+   osprey write-authorization list
+   osprey write-authorization approve 3f2a…9c1e
+   osprey write-authorization approve ./request.json --yes
+   osprey write-authorization revoke 3f2a…9c1e
+
 osprey feedback
 ===============
 
@@ -1128,19 +1180,20 @@ an export into it. See :doc:`/how-to/import-mml-export` for the import end to en
    its path under the render and whether it is written. The views are those of
    the main render, ``build/config.yml``; a tier's or app's selection does not change
    them. A view that is not written names the config key or model fact that
-   left it out. With ``ID`` it prints the place, device, channel, group or
-   model of that id with its provenance (the layer and file each field came
-   from, the fields the build filled) and the fixes applied to it. An id that
-   names no record prints ``facility show: no record <id>``, and an id that
-   names records of more than one kind prints
-   ``facility show: <id> names a <kind> and a <kind>``; both go to stderr and
-   exit 1. ``--json`` prints one JSON document on stdout and every other line,
-   view notes included, on stderr; on an error stdout is empty. The facility
+   left it out. With ``ID`` it prints every place, device, channel, group or
+   model of that id, each under its kind, with its provenance (the layer and
+   file each field came from, the fields the build filled) and the fixes
+   applied to it. An id that names no record prints
+   ``facility show: no record <id>`` on stderr and exits 1. ``--json`` prints
+   one JSON document on stdout and every other line, view notes included, on
+   stderr; on an error stdout is empty. The facility
    document's keys are ``identity``, ``counts`` (``places``, ``devices``,
    ``channels``, ``groups``, and ``wiring`` keyed by model), ``models``
    (``name``, ``engine``, ``served``, ``solve``) and ``views`` (``name``,
    ``path``, ``written``, and ``reason`` only on a view that is not written);
-   a record's are ``record``, ``kind``, ``provenance`` and ``fixes_applied``.
+   the record document is ``records``, one entry per record with ``record``,
+   ``kind``, ``provenance`` and ``fixes_applied``, in place, device, channel,
+   group, model order.
 
 ``osprey facility import``
    Group for the importers that write an export as sources under
@@ -1166,16 +1219,16 @@ an export into it. See :doc:`/how-to/import-mml-export` for the import end to en
    the mapping names and no given export carries is one such line,
    ``models.<system>: <system> is no exported system``. A mapping with the
    wrong structure, or a profile that does not resolve, prints a one-line
-   failure with its cause and exits 1. An authored record source that would
-   merge against the layer prints ``import mml: authored-present: <n> files``
-   (``1 file`` for one) and one ``rm <path>`` line per file and exits 1;
-   ``fixes.yaml``, ``classes.yaml``, ``scenarios/`` and ``knowledge/`` are
-   never named. After the import, each scenario file that names a channel or
-   model the facility no longer has is printed as one ``rm <path>`` line under
-   ``these scenario files name channels that no longer exist:``, followed by
-   an ``rm -r <folder>/`` line for the scenario's folder of attached files
-   when it has one; the import
-   deletes nothing, and ``osprey build`` stops while one is left.
+   failure with its cause and exits 1. Before it reads an export, the import runs one step that every format runs.
+   Hand-written records of a kind the format writes print
+   ``import mml: data/facility/ holds hand-written <kinds> records, which this
+   import writes:``, each file, and a remedy, then exit 1 with nothing changed.
+   Otherwise bundled files are replaced, printing
+   ``import mml: replaced the bundled <name> facility (<n> files)``, everything
+   else stays, the knowledge indexes are regenerated, and a blank
+   ``knowledge/index.md`` is left when no page remains. The mml format
+   writes channel, device, group, model, deck, seed, limit, identity and
+   measurement records.
 
 ``osprey facility import mml --print-exporter``
    Print the MATLAB exporter the mml layer ships. Needs neither a repo nor an
@@ -1183,8 +1236,10 @@ an export into it. See :doc:`/how-to/import-mml-export` for the import end to en
 
 ``osprey facility import list FILE [--repo DIRECTORY]``
    Write a CSV channel list as the list layer's sources,
-   ``data/facility/imported/list/channels.yaml``, one channel record per row;
-   no authored file is seeded. ``FILE`` is UTF-8 CSV whose header row names
+   ``data/facility/imported/list/channels.yaml``, one channel record per row.
+   It runs the same step as the mml import under the prefix ``import list:``,
+   refuses only hand-written channel and device records, and seeds the knowledge
+   stub. ``FILE`` is UTF-8 CSV whose header row names
    ``address``, required, and any of the optional columns ``role`` (empty
    means readback), ``pair``, ``device``, ``place``, ``unit``,
    ``description``, ``tags`` (``;``-separated), ``s`` (metres, a number) and
@@ -1229,7 +1284,10 @@ the current directory is used.
 
 ``osprey sim status [--target <live|va|standin>] [--repo DIRECTORY]``
    Print one ``<model>: <status>`` line per served physics model, sorted by
-   name, where the status is ``ok`` or the model's error text. One
+   name, where the status is ``ok``, ``no deck`` for a model that names no deck
+   and wires no channel (it is not built, by design, and its channels are the
+   texture's), or ``FAILED:`` followed by the model's error text. The command
+   exits 1 when any model failed, after printing every line. One
    ``log: <absolute path>`` line per model follows, naming the log the
    simulator appends to under ``var/simulator/``, each followed by any
    scenario-overlap records from that log. ``--target`` selects the control
@@ -1356,7 +1414,7 @@ repo: the commands read its ``build/config.yml``.
 
    osprey ariel quickstart
    osprey ariel search "RF cavity fault"
-   osprey ariel vocab-check data/ariel/vocabulary.yml
+   osprey ariel vocab-check data/facility/ariel/vocabulary.yml
    osprey ariel web --port 8080
 
 osprey artifacts

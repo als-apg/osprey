@@ -85,6 +85,12 @@ exceptions:
      the ``./var/guarded_run`` bind on every per-user container. A guarded run keeps its per-target lock
      there, shared with every other container that runs the agent; nothing
      about it depends on a login.
+  8a. **the write-authorization binds** — ``OSPREY_WRITE_REQUESTS_DIR`` with the
+     read-only ``./var/write_ledger/requests`` bind, and
+     ``OSPREY_WRITE_LEDGER_VIEW_DIR`` with the read-only ``./var/write_ledger``
+     bind, on every per-user container. The approve card reads programs'
+     requests, and the chip their self-issued grants and ledgers; nothing about
+     it depends on a login.
   9. **the render badge** — every user card names the render it runs, here
      the default tier every roster states. It names the image's project
      tier, carries no account, role or claim, and renders the same under
@@ -529,6 +535,14 @@ _ALLOWED_COMPOSE_LINES = Counter(
         # reaped, whatever the method; it carries no account, role or claim.
         # Count 2 = alice + bob (nginx runs no browser).
         "    init: true": 2,
+        # A program's write authorization — the SIXTEENTH exception to SC6.
+        # Every terminal reads the holders' requests and their whole write
+        # ledger read-only, whatever the method: grants, ledgers and requests,
+        # no account, role or claim. Count 2 = alice + bob.
+        "      - OSPREY_WRITE_REQUESTS_DIR=/opt/osprey/write_authorization/requests": 2,
+        "      - OSPREY_WRITE_LEDGER_VIEW_DIR=/opt/osprey/write_authorization/ledger_view": 2,
+        "      - ./var/write_ledger/requests:/opt/osprey/write_authorization/requests:ro": 2,
+        "      - ./var/write_ledger:/opt/osprey/write_authorization/ledger_view:ro": 2,
     }
 )
 

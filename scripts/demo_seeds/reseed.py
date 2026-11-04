@@ -264,7 +264,10 @@ def reseed(
 
 def render(tree: Path = TREE, rules_path: Path = RULES) -> str:
     """The text of the generated ``seeds.yaml``."""
-    return yaml.safe_dump(reseed(tree, rules_path), sort_keys=False)
+    from osprey.facility.bundled import header_line
+
+    text = yaml.safe_dump(reseed(tree, rules_path), sort_keys=False)
+    return f"{header_line('example')}\n{text}"
 
 
 def tolerances(tree: Path = TREE, rules: list[dict[str, Any]] | None = None) -> dict[str, float]:

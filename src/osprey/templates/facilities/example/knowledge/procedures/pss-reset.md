@@ -1,4 +1,5 @@
 ---
+# Bundled with OSPREY: the example facility. Delete this line to make the file yours.
 type: Procedure
 title: PSS Fault Reset
 description: Procedure to clear a Personnel Safety System fault and restore beam permits after an interlock trip.

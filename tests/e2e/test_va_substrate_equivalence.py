@@ -86,6 +86,7 @@ import pytest
 import yaml
 
 from osprey.deployment.compose_generator import ensure_control_target_dir, resolve_project_name
+from osprey.facility.records import FacilityRecords
 from osprey_connectors import posture_store
 from osprey_connectors.types import TARGET_VA
 from osprey_connectors_tests._harness._ports import hold_ports
@@ -314,7 +315,7 @@ def _select_sp_echo_pairs(repo: Path, count: int) -> list[tuple[str, str]]:
         str(entry["address"])
         for model in facility.get("models") or []
         if model.get("engine") != TEXTURE
-        for entry in simulator_wiring(facility, str(model["name"]))
+        for entry in simulator_wiring(FacilityRecords(facility), str(model["name"]))
     }
     low, high = SP_ECHO_BAND
     in_band = {
@@ -324,7 +325,7 @@ def _select_sp_echo_pairs(repo: Path, count: int) -> list[tuple[str, str]]:
         and isinstance(nominal := (channel.get("simulation") or {}).get("nominal"), int | float)
         and low <= nominal <= high
     }
-    document = bluesky_document(facility)
+    document = bluesky_document(FacilityRecords(facility))
     pairs = sorted(
         (entry["setpoint"], entry["readback"])
         for entry in document[SETTABLES_KEY]
@@ -358,7 +359,7 @@ def _select_stuck_corrector(repo: Path, limits: dict[str, Any]) -> tuple[str, st
     facility = build_facility(repo / "data" / "facility", project_name=repo.name)
     readback_of = {
         entry["setpoint"]: entry["readback"]
-        for entry in bluesky_document(facility)[SETTABLES_KEY]
+        for entry in bluesky_document(FacilityRecords(facility))[SETTABLES_KEY]
         if "readback" in entry
     }
     candidates = []
@@ -366,7 +367,10 @@ def _select_stuck_corrector(repo: Path, limits: dict[str, Any]) -> tuple[str, st
         if model.get("engine") == TEXTURE:
             continue
         name = str(model["name"])
-        bindings = [Binding.from_record(name, entry) for entry in simulator_wiring(facility, name)]
+        bindings = [
+            Binding.from_record(name, entry)
+            for entry in simulator_wiring(FacilityRecords(facility), name)
+        ]
         wired = {binding.address for binding in bindings}
         for binding in bindings:
             setpoint = binding.address

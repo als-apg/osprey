@@ -1,4 +1,5 @@
 ---
+# Bundled with OSPREY: the example facility. Delete this line to make the file yours.
 type: Reference
 title: Agent Safety Rules
 description: Binding constraints on what the OSPREY agent may and may not do at the Example Research Facility control system.

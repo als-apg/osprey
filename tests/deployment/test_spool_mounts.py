@@ -786,7 +786,10 @@ def test_provisioned_service_identities_are_exactly_the_rendered_service_keys():
     for service, identity in FIXED_SERVICE_AUDIT_IDENTITIES.items():
         assert service_audit_identities({"deployed_services": [service]}) == [identity]
         rendered = _render(service, _base_config([service]))
-        assert list(rendered) == [identity]
+        # A service may render a sidecar beside it (the optimizer's job store);
+        # only the service key itself names an audit identity.
+        audited = [key for key, svc in rendered.items() if "OSPREY_AUDIT_IDENTITY" in _env(svc)]
+        assert audited == [identity], service
         assert _env(rendered[identity])["OSPREY_AUDIT_IDENTITY"] == identity
 
 
