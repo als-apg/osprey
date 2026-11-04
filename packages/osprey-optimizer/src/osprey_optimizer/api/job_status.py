@@ -54,6 +54,8 @@ def read_job_status(tracker: JobTracker, job_id: str) -> JobResponse:
     meta = load_job_meta(tracker, job_id)
     reader = create_job_state(meta.job_type, job_id)
     created_at_iso = datetime.fromtimestamp(meta.created_at, tz=UTC).isoformat()
+    # Whether a run is waiting on an approval is part of its status, so the
+    # plain read carries it too, not only the ``detail=`` builders.
     return JobResponse(
         job_id=job_id,
         job_type=meta.job_type,
@@ -61,4 +63,5 @@ def read_job_status(tracker: JobTracker, job_id: str) -> JobResponse:
         logs=reader.get_logs(),
         error_message=reader.get_error_message(),
         created_at=created_at_iso,
+        write_authorization=reader.get_write_authorization(),
     )

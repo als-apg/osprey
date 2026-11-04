@@ -138,6 +138,7 @@ def patched_job_state(status: JobStatus, logs: str = "") -> Generator[MagicMock]
     reader.get_status.return_value = status
     reader.get_logs.return_value = logs
     reader.get_error_message.return_value = None
+    reader.get_write_authorization.return_value = None
     with patch(f"{_JS}.create_job_state", return_value=reader):
         yield reader
 

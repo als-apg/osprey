@@ -15,7 +15,7 @@ from osprey_optimizer.core.state import TERMINAL_STATE_TTL_SECONDS
 from osprey_optimizer.models.enums import JobStatus, JobType
 from osprey_optimizer.models.exceptions import CancellationError
 from osprey_optimizer.models.protocols import JobStateWriter
-from osprey_optimizer.optimization.state import get_optimization_writer
+from osprey_optimizer.optimization.state import OptimizationStateWriter, get_optimization_writer
 from osprey_optimizer.utils import redis_client as _redis_client
 from osprey_optimizer.utils.interval_thread import IntervalThread
 from osprey_optimizer.utils.job_keys import (
@@ -361,7 +361,7 @@ class JobTracker:
         self.expire_job(job_id, RUNNING_STATE_TTL_SECONDS)
 
 
-def create_job_state(job_type: JobType, job_id: str) -> JobStateWriter:
+def create_job_state(job_type: JobType, job_id: str) -> OptimizationStateWriter:
     """Return a job-type-dispatched state writer fully wired to Redis.
 
     Thin dispatcher over the per-domain factories — tests that mock Redis

@@ -860,6 +860,8 @@ def test_read_job_status_builds_response_from_meta_and_state() -> None:
     reader.get_status.return_value = JobStatus.RUNNING
     reader.get_logs.return_value = "log line"
     reader.get_error_message.return_value = None
+    awaiting = {"state": "awaiting", "id": "req-1", "owner": "alice"}
+    reader.get_write_authorization.return_value = awaiting
     with patch(f"{_JS}.create_job_state", return_value=reader) as create_state:
         resp = js.read_job_status(tracker, "job-1")
 
@@ -874,6 +876,8 @@ def test_read_job_status_builds_response_from_meta_and_state() -> None:
     # hardcoded status or a status/logs field swap fails.
     assert resp.status is JobStatus.RUNNING
     assert resp.logs == "log line"
+    # A run waiting on an approval says so on the plain read, not only with detail=.
+    assert resp.write_authorization == awaiting
 
 
 def test_read_job_status_404_when_meta_missing() -> None:
