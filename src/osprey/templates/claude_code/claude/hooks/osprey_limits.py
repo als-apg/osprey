@@ -144,7 +144,7 @@ from osprey_hook_log import (
 try:
     import osprey_target_state as _target_state
 except Exception:  # pragma: no cover - older render without the reader
-    _target_state = None
+    _target_state = None  # type: ignore[assignment]  # the sibling is absent
 
 
 def _control_target(hook_input):
