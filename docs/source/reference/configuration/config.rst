@@ -52,7 +52,8 @@ may touch.
        ``[]`` starts in ``nominal`` alone, which is the default: the build
        derives no start set. The control-assistant preset sets ``[rf-thermal]``;
        the other presets leave it out. A value that is not a list of non-empty
-       names, or a name that is not a scenario of the facility file, stops the
+       names, or a name that is not a scenario the facility serves (its own or
+       the built-in ``still``), stops the
        build with a ``profile-invalid`` line naming the key (see
        :ref:`architecture-facility-settings`).
 

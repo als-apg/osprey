@@ -33,6 +33,7 @@ from osprey.facility.records import FacilityRecords
 from osprey.facility.settings import NO_READBACK_WARNING
 from osprey.facility.views import VIEWS, ViewInputs
 from osprey.utils.workspace import TIERS_DIRNAME
+from osprey_connectors.simulation import STILL_SCENARIO
 from tests._builds import init_project, run_build
 from tests.facility._synthetic_trees import (
     BPM,
@@ -2561,8 +2562,8 @@ CASES: dict[str, tuple[Callable[[], Tree], str]] = {
         _plain(scenario("warm", {}), scenario("cold", {})),
         (
             "facility: profile-invalid: path simulation.default_scenarios — `rf-thermal` is not "
-            "a scenario of the facility file; fix: set `simulation.default_scenarios` to `[]` or "
-            "to scenarios of the facility file: `cold`, `warm`"
+            "a scenario the facility serves; fix: set `simulation.default_scenarios` to `[]` or "
+            "to scenarios it serves: `cold`, `still`, `warm`"
         ),
     ),
     "profile_invalid__approval_hook_not_selected": (
@@ -2858,6 +2859,8 @@ def test_an_override_stop_names_what_the_tree_holds(tmp_path: Path, case: str, k
     document = build_facility(_write(tmp_path, case), project_name=PROJECT)
     slot = "name" if kind == "scenarios" else "id"
     held = {str(record[slot]) for record in document[kind]}
+    if kind == "scenarios":
+        held.add(STILL_SCENARIO)
     remedy = CASES[case][1].split("; fix: ", 1)[1]
     named = re.findall(r"`([^`]+)`", remedy)
     assert held & set(named)

@@ -33,6 +33,7 @@ from osprey.facility.settings import (
 )
 from osprey.facility.views.benchmarks import BENCHMARK_DATASET_KEY, QUERY_SOURCES
 from osprey.simulation import DEFAULT_SCENARIOS_KEY
+from osprey_connectors.simulation import STILL_SCENARIO
 
 #: The architecture page that lists the table.
 FACILITY_FILE_PAGE = (
@@ -181,7 +182,11 @@ def test_a_start_set_naming_a_scenario_the_file_does_not_hold_is_refused(
     assert stop.value.kind == "profile-invalid"
     assert stop.value.record_id == DEFAULT_SCENARIOS_KEY
     assert "`hot`" in stop.value.detail
-    assert "`cold`, `warm`" in stop.value.remedy
+    assert f"`cold`, `{STILL_SCENARIO}`, `warm`" in stop.value.remedy
+
+
+def test_a_start_set_may_name_the_built_in_still(tmp_path: Path) -> None:
+    assert _fill(_tree(tmp_path), {DEFAULT_SCENARIOS_KEY: [STILL_SCENARIO]}, DOCUMENT) == {}
 
 
 def test_a_start_set_of_the_files_scenarios_is_never_derived(tmp_path: Path) -> None:

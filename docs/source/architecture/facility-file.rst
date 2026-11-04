@@ -208,7 +208,7 @@ derived keys where a stated value is not refused.
    * - ``simulation.default_scenarios``
      - the key
      - never derived
-     - name only scenarios of the facility file
+     - name only scenarios the facility serves: its own and the built-in ``still``
    * - ``ariel.vocabulary.enabled``
      - the key
      - ``true`` when the tree ships ``ariel/vocabulary.yml``
